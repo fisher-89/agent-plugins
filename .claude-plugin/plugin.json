@@ -1,8 +1,1 @@
-{
-  "name": "wps-claude-plugin",
-  "description": "A custom Claude Code plugin for enhancing development workflow",
-  "version": "1.0.0",
-  "author": {
-    "name": "zhangbohan"
-  }
-}
+{"name": "wps-claude-plugin", "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration", "version": "1.0.0", "author": {"name": "zhangbohan"}, "hooks": "hooks/hooks.json", "skills": ["plugin/skills/openspec-explore/SKILL.md", "plugin/skills/openspec-propose/SKILL.md", "plugin/skills/openspec-apply-change/SKILL.md", "plugin/skills/openspec-archive-change/SKILL.md"], "commands": ["plugin/commands/opsx/explore.md", "plugin/commands/opsx/propose.md", "plugin/commands/opsx/apply.md", "plugin/commands/opsx/archive.md"]}
