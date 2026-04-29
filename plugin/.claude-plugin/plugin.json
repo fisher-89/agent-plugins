@@ -1,1 +1,8 @@
-{"name": "wps-claude-plugin", "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration", "version": "1.0.0", "author": {"name": "zhangbohan"}}
+{
+  "name": "wps-claude-plugin",
+  "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration",
+  "version": "1.0.0",
+  "author": {
+    "name": "zhangbohan"
+  }
+}
