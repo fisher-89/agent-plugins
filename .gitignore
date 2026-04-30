@@ -1,4 +1,6 @@
 .*/
 !.claude-plugin
+!demo-project/.claude
 !.gitignore
 memory
+__pycache__
