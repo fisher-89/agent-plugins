@@ -13,12 +13,11 @@ flowchart LR
     end 
 
     subgraph 集成插件后
-        B1[用户提问] --> B2[Hook: OpenSpec状态提示]
+        B1[用户提问] --> B2[Hook: 检查OpenSpec任务]
         B2 --> B3{选择命令}
         B3 --> B4["/"opsx:explore 探索思考]
-        B4 --> B5["/"opsx:propose 生成提案]
+        B3 --> B5["/"opsx:propose 生成提案]
         B3 --> B6["/"opsx:apply 实现任务]
-        B5 --> B6
         B6 --> B7[Hook: TDD测试模板]
         B7 --> B8[完成实现]
         B8 --> B9[git commit]

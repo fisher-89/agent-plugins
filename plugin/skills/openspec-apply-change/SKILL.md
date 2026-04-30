@@ -84,8 +84,43 @@ Implement tasks from an OpenSpec change.
    Display:
    - Tasks completed this session
    - Overall progress: "N/M tasks complete"
-   - If all done: suggest archive
+   - If all done: proceed to auto-commit (step 8)
    - If paused: explain why and wait for guidance
+
+8. **Auto-commit on completion**
+
+   When all tasks are complete:
+   
+   a. **Check for changes**
+      ```bash
+      git status --porcelain
+      ```
+   
+   b. **If changes exist, commit them**
+      ```bash
+      git add -A
+      git commit -m "$(cat <<'EOF'
+      feat(<change-name>): complete implementation
+
+      All tasks from OpenSpec change '<change-name>' completed.
+      
+      Co-Authored-By: Claude Opus 4.6 <noreply@anthropic.com>
+      EOF
+      )"
+      ```
+      Replace `<change-name>` with the actual change name.
+   
+   c. **Check if in a git worktree**
+      ```bash
+      git rev-parse --git-dir
+      git rev-parse --git-common-dir
+      ```
+      If these differ, you are in a worktree.
+   
+   d. **If in worktree, exit after commit**
+      Use the ExitWorktree tool with action "keep" to leave the worktree:
+      - The worktree and branch are preserved for later PR/review
+      - User returns to the main working directory
 
 **Output During Implementation**
 
@@ -114,6 +149,15 @@ Working on task 4/7: <task description>
 - [x] Task 1
 - [x] Task 2
 ...
+
+All tasks complete! Committing changes...
+
+### Git Commit
+Created commit: feat(<change-name>): complete implementation
+
+### Worktree
+Detected worktree: exiting to main directory.
+Worktree preserved at: <path>
 
 All tasks complete! Ready to archive this change.
 ```
@@ -147,6 +191,8 @@ What would you like to do?
 - Update task checkbox immediately after completing each task
 - Pause on errors, blockers, or unclear requirements - don't guess
 - Use contextFiles from CLI output, don't assume specific file names
+- Auto-commit all changes when all tasks complete — do not skip this step
+- If in a worktree, exit it with ExitWorktree (action: keep) after committing
 
 **Fluid Workflow Integration**
 
