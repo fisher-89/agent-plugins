@@ -1,8 +1,7 @@
 ---
 name: code-review
 description: Review staged git changes before commit. Check for logical errors, null/boundary handling, and redundant logic.
-category: Review
-tags: [review, git, quality]
+license: MIT
 ---
 
 Review current staged git changes for code quality issues.
