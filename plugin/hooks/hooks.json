@@ -37,6 +37,10 @@
         "hooks": [
           {
             "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-sync-skills.py"
+          },
+          {
+            "type": "command",
             "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-worktree.py"
           }
         ]

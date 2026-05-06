@@ -80,6 +80,28 @@ def main():
         "",
     ])
 
+    # Check for fully completed changes and inject auto-commit instructions
+    for change_name, change_dir in active_changes:
+        tasks_path = os.path.join(change_dir, "tasks.md")
+        if os.path.isfile(tasks_path):
+            total, done = count_tasks(tasks_path)
+            if total > 0 and done == total:
+                lines.extend([
+                    f"=== Auto-Commit: Change '{change_name}' All Tasks Complete ===",
+                    f"All {total} tasks in change '{change_name}' are complete. After confirming implementation is done:",
+                    "1. Run `git status --porcelain` to check for uncommitted changes",
+                    "2. If changes exist, commit them:",
+                    "   ```bash",
+                   f"   git add -A && git commit -m \"feat({change_name}): complete implementation\"",
+                    "   ```",
+                    "3. Check if in a git worktree:",
+                    "   ```bash",
+                    "   git rev-parse --git-dir && git rev-parse --git-common-dir",
+                    "   ```",
+                    "   If these differ, you are in a worktree — use ExitWorktree tool with action 'keep' to return to the main directory.",
+                    "",
+                ])
+
     output_result("\n".join(lines))
 
 
