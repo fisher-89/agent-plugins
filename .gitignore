@@ -4,3 +4,6 @@
 !.gitignore
 memory
 __pycache__
+
+# OpenSpec skills are dynamically generated via npm run sync-skills
+plugin/skills/openspec-*/

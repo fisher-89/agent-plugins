@@ -44,6 +44,46 @@ def check_openspec_skills_exist(skills_dir):
     return False
 
 
+def check_openspec_installed():
+    """Check if openspec CLI is available in PATH."""
+    return shutil.which("openspec") is not None
+
+
+def install_openspec_cli():
+    """
+    Attempt to install openspec CLI via npm.
+
+    Returns:
+        tuple: (success: bool, message: str)
+    """
+    # Check if npm is available
+    if shutil.which("npm") is None:
+        return False, "npm not found. Please install Node.js first."
+
+    try:
+        print("Installing openspec CLI via npm...")
+        result = subprocess.run(
+            ["npm", "install", "-g", "openspec-cli"],
+            capture_output=True,
+            text=True,
+            timeout=120,
+        )
+
+        if result.returncode != 0:
+            return False, f"npm install failed: {result.stderr.strip()}"
+
+        # Verify installation
+        if check_openspec_installed():
+            return True, "openspec CLI installed successfully."
+        else:
+            return False, "Installation succeeded but 'openspec' still not in PATH. You may need to restart your shell."
+
+    except subprocess.TimeoutExpired:
+        return False, "Timeout during npm install."
+    except Exception as e:
+        return False, f"Error during installation: {e}"
+
+
 def sync_openspec_skills(plugin_root):
     """
     Sync OpenSpec skills from CLI to plugin directory.
@@ -52,6 +92,13 @@ def sync_openspec_skills(plugin_root):
         tuple: (success: bool, message: str)
     """
     skills_dir = os.path.join(plugin_root, "skills")
+
+    # 0. Check and auto-install openspec CLI if missing
+    if not check_openspec_installed():
+        print("'openspec' CLI not found. Attempting auto-install...")
+        success, message = install_openspec_cli()
+        if not success:
+            return False, f"Auto-install failed: {message}"
 
     # 1. Remove old OpenSpec skills (preserve custom skills like code-review)
     for skill in OPENSPEC_SKILLS:
@@ -62,8 +109,10 @@ def sync_openspec_skills(plugin_root):
     # 2. Create temp directory and run openspec init
     with tempfile.TemporaryDirectory() as temp_dir:
         try:
+            print(f"openspec init in {temp_dir} {os.path.exists(temp_dir)}")
             # Run openspec init with claude tool (non-interactive)
             # Provide empty input for any prompts
+            # Use shell=True on Windows to properly resolve PATH
             result = subprocess.run(
                 ["openspec", "init", "--tools", "claude"],
                 cwd=temp_dir,
@@ -71,7 +120,10 @@ def sync_openspec_skills(plugin_root):
                 capture_output=True,
                 text=True,
                 timeout=60,
+                shell=True,
             )
+
+            print("openspec inited")
 
             if result.returncode != 0:
                 return False, "Failed to run 'openspec init --tools claude'. Make sure openspec CLI is installed."
@@ -99,7 +151,7 @@ def sync_openspec_skills(plugin_root):
         except subprocess.TimeoutExpired:
             return False, "Timeout running openspec init."
         except FileNotFoundError:
-            return False, "'openspec' CLI not found. Please install it first."
+            return False, "'openspec' CLI not found. Auto-install may have failed."
         except OSError as e:
             return False, f"Error: {e}"
 
@@ -124,7 +176,7 @@ def main():
             sys.exit(1)
 
     # Hook mode: read JSON input
-    input_data = json.load(sys.stdin)
+    # input_data = json.load(sys.stdin)
     # cwd is available but not needed for this hook
 
     plugin_root = get_plugin_root()

@@ -3,9 +3,6 @@
   "version": "1.0.0",
   "description": "Claude Code plugin with OpenSpec integration",
   "private": true,
-  "scripts": {
-    "sync-skills": "bash scripts/sync-openspec-skills.sh"
-  },
   "engines": {
     "node": ">=20.0.0"
   }
