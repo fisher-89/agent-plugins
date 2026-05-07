@@ -1,9 +1,14 @@
 #!/usr/bin/env python3
 """
-Hook: PreToolUse - Detect git commit and trigger code review.
+Hook: PreToolUse (Bash) - Check code review status before git commit.
 
-When Bash tool is about to execute a git commit command, injects context
-to suggest running the code-review agent first.
+Intercepts Bash tool calls that contain git commit commands.
+If an active OpenSpec change exists:
+1. Checks if a code review report exists in test-reports/
+2. If review has BLOCK verdict with security errors → deny commit
+3. If review has BLOCK verdict without security errors → allow with warning
+4. If no review exists → recommend running code review first
+5. Tracks multiple reviews and shows comparison with previous review
 """
 
 import json
@@ -43,48 +48,101 @@ def main():
 
     command = tool_input.get("command", "")
 
-    # Check if this is a git commit command
-    # Skip if it's --amend (amending existing commit)
-    if not is_git_commit_command(command):
+    # Check if this is a git commit command (skip --amend)
+    if not is_git_commit_command(command) or "--amend" in command:
         output_result("allow", "")
         return
 
-    # Skip amend operations
-    if "--amend" in command:
+    changes_dir = os.path.join(cwd, "openspec", "changes")
+
+    # No changes directory
+    if not os.path.isdir(changes_dir):
         output_result("allow", "")
         return
 
-    # Get staged changes
-    staged_stat = run_git(["diff", "--cached", "--stat"], cwd)
-
-    if not staged_stat:
-        # No staged changes, allow commit to proceed
-        output_result("allow", "")
+    # Find active change with pending tasks
+    active_change = find_active_change(changes_dir)
+    if not active_change:
+        # No active change — fall back to basic review suggestion
+        staged_context = build_staged_files_context(cwd)
+        if staged_context:
+            output_result("allow", staged_context)
+        else:
+            output_result("allow", "")
         return
 
-    # Parse staged files count
-    staged_files = parse_staged_files(staged_stat)
+    change_name, change_dir = active_change
+    test_reports_dir = os.path.join(change_dir, "test-reports")
 
-    if not staged_files:
-        output_result("allow", "")
+    # Find review reports
+    reviews = find_review_reports(test_reports_dir)
+
+    if not reviews:
+        # No review done yet — recommend review
+        staged_context = build_staged_files_context(cwd)
+        context = (
+            f"No code review found for change '{change_name}'. "
+            f"RECOMMENDED: Run code review before committing. "
+            f"Use the Agent tool with subagent_type 'code-review' to review staged changes. "
+            f"Review results will be saved to openspec/changes/{change_name}/test-reports/."
+        )
+        if staged_context:
+            context += " " + staged_context
+        output_result("allow", context)
         return
 
-    # Build context for code review
+    # Get latest review
+    latest_review = reviews[-1]
+    verdict = parse_review_verdict(latest_review["content"])
+    error_count = count_review_errors(latest_review["content"])
+    security_errors = find_security_errors(latest_review["content"])
+
+    # Phase 2.5: Security errors → deny
+    if security_errors:
+        error_list = "; ".join(security_errors[:3])
+        if len(security_errors) > 3:
+            error_list += f" (+{len(security_errors) - 3} more)"
+        context = (
+            f"CRITICAL: {len(security_errors)} security issue(s) detected in code review for '{change_name}'. "
+            f"Commit BLOCKED. Issues: {error_list}. "
+            f"Fix the security issues before committing. "
+            f"Review report: test-reports/{os.path.basename(latest_review['path'])}"
+        )
+        output_result("deny", context)
+        return
+
+    # Phase 2.6: Non-security errors with review comparison
+    if verdict == "BLOCK" or error_count > 0:
+        comparison = ""
+        if len(reviews) > 1:
+            prev_review = reviews[-2]
+            prev_verdict = parse_review_verdict(prev_review["content"])
+            prev_errors = count_review_errors(prev_review["content"])
+            diff = prev_errors - error_count
+            trend = f"({diff} fixed)" if diff > 0 else f"({abs(diff)} new)" if diff < 0 else "(same)"
+            comparison = (
+                f" Review history: {prev_verdict} ({prev_errors} errors) → {verdict} ({error_count} errors) {trend}."
+            )
+
+        context = (
+            f"Code review for '{change_name}' found {error_count} ERROR(s) (verdict: {verdict})."
+            f"{comparison} "
+            f"Fix issues before committing, or acknowledge to override. "
+            f"Review report: test-reports/{os.path.basename(latest_review['path'])}"
+        )
+        output_result("allow", context)
+        return
+
+    # Review passed — allow with confirmation
     context = (
-        f"Git commit detected with {len(staged_files)} staged file(s). "
-        f"Consider running the code-review agent via the Agent tool to review changes "
-        f"before committing. Focus areas: logical errors, null/boundary handling, "
-        f"redundant logic. "
-        f"Staged files: {', '.join(staged_files[:5])}"
-        + ("..." if len(staged_files) > 5 else "")
+        f"Code review PASSED for change '{change_name}'. "
+        f"Proceeding with commit."
     )
-
     output_result("allow", context)
 
 
 def is_git_commit_command(command):
     """Check if the command is a git commit."""
-    # Match git commit patterns
     patterns = [
         r"\bgit\s+commit\b",
         r"\bgit-commit\b",
@@ -95,14 +153,147 @@ def is_git_commit_command(command):
     return False
 
 
+def find_active_change(changes_dir):
+    """Find the first active change with pending tasks.
+
+    Returns (change_name, change_dir) or None.
+    """
+    try:
+        for entry in os.listdir(changes_dir):
+            entry_path = os.path.join(changes_dir, entry)
+            if not os.path.isdir(entry_path) or entry == "archive":
+                continue
+
+            tasks_path = os.path.join(entry_path, "tasks.md")
+            if os.path.isfile(tasks_path):
+                total, done = count_tasks(tasks_path)
+                if done < total:
+                    return (entry, entry_path)
+    except OSError:
+        pass
+
+    return None
+
+
+def count_tasks(tasks_path):
+    """Count total and completed tasks in a tasks.md file."""
+    total = 0
+    done = 0
+    try:
+        with open(tasks_path, "r", encoding="utf-8") as f:
+            for line in f:
+                if re.match(r"^\s*- \[", line):
+                    total += 1
+                    if re.match(r"^\s*- \[x\]", line):
+                        done += 1
+    except OSError:
+        pass
+    return total, done
+
+
+def find_review_reports(test_reports_dir):
+    """Find all code review reports in test-reports/, sorted by timestamp.
+
+    Returns list of dicts: [{"path": ..., "content": ...}]
+    """
+    reviews = []
+    if not os.path.isdir(test_reports_dir):
+        return reviews
+
+    try:
+        for f in os.listdir(test_reports_dir):
+            if re.match(r"code-review-\d{8}-\d{6}\.md$", f):
+                filepath = os.path.join(test_reports_dir, f)
+                try:
+                    with open(filepath, "r", encoding="utf-8") as fh:
+                        content = fh.read()
+                    reviews.append({
+                        "path": filepath,
+                        "content": content,
+                    })
+                except OSError:
+                    pass
+    except OSError:
+        pass
+
+    # Sort by filename (which contains timestamp)
+    reviews.sort(key=lambda r: os.path.basename(r["path"]))
+    return reviews
+
+
+def parse_review_verdict(content):
+    """Parse the verdict from a code review report.
+
+    Returns: "PASS", "BLOCK", or "UNKNOWN"
+    """
+    # Check for BLOCK first (more restrictive)
+    if re.search(r"\*\*BLOCK\*\*|Verdict:\s*BLOCK|##\s*Verdict\s*\n\s*BLOCK", content, re.IGNORECASE):
+        return "BLOCK"
+    if re.search(r"\*\*PASS\*\*|Verdict:\s*PASS|##\s*Verdict\s*\n\s*PASS", content, re.IGNORECASE):
+        return "PASS"
+    return "UNKNOWN"
+
+
+def count_review_errors(content):
+    """Count ERROR entries in a code review report."""
+    errors = re.findall(r"\[ERROR-\d+\]", content)
+    return len(errors)
+
+
+def find_security_errors(content):
+    """Find security-related errors in a code review report.
+
+    Returns list of security error descriptions.
+    """
+    security_errors = []
+
+    # Find ERROR blocks that mention security categories
+    # Match pattern: [ERROR-N] file:line followed by Category: Security
+    error_sections = re.split(r"(?=####\s*\[ERROR-)", content)
+
+    for section in error_sections:
+        if not re.match(r"####\s*\[ERROR-", section):
+            continue
+
+        if re.search(r"\*\*Category\*\*:\s*Security", section, re.IGNORECASE):
+            # Extract brief description
+            desc_match = re.search(
+                r"\*\*Description\*\*:\s*(.+?)(?:\n|$)",
+                section,
+            )
+            loc_match = re.search(r"\[ERROR-(\d+)\]\s*(.+?)(?:\n|$)", section)
+
+            if desc_match:
+                security_errors.append(desc_match.group(1).strip())
+            elif loc_match:
+                security_errors.append(loc_match.group(2).strip()[:80])
+
+    return security_errors
+
+
+def build_staged_files_context(cwd):
+    """Build context about staged files for review recommendation."""
+    staged_stat = run_git(["diff", "--cached", "--stat"], cwd)
+    if not staged_stat:
+        return ""
+
+    staged_files = parse_staged_files(staged_stat)
+    if not staged_files:
+        return ""
+
+    file_list = ", ".join(staged_files[:5])
+    if len(staged_files) > 5:
+        file_list += f"... (+{len(staged_files) - 5} more)"
+
+    return f"Staged files ({len(staged_files)}): {file_list}"
+
+
 def parse_staged_files(stat_output):
     """Parse staged files from git diff --cached --stat output."""
     files = []
     for line in stat_output.splitlines():
-        # Skip the summary line (insertions/deletions)
         if "insertion" in line or "deletion" in line or "|" not in line:
             continue
-        # Extract filename (before |)
         parts = line.split("|")
         if parts:
             filename = parts[0].strip()

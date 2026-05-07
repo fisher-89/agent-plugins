@@ -10,4 +10,5 @@ The application currently has no authentication. Users cannot have persistent ac
 - Email/password signup and login
 - OAuth integration (Google, GitHub)
 - Session management with JWT
+- Redis-based session/token caching (store active sessions, support token revocation)
 - Basic role-based access control (user, admin)

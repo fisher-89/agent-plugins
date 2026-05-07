@@ -2,6 +2,10 @@
 
 This is a demo project for testing the wps-claude-plugin hooks.
 
+## Plugin Auto-Loading
+
+The `.claude/settings.json` configures Claude Code to automatically load the parent directory's plugin (`wps-claude-plugin`). When running `claude` in this directory, the plugin's hooks, skills, and commands will be available.
+
 ## OpenSpec Integration
 
 The project uses OpenSpec for change management:
