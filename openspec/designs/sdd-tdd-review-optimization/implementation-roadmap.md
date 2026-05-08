@@ -7,7 +7,7 @@
 ## 1. 总览
 
 ```
-Phase 1 (P0) ── 核心门禁 ────────────── ⚠️ 部分完成 (70%)
+Phase 1 (P0) ── 核心门禁 ────────────── ✅ 完成 (100%)
 Phase 2 (P1) ── 增强能力 ────────────── ⚠️ 部分完成 (60%)
 Phase 3 (P2) ── 合规与设计约束 ──────── ❌ 待实现
 Phase 4 (P2) ── 流水线与 CI ─────────── ❌ 待实现
@@ -43,10 +43,11 @@ Phase 4 (P2) ── 流水线与 CI ─────────── ❌ 待实
 - `plugin/templates/test-jest.js` — ✅ Jest 骨架模板
 - `plugin/templates/test-pytest.py` — ✅ pytest 骨架模板
 - `plugin/utils/test-runner.py` — ✅ 测试运行逻辑
-- `plugin/skills/openspec-apply-change/SKILL.md` — ✅ 改造后含 TDD+Review
+- `plugin/utils/lint-runner.py` — ✅ 类型/Lint 检查运行器
+- `plugin/skills/openspec-apply-change/SKILL.md` — ✅ 改造后含 TDD+Review+全量测试
 - `plugin/agents/code-review.md` — ✅ 增强后 Agent prompt
 - `plugin/templates/code-review-report.md` — ✅ Review 报告模板
-- `plugin/hooks/pre-tool-commit-review.py` — ✅ Review 门禁 + 追溯
+- `plugin/hooks/pre-tool-commit-review.py` — ✅ Review 门禁 + 追溯 + Lint/Type/Test 门禁
 
 ### 2.3 验收标准
 
@@ -55,14 +56,15 @@ Phase 4 (P2) ── 流水线与 CI ─────────── ❌ 待实
 - [x] 所有 task 完成后自动启动 code review
 - [x] Review 结果写入 test-reports/code-review-*.md
 - [x] Review BLOCK 时阻止 commit (安全问题 deny)
-- [ ] 类型/Lint 检查集成
-- [ ] 全量测试门禁（所有 Task 完成后）
+- [x] 类型/Lint 检查集成
+- [x] 全量测试门禁（所有 Task 完成后）
 
 ### 2.4 里程碑
 
 ```
 Week 1: 1.1 → 1.3 → 1.4 (测试骨架 + Skill 改造)
 Week 2: 1.5 → 1.6 → 1.7 → 1.8 → 1.9 (门禁 + Review + 集成测试)
+Week 2+: Lint/Type 门禁 + 全量测试门禁 ✅
 ```
 
 ---
@@ -353,7 +355,7 @@ gates:
 
 | 里程碑 | 日期 | 交付内容 | 状态 |
 |--------|------|----------|------|
-| M1: 核心门禁 | Week 2 结束 | TDD 门禁 + 自动 Review 可用 | ⚠️ 70% 完成 |
+| M1: 核心门禁 | Week 2 结束 | TDD 门禁 + 自动 Review + Lint/Type 检查 + 全量测试 | ✅ 100% 完成 |
 | M2: 增强能力 | Week 4 结束 | 可执行测试骨架 + 合规检查 C1-C8 | ⚠️ 60% 完成 |
 | M3: 合规与设计 | Week 6 结束 | design.md + Spec 合规审查 | ❌ 待实现 |
 | M4: 流水线 | Week 9 结束 | 端到端自动化 + CI 集成 | ❌ 待实现 |
@@ -364,13 +366,11 @@ Week 2      Week 4      Week 6      Week 9
  │           │           │           │
  ▼           ▼           ▼           ▼
  TDD+Review  测试增强    合规完整    自动化
- 可用✅      合规基础⚠️   设计约束    CI集成
- 类型检查❌   C5/C10❌
+ Lint+Type   合规基础⚠️   设计约束    CI集成
+ 全量测试✅   C5/C10❌
 ```
 
-**M1 剩余项：**
-- 类型/Lint 检查集成
-- 全量测试门禁
+**M1 已全部完成！**
 
 **M2 剩余项：**
 - C5 测试运行验证

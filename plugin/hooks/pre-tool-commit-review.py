@@ -4,11 +4,13 @@ Hook: PreToolUse (Bash) - Check code review status before git commit.
 
 Intercepts Bash tool calls that contain git commit commands.
 If an active OpenSpec change exists:
-1. Checks if a code review report exists in test-reports/
-2. If review has BLOCK verdict with security errors → deny commit
-3. If review has BLOCK verdict without security errors → allow with warning
-4. If no review exists → recommend running code review first
-5. Tracks multiple reviews and shows comparison with previous review
+1. Runs type/lint checks → deny if errors
+2. Runs full test suite → deny if failures
+3. Checks if a code review report exists in test-reports/
+4. If review has BLOCK verdict with security errors → deny commit
+5. If review has BLOCK verdict without security errors → allow with warning
+6. If no review exists → recommend running code review first
+7. Tracks multiple reviews and shows comparison with previous review
 """
 
 import json
@@ -16,6 +18,44 @@ import os
 import re
 import subprocess
 import sys
+
+
+# Import lint runner utility
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
+UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
+
+# Add utils to path for import
+if UTILS_DIR not in sys.path:
+    sys.path.insert(0, UTILS_DIR)
+
+try:
+    import importlib.util
+    _lr_path = os.path.join(UTILS_DIR, "lint-runner.py")
+    if os.path.isfile(_lr_path):
+        _lr_spec = importlib.util.spec_from_file_location("lint_runner", _lr_path)
+        _lr_module = importlib.util.module_from_spec(_lr_spec)
+        _lr_spec.loader.exec_module(_lr_module)
+        run_type_check = _lr_module.run_type_check
+        run_lint = _lr_module.run_lint
+        HAS_LINT_RUNNER = True
+    else:
+        HAS_LINT_RUNNER = False
+except Exception:
+    HAS_LINT_RUNNER = False
+
+try:
+    _tr_path = os.path.join(UTILS_DIR, "test-runner.py")
+    if os.path.isfile(_tr_path):
+        _tr_spec = importlib.util.spec_from_file_location("test_runner", _tr_path)
+        _tr_module = importlib.util.module_from_spec(_tr_spec)
+        _tr_spec.loader.exec_module(_tr_module)
+        run_tests = _tr_module.run_tests
+        HAS_TEST_RUNNER = True
+    else:
+        HAS_TEST_RUNNER = False
+except Exception:
+    HAS_TEST_RUNNER = False
 
 
 def run_git(args, cwd):
@@ -73,6 +113,20 @@ def main():
 
     change_name, change_dir = active_change
     test_reports_dir = os.path.join(change_dir, "test-reports")
+
+    # === Phase 1: Type/Lint Checks ===
+    lint_context = run_lint_type_checks(cwd)
+    if lint_context:
+        # Lint/type errors found — deny
+        output_result("deny", lint_context)
+        return
+
+    # === Phase 1: Full Test Suite ===
+    test_context = run_full_tests(cwd)
+    if test_context:
+        # Test failures found — deny
+        output_result("deny", test_context)
+        return
 
     # Find review reports
     reviews = find_review_reports(test_reports_dir)
@@ -313,6 +367,65 @@ def output_result(decision, additional_context):
     if additional_context:
         result["hookSpecificOutput"]["additionalContext"] = additional_context
     json.dump(result, sys.stdout)
+
+
+def run_lint_type_checks(cwd):
+    """Run type and lint checks. Returns context string if errors found, None if passed."""
+    if not HAS_LINT_RUNNER:
+        return None
+
+    try:
+        type_results = run_type_check(cwd)
+        lint_results = run_lint(cwd)
+
+        failed_checks = []
+
+        for result in type_results:
+            if not result.success:
+                failed_checks.append(
+                    f"[{result.linter}] {result.errors} type error(s)"
+                )
+
+        for result in lint_results:
+            if not result.success:
+                failed_checks.append(
+                    f"[{result.linter}] {result.errors} lint error(s), {result.warnings} warning(s)"
+                )
+
+        if failed_checks:
+            details = "; ".join(failed_checks)
+            return (
+                f"LINT/TYPE GATE: Commit blocked — {details}. "
+                f"Fix type and lint errors before committing."
+            )
+
+    except Exception:
+        # Non-blocking: lint failures shouldn't crash the hook
+        pass
+
+    return None
+
+
+def run_full_tests(cwd):
+    """Run full test suite. Returns context string if failures found, None if passed."""
+    if not HAS_TEST_RUNNER:
+        return None
+
+    try:
+        result = run_tests(cwd)
+
+        if not result.success:
+            return (
+                f"TEST GATE: Commit blocked — {result.failed}/{result.total} test(s) failed. "
+                f"Fix failing tests before committing. "
+                f"Framework: {result.framework}"
+            )
+
+    except Exception:
+        # Non-blocking: test runner failures shouldn't crash the hook
+        pass
+
+    return None
 
 
 if __name__ == "__main__":
