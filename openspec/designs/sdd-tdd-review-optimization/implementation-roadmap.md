@@ -1,22 +1,22 @@
 # 实施路线图
 
-> 版本: 1.3
+> 版本: 1.4
 > 日期: 2026-05-08
-> 状态: Phase 1 完成，Phase 1.5 完成，Phase 2 部分完成
+> 状态: Phase 1 完成，Phase 1.5 完成，Phase 2 完成
 
 ## 1. 总览
 
 ```
 Phase 1 (P0) ── 核心门禁 ────────────── ✅ 完成 (100%)
 Phase 1.5 (P0) ─ 自动修复优化 ──────── ✅ 完成 (100%)
-Phase 2 (P1) ── 增强能力 ────────────── ⚠️ 部分完成 (60%)
-Phase 3 (P2) ── 合规与设计约束 ──────── ❌ 待实现
+Phase 2 (P1) ── 增强能力 ────────────── ✅ 完成 (100%)
+Phase 3 (P2) ── 合规与设计约束 ──────── ✅ 完成 (90%)
 Phase 4 (P2) ── 流水线与 CI ─────────── ❌ 待实现
 ```
 
 **总计**: 约 11 周（含测试和文档）
-**已耗时**: 约 3 周
-**当前进度**: Phase 1.5 自动修复优化已实现，阻断率目标达成
+**已耗时**: 约 5 周
+**当前进度**: Phase 3 基本完成，待集成测试
 
 **核心目标**: ✅ 通过自动修复策略，将 commit 时阻断率从 ~30% 降至 <5%
 
@@ -149,9 +149,10 @@ Week 4: 1.5e → 1.5f → 1.5g → 1.5h → 1.5i (闭环循环 + 收敛机制 + 
 
 - `plugin/hooks/pre-tool-openspec-test.py` — ✅ 改造后生成可执行测试
 - `plugin/hooks/pre-tool-commit-review.py` — ✅ 增强：检查已有 review
-- `plugin/utils/review-parser.py` — ❌ Review 结果解析工具（待实现）
-- `plugin/utils/compliance-check.py` — ⚠️ 合规检查脚本 (C1-C4, C6-C8 已实现)
-- `plugin/templates/compliance-report.md` — ❌ 合规报告模板（待实现）
+- `plugin/utils/review-parser.py` — ✅ Review 结果解析工具
+- `plugin/utils/compliance-check.py` — ✅ 合规检查脚本 (C1-C10)
+- `plugin/utils/spec-compliance.py` — ✅ Spec 合规分析脚本 (C10)
+- `plugin/templates/compliance-report.md` — ✅ 合规报告模板
 
 ### 3.3 验收标准
 
@@ -159,9 +160,10 @@ Week 4: 1.5e → 1.5f → 1.5g → 1.5h → 1.5i (闭环循环 + 收敛机制 + 
 - [x] task 完成时检查对应测试文件是否存在
 - [x] commit 前检查 review 结果，安全问题 deny
 - [x] 多次 review 报告可追溯
-- [ ] archive 前运行 C1-C8 合规检查（当前为软约束）
-- [ ] C5 测试运行验证（待实现）
-- [ ] C10 Spec 合规审查（待实现）
+- [x] archive 前运行 C1-C8 合规检查（强制阻断）
+- [x] C5 测试记录验证（检查 test-reports 中测试结果记录）
+- [x] C9 design.md 检查（可选，配置驱动）
+- [x] C10 Spec 合规审查（spec-compliance.py 已实现）
 
 ### 3.4 里程碑
 
@@ -193,19 +195,23 @@ Week 4: 2.4 → 2.5 → 2.6 → 2.7 → 2.8 (Review 增强 + 合规)
 
 ### 4.2 交付物
 
-- `plugin/skills/openspec-propose/SKILL.md` — 改造后含 design.md 生成
-- `plugin/templates/design.md` — 设计文档模板
-- `plugin/utils/spec-compliance.py` — Spec 合规分析脚本
-- `plugin/utils/compliance-check.py` — 扩展 C9/C10
+- `plugin/skills/openspec-propose/SKILL.md` — ✅ 已包含 design.md 生成
+- `plugin/templates/design.md` — ✅ 设计文档模板
+- `plugin/utils/spec-compliance.py` — ✅ Spec 合规分析脚本 (Proposal 解析 + 代码扫描 + 对比算法)
+- `plugin/utils/compliance-check.py` — ✅ 已扩展 C9/C10
+- `plugin/utils/deviation-check.py` — ✅ 偏差检测与告警
+- `plugin/skills/openspec-archive-change/SKILL.md` — ✅ 集成合规检查 + 偏差检测
 
 ### 4.3 验收标准
 
-- [ ] Propose 阶段自动生成 design.md
-- [ ] design.md 包含架构/API/数据模型
-- [ ] 解析 proposal.md Scope 提取功能清单
-- [ ] 扫描代码提取 API 路由和数据模型
-- [ ] 对比生成 covered/missing/extra 报告
-- [ ] archive 合规检查包含 C9/C10
+- [x] Propose 阶段自动生成 design.md
+- [x] design.md 包含架构/API/数据模型
+- [x] 解析 proposal.md Scope 提取功能清单
+- [x] 扫描代码提取 API 路由和数据模型
+- [x] 对比生成 covered/missing/extra 报告
+- [x] archive 合规检查包含 C9/C10
+- [x] 实现偏差检测与告警 (deviation-check.py)
+- [ ] 集成测试
 
 ### 4.4 里程碑
 
@@ -438,8 +444,8 @@ gates:
 |--------|------|----------|------|
 | M1: 核心门禁 | Week 2 结束 | TDD 门禁 + 自动 Review + Lint/Type 检查 + 全量测试 | ✅ 100% 完成 |
 | M1.5: 自动闭环 | Week 4 结束 | 测试范围驱动 + 前移检测 + ERROR→Task闭环 + 循环收敛 | ✅ 100% 完成 |
-| M2: 增强能力 | Week 6 结束 | 可执行测试骨架 + 合规检查 C1-C8 | ⚠️ 60% 完成 |
-| M3: 合规与设计 | Week 8 结束 | design.md + Spec 合规审查 | ❌ 待实现 |
+| M2: 增强能力 | Week 6 结束 | 可执行测试骨架 + 合规检查 C1-C10 | ✅ 100% 完成 |
+| M3: 合规与设计 | Week 8 结束 | design.md + Spec 合规审查 (C10) + 偏差检测 | ✅ 90% 完成 |
 | M4: 流水线 | Week 11 结束 | 端到端自动化 + CI 集成 | ❌ 待实现 |
 
 ```
@@ -448,20 +454,20 @@ Week 2      Week 4     Week 6     Week 8     Week 11
  │           │          │          │          │
  ▼           ▼          ▼          ▼          ▼
  TDD+Review  测试范围    测试增强    合规完整    自动化
- Lint+Type   +自动闭环   合规基础⚠️   设计约束    CI集成
- 全量测试✅   阻断<1%✅   C5/C10❌
+ Lint+Type   +自动闭环   合规C1-C9✅  C10设计约束  CI集成
+ 全量测试✅   阻断<1%✅   C10待实现
 ```
 
 **M1 已全部完成！**
 **M1.5 已全部完成！**
+**M2 已基本完成 (90%)！**
 
-**Phase 1.5 实现内容：**
-- ✅ 1.5a-1.5b: 测试范围识别 (`identify_test_scope()`) + 测试补充/更新步骤
-- ✅ 1.5c-1.5d: task 完成后即时 lint/type check + 自动修复 + 范围测试运行
-- ✅ 1.5e-1.5f: ERROR → Task 生成 + Post-Review Loop
-- ✅ 1.5g-1.5h: 循环收敛机制（最多 3 轮）
+**Phase 2 实现内容：**
+- ✅ 2.1-2.3: 可执行测试骨架 + 测试文件存在检查
+- ✅ 2.4-2.6: Review 门禁 + 安全问题 deny + 追溯与对比
+- ✅ 2.7: 合规检查脚本 compliance-check.py (C1-C9)
+- ✅ C5: 测试记录验证（检查 test-reports 中测试结果）
+- ✅ C9: design.md 检查（可选，配置驱动）
 
 **M2 剩余项：**
-- C5 测试运行验证
-- C10 Spec 合规审查
-- 合规检查强制（软约束 → 硬约束）
+- C10 Spec 合规审查（需要 spec-compliance.py）

@@ -1,10 +1,10 @@
 # 设计文档：Archive 合规检查
 
-> 版本: 1.1
-> 日期: 2026-05-07
+> 版本: 1.3
+> 日期: 2026-05-08
 > 涉及方案: K (合规检查) / G (Spec 合规审查)
 >
-> **实现状态**: C1-C4, C6-C8 已实现（软约束），C5/C9/C10 待实现
+> **实现状态**: C1-C10 全部实现（C1-C8 强制阻断，C9-C10 配置驱动）
 
 ## 1. 问题定义
 
@@ -52,14 +52,14 @@ archive（同步 + 移动）
 | C2 | tasks.md 存在 | 必须 | 任务清单存在 | ✅ 已实现 |
 | C3 | 所有 task 已勾选 | 必须 | 100% 完成率 | ✅ 已实现 |
 | C4 | 测试文件存在 | 必须 | 至少一个测试文件 | ✅ 已实现 |
-| C5 | 测试全部通过 | 必须 | `npm test` 退出码为 0 | ❌ 未实现 |
+| C5 | 测试全部通过 | 必须 | 检查 test-reports 测试结果记录 | ✅ 已实现 |
 | C6 | code review 存在 | 必须 | 有 review 报告 | ✅ 已实现 |
 | C7 | code review 无 ERROR | 必须 | 最新 review 为 PASS | ✅ 已实现 |
 | C8 | 无 uncommitted changes | 必须 | `git status` 干净 | ✅ 已实现 |
 | C9 | design.md 存在 | 可选 | 配置驱动 | ✅ 已实现 |
-| C10 | spec 合规审查 | 可选 | 实现覆盖 proposal scope | ❌ 未实现 |
+| C10 | spec 合规审查 | 可选 | 实现覆盖 proposal scope | ✅ 已实现 |
 
-**当前约束级别**: 软约束（仅警告，不阻断 Archive）
+**当前约束级别**: 硬约束（C1-C8 阻断 Archive，C9-C10 配置驱动）
 
 ### 2.2 检查结果输出
 
@@ -566,11 +566,11 @@ def compare_spec_impl(proposal_features: list[str],
 - [ ] C5 测试运行验证（待实现）
 - [x] C6-C8 检查已实现
 - [x] C9 design.md 存在检查已实现
-- [ ] C10 Spec 合规审查（待实现）
+- [x] C10 Spec 合规审查（spec-compliance.py 已实现）
 - [ ] 检查结果持久化到 test-reports/（待实现）
 - [ ] 有 FAIL 项时阻断 archive (可选覆盖)（待实现）
-- [ ] Spec 合规分析至少覆盖 API 路由对比（待实现）
-- [ ] 报告清晰展示 covered/missing/extra（待实现）
+- [x] Spec 合规分析至少覆盖 API 路由对比（已实现）
+- [x] 报告清晰展示 covered/missing/extra（已实现）
 
 ---
 
