@@ -36,6 +36,20 @@ except Exception:
     def find_active_change(changes_dir, cwd=""):
         return None
 
+try:
+    _rc_path = os.path.join(UTILS_DIR, "report-chain.py")
+    if os.path.isfile(_rc_path):
+        _rc_spec = importlib.util.spec_from_file_location("report_chain", _rc_path)
+        _rc_module = importlib.util.module_from_spec(_rc_spec)
+        _rc_spec.loader.exec_module(_rc_module)
+        check_all_report_chains = _rc_module.check_all_report_chains
+        check_final_reports = _rc_module.check_final_reports
+        HAS_REPORT_CHAIN = True
+    else:
+        HAS_REPORT_CHAIN = False
+except Exception:
+    HAS_REPORT_CHAIN = False
+
 
 def main():
     input_data = json.load(sys.stdin)
@@ -60,7 +74,7 @@ def main():
 
 
 def handle_archive_skill(cwd):
-    """Force compliance check before archive."""
+    """Force compliance check and report chain check before archive."""
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     if not os.path.isdir(changes_dir):
@@ -127,7 +141,26 @@ def handle_archive_skill(cwd):
         )
         return
 
-    output_result("allow", f"Compliance check passed for '{change_name}'.")
+    # === Report Chain Check ===
+    if HAS_REPORT_CHAIN:
+        tasks_md = os.path.join(change_dir, "tasks.md")
+        all_ok, issues = check_all_report_chains(change_dir, tasks_md)
+        if not all_ok:
+            context = (
+                f"ARCHIVE BLOCKED: Report chain incomplete.\n"
+                f"Issues:\n" + "\n".join(f"  - {i}" for i in issues) + "\n"
+                f"Ensure all tasks have complete report chains before archiving."
+            )
+            output_result("deny", context)
+            return
+
+        # Check final reports
+        ok, err = check_final_reports(change_dir)
+        if not ok:
+            output_result("deny", f"ARCHIVE BLOCKED: {err}")
+            return
+
+    output_result("allow", f"Compliance check and report chains passed for '{change_name}'.")
 
 
 def handle_apply_skill(cwd):
@@ -153,14 +186,30 @@ def handle_apply_skill(cwd):
             with open(state_path, "r", encoding="utf-8") as f:
                 state = json.load(f)
 
-            if state.get("status") == "paused":
+            status = state.get("status", "idle")
+            loop_count = state.get("loop_count", 0)
+            max_loops = state.get("max_loops", 3)
+            current_errors = state.get("current_errors", 0)
+
+            if status == "paused":
                 context = (
                     f"Review loop PAUSED for '{change_name}'. "
-                    f"Loop {state.get('loop_count', '?')}/{state.get('max_loops', 3)} "
-                    f"reached. Manual intervention required."
+                    f"Loop {loop_count}/{max_loops} reached. "
+                    f"Manual intervention required."
                 )
                 output_result("allow", context)
                 return
+
+            if status == "running" and current_errors > 0:
+                context = (
+                    f"Review loop active for '{change_name}': "
+                    f"Loop {loop_count}/{max_loops}, {current_errors} error(s) remaining. "
+                    f"Fix tasks have been appended to tasks.md. "
+                    f"Implement the fix tasks before proceeding."
+                )
+                output_result("allow", context)
+                return
+
         except (json.JSONDecodeError, OSError):
             pass
 

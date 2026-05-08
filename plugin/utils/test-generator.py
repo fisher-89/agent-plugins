@@ -4,12 +4,30 @@ Test skeleton generator utility.
 
 Generates test skeleton files for tasks in apply-change workflow.
 Tests are colocated with source files.
+
+Supports --save-report to emit step reports for report-driven gates.
 """
 
 import os
 import re
 import sys
+import time
 from typing import List, Optional, Tuple
+
+# Import step-report utility
+try:
+    import importlib.util
+    _sr_path = os.path.join(os.path.dirname(__file__), "step-report.py")
+    if os.path.isfile(_sr_path):
+        _sr_spec = importlib.util.spec_from_file_location("step_report", _sr_path)
+        _sr_module = importlib.util.module_from_spec(_sr_spec)
+        _sr_spec.loader.exec_module(_sr_module)
+        save_step_report = _sr_module.save_step_report
+        HAS_STEP_REPORT = True
+    else:
+        HAS_STEP_REPORT = False
+except Exception:
+    HAS_STEP_REPORT = False
 
 # Import test framework detection
 try:
@@ -383,8 +401,14 @@ if __name__ == "__main__":
     parser.add_argument("--task-number", type=int, default=1, help="Task number")
     parser.add_argument("--test-reports-dir", help="Test reports directory")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
+    parser.add_argument("--save-report", action="store_true",
+                        help="Save step report for report-driven gates")
+    parser.add_argument("--task-id", help="Task ID for report filename")
+    parser.add_argument("--project-root", default=".", help="Project root")
 
     args = parser.parse_args()
+
+    start_time = time.time()
 
     # Detect framework if not provided
     framework = args.framework
@@ -409,6 +433,24 @@ if __name__ == "__main__":
         args.task_number,
         args.test_reports_dir
     )
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+
+    if args.save_report and HAS_STEP_REPORT and args.change:
+        task_id = args.task_id or str(args.task_number)
+        save_step_report(
+            change=args.change,
+            task_id=task_id,
+            step="skeleton",
+            status="pass",
+            details={
+                "test_file": test_file,
+                "framework": framework,
+                "source_file": args.source_file,
+            },
+            project_root=args.project_root,
+            duration_ms=elapsed_ms,
+        )
 
     if args.json:
         print(json.dumps({

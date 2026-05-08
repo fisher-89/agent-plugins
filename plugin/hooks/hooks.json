@@ -46,7 +46,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-sync-skills.py"
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/session-start-ensure-openspec.py"
           },
           {
             "type": "command",

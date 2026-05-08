@@ -1,0 +1,10 @@
+{
+  "$schema": "openspec-step-report/v1",
+  "change": "<change-name>",
+  "task_id": "<task-id>",
+  "step": "<step-name>",
+  "status": "<pass|fail|skip>",
+  "timestamp": "<ISO-8601-UTC>",
+  "duration_ms": 0,
+  "details": {}
+}

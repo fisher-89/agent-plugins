@@ -102,6 +102,20 @@ try:
 except Exception:
     HAS_TEST_RUNNER = False
 
+try:
+    _rc_path = os.path.join(UTILS_DIR, "report-chain.py")
+    if os.path.isfile(_rc_path):
+        _rc_spec = importlib.util.spec_from_file_location("report_chain", _rc_path)
+        _rc_module = importlib.util.module_from_spec(_rc_spec)
+        _rc_spec.loader.exec_module(_rc_module)
+        check_report_chain = _rc_module.check_report_chain
+        get_current_task = _rc_module.get_current_task
+        HAS_REPORT_CHAIN = True
+    else:
+        HAS_REPORT_CHAIN = False
+except Exception:
+    HAS_REPORT_CHAIN = False
+
 
 def run_git(args, cwd):
     """Run a git command and return stdout, or None on failure."""
@@ -159,6 +173,19 @@ def main():
     change_name, change_dir = active_change
     test_reports_dir = os.path.join(change_dir, "test-reports")
 
+    # === Report Chain Check ===
+    if HAS_REPORT_CHAIN:
+        current_task = get_current_task(change_dir)
+        if current_task:
+            ok, err = check_report_chain(change_dir, current_task)
+            if not ok:
+                context = (
+                    f"REPORT CHAIN INCOMPLETE for task {current_task}: {err}. "
+                    f"Ensure you executed: test-scope → lint → scoped-test with --save-report."
+                )
+                output_result("deny", context)
+                return
+
     # === Phase 1: Type/Lint Checks ===
     lint_context = run_lint_type_checks(cwd)
     if lint_context:
@@ -210,7 +237,7 @@ def main():
         output_result("deny", context)
         return
 
-    # Phase 2.6: Non-security errors with review comparison
+    # Phase 2.6: Non-security errors → ERROR→Task instruction
     if verdict == "BLOCK" or error_count > 0:
         comparison = ""
         if len(reviews) > 1:
@@ -223,11 +250,22 @@ def main():
                 f" Review history: {prev_verdict} ({prev_errors} errors) → {verdict} ({error_count} errors) {trend}."
             )
 
+        review_path = latest_review["path"]
+        tasks_md_path = os.path.join(change_dir, "tasks.md")
+
         context = (
-            f"Code review for '{change_name}' found {error_count} ERROR(s) (verdict: {verdict})."
-            f"{comparison} "
-            f"Fix issues before committing, or acknowledge to override. "
-            f"Review report: test-reports/{os.path.basename(latest_review['path'])}"
+            f"REVIEW BLOCK: {error_count} error(s) found in '{change_name}'."
+            f"{comparison}\n"
+            f"BEFORE committing, you MUST:\n"
+            f"1. Generate fix tasks:\n"
+            f"   python plugin/utils/review-parser.py \"{review_path}\" "
+            f"     --generate-tasks --append-to \"{tasks_md_path}\"\n"
+            f"2. Record loop state:\n"
+            f"   python plugin/utils/review-loop-state.py \"{change_dir}\" "
+            f"     --record {error_count} {error_count}\n"
+            f"3. Re-enter apply: invoke the openspec-apply-change skill "
+            f"   to implement the fix tasks.\n"
+            f"This ensures all review errors are addressed before commit."
         )
         output_result("allow", context)
         return

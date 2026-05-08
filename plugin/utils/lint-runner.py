@@ -4,13 +4,31 @@ Lint and type check runner utility.
 
 Encapsulates linting and type checking for various languages and frameworks,
 returning structured results for gate decisions.
+
+Supports --save-report to emit step reports for report-driven gates.
 """
 
 import os
 import subprocess
 import sys
+import time
 from typing import Tuple, Optional, List, Dict
 from dataclasses import dataclass
+
+# Import step-report utility
+try:
+    import importlib.util
+    _sr_path = os.path.join(os.path.dirname(__file__), "step-report.py")
+    if os.path.isfile(_sr_path):
+        _sr_spec = importlib.util.spec_from_file_location("step_report", _sr_path)
+        _sr_module = importlib.util.module_from_spec(_sr_spec)
+        _sr_spec.loader.exec_module(_sr_module)
+        save_step_report = _sr_module.save_step_report
+        HAS_STEP_REPORT = True
+    else:
+        HAS_STEP_REPORT = False
+except Exception:
+    HAS_STEP_REPORT = False
 
 
 @dataclass
@@ -637,6 +655,10 @@ if __name__ == "__main__":
     parser.add_argument("--linter", help="Specific linter to use")
     parser.add_argument("--detect", action="store_true",
                         help="Detect available linters only")
+    parser.add_argument("--save-report", action="store_true",
+                        help="Save step report for report-driven gates")
+    parser.add_argument("--change", help="Change name (required with --save-report)")
+    parser.add_argument("--task-id", help="Task ID for report filename")
 
     args = parser.parse_args()
 
@@ -645,6 +667,8 @@ if __name__ == "__main__":
         print(f"Project type: {project_type}")
         print(f"Available linters: {', '.join(available) if available else 'none'}")
         sys.exit(0)
+
+    start_time = time.time()
 
     if args.all:
         results = run_all_checks(args.project_root)
@@ -657,22 +681,50 @@ if __name__ == "__main__":
                     all_passed = False
                     print(result.full_output())
 
-        sys.exit(0 if all_passed else 1)
-
-    if args.type_check:
+    elif args.type_check:
         results = run_type_check(args.project_root, check_type=args.linter)
+        all_passed = all(r.success for r in results)
+        for result in results:
+            print(result.summary())
+            if not result.success:
+                print(result.full_output())
+
     elif args.lint:
         results = run_lint(args.project_root, linter=args.linter)
+        all_passed = all(r.success for r in results)
+        for result in results:
+            print(result.summary())
+            if not result.success:
+                print(result.full_output())
+
     else:
         # Default: run all
         results = run_type_check(args.project_root)
         results.extend(run_lint(args.project_root))
+        all_passed = all(r.success for r in results)
+        for result in results:
+            print(result.summary())
+            if not result.success:
+                print(result.full_output())
 
-    all_passed = True
-    for result in results:
-        print(result.summary())
-        if not result.success:
-            all_passed = False
-            print(result.full_output())
+    elapsed_ms = int((time.time() - start_time) * 1000)
+
+    if args.save_report and HAS_STEP_REPORT and args.change:
+        total_errors = sum(r.errors for r in results if hasattr(r, 'errors'))
+        total_warnings = sum(r.warnings for r in results if hasattr(r, 'warnings'))
+        task_id = args.task_id or "0"
+        save_step_report(
+            change=args.change,
+            task_id=task_id,
+            step="lint",
+            status="pass" if all_passed else "fail",
+            details={
+                "errors": total_errors,
+                "warnings": total_warnings,
+                "linters": [r.linter for r in results],
+            },
+            project_root=args.project_root,
+            duration_ms=elapsed_ms,
+        )
 
     sys.exit(0 if all_passed else 1)

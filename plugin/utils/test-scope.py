@@ -4,14 +4,32 @@ Test scope identification utility.
 
 Identifies the test scope for a task by analyzing the task description
 and mapping affected source files to corresponding test files.
+
+Supports --save-report to emit step reports for report-driven gates.
 """
 
 import os
 import re
 import sys
 import glob
+import time
 from typing import Dict, List, Optional, Tuple
 from dataclasses import dataclass, field
+
+# Import step-report utility
+try:
+    import importlib.util
+    _sr_path = os.path.join(os.path.dirname(__file__), "step-report.py")
+    if os.path.isfile(_sr_path):
+        _sr_spec = importlib.util.spec_from_file_location("step_report", _sr_path)
+        _sr_module = importlib.util.module_from_spec(_sr_spec)
+        _sr_spec.loader.exec_module(_sr_module)
+        save_step_report = _sr_module.save_step_report
+        HAS_STEP_REPORT = True
+    else:
+        HAS_STEP_REPORT = False
+except Exception:
+    HAS_STEP_REPORT = False
 
 
 @dataclass
@@ -439,15 +457,38 @@ if __name__ == "__main__":
     parser.add_argument("--src-dir", help="Source directory")
     parser.add_argument("--tests-dir", help="Tests directory")
     parser.add_argument("--json", action="store_true", help="Output as JSON")
+    parser.add_argument("--save-report", action="store_true",
+                        help="Save step report for report-driven gates")
+    parser.add_argument("--change", help="Change name (required with --save-report)")
+    parser.add_argument("--task-id", help="Task ID for report filename")
 
     args = parser.parse_args()
 
+    start_time = time.time()
     scope = identify_test_scope(
         args.task,
         args.project_root,
         args.src_dir,
         args.tests_dir
     )
+    elapsed_ms = int((time.time() - start_time) * 1000)
+
+    if args.save_report and HAS_STEP_REPORT and args.change:
+        task_id = args.task_id or "0"
+        save_step_report(
+            change=args.change,
+            task_id=task_id,
+            step="scope",
+            status="pass",
+            details={
+                "affected_files": scope.affected_files,
+                "test_files": scope.test_files,
+                "missing_test_files": scope.missing_test_files,
+                "patterns": scope.test_patterns,
+            },
+            project_root=args.project_root,
+            duration_ms=elapsed_ms,
+        )
 
     if args.json:
         import json

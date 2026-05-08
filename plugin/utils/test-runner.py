@@ -4,14 +4,32 @@ Test runner utility.
 
 Encapsulates test execution logic for various frameworks and returns
 structured results for gate decisions.
+
+Supports --save-report to emit step reports for report-driven gates.
 """
 
 import importlib.util
 import os
 import subprocess
 import sys
+import time
 from typing import Tuple, Optional, List
 from dataclasses import dataclass
+
+# Import step-report utility
+try:
+    import importlib.util as _ilu
+    _sr_path = os.path.join(os.path.dirname(__file__), "step-report.py")
+    if os.path.isfile(_sr_path):
+        _sr_spec = _ilu.spec_from_file_location("step_report", _sr_path)
+        _sr_module = _ilu.module_from_spec(_sr_spec)
+        _sr_spec.loader.exec_module(_sr_module)
+        save_step_report = _sr_module.save_step_report
+        HAS_STEP_REPORT = True
+    else:
+        HAS_STEP_REPORT = False
+except Exception:
+    HAS_STEP_REPORT = False
 
 
 def _import_test_framework():
@@ -359,6 +377,12 @@ if __name__ == "__main__":
     parser.add_argument("--test-pattern", help="Test name pattern to match")
     parser.add_argument("--framework", help="Test framework to use")
     parser.add_argument("--check-exists", help="Check if test exists for source file")
+    parser.add_argument("--save-report", action="store_true",
+                        help="Save step report for report-driven gates")
+    parser.add_argument("--change", help="Change name (required with --save-report)")
+    parser.add_argument("--task-id", help="Task ID for report filename")
+    parser.add_argument("--step-name", default="scoped-test",
+                        help="Step name for report (scoped-test or full-test)")
 
     args = parser.parse_args()
 
@@ -370,12 +394,34 @@ if __name__ == "__main__":
             print("No test file found")
         sys.exit(0)
 
+    start_time = time.time()
+
     result = run_tests(
         args.project_root,
         test_file=args.test_file,
         test_pattern=args.test_pattern,
         framework=args.framework
     )
+
+    elapsed_ms = int((time.time() - start_time) * 1000)
+
+    if args.save_report and HAS_STEP_REPORT and args.change:
+        task_id = args.task_id or "global"
+        save_step_report(
+            change=args.change,
+            task_id=task_id,
+            step=args.step_name,
+            status="pass" if result.success else "fail",
+            details={
+                "passed": result.passed,
+                "failed": result.failed,
+                "skipped": result.skipped,
+                "total": result.total,
+                "framework": result.framework,
+            },
+            project_root=args.project_root,
+            duration_ms=elapsed_ms,
+        )
 
     print(result.summary())
     print("\n--- Test Output ---\n")
