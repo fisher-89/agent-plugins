@@ -20,7 +20,7 @@ import subprocess
 import sys
 
 
-# Import lint runner utility
+# Import shared utilities
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
 UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
@@ -28,6 +28,51 @@ UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
 # Add utils to path for import
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
+
+try:
+    import importlib.util
+    _ac_path = os.path.join(UTILS_DIR, "active-change.py")
+    if os.path.isfile(_ac_path):
+        _ac_spec = importlib.util.spec_from_file_location("active_change", _ac_path)
+        _ac_module = importlib.util.module_from_spec(_ac_spec)
+        _ac_spec.loader.exec_module(_ac_module)
+        find_active_change = _ac_module.find_active_change
+        count_tasks = _ac_module.count_tasks
+    else:
+        # Fallback: inline implementations
+        def find_active_change(changes_dir, cwd=""):
+            try:
+                for entry in os.listdir(changes_dir):
+                    entry_path = os.path.join(changes_dir, entry)
+                    if not os.path.isdir(entry_path) or entry == "archive":
+                        continue
+                    tasks_path = os.path.join(entry_path, "tasks.md")
+                    if os.path.isfile(tasks_path):
+                        total, done = count_tasks(tasks_path)
+                        if done < total:
+                            return (entry, entry_path)
+            except OSError:
+                pass
+            return None
+
+        def count_tasks(tasks_path):
+            total = 0
+            done = 0
+            try:
+                with open(tasks_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if re.match(r"^\s*- \[", line):
+                            total += 1
+                            if re.match(r"^\s*- \[x\]", line):
+                                done += 1
+            except OSError:
+                pass
+            return total, done
+except Exception:
+    def find_active_change(changes_dir, cwd=""):
+        return None
+    def count_tasks(tasks_path):
+        return 0, 0
 
 try:
     import importlib.util
@@ -100,8 +145,8 @@ def main():
         output_result("allow", "")
         return
 
-    # Find active change with pending tasks
-    active_change = find_active_change(changes_dir)
+    # Find active change (uses shared module with priority ordering)
+    active_change = find_active_change(changes_dir, cwd)
     if not active_change:
         # No active change — fall back to basic review suggestion
         staged_context = build_staged_files_context(cwd)
@@ -205,44 +250,6 @@ def is_git_commit_command(command):
         if re.search(pattern, command):
             return True
     return False
-
-
-def find_active_change(changes_dir):
-    """Find the first active change with pending tasks.
-
-    Returns (change_name, change_dir) or None.
-    """
-    try:
-        for entry in os.listdir(changes_dir):
-            entry_path = os.path.join(changes_dir, entry)
-            if not os.path.isdir(entry_path) or entry == "archive":
-                continue
-
-            tasks_path = os.path.join(entry_path, "tasks.md")
-            if os.path.isfile(tasks_path):
-                total, done = count_tasks(tasks_path)
-                if done < total:
-                    return (entry, entry_path)
-    except OSError:
-        pass
-
-    return None
-
-
-def count_tasks(tasks_path):
-    """Count total and completed tasks in a tasks.md file."""
-    total = 0
-    done = 0
-    try:
-        with open(tasks_path, "r", encoding="utf-8") as f:
-            for line in f:
-                if re.match(r"^\s*- \[", line):
-                    total += 1
-                    if re.match(r"^\s*- \[x\]", line):
-                        done += 1
-    except OSError:
-        pass
-    return total, done
 
 
 def find_review_reports(test_reports_dir):
@@ -413,6 +420,10 @@ def run_full_tests(cwd):
 
     try:
         result = run_tests(cwd)
+
+        # If no test framework detected, don't block commit
+        if result.framework == "unknown":
+            return None
 
         if not result.success:
             return (
