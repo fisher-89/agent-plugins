@@ -255,82 +255,159 @@ For each pending task:
 > - `plugin/skills/openspec-apply-change/SKILL.md` — TDD Gate 步骤
 > - `plugin/utils/test-runner.py` — 测试运行逻辑
 
-#### 2.2.1 流程设计
+#### 2.2.1 流程设计（测试范围驱动）
 
 ```
 ┌─────────────────────────────────────────────────────────┐
-│                  Apply Task Workflow                     │
+│              Apply Task Workflow (测试范围驱动)           │
 ├─────────────────────────────────────────────────────────┤
 │                                                          │
 │  1. Read task T from tasks.md                           │
 │      ↓                                                  │
-│  2. Identify affected files (parse task description)    │
+│  2. 【测试范围识别】Identify affected modules/files      │
+│      - 解析 task 描述，提取模块/功能关键词               │
+│      - 定位相关源文件（如 routes/auth.js）              │
+│      - 映射到测试范围（如 tests/auth.test.js）          │
 │      ↓                                                  │
-│  3. Check test file exists for affected files           │
-│      ├─ No → Generate skeleton (方案 A)                 │
-│      └─ Yes → Continue                                  │
+│  3. 【测试补充/更新】Check & supplement test cases       │
+│      ├─ 无测试 → 生成测试骨架 (方案 A)                   │
+│      ├─ 有测试但覆盖不全 → 补充测试用例                  │
+│      └─ 测试完整 → 继续                                  │
 │      ↓                                                  │
-│  4. Implement task (code changes)                       │
+│  4. 【实现代码】Implement task (code changes)            │
 │      ↓                                                  │
-│  5. Run tests                                           │
+│  5. 【运行范围测试】Run ONLY scoped tests                │
+│      - 仅运行步骤 2 识别的测试范围                       │
+│      - 不运行全量测试（性能优化）                        │
 │      ├─ Pass → Mark task complete ✓                    │
 │      └─ Fail → BLOCK: Show error, require fix           │
 │                                                          │
 └─────────────────────────────────────────────────────────┘
 ```
 
-#### 2.2.2 影响文件检测
+#### 2.2.2 测试范围识别
 
-**Heuristic 策略**:
+**核心原则**：每个 task 开始前，先识别测试范围，只运行相关测试，不运行全量测试。
+
+**识别策略**：
 
 ```python
-def infer_affected_files(task: str, src_dir: str) -> list[str]:
-    """Infer affected source files from task description."""
-
+def identify_test_scope(task: str, src_dir: str, tests_dir: str) -> dict:
+    """
+    Identify test scope for a task.
+    
+    Returns:
+        {
+            "affected_files": list[str],     # 受影响的源文件
+            "test_files": list[str],         # 对应的测试文件
+            "test_patterns": list[str],      # 测试名称匹配模式
+            "needs_new_tests": bool          # 是否需要生成新测试
+        }
+    """
+    affected_files = []
+    test_files = []
+    needs_new_tests = False
+    
     # Strategy 1: Explicit file mentioned
     # Task: "Implement user registration in auth.js"
     file_match = re.search(r'(?:in|modify|edit|update)\s+([a-zA-Z_]+\.[a-z]+)', task)
     if file_match:
         filename = file_match.group(1)
-        return [os.path.join(src_dir, filename)]
-
+        src_file = os.path.join(src_dir, filename)
+        test_file = map_to_test_file(src_file, tests_dir)
+        affected_files = [src_file]
+        test_files = [test_file] if os.path.exists(test_file) else []
+        needs_new_tests = not os.path.exists(test_file)
+    
     # Strategy 2: Feature module inference
     # Task: "Add JWT authentication"
-    keywords = extract_keywords(task)
-    for kw in keywords:
-        possible_file = os.path.join(src_dir, f"{kw}.js")
-        if os.path.exists(possible_file):
-            return [possible_file]
-
-    # Strategy 3: Glob search
+    if not affected_files:
+        keywords = extract_keywords(task)
+        for kw in keywords:
+            possible_file = os.path.join(src_dir, f"{kw}.js")
+            if os.path.exists(possible_file):
+                test_file = map_to_test_file(possible_file, tests_dir)
+                affected_files.append(possible_file)
+                if os.path.exists(test_file):
+                    test_files.append(test_file)
+                else:
+                    needs_new_tests = True
+    
+    # Strategy 3: Pattern inference
     # Task: "Implement routes for user management"
-    if "routes" in task.lower():
-        return glob.glob(os.path.join(src_dir, "routes", "*.js"))
+    if not affected_files:
+        if "routes" in task.lower():
+            for f in glob.glob(os.path.join(src_dir, "routes", "*.js")):
+                affected_files.append(f)
+                test_file = map_to_test_file(f, tests_dir)
+                if os.path.exists(test_file):
+                    test_files.append(test_file)
+    
+    # Extract test patterns from task
+    test_patterns = extract_test_patterns(task)
+    
+    return {
+        "affected_files": affected_files,
+        "test_files": test_files,
+        "test_patterns": test_patterns,
+        "needs_new_tests": needs_new_tests
+    }
 
-    return []
+
+def extract_test_patterns(task: str) -> list[str]:
+    """Extract test name patterns from task description."""
+    patterns = []
+    
+    # Extract function/feature names
+    # Task: "Implement login function" → pattern: "login"
+    name_match = re.findall(r'(?:implement|add|create)\s+(\w+)', task, re.I)
+    patterns.extend(name_match)
+    
+    # Extract behavior descriptions
+    # Task: "should validate email format" → pattern: "validate email"
+    behavior_match = re.findall(r'should\s+(.+?)(?:\s+in|\s*$)', task, re.I)
+    patterns.extend(behavior_match)
+    
+    return patterns
 ```
 
-#### 2.2.3 测试运行
+#### 2.2.3 测试运行（范围限定）
 
-**Jest/Vitest**:
+**核心原则**：只运行测试范围内的用例，不运行全量测试。
+
+**Jest/Vitest（范围运行）**:
 ```bash
-# Run specific test file
+# Run specific test file (from identified scope)
 npx jest tests/auth.test.js --passWithNoTests
 
-# Run tests matching pattern
-npx jest --testNamePattern="User Registration" --passWithNoTests
+# Run tests matching pattern (from extracted patterns)
+npx jest --testNamePattern="login|validate" --passWithNoTests
+
+# Run multiple scoped test files
+npx jest tests/auth.test.js tests/user.test.js --passWithNoTests
 ```
 
-**pytest**:
+**pytest（范围运行）**:
 ```bash
-# Run specific test file
+# Run specific test file (from identified scope)
 pytest tests/test_auth.py -v
 
-# Run tests matching pattern
-pytest tests/ -k "user_registration" -v
+# Run tests matching pattern (from extracted patterns)
+pytest tests/ -k "login or validate" -v
+
+# Run multiple scoped test files
+pytest tests/test_auth.py tests/test_user.py -v
 ```
 
-#### 2.2.4 SKILL.md 改造
+**运行策略对比**：
+
+| 场景 | 运行范围 | 命令示例 |
+|------|----------|----------|
+| 单个 task 开发 | 仅识别的测试范围 | `jest tests/auth.test.js` |
+| 所有 task 完成 | 全量测试套件 | `jest` / `pytest` |
+| CI/PR 检查 | 全量测试套件 | `jest --coverage` / `pytest --cov` |
+
+#### 2.2.4 SKILL.md 改造（测试范围驱动）
 
 **当前 apply-change 流程**:
 ```markdown
@@ -340,17 +417,25 @@ For each pending task:
 - Mark task complete in the tasks file: - [ ] → - [x]
 ```
 
-**改造后流程**:
+**改造后流程（测试范围驱动）**:
 ```markdown
 For each pending task:
 - Show which task is being worked on
-- **Check test coverage**:
-  - Identify affected modules
-  - Check if test file exists
-  - If no test → generate skeleton, prompt to write tests first
-- Make the code changes required
-- **Run tests**:
-  - Execute test runner (jest/pytest)
+- **Step 1: 识别测试范围**:
+  - 解析 task 描述，提取模块/功能关键词
+  - 定位受影响的源文件
+  - 映射到对应的测试文件
+  - 提取测试名称匹配模式
+- **Step 2: 补充/更新测试用例**:
+  - 检查测试文件是否存在
+  - 不存在 → 生成测试骨架，提示先写测试
+  - 存在但不完整 → 补充缺失的测试用例
+  - 存在且完整 → 继续
+- **Step 3: 实现代码**:
+  - Make the code changes required
+- **Step 4: 运行范围测试**:
+  - 仅运行 Step 1 识别的测试范围
+  - 使用 testNamePattern 或指定文件
   - If tests fail → BLOCK: show errors, do not mark complete
   - If tests pass → continue
 - Mark task complete in the tasks file: - [ ] → - [x]
@@ -514,6 +599,9 @@ After code changes for task T:
 - [x] 生成对应框架的可执行测试骨架
 - [x] apply-change 流程中运行测试
 - [x] 测试失败时阻止 task 标记完成
+- [ ] 识别测试范围（受影响模块/文件映射到测试文件）
+- [ ] 补充/更新测试用例（基于测试范围）
+- [ ] 范围测试运行（仅运行识别的测试范围，非全量）
 - [ ] 记录测试覆盖率报告到 test-reports/
 - [ ] 类型/Lint 检查集成 (eslint/mypy)
 - [ ] 全量测试门禁（所有 Task 完成后运行全量测试）
@@ -590,11 +678,156 @@ def detect_linter(project_root: str) -> tuple[str, str]:
 
 ---
 
+## 9. 待实现：前移检测 + 即时修复 (方案 O)
+
+### 9.1 目标
+
+把 Lint/Type 检测从 commit 时前移到每个 task 完成时，发现问题即时自动修复，减少 commit 时的阻断率。
+
+### 9.2 当前问题
+
+```
+当前流程:
+  [写代码] → [写更多代码] → ... → [commit] → ❌ lint 错误 deny → 人为干预
+
+问题: Lint/Type 错误在 commit 时才检测，阻断率高
+```
+
+### 9.3 优化后流程（测试范围驱动 + 即时检测）
+
+```
+优化后流程:
+  [识别测试范围] → [补充/更新测试用例] → [实现代码] → [即时 lint/type 检查]
+                                                        ├─ 可自动修复 → [eslint --fix / ruff --fix] → 继续
+                                                        └─ 不可自动修复 → [提示修复] → 修复后继续
+                                                        ↓
+                                                    [运行范围测试] → [标记 task 完成]
+                                                        ↓
+                                                    ... → [所有 task 完成] → [全量测试] → [commit] → ✅ pass
+```
+
+### 9.4 SKILL.md 改造
+
+在 `openspec-apply-change/SKILL.md` Step 6 的实现循环中增加即时检测：
+
+```markdown
+For each pending task:
+- Show which task is being worked on
+- **识别测试范围**:
+  - 解析 task 描述，定位受影响模块/文件
+  - 映射到对应测试文件
+  - 提取测试名称匹配模式
+- **补充/更新测试用例**:
+  - 检查测试文件是否存在，不存在则生成骨架
+  - 检查已有测试覆盖，不完整则补充
+- Make the code changes required
+- **即时 Lint/Type 检查** (Instant Check Gate):
+  - After code changes, immediately run: `npx eslint --fix <file>` or `ruff check --fix <file>`
+  - If auto-fixable errors → fix automatically, continue
+  - If unfixable errors → BLOCK: show errors, do NOT mark task complete
+  - If only warnings → proceed
+- **运行范围测试** (Scoped Test Gate):
+  - 仅运行识别的测试范围（非全量）
+  - Execute: `npx jest <scoped-files> --testNamePattern=<pattern>` or `pytest <scoped-files> -k <pattern>`
+  - If tests fail → BLOCK: show errors, do not mark complete
+  - If tests pass → continue
+- Mark task complete
+```
+
+### 9.5 文件改造清单
+
+| 文件 | 改动 |
+|------|------|
+| `plugin/skills/openspec-apply-change/SKILL.md` | Step 6 增加即时检测步骤 |
+| `plugin/hooks/pre-tool-commit-review.py` | Phase 1 检测逻辑不变，但预期阻断率下降 |
+
+### 9.6 预期效果
+
+- Lint/Type 错误在 task 完成时即时修复，不再到 commit 时才阻断
+- commit 时的 lint/type 阻断率预计从 ~15% 降至 <2%
+
+---
+
+## 10. ERROR → Task 闭环设计 (方案 P)
+
+### 10.1 目标
+
+Review 发现的所有 ERROR（不区分类型）生成修复 task，重入 apply 循环，形成自动闭环。
+
+### 10.2 流程设计
+
+```
+Apply 所有 Task 完成
+    ↓
+Code Review
+    ├─ 无 ERROR → Archive ✓
+    └─ 有 ERROR → 生成修复 task
+                    ↓
+              追加到 tasks.md
+                    ↓
+              重新进入 Apply
+                    ↓
+              修复 Task 完成
+                    ↓
+              重新 Review
+                    ↓
+              无 ERROR → Archive ✓
+```
+
+### 10.3 Task 生成规则
+
+每个 ERROR 生成一个修复 task：
+
+```markdown
+- [ ] Fix: <简短描述> (<file>:<line>)
+  - **Category**: <Logical/Security/NullHandling/...>
+  - **Current**: `<问题代码>`
+  - **Suggested**: `<修复建议>`
+  - **Review**: test-reports/code-review-<timestamp>.md
+```
+
+### 10.4 SKILL.md 改造
+
+在 `openspec-apply-change/SKILL.md` 增加 Post-Review Loop 步骤：
+
+```markdown
+### Step 8: Post-Review Loop
+
+After Code Review:
+
+1. **Parse Review Result**:
+   - Extract all ERROR entries from review report
+
+2. **If No ERROR**:
+   - Proceed to Archive
+
+3. **If Has ERROR**:
+   - Check loop count (max 3)
+   - If >= 3: PAUSE and prompt manual intervention
+   - Else:
+     - Generate fix tasks from ERROR entries
+     - Append to tasks.md
+     - Increment loop count
+     - Continue to Step 6 (Implement tasks)
+```
+
+### 10.5 预期效果
+
+- 阻断率从 ~30% 降至 <1%
+- 平均 1-2 轮 Review 即可通过
+- 仅极端情况需要人工干预
+
+---
+
 ## 8. 待实现：全量测试门禁
 
 ### 8.1 目标
 
-所有 Task 完成后，运行全量测试（不只是当前 Task 的测试），确保没有回归。
+所有 Task 完成后，运行全量测试（不只是当前 Task 的测试范围），确保没有回归。
+
+**重要区分**：
+- **范围测试**：单个 task 完成时运行，仅覆盖该 task 影响的测试范围
+- **全量测试**：所有 task 完成后运行，覆盖整个项目测试套件
 
 ### 8.2 设计
 
@@ -621,7 +854,15 @@ Code Review  不通过 → 阻断，显示失败测试
   - Save test results summary to test-reports/
 ```
 
-### 8.4 文件改造清单
+### 8.4 测试运行策略总结
+
+| 阶段 | 运行范围 | 命令 | 目的 |
+|------|----------|------|------|
+| 单个 task | 范围测试 | `jest tests/auth.test.js` | 快速验证，即时反馈 |
+| 所有 task 完成 | 全量测试 | `jest` / `pytest` | 回归检测，整体质量 |
+| CI/PR | 全量测试 + 覆盖率 | `jest --coverage` | 质量门禁，覆盖率报告 |
+
+### 8.5 文件改造清单
 
 | 文件 | 改动 |
 |------|------|

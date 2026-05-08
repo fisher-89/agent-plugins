@@ -1,21 +1,24 @@
 # 实施路线图
 
-> 版本: 1.1
-> 日期: 2026-05-07
-> 状态: Phase 1/2 部分完成
+> 版本: 1.2
+> 日期: 2026-05-08
+> 状态: Phase 1 完成，Phase 1.5 待实现，Phase 2 部分完成
 
 ## 1. 总览
 
 ```
 Phase 1 (P0) ── 核心门禁 ────────────── ✅ 完成 (100%)
+Phase 1.5 (P0) ─ 自动修复优化 ──────── ❌ 待实现 (目标：减少阻断)
 Phase 2 (P1) ── 增强能力 ────────────── ⚠️ 部分完成 (60%)
 Phase 3 (P2) ── 合规与设计约束 ──────── ❌ 待实现
 Phase 4 (P2) ── 流水线与 CI ─────────── ❌ 待实现
 ```
 
-**总计**: 约 9 周（含测试和文档）
+**总计**: 约 11 周（含测试和文档）
 **已耗时**: 约 2 周
-**当前进度**: Phase 1/2 核心功能已实现，剩余门禁强化待完成
+**当前进度**: Phase 1 核心功能已实现，Phase 1.5 自动修复优化待实现
+
+**核心目标**: 通过自动修复策略，将 commit 时阻断率从 ~30% 降至 <5%
 
 ---
 
@@ -69,7 +72,62 @@ Week 2+: Lint/Type 门禁 + 全量测试门禁 ✅
 
 ---
 
-## 3. Phase 2：增强能力 (P1)
+## 3. Phase 1.5：自动闭环优化 (P0)
+
+> 目标：测试范围驱动 + ERROR → Task 生成闭环，消除阻断，阻断率降至 <1%
+
+### 3.1 任务清单
+
+| # | 任务 | 涉及方案 | 优先级 | 预估 | 依赖 |
+|---|------|----------|--------|------|------|
+| 1.5a | 实现 `identify_test_scope()` 测试范围识别 | D | P0 | 2d | Phase 1 |
+| 1.5b | SKILL 增加测试范围识别 + 测试补充/更新步骤 | D+O | P0 | 2d | 1.5a |
+| 1.5c | SKILL 增加 task 完成后即时 lint/type check | O | P0 | 1d | 1.5b |
+| 1.5d | SKILL 增加 `--fix` 自动修复 + 范围测试运行 | O+D | P0 | 1d | 1.5c |
+| 1.5e | Review parser：解析 ERROR 并生成修复 task | P | P0 | 2d | Phase 1 |
+| 1.5f | SKILL 增加 Post-Review Loop 步骤 | P | P0 | 2d | 1.5e |
+| 1.5g | 循环状态管理：review-loop-state.json | Q | P0 | 1d | 1.5f |
+| 1.5h | 循环收敛：最多 3 轮，否则提示人工介入 | Q | P0 | 1d | 1.5g |
+| 1.5i | 集成测试：完整闭环流程 | O+P+Q+D | P0 | 2d | 1.5d, 1.5h |
+
+### 3.2 交付物
+
+- `plugin/skills/openspec-apply-change/SKILL.md` — ❌ 改造：测试范围驱动 + 即时检测 + Post-Review Loop
+- `plugin/utils/test-scope.py` — ❌ 新增：测试范围识别与映射
+- `plugin/utils/review-parser.py` — ❌ 新增：解析 ERROR 生成 task
+- `plugin/utils/review-loop-state.py` — ❌ 新增：循环状态管理
+- `plugin/templates/fix-task.md` — ❌ 新增：修复 task 模板
+
+### 3.3 验收标准
+
+- [ ] 每个 task 开始前识别测试范围（受影响模块/文件 → 测试文件映射）
+- [ ] 测试用例按范围补充/更新，不运行全量测试
+- [ ] 每个 task 完成后自动运行 lint/type check
+- [ ] 可自动修复的 lint 错误即时修复，不阻断
+- [ ] 单个 task 完成时运行范围测试，所有 task 完成时运行全量测试
+- [ ] Review 发现任意 ERROR → 生成修复 task → 追加到 tasks.md
+- [ ] 修复 task 完成后自动重新 Review
+- [ ] 循环收敛：最多 3 轮，否则提示人工介入
+- [ ] 阻断率 <1%
+
+### 3.4 里程碑
+
+```
+Week 3: 1.5a → 1.5b → 1.5c → 1.5d (测试范围驱动 + 即时检测)
+Week 4: 1.5e → 1.5f → 1.5g → 1.5h → 1.5i (闭环循环 + 收敛机制 + 集成测试)
+```
+
+### 3.5 阻断率预期变化
+
+| 阶段 | 阻断率 | 说明 |
+|------|--------|------|
+| Phase 1 完成后 | ~30% | lint/type 错误 + Review ERROR |
+| Phase 1.5a-d 后 | ~15% | 范围测试驱动 + lint/type 即时修复，仅剩 Review ERROR |
+| Phase 1.5e-i 后 | <1% | ERROR → Task 闭环，仅剩 3 轮后仍有 ERROR 的极端情况 |
+
+---
+
+## 4. Phase 2：增强能力 (P1)
 
 > 目标：测试骨架可执行，强制补测试，Review 结果可追溯
 
@@ -213,6 +271,11 @@ Phase 1 ────────────────────────
   1.6 ──▶ 1.8                     ├──▶ 1.9
   1.7 ────────────────────────────┘
 
+Phase 1.5 (依赖 Phase 1) ───────────────────────────────────
+  1.5a ──▶ 1.5b ──▶ 1.5c ──▶ 1.5d ──┐
+  1.5e ──▶ 1.5f ──▶ 1.5g ──▶ 1.5h  ├──▶ 1.5i
+                                      ┘
+
 Phase 2 (依赖 Phase 1) ──────────────────────────────────────
   2.1 ──▶ 2.3 ──┐
   2.4 ──▶ 2.5   │
@@ -247,6 +310,8 @@ Phase 4 (依赖 Phase 1-3) ─────────────────�
 | 测试框架检测不准确 | 中 | 中 | 多维度检测 + fallback + 用户确认 |
 | Agent review 不稳定 | 高 | 中 | 结构化 checklist + 人工可覆盖 |
 | CI 与本地行为不一致 | 中 | 中 | 共享检查脚本，本地/CI 复用 |
+| **循环无限执行** | **低** | **高** | **循环收敛机制：最多 3 轮，否则提示人工介入** |
+| **修复 task 生成失败** | **低** | **中** | **ERROR 结构化输出 + 模板化生成** |
 
 ### 7.2 流程风险
 
@@ -274,29 +339,44 @@ Phase 4 (依赖 Phase 1-3) ─────────────────�
 
 ```yaml
 # OpenSpec Configuration
-version: "1.1"
+version: "1.2"
 
 # Pipeline gates configuration
 gates:
-  # Phase 1: TDD gates
+  # Phase 1: TDD gates (测试范围驱动)
   tdd:
     enabled: true
     test_before_implement: true     # 方案 A: 生成测试骨架
+    test_scope_driven: true         # 方案 D: 测试范围驱动（先识别范围，再运行范围测试）
     test_must_pass: true            # 方案 D: 测试必须通过
     force_test_coverage: true       # 方案 B: 强制补测试
+    scoped_test_on_task: true       # 单个 task 完成时运行范围测试
+    full_test_on_complete: true     # 所有 task 完成时运行全量测试
     skip_patterns:
       - "*.css"
       - "*.md"
       - ".gitignore"
     test_timeout: 60                # seconds
 
+  # Phase 1.5: Auto-loop gates (新增)
+  auto_loop:
+    enabled: true
+    identify_test_scope: true       # 方案 D: 识别测试范围
+    supplement_test_cases: true     # 方案 D: 补充/更新测试用例
+    lint_on_task_complete: true     # 方案 O: task 完成时即时 lint
+    lint_auto_fix: true             # 方案 O: eslint --fix / ruff --fix
+    scoped_test_on_task: true       # 方案 D: 单个 task 完成时运行范围测试
+    error_to_task: true             # 方案 P: ERROR → 生成修复 task
+    max_review_loops: 3             # 方案 Q: 最多 3 轮 Review
+    loop_convergence_prompt: true   # 方案 Q: 达到上限时提示人工介入
+
   # Phase 1-2: Review gates
   review:
     enabled: true
     auto_trigger: true              # 方案 F: 自动触发
     persist_results: true           # 方案 E: 结果持久化
-    security_deny: true             # 方案 H: 安全问题 deny
-    allow_override: true            # 非安全问题可覆盖
+    all_errors_to_tasks: true       # 方案 P: 所有 ERROR 生成 task（不区分类型）
+    re_review_after_fix: true       # 方案 P: 修复后重新 Review
 
   # Phase 2-3: Compliance gates
   compliance:
@@ -356,21 +436,28 @@ gates:
 | 里程碑 | 日期 | 交付内容 | 状态 |
 |--------|------|----------|------|
 | M1: 核心门禁 | Week 2 结束 | TDD 门禁 + 自动 Review + Lint/Type 检查 + 全量测试 | ✅ 100% 完成 |
-| M2: 增强能力 | Week 4 结束 | 可执行测试骨架 + 合规检查 C1-C8 | ⚠️ 60% 完成 |
-| M3: 合规与设计 | Week 6 结束 | design.md + Spec 合规审查 | ❌ 待实现 |
-| M4: 流水线 | Week 9 结束 | 端到端自动化 + CI 集成 | ❌ 待实现 |
+| M1.5: 自动闭环 | Week 4 结束 | 测试范围驱动 + 前移检测 + ERROR→Task闭环 + 循环收敛 | ❌ 待实现 |
+| M2: 增强能力 | Week 6 结束 | 可执行测试骨架 + 合规检查 C1-C8 | ⚠️ 60% 完成 |
+| M3: 合规与设计 | Week 8 结束 | design.md + Spec 合规审查 | ❌ 待实现 |
+| M4: 流水线 | Week 11 结束 | 端到端自动化 + CI 集成 | ❌ 待实现 |
 
 ```
-M1 ──────▶ M2 ──────▶ M3 ──────▶ M4
-Week 2      Week 4      Week 6      Week 9
- │           │           │           │
- ▼           ▼           ▼           ▼
- TDD+Review  测试增强    合规完整    自动化
- Lint+Type   合规基础⚠️   设计约束    CI集成
- 全量测试✅   C5/C10❌
+M1 ──────▶ M1.5 ────▶ M2 ──────▶ M3 ──────▶ M4
+Week 2      Week 4     Week 6     Week 8     Week 11
+ │           │          │          │          │
+ ▼           ▼          ▼          ▼          ▼
+ TDD+Review  测试范围    测试增强    合规完整    自动化
+ Lint+Type   +自动闭环   合规基础⚠️   设计约束    CI集成
+ 全量测试✅   阻断<1%     C5/C10❌
 ```
 
 **M1 已全部完成！**
+
+**M1.5 待实现项（优先级最高）：**
+- 1.5a-1.5b: 测试范围识别 (`identify_test_scope()`) + 测试补充/更新步骤
+- 1.5c-1.5d: task 完成后即时 lint/type check + 自动修复 + 范围测试运行
+- 1.5e-1.5f: ERROR → Task 生成 + Post-Review Loop
+- 1.5g-1.5h: 循环收敛机制（最多 3 轮）
 
 **M2 剩余项：**
 - C5 测试运行验证

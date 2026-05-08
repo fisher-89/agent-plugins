@@ -111,16 +111,9 @@ graph LR
     REPORT --> |安全ERROR| DENY[deny 门禁]
     REPORT --> |PASS/WARN| Commit[git commit]
     Commit --> Archive[Archive ⚠️ 无强制合规]
-
-    style SPEC fill:#9f9
-    style SKEL fill:#9f9
-    style AUTO_RV fill:#9f9
-    style REPORT fill:#9f9
-    style DENY fill:#9f9
-    style Archive fill:#ff9
 ```
 
-### 3.2 目标流程（硬约束）
+### 3.2 目标流程（自动闭环）
 
 ```mermaid
 graph LR
@@ -129,14 +122,15 @@ graph LR
     P --> |tasks| A[Apply]
     A --> |Task N| T[开始任务]
 
-    subgraph TDD_Cycle[TDD 循环]
-        T --> |PostToolUse| TEST[编写测试]
-        TEST --> | | IMPL[实现代码]
-        IMPL --> |run tests| TYPECHECK{类型/Lint检查}
-        TYPECHECK -->|不通过| IMPL
-        TYPECHECK --> |run tests| PASS{部分测试}
-        PASS -->|通过| NEXT[下一个 Task]
-        PASS -->|不通过| IMPL
+    subgraph TDD_Cycle[TDD 循环 + 测试范围驱动]
+        T --> |识别影响范围| SCOPE[测试范围]
+        SCOPE --> |补充/更新| UPDATE[测试用例]
+        UPDATE --> | | IMPL[实现代码]
+        IMPL --> |即时检测| LINT{Lint/Type检查}
+        LINT -->|错误| IMPL
+        LINT -->|通过| RUNNER{运行测试范围}
+        RUNNER -->|失败| IMPL
+        RUNNER -->|通过| NEXT[下一个 Task]
     end
 
     NEXT --> A
@@ -144,12 +138,31 @@ graph LR
     TDD_Cycle --> |所有 Task 完成| TEST_ALL{全量测试}
     TEST_ALL --> |通过| REVIEW[Code Review]
     TEST_ALL --> |不通过| A
+    REVIEW --> |持久化| REPORT[Review Report]
+    REVIEW --> |有 ERROR| GEN[生成修复 Task]
+    GEN --> |追加到 tasks.md| A
     REVIEW --> |无 ERROR| COMPLIANCE{合规检查}
     COMPLIANCE -->|通过| Archive[Archive]
-    COMPLIANCE -->|不通过| A
+    COMPLIANCE -->|不通过| GEN
 
-    style PASS fill:#9f9
-    style COMPLIANCE fill:#9f9
+
+    style 图例-SDD stroke:#01b1f1
+    style 图例-SDD stroke-width:2
+    style 图例-拦截 fill:#9a4504
+    style P stroke:#01b1f1
+    style P stroke-width:2
+    style A stroke:#01b1f1
+    style A stroke-width:2
+    style SPEC stroke:#01b1f1
+    style SPEC stroke-width:2
+    style COMPLIANCE stroke:#01b1f1
+    style COMPLIANCE stroke-width:2
+    style COMPLIANCE fill:#9a4504
+    style UPDATE fill:#9a4504
+    style LINT fill:#9a4504
+    style RUNNER fill:#9a4504
+    style TEST_ALL fill:#9a4504
+    style REVIEW fill:#9a4504
 ```
 
 ## 4. 核心问题清单
@@ -227,3 +240,75 @@ graph LR
 - Archive 前强制合规检查（C1-C10）
 - 端到端流水线编排（openspec-pipeline）
 - Spec 合规审查（C9-C10）
+
+## 6. 自动闭环策略
+
+### 6.1 核心理念
+
+**问题**：Review 发现 ERROR 传统做法是 deny 阻断，需要人为干预。
+**解决**：所有 ERROR 生成新的 task，追加到 tasks.md，重新进入 apply 循环，形成自动闭环。
+
+```
+当前: [实现] → [Review] → ❌ ERROR → deny → 人为干预
+优化: [实现] → [Review] → ⚠️ ERROR → 生成修复 Task → 继续实现 → 循环直到无 ERROR
+```
+
+### 6.2 策略矩阵
+
+| 策略 | 触发时机 | 行为 | 目标 |
+|------|---------|------|------|
+| 前移检测 + 即时修复 | 每个 task 完成后 | Lint/Type 自动修复 | 减少进入 Review 的错误 |
+| ERROR → 新 Task | Review 检测到任意 ERROR | 生成修复 task，重入 apply | 完全消除阻断 |
+| 循环收敛 | 修复 task 完成后重新 Review | 最多 3 轮，否则提示人工介入 | 防止无限循环 |
+
+### 6.3 流程闭环
+
+```
+Propose (生成 tasks.md)
+    ↓
+Apply (执行 tasks)
+    ↓
+Review (检测问题)
+    ├─ 无 ERROR → Archive ✓
+    └─ 有 ERROR → 生成修复 tasks → 追加到 tasks.md → 重新 Apply
+                                          ↓
+                                      Review
+                                          ↓
+                                      无 ERROR → Archive ✓
+```
+
+### 6.4 Task 生成规则
+
+Review 发现的每个 ERROR 生成一个 task：
+
+```markdown
+- [ ] Fix: <ERROR 描述> (<file>:<line>)
+  - Category: <Logical/Security/NullHandling/...>
+  - Current: <问题代码片段>
+  - Suggested: <修复建议>
+```
+
+示例：
+```markdown
+- [ ] Fix: SQL injection vulnerability in user lookup (auth.js:67)
+  - Category: Security
+  - Current: `query("SELECT * FROM users WHERE id=" + id)`
+  - Suggested: Use parameterized query `query("SELECT * FROM users WHERE id=$1", [id])`
+```
+
+### 6.5 循环收敛机制
+
+防止无限循环：
+
+| 轮次 | 行为 |
+|------|------|
+| 第 1 轮 Review | ERROR → 生成修复 task → 继续 |
+| 第 2 轮 Review | ERROR → 生成修复 task → 继续 |
+| 第 3 轮 Review | 仍有 ERROR → **提示人工介入**，暂停流程 |
+
+### 6.6 预期效果
+
+- **当前阻断率**: ~30%（ERROR 导致 deny）
+- **优化后阻断率**: <1%（仅剩 3 轮后仍有 ERROR 的极端情况）
+- **人为干预频率**: 从每 3-4 次 commit 一次干预 → 极少需要干预
+- **平均修复轮次**: 1-2 轮 Review 即可通过

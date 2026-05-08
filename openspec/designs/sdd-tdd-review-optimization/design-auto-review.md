@@ -352,84 +352,42 @@ Produce a structured report following this template:
 
 ---
 
-## 4. 方案 H：Review 门禁
+## 4. 方案 H：Review 门禁（已废弃）
 
-> **状态**: ✅ 已实现
+> **状态**: ⚠️ 已废弃
 >
-> **实现文件**:
-> - `plugin/hooks/pre-tool-commit-review.py` — 安全问题 deny，多次追溯
-> - `plugin/agents/code-review.md` — 安全检查项，结构化输出
+> **原因**: 方案 P (ERROR → Task 闭环) 已消除阻断需求
+>
+> **原设计**: 安全 ERROR deny 阻断
+> **新设计**: 所有 ERROR → 生成修复 task → 重入 apply
 
-### 4.1 设计原则
+### 4.1 设计演变
 
-**软约束 vs 硬约束**：
+```
+原方案 H:
+  Review → 安全 ERROR → deny → 人为干预
 
-| 约束类型 | 实现 | 适用场景 |
-|----------|------|----------|
-| 软约束 | `permissionDecision: "allow"` + context | 大多数情况，给开发者灵活性 |
-| 硬约束 | `permissionDecision: "deny"` | 严重安全问题时 |
-
-### 4.2 门禁规则
-
-```python
-def evaluate_review_gate(review_result: dict) -> str:
-    """
-    Determine permission decision based on review result.
-
-    Returns: "allow" or "deny"
-    """
-    errors = review_result.get("errors", [])
-
-    # Always deny for security issues
-    security_errors = [e for e in errors if e["category"] == "Security"]
-    if security_errors:
-        return "deny"
-
-    # Allow but warn for other errors (developer can override)
-    if errors:
-        return "allow"  # with strong warning context
-
-    return "allow"
+新方案 P:
+  Review → 任意 ERROR → 生成修复 task → 继续 apply → 循环收敛
 ```
 
-### 4.3 安全问题硬约束
+### 4.2 保留的门禁
 
-当检测到以下问题时，`permissionDecision: "deny"`:
-
-| 问题类型 | 示例 |
-|----------|------|
-| SQL 注入 | 字符串拼接 SQL |
-| 认证绕过 | 缺少 auth middleware |
-| 敏感数据泄露 | 密码明文日志 |
-| 命令注入 | unsanitized input to exec() |
-
-**deny 时的处理**:
+仅保留 Lint/Type/Test 门禁作为前置检查（方案 O）：
 
 ```python
-context = (
-    f"CRITICAL: Security issue detected - {error_description}. "
-    f"Commit BLOCKED. Fix the security issue before proceeding."
-)
-output_result("deny", context)
-```
+def evaluate_pre_gates(cwd):
+    """前置门禁：Lint/Type/Test 检查（即时修复，不阻断）"""
+    lint_result = run_lint(cwd)
+    if lint_result.errors:
+        auto_fix(lint_result.errors)  # 自动修复
+        return "re_check"
 
-### 4.4 用户覆盖机制
+    test_result = run_tests(cwd)
+    if test_result.failed:
+        return "fix_tests"  # 提示修复测试，但不 deny
 
-对于非安全类 ERROR，允许用户确认后覆盖：
-
-```markdown
-### Override Protocol
-
-If user explicitly says "commit anyway" or "override review":
-1. Log override in review report
-2. Add override reason to commit message:
-   ```
-   feat(change): complete implementation
-
-   Review override: <reason>
-   WARN-1 acknowledged, deferred to later.
-   ```
-3. Proceed with commit
+    return "continue"
 ```
 
 ---
@@ -466,49 +424,65 @@ Claude: All 7 tasks complete. Running code review...
 Claude: Code review PASSED. No critical issues.
        Report saved to: test-reports/code-review-20260430-143000.md
 
-       Proceeding to commit...
-
-       Created commit: feat(add-user-auth): complete implementation
+       Proceeding to archive...
 ```
 
-### 6.2 阻断流程 (Review BLOCK)
+### 6.2 闭环流程 (Review 有 ERROR)
 
 ```
 Claude: All 7 tasks complete. Running code review...
 
 [Agent launches review]
 
-Claude: Code review BLOCKED. 2 ERROR(s) found:
+Claude: Code review found 2 ERROR(s). Generating fix tasks...
 
        [ERROR-1] src/routes/auth.js:45
        Missing null check for req.body.email
-       Fix: Add if (!req.body?.email) return res.status(400)...
 
        [ERROR-2] src/routes/auth.js:67
        SQL injection vulnerability in user lookup
-       Fix: Use parameterized query...
 
        Report saved to: test-reports/code-review-20260430-143000.md
 
-       Fix these issues before committing.
-       Options:
-       1. Fix ERROR-1 and ERROR-2
-       2. Override (only for non-security issues)
+       Generated 2 fix tasks:
+       - [ ] Fix: Missing null check for req.body.email (auth.js:45)
+       - [ ] Fix: SQL injection in user lookup (auth.js:67)
+
+       Continuing implementation...
+
+[Apply fix tasks]
+
+Claude: Fix tasks complete. Running code review (round 2)...
+
+[Agent launches review]
+
+Claude: Code review PASSED. All issues resolved.
+       Report saved to: test-reports/code-review-20260430-143500.md
+
+       Proceeding to archive...
 ```
 
-### 6.3 安全阻断 (deny)
+### 6.3 收敛流程 (3 轮后仍有 ERROR)
 
 ```
-Claude: Attempting to commit...
+Claude: Code review round 3 found 1 ERROR(s).
+       Review loop has reached maximum (3 rounds).
 
-[Hook fires, detects security ERROR from review]
+       Remaining issue:
+       [ERROR-1] Complex architectural issue in auth module
 
-Hook: COMMIT BLOCKED - Security issue detected.
-      SQL injection in src/routes/auth.js:67.
-      Fix the issue before committing.
+       ⚠️ Manual intervention required.
+       This may indicate:
+       1. The issue needs human judgment
+       2. Auto-fix capability is insufficient
+       3. Circular dependency between issues
 
-Claude: Commit was blocked by security gate.
-       Fix the SQL injection in auth.js first.
+       Suggestion:
+       - Review latest report: test-reports/code-review-*.md
+       - Fix remaining ERROR manually
+       - Run /opsx:apply to continue
+
+       Pausing for manual intervention.
 ```
 
 ---
@@ -528,7 +502,169 @@ Claude: Commit was blocked by security gate.
 
 - [x] apply-change 完成后自动启动 code review
 - [x] Review 结果持久化到 test-reports/
-- [x] ERROR 级问题阻止提交（软约束 + 安全硬约束）
-- [x] 安全问题 deny 门禁生效
-- [x] 用户可覆盖非安全类 ERROR
+- [ ] ERROR 级问题生成新 task，追加到 tasks.md
+- [ ] 修复 task 完成后自动重新 Review
+- [ ] 循环收敛：最多 3 轮，否则提示人工介入
 - [x] 多次 review 可追溯
+
+---
+
+## 9. ERROR → Task 生成闭环 (方案 P)
+
+> **状态**: ❌ 待实现
+>
+> **优先级**: P0
+>
+> **目标**: 所有 ERROR 生成修复 task，形成自动闭环，消除阻断
+
+### 9.1 核心设计
+
+**原则**：Review 发现的任意 ERROR（不区分类型）都生成新的修复 task，追加到 tasks.md，重新进入 apply 循环。
+
+```
+Review 发现 ERROR
+    ↓
+生成修复 task
+    ↓
+追加到 tasks.md
+    ↓
+重新执行 apply-change
+    ↓
+修复 task 完成
+    ↓
+重新 Review
+    ↓
+├─ 无 ERROR → Archive ✓
+└─ 有 ERROR → 继续循环（最多 3 轮）
+```
+
+### 9.2 Task 生成规则
+
+每个 ERROR 生成一个 task，格式：
+
+```markdown
+- [ ] Fix: <简短描述> (<file>:<line>)
+  - **Category**: <Logical/Security/NullHandling/Redundant/...>
+  - **Current**: `<问题代码片段>`
+  - **Suggested**: `<修复建议>`
+  - **Review**: <review-report-path>
+```
+
+**示例**：
+
+```markdown
+- [ ] Fix: SQL injection vulnerability in user lookup (src/routes/auth.js:67)
+  - **Category**: Security
+  - **Current**: `db.query("SELECT * FROM users WHERE id=" + userId)`
+  - **Suggested**: `db.query("SELECT * FROM users WHERE id=$1", [userId])`
+  - **Review**: test-reports/code-review-20260508-103000.md
+
+- [ ] Fix: Missing null check for req.body.email (src/routes/auth.js:45)
+  - **Category**: Null Handling
+  - **Current**: `const email = req.body.email`
+  - **Suggested**: `if (!req.body?.email) return res.status(400).json({error: "Email required"})`
+  - **Review**: test-reports/code-review-20260508-103000.md
+```
+
+### 9.3 循环收敛机制
+
+防止无限循环：
+
+```python
+# .wps_claude/review-loop-state.json
+{
+  "change": "add-user-auth",
+  "loop_count": 2,
+  "max_loops": 3,
+  "errors_fixed": 5,
+  "current_errors": 1,
+  "history": [
+    {"round": 1, "errors": 5, "tasks_generated": 5},
+    {"round": 2, "errors": 1, "tasks_generated": 1}
+  ]
+}
+```
+
+| 轮次 | 行为 | 说明 |
+|------|------|------|
+| 第 1 轮 | ERROR → 生成 task → 继续 | 正常修复 |
+| 第 2 轮 | ERROR → 生成 task → 继续 | 遗留问题修复 |
+| 第 3 轮 | 仍有 ERROR → **暂停，提示人工介入** | 防止无限循环 |
+
+**人工介入提示**：
+```markdown
+⚠️ Review 循环已达到 3 轮上限，仍有 1 ERROR 未修复。
+
+这可能表示：
+1. 问题需要人工判断（如架构问题）
+2. 自动修复能力不足
+3. 问题之间存在循环依赖
+
+建议：
+- 查看最新 Review 报告：test-reports/code-review-*.md
+- 手动修复剩余 ERROR
+- 修复后运行 `/opsx:apply` 继续
+```
+
+### 9.4 SKILL.md 改造
+
+**openspec-apply-change SKILL.md**：
+
+```markdown
+### Step 8: Post-Review Loop (新增)
+
+After Code Review:
+
+1. **Parse Review Result**:
+   - Read the latest review report
+   - Extract all ERROR entries
+   - Count errors by category
+
+2. **If No ERROR**:
+   - Proceed to Step 9 (Compliance Check)
+   - Continue to Archive
+
+3. **If Has ERROR**:
+   - Check loop count from `.wps_claude/review-loop-state.json`
+   - If loop_count >= 3:
+     - **PAUSE**: Show manual intervention prompt
+     - Wait for user action
+   - Else:
+     - Generate fix tasks from ERROR entries
+     - Append tasks to `openspec/changes/<name>/tasks.md`
+     - Increment loop_count
+     - **Continue to Step 6** (Implement tasks)
+
+### Step 9: Compliance Check
+
+(原 Step 8)
+```
+
+### 9.5 文件改造清单
+
+| 文件 | 改动 |
+|------|------|
+| `plugin/skills/openspec-apply-change/SKILL.md` | 增加 Step 8 循环处理 |
+| `plugin/utils/review-parser.py` | 解析 ERROR 并生成 task |
+| `plugin/utils/review-loop-state.py` | 循环状态管理 |
+| `plugin/templates/fix-task.md` | 修复 task 模板 |
+
+### 9.6 预期效果
+
+- **阻断率**：从 ~30% 降至 <1%（仅 3 轮后仍有 ERROR 的极端情况）
+- **平均修复轮次**：1-2 轮
+- **人为干预频率**：极少
+
+### 9.7 与前移检测的配合
+
+```
+[Task 完成] → [即时 Lint/Type 检查] → [自动修复] → [继续]
+      ↓
+[所有 Task 完成] → [Review] → [ERROR → 生成 task → 重入 Apply]
+                              ↓
+                         [修复 Task 完成] → [Review] → [无 ERROR → Archive]
+```
+
+**前移检测** 减少 Lint/Type 错误进入 Review
+**ERROR → Task** 处理 Review 发现的所有其他问题
+**双重保障** 确保流程自动闭环
