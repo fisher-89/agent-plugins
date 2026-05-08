@@ -33,6 +33,11 @@ def detect_test_framework(project_root: str) -> Tuple[str, str]:
         if framework != "unknown":
             return (framework, runner)
 
+    # Check for Rust project
+    cargo_toml = os.path.join(project_root, "Cargo.toml")
+    if os.path.isfile(cargo_toml):
+        return ("cargo-test", "cargo test")
+
     # Check for Python project
     pyproject_toml = os.path.join(project_root, "pyproject.toml")
     if os.path.isfile(pyproject_toml):
@@ -156,6 +161,7 @@ def get_test_file_extension(framework: str) -> str:
         "pytest": "_test.py",
         "unittest": "_test.py",
         "nose": "_test.py",
+        "cargo-test": "_tests.rs",
     }
     return extensions.get(framework, ".test.js" if framework != "unknown" else "")
 
@@ -180,7 +186,10 @@ def get_test_dir(project_root: str, framework: str) -> str:
             return path
 
     # Default based on framework
-    if framework in ("pytest", "unittest", "nose"):
+    if framework == "cargo-test":
+        # Rust tests are colocated with source files
+        return os.path.join(project_root, "src")
+    elif framework in ("pytest", "unittest", "nose"):
         return os.path.join(project_root, "tests")
     else:
         return os.path.join(project_root, "__tests__")

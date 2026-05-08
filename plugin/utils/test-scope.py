@@ -355,39 +355,35 @@ def _identify_by_pattern(
     return affected, tests, missing
 
 
-def map_to_test_file(source_file: str, tests_dir: str) -> str:
+def map_to_test_file(source_file: str, tests_dir: str = None) -> str:
     """
     Map a source file to its corresponding test file path.
 
+    Tests are colocated with source files (tests_dir is ignored).
+
     Examples:
-        src/routes/auth.js -> tests/routes/auth.test.js
-        src/auth.py -> tests/test_auth.py
-        lib/user.ts -> tests/user.test.ts
+        src/routes/auth.js -> src/routes/auth.test.js
+        src/auth.py -> src/test_auth.py
+        lib/user.ts -> lib/user.test.ts
+        src/auth.rs -> src/auth_tests.rs
     """
     basename = os.path.basename(source_file)
     name, ext = os.path.splitext(basename)
+    dir_path = os.path.dirname(source_file)
 
     # Determine test file naming convention
-    if ext in ('.py',):
+    if ext == '.py':
         # Python: test_<name>.py
         test_name = f"test_{name}.py"
+    elif ext == '.rs':
+        # Rust: <name>_tests.rs
+        test_name = f"{name}_tests.rs"
     else:
         # JavaScript/TypeScript: <name>.test.<ext>
         test_name = f"{name}.test{ext}"
 
-    # Preserve directory structure if it exists under src/
-    dir_path = os.path.dirname(source_file)
-
-    # Check if source file is under src/
-    if 'src' in dir_path:
-        # Remove 'src' prefix and add to tests
-        rel_dir = os.path.relpath(dir_path, os.path.dirname(dir_path))
-        if rel_dir.startswith('src') or rel_dir.startswith('src' + os.sep):
-            rel_dir = rel_dir[4:]  # Remove 'src/' or 'src\\'
-            if rel_dir:
-                return os.path.join(tests_dir, rel_dir, test_name)
-
-    return os.path.join(tests_dir, test_name)
+    # Place test file in same directory as source file
+    return os.path.join(dir_path, test_name)
 
 
 def get_test_run_command(
@@ -422,6 +418,12 @@ def get_test_run_command(
         cmd_parts.extend(test_files)
         if test_pattern:
             cmd_parts.extend(['-k', test_pattern])
+        return ' '.join(cmd_parts)
+
+    elif framework == 'cargo-test':
+        cmd_parts = ['cargo', 'test']
+        if test_pattern:
+            cmd_parts.extend([test_pattern])
         return ' '.join(cmd_parts)
 
     return ""

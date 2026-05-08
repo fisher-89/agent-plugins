@@ -549,14 +549,19 @@ def load_config(project_root: str) -> dict:
         # Simple YAML parsing for compliance section
         config = {}
         in_compliance = False
+        compliance_indent = None
         for line in content.splitlines():
             stripped = line.strip()
             if stripped.startswith("compliance:"):
                 in_compliance = True
+                compliance_indent = len(line) - len(line.lstrip())
                 continue
             if in_compliance:
-                if stripped and not stripped.startswith("#") and not stripped.startswith("-"):
-                    if ":" in stripped and not stripped[0].isspace():
+                # Check if we've left the compliance section (new top-level key)
+                if stripped and not stripped.startswith("#"):
+                    current_indent = len(line) - len(line.lstrip())
+                    # New section if same or less indent than compliance section
+                    if current_indent <= compliance_indent and ":" in stripped and not stripped.startswith("-"):
                         in_compliance = False
                         continue
                     # Parse key: value

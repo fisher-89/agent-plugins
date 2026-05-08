@@ -2,12 +2,71 @@
 """
 Hook: UserPromptSubmit - Check and update openspec change documents before processing.
 Detects active openspec changes and provides context to Claude for reviewing/updating documents.
+Includes intent detection to suggest OpenSpec workflow on first conversation.
 """
 
 import json
 import os
 import re
 import sys
+
+
+def detect_intent(prompt: str) -> dict:
+    """
+    Detect user intent from prompt text.
+
+    Returns:
+        {
+            "type": "new_feature" | "fix" | "refactor" | "explore" | "archive" | "none",
+            "confidence": "high" | "medium" | "low",
+            "keywords": [matched keywords]
+        }
+    """
+    patterns = {
+        "new_feature": [
+            r"实现", r"添加", r"新增", r"增加", r"开发",
+            r"\badd\b", r"\bimplement\b", r"\bcreate\b", r"\bdevelop\b",
+            r"\bfeature\b", r"\bnew\b"
+        ],
+        "fix": [
+            r"修复", r"解决", r"改正",
+            r"\bfix\b", r"\bbug\b", r"\bresolve\b", r"\bpatch\b"
+        ],
+        "refactor": [
+            r"重构", r"优化", r"改进",
+            r"\brefactor\b", r"\boptimize\b", r"\bimprove\b", r"\bclean\b"
+        ],
+        "explore": [
+            r"分析", r"理解", r"研究", r"查看", r"了解",
+            r"\banalyze\b", r"\bunderstand\b", r"\bexplore\b", r"\binvestigate\b"
+        ],
+        "archive": [
+            r"归档", r"完成", r"结束",
+            r"\barchive\b", r"\bdone\b", r"\bcomplete\b", r"\bfinish\b"
+        ]
+    }
+
+    matched = {}
+    for intent_type, regex_list in patterns.items():
+        for pattern in regex_list:
+            if re.search(pattern, prompt, re.IGNORECASE):
+                matched[intent_type] = matched.get(intent_type, 0) + 1
+
+    if not matched:
+        return {"type": "none", "confidence": "low", "keywords": []}
+
+    # Find best match
+    best_type = max(matched, key=matched.get)
+    count = matched[best_type]
+
+    if count >= 2:
+        confidence = "high"
+    elif count == 1:
+        confidence = "medium"
+    else:
+        confidence = "low"
+
+    return {"type": best_type, "confidence": confidence, "keywords": list(matched.keys())}
 
 
 def main():
@@ -17,23 +76,46 @@ def main():
     cwd = input_data.get("cwd", "")
 
     changes_dir = os.path.join(cwd, "openspec", "changes")
-
-    # No changes directory or it doesn't exist
-    if not os.path.isdir(changes_dir):
-        output_result("")
-        return
+    openspec_exists = os.path.isdir(changes_dir)
 
     # Find active changes (not in archive)
     active_changes = []
-    try:
-        for entry in os.listdir(changes_dir):
-            entry_path = os.path.join(changes_dir, entry)
-            if os.path.isdir(entry_path) and entry != "archive":
-                active_changes.append((entry, entry_path))
-    except OSError:
-        output_result("")
-        return
+    if openspec_exists:
+        try:
+            for entry in os.listdir(changes_dir):
+                entry_path = os.path.join(changes_dir, entry)
+                if os.path.isdir(entry_path) and entry != "archive":
+                    active_changes.append((entry, entry_path))
+        except OSError:
+            pass
 
+    # === Intent Detection (首轮对话) ===
+    # If no active changes and OpenSpec exists, detect intent and suggest workflow
+    if not active_changes and openspec_exists:
+        intent = detect_intent(prompt)
+
+        if intent["type"] != "none" and intent["confidence"] in ("high", "medium"):
+            lines = [
+                "=== OpenSpec Workflow Suggestion ===",
+                "",
+                f"Detected intent: **{intent['type']}** (confidence: {intent['confidence']})",
+                "",
+                "This appears to be a development task. Would you like to use OpenSpec workflow?",
+                "",
+                "**Benefits:**",
+                "- Structured specification before implementation",
+                "- Test-driven development with auto-generated test skeletons",
+                "- Automatic code review and compliance checks",
+                "- Traceable changes from proposal to archive",
+                "",
+                "**To start:** Reply with `/openspec-explore` to begin the explore phase.",
+                "**To skip:** Just say 'no' or continue with your current approach.",
+                "",
+            ]
+            output_result("\n".join(lines))
+            return
+
+    # No changes directory or no active changes
     if not active_changes:
         output_result("")
         return

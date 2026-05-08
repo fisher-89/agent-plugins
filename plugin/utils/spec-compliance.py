@@ -815,7 +815,7 @@ def _find_extra_features(
         route_path = route.path.rstrip("/").lower()
 
         # Skip common non-feature routes
-        if route_path in ("/", "/health", "/ping", "/status", "/favicon.ico"):
+        if route_path in ("", "/", "/health", "/ping", "/status", "/favicon.ico"):
             continue
 
         # Check if this route was mentioned in proposal
