@@ -10,7 +10,14 @@
 wps_claude plugin marketplace add https://ksogitlab.kso.net/zhangbohan3/wps-agent-plugin.git
 ```
 
-安装后，插件会自动加载到 Claude Code 会话中。
+安装插件
+
+```bash
+wps_claude plugin install <插件名称>@wps-ai
+
+# 清单
+wps_claude plugin install dev-team@wps-ai
+```
 
 ## 插件清单
 
