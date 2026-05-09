@@ -16,9 +16,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
 UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
 
-# Add utils to path for import
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
+
+from hook_output import output_pre_tool_use
 
 try:
     import importlib.util
@@ -75,32 +76,32 @@ def main():
 
     # Only intercept Write and Edit
     if tool_name not in ("Write", "Edit"):
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     file_path = tool_input.get("file_path", "")
 
     # Skip if the file being written is already a test file
     if is_test_file(file_path, cwd):
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     # Skip if the file is inside the openspec directory
     if is_openspec_artifact(file_path, cwd):
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     # No changes directory
     if not os.path.isdir(changes_dir):
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     # Find active change (uses shared module with priority ordering)
     active_change = find_active_change(changes_dir, cwd)
     if not active_change:
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     change_name, change_dir = active_change
@@ -137,7 +138,7 @@ def main():
             f"Write tests first, then implement."
         )
 
-    output_result("allow", context)
+    output_pre_tool_use("allow", context)
 
 
 def is_test_file(file_path, cwd):
@@ -213,19 +214,6 @@ def map_source_to_test(file_path, cwd):
 
     # Unknown extension — cannot determine test file
     return None
-
-
-def output_result(decision, additional_context):
-    """Output the hook result as JSON."""
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": decision,
-        }
-    }
-    if additional_context:
-        result["hookSpecificOutput"]["additionalContext"] = additional_context
-    json.dump(result, sys.stdout)
 
 
 if __name__ == "__main__":

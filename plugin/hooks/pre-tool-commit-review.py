@@ -25,9 +25,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
 UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
 
-# Add utils to path for import
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
+
+from hook_output import output_pre_tool_use
 
 try:
     import importlib.util
@@ -142,21 +143,21 @@ def main():
 
     # Only intercept Bash tool calls
     if tool_name != "Bash":
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     command = tool_input.get("command", "")
 
     # Check if this is a git commit command (skip --amend)
     if not is_git_commit_command(command) or "--amend" in command:
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     # No changes directory
     if not os.path.isdir(changes_dir):
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     # Find active change (uses shared module with priority ordering)
@@ -165,9 +166,9 @@ def main():
         # No active change — fall back to basic review suggestion
         staged_context = build_staged_files_context(cwd)
         if staged_context:
-            output_result("allow", staged_context)
+            output_pre_tool_use("allow", staged_context)
         else:
-            output_result("allow", "")
+            output_pre_tool_use("allow", "")
         return
 
     change_name, change_dir = active_change
@@ -183,21 +184,21 @@ def main():
                     f"REPORT CHAIN INCOMPLETE for task {current_task}: {err}. "
                     f"Ensure you executed: test-scope → lint → scoped-test with --save-report."
                 )
-                output_result("deny", context)
+                output_pre_tool_use("deny", context)
                 return
 
     # === Phase 1: Type/Lint Checks ===
     lint_context = run_lint_type_checks(cwd)
     if lint_context:
         # Lint/type errors found — deny
-        output_result("deny", lint_context)
+        output_pre_tool_use("deny", lint_context)
         return
 
     # === Phase 1: Full Test Suite ===
     test_context = run_full_tests(cwd)
     if test_context:
         # Test failures found — deny
-        output_result("deny", test_context)
+        output_pre_tool_use("deny", test_context)
         return
 
     # Find review reports
@@ -214,7 +215,7 @@ def main():
         )
         if staged_context:
             context += " " + staged_context
-        output_result("allow", context)
+        output_pre_tool_use("allow", context)
         return
 
     # Get latest review
@@ -234,7 +235,7 @@ def main():
             f"Fix the security issues before committing. "
             f"Review report: test-reports/{os.path.basename(latest_review['path'])}"
         )
-        output_result("deny", context)
+        output_pre_tool_use("deny", context)
         return
 
     # Phase 2.6: Non-security errors → ERROR→Task instruction
@@ -267,7 +268,7 @@ def main():
             f"   to implement the fix tasks.\n"
             f"This ensures all review errors are addressed before commit."
         )
-        output_result("allow", context)
+        output_pre_tool_use("allow", context)
         return
 
     # Review passed — allow with confirmation
@@ -275,7 +276,7 @@ def main():
         f"Code review PASSED for change '{change_name}'. "
         f"Proceeding with commit."
     )
-    output_result("allow", context)
+    output_pre_tool_use("allow", context)
 
 
 def is_git_commit_command(command):
@@ -399,19 +400,6 @@ def parse_staged_files(stat_output):
             if filename:
                 files.append(filename)
     return files
-
-
-def output_result(decision, additional_context):
-    """Output the hook result as JSON."""
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": decision,
-        }
-    }
-    if additional_context:
-        result["hookSpecificOutput"]["additionalContext"] = additional_context
-    json.dump(result, sys.stdout)
 
 
 def run_lint_type_checks(cwd):

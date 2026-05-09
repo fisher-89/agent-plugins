@@ -17,9 +17,10 @@ SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
 PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
 UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
 
-# Add utils to path for import
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
+
+from hook_output import output_pre_tool_use
 
 try:
     import importlib.util
@@ -59,7 +60,7 @@ def main():
 
     # Only intercept Skill tool calls
     if tool_name != "Skill":
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     skill_name = tool_input.get("skill", "")
@@ -70,7 +71,7 @@ def main():
     elif "apply" in skill_name:
         handle_apply_skill(cwd)
     else:
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
 
 
 def handle_archive_skill(cwd):
@@ -78,13 +79,13 @@ def handle_archive_skill(cwd):
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     if not os.path.isdir(changes_dir):
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     # Find active change
     active_change = find_active_change(changes_dir, cwd)
     if not active_change:
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     change_name, change_dir = active_change
@@ -94,7 +95,7 @@ def handle_archive_skill(cwd):
 
     if not os.path.isfile(compliance_check_path):
         # Compliance checker not available — allow with warning
-        output_result(
+        output_pre_tool_use(
             "allow",
             f"Compliance checker not available. Proceeding with archive of '{change_name}'."
         )
@@ -109,7 +110,7 @@ def handle_archive_skill(cwd):
 
         if result.returncode != 0:
             # Compliance check failed to run — allow with warning
-            output_result(
+            output_pre_tool_use(
                 "allow",
                 f"Compliance check failed to run for '{change_name}'. Proceeding with archive."
             )
@@ -125,17 +126,17 @@ def handle_archive_skill(cwd):
                 f"{issues}\n"
                 f"Fix these issues before archiving, or explicitly override."
             )
-            output_result("deny", context)
+            output_pre_tool_use("deny", context)
             return
 
     except subprocess.TimeoutExpired:
-        output_result(
+        output_pre_tool_use(
             "allow",
             f"Compliance check timed out for '{change_name}'. Proceeding with archive."
         )
         return
     except (json.JSONDecodeError, OSError) as e:
-        output_result(
+        output_pre_tool_use(
             "allow",
             f"Compliance check error for '{change_name}': {e}. Proceeding with archive."
         )
@@ -151,16 +152,16 @@ def handle_archive_skill(cwd):
                 f"Issues:\n" + "\n".join(f"  - {i}" for i in issues) + "\n"
                 f"Ensure all tasks have complete report chains before archiving."
             )
-            output_result("deny", context)
+            output_pre_tool_use("deny", context)
             return
 
         # Check final reports
         ok, err = check_final_reports(change_dir)
         if not ok:
-            output_result("deny", f"ARCHIVE BLOCKED: {err}")
+            output_pre_tool_use("deny", f"ARCHIVE BLOCKED: {err}")
             return
 
-    output_result("allow", f"Compliance check and report chains passed for '{change_name}'.")
+    output_pre_tool_use("allow", f"Compliance check and report chains passed for '{change_name}'.")
 
 
 def handle_apply_skill(cwd):
@@ -168,13 +169,13 @@ def handle_apply_skill(cwd):
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     if not os.path.isdir(changes_dir):
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     active_change = find_active_change(changes_dir, cwd)
 
     if not active_change:
-        output_result("allow", "")
+        output_pre_tool_use("allow", "")
         return
 
     change_name, change_dir = active_change
@@ -197,7 +198,7 @@ def handle_apply_skill(cwd):
                     f"Loop {loop_count}/{max_loops} reached. "
                     f"Manual intervention required."
                 )
-                output_result("allow", context)
+                output_pre_tool_use("allow", context)
                 return
 
             if status == "running" and current_errors > 0:
@@ -207,13 +208,13 @@ def handle_apply_skill(cwd):
                     f"Fix tasks have been appended to tasks.md. "
                     f"Implement the fix tasks before proceeding."
                 )
-                output_result("allow", context)
+                output_pre_tool_use("allow", context)
                 return
 
         except (json.JSONDecodeError, OSError):
             pass
 
-    output_result("allow", "")
+    output_pre_tool_use("allow", "")
 
 
 def format_blocking_issues(issues):
@@ -231,19 +232,6 @@ def format_blocking_issues(issues):
         lines.append(f"  ... (+{len(issues) - 5} more)")
 
     return "\n".join(lines)
-
-
-def output_result(decision, additional_context):
-    """Output the hook result as JSON."""
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "PreToolUse",
-            "permissionDecision": decision,
-        }
-    }
-    if additional_context:
-        result["hookSpecificOutput"]["additionalContext"] = additional_context
-    json.dump(result, sys.stdout)
 
 
 if __name__ == "__main__":

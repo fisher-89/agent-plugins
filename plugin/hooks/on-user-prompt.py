@@ -10,6 +10,16 @@ import os
 import re
 import sys
 
+# Import shared hook output utility
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
+UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
+
+if UTILS_DIR not in sys.path:
+    sys.path.insert(0, UTILS_DIR)
+
+from hook_output import output_user_prompt_submit
+
 
 def detect_intent(prompt: str) -> dict:
     """
@@ -112,12 +122,12 @@ def main():
                 "**To skip:** Just say 'no' or continue with your current approach.",
                 "",
             ]
-            output_result("\n".join(lines))
+            output_user_prompt_submit("\n".join(lines))
             return
 
     # No changes directory or no active changes
     if not active_changes:
-        output_result("")
+        output_user_prompt_submit("")
         return
 
     # Build context about existing changes
@@ -184,7 +194,7 @@ def main():
                     "",
                 ])
 
-    output_result("\n".join(lines))
+    output_user_prompt_submit("\n".join(lines))
 
 
 def count_tasks(tasks_path):
@@ -201,17 +211,6 @@ def count_tasks(tasks_path):
     except OSError:
         pass
     return total, done
-
-
-def output_result(additional_context):
-    """Output the hook result as JSON."""
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "UserPromptSubmit",
-            "additionalContext": additional_context,
-        }
-    }
-    json.dump(result, sys.stdout)
 
 
 if __name__ == "__main__":

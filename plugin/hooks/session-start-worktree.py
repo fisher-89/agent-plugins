@@ -12,9 +12,23 @@ import os
 import subprocess
 import sys
 
+# Import shared hook output utility
+SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
+PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
+UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
+
+if UTILS_DIR not in sys.path:
+    sys.path.insert(0, UTILS_DIR)
+
+from hook_output import output_session_start
+
 
 def get_git_status():
-    """Get git status info: current branch, uncommitted files, worktree status."""
+    """
+    Get git status info: current branch, uncommitted files, worktree status.
+
+    Returns tuple: (result_dict, error_message or None)
+    """
     result = {
         "branch": None,
         "has_uncommitted": False,
@@ -68,32 +82,32 @@ def get_git_status():
                     filename = line[3:] if line[1] == " " else line[2:]
                     result["uncommitted_files"].append(filename)
 
-    except subprocess.CalledProcessError:
-        # Not a git repo
-        pass
+        return result, None
 
-    return result
-
-
-def output_result(additional_context):
-    """Output the hook result as JSON."""
-    result = {
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": additional_context,
-        }
-    }
-    json.dump(result, sys.stdout)
+    except subprocess.CalledProcessError as e:
+        # Not a git repo or git command failed
+        error_msg = f"Git command failed: {e}"
+        if e.stderr:
+            error_msg += f" (stderr: {e.stderr.decode() if isinstance(e.stderr, bytes) else e.stderr})"
+        return result, error_msg
+    except Exception as e:
+        # Unexpected error
+        return result, f"Unexpected error checking git status: {e}"
 
 
 def main():
-    status = get_git_status()
+    status, error = get_git_status()
+
+    # If there was an error checking git status, output the error
+    if error:
+        output_session_start(f"Session worktree hook error: {error}")
+        return
 
     # Only suggest worktree if:
     # 1. In main working tree (not already in a worktree)
     # 2. Have uncommitted changes
     if status["is_worktree"] or not status["has_uncommitted"]:
-        output_result("")
+        output_session_start()
         return
 
     # Build context message
@@ -114,7 +128,7 @@ def main():
         f"Consider asking the user if they want to create a worktree for isolated work."
     )
 
-    output_result(context)
+    output_session_start(context)
 
 
 if __name__ == "__main__":
