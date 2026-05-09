@@ -1,13 +1,12 @@
 #!/usr/bin/env python3
 """
-Hook: SessionStart - Ensure OpenSpec CLI is available.
+Hook: SessionStart - Ensure OpenSpec CLI is available and initialized.
 
-Checks if openspec CLI is installed. If not, prompts user to install.
-No skill sync logic - openspec CLI is the source of truth for skills.
+Checks:
+1. If openspec CLI is installed
 """
 
 import json
-import os
 import shutil
 import sys
 
@@ -16,42 +15,34 @@ def check_openspec_installed():
     """Check if openspec CLI is available in PATH."""
     return shutil.which("openspec") is not None
 
+def output_result(message: str | None = None, stop: bool = False):
+    """
+    Output the hook result as JSON.
 
-def output_result(additional_context):
-    """Output the hook result as JSON."""
+    JSON is only processed on exit code 0, so we always exit 0 and use additionalContext
+    to communicate issues.
+    """
     result = {
-        "hookSpecificOutput": {
-            "hookEventName": "SessionStart",
-            "additionalContext": additional_context,
-        }
+        "continue": not stop,
+        "suppressOutput": False,
+        "systemMessage": message,
     }
-    json.dump(result, sys.stdout)
+    print(json.dumps(result))
+    sys.exit(0)
 
 
 def main():
-    # Support standalone check
-    if len(sys.argv) > 1 and sys.argv[1] == "--check":
-        if check_openspec_installed():
-            print("openspec CLI is installed.")
-            sys.exit(0)
-        else:
-            print("openspec CLI is NOT installed.", file=sys.stderr)
-            print("Install with: npm install -g openspec-cli", file=sys.stderr)
-            sys.exit(1)
-
-    # Hook mode: check and optionally install
-    if check_openspec_installed():
-        # Already installed - no additional context needed
-        output_result("")
+    # Check openspec CLI installed
+    if not check_openspec_installed():
+        issues = [
+            "OpenSpec CLI is not installed. "
+            "This plugin requires openspec for SDD workflow. "
+            "Install now? Run: npm install -g openspec-cli"
+        ]
+        output_result(" ".join(issues))
         return
 
-    # Not installed - inject prompt context
-    context = (
-        "OpenSpec CLI is not installed. "
-        "This plugin requires openspec for SDD workflow. "
-        "Install now? Run: npm install -g openspec-cli"
-    )
-    output_result(context)
+    output_result()
 
 
 if __name__ == "__main__":

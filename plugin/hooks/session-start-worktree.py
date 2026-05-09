@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Hook: SessionStart - Suggest git worktree creation for isolated development.
+Hook: SessionStart - Check for uncommitted changes and suggest worktree creation.
 
-Detects git repository status and provides context about:
-- Current branch and uncommitted changes
-- Active worktrees
-- Recommendation to create a dedicated worktree for feature development
+When starting a session with uncommitted changes in the main working tree,
+this hook outputs context suggesting the user may want to create a worktree
+to isolate their work.
 """
 
 import json
@@ -14,102 +13,66 @@ import subprocess
 import sys
 
 
-def run_git(args, cwd):
-    """Run a git command and return stdout, or None on failure."""
+def get_git_status():
+    """Get git status info: current branch, uncommitted files, worktree status."""
+    result = {
+        "branch": None,
+        "has_uncommitted": False,
+        "uncommitted_files": [],
+        "is_worktree": False,
+    }
+
     try:
-        result = subprocess.run(
-            ["git"] + args,
-            cwd=cwd,
+        # Check if in a git repo
+        subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            check=True,
+            shell=True,
+        )
+
+        # Get current branch
+        branch_result = subprocess.run(
+            ["git", "branch", "--show-current"],
             capture_output=True,
             text=True,
-            timeout=10,
+            shell=True,
         )
-        if result.returncode == 0:
-            return result.stdout.strip()
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        result["branch"] = branch_result.stdout.strip() or "HEAD"
+
+        # Check if in a worktree (worktrees have .git as a file, not a directory)
+        git_dir = subprocess.run(
+            ["git", "rev-parse", "--git-dir"],
+            capture_output=True,
+            text=True,
+            shell=True,
+        ).stdout.strip()
+
+        # If .git path contains "worktrees", we're in a worktree
+        result["is_worktree"] = "worktrees" in git_dir
+
+        # Get uncommitted files
+        status_result = subprocess.run(
+            ["git", "status", "--porcelain"],
+            capture_output=True,
+            text=True,
+            shell=True,
+        )
+
+        if status_result.stdout.strip():
+            result["has_uncommitted"] = True
+            # Parse porcelain output
+            for line in status_result.stdout.strip().split("\n"):
+                if line:
+                    # Format: XY filename (XY is status code)
+                    filename = line[3:] if line[1] == " " else line[2:]
+                    result["uncommitted_files"].append(filename)
+
+    except subprocess.CalledProcessError:
+        # Not a git repo
         pass
-    return None
 
-
-def is_in_worktree(cwd):
-    """Check if current directory is inside a git worktree (not main worktree)."""
-    # git rev-parse --git-common-dir differs from --git-dir in worktrees
-    git_dir = run_git(["rev-parse", "--git-dir"], cwd)
-    common_dir = run_git(["rev-parse", "--git-common-dir"], cwd)
-    if git_dir and common_dir:
-        # In main worktree, these are typically the same (or .git vs .git)
-        # In linked worktrees, git-dir is .git/worktrees/<name> while common-dir is .git
-        return git_dir != common_dir
-    return False
-
-
-def main():
-    input_data = json.load(sys.stdin)
-    cwd = input_data.get("cwd", "")
-
-    # Check if inside a git repository
-    git_dir = run_git(["rev-parse", "--git-dir"], cwd)
-    if not git_dir:
-        output_result("")
-        return
-
-    # Already in a worktree — no need to suggest
-    if is_in_worktree(cwd):
-        output_result("")
-        return
-
-    # Get current branch
-    branch = run_git(["branch", "--show-current"], cwd) or "detached HEAD"
-
-    # Get uncommitted changes
-    status_output = run_git(["status", "--porcelain"], cwd)
-    has_changes = bool(status_output)
-    changed_files = []
-    if status_output:
-        for line in status_output.splitlines():
-            if len(line) >= 4:
-                changed_files.append(line[3:].strip())
-            elif len(line) >= 2:
-                changed_files.append(line[2:].strip())
-
-    # Count active worktrees
-    worktree_list = run_git(["worktree", "list", "--porcelain"], cwd)
-    worktree_count = 0
-    if worktree_list:
-        worktree_count = worktree_list.count("worktree ")
-
-    # Build context
-    lines = ["Git Worktree Status:", ""]
-
-    lines.append(f"- Branch: {branch}")
-    lines.append(f"- Worktrees: {worktree_count} active")
-
-    if has_changes:
-        lines.append(f"- Uncommitted changes: {len(changed_files)} file(s)")
-        # Show up to 10 changed files
-        for f in changed_files[:10]:
-            lines.append(f"  - {f}")
-        if len(changed_files) > 10:
-            lines.append(f"  - ... and {len(changed_files) - 10} more")
-
-        lines.append("")
-        lines.append(
-            "Uncommitted changes are present in the main working tree. "
-            "A dedicated git worktree can isolate feature development. "
-            "The user may want to carry these changes into the new worktree "
-            "or keep them in the current tree. Consider asking the user about "
-            "their preference before using the EnterWorktree tool."
-        )
-    else:
-        lines.append("- Working tree: clean")
-        lines.append("")
-        lines.append(
-            "The working tree is clean. A dedicated git worktree can isolate "
-            "feature development from the main branch. Consider suggesting the "
-            "EnterWorktree tool if the user is starting new feature work."
-        )
-
-    output_result("\n".join(lines))
+    return result
 
 
 def output_result(additional_context):
@@ -121,6 +84,37 @@ def output_result(additional_context):
         }
     }
     json.dump(result, sys.stdout)
+
+
+def main():
+    status = get_git_status()
+
+    # Only suggest worktree if:
+    # 1. In main working tree (not already in a worktree)
+    # 2. Have uncommitted changes
+    if status["is_worktree"] or not status["has_uncommitted"]:
+        output_result("")
+        return
+
+    # Build context message
+    file_count = len(status["uncommitted_files"])
+    files_preview = status["uncommitted_files"][:3]
+    files_str = ", ".join(files_preview)
+    if file_count > 3:
+        files_str += f" (+{file_count - 3} more)"
+
+    context = (
+        f"Git Worktree Status:\n\n"
+        f"- Branch: {status['branch']}\n"
+        f"- Worktrees: 1 active\n"
+        f"- Uncommitted changes: {file_count} file(s)\n"
+        f"  - {files_str}\n\n"
+        f"Uncommitted changes are present in the main working tree. "
+        f"A dedicated git worktree can isolate feature development. "
+        f"Consider asking the user if they want to create a worktree for isolated work."
+    )
+
+    output_result(context)
 
 
 if __name__ == "__main__":
