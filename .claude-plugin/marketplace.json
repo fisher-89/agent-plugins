@@ -7,9 +7,8 @@
   "plugins": [
     {
       "name": "dev-team",
-      "path": "plugins/dev-team",
-      "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration",
-      "version": "1.0.0"
+      "path": "./plugins/dev-team",
+      "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration"
     }
   ]
 }
