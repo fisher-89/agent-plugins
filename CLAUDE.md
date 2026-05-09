@@ -15,26 +15,27 @@ The plugin follows a "slim" architecture:
 
 ## Repository Structure
 
-- `.claude-plugin/plugin.json` — Plugin manifest
-- `plugin/` — Plugin source directory
-  - `plugin/skills/` — Plugin-specific skills (code-review only)
-  - `plugin/hooks/` — Hook implementations
-    - `plugin/hooks/hooks.json` — Hook configuration (UserPromptSubmit, PreToolUse, SessionStart)
-    - `plugin/hooks/on-user-prompt.py` — Hook script: checks openspec changes on user prompt
-    - `plugin/hooks/pre-tool-openspec-test.py` — Hook script: TDD GATE injection
-    - `plugin/hooks/pre-tool-commit-review.py` — Hook script: lint/type/test/review gates + report chain check
-    - `plugin/hooks/pre-tool-skill.py` — Hook script: compliance gate + report chain gate
-    - `plugin/hooks/session-start-ensure-openspec.py` — Hook script: ensure openspec CLI installed
-  - `plugin/utils/` — Shared utility modules
-    - `plugin/utils/active-change.py` — Shared `find_active_change()` and `count_tasks()`
-    - `plugin/utils/step-report.py` — Step report generation for report-driven gates
-    - `plugin/utils/report-chain.py` — Report chain validation
-    - `plugin/utils/test-scope.py` — Test scope identification (with --save-report)
-    - `plugin/utils/test-generator.py` — Test skeleton generator (with --save-report)
-    - `plugin/utils/lint-runner.py` — Lint/type runner (with --save-report)
-    - `plugin/utils/test-runner.py` — Test runner (with --save-report)
-  - `plugin/templates/` — Template files
-    - `plugin/templates/step-report.json` — Step report schema template
+- `marketplace.json` — Claude plugin marketplace configuration
+- `plugins/dev-team/` — Dev-team plugin source directory
+  - `plugins/dev-team/.claude-plugin/plugin.json` — Plugin manifest
+  - `plugins/dev-team/skills/` — Plugin-specific skills (code-review only)
+  - `plugins/dev-team/hooks/` — Hook implementations
+    - `plugins/dev-team/hooks/hooks.json` — Hook configuration (UserPromptSubmit, PreToolUse, SessionStart)
+    - `plugins/dev-team/hooks/on-user-prompt.py` — Hook script: checks openspec changes on user prompt
+    - `plugins/dev-team/hooks/pre-tool-openspec-test.py` — Hook script: TDD GATE injection
+    - `plugins/dev-team/hooks/pre-tool-commit-review.py` — Hook script: lint/type/test/review gates + report chain check
+    - `plugins/dev-team/hooks/pre-tool-skill.py` — Hook script: compliance gate + report chain gate
+    - `plugins/dev-team/hooks/session-start-ensure-openspec.py` — Hook script: ensure openspec CLI installed
+  - `plugins/dev-team/utils/` — Shared utility modules
+    - `plugins/dev-team/utils/active-change.py` — Shared `find_active_change()` and `count_tasks()`
+    - `plugins/dev-team/utils/step-report.py` — Step report generation for report-driven gates
+    - `plugins/dev-team/utils/report-chain.py` — Report chain validation
+    - `plugins/dev-team/utils/test-scope.py` — Test scope identification (with --save-report)
+    - `plugins/dev-team/utils/test-generator.py` — Test skeleton generator (with --save-report)
+    - `plugins/dev-team/utils/lint-runner.py` — Lint/type runner (with --save-report)
+    - `plugins/dev-team/utils/test-runner.py` — Test runner (with --save-report)
+  - `plugins/dev-team/templates/` — Template files
+    - `plugins/dev-team/templates/step-report.json` — Step report schema template
 - `demo-project/` — Demo project for testing plugin behavior
 
 ## Hook: UserPromptSubmit
@@ -94,6 +95,6 @@ Hooks validate report chains to ensure SDD workflow is followed.
 
 ## Plugin Identity
 
-- **Name:** wps-claude-plugin
+- **Name:** dev-team
 - **Version:** 1.0.0
 - **Author:** zhangbohan
