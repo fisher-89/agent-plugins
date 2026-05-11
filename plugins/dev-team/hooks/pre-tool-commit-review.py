@@ -127,12 +127,60 @@ def run_git(args, cwd):
             capture_output=True,
             text=True,
             timeout=10,
+            shell=True,  # Required on Windows to resolve PATH
         )
         if result.returncode == 0:
             return result.stdout.strip()
     except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
         pass
     return None
+
+
+def get_staged_files(cwd):
+    """Get list of staged files from git.
+
+    Returns:
+        List of staged file paths (relative to cwd)
+    """
+    output = run_git(["diff", "--cached", "--name-only"], cwd)
+    if not output:
+        return []
+    return [f for f in output.splitlines() if f]
+
+
+def is_pure_openspec_docs(files):
+    """Check if all staged files are OpenSpec documentation/artifacts.
+
+    Args:
+        files: List of file paths (relative to project root)
+
+    Returns:
+        True if all files are under openspec/ and are documentation/artifacts
+    """
+    if not files:
+        return False
+
+    # Documentation/artifact patterns
+    doc_patterns = [
+        r"^openspec/changes/[^/]+/proposal\.md$",
+        r"^openspec/changes/[^/]+/design\.md$",
+        r"^openspec/changes/[^/]+/tasks\.md$",
+        r"^openspec/changes/[^/]+/specs/.*\.md$",
+        r"^openspec/changes/[^/]+/\.openspec\.yaml$",
+        r"^openspec/specs/.*\.md$",
+    ]
+
+    for f in files:
+        # Must be under openspec/
+        if not f.startswith("openspec/"):
+            return False
+
+        # Must match one of the doc patterns
+        is_doc = any(re.match(p, f) for p in doc_patterns)
+        if not is_doc:
+            return False
+
+    return True
 
 
 def main():
@@ -148,8 +196,8 @@ def main():
 
     command = tool_input.get("command", "")
 
-    # Check if this is a git commit command (skip --amend)
-    if not is_git_commit_command(command) or "--amend" in command:
+    # Check if this is a git commit command (skip --amend and --no-verify)
+    if not is_git_commit_command(command) or "--amend" in command or "--no-verify" in command:
         output_pre_tool_use("allow", "")
         return
 
@@ -173,6 +221,17 @@ def main():
 
     change_name, change_dir = active_change
     test_reports_dir = os.path.join(change_dir, "test-reports")
+
+    # === Skip report chain for pure documentation commits ===
+    staged_files = get_staged_files(cwd)
+    if is_pure_openspec_docs(staged_files):
+        # Pure openspec documentation commit — skip report chain
+        context = (
+            f"Documentation-only commit detected (openspec/ artifacts). "
+            f"Skipping lint/test/review gates for change '{change_name}'."
+        )
+        output_pre_tool_use("allow", context)
+        return
 
     # === Report Chain Check ===
     if HAS_REPORT_CHAIN:
