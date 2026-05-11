@@ -330,7 +330,53 @@ class Router:
             )
 
     def _route_question(self, intent: IntentResult, changes: list[ChangeInfo]) -> RouteDecision:
-        """Route question intent - always direct."""
+        """
+        Route question intent.
+
+        Decision matrix:
+        - High confidence question → direct
+        - Low confidence (unknown intent) + active change → suggest based on state
+        - Low confidence + no active change → direct
+        """
+        # If confidence is low, this is actually an "unknown" intent
+        # Check if there are active changes that might be relevant
+        if intent.confidence == "low" and changes:
+            change = changes[0]
+            if change.tasks_complete:
+                return RouteDecision(
+                    action="archive",
+                    mode="suggest",
+                    reason=f"Unknown intent but active change '{change.name}' has all tasks complete",
+                    options=[
+                        f"Archive with /openspec-archive-change (change: {change.name})",
+                        "Continue working",
+                        "Respond directly"
+                    ]
+                )
+            if change.tasks_started:
+                return RouteDecision(
+                    action="apply-change",
+                    mode="suggest",
+                    reason=f"Unknown intent but active change '{change.name}' in progress",
+                    options=[
+                        f"Continue with /openspec-apply-change (change: {change.name})",
+                        "Start new workflow with /openspec-explore",
+                        "Respond directly"
+                    ]
+                )
+            # Has change but not started
+            return RouteDecision(
+                action="apply-change",
+                mode="suggest",
+                reason=f"Unknown intent with existing change '{change.name}'",
+                options=[
+                    f"Continue with /openspec-apply-change (change: {change.name})",
+                    "Start new workflow with /openspec-explore",
+                    "Respond directly"
+                ]
+            )
+
+        # High/medium confidence question or no active changes → direct
         return RouteDecision(
             action="direct",
             mode="direct",
@@ -599,7 +645,7 @@ class OutputBuilder:
         lines = [
             "=== OpenSpec Routing Suggestion ===",
             "",
-            f"Detected intent: **{intent.intent_type}** (confidence: {intent.intent_type}, scope: {intent.scope})",
+            f"Detected intent: **{intent.intent_type}** (confidence: {intent.confidence}, scope: {intent.scope})",
             f"Reason: {decision.reason}",
             "",
         ]
