@@ -60,7 +60,7 @@ def main():
         issues = [
             "OpenSpec CLI is not installed. "
             "This plugin requires openspec for SDD workflow. "
-            "Install now? Run: npm install -g openspec-cli"
+            "Install now? Run: npm install -g @fission-ai/openspec@latest"
         ]
         output_session_start(" ".join(issues))
         return
