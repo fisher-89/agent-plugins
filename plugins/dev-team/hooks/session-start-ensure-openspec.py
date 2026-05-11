@@ -23,8 +23,35 @@ from hook_output import output_session_start
 
 
 def check_openspec_installed():
-    """Check if openspec CLI is available in PATH."""
-    return shutil.which("openspec") is not None
+    """
+    Check if openspec CLI is available in PATH or common npm global install paths.
+
+    On macOS, hook subprocesses may not inherit the full PATH from the user's
+    interactive shell, so shutil.which() can miss npm global binaries.
+    """
+    # First try standard PATH lookup
+    if shutil.which("openspec") is not None:
+        return True
+
+    # Fallback: check common npm global bin directories on macOS
+    home = os.path.expanduser("~")
+    common_paths = [
+        "/usr/local/bin",                           # Intel Mac, standard Node
+        "/opt/homebrew/bin",                        # Apple Silicon, Homebrew Node
+        "/opt/local/bin",                           # MacPorts
+        os.path.join(home, ".nvm", "versions", "node", "v18", "bin"),
+        os.path.join(home, ".nvm", "versions", "node", "v20", "bin"),
+        os.path.join(home, ".nvm", "versions", "node", "v22", "bin"),
+        os.path.join(home, "local", "bin"),
+        os.path.join(home, "bin"),
+    ]
+
+    for path in common_paths:
+        candidate = os.path.join(path, "openspec")
+        if os.path.exists(candidate) and os.access(candidate, os.X_OK):
+            return True
+
+    return False
 
 
 def main():
