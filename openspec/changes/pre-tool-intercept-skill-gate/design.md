@@ -64,7 +64,6 @@
 ```json
 {
   "version": 1,
-  "timestamp": "2024-01-15T10:30:00Z",
   "decision": {
     "action": "explore",
     "mode": "suggest",
@@ -84,7 +83,7 @@
 
 **原因**:
 - 保留完整路由决策信息，便于 PreToolUse hook 做精细判断
-- 包含 timestamp 用于过期检测
+- 无需 timestamp，采用 turn-scope 过期机制（见 D5）
 - version 字段便于未来格式升级
 
 ### D3: 拦截时机
@@ -139,12 +138,14 @@ INSTRUCTION: Choose one of the above options before writing code.
 
 **决定**:
 1. Skill 调用时 → PreToolUse Skill hook 检测到目标 skill → 清除
-2. 用户说 "implement directly" 或类似 → 由 UserPromptSubmit 检测关键词 → 清除
-3. 超时（5分钟）→ PreToolUse 检测 timestamp 过期 → 清除并 allow
+2. 用户新提问 → UserPromptSubmit 先清除旧状态再写入新状态（自动过期）
+3. 用户说 "implement directly" 或类似 → UserPromptSubmit 检测关键词 → 不写 pending
 
 **原因**:
-- 多种清除路径确保不会卡死
-- 超时机制处理异常情况
+- "用户新提问 = 重新考虑" 比 "N分钟超时" 语义更清晰
+- 实现更简单：不需要时间比较，只需 UserPromptSubmit 先清除再写入
+- 无残留风险：即使异常退出，下一轮用户提问也会自动清除旧状态
+- 无需配置：不需要 timeout_minutes 参数
 
 ## Risks / Trade-offs
 
@@ -154,7 +155,7 @@ INSTRUCTION: Choose one of the above options before writing code.
 
 ### R2: 状态文件残留
 **风险**: 异常退出导致状态文件未清除
-**缓解**: 5分钟超时自动清除
+**缓解**: Turn-scope 机制自动解决——用户下一轮提问时 UserPromptSubmit 会先清除旧状态
 
 ### R3: 嵌套 Skill 调用
 **风险**: 用户在 openspec-explore skill 内部又触发新的路由
@@ -173,13 +174,16 @@ INSTRUCTION: Choose one of the above options before writing code.
 def write_pending_state(cwd: str, decision: RouteDecision, intent: IntentResult)
 def read_pending_state(cwd: str) -> PendingState | None
 def clear_pending_state(cwd: str)
-def is_state_expired(state: PendingState, timeout_minutes: int = 5) -> bool
+# 无需 is_state_expired - turn-scope 机制由 UserPromptSubmit 自动清除旧状态
 ```
 
 ### on-user-prompt.py (修改)
 
 ```python
-# 在 output_user_prompt_submit() 之前
+# 1. 先清除旧状态 (turn-scope 过期机制)
+clear_pending_state(cwd)
+
+# 2. 根据路由决策写入新状态 (在 output_user_prompt_submit() 之前)
 if decision.mode in ("auto", "suggest") and decision.action != "direct":
     write_pending_state(cwd, decision, intent)
 ```
@@ -190,19 +194,15 @@ if decision.mode in ("auto", "suggest") and decision.action != "direct":
 def main():
     input_data = json.load(sys.stdin)
     cwd = input_data.get("cwd", "")
-    
+
     state = read_pending_state(cwd)
-    
+
     if state is None:
         output_pre_tool_use("allow")
         return
-    
-    if is_state_expired(state):
-        clear_pending_state(cwd)
-        output_pre_tool_use("allow")
-        return
-    
-    # 构建 deny 消息
+
+    # 无需过期检查 - turn-scope 机制由 UserPromptSubmit 自动清除
+    # 只要 state 存在就拦截
     message = build_deny_message(state)
     output_pre_tool_use("deny", message)
 ```
