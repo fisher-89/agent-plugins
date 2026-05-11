@@ -9,6 +9,7 @@ Provides unified output_result function for all hook types:
 
 import json
 import sys
+from typing import Optional
 
 
 def output_pre_tool_use(decision: str, additional_context: str = ""):
@@ -30,7 +31,7 @@ def output_pre_tool_use(decision: str, additional_context: str = ""):
     json.dump(result, sys.stdout)
 
 
-def output_session_start(message: str | None = None, stop: bool = False):
+def output_session_start(message: Optional[str] = None, stop: bool = False):
     """
     Output result for SessionStart hooks.
 
