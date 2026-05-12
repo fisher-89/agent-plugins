@@ -1,0 +1,9 @@
+specification {
+  softwareSystem: elementKind
+  component: elementKind
+  container: elementKind
+  relationship: softwareSystem -> softwareSystem
+}
+
+model {
+}

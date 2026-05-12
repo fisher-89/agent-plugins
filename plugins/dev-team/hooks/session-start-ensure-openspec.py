@@ -1,14 +1,16 @@
 #!/usr/bin/env python3
 """
-Hook: SessionStart - Ensure OpenSpec CLI is available and initialized.
+Hook: SessionStart - Ensure OpenSpec CLI and likec4 are available.
 
 Checks:
 1. If openspec CLI is installed
+2. If likec4 CLI is available (via npx likec4 --version)
 """
 
 import json
 import os
 import shutil
+import subprocess
 import sys
 
 # Import shared hook output utility
@@ -54,15 +56,45 @@ def check_openspec_installed():
     return False
 
 
+def check_likec4_available():
+    """Check if likec4 CLI is available via npx.
+
+    Returns True if `npx likec4 --version` succeeds.
+    """
+    try:
+        result = subprocess.run(
+            ["npx", "likec4", "--version"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            shell=True,
+        )
+        return result.returncode == 0
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        return False
+
+
 def main():
+    issues = []
+
     # Check openspec CLI installed
     if not check_openspec_installed():
-        issues = [
+        issues.append(
             "OpenSpec CLI is not installed. "
             "This plugin requires openspec for SDD workflow. "
             "Install now? Run: npm install -g @fission-ai/openspec@latest"
-        ]
-        output_session_start(" ".join(issues))
+        )
+
+    # Check likec4 CLI available
+    if not check_likec4_available():
+        issues.append(
+            "likec4 CLI is not available. "
+            "The architecture workflow (archi-model, archi-validate) requires likec4. "
+            "Install now? Run: npm install -g likec4"
+        )
+
+    if issues:
+        output_session_start(" | ".join(issues))
         return
 
     output_session_start()

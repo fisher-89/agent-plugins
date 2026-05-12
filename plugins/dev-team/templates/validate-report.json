@@ -1,0 +1,35 @@
+{
+  "timestamp": "",
+  "commit_diff_hash": "",
+  "changed_files": [],
+  "matched": [
+    {
+      "element_id": "",
+      "files": []
+    }
+  ],
+  "violations": [
+    {
+      "type": "unmodeled_dependency | missing_element | broken_relationship",
+      "source_file": "",
+      "import_target": "",
+      "detail": ""
+    }
+  ],
+  "warnings": [
+    {
+      "type": "unused_relationship | unmapped_import_target | path_not_found",
+      "source_file": "",
+      "import_target": "",
+      "element_a": "",
+      "element_b": "",
+      "detail": ""
+    }
+  ],
+  "unmatched_files": [],
+  "model_changes": {
+    "added": [],
+    "removed": [],
+    "modified": []
+  }
+}

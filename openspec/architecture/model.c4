@@ -1,0 +1,20 @@
+specification {
+  softwareSystem: elementKind
+  component: elementKind
+  relationship: softwareSystem -> softwareSystem
+}
+
+model {
+  component paymentService {
+    metadata path ["./src/services/payment/"]
+  }
+  component apiGateway {
+    metadata path ["./src/gateway/"]
+  }
+  component authService {
+    metadata path ["./src/services/auth/"]
+  }
+
+  paymentService -> apiGateway "sends requests through"
+  apiGateway -> authService "authenticates via"
+}

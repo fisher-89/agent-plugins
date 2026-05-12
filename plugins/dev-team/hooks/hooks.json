@@ -15,7 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/pre-tool-commit-review.py"
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}\"/hooks/commit-gates/before-commit.py"
           }
         ]
       },

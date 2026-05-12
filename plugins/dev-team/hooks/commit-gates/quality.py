@@ -22,7 +22,7 @@ import sys
 
 # Import shared utilities
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-PLUGIN_ROOT = os.path.dirname(SCRIPT_DIR)
+PLUGIN_ROOT = os.path.dirname(os.path.dirname(SCRIPT_DIR))
 UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
 
 if UTILS_DIR not in sys.path:
@@ -183,41 +183,25 @@ def is_pure_openspec_docs(files):
     return True
 
 
-def main():
-    input_data = json.load(sys.stdin)
-    tool_name = input_data.get("tool_name", "")
-    tool_input = input_data.get("tool_input", {})
+def run_gate(input_data):
+    """Run SDD quality gates for a git commit.
+
+    Returns: (decision, context) where decision is "allow" or "deny"
+    """
     cwd = input_data.get("cwd", "")
-
-    # Only intercept Bash tool calls
-    if tool_name != "Bash":
-        output_pre_tool_use("allow", "")
-        return
-
-    command = tool_input.get("command", "")
-
-    # Check if this is a git commit command (skip --amend and --no-verify)
-    if not is_git_commit_command(command) or "--amend" in command or "--no-verify" in command:
-        output_pre_tool_use("allow", "")
-        return
 
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     # No changes directory
     if not os.path.isdir(changes_dir):
-        output_pre_tool_use("allow", "")
-        return
+        return ("allow", "")
 
     # Find active change (uses shared module with priority ordering)
     active_change = find_active_change(changes_dir, cwd)
     if not active_change:
         # No active change — fall back to basic review suggestion
         staged_context = build_staged_files_context(cwd)
-        if staged_context:
-            output_pre_tool_use("allow", staged_context)
-        else:
-            output_pre_tool_use("allow", "")
-        return
+        return ("allow", staged_context or "")
 
     change_name, change_dir = active_change
     test_reports_dir = os.path.join(change_dir, "test-reports")
@@ -225,13 +209,11 @@ def main():
     # === Skip report chain for pure documentation commits ===
     staged_files = get_staged_files(cwd)
     if is_pure_openspec_docs(staged_files):
-        # Pure openspec documentation commit — skip report chain
         context = (
             f"Documentation-only commit detected (openspec/ artifacts). "
             f"Skipping lint/test/review gates for change '{change_name}'."
         )
-        output_pre_tool_use("allow", context)
-        return
+        return ("allow", context)
 
     # === Report Chain Check ===
     if HAS_REPORT_CHAIN:
@@ -243,28 +225,22 @@ def main():
                     f"REPORT CHAIN INCOMPLETE for task {current_task}: {err}. "
                     f"Ensure you executed: test-scope → lint → scoped-test with --save-report."
                 )
-                output_pre_tool_use("deny", context)
-                return
+                return ("deny", context)
 
     # === Phase 1: Type/Lint Checks ===
     lint_context = run_lint_type_checks(cwd)
     if lint_context:
-        # Lint/type errors found — deny
-        output_pre_tool_use("deny", lint_context)
-        return
+        return ("deny", lint_context)
 
     # === Phase 1: Full Test Suite ===
     test_context = run_full_tests(cwd)
     if test_context:
-        # Test failures found — deny
-        output_pre_tool_use("deny", test_context)
-        return
+        return ("deny", test_context)
 
     # Find review reports
     reviews = find_review_reports(test_reports_dir)
 
     if not reviews:
-        # No review done yet — recommend review
         staged_context = build_staged_files_context(cwd)
         context = (
             f"No code review found for change '{change_name}'. "
@@ -274,8 +250,7 @@ def main():
         )
         if staged_context:
             context += " " + staged_context
-        output_pre_tool_use("allow", context)
-        return
+        return ("allow", context)
 
     # Get latest review
     latest_review = reviews[-1]
@@ -294,8 +269,7 @@ def main():
             f"Fix the security issues before committing. "
             f"Review report: test-reports/{os.path.basename(latest_review['path'])}"
         )
-        output_pre_tool_use("deny", context)
-        return
+        return ("deny", context)
 
     # Phase 2.6: Non-security errors → ERROR→Task instruction
     if verdict == "BLOCK" or error_count > 0:
@@ -327,15 +301,32 @@ def main():
             f"   to implement the fix tasks.\n"
             f"This ensures all review errors are addressed before commit."
         )
-        output_pre_tool_use("allow", context)
-        return
+        return ("allow", context)
 
-    # Review passed — allow with confirmation
+    # Review passed
     context = (
         f"Code review PASSED for change '{change_name}'. "
         f"Proceeding with commit."
     )
-    output_pre_tool_use("allow", context)
+    return ("allow", context)
+
+
+def main():
+    input_data = json.load(sys.stdin)
+    tool_name = input_data.get("tool_name", "")
+    tool_input = input_data.get("tool_input", {})
+    command = tool_input.get("command", "")
+
+    # Only intercept Bash + git commit
+    if tool_name != "Bash":
+        output_pre_tool_use("allow", "")
+        return
+    if not is_git_commit_command(command) or "--amend" in command or "--no-verify" in command:
+        output_pre_tool_use("allow", "")
+        return
+
+    decision, context = run_gate(input_data)
+    output_pre_tool_use(decision, context)
 
 
 def is_git_commit_command(command):

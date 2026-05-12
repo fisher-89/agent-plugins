@@ -1,9 +1,0 @@
-{
-  "name": "wps-claude-plugin",
-  "version": "1.0.0",
-  "description": "Claude Code plugin with OpenSpec integration",
-  "private": true,
-  "engines": {
-    "node": ">=20.0.0"
-  }
-}

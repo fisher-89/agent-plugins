@@ -1,0 +1,60 @@
+{
+  "timestamp": "2026-05-12T08:53:22Z",
+  "commit_diff_hash": "3c0589bcc6879db7",
+  "changed_files": [
+    "src/services/payment/handler.ts",
+    "src/gateway/middleware.ts",
+    "src/services/auth/login.ts"
+  ],
+  "matched": [
+    {
+      "element_id": "paymentService",
+      "files": [
+        "src/services/payment/handler.ts"
+      ]
+    },
+    {
+      "element_id": "apiGateway",
+      "files": [
+        "src/gateway/middleware.ts"
+      ]
+    },
+    {
+      "element_id": "authService",
+      "files": [
+        "src/services/auth/login.ts"
+      ]
+    }
+  ],
+  "violations": [],
+  "warnings": [
+    {
+      "type": "path_not_found",
+      "element_a": "paymentService",
+      "detail": "metadata.path './src/services/payment/' for element 'paymentService' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "apiGateway",
+      "detail": "metadata.path './src/gateway/' for element 'apiGateway' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "authService",
+      "detail": "metadata.path './src/services/auth/' for element 'authService' does not exist",
+      "source_file": "",
+      "import_target": ""
+    }
+  ],
+  "unmatched_files": [],
+  "model_changes": {
+    "added": [],
+    "removed": [],
+    "modified": []
+  },
+  "status": "clean"
+}
