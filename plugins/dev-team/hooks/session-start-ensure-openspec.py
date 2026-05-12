@@ -94,7 +94,7 @@ def main():
         )
 
     if issues:
-        output_session_start(" | ".join(issues))
+        output_session_start(" | ".join(issues), True)
         return
 
     output_session_start()
