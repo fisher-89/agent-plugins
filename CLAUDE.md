@@ -13,6 +13,15 @@ The plugin follows a "slim" architecture:
 - **Plugin provides hooks** for report-driven workflow gates
 - **No embedded skills** - skills are invoked via OpenSpec CLI directly
 
+## Coding Guidelines
+
+**Tradeoff:** These guidelines bias toward caution over speed. For trivial tasks, use judgment.
+
+1. **Think before coding**: State assumptions. If unclear, stop and ask.
+2. **Simplicity first**: No speculative features. No abstractions for single-use code.
+3. **Surgical changes**: Touch only what's needed. Match existing style.
+4. **Goal-Driven Execution**: Define success criteria. Loop until verified.
+
 ## Repository Structure
 
 - `marketplace.json` — Claude plugin marketplace configuration
@@ -20,8 +29,7 @@ The plugin follows a "slim" architecture:
   - `plugins/dev-team/.claude-plugin/plugin.json` — Plugin manifest
   - `plugins/dev-team/skills/` — Plugin-specific skills (code-review only)
   - `plugins/dev-team/hooks/` — Hook implementations
-    - `plugins/dev-team/hooks/hooks.json` — Hook configuration (UserPromptSubmit, PreToolUse, SessionStart)
-    - `plugins/dev-team/hooks/on-user-prompt.py` — Hook script: checks openspec changes on user prompt
+    - `plugins/dev-team/hooks/hooks.json` — Hook configuration (PreToolUse, SessionStart)
     - `plugins/dev-team/hooks/pre-tool-openspec-test.py` — Hook script: TDD GATE injection
     - `plugins/dev-team/hooks/pre-tool-commit-review.py` — Hook script: lint/type/test/review gates + report chain check
     - `plugins/dev-team/hooks/pre-tool-skill.py` — Hook script: compliance gate + report chain gate
@@ -38,12 +46,11 @@ The plugin follows a "slim" architecture:
     - `plugins/dev-team/templates/step-report.json` — Step report schema template
 - `demo-project/` — Demo project for testing plugin behavior
 
-## Hook: UserPromptSubmit
-
-When a user submits a prompt, the hook:
-1. Scans `openspec/changes/` in the working project for active changes
-2. Reports change names, artifacts, and task progress
-3. Instructs Claude to check if documents need updates before responding
+Users manually invoke skills via slash commands to control their workflow:
+- `/dev-team:openspec-explore` — Explore ideas and investigate problems
+- `/dev-team:openspec-propose` — Propose a new change with full artifacts
+- `/dev-team:openspec-apply-change` — Implement tasks from an OpenSpec change
+- `/dev-team:openspec-archive-change` — Archive a completed change
 
 ## Hook: PreToolUse — Write|Edit (TDD GATE)
 
@@ -96,5 +103,5 @@ Hooks validate report chains to ensure SDD workflow is followed.
 ## Plugin Identity
 
 - **Name:** dev-team
-- **Version:** 1.0.0
+- **Version:** 2.0.0
 - **Author:** zhangbohan
