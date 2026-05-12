@@ -1,10 +1,10 @@
 ---
 name: code-review
-description: Review staged git changes before commit. Check for logical errors, null/boundary handling, and redundant logic.
+description: Review code changes before commit. Use when user runs /code-review, asks to review staged changes, or requests code review.
 license: MIT
 ---
 
-Review current staged git changes for code quality issues.
+Route code review to the dedicated code-review subagent.
 
 ## Usage
 
@@ -12,58 +12,29 @@ Review current staged git changes for code quality issues.
 /code-review
 ```
 
-## Focus Areas
-
-1. **Logical Errors**
-   - Implementation doesn't match intent
-   - Algorithm defects
-   - Conditional logic mistakes
-
-2. **Null/Boundary Handling**
-   - Unhandled null/undefined/None
-   - Array index out of bounds
-   - Empty collection handling
-   - Missing numeric boundary checks
-
-3. **Redundant Logic**
-   - Unnecessary conditions
-   - Duplicate fallback paths
-   - Over-defensive code
-   - Dead code branches
-
 ## Process
 
-1. Get staged changes:
-   ```bash
-   git diff --cached --stat
-   git diff --cached
-   ```
+Use the Agent tool to spawn the code-review subagent:
 
+```
+Agent({
+  description: "Code review staged changes",
+  subagent_type: "code-review",
+  prompt: "<tailored review prompt>"
+})
+```
+
+The subagent will:
+1. Get staged changes via `git diff --cached`
 2. Read relevant source files for context
+3. Analyze for logical errors, null/boundary handling, redundant logic, and security issues
+4. Generate a structured review report
+5. Save the report to `openspec/changes/<change-name>/test-reports/code-review-<timestamp>.md`
 
-3. Analyze each changed section
+## Prompt Guidance
 
-4. Report findings in structured format
+Tailor the prompt based on the user's request. If they asked generically (/code-review), the prompt can be brief: "Review staged changes. Focus on logic, null handling, redundancy, and security."
 
-## Output Format
-
-```
-## Code Review
-
-**Staged Files**: <file list>
-
-### Issues Found
-- [ERROR] <file>:<line> - <description>
-  - Fix: <suggestion>
-
-- [WARN] <file>:<line> - <description>
-  - Fix: <suggestion>
-
-### Summary
-<overall assessment>
-
-### Next Steps
-<action items or "Safe to commit">
-```
-
-If no critical issues: "LGTM - No critical issues found"
+If the user mentions specific concerns, include them in the prompt:
+- "Review staged changes. The user is concerned about database connection handling."
+- "Review staged changes. Focus on error handling in the new API endpoint."
