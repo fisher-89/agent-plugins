@@ -103,7 +103,17 @@ def has_validation_report_staged(cwd):
 
 
 def model_exists(cwd):
-    """Check if architecture model exists."""
+    """Check if architecture model exists.
+
+    Checks models/ directory for *.c4 files first, then legacy model.c4.
+    """
+    models_dir = os.path.join(cwd, "openspec", "architecture", "models")
+    if os.path.isdir(models_dir):
+        for f in os.listdir(models_dir):
+            if f.endswith(".c4"):
+                return True
+
+    # Backward compat: also check legacy model.c4
     model_path = os.path.join(cwd, "openspec", "architecture", "model.c4")
     return os.path.isfile(model_path)
 
@@ -166,7 +176,7 @@ def run_gate(input_data):
         f"  2. The script will generate a report at openspec/architecture/reports/validate-<timestamp>.json\n"
         f"  3. Stage the report: git add openspec/architecture/reports/validate-*.json\n"
         f"  4. Retry the commit\n"
-        f"If there are violations, address them (update model or fix code) before re-validating."
+        f"If there are violations, address them by updating model files in openspec/architecture/models/ or fixing code before re-validating."
     ))
 
 

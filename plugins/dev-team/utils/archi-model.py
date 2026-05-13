@@ -4,12 +4,13 @@ archi-model.py — Architecture model operation utility.
 
 Commands:
   query       Read model structure via Python DSL parser
-  validate    Validate model.c4 DSL syntax via Python parser
+  validate    Validate model DSL syntax via Python parser
+  write       Write DSL to a specific file in models/
 
 Usage:
   python archi-model.py --command query [--element <fqn>]
   python archi-model.py --command validate [--source <dsl_text>]
-  python archi-model.py --command write --source <dsl_text>
+  python archi-model.py --command write --path models/xx.c4 --source <dsl_text>
 """
 
 import argparse
@@ -21,6 +22,7 @@ from datetime import datetime, timezone
 
 ARCHITECTURE_DIR = "openspec/architecture"
 MODEL_FILE = os.path.join(ARCHITECTURE_DIR, "model.c4")
+MODELS_DIR = os.path.join(ARCHITECTURE_DIR, "models")
 
 
 def resolve_project_root():
@@ -44,22 +46,75 @@ def _walk_up(path):
         path = parent
 
 
-def read_model(project_root):
-    """Read model.c4 and return DSL text."""
+def _get_model_files(project_root):
+    """Get list of .c4 files from models/ directory in alphabetical order.
+
+    Returns (files, is_legacy) where files is a list of (filename, full_path)
+    and is_legacy is True if falling back to legacy model.c4.
+    """
+    models_dir = os.path.join(project_root, MODELS_DIR)
+    if os.path.isdir(models_dir):
+        c4_files = sorted(
+            f for f in os.listdir(models_dir)
+            if f.endswith(".c4")
+        )
+        if c4_files:
+            return ([(f, os.path.join(models_dir, f)) for f in c4_files], False)
+
+    # Fall back to legacy model.c4
     model_path = os.path.join(project_root, MODEL_FILE)
-    if not os.path.isfile(model_path):
+    if os.path.isfile(model_path):
+        return ([(os.path.basename(MODEL_FILE), model_path)], True)
+
+    return ([], None)
+
+
+def read_model(project_root):
+    """Read all models/*.c4 in alphabetical order and return aggregated DSL text.
+
+    Falls back to legacy model.c4 if models/ is absent, with a deprecation warning.
+    """
+    files, is_legacy = _get_model_files(project_root)
+
+    if is_legacy:
+        print("DEPRECATION WARNING: Reading from legacy 'model.c4'. "
+              "Please migrate to 'openspec/architecture/models/*.c4' directory tree.",
+              file=sys.stderr)
+
+    if not files:
         return None
-    with open(model_path, "r", encoding="utf-8") as f:
+
+    parts = []
+    for filename, filepath in files:
+        with open(filepath, "r", encoding="utf-8") as f:
+            parts.append(f.read())
+
+    return "\n".join(parts)
+
+
+def read_model_file(project_root, target_path):
+    """Read a specific model file from models/ directory.
+
+    Args:
+        project_root: Project root directory
+        target_path: Path relative to models/ (e.g., '01-core.c4')
+
+    Returns:
+        DSL text or None if file not found
+    """
+    full_path = os.path.join(project_root, MODELS_DIR, target_path)
+    if not os.path.isfile(full_path):
+        return None
+    with open(full_path, "r", encoding="utf-8") as f:
         return f.read()
 
 
 def query_model(project_root, element_fqn=None):
     """Query the model via Python DSL parser and return element structure."""
-    model_path = os.path.join(project_root, MODEL_FILE)
-    if not os.path.isfile(model_path):
-        return {"error": f"Model file not found: {model_path}"}
-
     dsl = read_model(project_root)
+    if dsl is None:
+        return {"error": "No model files found"}
+
     result = _parse_dsl(dsl)
 
     if element_fqn:
@@ -71,20 +126,38 @@ def query_model(project_root, element_fqn=None):
 def validate_dsl(project_root, dsl_text=None):
     """Validate DSL syntax using the Python parser.
 
-    If dsl_text is provided, validate that. Otherwise validate current model.c4.
+    If dsl_text is provided, validate that. Otherwise validate current model.
     """
     if dsl_text is None:
-        model_path = os.path.join(project_root, MODEL_FILE)
-        if not os.path.isfile(model_path):
-            return {"valid": False, "error": "Model file not found"}
-        with open(model_path, "r", encoding="utf-8") as f:
-            dsl_text = f.read()
+        dsl_text = read_model(project_root)
+        if dsl_text is None:
+            return {"valid": False, "error": "No model files found"}
 
-    return _validate_structure(dsl_text)
+    return _validate_structure(dsl_text, project_root)
 
 
-def write_dsl(project_root, dsl_text):
-    """Write DSL text to model.c4 after validation."""
+def write_dsl(project_root, dsl_text, target_path):
+    """Write DSL text to a specific file in models/ after validation.
+
+    Args:
+        project_root: Project root directory
+        dsl_text: The DSL text to write
+        target_path: Path relative to models/ (e.g., '01-core.c4')
+
+    Returns:
+        dict with success/error and path info
+    """
+    # Validate path is within models/
+    models_dir = os.path.join(project_root, MODELS_DIR)
+    full_path = os.path.normpath(os.path.join(models_dir, target_path))
+
+    if not full_path.startswith(os.path.normpath(models_dir)):
+        return {
+            "success": False,
+            "error": f"Path '{target_path}' is outside models/ directory",
+        }
+
+    # Validate DSL
     validation = validate_dsl(project_root, dsl_text)
     if not validation.get("valid", False):
         return {
@@ -93,19 +166,17 @@ def write_dsl(project_root, dsl_text):
             "validation": validation,
         }
 
-    model_path = os.path.join(project_root, MODEL_FILE)
-    os.makedirs(os.path.dirname(model_path), exist_ok=True)
-    with open(model_path, "w", encoding="utf-8") as f:
+    os.makedirs(models_dir, exist_ok=True)
+    with open(full_path, "w", encoding="utf-8") as f:
         f.write(dsl_text)
 
-    return {"success": True, "path": model_path}
+    return {"success": True, "path": full_path}
 
 
-
-def _validate_structure(dsl_text):
+def _validate_structure(dsl_text, project_root=None):
     """Basic structural validation of DSL text.
 
-    Checks for balanced braces and required blocks.
+    Checks for balanced braces, required blocks, and duplicate specification blocks.
     """
     lines = dsl_text.split("\n")
     brace_depth = 0
@@ -138,6 +209,23 @@ def _validate_structure(dsl_text):
 
     if "model" not in dsl_text:
         return {"valid": False, "error": "Missing 'model' block"}
+
+    # Check for duplicate specification blocks across files
+    if project_root:
+        files, is_legacy = _get_model_files(project_root)
+        if not is_legacy and len(files) > 1:
+            spec_files = []
+            for filename, filepath in files:
+                with open(filepath, "r", encoding="utf-8") as f:
+                    content = f.read()
+                if "specification" in content:
+                    spec_files.append(filename)
+            if len(spec_files) > 1:
+                return {
+                    "valid": False,
+                    "error": f"Duplicate 'specification' blocks found in files: {', '.join(spec_files)}. "
+                             "Only one file may contain a specification block.",
+                }
 
     return {"valid": True}
 
@@ -270,6 +358,7 @@ def main():
     parser.add_argument("--command", required=True, choices=["query", "validate", "write"])
     parser.add_argument("--element", default=None, help="Filter by element FQN (query only)")
     parser.add_argument("--source", default=None, help="DSL text to validate or write")
+    parser.add_argument("--path", default=None, help="Target path within models/ (write only)")
     args = parser.parse_args()
 
     project_root = resolve_project_root()
@@ -287,7 +376,10 @@ def main():
         if not args.source:
             print(json.dumps({"success": False, "error": "--source required for write command"}))
             sys.exit(1)
-        result = write_dsl(project_root, args.source)
+        if not args.path:
+            print(json.dumps({"success": False, "error": "--path required for write command"}))
+            sys.exit(1)
+        result = write_dsl(project_root, args.source, args.path)
         print(json.dumps(result, indent=2))
         if not result.get("success", False):
             sys.exit(1)

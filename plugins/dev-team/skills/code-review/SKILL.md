@@ -1,6 +1,7 @@
 ---
 name: code-review
-description: Review code changes before commit. Use when user runs /code-review, asks to review staged changes, or requests code review.
+description: Asks to review staged changes, or requests code review.
+disable-model-invocation: true
 license: MIT
 ---
 

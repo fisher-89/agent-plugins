@@ -43,7 +43,11 @@ def _walk_up(path):
 
 
 def load_model(project_root):
-    """Load and parse the architecture model from model.c4.
+    """Load and parse the architecture model from models/*.c4 directory.
+
+    Reads all .c4 files from openspec/architecture/models/ in alphabetical order
+    and aggregates into a single DSL string. Falls back to legacy model.c4 if
+    models/ directory does not exist or is empty.
 
     Returns:
         dict with:
@@ -52,7 +56,6 @@ def load_model(project_root):
         - path_to_element: dict mapping normalized paths to element names
         - errors: list of parse errors
     """
-    model_path = os.path.join(project_root, "openspec", "architecture", "model.c4")
     result = {
         "elements": [],
         "relationships": [],
@@ -60,14 +63,32 @@ def load_model(project_root):
         "errors": [],
     }
 
-    if not os.path.isfile(model_path):
-        result["errors"].append("Model file not found: " + model_path)
-        return result
+    models_dir = os.path.join(project_root, "openspec", "architecture", "models")
+    legacy_path = os.path.join(project_root, "openspec", "architecture", "model.c4")
 
-    with open(model_path, "r", encoding="utf-8") as f:
-        dsl = f.read()
+    # Prefer models/ directory
+    if os.path.isdir(models_dir):
+        c4_files = sorted(
+            f for f in os.listdir(models_dir)
+            if f.endswith(".c4")
+        )
+        if c4_files:
+            parts = []
+            for filename in c4_files:
+                filepath = os.path.join(models_dir, filename)
+                with open(filepath, "r", encoding="utf-8") as f:
+                    parts.append(f.read())
+            dsl = "\n".join(parts)
+            return _parse_model_dsl(dsl, project_root)
 
-    return _parse_model_dsl(dsl, project_root)
+    # Fall back to legacy model.c4
+    if os.path.isfile(legacy_path):
+        with open(legacy_path, "r", encoding="utf-8") as f:
+            dsl = f.read()
+        return _parse_model_dsl(dsl, project_root)
+
+    result["errors"].append("Model not found: neither models/ nor model.c4 exists")
+    return result
 
 
 def _parse_model_dsl(dsl, project_root):
@@ -621,7 +642,7 @@ def main():
     # Load model
     model = load_model(project_root)
 
-    if "Model file not found" in str(model.get("errors", [])):
+    if any("not found" in str(e).lower() or "not found" in e.lower() for e in model.get("errors", [])):
         print(json.dumps({
             "status": "skipped",
             "reason": "no model to validate against",

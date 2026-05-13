@@ -1,0 +1,103 @@
+{
+  "timestamp": "2026-05-13T03:35:31Z",
+  "commit_diff_hash": "844bb2f7d4065d72",
+  "changed_files": [
+    "openspec/architecture/models/01-core.c4",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/.openspec.yaml",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/README.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/design.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/proposal.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-agent/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-commit-gate/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-model/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-validation/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/update-architecture-skill/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/tasks.md",
+    "openspec/specs/architecture-agent/spec.md",
+    "openspec/specs/architecture-commit-gate/spec.md",
+    "openspec/specs/architecture-model/spec.md",
+    "openspec/specs/architecture-validation/spec.md",
+    "openspec/specs/update-architecture-skill/spec.md",
+    "plugins/dev-team/.claude-plugin/plugin.json",
+    "plugins/dev-team/agents/architecture.md",
+    "plugins/dev-team/agents/code-review.md",
+    "plugins/dev-team/hooks/commit-gates/architecture.py",
+    "plugins/dev-team/skills/code-review/SKILL.md",
+    "plugins/dev-team/skills/openspec-explore/SKILL.md",
+    "plugins/dev-team/skills/update-architecture/SKILL.md",
+    "plugins/dev-team/utils/archi-model.py",
+    "plugins/dev-team/utils/archi-validate.py"
+  ],
+  "matched": [],
+  "violations": [],
+  "warnings": [
+    {
+      "type": "unused_relationship",
+      "element_a": "paymentService",
+      "element_b": "apiGateway",
+      "detail": "Model declares 'paymentService -> apiGateway' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "apiGateway",
+      "element_b": "authService",
+      "detail": "Model declares 'apiGateway -> authService' but no import evidence found"
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "paymentService",
+      "detail": "metadata.path './src/services/payment/' for element 'paymentService' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "apiGateway",
+      "detail": "metadata.path './src/gateway/' for element 'apiGateway' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "authService",
+      "detail": "metadata.path './src/services/auth/' for element 'authService' does not exist",
+      "source_file": "",
+      "import_target": ""
+    }
+  ],
+  "unmatched_files": [
+    "openspec/architecture/models/01-core.c4",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/.openspec.yaml",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/README.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/design.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/proposal.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-agent/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-commit-gate/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-model/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/architecture-validation/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/specs/update-architecture-skill/spec.md",
+    "openspec/changes/archive/2026-05-13-add-architecture-agent/tasks.md",
+    "openspec/specs/architecture-agent/spec.md",
+    "openspec/specs/architecture-commit-gate/spec.md",
+    "openspec/specs/architecture-model/spec.md",
+    "openspec/specs/architecture-validation/spec.md",
+    "openspec/specs/update-architecture-skill/spec.md",
+    "plugins/dev-team/.claude-plugin/plugin.json",
+    "plugins/dev-team/agents/architecture.md",
+    "plugins/dev-team/agents/code-review.md",
+    "plugins/dev-team/hooks/commit-gates/architecture.py",
+    "plugins/dev-team/skills/code-review/SKILL.md",
+    "plugins/dev-team/skills/openspec-explore/SKILL.md",
+    "plugins/dev-team/skills/update-architecture/SKILL.md",
+    "plugins/dev-team/utils/archi-model.py",
+    "plugins/dev-team/utils/archi-validate.py"
+  ],
+  "model_changes": {
+    "added": [
+      "openspec/architecture/models/01-core.c4"
+    ],
+    "removed": [],
+    "modified": []
+  },
+  "status": "clean"
+}
