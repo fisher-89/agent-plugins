@@ -3,7 +3,7 @@
 archi-validate.py — Architecture validation engine.
 
 Validates code changes against the C4 architecture model by:
-1. Parsing the likec4 model for metadata.path → element mappings
+1. Parsing the model for metadata.path → element mappings
 2. Extracting import statements from changed files (TS/JS/Python)
 3. Cross-referencing imports against declared model relationships
 4. Generating a JSON validation report
@@ -71,7 +71,7 @@ def load_model(project_root):
 
 
 def _parse_model_dsl(dsl, project_root):
-    """Parse likec4 DSL to extract elements, relationships, and path mappings."""
+    """Parse C4 DSL to extract elements, relationships, and path mappings."""
     result = {
         "elements": [],
         "relationships": [],

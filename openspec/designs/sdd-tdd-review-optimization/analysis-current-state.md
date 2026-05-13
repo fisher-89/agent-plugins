@@ -17,8 +17,7 @@ wps-claude-plugin/
 │   ├── hooks/                     # 4 个 hook
 │   │   ├── on-user-prompt.py      # UserPromptSubmit: 报告活跃 change
 │   │   ├── pre-tool-openspec-test.py # PreToolUse(Write/Edit): 生成测试模板
-│   │   ├── pre-tool-commit-review.py  # PreToolUse(Bash): 建议 review
-│   │   └── session-start-worktree.py  # SessionStart: 检测 worktree 状态
+│   │   └── pre-tool-commit-review.py  # PreToolUse(Bash): 建议 review
 │   └── agents/
 │       └── code-review.md         # Review agent 定义
 └── demo-project/                  # 演示项目

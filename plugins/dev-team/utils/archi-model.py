@@ -3,8 +3,8 @@
 archi-model.py — Architecture model operation utility.
 
 Commands:
-  query       Read model structure via likec4 API
-  validate    Validate model.c4 DSL syntax via fromSource()
+  query       Read model structure via Python DSL parser
+  validate    Validate model.c4 DSL syntax via Python parser
 
 Usage:
   python archi-model.py --command query [--element <fqn>]
@@ -15,7 +15,6 @@ Usage:
 import argparse
 import json
 import os
-import subprocess
 import sys
 from datetime import datetime, timezone
 
@@ -55,11 +54,7 @@ def read_model(project_root):
 
 
 def query_model(project_root, element_fqn=None):
-    """Query the model via likec4 compute API.
-
-    Uses `npx likec4` to compute the model and outputs element structure.
-    Falls back to DSL parsing if likec4 CLI is unavailable.
-    """
+    """Query the model via Python DSL parser and return element structure."""
     model_path = os.path.join(project_root, MODEL_FILE)
     if not os.path.isfile(model_path):
         return {"error": f"Model file not found: {model_path}"}
@@ -74,7 +69,7 @@ def query_model(project_root, element_fqn=None):
 
 
 def validate_dsl(project_root, dsl_text=None):
-    """Validate DSL syntax using likec4 fromSource().
+    """Validate DSL syntax using the Python parser.
 
     If dsl_text is provided, validate that. Otherwise validate current model.c4.
     """
@@ -85,12 +80,6 @@ def validate_dsl(project_root, dsl_text=None):
         with open(model_path, "r", encoding="utf-8") as f:
             dsl_text = f.read()
 
-    # Try likec4 CLI validation first
-    cli_result = _validate_via_cli(project_root)
-    if cli_result is not None:
-        return cli_result
-
-    # Fallback: basic syntax check
     return _validate_structure(dsl_text)
 
 
@@ -111,24 +100,6 @@ def write_dsl(project_root, dsl_text):
 
     return {"success": True, "path": model_path}
 
-
-def _validate_via_cli(project_root):
-    """Try to validate via `npx likec4`. Returns None if CLI unavailable."""
-    try:
-        result = subprocess.run(
-            ["npx", "likec4", "build"],
-            cwd=project_root,
-            capture_output=True,
-            text=True,
-            timeout=60,
-            shell=True,
-        )
-        if result.returncode == 0:
-            return {"valid": True}
-        else:
-            return {"valid": False, "error": result.stderr.strip() or "likec4 build failed"}
-    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
-        return None
 
 
 def _validate_structure(dsl_text):
@@ -172,7 +143,7 @@ def _validate_structure(dsl_text):
 
 
 def _parse_dsl(dsl_text):
-    """Parse likec4 DSL text into a structured representation.
+    """Parse C4 DSL text into a structured representation.
 
     Extracts specification elements, model elements (with metadata.path),
     and relationships.

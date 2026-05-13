@@ -1,8 +1,5 @@
-# architecture-model Specification
+## MODIFIED Requirements
 
-## Purpose
-TBD - created by archiving change add-architect-role. Update Purpose after archive.
-## Requirements
 ### Requirement: Query model structure via Python DSL parser
 The system SHALL provide a utility that parses `model.c4` DSL text using a pure Python parser to extract elements, their metadata, hierarchy, and relationships.
 
@@ -33,25 +30,8 @@ The system SHALL support adding and modifying model elements by editing DSL text
 - **WHEN** the utility produces DSL that fails Python structural validation
 - **THEN** the system SHALL NOT write to disk and SHALL report the validation error
 
-### Requirement: Element-to-code mapping via metadata.path
-The system SHALL use `metadata.path` to associate model elements with their code locations. A path pointing to a directory SHALL match all files within that directory recursively.
+## REMOVED Requirements
 
-#### Scenario: Single directory mapping
-- **WHEN** an element has `metadata.path "./src/services/payment/"`
-- **THEN** all files in `src/services/payment/` and its subdirectories match that element
-
-#### Scenario: Multiple path mapping
-- **WHEN** an element has `metadata.path ["./src/services/payment/", "./src/shared/billing.ts"]`
-- **THEN** both the directory tree and the single file match that element
-
-#### Scenario: Path not found
-- **WHEN** `metadata.path` points to a directory that does not exist
-- **THEN** the validate sub-agent SHALL report a warning
-
-### Requirement: Model initialization
-The system SHALL support creating an initial `model.c4` when no model exists.
-
-#### Scenario: Bootstrap a new model
-- **WHEN** `openspec/architecture/model.c4` does not exist
-- **THEN** the sub-agent SHALL create a minimal valid model file with `model {}` block and necessary `specification {}` block
-
+### Requirement: Query model structure via likec4 API
+**Reason**: Replaced by pure Python DSL parser. The likec4 API (`LikeC4.fromWorkspace()`) required a 99MB npm dependency for functionality already implemented in Python.
+**Migration**: No migration needed. The Python parser in `archi-model.py` already exists and handles all parsing. External callers use the same CLI interface (`archi-model.py --command query`).
