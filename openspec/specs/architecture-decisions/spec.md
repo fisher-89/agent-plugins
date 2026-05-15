@@ -4,7 +4,7 @@
 TBD - created by archiving change add-architect-role. Update Purpose after archive.
 ## Requirements
 ### Requirement: Create ADR record
-The system SHALL create a new Architecture Decision Record in `openspec/architecture/decisions/` with the filename format `YYYY-MM-DD-<kebab-title>.md`.
+The system SHALL create a new Architecture Decision Record in `openspec/specs/architecture/decisions/` with the filename format `YYYY-MM-DD-<kebab-title>.md`.
 
 #### Scenario: Create new ADR
 - **WHEN** the sub-agent creates an ADR with title "Use PostgreSQL for Primary Store" on 2026-05-12

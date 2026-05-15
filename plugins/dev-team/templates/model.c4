@@ -1,9 +1,30 @@
 specification {
-  softwareSystem: elementKind
-  component: elementKind
-  container: elementKind
-  relationship: softwareSystem -> softwareSystem
+  element package
+  element domain
+  element module
+  element component
 }
 
 model {
+  package ExamplePackage {
+    metadata { path ['./src/'] }
+  }
+
+  extend ExamplePackage {
+    domain ExampleDomain {
+      metadata { path ['./src/example/'] }
+    }
+  }
+
+  extend ExamplePackage.ExampleDomain {
+    module ExampleModule {
+      metadata { path ['./src/example/module/'] }
+    }
+
+    component ExampleComponent {
+      metadata { path ['./src/example/module/component.ts'] }
+    }
+  }
+
+  ExamplePackage.ExampleDomain.ExampleModule.ExampleComponent -> ExamplePackage.ExampleDomain.ExampleModule "depends on"
 }

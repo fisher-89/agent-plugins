@@ -87,9 +87,9 @@ When Claude runs a git commit during an active OpenSpec change:
    6. Non-security errors → allow with ERROR→Task instruction to generate fix tasks
    7. No review → recommend running code review first
 2. **Architecture Gate** (`architecture.py`):
-   1. If no model at `openspec/architecture/model.c4` → skip
+   1. If no model at `openspec/specs/architecture/models/` → skip
    2. If no code files staged → skip
-   3. Check for validate-*.json report in `openspec/architecture/reports/`
+   3. Check for `architecture-validate-*.json` report in `openspec/changes/<name>/reports/`
    4. Missing report → deny with instruction to run `archi-validate.py --staged`
    5. Report staged → allow
 

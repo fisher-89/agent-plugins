@@ -4,7 +4,7 @@ Hook: PreToolUse (Bash) - Architecture validation gate for git commit.
 
 Intercepts Bash tool calls that contain git commit commands.
 Checks that staged code changes have a corresponding architecture validation
-report (validate-*.json) in openspec/architecture/reports/.
+report (architecture-validate-*.json) in openspec/changes/&lt;name&gt;/reports/.
 
 Behavior:
 - If no architecture model exists: allow (nothing to validate against)
@@ -29,7 +29,16 @@ UTILS_DIR = os.path.join(PLUGIN_ROOT, "utils")
 if UTILS_DIR not in sys.path:
     sys.path.insert(0, UTILS_DIR)
 
+import importlib.util
+
 from hook_output import output_pre_tool_use
+
+# Import active-change.py (hyphenated filename requires importlib)
+_ac_path = os.path.join(UTILS_DIR, "active-change.py")
+_ac_spec = importlib.util.spec_from_file_location("active_change", _ac_path)
+_ac_module = importlib.util.module_from_spec(_ac_spec)
+_ac_spec.loader.exec_module(_ac_module)
+find_active_change = _ac_module.find_active_change
 
 
 CODE_EXTENSIONS = {
@@ -87,35 +96,106 @@ def has_code_files(files):
 
 
 def is_architecture_only(files):
-    """Check if all staged files are under openspec/architecture/."""
+    """Check if all staged files are under openspec/specs/architecture/."""
     if not files:
         return False
-    return all(f.startswith("openspec/architecture/") for f in files)
+    return all(f.startswith("openspec/specs/architecture/") for f in files)
 
 
-def has_validation_report_staged(cwd):
-    """Check if a validate-*.json report is in staged changes."""
+def find_staged_report(cwd):
+    """Find an architecture-validate-*.json report in staged changes.
+
+    Returns the report file path relative to cwd, or None if not found.
+    """
     staged = get_staged_files(cwd)
     for f in staged:
-        if re.match(r"openspec/architecture/reports/validate-[\w\-]+\.json$", f):
-            return True
-    return False
+        if re.match(r"openspec/changes/[\w\-]+/reports/architecture-validate-[\w\-]+\.json$", f):
+            return f
+    return None
+
+
+def compute_staged_diff_hash(cwd):
+    """Compute a hash of the current staged diff for deduplication."""
+    import hashlib
+    try:
+        result = subprocess.run(
+            ["git", "diff", "--cached"],
+            cwd=cwd,
+            capture_output=True,
+            text=True,
+            timeout=10,
+            shell=True,
+        )
+        if result.returncode == 0 and result.stdout:
+            return hashlib.sha256(result.stdout.encode()).hexdigest()[:16]
+    except (subprocess.TimeoutExpired, OSError, FileNotFoundError):
+        pass
+    return None
+
+
+def validate_staged_report(cwd):
+    """Validate a staged architecture report.
+
+    Checks that the report status is clean and the diff hash matches
+    the current staged changes.
+
+    Returns:
+        (valid, report_path, error_message)
+        - (True, path, "") if valid
+        - (False, path, reason) if invalid
+        - (False, None, reason) if no report or unreadable
+    """
+    report_path = find_staged_report(cwd)
+    if not report_path:
+        return (False, None, "no report staged")
+
+    report_full_path = os.path.join(cwd, report_path)
+    if not os.path.isfile(report_full_path):
+        return (False, None, f"report file not found on disk: {report_path}")
+
+    try:
+        with open(report_full_path, "r", encoding="utf-8") as f:
+            report = json.load(f)
+    except (json.JSONDecodeError, OSError) as e:
+        return (False, report_path, f"failed to read report: {e}")
+
+    # Check report status
+    status = report.get("status", "")
+    if status == "violations_found":
+        violation_count = len(report.get("violations", []))
+        return (False, report_path,
+                f"report status is 'violations_found' ({violation_count} violation(s)). "
+                "Fix violations and re-validate before committing.")
+
+    if status == "skipped":
+        return (False, report_path,
+                "report was skipped (no model to validate against). "
+                "Ensure the architecture model exists before validating.")
+
+    # Check diff hash matches
+    report_hash = report.get("commit_diff_hash", "")
+    current_hash = compute_staged_diff_hash(cwd)
+    if report_hash and current_hash and report_hash != current_hash:
+        return (False, report_path,
+                f"report diff hash ({report_hash}) does not match "
+                f"current staged diff hash ({current_hash}). "
+                "Re-run archi-validate.py --staged to generate a fresh report.")
+
+    return (True, report_path, "")
 
 
 def model_exists(cwd):
     """Check if architecture model exists.
 
-    Checks models/ directory for *.c4 files first, then legacy model.c4.
+    Checks models/ directory for *.c4 files.
     """
-    models_dir = os.path.join(cwd, "openspec", "architecture", "models")
+    models_dir = os.path.join(cwd, "openspec", "specs", "architecture", "models")
     if os.path.isdir(models_dir):
         for f in os.listdir(models_dir):
             if f.endswith(".c4"):
                 return True
 
-    # Backward compat: also check legacy model.c4
-    model_path = os.path.join(cwd, "openspec", "architecture", "model.c4")
-    return os.path.isfile(model_path)
+    return False
 
 
 def run_gate(input_data):
@@ -144,23 +224,47 @@ def run_gate(input_data):
         return ("allow", "")
 
     # Check for validation report
-    if has_validation_report_staged(cwd):
-        return ("allow", "Architecture validation report found in staged changes. Gate passed.")
+    valid, report_path, reason = validate_staged_report(cwd)
 
-    # Check if report exists but not staged
-    reports_dir = os.path.join(cwd, "openspec", "architecture", "reports")
+    if valid:
+        return ("allow", f"Architecture validation report '{report_path}' is clean. Gate passed.")
+
+    if report_path:
+        # Report exists but is invalid
+        return ("deny", (
+            f"ARCHITECTURE GATE: Commit denied. "
+            f"Validation report '{report_path}' is invalid: {reason}"
+        ))
+
+    # Check if report exists but not staged (check active change's reports dir)
+    changes_dir = os.path.join(cwd, "openspec", "changes")
+    active = find_active_change(changes_dir, cwd)
     unstaged_report = False
-    if os.path.isdir(reports_dir):
-        for f in os.listdir(reports_dir):
-            if re.match(r"validate-[\w\-]+\.json$", f):
-                unstaged_report = True
-                break
+    report_pattern = None
+    if active:
+        change_name, _ = active
+        reports_dir = os.path.join(cwd, "openspec", "changes", change_name, "reports")
+        if os.path.isdir(reports_dir):
+            for f in os.listdir(reports_dir):
+                if re.match(r"architecture-validate-[\w\-]+\.json$", f):
+                    unstaged_report = True
+                    report_pattern = os.path.join("openspec", "changes", change_name, "reports", f"architecture-validate-*.json")
+                    break
+    # Also check global fallback directory
+    if not unstaged_report:
+        global_reports_dir = os.path.join(cwd, "openspec", "specs", "architecture", "reports")
+        if os.path.isdir(global_reports_dir):
+            for f in os.listdir(global_reports_dir):
+                if re.match(r"architecture-validate-[\w\-]+\.json$", f):
+                    unstaged_report = True
+                    report_pattern = os.path.join("openspec", "specs", "architecture", "reports", "architecture-validate-*.json")
+                    break
 
     if unstaged_report:
         return ("deny", (
             "ARCHITECTURE GATE: Commit denied. "
-            "A validation report exists in openspec/architecture/reports/ but is NOT staged. "
-            "Stage the report with: git add openspec/architecture/reports/validate-*.json"
+            "A validation report exists but is NOT staged. "
+            f"Stage the report with: git add {report_pattern}"
         ))
 
     # No report at all → deny with guidance
@@ -173,10 +277,10 @@ def run_gate(input_data):
         f"No architecture validation report found for {len(staged_files)} staged file(s): {file_list}. "
         f"BEFORE committing, you MUST run architecture validation:\n"
         f"  1. Run: python plugins/dev-team/utils/archi-validate.py --project-root . --staged\n"
-        f"  2. The script will generate a report at openspec/architecture/reports/validate-<timestamp>.json\n"
-        f"  3. Stage the report: git add openspec/architecture/reports/validate-*.json\n"
+        f"  2. The script will generate a report at openspec/changes/<name>/reports/architecture-validate-<timestamp>.json\n"
+        f"  3. Stage the report: git add openspec/changes/<name>/reports/architecture-validate-*.json\n"
         f"  4. Retry the commit\n"
-        f"If there are violations, address them by updating model files in openspec/architecture/models/ or fixing code before re-validating."
+        f"If there are violations, address them by updating model files in openspec/specs/architecture/models/ or fixing code before re-validating."
     ))
 
 

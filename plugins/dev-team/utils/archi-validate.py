@@ -21,6 +21,17 @@ import subprocess
 import sys
 from datetime import datetime, timezone
 
+import importlib.util
+
+from archi_parser import parse_dsl, read_model
+
+# Import active-change.py (hyphenated filename requires importlib)
+_ac_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "active-change.py")
+_ac_spec = importlib.util.spec_from_file_location("active_change", _ac_path)
+_ac_module = importlib.util.module_from_spec(_ac_spec)
+_ac_spec.loader.exec_module(_ac_module)
+find_active_change = _ac_module.find_active_change
+
 
 def resolve_project_root():
     """Find project root by locating openspec/ or .git."""
@@ -45,171 +56,24 @@ def _walk_up(path):
 def load_model(project_root):
     """Load and parse the architecture model from models/*.c4 directory.
 
-    Reads all .c4 files from openspec/architecture/models/ in alphabetical order
-    and aggregates into a single DSL string. Falls back to legacy model.c4 if
-    models/ directory does not exist or is empty.
+    Reads all .c4 files from openspec/specs/architecture/models/ in alphabetical order
 
     Returns:
         dict with:
-        - elements: list of {name, kind, paths}
+        - elements: list of {name, kind, paths, metadata}
         - relationships: list of {source, target, description}
         - path_to_element: dict mapping normalized paths to element names
         - errors: list of parse errors
     """
-    result = {
-        "elements": [],
-        "relationships": [],
-        "path_to_element": {},
-        "errors": [],
-    }
-
-    models_dir = os.path.join(project_root, "openspec", "architecture", "models")
-    legacy_path = os.path.join(project_root, "openspec", "architecture", "model.c4")
-
-    # Prefer models/ directory
-    if os.path.isdir(models_dir):
-        c4_files = sorted(
-            f for f in os.listdir(models_dir)
-            if f.endswith(".c4")
-        )
-        if c4_files:
-            parts = []
-            for filename in c4_files:
-                filepath = os.path.join(models_dir, filename)
-                with open(filepath, "r", encoding="utf-8") as f:
-                    parts.append(f.read())
-            dsl = "\n".join(parts)
-            return _parse_model_dsl(dsl, project_root)
-
-    # Fall back to legacy model.c4
-    if os.path.isfile(legacy_path):
-        with open(legacy_path, "r", encoding="utf-8") as f:
-            dsl = f.read()
-        return _parse_model_dsl(dsl, project_root)
-
-    result["errors"].append("Model not found: neither models/ nor model.c4 exists")
-    return result
-
-
-def _parse_model_dsl(dsl, project_root):
-    """Parse C4 DSL to extract elements, relationships, and path mappings."""
-    result = {
-        "elements": [],
-        "relationships": [],
-        "path_to_element": {},
-        "errors": [],
-    }
-
-    lines = dsl.split("\n")
-    current_element = None
-    in_model = False
-    in_specification = True
-
-    for line in lines:
-        stripped = line.strip()
-
-        if not stripped or stripped.startswith("//") or stripped.startswith("#"):
-            continue
-
-        if stripped == "model {":
-            in_model = True
-            in_specification = False
-            continue
-        if stripped == "}":
-            if current_element:
-                result["elements"].append(current_element)
-                # Build path_to_element mapping
-                for p in current_element.get("paths", []):
-                    result["path_to_element"][_normalize_path(p)] = current_element["name"]
-                current_element = None
-            continue
-
-        if not in_model:
-            continue
-
-        # Relationship: A -> B "description"
-        if "->" in stripped and current_element is None:
-            rel = _parse_relationship(stripped)
-            if rel:
-                result["relationships"].append(rel)
-            continue
-
-        # Element definition
-        elem = _try_parse_element(stripped)
-        if elem:
-            if current_element:
-                result["elements"].append(current_element)
-                for p in current_element.get("paths", []):
-                    result["path_to_element"][_normalize_path(p)] = current_element["name"]
-            current_element = elem
-            continue
-
-        # Metadata path inside element
-        if current_element and stripped.startswith("metadata path"):
-            paths = _parse_metadata_path(stripped)
-            current_element["paths"] = paths
-            continue
-
-    # Last element
-    if current_element:
-        result["elements"].append(current_element)
-        for p in current_element.get("paths", []):
-            result["path_to_element"][_normalize_path(p)] = current_element["name"]
-
-    return result
-
-
-def _try_parse_element(line):
-    """Try to parse an element definition from a DSL line."""
-    for kind in ["softwareSystem", "component", "container", "system"]:
-        prefix = kind + " "
-        if line.startswith(prefix):
-            name = line[len(prefix):].rstrip("{").strip().rstrip()
-            return {"kind": kind, "name": name, "paths": []}
-    return None
-
-
-def _parse_metadata_path(line):
-    """Parse metadata path value from a DSL line."""
-    path_str = line[len("metadata path"):].strip()
-    return _parse_path_array(path_str)
-
-
-def _parse_path_array(path_str):
-    """Parse a path value (single string or array)."""
-    path_str = path_str.strip()
-    if path_str.startswith("["):
-        path_str = path_str[1:].rstrip("]").strip()
-        paths = []
-        for p in path_str.split(","):
-            p = p.strip().strip('"').strip("'")
-            if p:
-                paths.append(p)
-        return paths
-    else:
-        p = path_str.strip('"').strip("'")
-        return [p] if p else []
-
-
-def _parse_relationship(line):
-    """Parse a relationship: A -> B "description"."""
-    arrow_idx = line.find("->")
-    if arrow_idx < 0:
-        return None
-
-    source = line[:arrow_idx].strip()
-    rest = line[arrow_idx + 2:].strip()
-
-    # Extract target (may have description in quotes)
-    target = rest.split()[0] if rest else rest
-    target = target.rstrip("{").strip()
-
-    description = None
-    desc_match = re.search(r'"([^"]*)"', line)
-    if desc_match:
-        description = desc_match.group(1)
-
-    return {"source": source, "target": target, "description": description}
+    dsl = read_model(project_root)
+    if dsl is None:
+        return {
+            "elements": [],
+            "relationships": [],
+            "path_to_element": {},
+            "errors": ["Model not found: models/ not exists"],
+        }
+    return parse_dsl(dsl)
 
 
 def _normalize_path(path):
@@ -370,15 +234,19 @@ def _parse_python_imports(content):
     return imports
 
 
-# Common Python stdlib top-level modules (non-exhaustive)
-_PYTHON_STDLIB = {
-    "os", "sys", "re", "json", "math", "time", "datetime", "collections",
-    "itertools", "functools", "typing", "io", "pathlib", "shutil", "subprocess",
-    "argparse", "logging", "unittest", "abc", "base64", "hashlib", "random",
-    "threading", "multiprocessing", "asyncio", "socket", "http", "urllib",
-    "xml", "html", "csv", "configparser", "copy", "enum", "gc", "inspect",
-    "struct", "tempfile", "textwrap", "traceback", "uuid", "warnings", "zipfile",
-}
+# Use Python 3.10+ sys.stdlib_module_names for accurate stdlib detection,
+# with a hardcoded fallback for older Python versions.
+if hasattr(sys, "stdlib_module_names"):
+    _PYTHON_STDLIB = set(sys.stdlib_module_names)
+else:
+    _PYTHON_STDLIB = {
+        "os", "sys", "re", "json", "math", "time", "datetime", "collections",
+        "itertools", "functools", "typing", "io", "pathlib", "shutil", "subprocess",
+        "argparse", "logging", "unittest", "abc", "base64", "hashlib", "random",
+        "threading", "multiprocessing", "asyncio", "socket", "http", "urllib",
+        "xml", "html", "csv", "configparser", "copy", "enum", "gc", "inspect",
+        "struct", "tempfile", "textwrap", "traceback", "uuid", "warnings", "zipfile",
+    }
 
 
 def cross_reference(imports_by_file, file_element_map, elements, relationships, path_to_element, project_root):
@@ -538,7 +406,7 @@ def get_model_changes(project_root):
 
     Returns summary of model changes (added/removed/modified).
     """
-    arch_dir = os.path.join(project_root, "openspec", "architecture")
+    arch_dir = os.path.join(project_root, "openspec", "specs", "architecture")
     if not os.path.isdir(arch_dir):
         return {"added": [], "removed": [], "modified": []}
 
@@ -564,7 +432,7 @@ def get_model_changes(project_root):
                 continue
             status, filename = parts[0], parts[1]
 
-            if filename.startswith("openspec/architecture/"):
+            if filename.startswith("openspec/specs/architecture/"):
                 if status == "A":
                     changes["added"].append(filename)
                 elif status == "D":
@@ -698,11 +566,18 @@ def main():
     report["status"] = "violations_found" if violations else "clean"
 
     if not args.no_save:
-        # Save report
-        reports_dir = os.path.join(project_root, "openspec", "architecture", "reports")
+        # Save report to active change's reports directory if available,
+        # otherwise fall back to global architecture reports directory.
+        changes_dir = os.path.join(project_root, "openspec", "changes")
+        active = find_active_change(changes_dir, project_root)
+        if active:
+            change_name, _ = active
+            reports_dir = os.path.join(project_root, "openspec", "changes", change_name, "reports")
+        else:
+            reports_dir = os.path.join(project_root, "openspec", "specs", "architecture", "reports")
         os.makedirs(reports_dir, exist_ok=True)
         timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        report_path = os.path.join(reports_dir, f"validate-{timestamp}.json")
+        report_path = os.path.join(reports_dir, f"architecture-validate-{timestamp}.json")
         with open(report_path, "w", encoding="utf-8") as f:
             json.dump(report, f, indent=2, ensure_ascii=False)
         report["_report_path"] = report_path

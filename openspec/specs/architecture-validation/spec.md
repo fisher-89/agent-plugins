@@ -11,21 +11,21 @@ The system SHALL check all files in `git diff --cached` against the architecture
 
 #### Scenario: No model exists
 
-- **WHEN** `openspec/architecture/models/` does not exist or contains no `.c4` files
+- **WHEN** `openspec/specs/architecture/models/` does not exist or contains no `.c4` files
 - **THEN** the system SHALL skip validation and report "no model to validate against"
 
 ### Requirement: Map changed files to model elements via metadata.path
 
-The system SHALL parse the model from all `models/*.c4` files using a pure Python DSL parser and build a mapping from `metadata.path` to element IDs. Each changed file SHALL be checked against this mapping. No external CLI (likec4) SHALL be required for this operation.
+The system SHALL parse the model from all `models/*.c4` files using a pure Python DSL parser and build a mapping from `metadata { path <value> }` to element IDs. The parser SHALL handle brace-delimited `metadata { }` blocks with both single-string and array values. Each changed file SHALL be checked against this mapping. No external CLI (likec4) SHALL be required for this operation.
 
 #### Scenario: File matches an element
 
-- **WHEN** changed file `src/services/payment/handler.ts` falls under element `paymentService` with `metadata.path "./src/services/payment/"`
+- **WHEN** changed file `src/services/payment/handler.ts` falls under element `paymentService` with `metadata { path './src/services/payment/' }`
 - **THEN** the file SHALL be grouped under `paymentService` in the report
 
 #### Scenario: File matches no element
 
-- **WHEN** changed file `src/scripts/cleanup.ts` does not fall under any element's `metadata.path`
+- **WHEN** changed file `src/scripts/cleanup.ts` does not fall under any element's `metadata { path }`
 - **THEN** the file SHALL be listed under `unmatched_files` in the report
 
 ### Requirement: Dependency-to-relationship cross-reference
@@ -63,7 +63,7 @@ The system SHALL check whether each declared relationship in the model has corre
 
 ### Requirement: Output JSON validation report
 
-The system SHALL write a structured JSON report to `openspec/architecture/reports/validate-<timestamp>.json`.
+The system SHALL write a structured JSON report to `openspec/changes/<name>/reports/architecture-validate-<timestamp>.json`, falling back to `openspec/specs/architecture/reports/architecture-validate-<timestamp>.json` when no active change exists.
 
 #### Scenario: Report contains matched elements
 

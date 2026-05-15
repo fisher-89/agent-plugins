@@ -21,10 +21,8 @@ Use the Agent tool to spawn the architecture subagent:
 Agent({
   description: "...",
   subagent_type: "architecture",
-  prompt: "<tailored prompt based on user intent>"
+  prompt: "Propose architecture changes: <user request>"
 })
 ```
 
 This skill only supports PROPOSE mode: Read models and code, draft DSL changes, validate, present diff for confirmation.
-
-Always use the prompt: "Propose architecture changes: <user request>"

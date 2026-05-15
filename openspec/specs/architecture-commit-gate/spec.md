@@ -6,17 +6,17 @@ The system SHALL intercept all `git commit` commands via a PreToolUse(Bash) hook
 
 #### Scenario: Commit with validation report
 
-- **WHEN** `git diff --cached` contains code changes AND `openspec/architecture/reports/` contains a staged `validate-*.json`
+- **WHEN** `git diff --cached` contains code changes AND `openspec/changes/<name>/reports/` contains a staged `architecture-architecture-validate-*.json`
 - **THEN** the hook SHALL allow the commit
 
 #### Scenario: Commit without validation report
 
-- **WHEN** `git diff --cached` contains code changes AND no `validate-*.json` is staged
+- **WHEN** `git diff --cached` contains code changes AND no `architecture-validate-*.json` is staged
 - **THEN** the hook SHALL deny the commit with a message instructing the agent to run archi-validate
 
 #### Scenario: Commit with only architecture files
 
-- **WHEN** `git diff --cached` contains only files under `openspec/architecture/`
+- **WHEN** `git diff --cached` contains only files under `openspec/specs/architecture/`
 - **THEN** the hook SHALL allow the commit without requiring a validation report
 
 #### Scenario: Commit with no code changes
@@ -26,16 +26,16 @@ The system SHALL intercept all `git commit` commands via a PreToolUse(Bash) hook
 
 ### Requirement: Model existence check uses models directory
 
-The hook SHALL check for the existence of architecture model by looking for `openspec/architecture/models/` directory containing at least one `*.c4` file. For backward compatibility, it SHALL also check the legacy `openspec/architecture/model.c4` file.
+The hook SHALL check for the existence of architecture model by looking for `openspec/specs/architecture/models/` directory containing at least one `*.c4` file. For backward compatibility, it SHALL also check the legacy `openspec/specs/architecture/model.c4` file.
 
 #### Scenario: Models directory exists
 
-- **WHEN** `openspec/architecture/models/` contains at least one `*.c4` file
+- **WHEN** `openspec/specs/architecture/models/` contains at least one `*.c4` file
 - **THEN** the hook SHALL treat the model as existing
 
 #### Scenario: Only legacy model.c4 exists
 
-- **WHEN** `openspec/architecture/models/` does not exist but `openspec/architecture/model.c4` exists
+- **WHEN** `openspec/specs/architecture/models/` does not exist but `openspec/specs/architecture/model.c4` exists
 - **THEN** the hook SHALL treat the model as existing (backward compatible)
 
 #### Scenario: No model in either location
@@ -49,7 +49,7 @@ The system SHALL check that the validation report is staged in the same commit a
 
 #### Scenario: Report exists but is not staged
 
-- **WHEN** `validate-*.json` exists in the working tree but is not in `git diff --cached`
+- **WHEN** `architecture-validate-*.json` exists in the working tree but is not in `git diff --cached`
 - **THEN** the hook SHALL deny the commit and instruct the agent to stage the report
 
 ### Requirement: Detection scope covers all changed files
