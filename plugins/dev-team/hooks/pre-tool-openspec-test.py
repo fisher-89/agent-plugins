@@ -91,6 +91,11 @@ def main():
         output_pre_tool_use("allow", "")
         return
 
+    # Skip design artifacts (.md, .md.template, .json schemas) — evaluated by Evaluator agents
+    if is_design_artifact(file_path):
+        output_pre_tool_use("allow", "")
+        return
+
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     # No changes directory
@@ -166,6 +171,28 @@ def is_openspec_artifact(file_path, cwd):
     normalized = os.path.normpath(file_path)
     openspec_dir = os.path.normpath(os.path.join(cwd, "openspec"))
     return normalized.startswith(openspec_dir)
+
+
+def is_design_artifact(file_path):
+    """Check if the file is a design artifact that doesn't need unit tests.
+
+    Design artifacts (.md, .md.template, .json schemas) are evaluated by
+    Evaluator agents in the PGE workflow, not by traditional unit tests.
+    """
+    normalized = os.path.normpath(file_path).lower()
+    # Template files (Planner output templates)
+    if normalized.endswith(".md.template") or normalized.endswith(".json.template"):
+        return True
+    # Agent definition files (Planner, Generator, Evaluator prompts)
+    if "agents" in normalized.split(os.sep) and normalized.endswith(".md"):
+        return True
+    # Skill definition files
+    if "skills" in normalized.split(os.sep) and normalized.endswith(".md"):
+        return True
+    # JSON schema files (eval.schema.json, checklist.schema.json)
+    if "templates" in normalized.split(os.sep) and normalized.endswith(".schema.json"):
+        return True
+    return False
 
 
 def map_source_to_test(file_path, cwd):

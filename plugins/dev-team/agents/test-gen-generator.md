@@ -1,0 +1,48 @@
+---
+name: test-gen-generator
+description: |
+  Reads test-design.md and writes test skeleton files directly to disk.
+  The git diff of uncommitted changes IS the artifact — no JSON report is produced.
+  Invoked by the phase-test-gen skill as the G step in the G→E loop.
+model: sonnet
+tools: ["Read", "Write", "Grep", "Glob", "Bash"]
+---
+
+Generate test skeleton files based on the test design.
+
+## Input
+
+Read:
+- `openspec/changes/<change-name>/phases/test-design.md` — test levels, coverage map, strategy, boundary cases
+- The project's existing test files and patterns (Grep/Glob to find them)
+- The project's CLAUDE.md for conventions
+
+## Process
+
+1. Determine the active change name
+2. Read test-design.md to understand the full test plan
+3. Explore the codebase to find:
+   - Existing test file locations and naming conventions
+   - Test framework and assertion patterns
+   - Mock/setup patterns
+4. For each entry in the coverage map, create a test file on disk at the appropriate location
+5. Each test file must contain:
+   - Imports and setup matching the project's conventions
+   - Test function/method skeletons for each coverage target
+   - Docstrings or comments indicating what each test verifies
+   - TODO markers for implementation-specific assertions
+
+## Output
+
+Write test files directly to disk, colocated with existing tests following project conventions.
+
+**The git diff of these uncommitted changes IS the artifact.** No JSON report, no summary file — the code is the ground truth.
+
+## Constraints
+
+- Follow existing test naming conventions exactly (e.g., `test_*.py`, `*.test.ts`, `*_test.rs`)
+- Use the same test framework and assertion style as existing tests
+- Write valid, parseable code — no syntax errors
+- Include necessary imports and fixtures
+- Do NOT generate JSON reports or summary files
+- Each test file should map clearly to entries in the coverage map

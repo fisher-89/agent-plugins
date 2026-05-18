@@ -37,19 +37,6 @@ except Exception:
     def find_active_change(changes_dir, cwd=""):
         return None
 
-try:
-    _rc_path = os.path.join(UTILS_DIR, "report-chain.py")
-    if os.path.isfile(_rc_path):
-        _rc_spec = importlib.util.spec_from_file_location("report_chain", _rc_path)
-        _rc_module = importlib.util.module_from_spec(_rc_spec)
-        _rc_spec.loader.exec_module(_rc_module)
-        check_all_report_chains = _rc_module.check_all_report_chains
-        check_final_reports = _rc_module.check_final_reports
-        HAS_REPORT_CHAIN = True
-    else:
-        HAS_REPORT_CHAIN = False
-except Exception:
-    HAS_REPORT_CHAIN = False
 
 
 def main():
@@ -70,12 +57,14 @@ def main():
         handle_archive_skill(cwd)
     elif "apply" in skill_name:
         handle_apply_skill(cwd)
+    elif "phase-" in skill_name:
+        handle_phase_skill(cwd, skill_name)
     else:
         output_pre_tool_use("allow", "")
 
 
 def handle_archive_skill(cwd):
-    """Force compliance check and report chain check before archive."""
+    """Run eval check before archive (archive flow step 1 of 3)."""
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     if not os.path.isdir(changes_dir):
@@ -90,82 +79,57 @@ def handle_archive_skill(cwd):
 
     change_name, change_dir = active_change
 
-    # Run compliance check (if available)
-    compliance_check_path = os.path.join(UTILS_DIR, "compliance-check.py")
+    # Run eval check script
+    eval_check_path = os.path.join(UTILS_DIR, "eval-check.py")
 
-    if not os.path.isfile(compliance_check_path):
-        # Compliance checker not available — allow with warning
+    if not os.path.isfile(eval_check_path):
         output_pre_tool_use(
             "allow",
-            f"Compliance checker not available. Proceeding with archive of '{change_name}'."
+            f"Eval check script not available. Proceeding with archive of '{change_name}'."
         )
         return
 
     try:
         result = subprocess.run(
-            ["python", compliance_check_path,
+            ["python", eval_check_path,
              "--change", change_name, "--project-root", cwd, "--json"],
             capture_output=True, text=True, timeout=30, shell=True
         )
 
         if result.returncode != 0:
-            # Compliance check failed to run — allow with warning
-            output_pre_tool_use(
-                "allow",
-                f"Compliance check failed to run for '{change_name}'. Proceeding with archive."
-            )
-            return
-
-        data = json.loads(result.stdout)
-
-        if not data.get("passed", False):
-            blocking = data.get("blocking_issues", [])
-            issues = format_blocking_issues(blocking)
+            try:
+                data = json.loads(result.stdout)
+                msg = data.get("error", result.stdout)
+            except json.JSONDecodeError:
+                msg = result.stdout or result.stderr
             context = (
-                f"ARCHIVE BLOCKED: {len(blocking)} compliance issue(s) for '{change_name}'.\n"
-                f"{issues}\n"
-                f"Fix these issues before archiving, or explicitly override."
+                f"ARCHIVE BLOCKED: Eval check failed for '{change_name}'.\n"
+                f"{msg}\n"
+                f"Complete all PGE phases and tasks before archiving."
             )
             output_pre_tool_use("deny", context)
             return
+
+        # Eval check passed
+        output_pre_tool_use(
+            "allow",
+            f"Eval check passed for '{change_name}'. Archive will proceed."
+        )
 
     except subprocess.TimeoutExpired:
         output_pre_tool_use(
             "allow",
-            f"Compliance check timed out for '{change_name}'. Proceeding with archive."
+            f"Eval check timed out for '{change_name}'. Proceeding with archive."
         )
-        return
     except (json.JSONDecodeError, OSError) as e:
         output_pre_tool_use(
             "allow",
-            f"Compliance check error for '{change_name}': {e}. Proceeding with archive."
+            f"Eval check error for '{change_name}': {e}. Proceeding with archive."
         )
-        return
-
-    # === Report Chain Check ===
-    if HAS_REPORT_CHAIN:
-        tasks_md = os.path.join(change_dir, "tasks.md")
-        all_ok, issues = check_all_report_chains(change_dir, tasks_md)
-        if not all_ok:
-            context = (
-                f"ARCHIVE BLOCKED: Report chain incomplete.\n"
-                f"Issues:\n" + "\n".join(f"  - {i}" for i in issues) + "\n"
-                f"Ensure all tasks have complete report chains before archiving."
-            )
-            output_pre_tool_use("deny", context)
-            return
-
-        # Check final reports
-        ok, err = check_final_reports(change_dir)
-        if not ok:
-            output_pre_tool_use("deny", f"ARCHIVE BLOCKED: {err}")
-            return
-
-    output_pre_tool_use("allow", f"Compliance check and report chains passed for '{change_name}'.")
 
 
 def handle_apply_skill(cwd):
-    """Check review loop state before apply."""
+    """Check eval state before apply (apply-change is now phase-implement)."""
     changes_dir = os.path.join(cwd, "openspec", "changes")
 
     if not os.path.isdir(changes_dir):
@@ -180,58 +144,89 @@ def handle_apply_skill(cwd):
 
     change_name, change_dir = active_change
 
-    # Check review loop state
-    state_path = os.path.join(change_dir, "review-loop-state.json")
-    if os.path.isfile(state_path):
+    # Check for existing eval progress
+    eval_json_path = os.path.join(change_dir, "phases", "eval.json")
+    if os.path.isfile(eval_json_path):
         try:
-            with open(state_path, "r", encoding="utf-8") as f:
-                state = json.load(f)
+            with open(eval_json_path, "r", encoding="utf-8") as f:
+                eval_entries = json.load(f)
 
-            status = state.get("status", "idle")
-            loop_count = state.get("loop_count", 0)
-            max_loops = state.get("max_loops", 3)
-            current_errors = state.get("current_errors", 0)
+            # Find latest phase completions
+            latest = {}
+            for entry in eval_entries:
+                phase = entry.get("phase", "")
+                ts = entry.get("timestamp", "")
+                if phase not in latest or ts > latest[phase]["timestamp"]:
+                    latest[phase] = entry
 
-            if status == "paused":
+            # Surface eval state to user
+            completed = [p for p, e in latest.items() if e.get("verdict") == "pass"]
+            if completed:
                 context = (
-                    f"Review loop PAUSED for '{change_name}'. "
-                    f"Loop {loop_count}/{max_loops} reached. "
-                    f"Manual intervention required."
+                    f"Eval state for '{change_name}': "
+                    f"Completed phases: {', '.join(sorted(completed))}. "
+                    f"Pending phases will be evaluated after implementation."
                 )
                 output_pre_tool_use("allow", context)
                 return
-
-            if status == "running" and current_errors > 0:
-                context = (
-                    f"Review loop active for '{change_name}': "
-                    f"Loop {loop_count}/{max_loops}, {current_errors} error(s) remaining. "
-                    f"Fix tasks have been appended to tasks.md. "
-                    f"Implement the fix tasks before proceeding."
-                )
-                output_pre_tool_use("allow", context)
-                return
-
         except (json.JSONDecodeError, OSError):
             pass
 
     output_pre_tool_use("allow", "")
 
 
-def format_blocking_issues(issues):
-    """Format blocking issues for display."""
-    if not issues:
-        return "No issues listed."
+def handle_phase_skill(cwd, skill_name):
+    """Route phase skill invocations and provide eval state context."""
+    changes_dir = os.path.join(cwd, "openspec", "changes")
 
-    lines = []
-    for issue in issues[:5]:  # Show max 5 issues
-        check_id = issue.get("check", "Unknown")
-        message = issue.get("message", "No message")
-        lines.append(f"  - [{check_id}] {message}")
+    if not os.path.isdir(changes_dir):
+        output_pre_tool_use("allow", "")
+        return
 
-    if len(issues) > 5:
-        lines.append(f"  ... (+{len(issues) - 5} more)")
+    active_change = find_active_change(changes_dir, cwd)
+    if not active_change:
+        output_pre_tool_use("allow", "")
+        return
 
-    return "\n".join(lines)
+    change_name, change_dir = active_change
+
+    # Check eval.json for backtrack markers and current state
+    eval_json_path = os.path.join(change_dir, "phases", "eval.json")
+    backtrack_warning = ""
+    if os.path.isfile(eval_json_path):
+        try:
+            with open(eval_json_path, "r", encoding="utf-8") as f:
+                eval_entries = json.load(f)
+
+            for entry in eval_entries:
+                bt = entry.get("backtrack_to")
+                if bt:
+                    backtrack_warning = (
+                        f"BACKTRACK: Phase '{entry.get('phase')}' requests "
+                        f"re-evaluation of '{bt}'. Handle backtrack before proceeding."
+                    )
+                    break
+        except (json.JSONDecodeError, OSError):
+            pass
+
+    # EVALUATOR-ONLY routing (no Generator for code-review, acceptance)
+    if "code-review" in skill_name or "acceptance" in skill_name:
+        context = (
+            f"EVALUATOR-ONLY phase: '{skill_name}' will invoke only the Evaluator, "
+            f"no Planner or Generator."
+        )
+        if backtrack_warning:
+            context += f"\n{backtrack_warning}"
+        output_pre_tool_use("allow", context)
+        return
+
+    # DESIGN and EXECUTION phases
+    if backtrack_warning:
+        output_pre_tool_use("allow", backtrack_warning)
+    else:
+        output_pre_tool_use("allow", "")
+
+
 
 
 if __name__ == "__main__":

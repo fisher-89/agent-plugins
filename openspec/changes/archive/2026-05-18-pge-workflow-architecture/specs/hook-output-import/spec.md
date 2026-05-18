@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Commit gate is removed
 The system SHALL NOT perform any commit-time evaluation validation. The existing commit gate hooks (`hooks/commit-gates/before-commit.py`, `hooks/commit-gates/quality.py`, `hooks/commit-gates/architecture.py`) SHALL be removed. Commit is performed as the final step of the archive flow without any pre-commit evaluation hooks.
@@ -68,9 +68,3 @@ No per-phase eval files SHALL be created — eval.json is the single source of t
 #### Scenario: Acceptance gaps in eval.json
 - **WHEN** acceptance-evaluator finds an acceptance criterion without implementation
 - **THEN** the gap is recorded as a checklist item with pass=false, evidence quoting the criterion, and backtrack_to set — appended to eval.json
-
-## REMOVED Requirements
-
-### Requirement: Hook files import hook-output module directly
-**Reason**: The UserPromptSubmit hook (`on-user-prompt.py`) is being removed. The `output_user_prompt_submit` function import requirement no longer applies since the hook file no longer exists. The PreToolUse and SessionStart import requirements remain valid.
-**Migration**: The import requirement is superseded by the fact that `on-user-prompt.py` is deleted. The `output_pre_tool_use` and `output_session_start` import requirements remain in effect for their respective hooks.

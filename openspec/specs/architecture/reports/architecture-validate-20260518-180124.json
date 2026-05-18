@@ -1,0 +1,321 @@
+{
+  "timestamp": "2026-05-18T10:01:24Z",
+  "commit_diff_hash": "c59138e64b0f96d2",
+  "changed_files": [
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/.openspec.yaml",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/design.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/proposal.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/hook-output-import/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/intent-router/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/json-design-schemas/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/pge-workflow-engine/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/phase-agents/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/phase-skills/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/pipeline-backtrack/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/tasks.md",
+    "openspec/specs/hook-output-import/spec.md",
+    "openspec/specs/intent-router/spec.md",
+    "openspec/specs/json-design-schemas/spec.md",
+    "openspec/specs/pge-workflow-engine/spec.md",
+    "openspec/specs/phase-agents/spec.md",
+    "openspec/specs/phase-skills/spec.md",
+    "openspec/specs/pipeline-backtrack/spec.md",
+    "plugins/dev-team/.claude-plugin/plugin.json",
+    "plugins/dev-team/agents/acceptance-evaluator.md",
+    "plugins/dev-team/agents/code-review-evaluator.md",
+    "plugins/dev-team/agents/dev-proposal-evaluator.md",
+    "plugins/dev-team/agents/dev-proposal-planner.md",
+    "plugins/dev-team/agents/implementation-evaluator.md",
+    "plugins/dev-team/agents/implementation-generator.md",
+    "plugins/dev-team/agents/requirements-evaluator.md",
+    "plugins/dev-team/agents/requirements-planner.md",
+    "plugins/dev-team/agents/test-design-evaluator.md",
+    "plugins/dev-team/agents/test-design-planner.md",
+    "plugins/dev-team/agents/test-gen-evaluator.md",
+    "plugins/dev-team/agents/test-gen-generator.md",
+    "plugins/dev-team/hooks/commit-gates/architecture.py",
+    "plugins/dev-team/hooks/commit-gates/before-commit.py",
+    "plugins/dev-team/hooks/commit-gates/quality.py",
+    "plugins/dev-team/hooks/hooks.json",
+    "plugins/dev-team/hooks/pre-tool-openspec-test.py",
+    "plugins/dev-team/hooks/pre-tool-skill.py",
+    "plugins/dev-team/skills/code-review/SKILL.md",
+    "plugins/dev-team/skills/openspec-apply-change/SKILL.md",
+    "plugins/dev-team/skills/openspec-propose/SKILL.md",
+    "plugins/dev-team/skills/phase-acceptance/SKILL.md",
+    "plugins/dev-team/skills/phase-code-review/SKILL.md",
+    "plugins/dev-team/skills/phase-dev-proposal/SKILL.md",
+    "plugins/dev-team/skills/phase-implement/SKILL.md",
+    "plugins/dev-team/skills/phase-requirements/SKILL.md",
+    "plugins/dev-team/skills/phase-test-design/SKILL.md",
+    "plugins/dev-team/skills/phase-test-gen/SKILL.md",
+    "plugins/dev-team/templates/artifacts/checklist.schema.json",
+    "plugins/dev-team/templates/artifacts/design.md.template",
+    "plugins/dev-team/templates/artifacts/eval.schema.json",
+    "plugins/dev-team/templates/artifacts/proposal.md.template",
+    "plugins/dev-team/templates/artifacts/test-design.md.template",
+    "plugins/dev-team/utils/eval-check.py"
+  ],
+  "matched": [
+    {
+      "element_id": "DevTeamPlugin",
+      "files": [
+        "plugins/dev-team/.claude-plugin/plugin.json",
+        "plugins/dev-team/agents/acceptance-evaluator.md",
+        "plugins/dev-team/agents/code-review-evaluator.md",
+        "plugins/dev-team/agents/dev-proposal-evaluator.md",
+        "plugins/dev-team/agents/dev-proposal-planner.md",
+        "plugins/dev-team/agents/implementation-evaluator.md",
+        "plugins/dev-team/agents/implementation-generator.md",
+        "plugins/dev-team/agents/requirements-evaluator.md",
+        "plugins/dev-team/agents/requirements-planner.md",
+        "plugins/dev-team/agents/test-design-evaluator.md",
+        "plugins/dev-team/agents/test-design-planner.md",
+        "plugins/dev-team/agents/test-gen-evaluator.md",
+        "plugins/dev-team/agents/test-gen-generator.md",
+        "plugins/dev-team/hooks/commit-gates/architecture.py",
+        "plugins/dev-team/hooks/commit-gates/before-commit.py",
+        "plugins/dev-team/hooks/commit-gates/quality.py",
+        "plugins/dev-team/hooks/hooks.json",
+        "plugins/dev-team/hooks/pre-tool-openspec-test.py",
+        "plugins/dev-team/hooks/pre-tool-skill.py",
+        "plugins/dev-team/skills/code-review/SKILL.md",
+        "plugins/dev-team/skills/openspec-apply-change/SKILL.md",
+        "plugins/dev-team/skills/openspec-propose/SKILL.md",
+        "plugins/dev-team/skills/phase-acceptance/SKILL.md",
+        "plugins/dev-team/skills/phase-code-review/SKILL.md",
+        "plugins/dev-team/skills/phase-dev-proposal/SKILL.md",
+        "plugins/dev-team/skills/phase-implement/SKILL.md",
+        "plugins/dev-team/skills/phase-requirements/SKILL.md",
+        "plugins/dev-team/skills/phase-test-design/SKILL.md",
+        "plugins/dev-team/skills/phase-test-gen/SKILL.md",
+        "plugins/dev-team/templates/artifacts/checklist.schema.json",
+        "plugins/dev-team/templates/artifacts/design.md.template",
+        "plugins/dev-team/templates/artifacts/eval.schema.json",
+        "plugins/dev-team/templates/artifacts/proposal.md.template",
+        "plugins/dev-team/templates/artifacts/test-design.md.template",
+        "plugins/dev-team/utils/eval-check.py"
+      ]
+    }
+  ],
+  "violations": [],
+  "warnings": [
+    {
+      "type": "unused_relationship",
+      "element_a": "ClaudeCode",
+      "element_b": "DevTeamPlugin",
+      "detail": "Model declares 'ClaudeCode -> DevTeamPlugin' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin",
+      "element_b": "OpenSpecCLI",
+      "detail": "Model declares 'DevTeamPlugin -> OpenSpecCLI' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.TDDGate",
+      "element_b": "DevTeamPlugin.Utils.ActiveChange",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.TDDGate -> DevTeamPlugin.Utils.ActiveChange' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.TDDGate",
+      "element_b": "DevTeamPlugin.Utils.HookOutput",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.TDDGate -> DevTeamPlugin.Utils.HookOutput' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.SkillGate",
+      "element_b": "DevTeamPlugin.Utils.ActiveChange",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.SkillGate -> DevTeamPlugin.Utils.ActiveChange' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.SkillGate",
+      "element_b": "DevTeamPlugin.Utils.ReportChain",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.SkillGate -> DevTeamPlugin.Utils.ReportChain' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.SkillGate",
+      "element_b": "DevTeamPlugin.Utils.HookOutput",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.SkillGate -> DevTeamPlugin.Utils.HookOutput' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.BeforeCommit",
+      "element_b": "DevTeamPlugin.Hooks.CommitGates.QualityGate",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.BeforeCommit -> DevTeamPlugin.Hooks.CommitGates.QualityGate' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.BeforeCommit",
+      "element_b": "DevTeamPlugin.Hooks.CommitGates.ArchitectureGate",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.BeforeCommit -> DevTeamPlugin.Hooks.CommitGates.ArchitectureGate' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.BeforeCommit",
+      "element_b": "DevTeamPlugin.Utils.HookOutput",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.BeforeCommit -> DevTeamPlugin.Utils.HookOutput' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.QualityGate",
+      "element_b": "DevTeamPlugin.Utils.ActiveChange",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.QualityGate -> DevTeamPlugin.Utils.ActiveChange' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.QualityGate",
+      "element_b": "DevTeamPlugin.Utils.ReportChain",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.QualityGate -> DevTeamPlugin.Utils.ReportChain' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.QualityGate",
+      "element_b": "DevTeamPlugin.Utils.LintRunner",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.QualityGate -> DevTeamPlugin.Utils.LintRunner' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.QualityGate",
+      "element_b": "DevTeamPlugin.Utils.TestRunner",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.QualityGate -> DevTeamPlugin.Utils.TestRunner' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.QualityGate",
+      "element_b": "DevTeamPlugin.Utils.HookOutput",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.QualityGate -> DevTeamPlugin.Utils.HookOutput' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.ArchitectureGate",
+      "element_b": "DevTeamPlugin.Utils.HookOutput",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.ArchitectureGate -> DevTeamPlugin.Utils.HookOutput' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.ArchitectureGate",
+      "element_b": "DevTeamPlugin.Utils.ArchiValidate",
+      "detail": "Model declares 'DevTeamPlugin.Hooks.CommitGates.ArchitectureGate -> DevTeamPlugin.Utils.ArchiValidate' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Skills.ExploreSkill",
+      "element_b": "OpenSpecCLI",
+      "detail": "Model declares 'DevTeamPlugin.Skills.ExploreSkill -> OpenSpecCLI' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Skills.ProposeSkill",
+      "element_b": "OpenSpecCLI",
+      "detail": "Model declares 'DevTeamPlugin.Skills.ProposeSkill -> OpenSpecCLI' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Skills.ApplyChangeSkill",
+      "element_b": "OpenSpecCLI",
+      "detail": "Model declares 'DevTeamPlugin.Skills.ApplyChangeSkill -> OpenSpecCLI' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Skills.ArchiveChangeSkill",
+      "element_b": "OpenSpecCLI",
+      "detail": "Model declares 'DevTeamPlugin.Skills.ArchiveChangeSkill -> OpenSpecCLI' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Skills.CodeReviewSkill",
+      "element_b": "DevTeamPlugin.Agents.CodeReviewAgent",
+      "detail": "Model declares 'DevTeamPlugin.Skills.CodeReviewSkill -> DevTeamPlugin.Agents.CodeReviewAgent' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Skills.UpdateArchitectureSkill",
+      "element_b": "DevTeamPlugin.Agents.ArchitectureAgent",
+      "detail": "Model declares 'DevTeamPlugin.Skills.UpdateArchitectureSkill -> DevTeamPlugin.Agents.ArchitectureAgent' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Agents.ArchitectureAgent",
+      "element_b": "DevTeamPlugin.Utils.ArchiModel",
+      "detail": "Model declares 'DevTeamPlugin.Agents.ArchitectureAgent -> DevTeamPlugin.Utils.ArchiModel' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Agents.ArchitectureAgent",
+      "element_b": "DevTeamPlugin.Utils.ArchiValidate",
+      "detail": "Model declares 'DevTeamPlugin.Agents.ArchitectureAgent -> DevTeamPlugin.Utils.ArchiValidate' but no import evidence found"
+    },
+    {
+      "type": "unused_relationship",
+      "element_a": "DevTeamPlugin.Agents.ArchitectureAgent",
+      "element_b": "DevTeamPlugin.Utils.ArchiDecide",
+      "detail": "Model declares 'DevTeamPlugin.Agents.ArchitectureAgent -> DevTeamPlugin.Utils.ArchiDecide' but no import evidence found"
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates",
+      "detail": "metadata.path './plugins/dev-team/hooks/commit-gates/' for element 'DevTeamPlugin.Hooks.CommitGates' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "DevTeamPlugin.Hooks.SessionStartGate",
+      "detail": "metadata.path './plugins/dev-team/hooks/session-start-ensure-openspec.py' for element 'DevTeamPlugin.Hooks.SessionStartGate' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.BeforeCommit",
+      "detail": "metadata.path './plugins/dev-team/hooks/commit-gates/before-commit.py' for element 'DevTeamPlugin.Hooks.CommitGates.BeforeCommit' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.QualityGate",
+      "detail": "metadata.path './plugins/dev-team/hooks/commit-gates/quality.py' for element 'DevTeamPlugin.Hooks.CommitGates.QualityGate' does not exist",
+      "source_file": "",
+      "import_target": ""
+    },
+    {
+      "type": "path_not_found",
+      "element_a": "DevTeamPlugin.Hooks.CommitGates.ArchitectureGate",
+      "detail": "metadata.path './plugins/dev-team/hooks/commit-gates/architecture.py' for element 'DevTeamPlugin.Hooks.CommitGates.ArchitectureGate' does not exist",
+      "source_file": "",
+      "import_target": ""
+    }
+  ],
+  "unmatched_files": [
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/.openspec.yaml",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/design.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/proposal.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/hook-output-import/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/intent-router/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/json-design-schemas/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/pge-workflow-engine/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/phase-agents/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/phase-skills/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/specs/pipeline-backtrack/spec.md",
+    "openspec/changes/archive/2026-05-18-pge-workflow-architecture/tasks.md",
+    "openspec/specs/hook-output-import/spec.md",
+    "openspec/specs/intent-router/spec.md",
+    "openspec/specs/json-design-schemas/spec.md",
+    "openspec/specs/pge-workflow-engine/spec.md",
+    "openspec/specs/phase-agents/spec.md",
+    "openspec/specs/phase-skills/spec.md",
+    "openspec/specs/pipeline-backtrack/spec.md"
+  ],
+  "model_changes": {
+    "added": [],
+    "removed": [],
+    "modified": []
+  },
+  "status": "clean"
+}

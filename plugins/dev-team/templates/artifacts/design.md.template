@@ -1,0 +1,79 @@
+# Design: {{change_name}}
+
+> **Change**: {{change_name}}
+> **Date**: {{date}}
+> **Based on**: proposal.md, test-design.md
+
+---
+
+## 1. Architecture Components
+
+| Component | Responsibility | Dependencies | Technology |
+|-----------|---------------|--------------|------------|
+| {{component}} | {{responsibility}} | {{dependencies}} | {{technology}} |
+
+### Component Diagram
+
+{{component_diagram_description}}
+
+---
+
+## 2. Data Flow
+
+### 2.1 Flow Description
+
+{{data_flow_description}}
+
+### 2.2 Data Models
+
+| Model | Fields | Relationships | Persistence |
+|-------|--------|---------------|-------------|
+| {{model}} | {{fields}} | {{relationships}} | {{persistence}} |
+
+---
+
+## 3. Route / API Design
+
+| Method | Path | Description | Input | Output | Auth |
+|--------|------|-------------|-------|--------|------|
+| {{method}} | {{path}} | {{description}} | {{input}} | {{output}} | {{auth}} |
+
+---
+
+## 4. Decisions
+
+| ID | Decision | Rationale | Alternatives Considered |
+|----|----------|-----------|------------------------|
+| D{{n}} | {{decision}} | {{rationale}} | {{alternatives}} |
+
+---
+
+## 5. Dependencies
+
+### Runtime Dependencies
+
+- {{dependency}} — {{purpose}}
+
+### Build/Test Dependencies
+
+- {{dependency}} — {{purpose}}
+
+---
+
+## 6. Risks & Mitigations
+
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| {{risk}} | {{impact}} | {{probability}} | {{mitigation}} |
+
+---
+
+## 7. Migration Steps
+
+1. {{step}}
+
+---
+
+## 8. Open Questions
+
+- {{question}}

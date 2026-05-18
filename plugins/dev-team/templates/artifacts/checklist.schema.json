@@ -1,0 +1,26 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "checklist.schema.json",
+  "title": "Checklist Item",
+  "description": "Reference format for documenting static checklist items embedded in Evaluator agent prompts",
+  "type": "object",
+  "required": ["id", "criterion", "required", "evidence_hint"],
+  "properties": {
+    "id": {
+      "type": "string",
+      "description": "Unique checklist item identifier within the Evaluator's checklist"
+    },
+    "criterion": {
+      "type": "string",
+      "description": "The specific condition being checked"
+    },
+    "required": {
+      "type": "boolean",
+      "description": "Whether this item must pass for the overall verdict to be 'pass'"
+    },
+    "evidence_hint": {
+      "type": "string",
+      "description": "Guidance for the Evaluator on what to look for as evidence"
+    }
+  }
+}

@@ -1,6 +1,7 @@
 ---
 name: code-review
-description: Asks to review staged changes, or requests code review.
+description: |
+  [DEPRECATED] This skill is migrated to the PGE workflow. Use /dev-team:phase-code-review for evaluator-only code review against design.md with static checklist. This skill remains functional during migration but will be removed in a future update.
 disable-model-invocation: true
 license: MIT
 ---

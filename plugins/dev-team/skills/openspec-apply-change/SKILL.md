@@ -1,6 +1,7 @@
 ---
 name: openspec-apply-change
-description: Implement tasks from an OpenSpec change. Use when the user wants to start implementing, continue implementation, or work through tasks.
+description: |
+  [DEPRECATED] This skill is migrated to the PGE workflow. Use /dev-team:phase-implement for implementation with auto static-check and test-execution phases. This skill remains functional during migration but will be removed in a future update.
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:

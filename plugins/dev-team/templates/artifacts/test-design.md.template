@@ -1,0 +1,59 @@
+# Test Design: {{change_name}}
+
+> **Change**: {{change_name}}
+> **Date**: {{date}}
+> **Based on**: proposal.md
+
+---
+
+## 1. Test Levels
+
+| Level | Scope | Framework | Target |
+|-------|-------|-----------|--------|
+| {{level}} | {{scope}} | {{framework}} | {{target}} |
+
+---
+
+## 2. Coverage Map
+
+| Requirement ID | Test File | Test Level | Coverage Type |
+|---------------|-----------|------------|---------------|
+| {{requirement_id}} | {{test_file}} | {{level}} | {{coverage_type}} |
+
+---
+
+## 3. Test Strategy
+
+### 3.1 Approach
+
+{{approach_description}}
+
+### 3.2 Test Categories
+
+- **Unit Tests**: {{unit_test_scope}}
+- **Integration Tests**: {{integration_test_scope}}
+- **End-to-End Tests**: {{e2e_test_scope}}
+
+### 3.3 Mocking Strategy
+
+{{mocking_strategy}}
+
+---
+
+## 4. Boundary Cases
+
+| Case | Input/Condition | Expected Behavior | Test File |
+|------|----------------|-------------------|-----------|
+| {{case_name}} | {{condition}} | {{expected}} | {{test_file}} |
+
+---
+
+## 5. Test Data
+
+{{test_data_description}}
+
+---
+
+## 6. Non-Testable Items
+
+- {{item}} — **Reason**: {{reason}}

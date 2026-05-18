@@ -1,6 +1,7 @@
 ---
 name: openspec-propose
-description: Propose a new change with all artifacts generated in one step. Use when the user wants to quickly describe what they want to build and get a complete proposal with design, specs, and tasks ready for implementation.
+description: |
+  [DEPRECATED] This skill is migrated to the PGE workflow. Use /dev-team:phase-requirements for proposal writing and /dev-team:phase-dev-proposal for design + tasks. This skill remains functional during migration but will be removed in a future update.
 license: MIT
 compatibility: Requires openspec CLI.
 metadata:

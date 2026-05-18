@@ -1,0 +1,55 @@
+# Proposal: {{change_name}}
+
+> **Change**: {{change_name}}
+> **Date**: {{date}}
+> **Author**: {{author}}
+
+---
+
+## 1. Problem
+
+{{problem_statement}}
+
+### Background
+
+{{background}}
+
+### Motivation
+
+{{motivation}}
+
+---
+
+## 2. Stakeholders
+
+| Role | Name/Group | Impact | Involvement |
+|------|-----------|--------|-------------|
+| {{role}} | {{name}} | {{impact}} | {{involvement}} |
+
+---
+
+## 3. Scope
+
+### In Scope
+
+- {{in_scope_item}}
+
+### Out of Scope
+
+- {{out_of_scope_item}}
+
+---
+
+## 4. Risks
+
+| Risk | Impact | Probability | Mitigation |
+|------|--------|-------------|------------|
+| {{risk}} | {{impact}} | {{probability}} | {{mitigation}} |
+
+---
+
+## 5. Acceptance Criteria
+
+| ID | Criterion | Validation Method | Priority |
+|----|-----------|-------------------|----------|
+| AC-{{n}} | {{criterion}} | {{validation_method}} | {{priority}} |
