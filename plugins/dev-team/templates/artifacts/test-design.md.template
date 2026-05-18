@@ -1,59 +1,59 @@
-# Test Design: {{change_name}}
+# 测试设计: {{change_name}}
 
-> **Change**: {{change_name}}
-> **Date**: {{date}}
-> **Based on**: proposal.md
+> **变更**: {{change_name}}
+> **日期**: {{date}}
+> **基于**: proposal.md
 
 ---
 
-## 1. Test Levels
+## 1. 测试层级
 
-| Level | Scope | Framework | Target |
-|-------|-------|-----------|--------|
+| 层级 | 范围 | 框架 | 目标 |
+|------|------|------|------|
 | {{level}} | {{scope}} | {{framework}} | {{target}} |
 
 ---
 
-## 2. Coverage Map
+## 2. 覆盖映射
 
-| Requirement ID | Test File | Test Level | Coverage Type |
-|---------------|-----------|------------|---------------|
+| 需求ID | 测试文件 | 测试层级 | 覆盖类型 |
+|--------|---------|----------|----------|
 | {{requirement_id}} | {{test_file}} | {{level}} | {{coverage_type}} |
 
 ---
 
-## 3. Test Strategy
+## 3. 测试策略
 
-### 3.1 Approach
+### 3.1 方法
 
 {{approach_description}}
 
-### 3.2 Test Categories
+### 3.2 测试分类
 
-- **Unit Tests**: {{unit_test_scope}}
-- **Integration Tests**: {{integration_test_scope}}
-- **End-to-End Tests**: {{e2e_test_scope}}
+- **单元测试**: {{unit_test_scope}}
+- **集成测试**: {{integration_test_scope}}
+- **端到端测试**: {{e2e_test_scope}}
 
-### 3.3 Mocking Strategy
+### 3.3 模拟策略
 
 {{mocking_strategy}}
 
 ---
 
-## 4. Boundary Cases
+## 4. 边界场景
 
-| Case | Input/Condition | Expected Behavior | Test File |
-|------|----------------|-------------------|-----------|
+| 场景 | 输入/条件 | 预期行为 | 测试文件 |
+|------|----------|----------|----------|
 | {{case_name}} | {{condition}} | {{expected}} | {{test_file}} |
 
 ---
 
-## 5. Test Data
+## 5. 测试数据
 
 {{test_data_description}}
 
 ---
 
-## 6. Non-Testable Items
+## 6. 不可测试项
 
-- {{item}} — **Reason**: {{reason}}
+- {{item}} — **原因**: {{reason}}

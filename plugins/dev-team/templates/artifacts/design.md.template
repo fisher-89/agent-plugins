@@ -1,79 +1,79 @@
-# Design: {{change_name}}
+# 设计: {{change_name}}
 
-> **Change**: {{change_name}}
-> **Date**: {{date}}
-> **Based on**: proposal.md, test-design.md
+> **变更**: {{change_name}}
+> **日期**: {{date}}
+> **基于**: proposal.md, test-design.md
 
 ---
 
-## 1. Architecture Components
+## 1. 架构组件
 
-| Component | Responsibility | Dependencies | Technology |
-|-----------|---------------|--------------|------------|
+| 组件 | 职责 | 依赖 | 技术 |
+|------|------|------|------|
 | {{component}} | {{responsibility}} | {{dependencies}} | {{technology}} |
 
-### Component Diagram
+### 组件图
 
 {{component_diagram_description}}
 
 ---
 
-## 2. Data Flow
+## 2. 数据流
 
-### 2.1 Flow Description
+### 2.1 流程描述
 
 {{data_flow_description}}
 
-### 2.2 Data Models
+### 2.2 数据模型
 
-| Model | Fields | Relationships | Persistence |
-|-------|--------|---------------|-------------|
+| 模型 | 字段 | 关系 | 持久化 |
+|------|------|------|--------|
 | {{model}} | {{fields}} | {{relationships}} | {{persistence}} |
 
 ---
 
-## 3. Route / API Design
+## 3. 路由/API 设计
 
-| Method | Path | Description | Input | Output | Auth |
-|--------|------|-------------|-------|--------|------|
+| 方法 | 路径 | 描述 | 输入 | 输出 | 认证 |
+|------|------|------|------|------|------|
 | {{method}} | {{path}} | {{description}} | {{input}} | {{output}} | {{auth}} |
 
 ---
 
-## 4. Decisions
+## 4. 决策
 
-| ID | Decision | Rationale | Alternatives Considered |
-|----|----------|-----------|------------------------|
+| ID | 决策 | 理由 | 备选方案 |
+|----|------|------|----------|
 | D{{n}} | {{decision}} | {{rationale}} | {{alternatives}} |
 
 ---
 
-## 5. Dependencies
+## 5. 依赖
 
-### Runtime Dependencies
+### 运行时依赖
 
 - {{dependency}} — {{purpose}}
 
-### Build/Test Dependencies
+### 构建/测试依赖
 
 - {{dependency}} — {{purpose}}
 
 ---
 
-## 6. Risks & Mitigations
+## 6. 风险与缓解
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
 | {{risk}} | {{impact}} | {{probability}} | {{mitigation}} |
 
 ---
 
-## 7. Migration Steps
+## 7. 迁移步骤
 
 1. {{step}}
 
 ---
 
-## 8. Open Questions
+## 8. 待决问题
 
 - {{question}}

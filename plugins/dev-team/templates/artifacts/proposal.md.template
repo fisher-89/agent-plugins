@@ -1,55 +1,55 @@
-# Proposal: {{change_name}}
+# 提案: {{change_name}}
 
-> **Change**: {{change_name}}
-> **Date**: {{date}}
-> **Author**: {{author}}
+> **变更**: {{change_name}}
+> **日期**: {{date}}
+> **作者**: {{author}}
 
 ---
 
-## 1. Problem
+## 1. 问题
 
 {{problem_statement}}
 
-### Background
+### 背景
 
 {{background}}
 
-### Motivation
+### 动机
 
 {{motivation}}
 
 ---
 
-## 2. Stakeholders
+## 2. 干系人
 
-| Role | Name/Group | Impact | Involvement |
-|------|-----------|--------|-------------|
+| 角色 | 名称/组 | 影响 | 参与方式 |
+|------|---------|------|----------|
 | {{role}} | {{name}} | {{impact}} | {{involvement}} |
 
 ---
 
-## 3. Scope
+## 3. 范围
 
-### In Scope
+### 范围内
 
 - {{in_scope_item}}
 
-### Out of Scope
+### 范围外
 
 - {{out_of_scope_item}}
 
 ---
 
-## 4. Risks
+## 4. 风险
 
-| Risk | Impact | Probability | Mitigation |
-|------|--------|-------------|------------|
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
 | {{risk}} | {{impact}} | {{probability}} | {{mitigation}} |
 
 ---
 
-## 5. Acceptance Criteria
+## 5. 验收标准
 
-| ID | Criterion | Validation Method | Priority |
-|----|-----------|-------------------|----------|
+| ID | 验收条件 | 验证方法 | 优先级 |
+|----|---------|----------|--------|
 | AC-{{n}} | {{criterion}} | {{validation_method}} | {{priority}} |

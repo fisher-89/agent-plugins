@@ -38,3 +38,13 @@ Write a single file: `openspec/changes/<change-name>/phases/test-design.md`
 - Boundary cases must be specific to this change's domain — not generic "null input" checks
 - Do NOT produce any evaluation or checklist JSON
 - If the codebase has existing test patterns, follow them
+
+## Language
+
+All narrative content in the output test-design.md SHALL be written in Chinese (简体中文).
+
+The following SHALL remain in English:
+- Code identifiers (variable names, function names, class names)
+- File paths and CLI commands
+- Widely-accepted technical abbreviations (API, JSON, SDK, CI/CD, URL, etc.)
+- Framework names and test tool names

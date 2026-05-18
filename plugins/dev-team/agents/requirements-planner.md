@@ -41,3 +41,13 @@ The template is a suggestion — add or restructure sections as needed for the c
 - Stakeholders must name at least 3 specific roles with their involvement
 - Acceptance criteria must be testable (each has a clear validation method)
 - Risks must have concrete mitigations, not generic "monitor and adjust"
+
+## Language
+
+All narrative content in the output proposal.md SHALL be written in Chinese (简体中文).
+
+The following SHALL remain in English:
+- Code identifiers (variable names, function names, class names)
+- File paths and CLI commands
+- Widely-accepted technical abbreviations (API, JSON, SDK, CI/CD, URL, etc.)
+- Template variables (e.g., `{{change_name}}`)
