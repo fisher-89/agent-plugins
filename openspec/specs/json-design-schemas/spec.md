@@ -2,7 +2,7 @@
 
 ### Requirement: Markdown templates for Planner artifacts
 The system SHALL provide suggested .md templates in `templates/artifacts/` for Planner outputs:
-- `proposal.md.template` — sections: Problem, Stakeholders, Scope (in_scope / out_of_scope), Risks (with mitigations), Acceptance Criteria (with validation method)
+- `proposal.md.template` — sections: Problem, Scope (in_scope / out_of_scope), Risks (with mitigations), Acceptance Criteria (with validation method)
 - `test-design.md.template` — sections: Test Levels (level, scope, framework), Coverage Map (requirement_id → test_file), Test Strategy, Boundary Cases
 - `design.md.template` — sections: Architecture Components, Data Flow, Route Design, Decisions (with rationale and alternatives)
 
@@ -10,7 +10,7 @@ Templates are suggestions, not enforced schemas — Planners may add or restruct
 
 #### Scenario: Planner follows template structure
 - **WHEN** requirements-planner writes proposal.md
-- **THEN** the output covers all suggested sections: Problem, Stakeholders, Scope, Risks, Acceptance Criteria
+- **THEN** the output covers all suggested sections: Problem, Scope, Risks, Acceptance Criteria
 
 #### Scenario: Template is advisory, not enforced
 - **WHEN** a Planner adds an additional section beyond the template

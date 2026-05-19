@@ -6,50 +6,46 @@
 
 ---
 
-## 1. 问题
+## 用户故事
 
-{{problem_statement}}
+{{user_requirement}}
 
 ### 背景
 
 {{background}}
 
-### 动机
+### 分析
 
-{{motivation}}
+{{analysis}}
 
----
+### 解决方向
 
-## 2. 干系人
-
-| 角色 | 名称/组 | 影响 | 参与方式 |
-|------|---------|------|----------|
-| {{role}} | {{name}} | {{impact}} | {{involvement}} |
+{{solution}}
 
 ---
 
-## 3. 范围
+## 目标
 
 ### 范围内
 
 - {{in_scope_item}}
 
-### 范围外
+### 不在范围内
 
 - {{out_of_scope_item}}
 
 ---
 
-## 4. 风险
-
-| 风险 | 影响 | 概率 | 缓解措施 |
-|------|------|------|----------|
-| {{risk}} | {{impact}} | {{probability}} | {{mitigation}} |
-
----
-
-## 5. 验收标准
+## 验收标准
 
 | ID | 验收条件 | 验证方法 | 优先级 |
 |----|---------|----------|--------|
 | AC-{{n}} | {{criterion}} | {{validation_method}} | {{priority}} |
+
+---
+
+## 风险
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| {{risk}} | {{impact}} | {{probability}} | {{mitigation}} |

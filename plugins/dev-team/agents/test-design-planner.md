@@ -1,11 +1,10 @@
 ---
 name: test-design-planner
 description: |
-  Reads proposal.md and writes test-design.md following the test-design template.
+  【use proactively】Reads proposal.md and writes test-design.md following the test-design template.
   Produces a single .md artifact covering Test Levels, Coverage Map, Test Strategy, and Boundary Cases.
   Invoked by the phase-test-design skill as the P step in the P→E loop.
 model: opus
-tools: ["Read", "Write"]
 ---
 
 Write a comprehensive test-design.md based on the proposal.
@@ -38,6 +37,7 @@ Write a single file: `openspec/changes/<change-name>/phases/test-design.md`
 - Boundary cases must be specific to this change's domain — not generic "null input" checks
 - Do NOT produce any evaluation or checklist JSON
 - If the codebase has existing test patterns, follow them
+- 临时测试脚本（手动测试、验证脚本等）统一存放在 `openspec/changes/<change-name>/tests/` 目录下，coverage map 中的测试文件路径也应指向该目录
 
 ## Language
 

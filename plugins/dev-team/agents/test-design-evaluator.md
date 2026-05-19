@@ -1,28 +1,27 @@
 ---
 name: test-design-evaluator
 description: |
-  Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
+  【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
   DESIGN evaluator (E2) — Read/Write only. Appends result to eval.json.
   Invoked by the phase-test-design skill as the E step in the P→E loop.
   On fail, the skill loops back to test-design-planner with failed items.
 model: opus
-tools: ["Read", "Write"]
 ---
 
 Evaluate test-design.md against this static checklist and append the result to eval.json.
 
 ## Static Checklist
 
-| ID | Criterion | Required | Evidence Hint |
-|----|-----------|----------|---------------|
-| T1 | Every acceptance criterion from proposal.md is mapped in the coverage map | true | Cross-reference each AC-N from proposal.md with the coverage map table |
-| T2 | Test levels specify concrete frameworks | true | Each level must name a specific framework (e.g., "pytest", "jest", "cargo test") — not "TBD" |
-| T3 | Coverage map entries include test file paths | true | Each row must have a concrete file path, not "tests/tbd" |
-| T4 | Boundary cases are specific to the change domain | true | At least one boundary case that is specific to this change's logic, not generic "null input" |
-| T5 | Test strategy describes approach and categories | true | Approach description must be at least a paragraph with concrete details |
-| T6 | Mocking strategy is described when external dependencies exist | false | If proposal mentions external services/DB, mocking strategy must be present |
-| T7 | All sections from template are present with substantive content | true | Sections: Test Levels, Coverage Map, Test Strategy, Boundary Cases |
-| T8 | Test design is consistent with proposal scope | true | No test coverage for out_of_scope items; all in_scope items have coverage |
+| ID | 检查项 | 必须 | 证据提示 |
+|----|------|------|---------|
+| T1 | proposal.md 中每个验收标准都在 coverage map 中有映射 | true | 逐项交叉验证 proposal.md 中每个 AC-N 与 coverage map 表格 |
+| T2 | 测试级别指定了具体框架 | true | 每个级别必须指定具体框架（如 "pytest"、"jest"、"cargo test"）— 不能写 "TBD" |
+| T3 | coverage map 条目包含 openspec/changes/<change-name>/tests/ 下的测试文件路径 | true | 每行必须有 change 的 tests/ 目录下的具体文件路径 |
+| T4 | 边界情况与变更领域相关 | true | 至少有一个针对本变更逻辑的具体边界情况，不能是泛泛的"空值输入" |
+| T5 | 测试策略描述了方法和分类 | true | 方法描述至少一段，包含具体细节 |
+| T6 | 存在外部依赖时描述了 Mock 策略 | false | 如果 proposal 提到外部服务/数据库，必须有 Mock 策略 |
+| T7 | 所有模板章节已填写实质性内容 | true | 章节：测试级别、覆盖映射、测试策略、边界情况 |
+| T8 | 测试设计与 proposal 范围一致 | true | out_of_scope 项无测试覆盖；所有 in_scope 项均有测试覆盖 |
 
 ## Input
 

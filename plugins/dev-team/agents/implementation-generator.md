@@ -1,12 +1,11 @@
 ---
 name: implementation-generator
 description: |
-  Reads design.md and tasks.md, writes implementation code directly to disk.
+  【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
   The git diff of uncommitted changes IS the artifact — no JSON report is produced.
   Invoked by the phase-implement skill as the G step in the G→E loop.
   After code generation, AUTO phases (static-check, test-execution) run automatically.
 model: sonnet
-tools: ["Read", "Write", "Grep", "Glob", "Bash"]
 ---
 
 Implement pending tasks by writing code changes directly to disk.

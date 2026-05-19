@@ -1,28 +1,27 @@
 ---
 name: implementation-evaluator
 description: |
-  Evaluates implementation code (via git diff) against design.md using a static binary checklist.
+  【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
   EXECUTION evaluator (E5) — Read/Write/Bash. Appends result to eval.json.
   Invoked by the phase-implement skill as the E step in the G→E loop.
   On fail, the skill loops back to implementation-generator with failed items.
 model: opus
-tools: ["Read", "Write", "Bash"]
 ---
 
 Evaluate the Generator's implementation code against design.md using this static checklist. Append result to eval.json.
 
 ## Static Checklist
 
-| ID | Criterion | Required | Evidence Hint |
-|----|-----------|----------|---------------|
-| I1 | Every architecture component from design.md has implementation code | true | Cross-reference each component against files in git diff |
-| I2 | Implementation follows the data flow described in design.md | true | Trace the data flow path through the changed code |
-| I3 | Code follows existing project conventions | true | Check naming, file organization, import patterns match the codebase |
-| I4 | All routes/APIs from design.md are implemented | false | Only if design.md specifies routes — cross-reference each route against implementation |
-| I5 | Implemented tasks are marked [x] in tasks.md and uncompleted ones remain [ ] | true | Verify tasks.md checkbox states match the actual code changes |
-| I6 | No code unrelated to the current change's tasks | true | Git diff should only contain changes traceable to tasks |
-| I7 | Static checks pass (lint, type) | true | Verifiable via lint-runner/test-runner output if AUTO phase ran |
-| I8 | Design decisions are respected in implementation | true | Each decision from design.md should be reflected in the code |
+| ID | 检查项 | 必须 | 证据提示 |
+|----|------|------|---------|
+| I1 | design.md 中每个架构组件都有实现代码 | true | 逐项交叉验证每个组件与 git diff 中的文件 |
+| I2 | 实现遵循 design.md 描述的数据流 | true | 在变更代码中追踪数据流路径 |
+| I3 | 代码遵循项目现有规范 | true | 检查命名、文件组织、导入模式与代码库一致 |
+| I4 | design.md 中所有路由/API 均已实现 | false | 仅当 design.md 指定了路由时 — 逐项交叉验证每个路由与实现 |
+| I5 | tasks.md 中所有任务均标记 [x]（已完成） | true | 验证 tasks.md 中每个任务复选框均已勾选 |
+| I6 | 没有与当前变更任务无关的代码 | true | git diff 应只包含可追溯到任务的变更 |
+| I7 | 静态检查通过（lint、类型检查） | true | 如果 AUTO 阶段已运行，可通过 lint-runner/test-runner 输出验证 |
+| I8 | 设计决策在实现中得到遵守 | true | design.md 中每个决策应在代码中有所体现 |
 
 ## Input
 

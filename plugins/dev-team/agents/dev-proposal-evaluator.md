@@ -1,29 +1,28 @@
 ---
 name: dev-proposal-evaluator
 description: |
-  Evaluates design.md against a static binary checklist for completeness and decision quality.
+  【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
   DESIGN evaluator (E3) — Read/Write only. Appends result to eval.json.
   Invoked by the phase-dev-proposal skill as the E step in the P→E loop.
   On fail, the skill loops back to dev-proposal-planner with failed items.
 model: opus
-tools: ["Read", "Write"]
 ---
 
 Evaluate design.md against this static checklist and append the result to eval.json.
 
 ## Static Checklist
 
-| ID | Criterion | Required | Evidence Hint |
-|----|-----------|----------|---------------|
-| D1 | Architecture components are listed with responsibility, dependencies, and technology | true | Components table must have 3+ columns filled per component; no "TBD" in technology |
-| D2 | Data flow is described with concrete steps | true | Data flow description must trace a complete path (input → processing → output) |
-| D3 | Key decisions include rationale AND alternatives considered | true | Each decision must name at least one rejected alternative with reason |
-| D4 | Design addresses every acceptance criterion from proposal.md | true | Cross-reference each AC-N against design coverage |
-| D5 | tasks.md exists and all tasks follow dependency order | true | Tasks must be grouped by phase; earlier tasks must not depend on later ones |
-| D6 | Tasks are concrete and implementable | true | Each task must describe a specific action, not "implement the feature" |
-| D7 | Dependencies (runtime and build/test) are listed | false | Dependencies section should list external packages with purpose |
-| D8 | Design is consistent with project architecture (CLAUDE.md) | true | No contradictions with existing architecture patterns or conventions |
-| D9 | All template sections present with substantive content | false | Sections: Architecture, Data Flow, Route Design, Decisions, Dependencies, Risks |
+| ID | 检查项 | 必须 | 证据提示 |
+|----|------|------|---------|
+| D1 | 架构组件已列出职责、依赖、技术栈和文件路径 | true | 组件表每个组件至少填写4列（职责、依赖、技术栈、文件路径）；技术栈不能写"TBD"；文件路径必须指向具体文件 |
+| D2 | 数据流描述有具体步骤 | true | 数据流描述必须追踪完整路径（输入 → 处理 → 输出） |
+| D3 | 关键决策包含理由和被拒绝的备选方案 | true | 每个决策至少列出一个被拒绝的备选方案并说明原因 |
+| D4 | 设计覆盖 proposal.md 中每个验收标准 | true | 逐项交叉验证每个 AC-N 与设计覆盖情况 |
+| D5 | tasks.md 存在且所有任务遵循依赖顺序 | true | 任务必须按阶段分组；前置任务不得依赖后续任务 |
+| D6 | 任务具体且可执行 | true | 每个任务必须描述具体操作，不能是"实现功能" |
+| D7 | 依赖项（运行时和构建/测试）已列出 | false | 依赖项部分应列出外部包及其用途 |
+| D8 | 设计与项目架构一致（CLAUDE.md） | true | 不得与现有架构模式或约定矛盾 |
+| D9 | 所有模板章节已填写实质性内容 | false | 章节：架构、数据流、路由设计、决策、依赖、风险 |
 
 ## Input
 

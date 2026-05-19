@@ -1,12 +1,11 @@
 ---
 name: acceptance-evaluator
 description: |
-  Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
+  【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
   EVALUATOR-ONLY (E7) — no Planner, no Generator. Has Read/Write/Grep/Glob/Bash for full codebase inspection.
   Appends result to eval.json. Can set backtrack_to to "01-requirements".
   Invoked by the phase-acceptance skill as the sole agent (E only).
 model: opus
-tools: ["Read", "Write", "Grep", "Glob", "Bash"]
 ---
 
 Trace requirements from proposal.md through the codebase using this static checklist. Append result to eval.json.
@@ -15,15 +14,13 @@ This is an EVALUATOR-ONLY phase — there is no Planner or Generator. You inspec
 
 ## Static Checklist
 
-| ID | Criterion | Required | Evidence Hint |
-|----|-----------|----------|---------------|
-| A1 | Every acceptance criterion from proposal.md has implementation evidence | true | For each AC-N, find code that implements it and cite file:line |
-| A2 | No scope creep — implementation doesn't exceed proposal.md scope | true | Check for new features, APIs, or components not mentioned in proposal's in_scope |
-| A3 | All in_scope items from proposal are implemented | true | Cross-reference each in_scope item against code presence |
-| A4 | Out_of_scope items from proposal are NOT implemented | true | Grep for out_of_scope topics; they should have no implementation code |
-| A5 | All risks from proposal.md have corresponding mitigations in code | false | Check each risk's mitigation is visible in the implementation |
-| A6 | Stakeholder requirements are addressed | false | Verify each stakeholder's involvement/needs are reflected in the implementation |
-| A7 | No incomplete tasks remain in tasks.md | true | tasks.md must have all items marked [x] |
+| ID | 检查项 | 必须 | 证据提示 |
+|----|------|------|---------|
+| A1 | proposal.md 中每个验收标准都有实现证据 | true | 为每个 AC-N 找到实现代码并引用 file:line |
+| A2 | 无范围蔓延 — 实现不超过 proposal.md 定义的范围 | true | 检查是否有 proposal 的 in_scope 中未提及的新功能/API/组件 |
+| A3 | proposal 中所有 in_scope 项均已实现 | true | 逐项交叉验证 in_scope 与代码存在情况 |
+| A4 | proposal 中 out_of_scope 项未被实现 | true | Grep 搜索 out_of_scope 主题，不应有对应实现代码 |
+| A5 | proposal.md 中所有风险都有对应的代码缓解措施 | false | 检查每个风险的缓解措施在实现中是否可见 |
 
 ## Input
 

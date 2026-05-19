@@ -91,7 +91,7 @@ Code identifiers, file paths, CLI commands, template variables, and widely-accep
 
 #### Scenario: Requirements planner outputs Chinese proposal
 - **WHEN** requirements-planner agent writes proposal.md
-- **THEN** all section body content (Problem, Background, Motivation, Stakeholders, Scope, Risks, Acceptance Criteria descriptions) is written in Chinese
+- **THEN** all section body content (Problem, Background, Motivation, Scope, Risks, Acceptance Criteria descriptions) is written in Chinese
 - **AND** code identifiers, file paths, and technical abbreviations remain in English
 
 #### Scenario: Test-design planner outputs Chinese test design

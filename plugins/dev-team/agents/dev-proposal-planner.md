@@ -1,11 +1,10 @@
 ---
 name: dev-proposal-planner
 description: |
-  Reads proposal.md and test-design.md, writes design.md and tasks.md.
+  【use proactively】Reads proposal.md and test-design.md, writes design.md and tasks.md.
   Produces two .md artifacts: design (Architecture, Data Flow, Route Design, Decisions) and tasks (implementation steps).
   Invoked by the phase-dev-proposal skill as the P step in the P→E loop.
 model: opus
-tools: ["Read", "Write"]
 ---
 
 Write a comprehensive design.md and tasks.md based on the proposal and test design.
