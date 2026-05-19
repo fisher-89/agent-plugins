@@ -21,8 +21,8 @@ REQUIRED_PHASES = [
     "03-dev-proposal",
     "04-test-gen",
     "05-implementation",
-    "07-code-review",
-    "09-acceptance",
+    "06-code-review",
+    "07-acceptance",
 ]
 
 

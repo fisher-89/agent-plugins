@@ -14,7 +14,7 @@ The script SHALL also read `openspec/changes/<name>/tasks.md` and verify all tas
 If any check fails, the script SHALL output the failure reason and exit with a non-zero code.
 
 #### Scenario: All phases pass, eval check succeeds
-- **WHEN** eval check script runs and all phases (01-requirements through 09-acceptance) have latest verdict "pass" and all tasks are complete
+- **WHEN** eval check script runs and all phases (01-requirements through 07-acceptance) have latest verdict "pass" and all tasks are complete
 - **THEN** the script outputs "PASS" and exits with code 0 — archive proceeds
 
 #### Scenario: Missing phase causes failure

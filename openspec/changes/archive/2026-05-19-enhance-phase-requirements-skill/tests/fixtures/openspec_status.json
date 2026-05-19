@@ -1,0 +1,21 @@
+{
+  "changeName": "add-user-auth",
+  "artifacts": [
+    {
+      "id": "proposal.md",
+      "status": "pending",
+      "dependencies": []
+    },
+    {
+      "id": "design.md",
+      "status": "pending",
+      "dependencies": ["proposal.md"]
+    },
+    {
+      "id": "tasks.md",
+      "status": "pending",
+      "dependencies": ["design.md"]
+    }
+  ],
+  "applyRequires": ["proposal.md", "design.md", "tasks.md"]
+}

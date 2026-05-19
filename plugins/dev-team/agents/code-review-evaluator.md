@@ -56,7 +56,7 @@ Append to `openspec/changes/<change-name>/phases/eval.json`:
 
 ```json
 {
-  "phase": "07-code-review",
+  "phase": "06-code-review",
   "timestamp": "<ISO 8601>",
   "attempt": <n>,
   "verdict": "pass|fail",

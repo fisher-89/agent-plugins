@@ -9,7 +9,7 @@
     "phase": {
       "type": "string",
       "description": "Phase identifier (e.g. '01-requirements', '02-test-design')",
-      "examples": ["01-requirements", "03-dev-proposal", "07-code-review"]
+      "examples": ["01-requirements", "03-dev-proposal", "06-code-review"]
     },
     "timestamp": {
       "type": "string",
