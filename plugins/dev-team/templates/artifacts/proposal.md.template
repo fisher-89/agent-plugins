@@ -6,31 +6,25 @@
 
 ---
 
-## 用户故事
+## 问题
 
-{{user_requirement}}
-
-### 背景
-
-{{background}}
-
-### 分析
-
-{{analysis}}
-
-### 解决方向
-
-{{solution}}
+{{problem_statement}}
 
 ---
 
-## 目标
+## 提案
 
-### 范围内
+{{proposed_solution}}
+
+---
+
+## 变更范围
+
+### 实现以下特性
 
 - {{in_scope_item}}
 
-### 不在范围内
+### 不要修改
 
 - {{out_of_scope_item}}
 

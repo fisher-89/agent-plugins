@@ -22,9 +22,10 @@ Read the change context from `openspec/changes/<change-name>/`:
 2. Read any existing proposal.md and the proposal template at `plugins/dev-team/templates/artifacts/proposal.md.template`
 3. Write `openspec/changes/<change-name>/phases/proposal.md` covering all suggested sections:
    - **Problem**: Clear problem statement with background and motivation
+   - **Solution**: List all options, compare their pros and cons, and provide a recommended solution
    - **Scope**: In-scope and out-of-scope items, clearly delineated
-   - **Risks**: Each risk with impact, probability, and specific mitigation
    - **Acceptance Criteria**: Each with unique ID, validation method, and priority
+   - **Risks**: Each risk with impact, probability, and specific mitigation
 
 ## Output
 
