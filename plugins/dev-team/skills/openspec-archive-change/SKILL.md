@@ -37,18 +37,24 @@ Archive a completed change in the experimental workflow.
    - Use **AskUserQuestion tool** to confirm user wants to proceed
    - Proceed if user confirms
 
-3. **Check task completion status**
+3. **Check phase evaluation status**
 
-   Read the tasks file (typically `tasks.md`) to check for incomplete tasks.
+   Run `eval-check.py` to validate the PGE eval chain:
+   ```bash
+   python plugins/dev-team/utils/eval-check.py --change "<name>" --project-root . --json
+   ```
 
-   Count tasks marked with `- [ ]` (incomplete) vs `- [x]` (complete).
+   Parse the JSON output to check:
+   - `passed`: Overall evaluation status
+   - `eval_check.passed`: Whether all required phases have passed verdict
+   - `eval_check.message`: Phase validation details (failing items, missing phases, etc.)
 
-   **If incomplete tasks found:**
-   - Display warning showing count of incomplete tasks
+   **If eval check fails:**
+   - Display warning with the eval check failure message
    - Use **AskUserQuestion tool** to confirm user wants to proceed
    - Proceed if user confirms
 
-   **If no tasks file exists:** Proceed without task-related warning.
+   **If eval.json not found:** Proceed without eval-related warning.
 
 4. **Assess delta spec sync state**
 
@@ -89,7 +95,7 @@ Archive a completed change in the experimental workflow.
    - Schema that was used
    - Archive location
    - Whether specs were synced (if applicable)
-   - Note about any warnings (incomplete artifacts/tasks)
+   - Note about any warnings (incomplete artifacts/eval failures)
 
 **Output On Success**
 
@@ -101,12 +107,13 @@ Archive a completed change in the experimental workflow.
 **Archived to:** openspec/changes/archive/YYYY-MM-DD-<name>/
 **Specs:** ✓ Synced to main specs (or "No delta specs" or "Sync skipped")
 
-All artifacts complete. All tasks complete.
+All artifacts complete. Eval chain passed.
 ```
 
 **Guardrails**
 - Always prompt for change selection if not provided
 - Use artifact graph (openspec status --json) for completion checking
+- Run eval-check.py to validate phase/eval.json before archive
 - Don't block archive on warnings - just inform and confirm
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)
 - Show clear summary of what happened

@@ -9,12 +9,11 @@ The system SHALL NOT perform any commit-time evaluation validation. The existing
 
 ### Requirement: Eval check script validates chain before archive
 The system SHALL provide an eval check script (`utils/eval-check.py`) that validates the eval chain before archive.
-The script SHALL read `openspec/changes/<name>/phases/eval.json`, extract the latest entry per phase by timestamp, and verify all phases in the expected sequence have verdict "pass" with no gaps.
-The script SHALL also read `openspec/changes/<name>/tasks.md` and verify all tasks are marked complete (`[x]`).
+The script SHALL read `openspec/changes/<name>/phases/eval.json`, extract the latest entry per phase by timestamp, and verify all phases in the expected sequence have verdict "pass" with no gaps or active backtrack markers.
 If any check fails, the script SHALL output the failure reason and exit with a non-zero code.
 
 #### Scenario: All phases pass, eval check succeeds
-- **WHEN** eval check script runs and all phases (01-requirements through 07-acceptance) have latest verdict "pass" and all tasks are complete
+- **WHEN** eval check script runs and all phases (01-requirements through 07-acceptance) have latest verdict "pass"
 - **THEN** the script outputs "PASS" and exits with code 0 — archive proceeds
 
 #### Scenario: Missing phase causes failure
@@ -25,13 +24,9 @@ If any check fails, the script SHALL output the failure reason and exit with a n
 - **WHEN** eval check script runs and the latest entry for a phase has verdict "fail"
 - **THEN** the script outputs the failed phase name, the failing checklist items, and exits with code 1
 
-#### Scenario: Incomplete tasks cause failure
-- **WHEN** eval check script runs and tasks.md contains unchecked tasks (`[ ]`)
-- **THEN** the script outputs the count of incomplete tasks and exits with code 1
-
 ### Requirement: Archive flow executes sequentially
 The system SHALL provide an archive flow that executes in strict sequence:
-1. **eval check**: run `utils/eval-check.py` to validate all phases passed and all tasks complete
+1. **eval check**: run `utils/eval-check.py` to validate all phases passed
 2. **openspec archive**: run `openspec archive <change-name>` to finalize the change
 3. **git commit**: run `git commit` to snapshot the completed work
 

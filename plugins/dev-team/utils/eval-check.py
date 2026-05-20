@@ -1,11 +1,10 @@
 #!/usr/bin/env python3
 """
-Eval check script — validates that all PGE phases have passed and all tasks are complete.
+Eval check script — validates that all PGE phases have passed.
 
 Reads eval.json, extracts the latest entry per phase by timestamp, verifies:
-- All required phases (P1-P5, P7, P9) have verdict "pass"
-- No gaps in the phase sequence
-- All tasks in tasks.md are marked complete ([x])
+- All required phases (01-requirements through 07-acceptance) have verdict "pass"
+- No backtrack markers in latest entries
 
 Exit 0 on pass, non-zero on fail.
 """
@@ -47,7 +46,7 @@ def find_change_dir(project_root):
     except Exception:
         pass
 
-    # Fallback: find first change with phases/eval.json or tasks.md
+    # Fallback: find first change with phases/eval.json
     try:
         for entry in os.listdir(changes_dir):
             entry_path = os.path.join(changes_dir, entry)
@@ -91,23 +90,6 @@ def get_latest_per_phase(eval_entries):
     return phases
 
 
-def count_tasks(tasks_path):
-    """Count total and completed tasks in tasks.md."""
-    import re
-    total = 0
-    done = 0
-    try:
-        with open(tasks_path, "r", encoding="utf-8") as f:
-            for line in f:
-                if re.match(r"^\s*- \[", line):
-                    total += 1
-                    if re.match(r"^\s*- \[x\]", line):
-                        done += 1
-    except OSError:
-        pass
-    return total, done
-
-
 def validate_eval_chain(change_dir):
     """Validate the eval chain. Returns (passed, message)."""
     eval_entries = read_eval_json(change_dir)
@@ -149,31 +131,11 @@ def validate_eval_chain(change_dir):
     return True, "All required phases passed"
 
 
-def validate_tasks(change_dir):
-    """Validate all tasks in tasks.md are complete. Returns (passed, message)."""
-    tasks_path = os.path.join(change_dir, "tasks.md")
-    if not os.path.isfile(tasks_path):
-        # No tasks.md — check phases/tasks.md
-        tasks_path = os.path.join(change_dir, "phases", "tasks.md")
-        if not os.path.isfile(tasks_path):
-            return False, "tasks.md not found"
-
-    total, done = count_tasks(tasks_path)
-    if total == 0:
-        return True, "No tasks defined (empty tasks.md)"
-
-    if done < total:
-        incomplete = total - done
-        return False, f"Tasks incomplete: {done}/{total} complete ({incomplete} remaining)"
-
-    return True, f"All {total} tasks complete"
-
-
 def main():
     import argparse
 
     parser = argparse.ArgumentParser(
-        description="Validate PGE eval chain and task completion"
+        description="Validate PGE eval chain via eval.json"
     )
     parser.add_argument(
         "--change", type=str, help="Change name (optional, auto-detected if omitted)"
@@ -206,30 +168,22 @@ def main():
     change_name = os.path.basename(change_dir)
 
     eval_ok, eval_msg = validate_eval_chain(change_dir)
-    tasks_ok, tasks_msg = validate_tasks(change_dir)
-
-    all_ok = eval_ok and tasks_ok
 
     if args.json:
         print(json.dumps({
-            "passed": all_ok,
+            "passed": eval_ok,
             "change": change_name,
             "eval_check": {"passed": eval_ok, "message": eval_msg},
-            "tasks_check": {"passed": tasks_ok, "message": tasks_msg},
         }))
     else:
-        if all_ok:
-            print(f"PASS: All checks passed for '{change_name}'")
-            print(f"  Eval: {eval_msg}")
-            print(f"  Tasks: {tasks_msg}")
+        if eval_ok:
+            print(f"PASS: Eval chain valid for '{change_name}'")
+            print(f"  {eval_msg}")
         else:
-            print(f"FAIL: Checks failed for '{change_name}'")
-            if not eval_ok:
-                print(f"  Eval: {eval_msg}")
-            if not tasks_ok:
-                print(f"  Tasks: {tasks_msg}")
+            print(f"FAIL: Eval chain invalid for '{change_name}'")
+            print(f"  {eval_msg}")
 
-    sys.exit(0 if all_ok else 1)
+    sys.exit(0 if eval_ok else 1)
 
 
 if __name__ == "__main__":
