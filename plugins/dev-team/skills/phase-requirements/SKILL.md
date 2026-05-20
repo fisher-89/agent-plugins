@@ -160,7 +160,7 @@ Construct the enriched Planner prompt by combining the static template reference
 
 1. **Base prompt**: Start with the standard instruction.
 2. **Static template**: Reference the template file path.
-3. **Dynamic CLI instructions** (if available): If `INSTRUCTIONS_JSON` is not `{}`, append the `rules`, `context`, and `template` fields from the instructions output. If `INSTRUCTIONS_JSON` is `{}`, omit this section and rely solely on the static template.
+3. **Dynamic CLI instructions** (if available): If `INSTRUCTIONS_JSON` is not `{}`, append the `rules` and `context` fields from the instructions output. The `template` field is intentionally not injected -- the static template path provides the structure. If `INSTRUCTIONS_JSON` is `{}`, omit this section and rely solely on the static template.
 4. **Explore context** (if available from Step 1): If `EXPLORE_CONTEXT_SUMMARY` is non-empty and less than 10KB, append it as a separate section. If it exceeds 10KB, truncate it and append:
    ```
    ## 探索上下文（仅供参考）
@@ -174,7 +174,7 @@ Construct the enriched Planner prompt by combining the static template reference
    探索上下文仅供参考，以 CLI 指令和静态模板为准。
    ```
 
-The enriched prompt should look like this:
+The enriched prompt should look like this (note: only `rules` and `context` from INSTRUCTIONS_JSON are included; the `template` field is intentionally excluded):
 
 ```
 Agent({
@@ -187,7 +187,7 @@ Agent({
 The following dynamic context was provided by openspec for this change:
 
 \`\`\`json
-<INSTRUCTIONS_JSON content>
+<INSTRUCTIONS_JSON content (rules and context only)>
 \`\`\`
 
 ## 探索上下文（仅供参考）

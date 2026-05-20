@@ -1,0 +1,11 @@
+{
+  "changeName": "enrich-proposal-capabilities",
+  "artifacts": [
+    {
+      "id": "proposal.md",
+      "status": "pending",
+      "dependencies": []
+    }
+  ],
+  "applyRequires": ["proposal.md"]
+}

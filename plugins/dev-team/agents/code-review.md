@@ -1,7 +1,7 @@
 ---
 name: code-review
 description: |
-  【use proactively】Code review before commit. Use when: PreToolUse hook detects git commit, user runs /code-review command, user asks to review staged changes, or explicitly requests code review. Focus on logical errors, null/boundary handling, redundant logic, and security issues.
+  【use proactively】Code review before commit. Use when: User runs /code-review command, user asks to review staged changes, or explicitly requests code review. Focus on logical errors, null/boundary handling, redundant logic, and security issues.
 model: opus
 memory: project
 ---

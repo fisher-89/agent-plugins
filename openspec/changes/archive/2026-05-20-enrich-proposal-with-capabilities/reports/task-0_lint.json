@@ -1,0 +1,14 @@
+{
+  "schema": "openspec-step-report/v1",
+  "change": "enrich-proposal-with-capabilities",
+  "task_id": "0",
+  "step": "lint",
+  "status": "pass",
+  "timestamp": "2026-05-20T07:16:53.492150+00:00",
+  "duration_ms": 127,
+  "details": {
+    "errors": 0,
+    "warnings": 0,
+    "linters": []
+  }
+}

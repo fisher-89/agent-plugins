@@ -22,6 +22,7 @@
 #   openspec_new_change(name)  Create a new change scaffold
 #   openspec_status_json(name) Get change status as JSON
 #   openspec_instructions(name)Get artifact instructions as JSON
+#   openspec_spec_list(name)   获取全局能力列表，返回 JSON 数组或 []
 #   openspec_cli_cache(cmd,name) Cached wrapper for CLI calls
 #
 # Exit codes for validate_change_name:
@@ -186,6 +187,50 @@ openspec_instructions() {
     echo "$output"
 }
 
+# ─── openspec_spec_list: 获取全局能力列表，返回 JSON 数组 ─────────────────────
+# 封装 `openspec spec list --json`。失败时返回 "[]" 以提供弹性回退，
+# 供能力分类使用。校验输出是否为 JSON 数组；非数组输出触发警告并返回 "[]"。
+# 供 requirements-planner agent 调用，用于区分新增能力和修改的能力。
+
+openspec_spec_list() {
+    local name="$1"
+    local output
+
+    output="$(openspec spec list --json 2>/dev/null)" || {
+        echo "[]"
+        return 0
+    }
+
+    # If output is empty or whitespace-only, return empty array
+    if [[ -z "${output// /}" ]]; then
+        echo "[]"
+        return 0
+    fi
+
+    # Validate output is a valid JSON array
+    local validated
+    validated="$(echo "$output" | python3 -c "
+import json,sys
+try:
+    data = json.load(sys.stdin)
+    assert isinstance(data, list), 'not a list'
+    print(json.dumps(data))
+except Exception:
+    print('INVALID')
+" 2>/dev/null)" || {
+        echo "[]"
+        return 0
+    }
+
+    if [[ "$validated" == "INVALID" ]]; then
+        echo "Warning: openspec spec list returned non-array output" >&2
+        echo "[]"
+        return 0
+    fi
+
+    echo "$validated"
+}
+
 # ─── openspec_cli_cache: Cached wrapper for CLI calls ──────────────────────────
 # Avoids redundant `openspec status --json` and `openspec instructions` calls
 # within a single skill execution. The cache is invalidated if the change
@@ -194,6 +239,7 @@ openspec_instructions() {
 # Usage:
 #   result="$(openspec_cli_cache status "my-change")"
 #   result="$(openspec_cli_cache instructions "my-change")"
+#   result="$(openspec_cli_cache spec_list "my-change")"
 
 declare -A __OPENSPEC_CLI_CACHE=()
 declare -A __OPENSPEC_CLI_CACHE_MTIME=()
@@ -225,6 +271,9 @@ openspec_cli_cache() {
             ;;
         instructions)
             output="$(openspec_instructions "$name")"
+            ;;
+        spec_list)
+            output="$(openspec_spec_list "$name")"
             ;;
         *)
             echo "Error: unknown cache command '$cmd'" >&2

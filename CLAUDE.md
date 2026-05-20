@@ -6,6 +6,10 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 This is **wps-claude-plugin**, a custom Claude Code plugin designed to enhance development workflow with OpenSpec integration.
 
+## Project Rules
+
+- **Upgrade plugin version** <plugin_name>/.claude-plugin/plugin.json after changing codes in directory.
+
 ## Architecture: Slim Plugin + Report-Driven Gates
 
 The plugin follows a "slim" architecture:

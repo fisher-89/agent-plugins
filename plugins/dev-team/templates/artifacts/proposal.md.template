@@ -30,6 +30,18 @@
 
 ---
 
+## 能力
+
+### 新增能力
+
+- {{capability_name}} — {{capability_description}}
+
+### 修改的能力
+
+- {{capability_name}} — {{modification_description}}
+
+---
+
 ## 验收标准
 
 | ID | 验收条件 | 验证方法 | 优先级 |

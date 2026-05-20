@@ -23,7 +23,8 @@ Evaluate the artifact against these items. Each required item must pass for an o
 | R4 | 验收标准可测试且有验证方法 | true | 每个 AC 必须指定如何验证（手动测试、自动化测试、审查等） |
 | R5 | 提案与项目 CLAUDE.md 约定一致 | true | 不得与项目架构或编码指南矛盾 |
 | R6 | 无占位符或 TODO 内容 | true | 全文搜索不得出现"TODO"、"TBD"、"placeholder"或"{{...}}"模板标记 |
-| R7 | 所有模板章节已填写实质性内容 | false | 章节参考 `plugins/dev-team/templates/artifacts/proposal.md.template` |
+| R7 | 所有非能力的模板章节已填写实质性内容 | false | 模板中除能力外的其他章节（问题、提案、变更范围、验收标准、风险）需有实质性内容，无占位符 |
+| R8 | 能力章节存在且至少有一个新增或修改条目 | true | proposal 必须包含 `## 能力` 章节，其下 `### 新增能力` 或 `### 修改的能力` 子章节至少有一个非空列表 |
 
 ## Input
 

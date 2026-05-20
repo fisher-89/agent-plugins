@@ -1,0 +1,16 @@
+{
+  "schema": "openspec-step-report/v1",
+  "change": "enrich-proposal-with-capabilities",
+  "task_id": "global",
+  "step": "scoped-test",
+  "status": "fail",
+  "timestamp": "2026-05-20T07:17:00.823002+00:00",
+  "duration_ms": 1,
+  "details": {
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "total": 0,
+    "framework": "unknown"
+  }
+}
