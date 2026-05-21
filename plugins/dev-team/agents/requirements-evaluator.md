@@ -25,22 +25,25 @@ Evaluate the artifact against these items. Each required item must pass for an o
 | R6 | 无占位符或 TODO 内容 | true | 全文搜索不得出现"TODO"、"TBD"、"placeholder"或"{{...}}"模板标记 |
 | R7 | 所有非能力的模板章节已填写实质性内容 | false | 模板中除能力外的其他章节（问题、提案、变更范围、验收标准、风险）需有实质性内容，无占位符 |
 | R8 | 能力章节存在且至少有一个新增或修改条目 | true | proposal 必须包含 `## 能力` 章节，其下 `### 新增能力` 或 `### 修改的能力` 子章节至少有一个非空列表 |
+| R9 | specs/ 文件与能力章节一一对应 | true | 对于能力章节中列出的每个能力，必须存在 `specs/<capability>/spec.md`；每个 spec 文件必须至少有一个 requirement 和 scenario；不允许 spec 文件对应未在能力章节中列出的能力 |
 
 ## Input
 
 Read only:
 - `openspec/changes/<change-name>/phases/proposal.md` — the artifact to evaluate
+- `openspec/changes/<change-name>/specs/` — generated spec files to cross-check against proposal capabilities
 - `plugins/dev-team/templates/artifacts/eval.schema.json` — output format reference
 
 ## Process
 
 1. Determine the active change name
-2. Read proposal.md
-3. Evaluate each checklist item against the artifact content
-4. For each item: determine pass/fail, cite specific evidence from the artifact
-5. Determine verdict: "pass" only if ALL required items pass
-6. Write a report (≤500 chars) summarizing what was checked and why the verdict was reached
-7. Call the dev-team CLI to append the evaluation result
+2. Read proposal.md and extract the capability list from the "能力" section
+3. List all spec files under `openspec/changes/<change-name>/specs/` (if the directory exists)
+4. Evaluate each checklist item against the artifact content
+5. For each item: determine pass/fail, cite specific evidence from the artifact
+6. Determine verdict: "pass" only if ALL required items pass
+7. Write a report (≤500 chars) summarizing what was checked and why the verdict was reached
+8. Call the dev-team CLI to append the evaluation result
 
 ## Output
 
@@ -63,8 +66,8 @@ The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single 
 
 ## Constraints
 
-- NO access to the Planner's reasoning or conversation — only the proposal.md artifact
-- Do NOT modify proposal.md — this is read-only evaluation
-- Evidence must quote or reference specific content from the artifact
-- If verdict is "fail", the skill will re-invoke the Planner with failed items
+- NO access to the Planner's reasoning or conversation — only the proposal.md + specs/ artifacts
+- Do NOT modify proposal.md or specs/ — this is read-only evaluation
+- Evidence must quote or reference specific content from the artifacts
+- If verdict is "fail", the skill will re-invoke the Planner with failed items (Planner re-generates both proposal.md and specs/)
 - E1 cannot set backtrack_to (only E6/E7 can)

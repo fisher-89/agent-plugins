@@ -11,7 +11,7 @@ metadata:
   version: "1.0"
 ---
 
-Requirements phase — Planner writes proposal.md, Evaluator checks it.
+Requirements phase — Planner writes proposal.md and specs/, Evaluator checks proposal.md.
 
 ## Usage
 
@@ -178,9 +178,9 @@ The enriched prompt should look like this (note: only `rules` and `context` from
 
 ```
 Agent({
-  description: "Write proposal.md",
+  description: "Write proposal.md and specs/",
   subagent_type: "requirements-planner",
-  prompt: "Write proposal.md for change '<name>'. Follow the template at plugins/dev-team/templates/artifacts/proposal.md.template. Write to openspec/changes/<name>/phases/proposal.md.
+  prompt: "Write proposal.md and specs/ for change '<name>'."
 
 ## CLI Instructions
 
@@ -220,11 +220,11 @@ Agent({
 
 ### Step 4: Report result
 
-Display the Evaluator's verdict, pass/total items, and any notes.
+Display the Evaluator's verdict, pass/total items, any notes, and a summary of specs/ files generated.
 
 ## DESIGN Phase Pattern (P→E)
 
-- **Planner** (`requirements-planner`, opus, Read/Write): writes proposal.md artifact
+- **Planner** (`requirements-planner`, opus, Read/Write): writes proposal.md and specs/ artifacts
 - **Evaluator** (`requirements-evaluator`, opus, Read/Write): checks with static checklist, appends to eval.json
 - **Loop**: if fail → Planner re-invoked with failed items → Evaluator re-runs
 - **No Generator**: the Planner IS the producer for DESIGN phases
