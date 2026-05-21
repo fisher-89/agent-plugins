@@ -710,6 +710,11 @@ if __name__ == "__main__":
     elapsed_ms = int((time.time() - start_time) * 1000)
 
     if args.save_report and HAS_STEP_REPORT and args.change:
+        if isinstance(results, dict):
+            flat_results = []
+            for cr in results.values():
+                flat_results.extend(cr)
+            results = flat_results
         total_errors = sum(r.errors for r in results if hasattr(r, 'errors'))
         total_warnings = sum(r.warnings for r in results if hasattr(r, 'warnings'))
         task_id = args.task_id or "0"

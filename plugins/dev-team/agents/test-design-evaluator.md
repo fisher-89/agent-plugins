@@ -2,13 +2,13 @@
 name: test-design-evaluator
 description: |
   【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
-  DESIGN evaluator (E2) — Read/Write only. Appends result to eval.json.
+  DESIGN evaluator (E2) — Read only. Appends result via dev-team eval-log CLI.
   Invoked by the phase-test-design skill as the E step in the P→E loop.
   On fail, the skill loops back to test-design-planner with failed items.
 model: opus
 ---
 
-Evaluate test-design.md against this static checklist and append the result to eval.json.
+Evaluate test-design.md against this static checklist and invoke the dev-team CLI to write the result.
 
 ## Static Checklist
 
@@ -37,28 +37,27 @@ Read only:
 3. Cross-reference: every AC in proposal must appear in test-design coverage map
 4. Evaluate each checklist item, citing specific evidence
 5. Determine verdict: "pass" only if ALL required items pass
-6. Compute attempt number from existing eval.json entries
-7. Write report (≤500 chars)
+6. Write report (≤500 chars)
+7. Call the dev-team CLI to append the evaluation result
 
 ## Output
 
-Append to `openspec/changes/<change-name>/phases/eval.json`:
+Prepare the evaluation data and invoke the dev-team CLI:
+
+```bash
+dev-team eval-log --change <change-name> --phase 02-test-design --verdict pass|fail --report "<report>" --items '<items>'
+```
+
+The CLI accepts an `--items` parameter containing the checklist evaluation array, formatted as a JSON string:
 
 ```json
-{
-  "phase": "02-test-design",
-  "timestamp": "<ISO 8601>",
-  "attempt": <n>,
-  "verdict": "pass|fail",
-  "report": "<≤500 char summary>",
-  "items": [
-    {"item_id": "T1", "pass": true, "evidence": "...", "notes": "..."},
-    ...
-  ],
-  "backtrack_to": null,
-  "schema_version": "1.0"
-}
+[
+  {"item_id": "T1", "pass": true, "evidence": "...", "notes": "..."},
+  ...
+]
 ```
+
+The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single quotes around the items JSON string to avoid shell expansion.
 
 ## Constraints
 

@@ -2,14 +2,14 @@
 name: requirements-evaluator
 description: |
   【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
-  DESIGN evaluator (E1) — Read/Write only. Appends result to eval.json.
+  DESIGN evaluator (E1) — Read only. Appends result via dev-team eval-log CLI.
   Invoked by the phase-requirements skill as the E step in the P→E loop.
   On fail, the skill loops back to requirements-planner with failed items.
 model: opus
 memory: project
 ---
 
-Evaluate proposal.md against this static checklist and append the result to eval.json.
+Evaluate proposal.md against this static checklist and invoke the dev-team CLI to write the result.
 
 ## Static Checklist
 
@@ -39,30 +39,27 @@ Read only:
 3. Evaluate each checklist item against the artifact content
 4. For each item: determine pass/fail, cite specific evidence from the artifact
 5. Determine verdict: "pass" only if ALL required items pass
-6. Compute attempt number: read eval.json, count existing entries for this phase, add 1
-7. Write a report (≤500 chars) summarizing what was checked and why the verdict was reached
+6. Write a report (≤500 chars) summarizing what was checked and why the verdict was reached
+7. Call the dev-team CLI to append the evaluation result
 
 ## Output
 
-Append a JSON entry to `openspec/changes/<change-name>/phases/eval.json`:
+Prepare the evaluation data and invoke the dev-team CLI:
 
-```json
-{
-  "phase": "01-requirements",
-  "timestamp": "<ISO 8601>",
-  "attempt": <n>,
-  "verdict": "pass|fail",
-  "report": "<≤500 char summary>",
-  "items": [
-    {"item_id": "R1", "pass": true, "evidence": "...", "notes": "..."},
-    ...
-  ],
-  "backtrack_to": null,
-  "schema_version": "1.0"
-}
+```bash
+dev-team eval-log --change <change-name> --phase 01-requirements --verdict pass|fail --report "<report>" --items '<items>'
 ```
 
-If eval.json exists, append to the array. Otherwise create a new array with this entry.
+The CLI accepts an `--items` parameter containing the checklist evaluation array, formatted as a JSON string:
+
+```json
+[
+  {"item_id": "R1", "pass": true, "evidence": "...", "notes": "..."},
+  ...
+]
+```
+
+The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single quotes around the items JSON string to avoid shell expansion.
 
 ## Constraints
 

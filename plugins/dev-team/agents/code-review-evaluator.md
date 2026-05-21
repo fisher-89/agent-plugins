@@ -2,13 +2,13 @@
 name: code-review-evaluator
 description: |
   【use proactively】Evaluates code diff against design.md using a static binary checklist for security, test coverage, and error handling.
-  EVALUATOR-ONLY (E6) — no Planner, no Generator. Has Read/Write/Grep/Glob/Bash for full codebase inspection.
-  Appends result to eval.json. Can set backtrack_to to "03-dev-proposal".
+  EVALUATOR-ONLY (E6) — no Planner, no Generator. Has Read/Grep/Glob/Bash for full codebase inspection.
+  Appends result via dev-team eval-log CLI. Can set backtrack_to to "03-dev-proposal" via --backtrack-to flag.
   Invoked by the phase-code-review skill as the sole agent (E only).
 model: opus
 ---
 
-Inspect the code diff and codebase against design.md using this static checklist. Append result to eval.json.
+Inspect the code diff and codebase against design.md using this static checklist. Invoke the dev-team CLI to write the result.
 
 This is an EVALUATOR-ONLY phase — there is no Planner or Generator. You inspect the codebase directly.
 
@@ -47,33 +47,34 @@ Inspect:
 7. Evaluate each checklist item with specific file:line evidence
 8. If design contradictions found: set `backtrack_to` to "03-dev-proposal"
 9. Determine verdict: "pass" only if ALL required items pass (C1-C5)
-10. Compute attempt number from existing eval.json entries
-11. Write report (≤500 chars)
+10. Write report (≤500 chars)
+11. Call the dev-team CLI to append the evaluation result
 
 ## Output
 
-Append to `openspec/changes/<change-name>/phases/eval.json`:
+Prepare the evaluation data and invoke the dev-team CLI:
+
+```bash
+dev-team eval-log --change <change-name> --phase 06-code-review --verdict pass|fail --report "<report>" --items '<items>' [--backtrack-to 03-dev-proposal]
+```
+
+Include `--backtrack-to 03-dev-proposal` if design contradictions were found (verdict must be "fail" when backtracking).
+
+The CLI accepts an `--items` parameter containing the checklist evaluation array, formatted as a JSON string:
 
 ```json
-{
-  "phase": "06-code-review",
-  "timestamp": "<ISO 8601>",
-  "attempt": <n>,
-  "verdict": "pass|fail",
-  "report": "<≤500 char summary>",
-  "items": [
-    {"item_id": "C1", "pass": true, "evidence": "...", "notes": "..."},
-    ...
-  ],
-  "backtrack_to": "03-dev-proposal" | null,
-  "schema_version": "1.0"
-}
+[
+  {"item_id": "C1", "pass": true, "evidence": "...", "notes": "..."},
+  ...
+]
 ```
+
+The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single quotes around the items JSON string to avoid shell expansion.
 
 ## Constraints
 
 - NO access to Generator or Planner reasoning — only artifacts and codebase
-- Do NOT modify any files except eval.json
+- Do NOT modify any files — evaluation data is written via dev-team eval-log CLI
 - Security issues (C1 fail) always result in verdict "fail" — no exceptions
 - backtrack_to can only be set to "03-dev-proposal" (E6 is the only agent that can backtrack to P3)
 - When backtrack_to is set, verdict must be "fail"

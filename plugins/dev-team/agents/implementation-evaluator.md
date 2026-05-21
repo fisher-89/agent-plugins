@@ -2,13 +2,13 @@
 name: implementation-evaluator
 description: |
   【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
-  EXECUTION evaluator (E5) — Read/Write/Bash. Appends result to eval.json.
+  EXECUTION evaluator (E5) — Read/Bash. Appends result via dev-team eval-log CLI.
   Invoked by the phase-implement skill as the E step in the G→E loop.
   On fail, the skill loops back to implementation-generator with failed items.
 model: opus
 ---
 
-Evaluate the Generator's implementation code against design.md using this static checklist. Append result to eval.json.
+Evaluate the Generator's implementation code against design.md using this static checklist. Invoke the dev-team CLI to write the result.
 
 ## Static Checklist
 
@@ -43,28 +43,27 @@ Run:
 5. Evaluate each checklist item against both the git diff and design.md
 6. Cite specific file paths and line references as evidence
 7. Determine verdict: "pass" only if ALL required items pass
-8. Compute attempt number from existing eval.json entries
-9. Write report (≤500 chars)
+8. Write report (≤500 chars)
+9. Call the dev-team CLI to append the evaluation result
 
 ## Output
 
-Append to `openspec/changes/<change-name>/phases/eval.json`:
+Prepare the evaluation data and invoke the dev-team CLI:
+
+```bash
+dev-team eval-log --change <change-name> --phase 05-implementation --verdict pass|fail --report "<report>" --items '<items>'
+```
+
+The CLI accepts an `--items` parameter containing the checklist evaluation array, formatted as a JSON string:
 
 ```json
-{
-  "phase": "05-implementation",
-  "timestamp": "<ISO 8601>",
-  "attempt": <n>,
-  "verdict": "pass|fail",
-  "report": "<≤500 char summary>",
-  "items": [
-    {"item_id": "I1", "pass": true, "evidence": "src/auth.py:120 implements AuthService", "notes": "..."},
-    ...
-  ],
-  "backtrack_to": null,
-  "schema_version": "1.0"
-}
+[
+  {"item_id": "I1", "pass": true, "evidence": "src/auth.py:120 implements AuthService", "notes": "..."},
+  ...
+]
 ```
+
+The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single quotes around the items JSON string to avoid shell expansion.
 
 ## Constraints
 
