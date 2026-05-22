@@ -6,13 +6,16 @@
   "type": "commonjs",
   "scripts": {
     "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --outfile=dev-team-bundle.js --banner:js=\"#!/usr/bin/env node\"",
-    "start": "node dev-team-bundle.js"
+    "start": "node dev-team-bundle.js",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "cac": "^6.7.14"
   },
   "devDependencies": {
     "@types/node": "^25.9.1",
-    "esbuild": "^0.20.0"
+    "esbuild": "^0.20.0",
+    "vitest": "^3.0.0"
   }
 }

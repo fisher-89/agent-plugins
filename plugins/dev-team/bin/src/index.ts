@@ -1,5 +1,6 @@
 import { cac } from "cac";
 import { registerEvalLogCommand } from "./commands/eval-log";
+import { registerEvalCheckCommand } from "./commands/eval-check";
 
 /**
  * Main CLI entry point.
@@ -13,6 +14,7 @@ export function main(argv: string[] = process.argv): void {
   cli.help();
 
   registerEvalLogCommand(cli);
+  registerEvalCheckCommand(cli);
 
   // If no arguments provided (only node binary and script path), show help
   if (argv.length <= 2) {

@@ -829,12 +829,209 @@ function registerEvalLogCommand(cli) {
   });
 }
 
+// src/commands/eval-check.ts
+var fs2 = __toESM(require("fs"));
+var SCHEMA_VERSION2 = "1.0";
+function checkPriorPhases(entries, priorPhases) {
+  return checkGate(entries, priorPhases);
+}
+function checkTimestampOrder(entries, priorPhases) {
+  if (priorPhases.length < 2) {
+    return { passed: true, order_valid: true };
+  }
+  const timestamps = [];
+  for (const phase of priorPhases) {
+    const passEntries = entries.filter((e) => e.phase === phase && e.verdict === "pass").sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+    if (passEntries.length === 0)
+      continue;
+    timestamps.push({ phase, ts: passEntries[0].timestamp });
+  }
+  for (let i = 1; i < timestamps.length; i++) {
+    const prev = new Date(timestamps[i - 1].ts).getTime();
+    const curr = new Date(timestamps[i].ts).getTime();
+    if (curr < prev) {
+      return {
+        passed: false,
+        order_valid: false,
+        issues: [
+          `${timestamps[i].phase} (${timestamps[i].ts}) timestamp is earlier than ${timestamps[i - 1].phase} (${timestamps[i - 1].ts})`
+        ]
+      };
+    }
+  }
+  return { passed: true, order_valid: true };
+}
+function checkBacktrack(entries, priorPhases) {
+  const activeBacktrackPhases = [];
+  for (const phase of priorPhases) {
+    const phaseEntries = entries.filter((e) => e.phase === phase).sort(
+      (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+    );
+    if (phaseEntries.length === 0)
+      continue;
+    const latest = phaseEntries[0];
+    if (latest.backtrack_to != null && latest.backtrack_to !== "") {
+      activeBacktrackPhases.push(phase);
+    }
+  }
+  return {
+    passed: activeBacktrackPhases.length === 0,
+    active_backtrack_phases: activeBacktrackPhases
+  };
+}
+function determinePhaseState(entries, currentPhase) {
+  const phaseEntries = entries.filter((e) => e.phase === currentPhase).sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
+  );
+  if (phaseEntries.length === 0)
+    return "first_run";
+  const latest = phaseEntries[0];
+  if (latest.verdict === "pass")
+    return "passed";
+  return "retry";
+}
+function buildEvalCheckResult(options) {
+  const { phase, priorPhases, gateResult, timestampResult, backtrackResult, phaseState } = options;
+  const blockReasons = [];
+  if (!gateResult.passed) {
+    blockReasons.push(
+      `\u524D\u7F6E\u9636\u6BB5\u95E8\u63A7\u672A\u901A\u8FC7: \u7F3A\u5C11 [${gateResult.missing.join(", ")}] \u7684 pass \u8BB0\u5F55`
+    );
+  }
+  if (!timestampResult.passed) {
+    if (timestampResult.issues && timestampResult.issues.length > 0) {
+      blockReasons.push(
+        `\u524D\u7F6E\u9636\u6BB5 pass \u8BB0\u5F55\u65F6\u95F4\u6233\u672A\u6309\u9636\u6BB5\u987A\u5E8F\u5355\u8C03\u9012\u589E: ${timestampResult.issues.join("; ")}`
+      );
+    } else {
+      blockReasons.push("\u524D\u7F6E\u9636\u6BB5 pass \u8BB0\u5F55\u65F6\u95F4\u6233\u672A\u6309\u9636\u6BB5\u987A\u5E8F\u5355\u8C03\u9012\u589E");
+    }
+  }
+  if (!backtrackResult.passed) {
+    for (const bp of backtrackResult.active_backtrack_phases) {
+      blockReasons.push(`\u524D\u7F6E\u9636\u6BB5 ${bp} \u5B58\u5728\u6D3B\u8DC3 backtrack \u6807\u8BB0`);
+    }
+  }
+  return {
+    passed: gateResult.passed && timestampResult.passed && backtrackResult.passed,
+    phase,
+    prior_phases: priorPhases,
+    block_reasons: blockReasons,
+    phase_state: phaseState,
+    details: {
+      prior_phase_gate: {
+        passed: gateResult.passed,
+        missing: gateResult.missing
+      },
+      timestamp_order: {
+        passed: timestampResult.passed,
+        order_valid: timestampResult.order_valid
+      },
+      backtrack: {
+        passed: backtrackResult.passed,
+        active_backtrack_phases: backtrackResult.active_backtrack_phases
+      }
+    }
+  };
+}
+function checkSchemaVersion(entries, expectedVersion = SCHEMA_VERSION2) {
+  const warnings = [];
+  for (const entry of entries) {
+    if (entry.schema_version && entry.schema_version !== expectedVersion) {
+      const msg = `\u8B66\u544A: eval.json \u4E2D\u7684 schema_version \u4E3A "${entry.schema_version}"\uFF0C\u5F53\u524D CLI \u7248\u672C\u4E3A "${expectedVersion}"\uFF0C\u53EF\u80FD\u5B58\u5728\u4E0D\u517C\u5BB9`;
+      if (!warnings.includes(msg)) {
+        warnings.push(msg);
+      }
+    }
+  }
+  return warnings;
+}
+function registerEvalCheckCommand(cli) {
+  cli.command(
+    "eval-check",
+    "Check if all prior phases have passed evaluation for a given phase"
+  ).option(
+    "--change <name>",
+    "Change name (corresponds to openspec/changes/<name>)"
+  ).option(
+    "--phase <phase>",
+    "Phase identifier (e.g. 03-dev-proposal)"
+  ).option("--json", "Output structured JSON result instead of human-readable text").action((options) => {
+    if (!options.change || options.change === "") {
+      console.error("\u9519\u8BEF: \u7F3A\u5C11\u5FC5\u586B\u53C2\u6570 --change");
+      process.exit(1);
+    }
+    if (!options.phase || options.phase === "") {
+      console.error("\u9519\u8BEF: \u7F3A\u5C11\u5FC5\u586B\u53C2\u6570 --phase");
+      process.exit(1);
+    }
+    const phaseIndex = getPhaseIndex(options.phase);
+    if (phaseIndex === -1) {
+      console.error(
+        `\u9519\u8BEF: \u65E0\u6548\u7684\u9636\u6BB5\u6807\u8BC6\u7B26 "${options.phase}"\u3002\u5408\u6CD5\u9636\u6BB5: ${PHASES.join(", ")}`
+      );
+      process.exit(1);
+    }
+    const phasesDir = getPhasesDir(options.change);
+    if (!fs2.existsSync(phasesDir)) {
+      console.error(
+        `\u9519\u8BEF: \u53D8\u66F4 "${options.change}" \u7684 phases \u76EE\u5F55\u4E0D\u5B58\u5728: ${phasesDir}`
+      );
+      process.exit(1);
+    }
+    let entries;
+    try {
+      entries = readEvalJson(phasesDir);
+    } catch (e) {
+      console.error(`\u9519\u8BEF: \u8BFB\u53D6 eval.json \u5931\u8D25: ${e.message}`);
+      process.exit(1);
+    }
+    const schemaWarnings = checkSchemaVersion(entries);
+    for (const warn of schemaWarnings) {
+      console.error(warn);
+    }
+    const priorPhases = getPriorPhases(options.phase);
+    const gateResult = checkPriorPhases(entries, priorPhases);
+    const timestampResult = checkTimestampOrder(entries, priorPhases);
+    const backtrackResult = checkBacktrack(entries, priorPhases);
+    const phaseState = determinePhaseState(entries, options.phase);
+    const result = buildEvalCheckResult({
+      phase: options.phase,
+      priorPhases,
+      gateResult,
+      timestampResult,
+      backtrackResult,
+      phaseState
+    });
+    if (options.json) {
+      console.log(JSON.stringify(result));
+    } else {
+      if (result.passed) {
+        const priorDesc = priorPhases.length > 0 ? `\u6240\u6709\u524D\u7F6E\u9636\u6BB5 (${priorPhases.join(", ")}) \u5DF2\u901A\u8FC7\u8BC4\u4F30` : "\u65E0\u524D\u7F6E\u9636\u6BB5\u9700\u8981\u68C0\u67E5";
+        console.log(`\u68C0\u67E5\u901A\u8FC7: ${priorDesc}`);
+        console.log(`\u5F53\u524D\u9636\u6BB5\u72B6\u6001: ${result.phase_state}`);
+      } else {
+        console.error("\u68C0\u67E5\u963B\u65AD: \u5B58\u5728\u4EE5\u4E0B\u95EE\u9898:");
+        for (const reason of result.block_reasons) {
+          console.error(`  - ${reason}`);
+        }
+      }
+    }
+    if (!result.passed) {
+      process.exit(1);
+    }
+  });
+}
+
 // src/index.ts
 function main(argv = process.argv) {
   const cli = cac("dev-team");
   cli.usage("[command] [options]");
   cli.help();
   registerEvalLogCommand(cli);
+  registerEvalCheckCommand(cli);
   if (argv.length <= 2) {
     cli.parse([...argv, "--help"]);
     return;
