@@ -3,7 +3,8 @@ name: phase-code-review
 description: |
   EVALUATOR-ONLY phase (E only): code-review-evaluator inspects code diff against design.md using a static checklist.
   No Planner, no Generator — the evaluation IS the work. Can set backtrack_to to "03-dev-proposal".
-  Replaces: /dev-team:code-review
+  Integration test review is NOT part of this phase — it runs independently as 08-integration-test.
+  Single Evaluator mode: eval.json contains exactly one code-review entry per run.
 license: MIT
 disable-model-invocation: true
 metadata:

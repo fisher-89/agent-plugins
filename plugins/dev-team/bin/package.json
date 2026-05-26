@@ -1,21 +1,22 @@
 {
   "name": "dev-team-cli",
   "version": "1.0.0",
-  "description": "dev-team CLI - eval-log command for OpenSpec workflow",
   "private": true,
-  "type": "commonjs",
+  "description": "dev-team CLI - eval-log command for OpenSpec workflow",
+  "type": "module",
   "scripts": {
-    "build": "tsc --noEmit && esbuild src/index.ts --bundle --platform=node --outfile=dev-team-bundle.js --banner:js=\"#!/usr/bin/env node\"",
-    "start": "node dev-team-bundle.js",
-    "test": "vitest run",
-    "test:watch": "vitest"
+    "build": "vp pack",
+    "start": "node dev-team-bundle.cjs",
+    "test": "vp test",
+    "check": "vp check --fix"
   },
   "dependencies": {
+    "@likec4/language-services": "^1.57.0",
     "cac": "^6.7.14"
   },
   "devDependencies": {
-    "@types/node": "^25.9.1",
-    "esbuild": "^0.20.0",
-    "vitest": "^3.0.0"
+    "bundle-require": "^5.1.0",
+    "typescript": "^6.0.3",
+    "vite-plus": "^0.1.22"
   }
 }

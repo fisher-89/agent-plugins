@@ -1,0 +1,16 @@
+{
+  "schema": "openspec-step-report/v1",
+  "change": "isolate-test-and-code-gen",
+  "task_id": "global",
+  "step": "scoped-test",
+  "status": "fail",
+  "timestamp": "2026-05-26T04:04:25.604638+00:00",
+  "duration_ms": 1,
+  "details": {
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0,
+    "total": 0,
+    "framework": "unknown"
+  }
+}

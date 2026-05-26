@@ -1,0 +1,38 @@
+{
+  "phase": "06-unit-test",
+  "timestamp": "2026-05-25T10:25:00.000Z",
+  "total": 10,
+  "passed": 6,
+  "failed": 4,
+  "skipped": 0,
+  "coverage": "65.0",
+  "coverage_threshold": "80",
+  "failures": [
+    {
+      "test_name": "test_register",
+      "error_message": "SyntaxError: invalid syntax (test_auth.py, line 15)",
+      "stack_trace_first_line": "  File \"tests/test_auth.py\", line 15",
+      "file_path": "tests/test_auth.py"
+    },
+    {
+      "test_name": "test_login",
+      "error_message": "AssertionError: expected True, got False",
+      "stack_trace_first_line": "  File \"src/auth.py\", line 42",
+      "file_path": "src/auth.py"
+    },
+    {
+      "test_name": "test_logout",
+      "error_message": "TypeError: logout() takes 0 positional arguments but 1 was given",
+      "stack_trace_first_line": "  File \"src/auth.py\", line 100",
+      "file_path": "src/auth.py"
+    },
+    {
+      "test_name": "test_db",
+      "error_message": "Segmentation fault (core dumped)",
+      "stack_trace_first_line": "",
+      "file_path": ""
+    }
+  ],
+  "duration_seconds": 10.0,
+  "test_command": "pytest tests/"
+}

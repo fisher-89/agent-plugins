@@ -43,14 +43,72 @@ After proposal.md is written and verified on disk, generate spec files for each 
    - Whether it's new or modified
    - Its brief description
 
-5. For each **new capability** (新增能力):
+5. **Identify affected module directories and generate module boundary contracts**:
+   - For each capability, explore the codebase to identify:
+     - Directories containing the module's source files
+     - Public API surface (exported functions, classes, interfaces)
+   - Write module boundary contract tables in each spec.md file under a dedicated `## Module Contract` section
+   - Identify the following interface types for each affected module and document them as structured tables:
+
+   ### Function Signature Contract Table
+
+   ```markdown
+   ### Module: `<module-name>`
+   
+   #### Functions
+   
+   | Name | Parameters | Returns | Description |
+   |------|-----------|---------|-------------|
+   | `functionName` | `(param1: Type, param2: Type)` | `ReturnType` | Description of what this function does |
+   
+   ```
+
+   ### API Interface Contract Table
+
+   ```markdown
+   #### API Interfaces
+   
+   | Method | Path | Request Schema | Response Schema |
+   |--------|------|---------------|----------------|
+   | GET | `/api/resource` | `{ id: string }` | `{ data: Resource }` |
+   
+   ```
+
+   ### CLI Command Contract Table
+
+   ```markdown
+   #### CLI Commands
+   
+   | Command | Args | Flags | Examples |
+   |---------|------|-------|---------|
+   | `command-name` | `<required>` `[optional]` | `--flag <val>` | `command-name --flag val` |
+   
+   ```
+
+   ### Frontend Component Contract Table
+
+   ```markdown
+   #### Components
+   
+   | Name | Props | Events | Description |
+   |------|-------|--------|-------------|
+   | `ComponentName` | `{ prop1: Type, prop2?: Type }` | `@event1: PayloadType` | Description of the component |
+   
+   ```
+
+   - If a module has no public API for a given contract type, include an empty table with a note: "无公开 API"
+   - If a module has more than 20 exported functions, list all of them — do NOT truncate
+   - The contract tables serve as the reference for both test-gen and implement phases to ensure interface consistency
+
+6. For each **new capability** (新增能力):
    - Write `openspec/changes/<change-name>/specs/<capability-name>/spec.md`
    - Use `## ADDED Requirements` as the top-level header
    - For each requirement: `### Requirement: <name>` followed by description text using SHALL/MUST
    - Each requirement MUST have at least one `#### Scenario: <name>` with **WHEN**/**THEN** format
    - Derive requirements from the capability description in proposal.md and the overall change context
+   - Include the module boundary contract tables under `## Module Contract`
 
-6. For each **modified capability** (修改的能力):
+7. For each **modified capability** (修改的能力):
    - Read the existing spec at `openspec/specs/<capability-name>/spec.md`
    - Write `openspec/changes/<change-name>/specs/<capability-name>/spec.md`
    - Use delta headers: `## ADDED Requirements`, `## MODIFIED Requirements`, `## REMOVED Requirements`, `## RENAMED Requirements`
@@ -58,12 +116,13 @@ After proposal.md is written and verified on disk, generate spec files for each 
    - For REMOVED: include **Reason** and **Migration**
    - For RENAMED: use FROM:/TO: format
    - Each requirement MUST have at least one scenario
+   - Include the updated module boundary contract tables under `## Module Contract`, showing only the changed interfaces
 
 ## Output
 
 Write these files:
 - `openspec/changes/<change-name>/phases/proposal.md`
-- `openspec/changes/<change-name>/specs/<capability-name>/spec.md` (one per capability)
+- `openspec/changes/<change-name>/specs/<capability-name>/spec.md` (one per capability, each containing requirement scenarios AND module boundary contract tables under `## Module Contract`)
 
 ## Constraints
 

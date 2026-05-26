@@ -1,0 +1,20 @@
+{
+  "phase": "06-unit-test",
+  "timestamp": "2026-05-25T10:15:00.000Z",
+  "total": 5,
+  "passed": 4,
+  "failed": 1,
+  "skipped": 0,
+  "coverage": "78.0",
+  "coverage_threshold": "80",
+  "failures": [
+    {
+      "test_name": "test_should_return_20_per_page",
+      "error_message": "AssertionError: expected pageSize=20, got pageSize=10",
+      "stack_trace_first_line": "  File \"tests/test_pagination.py\", line 55, in test_should_return_20_per_page",
+      "file_path": "tests/test_pagination.py"
+    }
+  ],
+  "duration_seconds": 2.5,
+  "test_command": "pytest tests/"
+}

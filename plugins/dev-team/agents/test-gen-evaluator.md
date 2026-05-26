@@ -14,8 +14,8 @@ Evaluate the Generator's test code output against test-design.md using this stat
 
 | ID | 检查项 | 必须 | 证据提示 |
 |----|------|------|---------|
-| G1 | test-design.md 中每个 coverage map 条目在 openspec/changes/<change-name>/tests/ 下都有对应的测试文件 | true | 逐项交叉验证 coverage map 每行与 git diff 中 tests/ 目录下的文件 |
-| G2 | 测试文件遵循项目命名规范且位于 openspec/changes/<change-name>/tests/ | true | 检查文件名匹配现有模式（test_*.py、*.test.ts 等）且位于 change 的 tests/ 目录下 |
+| G1 | test-design.md 中每个 coverage map 条目在 `openspec/changes/<change-name>/tests/` 下都有对应的测试文件 | true | 逐项交叉验证 coverage map 每行与 git diff 中 tests/ 目录下的文件 |
+| G2 | 测试文件遵循项目命名规范且位于 `openspec/changes/<change-name>/tests/` | true | 检查文件名匹配现有模式（test_*.py、*.test.ts 等）且位于 change 的 tests/ 目录下 |
 | G3 | 测试文件语法有效 | true | 对新文件运行项目的语法检查或编译器 |
 | G4 | 测试骨架包含与 test-design 级别匹配的测试结构 | true | 每个测试文件应有与覆盖目标对应的测试函数/方法 |
 | G5 | 测试文件使用正确的框架和导入 | true | 验证导入与 test-design.md 中指定的框架一致 |

@@ -18,6 +18,9 @@ export interface BuildEntryParams {
   items: Item[];
   attempt: number;
   backtrack_to?: string | null;
+  skipped?: boolean;
+  findings?: string;
+  phase_suffix?: string;
 }
 
 export interface GateResult {
@@ -52,11 +55,15 @@ export function readEvalJson(phasesDir: string): any[] {
 
 /**
  * Validate that verdict is exactly "pass" or "fail".
+ * When skipped is true, "pass" verdict is always allowed (no-op skip).
  * Throws an error if invalid.
  */
-export function validateVerdict(verdict: any): void {
+export function validateVerdict(verdict: any, skipped?: boolean): void {
   if (verdict !== "pass" && verdict !== "fail") {
     throw new Error(`verdict 必须为 "pass" 或 "fail"，但收到: ${JSON.stringify(verdict)}`);
+  }
+  if (skipped && verdict !== "pass") {
+    throw new Error(`skipped=true 时 verdict 必须为 "pass"，但收到: ${JSON.stringify(verdict)}`);
   }
 }
 
@@ -66,9 +73,7 @@ export function validateVerdict(verdict: any): void {
  */
 export function validateReportLength(report: string): void {
   if (report.length > 500) {
-    throw new Error(
-      `报告长度超过 500 字符限制（当前 ${report.length} 字符）。请精简报告内容。`
-    );
+    throw new Error(`报告长度超过 500 字符限制（当前 ${report.length} 字符）。请精简报告内容。`);
   }
 }
 
@@ -83,7 +88,7 @@ export function validateItemsJson(itemsStr: string): any[] {
     parsed = JSON.parse(itemsStr);
   } catch (e: any) {
     throw new Error(
-      `items 参数不是有效的 JSON 数组。请确保使用单引号包裹 JSON 字符串，例如: --items '[{"item_id":"R1","pass":true}]'。解析错误: ${e.message}`
+      `items 参数不是有效的 JSON 数组。请确保使用单引号包裹 JSON 字符串，例如: --items '[{"item_id":"R1","pass":true}]'。解析错误: ${e.message}`,
     );
   }
   if (!Array.isArray(parsed)) {
@@ -109,6 +114,16 @@ export function buildEntry(params: BuildEntryParams): Record<string, any> {
     backtrack_to: params.backtrack_to !== undefined ? params.backtrack_to : null,
     schema_version: SCHEMA_VERSION,
   };
+  // Extended fields: only include when explicitly set
+  if (params.skipped !== undefined) {
+    entry.skipped = params.skipped;
+  }
+  if (params.findings !== undefined) {
+    entry.findings = params.findings;
+  }
+  if (params.phase_suffix !== undefined) {
+    entry.phase_suffix = params.phase_suffix;
+  }
   return entry;
 }
 
@@ -117,11 +132,7 @@ export function buildEntry(params: BuildEntryParams): Record<string, any> {
  * If explicitAttempt is provided, return it directly.
  * Otherwise, count existing entries for the phase and return count + 1.
  */
-export function computeAttempt(
-  entries: any[],
-  phase: string,
-  explicitAttempt?: number
-): number {
+export function computeAttempt(entries: any[], phase: string, explicitAttempt?: number): number {
   if (explicitAttempt !== undefined) {
     if (!Number.isInteger(explicitAttempt) || explicitAttempt < 1) {
       throw new Error(`attempt 必须为正整数，但收到: ${explicitAttempt}`);
@@ -140,9 +151,7 @@ export function computeAttempt(
 export function checkGate(entries: any[], priorPhases: string[]): GateResult {
   const missing: string[] = [];
   for (const phase of priorPhases) {
-    const hasPass = entries.some(
-      (e: any) => e.phase === phase && e.verdict === "pass"
-    );
+    const hasPass = entries.some((e: any) => e.phase === phase && e.verdict === "pass");
     if (!hasPass) {
       missing.push(phase);
     }

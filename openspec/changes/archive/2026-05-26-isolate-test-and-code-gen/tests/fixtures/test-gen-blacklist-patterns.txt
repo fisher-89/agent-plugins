@@ -1,0 +1,15 @@
+.ts
+.tsx
+.js
+.jsx
+.py
+.rs
+.go
+.java
+.c
+.cpp
+.h
+.hpp
+.cs
+.rb
+.php

@@ -1,7 +1,7 @@
 ---
 name: architecture
 description: |
-  【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate, present diff, wait for confirmation), validate (run archi-validate.py, explain violations), decide (help draft ADRs via archi-decide.py), review (critique model completeness/consistency/coupling).
+  【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate via dev-team archi, present diff, wait for confirmation), validate (run dev-team archi check, explain violations), decide (help draft ADRs via archi-decide.py), review (critique model completeness/consistency/coupling).
 model: opus
 ---
 
@@ -30,9 +30,12 @@ The model uses four element kinds in a strict hierarchy:
 - **ADRs**: `openspec/specs/architecture/decisions/*.md` — Architecture Decision Records
 - **Reports**: `openspec/changes/<name>/reports/architecture-validate-*.json` — validation reports (per-change); `openspec/specs/architecture/reports/` as global fallback
 - **Python utilities**:
-  - `plugins/dev-team/utils/archi-model.py` — query, validate, write model DSL
-  - `plugins/dev-team/utils/archi-validate.py` — cross-reference code against model
   - `plugins/dev-team/utils/archi-decide.py` — create, list, update ADRs
+- **TypeScript CLI**:
+  - `dev-team archi query [--element <fqn>]` — query model structure
+  - `dev-team archi validate [--source <dsl>]` — validate DSL syntax
+  - `dev-team archi write --path <f> --source <dsl>` — validate and write model files
+  - `dev-team archi check [--staged | --files <list>]` — cross-reference imports vs. model
 
 ## DSL Syntax Quick Reference
 
@@ -155,26 +158,26 @@ When the user asks to add, modify, or update architecture elements:
 1. **Read current state**: Read all `openspec/specs/architecture/models/*.c4` files to understand the existing model.
 2. **Explore the code**: Use Grep/Glob to find relevant code files that the model changes should reference (e.g., `metadata.path` targets).
 3. **Draft the DSL**: Prepare the proposed DSL change — either a new file in `models/` or edits to an existing one. Use the domain/module/component hierarchy.
-4. **Validate**: Run `python plugins/dev-team/utils/archi-model.py --command validate --project-root . --source "<dsl>"` — or validate the aggregated model if changes span files.
+4. **Validate**: Run `dev-team archi validate [--source "<dsl>"]` — or validate the aggregated model if changes span files.
 5. **Present the diff**: Show the user the DSL changes with a plain-language explanation of what's being added/modified and why.
 6. **Wait for confirmation**: Do NOT write until the user confirms.
 
 When the user confirms, run:
 ```
-python plugins/dev-team/utils/archi-model.py --command write --project-root . --path models/XX-name.c4 --source "<dsl>"
+dev-team archi write --path models/XX-name.c4 --source "<dsl>"
 ```
 
 ### VALIDATE mode
 
 When the user asks to validate architecture or check code against the model:
 
-1. Run `archi-validate.py` on staged files:
+1. Run `dev-team archi check` on staged files:
    ```
-   python plugins/dev-team/utils/archi-validate.py --project-root . --staged
+   dev-team archi check --staged
    ```
    Or on specific files:
    ```
-   python plugins/dev-team/utils/archi-validate.py --project-root . --files "file1.ts,file2.ts"
+   dev-team archi check --files "file1.ts,file2.ts"
    ```
 
 2. Interpret the results in plain language:
@@ -227,7 +230,7 @@ When the user asks to review the architecture model quality:
 If no model exists and the user wants to create one:
 
 ```
-python plugins/dev-team/utils/archi-model.py --command write --project-root . --path models/01-core.c4 --source "specification {
+dev-team archi write --path models/01-core.c4 --source "specification {
   element package
   element domain
   element module

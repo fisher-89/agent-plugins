@@ -1,0 +1,52 @@
+[
+  {
+    "phase": "01-requirements",
+    "timestamp": "2026-05-25T10:00:00.000Z",
+    "verdict": "pass",
+    "attempt": 1,
+    "report": "Requirements approved",
+    "items": [],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "02-test-design",
+    "timestamp": "2026-05-25T11:00:00.000Z",
+    "verdict": "pass",
+    "attempt": 1,
+    "report": "Test design approved",
+    "items": [],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-05-25T13:00:00.000Z",
+    "verdict": "fail",
+    "attempt": 1,
+    "report": "Test gen failed",
+    "items": [],
+    "backtrack_to": "04-test-gen",
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-05-25T13:30:00.000Z",
+    "verdict": "pass",
+    "attempt": 2,
+    "report": "Test gen passed on retry",
+    "items": [],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "06-unit-test",
+    "timestamp": "2026-05-25T14:00:00.000Z",
+    "verdict": "fail",
+    "attempt": 1,
+    "report": "Unit tests failed: syntax error",
+    "items": [],
+    "backtrack_to": "04-test-gen",
+    "schema_version": "1.0"
+  }
+]

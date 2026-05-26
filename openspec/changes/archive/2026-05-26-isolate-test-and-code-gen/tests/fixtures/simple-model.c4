@@ -1,0 +1,42 @@
+specification {
+    element system
+    element person
+    element container
+}
+
+person Customer {
+    description "End user of the system"
+}
+
+system App {
+    description "Main application system"
+
+    container WebApp {
+        description "Web frontend"
+        technology "React"
+    }
+
+    container Api {
+        description "REST API backend"
+        technology "Node.js"
+    }
+}
+
+system ExternalService {
+    description "Third-party payment processor"
+    tags "external"
+}
+
+rel Customer -> App {
+    description "Uses the application"
+}
+
+rel WebApp -> Api {
+    description "Makes API calls"
+    technology "HTTP/REST"
+}
+
+rel Api -> ExternalService {
+    description "Processes payments"
+    technology "HTTPS"
+}

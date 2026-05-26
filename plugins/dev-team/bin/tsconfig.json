@@ -9,11 +9,9 @@
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "types": [
-      "node"
-    ]
+    "noUnusedLocals": true,
+    "noUnusedParameters": true,
+    "types": ["vite-plus"]
   },
-  "include": [
-    "src/**/*"
-  ]
+  "include": ["src/**/*", "lib/**/*"]
 }

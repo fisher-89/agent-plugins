@@ -1,0 +1,37 @@
+specification {
+    element system
+    element node
+    element container
+}
+
+system Backend {
+    tags "backend"
+}
+
+deployment {
+    node Production {
+        description "Production environment"
+
+        container ApiServer {
+            description "REST API server"
+            technology "Node.js"
+            tags "production"
+        }
+
+        container Database {
+            description "Primary database"
+            technology "PostgreSQL"
+            tags "production,data"
+        }
+    }
+
+    node Staging {
+        description "Staging environment"
+
+        container ApiServer {
+            description "REST API server"
+            technology "Node.js"
+            tags "staging"
+        }
+    }
+}

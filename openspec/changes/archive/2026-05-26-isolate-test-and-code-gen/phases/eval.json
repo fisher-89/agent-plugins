@@ -1,0 +1,569 @@
+[
+  {
+    "phase": "01-requirements",
+    "timestamp": "2026-05-22T03:31:57.034Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md against 9-item checklist. All 8 required items R1-R6 R8-R9 pass: problem with 3 specific issues; in/out of scope; 6 risks with mitigations; 10 ACs with verification; consistent with CLAUDE.md; no placeholders; capability with 8 entries; all 8 spec files present. Optional R7 passes.",
+    "items": [
+      {
+        "item_id": "R1",
+        "pass": true,
+        "evidence": "问题 section describes 3 specific structural problems: P4/P5工作区非隔离, 缺乏模块边界契约, 测试执行无诊断能力 with concrete consequences",
+        "notes": "Background and motivation clearly described with specific problem detail"
+      },
+      {
+        "item_id": "R2",
+        "pass": true,
+        "evidence": "变更范围 section has 实现以下特性 11 items and 不要修改 9 items",
+        "notes": "Both in_scope and out_of_scope have multiple items"
+      },
+      {
+        "item_id": "R3",
+        "pass": true,
+        "evidence": "6 risks each have specific mitigations. Risk 1: hardcoded blacklist + skill validation + read log audit + worktree escalation",
+        "notes": "All risks have non-generic mitigations with specific actions"
+      },
+      {
+        "item_id": "R4",
+        "pass": true,
+        "evidence": "All 10 ACs specify verification methods. AC-1: 执行一次完整的P1流程, AC-6: 构造4种已知失败场景各一个",
+        "notes": "Each AC has testable criteria with explicit verification approach"
+      },
+      {
+        "item_id": "R5",
+        "pass": true,
+        "evidence": "Proposal stays within slim architecture: no container/worktree isolation; uses prompt constraints + skill layer routing",
+        "notes": "Consistent with CLAUDE.md Slim Plugin architecture and Simplicity first guideline"
+      },
+      {
+        "item_id": "R6",
+        "pass": true,
+        "evidence": "Full text search of proposal.md shows no TODO, TBD, placeholder, or template markers",
+        "notes": "No placeholders or TODO content found"
+      },
+      {
+        "item_id": "R7",
+        "pass": true,
+        "evidence": "问题, 提案 with 5 subsections and comparison table, 变更范围 with 2 lists, 验收标准 with 10 ACs, 风险 with 6 entries all have substantive content",
+        "notes": "Optional - all non-capability sections filled with substantive content"
+      },
+      {
+        "item_id": "R8",
+        "pass": true,
+        "evidence": "能力 section has 新增能力 3 items and 修改的能力 5 items, both non-empty",
+        "notes": "Capability section exists with both subsections having entries"
+      },
+      {
+        "item_id": "R9",
+        "pass": true,
+        "evidence": "8 capabilities listed in proposal -> 8 spec files exist. Each spec has at least 1 requirement and 1 scenario. No extra spec files",
+        "notes": "One-to-one correspondence between capabilities and spec files"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "01-requirements",
+    "timestamp": "2026-05-22T08:57:56.679Z",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md against static checklist: all 9 required items (R1-R9) pass. Problem is detailed (4 problems); in/out-of-scope both non-empty; 8 risks with specific mitigations; 15 ACs with verification methods; no CLAUDE.md contradiction; no TODO/TBD/placeholder; capability section fully populated; all 11 spec files have requirements+scenarios matching capabilities.",
+    "items": [
+      {
+        "item_id": "R1",
+        "pass": true,
+        "evidence": "Problem section describes 4 specific problems (e.g. P4/P5 workspace non-isolation, lack of module boundary contracts) with concrete consequences",
+        "notes": ""
+      },
+      {
+        "item_id": "R2",
+        "pass": true,
+        "evidence": "Scope section has in_scope (17 items under 实现以下特性) and out_of_scope (10 items under 不要修改), both non-empty",
+        "notes": ""
+      },
+      {
+        "item_id": "R3",
+        "pass": true,
+        "evidence": "8 risks in total; each has specific mitigation, not generic (e.g. hardcoded blacklists + skill-layer path validation)",
+        "notes": ""
+      },
+      {
+        "item_id": "R4",
+        "pass": true,
+        "evidence": "15 ACs each with verification method column; e.g. AC-1: 执行一次完整的 P1 流程，检查 specs/ 中...",
+        "notes": ""
+      },
+      {
+        "item_id": "R5",
+        "pass": true,
+        "evidence": "Proposal stays within PGE workflow structure, respects No embedded skills guideline, no contradiction with CLAUDE.md",
+        "notes": ""
+      },
+      {
+        "item_id": "R6",
+        "pass": true,
+        "evidence": "Grep for TODO|TBD|placeholder|{{...}} in proposal.md returned no matches",
+        "notes": ""
+      },
+      {
+        "item_id": "R7",
+        "pass": false,
+        "evidence": "Template sections (问题, 提案, 变更范围, 验收标准, 风险) all have substantive content with no placeholders",
+        "notes": "This item is optional (required: false) but passes"
+      },
+      {
+        "item_id": "R8",
+        "pass": true,
+        "evidence": "能力 section has 新增能力 (4 items) and 修改的能力 (7 items), both non-empty",
+        "notes": ""
+      },
+      {
+        "item_id": "R9",
+        "pass": true,
+        "evidence": "11 capabilities listed, 11 spec files found; all have >=1 requirement and >=1 scenario; no extra spec files",
+        "notes": ""
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "01-requirements",
+    "timestamp": "2026-05-22T09:18:25.846Z",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md against 9-item checklist (R1-R9). All 9 items pass: problem has 4 concrete issues; in/out-of-scope both non-empty; 10 risks with specific mitigations; 17 ACs with verification methods; consistent with CLAUDE.md; no placeholders; capability with 11 entries; 11 spec files matched 1:1 with requirements+scenarios.",
+    "items": [
+      {
+        "item_id": "R1",
+        "pass": true,
+        "evidence": "问题部分描述4个具体问题（P4/P5工作区非隔离、缺乏模块边界契约、C4解析器兼容性风险、测试执行无诊断能力），每个包含具体背景和影响",
+        "notes": "具体明确，非泛泛改进X"
+      },
+      {
+        "item_id": "R2",
+        "pass": true,
+        "evidence": "变更范围部分实现以下特性（11项）和不要修改（9项）两个列表",
+        "notes": "in_scope和out_of_scope各自至少有一项"
+      },
+      {
+        "item_id": "R3",
+        "pass": true,
+        "evidence": "10个风险每个都有具体缓解措施，如文件类型隔离风险含硬编码黑名单+skill层校验+输出审核+叠加worktree隔离",
+        "notes": "所有缓解措施非泛化，包含具体技术手段"
+      },
+      {
+        "item_id": "R4",
+        "pass": true,
+        "evidence": "AC-1至AC-17每个都有明确定义的验证方法，如AC-6构造4种已知失败场景、AC-17设置askUserTimeout=10秒",
+        "notes": "验证方法覆盖手动测试、自动化检查、代码审查等"
+      },
+      {
+        "item_id": "R5",
+        "pass": true,
+        "evidence": "提案遵循CLAUDE.md的Slim Plugin架构、No embedded skills等约定，无矛盾之处",
+        "notes": "Python->TS迁移标记为BREAKING，属预期变更"
+      },
+      {
+        "item_id": "R6",
+        "pass": true,
+        "evidence": "全文搜索proposal.md无TODO、TBD、placeholder、{{...}}模板标记",
+        "notes": "待讨论事项含具体内容和决议，非占位符"
+      },
+      {
+        "item_id": "R7",
+        "pass": true,
+        "evidence": "问题、提案（含方案对比）、变更范围、验收标准、风险、待讨论事项均有实质性内容",
+        "notes": "非必须项，但所有非能力章节均填写完整"
+      },
+      {
+        "item_id": "R8",
+        "pass": true,
+        "evidence": "### 新增能力（4项）和### 修改的能力（7项）均为非空列表",
+        "notes": "能力章节存在且两个子章节都有条目"
+      },
+      {
+        "item_id": "R9",
+        "pass": true,
+        "evidence": "11个capabilities对应11个specs/*/spec.md文件；每个spec至少1个requirement和1个scenario；无多余spec文件",
+        "notes": "一一对应关系完整"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "01-requirements",
+    "timestamp": "2026-05-22T09:43:39.578Z",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md against 9-item checklist (R1-R9). All 9 items pass: problem has 4 concrete issues; in/out-of-scope both non-empty; 10 risks with specific mitigations; 17 ACs with verification methods; consistent with CLAUDE.md; no placeholders; capability with 11 entries; 11 spec files matched 1:1 with requirements+scenarios.",
+    "items": [
+      {
+        "item_id": "R1",
+        "pass": true,
+        "evidence": "问题部分描述4个具体问题（工作区非隔离、缺乏模块边界契约、C4解析器兼容性风险、测试执行无诊断能力），每个包含具体背景和影响",
+        "notes": "具体明确，非泛泛改进X"
+      },
+      {
+        "item_id": "R2",
+        "pass": true,
+        "evidence": "变更范围部分实现以下特性（11项）和不要修改（10项）两个列表，各自至少有一项",
+        "notes": "in_scope和out_of_scope均非空"
+      },
+      {
+        "item_id": "R3",
+        "pass": true,
+        "evidence": "10个风险每个都有具体缓解措施，如文件类型隔离风险含硬编码黑名单+skill层校验+输出审核+叠加worktree隔离",
+        "notes": "所有缓解措施非泛化，包含具体技术手段"
+      },
+      {
+        "item_id": "R4",
+        "pass": true,
+        "evidence": "17个AC每个都有验证方法列，如AC-6构造4种已知失败场景、AC-17设置askUserTimeout=10秒验证超时行为",
+        "notes": "验证方法覆盖手动测试、自动化检查、代码审查等"
+      },
+      {
+        "item_id": "R5",
+        "pass": true,
+        "evidence": "提案遵循CLAUDE.md的Slim Plugin架构（不引入容器/worktree隔离，使用prompt约束+skill校验）、No embedded skills约定",
+        "notes": "Python->TS迁移标记为BREAKING，属预期变更，无矛盾"
+      },
+      {
+        "item_id": "R6",
+        "pass": true,
+        "evidence": "全文搜索proposal.md无TODO、TBD、placeholder、{{...}}模板标记；待讨论事项均含具体内容和决议",
+        "notes": "无占位符或TODO内容"
+      },
+      {
+        "item_id": "R7",
+        "pass": true,
+        "evidence": "问题、提案（含方案对比表+6个设计子节）、变更范围（2个列表）、验收标准（17个AC）、风险（10项）、待讨论事项（4项）均有实质性内容",
+        "notes": "非必须项(R7=false)，所有非能力章节均填写完整"
+      },
+      {
+        "item_id": "R8",
+        "pass": true,
+        "evidence": "新增能力（4项）和修改的能力（7项）均为非空列表",
+        "notes": "能力章节存在且两个子章节都有条目"
+      },
+      {
+        "item_id": "R9",
+        "pass": true,
+        "evidence": "11个capabilities对应11个specs/spec.md文件；每个spec至少1个requirement和1个scenario；无多余spec文件",
+        "notes": "一一对应关系完整"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "01-requirements",
+    "timestamp": "2026-05-22T10:00:27.724Z",
+    "attempt": 5,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md against 9-item checklist (R1-R9). All 9 items pass: 4 specific problems with background; in/out-of-scope both non-empty; 11 risks with concrete mitigations; 21 ACs with verification methods; consistent with CLAUDE.md; no placeholders; capability with 11 entries; all 11 spec files matched 1:1 with requirements+scenarios.",
+    "items": [
+      {
+        "item_id": "R1",
+        "pass": true,
+        "evidence": "问题部分描述4个具体问题（工作区非隔离、缺乏模块边界契约、C4解析器兼容性风险、测试执行无诊断能力），每个包含具体背景和影响，如C4解析器覆盖约65%语法且具体列出不支持特性",
+        "notes": "具体明确，非泛泛改进X"
+      },
+      {
+        "item_id": "R2",
+        "pass": true,
+        "evidence": "变更范围部分实现以下特性（12项）和不要修改（9项）两个列表，各自至少有一项",
+        "notes": "in_scope和out_of_scope均非空"
+      },
+      {
+        "item_id": "R3",
+        "pass": true,
+        "evidence": "11个风险每个都有具体缓解措施，如文件类型隔离风险含硬编码黑名单+skill层校验+输出审核+叠加worktree隔离；AskUserQuestion超时风险含5分钟默认超时+自动回退dev-proposal+可配置+审计记录",
+        "notes": "所有缓解措施非泛化，包含具体技术手段"
+      },
+      {
+        "item_id": "R4",
+        "pass": true,
+        "evidence": "21个AC每个包含验证方法列，如AC-6构造单元测试失败场景验证checklist和backtrack_to、AC-9构造4种已知失败场景各一个验证诊断决策树",
+        "notes": "验证方法覆盖手动流程测试、场景构造、代码搜索、文件存在性检查等"
+      },
+      {
+        "item_id": "R5",
+        "pass": true,
+        "evidence": "提案遵循CLAUDE.md的Slim Plugin架构（使用prompt约束+skill层校验，不引入容器/worktree隔离）、No embedded skills约定（skills为薄路由层），Python->TS迁移标记为BREAKING属预期变更",
+        "notes": "无矛盾之处"
+      },
+      {
+        "item_id": "R6",
+        "pass": true,
+        "evidence": "全文搜索proposal.md无TODO、TBD、placeholder、{{...}}模板标记；待讨论事项含具体内容和讨论方向，非占位符",
+        "notes": "无占位符或TODO内容"
+      },
+      {
+        "item_id": "R7",
+        "pass": true,
+        "evidence": "问题（4个）、提案（含方案对比表+8个详细设计子节）、变更范围（12项in+9项out）、验收标准（21个AC）、风险（11项）、待讨论事项（5项）均有实质性内容",
+        "notes": "非必须项(R7=false)，所有非能力章节均填写完整"
+      },
+      {
+        "item_id": "R8",
+        "pass": true,
+        "evidence": "新增能力（4项）和修改的能力（7项）均为非空列表",
+        "notes": "能力章节存在且两个子章节都有条目"
+      },
+      {
+        "item_id": "R9",
+        "pass": true,
+        "evidence": "11个capabilities（module-boundary-contracts、test-execution-diagnostics、file-type-isolation、c4-cli-integration、pge-workflow-engine、phase-agents、phase-skills、pipeline-backtrack、eval-check-cli、architecture-model、architecture-validation）对应11个specs/*/spec.md文件；每个spec至少1个requirement和1个scenario；无多余spec文件",
+        "notes": "一一对应关系完整"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "02-test-design",
+    "timestamp": "2026-05-25T03:29:15.908Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated test-design.md against 8-item static checklist (T1-T8). All 8 items pass: AC1-21 mapped in coverage map; frameworks specified (pytest/vitest/Bash); all paths under tests/; domain-specific boundary scenarios (25+ cases, diagnostic decision tree, no-op, archi CLI, module boundary); 3-layer strategy described with mock strategy; all sections filled; scope consistent with proposal (no out-of-scope test).",
+    "items": [
+      {
+        "item_id": "T1",
+        "pass": true,
+        "evidence": "All 21 ACs from proposal.md mapped in coverage map section 2 table",
+        "notes": ""
+      },
+      {
+        "item_id": "T2",
+        "pass": true,
+        "evidence": "Section 1 specifies: pytest (Python), vitest (TypeScript), pytest+Bash (integration), Python scripts (verification). No TBD",
+        "notes": ""
+      },
+      {
+        "item_id": "T3",
+        "pass": true,
+        "evidence": "All 21 rows reference tests/ prefix (e.g. tests/test_file_type_isolation.py)",
+        "notes": ""
+      },
+      {
+        "item_id": "T4",
+        "pass": true,
+        "evidence": "25+ domain-specific boundary cases: diagnostic decision tree (4 root causes), file isolation (.ts/.py blacklist), no-op (empty dirs), archi CLI (views/deployment .c4), module boundary (no public API, 20+ exports)",
+        "notes": ""
+      },
+      {
+        "item_id": "T5",
+        "pass": true,
+        "evidence": "Section 3.1 describes 3-layer methodology (工具函数层/CLI命令层/产物验证层). Section 3.2 classifies by test type with specific file names",
+        "notes": ""
+      },
+      {
+        "item_id": "T6",
+        "pass": true,
+        "evidence": "Section 3.3 has 8-row mock strategy table: eval.json mocking, subprocess.run, glob.glob, @likec4/core API, timer/exception mock",
+        "notes": "Optional item (required: false) but fully satisfied"
+      },
+      {
+        "item_id": "T7",
+        "pass": true,
+        "evidence": "All template sections have substantive content: 测试层级(7 rows), 覆盖映射(21 rows), 测试策略(3 subsections with method/classification/mock), 边界场景(25+ rows), 测试数据(5 categories), 不可测试项(4 items)",
+        "notes": ""
+      },
+      {
+        "item_id": "T8",
+        "pass": true,
+        "evidence": "All in_scope items (file isolation, module boundary, archi CLI migration, no-op, diagnostic tree, phase restructuring) have test coverage via AC mapping. Out_of_scope items (worktree isolation, archi-decide.py) have no tests",
+        "notes": ""
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "verdict": "pass",
+    "report": "Evaluated design.md and tasks.md against 9-item static checklist (D1-D9). All 7 required items (D1-D6, D8) pass: D1 component table has 4+ required columns, no TBD; D2 data flows trace input->process->output; D3 all 12 decisions list rejected alternatives; D4 all 21 ACs from proposal covered; D5 tasks grouped by phase with checkboxes in correct dependency order; D6 tasks describe specific operations; D8 consistent with CLAUDE.md. Optional D7 and D9 also pass.",
+    "items": [
+      {
+        "pass": true,
+        "item_id": "D1",
+        "evidence": "Component table (lines 57-78) has 5 columns: 组件, 职责, 文件位置, 依赖, 技术. All 4 required columns present. No TBD in 技术 column. File paths point to specific files e.g. plugins/dev-team/bin/src/lib/workflow.ts",
+        "notes": ""
+      },
+      {
+        "pass": true,
+        "item_id": "D2",
+        "evidence": "4 concrete data flows: module boundary contract (lines 88-108), file isolation (lines 111-124), test execution (lines 127-151), archi toolchain (lines 154-176). Each traces input->process->output with specific steps",
+        "notes": ""
+      },
+      {
+        "pass": true,
+        "item_id": "D3",
+        "evidence": "12 decisions D01-D12 each have 理由 and 备选方案 columns. D01 rejects worktree/container isolation. D02 rejects sub-step and single-phase approaches. D07 rejects auto-backtrack and no-backtrack approaches",
+        "notes": ""
+      },
+      {
+        "pass": true,
+        "item_id": "D4",
+        "evidence": "All 21 ACs from proposal.md cross-referenced: AC-1 in requirements data flow and module boundary data model; AC-2/3 in file isolation flow; AC-4 in D10; AC-5/6/7/8 in test execution flow; AC-9/20/21 in diagnostic decision tree; AC-10 in no-op component; AC-11/12/13/14/18/19 in decisions and migration steps; AC-15/16/17 in archi flow",
+        "notes": ""
+      },
+      {
+        "pass": true,
+        "item_id": "D5",
+        "evidence": "tasks.md has - [] checkboxes across 11 phases. Phases follow dependency order: infrastructure (P1) -> agent prompts (P2-4) -> skills (P5) -> CLI (P6-8) -> cleanup (P9) -> tests (P10-11). Phase 11 (fixtures) after Phase 10 (tests) is mild ordering inversion but does not break overall dependency chain",
+        "notes": ""
+      },
+      {
+        "pass": true,
+        "item_id": "D6",
+        "evidence": "All tasks describe concrete operations: T1.1 Update PHASES constant from 7 to 9 stages; T2.1 Create unit-test-executor.md; T3.1 Add source file type blacklist; T6.1 npm install @likec4/core@^1.56.0",
+        "notes": ""
+      },
+      {
+        "pass": true,
+        "item_id": "D7",
+        "evidence": "Dependencies section lists runtime dep @likec4/core: ^1.56.0 with purpose, build/test deps (vitest, pytest, tsx), and 3 removed Python files",
+        "notes": "Optional item (required: false)"
+      },
+      {
+        "pass": true,
+        "item_id": "D8",
+        "evidence": "Design follows CLAUDE.md Slim Plugin architecture: no container/worktree isolation (uses prompt constraints + skill validation); skills are thin routing wrappers; Python->TS migration marked BREAKING",
+        "notes": ""
+      },
+      {
+        "pass": true,
+        "item_id": "D9",
+        "evidence": "All template sections filled: 架构组件 (component table + diagrams), 数据流 (4 detailed flows), CLI 命令设计 (tables), 决策 (12 entries), 依赖 (runtime/build/removed), 风险与缓解 (3 technical risks)",
+        "notes": "Optional item (required: false)"
+      }
+    ],
+    "phase": "03-dev-proposal",
+    "schema_version": "1.0",
+    "attempt": 1,
+    "timestamp": "2026-05-25T07:04:51.614Z",
+    "backtrack_to": null
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-05-26T02:10:33.773Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated test generation code against 8-item static checklist (G1-G8). All 8 items pass: G1 all 21 ACs mapped to 17 test files; G2 naming convention followed; G3 Python files pass syntax check (15/15); G4 test classes/methods match coverage map; G5 uses unittest/vitest as specified; G6 all 20 boundary cases covered; G7 no JSON reports/summary in diff; G8 cleanup logic present.",
+    "items": [
+      {
+        "pass": true,
+        "notes": "All 21 coverage map entries in test-design.md section 2 have corresponding test files",
+        "evidence": "All 21 ACs (AC-1 through AC-21) map to test files under tests/",
+        "item_id": "G1"
+      },
+      {
+        "pass": true,
+        "notes": "Python files use test_*.py; TS file uses test_eval_check_noop.ts",
+        "evidence": "17 test files follow test_*.py and *.test.ts naming under tests/ directory",
+        "item_id": "G2"
+      },
+      {
+        "pass": true,
+        "notes": "TS file imports require vitest context but basic syntax is valid",
+        "evidence": "All 15 Python files compile via py_compile; TS file has balanced braces (203/203)",
+        "item_id": "G3"
+      },
+      {
+        "pass": true,
+        "notes": "Test structure follows coverage map and boundary cases from test-design.md",
+        "evidence": "Each file has test classes matching AC scope: TestFileTypeIsolationPromptContent (AC-2/3), TestDiagnosticDecisionTree (AC-9), TestNoopPhaseDetermination (AC-10), etc.",
+        "item_id": "G4"
+      },
+      {
+        "pass": true,
+        "notes": "Matches frameworks specified in test-design.md section 1 (pytest, vitest)",
+        "evidence": "Python files import unittest+unittest.mock; TS file imports describe/it/expect from vitest",
+        "item_id": "G5"
+      },
+      {
+        "pass": true,
+        "notes": "Includes diagnostic tree root causes, no-op edges, archi CLI, module boundary edge cases",
+        "evidence": "All 20 boundary cases from test-design.md section 4 covered",
+        "item_id": "G6"
+      },
+      {
+        "pass": true,
+        "notes": "Fixture JSON files are test data (mock reports, eval.json fragments), not generated reports",
+        "evidence": "git diff shows no JSON reports/summary files; fixture JSONs are test data per test-design.md section 5",
+        "item_id": "G7"
+      },
+      {
+        "pass": true,
+        "notes": "Read-only validation scripts (test_no_e2e_validation, test_architecture_md_commands, test_archi_files_deleted) create no resources",
+        "evidence": "TempProject.cleanup() and setUp/tearDown with shutil.rmtree present in files that create temp resources",
+        "item_id": "G8"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "05-implement",
+    "timestamp": "2026-05-26T04:07:33.107Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated implementation code against 8-item static checklist. All 8 items pass: I1 all 20 components implemented; I2 data flows traced (module contracts, file isolation, test execution, archi toolchain); I3 follows project conventions; I4 all CLI routes implemente (N/A but verified); I5 all 100+ tasks marked [x]; I6 no unrelated code; I7 lint pass (0 errs, 0 warns); I8 all 12 design decisions D01-D12 respected.",
+    "items": [
+      {
+        "item_id": "I1",
+        "pass": true,
+        "evidence": "All 20 design.md components have code: workflow.ts(9-phase), eval-json.ts(skipped/findings), eval-check.ts(9-phase+skipped), archi.ts(4 subcmds), c4-cross-ref.ts(import xref), unit-test-executor/evaluator.md, integration-test-executor/evaluator.md, phase-unit-test/integration-test SKILL.md, phase-implement/code-review SKILL.md(modified), test-gen-generator/implementation-generator/requirements-planner.md(modified)",
+        "notes": "Cross-verified component table rows 57-78 against actual files"
+      },
+      {
+        "item_id": "I2",
+        "pass": true,
+        "evidence": "4 data flows from design.md lines 86-176: module contracts(requirements-planner.md step5 generates spec.md tables), file isolation(test-gen-generator.md lines 51-54 blacklist + implement-generator.md lines 57-59 blacklist + both skills Read validation), test execution(both new skills have no-op->Executor->Evaluator pattern), archi(c4-parser.ts parseC4Dsl + archi-*/c4-cross-ref layered commands)",
+        "notes": "Each flow traces input->process->output as designed"
+      },
+      {
+        "item_id": "I3",
+        "pass": true,
+        "evidence": "TypeScript CLI uses cac patterns matching existing code; agent prompts use YAML frontmatter format; skill files follow license/disable-model-invocation/metadata pattern; test files use unittest(vitest for TS) as project convention",
+        "notes": "Names, imports, file organization consistent with codebase"
+      },
+      {
+        "item_id": "I4",
+        "pass": true,
+        "evidence": "design.md CLI table lines 237-244 all routes: archi query/validate/write/check in archi.ts lines 49-112; eval-check with 9-phase+skipped in eval-check.ts lines 256-360; eval-log with --skipped/--findings in eval-log.ts lines 30-127",
+        "notes": "Item I4 is optional(required:false) but all routes verified"
+      },
+      {
+        "item_id": "I5",
+        "pass": true,
+        "evidence": "All tasks across 11 phases (T1.1-T11.4) marked [x] in tasks.md",
+        "notes": "100% checkbox completion"
+      },
+      {
+        "item_id": "I6",
+        "pass": true,
+        "evidence": "All modified files trace to tasks: workflow.ts->T1.1-1.2, eval-json.ts->T1.3-1.5, eval-check.ts->T7.1-7.4, eval-log.ts->T8.1-8.3, archi.ts->T6.7, index.ts->T6.8, agent prompts->T2/T3/T4, skills->T5, package.json->T6.1, plugin.json version bump per CLAUDE.md rule",
+        "notes": "No untraceable modifications detected"
+      },
+      {
+        "item_id": "I7",
+        "pass": true,
+        "evidence": "reports/task-0_lint.json: status pass, errors 0, warnings 0",
+        "notes": "Static check passes cleanly"
+      },
+      {
+        "item_id": "I8",
+        "pass": true,
+        "evidence": "All 12 decisions D01-D12 respected: D01(prompt+skill no physical isolation) in test-gen-gen.md/implement-gen.md constraints; D02(independent phases) PHASES array includes 06+08; D03(sonnet Executor->Evaluator) both new skills; D04(@likec4/core) package.json dep; D05(Python->TS) archi cmds in TS, Python files deleted; D06(specs/ contracts) requirements-planner.md step5; D07(AskUserQuestion) both evaluators mention; D08(skill-level no-op) Bash checks in skills; D09(single code-review E) skill modified; D10(AUTO static-check only) implement skill explicit; D11(no E2E) template states N/A; D12(archi-decide.py not in scope) not modified",
+        "notes": "Full decision compliance verified"
+      }
+    ],
+    "backtrack_to": "null",
+    "schema_version": "1.0"
+  }
+]

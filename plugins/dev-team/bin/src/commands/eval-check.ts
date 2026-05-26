@@ -44,6 +44,7 @@ export interface BuildEvalCheckResultOptions {
 /**
  * Check that all prior phases have at least one pass record.
  * Delegates to checkGate from eval-json.ts.
+ * Entries with `skipped: true` are treated as passing (they carry verdict "pass").
  */
 export function checkPriorPhases(entries: any[], priorPhases: string[]): GateResult {
   return checkGate(entries, priorPhases);
@@ -61,16 +62,14 @@ export function checkTimestampOrder(entries: any[], priorPhases: string[]): Time
     return { passed: true, order_valid: true };
   }
 
-  // Collect the latest pass timestamp for each prior phase
+  // Collect the latest pass (or skipped) timestamp for each prior phase
   const timestamps: { phase: string; ts: string }[] = [];
 
   for (const phase of priorPhases) {
     const passEntries = entries
       .filter((e: any) => e.phase === phase && e.verdict === "pass")
-      .sort(
-        (a: any, b: any) =>
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
+      .filter((e: any) => !e.skipped) // Skip no-op entries for timestamp ordering
+      .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     if (passEntries.length === 0) continue;
 
@@ -106,10 +105,7 @@ export function checkBacktrack(entries: any[], priorPhases: string[]): Backtrack
   for (const phase of priorPhases) {
     const phaseEntries = entries
       .filter((e: any) => e.phase === phase)
-      .sort(
-        (a: any, b: any) =>
-          new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-      );
+      .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
     if (phaseEntries.length === 0) continue;
 
@@ -129,21 +125,33 @@ export function checkBacktrack(entries: any[], priorPhases: string[]): Backtrack
  * Determine the state of the current phase based on its eval entries.
  * - No entries for the phase: "first_run"
  * - Latest entry verdict is "fail": "retry"
- * - Latest entry verdict is "pass": "passed"
+ * - Latest entry verdict is "pass" (including skipped entries): "passed"
+ * - Entries with `skipped: true` are treated as "passed" regardless of verdict.
  */
 export function determinePhaseState(entries: any[], currentPhase: string): PhaseState {
   const phaseEntries = entries
     .filter((e: any) => e.phase === currentPhase)
-    .sort(
-      (a: any, b: any) =>
-        new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()
-    );
+    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   if (phaseEntries.length === 0) return "first_run";
 
   const latest = phaseEntries[0];
+  if (latest.skipped) return "passed";
   if (latest.verdict === "pass") return "passed";
   return "retry";
+}
+
+/**
+ * Check if the current phase has any entry with skipped: true.
+ * Returns "(skipped: no applicable tests)" if skipped, empty string otherwise.
+ * Used in human-readable output to indicate no-op phases.
+ */
+export function isPhaseSkipped(entries: any[], currentPhase: string): string {
+  const hasSkipped = entries.some((e: any) => e.phase === currentPhase && e.skipped === true);
+  if (hasSkipped) {
+    return " (skipped: no applicable tests)";
+  }
+  return "";
 }
 
 /**
@@ -151,20 +159,17 @@ export function determinePhaseState(entries: any[], currentPhase: string): Phase
  * Builds block_reasons from any failures across all checks.
  */
 export function buildEvalCheckResult(options: BuildEvalCheckResultOptions): EvalCheckResult {
-  const { phase, priorPhases, gateResult, timestampResult, backtrackResult, phaseState } =
-    options;
+  const { phase, priorPhases, gateResult, timestampResult, backtrackResult, phaseState } = options;
   const blockReasons: string[] = [];
 
   if (!gateResult.passed) {
-    blockReasons.push(
-      `前置阶段门控未通过: 缺少 [${gateResult.missing.join(", ")}] 的 pass 记录`
-    );
+    blockReasons.push(`前置阶段门控未通过: 缺少 [${gateResult.missing.join(", ")}] 的 pass 记录`);
   }
 
   if (!timestampResult.passed) {
     if (timestampResult.issues && timestampResult.issues.length > 0) {
       blockReasons.push(
-        `前置阶段 pass 记录时间戳未按阶段顺序单调递增: ${timestampResult.issues.join("; ")}`
+        `前置阶段 pass 记录时间戳未按阶段顺序单调递增: ${timestampResult.issues.join("; ")}`,
       );
     } else {
       blockReasons.push("前置阶段 pass 记录时间戳未按阶段顺序单调递增");
@@ -206,7 +211,7 @@ export function buildEvalCheckResult(options: BuildEvalCheckResultOptions): Eval
  */
 export function checkSchemaVersion(
   entries: any[],
-  expectedVersion: string = SCHEMA_VERSION
+  expectedVersion: string = SCHEMA_VERSION,
 ): string[] {
   const warnings: string[] = [];
   for (const entry of entries) {
@@ -236,18 +241,9 @@ export function checkSchemaVersion(
  */
 export function registerEvalCheckCommand(cli: CAC): void {
   cli
-    .command(
-      "eval-check",
-      "Check if all prior phases have passed evaluation for a given phase"
-    )
-    .option(
-      "--change <name>",
-      "Change name (corresponds to openspec/changes/<name>)"
-    )
-    .option(
-      "--phase <phase>",
-      "Phase identifier (e.g. 03-dev-proposal)"
-    )
+    .command("eval-check", "Check if all prior phases have passed evaluation for a given phase")
+    .option("--change <name>", "Change name (corresponds to openspec/changes/<name>)")
+    .option("--phase <phase>", "Phase identifier (e.g. 03-dev-proposal)")
     .option("--json", "Output structured JSON result instead of human-readable text")
     .action((options: Record<string, any>) => {
       // 1) Validate required arguments
@@ -263,18 +259,14 @@ export function registerEvalCheckCommand(cli: CAC): void {
       // 2) Validate phase is a known workflow phase
       const phaseIndex = getPhaseIndex(options.phase);
       if (phaseIndex === -1) {
-        console.error(
-          `错误: 无效的阶段标识符 "${options.phase}"。合法阶段: ${PHASES.join(", ")}`
-        );
+        console.error(`错误: 无效的阶段标识符 "${options.phase}"。合法阶段: ${PHASES.join(", ")}`);
         process.exit(1);
       }
 
       // 3) Resolve phases directory and verify it exists
       const phasesDir = getPhasesDir(options.change);
       if (!fs.existsSync(phasesDir)) {
-        console.error(
-          `错误: 变更 "${options.change}" 的 phases 目录不存在: ${phasesDir}`
-        );
+        console.error(`错误: 变更 "${options.change}" 的 phases 目录不存在: ${phasesDir}`);
         process.exit(1);
       }
 
@@ -322,7 +314,9 @@ export function registerEvalCheckCommand(cli: CAC): void {
               ? `所有前置阶段 (${priorPhases.join(", ")}) 已通过评估`
               : "无前置阶段需要检查";
           console.log(`检查通过: ${priorDesc}`);
-          console.log(`当前阶段状态: ${result.phase_state}`);
+          const phaseStateMsg =
+            result.phase_state === "passed" ? isPhaseSkipped(entries, options.phase) : "";
+          console.log(`当前阶段状态: ${result.phase_state}${phaseStateMsg}`);
         } else {
           console.error("检查阻断: 存在以下问题:");
           for (const reason of result.block_reasons) {

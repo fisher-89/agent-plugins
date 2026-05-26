@@ -2,10 +2,10 @@
 # Wrapper for embedded dev-team CLI (standalone bundle)
 set -e
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
-BUNDLE="$SCRIPT_DIR/dev-team-bundle.js"
+BUNDLE="$SCRIPT_DIR/dev-team-bundle.cjs"
 
 if [ ! -f "$BUNDLE" ]; then
-  echo "错误: dev-team-bundle.js 未找到，请先执行 npm run build" >&2
+  echo "错误: dev-team-bundle.cjs 未找到，请先执行 npm run build" >&2
   exit 1
 fi
 

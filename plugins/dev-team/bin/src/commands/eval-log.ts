@@ -26,6 +26,8 @@ export function registerEvalLogCommand(cli: CAC): void {
     .option("--items <json>", "Checklist items as JSON array string")
     .option("--attempt <n>", "Attempt number (auto-calculated from existing entries if omitted)")
     .option("--backtrack-to <phase>", "Backtrack target phase identifier")
+    .option("--skipped", "Mark entry as skipped (no-op phase, requires verdict pass)")
+    .option("--findings <text>", "Diagnostic findings text from decision tree analysis")
     .action((options: Record<string, any>) => {
       // Note: cac converts --backtrack-to to camelCase, access via options.backtrackTo
       // Note: --attempt is passed as string, needs parseInt
@@ -33,15 +35,13 @@ export function registerEvalLogCommand(cli: CAC): void {
       // 0) Validate required arguments (cac's { required: true } only catches
       //    flag-style missing values, not completely missing options)
       const REQUIRED_ARGS = ["change", "phase", "verdict", "report", "items"];
-      const missing = REQUIRED_ARGS.filter(
-        (r) => !options[r] || options[r] === ""
-      );
+      const missing = REQUIRED_ARGS.filter((r) => !options[r] || options[r] === "");
       if (missing.length > 0) {
         console.error(`错误: 缺少必填参数: --${missing.join(", --")}`);
         process.exit(1);
       }
       try {
-        validateVerdict(options.verdict);
+        validateVerdict(options.verdict, options.skipped === true);
       } catch (e: any) {
         console.error(`错误: ${e.message}`);
         process.exit(1);
@@ -82,16 +82,14 @@ export function registerEvalLogCommand(cli: CAC): void {
         const gate = checkGate(entries, priorPhases);
         if (!gate.passed) {
           console.error(
-            `错误: 门控检查未通过 - 以下前置阶段缺少 pass 记录: ${gate.missing.join(", ")}`
+            `错误: 门控检查未通过 - 以下前置阶段缺少 pass 记录: ${gate.missing.join(", ")}`,
           );
           process.exit(1);
         }
       }
 
       // 7) Compute attempt
-      const explicitAttempt = options.attempt
-        ? parseInt(options.attempt, 10)
-        : undefined;
+      const explicitAttempt = options.attempt ? parseInt(options.attempt, 10) : undefined;
       let attempt: number;
       try {
         attempt = computeAttempt(entries, options.phase, explicitAttempt);
@@ -108,6 +106,8 @@ export function registerEvalLogCommand(cli: CAC): void {
         items,
         attempt,
         backtrack_to: options.backtrackTo || null,
+        skipped: options.skipped === true ? true : undefined,
+        findings: options.findings || undefined,
       });
 
       // 9) Append entry

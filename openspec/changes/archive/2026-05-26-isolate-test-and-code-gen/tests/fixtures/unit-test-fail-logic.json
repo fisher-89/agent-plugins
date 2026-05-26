@@ -1,0 +1,26 @@
+{
+  "phase": "06-unit-test",
+  "timestamp": "2026-05-25T10:10:00.000Z",
+  "total": 10,
+  "passed": 8,
+  "failed": 2,
+  "skipped": 0,
+  "coverage": "85.0",
+  "coverage_threshold": "80",
+  "failures": [
+    {
+      "test_name": "test_login_success",
+      "error_message": "AssertionError: expected True, got False",
+      "stack_trace_first_line": "  File \"src/auth.py\", line 42, in login",
+      "file_path": "src/auth.py"
+    },
+    {
+      "test_name": "test_calculate_total",
+      "error_message": "assert total == 100, f'Expected 100, got {total}'",
+      "stack_trace_first_line": "  File \"src/checkout.py\", line 88, in calculate_total",
+      "file_path": "src/checkout.py"
+    }
+  ],
+  "duration_seconds": 5.8,
+  "test_command": "pytest tests/"
+}

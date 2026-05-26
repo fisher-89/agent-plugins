@@ -39,7 +39,21 @@ Agent({
 })
 ```
 
-**3b. Invoke Evaluator:**
+**3b. Read Path Validation (automatic after Generator completes):**
+Before invoking the Evaluator, validate the Generator's Read tool calls against the file type blacklist:
+
+```bash
+# Check for forbidden source code file reads in bash history or tool calls
+# The test-gen-generator should NOT have read any .ts, .py, .js, etc. files
+# If violations found, record in eval.json findings and re-invoke Generator with warning
+```
+
+If Read violations are found:
+- Record a finding in eval.json with phase_suffix "read-validation"
+- Re-invoke Generator with specific instructions to avoid reading blacklisted files
+- If violations persist after 3 attempts, set verdict "fail" with findings listing the violations
+
+**3c. Invoke Evaluator:**
 ```
 Agent({
   description: "Evaluate generated tests",
@@ -48,7 +62,7 @@ Agent({
 })
 ```
 
-**3c. Check verdict:**
+**3d. Check verdict:**
 - Read the latest entry for phase "04-test-gen" from eval.json
 - If verdict is "pass": phase complete
 - If verdict is "fail": re-invoke Generator with failed items and eval notes, re-run Evaluator

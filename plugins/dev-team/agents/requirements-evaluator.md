@@ -25,7 +25,8 @@ Evaluate the artifact against these items. Each required item must pass for an o
 | R6 | 无占位符或 TODO 内容 | true | 全文搜索不得出现"TODO"、"TBD"、"placeholder"或"{{...}}"模板标记 |
 | R7 | 所有非能力的模板章节已填写实质性内容 | false | 模板中除能力外的其他章节（问题、提案、变更范围、验收标准、风险）需有实质性内容，无占位符 |
 | R8 | 能力章节存在且至少有一个新增或修改条目 | true | proposal 必须包含 `## 能力` 章节，其下 `### 新增能力` 或 `### 修改的能力` 子章节至少有一个非空列表 |
-| R9 | specs/ 文件与能力章节一一对应 | true | 对于能力章节中列出的每个能力，必须存在 `specs/<capability>/spec.md`；每个 spec 文件必须至少有一个 requirement 和 scenario；不允许 spec 文件对应未在能力章节中列出的能力 |
+| R9 | specs/ 文件与能力章节一一对应 | true | 对于能力章节中列出的每个能力，必须存在 `specs/<capability>/spec.md`；不允许 spec 文件对应未在能力章节中列出的能力 |
+| R10 │ proposal.md 与 specs/ 之间无逻辑冲突 │ true │ 交叉验证：能力声明类型（新增/修改）与 spec 内容一致；验收标准 ID 在 specs 中有对应 requirement；变更范围描述与 spec 的 scenarios 无矛盾 |
 
 ## Input
 

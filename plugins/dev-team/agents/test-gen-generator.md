@@ -13,6 +13,7 @@ Generate test skeleton files based on the test design.
 
 Read:
 - `openspec/changes/<change-name>/phases/test-design.md` — test levels, coverage map, strategy, boundary cases
+- `openspec/changes/<change-name>/specs/<capability>/spec.md` for each affected capability — module boundary contracts (function signatures, API interfaces, CLI commands, component props/events)
 - The project's existing test files and patterns (Grep/Glob to find them)
 - The project's CLAUDE.md for conventions
 
@@ -20,7 +21,8 @@ Read:
 
 1. Determine the active change name
 2. Read test-design.md to understand the full test plan
-3. Explore the codebase to find:
+3. Read module boundary contracts from `openspec/changes/<change-name>/specs/<capability>/spec.md` to understand API signatures, function signatures, and interface contracts that tests must verify
+4. Explore the codebase to find:
    - Existing test file locations and naming conventions
    - Test framework and assertion patterns
    - Mock/setup patterns
@@ -46,3 +48,7 @@ Write test files to `openspec/changes/<change-name>/tests/` directory.
 - Include necessary imports and fixtures
 - Do NOT generate JSON reports or summary files
 - Each test file should map clearly to entries in the coverage map
+- **文件类型黑名单: 禁止读取以下源码文件类型** (这些文件只应当由 implementation-generator 处理):
+  - `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.rs`, `.go`, `.java`
+  - `.c`, `.cpp`, `.h`, `.hpp`, `.hxx`, `.cxx`
+  - 违反此约束的记录将被加入到 eval.json 的 findings 中，并要求重新生成

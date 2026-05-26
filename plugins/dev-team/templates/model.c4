@@ -26,5 +26,5 @@ model {
     }
   }
 
-  ExamplePackage.ExampleDomain.ExampleModule.ExampleComponent -> ExamplePackage.ExampleDomain.ExampleModule "depends on"
+  ExamplePackage.ExampleDomain.ExampleComponent -> ExamplePackage.ExampleDomain.ExampleModule 'depends on'
 }

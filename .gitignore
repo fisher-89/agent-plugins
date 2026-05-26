@@ -5,3 +5,5 @@
 memory
 __pycache__
 node_modules
+
+plugins/dev-team/bin/dev-team-bundle.cjs.map

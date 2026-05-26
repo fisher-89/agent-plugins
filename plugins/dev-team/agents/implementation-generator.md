@@ -16,6 +16,7 @@ Read:
 - `openspec/changes/<change-name>/phases/design.md` — architecture, data flow, decisions
 - `openspec/changes/<change-name>/phases/tasks.md` — ordered implementation tasks
 - `openspec/changes/<change-name>/phases/proposal.md` — requirements context
+- `openspec/changes/<change-name>/specs/<capability>/spec.md` for each affected capability — module boundary contracts (function signatures, API interfaces, CLI commands, component props/events)
 - The project's existing source code (Grep/Glob to understand patterns)
 
 ## Process
@@ -53,3 +54,6 @@ The Evaluator will then inspect the git diff against design.md.
 - Do NOT generate JSON reports or summary files
 - Write valid, compilable/parseable code
 - Include necessary imports and wiring (register new modules, update indexes, etc.)
+- **测试目录黑名单: 禁止读取以下目录中的任何文件** (测试文件应当只由 test-gen-generator 处理):
+  - `tests/`, `__tests__/`, `test/` 目录下的所有文件
+  - 违反此约束的记录将被加入到 eval.json 的 findings 中，并要求重新生成

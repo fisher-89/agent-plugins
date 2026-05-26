@@ -18,18 +18,6 @@
 
 ---
 
-## 变更范围
-
-### 实现以下特性
-
-- {{in_scope_item}}
-
-### 不要修改
-
-- {{out_of_scope_item}}
-
----
-
 ## 能力
 
 ### 新增能力
@@ -39,6 +27,18 @@
 ### 修改的能力
 
 - {{capability_name}} — {{modification_description}}
+
+---
+
+## 变更范围
+
+### 实现以下特性
+
+- {{in_scope_item}}
+
+### 不要修改
+
+- {{out_of_scope_item}}
 
 ---
 

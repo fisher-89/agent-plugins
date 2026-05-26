@@ -1,0 +1,29 @@
+specification {
+    element system
+    element person
+}
+
+system App {
+    tags "core"
+}
+
+person User {
+    tags "external"
+}
+
+rel User -> App {
+    description "Interacts with"
+}
+
+views {
+    view index {
+        title "System Context"
+        include *
+        autoLayout
+    }
+
+    view app {
+        title "App Details"
+        include App
+    }
+}
