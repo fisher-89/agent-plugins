@@ -1,9 +1,6 @@
 ---
 name: phase-requirements
-description: |
-  DESIGN phase (P→E): requirements-planner writes proposal.md, then requirements-evaluator checks with static checklist.
-  Loops on fail until all required checklist items pass. Use this as the first phase of the PGE workflow.
-  Replaces: /dev-team:openspec-propose
+description: DESIGN phase (P→E): write proposal.md + specs/, evaluator checks. Loops on fail.
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -11,7 +8,7 @@ metadata:
   version: "1.0"
 ---
 
-Requirements phase — Planner writes proposal.md and specs/, Evaluator checks proposal.md.
+Requirements phase — write proposal.md and specs/ with evaluator loop.
 
 ## Usage
 
@@ -19,191 +16,47 @@ Requirements phase — Planner writes proposal.md and specs/, Evaluator checks p
 /dev-team:phase-requirements [change-name]
 ```
 
-## Process
+## Steps
 
-### Step 1: Detect active change
+### 1. Parse change name
 
-Source the CLI wrapper for utility functions:
+Source `plugins/dev-team/utils/openspec-cli.sh`.
 
-```bash
-source plugins/dev-team/utils/openspec-cli.sh
-```
+**With argument (Branch A):** Validate via `validate_change_name`. If not exists, `openspec_new_change`.
 
-Follow the decision tree below based on whether a change name was provided.
+**Without argument (Branch B):** Detect explore context (decision tables, diagrams, "What We Figured Out"). If found (B1): extract decisions, ask user for kebab-case name, `derive_kebab_case`, confirm, scaffold. If not (B2): ask "想构建什么变更？" derive kebab-case, confirm, scaffold. Handle conflicts with numeric suffix. Save explore context as EXPLORE_CONTEXT_SUMMARY.
 
-**=== Branch A: Change name was provided (`/dev-team:phase-requirements <name>`) ===**
-
-1. Validate the name format:
-   ```bash
-   validate_change_name "<name>"
-   ```
-   - If exit code is 1: name is empty. Ask the user to provide a valid kebab-case name.
-   - If exit code is 2: name exceeds 128 characters. Inform the user and ask for a shorter name.
-   - If exit code is 3: name contains invalid characters or format. Explain that names must be kebab-case (lowercase letters, digits, hyphens only, starting with a letter or digit). Ask for a corrected name.
-
-2. Check whether the change already exists:
-   ```bash
-   if change_exists "<name>"; then
-       echo "Change '<name>' exists, proceeding directly."
-   else
-       echo "Change '<name>' does not exist, scaffolding..."
-       openspec_new_change "<name>"
-   fi
-   ```
-   - **Exists** (exit 0): proceed directly to Step 2.
-   - **Not exists** (exit 1): call `openspec_new_change "<name>"` to scaffold the change directory and `.openspec.yaml`, then proceed to Step 2.
-
-3. With a valid change name established, continue to Step 2.
-
-**=== Branch B: No change name provided (`/dev-team:phase-requirements` without arguments) ===**
-
-Detect the user's context:
-
-1. **Check for prior openspec-explore session**: Scan the conversation history for characteristic markers of an explore session:
-   - A "What We Figured Out" summary section
-   - Design decision tables (columns like "Area | Choice | Rationale")
-   - ASCII diagrams (architecture, state machines, data flows)
-   - "Options Considered" analysis with pros/cons
-   - Key Analysis blocks with performance/scalability notes
-   - The user previously invoked `/dev-team:openspec-explore` or a similar explore command
-
-2. **If explore context IS detected** (Branch B1):
-   - Extract a structured exploration insights summary containing:
-     - Key decisions made (what was chosen and why)
-     - Design choices with rationale
-     - Options considered and rejected
-     - Open questions or unresolved items
-   - Then ask the user for a change name:
-     ```
-     AskUserQuestion("What should we call this change? (kebab-case, e.g., 'add-user-auth')")
-     ```
-   - Derive kebab-case from the user's response:
-     ```bash
-     local derived_name
-     derived_name="$(derive_kebab_case "$user_response")"
-     ```
-   - Show the proposed name and ask for confirmation:
-     ```
-     I'll create a change named '<derived_name>'. Proceed?
-     ```
-   - If confirmed: call `openspec_new_change "$derived_name"`, then proceed to Step 2.
-   - If rejected or user provides a different name: use the user's custom name, re-validate, confirm again, scaffold, proceed to Step 2.
-   - If user cancels: output "已取消提案编写，你可以稍后通过 /dev-team:phase-requirements <name> 重新开始" and stop.
-
-3. **If NO explore context is detected** (Branch B2 -- empty/fresh conversation):
-   - Use AskUserQuestion with no preset options:
-     ```
-     AskUserQuestion("想构建什么变更？描述你想实现的功能或修复的问题。")
-     ```
-   - Wait for the user's response.
-   - Derive a kebab-case name from their description:
-     ```bash
-     local derived_name
-     derived_name="$(derive_kebab_case "$user_description")"
-     ```
-   - If `derived_name` is empty (e.g., purely CJK input with no ASCII characters), ask the user to provide an English kebab-case name directly.
-   - Present the derived name to the user:
-     ```
-     I'll create a change named '<derived_name>'. Proceed? (You can also suggest a different name or type 'cancel')
-     ```
-   - If confirmed: scaffold and proceed.
-   - If user suggests a different name: validate the custom name with `validate_change_name`, scaffold with the custom name, proceed.
-   - If user cancels: show "已取消提案编写，你可以稍后通过 /dev-team:phase-requirements <name> 重新开始" and stop.
-
-**=== Name conflict handling (all branches) ===**
-
-If `openspec_new_change` reports that the change already exists (exit code 1 with "already exists" message):
-- Append a numeric suffix starting from 2: `<name>-2`, `<name>-3`, etc.
-- Re-validate with `validate_change_name`.
-- Show the adjusted name and request confirmation again.
-- Repeat until a non-conflicting name is found or the user cancels.
-
-**=== Store explore context for Step 3a ===**
-
-If explore context was detected, save the extracted summary in a variable for use in Step 3a:
+### 2. Gate check
 
 ```bash
-EXPLORE_CONTEXT_SUMMARY="<extracted structured insights>"
+dev-team eval-check --change "<name>" --phase 01-requirements
 ```
+Stop if exit != 0.
 
-This variable will be injected into the Planner prompt in Step 3a. If no explore context was found, leave `EXPLORE_CONTEXT_SUMMARY` empty.
+### 3. Write artifacts
 
-### Step 2: Check for backtrack marker
-
-Read `openspec/changes/<name>/phases/eval.json` if it exists. Search for entries where `backtrack_to` is `"01-requirements"` and the latest entry for that phase. If found, re-run the Evaluator first:
-
-```
-Agent({
-  description: "Evaluate proposal.md (backtrack)",
-  subagent_type: "requirements-evaluator",
-  prompt: "Re-evaluate proposal.md for change '<name>'. A backtrack marker was set. Check against your static checklist and append result to eval.json."
-})
-```
-
-### Step 3: P→E Loop
-
-Run the Planner → Evaluator loop:
-
-**3a. Invoke Planner:**
-
-First, collect dynamic context from the CLI to enrich the Planner prompt:
-
+**Query existing capabilities:**
 ```bash
-source plugins/dev-team/utils/openspec-cli.sh
-
-# Collect change status and instructions using the cache to avoid redundant calls
-STATUS_JSON="$(openspec_cli_cache status "<name>")"
-INSTRUCTIONS_JSON="$(openspec_cli_cache instructions "<name>")"
+source plugins/dev-team/utils/openspec-cli.sh && openspec_spec_list "<name>"
 ```
+Parse JSON array to classify each capability as 新增 or 修改. If CLI fails or returns `[]`, assume no existing capabilities.
 
-Construct the enriched Planner prompt by combining the static template reference with dynamic CLI output and optional explore context:
+**Write proposal.md** from template `plugins/dev-team/templates/artifacts/proposal.md.template`. Use query result — never mark all as 新增 unless CLI returns `[]`.
 
-1. **Base prompt**: Start with the standard instruction.
-2. **Static template**: Reference the template file path.
-3. **Dynamic CLI instructions** (if available): If `INSTRUCTIONS_JSON` is not `{}`, append the `rules` and `context` fields from the instructions output. The `template` field is intentionally not injected -- the static template path provides the structure. If `INSTRUCTIONS_JSON` is `{}`, omit this section and rely solely on the static template.
-4. **Explore context** (if available from Step 1): If `EXPLORE_CONTEXT_SUMMARY` is non-empty and less than 10KB, append it as a separate section. If it exceeds 10KB, truncate it and append:
-   ```
-   ## 探索上下文（仅供参考）
+**Write specs/** for each capability in proposal's 能力 section:
+- **NEW**: `## ADDED Requirements`. Each `### Requirement: <name>` with SHALL/MUST, at least one `#### Scenario:` (exactly 4 #) in **WHEN**/**THEN** format
+- **MODIFIED**: Read existing at `openspec/specs/<capability>/spec.md`. Use delta headers: `## ADDED/MODIFIED/REMOVED/RENAMED Requirements`. For MODIFIED: copy the FULL requirement block first, then edit — header text must match exactly. For REMOVED: include **Reason** and **Migration**. For RENAMED: FROM:/TO: format
+- Adding new concerns to existing capability → use ADDED under same spec, not MODIFIED
+- Include `## Module Contract` section: Function/API/CLI/Component tables per affected module
 
-   <truncated content>
+Include CLI instructions and explore context as reference (preface: 探索上下文仅供参考，以 CLI 指令和静态模板为准).
 
-   （以下内容已截断，共 N 行）
-   ```
-5. **CRITICAL safeguard**: When injecting explore context, preface it with:
-   ```
-   探索上下文仅供参考，以 CLI 指令和静态模板为准。
-   ```
+**Constraints:** Every requirement has ≥1 scenario. Scenarios use exactly `####` (4 #) — 3 # will fail silently.
 
-The enriched prompt should look like this (note: only `rules` and `context` from INSTRUCTIONS_JSON are included; the `template` field is intentionally excluded):
+**Language:** 简体中文 for narrative. Keep in English: code identifiers, file paths, CLI commands, technical abbreviations (API, JSON, SDK, CI/CD), spec headers (`## ADDED Requirements`), scenario markers (`#### Scenario:`, `**WHEN**`, `**THEN**`), and normative keywords (SHALL, MUST, SHOULD, MAY).
 
-```
-Agent({
-  description: "Write proposal.md and specs/",
-  subagent_type: "requirements-planner",
-  prompt: "Write proposal.md and specs/ for change '<name>'."
+### 4. Evaluate
 
-## CLI Instructions
-
-The following dynamic context was provided by openspec for this change:
-
-\`\`\`json
-<INSTRUCTIONS_JSON content (rules and context only)>
-\`\`\`
-
-## 探索上下文（仅供参考）
-
-探索上下文仅供参考，以 CLI 指令和静态模板为准。
-
-<EXPLORE_CONTEXT_SUMMARY content>
-
-（以下内容已截断，共 N 行）
-"
-})
-```
-
-**Fallback behavior**: If both `openspec status --json` and `openspec instructions` return empty JSON `{}`, fall back to the basic prompt without CLI instructions. The Planner will still produce valid output using the static template alone.
-
-**3b. Invoke Evaluator:**
 ```
 Agent({
   description: "Evaluate proposal.md",
@@ -212,19 +65,10 @@ Agent({
 })
 ```
 
-**3c. Check verdict:**
-- Read the latest entry for phase "01-requirements" from eval.json
-- If verdict is "pass": phase complete, proceed
-- If verdict is "fail": re-invoke Planner with failed items from the eval entry, then re-run Evaluator
-- Loop until pass or until user interrupts
+### 5. Verdict loop
 
-### Step 4: Report result
+Read latest phase "01-requirements" entry from eval.json. If "fail", redo Steps 3-4 with failed items. Loop max 5x.
 
-Display the Evaluator's verdict, pass/total items, any notes, and a summary of specs/ files generated.
+### 6. Report
 
-## DESIGN Phase Pattern (P→E)
-
-- **Planner** (`requirements-planner`, opus, Read/Write): writes proposal.md and specs/ artifacts
-- **Evaluator** (`requirements-evaluator`, opus, Read/Write): checks with static checklist, appends to eval.json
-- **Loop**: if fail → Planner re-invoked with failed items → Evaluator re-runs
-- **No Generator**: the Planner IS the producer for DESIGN phases
+Show verdict, pass/total, notes, and specs/ files list.

@@ -51,7 +51,7 @@ Run:
 Prepare the evaluation data and invoke the dev-team CLI:
 
 ```bash
-dev-team eval-log --change <change-name> --phase 05-implementation --verdict pass|fail --report "<report>" --items '<items>'
+dev-team eval-log --change <change-name> --phase 05-implement --verdict pass|fail --report "<report>" --items '<items>'
 ```
 
 The CLI accepts an `--items` parameter containing the checklist evaluation array, formatted as a JSON string:

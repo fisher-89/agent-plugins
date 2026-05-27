@@ -56,7 +56,7 @@ Inspect:
 Prepare the evaluation data and invoke the dev-team CLI:
 
 ```bash
-dev-team eval-log --change <change-name> --phase 06-code-review --verdict pass|fail --report "<report>" --items '<items>' [--backtrack-to 03-dev-proposal]
+dev-team eval-log --change <change-name> --phase 07-code-review --verdict pass|fail --report "<report>" --items '<items>' [--backtrack-to 03-dev-proposal]
 ```
 
 Include `--backtrack-to 03-dev-proposal` if design contradictions were found (verdict must be "fail" when backtracking).

@@ -1,9 +1,8 @@
 ---
 name: phase-acceptance
 description: |
-  EVALUATOR-ONLY phase (E only): acceptance-evaluator traces requirements from proposal.md through the codebase.
-  No Planner, no Generator — the evaluation IS the work. Can set backtrack_to to "01-requirements".
-  This is the final PGE phase before archive.
+  EVALUATOR-ONLY phase (E only): acceptance-evaluator traces requirements from proposal.md
+  through the codebase. No Planner, no Generator. Runs once. Can set backtrack_to to "01-requirements".
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -19,40 +18,33 @@ Acceptance phase — Evaluator traces requirements through codebase for final ve
 /dev-team:phase-acceptance [change-name]
 ```
 
-## Process
+## Steps
 
-### Step 1: Detect active change
+### 1. Parse change name
 
-If a change name is provided, use it. Otherwise find the active change.
+If a change name is provided, use it. Otherwise run `openspec list --json` and prompt user to select.
 
-### Step 2: Verify prerequisites
+### 2. Gate check
 
-Check that `openspec/changes/<name>/phases/proposal.md` and `tasks.md` exist.
+```bash
+dev-team eval-check --change "<name>" --phase 09-acceptance
+```
+Stop if exit != 0.
 
-### Step 3: Run Evaluator (once, no loop)
-
-EVALUATOR-ONLY phases run the Evaluator once. If the verdict is "fail" with backtrack_to set, the user must manually invoke the target phase.
+### 3. Evaluate (once)
 
 ```
 Agent({
   description: "Acceptance evaluation",
   subagent_type: "acceptance-evaluator",
-  prompt: "Perform acceptance evaluation for change '<name>'. Read proposal.md from openspec/changes/<name>/phases/. Trace every acceptance criterion through the codebase. Check for scope creep and requirement gaps. Use your static checklist and append result to eval.json."
+  prompt: "Perform acceptance evaluation for change '<name>'. Append result to eval.json."
 })
 ```
 
-### Step 4: Report result
+### 4. Check backtrack
 
-Display verdict, pass/total items, and notes.
+Read latest phase "09-acceptance" entry from eval.json. If `backtrack_to` is "01-requirements", inform user: "Acceptance found unmet requirements. Run `/dev-team:phase-requirements` to re-evaluate."
 
-If backtrack_to is set to "01-requirements":
-- Inform user: "Acceptance found unmet requirements. Run `/dev-team:phase-requirements` to re-evaluate."
-- Do NOT automatically loop — the user decides when to backtrack.
+### 5. Report
 
-## EVALUATOR-ONLY Pattern (E)
-
-- **Evaluator** (`acceptance-evaluator`, opus, Read/Write/Grep/Glob/Bash): inspects full codebase against proposal.md, appends to eval.json
-- **No Planner, no Generator** — the evaluation IS the work
-- **Runs once** — no automatic loop
-- **Backtrack**: can set backtrack_to to "01-requirements" (unmet acceptance criteria)
-- **Final PGE phase** — after this passes, the change is ready for archive
+Show verdict, pass/total, notes, and backtrack suggestion if applicable.

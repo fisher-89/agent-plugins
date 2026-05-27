@@ -1,8 +1,8 @@
 ---
 name: phase-test-design
 description: |
-  DESIGN phase (P→E): test-design-planner reads proposal.md and writes test-design.md, then test-design-evaluator checks with static checklist.
-  Loops on fail until all required checklist items pass.
+  DESIGN phase (P→E): test-design-planner writes test-design.md, then evaluator checks.
+  Loops on fail until pass.
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -10,7 +10,7 @@ metadata:
   version: "1.0"
 ---
 
-Test design phase — Planner writes test-design.md, Evaluator checks it against proposal.md.
+Test design phase — Planner writes test-design.md, Evaluator checks.
 
 ## Usage
 
@@ -18,48 +18,41 @@ Test design phase — Planner writes test-design.md, Evaluator checks it against
 /dev-team:phase-test-design [change-name]
 ```
 
-## Process
+## Steps
 
-### Step 1: Detect active change
+### 1. Parse change name
 
-If a change name is provided, use it. Otherwise find the active change.
+If a change name is provided, use it. Otherwise run `openspec list --json` and prompt user to select.
 
-### Step 2: Verify prerequisite
+### 2. Gate check
 
-Check that `openspec/changes/<name>/phases/proposal.md` exists. If not, direct user to run `/dev-team:phase-requirements` first.
+```bash
+dev-team eval-check --change "<name>" --phase 02-test-design
+```
+Stop if exit != 0.
 
-### Step 3: P→E Loop
+### 3. P→E Loop
 
-**3a. Invoke Planner:**
+**3a. Planner:**
 ```
 Agent({
   description: "Write test-design.md",
   subagent_type: "test-design-planner",
-  prompt: "Write test-design.md for change '<name>'. Read proposal.md, follow the template at plugins/dev-team/templates/artifacts/test-design.md.template. Write to openspec/changes/<name>/phases/test-design.md."
+  prompt: "Write test-design.md for change '<name>'."
 })
 ```
 
-**3b. Invoke Evaluator:**
+**3b. Evaluator:**
 ```
 Agent({
   description: "Evaluate test-design.md",
   subagent_type: "test-design-evaluator",
-  prompt: "Evaluate test-design.md for change '<name>' against proposal.md. Use your static checklist and append result to eval.json."
+  prompt: "Evaluate test-design.md for change '<name>' against proposal.md. Append result to eval.json."
 })
 ```
 
-**3c. Check verdict:**
-- Read the latest entry for phase "02-test-design" from eval.json
-- If verdict is "pass": phase complete
-- If verdict is "fail": re-invoke Planner with failed items, re-run Evaluator
-- Loop until pass or user interrupts
+**3c. Verdict:** Read latest phase "02-test-design" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
 
-### Step 4: Report result
+### 4. Report
 
-Display verdict, pass/total items, and notes.
-
-## DESIGN Phase Pattern (P→E)
-
-- **Planner** (`test-design-planner`, opus, Read/Write): reads proposal.md, writes test-design.md
-- **Evaluator** (`test-design-evaluator`, opus, Read/Write): checks test-design.md against proposal.md with static checklist, appends to eval.json
-- **Loop**: if fail → Planner re-invoked with failed items → Evaluator re-runs
+Show verdict, pass/total, and notes.

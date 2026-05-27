@@ -1,61 +1,3 @@
-## MODIFIED Requirements
-
-### Requirement: Nine user-triggered phase skills
-The system SHALL provide 9 skills: `dev-team:phase-requirements`, `dev-team:phase-test-design`, `dev-team:phase-dev-proposal`, `dev-team:phase-test-gen`, `dev-team:phase-implement`, `dev-team:phase-unit-test`, `dev-team:phase-code-review`, `dev-team:phase-integration-test`, `dev-team:phase-acceptance`. 所有技能 SHALL 遵循精简编排器模式，通过 `dev-team eval-check --change <name> --phase <phase-code>` 进行前置验证，使用一行 prompt 调用 agent。
-
-#### Scenario: DESIGN skill executes Planner->Evaluator with eval-check gate
-- **WHEN** user invokes `dev-team:phase-requirements`, `dev-team:phase-test-design`, or `dev-team:phase-dev-proposal`
-- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "<phase-code>"` to validate prior phases, phase state, and backtrack markers
-- **AND** if eval-check passes (exit code 0):
-  - `phase-requirements`: the main agent (skill itself) directly writes proposal.md + specs/ to disk (no Planner subagent)
-  - `phase-test-design` / `phase-dev-proposal`: invokes Planner subagent with one-line prompt (subagent reads full instructions from its own agent.md)
-- **AND** then invokes the corresponding Evaluator subagent with a one-line prompt
-- **AND** the skill reads the latest eval.json entry to determine verdict
-- **AND** loops back to Planner if verdict is "fail" (up to max attempts)
-
-#### Scenario: EXECUTION skill invokes Generator->Evaluator with eval-check gate
-- **WHEN** user invokes `dev-team:phase-test-gen`
-- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "<phase-code>"` for prior phase validation
-- **AND** if eval-check passes, invokes test-gen-generator with one-line prompt
-- **AND** then invokes test-gen-evaluator with one-line prompt
-- **AND** verifies verdict from eval.json and loops on failure (up to max attempts)
-
-#### Scenario: Implementation skill invokes Generator->AUTO->Evaluator with eval-check gate
-- **WHEN** user invokes `dev-team:phase-implement`
-- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "05-implement"` for prior phase validation
-- **AND** if eval-check passes, invokes implementation-generator with one-line prompt "Implement pending tasks for change '<name>'."
-- **AND** after Generator completes, runs AUTO static-check via `python plugins/dev-team/utils/lint-runner.py --change "<name>" --project-root . --save-report`
-- **AND** if static-check fails, loops back to Generator with static-check failure details
-- **AND** if static-check passes, invokes implementation-evaluator with one-line prompt "Evaluate implementation for change '<name>'."
-- **AND** verifies verdict from eval.json and loops on failure (up to max attempts)
-- **AND** no unit-test sub-step runs inside the implement phase
-
-#### Scenario: Test execution skill triggers Executor->Evaluator (report generation)
-- **WHEN** user invokes `dev-team:phase-unit-test` or `dev-team:phase-integration-test`
-- **THEN** the skill invokes the Executor agent (sonnet, runs tests and writes a structured report), then the Evaluator agent (reads the report and applies diagnostic checks) in sequence
-
-#### Scenario: EVALUATOR-ONLY skill invokes Evaluator directly with eval-check gate
-- **WHEN** user invokes `dev-team:phase-code-review` or `dev-team:phase-acceptance`
-- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "<phase-code>"` for prior phase validation
-- **AND** if eval-check passes, invokes ONLY the corresponding Evaluator agent with a one-line prompt (no Planner, no Generator, no Executor)
-- **AND** the Evaluator inspects the codebase/diffs/reports directly and appends result to eval.json
-- **AND** the skill reads the verdict from eval.json and reports the result (runs once, no automatic loop)
-
-### Requirement: code-review invokes single evaluator
-`dev-team:phase-code-review` SHALL invoke a single evaluator: code-review-evaluator only.
-The integration-test-execution-evaluator is NO LONGER part of code-review phase — it has been moved to its own standalone phase skill (`dev-team:phase-integration-test`).
-The code-review evaluator output SHALL be appended to eval.json as a single entry.
-
-#### Scenario: code-review runs code-review evaluator only
-- **WHEN** user invokes `dev-team:phase-code-review`
-- **THEN** the skill invokes code-review-evaluator only
-- **AND** eval.json contains exactly one entry with phase "07-code-review"
-
-#### Scenario: code-review does not trigger integration tests
-- **WHEN** user invokes `dev-team:phase-code-review`
-- **THEN** no integration-test execution is triggered by this skill
-- **AND** integration tests are handled separately by `dev-team:phase-integration-test`
-
 ## ADDED Requirements
 
 ### Requirement: Slim orchestrator pattern for phase skills
@@ -202,35 +144,45 @@ The code-review evaluator output SHALL be appended to eval.json as a single entr
 - **THEN** 技能扫描对话历史检测 explore session 标记
 - **AND** 根据是否检测到 explore context 分别走 Branch B1 或 Branch B2
 
-### Requirement: Unit-test phase skill triggers executor then evaluator
-`dev-team:phase-unit-test` SHALL invoke two agents sequentially: first unit-test-executor (sonnet), then unit-test-evaluator.
-The skill SHALL check if unit test files exist before invoking the executor. If no test files exist, the skill SHALL append a skipped entry to eval.json with `skipped: true` and proceed.
-The executor SHALL use the sonnet model.
-The evaluator SHALL use the opus model for diagnostic decision making.
+## MODIFIED Requirements
 
-#### Scenario: Unit-test executor runs and evaluator validates
-- **WHEN** user invokes `dev-team:phase-unit-test` and unit test files exist
-- **THEN** the skill invokes unit-test-executor (sonnet), waits for the structured report to be written to `reports/unit-test-execution.json`
-- **AND** then invokes unit-test-evaluator to validate the report and apply diagnostic decision tree
-- **AND** eval.json contains two entries with phase "06-unit-test" and different phase_suffix values ("executor", "evaluator")
+### Requirement: Nine user-triggered phase skills
+The system SHALL provide 9 skills: `dev-team:phase-requirements`, `dev-team:phase-test-design`, `dev-team:phase-dev-proposal`, `dev-team:phase-test-gen`, `dev-team:phase-implement`, `dev-team:phase-unit-test`, `dev-team:phase-code-review`, `dev-team:phase-integration-test`, `dev-team:phase-acceptance`. 所有技能 SHALL 遵循精简编排器模式，通过 `dev-team eval-check --change <name> --phase <phase-code>` 进行前置验证，使用一行 prompt 调用 agent。
 
-#### Scenario: Unit-test phase skipped (no test files)
-- **WHEN** user invokes `dev-team:phase-unit-test` and no test files exist (Glob for `**/*.test.*` returns empty)
-- **THEN** the skill does NOT invoke executor or evaluator
-- **AND** appends a skipped entry with `skipped: true` and verdict "pass"
+#### Scenario: DESIGN skill executes Planner->Evaluator with eval-check gate
+- **WHEN** user invokes `dev-team:phase-requirements`, `dev-team:phase-test-design`, or `dev-team:phase-dev-proposal`
+- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "<phase-code>"` to validate prior phases, phase state, and backtrack markers
+- **AND** if eval-check passes (exit code 0):
+  - `phase-requirements`: the main agent (skill itself) directly writes proposal.md + specs/ to disk (no Planner subagent)
+  - `phase-test-design` / `phase-dev-proposal`: invokes Planner subagent with one-line prompt (subagent reads full instructions from its own agent.md)
+- **AND** then invokes the corresponding Evaluator subagent with a one-line prompt
+- **AND** the skill reads the latest eval.json entry to determine verdict
+- **AND** loops back to Planner if verdict is "fail" (up to max attempts)
 
-### Requirement: Integration-test phase skill triggers executor then evaluator
-`dev-team:phase-integration-test` SHALL invoke two agents sequentially: first integration-test-executor (sonnet), then integration-test-evaluator.
-The skill SHALL check if integration test files exist before invoking the executor. If no integration test files exist, the skill SHALL append a skipped entry to eval.json with `skipped: true` and proceed.
-The executor SHALL use the sonnet model.
+#### Scenario: EXECUTION skill invokes Generator->Evaluator with eval-check gate
+- **WHEN** user invokes `dev-team:phase-test-gen`
+- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "<phase-code>"` for prior phase validation
+- **AND** if eval-check passes, invokes test-gen-generator with one-line prompt
+- **AND** then invokes test-gen-evaluator with one-line prompt
+- **AND** verifies verdict from eval.json and loops on failure (up to max attempts)
 
-#### Scenario: Integration-test executor runs and evaluator validates
-- **WHEN** user invokes `dev-team:phase-integration-test` and integration test files exist
-- **THEN** the skill invokes integration-test-executor (sonnet), waits for the structured report to be written to `reports/integration-test-execution.json`
-- **AND** then invokes integration-test-evaluator to validate the report and apply diagnostic decision tree
-- **AND** eval.json contains two entries with phase "08-integration-test" and different phase_suffix values ("executor", "evaluator")
+#### Scenario: Implementation skill invokes Generator->AUTO->Evaluator with eval-check gate
+- **WHEN** user invokes `dev-team:phase-implement`
+- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "05-implement"` for prior phase validation
+- **AND** if eval-check passes, invokes implementation-generator with one-line prompt "Implement pending tasks for change '<name>'."
+- **AND** after Generator completes, runs AUTO static-check via `python plugins/dev-team/utils/lint-runner.py --change "<name>" --project-root . --save-report`
+- **AND** if static-check fails, loops back to Generator with static-check failure details
+- **AND** if static-check passes, invokes implementation-evaluator with one-line prompt "Evaluate implementation for change '<name>'."
+- **AND** verifies verdict from eval.json and loops on failure (up to max attempts)
+- **AND** no unit-test sub-step runs inside the implement phase
 
-#### Scenario: Integration-test phase skipped (no integration test files)
-- **WHEN** user invokes `dev-team:phase-integration-test` and no integration test files exist (Glob for `**/*.integration.test.*` returns empty)
-- **THEN** the skill does NOT invoke executor or evaluator
-- **AND** appends a skipped entry with `skipped: true` and verdict "pass"
+#### Scenario: Test execution skill triggers Executor->Evaluator (report generation)
+- **WHEN** user invokes `dev-team:phase-unit-test` or `dev-team:phase-integration-test`
+- **THEN** the skill invokes the Executor agent (sonnet, runs tests and writes a structured report), then the Evaluator agent (reads the report and applies diagnostic checks) in sequence
+
+#### Scenario: EVALUATOR-ONLY skill invokes Evaluator directly with eval-check gate
+- **WHEN** user invokes `dev-team:phase-code-review` or `dev-team:phase-acceptance`
+- **THEN** the skill first calls `dev-team eval-check --change "<name>" --phase "<phase-code>"` for prior phase validation
+- **AND** if eval-check passes, invokes ONLY the corresponding Evaluator agent with a one-line prompt (no Planner, no Generator, no Executor)
+- **AND** the Evaluator inspects the codebase/diffs/reports directly and appends result to eval.json
+- **AND** the skill reads the verdict from eval.json and reports the result (runs once, no automatic loop)

@@ -4,7 +4,7 @@ description: |
   【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
   DESIGN evaluator (E1) — Read only. Appends result via dev-team eval-log CLI.
   Invoked by the phase-requirements skill as the E step in the P→E loop.
-  On fail, the skill loops back to requirements-planner with failed items.
+  On fail, the skill loops back to the main agent with failed items.
 model: opus
 memory: project
 ---
@@ -70,5 +70,5 @@ The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single 
 - NO access to the Planner's reasoning or conversation — only the proposal.md + specs/ artifacts
 - Do NOT modify proposal.md or specs/ — this is read-only evaluation
 - Evidence must quote or reference specific content from the artifacts
-- If verdict is "fail", the skill will re-invoke the Planner with failed items (Planner re-generates both proposal.md and specs/)
+- If verdict is "fail", the skill will re-invoke the main agent with failed items (regenerates both proposal.md and specs/)
 - E1 cannot set backtrack_to (only E6/E7 can)

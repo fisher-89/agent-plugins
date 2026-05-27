@@ -39,9 +39,9 @@ Archive a completed change in the experimental workflow.
 
 3. **Check phase evaluation status**
 
-   Run `eval-check.py` to validate the PGE eval chain:
+   Run `eval-check` CLI to validate the PGE eval chain:
    ```bash
-   python plugins/dev-team/utils/eval-check.py --change "<name>" --project-root . --json
+   dev-team eval-check --change "<name>" --phase 09-acceptance --json
    ```
 
    Parse the JSON output to check:
@@ -113,7 +113,7 @@ All artifacts complete. Eval chain passed.
 **Guardrails**
 - Always prompt for change selection if not provided
 - Use artifact graph (openspec status --json) for completion checking
-- Run eval-check.py to validate phase/eval.json before archive
+- Run dev-team eval-check to validate phase/eval.json before archive
 - Don't block archive on warnings - just inform and confirm
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)
 - Show clear summary of what happened

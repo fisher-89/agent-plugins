@@ -52,7 +52,7 @@ Inspect:
 Prepare the evaluation data and invoke the dev-team CLI:
 
 ```bash
-dev-team eval-log --change <change-name> --phase 07-acceptance --verdict pass|fail --report "<report>" --items '<items>' [--backtrack-to 01-requirements]
+dev-team eval-log --change <change-name> --phase 09-acceptance --verdict pass|fail --report "<report>" --items '<items>' [--backtrack-to 01-requirements]
 ```
 
 Include `--backtrack-to 01-requirements` if requirements gaps were found (verdict must be "fail" when backtracking).
