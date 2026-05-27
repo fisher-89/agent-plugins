@@ -27,9 +27,3 @@ The plugin follows a "slim" architecture:
 2. **Simplicity first**: No speculative features. No abstractions for single-use code.
 3. **Surgical changes**: Touch only what's needed. Match existing style.
 4. **Goal-Driven Execution**: Define success criteria. Loop until verified.
-
-## Plugin Identity
-
-- **Name:** dev-team
-- **Version:** 2.1.0
-- **Author:** zhangbohan

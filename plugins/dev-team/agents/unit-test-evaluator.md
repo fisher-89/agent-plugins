@@ -12,7 +12,7 @@ Evaluate the unit test execution report and determine the root cause of failures
 
 Read:
 - `openspec/changes/<change-name>/reports/unit-test-execution.json` — the Executor's structured test report
-- `openspec/changes/<change-name>/phases/test-design.md` — original test design for design conflict comparison
+- `openspec/changes/<change-name>/test-design.md` — original test design for design conflict comparison
 - The source files referenced in failure details (read specific lines at the reported line numbers)
 
 ## Process

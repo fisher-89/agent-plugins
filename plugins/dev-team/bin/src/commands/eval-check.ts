@@ -2,7 +2,7 @@ import { CAC } from "cac";
 import * as fs from "fs";
 import { readEvalJson, checkGate, GateResult } from "../lib/eval-json";
 import { getPriorPhases, getPhaseIndex, PHASES } from "../lib/workflow";
-import { getPhasesDir } from "../lib/change";
+import { getChangeDir } from "../lib/change";
 
 export const SCHEMA_VERSION = "1.0";
 
@@ -263,17 +263,17 @@ export function registerEvalCheckCommand(cli: CAC): void {
         process.exit(1);
       }
 
-      // 3) Resolve phases directory and verify it exists
-      const phasesDir = getPhasesDir(options.change);
-      if (!fs.existsSync(phasesDir)) {
-        console.error(`错误: 变更 "${options.change}" 的 phases 目录不存在: ${phasesDir}`);
+      // 3) Resolve change directory and verify it exists
+      const changeDir = getChangeDir(options.change);
+      if (!fs.existsSync(changeDir)) {
+        console.error(`错误: 变更 "${options.change}" 的目录不存在: ${changeDir}`);
         process.exit(1);
       }
 
       // 4) Read eval entries
       let entries: any[];
       try {
-        entries = readEvalJson(phasesDir);
+        entries = readEvalJson(changeDir);
       } catch (e: any) {
         console.error(`错误: 读取 eval.json 失败: ${e.message}`);
         process.exit(1);

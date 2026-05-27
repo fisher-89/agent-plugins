@@ -29,12 +29,12 @@ export interface GateResult {
 }
 
 /**
- * Read eval.json from the phases directory.
+ * Read eval.json from the change directory.
  * Returns an empty array if the file does not exist.
  * Throws an error if JSON parsing fails.
  */
-export function readEvalJson(phasesDir: string): any[] {
-  const filePath = path.join(phasesDir, EVAL_JSON_FILE);
+export function readEvalJson(changeDir: string): any[] {
+  const filePath = path.join(changeDir, EVAL_JSON_FILE);
   if (!fs.existsSync(filePath)) {
     return [];
   }
@@ -160,21 +160,21 @@ export function checkGate(entries: any[], priorPhases: string[]): GateResult {
 }
 
 /**
- * Append an entry to eval.json in the given phases directory.
+ * Append an entry to eval.json in the given change directory.
  * - Creates the directory if it does not exist.
  * - Creates eval.json with `[entry]` if it does not exist.
  * - Appends to the existing array otherwise.
  * - Output uses 2-space indentation with trailing newline.
  */
-export function appendEntry(phasesDir: string, entry: object): void {
-  // Ensure phases directory exists
-  fs.mkdirSync(phasesDir, { recursive: true });
+export function appendEntry(changeDir: string, entry: object): void {
+  // Ensure change directory exists
+  fs.mkdirSync(changeDir, { recursive: true });
 
-  const filePath = path.join(phasesDir, EVAL_JSON_FILE);
+  const filePath = path.join(changeDir, EVAL_JSON_FILE);
   let data: any[];
 
   if (fs.existsSync(filePath)) {
-    data = readEvalJson(phasesDir);
+    data = readEvalJson(changeDir);
   } else {
     data = [];
   }

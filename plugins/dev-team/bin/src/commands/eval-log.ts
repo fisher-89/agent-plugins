@@ -10,7 +10,7 @@ import {
   appendEntry,
 } from "../lib/eval-json";
 import { getPriorPhases } from "../lib/workflow";
-import { getPhasesDir } from "../lib/change";
+import { getChangeDir } from "../lib/change";
 
 /**
  * Register the eval-log subcommand on the given cac CLI instance.
@@ -64,13 +64,13 @@ export function registerEvalLogCommand(cli: CAC): void {
         process.exit(1);
       }
 
-      // 4) Resolve phases directory
-      const phasesDir = getPhasesDir(options.change);
+      // 4) Resolve change directory
+      const changeDir = getChangeDir(options.change);
 
       // 5) Read existing eval entries
       let entries: any[];
       try {
-        entries = readEvalJson(phasesDir);
+        entries = readEvalJson(changeDir);
       } catch (e: any) {
         console.error(`错误: 读取 eval.json 失败: ${e.message}`);
         process.exit(1);
@@ -112,7 +112,7 @@ export function registerEvalLogCommand(cli: CAC): void {
 
       // 9) Append entry
       try {
-        appendEntry(phasesDir, entry);
+        appendEntry(changeDir, entry);
       } catch (e: any) {
         console.error(`错误: 写入 eval.json 失败: ${e.message}`);
         process.exit(1);

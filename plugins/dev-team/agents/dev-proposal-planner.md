@@ -12,8 +12,8 @@ Write a comprehensive design.md and tasks.md based on the proposal and test desi
 ## Input
 
 Read:
-- `openspec/changes/<change-name>/phases/proposal.md` — requirements and acceptance criteria
-- `openspec/changes/<change-name>/phases/test-design.md` — test strategy and coverage map
+- `openspec/changes/<change-name>/proposal.md` — requirements and acceptance criteria
+- `openspec/changes/<change-name>/test-design.md` — test strategy and coverage map
 - `plugins/dev-team/templates/artifacts/design.md.template` — suggested structure
 - The project's CLAUDE.md and existing codebase for context
 
@@ -22,12 +22,12 @@ Read:
 1. Determine the active change name
 2. Read proposal.md and test-design.md for full context
 3. Read the design template for structure
-4. Write `openspec/changes/<change-name>/phases/design.md` covering:
+4. Write `openspec/changes/<change-name>/design.md` covering:
    - **Architecture Components**: Each component with responsibility, dependencies, technology
    - **Data Flow**: How data moves through the system, data models with fields and relationships
    - **Route / API Design**: If applicable — endpoints with method, path, input, output, auth
    - **Decisions**: Key architectural decisions with rationale and alternatives considered
-5. Write `openspec/changes/<change-name>/phases/tasks.md` with ordered implementation tasks
+5. Write `openspec/changes/<change-name>/tasks.md` with ordered implementation tasks
    - Each task should be a checkbox item: `- [ ] <description>`
    - Tasks should be grouped by logical phases
    - Tasks should be concrete and implementable
@@ -35,8 +35,8 @@ Read:
 ## Output
 
 Write two files:
-- `openspec/changes/<change-name>/phases/design.md`
-- `openspec/changes/<change-name>/phases/tasks.md`
+- `openspec/changes/<change-name>/design.md`
+- `openspec/changes/<change-name>/tasks.md`
 
 ## Constraints
 

@@ -13,7 +13,7 @@ Execute unit tests and produce a structured execution report.
 
 Read:
 - The project's CLAUDE.md for test command conventions
-- `openspec/changes/<change-name>/phases/test-design.md` for unit test scope and coverage targets
+- `openspec/changes/<change-name>/test-design.md` for unit test scope and coverage targets
 - Existing test files (Glob to find `**/*.test.*`, `**/tests/unit/**`, `**/__tests__/**`)
 
 ## Process

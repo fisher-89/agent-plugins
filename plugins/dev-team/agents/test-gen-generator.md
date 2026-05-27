@@ -12,7 +12,7 @@ Generate test skeleton files based on the test design.
 ## Input
 
 Read:
-- `openspec/changes/<change-name>/phases/test-design.md` — test levels, coverage map, strategy, boundary cases
+- `openspec/changes/<change-name>/test-design.md` — test levels, coverage map, strategy, boundary cases
 - `openspec/changes/<change-name>/specs/<capability>/spec.md` for each affected capability — module boundary contracts (function signatures, API interfaces, CLI commands, component props/events)
 - The project's existing test files and patterns (Grep/Glob to find them)
 - The project's CLAUDE.md for conventions

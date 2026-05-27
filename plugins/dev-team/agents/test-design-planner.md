@@ -12,7 +12,7 @@ Write a comprehensive test-design.md based on the proposal.
 ## Input
 
 Read:
-- `openspec/changes/<change-name>/phases/proposal.md` — the requirements to design tests for
+- `openspec/changes/<change-name>/proposal.md` — the requirements to design tests for
 - `plugins/dev-team/templates/artifacts/test-design.md.template` — suggested structure
 
 ## Process
@@ -20,7 +20,7 @@ Read:
 1. Determine the active change name
 2. Read proposal.md to understand the acceptance criteria and scope
 3. Read the test-design template for structure
-4. Write `openspec/changes/<change-name>/phases/test-design.md` covering:
+4. Write `openspec/changes/<change-name>/test-design.md` covering:
    - **Test Levels**: Unit, integration — for each: scope, framework, target coverage
    - **Coverage Map**: Map each acceptance criterion (AC-N) from proposal.md to specific test files
    - **Test Strategy**: Approach, test categories with scope, mocking strategy
@@ -28,7 +28,7 @@ Read:
 
 ## Output
 
-Write a single file: `openspec/changes/<change-name>/phases/test-design.md`
+Write a single file: `openspec/changes/<change-name>/test-design.md`
 
 ## Constraints
 

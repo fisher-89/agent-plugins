@@ -102,7 +102,7 @@ The code-review evaluator output SHALL be appended to eval.json as a single entr
 
 #### Scenario: Skill 在 evaluator 完成后读取 eval.json 判断 verdict
 - **WHEN** Evaluator subagent 执行完成
-- **THEN** 技能读取 `openspec/changes/<name>/phases/eval.json` 获取当前阶段的最新条目
+- **THEN** 技能读取 `openspec/changes/<name>/eval.json` 获取当前阶段的最新条目
 - **AND** 如果 verdict 为 "fail"，重新执行业务逻辑（主 agent 或 subagent，最多 5 次尝试）
 - **AND** 如果 verdict 为 "pass" 或 达到最大尝试次数，技能输出结果报告
 
@@ -144,7 +144,7 @@ The code-review evaluator output SHALL be appended to eval.json as a single entr
 
 #### Scenario: 技能不传递输出路径给 agent
 - **WHEN** 技能调用 dev-proposal-planner agent
-- **THEN** prompt 中不包含 `openspec/changes/<name>/phases/design.md`
+- **THEN** prompt 中不包含 `openspec/changes/<name>/design.md`
 - **AND** agent 从自己的 agent.md 获取输出路径
 
 ### Requirement: 移除 eval-check.py，统一使用 TypeScript CLI

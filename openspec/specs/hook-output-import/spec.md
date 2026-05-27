@@ -9,7 +9,7 @@ The system SHALL NOT perform any commit-time evaluation validation. The existing
 
 ### Requirement: Eval check script validates chain before archive
 The system SHALL provide an eval check script (`utils/eval-check.py`) that validates the eval chain before archive.
-The script SHALL read `openspec/changes/<name>/phases/eval.json`, extract the latest entry per phase by timestamp, and verify all phases in the expected sequence have verdict "pass" with no gaps or active backtrack markers.
+The script SHALL read `openspec/changes/<name>/eval.json`, extract the latest entry per phase by timestamp, and verify all phases in the expected sequence have verdict "pass" with no gaps or active backtrack markers.
 If any check fails, the script SHALL output the failure reason and exit with a non-zero code.
 
 #### Scenario: All phases pass, eval check succeeds
@@ -53,7 +53,7 @@ The output SHALL be surfaced to the user via the PreToolUse hook's normal output
 - **THEN** hook outputs "Phase 07 (acceptance): FAIL — backtrack to 01-requirements"
 
 ### Requirement: Eval results stored in eval.json
-All Evaluator output SHALL be appended to `openspec/changes/<name>/phases/eval.json` as an array. Each entry includes `phase`, `timestamp`, `attempt`, `verdict`, `items`, and `backtrack_to` fields.
+All Evaluator output SHALL be appended to `openspec/changes/<name>/eval.json` as an array. Each entry includes `phase`, `timestamp`, `attempt`, `verdict`, `items`, and `backtrack_to` fields.
 No per-phase eval files SHALL be created — eval.json is the single source of truth for all evaluation results.
 
 #### Scenario: Code review findings in eval.json

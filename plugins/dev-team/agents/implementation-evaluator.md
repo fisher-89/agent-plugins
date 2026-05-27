@@ -26,8 +26,8 @@ Evaluate the Generator's implementation code against design.md using this static
 ## Input
 
 Read:
-- `openspec/changes/<change-name>/phases/design.md` — the design reference
-- `openspec/changes/<change-name>/phases/tasks.md` — task completion status
+- `openspec/changes/<change-name>/design.md` — the design reference
+- `openspec/changes/<change-name>/tasks.md` — task completion status
 - `plugins/dev-team/templates/artifacts/eval.schema.json` — output format reference
 
 Run:

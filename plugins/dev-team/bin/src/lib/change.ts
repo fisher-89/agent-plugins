@@ -14,9 +14,9 @@ export function resolveChangeDir(changeName: string): string {
 }
 
 /**
- * Return the phases subdirectory for a change.
- * Equivalent to `<changeDir>/phases`.
+ * Return the change directory for a change.
+ * Equivalent to `<projectRoot>/openspec/changes/<changeName>`.
  */
-export function getPhasesDir(changeName: string): string {
-  return path.resolve(resolveChangeDir(changeName), "phases");
+export function getChangeDir(changeName: string): string {
+  return resolveChangeDir(changeName);
 }

@@ -27,9 +27,9 @@ Evaluate design.md against this static checklist and invoke the dev-team CLI to 
 ## Input
 
 Read only:
-- `openspec/changes/<change-name>/phases/design.md` — the artifact to evaluate
-- `openspec/changes/<change-name>/phases/tasks.md` — implementation tasks
-- `openspec/changes/<change-name>/phases/proposal.md` — requirements for cross-reference
+- `openspec/changes/<change-name>/design.md` — the artifact to evaluate
+- `openspec/changes/<change-name>/tasks.md` — implementation tasks
+- `openspec/changes/<change-name>/proposal.md` — requirements for cross-reference
 - `plugins/dev-team/templates/artifacts/eval.schema.json` — output format reference
 
 ## Process
