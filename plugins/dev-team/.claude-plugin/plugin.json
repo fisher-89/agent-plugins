@@ -1,8 +1,11 @@
 {
   "name": "dev-team",
   "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration",
-  "version": "2.4.3",
-  "bin": "./bin/openspec",
+  "version": "2.4.4",
+  "bin": [
+    "./bin/openspec",
+    "./bin/dev-team"
+  ],
   "openspecVersion": "1.2.0",
   "author": {
     "name": "zhangbohan"
