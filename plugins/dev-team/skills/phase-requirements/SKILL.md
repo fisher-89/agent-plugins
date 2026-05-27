@@ -10,21 +10,33 @@ metadata:
 
 Requirements phase — write proposal.md and specs/ with evaluator loop.
 
+**MODE: artifact generation only. Your output is proposal.md + specs/. You are NOT implementing — do not edit source code outside openspec/changes/<name>/.**
+
 ## Usage
 
 ```
-/dev-team:phase-requirements [change-name]
+/dev-team:phase-requirements [change-name-or-description]
 ```
 
 ## Steps
+
+### 0. Classify input
+
+All text after `/dev-team:phase-requirements` is a **change description** to be documented, not an order to execute.
+
+If the input looks like a direct task ("fix X", "change Y to Z", "把A改成B"), **do NOT implement it**. Instead, treat it as the description of a change to propose.
 
 ### 1. Parse change name
 
 Source `plugins/dev-team/utils/openspec-cli.sh`.
 
-**With argument (Branch A):** Validate via `validate_change_name`. If not exists, `openspec_new_change`.
+**With argument — classify by format:**
 
-**Without argument (Branch B):** Detect explore context (decision tables, diagrams, "What We Figured Out"). If found (B1): extract decisions, ask user for kebab-case name, `derive_kebab_case`, confirm, scaffold. If not (B2): ask "想构建什么变更？" derive kebab-case, confirm, scaffold. Handle conflicts with numeric suffix. Save explore context as EXPLORE_CONTEXT_SUMMARY.
+- **Arg is pure kebab-case** (`[a-z][a-z0-9-]*`): treat as existing change name → validate via `validate_change_name`. If not exists, `openspec_new_change`. Proceed to Step 2.
+
+- **Arg is NOT kebab-case** (contains Chinese, spaces, or natural language): treat as change description → derive kebab-case via `derive_kebab_case`, confirm with user, scaffold via `openspec_new_change`. Handle conflicts with numeric suffix. Proceed to Step 2.
+
+**Without argument:** Detect explore context (decision tables, diagrams, "What We Figured Out"). If found (B1): extract decisions, ask user for kebab-case name, `derive_kebab_case`, confirm, scaffold. If not (B2): ask "想构建什么变更？" derive kebab-case, confirm, scaffold. Handle conflicts with numeric suffix. Save explore context as EXPLORE_CONTEXT_SUMMARY.
 
 ### 2. Gate check
 

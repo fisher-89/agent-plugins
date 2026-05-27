@@ -19,7 +19,7 @@ Templates are suggestions, not enforced schemas — Planners may add or restruct
 ### Requirement: Shared JSON schemas for evaluation
 The system SHALL define JSON schemas for shared evaluation artifacts:
 
-- `eval.schema.json`: `phase` (string, e.g. "01-requirements"), `timestamp` (ISO 8601 string), `attempt` (int, 1-based), `verdict` ("pass"|"fail"), `report` (string, max 500 chars — evaluator's summary of what was checked and why the verdict was reached), `items` (array of {item_id, pass, evidence, notes}), `backtrack_to` (string|null), `schema_version` (string). All evaluators append entries to a single `eval.json` array — no per-phase eval files.
+- `eval.schema.json`: `phase` (string, e.g. "01-requirements"), `timestamp` (ISO 8601 string), `attempt` (int, 1-based), `verdict` ("pass"|"fail"), `report` (string, max 500 chars — evaluator's summary of what was checked and why the verdict was reached), `items` (array of {item, pass, evidence, notes}), `backtrack_to` (string|null), `schema_version` (string). All evaluators append entries to a single `eval.json` array — no per-phase eval files.
 - `checklist.schema.json`: reference format `{id: string, criterion: string, required: boolean, evidence_hint: string}` — used to document checklist item structure, not as a generated artifact
 
 #### Scenario: Eval entry conforms to shared schema

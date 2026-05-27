@@ -58,7 +58,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 
 ```json
 [
-  {"item_id": "I1", "pass": true, "evidence": "src/auth.py:120 implements AuthService", "notes": "..."},
+  {"item": "design.md 中每个架构组件都有实现代码", "pass": true, "evidence": "src/auth.py:120 implements AuthService", "notes": "..."},
   ...
 ]
 ```

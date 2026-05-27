@@ -52,7 +52,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 
 ```json
 [
-  {"item_id": "T1", "pass": true, "evidence": "...", "notes": "..."},
+  {"item": "proposal.md 中每个验收标准都在 coverage map 中有映射", "pass": true, "evidence": "...", "notes": "..."},
   ...
 ]
 ```

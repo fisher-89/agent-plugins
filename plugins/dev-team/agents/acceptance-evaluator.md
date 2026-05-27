@@ -61,7 +61,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 
 ```json
 [
-  {"item_id": "A1", "pass": true, "evidence": "AC-1: src/auth.py:45-67 implements login flow", "notes": "..."},
+  {"item": "proposal.md 中每个验收标准都有实现证据", "pass": true, "evidence": "AC-1: src/auth.py:45-67 implements login flow", "notes": "..."},
   ...
 ]
 ```

@@ -36,7 +36,7 @@ describe("buildEntry", () => {
     phase: "06-unit-test",
     verdict: "pass",
     report: "All tests passed",
-    items: [{ item_id: "T1", pass: true, evidence: "ok", notes: "" }],
+    items: [{ item: "测试覆盖率达到80%", pass: true, evidence: "ok", notes: "" }],
     attempt: 1,
   };
 

@@ -65,7 +65,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 
 ```json
 [
-  {"item_id": "C1", "pass": true, "evidence": "...", "notes": "..."},
+  {"item": "变更代码中无安全漏洞", "pass": true, "evidence": "...", "notes": "..."},
   ...
 ]
 ```

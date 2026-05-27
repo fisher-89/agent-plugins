@@ -23,7 +23,7 @@ export function registerEvalLogCommand(cli: CAC): void {
     .option("--phase <phase>", "Phase identifier (e.g. 01-requirements)")
     .option("--verdict <verdict>", "Evaluation verdict: pass or fail")
     .option("--report <text>", "Evaluation report text (max 500 chars)")
-    .option("--items <json>", "Checklist items as JSON array string")
+    .option("--items <json>", "Checklist evaluation items as JSON array string. Each item: {\"item\":\"检查项\",\"pass\":true|false,\"evidence\":\"...\",\"notes\":\"...\"}")
     .option("--attempt <n>", "Attempt number (auto-calculated from existing entries if omitted)")
     .option("--backtrack-to <phase>", "Backtrack target phase identifier")
     .option("--skipped", "Mark entry as skipped (no-op phase, requires verdict pass)")

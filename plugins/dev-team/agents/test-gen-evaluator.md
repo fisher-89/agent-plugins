@@ -58,7 +58,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 
 ```json
 [
-  {"item_id": "G1", "pass": true, "evidence": "test_user_auth.py:45 covers AC-1", "notes": "..."},
+  {"item": "test-design.md 中每个 coverage map 条目在 tests/ 下都有对应的测试文件", "pass": true, "evidence": "test_user_auth.py:45 covers AC-1", "notes": "..."},
   ...
 ]
 ```

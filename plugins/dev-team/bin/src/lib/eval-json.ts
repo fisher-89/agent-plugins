@@ -5,7 +5,7 @@ const EVAL_JSON_FILE = "eval.json";
 const SCHEMA_VERSION = "1.0";
 
 export interface Item {
-  item_id: string;
+  item: string;
   pass: boolean;
   evidence: string;
   notes: string;
@@ -88,7 +88,7 @@ export function validateItemsJson(itemsStr: string): any[] {
     parsed = JSON.parse(itemsStr);
   } catch (e: any) {
     throw new Error(
-      `items 参数不是有效的 JSON 数组。请确保使用单引号包裹 JSON 字符串，例如: --items '[{"item_id":"R1","pass":true}]'。解析错误: ${e.message}`,
+      `items 参数不是有效的 JSON 数组。请确保使用单引号包裹 JSON 字符串，例如: --items '[{"item":"问题描述清晰，包含背景和动机","pass":true}]'。解析错误: ${e.message}`,
     );
   }
   if (!Array.isArray(parsed)) {

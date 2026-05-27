@@ -36,11 +36,11 @@
       "description": "Per-checklist-item evaluation results",
       "items": {
         "type": "object",
-        "required": ["item_id", "pass", "evidence", "notes"],
+        "required": ["item", "pass", "evidence", "notes"],
         "properties": {
-          "item_id": {
+          "item": {
             "type": "string",
-            "description": "Checklist item identifier"
+            "description": "Checklist item description (检查项)"
           },
           "pass": {
             "type": "boolean",

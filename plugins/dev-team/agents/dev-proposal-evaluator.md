@@ -55,7 +55,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 
 ```json
 [
-  {"item_id": "D1", "pass": true, "evidence": "...", "notes": "..."},
+  {"item": "架构组件已列出职责、依赖、技术栈和文件路径", "pass": true, "evidence": "...", "notes": "..."},
   ...
 ]
 ```
