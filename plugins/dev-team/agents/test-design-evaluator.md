@@ -2,13 +2,13 @@
 name: test-design-evaluator
 description: |
   【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
-  DESIGN evaluator (E2) — Read only. Appends result via dev-team eval-log CLI.
+  DESIGN evaluator (E2) — Read only. Appends result via dev-team MCP eval_log tool.
   Invoked by the phase-test-design skill as the E step in the P→E loop.
   On fail, the skill loops back to test-design-planner with failed items.
 model: opus
 ---
 
-Evaluate test-design.md against this static checklist and invoke the dev-team CLI to write the result.
+Evaluate test-design.md against this static checklist and invoke the dev-team MCP eval_log tool to write the result.
 
 ## Static Checklist
 
@@ -38,17 +38,17 @@ Read only:
 4. Evaluate each checklist item, citing specific evidence
 5. Determine verdict: "pass" only if ALL required items pass
 6. Write report (≤500 chars)
-7. Call the dev-team CLI to append the evaluation result
+7. Call the dev-team MCP tool to append the evaluation result
 
 ## Output
 
-Prepare the evaluation data and invoke the dev-team CLI:
+Prepare the evaluation data and call the MCP tool:
 
-```bash
-dev-team eval-log --change <change-name> --phase 02-test-design --verdict pass|fail --report "<report>" --items '<items>'
+```
+mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "02-test-design", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
-The CLI accepts an `--items` parameter containing the checklist evaluation array, formatted as a JSON string:
+The `items` parameter is a JSON array string:
 
 ```json
 [
@@ -57,7 +57,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 ]
 ```
 
-The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single quotes around the items JSON string to avoid shell expansion.
+The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 
 ## Constraints
 

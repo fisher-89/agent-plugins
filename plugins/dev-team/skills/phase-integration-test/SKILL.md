@@ -37,9 +37,9 @@ echo "Integration test files found: $total"
 ```
 
 If total is 0 (no integration test files found):
-- Skip the phase: append a skipped entry to eval.json
-  ```bash
-  dev-team eval-log --change "<name>" --phase "08-integration-test" --verdict "pass" --report "No integration tests found, phase skipped (no-op)" --items '[]' --backtrack-to "null" --skipped true --findings "未发现集成测试文件，阶段跳过"
+- Skip the phase: append a skipped entry to eval.json via MCP:
+  ```
+  mcp__plugin_dev-team_dev-team__eval_log({change: "<name>", phase: "08-integration-test", verdict: "pass", report: "No integration tests found, phase skipped (no-op)", items: '[]', backtrack_to: null, skipped: true, findings: "未发现集成测试文件，阶段跳过"})
   ```
 - Phase complete.
 

@@ -26,10 +26,7 @@ If a change name is provided, use it. Otherwise run `openspec list --json` and p
 
 ### 2. Gate check
 
-```bash
-dev-team eval-check --change "<name>" --phase 02-test-design
-```
-Stop if exit != 0.
+Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="02-test-design". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. P→E Loop
 

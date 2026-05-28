@@ -23,10 +23,8 @@ Implementation phase — Generator writes code, AUTO phases run, Evaluator inspe
 If a name is provided, use it. Otherwise run `openspec list --json` and prompt user to select.
 
 ### 2. Gate check
-```bash
-dev-team eval-check --change "<name>" --phase 05-implement
-```
-Stop if exit != 0.
+
+Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="05-implement". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. G→E Loop
 

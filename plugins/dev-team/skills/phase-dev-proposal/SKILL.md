@@ -24,10 +24,8 @@ Dev proposal phase — Planner writes design.md + tasks.md, Evaluator checks.
 If a name is provided, use it. Otherwise run `openspec list --json` and prompt user to select.
 
 ### 2. Gate check
-```bash
-dev-team eval-check --change "<name>" --phase 03-dev-proposal
-```
-Stop if exit != 0.
+
+Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="03-dev-proposal". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. Check backtrack
 Read eval.json for `backtrack_to` = "03-dev-proposal". If found, run Evaluator first.

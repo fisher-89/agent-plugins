@@ -111,14 +111,14 @@ ${failure_details_summary}
 
 ### Step 6: Append to eval.json
 
-Use the eval-log CLI to append the result:
-```bash
-dev-team eval-log --change "<name>" --phase "08-integration-test" --verdict "<pass|fail>" --report "<summary, max 500 chars>" --items '[...]' --backtrack-to "<target|null>" --findings "<structured findings>"
+Use the MCP eval_log tool to append the result:
+```
+mcp__plugin_dev-team_dev-team__eval_log({change: "<name>", phase: "08-integration-test", verdict: "<pass|fail>", report: "<summary, max 500 chars>", items: '[...]', backtrack_to: "<target|null>", findings: "<structured findings>"})
 ```
 
-If the phase was skipped (total=0), append with `--skipped true`:
-```bash
-dev-team eval-log --change "<name>" --phase "08-integration-test" --verdict "pass" --report "No integration tests found, phase skipped" --items '[]' --backtrack-to "null" --skipped true --findings "未发现集成测试文件，阶段跳过"
+If the phase was skipped (total=0), append with `skipped: true`:
+```
+mcp__plugin_dev-team_dev-team__eval_log({change: "<name>", phase: "08-integration-test", verdict: "pass", report: "No integration tests found, phase skipped", items: '[]', backtrack_to: null, skipped: true, findings: "未发现集成测试文件，阶段跳过"})
 ```
 
 ## Constraints

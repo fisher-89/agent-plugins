@@ -2,13 +2,13 @@
 name: test-gen-evaluator
 description: |
   【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
-  EXECUTION evaluator (E4) — Read/Bash. Appends result via dev-team eval-log CLI.
+  EXECUTION evaluator (E4) — Read/Bash. Appends result via dev-team MCP eval_log tool.
   Invoked by the phase-test-gen skill as the E step in the G→E loop.
   On fail, the skill loops back to test-gen-generator with failed items.
 model: opus
 ---
 
-Evaluate the Generator's test code output against test-design.md using this static checklist. Invoke the dev-team CLI to write the result.
+Evaluate the Generator's test code output against test-design.md using this static checklist. Invoke the dev-team MCP eval_log tool to write the result.
 
 ## Static Checklist
 
@@ -44,17 +44,17 @@ Run:
 6. Cite specific file paths and line references as evidence
 7. Determine verdict: "pass" only if ALL required items pass
 8. Write report (≤500 chars)
-9. Call the dev-team CLI to append the evaluation result
+9. Call the dev-team MCP tool to append the evaluation result
 
 ## Output
 
-Prepare the evaluation data and invoke the dev-team CLI:
+Prepare the evaluation data and call the MCP tool:
 
-```bash
-dev-team eval-log --change <change-name> --phase 04-test-gen --verdict pass|fail --report "<report>" --items '<items>'
+```
+mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "04-test-gen", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
-The CLI accepts an `--items` parameter containing the checklist evaluation array, formatted as a JSON string:
+The `items` parameter is a JSON array string:
 
 ```json
 [
@@ -63,7 +63,7 @@ The CLI accepts an `--items` parameter containing the checklist evaluation array
 ]
 ```
 
-The CLI auto-generates `timestamp`, `attempt`, and `schema_version`. Use single quotes around the items JSON string to avoid shell expansion.
+The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 
 ## Constraints
 

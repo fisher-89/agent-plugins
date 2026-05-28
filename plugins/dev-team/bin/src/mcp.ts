@@ -6,9 +6,9 @@ import { queryModel } from "./lib/archi-query";
 import { validateDsl } from "./lib/archi-validate";
 import { writeDsl } from "./lib/archi-write";
 import { runCrossRefCheck } from "./lib/c4-cross-ref";
+import pluginConfig from '../../.claude-plugin/plugin.json';
 
-const SERVER_NAME = "dev-team";
-const SERVER_VERSION = "2.4.6";
+const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
 
 interface ToolDefinition {
   name: string;

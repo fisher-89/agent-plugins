@@ -40,10 +40,7 @@ Source `plugins/dev-team/utils/openspec-cli.sh`.
 
 ### 2. Gate check
 
-```bash
-dev-team eval-check --change "<name>" --phase 01-requirements
-```
-Stop if exit != 0.
+Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="01-requirements". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. Write artifacts
 
