@@ -20,7 +20,7 @@ Use the Agent tool to spawn the architecture subagent:
 ```
 Agent({
   description: "...",
-  subagent_type: "architecture",
+  subagent_type: "dev-team:architecture",
   prompt: "Propose architecture changes: <user request>"
 })
 ```

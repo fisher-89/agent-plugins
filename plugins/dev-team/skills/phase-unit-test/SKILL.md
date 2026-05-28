@@ -52,7 +52,7 @@ If total > 0, proceed to the Executor->Evaluator loop.
 ```
 Agent({
   description: "Execute unit tests",
-  subagent_type: "unit-test-executor",
+  subagent_type: "dev-team:unit-test-executor",
   model: "sonnet",
   prompt: "Execute unit tests for change '<name>' and produce a structured JSON execution report at openspec/changes/<name>/reports/unit-test-execution.json. Read test-design.md for context then run the appropriate test commands."
 })
@@ -73,7 +73,7 @@ If Read violations are found:
 ```
 Agent({
   description: "Evaluate unit test results",
-  subagent_type: "unit-test-evaluator",
+  subagent_type: "dev-team:unit-test-evaluator",
   prompt: "Evaluate unit test results for change '<name>'. Read the execution report from openspec/changes/<name>/reports/unit-test-execution.json. Validate report completeness, apply diagnostic decision tree, and append result to eval.json."
 })
 ```

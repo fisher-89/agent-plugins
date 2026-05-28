@@ -51,7 +51,7 @@ If total > 0, proceed to the Executor->Evaluator loop.
 ```
 Agent({
   description: "Execute integration tests",
-  subagent_type: "integration-test-executor",
+  subagent_type: "dev-team:integration-test-executor",
   model: "sonnet",
   prompt: "Execute integration tests for change '<name>' and produce a structured JSON execution report at openspec/changes/<name>/reports/integration-test-execution.json. Read test-design.md for context then run the appropriate test commands."
 })
@@ -72,7 +72,7 @@ If Read violations are found:
 ```
 Agent({
   description: "Evaluate integration test results",
-  subagent_type: "integration-test-evaluator",
+  subagent_type: "dev-team:integration-test-evaluator",
   prompt: "Evaluate integration test results for change '<name>'. Read the execution report from openspec/changes/<name>/reports/integration-test-execution.json. Validate report completeness, apply diagnostic decision tree, and append result to eval.json."
 })
 ```

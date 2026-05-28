@@ -33,7 +33,7 @@ Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase=
 ```
 Agent({
   description: "Acceptance evaluation",
-  subagent_type: "acceptance-evaluator",
+  subagent_type: "dev-team:acceptance-evaluator",
   prompt: "Perform acceptance evaluation for change '<name>'. Append result to eval.json."
 })
 ```

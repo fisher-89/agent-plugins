@@ -34,7 +34,7 @@ Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase=
 ```
 Agent({
   description: "Write test-design.md",
-  subagent_type: "test-design-planner",
+  subagent_type: "dev-team:test-design-planner",
   prompt: "Write test-design.md for change '<name>'."
 })
 ```
@@ -43,7 +43,7 @@ Agent({
 ```
 Agent({
   description: "Evaluate test-design.md",
-  subagent_type: "test-design-evaluator",
+  subagent_type: "dev-team:test-design-evaluator",
   prompt: "Evaluate test-design.md for change '<name>' against proposal.md. Append result to eval.json."
 })
 ```

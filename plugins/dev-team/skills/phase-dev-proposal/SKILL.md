@@ -36,7 +36,7 @@ Read eval.json for `backtrack_to` = "03-dev-proposal". If found, run Evaluator f
 ```
 Agent({
   description: "Write design.md and tasks.md",
-  subagent_type: "dev-proposal-planner",
+  subagent_type: "dev-team:dev-proposal-planner",
   prompt: "Write design.md and tasks.md for change '<name>'."
 })
 ```
@@ -45,7 +45,7 @@ Agent({
 ```
 Agent({
   description: "Evaluate design.md",
-  subagent_type: "dev-proposal-evaluator",
+  subagent_type: "dev-team:dev-proposal-evaluator",
   prompt: "Evaluate design.md and tasks.md for change '<name>' against proposal.md. Append result to eval.json."
 })
 ```

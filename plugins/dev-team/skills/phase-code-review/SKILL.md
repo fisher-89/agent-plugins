@@ -33,7 +33,7 @@ Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase=
 ```
 Agent({
   description: "Code review evaluation",
-  subagent_type: "code-review-evaluator",
+  subagent_type: "dev-team:code-review-evaluator",
   prompt: "Review code changes for change '<name>'. Append result to eval.json."
 })
 ```

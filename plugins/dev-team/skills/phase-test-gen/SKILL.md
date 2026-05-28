@@ -34,7 +34,7 @@ Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase=
 ```
 Agent({
   description: "Generate test files",
-  subagent_type: "test-gen-generator",
+  subagent_type: "dev-team:test-gen-generator",
   prompt: "Generate test files for change '<name>'."
 })
 ```
@@ -43,7 +43,7 @@ Agent({
 ```
 Agent({
   description: "Evaluate generated tests",
-  subagent_type: "test-gen-evaluator",
+  subagent_type: "dev-team:test-gen-evaluator",
   prompt: "Evaluate generated test code for change '<name>' against test-design.md. Append result to eval.json."
 })
 ```

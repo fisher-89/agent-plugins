@@ -69,7 +69,7 @@ Include CLI instructions and explore context as reference (preface: 探索上下
 ```
 Agent({
   description: "Evaluate proposal.md",
-  subagent_type: "requirements-evaluator",
+  subagent_type: "dev-team:requirements-evaluator",
   prompt: "Evaluate proposal.md for change '<name>'. Use your static checklist and append result to eval.json."
 })
 ```

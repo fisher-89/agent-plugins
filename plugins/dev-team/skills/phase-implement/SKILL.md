@@ -32,7 +32,7 @@ Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase=
 ```
 Agent({
   description: "Implement pending tasks",
-  subagent_type: "implementation-generator",
+  subagent_type: "dev-team:implementation-generator",
   prompt: "Implement pending tasks for change '<name>'."
 })
 ```
@@ -46,7 +46,7 @@ python plugins/dev-team/utils/lint-runner.py --change "<name>" --project-root . 
 ```
 Agent({
   description: "Evaluate implementation",
-  subagent_type: "implementation-evaluator",
+  subagent_type: "dev-team:implementation-evaluator",
   prompt: "Evaluate implementation code for change '<name>' against design.md. Append result to eval.json."
 })
 ```
