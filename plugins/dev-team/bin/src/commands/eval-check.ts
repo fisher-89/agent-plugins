@@ -1,10 +1,14 @@
-import { CAC } from "cac";
 import * as fs from "fs";
 import { readEvalJson, checkGate, GateResult } from "../lib/eval-json";
 import { getPriorPhases, getPhaseIndex, PHASES } from "../lib/workflow";
 import { getChangeDir } from "../lib/change";
 
 export const SCHEMA_VERSION = "1.0";
+
+export interface EvalCheckOptions {
+  change: string;
+  phase: string;
+}
 
 export interface EvalCheckResult {
   passed: boolean;
@@ -226,108 +230,49 @@ export function checkSchemaVersion(
 }
 
 /**
- * Register the eval-check subcommand on the given cac CLI instance.
- * Defines --change (required), --phase (required), and --json (optional) options.
- *
- * Action handler:
- * 1. Validates arguments
- * 2. Validates phase name against known phases
- * 3. Verifies change phases directory exists
- * 4. Reads eval entries
- * 5. Checks schema_version consistency (warning only)
- * 6. Runs all checks (gate, timestamp order, backtrack, phase state)
- * 7. Outputs result (JSON or human-readable)
- * 8. Exits with appropriate code (0 = pass, 1 = block)
+ * Core logic for eval-check: validate args, read eval.json, run all checks,
+ * and return a structured result. Extracted so both CLI and MCP server can call it.
  */
-export function registerEvalCheckCommand(cli: CAC): void {
-  cli
-    .command("eval-check", "Check if all prior phases have passed evaluation for a given phase")
-    .option("--change <name>", "Change name (corresponds to openspec/changes/<name>)")
-    .option("--phase <phase>", "Phase identifier (e.g. 03-dev-proposal)")
-    .option("--json", "Output structured JSON result instead of human-readable text")
-    .action((options: Record<string, any>) => {
-      // 1) Validate required arguments
-      if (!options.change || options.change === "") {
-        console.error("错误: 缺少必填参数 --change");
-        process.exit(1);
-      }
-      if (!options.phase || options.phase === "") {
-        console.error("错误: 缺少必填参数 --phase");
-        process.exit(1);
-      }
+export function runEvalCheck(options: EvalCheckOptions): EvalCheckResult {
+  if (!options.change || options.change === "") {
+    throw new Error("缺少必填参数 --change");
+  }
+  if (!options.phase || options.phase === "") {
+    throw new Error("缺少必填参数 --phase");
+  }
 
-      // 2) Validate phase is a known workflow phase
-      const phaseIndex = getPhaseIndex(options.phase);
-      if (phaseIndex === -1) {
-        console.error(`错误: 无效的阶段标识符 "${options.phase}"。合法阶段: ${PHASES.join(", ")}`);
-        process.exit(1);
-      }
+  const phaseIndex = getPhaseIndex(options.phase);
+  if (phaseIndex === -1) {
+    throw new Error(
+      `无效的阶段标识符 "${options.phase}"。合法阶段: ${PHASES.join(", ")}`,
+    );
+  }
 
-      // 3) Resolve change directory and verify it exists
-      const changeDir = getChangeDir(options.change);
-      if (!fs.existsSync(changeDir)) {
-        console.error(`错误: 变更 "${options.change}" 的目录不存在: ${changeDir}`);
-        process.exit(1);
-      }
+  const changeDir = getChangeDir(options.change);
+  if (!fs.existsSync(changeDir)) {
+    throw new Error(`变更 "${options.change}" 的目录不存在: ${changeDir}`);
+  }
 
-      // 4) Read eval entries
-      let entries: any[];
-      try {
-        entries = readEvalJson(changeDir);
-      } catch (e: any) {
-        console.error(`错误: 读取 eval.json 失败: ${e.message}`);
-        process.exit(1);
-      }
+  let entries: any[];
+  try {
+    entries = readEvalJson(changeDir);
+  } catch (e: any) {
+    throw new Error(`读取 eval.json 失败: ${e.message}`);
+  }
 
-      // 5) Schema version warning (non-blocking)
-      const schemaWarnings = checkSchemaVersion(entries);
-      for (const warn of schemaWarnings) {
-        console.error(warn);
-      }
+  const priorPhases = getPriorPhases(options.phase);
 
-      // 6) Identify prior phases
-      const priorPhases = getPriorPhases(options.phase);
+  const gateResult = checkPriorPhases(entries, priorPhases);
+  const timestampResult = checkTimestampOrder(entries, priorPhases);
+  const backtrackResult = checkBacktrack(entries, priorPhases);
+  const phaseState = determinePhaseState(entries, options.phase);
 
-      // 7) Run all checks
-      const gateResult = checkPriorPhases(entries, priorPhases);
-      const timestampResult = checkTimestampOrder(entries, priorPhases);
-      const backtrackResult = checkBacktrack(entries, priorPhases);
-      const phaseState = determinePhaseState(entries, options.phase);
-
-      // 8) Build result
-      const result = buildEvalCheckResult({
-        phase: options.phase,
-        priorPhases,
-        gateResult,
-        timestampResult,
-        backtrackResult,
-        phaseState,
-      });
-
-      // 9) Output
-      if (options.json) {
-        console.log(JSON.stringify(result));
-      } else {
-        if (result.passed) {
-          const priorDesc =
-            priorPhases.length > 0
-              ? `所有前置阶段 (${priorPhases.join(", ")}) 已通过评估`
-              : "无前置阶段需要检查";
-          console.log(`检查通过: ${priorDesc}`);
-          const phaseStateMsg =
-            result.phase_state === "passed" ? isPhaseSkipped(entries, options.phase) : "";
-          console.log(`当前阶段状态: ${result.phase_state}${phaseStateMsg}`);
-        } else {
-          console.error("检查阻断: 存在以下问题:");
-          for (const reason of result.block_reasons) {
-            console.error(`  - ${reason}`);
-          }
-        }
-      }
-
-      // 10) Exit with appropriate code
-      if (!result.passed) {
-        process.exit(1);
-      }
-    });
+  return buildEvalCheckResult({
+    phase: options.phase,
+    priorPhases,
+    gateResult,
+    timestampResult,
+    backtrackResult,
+    phaseState,
+  });
 }

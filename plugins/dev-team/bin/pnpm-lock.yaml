@@ -11,9 +11,6 @@ importers:
       '@likec4/language-services':
         specifier: ^1.57.0
         version: 1.57.0(bundle-require@5.1.0(esbuild@0.27.4))(esbuild@0.27.4)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      cac:
-        specifier: ^6.7.14
-        version: 6.7.14
     devDependencies:
       bundle-require:
         specifier: ^5.1.0
@@ -1024,10 +1021,6 @@ packages:
     engines: {node: ^12.20.0 || ^14.13.1 || >=16.0.0}
     peerDependencies:
       esbuild: '>=0.18'
-
-  cac@6.7.14:
-    resolution: {integrity: sha512-b6Ilus+c3RrdDk+JhLKUAQfzzgLEPy6wcXqS7f/xe1EETvsDP6GORG7SFuOs6cID5YkqchW/LXZbX5bc8j7ZcQ==}
-    engines: {node: '>=8'}
 
   chevrotain-allstar@0.3.1:
     resolution: {integrity: sha512-b7g+y9A0v4mxCW1qUhf3BSVPg+/NvGErk/dOkrDaHA0nQIQGAtrOjlX//9OQtRlSCy+x9rfB5N8yC71lH1nvMw==}
@@ -2272,8 +2265,6 @@ snapshots:
     dependencies:
       esbuild: 0.27.4
       load-tsconfig: 0.2.5
-
-  cac@6.7.14: {}
 
   chevrotain-allstar@0.3.1(chevrotain@11.0.3):
     dependencies:

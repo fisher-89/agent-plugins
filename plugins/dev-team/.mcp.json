@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dev-team": {
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs"]
+    }
+  }
+}

@@ -6,13 +6,12 @@
   "type": "module",
   "scripts": {
     "build": "vp pack",
-    "start": "node dev-team-bundle.cjs",
+    "start": "node dev-team-mcp.cjs",
     "test": "vp test",
     "check": "vp check --fix"
   },
   "dependencies": {
-    "@likec4/language-services": "^1.57.0",
-    "cac": "^6.7.14"
+    "@likec4/language-services": "^1.57.0"
   },
   "devDependencies": {
     "bundle-require": "^5.1.0",

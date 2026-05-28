@@ -1,15 +1,16 @@
-import { defineConfig } from "vite-plus";
+import { defineConfig } from 'vite-plus';
 
 export default defineConfig({
   resolve: {},
   lint: {
-    ignorePatterns: ["dev-team-bundle.cjs", "openspec-bundled.js"],
+    ignorePatterns: ['dev-team-mcp.cjs', 'openspec-bundled.js'],
   },
   pack: {
-    entry: ["src/index.ts"],
-    format: "cjs",
+    entry: ['src/mcp.ts'],
+    platform: 'node',
+    format: 'cjs',
     outputOptions: {
-      file: "dev-team-bundle.cjs",
+      file: 'dev-team-mcp.cjs',
     },
     deps: {
       alwaysBundle: [/.*/],
