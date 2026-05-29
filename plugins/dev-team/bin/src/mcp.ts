@@ -22,7 +22,7 @@ interface ToolDefinition {
 
 const TOOLS: ToolDefinition[] = [
   {
-    name: "eval_log",
+    name: "eval/log",
     description:
       "Append an evaluation result entry to eval.json for a given workflow phase. " +
       "Records the verdict (pass/fail), checklist items, and optional backtrack/findings for a change.",
@@ -46,7 +46,7 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "eval_check",
+    name: "eval/check",
     description:
       "Check if all prior workflow phases have passed evaluation for a given phase. " +
       "Runs gate check, timestamp order check, and backtrack check. Returns structured result.",
@@ -60,7 +60,7 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "archi_query",
+    name: "archi/query",
     description:
       "Query C4 architecture model elements and relationships. Optionally filter by element fully-qualified name.",
     inputSchema: {
@@ -72,7 +72,7 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "archi_validate",
+    name: "archi/validate",
     description:
       "Validate C4 architecture DSL syntax. Validates the current model or a provided DSL text string.",
     inputSchema: {
@@ -84,7 +84,7 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "archi_write",
+    name: "archi/write",
     description:
       "Validate and write a C4 architecture model file to the models/ directory. Validates DSL before writing.",
     inputSchema: {
@@ -98,7 +98,7 @@ const TOOLS: ToolDefinition[] = [
     },
   },
   {
-    name: "archi_check",
+    name: "archi/check",
     description:
       "Cross-reference validation: check code imports against the C4 architecture model. " +
       "Detects unmodeled dependencies and unused relationships in changed files.",
@@ -119,7 +119,7 @@ function resolveProjectRoot(cwd?: string): string {
 
 async function handleToolCall(name: string, args: Record<string, unknown>): Promise<string> {
   switch (name) {
-    case "eval_log": {
+    case "eval/log": {
       const result = runEvalLog({
         change: args.change as string,
         phase: args.phase as string,
@@ -134,7 +134,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
       return JSON.stringify(result);
     }
 
-    case "eval_check": {
+    case "eval/check": {
       const result = runEvalCheck({
         change: args.change as string,
         phase: args.phase as string,
@@ -142,19 +142,19 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
       return JSON.stringify(result);
     }
 
-    case "archi_query": {
+    case "archi/query": {
       const projectRoot = resolveProjectRoot(args.project_root as string | undefined);
       const result = await queryModel(projectRoot, args.element as string | undefined);
       return JSON.stringify(result, null, 2);
     }
 
-    case "archi_validate": {
+    case "archi/validate": {
       const projectRoot = resolveProjectRoot(args.project_root as string | undefined);
       const result = await validateDsl(projectRoot, args.source as string | undefined);
       return JSON.stringify(result, null, 2);
     }
 
-    case "archi_write": {
+    case "archi/write": {
       const projectRoot = resolveProjectRoot(args.project_root as string | undefined);
       const result = await writeDsl(
         projectRoot,
@@ -164,7 +164,7 @@ async function handleToolCall(name: string, args: Record<string, unknown>): Prom
       return JSON.stringify(result, null, 2);
     }
 
-    case "archi_check": {
+    case "archi/check": {
       const projectRoot = resolveProjectRoot(args.project_root as string | undefined);
       const files = args.files
         ? (args.files as string).split(",").map((f: string) => f.trim()).filter(Boolean)

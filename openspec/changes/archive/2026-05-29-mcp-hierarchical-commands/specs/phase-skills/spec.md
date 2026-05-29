@@ -31,42 +31,7 @@ The skills SHALL call MCP tools using the hierarchical `xx/yy` format:
 - **AND** 如果 verdict 为 "fail"，重新执行业务逻辑（主 agent 或 subagent，最多 5 次尝试）
 - **AND** 如果 verdict 为 "pass" 或 达到最大尝试次数，技能输出结果报告
 
-## REMOVED Requirements
-
-### Requirement: phase-dev-proposal skill
-**Reason**: 重命名为 phase-dev-design，职责不变（产出 design.md + tasks.md）。
-**Migration**: 用户改用 `/dev-team:phase-dev-design` 替代 `/dev-team:phase-dev-proposal`。目录 `skills/phase-dev-proposal/` 重命名为 `skills/phase-dev-design/`。
-
 ## ADDED Requirements
-
-### Requirement: phase-dev-design skill
-The system SHALL provide `dev-team:phase-dev-design` skill at `skills/phase-dev-design/SKILL.md` with name `phase-dev-design` and gate check phase `02-dev-design`.
-
-The skill SHALL invoke dev-design-planner (writes design.md + tasks.md) and dev-design-evaluator (evaluates against proposal.md) in a P→E loop.
-
-Gate check: `dev-team eval-check --change "<name>" --phase 02-dev-design`
-
-#### Scenario: phase-dev-design gate check
-- **WHEN** user invokes `/dev-team:phase-dev-design <name>`
-- **THEN** the skill runs `dev-team eval-check --change "<name>" --phase 02-dev-design`
-- **AND** requires prior phase [01-requirements] to have pass record
-
-### Requirement: phase-test-design uses updated phase code
-The system SHALL use `03-test-design` (formerly `02-test-design`) as the phase identifier for the test-design phase.
-
-Gate check: `dev-team eval-check --change "<name>" --phase 03-test-design`
-
-The test-design-planner SHALL read `design.md` (produced by 02-dev-design) in addition to `proposal.md` as input for determining test scope and strategy.
-
-#### Scenario: phase-test-design gate check
-- **WHEN** user invokes `/dev-team:phase-test-design <name>`
-- **THEN** the skill runs `dev-team eval-check --change "<name>" --phase 03-test-design`
-- **AND** requires prior phases [01-requirements, 02-dev-design] to have pass records
-
-#### Scenario: test-design-planner reads design.md
-- **WHEN** test-design-planner is invoked
-- **THEN** it reads `openspec/changes/<name>/design.md` as input for architecture context
-- **AND** generates test scope and strategy informed by the design's architecture, data flow, and route design
 
 ### Requirement: phase skills use hierarchical MCP tool names
 All phase skill SKILL.md files SHALL reference MCP tools using the hierarchical `xx/yy` format. No skill file SHALL contain references to the deprecated flat-format names (`eval_check`, `eval_log`).

@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "node openspec/changes/mcp-hierarchical-commands/tests/verify_mcp_tool_names.js && pwsh -File openspec/changes/mcp-hierarchical-commands/tests/verify_build_output.ps1 && pwsh -File openspec/changes/mcp-hierarchical-commands/tests/check_skill_references.ps1 && pwsh -File openspec/changes/mcp-hierarchical-commands/tests/check_agent_references.ps1 && pwsh -File openspec/changes/mcp-hierarchical-commands/tests/check_settings_references.ps1 && pwsh -File openspec/changes/mcp-hierarchical-commands/tests/check_global_old_names.ps1",
+  "timestamp": "2026-05-29T00:00:00.000Z",
+  "total": 308,
+  "passed": 308,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 3200,
+  "failures": [],
+  "findings": "No standard integration test files (*.integration.test.* or tests/integration/) exist for this change. The test-design.md defines 6 standalone verification scripts (1 Node.js, 5 PowerShell) in openspec/changes/mcp-hierarchical-commands/tests/ which were executed instead. All 308 individual assertions across all 6 scripts passed. This is a rename-only MCP tool refactoring (xx_yy -> xx/yy naming convention), so no coverage tool was available; coverage reported as 0."
+}

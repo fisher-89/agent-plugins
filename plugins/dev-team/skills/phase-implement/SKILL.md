@@ -24,7 +24,7 @@ If a name is provided, use it. Otherwise run `openspec list --json` and prompt u
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="05-implement". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__eval/check` with change="<name>" and phase="05-implement". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. G→E Loop
 

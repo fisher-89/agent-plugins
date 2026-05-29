@@ -2,13 +2,13 @@
 name: test-gen-evaluator
 description: |
   【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
-  EXECUTION evaluator (E4) — Read/Bash. Appends result via dev-team MCP eval_log tool.
+  EXECUTION evaluator (E4) — Read/Bash. Appends result via dev-team MCP eval/log tool.
   Invoked by the phase-test-gen skill as the E step in the G→E loop.
   On fail, the skill loops back to test-gen-generator with failed items.
 model: opus
 ---
 
-Evaluate the Generator's test code output against test-design.md using this static checklist. Invoke the dev-team MCP eval_log tool to write the result.
+Evaluate the Generator's test code output against test-design.md using this static checklist. Invoke the dev-team MCP eval/log tool to write the result.
 
 ## Static Checklist
 
@@ -51,7 +51,7 @@ Run:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "04-test-gen", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__eval/log({change: "<change-name>", phase: "04-test-gen", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array string:

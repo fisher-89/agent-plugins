@@ -3,6 +3,14 @@
 ### Requirement: Subagent agent.md 承载领域知识
 每个被精简技能调用的 subagent，其 agent.md SHALL 已承载原技能中硬编码的领域知识——包括模板路径、输入输出路径、完整 Process 描述。技能层不再传递这些细节，agent 从自己的 agent.md 获取。
 
+Agent.md 中的 MCP tool 调用 SHALL 使用层级命名格式：
+- `mcp__plugin_dev-team_dev-team__eval/log`（formerly `eval_log`）
+- `mcp__plugin_dev-team_dev-team__eval/check`（formerly `eval_check`）
+- `mcp__plugin_dev-team_dev-team__archi/query`（formerly `archi_query`）
+- `mcp__plugin_dev-team_dev-team__archi/validate`（formerly `archi_validate`）
+- `mcp__plugin_dev-team_dev-team__archi/write`（formerly `archi_write`）
+- `mcp__plugin_dev-team_dev-team__archi/check`（formerly `archi_check`）
+
 **作为 subagent 启动的 agent**:
 
 | Agent | 角色 | MCP Tool 更新 |
@@ -18,10 +26,6 @@
 | integration-test-evaluator | Evaluator subagent | eval/log |
 | acceptance-evaluator | Evaluator subagent | eval/log |
 
-The agents `dev-proposal-planner` and `dev-proposal-evaluator` are RENAMED to `dev-design-planner` and `dev-design-evaluator` respectively. Their agent.md files SHALL be renamed accordingly:
-- `agents/dev-proposal-planner.md` → `agents/dev-design-planner.md`
-- `agents/dev-proposal-evaluator.md` → `agents/dev-design-evaluator.md`
-
 #### Scenario: 每个 agent.md 使用层级 MCP tool 名称
 - **WHEN** 检查以上 subagent 的 agent.md 文件
 - **THEN** 所有 MCP tool 引用使用 `xx/yy` 层级格式（如 `mcp__plugin_dev-team_dev-team__eval/log`）
@@ -32,65 +36,7 @@ The agents `dev-proposal-planner` and `dev-proposal-evaluator` are RENAMED to `d
 - **THEN** prompt 不直接包含 MCP tool 名称——tool 名称由 agent 的 agent.md 承载
 - **AND** agent 从自己的 agent.md 获取正确的层级 MCP tool 名称
 
-## RENAMED Requirements
-
-### RENAMED: dev-proposal-planner → dev-design-planner
-- **FROM**: `dev-proposal-planner` — Reads proposal.md and test-design.md, writes design.md and tasks.md
-- **TO**: `dev-design-planner` — Reads proposal.md and codebase (NOT test-design.md since it hasn't been generated yet), writes design.md and tasks.md
-
-### RENAMED: dev-proposal-evaluator → dev-design-evaluator
-- **FROM**: `dev-proposal-evaluator` — Evaluates design.md against checklist, appends to eval.json with phase "03-dev-proposal"
-- **TO**: `dev-design-evaluator` — Evaluates design.md against checklist, appends to eval.json with phase "02-dev-design"
-
 ## ADDED Requirements
-
-### Requirement: dev-design-planner 输入不依赖 test-design
-The `dev-design-planner` agent SHALL read `proposal.md` and the project codebase (CLAUDE.md, existing code patterns) as input. It SHALL NOT read `test-design.md` because the dev-design phase (02) runs before the test-design phase (03).
-
-#### Scenario: dev-design-planner does not reference test-design.md
-- **WHEN** reading `agents/dev-design-planner.md`
-- **THEN** the `## Input` section does NOT list `test-design.md`
-- **AND** the input section lists `proposal.md` and codebase context
-
-### Requirement: test-design-planner 输入包含 design.md
-The `test-design-planner` agent SHALL read `proposal.md` AND `design.md` as input. The `design.md` (produced by 02-dev-design) provides architecture context — components, data flow, route design — that informs test scope, coverage mapping, and boundary case identification.
-
-#### Scenario: test-design-planner reads design.md
-- **WHEN** reading `agents/test-design-planner.md`
-- **THEN** the `## Input` section lists both `proposal.md` and `design.md`
-
-### Requirement: Phase identifier updates in evaluator agents
-All evaluator agents that reference phase identifiers in eval-log commands SHALL use the updated identifiers:
-
-| Agent | Old Phase | New Phase |
-|-------|-----------|-----------|
-| dev-design-evaluator | 03-dev-proposal | 02-dev-design |
-| test-design-evaluator | 02-test-design | 03-test-design |
-
-Other evaluator agents (requirements-evaluator, implementation-evaluator, test-gen-evaluator, code-review-evaluator, acceptance-evaluator, unit-test-evaluator, integration-test-evaluator) SHALL keep their existing phase identifiers (01, 04, 05, 06, 07, 08, 09 unchanged).
-
-#### Scenario: dev-design-evaluator uses 02-dev-design
-- **WHEN** reading `agents/dev-design-evaluator.md`
-- **THEN** eval-log examples use `--phase 02-dev-design`
-
-#### Scenario: test-design-evaluator uses 03-test-design
-- **WHEN** reading `agents/test-design-evaluator.md`
-- **THEN** eval-log examples use `--phase 03-test-design`
-
-### Requirement: Agent prompt table updated for renamed agents
-The one-line prompt templates in phase skills SHALL reference the renamed agents:
-
-| 技能 | Agent | Prompt |
-|------|-------|--------|
-| phase-dev-design | dev-design-planner | `"Write design.md and tasks.md for change '<name>'."` |
-| phase-dev-design | dev-design-evaluator | `"Evaluate design.md and tasks.md for change '<name>'."` |
-
-The `phase-test-design` skill SHALL continue to use `test-design-planner` and `test-design-evaluator` (unchanged agent names).
-
-#### Scenario: phase-dev-design uses renamed agents
-- **WHEN** reading `skills/phase-dev-design/SKILL.md`
-- **THEN** Planner agent reference is `dev-design-planner` (not `dev-proposal-planner`)
-- **AND** Evaluator agent reference is `dev-design-evaluator` (not `dev-proposal-evaluator`)
 
 ### Requirement: Agent files reference hierarchical MCP tool names
 All agent agent.md files SHALL reference MCP tools using the hierarchical `xx/yy` format. No agent.md file SHALL contain references to deprecated flat-format names.

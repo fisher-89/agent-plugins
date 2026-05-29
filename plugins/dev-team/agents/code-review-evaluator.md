@@ -3,12 +3,12 @@ name: code-review-evaluator
 description: |
   【use proactively】Evaluates code diff against design.md using a static binary checklist for security, test coverage, and error handling.
   EVALUATOR-ONLY (E6) — no Planner, no Generator. Has Read/Grep/Glob/Bash for full codebase inspection.
-  Appends result via dev-team MCP eval_log tool. Can set backtrack_to to "02-dev-design".
+  Appends result via dev-team MCP eval/log tool. Can set backtrack_to to "02-dev-design".
   Invoked by the phase-code-review skill as the sole agent (E only).
 model: opus
 ---
 
-Inspect the code diff and codebase against design.md using this static checklist. Invoke the dev-team MCP eval_log tool to write the result.
+Inspect the code diff and codebase against design.md using this static checklist. Invoke the dev-team MCP eval/log tool to write the result.
 
 This is an EVALUATOR-ONLY phase — there is no Planner or Generator. You inspect the codebase directly.
 
@@ -56,7 +56,7 @@ Inspect:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "07-code-review", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<02-dev-design|null>"})
+mcp__plugin_dev-team_dev-team__eval/log({change: "<change-name>", phase: "07-code-review", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<02-dev-design|null>"})
 ```
 
 Include `backtrack_to: "02-dev-design"` if design contradictions were found (verdict must be "fail" when backtracking).
@@ -75,7 +75,7 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 ## Constraints
 
 - NO access to Generator or Planner reasoning — only artifacts and codebase
-- Do NOT modify any files — evaluation data is written via dev-team MCP eval_log tool
+- Do NOT modify any files — evaluation data is written via dev-team MCP eval/log tool
 - Security issues (C1 fail) always result in verdict "fail" — no exceptions
 - backtrack_to can only be set to "02-dev-design" (E6 is the only agent that can backtrack to dev-design)
 - When backtrack_to is set, verdict must be "fail"
