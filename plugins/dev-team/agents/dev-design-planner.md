@@ -1,26 +1,25 @@
 ---
-name: dev-proposal-planner
+name: dev-design-planner
 description: |
-  【use proactively】Reads proposal.md and test-design.md, writes design.md and tasks.md.
+  【use proactively】Reads proposal.md and writes design.md and tasks.md.
   Produces two .md artifacts: design (Architecture, Data Flow, Route Design, Decisions) and tasks (implementation steps).
-  Invoked by the phase-dev-proposal skill as the P step in the P→E loop.
+  Invoked by the phase-dev-design skill as the P step in the P→E loop.
 model: opus
 ---
 
-Write a comprehensive design.md and tasks.md based on the proposal and test design.
+Write a comprehensive design.md and tasks.md based on the proposal.
 
 ## Input
 
 Read:
 - `openspec/changes/<change-name>/proposal.md` — requirements and acceptance criteria
-- `openspec/changes/<change-name>/test-design.md` — test strategy and coverage map
 - `plugins/dev-team/templates/artifacts/design.md.template` — suggested structure
 - The project's CLAUDE.md and existing codebase for context
 
 ## Process
 
 1. Determine the active change name
-2. Read proposal.md and test-design.md for full context
+2. Read proposal.md for full context
 3. Read the design template for structure
 4. Write `openspec/changes/<change-name>/design.md` covering:
    - **Architecture Components**: Each component with responsibility, dependencies, technology

@@ -47,8 +47,8 @@ Evaluator SHALL 检查报告文件是否存在及是否包含所有必需字段�
 1. 语法/import/类型错误：检查 `failures` 中每个失败的错误信息是否包含语法错误、模块导入失败、类型不匹配。如果错误行指向测试文件 -> 回溯 test-gen 阶段
 2. 逻辑错误/返回值不符：检查失败信息中是否有 assertion error、expected vs actual 不匹配。如果错误行指向实现文件 -> 回溯 implement 阶段
 3. 测试期望与 test-design.md 冲突：检查失败中的期望值是否与 test-design.md 中描述的预期行为冲突 -> 回溯 test-design 阶段
-4. 接口签名不匹配：检查错误是否涉及函数调用参数不匹配，且测试和实现各自引用的模块边界契约不一致 -> 回溯 dev-proposal 阶段
-5. 无法判断：如果上述规则均无法匹配 -> 调用 AskUserQuestion 工具向用户询问回溯目标。提问内容包含诊断摘要、已排除项列表和可选回溯目标（test-design/dev-proposal/test-gen/implement/unit-test/code-review/其他）。
+4. 接口签名不匹配：检查错误是否涉及函数调用参数不匹配，且测试和实现各自引用的模块边界契约不一致 -> 回溯 dev-design 阶段
+5. 无法判断：如果上述规则均无法匹配 -> 调用 AskUserQuestion 工具向用户询问回溯目标。提问内容包含诊断摘要、已排除项列表和可选回溯目标（test-design/dev-design/test-gen/implement/unit-test/code-review/其他）。
 Evaluator SHALL 在 eval.json 条目的 `findings` 字段中包含诊断推理过程。
 
 #### Scenario: 语法错误判定为 test-gen 问题
@@ -63,12 +63,12 @@ Evaluator SHALL 在 eval.json 条目的 `findings` 字段中包含诊断推理�
 
 #### Scenario: 测试期望与 test-design 冲突
 - **WHEN** 报告中的预期值与 test-design.md 中明确描述的预期行为矛盾（Evaluator 通过读取 test-design.md 确认）
-- **THEN** Evaluator 设置 `backtrack_to` 为 "02-test-design"
+- **THEN** Evaluator 设置 `backtrack_to` 为 "03-test-design"
 - **AND** 输出 "[test-design.md] 描述: X, 测试期望: Y, 冲突"
 
 #### Scenario: 接口签名不匹配
 - **WHEN** 报告中的失败涉及函数调用参数数量或类型不匹配，且测试代码引用的模块边界契约版本与实现代码引用的版本不同
-- **THEN** Evaluator 设置 `backtrack_to` 为 "03-dev-proposal"
+- **THEN** Evaluator 设置 `backtrack_to` 为 "02-dev-design"
 - **AND** 在 `findings` 中记录接口名称和两个版本的不一致详情
 
 #### Scenario: 报告不完整导致 Evaluator 拒绝
@@ -79,7 +79,7 @@ Evaluator SHALL 在 eval.json 条目的 `findings` 字段中包含诊断推理�
 #### Scenario: 无法判断失败根因调用 AskUserQuestion
 - **WHEN** Evaluator 无法将失败归类到上述任一场景
 - **THEN** Evaluator 调用 AskUserQuestion 工具
-- **AND** 提问内容包含：失败的测试阶段（unit-test / integration-test）和测试名称、诊断摘要（已排除原因及排除依据）、可选回溯目标列表（test-design / dev-proposal / test-gen / implement / unit-test / code-review / 其他）
+- **AND** 提问内容包含：失败的测试阶段（unit-test / integration-test）和测试名称、诊断摘要（已排除原因及排除依据）、可选回溯目标列表（test-design / dev-design / test-gen / implement / unit-test / code-review / 其他）
 - **AND** Evaluator 等待用户响应
 
 ### Requirement: 测试执行覆盖率检查

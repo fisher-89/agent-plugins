@@ -2,7 +2,7 @@
 name: phase-code-review
 description: |
   EVALUATOR-ONLY phase (E only): code-review-evaluator inspects code diff against design.md.
-  No Planner, no Generator. Runs once. Can set backtrack_to to "03-dev-proposal".
+  No Planner, no Generator. Runs once. Can set backtrack_to to "02-dev-design".
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -40,7 +40,7 @@ Agent({
 
 ### 4. Check backtrack
 
-Read latest phase "07-code-review" entry from eval.json. If `backtrack_to` is "03-dev-proposal", inform user: "Code review found design deviations. Run `/dev-team:phase-dev-proposal` to re-evaluate."
+Read latest phase "07-code-review" entry from eval.json. If `backtrack_to` is "02-dev-design", inform user: "Code review found design deviations. Run `/dev-team:phase-dev-design` to re-evaluate."
 
 ### 5. Report
 

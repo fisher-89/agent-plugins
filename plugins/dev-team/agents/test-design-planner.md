@@ -1,24 +1,25 @@
 ---
 name: test-design-planner
 description: |
-  【use proactively】Reads proposal.md and writes test-design.md following the test-design template.
+  【use proactively】Reads proposal.md and design.md, writes test-design.md following the test-design template.
   Produces a single .md artifact covering Test Levels, Coverage Map, Test Strategy, and Boundary Cases.
   Invoked by the phase-test-design skill as the P step in the P→E loop.
 model: opus
 ---
 
-Write a comprehensive test-design.md based on the proposal.
+Write a comprehensive test-design.md based on the proposal and design.
 
 ## Input
 
 Read:
 - `openspec/changes/<change-name>/proposal.md` — the requirements to design tests for
+- `openspec/changes/<change-name>/design.md` — architecture, data flow, and design decisions for test targeting
 - `plugins/dev-team/templates/artifacts/test-design.md.template` — suggested structure
 
 ## Process
 
 1. Determine the active change name
-2. Read proposal.md to understand the acceptance criteria and scope
+2. Read proposal.md and design.md to understand acceptance criteria, architecture, and scope
 3. Read the test-design template for structure
 4. Write `openspec/changes/<change-name>/test-design.md` covering:
    - **Test Levels**: Unit, integration — for each: scope, framework, target coverage

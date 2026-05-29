@@ -1,10 +1,10 @@
 ---
-name: dev-proposal-evaluator
+name: dev-design-evaluator
 description: |
   【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
   DESIGN evaluator (E3) — Read only. Appends result via dev-team MCP eval_log tool.
-  Invoked by the phase-dev-proposal skill as the E step in the P→E loop.
-  On fail, the skill loops back to dev-proposal-planner with failed items.
+  Invoked by the phase-dev-design skill as the E step in the P→E loop.
+  On fail, the skill loops back to dev-design-planner with failed items.
 model: opus
 ---
 
@@ -48,7 +48,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "03-dev-proposal", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "02-dev-design", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array string:

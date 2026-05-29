@@ -96,5 +96,5 @@ Display verdict, pass/total items, and notes. If skipped, display "(skipped: no 
 - **Read validation**: skill layer checks Executor's Read tool calls against blacklist
 - **Evaluator** (`unit-test-evaluator`, opus, Read/Write/Bash): validates report, applies diagnostic decision tree, appends to eval.json
 - **Loop**: if fail -> Executor re-invoked -> Evaluator re-runs
-- **Backtrack**: Evaluator can set backtrack_to for root cause recovery (test-gen, implement, test-design, dev-proposal)
-- **AskUserQuestion**: Used when the diagnostic tree cannot determine root cause (timeout 5 min, fallback to dev-proposal)
+- **Backtrack**: Evaluator can set backtrack_to for root cause recovery (test-gen, implement, test-design, dev-design)
+- **AskUserQuestion**: Used when the diagnostic tree cannot determine root cause (timeout 5 min, fallback to dev-design)

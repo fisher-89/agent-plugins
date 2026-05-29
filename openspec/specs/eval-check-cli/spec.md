@@ -5,7 +5,7 @@ The system SHALL provide an `eval-check` subcommand that validates all prior pha
 If any prior phase lacks both a pass record and a skipped record, the system SHALL exit with code 1 and list the missing phases.
 If all prior phases have pass or skipped records, the system SHALL continue to subsequent checks.
 For the first phase (01-requirements), the system SHALL skip prior phase gate validation entirely.
-The prior phase sequence SHALL follow the 9-phase structure: 01-requirements, 02-test-design, 03-dev-proposal, 04-test-gen, 05-implement, 06-unit-test, 07-code-review, 08-integration-test, 09-acceptance.
+The prior phase sequence SHALL follow the 9-phase structure: 01-requirements, 02-dev-design, 03-test-design, 04-test-gen, 05-implement, 06-unit-test, 07-code-review, 08-integration-test, 09-acceptance.
 
 #### Scenario: All prior phases have pass records
 - **WHEN** eval.json contains entries with verdict "pass" for all phases prior to the specified `--phase`

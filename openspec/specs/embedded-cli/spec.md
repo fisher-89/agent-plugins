@@ -42,9 +42,9 @@ The subcommand SHALL be registered using the `cac` declarative API pattern consi
 - **THEN** the output SHALL include "eval-check" in the list of available commands
 
 #### Scenario: eval-check accepts required options
-- **WHEN** `dev-team eval-check --change my-change --phase 03-dev-proposal` is invoked
+- **WHEN** `dev-team eval-check --change my-change --phase 02-dev-design` is invoked
 - **THEN** the command SHALL parse --change and --phase and pass them to the action handler
 
 #### Scenario: eval-check --json flag is optional
-- **WHEN** `dev-team eval-check --change my-change --phase 03-dev-proposal --json` is invoked
+- **WHEN** `dev-team eval-check --change my-change --phase 02-dev-design --json` is invoked
 - **THEN** the command SHALL pass the --json flag to the action handler for structured output

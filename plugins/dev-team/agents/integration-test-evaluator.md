@@ -68,13 +68,13 @@ If `failed > 0`, analyze each failure and apply the following decision tree:
    - IF failure has `design_ref` field
    - OR the expected behavior contradicts test-design.md requirements
    - OR the integration test expects behavior that was not designed
-   - THEN backtrack_to: `"02-test-design"`
+   - THEN backtrack_to: `"03-test-design"`
    - Finding reason: "设计冲突: 集成测试期望与 test-design.md 不一致"
 
 4. **接口签名不匹配 (双方签名一致但实现行为异常)**
    - IF test and implementation agree on interface signatures
    - BUT the implementation behavior does not match spec
-   - THEN backtrack_to: `"03-dev-proposal"`
+   - THEN backtrack_to: `"02-dev-design"`
    - Finding reason: "接口签名双方一致但实现行为不符合设计提案"
 
 5. **环境/配置问题 (connection refused, timeout, missing env var)**
@@ -86,8 +86,8 @@ If `failed > 0`, analyze each failure and apply the following decision tree:
 6. **无法判断 (multiple ambiguous errors or no clear pattern)**
    - IF no single root cause dominates
    - THEN AskUserQuestion with diagnostic summary, timeout 5 minutes
-   - On timeout / no response: backtrack_to: `"03-dev-proposal"`
-   - Finding reason: "无法自动判断根因，回退到 dev-proposal"
+   - On timeout / no response: backtrack_to: `"02-dev-design"`
+   - Finding reason: "无法自动判断根因，回退到 dev-design"
 
 **Priority (when multiple error types exist):**
 - Design conflict (3) > Syntax error (1) > Logic error (2) > Environment (5) > Interface mismatch (4) > Unknown (6)

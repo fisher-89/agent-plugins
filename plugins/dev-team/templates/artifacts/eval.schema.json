@@ -8,8 +8,8 @@
   "properties": {
     "phase": {
       "type": "string",
-      "description": "Phase identifier (e.g. '01-requirements', '02-test-design')",
-      "examples": ["01-requirements", "03-dev-proposal", "06-code-review"]
+      "description": "Phase identifier (e.g. '01-requirements', '03-test-design')",
+      "examples": ["01-requirements", "02-dev-design", "06-code-review"]
     },
     "timestamp": {
       "type": "string",

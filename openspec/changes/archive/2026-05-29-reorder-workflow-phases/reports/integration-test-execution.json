@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "bash test_directory_renames.sh && bash test_agent_inputs.sh && bash test_skill_references.sh && bash test_backtrack_references.sh && bats test_eval_check_cli.bats",
+  "timestamp": "2026-05-29T07:30:00.000Z",
+  "total": 48,
+  "passed": 48,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 29000,
+  "failures": [],
+  "findings": "All 48 integration tests passed across 5 test files. Shell scripts (test_directory_renames.sh, test_agent_inputs.sh, test_skill_references.sh, test_backtrack_references.sh) ran 33 assertions total, all passed. Bats test (test_eval_check_cli.bats) ran 15 tests, all passed. Coverage data not available for shell/bats test types."
+}

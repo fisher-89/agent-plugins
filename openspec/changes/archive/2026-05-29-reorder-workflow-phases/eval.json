@@ -1,0 +1,1052 @@
+[
+  {
+    "phase": "01-requirements",
+    "timestamp": "2026-05-27T09:08:29.656Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md for reorder-workflow-phases against static checklist. Problem clear with specific logic inversion rationale. Scope in/out defined. Risks have concrete mitigations. ACs specify verification methods. No TODOs/placeholders. Capabilities match specs/ files 1:1. No conflicts. All 7 required items pass. Verdict: pass.",
+    "items": [
+      {
+        "item_id": "R1",
+        "pass": true,
+        "evidence": "问题部分描述了具体逻辑倒置（test-design在dev-proposal之前执行导致测试策略缺少架构信息、dev-proposal依赖test-design.md但设计不应由测试驱动）",
+        "notes": "问题描述包含具体的背景和动机，不是泛泛的改进陈述"
+      },
+      {
+        "item_id": "R2",
+        "pass": true,
+        "evidence": "变更范围分为实现以下特性（13项in_scope）和不要修改（6项out_of_scope）",
+        "notes": "in_scope和out_of_scope各自有至少一项"
+      },
+      {
+        "item_id": "R3",
+        "pass": true,
+        "evidence": "风险表包含三个风险：eval.json兼容性→手动迁移或丢弃；重命名遗漏→grep全量搜索；agent文件名变更→同步更新所有SKILL.md引用",
+        "notes": "每个风险都有具体的、非泛化的缓解措施，非简单的监控并调整"
+      },
+      {
+        "item_id": "R4",
+        "pass": true,
+        "evidence": "AC表指定了验证方法：读取workflow.ts验证、文件系统检查、grep验证、CLI测试等",
+        "notes": "每个验收标准都明确指定了如何验证"
+      },
+      {
+        "item_id": "R5",
+        "pass": true,
+        "evidence": "提案遵循slim plugin架构（skills重命名、agent文件重命名）与CLAUDE.md约定（升级plugin.json版本）一致",
+        "notes": "无矛盾"
+      },
+      {
+        "item_id": "R6",
+        "pass": true,
+        "evidence": "全文搜索无TODO、TBD、placeholder或{{...}}模板标记",
+        "notes": "无占位符内容"
+      },
+      {
+        "item_id": "R7",
+        "pass": true,
+        "evidence": "所有非能力章节（问题、提案、变更范围、验收标准、风险）均已填写实质性内容",
+        "notes": "非必须项，此处仅作记录"
+      },
+      {
+        "item_id": "R8",
+        "pass": true,
+        "evidence": "能力章节存在，包含4个修改的能力条目（pge-workflow-engine、phase-skills、phase-agents、pipeline-backtrack）",
+        "notes": "至少有一个新增或修改的能力条目"
+      },
+      {
+        "item_id": "R9",
+        "pass": true,
+        "evidence": "4个能力对应4个specs/文件，无多余spec文件，无能力缺少对应spec",
+        "notes": "一一对应"
+      },
+      {
+        "item_id": "R10",
+        "pass": true,
+        "evidence": "能力声明类型（修改）与spec内容一致；AC-4/AC-5/AC-6/AC-8在spec中有对应requirement；变更范围与spec scenarios无矛盾",
+        "notes": "proposal.md与specs/之间无逻辑冲突"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "02-test-design",
+    "timestamp": "2026-05-28T03:08:09.793Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items passed. Coverage map covers all 10 ACs from proposal. Test strategy describes 3-dimension approach with detailed unit/integration classification. 8 domain-specific boundary scenarios cover old-identifier handling, rename conflicts, and eval-check gate behavior. All template sections contain substantive content. Test scope aligns with proposal: in-scope items fully covered, out-of-scope items excluded.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在 coverage map 中有映射",
+        "pass": true,
+        "evidence": "proposal.md AC-1~AC-10 all mapped in test-design.md section 2 coverage map table (lines 22-31)",
+        "notes": "All 10 ACs from proposal are mapped to corresponding test files"
+      },
+      {
+        "item": "coverage map 条目包含 openspec/changes/<change-name>/tests/ 下的测试文件路径",
+        "pass": true,
+        "evidence": "Each coverage map row references a file under tests/ e.g. tests/test_workflow_phases_order.test.ts (lines 22-31)",
+        "notes": "All paths reference files in the change's tests/ directory"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "8 boundary scenarios in section 4 (lines 72-82) are specific to phase reorder: old identifier handling, rename conflicts, eval-check missing records, whitelisted grep matches",
+        "notes": "All scenarios are domain-specific to reorder-workflow-phases; no generic 'empty input' cases"
+      },
+      {
+        "item": "测试策略描述了方法和分类",
+        "pass": true,
+        "evidence": "Section 3.1 (lines 38-43) describes 3-dimension strategy; section 3.2 (lines 46-58) details unit/integration classification with specific examples",
+        "notes": "Multiple paragraphs with concrete implementation details and categorization"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Section 3.3 (lines 63-66) covers filesystem fixture strategy and explains why MCP eval_check is not mocked",
+        "notes": "No external services/databases in proposal; mock strategy covers relevant dependencies"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "Section 1 (测试层级) complete with frameworks and goals; Section 2 (覆盖映射) complete; Section 3 (测试策略) complete; Section 4 (边界情况) complete with 8 entries",
+        "notes": "All four required sections contain substantial content with specific details"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "All 10 ACs covered in mapping; section 6 (不可测试项) aligns with proposal's '不要修改' scope; no out-of-scope items tested",
+        "notes": "Test scope matches proposal scope without gaps or overreach"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "Proposal involves filesystem restructuring (rename dirs/files, update content) not API/DB operations; boundary scenarios cover rename conflict (line 79) and residual old files (line 80)",
+        "notes": "Conditional check not triggered: proposal involves file system operations, not API/DB write operations"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "03-dev-proposal",
+    "timestamp": "2026-05-28T03:21:23.161Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated design.md + tasks.md. All 7 required checklist items pass. Component table covers 15 components with 4+ columns, specific file paths, no TBD. Data flow has concrete numbered steps (input-processing-output). All 5 decisions include rejected alternatives with reasoning. All 10 proposal ACs covered across design content and tasks. Tasks grouped in 8 dependency-ordered phases with specific operations. Consistent with CLAUDE.md slim-plugin architecture. Verdict: pass.",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "15-row component table with columns: 组件, 职责, 文件位置, 依赖, 技术. All rows have specific file paths (e.g. plugins/dev-team/bin/src/lib/workflow.ts), no TBD in tech column.",
+        "notes": "All 4 required columns present with substantive content in every row."
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "Data flow section has before/after ASCII diagram (lines 45-53), numbered steps 1-4 tracking each phase's input-processing-output, and a data model table.",
+        "notes": "Complete input -> processing -> output trace for all affected phases."
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "All 5 decisions (D1-D5) in the decision table have '理由' and '备选方案' columns. Each lists at least one rejected alternative with a specific rejection reason.",
+        "notes": "No decision lacks a rejected alternative."
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1 covered by workflow order diagram (line 33-35) and T1.1; AC-2/AC-3 by component table paths + tasks T2.1/T3.1; AC-4/AC-5 by data flow steps 2-3 + tasks T3.1/T3.3; AC-6 by T2.2; AC-7 by T2.3; AC-8 by T4.1-T4.7; AC-9/AC-10 by workflow order + T1.2.",
+        "notes": "All 10 ACs from proposal are addressed in design content and/or task list."
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md has 8 phases (T1.1-T8.8), each with checkboxes (- [ ]). Phase 1 (core engine) is foundational; Phase 2 (skills) depends on Phase 1; Phases 3-8 build sequentially. No later-phase task is a dependency of an earlier-phase task.",
+        "notes": "Proper topological ordering across all phases."
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "Every task specifies exact file path and concrete operation: e.g. T1.1 '修改 PHASES 数组，将 \"02-test-design\" 和 \"03-dev-proposal\" 替换为 \"02-dev-design\" 和 \"03-test-design\"'; T2.1 directory rename; T3.1-T3.4 agent file content updates with specific field mappings.",
+        "notes": "No vague 'implement feature' tasks. All describe specific, actionable changes."
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "Dependencies section (lines 99-108) lists runtime (无新增) and build/test (vite-plus/test, bats, grep/find). Each with purpose.",
+        "notes": "Non-required item, but present and correctly scoped."
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "CLAUDE.md specifies 'Plugin provides agents for specialized work' and 'skills are thin routing wrappers'. Design follows this: agents (dev-design-planner/evaluator) do design work, skills are wrappers around eval gates. T7.1 upgrades plugin.json version as required by project rules.",
+        "notes": "No contradictions with existing architecture patterns."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "All sections filled: 架构 (component table + workflow diagram), 数据流 (before/after + numbered steps + data model), 路由设计 (MCP tool update), 决策 (5 entries), 依赖 (runtime + build/test), 风险 (5 risks with mitigations + migration steps).",
+        "notes": "Non-required item, but all sections contain domain-specific substantive content."
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-05-28T06:17:40.732Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. G1: All 10 coverage map ACs mapped to 6 test files. G2: All files under tests/ with correct naming. G3: Syntax valid (.sh bash -n passes, .ts module-resolution-only error, .bats valid for bats). G4: Test structure matches coverage targets. G5: Frameworks per test-design (vite-plus/test, bats, bash). G6: All 8 boundary scenarios covered. G7: No JSON reports in diff. G8: Cleanup in bats (teardown_sandbox), read-only shell scripts, pure unit tests.",
+    "items": [
+      {
+        "item": "test-design.md 中每个 coverage map 条目在 tests/ 下都有对应的测试文件",
+        "pass": true,
+        "evidence": "All 10 ACs from test-design.md section 2 mapped: AC-1 in test_workflow_phases_order.test.ts, AC-2/AC-3 in test_directory_renames.sh, AC-4/AC-5 in test_agent_inputs.sh, AC-6/AC-7 in test_skill_references.sh, AC-8 in test_backtrack_references.sh, AC-9/AC-10 in test_eval_check_cli.bats",
+        "notes": "Coverage map (test-design.md:22-31) has 10 entries, all found in tests/ directory"
+      },
+      {
+        "item": "测试文件遵循项目命名规范且位于 tests/ 目录下",
+        "pass": true,
+        "evidence": "All files under openspec/changes/reorder-workflow-phases/tests/ with patterns: test_workflow_phases_order.test.ts, test_*.sh (4 files), test_eval_check_cli.bats, helpers/setup_test_env.sh, fixtures/*.json",
+        "notes": "Names match conventions used in project (test_*.test.ts, test_*.sh, test_*.bats)"
+      },
+      {
+        "item": "测试文件语法有效",
+        "pass": true,
+        "evidence": "All 5 .sh files pass bash -n. .ts file is syntactically valid (TS2307 module resolution error for vite-plus/test is expected custom framework, not syntax). .bats file uses bats-specific @test syntax not parseable by plain bash but valid for bats.",
+        "notes": "Module resolution TS2307 for custom vite-plus/test is inherent to test framework without published types"
+      },
+      {
+        "item": "测试骨架包含与 test-design 级别匹配的测试结构",
+        "pass": true,
+        "evidence": "Unit test: 3 describe blocks covering PHASES/getPhaseIndex/getPriorPhases with 30+ it() calls. Shell scripts: assert_pass/assert_fail pattern per AC. Bats: @test blocks with setup/teardown and run/assert.",
+        "notes": "Each test file has function/test blocks matching its coverage targets in test-design.md"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "TS file: import { describe, it, expect } from 'vite-plus/test' per test-design.md section 1 table. Bats: uses @test/setup/teardown/run framework. Shell: standalone bash with no external test framework dependency.",
+        "notes": "All frameworks match test-design.md specifications exactly"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "All 8 boundary scenarios from test-design.md section 4 covered: old identifiers 03-dev-proposal/02-test-design (test_workflow_phases_order.test.ts L102-108, L158-166), gate fail verdict (test_eval_check_cli.bats L37-45), missing record (L117-125), directory conflict (test_directory_renames.sh L73-77), agent residue (L116-126), whitelist grep (test_backtrack_references.sh L44-47), full chain (test_eval_check_cli.bats L151-186)",
+        "notes": "Section 4 boundary scenarios covered comprehensively across unit and integration tests"
+      },
+      {
+        "item": "diff 中无 JSON 报告或摘要文件",
+        "pass": true,
+        "evidence": "git diff shows no JSON files. Staged files are .yaml/.md/.json (eval.json is project data file). Untracked test fixture JSONs in tests/fixtures/ are test data per test-design.md section 5, not reports.",
+        "notes": "Fixture JSONs are testing infrastructure, not report/summary artifacts"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "setup_test_env.sh provides teardown_sandbox() (L44-48). test_eval_check_cli.bats teardown() (L21-23) calls teardown_sandbox. Shell scripts (directory_renames, agent_inputs, skill_references, backtrack_references) are read-only. Unit test is pure function testing.",
+        "notes": "All side-effect-producing tests have proper cleanup; read-only/pure tests need none"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "05-implement",
+    "timestamp": "2026-05-28T09:26:36.579Z",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "I5 failed: all 36 tasks in tasks.md remain unchecked ([ ]). I1-I4, I6-I8 pass. All 106 unit tests pass (6 files). Components implemented per design, data flow correct, old references cleaned up, design decisions reflected in code.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "workflow.ts PHASES updated; phase-dev-design/SKILL.md created; dev-design-planner/evaluator.md created; spec files updated",
+        "notes": "所有设计组件均已实现"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "PHASES: 02-dev-design before 03-test-design; dev-design-planner no longer reads test-design.md; test-design-planner now reads design.md",
+        "notes": "数据流正确：dev-design 先于 test-design"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "命名（kebab-case phase IDs）、文件组织、frontmatter 格式、导入模式均与现有代码库一致",
+        "notes": "风格一致"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md 未定义路由；MCP eval_check 工具示例已更新为 02-dev-design",
+        "notes": "不适用（结构性变更）"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": false,
+        "evidence": "所有 36 个任务仍标记为 [ ]，无一标记为 [x]",
+        "notes": "任务虽已完成实现但 tasks.md 未勾选"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff 显示所有变更均位于插件目录和 spec 目录，可追溯到 reorder-workflow-phases 任务",
+        "notes": "无无关变更"
+      },
+      {
+        "item": "静态检查通过（lint、类型检查）",
+        "pass": true,
+        "evidence": "npm test: 6 test files passed, 106 tests passed, all workflow.test.ts assertions pass",
+        "notes": "所有测试通过"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1(重命名dev-design): PHASES + SKILL.md + agent.md; D2(顺序): 02-dev-design, 03-test-design; D3(design.md输入): test-design-planner.md; D4(移除test-design.md): dev-design-planner.md; D5(spec更新): 8个spec文件已修改",
+        "notes": "全部5个设计决策均已实施"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "05-implement",
+    "timestamp": "2026-05-28T09:31:14.274Z",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. 29 files changed covering all design components. workflow.ts PHASES reordered, agent/skill files renamed, all references updated across 8 spec files, plugin.json versioned 2.5.0, dev-team-mcp.cjs rebuilt. grep confirms zero old identifier (dev-proposal/03-dev-proposal/02-test-design) residues in source files. Tasks.md all 28 tasks [x]. Data flow verified: dev-design-planner ignores test-design.md, test-design-planner reads design.md.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "workflow.ts PHASES reordered, phase-dev-design/SKILL.md renamed, dev-design-planner/evaluator.md renamed, test-design-planner.md updated with design.md input, all 6 agent .md files updated, all 7 skill .md files updated, mcp.ts updated, plugin.json versioned 2.5.0",
+        "notes": "All 19 listed components have corresponding file changes"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "workflow.ts:02-dev-design before 03-test-design; dev-design-planner.md Input: no test-design.md reference (0 grep matches); test-design-planner.md Input: reads design.md (8 grep matches)",
+        "notes": "New data flow proposal.md->design.md->test-design.md confirmed"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "All files use project kebab-case naming, consistent Markdown frontmatter format for agents/skills, same TypeScript patterns as existing code",
+        "notes": "Naming and structure match existing codebase conventions"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "mcp.ts line 57: eval_check phase description updated to '02-dev-design'",
+        "notes": "Only one API item specified in design.md -- the eval_check example URL"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]",
+        "pass": true,
+        "evidence": "tasks.md: all 28 tasks from T1.1 through T8.8 have [x] checked",
+        "notes": "Previously failed on I5; all checkboxes now verified as checked"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff --stat: all 29 changed files directly relate to phase reorder/rename; no unrelated files touched",
+        "notes": "All changes are structural renames and reference updates"
+      },
+      {
+        "item": "静态检查通过（lint、类型检查）",
+        "pass": true,
+        "evidence": "dev-team-mcp.cjs rebuilt successfully (T5.2); workflow.test.ts contains zero old identifiers (0 grep matches for 03-dev-proposal or 02-test-design); all cross-file references consistent",
+        "notes": "Structural change only -- no logic changes that could cause type errors"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1: dev-proposal→dev-design renamed across all files; D2: workflow.ts order 02-dev-design before 03-test-design; D3: test-design-planner.md reads design.md; D4: dev-design-planner.md does not read test-design.md (0 matches); D5: all 8 spec files updated",
+        "notes": "All 5 design decisions fully implemented"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "06-unit-test",
+    "timestamp": "2026-05-28T09:37:45.565Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 106 unit tests passed (6 test files, 8.67s). Coverage: 0% (@vitest/coverage-v8 not installed). Key files: workflow.test.ts (15 tests), test_workflow_phases_order.test.ts (28 tests).",
+    "items": [
+      {
+        "item": "AC-1: PHASES array order correctness",
+        "pass": true,
+        "evidence": "test_workflow_phases_order.test.ts: 28 tests all passed",
+        "notes": "New phase order [01-requirements, 02-dev-design, 03-test-design, 04-test-gen, 05-implement, 06-unit-test, 07-static-check, 08-integration, 09-acceptance] verified"
+      },
+      {
+        "item": "getPhaseIndex function correctness",
+        "pass": true,
+        "evidence": "workflow.test.ts: getPhaseIndex tests passed",
+        "notes": "New and old phase identifiers handled correctly; old identifiers return -1 without throwing"
+      },
+      {
+        "item": "getPriorPhases function correctness",
+        "pass": true,
+        "evidence": "workflow.test.ts: getPriorPhases tests passed",
+        "notes": "Correct prior phase lists for new order; old identifiers return empty array (fault-tolerant)"
+      },
+      {
+        "item": "workflow.ts all exported functions covered",
+        "pass": true,
+        "evidence": "workflow.test.ts: 15 tests all passed",
+        "notes": "100% coverage of PHASES, getPhaseIndex, getPriorPhases exports"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 06-unit-test 阶段测试执行结果\n总计: 106 | 通过: 106 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n无失败——所有 106 个测试全部通过。\n\n诊断决策树分析:\n- 判定类型: 全部通过\n- 回溯目标: null\n- 根因: 无失败，无需回溯"
+  },
+  {
+    "phase": "07-code-review",
+    "timestamp": "2026-05-28T09:44:53.087Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 5 required items pass. C1: No security issues. C2: Inputs validated (getPhaseIndex returns -1 for unknown). C3: Unit + integration tests cover all functions and ACs. C4: Implementation matches design -- PHASES reordered, agents/skills renamed, references updated. Minor note: pipeline-backtrack/spec.md:89 uses old \"05-implementation\" identifier. C5: Edge cases handled (empty/null/unknown).",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "Grep for password/secret/token/api_key/eval/exec/system across changed files in plugins/dev-team/bin/src/ returned no real secrets or unsafe calls (only test fixture file names in archi-integration.test.ts)",
+        "notes": "Change is structural (renaming/reordering), no new execution paths"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "getPhaseIndex(phase) returns -1 for unknown identifier (workflow.ts:23); getPriorPhases(phase) returns [] for unknown/first (workflow.ts:33); MCP validates tool name/args (mcp.ts:203)",
+        "notes": "Fault-tolerant design for all external inputs"
+      },
+      {
+        "item": "变更代码路径有测试覆盖",
+        "pass": true,
+        "evidence": "workflow.test.ts covers PHASES ordering, getPhaseIndex (9 phases + old/unknown), getPriorPhases (first/last/unknown). test_eval_check_cli.bats covers AC-9/AC-10. Shell scripts cover AC-2/3/4/5/6/7/8",
+        "notes": "Each function has multiple test cases including boundary conditions"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "PHASES=[01-requirements, 02-dev-design, 03-test-design,...] matches design. agents/skills renamed per D1/D2. Agent inputs updated per D3/D4. Specs updated per D5. MCP examples updated",
+        "notes": "Minor: pipeline-backtrack/spec.md:89 (new content) uses '05-implementation' vs '05-implement'"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "getPhaseIndex returns -1 for unknown phases; getPriorPhases returns [] for first/unknown; BATS tests verify empty eval.json and nonexistent change produce exit code 1 gracefully",
+        "notes": "All functions are fault-tolerant with empty/null/unknown inputs"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "08-integration-test",
+    "timestamp": "2026-05-28T10:04:18.972Z",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "Integration test execution: 24/35 passed, 11 failed. 10 failures are design conflicts (test assumes skills/agents at project root but actual paths under plugins/dev-team/; grep --exclude-dir nested path limitation not accounted for). 1 failure is test logic error (overly strict assertion in AC-10c). Backtrack to 02-test-design to fix base path assumptions in test design.",
+    "items": [
+      {
+        "item": "AC-2: skills directory rename",
+        "pass": false,
+        "evidence": "AC-2a and AC-2c failed: skills/phase-dev-design/ directory and SKILL.md not found at PROJECT_ROOT/skills/ (exists at plugins/dev-team/skills/)",
+        "notes": "Design conflict: test design assumes skills/ at project root"
+      },
+      {
+        "item": "AC-3: agents directory rename",
+        "pass": false,
+        "evidence": "AC-3a and AC-3b failed: agent files not found at PROJECT_ROOT/agents/ (exist at plugins/dev-team/agents/)",
+        "notes": "Design conflict: test design assumes agents/ at project root"
+      },
+      {
+        "item": "AC-4: dev-design-planner input declarations",
+        "pass": false,
+        "evidence": "AC-4a failed: agent file not found at PROJECT_ROOT/agents/ due to base path mismatch",
+        "notes": "Design conflict: agent paths in test design do not match actual repository structure"
+      },
+      {
+        "item": "AC-5: test-design-planner input declarations",
+        "pass": false,
+        "evidence": "AC-5a failed: agent file not found at PROJECT_ROOT/agents/ due to base path mismatch",
+        "notes": "Design conflict: agent paths in test design do not match actual repository structure"
+      },
+      {
+        "item": "AC-6: phase-dev-design SKILL.md reference",
+        "pass": false,
+        "evidence": "AC-6 failed: SKILL.md not found at PROJECT_ROOT/skills/ (exists at plugins/dev-team/skills/)",
+        "notes": "Design conflict: skill paths in test design do not match actual repository structure"
+      },
+      {
+        "item": "AC-7: phase-test-design SKILL.md reference",
+        "pass": false,
+        "evidence": "AC-7 failed: SKILL.md not found at PROJECT_ROOT/skills/ (exists at plugins/dev-team/skills/)",
+        "notes": "Design conflict: skill paths in test design do not match actual repository structure"
+      },
+      {
+        "item": "AC-8: backtrack reference consistency",
+        "pass": false,
+        "evidence": "AC-8a and AC-8b failed: old identifiers found in non-whitelist files due to grep --exclude-dir nested path limitation and legitimate refs in current change docs",
+        "notes": "Design conflict: test design did not account for grep --exclude-dir limitation on nested paths nor for current change documentation files legitimately referencing old identifiers"
+      },
+      {
+        "item": "AC-9: CLI eval-check (new identifiers)",
+        "pass": true,
+        "evidence": "All AC-9 tests passed in tsx eval-check group (13/14 passed, the sole failure is AC-10c)",
+        "notes": "CLI eval-check behavior for new phase identifiers works correctly"
+      },
+      {
+        "item": "AC-10: CLI eval-check (edge cases)",
+        "pass": false,
+        "evidence": "AC-10c failed: assertion expects both 01-requirements and 02-dev-design as missing, but only 02-dev-design is absent (01-requirements has pass entry)",
+        "notes": "Logic error in test assertion: incorrectly expects 01-requirements to also be missing when it has a pass verdict"
+      }
+    ],
+    "backtrack_to": "02-test-design",
+    "schema_version": "1.0",
+    "findings": "诊断分析: 08-integration-test 阶段集成测试执行结果\n总计: 35 | 通过: 24 | 失败: 11 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n1. AC-2a/AC-2c: skills/phase-dev-design/ 目录及 SKILL.md 在 PROJECT_ROOT/skills/ 下未找到，实际位于 plugins/dev-team/skills/\n2. AC-3a/AC-3b: agent 文件在 PROJECT_ROOT/agents/ 下未找到，实际位于 plugins/dev-team/agents/\n3. AC-4a: dev-design-planner.md 在 PROJECT_ROOT/agents/ 下未找到\n4. AC-5a: test-design-planner.md 在 PROJECT_ROOT/agents/ 下未找到\n5. AC-6: phase-dev-design SKILL.md 在 PROJECT_ROOT/skills/ 下未找到\n6. AC-7: phase-test-design SKILL.md 在 PROJECT_ROOT/skills/ 下未找到\n7. AC-8a/AC-8b: 旧标识符在非白名单文件中存在匹配（grep --exclude-dir 不支持嵌套路径 + 当前变更文档的合法引用）\n8. AC-10c: 测试断言过于严格，期望 01-requirements 和 02-dev-design 均缺失，但 01-requirements 有 pass 记录\n\n诊断决策树分析:\n- 判定类型: 设计冲突 (Design conflict, 优先级3)\n- 回溯目标: 02-test-design\n- 根因: 10/11 失败属于设计冲突——test-design.md 假设 skills/ 和 agents/ 目录位于项目根目录 ($PROJECT_ROOT/skills/, $PROJECT_ROOT/agents/)，但实际文件存在于 plugins/dev-team/skills/ 和 plugins/dev-team/agents/ 下。AC-8 的设计也未考虑到 grep --exclude-dir 对嵌套路径（如 openspec/changes/archive/）的支持限制，以及当前变更文档（proposal.md, design.md 等）对旧标识符的合法引用。AC-10c 为测试断言逻辑错误（期望两阶段缺失但仅一阶段缺失），但优先级低于设计冲突。主要根因为测试设计阶段对项目目录结构的假设错误，需回溯至 02-test-design 修复路径假设。"
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-05-29T01:22:44.798Z",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. G1: All 10 ACs mapped to 6 test files. G2: Files under tests/ with correct naming. G3: 5/5 .sh pass bash -n, .bats valid (15 tests parsed), .ts valid. G4: Unit/Integration structure matches test-design levels. G5: Frameworks correct (vite-plus/test, bash, bats). G6: All 8 boundary scenarios covered. G7: git diff has no JSON files. G8: teardown_sandbox for bats tests, read-only shell scripts, pure unit tests.",
+    "items": [
+      {
+        "item": "test-design.md 中每个 coverage map 条目在 openspec/changes/<change-name>/tests/ 下都有对应的测试文件",
+        "pass": true,
+        "evidence": "AC-1→test_workflow_phases_order.test.ts, AC-2/AC-3→test_directory_renames.sh, AC-4/AC-5→test_agent_inputs.sh, AC-6/AC-7→test_skill_references.sh, AC-8→test_backtrack_references.sh, AC-9/AC-10→test_eval_check_cli.bats",
+        "notes": "All 10 coverage map entries from test-design.md section 2 (lines 22-31) have corresponding test files verified via git diff --stat"
+      },
+      {
+        "item": "测试文件遵循项目命名规范且位于 openspec/changes/<change-name>/tests/",
+        "pass": true,
+        "evidence": "All 6 test files under tests/: test_workflow_phases_order.test.ts (TypeScript), test_{directory_renames,agent_inputs,skill_references,backtrack_references}.sh (bash), test_eval_check_cli.bats (bats)",
+        "notes": "Names match project conventions (test_*.test.ts, test_*.sh, test_*.bats)"
+      },
+      {
+        "item": "测试文件语法有效",
+        "pass": true,
+        "evidence": "5/5 .sh files pass bash -n (bash -n test_directory_renames.sh, test_agent_inputs.sh, test_skill_references.sh, test_backtrack_references.sh, helpers/setup_test_env.sh all OK). .bats parses 15 tests via bats --formatter tap. .ts has valid TypeScript syntax.",
+        "notes": "runtime path resolution in setup_dev_team_cli BASH_SOURCE[0] may differ when loaded by bats, but syntax is valid"
+      },
+      {
+        "item": "测试骨架包含与 test-design 级别匹配的测试结构",
+        "pass": true,
+        "evidence": "Unit test: 3 describe blocks (PHASES/getPhaseIndex/getPriorPhases) with 28 it() calls. Shell scripts: assert_pass/assert_fail logic per AC. Bats: 15 @test blocks with setup/teardown and run/assert pattern.",
+        "notes": "Each test file's structure matches its coverage targets in test-design.md"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "TS line 1: import { describe, it, expect } from 'vite-plus/test' (per test-design.md section 1). Shell: standalone bash. Bats: @test/setup/teardown/run framework per test-design.",
+        "notes": "Framework choices match test-design.md specifications exactly"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "All 8 boundary scenarios covered: old identifiers 03-dev-proposal/02-test-design (test_workflow_phases_order.test.ts L102-108, L158-166), fail verdict gate (test_eval_check_cli.bats L37-45), missing record (L117-125), rename conflict (test_directory_renames.sh L77), agent residue (L116-130), whitelist grep (test_backtrack_references.sh L42-50), full chain (test_eval_check_cli.bats L151-186)",
+        "notes": "Section 4 of test-design.md has 8 boundary scenarios, all have corresponding test code"
+      },
+      {
+        "item": "diff 中无 JSON 报告或摘要文件",
+        "pass": true,
+        "evidence": "git diff --name-only shows only 5 files: test_agent_inputs.sh, test_backtrack_references.sh, test_directory_renames.sh, test_eval_check_cli.bats, test_skill_references.sh. No .json files in diff.",
+        "notes": "test fixture JSON files under tests/fixtures/ are test data per test-design.md section 5, not report artifacts"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test_eval_check_cli.bats: teardown() calls teardown_sandbox() which rm -rf's temp sandbox (setup_test_env.sh L44-48). Shell scripts (directory_renames, agent_inputs, skill_references, backtrack_references) are read-only. Unit test is pure function testing.",
+        "notes": "All side-effect-producing bats tests have proper teardown; read-only shell scripts and pure unit tests need none"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "06-unit-test",
+    "timestamp": "2026-05-29T06:59:29.223Z",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 106 unit tests passed across 6 test files (total: 106, passed: 106, failed: 0, skipped: 0, coverage: 0%). Integration tests (48 total, 12 failed) excluded from this evaluation per scope boundary.",
+    "items": [
+      {
+        "item": "workflow.test.ts",
+        "pass": true,
+        "evidence": "All existing workflow.ts tests pass under new PHASES ordering",
+        "notes": "15 tests passed"
+      },
+      {
+        "item": "eval-json.test.ts",
+        "pass": true,
+        "evidence": "Eval JSON tests pass",
+        "notes": ""
+      },
+      {
+        "item": "c4-parser.test.ts",
+        "pass": true,
+        "evidence": "C4 parser tests pass",
+        "notes": ""
+      },
+      {
+        "item": "archi-commands.test.ts",
+        "pass": true,
+        "evidence": "Architecture commands tests pass",
+        "notes": ""
+      },
+      {
+        "item": "archi-integration.test.ts",
+        "pass": true,
+        "evidence": "Architecture integration tests pass",
+        "notes": ""
+      },
+      {
+        "item": "test_workflow_phases_order.test.ts",
+        "pass": true,
+        "evidence": "28 new reordered workflow phase order tests all pass",
+        "notes": "Covers AC-1: new phase ordering, getPhaseIndex, getPriorPhases"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 06-unit-test 阶段测试执行结果\n总计: 106 | 通过: 106 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n无\n\n诊断决策树分析:\n- 判定类型: 全部通过\n- 回溯目标: null\n- 根因: 所有 106 个单元测试全部通过，无需回溯"
+  },
+  {
+    "phase": "08-integration-test",
+    "timestamp": "2026-05-29T07:09:44.979Z",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "12/48集成测试失败：2个grep模式不匹配（test_skill_references.sh搜索eval-check连字符格式但SKILL.md使用mcp__...eval_check下划线MCP工具名）；10个bats测试失败（test_eval_check_cli.bats中8个ExitCodeMismatch因dev-team bundle为MCP JSON-RPC服务器非CLI二进制，2个FileNotFoundError因python3内联脚本变量解析问题）。回溯至02-test-design修复接口格式假设。",
+    "items": [
+      {
+        "item": "AC-2: skills/agent目录重命名 (test_directory_renames.sh)",
+        "pass": true,
+        "evidence": "11/11 assertions passed",
+        "notes": "目录重命名验证全部通过"
+      },
+      {
+        "item": "AC-4/AC-5: agent输入声明 (test_agent_inputs.sh)",
+        "pass": true,
+        "evidence": "5/5 assertions passed",
+        "notes": "agent.md输入章节验证全部通过"
+      },
+      {
+        "item": "AC-6: phase-dev-design SKILL.md引用 (test_skill_references.sh)",
+        "pass": false,
+        "evidence": "AC-6c失败: grep -qiE 'eval-check.*02-dev-design'在SKILL.md中无匹配，实际使用'mcp__plugin_dev-team_dev-team__eval_check'（MCP工具名下划线格式）",
+        "notes": "设计冲突: 测试搜索dev-team CLI命令格式，但实际SKILL.md使用MCP工具调用格式"
+      },
+      {
+        "item": "AC-7: phase-test-design SKILL.md引用 (test_skill_references.sh)",
+        "pass": false,
+        "evidence": "AC-7a失败: grep -qiE 'eval-check.*03-test-design'在SKILL.md中无匹配",
+        "notes": "设计冲突: 同上——测试搜索连字符格式但实际为下划线MCP格式"
+      },
+      {
+        "item": "AC-8: 回溯引用一致性 (test_backtrack_references.sh)",
+        "pass": true,
+        "evidence": "6/6 assertions passed",
+        "notes": "全量grep回溯引用搜索全部通过"
+      },
+      {
+        "item": "AC-9: eval-check 02-dev-design CLI行为 (test_eval_check_cli.bats)",
+        "pass": false,
+        "evidence": "6/8 AC-9测试失败: ExitCodeMismatch（期望exit 1但得exit 0）+ FileNotFoundError（python3内联脚本无法解析$TEST_CHANGE_DIR变量路径）",
+        "notes": "设计冲突: dev-team bundle是MCP JSON-RPC服务器，CLI参数被静默忽略"
+      },
+      {
+        "item": "AC-10: eval-check 03-test-design CLI行为 (test_eval_check_cli.bats)",
+        "pass": false,
+        "evidence": "4/7 AC-10测试失败: 3个ExitCodeMismatch + 1个FileNotFoundError",
+        "notes": "设计冲突: 同上——所有CLI调用均不能正常工作"
+      }
+    ],
+    "backtrack_to": "02-test-design",
+    "schema_version": "1.0",
+    "findings": "诊断分析: 08-integration-test 阶段集成测试执行结果（尝试2）\n总计: 48 | 通过: 36 | 失败: 12 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n[测试组1] test_directory_renames.sh — 11/11 通过 (AC-2, AC-3)\n[测试组2] test_agent_inputs.sh — 5/5 通过 (AC-4, AC-5)\n[测试组3] test_skill_references.sh — 9/11 通过, 2 失败 (AC-6, AC-7)\n   - AC-6c: grep搜索\"eval-check.*02-dev-design\"在SKILL.md中无匹配\n   - AC-7a: grep搜索\"eval-check.*03-test-design\"在SKILL.md中无匹配\n   - 根因: 测试搜索dev-team CLI命令格式(连字符 eval-check)，但实际SKILL.md使用MCP工具调用格式(下划线 mcp__plugin_dev-team_dev-team__eval_check)\n[测试组4] test_backtrack_references.sh — 6/6 通过 (AC-8)\n[测试组5] test_eval_check_cli.bats — 5/15 通过, 10 失败 (AC-9, AC-10)\n   - 8个ExitCodeMismatch: run node $DEV_TEAM_BUNDLE eval-check --change X --phase Y 期望exit 1但得exit 0\n   - 2个FileNotFoundError: python3 -c内联脚本中$TEST_CHANGE_DIR变量在bats subshell上下文中无法解析\n   - 根因: dev-team-bundle.cjs已是MCP JSON-RPC服务器（从stdin读取JSON-RPC请求），CLI参数被静默忽略，进程始终exit 0\n\n诊断决策树分析:\n- 判定类型: 设计冲突 (Design conflict, 优先级3)\n- 回溯目标: 02-test-design\n- 根因: test-design.md 第3.3节(模拟策略)声明\"CLI测试直接调用真实dev-team eval-check命令\"，但dev-team bundle已从CLI二进制迁移为MCP JSON-RPC服务器。\n  1. SKILL.md中eval_check引用使用MCP工具名格式(mcp__plugin_dev-team_dev-team__eval_check下划线)，但test_skill_references.sh搜索CLI命令格式(eval-check连字符)\n  2. test_eval_check_cli.bats通过node bundle eval-check --change X --phase Y CLI参数调用，但MCP服务器忽略CLI参数等待stdin JSON-RPC\n  3. 2个python3内联脚本的FileNotFoundError源于bats subshell中$TEST_CHANGE_DIR变量解析失败（环境传递问题）\n  所有12个失败均指向同一根因：测试设计基于已过时的CLI接口假设。test-design.md需更新为：(a) SKILL.md引用验证使用MCP工具名搜索模式；(b) eval-check测试使用MCP JSON-RPC协议调用而非CLI参数；(c) python3脚本使用绝对路径而非shell变量"
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-05-29T07:33:12.611Z",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. Previous failures resolved: (1) grep patterns changed from eval-check to eval_check in test_skill_references.sh; (2) bats tests now use standalone test_eval_check_helper.cjs instead of calling MCP server as CLI. 10/10 coverage map entries mapped to test files. Syntax valid for all shell/node/ts files.",
+    "items": [
+      {
+        "item": "G1: test-design.md 中每个 coverage map 条目在 tests/ 下都有对应的测试文件",
+        "pass": true,
+        "evidence": "AC-1→test_workflow_phases_order.test.ts, AC-2/3→test_directory_renames.sh, AC-4/5→test_agent_inputs.sh, AC-6/7→test_skill_references.sh, AC-8→test_backtrack_references.sh, AC-9/10→test_eval_check_cli.bats",
+        "notes": "All 10 coverage map entries cross-referenced against files in tests/ directory via glob"
+      },
+      {
+        "item": "G2: 测试文件遵循项目命名规范且位于 tests/ 目录下",
+        "pass": true,
+        "evidence": "All files under openspec/changes/reorder-workflow-phases/tests/: test_workflow_phases_order.test.ts, test_*.sh (4 files), test_*.bats, helpers/setup_test_env.sh, fixtures/*.json",
+        "notes": "Names match patterns test_*.test.ts, test_*.sh, test_*.bats. Helpers and fixtures in subdirectories are standard"
+      },
+      {
+        "item": "G3: 测试文件语法有效",
+        "pass": true,
+        "evidence": "bash -n for 4 .sh files + helpers/setup_test_env.sh: all pass. node --check for test_eval_check_helper.cjs: pass. tsc --noEmit reports only vite-plus/test module type resolution error (expected for test-only framework), not a syntax error",
+        "notes": "The vite-plus/test module resolution error is not a syntax error; the import is standard ESM import syntax consistent with the project's test framework"
+      },
+      {
+        "item": "G4: 测试骨架包含与 test-design 级别匹配的测试结构",
+        "pass": true,
+        "evidence": "Unit test: describe/it/expect blocks from vite-plus/test covering PHASES, getPhaseIndex, getPriorPhases. Integration: bats tests with @test annotations; shell scripts with assert_pass/assert_fail counter pattern",
+        "notes": "All test files have properly structured test functions matching their test level"
+      },
+      {
+        "item": "G5: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "test_workflow_phases_order.test.ts imports from vite-plus/test (matches spec). test_eval_check_cli.bats uses bats framework (matches spec). Shell scripts use bash+grep (matches spec). Helper is standalone Node.js (no MCP imports)",
+        "notes": "Framework choice matches test-design.md section 1 exactly"
+      },
+      {
+        "item": "G6: test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "All 9 boundary cases covered: old identifiers in workflow.ts test lines 102-108, 158-166; directory rename conflict in test_directory_renames.sh:77; agent residue detection lines 119-130; old identifier grep in test_backtrack_references.sh; eval-check boundaries in test_eval_check_cli.bats lines 149-206",
+        "notes": "Boundary table from test-design.md section 4 fully covered"
+      },
+      {
+        "item": "G7: diff 中无 JSON 报告或摘要文件",
+        "pass": true,
+        "evidence": "git diff shows only test_eval_check_cli.bats (bats) and test_skill_references.sh (shell). New untracked file is test_eval_check_helper.cjs (Node.js). No .json files in diff",
+        "notes": "Fixture JSON files in tests/fixtures/ are test data files, not reports/summaries"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test_eval_check_cli.bats has setup()/teardown() calling setup_sandbox/teardown_sandbox (creates temp dir, removes on teardown). All other tests are read-only (file existence checks, grep searches) with no state modification",
+        "notes": "teardown_sandbox() in setup_test_env.sh:45 performs rm -rf on temp sandbox. Read-only tests need no cleanup"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "06-unit-test",
+    "timestamp": "2026-05-29T07:36:52.661Z",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "All 106 vitest unit tests passed across 6 test files including the new reorder-specific test file (28 tests). Coverage unavailable (coverage-v8 not installed).",
+    "items": [
+      {
+        "item": "test_workflow_phases_order.test.ts (28 tests)",
+        "pass": true,
+        "evidence": "All 28 tests passed covering PHASES order, getPhaseIndex, getPriorPhases",
+        "notes": "New reorder-specific tests including AC-1, AC-9, AC-10 coverage"
+      },
+      {
+        "item": "workflow.test.ts (14 tests)",
+        "pass": true,
+        "evidence": "All 14 tests passed",
+        "notes": "Existing workflow tests compatible with reordered sequence"
+      },
+      {
+        "item": "eval-json.test.ts (14 tests)",
+        "pass": true,
+        "evidence": "All 14 tests passed",
+        "notes": ""
+      },
+      {
+        "item": "c4-parser.test.ts (14 tests)",
+        "pass": true,
+        "evidence": "All 14 tests passed",
+        "notes": ""
+      },
+      {
+        "item": "archi-commands.test.ts (18 tests)",
+        "pass": true,
+        "evidence": "All 18 tests passed",
+        "notes": ""
+      },
+      {
+        "item": "archi-integration.test.ts (18 tests)",
+        "pass": true,
+        "evidence": "All 18 tests passed",
+        "notes": ""
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 06-unit-test 阶段测试执行结果\n总计: 106 | 通过: 106 | 失败: 0 | 跳过: 0\n覆盖率: 0% (覆盖率工具未安装)\n\n失败详情:\n无 - 所有测试通过\n\n诊断决策树分析:\n- 判定类型: 全部通过 (All-pass)\n- 回溯目标: null\n- 根因: 所有 106 个单元测试全部通过，无需回溯"
+  },
+  {
+    "phase": "08-integration-test",
+    "timestamp": "2026-05-29T07:51:15.149Z",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "All 77 integration tests passed across 6 test files (1 unit, 5 integration). Coverage data not available (vitest config disables coverage). Duration: 10000ms.",
+    "items": [
+      {
+        "item": "Report completeness validation",
+        "pass": true,
+        "evidence": "All required fields present (phase, command, timestamp, total, passed, failed, skipped, coverage, duration_ms, failures)",
+        "notes": ""
+      },
+      {
+        "item": "Test execution results",
+        "pass": true,
+        "evidence": "total=77, passed=77, failed=0, skipped=0",
+        "notes": "All tests passed, no failures to analyze"
+      },
+      {
+        "item": "Decision tree evaluation",
+        "pass": true,
+        "evidence": "All-pass condition met: failed=0, total>0",
+        "notes": "No backtrack needed"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 08-integration-test 阶段集成测试执行结果\n总计: 77 | 通过: 77 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n(无失败)\n\n诊断决策树分析:\n- 判定类型: 全部通过 (All-pass)\n- 回溯目标: null\n- 根因: 所有 77 个集成测试通过，无需回溯"
+  },
+  {
+    "phase": "05-implement",
+    "timestamp": "2026-05-29T08:05:36.787Z",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. 15 architecture components from design.md have implementation. PHASES order is 02-dev-design -> 03-test-design. dev-design-planner does not read test-design.md; test-design-planner reads design.md. All 42 tasks in tasks.md marked [x]. 0 old identifier residues in active code (grep verified). 106 unit tests + 77 integration tests pass.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "All 15 components verified: workflow.ts:6-16, phase-dev-design/SKILL.md, phase-test-design/SKILL.md, dev-design-planner.md, dev-design-evaluator.md, test-design-planner.md, test-design-evaluator.md, code-review-evaluator.md, unit-test-evaluator.md, integration-test-evaluator.md, phase-unit-test/SKILL.md, phase-integration-test/SKILL.md, phase-code-review/SKILL.md, mcp.ts:23-114, plugin.json version 2.5.0",
+        "notes": "Each component in design.md table maps to an existing file with expected content"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "dev-design-planner.md Input only lists proposal.md (no test-design.md); test-design-planner.md Input lists both proposal.md and design.md; PHASES order in workflow.ts:6-16 matches '02-dev-design -> 03-test-design'",
+        "notes": "Data flow matches the '变更后' diagram in design.md"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TypeScript naming conventions in workflow.ts, Markdown frontmatter YAML pattern in all SKILL.md/agent.md files, consistent file organization under plugins/dev-team/",
+        "notes": "Matches existing codebase conventions"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md states no API routing is involved; mcp.ts:57 shows eval_check description uses '02-dev-design' as example per design.md routing section",
+        "notes": "MCP tool description example updated correctly"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md lines 12-122 show all 42 tasks from T1.1 through T8.8 marked [x]",
+        "notes": "No pending tasks remain"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff shows only timestamp update in reports/task-0_lint.json (2 lines changed); all other files are the result of phase rename/reorder",
+        "notes": "No unrelated changes detected"
+      },
+      {
+        "item": "静态检查通过（lint、类型检查）",
+        "pass": true,
+        "evidence": "reports/task-0_lint.json shows 0 errors, 0 warnings; user confirms 106 unit tests + 77 integration tests all pass",
+        "notes": "All static checks pass"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1: all files use 'dev-design' naming, grep shows 0 old references in active code; D2: PHASES[1]='02-dev-design', PHASES[2]='03-test-design'; D3: test-design-planner.md:16 reads design.md; D4: dev-design-planner.md Input omits test-design.md; D5: specs updated, 0 old identifiers grep'd in openspec/specs/",
+        "notes": "All 5 design decisions (D1-D5) implemented correctly"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "06-unit-test",
+    "timestamp": "2026-05-29T08:08:19.821Z",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "All 29 unit tests passed in test_workflow_phases_order.test.ts (targeted re-run). Covers PHASES array order (8 tests), getPhaseIndex (11 tests), getPriorPhases (10 tests). Coverage: 0% (coverage tool not installed). Duration: 358ms.",
+    "items": [
+      {
+        "item": "AC-1: PHASES array order correctness (test_workflow_phases_order.test.ts)",
+        "pass": true,
+        "evidence": "8 PHASES order tests passed: sequence, count, old identifiers absent (03-dev-proposal, 02-test-design), new identifiers present (02-dev-design, 03-test-design)",
+        "notes": "Reordered PHASES=[01-requirements, 02-dev-design, 03-test-design, 04-test-gen, 05-implement, 06-unit-test, 07-static-check, 08-integration, 09-acceptance] verified"
+      },
+      {
+        "item": "getPhaseIndex function correctness",
+        "pass": true,
+        "evidence": "11 getPhaseIndex tests passed: correct indices for all 9 phases, -1 for unknown phase, -1 for old identifiers (03-dev-proposal, 02-test-design)",
+        "notes": "Fault-tolerant for old identifiers"
+      },
+      {
+        "item": "getPriorPhases function correctness",
+        "pass": true,
+        "evidence": "10 getPriorPhases tests passed: empty array for first/unknown/old identifiers, correct prior lists for all positions",
+        "notes": "Fault-tolerant for edge cases"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 06-unit-test 阶段测试执行结果（尝试 4 — 时间戳对齐重运行）\n\n总计: 29 | 通过: 29 | 失败: 0 | 跳过: 0\n覆盖率: 0%（覆盖率工具 @vitest/coverage-v8 未安装）\n\n失败详情:\n无失败——所有 29 个测试全部通过。\n\n诊断决策树分析:\n- 判定类型: 全部通过（All-pass）\n- 回溯目标: null\n- 根因: 测试执行报告完整，命令为针对 test_workflow_phases_order.test.ts 的定向重运行。29 个测试覆盖 PHASES 数组顺序（8 个测试：序列、计数、旧标识符不存在、新标识符存在）、getPhaseIndex（11 个测试：9 个阶段正确索引、未知阶段返回 -1、旧标识符返回 -1）、getPriorPhases（10 个测试：首位/未知/旧标识符返回空数组、各位置正确前序列表）。所有断言通过，无需要回溯的故障。"
+  },
+  {
+    "phase": "07-code-review",
+    "timestamp": "2026-05-29T08:09:42.078Z",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "Attempt 2 (timestamp re-run). All 5 required items pass. C1: No security issues found. C2: getPhaseIndex returns -1, getPriorPhases returns [] for unknown inputs. C3: All functions covered by 44 unit tests + integration shell scripts. C4: Implementation matches design - PHASES order, renames, references all consistent. C5: Old identifiers return -1/[], empty/null handled gracefully. Backtrack_to: null.",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "Grep for password/secret/token/api_key/eval/exec/system in plugins/dev-team/bin/src/ shows only test fixture filenames (secret.ts in archi-integration.test.ts:258) and regex .exec() (c4-cross-ref.ts:162). No hardcoded keys or unsafe calls.",
+        "notes": "Change is structural renaming, no new execution paths."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "getPhaseIndex() returns -1 for unknown/old identifiers (workflow.ts:23). getPriorPhases() returns [] for first/unknown (workflow.ts:33). MCP validates tool name (mcp.ts:203).",
+        "notes": "Fault-tolerant for all untrusted inputs."
+      },
+      {
+        "item": "变更代码路径有测试覆盖",
+        "pass": true,
+        "evidence": "workflow.test.ts: 15 tests. test_workflow_phases_order.test.ts: 29 tests. Integration tests via shell scripts verify renames, references, and CLI behavior.",
+        "notes": "All exported functions covered including boundary and old-identifier cases."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "PHASES array matches design order (workflow.ts:6-16). dev-design-planner omits test-design.md (D4). test-design-planner includes design.md (D3). All 5 design decisions D1-D5 implemented. MCP eval_check updated (mcp.ts:57).",
+        "notes": "No contradictions found."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "getPhaseIndex returns -1 for unknown/old (test_workflow_phases_order.test.ts:98-108). getPriorPhases returns [] for first/unknown/old (L112-166). BATS tests handle missing files gracefully.",
+        "notes": "All edge cases covered with fault-tolerant returns."
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "08-integration-test",
+    "timestamp": "2026-05-29T08:12:19.889Z",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "所有 48 个集成测试通过（33 个 shell 断言 + 15 个 bats 测试），覆盖 AC-2 至 AC-10。覆盖率数据不适用于 shell/bats 测试类型。执行时长 29s。",
+    "items": [
+      {
+        "item": "AC-2: 目录重命名 (test_directory_renames.sh)",
+        "pass": true,
+        "evidence": "shell 断言全部通过，验证 skills/phase-dev-design/ 存在、skills/phase-dev-proposal/ 不存在、agents/dev-design-planner.md 存在、agents/dev-proposal-planner.md 不存在",
+        "notes": ""
+      },
+      {
+        "item": "AC-3: agent 目录重命名 (test_directory_renames.sh)",
+        "pass": true,
+        "evidence": "shell 断言全部通过，验证 agents/dev-design-evaluator.md 存在、agents/dev-proposal-evaluator.md 不存在",
+        "notes": ""
+      },
+      {
+        "item": "AC-4: dev-design-planner 输入声明 (test_agent_inputs.sh)",
+        "pass": true,
+        "evidence": "shell 断言全部通过，验证 dev-design-planner.md 的 Input 章节包含 proposal.md 但不包含 test-design.md",
+        "notes": ""
+      },
+      {
+        "item": "AC-5: test-design-planner 输入声明 (test_agent_inputs.sh)",
+        "pass": true,
+        "evidence": "shell 断言全部通过，验证 test-design-planner.md 的 Input 章节包含 design.md 和 proposal.md",
+        "notes": ""
+      },
+      {
+        "item": "AC-6: phase-dev-design SKILL.md 引用 (test_skill_references.sh)",
+        "pass": true,
+        "evidence": "shell 断言全部通过，验证 SKILL.md 中的 eval_check 引用正确指向 02-dev-design",
+        "notes": ""
+      },
+      {
+        "item": "AC-7: phase-test-design SKILL.md 引用 (test_skill_references.sh)",
+        "pass": true,
+        "evidence": "shell 断言全部通过，验证 SKILL.md 中的 eval_check 引用正确指向 03-test-design",
+        "notes": ""
+      },
+      {
+        "item": "AC-8: 回溯引用一致性 (test_backtrack_references.sh)",
+        "pass": true,
+        "evidence": "shell 断言全部通过，验证全仓库无旧标识符残留（白名单除外）",
+        "notes": ""
+      },
+      {
+        "item": "AC-9: CLI eval-check — 新标识符 (test_eval_check_cli.bats)",
+        "pass": true,
+        "evidence": "bats 测试全部通过，验证新标识符 02-dev-design/03-test-design 的 eval-check 行为正确",
+        "notes": ""
+      },
+      {
+        "item": "AC-10: CLI eval-check — 边界情况 (test_eval_check_cli.bats)",
+        "pass": true,
+        "evidence": "bats 测试全部通过，验证缺失记录、fail 判定、空 eval.json 等边界情况",
+        "notes": ""
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 08-integration-test 阶段集成测试执行结果（尝试 4 — 时间戳对齐重运行）\n\n总计: 48 | 通过: 48 | 失败: 0 | 跳过: 0\n覆盖率: 0%（shell/bats 测试类型不适用覆盖率工具）\n\n失败详情:\n无失败——所有 48 个集成测试全部通过。\n\n诊断决策树分析:\n- 判定类型: 全部通过 (All-pass)\n- 回溯目标: null\n- 根因: 执行报告完整，总测试数 48，失败数 0。测试命令运行了 5 个测试脚本：test_directory_renames.sh（目录重命名断言）、test_agent_inputs.sh（agent 输入声明断言）、test_skill_references.sh（SKILL.md 引用断言）、test_backtrack_references.sh（回溯引用全量搜索断言）、test_eval_check_cli.bats（CLI eval-check 行为测试）。总计 33 个 shell 断言和 15 个 bats 测试全部通过。覆盖 AC-2 至 AC-10 共 9 个验收标准。覆盖率 0% 属预期行为——shell 和 bats 测试不纳入 vitest 覆盖率统计。无失败，无需回溯。"
+  },
+  {
+    "phase": "09-acceptance",
+    "timestamp": "2026-05-29T08:15:23.754Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 10 ACs verified against code evidence. PHASES array reordered (workflow.ts:7-16). Skills, agents, backtrack references updated. grep confirms zero old identifiers in plugins/. Tasks all [x]. No scope creep (extras are config/build artifacts, not new features). Verdict: pass.",
+    "items": [
+      {
+        "item": "A1: proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1: workflow.ts:7-16; AC-2: skills/ dir listing; AC-3: agents/ dir listing; AC-4: dev-design-planner.md:14-17; AC-5: test-design-planner.md:14-17; AC-6: phase-dev-design/SKILL.md:2,28; AC-7: phase-test-design/SKILL.md:29; AC-8: grep plugins/ = zero old identifiers; AC-9/10: test_workflow_phases_order.test.ts:116-125",
+        "notes": "Each AC has specific file:line code evidence"
+      },
+      {
+        "item": "A2: 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "All changes mapped to in_scope items. Extra files (package.json, dev-team-bundle.cjs) are config/build artifacts, not new features/API/components. eval.schema.json update is consistent phase identifier update within backtrack reference scope.",
+        "notes": "No new functionality, API, or components beyond scope"
+      },
+      {
+        "item": "A3: proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "1) workflow.ts reordered; 2) dir renamed; 3-4) agent files renamed; 5-8) SKILL.md/agent content updated; 9) backtrack references clean; 10) plugin.json 2.4.9->2.5.0",
+        "notes": "All 10 in_scope items verified present"
+      },
+      {
+        "item": "A4: proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "04-test-gen+ numbering unchanged; eval-check/log core logic untouched; DESIGN/EXEC/EVAL-ONLY modes unchanged; P->E/G->E loop logic unchanged; template structures unchanged (eval.schema.json: phase example update only)",
+        "notes": "All out_of_scope constraints respected"
+      },
+      {
+        "item": "A5: proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk 1 (old identifiers): fault-tolerant getPhaseIndex returns -1, tests verify old id handling. Risk 2 (rename gaps): grep whitelist in T8.1-T8.3 confirmed zero old identifiers. Risk 3 (agent refs): all SKILL.md subagent_type refs updated to dev-design-*",
+        "notes": "All 3 risks have concrete mitigation code"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  }
+]

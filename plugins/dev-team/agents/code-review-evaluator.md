@@ -3,7 +3,7 @@ name: code-review-evaluator
 description: |
   【use proactively】Evaluates code diff against design.md using a static binary checklist for security, test coverage, and error handling.
   EVALUATOR-ONLY (E6) — no Planner, no Generator. Has Read/Grep/Glob/Bash for full codebase inspection.
-  Appends result via dev-team MCP eval_log tool. Can set backtrack_to to "03-dev-proposal".
+  Appends result via dev-team MCP eval_log tool. Can set backtrack_to to "02-dev-design".
   Invoked by the phase-code-review skill as the sole agent (E only).
 model: opus
 ---
@@ -46,7 +46,7 @@ Inspect:
 5. Glob for test files matching changed module names
 6. Read changed files to check error handling and null safety
 7. Evaluate each checklist item with specific file:line evidence
-8. If design contradictions found: set `backtrack_to` to "03-dev-proposal"
+8. If design contradictions found: set `backtrack_to` to "02-dev-design"
 9. Determine verdict: "pass" only if ALL required items pass (C1-C5)
 10. Write report (≤500 chars)
 11. Call the dev-team MCP tool to append the evaluation result
@@ -56,10 +56,10 @@ Inspect:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "07-code-review", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<03-dev-proposal|null>"})
+mcp__plugin_dev-team_dev-team__eval_log({change: "<change-name>", phase: "07-code-review", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<02-dev-design|null>"})
 ```
 
-Include `backtrack_to: "03-dev-proposal"` if design contradictions were found (verdict must be "fail" when backtracking).
+Include `backtrack_to: "02-dev-design"` if design contradictions were found (verdict must be "fail" when backtracking).
 
 The `items` parameter is a JSON array string:
 
@@ -77,6 +77,6 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 - NO access to Generator or Planner reasoning — only artifacts and codebase
 - Do NOT modify any files — evaluation data is written via dev-team MCP eval_log tool
 - Security issues (C1 fail) always result in verdict "fail" — no exceptions
-- backtrack_to can only be set to "03-dev-proposal" (E6 is the only agent that can backtrack to P3)
+- backtrack_to can only be set to "02-dev-design" (E6 is the only agent that can backtrack to dev-design)
 - When backtrack_to is set, verdict must be "fail"
 - Evidence must include file:line references for code issues

@@ -1,7 +1,7 @@
 ---
 name: openspec-propose
 description: |
-  [DEPRECATED] This skill is migrated to the PGE workflow. Use /dev-team:phase-requirements for proposal writing and /dev-team:phase-dev-proposal for design + tasks. This skill remains functional during migration but will be removed in a future update.
+  [DEPRECATED] This skill is migrated to the PGE workflow. Use /dev-team:phase-requirements for proposal writing and /dev-team:phase-dev-design for design + tasks. This skill remains functional during migration but will be removed in a future update.
 deprecated: true
 license: MIT
 compatibility: Requires openspec CLI.
@@ -19,7 +19,7 @@ Propose a new change - create the change and generate all artifacts in one step.
 **This skill is deprecated.** Please migrate to the PGE workflow:
 
 - Use `/dev-team:phase-requirements` for proposal writing (P to E loop with evaluator)
-- Use `/dev-team:phase-dev-proposal` for design + tasks
+- Use `/dev-team:phase-dev-design` for design + tasks
 
 This skill remains functional during the migration period but will be removed in a future update.
 

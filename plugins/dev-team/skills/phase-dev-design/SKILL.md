@@ -1,7 +1,7 @@
 ---
-name: phase-dev-proposal
+name: phase-dev-design
 description: |
-  DESIGN phase (P→E): dev-proposal-planner writes design.md + tasks.md, then evaluator checks.
+  DESIGN phase (P→E): dev-design-planner writes design.md + tasks.md, then evaluator checks.
   Loops on fail until pass.
 license: MIT
 disable-model-invocation: true
@@ -10,12 +10,12 @@ metadata:
   version: "1.0"
 ---
 
-Dev proposal phase — Planner writes design.md + tasks.md, Evaluator checks.
+Dev design phase — Planner writes design.md + tasks.md, Evaluator checks.
 
 ## Usage
 
 ```
-/dev-team:phase-dev-proposal [change-name]
+/dev-team:phase-dev-design [change-name]
 ```
 
 ## Steps
@@ -25,10 +25,10 @@ If a name is provided, use it. Otherwise run `openspec list --json` and prompt u
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="03-dev-proposal". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="02-dev-design". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. Check backtrack
-Read eval.json for `backtrack_to` = "03-dev-proposal". If found, run Evaluator first.
+Read eval.json for `backtrack_to` = "02-dev-design". If found, run Evaluator first.
 
 ### 4. P→E Loop
 
@@ -36,7 +36,7 @@ Read eval.json for `backtrack_to` = "03-dev-proposal". If found, run Evaluator f
 ```
 Agent({
   description: "Write design.md and tasks.md",
-  subagent_type: "dev-team:dev-proposal-planner",
+  subagent_type: "dev-team:dev-design-planner",
   prompt: "Write design.md and tasks.md for change '<name>'."
 })
 ```
@@ -45,12 +45,12 @@ Agent({
 ```
 Agent({
   description: "Evaluate design.md",
-  subagent_type: "dev-team:dev-proposal-evaluator",
+  subagent_type: "dev-team:dev-design-evaluator",
   prompt: "Evaluate design.md and tasks.md for change '<name>' against proposal.md. Append result to eval.json."
 })
 ```
 
-**4c. Verdict:** Read latest phase "03-dev-proposal" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
+**4c. Verdict:** Read latest phase "02-dev-design" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
 
 ### 5. Report
 Show verdict, pass/total, and notes.

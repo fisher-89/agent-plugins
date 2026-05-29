@@ -5,8 +5,8 @@
  */
 export const PHASES: readonly string[] = [
   "01-requirements",
-  "02-test-design",
-  "03-dev-proposal",
+  "02-dev-design",
+  "03-test-design",
   "04-test-gen",
   "05-implement",
   "06-unit-test",

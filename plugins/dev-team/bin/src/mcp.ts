@@ -54,7 +54,7 @@ const TOOLS: ToolDefinition[] = [
       type: "object",
       properties: {
         change: { type: "string", description: "Change name (corresponds to openspec/changes/<name>)" },
-        phase: { type: "string", description: "Phase identifier (e.g. 03-dev-proposal)" },
+        phase: { type: "string", description: "Phase identifier (e.g. 02-dev-design)" },
       },
       required: ["change", "phase"],
     },

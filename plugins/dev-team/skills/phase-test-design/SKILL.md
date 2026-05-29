@@ -26,7 +26,7 @@ If a change name is provided, use it. Otherwise run `openspec list --json` and p
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="02-test-design". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__eval_check` with change="<name>" and phase="03-test-design". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. P→E Loop
 
@@ -48,7 +48,7 @@ Agent({
 })
 ```
 
-**3c. Verdict:** Read latest phase "02-test-design" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
+**3c. Verdict:** Read latest phase "03-test-design" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
 
 ### 4. Report
 

@@ -5,7 +5,7 @@ The system SHALL route phase skill invocations to their corresponding agents in 
 The system SHALL support the following skill-to-agent mappings:
 - `phase-requirements` → `requirements-planner` → `requirements-evaluator` (DESIGN: P→E)
 - `phase-test-design` → `test-design-planner` → `test-design-evaluator` (DESIGN: P→E)
-- `phase-dev-proposal` → `dev-proposal-planner` → `dev-proposal-evaluator` (DESIGN: P→E)
+- `phase-dev-design` → `dev-design-planner` → `dev-design-evaluator` (DESIGN: P→E)
 - `phase-test-gen` → `test-gen-generator` → `test-gen-evaluator` (EXECUTION: G→E)
 - `phase-implement` → `implementation-generator` → `implementation-evaluator` (EXECUTION: G→E)
 - `phase-code-review` → `code-review-evaluator` (EVALUATOR-ONLY: E)

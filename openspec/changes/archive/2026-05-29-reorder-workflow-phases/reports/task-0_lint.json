@@ -1,0 +1,14 @@
+{
+  "schema": "openspec-step-report/v1",
+  "change": "reorder-workflow-phases",
+  "task_id": "0",
+  "step": "lint",
+  "status": "pass",
+  "timestamp": "2026-05-29T08:04:34.373689+00:00",
+  "duration_ms": 116,
+  "details": {
+    "errors": 0,
+    "warnings": 0,
+    "linters": []
+  }
+}
