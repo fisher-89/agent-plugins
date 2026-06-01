@@ -1,4 +1,4 @@
-import * as path from "path";
+import * as path from 'path';
 
 /**
  * Resolve the root directory for a change.
@@ -7,9 +7,11 @@ import * as path from "path";
 function resolveChangeDir(changeName: string): string {
   const projectRoot = process.env.CLAUDE_PROJECT_DIR || process.cwd();
   if (!projectRoot) {
-    throw new Error(`无法获取工程目录,process.env.CLAUDE_PROJECT_DIR=${process.env.CLAUDE_PROJECT_DIR}`);
+    throw new Error(
+      `无法获取工程目录,process.env.CLAUDE_PROJECT_DIR=${process.env.CLAUDE_PROJECT_DIR}`,
+    );
   }
-  return path.resolve(projectRoot, "openspec", "changes", changeName);
+  return path.resolve(projectRoot, 'openspec', 'changes', changeName);
 }
 
 /**

@@ -3,13 +3,14 @@
  * Ported from Python archi-model.py --command write.
  */
 
-import * as fs from "fs";
-import * as path from "path";
-import { validateDsl } from "./archi-validate";
-import type { ArchiWriteResult } from "./c4-types";
+import * as fs from 'fs';
+import * as path from 'path';
 
-const ARCHITECTURE_DIR = "openspec/specs/architecture";
-const MODELS_DIR = path.join(ARCHITECTURE_DIR, "models");
+import { validateDsl } from './archi-validate';
+import type { ArchiWriteResult } from './c4-types';
+
+const ARCHITECTURE_DIR = 'openspec/specs/architecture';
+const MODELS_DIR = path.join(ARCHITECTURE_DIR, 'models');
 
 /**
  * Write DSL text to a specific file in models/ after validation.
@@ -38,7 +39,7 @@ export async function writeDsl(
   if (!validation.valid) {
     return {
       success: false,
-      error: validation.error || validation.errors?.join("; ") || "Validation failed",
+      error: validation.error || validation.errors?.join('; ') || 'Validation failed',
       validation,
     };
   }
@@ -47,7 +48,7 @@ export async function writeDsl(
   fs.mkdirSync(modelsDir, { recursive: true });
 
   // Write file
-  fs.writeFileSync(fullPath, dslText, "utf-8");
+  fs.writeFileSync(fullPath, dslText, 'utf-8');
 
   return { success: true, path: fullPath };
 }

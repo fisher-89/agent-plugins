@@ -1,8 +1,8 @@
-import * as fs from "fs";
-import * as path from "path";
+import * as fs from 'fs';
+import * as path from 'path';
 
-const EVAL_JSON_FILE = "eval.json";
-const SCHEMA_VERSION = "1.0";
+const EVAL_JSON_FILE = 'eval.json';
+const SCHEMA_VERSION = '1.0';
 
 export interface Item {
   item: string;
@@ -38,7 +38,7 @@ export function readEvalJson(changeDir: string): any[] {
   if (!fs.existsSync(filePath)) {
     return [];
   }
-  const raw = fs.readFileSync(filePath, "utf-8");
+  const raw = fs.readFileSync(filePath, 'utf-8');
   try {
     const parsed = JSON.parse(raw);
     if (!Array.isArray(parsed)) {
@@ -59,10 +59,10 @@ export function readEvalJson(changeDir: string): any[] {
  * Throws an error if invalid.
  */
 export function validateVerdict(verdict: any, skipped?: boolean): void {
-  if (verdict !== "pass" && verdict !== "fail") {
+  if (verdict !== 'pass' && verdict !== 'fail') {
     throw new Error(`verdict 必须为 "pass" 或 "fail"，但收到: ${JSON.stringify(verdict)}`);
   }
-  if (skipped && verdict !== "pass") {
+  if (skipped && verdict !== 'pass') {
     throw new Error(`skipped=true 时 verdict 必须为 "pass"，但收到: ${JSON.stringify(verdict)}`);
   }
 }
@@ -151,7 +151,7 @@ export function computeAttempt(entries: any[], phase: string, explicitAttempt?: 
 export function checkGate(entries: any[], priorPhases: string[]): GateResult {
   const missing: string[] = [];
   for (const phase of priorPhases) {
-    const hasPass = entries.some((e: any) => e.phase === phase && e.verdict === "pass");
+    const hasPass = entries.some((e: any) => e.phase === phase && e.verdict === 'pass');
     if (!hasPass) {
       missing.push(phase);
     }
@@ -180,5 +180,5 @@ export function appendEntry(changeDir: string, entry: object): void {
   }
 
   data.push(entry);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + "\n", "utf-8");
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
 }

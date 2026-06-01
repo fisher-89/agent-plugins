@@ -5,10 +5,12 @@
  * (LikeC4 requires single quotes). Everything else is already LikeC4-compatible.
  */
 
-import * as fs from "node:fs";
-import * as path from "node:path";
-import { type C4ParseResult } from "./c4-types";
-import { fromSource } from "@likec4/language-services";
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { fromSource } from '@likec4/language-services';
+
+import { type C4ParseResult } from './c4-types';
 
 // ---------------------------------------------------------------------------
 // Preprocessor — minimal: convert "desc" to 'desc' in relationships
@@ -23,15 +25,15 @@ function preprocessForLikeC4(dsl: string): string {
 // Public API — file management
 // ---------------------------------------------------------------------------
 
-const ARCHITECTURE_DIR = "openspec/specs/architecture";
-const MODELS_DIR = path.join(ARCHITECTURE_DIR, "models");
+const ARCHITECTURE_DIR = 'openspec/specs/architecture';
+const MODELS_DIR = path.join(ARCHITECTURE_DIR, 'models');
 
 export function getModelFiles(projectRoot: string): { filename: string; filepath: string }[] {
   const modelsDir = path.resolve(projectRoot, MODELS_DIR);
   if (!fs.existsSync(modelsDir)) return [];
   return fs
     .readdirSync(modelsDir)
-    .filter((f) => f.endsWith(".c4"))
+    .filter((f) => f.endsWith('.c4'))
     .sort()
     .map((f) => ({ filename: f, filepath: path.join(modelsDir, f) }));
 }
@@ -40,14 +42,14 @@ export function readAllModels(projectRoot: string): string | null {
   const files = getModelFiles(projectRoot);
   if (files.length === 0) return null;
 
-  const contents = files.map((f) => fs.readFileSync(f.filepath, "utf-8"));
+  const contents = files.map((f) => fs.readFileSync(f.filepath, 'utf-8'));
 
   // If only one file, return as-is
   if (contents.length === 1) return contents[0];
 
   // Merge multiple files: extract specification from first file,
   // and merge model blocks from all files into a single model { } block
-  let spec = "";
+  let spec = '';
   const modelContents: string[] = [];
 
   for (const content of contents) {
@@ -63,8 +65,8 @@ export function readAllModels(projectRoot: string): string | null {
       let depth = 1;
       let i = 0;
       for (; i < inner.length && depth > 0; i++) {
-        if (inner[i] === "{") depth++;
-        if (inner[i] === "}") depth--;
+        if (inner[i] === '{') depth++;
+        if (inner[i] === '}') depth--;
       }
       modelContents.push(inner.slice(0, i - 1).trim());
     } else if (content.trim()) {
@@ -73,13 +75,13 @@ export function readAllModels(projectRoot: string): string | null {
     }
   }
 
-  return (spec ? spec + "\n" : "") + "model {\n" + modelContents.join("\n\n") + "\n}";
+  return (spec ? spec + '\n' : '') + 'model {\n' + modelContents.join('\n\n') + '\n}';
 }
 
 export function findSpecificationBlock(projectRoot: string): string | null {
   const files = getModelFiles(projectRoot);
   for (const f of files) {
-    const content = fs.readFileSync(f.filepath, "utf-8");
+    const content = fs.readFileSync(f.filepath, 'utf-8');
     const specMatch = content.match(/specification\s*\{[\s\S]*?\n\}/);
     if (specMatch) return specMatch[0];
   }
@@ -107,7 +109,7 @@ export async function parseC4Dsl(dslText: string): Promise<C4ParseResult> {
     // Only keep parse-level errors (not model validation warnings)
     const allErrors = likec4.getErrors().map((e: { message: string }) => e.message);
     result.errors = allErrors.filter(
-      (m: string) => m.startsWith("Expecting") || m.includes("Unexpected") || m.includes("token"),
+      (m: string) => m.startsWith('Expecting') || m.includes('Unexpected') || m.includes('token'),
     );
 
     const model = likec4.syncComputedModel();
@@ -119,7 +121,7 @@ export async function parseC4Dsl(dslText: string): Promise<C4ParseResult> {
         for (const [key, val] of Object.entries(el.metadata)) {
           const arr = Array.isArray(val) ? val : [String(val)];
           metadata[key] = arr;
-          if (key === "path") paths.push(...arr);
+          if (key === 'path') paths.push(...arr);
         }
       }
 
@@ -159,7 +161,7 @@ export async function validateC4Dsl(
 ): Promise<C4ParseResult & { valid: boolean }> {
   const errors: string[] = [];
 
-  if (!dslText.includes("specification")) {
+  if (!dslText.includes('specification')) {
     errors.push("Missing 'specification' block");
   }
 
@@ -174,7 +176,7 @@ export async function validateC4Dsl(
         .map((e: { message: string }) => e.message)
         .filter(
           (m: string) =>
-            m.startsWith("Expecting") || m.includes("Unexpected") || m.includes("token"),
+            m.startsWith('Expecting') || m.includes('Unexpected') || m.includes('token'),
         ),
     );
 
@@ -182,12 +184,12 @@ export async function validateC4Dsl(
       const files = getModelFiles(projectRoot);
       if (files.length > 1) {
         const specFiles = files.filter((f) =>
-          fs.readFileSync(f.filepath, "utf-8").includes("specification"),
+          fs.readFileSync(f.filepath, 'utf-8').includes('specification'),
         );
         if (specFiles.length > 1) {
           errors.push(
-            `Duplicate 'specification' blocks found in files: ${specFiles.map((f) => f.filename).join(", ")}. ` +
-              "Only one file may contain a specification block.",
+            `Duplicate 'specification' blocks found in files: ${specFiles.map((f) => f.filename).join(', ')}. ` +
+              'Only one file may contain a specification block.',
           );
         }
       }
@@ -209,6 +211,6 @@ export async function validateC4Dsl(
 
 function normalizePath(p: string): string {
   let s = p.trim();
-  if (s.startsWith("./")) s = s.slice(2);
-  return s.replace(/[/\\]$/, "");
+  if (s.startsWith('./')) s = s.slice(2);
+  return s.replace(/[/\\]$/, '');
 }

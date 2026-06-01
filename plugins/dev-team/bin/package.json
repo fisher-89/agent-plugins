@@ -11,7 +11,9 @@
     "check": "vp check --fix"
   },
   "dependencies": {
-    "@likec4/language-services": "^1.57.0"
+    "@likec4/language-services": "^1.57.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "zod": "^4.4.3"
   },
   "devDependencies": {
     "bundle-require": "^5.1.0",

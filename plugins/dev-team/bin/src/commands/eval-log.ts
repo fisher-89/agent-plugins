@@ -1,3 +1,4 @@
+import { getChangeDir } from '../lib/change';
 import {
   readEvalJson,
   validateVerdict,
@@ -7,9 +8,8 @@ import {
   computeAttempt,
   checkGate,
   appendEntry,
-} from "../lib/eval-json";
-import { getPriorPhases } from "../lib/workflow";
-import { getChangeDir } from "../lib/change";
+} from '../lib/eval-json';
+import { getPriorPhases } from '../lib/workflow';
 
 export interface EvalLogOptions {
   change: string;
@@ -34,10 +34,10 @@ export interface EvalLogResult {
  * Extracted so both CLI and MCP server can call the same logic.
  */
 export function runEvalLog(options: EvalLogOptions): EvalLogResult {
-  const REQUIRED_ARGS = ["change", "phase", "verdict", "report", "items"] as const;
-  const missing = REQUIRED_ARGS.filter((r) => !(options as any)[r] || (options as any)[r] === "");
+  const REQUIRED_ARGS = ['change', 'phase', 'verdict', 'report', 'items'] as const;
+  const missing = REQUIRED_ARGS.filter((r) => !(options as any)[r] || (options as any)[r] === '');
   if (missing.length > 0) {
-    throw new Error(`缺少必填参数: --${missing.join(", --")}`);
+    throw new Error(`缺少必填参数: --${missing.join(', --')}`);
   }
 
   validateVerdict(options.verdict, options.skipped === true);
@@ -58,9 +58,7 @@ export function runEvalLog(options: EvalLogOptions): EvalLogResult {
   if (priorPhases.length > 0) {
     const gate = checkGate(entries, priorPhases);
     if (!gate.passed) {
-      throw new Error(
-        `门控检查未通过 - 以下前置阶段缺少 pass 记录: ${gate.missing.join(", ")}`,
-      );
+      throw new Error(`门控检查未通过 - 以下前置阶段缺少 pass 记录: ${gate.missing.join(', ')}`);
     }
   }
 

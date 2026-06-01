@@ -3,8 +3,8 @@
  * Ported from Python archi-model.py --command validate.
  */
 
-import { readAllModels, validateC4Dsl, findSpecificationBlock } from "./c4-parser";
-import type { ArchiValidateResult } from "./c4-types";
+import { readAllModels, validateC4Dsl, findSpecificationBlock } from './c4-parser';
+import type { ArchiValidateResult } from './c4-types';
 
 /**
  * Validate DSL syntax.
@@ -21,16 +21,16 @@ export async function validateDsl(
   if (dslText !== undefined) {
     sourceText = dslText;
     // If source lacks a specification block, prepend it from existing model files
-    if (!sourceText.includes("specification")) {
+    if (!sourceText.includes('specification')) {
       const specBlock = findSpecificationBlock(projectRoot);
       if (specBlock) {
-        sourceText = specBlock + "\n" + sourceText;
+        sourceText = specBlock + '\n' + sourceText;
       }
     }
   } else {
     sourceText = readAllModels(projectRoot);
     if (sourceText === null) {
-      return { valid: false, error: "No model files found" };
+      return { valid: false, error: 'No model files found' };
     }
   }
 

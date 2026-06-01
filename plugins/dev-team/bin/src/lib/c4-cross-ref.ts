@@ -10,63 +10,64 @@
  * Ported from Python archi-validate.py.
  */
 
-import * as fs from "fs";
-import * as path from "path";
-import { execSync } from "child_process";
-import { readAllModels, parseC4Dsl } from "./c4-parser";
+import { execSync } from 'child_process';
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { readAllModels, parseC4Dsl } from './c4-parser';
 import type {
   C4Element,
   C4Relation,
   C4ParseResult,
   CrossRefViolation,
   ArchiCheckResult,
-} from "./c4-types";
+} from './c4-types';
 
 // Python stdlib modules for filtering
 const PYTHON_STDLIB = new Set([
-  "os",
-  "sys",
-  "re",
-  "json",
-  "math",
-  "time",
-  "datetime",
-  "collections",
-  "itertools",
-  "functools",
-  "typing",
-  "io",
-  "pathlib",
-  "shutil",
-  "subprocess",
-  "argparse",
-  "logging",
-  "unittest",
-  "abc",
-  "base64",
-  "hashlib",
-  "random",
-  "threading",
-  "multiprocessing",
-  "asyncio",
-  "socket",
-  "http",
-  "urllib",
-  "xml",
-  "html",
-  "csv",
-  "configparser",
-  "copy",
-  "enum",
-  "gc",
-  "inspect",
-  "struct",
-  "tempfile",
-  "textwrap",
-  "traceback",
-  "uuid",
-  "warnings",
-  "zipfile",
+  'os',
+  'sys',
+  're',
+  'json',
+  'math',
+  'time',
+  'datetime',
+  'collections',
+  'itertools',
+  'functools',
+  'typing',
+  'io',
+  'pathlib',
+  'shutil',
+  'subprocess',
+  'argparse',
+  'logging',
+  'unittest',
+  'abc',
+  'base64',
+  'hashlib',
+  'random',
+  'threading',
+  'multiprocessing',
+  'asyncio',
+  'socket',
+  'http',
+  'urllib',
+  'xml',
+  'html',
+  'csv',
+  'configparser',
+  'copy',
+  'enum',
+  'gc',
+  'inspect',
+  'struct',
+  'tempfile',
+  'textwrap',
+  'traceback',
+  'uuid',
+  'warnings',
+  'zipfile',
 ]);
 
 /**
@@ -79,7 +80,7 @@ async function loadModel(projectRoot: string): Promise<C4ParseResult> {
       elements: [],
       relationships: [],
       path_to_element: {},
-      errors: ["Model not found: models/ directory does not exist or contains no .c4 files"],
+      errors: ['Model not found: models/ directory does not exist or contains no .c4 files'],
     };
   }
   return parseC4Dsl(dsl);
@@ -90,8 +91,8 @@ async function loadModel(projectRoot: string): Promise<C4ParseResult> {
  */
 function normalizePath(p: string): string {
   let s = p.trim();
-  if (s.startsWith("./")) s = s.slice(2);
-  return s.replace(/[/\\]$/, "");
+  if (s.startsWith('./')) s = s.slice(2);
+  return s.replace(/[/\\]$/, '');
 }
 
 /**
@@ -107,13 +108,13 @@ function getChangedFiles(
 
   if (options.staged) {
     try {
-      const result = execSync("git diff --cached --name-only", {
+      const result = execSync('git diff --cached --name-only', {
         cwd: projectRoot,
-        encoding: "utf-8",
+        encoding: 'utf-8',
         timeout: 10000,
       });
       return result
-        .split("\n")
+        .split('\n')
         .map((s) => s.trim())
         .filter(Boolean);
     } catch {
@@ -133,7 +134,7 @@ function parseImports(filepath: string, projectRoot: string): string[] {
 
   let content: string;
   try {
-    content = fs.readFileSync(fullPath, "utf-8");
+    content = fs.readFileSync(fullPath, 'utf-8');
   } catch {
     return [];
   }
@@ -141,9 +142,9 @@ function parseImports(filepath: string, projectRoot: string): string[] {
   const ext = path.extname(filepath).toLowerCase();
   const imports: string[] = [];
 
-  if ([".ts", ".tsx", ".js", ".jsx", ".mjs", ".cjs"].includes(ext)) {
+  if (['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'].includes(ext)) {
     imports.push(...parseJsImports(content));
-  } else if ([".py", ".pyi"].includes(ext)) {
+  } else if (['.py', '.pyi'].includes(ext)) {
     imports.push(...parsePythonImports(content));
   }
 
@@ -161,7 +162,7 @@ function parseJsImports(content: string): string[] {
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     const target = match[1];
-    if (target && (target.startsWith("./") || target.startsWith("..") || target.startsWith("@/"))) {
+    if (target && (target.startsWith('./') || target.startsWith('..') || target.startsWith('@/'))) {
       imports.push(target);
     }
   }
@@ -170,7 +171,7 @@ function parseJsImports(content: string): string[] {
   const requirePattern = /require\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
   while ((match = requirePattern.exec(content)) !== null) {
     const target = match[1];
-    if (target && (target.startsWith("./") || target.startsWith("..") || target.startsWith("@/"))) {
+    if (target && (target.startsWith('./') || target.startsWith('..') || target.startsWith('@/'))) {
       imports.push(target);
     }
   }
@@ -189,10 +190,10 @@ function parsePythonImports(content: string): string[] {
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(content)) !== null) {
     const target = match[1];
-    if (target.startsWith(".")) {
+    if (target.startsWith('.')) {
       imports.push(target);
     } else {
-      const top = target.split(".")[0];
+      const top = target.split('.')[0];
       if (!PYTHON_STDLIB.has(top)) {
         imports.push(target);
       }
@@ -208,10 +209,10 @@ function parsePythonImports(content: string): string[] {
 function resolveImportToPath(sourceFile: string, importTarget: string): string | null {
   const sourceDir = path.dirname(sourceFile);
 
-  if (importTarget.startsWith("./") || importTarget.startsWith("..")) {
+  if (importTarget.startsWith('./') || importTarget.startsWith('..')) {
     const resolved = path.normalize(path.join(sourceDir, importTarget));
-    return resolved.replace(/\\/g, "/");
-  } else if (importTarget.startsWith("@/")) {
+    return resolved.replace(/\\/g, '/');
+  } else if (importTarget.startsWith('@/')) {
     return importTarget.slice(2);
   }
 
@@ -231,17 +232,17 @@ function matchPathToElement(
   if (norm in pathToElement) return pathToElement[norm];
 
   // Try as directory (append /)
-  if (norm + "/" in pathToElement) return pathToElement[norm + "/"];
+  if (norm + '/' in pathToElement) return pathToElement[norm + '/'];
 
   // Check if norm is under any registered path
   for (const [elemPath, elemName] of Object.entries(pathToElement)) {
-    if (norm.startsWith(elemPath + "/") || norm === elemPath) {
+    if (norm.startsWith(elemPath + '/') || norm === elemPath) {
       return elemName;
     }
   }
 
   // Try with common extensions
-  for (const ext of [".ts", ".tsx", ".js", ".jsx", ".py"]) {
+  for (const ext of ['.ts', '.tsx', '.js', '.jsx', '.py']) {
     const candidate = norm + ext;
     if (candidate in pathToElement) return pathToElement[candidate];
   }
@@ -266,7 +267,7 @@ function mapFilesToElements(
       const normElem = normalizePath(elemPath);
 
       // Check if file is under a directory path
-      if (normFile.startsWith(normElem + "/") || normFile.startsWith(normElem + "\\")) {
+      if (normFile.startsWith(normElem + '/') || normFile.startsWith(normElem + '\\')) {
         matched = elemName;
         break;
       }
@@ -321,7 +322,7 @@ function crossReference(
 
       if (targetElem === null) {
         warnings.push({
-          type: "unmapped_import_target",
+          type: 'unmapped_import_target',
           source: sourceElem,
           target: imp,
           file: filepath,
@@ -333,7 +334,7 @@ function crossReference(
       // Check if relationship exists
       if (!relLookup.has(`${sourceElem}::${targetElem}`)) {
         violations.push({
-          type: "unmodeled_dependency",
+          type: 'unmodeled_dependency',
           source: sourceElem,
           target: targetElem,
           file: filepath,
@@ -362,10 +363,10 @@ function crossReference(
     if (rel.source && rel.target) {
       if (!importedPairs.has(`${rel.source}::${rel.target}`)) {
         warnings.push({
-          type: "unused_relationship",
+          type: 'unused_relationship',
           source: rel.source,
           target: rel.target,
-          file: "",
+          file: '',
           description: `Model declares '${rel.source} -> ${rel.target}' but no import evidence found in changed files`,
         });
       }
@@ -375,13 +376,13 @@ function crossReference(
   // Check for path_not_found warnings
   for (const elem of elements) {
     for (const p of elem.paths) {
-      const absPath = path.resolve(projectRoot, p.replace(/^\.\//, ""));
+      const absPath = path.resolve(projectRoot, p.replace(/^\.\//, ''));
       if (!fs.existsSync(absPath)) {
         warnings.push({
-          type: "path_not_found",
+          type: 'path_not_found',
           source: elem.name,
           target: p,
-          file: "",
+          file: '',
           description: `metadata.path '${p}' for element '${elem.name}' does not exist`,
         });
       }
@@ -403,7 +404,7 @@ export async function runCrossRefCheck(
   const model = await loadModel(projectRoot);
 
   const hasError = model.errors.some(
-    (e) => e.toLowerCase().includes("not found") || e.toLowerCase().includes("not exist"),
+    (e) => e.toLowerCase().includes('not found') || e.toLowerCase().includes('not exist'),
   );
   if (hasError) {
     return {
@@ -411,7 +412,7 @@ export async function runCrossRefCheck(
       warnings: [],
       matched: [],
       unmatched_files: [],
-      status: "skipped",
+      status: 'skipped',
     };
   }
 
@@ -424,7 +425,7 @@ export async function runCrossRefCheck(
       warnings: [],
       matched: [],
       unmatched_files: [],
-      status: "no_changes",
+      status: 'no_changes',
     };
   }
 
@@ -470,6 +471,6 @@ export async function runCrossRefCheck(
     warnings: warnings.map((w) => w.description),
     matched,
     unmatched_files: unmatchedFiles,
-    status: violations.length > 0 ? "violations_found" : "clean",
+    status: violations.length > 0 ? 'violations_found' : 'clean',
   };
 }

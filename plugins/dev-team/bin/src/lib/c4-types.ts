@@ -66,10 +66,10 @@ export interface ArchiWriteResult {
  */
 export interface CrossRefViolation {
   type:
-    | "unmodeled_dependency"
-    | "unmapped_import_target"
-    | "unused_relationship"
-    | "path_not_found";
+    | 'unmodeled_dependency'
+    | 'unmapped_import_target'
+    | 'unused_relationship'
+    | 'path_not_found';
   source: string;
   target: string;
   file: string;
@@ -84,21 +84,21 @@ export interface ArchiCheckResult {
   warnings: string[];
   matched: { element_id: string; files: string[] }[];
   unmatched_files: string[];
-  status: "clean" | "violations_found" | "no_changes" | "skipped";
+  status: 'clean' | 'violations_found' | 'no_changes' | 'skipped';
 }
 
 /**
  * Element kind constants supported by the model.
  */
 export const ELEMENT_KINDS = [
-  "package",
-  "domain",
-  "module",
-  "component",
-  "softwareSystem",
-  "container",
-  "system",
-  "person",
+  'package',
+  'domain',
+  'module',
+  'component',
+  'softwareSystem',
+  'container',
+  'system',
+  'person',
 ] as const;
 
 /**

@@ -3,8 +3,8 @@
  * Ported from Python archi-model.py --command query.
  */
 
-import { readAllModels, parseC4Dsl, getModelFiles } from "./c4-parser";
-import type { C4Element, C4Relation, ArchiQueryResult } from "./c4-types";
+import { readAllModels, parseC4Dsl, getModelFiles } from './c4-parser';
+import type { C4Element, C4Relation, ArchiQueryResult } from './c4-types';
 
 /**
  * Query the model and return element structure.
@@ -16,7 +16,7 @@ export async function queryModel(
 ): Promise<ArchiQueryResult> {
   const dsl = readAllModels(projectRoot);
   if (dsl === null) {
-    return { error: "No model files found" };
+    return { error: 'No model files found' };
   }
 
   const parsed = await parseC4Dsl(dsl);

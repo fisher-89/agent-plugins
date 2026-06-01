@@ -1,16 +1,26 @@
 import { defineConfig } from 'vite-plus';
 
+const OUTPUT_FILE_NAME = 'dev-team-mcp.cjs';
+
 export default defineConfig({
-  resolve: {},
   lint: {
-    ignorePatterns: ['dev-team-mcp.cjs', 'openspec-bundled.js'],
+    ignorePatterns: [OUTPUT_FILE_NAME, 'openspec-bundled.js'],
+    options: {
+      typeCheck: true,
+      typeAware: true,
+    },
+  },
+  fmt: {
+    ignorePatterns: [OUTPUT_FILE_NAME, 'openspec-bundled.js'],
+    singleQuote: true,
+    sortImports: true,
   },
   pack: {
     entry: ['src/mcp.ts'],
     platform: 'node',
     format: 'cjs',
     outputOptions: {
-      file: 'dev-team-mcp.cjs',
+      file: OUTPUT_FILE_NAME,
     },
     deps: {
       alwaysBundle: [/.*/],

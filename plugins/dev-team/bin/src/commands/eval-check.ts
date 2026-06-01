@@ -1,9 +1,10 @@
-import * as fs from "fs";
-import { readEvalJson, checkGate, GateResult } from "../lib/eval-json";
-import { getPriorPhases, getPhaseIndex, PHASES } from "../lib/workflow";
-import { getChangeDir } from "../lib/change";
+import * as fs from 'fs';
 
-export const SCHEMA_VERSION = "1.0";
+import { getChangeDir } from '../lib/change';
+import { readEvalJson, checkGate, GateResult } from '../lib/eval-json';
+import { getPriorPhases, getPhaseIndex, PHASES } from '../lib/workflow';
+
+export const SCHEMA_VERSION = '1.0';
 
 export interface EvalCheckOptions {
   change: string;
@@ -15,7 +16,7 @@ export interface EvalCheckResult {
   phase: string;
   prior_phases: string[];
   block_reasons: string[];
-  phase_state: "first_run" | "retry" | "passed";
+  phase_state: 'first_run' | 'retry' | 'passed';
   details: {
     prior_phase_gate: { passed: boolean; missing: string[] };
     timestamp_order: { passed: boolean; order_valid: boolean };
@@ -34,7 +35,7 @@ export interface BacktrackResult {
   active_backtrack_phases: string[];
 }
 
-export type PhaseState = "first_run" | "retry" | "passed";
+export type PhaseState = 'first_run' | 'retry' | 'passed';
 
 export interface BuildEvalCheckResultOptions {
   phase: string;
@@ -71,7 +72,7 @@ export function checkTimestampOrder(entries: any[], priorPhases: string[]): Time
 
   for (const phase of priorPhases) {
     const passEntries = entries
-      .filter((e: any) => e.phase === phase && e.verdict === "pass")
+      .filter((e: any) => e.phase === phase && e.verdict === 'pass')
       .filter((e: any) => !e.skipped) // Skip no-op entries for timestamp ordering
       .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
@@ -114,7 +115,7 @@ export function checkBacktrack(entries: any[], priorPhases: string[]): Backtrack
     if (phaseEntries.length === 0) continue;
 
     const latest = phaseEntries[0];
-    if (latest.backtrack_to != null && latest.backtrack_to !== "") {
+    if (latest.backtrack_to != null && latest.backtrack_to !== '') {
       activeBacktrackPhases.push(phase);
     }
   }
@@ -137,12 +138,12 @@ export function determinePhaseState(entries: any[], currentPhase: string): Phase
     .filter((e: any) => e.phase === currentPhase)
     .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
-  if (phaseEntries.length === 0) return "first_run";
+  if (phaseEntries.length === 0) return 'first_run';
 
   const latest = phaseEntries[0];
-  if (latest.skipped) return "passed";
-  if (latest.verdict === "pass") return "passed";
-  return "retry";
+  if (latest.skipped) return 'passed';
+  if (latest.verdict === 'pass') return 'passed';
+  return 'retry';
 }
 
 /**
@@ -153,9 +154,9 @@ export function determinePhaseState(entries: any[], currentPhase: string): Phase
 export function isPhaseSkipped(entries: any[], currentPhase: string): string {
   const hasSkipped = entries.some((e: any) => e.phase === currentPhase && e.skipped === true);
   if (hasSkipped) {
-    return " (skipped: no applicable tests)";
+    return ' (skipped: no applicable tests)';
   }
-  return "";
+  return '';
 }
 
 /**
@@ -167,16 +168,16 @@ export function buildEvalCheckResult(options: BuildEvalCheckResultOptions): Eval
   const blockReasons: string[] = [];
 
   if (!gateResult.passed) {
-    blockReasons.push(`前置阶段门控未通过: 缺少 [${gateResult.missing.join(", ")}] 的 pass 记录`);
+    blockReasons.push(`前置阶段门控未通过: 缺少 [${gateResult.missing.join(', ')}] 的 pass 记录`);
   }
 
   if (!timestampResult.passed) {
     if (timestampResult.issues && timestampResult.issues.length > 0) {
       blockReasons.push(
-        `前置阶段 pass 记录时间戳未按阶段顺序单调递增: ${timestampResult.issues.join("; ")}`,
+        `前置阶段 pass 记录时间戳未按阶段顺序单调递增: ${timestampResult.issues.join('; ')}`,
       );
     } else {
-      blockReasons.push("前置阶段 pass 记录时间戳未按阶段顺序单调递增");
+      blockReasons.push('前置阶段 pass 记录时间戳未按阶段顺序单调递增');
     }
   }
 
@@ -234,18 +235,16 @@ export function checkSchemaVersion(
  * and return a structured result. Extracted so both CLI and MCP server can call it.
  */
 export function runEvalCheck(options: EvalCheckOptions): EvalCheckResult {
-  if (!options.change || options.change === "") {
-    throw new Error("缺少必填参数 --change");
+  if (!options.change || options.change === '') {
+    throw new Error('缺少必填参数 --change');
   }
-  if (!options.phase || options.phase === "") {
-    throw new Error("缺少必填参数 --phase");
+  if (!options.phase || options.phase === '') {
+    throw new Error('缺少必填参数 --phase');
   }
 
   const phaseIndex = getPhaseIndex(options.phase);
   if (phaseIndex === -1) {
-    throw new Error(
-      `无效的阶段标识符 "${options.phase}"。合法阶段: ${PHASES.join(", ")}`,
-    );
+    throw new Error(`无效的阶段标识符 "${options.phase}"。合法阶段: ${PHASES.join(', ')}`);
   }
 
   const changeDir = getChangeDir(options.change);
