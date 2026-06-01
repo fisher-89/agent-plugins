@@ -1,11 +1,11 @@
 import { z } from 'zod/v4';
 
-export const evalCheckInputSchema = {
+export const phaseCheckInputSchema = {
   change: z.string().describe('Change name (corresponds to openspec/changes/<name>)'),
   phase: z.string().describe('Phase identifier (e.g. 02-dev-design)'),
 };
 
-export const evalCheckOutputSchema = z.object({
+export const phaseCheckOutputSchema = z.object({
   passed: z.boolean().describe('Whether all gate checks passed'),
   phase: z.string().describe('The phase being checked'),
   prior_phases: z.array(z.string()).describe('Prior phases that were checked'),

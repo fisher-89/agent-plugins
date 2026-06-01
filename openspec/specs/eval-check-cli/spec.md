@@ -1,9 +1,9 @@
 ## MODIFIED Requirements
 
 ### Requirement: eval-check validates prior phase gate
-The system SHALL provide an `eval/check` MCP tool (formerly `eval_check`) that validates all prior phases have at least one entry with verdict "pass" OR `skipped: true` in eval.json before allowing the current phase to proceed.
+The system SHALL provide an `phase/check` MCP tool (formerly `eval_check`) that validates all prior phases have at least one entry with verdict "pass" OR `skipped: true` in eval.json before allowing the current phase to proceed.
 
-When invoked as `mcp__plugin_dev-team_dev-team__eval/check` with arguments `change` and `phase`, the tool SHALL perform gate check, timestamp order check, and backtrack check. The behavior and output format SHALL remain identical to the former `eval_check` tool.
+When invoked as `mcp__plugin_dev-team_dev-team__phase/check` with arguments `change` and `phase`, the tool SHALL perform gate check, timestamp order check, and backtrack check. The behavior and output format SHALL remain identical to the former `eval_check` tool.
 
 If any prior phase lacks both a pass record and a skipped record, the result SHALL indicate `passed: false` and list the missing phases.
 If all prior phases have pass or skipped records, the result SHALL indicate `passed: true`.
@@ -23,11 +23,11 @@ The prior phase sequence SHALL follow the 9-phase structure: 01-requirements, 02
 - **THEN** the command exits with code 1 and output lists "06-unit-test" as a missing phase
 
 #### Scenario: Integration-test phase gated on code-review pass
-- **WHEN** eval/check validates prior phases for "08-integration-test"
+- **WHEN** phase/check validates prior phases for "08-integration-test"
 - **THEN** it checks that "07-code-review" has a pass or skipped record before allowing integration-test to proceed
 
 ### Requirement: eval-check reports current phase state
-The system SHALL report the current phase state based on eval.json entries for the specified phase via the `eval/check` MCP tool (formerly `eval_check`):
+The system SHALL report the current phase state based on eval.json entries for the specified phase via the `phase/check` MCP tool (formerly `eval_check`):
 - `"first_run"` when the phase has no entries in eval.json
 - `"retry"` when the phase has entries but the latest entry has verdict "fail" and `skipped` is not true
 - `"passed"` when the phase has entries and the latest entry has verdict "pass" (or `skipped: true`)
@@ -53,7 +53,7 @@ This behavior SHALL apply to all 9 phases including the new unit-test (06) and i
 - **THEN** phase_state is reported as "passed"
 
 ### Requirement: eval-check --json output includes skipped state
-The JSON output via `eval/check` MCP tool SHALL contain at minimum these fields:
+The JSON output via `phase/check` MCP tool SHALL contain at minimum these fields:
 - `passed`: boolean indicating whether all checks passed
 - `phase`: the phase identifier specified
 - `prior_phases`: array of prior phase identifiers
@@ -68,16 +68,16 @@ The `skipped_phases` field SHALL be populated by scanning eval.json for entries 
 - **WHEN** JSON is returned and prior phase "08-integration-test" was skipped
 - **THEN** JSON contains `"skipped_phases": ["08-integration-test"]` and `"phase_state": "<state>"`
 
-### Requirement: eval/log 记录评估结果
-The system SHALL provide an `eval/log` MCP tool (formerly `eval_log`) that appends an evaluation result entry to eval.json for a given workflow phase. The tool SHALL be invoked as `mcp__plugin_dev-team_dev-team__eval/log`.
+### Requirement: phase/log 记录评估结果
+The system SHALL provide an `phase/log` MCP tool (formerly `eval_log`) that appends an evaluation result entry to eval.json for a given workflow phase. The tool SHALL be invoked as `mcp__plugin_dev-team_dev-team__phase/log`.
 
 The tool SHALL accept the same parameters as the former `eval_log`: change, phase, verdict, report, items, attempt, backtrack_to, skipped, findings. The behavior, validation, and output format SHALL remain identical.
 
-#### Scenario: eval/log 追加 pass 记录
-- **WHEN** `eval/log` is called with `verdict: "pass"`, valid `change` and `phase`
+#### Scenario: phase/log 追加 pass 记录
+- **WHEN** `phase/log` is called with `verdict: "pass"`, valid `change` and `phase`
 - **THEN** a pass entry is appended to `openspec/changes/<name>/eval.json`
 - **AND** the entry includes all provided fields
 
-#### Scenario: eval/log 追加 fail 记录含 backtrack
-- **WHEN** `eval/log` is called with `verdict: "fail"` and `backtrack_to: "02-dev-design"`
+#### Scenario: phase/log 追加 fail 记录含 backtrack
+- **WHEN** `phase/log` is called with `verdict: "fail"` and `backtrack_to: "02-dev-design"`
 - **THEN** a fail entry is appended with backtrack information

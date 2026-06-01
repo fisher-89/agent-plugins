@@ -6,12 +6,12 @@ import { getPriorPhases, getPhaseIndex, PHASES } from '../lib/workflow';
 
 export const SCHEMA_VERSION = '1.0';
 
-export interface EvalCheckOptions {
+export interface PhaseCheckOptions {
   change: string;
   phase: string;
 }
 
-export interface EvalCheckResult {
+export interface PhaseCheckResult {
   passed: boolean;
   phase: string;
   prior_phases: string[];
@@ -37,7 +37,7 @@ export interface BacktrackResult {
 
 export type PhaseState = 'first_run' | 'retry' | 'passed';
 
-export interface BuildEvalCheckResultOptions {
+export interface BuildPhaseCheckResultOptions {
   phase: string;
   priorPhases: string[];
   gateResult: GateResult;
@@ -160,10 +160,10 @@ export function isPhaseSkipped(entries: any[], currentPhase: string): string {
 }
 
 /**
- * Aggregate all check results into a single EvalCheckResult object.
+ * Aggregate all check results into a single PhaseCheckResult object.
  * Builds block_reasons from any failures across all checks.
  */
-export function buildEvalCheckResult(options: BuildEvalCheckResultOptions): EvalCheckResult {
+export function buildPhaseCheckResult(options: BuildPhaseCheckResultOptions): PhaseCheckResult {
   const { phase, priorPhases, gateResult, timestampResult, backtrackResult, phaseState } = options;
   const blockReasons: string[] = [];
 
@@ -231,10 +231,10 @@ export function checkSchemaVersion(
 }
 
 /**
- * Core logic for eval-check: validate args, read eval.json, run all checks,
+ * Core logic for phase-check: validate args, read eval.json, run all checks,
  * and return a structured result. Extracted so both CLI and MCP server can call it.
  */
-export function runEvalCheck(options: EvalCheckOptions): EvalCheckResult {
+export function runPhaseCheck(options: PhaseCheckOptions): PhaseCheckResult {
   if (!options.change || options.change === '') {
     throw new Error('缺少必填参数 --change');
   }
@@ -266,7 +266,7 @@ export function runEvalCheck(options: EvalCheckOptions): EvalCheckResult {
   const backtrackResult = checkBacktrack(entries, priorPhases);
   const phaseState = determinePhaseState(entries, options.phase);
 
-  return buildEvalCheckResult({
+  return buildPhaseCheckResult({
     phase: options.phase,
     priorPhases,
     gateResult,

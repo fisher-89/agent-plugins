@@ -34,7 +34,7 @@ Source `plugins/dev-team/utils/openspec-cli.sh`.
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__eval/check` with change="<name>" and phase="01-proposal". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase/check` with change="<name>" and phase="01-proposal". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. P→E Loop
 

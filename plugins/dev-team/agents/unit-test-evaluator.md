@@ -105,14 +105,14 @@ ${failure_details_summary}
 
 ### Step 6: Append to eval.json
 
-Use the MCP eval/log tool to append the result:
+Use the MCP phase/log tool to append the result:
 ```
-mcp__plugin_dev-team_dev-team__eval/log({change: "<name>", phase: "06-unit-test", verdict: "<pass|fail>", report: "<summary, max 500 chars>", items: '[...]', backtrack_to: "<target|null>", findings: "<structured findings>"})
+mcp__plugin_dev-team_dev-team__phase/log({change: "<name>", phase: "06-unit-test", verdict: "<pass|fail>", report: "<summary, max 500 chars>", items: '[...]', backtrack_to: "<target|null>", findings: "<structured findings>"})
 ```
 
 If the phase was skipped (total=0), append with `skipped: true`:
 ```
-mcp__plugin_dev-team_dev-team__eval/log({change: "<name>", phase: "06-unit-test", verdict: "pass", report: "No unit tests found, phase skipped", items: '[]', backtrack_to: null, skipped: true, findings: "未发现单元测试文件，阶段跳过"})
+mcp__plugin_dev-team_dev-team__phase/log({change: "<name>", phase: "06-unit-test", verdict: "pass", report: "No unit tests found, phase skipped", items: '[]', backtrack_to: null, skipped: true, findings: "未发现单元测试文件，阶段跳过"})
 ```
 
 ## Constraints

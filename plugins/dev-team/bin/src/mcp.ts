@@ -2,18 +2,18 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 
 import pluginConfig from '../../.claude-plugin/plugin.json';
-import { runEvalCheck } from './commands/eval-check';
-import { runEvalLog } from './commands/eval-log';
-import { runEvalNext } from './commands/eval-next';
+import { runPhaseCheck } from './commands/phase-check';
+import { runPhaseLog } from './commands/phase-log';
+import { runPhaseNext } from './commands/phase-next';
 import { queryModel } from './lib/archi-query';
 import { validateDsl } from './lib/archi-validate';
 import { writeDsl } from './lib/archi-write';
 import { runCrossRefCheck } from './lib/c4-cross-ref';
 import {
-  evalLogInputSchema,
-  evalLogOutputSchema,
-  evalCheckInputSchema,
-  evalCheckOutputSchema,
+  phaseLogInputSchema,
+  phaseLogOutputSchema,
+  phaseCheckInputSchema,
+  phaseCheckOutputSchema,
   archiQueryInputSchema,
   archiQueryOutputSchema,
   archiValidateInputSchema,
@@ -22,8 +22,8 @@ import {
   archiWriteOutputSchema,
   archiCheckInputSchema,
   archiCheckOutputSchema,
-  evalNextInputSchema,
-  evalNextOutputSchema,
+  phaseNextInputSchema,
+  phaseNextOutputSchema,
 } from './schemas';
 
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
@@ -33,7 +33,10 @@ function resolveProjectRoot(cwd?: string): string {
 }
 
 function jsonContent(data: unknown) {
-  return { content: [{ type: 'text' as const, text: JSON.stringify(data) }] };
+  return {
+    content: [{ type: 'text' as const, text: JSON.stringify(data) }],
+    structuredContent: data as Record<string, unknown>,
+  };
 }
 
 async function main(): Promise<void> {
@@ -43,16 +46,16 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'eval/log',
+    'phase/log',
     {
       description:
         'Append an evaluation result entry to eval.json for a given workflow phase. ' +
         'Records the verdict (pass/fail), checklist items, and optional backtrack/findings for a change.',
-      inputSchema: evalLogInputSchema,
-      outputSchema: evalLogOutputSchema,
+      inputSchema: phaseLogInputSchema,
+      outputSchema: phaseLogOutputSchema,
     },
     async (args) => {
-      const result = runEvalLog({
+      const result = runPhaseLog({
         change: args.change,
         phase: args.phase,
         verdict: args.verdict,
@@ -68,16 +71,16 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'eval/check',
+    'phase/check',
     {
       description:
         'Check if all prior workflow phases have passed evaluation for a given phase. ' +
         'Runs gate check, timestamp order check, and backtrack check. Returns structured result.',
-      inputSchema: evalCheckInputSchema,
-      outputSchema: evalCheckOutputSchema,
+      inputSchema: phaseCheckInputSchema,
+      outputSchema: phaseCheckOutputSchema,
     },
     async (args) => {
-      const result = runEvalCheck({
+      const result = runPhaseCheck({
         change: args.change,
         phase: args.phase,
       });
@@ -156,17 +159,17 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'eval/next',
+    'phase/next',
     {
       description:
         'Return the next phase to execute in a PGE workflow. ' +
         'Handles gate check, skip passed phases, retry, backtrack, round limit, and mid-phase interruption. ' +
         'Returns the phase identifier, planner/evaluator agent config, and auto_steps for the skill to execute.',
-      inputSchema: evalNextInputSchema,
-      outputSchema: evalNextOutputSchema,
+      inputSchema: phaseNextInputSchema,
+      outputSchema: phaseNextOutputSchema,
     },
     async (args) => {
-      const result = runEvalNext({
+      const result = runPhaseNext({
         change: args.change,
         workflow_type: args.workflow_type,
       });

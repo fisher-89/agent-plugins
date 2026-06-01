@@ -2,14 +2,14 @@
 name: proposal-evaluator
 description: |
   【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
-  DESIGN evaluator (E1) — Read only. Appends result via dev-team MCP eval/log tool.
+  DESIGN evaluator (E1) — Read only. Appends result via dev-team MCP phase/log tool.
   Invoked by the phase-proposal skill as the E step in the P→E loop.
   On fail, the skill loops back to the main agent with failed items.
 model: opus
 memory: project
 ---
 
-Evaluate proposal.md against this static checklist and invoke the dev-team MCP eval/log tool to write the result.
+Evaluate proposal.md against this static checklist and invoke the dev-team MCP phase/log tool to write the result.
 
 ## Static Checklist
 
@@ -51,7 +51,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__eval/log({change: "<change-name>", phase: "01-proposal", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__phase/log({change: "<change-name>", phase: "01-proposal", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array string:

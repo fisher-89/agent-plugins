@@ -1,11 +1,11 @@
 /**
- * eval/next MCP tool — server-side orchestration logic.
+ * phase/next MCP tool — server-side orchestration logic.
  *
  * Determines the next phase to execute in a PGE workflow based on eval.json entries.
  * Handles: initial run, normal progression, retry, backtrack, round limit,
  * mid-phase interruption, and skipped entries.
  *
- * The workflow skill calls eval/next in a loop and executes the returned
+ * The workflow skill calls phase/next in a loop and executes the returned
  * planner/evaluator agents without any hardcoded phase knowledge.
  */
 
@@ -21,17 +21,17 @@ import {
 } from '../lib/workflow';
 
 // ---------------------------------------------------------------------------
-// Types (local to eval/next)
+// Types (local to phase/next)
 // ---------------------------------------------------------------------------
 
 export type { PhaseAgentDef, PhaseDefinition };
 
-export interface EvalNextOptions {
+export interface PhaseNextOptions {
   change: string;
   workflow_type?: string;
 }
 
-export interface EvalNextResult {
+export interface PhaseNextResult {
   done: boolean;
   error: string | null;
   message: string | null;
@@ -92,7 +92,7 @@ function buildPhaseResponse(
   totalPhases: number,
   phaseIndex: number,
   change: string,
-): EvalNextResult {
+): PhaseNextResult {
   const resolved = buildPhaseDef(phase, change);
   return {
     done: false,
@@ -112,7 +112,7 @@ function buildPhaseResponse(
 /**
  * Build a "done" response — all phases complete.
  */
-function buildDoneResponse(round: number, totalPhases: number): EvalNextResult {
+function buildDoneResponse(round: number, totalPhases: number): PhaseNextResult {
   return {
     done: true,
     error: null,
@@ -136,7 +136,7 @@ function buildErrorResponse(
   message: string,
   round: number,
   totalPhases: number,
-): EvalNextResult {
+): PhaseNextResult {
   return {
     done: false,
     error,
@@ -162,24 +162,6 @@ function buildErrorResponse(
  */
 function computeRound(entries: any[]): number {
   return entries.length + 1;
-}
-
-/**
- * Get the most recent entry for each phase.
- * Returns a map of phase -> latest entry.
- */
-function getLatestEntryPerPhase(entries: any[]): Map<string, any> {
-  const latest = new Map<string, any>();
-  for (const entry of entries) {
-    const existing = latest.get(entry.phase);
-    if (
-      !existing ||
-      new Date(entry.timestamp).getTime() > new Date(existing.timestamp).getTime()
-    ) {
-      latest.set(entry.phase, entry);
-    }
-  }
-  return latest;
 }
 
 /**
@@ -251,18 +233,18 @@ function writeEvalJson(changeDir: string, entries: any[]): void {
  * When backtrack is detected, returns the modified entries back so the caller
  * can persist them.
  */
-export interface ResolveNextPhaseOptions {
+export interface ResolvePhaseNextOptions {
   change: string;
   entries: any[];
   workflowType?: string;
 }
 
-export interface ResolveNextPhaseResult {
-  result: EvalNextResult;
+export interface ResolvePhaseNextResult {
+  result: PhaseNextResult;
   updatedEntries?: any[]; // Set when backtrack modified entries
 }
 
-export function resolveNextPhase(opts: ResolveNextPhaseOptions): ResolveNextPhaseResult {
+export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult {
   const { change, entries, workflowType } = opts;
   const phaseTable = getPhaseTable(workflowType);
   const totalPhases = phaseTable.length;
@@ -352,12 +334,12 @@ export function resolveNextPhase(opts: ResolveNextPhaseOptions): ResolveNextPhas
 }
 
 /**
- * Full eval/next: reads eval.json from disk, resolves next phase, and persists
+ * Full phase/next: reads eval.json from disk, resolves next phase, and persists
  * any backtrack-triggered entry cleanup.
  *
  * Called by the MCP tool handler.
  */
-export function runEvalNext(options: EvalNextOptions): EvalNextResult {
+export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
   // -- Input validation --
   if (!options.change || options.change === '') {
     throw new Error('Missing required parameter: change');
@@ -375,7 +357,7 @@ export function runEvalNext(options: EvalNextOptions): EvalNextResult {
     throw new Error(`Failed to read eval.json: ${e.message}`);
   }
 
-  const { result, updatedEntries } = resolveNextPhase({
+  const { result, updatedEntries } = resolvePhaseNext({
     change,
     entries,
     workflowType,

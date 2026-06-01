@@ -11,7 +11,7 @@ import {
 } from '../lib/eval-json';
 import { getPriorPhases } from '../lib/workflow';
 
-export interface EvalLogOptions {
+export interface PhaseLogOptions {
   change: string;
   phase: string;
   verdict: string;
@@ -23,17 +23,17 @@ export interface EvalLogOptions {
   findings?: string;
 }
 
-export interface EvalLogResult {
+export interface PhaseLogResult {
   written: boolean;
   phase: string;
   attempt: number;
 }
 
 /**
- * Core logic for eval-log: validate, gate-check, build entry, and append to eval.json.
+ * Core logic for phase-log: validate, gate-check, build entry, and append to eval.json.
  * Extracted so both CLI and MCP server can call the same logic.
  */
-export function runEvalLog(options: EvalLogOptions): EvalLogResult {
+export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   const REQUIRED_ARGS = ['change', 'phase', 'verdict', 'report', 'items'] as const;
   const missing = REQUIRED_ARGS.filter((r) => !(options as any)[r] || (options as any)[r] === '');
   if (missing.length > 0) {

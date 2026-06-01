@@ -2,7 +2,7 @@
 name: workflow-requirement
 description: |
   Full PGE workflow orchestrator — executes all 9 phases sequentially.
-  No hardcoded phase knowledge. Uses eval/next for all orchestration decisions.
+  No hardcoded phase knowledge. Uses phase/next for all orchestration decisions.
   Calls Agent(planner) → Bash(auto_steps) → Agent(evaluator) in a loop until done.
   On completion, notifies user to archive manually.
 license: MIT
@@ -12,10 +12,10 @@ metadata:
   version: "1.0"
 ---
 
-Full workflow orchestrator — executes all PGE phases via eval/next loop.
+Full workflow orchestrator — executes all PGE phases via phase/next loop.
 
 This skill does NOT contain any hardcoded phase table, agent name, or prompt.
-Every phase, agent type, and prompt is returned by the eval/next MCP tool.
+Every phase, agent type, and prompt is returned by the phase/next MCP tool.
 
 ## Usage
 
@@ -33,7 +33,7 @@ Source `plugins/dev-team/utils/openspec-cli.sh`.
 
 - **Arg is pure kebab-case** (`[a-z][a-z0-9-]*`): treat as existing change name → validate via `validate_change_name`. If not exists, `openspec_new_change`. Proceed to Step 2.
 
-- **Arg is NOT kebab-case** (contains Chinese, spaces, or natural language): treat as change description → derive kebab-case via `derive_kebab_case`, confirm with user, scaffold via `openspec_new_change`. Handle conflicts with numeric suffix. Proceed to Step 2.
+- **Arg is NOT kebab-case** (contains Chinese, spaces, or natural language): treat as change description → derive kebab-case via `derive_kebab_case`, scaffold via `openspec_new_change`. Handle conflicts with numeric suffix. Proceed to Step 2.
 
 **Without argument:** Detect explore context (decision tables, diagrams, "What We Figured Out"). If found: extract decisions, ask user for kebab-case name, `derive_kebab_case`, confirm, scaffold. If not: ask "想构建什么变更？" derive kebab-case, confirm, scaffold. Handle conflicts with numeric suffix. Save explore context as EXPLORE_CONTEXT_SUMMARY.
 
@@ -43,12 +43,12 @@ If the change directory does not exist, run `openspec_new_change "<name>"` to sc
 
 ### Step 2: Orchestration loop
 
-Enter the main execution loop. Each iteration calls eval/next, executes the returned
+Enter the main execution loop. Each iteration calls phase/next, executes the returned
 planner and evaluator agents, and reports progress.
 
 ```
 LOOP:
-  result = mcp__plugin_dev-team_dev-team__eval/next(change=<name>, workflow_type="requirement")
+  result = mcp__plugin_dev-team_dev-team__phase/next(change=<name>, workflow_type="requirement")
 
   if result.error:
     报告: "Workflow error [{result.error}]: {result.message}"

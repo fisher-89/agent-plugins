@@ -7,8 +7,8 @@ The MCP server SHALL register tools with hierarchical names using `/` as the nam
 
 | 旧名称 | 新名称 |
 |--------|--------|
-| `eval_log` | `eval/log` |
-| `eval_check` | `eval/check` |
+| `eval_log` | `phase/log` |
+| `eval_check` | `phase/check` |
 | `archi_query` | `archi/query` |
 | `archi_validate` | `archi/validate` |
 | `archi_write` | `archi/write` |
@@ -20,7 +20,7 @@ The MCP server SHALL register tools with hierarchical names using `/` as the nam
 - **AND** 不再出现 `xx_yy` 扁平格式的名称
 
 #### Scenario: tools/call 使用层级名称调用 tool
-- **WHEN** MCP client 发起 `tools/call` 请求，`params.name` 为 `"eval/log"`
+- **WHEN** MCP client 发起 `tools/call` 请求，`params.name` 为 `"phase/log"`
 - **THEN** server 正确路由到 eval-log 处理逻辑
 - **AND** 返回正常的执行结果
 
@@ -31,8 +31,8 @@ The MCP server SHALL register tools with hierarchical names using `/` as the nam
 ### Requirement: handleToolCall 按 xx/yy 格式路由
 `bin/src/mcp.ts` 中的 `handleToolCall` 函数 SHALL 使用 `xx/yy` 格式的名称进行 switch 分支匹配。所有 6 个 case 语句 SHALL 更新为新名称。
 
-#### Scenario: eval/log 路由到 runEvalLog
-- **WHEN** `handleToolCall` 收到 name 为 `"eval/log"` 的调用
+#### Scenario: phase/log 路由到 runEvalLog
+- **WHEN** `handleToolCall` 收到 name 为 `"phase/log"` 的调用
 - **THEN** 执行 `runEvalLog` 函数
 - **AND** 参数传递与旧 `"eval_log"` 分支完全一致
 
@@ -52,10 +52,10 @@ The MCP server SHALL register tools with hierarchical names using `/` as the nam
 ### Requirement: settings.local.json 权限 allowlist 更新
 `.claude/settings.local.json` 中的 MCP tool 权限 SHALL 更新为新名称。
 
-#### Scenario: eval/check 和 eval/log 在 allowlist 中
+#### Scenario: phase/check 和 phase/log 在 allowlist 中
 - **WHEN** 读取 `.claude/settings.local.json` 的 `permissions.allow` 数组
-- **THEN** 包含 `"mcp__plugin_dev-team_dev-team__eval/check"`
-- **AND** 包含 `"mcp__plugin_dev-team_dev-team__eval/log"`
+- **THEN** 包含 `"mcp__plugin_dev-team_dev-team__phase/check"`
+- **AND** 包含 `"mcp__plugin_dev-team_dev-team__phase/log"`
 - **AND** 不再包含旧名称 `mcp__plugin_dev-team_dev-team__eval_check` 和 `mcp__plugin_dev-team_dev-team__eval_log`
 
 ## Module Contract

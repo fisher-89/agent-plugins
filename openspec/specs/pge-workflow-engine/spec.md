@@ -11,7 +11,7 @@ Each workflow skill SHALL:
 
 #### Scenario: Workflow layer vs phase layer separation
 - **WHEN** a workflow skill executes Phase 01
-- **THEN** it directly calls Agent(`proposal-planner`) and Agent(`proposal-evaluator`) with MCP eval/check and eval/log
+- **THEN** it directly calls Agent(`proposal-planner`) and Agent(`proposal-evaluator`) with MCP phase/check and phase/log
 - **AND** it does NOT invoke Skill(`phase-proposal`)
 - **AND** the phase-level skill (`phase-proposal`) remains independently invocable for single-phase execution
 
@@ -27,8 +27,8 @@ Updated phase identifiers: `01-proposal`, `02-dev-design`, `03-test-design`, `04
 
 Existing eval.json files using `01-requirements` SHALL NOT be migrated — backward compatibility is maintained by treating the old identifier as a valid but deprecated phase string.
 
-#### Scenario: eval/log accepts 01-proposal phase
-- **WHEN** MCP eval/log is called with phase `01-proposal`
+#### Scenario: phase/log accepts 01-proposal phase
+- **WHEN** MCP phase/log is called with phase `01-proposal`
 - **THEN** the call succeeds (no validation error)
 - **AND** the entry is appended to eval.json with phase `01-proposal`
 
@@ -77,12 +77,12 @@ Each phase SHALL append its result to eval.json upon completion.
 | workflow-bug-fix (future) | `bug-fix` | 01-proposal, 02-dev-design, 05-implement, 06-unit-test, 07-code-review, 09-acceptance |
 | workflow-refactor (future) | `refactor` | 01-proposal through 09-acceptance |
 
-All workflow skills follow the thin loop pattern: context assembly → `eval/next` loop → stop on completion. Archive is performed manually by the user via `/dev-team:openspec-archive-change`. The phase table is defined server-side in the MCP server, not in the skill file.
+All workflow skills follow the thin loop pattern: context assembly → `phase/next` loop → stop on completion. Archive is performed manually by the user via `/dev-team:openspec-archive-change`. The phase table is defined server-side in the MCP server, not in the skill file.
 
 ### MCP Tools
 
 | Tool | Purpose |
 |------|---------|
-| eval/next | Returns next phase to execute (agent_type, prompt); server-side gate/skip/retry/backtrack/round_limit |
-| eval/check | Gate validation for single-phase execution |
-| eval/log | Append evaluation result to eval.json |
+| phase/next | Returns next phase to execute (agent_type, prompt); server-side gate/skip/retry/backtrack/round_limit |
+| phase/check | Gate validation for single-phase execution |
+| phase/log | Append evaluation result to eval.json |

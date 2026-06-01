@@ -1,11 +1,11 @@
 /**
- * Unit tests for eval/next MCP tool — server-side orchestration logic.
+ * Unit tests for phase/next MCP tool — server-side orchestration logic.
  *
  * Tests cover: phase table resolution, normal progression, skip passed phases,
  * retry logic, backtrack, round limit, mid-phase interruption, skipped entries,
  * workflow_type variants, input validation, and all boundary scenarios.
  *
- * All tests call resolveNextPhase with in-memory eval.json data — no filesystem access.
+ * All tests call resolvePhaseNext with in-memory eval.json data — no filesystem access.
  *
  * @see openspec/changes/add-workflow-requirement-skill/test-design.md
  */
@@ -13,8 +13,8 @@
 import { describe, it, expect } from 'vite-plus/test';
 
 import {
-  resolveNextPhase,
-} from '../commands/eval-next';
+  resolvePhaseNext,
+} from '../commands/phase-next';
 import {
   getPhaseTable,
   getPhasePattern,
@@ -90,9 +90,9 @@ function skipPedEntry(phase: string, attempt: number = 1): MockEntry {
 // Note: the counter is intentionally not reset between tests — relative
 // ordering within each test case is all that matters.
 
-// Helper to call resolveNextPhase
+// Helper to call resolvePhaseNext
 function next(entries: MockEntry[], change: string = 'test-change', workflowType?: string) {
-  return resolveNextPhase({ change, entries: entries as any[], workflowType }).result;
+  return resolvePhaseNext({ change, entries: entries as any[], workflowType }).result;
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +197,7 @@ describe('getPhasePattern', () => {
 // First Run — Empty eval.json
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — First Run (empty eval.json)', () => {
+describe('runPhaseNext — First Run (empty eval.json)', () => {
   it('should return 01-proposal as next_phase when entries is empty', () => {
     const result = next([]);
     expect(result.next_phase).toBe('01-proposal');
@@ -236,7 +236,7 @@ describe('runEvalNext — First Run (empty eval.json)', () => {
 // Normal Progression — Pass phases in sequence
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — Normal Progression', () => {
+describe('runPhaseNext — Normal Progression', () => {
   it('should return 02-dev-design after 01-proposal passes', () => {
     const result = next([passEntry('01-proposal')]);
     expect(result.next_phase).toBe('02-dev-design');
@@ -311,7 +311,7 @@ describe('runEvalNext — Normal Progression', () => {
 // Skip Passed Phases — AC-6
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — Skip Passed Phases (AC-6)', () => {
+describe('runPhaseNext — Skip Passed Phases (AC-6)', () => {
   it('should skip to 04-test-gen when phases 01-03 already pass', () => {
     const result = next([
       passEntry('01-proposal'),
@@ -355,7 +355,7 @@ describe('runEvalNext — Skip Passed Phases (AC-6)', () => {
 // Retry Logic — AC-7
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — Retry Logic (AC-7)', () => {
+describe('runPhaseNext — Retry Logic (AC-7)', () => {
   it('should return same phase for first retry after fail', () => {
     const result = next([passEntry('01-proposal'), failEntry('02-dev-design')]);
     expect(result.next_phase).toBe('02-dev-design');
@@ -414,7 +414,7 @@ describe('runEvalNext — Retry Logic (AC-7)', () => {
 // Backtrack — AC-8
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — Backtrack (AC-8)', () => {
+describe('runPhaseNext — Backtrack (AC-8)', () => {
   it('should clear entries from target phase onward and return target phase', () => {
     const entries = [
       passEntry('01-proposal'),
@@ -422,7 +422,7 @@ describe('runEvalNext — Backtrack (AC-8)', () => {
       passEntry('03-test-design'),
       backtrackEntry('03-test-design', '01-proposal'),
     ];
-    const { result, updatedEntries } = resolveNextPhase({
+    const { result, updatedEntries } = resolvePhaseNext({
       change: 'test-change',
       entries: entries as any[],
     });
@@ -433,7 +433,7 @@ describe('runEvalNext — Backtrack (AC-8)', () => {
   });
 
   it('should re-execute planner + evaluator after backtrack to 01-proposal', () => {
-    const { result } = resolveNextPhase({
+    const { result } = resolvePhaseNext({
       change: 'test-change',
       entries: [
         passEntry('01-proposal'),
@@ -455,7 +455,7 @@ describe('runEvalNext — Backtrack (AC-8)', () => {
       passEntry('06-unit-test'),
       backtrackEntry('07-code-review', '04-test-gen'),
     ];
-    const { result, updatedEntries } = resolveNextPhase({
+    const { result, updatedEntries } = resolvePhaseNext({
       change: 'test-change',
       entries: entries as any[],
     });
@@ -486,7 +486,7 @@ describe('runEvalNext — Backtrack (AC-8)', () => {
 // Round Limit — AC-10
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — Round Limit (AC-10)', () => {
+describe('runPhaseNext — Round Limit (AC-10)', () => {
   it('should return round_limit_exceeded error when round > 20', () => {
     // Construct 21 rounds of entries
     const entries = [];
@@ -542,7 +542,7 @@ describe('runEvalNext — Round Limit (AC-10)', () => {
 // Mid-Phase Interruption
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — Mid-Phase Interruption', () => {
+describe('runPhaseNext — Mid-Phase Interruption', () => {
   it('should re-return the phase when evaluator has not logged (no entries for phase)', () => {
     // If the latest eval.json only shows pass for prior phases but the current
     // phase has no evaluator entry yet (never started), we treat it as "not passed"
@@ -555,7 +555,7 @@ describe('runEvalNext — Mid-Phase Interruption', () => {
   it('should return the incomplete phase if evaluator never logged', () => {
     // If 01-proposal passed but 02-dev-design has no eval entries at all
     // (planner ran but evaluator never logged), the phase is not counted
-    // as passed and eval/next should return it for execution.
+    // as passed and phase/next should return it for execution.
     const result = next([passEntry('01-proposal')]);
     expect(result.next_phase).toBe('02-dev-design');
   });
@@ -565,7 +565,7 @@ describe('runEvalNext — Mid-Phase Interruption', () => {
 // Skipped (No-Op) Phases
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — Skipped Phases', () => {
+describe('runPhaseNext — Skipped Phases', () => {
   it('should treat skipped entries as pass', () => {
     const result = next([skippedEntry('04-test-gen')]);
     // 01-proposal has no pass, so that should be returned despite 04-test-gen having a skipped entry
@@ -588,7 +588,7 @@ describe('runEvalNext — Skipped Phases', () => {
 // workflow_type Variants
 // ---------------------------------------------------------------------------
 
-describe('runEvalNext — workflow_type', () => {
+describe('runPhaseNext — workflow_type', () => {
   it('should default to requirement when workflow_type is omitted', () => {
     const result = next([], 'test-change');
     expect(result.total_phases).toBe(9);
@@ -596,7 +596,7 @@ describe('runEvalNext — workflow_type', () => {
   });
 
   it('should follow bug-fix phase table when workflow_type is bug-fix', () => {
-    const result = resolveNextPhase({
+    const result = resolvePhaseNext({
       change: 'test-change',
       entries: [],
       workflowType: 'bug-fix',
@@ -605,7 +605,7 @@ describe('runEvalNext — workflow_type', () => {
   });
 
   it('should follow refactor phase table when workflow_type is refactor', () => {
-    const result = resolveNextPhase({
+    const result = resolvePhaseNext({
       change: 'test-change',
       entries: [],
       workflowType: 'refactor',
@@ -621,7 +621,7 @@ describe('runEvalNext — workflow_type', () => {
       passEntry('06-unit-test'),
       passEntry('07-code-review'),
     ];
-    const { result } = resolveNextPhase({
+    const { result } = resolvePhaseNext({
       change: 'test-change',
       entries: entries as any[],
       workflowType: 'bug-fix',
@@ -634,7 +634,7 @@ describe('runEvalNext — workflow_type', () => {
 // Input Validation
 // ---------------------------------------------------------------------------
 
-describe('resolveNextPhase — Input Validation', () => {
+describe('resolvePhaseNext — Input Validation', () => {
   it('should not throw for empty entries array', () => {
     expect(() => next([], 'test-change')).not.toThrow();
   });
@@ -723,9 +723,9 @@ describe('Boundary Scenarios', () => {
   });
 });
 
-describe('eval/next Output Schema', () => {
+describe('phase/next Output Schema', () => {
   it('should return valid JSON when next phase is ready', () => {
-    const result = resolveNextPhase({ change: 'test', entries: [] }).result;
+    const result = resolvePhaseNext({ change: 'test', entries: [] }).result;
     // Verify all required fields exist
     expect(result).toHaveProperty('done');
     expect(result).toHaveProperty('error');
@@ -779,7 +779,7 @@ describe('eval/next Output Schema', () => {
   });
 
   it('should return same prompt on retry (skill handles retry context)', () => {
-    // The eval/next tool returns the same prompt template on retry.
+    // The phase/next tool returns the same prompt template on retry.
     // The skill is responsible for adding retry context (e.g. "attempt 2/5").
     const firstResult = next([], 'test-change');
     const retryResult = next([failEntry('01-proposal', 1)], 'test-change');

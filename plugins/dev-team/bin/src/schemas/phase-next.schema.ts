@@ -1,10 +1,10 @@
 import { z } from 'zod/v4';
 
 /**
- * Input schema for eval/next MCP tool.
+ * Input schema for phase/next MCP tool.
  * `change` is required; `workflow_type` defaults to "requirement".
  */
-export const evalNextInputSchema = {
+export const phaseNextInputSchema = {
   change: z.string().min(1).describe('Change name (corresponds to openspec/changes/<name>)'),
   workflow_type: z
     .string()
@@ -21,9 +21,9 @@ const phaseAgentSchema = z.object({
 });
 
 /**
- * Output schema for a normal eval/next response (next phase available).
+ * Output schema for a normal phase/next response (next phase available).
  */
-export const evalNextOutputSchema = z.object({
+export const phaseNextOutputSchema = z.object({
   done: z.boolean().describe('Whether the workflow is complete'),
   error: z.string().nullable().describe('Error code if something went wrong (null on success)'),
   message: z.string().nullable().describe('Human-readable message (error details or info)'),

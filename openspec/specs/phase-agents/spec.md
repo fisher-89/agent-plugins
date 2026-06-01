@@ -104,25 +104,25 @@ The following agent files SHALL be updated:
 
 | Agent File | Old References | New References |
 |------------|---------------|----------------|
-| `agents/architecture.md` | `archi_query`, `archi_validate`, `archi_write`, `archi_check`, `eval_log` | `archi/query`, `archi/validate`, `archi/write`, `archi/check`, `eval/log` |
-| `agents/proposal-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/dev-design-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/test-design-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/test-gen-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/implementation-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/unit-test-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/code-review-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/integration-test-evaluator.md` | `eval_log` | `eval/log` |
-| `agents/acceptance-evaluator.md` | `eval_log` | `eval/log` |
+| `agents/architecture.md` | `archi_query`, `archi_validate`, `archi_write`, `archi_check`, `eval_log` | `archi/query`, `archi/validate`, `archi/write`, `archi/check`, `phase/log` |
+| `agents/proposal-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/dev-design-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/test-design-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/test-gen-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/implementation-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/unit-test-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/code-review-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/integration-test-evaluator.md` | `eval_log` | `phase/log` |
+| `agents/acceptance-evaluator.md` | `eval_log` | `phase/log` |
 
 #### Scenario: architecture agent uses hierarchical archi tool names
 - **WHEN** reading `agents/architecture.md`
 - **THEN** all archi tool references use `archi/query`, `archi/validate`, `archi/write`, `archi/check` format
-- **AND** eval tool reference uses `eval/log`
+- **AND** eval tool reference uses `phase/log`
 
-#### Scenario: evaluator agents use eval/log
+#### Scenario: evaluator agents use phase/log
 - **WHEN** reading any evaluator agent.md
-- **THEN** all eval tool references use `eval/log` format
+- **THEN** all eval tool references use `phase/log` format
 - **AND** no references to `eval_log` remain
 
 ## RENAMED Requirements
@@ -149,28 +149,28 @@ The sub-agent table SHALL include the new `proposal-planner` agent and reflect t
 | Agent | 角色 | MCP Tool |
 |-------|------|----------|
 | proposal-planner | Planner subagent | (none — writes files directly) |
-| proposal-evaluator | Evaluator subagent | eval/log |
-| architecture | Architecture agent | archi/query, archi/validate, archi/write, archi/check, eval/log |
+| proposal-evaluator | Evaluator subagent | phase/log |
+| architecture | Architecture agent | archi/query, archi/validate, archi/write, archi/check, phase/log |
 | dev-design-planner | Planner subagent | (none) |
-| dev-design-evaluator | Evaluator subagent | eval/log |
+| dev-design-evaluator | Evaluator subagent | phase/log |
 | test-design-planner | Planner subagent | (none) |
-| test-design-evaluator | Evaluator subagent | eval/log |
+| test-design-evaluator | Evaluator subagent | phase/log |
 | test-gen-generator | Generator subagent | (none) |
-| test-gen-evaluator | Evaluator subagent | eval/log |
+| test-gen-evaluator | Evaluator subagent | phase/log |
 | implementation-generator | Generator subagent | (none) |
-| implementation-evaluator | Evaluator subagent | eval/log |
+| implementation-evaluator | Evaluator subagent | phase/log |
 | unit-test-executor | Executor subagent (sonnet) | (none) |
-| unit-test-evaluator | Evaluator subagent | eval/log |
-| code-review-evaluator | Evaluator subagent | eval/log |
+| unit-test-evaluator | Evaluator subagent | phase/log |
+| code-review-evaluator | Evaluator subagent | phase/log |
 | integration-test-executor | Executor subagent (sonnet) | (none) |
-| integration-test-evaluator | Evaluator subagent | eval/log |
-| acceptance-evaluator | Evaluator subagent | eval/log |
+| integration-test-evaluator | Evaluator subagent | phase/log |
+| acceptance-evaluator | Evaluator subagent | phase/log |
 
 The deprecated `requirements-evaluator` entry SHALL be removed from the table.
 
 #### Scenario: 每个 agent.md 使用层级 MCP tool 名称
 - **WHEN** 检查以上 subagent 的 agent.md 文件
-- **THEN** 所有 MCP tool 引用使用 `xx/yy` 层级格式（如 `mcp__plugin_dev-team_dev-team__eval/log`）
+- **THEN** 所有 MCP tool 引用使用 `xx/yy` 层级格式（如 `mcp__plugin_dev-team_dev-team__phase/log`）
 - **AND** 不存在旧格式引用（如 `eval_log`、`eval_check`、`archi_query`、`archi_validate`、`archi_write`、`archi_check`）
 
 #### Scenario: 技能向 agent 传递的 prompt 中 tool 名称不变
@@ -178,9 +178,9 @@ The deprecated `requirements-evaluator` entry SHALL be removed from the table.
 - **THEN** prompt 不直接包含 MCP tool 名称——tool 名称由 agent 的 agent.md 承载
 - **AND** agent 从自己的 agent.md 获取正确的层级 MCP tool 名称
 
-#### Scenario: proposal-evaluator uses eval/log with phase 01-proposal
+#### Scenario: proposal-evaluator uses phase/log with phase 01-proposal
 - **WHEN** reading `agents/proposal-evaluator.md`
-- **THEN** eval/log examples use phase `01-proposal`
+- **THEN** phase/log examples use phase `01-proposal`
 - **AND** the checklist (R1-R10) is identical to the requirements-evaluator checklist
 
 ## Module Contract
@@ -190,22 +190,22 @@ The deprecated `requirements-evaluator` entry SHALL be removed from the table.
 | Agent | Tools | Contract |
 |-------|-------|----------|
 | proposal-planner | Read, Write, Grep, Glob, Bash | Writes proposal.md + specs/; accepts EXPLORE_CONTEXT_SUMMARY |
-| proposal-evaluator | Read, eval/log | Same checklist as requirements-evaluator; phase `01-proposal` |
-| architecture | archi/query, archi/validate, archi/write, archi/check, eval/log | All references use `xx/yy` format |
-| *-evaluator (other agents) | eval/log | References use `eval/log` format |
+| proposal-evaluator | Read, phase/log | Same checklist as requirements-evaluator; phase `01-proposal` |
+| architecture | archi/query, archi/validate, archi/write, archi/check, phase/log | All references use `xx/yy` format |
+| *-evaluator (other agents) | phase/log | References use `phase/log` format |
 
 ### Skill Files (`plugins/dev-team/skills/`)
 
 | Skill | MCP Tools Used | Contract |
 |-------|---------------|----------|
-| phase-proposal | eval/check | P→E loop, phase `01-proposal` |
-| phase-dev-design | eval/check | Reference uses `eval/check` |
-| phase-test-design | eval/check | Reference uses `eval/check` |
-| phase-test-gen | eval/check | Reference uses `eval/check` |
-| phase-implement | eval/check | Reference uses `eval/check` |
-| phase-unit-test | eval/log | Reference uses `eval/log` |
-| phase-code-review | eval/check | Reference uses `eval/check` |
-| phase-integration-test | eval/log | Reference uses `eval/log` |
-| phase-acceptance | eval/check | Reference uses `eval/check` |
-| workflow-requirement | eval/next, eval/log | Thin loop: call eval/next → invoke returned agents → repeat |
-| openspec-archive-change | eval/check | Reference uses `eval/check` |
+| phase-proposal | phase/check | P→E loop, phase `01-proposal` |
+| phase-dev-design | phase/check | Reference uses `phase/check` |
+| phase-test-design | phase/check | Reference uses `phase/check` |
+| phase-test-gen | phase/check | Reference uses `phase/check` |
+| phase-implement | phase/check | Reference uses `phase/check` |
+| phase-unit-test | phase/log | Reference uses `phase/log` |
+| phase-code-review | phase/check | Reference uses `phase/check` |
+| phase-integration-test | phase/log | Reference uses `phase/log` |
+| phase-acceptance | phase/check | Reference uses `phase/check` |
+| workflow-requirement | phase/next, phase/log | Thin loop: call phase/next → invoke returned agents → repeat |
+| openspec-archive-change | phase/check | Reference uses `phase/check` |
