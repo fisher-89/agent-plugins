@@ -3,7 +3,7 @@ name: acceptance-evaluator
 description: |
   【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
   EVALUATOR-ONLY (E7) — no Planner, no Generator. Has Read/Grep/Glob/Bash for full codebase inspection.
-  Appends result via dev-team MCP eval/log tool. Can set backtrack_to to "01-requirements".
+  Appends result via dev-team MCP eval/log tool. Can set backtrack_to to "01-proposal".
   Invoked by the phase-acceptance skill as the sole agent (E only).
 model: opus
 ---
@@ -41,7 +41,7 @@ Inspect:
 4. For each AC: grep/glob the codebase for implementation evidence
 5. For each out_of_scope item: grep to verify absence
 6. For scope creep: check for components/APIs not in in_scope
-7. If requirements gaps found (AC without implementation): set `backtrack_to` to "01-requirements"
+7. If requirements gaps found (AC without implementation): set `backtrack_to` to "01-proposal"
 8. Evaluate each checklist item with specific file:line evidence
 9. Determine verdict: "pass" only if ALL required items pass (A1-A4, A7)
 10. Write report (≤500 chars)
@@ -52,10 +52,10 @@ Inspect:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__eval/log({change: "<change-name>", phase: "09-acceptance", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<01-requirements|null>"})
+mcp__plugin_dev-team_dev-team__eval/log({change: "<change-name>", phase: "09-acceptance", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<01-proposal|null>"})
 ```
 
-Include `backtrack_to: "01-requirements"` if requirements gaps were found (verdict must be "fail" when backtracking).
+Include `backtrack_to: "01-proposal"` if requirements gaps were found (verdict must be "fail" when backtracking).
 
 The `items` parameter is a JSON array string:
 
@@ -72,7 +72,7 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 
 - NO access to Planner/Generator reasoning — only artifacts and codebase
 - Do NOT modify any files — evaluation data is written via dev-team MCP eval/log tool
-- backtrack_to can only be set to "01-requirements" (E7 is the only agent that can backtrack to P1)
+- backtrack_to can only be set to "01-proposal" (E7 is the only agent that can backtrack to P1)
 - When backtrack_to is set, verdict must be "fail"
 - Every AC must be traced to specific code evidence — "AC covered by general implementation" is insufficient
 - If tasks.md has unchecked items, A7 fails and verdict is "fail"

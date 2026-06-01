@@ -4,6 +4,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 import pluginConfig from '../../.claude-plugin/plugin.json';
 import { runEvalCheck } from './commands/eval-check';
 import { runEvalLog } from './commands/eval-log';
+import { runEvalNext } from './commands/eval-next';
 import { queryModel } from './lib/archi-query';
 import { validateDsl } from './lib/archi-validate';
 import { writeDsl } from './lib/archi-write';
@@ -21,6 +22,8 @@ import {
   archiWriteOutputSchema,
   archiCheckInputSchema,
   archiCheckOutputSchema,
+  evalNextInputSchema,
+  evalNextOutputSchema,
 } from './schemas';
 
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
@@ -147,6 +150,25 @@ async function main(): Promise<void> {
       const result = await runCrossRefCheck(projectRoot, {
         staged: !!args.staged,
         files,
+      });
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'eval/next',
+    {
+      description:
+        'Return the next phase to execute in a PGE workflow. ' +
+        'Handles gate check, skip passed phases, retry, backtrack, round limit, and mid-phase interruption. ' +
+        'Returns the phase identifier, planner/evaluator agent config, and auto_steps for the skill to execute.',
+      inputSchema: evalNextInputSchema,
+      outputSchema: evalNextOutputSchema,
+    },
+    async (args) => {
+      const result = runEvalNext({
+        change: args.change,
+        workflow_type: args.workflow_type,
       });
       return jsonContent(result);
     },

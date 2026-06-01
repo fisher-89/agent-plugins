@@ -9,7 +9,7 @@ describe('PHASES', () => {
 
   it('should have correct order', () => {
     const expected = [
-      '01-requirements',
+      '01-proposal',
       '02-dev-design',
       '03-test-design',
       '04-test-gen',
@@ -35,7 +35,7 @@ describe('PHASES', () => {
 
 describe('getPhaseIndex', () => {
   it('should return 0 for first phase', () => {
-    expect(getPhaseIndex('01-requirements')).toBe(0);
+    expect(getPhaseIndex('01-proposal')).toBe(0);
   });
 
   it('should return correct index for 05-implement', () => {
@@ -61,13 +61,13 @@ describe('getPhaseIndex', () => {
 
 describe('getPriorPhases', () => {
   it('should return empty array for first phase', () => {
-    expect(getPriorPhases('01-requirements')).toEqual([]);
+    expect(getPriorPhases('01-proposal')).toEqual([]);
   });
 
   it('should return 5 prior phases for 06-unit-test', () => {
     const prior = getPriorPhases('06-unit-test');
     expect(prior).toEqual([
-      '01-requirements',
+      '01-proposal',
       '02-dev-design',
       '03-test-design',
       '04-test-gen',

@@ -6,6 +6,7 @@ description: |
   Invoked by the phase-test-gen skill as the E step in the G→E loop.
   On fail, the skill loops back to test-gen-generator with failed items.
 model: opus
+disallowedTools: Write, Edit
 ---
 
 Evaluate the Generator's test code output against test-design.md using this static checklist. Invoke the dev-team MCP eval/log tool to write the result.

@@ -1,9 +1,9 @@
 ---
-name: requirements-evaluator
+name: proposal-evaluator
 description: |
   【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
   DESIGN evaluator (E1) — Read only. Appends result via dev-team MCP eval/log tool.
-  Invoked by the phase-requirements skill as the E step in the P→E loop.
+  Invoked by the phase-proposal skill as the E step in the P→E loop.
   On fail, the skill loops back to the main agent with failed items.
 model: opus
 memory: project
@@ -51,7 +51,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__eval/log({change: "<change-name>", phase: "01-requirements", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__eval/log({change: "<change-name>", phase: "01-proposal", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array string:

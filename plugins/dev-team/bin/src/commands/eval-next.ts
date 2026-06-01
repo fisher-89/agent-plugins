@@ -1,0 +1,390 @@
+/**
+ * eval/next MCP tool — server-side orchestration logic.
+ *
+ * Determines the next phase to execute in a PGE workflow based on eval.json entries.
+ * Handles: initial run, normal progression, retry, backtrack, round limit,
+ * mid-phase interruption, and skipped entries.
+ *
+ * The workflow skill calls eval/next in a loop and executes the returned
+ * planner/evaluator agents without any hardcoded phase knowledge.
+ */
+
+import * as fs from 'fs';
+import * as path from 'path';
+
+import { getChangeDir } from '../lib/change';
+import { readEvalJson } from '../lib/eval-json';
+import {
+  getPhaseTable,
+  type PhaseAgentDef,
+  type PhaseDefinition,
+} from '../lib/workflow';
+
+// ---------------------------------------------------------------------------
+// Types (local to eval/next)
+// ---------------------------------------------------------------------------
+
+export type { PhaseAgentDef, PhaseDefinition };
+
+export interface EvalNextOptions {
+  change: string;
+  workflow_type?: string;
+}
+
+export interface EvalNextResult {
+  done: boolean;
+  error: string | null;
+  message: string | null;
+  next_phase: string | null;
+  phase_pattern: string | null;
+  planner: PhaseAgentDef | null;
+  evaluator: PhaseAgentDef | null;
+  auto_steps: string[];
+  total_phases: number;
+  phase_index: number;
+  round: number;
+}
+
+// ---------------------------------------------------------------------------
+// Constants
+// ---------------------------------------------------------------------------
+
+const DEFAULT_WORKFLOW: string = 'requirement';
+
+// ---------------------------------------------------------------------------
+// Helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Replace '<change>' placeholder in a prompt string with the actual change name.
+ */
+function interpolatePrompt(template: string, change: string): string {
+  return template.replace(/<change>/g, change);
+}
+
+/**
+ * Build a phase definition with prompts interpolated for the given change name.
+ */
+function buildPhaseDef(def: PhaseDefinition, change: string): PhaseDefinition {
+  return {
+    ...def,
+    planner: def.planner
+      ? {
+          agent_type: def.planner.agent_type,
+          prompt: interpolatePrompt(def.planner.prompt, change),
+        }
+      : null,
+    evaluator: def.evaluator
+      ? {
+          agent_type: def.evaluator.agent_type,
+          prompt: interpolatePrompt(def.evaluator.prompt, change),
+        }
+      : null,
+  };
+}
+
+/**
+ * Build a normal (non-error, non-done) response.
+ */
+function buildPhaseResponse(
+  phase: PhaseDefinition,
+  round: number,
+  totalPhases: number,
+  phaseIndex: number,
+  change: string,
+): EvalNextResult {
+  const resolved = buildPhaseDef(phase, change);
+  return {
+    done: false,
+    error: null,
+    message: null,
+    next_phase: phase.id,
+    phase_pattern: phase.pattern,
+    planner: resolved.planner,
+    evaluator: resolved.evaluator,
+    auto_steps: phase.auto_steps,
+    total_phases: totalPhases,
+    phase_index: phaseIndex,
+    round,
+  };
+}
+
+/**
+ * Build a "done" response — all phases complete.
+ */
+function buildDoneResponse(round: number, totalPhases: number): EvalNextResult {
+  return {
+    done: true,
+    error: null,
+    message: 'All phases have passed evaluation. Ready for archiving.',
+    next_phase: null,
+    phase_pattern: null,
+    planner: null,
+    evaluator: null,
+    auto_steps: [],
+    total_phases: totalPhases,
+    phase_index: totalPhases,
+    round,
+  };
+}
+
+/**
+ * Build an error response.
+ */
+function buildErrorResponse(
+  error: string,
+  message: string,
+  round: number,
+  totalPhases: number,
+): EvalNextResult {
+  return {
+    done: false,
+    error,
+    message,
+    next_phase: null,
+    phase_pattern: null,
+    planner: null,
+    evaluator: null,
+    auto_steps: [],
+    total_phases: totalPhases,
+    phase_index: 0,
+    round,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Core Logic
+// ---------------------------------------------------------------------------
+
+/**
+ * Compute the current round number from eval.json entries.
+ * Round = total entries + 1 (next round to execute).
+ */
+function computeRound(entries: any[]): number {
+  return entries.length + 1;
+}
+
+/**
+ * Get the most recent entry for each phase.
+ * Returns a map of phase -> latest entry.
+ */
+function getLatestEntryPerPhase(entries: any[]): Map<string, any> {
+  const latest = new Map<string, any>();
+  for (const entry of entries) {
+    const existing = latest.get(entry.phase);
+    if (
+      !existing ||
+      new Date(entry.timestamp).getTime() > new Date(existing.timestamp).getTime()
+    ) {
+      latest.set(entry.phase, entry);
+    }
+  }
+  return latest;
+}
+
+/**
+ * Check if a phase has passed (has a pass or skipped entry).
+ */
+function hasPhasePassed(entries: any[], phaseId: string): boolean {
+  return entries.some(
+    (e: any) =>
+      e.phase === phaseId &&
+      (e.verdict === 'pass' || e.skipped === true),
+  );
+}
+
+/**
+ * Check if the latest entry for a phase has a non-null backtrack_to.
+ */
+function getLatestBacktrackTarget(entries: any[]): string | null {
+  if (entries.length === 0) return null;
+  const sorted = [...entries].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
+  const latest = sorted[0];
+  return latest.backtrack_to && latest.backtrack_to !== '' ? latest.backtrack_to : null;
+}
+
+/**
+ * Count attempts for a specific phase from eval entries.
+ */
+function countAttempts(entries: any[], phaseId: string): number {
+  return entries.filter((e: any) => e.phase === phaseId).length;
+}
+
+/**
+ * Remove all entries from a target phase onward from the entries array.
+ * A phase is "from target onward" if its index in the phase table is >= the target's index.
+ */
+function clearEntriesFromPhase(
+  entries: any[],
+  targetPhaseId: string,
+  phaseTable: PhaseDefinition[],
+): any[] {
+  const targetIdx = phaseTable.findIndex((p) => p.id === targetPhaseId);
+  if (targetIdx === -1) return entries;
+
+  const targetIds = new Set(phaseTable.slice(targetIdx).map((p) => p.id));
+  return entries.filter((e: any) => !targetIds.has(e.phase));
+}
+
+/**
+ * Write updated entries back to eval.json.
+ */
+function writeEvalJson(changeDir: string, entries: any[]): void {
+  const filePath = path.join(changeDir, 'eval.json');
+  fs.mkdirSync(changeDir, { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
+}
+
+// ---------------------------------------------------------------------------
+// Main exported function
+// ---------------------------------------------------------------------------
+
+/**
+ * Pure logic: determine the next phase to execute from in-memory eval entries.
+ *
+ * This is the core orchestrator, extracted from filesystem I/O so it can be
+ * unit-tested without disk access.
+ *
+ * Returns the next phase config or a done/error response.
+ * When backtrack is detected, returns the modified entries back so the caller
+ * can persist them.
+ */
+export interface ResolveNextPhaseOptions {
+  change: string;
+  entries: any[];
+  workflowType?: string;
+}
+
+export interface ResolveNextPhaseResult {
+  result: EvalNextResult;
+  updatedEntries?: any[]; // Set when backtrack modified entries
+}
+
+export function resolveNextPhase(opts: ResolveNextPhaseOptions): ResolveNextPhaseResult {
+  const { change, entries, workflowType } = opts;
+  const phaseTable = getPhaseTable(workflowType);
+  const totalPhases = phaseTable.length;
+  const round = computeRound(entries);
+
+  // -- Round limit check (AC-10) --
+  if (round > 20) {
+    return {
+      result: buildErrorResponse(
+        'round_limit_exceeded',
+        '超过 20 轮限制，可能存在循环回溯。请检查 eval.json 中的 backtrack 记录，或手动清理后重试。',
+        round,
+        totalPhases,
+      ),
+    };
+  }
+
+  // -- Backtrack check (AC-8) --
+  const backtrackTarget = getLatestBacktrackTarget(entries);
+  if (backtrackTarget) {
+    const targetPhase = phaseTable.find((p) => p.id === backtrackTarget);
+    if (!targetPhase) {
+      return {
+        result: buildErrorResponse(
+          'invalid_backtrack_target',
+          `回溯目标 "${backtrackTarget}" 不是有效的 phase 标识符`,
+          round,
+          totalPhases,
+        ),
+      };
+    }
+
+    const filteredEntries = clearEntriesFromPhase(entries, backtrackTarget, phaseTable);
+    const targetIdx = phaseTable.findIndex((p) => p.id === backtrackTarget);
+
+    return {
+      result: buildPhaseResponse(targetPhase, round, totalPhases, targetIdx + 1, change),
+      updatedEntries: filteredEntries,
+    };
+  }
+
+  // -- Determine which phases have passed --
+  const passedPhases = phaseTable.filter((p) => hasPhasePassed(entries, p.id));
+
+  // -- If all phases passed, we're done (AC-4) --
+  if (passedPhases.length >= totalPhases) {
+    return { result: buildDoneResponse(round, totalPhases) };
+  }
+
+  // -- Find the first phase that has not passed --
+  const nextPhaseDef = phaseTable.find((p) => !hasPhasePassed(entries, p.id));
+  if (!nextPhaseDef) {
+    return { result: buildDoneResponse(round, totalPhases) };
+  }
+
+  const phaseIndex = phaseTable.indexOf(nextPhaseDef) + 1;
+
+  // -- Check retry logic for the current phase (AC-7) --
+  const attempts = countAttempts(entries, nextPhaseDef.id);
+
+  const phaseEntries = entries
+    .filter((e: any) => e.phase === nextPhaseDef.id)
+    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  if (phaseEntries.length > 0) {
+    const latest = phaseEntries[0];
+
+    if (latest.verdict === 'fail') {
+      if (attempts >= 5) {
+        return {
+          result: buildErrorResponse(
+            'max_retries_exceeded',
+            `Phase "${nextPhaseDef.id}" 已失败 ${attempts} 次，超过最大重试次数（5 次）。请检查 artifact 质量或手动干预后重试。`,
+            round,
+            totalPhases,
+          ),
+        };
+      }
+      return {
+        result: buildPhaseResponse(nextPhaseDef, round, totalPhases, phaseIndex, change),
+      };
+    }
+  }
+
+  // -- Normal flow: return the next phase to execute --
+  return { result: buildPhaseResponse(nextPhaseDef, round, totalPhases, phaseIndex, change) };
+}
+
+/**
+ * Full eval/next: reads eval.json from disk, resolves next phase, and persists
+ * any backtrack-triggered entry cleanup.
+ *
+ * Called by the MCP tool handler.
+ */
+export function runEvalNext(options: EvalNextOptions): EvalNextResult {
+  // -- Input validation --
+  if (!options.change || options.change === '') {
+    throw new Error('Missing required parameter: change');
+  }
+
+  const change = options.change;
+  const workflowType = options.workflow_type || DEFAULT_WORKFLOW;
+
+  // -- Read eval.json --
+  const changeDir = getChangeDir(change);
+  let entries: any[];
+  try {
+    entries = readEvalJson(changeDir);
+  } catch (e: any) {
+    throw new Error(`Failed to read eval.json: ${e.message}`);
+  }
+
+  const { result, updatedEntries } = resolveNextPhase({
+    change,
+    entries,
+    workflowType,
+  });
+
+  // Persist backtrack cleanup if needed
+  if (updatedEntries) {
+    writeEvalJson(changeDir, updatedEntries);
+  }
+
+  return result;
+}

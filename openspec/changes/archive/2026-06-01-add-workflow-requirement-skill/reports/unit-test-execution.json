@@ -1,0 +1,13 @@
+{
+  "phase": "06-unit-test",
+  "command": "cd D:/Projects/wps-claude-plugin/plugins/dev-team/bin && npx vp test --reporter=verbose 2>&1",
+  "timestamp": "2026-06-01T15:47:37.000Z",
+  "total": 139,
+  "passed": 139,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 7130,
+  "failures": [],
+  "findings": "Coverage provider (@vitest/coverage-v8) is not installed. All 139 tests passed across 6 test files: src/commands/eval-next.test.ts, src/lib/eval-json.test.ts, src/lib/workflow.test.ts, src/lib/c4-parser.test.ts, src/lib/archi-commands.test.ts, src/lib/archi-integration.test.ts."
+}

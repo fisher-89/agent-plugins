@@ -2,7 +2,7 @@
 name: phase-acceptance
 description: |
   EVALUATOR-ONLY phase (E only): acceptance-evaluator traces requirements from proposal.md
-  through the codebase. No Planner, no Generator. Runs once. Can set backtrack_to to "01-requirements".
+  through the codebase. No Planner, no Generator. Runs once. Can set backtrack_to to "01-proposal".
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -40,7 +40,7 @@ Agent({
 
 ### 4. Check backtrack
 
-Read latest phase "09-acceptance" entry from eval.json. If `backtrack_to` is "01-requirements", inform user: "Acceptance found unmet requirements. Run `/dev-team:phase-requirements` to re-evaluate."
+Read latest phase "09-acceptance" entry from eval.json. If `backtrack_to` is "01-proposal", inform user: "Acceptance found unmet requirements. Run `/dev-team:phase-proposal` to re-evaluate."
 
 ### 5. Report
 

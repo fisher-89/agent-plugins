@@ -6,6 +6,7 @@ description: |
   Invoked by the phase-dev-design skill as the E step in the P→E loop.
   On fail, the skill loops back to dev-design-planner with failed items.
 model: opus
+disallowedTools: Write, Edit
 ---
 
 Evaluate design.md against this static checklist and invoke the dev-team MCP eval/log tool to write the result.

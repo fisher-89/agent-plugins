@@ -2,7 +2,7 @@ import { z } from 'zod/v4';
 
 export const evalLogInputSchema = {
   change: z.string().describe('Change name (corresponds to openspec/changes/<name>)'),
-  phase: z.string().describe('Phase identifier (e.g. 01-requirements)'),
+  phase: z.string().describe('Phase identifier (e.g. 01-proposal)'),
   verdict: z.enum(['pass', 'fail']).describe('Evaluation verdict'),
   report: z.string().max(500).describe('Evaluation report text (max 500 chars)'),
   items: z

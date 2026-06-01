@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "bash openspec/changes/add-workflow-requirement-skill/tests/test-phase-proposal.sh && bash openspec/changes/add-workflow-requirement-skill/tests/test-planner-output.sh && bash openspec/changes/add-workflow-requirement-skill/tests/test-workflow-full.sh && bash openspec/changes/add-workflow-requirement-skill/tests/test-explore-context.sh && bash openspec/changes/add-workflow-requirement-skill/tests/test-archive.sh test-archive-e2e",
+  "timestamp": "2026-06-01T16:00:00.000Z",
+  "total": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 7244,
+  "failures": [],
+  "findings": "No automated integration tests could be executed for this change. 5 integration test bash scripts exist under openspec/changes/add-workflow-requirement-skill/tests/ (test-phase-proposal.sh, test-planner-output.sh, test-workflow-full.sh, test-explore-context.sh, test-archive.sh) but all are skeleton scripts with every assertion behind '# TODO: Uncomment when running actual test' comments. The scripts require a running Claude Code CLI ('claude' on PATH) to invoke skills and produce real artifacts. Additionally, the vitest config at plugins/dev-team/bin/vitest.config.ts includes '../../../openspec/changes/*/tests/*.test.ts' glob but no *.test.ts files exist in this change's tests/ directory — only .sh files. Per test-design.md, these integration tests are documented as '手动执行的 bash 脚本' (manually executed bash scripts) requiring interactive Claude Code CLI, making them unexecutable in the current automated context. All 5 skeleton scripts ran successfully (exit code 0) but produced no test assertions."
+}

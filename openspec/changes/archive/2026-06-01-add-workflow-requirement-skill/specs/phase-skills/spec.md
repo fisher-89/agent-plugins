@@ -103,70 +103,11 @@ The skill SHALL NOT:
 - **THEN** after each iteration, the skill SHALL output: `[Round {result.round}/20] [Phase {result.phase_index}/{result.total_phases}] {result.next_phase}: executed`
 - **AND** upon `eval/next` returning `done: true` or `error`, PushNotification SHALL be sent
 
-### Requirement: phase-dev-design skill
-The system SHALL provide `dev-team:phase-dev-design` skill at `skills/phase-dev-design/SKILL.md` with name `phase-dev-design` and gate check phase `02-dev-design`.
-
-The skill SHALL invoke dev-design-planner (writes design.md + tasks.md) and dev-design-evaluator (evaluates against proposal.md) in a P→E loop.
-
-Gate check: `dev-team eval-check --change "<name>" --phase 02-dev-design`
-
-#### Scenario: phase-dev-design gate check
-- **WHEN** user invokes `/dev-team:phase-dev-design <name>`
-- **THEN** the skill runs `dev-team eval-check --change "<name>" --phase 02-dev-design`
-- **AND** requires prior phase [01-proposal] to have pass record
-
-### Requirement: phase-test-design uses updated phase code
-The system SHALL use `03-test-design` (formerly `02-test-design`) as the phase identifier for the test-design phase.
-
-Gate check: `dev-team eval-check --change "<name>" --phase 03-test-design`
-
-The test-design-planner SHALL read `design.md` (produced by 02-dev-design) in addition to `proposal.md` as input for determining test scope and strategy.
-
-#### Scenario: phase-test-design gate check
-- **WHEN** user invokes `/dev-team:phase-test-design <name>`
-- **THEN** the skill runs `dev-team eval-check --change "<name>" --phase 03-test-design`
-- **AND** requires prior phases [01-proposal, 02-dev-design] to have pass records
-
-#### Scenario: test-design-planner reads design.md
-- **WHEN** test-design-planner is invoked
-- **THEN** it reads `openspec/changes/<name>/design.md` as input for architecture context
-- **AND** generates test scope and strategy informed by the design's architecture, data flow, and route design
-
-### Requirement: phase skills use hierarchical MCP tool names
-All phase skill SKILL.md files SHALL reference MCP tools using the hierarchical `xx/yy` format. No skill file SHALL contain references to the deprecated flat-format names (`eval_check`, `eval_log`).
-
-The following files SHALL be updated:
-
-| Skill File | Old Reference | New Reference |
-|------------|---------------|---------------|
-| `skills/phase-proposal/SKILL.md` | `eval_check` | `eval/check` |
-| `skills/phase-dev-design/SKILL.md` | `eval_check` | `eval/check` |
-| `skills/phase-test-design/SKILL.md` | `eval_check` | `eval/check` |
-| `skills/phase-test-gen/SKILL.md` | `eval_check` | `eval/check` |
-| `skills/phase-implement/SKILL.md` | `eval_check` | `eval/check` |
-| `skills/phase-unit-test/SKILL.md` | `eval_log` | `eval/log` |
-| `skills/phase-code-review/SKILL.md` | `eval_check` | `eval/check` |
-| `skills/phase-integration-test/SKILL.md` | `eval_log` | `eval/log` |
-| `skills/phase-acceptance/SKILL.md` | `eval_check` | `eval/check` |
-| `skills/openspec-archive-change/SKILL.md` | `eval_check` | `eval/check` |
-
-#### Scenario: phase-proposal gate check uses eval/check
-- **WHEN** reading `skills/phase-proposal/SKILL.md`
-- **THEN** the file references `mcp__plugin_dev-team_dev-team__eval/check` (not `eval_check`)
-
-#### Scenario: phase-unit-test evaluator uses eval/log
-- **WHEN** reading `skills/phase-unit-test/SKILL.md`
-- **THEN** the file references `mcp__plugin_dev-team_dev-team__eval/log` (not `eval_log`)
-
 ## REMOVED Requirements
 
 ### Requirement: phase-requirements skill
 **Reason**: 重构为 phase-proposal（P→E 模式，使用 proposal-planner + proposal-evaluator 子代理替代主模型直接写入）。
 **Migration**: 用户改用 `/dev-team:phase-proposal` 替代 `/dev-team:phase-requirements`。目录 `skills/phase-requirements/` 删除。
-
-### Requirement: phase-dev-proposal skill
-**Reason**: 重命名为 phase-dev-design，职责不变（产出 design.md + tasks.md）。
-**Migration**: 用户改用 `/dev-team:phase-dev-design` 替代 `/dev-team:phase-dev-proposal`。目录 `skills/phase-dev-proposal/` 重命名为 `skills/phase-dev-design/`。
 
 ## MODIFIED Requirements
 
@@ -195,18 +136,6 @@ Updated skill list:
 - **AND** the skill reads the latest eval.json entry to determine verdict
 - **AND** loops back to Planner if verdict is "fail" (up to max attempts)
 
-#### Scenario: Skill 遵循精简编排器模式调用 eval/check
-- **WHEN** 用户调用任意一个精简后的阶段技能
-- **THEN** 在执行业务逻辑之前，技能先调用 `mcp__plugin_dev-team_dev-team__eval/check` with change="<name>" and phase="<phase-code>"
-- **AND** 如果 eval/check 返回 `passed: false`，技能输出错误信息并停止
-- **AND** Evaluator subagent 从自己的 agent.md 获取完整的 checklist 和 eval/log MCP tool 调用指令
-
-#### Scenario: Skill 在 evaluator 完成后读取 eval.json 判断 verdict
-- **WHEN** Evaluator subagent 执行完成
-- **THEN** 技能读取 `openspec/changes/<name>/eval.json` 获取当前阶段的最新条目
-- **AND** 如果 verdict 为 "fail"，重新执行业务逻辑（主 agent 或 subagent，最多 5 次尝试）
-- **AND** 如果 verdict 为 "pass" 或 达到最大尝试次数，技能输出结果报告
-
 #### Scenario: phase-proposal gate check uses eval/check
 - **WHEN** reading `skills/phase-proposal/SKILL.md`
 - **THEN** the file references `mcp__plugin_dev-team_dev-team__eval/check` (not `eval_check`)
@@ -218,13 +147,4 @@ Updated skill list:
 | Skill | MCP Tools Used | Agent (Planner) | Agent (Evaluator) | Contract |
 |-------|---------------|-----------------|-------------------|----------|
 | phase-proposal | eval/check | proposal-planner | proposal-evaluator | P→E loop, phase `01-proposal` |
-| phase-dev-design | eval/check | dev-design-planner | dev-design-evaluator | P→E loop, phase `02-dev-design` |
-| phase-test-design | eval/check | test-design-planner | test-design-evaluator | P→E loop, phase `03-test-design` |
-| phase-test-gen | eval/check | test-gen-generator | test-gen-evaluator | G→E loop, phase `04-test-gen` |
-| phase-implement | eval/check | implementation-generator | implementation-evaluator | G→E + AUTO, phase `05-implement` |
-| phase-unit-test | eval/log | unit-test-executor | unit-test-evaluator | EXEC loop, phase `06-unit-test` |
-| phase-code-review | eval/check | (none) | code-review-evaluator | EVAL-ONLY, phase `07-code-review` |
-| phase-integration-test | eval/log | integration-test-executor | integration-test-evaluator | EXEC loop, phase `08-integration-test` |
-| phase-acceptance | eval/check | (none) | acceptance-evaluator | EVAL-ONLY, phase `09-acceptance` |
 | workflow-requirement | eval/next, eval/log | (from eval/next response) | (from eval/next response) | Thin loop: call eval/next → invoke returned agents → repeat; no hardcoded phase table |
-| openspec-archive-change | eval/check | (none) | (none) | Archive completed change |
