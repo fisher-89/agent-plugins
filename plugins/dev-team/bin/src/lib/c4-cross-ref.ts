@@ -452,10 +452,12 @@ export async function runCrossRefCheck(
   const seenElements = new Map<string, string[]>();
   for (const [filepath, elemName] of Object.entries(fileElementMap)) {
     if (elemName) {
-      if (!seenElements.has(elemName)) {
-        seenElements.set(elemName, []);
+      let files = seenElements.get(elemName);
+      if (!files) {
+        files = [];
+        seenElements.set(elemName, files);
       }
-      seenElements.get(elemName)!.push(filepath);
+      files.push(filepath);
     }
   }
 

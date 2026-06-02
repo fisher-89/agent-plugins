@@ -37,11 +37,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     pattern: 'DESIGN',
     planner: {
       agent_type: 'dev-team:proposal-planner',
-      prompt: "Write proposal.md and specs/ for change '<change>'.",
+      prompt: 'Write proposal.md and specs/ for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
-      prompt: "Evaluate proposal.md for change '<change>' against checklist.",
+      prompt: 'Evaluate proposal.md for change "<change>" against checklist.',
     },
     auto_steps: [],
   },
@@ -50,12 +50,12 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     pattern: 'DESIGN',
     planner: {
       agent_type: 'dev-team:dev-design-planner',
-      prompt: "Write design.md and tasks.md for change '<change>'.",
+      prompt: 'Write design.md and tasks.md for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:dev-design-evaluator',
       prompt:
-        "Evaluate design.md and tasks.md for change '<change>' against proposal.md. Append result to eval.json.",
+        'Evaluate design.md and tasks.md for change "<change>" against proposal.md. Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -64,12 +64,12 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     pattern: 'DESIGN',
     planner: {
       agent_type: 'dev-team:test-design-planner',
-      prompt: "Write test design for change '<change>'.",
+      prompt: 'Write test design for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:test-design-evaluator',
       prompt:
-        "Evaluate test design for change '<change>' against design.md. Append result to eval.json.",
+        'Evaluate test design for change "<change>" against design.md. Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -78,11 +78,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     pattern: 'EXEC',
     planner: {
       agent_type: 'dev-team:test-gen-generator',
-      prompt: "Generate test code for change '<change>'.",
+      prompt: 'Generate test code for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:test-gen-evaluator',
-      prompt: "Evaluate generated tests for change '<change>'. Append result to eval.json.",
+      prompt: 'Evaluate generated tests for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -91,12 +91,12 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     pattern: 'EXEC',
     planner: {
       agent_type: 'dev-team:implementation-generator',
-      prompt: "Implement the code for change '<change>'.",
+      prompt: 'Implement the code for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:implementation-evaluator',
       prompt:
-        "Evaluate implementation for change '<change>' against design. Append result to eval.json.",
+        'Evaluate implementation for change "<change>" against design. Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -105,12 +105,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     pattern: 'EXEC',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
-      prompt: "Run and fix unit tests for change '<change>'.",
+      prompt: 'Run and fix unit tests for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:unit-test-evaluator',
-      prompt:
-        "Evaluate unit test results for change '<change>'. Append result to eval.json.",
+      prompt: 'Evaluate unit test results for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -120,8 +119,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     planner: null,
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
-      prompt:
-        "Perform code review for change '<change>'. Append result to eval.json.",
+      prompt: 'Perform code review for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -130,12 +128,12 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     pattern: 'EXEC',
     planner: {
       agent_type: 'dev-team:integration-test-executor',
-      prompt: "Run and fix integration tests for change '<change>'.",
+      prompt: 'Run and fix integration tests for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:integration-test-evaluator',
       prompt:
-        "Evaluate integration test results for change '<change>'. Append result to eval.json.",
+        'Evaluate integration test results for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -145,7 +143,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     planner: null,
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
-      prompt: "Perform acceptance evaluation for change '<change>'. Append result to eval.json.",
+      prompt: 'Perform acceptance evaluation for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -157,11 +155,11 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     pattern: 'DESIGN',
     planner: {
       agent_type: 'dev-team:proposal-planner',
-      prompt: "Write proposal.md and specs/ for change '<change>'.",
+      prompt: 'Write proposal.md and specs/ for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
-      prompt: "Evaluate proposal.md for change '<change>' against checklist.",
+      prompt: 'Evaluate proposal.md for change "<change>" against checklist.',
     },
     auto_steps: [],
   },
@@ -170,12 +168,12 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     pattern: 'DESIGN',
     planner: {
       agent_type: 'dev-team:dev-design-planner',
-      prompt: "Write design.md and tasks.md for change '<change>'.",
+      prompt: 'Write design.md and tasks.md for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:dev-design-evaluator',
       prompt:
-        "Evaluate design.md and tasks.md for change '<change>' against proposal.md. Append result to eval.json.",
+        'Evaluate design.md and tasks.md for change "<change>" against proposal.md. Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -184,12 +182,12 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     pattern: 'EXEC',
     planner: {
       agent_type: 'dev-team:implementation-generator',
-      prompt: "Implement the code for change '<change>'.",
+      prompt: 'Implement the code for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:implementation-evaluator',
       prompt:
-        "Evaluate implementation for change '<change>' against design. Append result to eval.json.",
+        'Evaluate implementation for change "<change>" against design. Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -198,12 +196,11 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     pattern: 'EXEC',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
-      prompt: "Run and fix unit tests for change '<change>'.",
+      prompt: 'Run and fix unit tests for change "<change>".',
     },
     evaluator: {
       agent_type: 'dev-team:unit-test-evaluator',
-      prompt:
-        "Evaluate unit test results for change '<change>'. Append result to eval.json.",
+      prompt: 'Evaluate unit test results for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -213,8 +210,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     planner: null,
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
-      prompt:
-        "Perform code review for change '<change>'. Append result to eval.json.",
+      prompt: 'Perform code review for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -224,7 +220,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     planner: null,
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
-      prompt: "Perform acceptance evaluation for change '<change>'. Append result to eval.json.",
+      prompt: 'Perform acceptance evaluation for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -246,7 +242,7 @@ export const PHASE_TABLES: Record<string, PhaseDefinition[]> = {
  * Ordered list of PGE workflow phases.
  * Derived from PHASE_REQUIREMENT — the single source of truth.
  */
-export const PHASES: readonly string[] = PHASE_REQUIREMENT.map((p) => p.id) as const;
+export const PHASES: readonly string[] = PHASE_REQUIREMENT.map((p) => p.id);
 
 // ---------------------------------------------------------------------------
 // Accessors

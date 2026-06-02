@@ -148,8 +148,8 @@ export async function parseC4Dsl(dslText: string): Promise<C4ParseResult> {
     }
 
     await likec4.dispose();
-  } catch (err: any) {
-    result.errors.push(`LikeC4 parse error: ${err.message ?? String(err)}`);
+  } catch (err) {
+    result.errors.push(`LikeC4 parse error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   return result;
@@ -196,8 +196,8 @@ export async function validateC4Dsl(
     }
 
     await likec4.dispose();
-  } catch (err: any) {
-    errors.push(`LikeC4 parse error: ${err.message ?? String(err)}`);
+  } catch (err: unknown) {
+    errors.push(`LikeC4 parse error: ${err instanceof Error ? err.message : String(err)}`);
   }
 
   const parse = await parseC4Dsl(dslText);

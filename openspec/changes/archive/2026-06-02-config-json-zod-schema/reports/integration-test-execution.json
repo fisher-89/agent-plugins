@@ -1,0 +1,22 @@
+{
+  "phase": "08-integration-test",
+  "command": "npx vp test --reporter verbose 2>&1",
+  "timestamp": "2026-06-02T15:57:48.000Z",
+  "total": 347,
+  "passed": 347,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 10000,
+  "failures": [],
+  "findings": "All 347 tests passed across 13 test files. The change 'config-json-zod-schema' contributed 207+ tests across 7 test files (tests/schemas/config.schema.test.ts: 65, tests/lib/config.test.ts: 57, tests/commands/config-set.test.ts: 25, tests/commands/config-context.test.ts: 20, tests/commands/config-get.test.ts: 18, tests/commands/config-unset.test.ts: 18, tests/package-deps.test.ts: 4). Integration tests (33 tests using real filesystem via fs.mkdtempSync) all passed, covering: readConfig/writeConfig round-trips, skeleton auto-creation, YAML-to-JSON automatic migration (AC-6), JSON syntax validity, invalid JSON graceful degradation, non-ASCII value handling, extra fields passthrough, filesystem edge cases, context read/write, project_root relative path resolution, config/set filesystem behavior, idempotent set/unset operations (幂等性-1 through 4), and nested key handling. All command-layer tests, schema validation tests, and lib function tests passed. No failures detected.",
+  "test_files": [
+    "openspec/changes/config-json-zod-schema/tests/schemas/config.schema.test.ts",
+    "openspec/changes/config-json-zod-schema/tests/lib/config.test.ts",
+    "openspec/changes/config-json-zod-schema/tests/commands/config-get.test.ts",
+    "openspec/changes/config-json-zod-schema/tests/commands/config-set.test.ts",
+    "openspec/changes/config-json-zod-schema/tests/commands/config-unset.test.ts",
+    "openspec/changes/config-json-zod-schema/tests/commands/config-context.test.ts",
+    "openspec/changes/config-json-zod-schema/tests/package-deps.test.ts"
+  ]
+}

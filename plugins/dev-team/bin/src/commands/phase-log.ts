@@ -35,7 +35,7 @@ export interface PhaseLogResult {
  */
 export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   const REQUIRED_ARGS = ['change', 'phase', 'verdict', 'report', 'items'] as const;
-  const missing = REQUIRED_ARGS.filter((r) => !(options as any)[r] || (options as any)[r] === '');
+  const missing = REQUIRED_ARGS.filter((r) => !options[r] || options[r] === '');
   if (missing.length > 0) {
     throw new Error(`缺少必填参数: --${missing.join(', --')}`);
   }

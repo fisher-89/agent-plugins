@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 
 import { getChangeDir } from '../lib/change';
-import { readEvalJson, checkGate, GateResult } from '../lib/eval-json';
+import { readEvalJson, checkGate, type GateResult } from '../lib/eval-json';
 import { getPriorPhases, getPhaseIndex, PHASES } from '../lib/workflow';
 
 export const SCHEMA_VERSION = '1.0';

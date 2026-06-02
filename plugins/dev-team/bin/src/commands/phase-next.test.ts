@@ -12,13 +12,8 @@
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import {
-  resolvePhaseNext,
-} from '../commands/phase-next';
-import {
-  getPhaseTable,
-  getPhasePattern,
-} from '../lib/workflow';
+import { resolvePhaseNext } from '../commands/phase-next';
+import { getPhaseTable, getPhasePattern } from '../lib/workflow';
 
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios
@@ -41,7 +36,11 @@ function nextTs(): string {
   return new Date(Date.now() + ++_tsCounter).toISOString();
 }
 
-function passEntry(phase: string, attempt: number = 1, overrides: Partial<MockEntry> = {}): MockEntry {
+function passEntry(
+  phase: string,
+  attempt: number = 1,
+  overrides: Partial<MockEntry> = {},
+): MockEntry {
   return {
     phase,
     verdict: 'pass',
@@ -52,7 +51,11 @@ function passEntry(phase: string, attempt: number = 1, overrides: Partial<MockEn
   };
 }
 
-function failEntry(phase: string, attempt: number = 1, overrides: Partial<MockEntry> = {}): MockEntry {
+function failEntry(
+  phase: string,
+  attempt: number = 1,
+  overrides: Partial<MockEntry> = {},
+): MockEntry {
   return {
     phase,
     verdict: 'fail',
@@ -92,7 +95,7 @@ function skipPedEntry(phase: string, attempt: number = 1): MockEntry {
 
 // Helper to call resolvePhaseNext
 function next(entries: MockEntry[], change: string = 'test-change', workflowType?: string) {
-  return resolvePhaseNext({ change, entries: entries as any[], workflowType }).result;
+  return resolvePhaseNext({ change, entries, workflowType }).result;
 }
 
 // ---------------------------------------------------------------------------
@@ -424,7 +427,7 @@ describe('runPhaseNext — Backtrack (AC-8)', () => {
     ];
     const { result, updatedEntries } = resolvePhaseNext({
       change: 'test-change',
-      entries: entries as any[],
+      entries: entries,
     });
     expect(result.next_phase).toBe('01-proposal');
     // Backtrack should clear 01-proposal onward entries from updatedEntries
@@ -439,7 +442,7 @@ describe('runPhaseNext — Backtrack (AC-8)', () => {
         passEntry('01-proposal'),
         passEntry('02-dev-design'),
         backtrackEntry('02-dev-design', '01-proposal'),
-      ] as any[],
+      ],
     });
     expect(result.planner!.agent_type).toBe('dev-team:proposal-planner');
     expect(result.evaluator!.agent_type).toBe('dev-team:proposal-evaluator');
@@ -457,7 +460,7 @@ describe('runPhaseNext — Backtrack (AC-8)', () => {
     ];
     const { result, updatedEntries } = resolvePhaseNext({
       change: 'test-change',
-      entries: entries as any[],
+      entries: entries,
     });
     expect(result.next_phase).toBe('04-test-gen');
     expect(updatedEntries).toBeDefined();
@@ -623,7 +626,7 @@ describe('runPhaseNext — workflow_type', () => {
     ];
     const { result } = resolvePhaseNext({
       change: 'test-change',
-      entries: entries as any[],
+      entries: entries,
       workflowType: 'bug-fix',
     });
     expect(result.next_phase).toBe('09-acceptance');
@@ -663,8 +666,14 @@ describe('Boundary Scenarios', () => {
     const entries: MockEntry[] = [];
     // Add 9 phases pass in sequence
     const phaseIds = [
-      '01-proposal', '02-dev-design', '03-test-design', '04-test-gen',
-      '05-implement', '06-unit-test', '07-code-review', '08-integration-test',
+      '01-proposal',
+      '02-dev-design',
+      '03-test-design',
+      '04-test-gen',
+      '05-implement',
+      '06-unit-test',
+      '07-code-review',
+      '08-integration-test',
       '09-acceptance',
     ];
     // Each phase has 2 pass entries (total 18), plus 1 extra = 19 entries = round 20

@@ -2,6 +2,10 @@ import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 
 import pluginConfig from '../../.claude-plugin/plugin.json';
+import { runConfigContext } from './commands/config-context';
+import { runConfigGet } from './commands/config-get';
+import { runConfigSet } from './commands/config-set';
+import { runConfigUnset } from './commands/config-unset';
 import { runPhaseCheck } from './commands/phase-check';
 import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
@@ -24,17 +28,26 @@ import {
   archiCheckOutputSchema,
   phaseNextInputSchema,
   phaseNextOutputSchema,
+  configGetInputSchema,
+  configGetOutputSchema,
+  configSetInputSchema,
+  configSetOutputSchema,
+  configUnsetInputSchema,
+  configUnsetOutputSchema,
+  configContextInputSchema,
+  configContextOutputSchema,
 } from './schemas';
 
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
 
-function resolveProjectRoot(cwd?: string): string {
+function resolveProjectRoot(cwd?: string | null): string {
   return cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 }
 
 function jsonContent(data: unknown) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data) }],
+    // eslint-disable-next-line typescript/no-unsafe-type-assertion -- structuredContent is Record<string, unknown>, data is unknown
     structuredContent: data as Record<string, unknown>,
   };
 }
@@ -172,6 +185,85 @@ async function main(): Promise<void> {
       const result = runPhaseNext({
         change: args.change,
         workflow_type: args.workflow_type,
+      });
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'config/get',
+    {
+      description:
+        'Read a value from openspec/config.json by dot-separated key path. ' +
+        'Returns the value and whether the key exists. When the key does not exist, exists is false.',
+      inputSchema: configGetInputSchema,
+      outputSchema: configGetOutputSchema,
+    },
+    async (args) => {
+      const projectRoot = resolveProjectRoot(args.project_root);
+      const result = runConfigGet({
+        key: args.key,
+        projectRoot,
+      });
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'config/set',
+    {
+      description:
+        'Write a value to openspec/config.json by dot-separated key path. ' +
+        'Supports nested key paths (e.g. "test_scripts.unit"). ' +
+        'When the file does not exist, creates a skeleton file with schema: spec-driven.',
+      inputSchema: configSetInputSchema,
+      outputSchema: configSetOutputSchema,
+    },
+    async (args) => {
+      const projectRoot = resolveProjectRoot(args.project_root);
+      const result = runConfigSet({
+        key: args.key,
+        value: args.value,
+        projectRoot,
+      });
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'config/unset',
+    {
+      description:
+        'Delete a key from openspec/config.json by dot-separated key path. ' +
+        'Returns removed: false if the key did not exist.',
+      inputSchema: configUnsetInputSchema,
+      outputSchema: configUnsetOutputSchema,
+    },
+    async (args) => {
+      const projectRoot = resolveProjectRoot(args.project_root);
+      const result = runConfigUnset({
+        key: args.key,
+        projectRoot,
+      });
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'config/context',
+    {
+      description:
+        'Read or write the context field in openspec/config.json. ' +
+        'Without the context parameter, reads and returns the current context value. ' +
+        'With the context parameter, writes the new context value.',
+      inputSchema: configContextInputSchema,
+      outputSchema: configContextOutputSchema,
+    },
+    async (args) => {
+      const projectRoot = resolveProjectRoot(args.project_root);
+      const result = runConfigContext({
+        context: args.context,
+        projectRoot,
       });
       return jsonContent(result);
     },

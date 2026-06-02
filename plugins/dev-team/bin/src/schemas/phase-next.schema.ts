@@ -32,10 +32,10 @@ export const phaseNextOutputSchema = z.object({
     .string()
     .nullable()
     .describe('Phase pattern: DESIGN | EXEC | EVAL-ONLY (null if done or error)'),
-  planner: phaseAgentSchema.nullable().describe('Planner agent config (null for EVAL-ONLY or done/error)'),
-  evaluator: phaseAgentSchema
+  planner: phaseAgentSchema
     .nullable()
-    .describe('Evaluator agent config (null if done or error)'),
+    .describe('Planner agent config (null for EVAL-ONLY or done/error)'),
+  evaluator: phaseAgentSchema.nullable().describe('Evaluator agent config (null if done or error)'),
   auto_steps: z
     .array(z.string())
     .describe('Bash commands to execute between planner and evaluator'),

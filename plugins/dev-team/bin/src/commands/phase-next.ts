@@ -14,11 +14,7 @@ import * as path from 'path';
 
 import { getChangeDir } from '../lib/change';
 import { readEvalJson } from '../lib/eval-json';
-import {
-  getPhaseTable,
-  type PhaseAgentDef,
-  type PhaseDefinition,
-} from '../lib/workflow';
+import { getPhaseTable, type PhaseAgentDef, type PhaseDefinition } from '../lib/workflow';
 
 // ---------------------------------------------------------------------------
 // Types (local to phase/next)
@@ -169,9 +165,7 @@ function computeRound(entries: any[]): number {
  */
 function hasPhasePassed(entries: any[], phaseId: string): boolean {
   return entries.some(
-    (e: any) =>
-      e.phase === phaseId &&
-      (e.verdict === 'pass' || e.skipped === true),
+    (e: any) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true),
   );
 }
 

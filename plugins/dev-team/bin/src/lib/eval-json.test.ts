@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { validateVerdict, buildEntry, BuildEntryParams } from './eval-json';
+import { validateVerdict, buildEntry, type BuildEntryParams } from './eval-json';
 
 describe('validateVerdict', () => {
   it("should accept 'pass'", () => {
