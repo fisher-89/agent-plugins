@@ -2,7 +2,7 @@
  * phase/check MCP tool — DEPRECATED debugging utility.
  *
  * Previously used as a multi-gate check in the workflow loop. The workflow loop
- * now uses phase/next as the single decision point.
+ * now uses phase_next as the single decision point.
  *
  * Retained for debugging purposes only. Not called in the workflow loop.
  */
@@ -100,7 +100,7 @@ function buildPhaseCheckResult(options: BuildPhaseCheckResultOptions): PhaseChec
  * and return a structured result.
  *
  * DEPRECATED: This function is retained for debugging only.
- * All gate-check logic has been merged into phase/next.
+ * All gate-check logic has been merged into phase_next.
  */
 export function runPhaseCheck(options: PhaseCheckOptions): PhaseCheckResult {
   if (!options.change || options.change === '') {

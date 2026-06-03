@@ -12,7 +12,7 @@ export interface ConfigGetResult {
 }
 
 /**
- * Run config/get: read a value from openspec/config.json by dot-separated key path.
+ * Run config_get: read a value from openspec/config.json by dot-separated key path.
  * Ensures the config file exists before reading.
  */
 export function runConfigGet(options: ConfigGetOptions): ConfigGetResult {

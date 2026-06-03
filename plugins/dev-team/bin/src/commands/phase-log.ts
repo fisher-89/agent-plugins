@@ -38,7 +38,7 @@ export interface PhaseLogResult {
  * - When `backtrack_to` is set (string or array), marks the target phase(s)
  *   stale AND propagates downstream BEFORE writing the new entry.
  * - Pass entries do NOT trigger any stale marking.
- * - Does NOT perform gate-check (gate logic is entirely owned by phase/next).
+ * - Does NOT perform gate-check (gate logic is entirely owned by phase_next).
  */
 export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   const REQUIRED_ARGS = ['change', 'phase', 'verdict', 'report', 'items'] as const;

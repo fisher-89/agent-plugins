@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 
 /**
- * Input schema for phase/next MCP tool.
+ * Input schema for phase_next MCP tool.
  * `change` is required; `workflow_type` defaults to "requirement".
  */
 export const phaseNextInputSchema = {
@@ -21,7 +21,7 @@ const phaseAgentSchema = z.object({
 });
 
 /**
- * Output schema for a normal phase/next response (next phase available).
+ * Output schema for a normal phase_next response (next phase available).
  */
 export const phaseNextOutputSchema = z.object({
   done: z.boolean().describe('Whether the workflow is complete'),

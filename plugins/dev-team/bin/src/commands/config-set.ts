@@ -12,7 +12,7 @@ export interface ConfigSetResult {
 }
 
 /**
- * Run config/set: write a value to openspec/config.json by dot-separated key path.
+ * Run config_set: write a value to openspec/config.json by dot-separated key path.
  * Value types are preserved from the JSON input (no heuristic type inference).
  * Creates skeleton config file if missing.
  */

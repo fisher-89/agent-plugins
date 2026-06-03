@@ -11,7 +11,7 @@ export interface ConfigUnsetResult {
 }
 
 /**
- * Run config/unset: delete a key from openspec/config.json by dot-separated key path.
+ * Run config_unset: delete a key from openspec/config.json by dot-separated key path.
  * Returns removed: false if the key did not exist.
  */
 export function runConfigUnset(options: ConfigUnsetOptions): ConfigUnsetResult {

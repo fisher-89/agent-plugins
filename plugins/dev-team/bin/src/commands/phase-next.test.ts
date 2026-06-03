@@ -1,5 +1,5 @@
 /**
- * Unit tests for phase/next MCP tool — server-side orchestration logic.
+ * Unit tests for phase_next MCP tool — server-side orchestration logic.
  *
  * Tests cover: phase table resolution, normal progression, skip passed phases,
  * retry logic, backtrack, round limit, mid-phase interruption, skipped entries,
@@ -443,7 +443,7 @@ describe('runPhaseNext — Backtrack', () => {
       entries: entries,
     });
     expect(result.next_phase).toBe('01-proposal');
-    // No updatedEntries — phase/next is read-only
+    // No updatedEntries — phase_next is read-only
     expect(result).not.toHaveProperty('updatedEntries');
   });
 
@@ -702,7 +702,7 @@ describe('runPhaseNext — Mid-Phase Interruption', () => {
   it('should return the incomplete phase if evaluator never logged', () => {
     // If 01-proposal passed but 02-dev-design has no eval entries at all
     // (planner ran but evaluator never logged), the phase is not counted
-    // as passed and phase/next should return it for execution.
+    // as passed and phase_next should return it for execution.
     const result = next([passEntry('01-proposal')]);
     expect(result.next_phase).toBe('02-dev-design');
   });
@@ -876,7 +876,7 @@ describe('Boundary Scenarios', () => {
   });
 });
 
-describe('phase/next Output Schema', () => {
+describe('phase_next Output Schema', () => {
   it('should return valid JSON when next phase is ready', () => {
     const result = resolvePhaseNext({ change: 'test', entries: [] }).result;
     // Verify all required fields exist
@@ -932,7 +932,7 @@ describe('phase/next Output Schema', () => {
   });
 
   it('should return same prompt on retry (skill handles retry context)', () => {
-    // The phase/next tool returns the same prompt template on retry.
+    // The phase_next tool returns the same prompt template on retry.
     // The skill is responsible for adding retry context (e.g. "attempt 2/5").
     const firstResult = next([], 'test-change');
     const retryResult = next([failEntry('01-proposal', 1)], 'test-change');

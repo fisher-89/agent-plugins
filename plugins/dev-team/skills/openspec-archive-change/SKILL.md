@@ -39,7 +39,7 @@ Archive a completed change in the experimental workflow.
 
 3. **Check phase evaluation status**
 
-   Call `mcp__plugin_dev-team_dev-team__phase/check` with change="<name>" and phase="09-acceptance" to validate the PGE eval chain.
+   Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="09-acceptance" to validate the PGE eval chain.
 
    Parse the result to check:
    - `passed`: Overall evaluation status
@@ -110,7 +110,6 @@ All artifacts complete. Eval chain passed.
 **Guardrails**
 - Always prompt for change selection if not provided
 - Use artifact graph (openspec status --json) for completion checking
-- Run MCP phase/check to validate phase/eval.json before archive
 - Don't block archive on warnings - just inform and confirm
 - Preserve .openspec.yaml when moving to archive (it moves with the directory)
 - Show clear summary of what happened

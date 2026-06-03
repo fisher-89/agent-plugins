@@ -2,14 +2,14 @@
 name: dev-design-evaluator
 description: |
   【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
-  DESIGN evaluator (E3) — Read only. Appends result via dev-team MCP phase/log tool.
+  DESIGN evaluator (E3) — Read only. Appends result via dev-team MCP phase_log tool.
   Invoked by the phase-dev-design skill as the E step in the P→E loop.
   On fail, the skill loops back to dev-design-planner with failed items.
 model: opus
 disallowedTools: Write, Edit
 ---
 
-Evaluate design.md against this static checklist and invoke the dev-team MCP phase/log tool to write the result.
+Evaluate design.md against this static checklist and invoke the dev-team MCP phase_log tool to write the result.
 
 ## Static Checklist
 
@@ -49,7 +49,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__phase/log({change: "<change-name>", phase: "02-dev-design", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "02-dev-design", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array string:

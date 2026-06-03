@@ -1,0 +1,505 @@
+[
+  {
+    "phase": "01-proposal",
+    "timestamp": "2026-06-03T07:12:45.347Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated proposal rename-mcp-tool-slash-to-underscore against 10-item static checklist. All items pass: problem statement clear with 4 specific issues, scope in/out well-defined, risks have concrete mitigations, all 11 ACs verifiable, no placeholder/TODO content, capability section has 8 modified entries, specs/ map 1:1 to capabilities, no logic conflicts between proposal and specs.",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题部分包含4条具体问题描述（FQN分隔符不一致、客户端兼容性、路径化歧义、社区惯例不一致）及历史背景（mcp-hierarchical-commands变更）",
+        "notes": ""
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "in_scope（'实现以下特性'）列出11项具体内容；out_of_scope（'不要修改'）列出6项具体内容",
+        "notes": ""
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "4个风险各有具体缓解措施，如'全局搜索替换并逐文件验证'、'手动检查并清理'、'重新构建并在 CI 中验证'",
+        "notes": ""
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "11个AC均标注验证方法：代码审查、grep检查、手动检查、文件列表检查等",
+        "notes": ""
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "提案为简单命名约定变更，符合CLAUDE.md `Surgical changes`、`Simplicity first` 指导原则，无架构冲突",
+        "notes": ""
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "全文搜索proposal.md及specs/目录无 TODO/TBD/placeholder/{{...}} 匹配",
+        "notes": ""
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险各章节均有详细实质性内容，无空泛描述",
+        "notes": ""
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "`## 能力` 章节存在，`### 修改的能力` 有8个非空条目（mcp-tool-namespace、eval-check-cli、phase-skills、phase-agents、config-get/set/unset/context）",
+        "notes": ""
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "8个spec文件（mcp-tool-namespace、eval-check-cli、phase-skills、phase-agents、config-{get,set,unset,context}）与8个修改能力完全匹配，无多余spec文件",
+        "notes": ""
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "能力声明类型一致（均为 MODIFIED）；AC-1至AC-11在对应spec中有具体requirement/scenario覆盖；变更范围描述（11 skills, 10 agents, 8 specs）与spec内容无矛盾",
+        "notes": ""
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "02-dev-design",
+    "timestamp": "2026-06-03T07:15:40.334Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 9 checklist items pass. Design covers all 11 ACs from proposal. Component table has 5 columns with specific file paths and no TBD. Data flow tracks complete input-to-output path. All 4 decisions provide rationale and rejected alternatives. Tasks are specific with checkboxes grouped into 8 sequential phases. Dependencies listed with purposes. Design consistent with CLAUDE.md slim plugin architecture. All template sections have substantive content.",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表包含6个组件，每行填写了职责、依赖、技术栈和文件路径4列以上；无TBD；文件路径指向具体文件如 plugins/dev-team/bin/src/mcp.ts",
+        "notes": "文件位置列使用通配符 skills/*/SKILL.md 但可以定位到具体目录，可接受"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "数据流包含4步完整路径：Client发起tools/call → Server路由 → Handler执行 → Client收到响应，并附数据模型变更表",
+        "notes": "追踪了完整输入→处理→输出路径"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "4个决策（D1-D4）均列出理由和至少1个被拒绝的备选方案及原因，如D1方案A保留/、方案B使用-",
+        "notes": "每个决策的备选方案都有具体拒绝理由"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "设计覆盖AC-1至AC-11所有验收标准：名称映射表对应AC-1/7/8/9，迁移步骤1-8对应各AC，数据模型表对应AC-4/5/10",
+        "notes": "设计通过名称映射表、数据模型表和迁移步骤完整覆盖proposal.md所有验收条件"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md存在，包含 - [ ] 复选框任务，按Phase 1-8顺序组织，前置任务不依赖后续任务",
+        "notes": "Phase顺序合理：源码修改→构建→技能→agent→权限→spec→版本→验证"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "每个任务描述具体操作，如'修改 plugins/dev-team/bin/src/mcp.ts 中 11 处 server.registerTool 调用的第一个参数'，包含完整替换列表",
+        "notes": "无'实现功能'类模糊描述，所有任务含具体文件路径和操作指令"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "构建依赖：vite-plus(构建工具)、TypeScript ^6.0.3(类型检查)、@modelcontextprotocol/sdk。运行时依赖：node、@modelcontextprotocol/sdk",
+        "notes": "每个依赖项都有用途说明"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "保持slim plugin架构：技能为独立文件、agent为独立文件、不嵌入技能、维护现有构建流程、更新OpenSpec规范",
+        "notes": "设计不违反CLAUDE.md中任何架构约定"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构(组件表+图)、数据流(4步+数据模型表)、路由设计(名称映射表)、决策(4个)、依赖(构建/运行时)、风险(5项)均有实质性内容",
+        "notes": "所有章节均有具体内容，无占位符"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "03-test-design",
+    "timestamp": "2026-06-03T07:35:01.781Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass: T1 all 11 ACs mapped in coverage map, T2 all entries reference tests/ file paths, T3 boundary cases are domain-specific (substring, FQN, FP prevention), T4 strategy has detailed method/category/mock sections, T5 mock strategy described (no external deps), T6 all sections substantive, T7 in_scope covered/out_of_scope excluded, T8 N/A (rename only, write operations out of scope).",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在 coverage map 中有映射",
+        "pass": true,
+        "evidence": "coverage map 表格 (test-design.md line 21-38) 逐项列出 AC-1 至 AC-11 的映射，每个 AC 至少对应一个测试文件/函数。AC-1 映射到 test_source_references.py (2 个正向/逆向函数)，AC-10 映射到 test_spec_references.py，AC-11 映射到 test_settings_config.py，集成测试额外覆盖 AC-1 至 AC-11。",
+        "notes": "proposal.md 共 11 个 AC，全部在 coverage map 中有具体映射。"
+      },
+      {
+        "item": "coverage map 条目包含 openspec/changes/<change-name>/tests/ 下的测试文件路径",
+        "pass": true,
+        "evidence": "coverage map 中所有条目均引用 tests/test_*.py 格式路径，如 tests/test_source_references.py (line 23)、tests/test_spec_references.py (line 25)、tests/test_build_artifact.py (line 26)、tests/test_skill_references.py (line 28)、tests/test_agent_references.py (line 30)、tests/test_settings_config.py (line 32)、tests/test_mcp_server_integration.py (line 38)。这些文件全部存在于 openspec/changes/rename-mcp-tool-slash-to-underscore/tests/ 目录下。",
+        "notes": ""
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "Section 4 (line 80-96) 列出 16 个边界场景，全部与重命名相关：旧名是新名子串 (config/get vs config_get, line 84)、eval/ 前缀迁移 (line 85)、FQN 双下划线保护 (line 86)、registerTool description 斜杠保留 (line 89)、CJS 产物字符串 vs 变量 (line 87)、大小写敏感性 (line 91) 以及 4 个假阳性预防场景 FP-1 至 FP-4 (line 93-96)。无泛泛的空值输入场景。",
+        "notes": ""
+      },
+      {
+        "item": "测试策略描述了方法和分类",
+        "pass": true,
+        "evidence": "Section 3 (line 42-77) 包含 3.1 方法 (4 条具体策略：静态引用完整性、构建产物一致性、运行时功能性、逆向验证)、3.2 测试分类 (3 类测试的框架、环境、依赖详述)、3.3 模拟策略 (表格说明各类别无需模拟的理由)、3.4 已知假阳性预防 (4 个 FP 场景的根因分析和预防措施)。",
+        "notes": "测试策略内容详实，方法描述超过一段。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal.md 不涉及外部服务/数据库。test-design.md Section 3.3 模拟策略 (line 59-65) 表格明确说明三类测试均无需模拟：静态引用验证仅做文件内容正则匹配；构建验证依赖本地 npm 环境；集成冒烟测试使用实际 MCP Server 子进程并以空参数调用验证路由可达性。",
+        "notes": "无外部依赖，mock 策略描述充分（明确无需 mock）。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "测试层级 (Section 1, line 9-15)：3 级测试各有范围、框架、目标描述。覆盖映射 (Section 2, line 19-38)：11+1 行表格完整映射所有 AC。测试策略 (Section 3, line 42-77)：4 个子章节详述方法/分类/模拟/FP。边界场景 (Section 4, line 80-96)：16 个场景含输入条件和预期行为。测试数据 (Section 5, line 100-138)：数据来源和过滤规则。不可测试项 (Section 6, line 141-147)：5 项。",
+        "notes": "所有章节均有实质性内容，无占位符或 TODO。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "In_scope 验证：所有 11 个 in_scope 项 (mcp.ts 重命名、构建产物、skills、agents、settings.local.json、8 个 spec 文件) 均有测试覆盖。Out_of_scope 验证：Section 6 (line 141-147) 明确列出 'MCP tool 的业务逻辑正确性'、'CLI 命令'、'bin/openspec-bundled.js' 等不可测试项，与 proposal.md '不要修改' 部分 (参数 schema、业务逻辑、CLI 命令、bin/openspec-bundled.js) 完全对应。",
+        "notes": ""
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "本变更为纯重命名操作 (proposal.md '提案'部分及 '不要修改' 部分明确 MCP tool 业务逻辑实现不变)。test-design.md Section 6 明确 'MCP tool 的业务逻辑正确性 — 本变更不修改任何业务逻辑...因此不测试各 tool 的输入处理、schema 校验、输出格式等功能'。写操作 (config_set, config_unset, archi_write) 的幂等性属于业务逻辑范畴，不在本变更范围内。",
+        "notes": "N/A - 变更范围仅为命名替换，写操作的业务逻辑验证不在 scope 内。"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-06-03T07:39:16.583Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 test files generated under tests/ pass all 8 checklist items. Coverage map fully addressed (AC-1 through AC-11). Files follow test_*.py naming convention using unittest. Python syntax valid. All 13 boundary scenarios covered (including FP-1/2/3/4 fixes). git diff contains no JSON report files. Cleanup logic present via context manager in integration test; static-analysis tests require no teardown.",
+    "items": [
+      {
+        "item": "test-design.md 中每个 coverage map 条目在 tests/ 下都有对应的测试文件",
+        "pass": true,
+        "evidence": "7 test files match all 16 coverage map rows: test_source_references.py (AC-1/7/8/9), test_spec_references.py (AC-2/10), test_build_artifact.py (AC-3), test_skill_references.py (AC-4), test_agent_references.py (AC-5), test_settings_config.py (AC-6/11), test_mcp_server_integration.py (AC-1~11 e2e)",
+        "notes": ""
+      },
+      {
+        "item": "测试文件遵循项目命名规范且位于 openspec/changes/<change-name>/tests/",
+        "pass": true,
+        "evidence": "All 7 files under openspec/changes/rename-mcp-tool-slash-to-underscore/tests/ use test_*.py naming convention",
+        "notes": ""
+      },
+      {
+        "item": "测试文件语法有效",
+        "pass": true,
+        "evidence": "python -m py_compile passes for all 7 test files",
+        "notes": ""
+      },
+      {
+        "item": "测试骨架包含与 test-design 级别匹配的测试结构",
+        "pass": true,
+        "evidence": "Each file has test functions matching its coverage targets: test_source_references has 7 tests, test_spec_references has 3, test_build_artifact has 5, test_skill_references has 5, test_agent_references has 4, test_settings_config has 4, test_mcp_server_integration has 9",
+        "notes": ""
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All files use Python 3 unittest framework with os, re, json, subprocess imports as specified in test-design.md section 1",
+        "notes": ""
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "All 13 boundary scenarios from section 4 covered: sub-string risk (test_source_references:144-156), eval/ migration (test_settings_config:92-114), double-underscore (test_skill_references:138-157), CJS string literal vs var (test_build_artifact:236-255), FQN in comments (test_skill_references:161-179), description slash preserved (test_source_references:160-174), empty name (test_source_references:178-192), case sensitivity (test_source_references:195-203), mixed state (test_skill_references:183-206), FP-1/2/3/4 (dedicated tests in respective files)",
+        "notes": ""
+      },
+      {
+        "item": "diff 中无 JSON 报告或摘要文件",
+        "pass": true,
+        "evidence": "git diff --name-only shows 34 files; only JSON is plugin.json (existing project data). No report/summary JSON present",
+        "notes": ""
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test_mcp_server_integration.py has McpClientProcess context manager with __exit__/stop() for subprocess cleanup (lines 87-88, 109-117). Other tests are read-only static analysis requiring no teardown",
+        "notes": ""
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "05-implement",
+    "timestamp": "2026-06-03T07:43:22.406Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. 34 files changed systematically: mcp.ts (11 tool renames), rebuilt dev-team-mcp.cjs, 11 skills, 10 agents, settings.local.json, 8 spec files, plugin.json (2.5.4→2.6.0). Zero residual slash-format tool names in source/skills/agents/config. Design decisions (underscore separator, rebuild from source, archive untouched, systematic search-replace) fully followed.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "mcp.ts (6 lines 61-271): 11 tools with underscore names; dev-team-mcp.cjs rebuilt (360 changes); 11 skill files (e.g. phase-proposal/SKILL.md:37 uses phase_check); 10 agent files (e.g. architecture.md:34-38 uses archi_query/validate/write/check); settings.local.json:28,31 uses phase_check/phase_log; 8 spec files updated",
+        "notes": "All 6 architecture components from design.md table have implementation coverage in git diff"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "All changes are pure renames (xx/yy→xx_yy) with zero business logic or schema changes. MCP Client→Server routing preserved identically",
+        "notes": "Data flow unchanged per design.md §数据流"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Files remain in expected directories; mcp.ts import patterns unchanged; snake_case tool names consistent with MCP conventions; markdown skill/agent files follow existing template structure",
+        "notes": "No new import patterns, file organizations, or naming conventions introduced"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "All 11 tools from design.md name mapping table (lines 86-98) are registered in mcp.ts: phase_log, phase_check, phase_next, archi_query, archi_validate, archi_write, archi_check, config_get, config_set, config_unset, config_context",
+        "notes": "No API changes per design.md §路由/API 设计"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 4 tasks in Phase 1, 2 in Phase 2, 11 in Phase 3, 10 in Phase 4, 3 in Phase 5, 10 in Phase 6, 1 in Phase 7, 4 in Phase 8 — total 44 checkboxes, all marked [x]",
+        "notes": "tasks.md fully checked off"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "34 files changed, all directly related to rename: mcp.ts, dev-team-mcp.cjs (rebuild), 11 skills, 10 agents, settings.local.json, 8 specs, plugin.json (version bump), todo.md (status update for rename task)",
+        "notes": "todo.md change is updating the rename task status, directly related"
+      },
+      {
+        "item": "静态检查通过（lint、类型检查）",
+        "pass": true,
+        "evidence": "tasks.md Phase 8 task 4 confirms npm run check passed (only pre-existing errors). Grep for registerTool('\\w+/\\w+'') across all .ts files: 0 matches. Grep for slash-format FQN in skills/agents: 0 matches",
+        "notes": "No new lint/type errors introduced by this change"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1 (underscore): all 11 tools use '_'; D2 (rebuild): dev-team-mcp.cjs rebuilt from source (360 changes visible); D3 (archive untouched): grep archive/ returns no changes; D4 (systematic): all 34+ files updated uniformly",
+        "notes": "All 4 design decisions from design.md §决策 are respected"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "06-unit-test",
+    "timestamp": "2026-06-03T07:50:43.668Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 39 unit tests pass across 7 test files. 4 false-positive fixes applied successfully: FP-1 (spec migration ref filter), FP-2 (CJS template literal support), FP-3 (build error returncode check), FP-4 (MCP SDK isError content-level check). Coverage N/A (static analysis tests).",
+    "items": [
+      {
+        "item": "test_source_references.py — 所有工具名称为下划线格式且无斜杠残留",
+        "pass": true,
+        "evidence": "7 tests passing",
+        "notes": "AC-1, AC-7, AC-8, AC-9"
+      },
+      {
+        "item": "test_spec_references.py — spec 文件中工具名称引用已更新且排除映射表假阳性",
+        "pass": true,
+        "evidence": "3 tests passing",
+        "notes": "AC-2, AC-10, FP-1"
+      },
+      {
+        "item": "test_build_artifact.py — 构建产物工具名称为下划线格式且无斜杠",
+        "pass": true,
+        "evidence": "5 tests passing",
+        "notes": "AC-3, FP-2, FP-3"
+      },
+      {
+        "item": "test_skill_references.py — skill FQN 引用全部使用下划线",
+        "pass": true,
+        "evidence": "5 tests passing",
+        "notes": "AC-4"
+      },
+      {
+        "item": "test_agent_references.py — agent FQN 引用全部使用下划线",
+        "pass": true,
+        "evidence": "4 tests passing",
+        "notes": "AC-5"
+      },
+      {
+        "item": "test_settings_config.py — 配置文件中权限条目使用新名称, 无 eval/ 残留",
+        "pass": true,
+        "evidence": "4 tests passing",
+        "notes": "AC-6, AC-11"
+      },
+      {
+        "item": "test_mcp_server_integration.py — MCP Server 集成冒烟测试通过",
+        "pass": true,
+        "evidence": "9 tests passing",
+        "notes": "AC-1~11, FP-4"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 06-unit-test 阶段测试执行结果\n总计: 39 | 通过: 39 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n无 — 所有测试通过。\n\n诊断决策树分析:\n- 判定类型: 全部通过\n- 回溯目标: null\n- 根因: 所有 39 个单元测试通过，无需回溯"
+  },
+  {
+    "phase": "07-code-review",
+    "timestamp": "2026-06-03T07:52:16.135Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. Pure rename of 11 MCP tools from xx/yy to xx_xx across 34 files (mcp.ts, build artifact, 11 skills, 10 agents, settings.local.json, 8 spec files, plugin.json). No security issues, no logic changes. Comprehensive test coverage with 7 test files covering all 11 AC criteria. No remaining old-style references in production code.",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "Security grep in src dir found only unrelated test data. No hardcoded keys, injection vectors, or unsafe deserialization.",
+        "notes": "Pure rename, no logic changed"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "mcp.ts imports all 11 tool schemas from ./schemas (Zod validation). No new inputs added.",
+        "notes": "Existing schema validation unchanged"
+      },
+      {
+        "item": "变更代码路径有测试覆盖",
+        "pass": true,
+        "evidence": "7 test files in change tests/ dir covering all 11 AC criteria: source references, skills, agents, settings, specs, build artifact, MCP integration.",
+        "notes": "Change-specific tests cover all acceptance criteria"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "All 11 registerTool names use underscore. No old slash references remain in production code. settings.local.json uses phase_check/phase_log. plugin.json bumped to 2.6.0.",
+        "notes": "Implementation matches design.md exactly"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "resolveProjectRoot handles null/undefined. args.files split/filter handles empty/null. args.attempt null check. !!args.staged coercion.",
+        "notes": "Existing null-safety patterns intact"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "Pure search-and-replace rename across 34 files. No dead code or duplicate logic introduced.",
+        "notes": "No redundant code in rename-only change"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Consistent underscore naming throughout all changed files. TypeScript follows conventions. Test files well-documented.",
+        "notes": "Codebase naming now consistent with MCP FQN conventions"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Tool schemas reused from existing ./schemas module. No custom intermediate type mappings.",
+        "notes": "No new data types needed for rename"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "08-integration-test",
+    "timestamp": "2026-06-03T07:54:07.611Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 9 integration tests pass. MCP Server smoke test validates: (1) tools/list returns all 11 tools with underscore-format names; (2) each tool is routable via tools/call; (3) old slash-format tool name correctly returns tool-not-found via content-level isError detection (FP-4).",
+    "items": [
+      {
+        "item": "test_tools_list_returns_underscore_names — tools/list 返回 11 个工具且全部为下划线格式",
+        "pass": true,
+        "evidence": "9 tests passing, 0 failures",
+        "notes": "AC-1, AC-7, AC-8, AC-9"
+      },
+      {
+        "item": "test_tools_call_each_tool — 每个工具可通过 tools/call 路由",
+        "pass": true,
+        "evidence": "Individual tool call tests pass for phase_log, phase_check, archi_query, config_get",
+        "notes": "AC-1~11"
+      },
+      {
+        "item": "test_all_tools_routable — 全部 11 个工具在一次遍历中均可路由",
+        "pass": true,
+        "evidence": "Bulk routing test passes",
+        "notes": "AC-1~11"
+      },
+      {
+        "item": "test_tools_call_slash_name_returns_error — 旧名称返回 content-level isError 而非 JSON-RPC error",
+        "pass": true,
+        "evidence": "FP-4 meta-test passes; tool-not-found correctly detected via result.isError",
+        "notes": "FP-4"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 08-integration-test 阶段集成测试执行结果\n总计: 9 | 通过: 9 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n无 — 所有 9 个集成测试全部通过。\n\n诊断决策树分析:\n- 判定类型: 全部通过\n- 回溯目标: null\n- 根因: 所有 9 个集成测试通过，无需回溯"
+  },
+  {
+    "phase": "09-acceptance",
+    "timestamp": "2026-06-03T07:56:16.326Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 11 MCP tools renamed xx/yy to xx_xx. mcp.ts, dev-team-mcp.cjs, 11 skills, 10 agents, settings.local.json, and 8 spec files verified. No remaining slash-format tool references in active codebase. No scope creep. All risks mitigated.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1: mcp.ts:62-271 all 11 registerTool use underscore; AC-2: mcp-tool-namespace/spec.md:3-20 updated; AC-3: .cjs:474 11 tools underscore; AC-4: zero slash FQN in skills/; AC-5: zero slash FQN in agents/; AC-6: settings.local.json:28,31 phase_check/phase_log; AC-7/8/9: no phase/ archi/ config/ in mcp.ts/.cjs; AC-10: git diff confirms 8 specs; AC-11: zero eval/ entries in settings.local.json",
+        "notes": "All 11 ACs confirmed with specific file:line evidence."
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Git diff shows 34 modified files all within defined scope: mcp.ts, .cjs, 11 skills, 10 agents, settings.local.json, 8 specs + workflow-orchestration (in tasks), todo.md (tracking update), plugin.json (version bump)",
+        "notes": "Minor addition of workflow-orchestration/spec.md from tasks.md is consistent with change scope."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "mcp.ts tool renames: mcp.ts:62,87,106,121,136,151,195,214,235,254; rebuilt .cjs reflects changes; 11 skills updated (verified grep); 10 agents updated (verified grep); settings.local.json updated; 8 specs updated per git diff",
+        "notes": "Every in_scope item from proposal verified."
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "Schemas unchanged; business logic in commands/*.ts, lib/*.ts unchanged; CLI commands unchanged; openspec-bundled.js not in diff; eval.json format unchanged; pge-workflow-engine/spec.md and pipeline-backtrack/spec.md not modified",
+        "notes": "All out_of_scope items verified untouched."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk1: grep confirms no slash FQN in skills/agents; Risk2: zero eval/ entries in settings.local.json; Risk3: .cjs verified with 11 underscore tool names; Risk4: procedural (idle-time execution) - acceptable",
+        "notes": "All 4 risks have mitigations in place."
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  }
+]

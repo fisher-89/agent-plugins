@@ -1,15 +1,15 @@
 /**
- * phase/next MCP tool — server-side orchestration logic.
+ * phase_next MCP tool — server-side orchestration logic.
  *
  * Determines the next phase to execute in a PGE workflow based on eval.json entries.
  * Handles: initial run, normal progression, retry, backtrack, round limit,
  * mid-phase interruption, and skipped entries.
  *
- * KEY CHANGE: phase/next is now READ-ONLY. It never modifies eval.json.
- * Stale marking and propagation are handled by phase/log when writing entries
+ * KEY CHANGE: phase_next is now READ-ONLY. It never modifies eval.json.
+ * Stale marking and propagation are handled by phase_log when writing entries
  * with backtrack_to.
  *
- * The workflow skill calls phase/next in a loop and executes the returned
+ * The workflow skill calls phase_next in a loop and executes the returned
  * planner/evaluator agents without any hardcoded phase knowledge.
  */
 
@@ -18,7 +18,7 @@ import { readEvalJson } from '../lib/eval-json';
 import { getPhaseTable, type PhaseAgentDef, type PhaseDefinition } from '../lib/workflow';
 
 // ---------------------------------------------------------------------------
-// Types (local to phase/next)
+// Types (local to phase_next)
 // ---------------------------------------------------------------------------
 
 export type { PhaseAgentDef, PhaseDefinition };
@@ -204,7 +204,7 @@ function countAttempts(entries: any[], phaseId: string): number {
  * unit-tested without disk access.
  *
  * IMPORTANT: This function is READ-ONLY. It does NOT modify the entries array.
- * All stale marking is handled by phase/log.
+ * All stale marking is handled by phase_log.
  *
  * Returns the next phase config or a done/error response.
  */
@@ -237,8 +237,8 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
   }
 
   // -- Backtrack detection --
-  // phase/log already handled stale marking when the backtrack entry was written.
-  // phase/next only reads the backtrack_to to determine the next phase to return.
+  // phase_log already handled stale marking when the backtrack entry was written.
+  // phase_next only reads the backtrack_to to determine the next phase to return.
   const backtrackTarget = getLatestBacktrackTarget(entries);
   if (backtrackTarget) {
     const targets = Array.isArray(backtrackTarget) ? backtrackTarget : [backtrackTarget];
@@ -321,10 +321,10 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
 }
 
 /**
- * Full phase/next: reads eval.json from disk, resolves next phase.
+ * Full phase_next: reads eval.json from disk, resolves next phase.
  *
  * This function is READ-ONLY — it never writes to eval.json.
- * Stale marking and propagation are handled entirely by phase/log.
+ * Stale marking and propagation are handled entirely by phase_log.
  *
  * Called by the MCP tool handler.
  */

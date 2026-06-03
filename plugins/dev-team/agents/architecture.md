@@ -1,7 +1,7 @@
 ---
 name: architecture
 description: |
-  【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate via MCP archi/validate, present diff, wait for confirmation), validate (run MCP archi/check, explain violations), decide (help draft ADRs via archi-decide.py), review (critique model completeness/consistency/coupling).
+  【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate via MCP archi_validate, present diff, wait for confirmation), validate (run MCP archi_check, explain violations), decide (help draft ADRs via archi-decide.py), review (critique model completeness/consistency/coupling).
 model: opus
 ---
 
@@ -32,10 +32,10 @@ The model uses four element kinds in a strict hierarchy:
 - **Python utilities**:
   - `plugins/dev-team/utils/archi-decide.py` — create, list, update ADRs
 - **MCP tools** (under `mcp__plugin_dev-team_dev-team__`):
-  - `archi/query` — query model structure (optional `element` filter)
-  - `archi/validate` — validate DSL syntax (optional `source` text)
-  - `archi/write` — validate and write model files (requires `path`, `source`)
-  - `archi/check` — cross-reference imports vs. model (optional `staged` flag, `files` list)
+  - `archi_query` — query model structure (optional `element` filter)
+  - `archi_validate` — validate DSL syntax (optional `source` text)
+  - `archi_write` — validate and write model files (requires `path`, `source`)
+  - `archi_check` — cross-reference imports vs. model (optional `staged` flag, `files` list)
 
 ## DSL Syntax Quick Reference
 
@@ -158,26 +158,26 @@ When the user asks to add, modify, or update architecture elements:
 1. **Read current state**: Read all `openspec/specs/architecture/models/*.c4` files to understand the existing model.
 2. **Explore the code**: Use Grep/Glob to find relevant code files that the model changes should reference (e.g., `metadata.path` targets).
 3. **Draft the DSL**: Prepare the proposed DSL change — either a new file in `models/` or edits to an existing one. Use the domain/module/component hierarchy.
-4. **Validate**: Call `mcp__plugin_dev-team_dev-team__archi/validate` with `source`="<dsl>" — or validate the aggregated model if changes span files.
+4. **Validate**: Call `mcp__plugin_dev-team_dev-team__archi_validate` with `source`="<dsl>" — or validate the aggregated model if changes span files.
 5. **Present the diff**: Show the user the DSL changes with a plain-language explanation of what's being added/modified and why.
 6. **Wait for confirmation**: Do NOT write until the user confirms.
 
 When the user confirms, call:
 ```
-mcp__plugin_dev-team_dev-team__archi/write({path: "models/XX-name.c4", source: "<dsl>"})
+mcp__plugin_dev-team_dev-team__archi_write({path: "models/XX-name.c4", source: "<dsl>"})
 ```
 
 ### VALIDATE mode
 
 When the user asks to validate architecture or check code against the model:
 
-1. Call `mcp__plugin_dev-team_dev-team__archi/check` on staged files:
+1. Call `mcp__plugin_dev-team_dev-team__archi_check` on staged files:
    ```
-   mcp__plugin_dev-team_dev-team__archi/check({staged: true})
+   mcp__plugin_dev-team_dev-team__archi_check({staged: true})
    ```
    Or on specific files:
    ```
-   mcp__plugin_dev-team_dev-team__archi/check({files: "file1.ts,file2.ts"})
+   mcp__plugin_dev-team_dev-team__archi_check({files: "file1.ts,file2.ts"})
    ```
 
 2. Interpret the results in plain language:
@@ -230,7 +230,7 @@ When the user asks to review the architecture model quality:
 If no model exists and the user wants to create one:
 
 ```
-mcp__plugin_dev-team_dev-team__archi/write({path: "models/01-core.c4", source: "specification {
+mcp__plugin_dev-team_dev-team__archi_write({path: "models/01-core.c4", source: "specification {
   element package
   element domain
   element module

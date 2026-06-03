@@ -26,7 +26,7 @@ If a change name is provided, use it. Otherwise run `openspec list --json` and p
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase/check` with change="<name>" and phase="07-code-review". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="07-code-review". If `passed` is false, stop — prior phase gates have not passed.
 
 ### 3. Evaluate (once)
 

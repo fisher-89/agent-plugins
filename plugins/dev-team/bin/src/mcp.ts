@@ -59,7 +59,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'phase/log',
+    'phase_log',
     {
       description:
         'Append an evaluation result entry to eval.json for a given workflow phase. ' +
@@ -84,11 +84,11 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'phase/check',
+    'phase_check',
     {
       description:
         '[DEPRECATED] Check if all prior workflow phases have passed evaluation for a given phase. ' +
-        'Retained for debugging only — the workflow loop uses phase/next as the single decision point. ' +
+        'Retained for debugging only — the workflow loop uses phase_next as the single decision point. ' +
         'Runs prerequisite gate check and returns structured result.',
       inputSchema: phaseCheckInputSchema,
       outputSchema: phaseCheckOutputSchema,
@@ -103,7 +103,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'archi/query',
+    'archi_query',
     {
       description:
         'Query C4 architecture model elements and relationships. Optionally filter by element fully-qualified name.',
@@ -118,7 +118,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'archi/validate',
+    'archi_validate',
     {
       description:
         'Validate C4 architecture DSL syntax. Validates the current model or a provided DSL text string.',
@@ -133,7 +133,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'archi/write',
+    'archi_write',
     {
       description:
         'Validate and write a C4 architecture model file to the models/ directory. Validates DSL before writing.',
@@ -148,7 +148,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'archi/check',
+    'archi_check',
     {
       description:
         'Cross-reference validation: check code imports against the C4 architecture model. ' +
@@ -173,7 +173,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'phase/next',
+    'phase_next',
     {
       description:
         'Return the next phase to execute in a PGE workflow. ' +
@@ -192,7 +192,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'config/get',
+    'config_get',
     {
       description:
         'Read a value from openspec/config.json by dot-separated key path. ' +
@@ -211,7 +211,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'config/set',
+    'config_set',
     {
       description:
         'Write a value to openspec/config.json by dot-separated key path. ' +
@@ -232,7 +232,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'config/unset',
+    'config_unset',
     {
       description:
         'Delete a key from openspec/config.json by dot-separated key path. ' +
@@ -251,7 +251,7 @@ async function main(): Promise<void> {
   );
 
   server.registerTool(
-    'config/context',
+    'config_context',
     {
       description:
         'Read or write the context field in openspec/config.json. ' +

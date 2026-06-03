@@ -11,7 +11,7 @@ export interface ConfigContextResult {
 }
 
 /**
- * Run config/context: read or write the context field in openspec/config.json.
+ * Run config_context: read or write the context field in openspec/config.json.
  * - Without `context` param: reads and returns the current context string.
  * - With `context` param: writes the new context value and returns it.
  */

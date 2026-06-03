@@ -7,4 +7,4 @@
 - [ ] unit-test生成覆盖度报告
 - [ ] 下线python脚本
 - [ ] 下线openspec执行文件
-- [ ] mcp工具改回下划线，避免claude code转义“/”导致找不到tools
+- [x] mcp工具改回下划线，避免claude code转义“/”导致找不到tools

@@ -1,0 +1,13 @@
+{
+  "phase": "06-unit-test",
+  "command": "python -m pytest -v 2>&1",
+  "timestamp": "2026-06-03T15:40:00.000Z",
+  "total": 39,
+  "passed": 39,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 7280,
+  "failures": [],
+  "findings": "All 39 test cases pass across 7 test files. 4 fixes were applied to address false-positive failures from the previous execution: (FP-1) test_spec_references.py enhanced migration reference filter to skip headers and list items with old names in spec documentation; added _line_is_migration_reference detection for non-table migration references; fixed phase-agents/spec.md to use xx_yy naming in Skill Files Module Contract table. (FP-2) test_build_artifact.py CJS tool name extraction patterns updated to support backtick template literals (registerTool(`name`)) in addition to single/double quotes. (FP-3) test_build_artifact.py subprocess run changed from PIPE to DEVNULL to avoid [WinError 6] handle error on Python 3.14 Windows. (FP-4) test_mcp_server_integration.py response_has_tool_not_found corrected to only return True when content text explicitly says 'not found', not for general isError (which includes param validation errors)."
+}

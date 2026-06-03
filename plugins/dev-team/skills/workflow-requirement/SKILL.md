@@ -2,7 +2,7 @@
 name: workflow-requirement
 description: |
   Full PGE workflow orchestrator — executes all 9 phases sequentially.
-  No hardcoded phase knowledge. Uses phase/next for all orchestration decisions.
+  No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
   Calls Agent(planner) → Bash(auto_steps) → Agent(evaluator) in a loop until done.
   On completion, notifies user to archive manually.
 license: MIT
@@ -12,10 +12,10 @@ metadata:
   version: "1.0"
 ---
 
-Full workflow orchestrator — executes all PGE phases via phase/next loop.
+Full workflow orchestrator — executes all PGE phases via phase_next loop.
 
 This skill does NOT contain any hardcoded phase table, agent name, or prompt.
-Every phase, agent type, and prompt is returned by the phase/next MCP tool.
+Every phase, agent type, and prompt is returned by the phase_next MCP tool.
 
 ## Usage
 
@@ -43,12 +43,12 @@ If the change directory does not exist, run `openspec_new_change "<name>"` to sc
 
 ### Step 2: Orchestration loop
 
-Enter the main execution loop. Each iteration calls phase/next, executes the returned
+Enter the main execution loop. Each iteration calls phase_next, executes the returned
 planner and evaluator agents, and reports progress.
 
 ```
 LOOP:
-  result = mcp__plugin_dev-team_dev-team__phase/next(change=<name>, workflow_type="requirement")
+  result = mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")
 
   if result.error:
     报告: "Workflow error [{result.error}]: {result.message}"
