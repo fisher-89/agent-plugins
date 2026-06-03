@@ -1,9 +1,10 @@
 import { z } from 'zod/v4';
 
+import { configSchema } from './config.schema';
+
 export const configUnsetInputSchema = {
   key: z
-    .string()
-    .min(1)
+    .enum(configSchema.keyof().options)
     .describe('Key path to delete, supports dot-separated nested paths (e.g. "test_scripts.e2e")'),
   project_root: z
     .string()

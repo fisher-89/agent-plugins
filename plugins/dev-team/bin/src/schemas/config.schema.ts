@@ -18,6 +18,7 @@ export const configSchema = z
         tasks: z.array(z.string()).optional(),
       })
       .optional(),
+    static_analysis: z.string().optional(),
   })
   .passthrough();
 

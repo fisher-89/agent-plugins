@@ -2,7 +2,6 @@
 name: implementation-generator
 description: |
   【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
-  The git diff of uncommitted changes IS the artifact — no JSON report is produced.
   Invoked by the phase-implement skill as the G step in the G→E loop.
   After code generation, AUTO phases (static-check, test-execution) run automatically.
 model: sonnet
@@ -30,28 +29,43 @@ Read:
    - Type/styling conventions
 4. Work through pending tasks (unchecked `[ ]` items in tasks.md) in dependency order
 5. For each task, write the implementation code directly to the appropriate files
-6. After all code is written, mark completed tasks as `[x]` in tasks.md
+6. Mark completed tasks as `[x]` in tasks.md, continue until all tasks is finished
+7. After all code is written, retrieve the static check script.`mcp__plugin_dev-team_dev-team__config_get({key: "static_analysis"})` 
+8. If a script exists, run the validation and fix issues until no error stdout. 
 
 ## Output
 
 Write implementation code directly to disk.
 
-**The git diff of these uncommitted changes IS the artifact.** No JSON report, no summary file — the code is self-documenting.
+If the static check script exists, write a structured JSON report to `openspec/changes/<change-name>/reports/static_analysis.json`:
 
-## After Code Generation
-
-AUTO phases run automatically:
-1. **Static check**: lint and type checking run against the changed files
-2. **Test execution**: the full test suite runs to verify no regressions
-
-The Evaluator will then inspect the git diff against design.md.
+```json
+{
+  "phase": "05-implement",
+  "command": "<static check script>",
+  "timestamp": "2026-05-25T10:30:00.000Z",
+  "rounds": [
+    {
+      "script_duration": "3.2s",
+      "pass": false,
+      "failures": [
+        {
+          "file": "src/utils/parser.test.ts",
+          "line": 45,
+          "error_message": "Expected 5 but got 3"
+        }
+        ...
+      ]
+    }
+  ]
+}
+```
 
 ## Constraints
 
 - Follow existing code conventions exactly — match the project's style
 - Keep changes minimal and scoped to each task
 - Reuse existing utilities and patterns where applicable
-- Do NOT generate JSON reports or summary files
 - Write valid, compilable/parseable code
 - Include necessary imports and wiring (register new modules, update indexes, etc.)
 - **测试目录黑名单: 禁止读取以下目录中的任何文件** (测试文件应当只由 test-gen-generator 处理):

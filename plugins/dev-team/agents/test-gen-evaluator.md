@@ -17,12 +17,11 @@ Evaluate the Generator's test code output against test-design.md using this stat
 |----|------|---------|
 | G1 | test-design.md 中每个 coverage map 条目在 `openspec/changes/<change-name>/tests/` 下都有对应的测试文件 | 逐项交叉验证 coverage map 每行与 git diff 中 tests/ 目录下的文件 |
 | G2 | 测试文件遵循项目命名规范且位于 `openspec/changes/<change-name>/tests/` | 检查文件名匹配现有模式（test_*.py、*.test.ts 等）且位于 change 的 tests/ 目录下 |
-| G3 | 测试文件语法有效 | 对新文件运行项目的语法检查或编译器 |
-| G4 | 测试骨架包含与 test-design 级别匹配的测试结构 | 每个测试文件应有与覆盖目标对应的测试函数/方法 |
-| G5 | 测试文件使用正确的框架和导入 | 验证导入与 test-design.md 中指定的框架一致 |
-| G6 | test-design.md 中的边界情况已覆盖 | 每个边界情况必须有对应的测试骨架 |
-| G7 | diff 中无 JSON 报告或摘要文件 | git diff 必须只包含代码文件，不能有 .json（现有项目数据文件除外） |
-| G8 | 测试代码包含清理/还原逻辑 | 检查生成的测试文件中是否包含 teardown/cleanup/restore 逻辑（如清理临时文件、还原 mock、恢复状态等）。若未生成任何文件，空清理块可接受 |
+| G3 | 测试骨架包含与 test-design 级别匹配的测试结构 | 每个测试文件应有与覆盖目标对应的测试函数/方法 |
+| G4 | 测试文件使用正确的框架和导入 | 验证导入与 test-design.md 中指定的框架一致 |
+| G5 | test-design.md 中的边界情况已覆盖 | 每个边界情况必须有对应的测试骨架 |
+| G6 | diff 中无 JSON 报告或摘要文件 | git diff 必须只包含代码文件，不能有 .json（现有项目数据文件除外） |
+| G7 | 测试代码包含清理/还原逻辑 | 检查生成的测试文件中是否包含 teardown/cleanup/restore 逻辑（如清理临时文件、还原 mock、恢复状态等）。若未生成任何文件，空清理块可接受 |
 
 ## Input
 

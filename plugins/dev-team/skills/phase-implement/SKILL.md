@@ -1,7 +1,7 @@
 ---
 name: phase-implement
 description: |
-  EXECUTION phase (G→E+AUTO): generator writes code, AUTO static-check, then evaluator inspects git diff. Loops on fail. Replaces: /dev-team:openspec-apply-change
+  EXECUTION phase (G→E): generator writes code, then evaluator inspects git diff. Loops on fail. Replaces: /dev-team:openspec-apply-change
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -9,7 +9,7 @@ metadata:
   version: "1.0"
 ---
 
-Implementation phase — Generator writes code, AUTO phases run, Evaluator inspects.
+Implementation phase — Generator writes code, Evaluator inspects.
 
 ## Usage
 
@@ -37,12 +37,7 @@ Agent({
 })
 ```
 
-**3b. AUTO: Static check:**
-```bash
-python plugins/dev-team/utils/lint-runner.py --change "<name>" --project-root . --save-report
-```
-
-**3c. Evaluator:**
+**3b. Evaluator:**
 ```
 Agent({
   description: "Evaluate implementation",
@@ -51,7 +46,7 @@ Agent({
 })
 ```
 
-**3d. Verdict:** Read latest phase "05-implement" entry from eval.json. If "fail", redo Generator with failed items, then AUTO + Evaluator. Loop max 5x.
+**3c. Verdict:** Read latest phase "05-implement" entry from eval.json. If "fail", redo Generator with failed items, then Evaluator. Loop max 5x.
 
 ### 4. Report
 Show verdict, pass/total, and notes.

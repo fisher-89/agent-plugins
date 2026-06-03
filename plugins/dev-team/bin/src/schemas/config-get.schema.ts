@@ -1,9 +1,10 @@
 import { z } from 'zod/v4';
 
+import { configSchema } from './config.schema';
+
 export const configGetInputSchema = {
   key: z
-    .string()
-    .min(1)
+    .enum(configSchema.keyof().options)
     .describe('Key path to read, supports dot-separated nested paths (e.g. "test_scripts.unit")'),
   project_root: z
     .string()

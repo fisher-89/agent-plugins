@@ -1,3 +1,4 @@
 {
-  "schema": "spec-driven"
+  "schema": "spec-driven",
+  "static_analysis": "pnpm run -C ./plugins/dev-team/bin check"
 }

@@ -20,7 +20,7 @@ Evaluate the Generator's implementation code against design.md using this static
 | I4 | design.md 中所有路由/API 均已实现 | 仅当 design.md 指定了路由时 — 逐项交叉验证每个路由与实现 |
 | I5 | tasks.md 中所有任务均标记 [x]（已完成） | 验证 tasks.md 中每个任务复选框均已勾选 |
 | I6 | 没有与当前变更任务无关的代码 | git diff 应只包含可追溯到任务的变更 |
-| I7 | 静态检查通过（lint、类型检查） | 如果 AUTO 阶段已运行，可通过 lint-runner/test-runner 输出验证 |
+| I7 | 静态检查通过（lint、类型检查） | 若config_get {"key":"static_analysis"} 可以获取检查脚本，检查有`openspec/changes/<change-name>/reports/static_analysis.json` |
 | I8 | 设计决策在实现中得到遵守 | design.md 中每个决策应在代码中有所体现 |
 
 ## Input
