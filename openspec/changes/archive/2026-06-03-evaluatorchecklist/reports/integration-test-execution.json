@@ -1,0 +1,15 @@
+{
+  "phase": "08-integration-test",
+  "command": "bats test_checklist_column_removed.bats && bash test_optional_items_promoted.sh && bash test_code_review_range.sh && bash test_acceptance_range.sh && bash test_verdict_rule_unified.sh && bats test_excluded_files_unchanged.bats",
+  "timestamp": "2026-06-03T10:30:00.000Z",
+  "total": 31,
+  "passed": 31,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 77199,
+  "failures": [],
+  "findings": {
+    "fixed_bug": "Removed backtick quoting around Chinese characters in @test names (test_checklist_column_removed.bats). Backticks `` ` `` around `必须` caused Bash command substitution, producing '必须: command not found' errors in test output. Used plain Chinese characters without backticks in all 7 test names."
+  }
+}

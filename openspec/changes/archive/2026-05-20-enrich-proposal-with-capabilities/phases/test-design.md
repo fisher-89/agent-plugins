@@ -88,7 +88,7 @@
 
 | 场景 | 输入/条件 | 预期行为 | 测试文件 |
 |------|----------|----------|----------|
-| Capabilities 章节包含空子章节（无 New 也无 Modified） | proposal.md 中存在 `## New Capabilities` 和 `## Modified Capabilities` 标题但下方无列表项 | Evaluator 的 Capabilities 检查项（"至少有一个 New 或 Modified 条目"）判定为 fail，给出具体证据提示"无能力和列表为空" | `test_evaluator_capabilities_check.sh` |
+| Capabilities 章节包含空子章节（无 New 也无 Modified） | proposal.md 中存在 `## New Capabilities` 和 `## Modified Capabilities` 标题但下方无列表项 | Evaluator 的 Capabilities 检查项（"至少有一个 New 或 Modified 条目"）判定为 fail，给出具体判断依据"无能力和列表为空" | `test_evaluator_capabilities_check.sh` |
 | `openspec spec list --json` 返回非数组的 JSON 对象 | CLI 输出 `{"error":"internal error","code":500}` | `openspec_spec_list()` 检测到输出不是 JSON 数组，返回 `[]` 并输出 stderr 警告信息 | `test_openspec_spec_list.bats` |
 | `openspec spec list --json` 返回包含未知字段的有效数组 | CLI 输出 `[{"id":"auth","name":"Auth","extra":"ignored"}]` | 函数仍返回有效数组 `["auth"]`，提取 `id` 字段或整个条目作为 capability 标识 | `test_openspec_spec_list.bats` |
 | `openspec` CLI 完全不可用（command not found） | `openspec_spec_list()` 中执行 `openspec spec list --json` 返回 127 | 函数捕获错误，返回 `[]`，不抛出异常 | `test_openspec_spec_list.bats` |
@@ -97,7 +97,7 @@
 | 没有任何全局 spec 存在 | `openspec/specs/` 目录不存在或为空 | `openspec_spec_list()` 返回 `[]`，所有 capabilities 标记为 New | `test_planner_capabilities_flow.sh` |
 | SKILL.md 中 `INSTRUCTIONS_JSON` 的 `template` 字段非空但不被注入 | CLI 返回的 instructions JSON 包含 `"template":"..."`，但 prompt 构造代码不再引用它 | prompt 字符串中不出现该 template 字段的内容；`rules` 和 `context` 字段仍正常注入 | `test_prompt_no_template_injection.sh` |
 | `INSTRUCTIONS_JSON` 为 `{}`（CLI 未提供 instructions） | Step 3a 中 status 和 instructions 均返回 `{}` | prompt 回退到基本用法（仅引用静态模板），不包含 CLI Instructions 章节 | `test_prompt_no_template_injection.sh` |
-| 已有 proposal（无 Capabilities 章节）在升级后首次被 Evaluator 检查 | evaluator 读取包含 Capabilities 模板但 proposal 无该章节 | Evaluator 的 R8 检查项 fail，整体 verdict 为 fail，给出证据提示"缺少 Capabilities 章节" | `test_evaluator_capabilities_check.sh` |
+| 已有 proposal（无 Capabilities 章节）在升级后首次被 Evaluator 检查 | evaluator 读取包含 Capabilities 模板但 proposal 无该章节 | Evaluator 的 R8 检查项 fail，整体 verdict 为 fail，给出判断依据"缺少 Capabilities 章节" | `test_evaluator_capabilities_check.sh` |
 | E2E 流程中 Planner 只输出 New Capabilities 场景 | 执行 phase-requirements 时全局无已有 spec，Planner 仅输出 New 条目 | Evaluator 检查通过（至少有一个 New 条目），eval.json verdict 为 pass | `test_e2e_full_flow.sh` |
 | E2E 流程中 Planner 输出空 Capabilities 章节 | Planner 生成的 proposal 包含 Capabilities 标题但无任何条目 | Evaluator 的 R8 检查项判定 fail，触发 P→E 循环重试 | `test_e2e_full_flow.sh` |
 

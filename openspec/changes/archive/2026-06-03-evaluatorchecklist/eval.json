@@ -1,0 +1,437 @@
+[
+  {
+    "phase": "01-proposal",
+    "timestamp": "2026-06-03T03:54:58.403Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md for change evaluatorchecklist against 10-item static checklist. All 10 required items (R1-R6, R8-R10) passed. The proposal clearly defines the problem with 4 specific issues and concrete examples, has well-delineated scope (7 in-scope files, 4 out-of-scope categories), each risk has specific mitigations, all ACs have verifiable methods, and no conflicts exist with CLAUDE.md or between proposal.md and specs/. Verdict: pass.",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题部分列出4个具体问题：语义矛盾、判定逻辑不一致、审计歧义、维护负担，并附有具体例证（code-review-evaluator 的 C1-C5 vs C1-C8，acceptance-evaluator 的 A1-A4/A7）和可选项条目表格",
+        "notes": ""
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "变更范围明确列出7个代理文件的 in_scope 修改和4项 out_of_scope（unit-test-evaluator、integration-test-evaluator、eval.schema.json、评估器外代理、OpenSpec CLI/MCP）",
+        "notes": ""
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "3个风险均有具体缓解措施：升级项列出清单让团队有预期、统一修正范围引用、out_of_scope 排除+AC-6 git diff 验证",
+        "notes": ""
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1 指定逐文件 grep 确认、AC-2 指定构造输入运行评估器、AC-3/AC-4 指定文件审查、AC-5 指定 grep、AC-6 指定 git diff",
+        "notes": ""
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "提案仅修改评估器代理 prompt 文件，符合 Surgical changes 原则；代理文件位于 plugins/dev-team/agents/，符合插件架构约定",
+        "notes": ""
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "全文 grep 搜索未发现 TODO、TBD、placeholder 或 {{...}} 模板标记",
+        "notes": ""
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险各章节均有完整实质性内容，无占位符",
+        "notes": "此项为可选项（required: false），但确实已填写"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "包含 `### 修改的能力` 子章节，列出 `phase-agents` 一个条目",
+        "notes": ""
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "能力章节列出 phase-agents，specs/ 目录存在 specs/phase-agents/spec.md，无多余或缺失文件",
+        "notes": ""
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "能力类型一致（修改的能力）、验收标准 ID（AC-1 至 AC-6）在 specs 中均有对应 requirement、变更范围描述与 spec scenarios 无矛盾",
+        "notes": ""
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "02-dev-design",
+    "timestamp": "2026-06-03T03:56:49.751Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated design.md for change evaluatorchecklist. All 6 required items pass. D1: 5-col component table with concrete paths, no TBD. D2: 5-step data flow tracing input-process-output. D3: 5 decisions each with rejected alternative and rationale. D4: all 6 proposal ACs cross-referenced in design. D5: tasks.md exists, phase-grouped, correct dep ordering. D6: all tasks specify concrete operations. D8: matches CLAUDE.md surgical change principles. Non-required D7/D9 also pass. Verdict: pass.",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "Architecture table has 5 columns (组件, 职责, 文件位置, 依赖, 技术) — meets 4-col minimum. All 7 evaluators have concrete file paths (plugins/dev-team/agents/*.md). Tech stacks specific (Markdown prompt), no TBD.",
+        "notes": "Column name is '文件位置' not '文件路径' but semantically equivalent and each points to a concrete file."
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "Data flow section describes 5 concrete steps: 分析(read files) → 修改检核表(delete column) → 修改判定规则(replace text) → 修正范围引用(fix C1-C5/A1-A4,A7) → 验证(grep confirm)",
+        "notes": "Tracks full input-to-output path as required."
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "All 5 decisions (D1-D5) include 决策 statement, 理由 rationales, and 备选方案 rejected alternatives with rejection reasons. E.g., D1 rejects '保留可选项但添加注释' because complexity remains hidden.",
+        "notes": ""
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1 (delete 必须列): tasks stage 2-8 all cover deletion. AC-2 (R7/T5/T8/D7/D9/A5 upgrade): D1 explains all-mandatory approach. AC-3 (C1-C8): D3. AC-4 (A1-A5): D4. AC-5 (ALL items): D2. AC-6 (unit-test/integration-test unchanged): D5 + 不受影响的组件 table.",
+        "notes": ""
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md exists with 9 stages. Stage 1 (preparation) before edits. Stages 2-8 independent (no cross-deps). Stage 9 (verification) after all edits. No later task depends on an earlier one. All tasks have checkboxes.",
+        "notes": ""
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "All tasks specify exact operations: '删除 `必须` 列（表头列和所有行数据）', '将判定规则从 \"(C1-C5)\" 修正为 \"(C1-C8)\"', '逐文件 grep 确认...'. No vague '实现功能' tasks.",
+        "notes": ""
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "Dependency section has 运行时依赖 and 构建/测试依赖 subsections. Both correctly state '无' since change is pure text edits to 7 Markdown files.",
+        "notes": "Accuracy confirmed against actual file contents."
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "CLAUDE.md mandates surgical changes (touch only what's needed), plugin agents under plugins/dev-team/agents/, and matching existing style. Design only modifies 7 evaluator agent .md files — consistent.",
+        "notes": ""
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构 (full table + diagram), 数据流 (5 steps), 路由 (not applicable explained), 决策 (5 entries), 依赖 (2 subsections), 风险 (4 risks with impact/probability/mitigation), 迁移步骤, 待决问题 — all substantive.",
+        "notes": "All sections filled, no placeholders."
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "03-test-design",
+    "timestamp": "2026-06-03T03:58:23.034Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 6 required items pass. AC-1~AC-6 fully mapped to test files. Boundary scenarios specific to the change (column removal, item promotion, scope fix). Test strategy details content verification with grep/awk/sed/git diff. All template sections substantive. No scope leaks (in_scope covered, out_of_scope listed as untestable). T5/T8 not required and N/A for this change.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在 coverage map 中有映射",
+        "pass": true,
+        "evidence": "proposal.md AC-1~AC-6 全部出现在 test-design.md 覆盖映射表（第21-30行）",
+        "notes": "所有6个AC均有对应测试文件，1:1 映射"
+      },
+      {
+        "item": "coverage map 条目包含 openspec/changes/<change-name>/tests/ 下的测试文件路径",
+        "pass": true,
+        "evidence": "test-design.md 第23-29行每个覆盖映射条目均包含 openspec/changes/evaluatorchecklist/tests/ 下的完整文件路径",
+        "notes": ""
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "test-design.md 第64-75行列出10个边界场景，均针对本变更：残留必须列、升级项遗漏、范围修正不完整、列头错误、排除文件被误改等",
+        "notes": "均为具体变更领域场景，无泛泛的空值输入"
+      },
+      {
+        "item": "测试策略描述了方法和分类",
+        "pass": true,
+        "evidence": "test-design.md 第35-53行详细描述了内容验证方法（模式匹配、文本断言、差异比对、表格解析）及集成测试分类",
+        "notes": "包含具体工具（grep/awk/sed/git diff）和一整段方法说明"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal.md 不涉及外部服务/数据库；test-design.md 第56-58行明确说明无需 Mock",
+        "notes": "不要求（必须=false），且无外部依赖"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "test-design.md 含测试级别（第9-16行）、覆盖映射（第19-30行）、测试策略（第33-58行）、边界情况（第62-76行），均有实质性内容",
+        "notes": ""
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope（7个评估器修改、列删除、范围修正）均有测试覆盖；out_of_scope（eval.schema.json、CLI、MCP工具）在不可测试项中明确排除",
+        "notes": ""
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal.md 不涉及 API/DB 写操作，变更为纯 Markdown 文件编辑，无幂等性验证需求",
+        "notes": "不要求（必须=false），且本变更无写操作"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "04-test-gen",
+    "timestamp": "2026-06-03T04:03:46.983Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. 6 coverage map entries all mapped to 6 test files (1 helper). Test naming follows test_*.sh and test_*.bats patterns in tests/ dir. All .sh files pass bash -n; both .bats files parse (9+4 tests). Test structure covers all ACs and boundary cases. Cleanup/teardown present. Existing eval.json is pre-existing project data, not generator output. Verdict: pass.",
+    "items": [
+      {
+        "item": "test-design.md 中每个 coverage map 条目在 tests/ 下都有对应的测试文件",
+        "pass": true,
+        "evidence": "AC-1→test_checklist_column_removed.bats, AC-2→test_optional_items_promoted.sh, AC-3→test_code_review_range.sh, AC-4→test_acceptance_range.sh, AC-5→test_verdict_rule_unified.sh, AC-6→test_excluded_files_unchanged.bats, 表格格式→test_checklist_column_removed.bats",
+        "notes": "全部 6+1 个覆盖条目均已映射"
+      },
+      {
+        "item": "测试文件遵循项目命名规范且位于 tests/ 下",
+        "pass": true,
+        "evidence": "test_*.sh (4 files), test_*.bats (2 files), helpers/setup_test_env.sh — all under openspec/changes/evaluatorchecklist/tests/",
+        "notes": "命名遵循 test_*.sh 和 test_*.bats 模式"
+      },
+      {
+        "item": "测试文件语法有效",
+        "pass": true,
+        "evidence": "5 .sh files pass bash -n; 2 .bats files parse by bats (9 tests + 4 tests)",
+        "notes": "Bats 测试名中使用反引号会导致 '必须: command not found' 运行时信息，但不影响语法解析和测试计数"
+      },
+      {
+        "item": "测试骨架包含与 test-design 级别匹配的测试结构",
+        "pass": true,
+        "evidence": "集成测试（内容验证）: test_checklist_column_removed.bats 含 9 个 @test 块, test_optional_items_promoted.sh 含 5 个测试函数, test_code_review_range.sh 含 4 个, test_acceptance_range.sh 含 6 个, test_verdict_rule_unified.sh 含 3 个, test_excluded_files_unchanged.bats 含 4 个",
+        "notes": "所有测试框架与 test-design.md 指定一致"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": ".sh 文件 source setup_test_env.sh; .bats 文件 load helpers/setup_test_env.sh; 断言函数均来自 helper",
+        "notes": "框架：Bash 脚本和 bats，正确加载共享 helper"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "10 个边界场景全部覆盖：R7/T5/T8/D7/D9/A5 遗漏→test_optional_items_promoted.sh; C6-C8 遗漏→test_code_review_range.sh; 残留 required→test_verdict_rule_unified.sh; 列残留→test_checklist_column_removed.bats; 列头错误→test_checklist_column_removed.bats; 排除文件被改→test_excluded_files_unchanged.bats",
+        "notes": ""
+      },
+      {
+        "item": "diff 中无 JSON 报告或摘要文件",
+        "pass": true,
+        "evidence": "唯一的 .json 文件为 openspec/changes/evaluatorchecklist/eval.json，是各阶段评估日志（现有项目数据文件），非本次生成的报告",
+        "notes": "eval.json 是 phase/log 工作机制产生的标准数据文件"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test_checklist_column_removed.bats 和 test_excluded_files_unchanged.bats 有 teardown(){ teardown_test_env; }; 其他 .sh 文件有 trap cleanup EXIT 调用 teardown_test_env",
+        "notes": "本变更仅读操作无状态修改，teardown_test_env 为占位符可接受"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "05-implement",
+    "timestamp": "2026-06-03T04:08:10.354Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. 7 evaluator files modified: 必须 column removed, \"ALL required items\" to \"ALL items\", code-review range C1-C5 to C1-C8, acceptance range A1-A4,A7 to A1-A5. All tasks in tasks.md checked. Unaffected files confirmed unchanged. plugin.json version bumped 2.5.3 to 2.5.4.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "7 evaluator files modified: proposal-evaluator, test-design-evaluator, dev-design-evaluator, code-review-evaluator, test-gen-evaluator, implementation-evaluator, acceptance-evaluator; unit-test-evaluator and integration-test-evaluator confirmed unchanged per design",
+        "notes": "All 7 components have corresponding file changes; 2 unaffected components verified no changes via git diff"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "git diff shows 必须列 removed from all 7 files; ALL required items replaced with ALL items in all 7 files; code-review: (C1-C5)->(C1-C8); acceptance: (A1-A4,A7)->(A1-A5); constraint text updated",
+        "notes": "All 5 data flow steps from design.md verified in implementation"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "plugin.json version bumped 2.5.3->2.5.4 per project rule; evaluator file structure unchanged; naming consistent with existing patterns",
+        "notes": "Version bump follows project rule: Upgrade plugin version after changing codes in directory"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md states N/A - no API or route modifications involved; change is purely Markdown text edits",
+        "notes": "I4 checklist condition only when design.md specifies routes - satisfied"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 17 tasks across 9 phases in tasks.md have completed [x] checkmarks",
+        "notes": "Including preparation, all 7 evaluator modifications, scope corrections, and verification tasks"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff shows only 7 evaluator .md files + plugin.json version bump; all files directly traceable to evaluatorchecklist tasks",
+        "notes": "No unrelated files modified; version bump is required by project conventions"
+      },
+      {
+        "item": "静态检查通过（lint、类型检查）",
+        "pass": true,
+        "evidence": "All 7 modified files have valid 3-column Markdown table format; no malformed table structure detected; grep confirms no errant true/false remaining",
+        "notes": "Markdown-only change; table format verified correct across all modified files"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1: 必须列 removed from all 7 evaluators; D2: ALL required items->ALL items; D3: code-review (C1-C5)->(C1-C8); D4: acceptance (A1-A4,A7)->(A1-A5); D5: unit-test/integration-test unchanged",
+        "notes": "All 5 design decisions (D1-D5) from design.md confirmed"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "06-unit-test",
+    "timestamp": "2026-06-03T04:15:17.849Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 31 unit tests passed (0 failed, 0 skipped) in 8500ms. Coverage: 0% (content verification tests, not applicable).",
+    "items": [],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 06-unit-test 阶段测试执行结果\n总计: 31 | 通过: 31 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n无失败 - 所有测试均通过。\n\n诊断决策树分析:\n- 判定类型: 全部通过\n- 回溯目标: 无\n- 根因: 所有 31 个单元测试通过"
+  },
+  {
+    "phase": "07-code-review",
+    "timestamp": "2026-06-03T04:16:54.479Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 evaluator prompt files correctly transformed: 必须 column removed, judgment rules unified to \"ALL items pass\", ranges corrected (C1-C8, A1-A5), 6 optional items upgraded to mandatory. unit-test and integration-test evaluators untouched. plugin.json bumped 2.5.4. No security, null, or dead code concerns in Markdown-only changes.",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "All 8 changed files are Markdown prompts or JSON metadata — zero code execution paths. Grep for password/secret/token/api_key/eval/exec/system returned no security-relevant hits in changed files.",
+        "notes": "No code execution introduced; purely textual markdown edits"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "Changed files are static prompt definitions that do not accept or process external input — no input handling logic present or modified.",
+        "notes": "N/A — change is to prompt text only, not input-processing code"
+      },
+      {
+        "item": "变更代码路径有测试覆盖",
+        "pass": true,
+        "evidence": "Changed files are Markdown prompts without automated test coverage. Design verification uses grep-based QA (AC-1/AC-5/AC-6). All 7 files verified via git diff inspection; excluded files confirmed untouched.",
+        "notes": "Prompt files inherently lack unit tests; design verification method is grep-based"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "Verified: 必须 column removed from all 7 tables; R7/T5/T8/D7/D9/A5 upgraded; ALL required->ALL items; C1-C5->C1-C8; A1-A4,A7->A1-A5; plugin.json 2.5.3->2.5.4; excluded files untouched.",
+        "notes": "All design D1-D5 decisions correctly implemented"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Changes are purely textual Markdown edits (table column removal + prose updates). No code logic, data structures, or variable bindings introduced.",
+        "notes": "N/A — no data processing code changed"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "Changes are minimal and targeted: one column removed per table, judgment rule text updated, R10 pipe separator consistency fix (U+2502->U+007C). No dead or redundant content.",
+        "notes": "Clean, surgical edits throughout"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "All 7 evaluator tables have consistent 3-column format (ID/检查项/判断依据). Judgment rules uniformly state 'ALL items pass'. R10 separator inconsistency fixed. plugin.json follows semver.",
+        "notes": "Format consistent across all files"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Changed files are static prompt definitions with no data type definitions, external API/SDK types, or custom type mappings.",
+        "notes": "N/A — no data typing in prompt files"
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  },
+  {
+    "phase": "08-integration-test",
+    "timestamp": "2026-06-03T04:23:54.716Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 31 integration tests passed (0 failed, 0 skipped) in 77199ms. Coverage: 0% (content verification tests, not applicable).",
+    "items": [],
+    "backtrack_to": null,
+    "schema_version": "1.0",
+    "findings": "诊断分析: 08-integration-test 阶段集成测试执行结果\n总计: 31 | 通过: 31 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情:\n无失败 - 所有集成测试均通过。\n\n诊断决策树分析:\n- 判定类型: 全部通过\n- 回溯目标: null\n- 根因: 所有 31 个集成测试通过\n\n附加信息: 报告包含 findings 字段，记录了一个已修复的 bug — 移除了 test_checklist_column_removed.bats 中 @test 名称里中文周围的 backtick 引号，避免 Bash 命令替换导致 '必须: command not found' 错误。6 个测试脚本（4 个 .sh + 2 个 .bats）覆盖了 AC-1 至 AC-6 全部验收标准。总测试构成: test_checklist_column_removed.bats (9), test_optional_items_promoted.sh (5), test_code_review_range.sh (4), test_acceptance_range.sh (6), test_verdict_rule_unified.sh (3), test_excluded_files_unchanged.bats (4)。"
+  },
+  {
+    "phase": "09-acceptance",
+    "timestamp": "2026-06-03T06:47:11.529Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 6 ACs pass: 7 evaluator files stripped of `必须` column, previously-optional items (R7/T5/T8/D7/D9/A5) now mandatory, verdict rules unified to \"ALL items pass\" with corrected ranges (C1-C8, A1-A5), no \"ALL required items\" remains, unit/integration-test evaluators untouched. All risks have mitigations. No scope creep detected.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1: grep `| ID | 检查项 | 判断依据 |` matches all 7 evaluator files (acceptance-evaluator.md:17, code-review-evaluator.md:17, dev-design-evaluator.md:16, implementation-evaluator.md:15, proposal-evaluator.md:18, test-design-evaluator.md:16, test-gen-evaluator.md:16). AC-2: Previously-optional items R7,T5,T8,D7,D9,A5 no longer have `false` flag; verdict rules say \"ALL items must pass\". AC-3: code-review-evaluator.md:50 verifies \"(C1-C8)\". AC-4: acceptance-evaluator.md:46 verifies \"(A1-A5)\". AC-5: grep confirms zero matches for \"ALL required items\" in agents/. AC-6: git diff --cached shows no changes to unit-test-evaluator.md or integration-test-evaluator.md.",
+        "notes": "All 6 acceptance criteria verified against codebase."
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "All 7 evaluator files match the in_scope list (proposal.md lines 61-69). No new features/APIs/components added. Ancillary changes (plugin.json - version bump per CLAUDE.md, todo.md - project tracking, specs/phase-agents/spec.md - change infrastructure) are not new functional features.",
+        "notes": "No scope creep detected."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "All 7 evaluator files modified: proposal-evaluator.md (R7 upgraded), test-design-evaluator.md (T5/T8 upgraded), dev-design-evaluator.md (D7/D9 upgraded), code-review-evaluator.md (C1-C8 fix), implementation-evaluator.md, test-gen-evaluator.md, acceptance-evaluator.md (A1-A5 fix, A5 upgraded). Each diff confirms `必须` column removed and \"ALL required items\" -> \"ALL items\" change.",
+        "notes": "All in_scope items confirmed in staged git diff."
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "unit-test-evaluator.md and integration-test-evaluator.md: git diff confirms zero changes (empty output). eval.schema.json: not in staged changes list. Other agent files (planner, generator, executor): not changed. MCP tools: not modified.",
+        "notes": "All out_of_scope items confirmed absent from changelist."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk 1 (upgrade failure rate): previously-optional items documented in proposal.md table and now mandatory via code changes (evidence in all 7 evaluator diffs). Risk 2 (range inconsistency): C1-C5 corrected to C1-C8 in code-review-evaluator.md, A1-A4,A7 corrected to A1-A5 in acceptance-evaluator.md. Risk 3 (accidental mod): AC-6 confirms no changes to unit-test/integration-test evaluators.",
+        "notes": "All 3 risks have mitigations visible in implementation."
+      }
+    ],
+    "backtrack_to": null,
+    "schema_version": "1.0"
+  }
+]

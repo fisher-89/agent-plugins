@@ -11,11 +11,11 @@
  */
 
 import { describe, it, expect } from 'vite-plus/test';
-import z4 from 'zod/v4';
+import type z4 from 'zod/v4';
 
 import { resolvePhaseNext } from '../commands/phase-next';
 import { getPhaseTable, getPhasePattern } from '../lib/workflow';
-import { phaseLogInputSchema } from '../schemas';
+import { type phaseLogInputSchema } from '../schemas';
 
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios

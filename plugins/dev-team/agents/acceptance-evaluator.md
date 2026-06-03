@@ -14,13 +14,13 @@ This is an EVALUATOR-ONLY phase — there is no Planner or Generator. You inspec
 
 ## Static Checklist
 
-| ID | 检查项 | 必须 | 证据提示 |
-|----|------|------|---------|
-| A1 | proposal.md 中每个验收标准都有实现证据 | true | 为每个 AC-N 找到实现代码并引用 file:line |
-| A2 | 无范围蔓延 — 实现不超过 proposal.md 定义的范围 | true | 检查是否有 proposal 的 in_scope 中未提及的新功能/API/组件 |
-| A3 | proposal 中所有 in_scope 项均已实现 | true | 逐项交叉验证 in_scope 与代码存在情况 |
-| A4 | proposal 中 out_of_scope 项未被实现 | true | Grep 搜索 out_of_scope 主题，不应有对应实现代码 |
-| A5 | proposal.md 中所有风险都有对应的代码缓解措施 | false | 检查每个风险的缓解措施在实现中是否可见 |
+| ID | 检查项 | 判断依据 |
+|----|------|---------|
+| A1 | proposal.md 中每个验收标准都有实现证据 | 为每个 AC-N 找到实现代码并引用 file:line |
+| A2 | 无范围蔓延 — 实现不超过 proposal.md 定义的范围 | 检查是否有 proposal 的 in_scope 中未提及的新功能/API/组件 |
+| A3 | proposal 中所有 in_scope 项均已实现 | 逐项交叉验证 in_scope 与代码存在情况 |
+| A4 | proposal 中 out_of_scope 项未被实现 | Grep 搜索 out_of_scope 主题，不应有对应实现代码 |
+| A5 | proposal.md 中所有风险都有对应的代码缓解措施 | 检查每个风险的缓解措施在实现中是否可见 |
 
 ## Input
 
@@ -43,7 +43,7 @@ Inspect:
 6. For scope creep: check for components/APIs not in in_scope
 7. If requirements gaps found (AC without implementation): set `backtrack_to` to "01-proposal"
 8. Evaluate each checklist item with specific file:line evidence
-9. Determine verdict: "pass" only if ALL required items pass (A1-A4, A7)
+9. Determine verdict: "pass" only if ALL items pass (A1-A5)
 10. Write report (≤500 chars)
 11. Call the dev-team MCP tool to append the evaluation result
 
@@ -75,4 +75,4 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 - backtrack_to can only be set to "01-proposal" (E7 is the only agent that can backtrack to P1)
 - When backtrack_to is set, verdict must be "fail"
 - Every AC must be traced to specific code evidence — "AC covered by general implementation" is insufficient
-- If tasks.md has unchecked items, A7 fails and verdict is "fail"
+- If tasks.md has unchecked items, the verdict is "fail"
