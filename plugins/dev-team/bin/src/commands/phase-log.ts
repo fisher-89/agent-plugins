@@ -6,10 +6,11 @@ import {
   validateItemsJson,
   buildEntry,
   computeAttempt,
-  checkGate,
+  markPhaseStale,
+  writeEvalJson,
   appendEntry,
 } from '../lib/eval-json';
-import { getPriorPhases } from '../lib/workflow';
+import { getPhaseIndex } from '../lib/workflow';
 
 export interface PhaseLogOptions {
   change: string;
@@ -18,7 +19,7 @@ export interface PhaseLogOptions {
   report: string;
   items: string;
   attempt?: string;
-  backtrackTo?: string;
+  backtrackTo?: string | string[];
   skipped?: boolean;
   findings?: string;
 }
@@ -30,8 +31,14 @@ export interface PhaseLogResult {
 }
 
 /**
- * Core logic for phase-log: validate, gate-check, build entry, and append to eval.json.
- * Extracted so both CLI and MCP server can call the same logic.
+ * Core logic for phase-log: validate, handle backtrack stale marking,
+ * build entry, and persist to eval.json.
+ *
+ * Key responsibilities:
+ * - When `backtrack_to` is set (string or array), marks the target phase(s)
+ *   stale AND propagates downstream BEFORE writing the new entry.
+ * - Pass entries do NOT trigger any stale marking.
+ * - Does NOT perform gate-check (gate logic is entirely owned by phase/next).
  */
 export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   const REQUIRED_ARGS = ['change', 'phase', 'verdict', 'report', 'items'] as const;
@@ -54,12 +61,26 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     throw new Error(`读取 eval.json 失败: ${e.message}`);
   }
 
-  const priorPhases = getPriorPhases(options.phase);
-  if (priorPhases.length > 0) {
-    const gate = checkGate(entries, priorPhases);
-    if (!gate.passed) {
-      throw new Error(`门控检查未通过 - 以下前置阶段缺少 pass 记录: ${gate.missing.join(', ')}`);
+  // -- Handle backtrack: mark stale targets BEFORE writing new entry --
+  let modifiedByBacktrack = false;
+  if (options.backtrackTo != null && options.backtrackTo !== '') {
+    const targets = Array.isArray(options.backtrackTo)
+      ? options.backtrackTo
+      : [options.backtrackTo];
+
+    // Validate each target is a known phase ID
+    for (const target of targets) {
+      const idx = getPhaseIndex(target);
+      if (idx === -1) {
+        throw new Error(`无效的回溯目标 phase: "${target}"。请使用有效的 phase 标识符。`);
+      }
     }
+
+    // Mark stale for each target (handles propagation internally)
+    for (const target of targets) {
+      markPhaseStale(entries, target);
+    }
+    modifiedByBacktrack = true;
   }
 
   const explicitAttempt = options.attempt ? parseInt(options.attempt, 10) : undefined;
@@ -77,7 +98,14 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   });
 
   try {
-    appendEntry(changeDir, entry);
+    if (modifiedByBacktrack) {
+      // If we modified entries (stale marking), push the new entry and write full array
+      entries.push(entry);
+      writeEvalJson(changeDir, entries);
+    } else {
+      // Normal path: no stale modifications, just append
+      appendEntry(changeDir, entry);
+    }
   } catch (e: any) {
     throw new Error(`写入 eval.json 失败: ${e.message}`);
   }

@@ -1,0 +1,18 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && npx vp test --reporter=verbose 2>&1",
+  "timestamp": "2026-06-03T11:16:37.000Z",
+  "total": 37,
+  "passed": 37,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 9090,
+  "failures": [],
+  "findings": [
+    "Test files in this change do not follow the *.integration.test.* naming convention. They are classified as integration tests per test-design.md: phase-next.test.ts (22 tests, AC-5/6/7/11/13/15) and phase-log.test.ts (15 tests, AC-9/10).",
+    "All 294 tests across 11 files passed in the vp test run. Integration tests (37 total) are a subset of the full suite.",
+    "AC-17 workflow-loop-check.ps1 verification script passed: SKILL.md has no phase/check reference.",
+    "Coverage data not available from vp test output (no --coverage flag used)."
+  ]
+}

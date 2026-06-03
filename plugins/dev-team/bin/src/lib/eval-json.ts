@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { getDependents } from './workflow';
+
 const EVAL_JSON_FILE = 'eval.json';
 const SCHEMA_VERSION = '1.0';
 
@@ -17,7 +19,7 @@ export interface BuildEntryParams {
   report: string;
   items: Item[];
   attempt: number;
-  backtrack_to?: string | null;
+  backtrack_to?: string | string[] | null;
   skipped?: boolean;
   findings?: string;
   phase_suffix?: string;
@@ -144,19 +146,101 @@ export function computeAttempt(entries: any[], phase: string, explicitAttempt?: 
 }
 
 /**
- * Check that all prior phases have at least one entry with verdict "pass".
+ * Check that all prerequisite phases have at least one non-stale entry with verdict "pass".
  * Returns { passed: true } if all pass, or { passed: false, missing: [...] } listing
- * phases without a pass record.
+ * phases without a valid pass record.
+ *
+ * Entries with `stale: true` are ignored (treated as not passed).
+ * Entries without a `stale` field are treated as `stale: false` (backward compatible).
  */
-export function checkGate(entries: any[], priorPhases: string[]): GateResult {
+export function checkGate(entries: any[], prerequisites: string[]): GateResult {
   const missing: string[] = [];
-  for (const phase of priorPhases) {
-    const hasPass = entries.some((e: any) => e.phase === phase && e.verdict === 'pass');
+  for (const phase of prerequisites) {
+    const hasPass = entries.some((e: any) => e.phase === phase && e.verdict === 'pass' && !e.stale);
     if (!hasPass) {
       missing.push(phase);
     }
   }
   return { passed: missing.length === 0, missing };
+}
+
+/**
+ * Recursively mark all downstream dependent entries as stale, walking the
+ * dependency graph via `getDependents()`.
+ *
+ * For each dependent phase, ALL entries (pass and fail) are marked stale.
+ * Uses a visited-set to prevent infinite loops (defensive — the dependency
+ * graph is a DAG).
+ *
+ * Dependent phases with no entries in the array are silently skipped.
+ */
+export function propagateStale(entries: any[], phaseId: string, workflowType?: string): void {
+  const visited = new Set<string>();
+
+  function propagate(pid: string): void {
+    if (visited.has(pid)) return;
+    visited.add(pid);
+
+    const dependents = getDependents(pid, workflowType);
+    for (const depId of dependents) {
+      if (visited.has(depId)) continue;
+      // Mark ALL entries for this dependent phase as stale
+      for (const entry of entries) {
+        if (entry.phase === depId) {
+          entry.stale = true;
+        }
+      }
+      propagate(depId);
+    }
+  }
+
+  propagate(phaseId);
+}
+
+/**
+ * Mark the latest pass entry for a given phase as stale, then immediately
+ * propagate staleness to all downstream dependents.
+ *
+ * 1. Finds all entries for `phaseId`, sorted by timestamp descending.
+ * 2. Marks the first entry with `verdict === 'pass'` as `stale: true`.
+ * 3. Immediately calls `propagateStale()` to mark downstream dependents stale.
+ *
+ * If no pass entry exists, the function is a no-op (no propagation occurs).
+ */
+export function markPhaseStale(entries: any[], phaseId: string): void {
+  const phaseEntries = entries
+    .filter((e: any) => e.phase === phaseId)
+    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  // Find the latest pass entry
+  // We need to iterate through entries (which are mutated) to find a non-stale pass
+  let found = false;
+  for (const entry of phaseEntries) {
+    if (entry.verdict === 'pass') {
+      entry.stale = true;
+      found = true;
+      break;
+    }
+  }
+
+  if (!found) {
+    // No pass entry found — no-op
+    return;
+  }
+
+  // Immediately propagate downstream
+  propagateStale(entries, phaseId);
+}
+
+/**
+ * Write the full entries array to eval.json in the given change directory.
+ * Creates the directory if it does not exist.
+ * Output uses 2-space indentation with trailing newline.
+ */
+export function writeEvalJson(changeDir: string, entries: any[]): void {
+  const filePath = path.join(changeDir, EVAL_JSON_FILE);
+  fs.mkdirSync(changeDir, { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
 }
 
 /**

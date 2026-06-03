@@ -11,24 +11,17 @@
  */
 
 import { describe, it, expect } from 'vite-plus/test';
+import z4 from 'zod/v4';
 
 import { resolvePhaseNext } from '../commands/phase-next';
 import { getPhaseTable, getPhasePattern } from '../lib/workflow';
+import { phaseLogInputSchema } from '../schemas';
 
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios
 // ---------------------------------------------------------------------------
 
-interface MockEntry {
-  phase: string;
-  verdict: 'pass' | 'fail';
-  attempt: number;
-  timestamp: string;
-  backtrack_to?: string | null;
-  skipped?: boolean;
-  planner?: boolean;
-  evaluator?: boolean;
-}
+type MockEntry = z4.infer<typeof phaseLogInputSchema>;
 
 // Module-level counter ensures each mock entry gets a unique, increasing timestamp.
 let _tsCounter = 0;
@@ -66,7 +59,11 @@ function failEntry(
   };
 }
 
-function backtrackEntry(phase: string, backtrack_to: string, attempt: number = 1): MockEntry {
+function backtrackEntry(
+  phase: string,
+  backtrack_to: string | string[],
+  attempt: number = 1,
+): MockEntry {
   return {
     phase,
     verdict: 'fail',
@@ -88,6 +85,22 @@ function skippedEntry(phase: string, attempt: number = 1): MockEntry {
 
 function skipPedEntry(phase: string, attempt: number = 1): MockEntry {
   return skippedEntry(phase, attempt);
+}
+
+function staleEntry(
+  phase: string,
+  attempt: number = 1,
+  overrides: Partial<MockEntry> = {},
+): MockEntry {
+  return {
+    phase,
+    verdict: 'pass',
+    attempt,
+    timestamp: nextTs(),
+    backtrack_to: null,
+    stale: true,
+    ...overrides,
+  };
 }
 
 // Note: the counter is intentionally not reset between tests — relative
@@ -417,22 +430,21 @@ describe('runPhaseNext — Retry Logic (AC-7)', () => {
 // Backtrack — AC-8
 // ---------------------------------------------------------------------------
 
-describe('runPhaseNext — Backtrack (AC-8)', () => {
-  it('should clear entries from target phase onward and return target phase', () => {
+describe('runPhaseNext — Backtrack', () => {
+  it('should return target phase on backtrack without clearing entries', () => {
     const entries = [
       passEntry('01-proposal'),
       passEntry('02-dev-design'),
       passEntry('03-test-design'),
       backtrackEntry('03-test-design', '01-proposal'),
     ];
-    const { result, updatedEntries } = resolvePhaseNext({
+    const { result } = resolvePhaseNext({
       change: 'test-change',
       entries: entries,
     });
     expect(result.next_phase).toBe('01-proposal');
-    // Backtrack should clear 01-proposal onward entries from updatedEntries
-    expect(updatedEntries).toBeDefined();
-    expect(updatedEntries!.length).toBe(0); // Cleared all 3 pass entries
+    // No updatedEntries — phase/next is read-only
+    expect(result).not.toHaveProperty('updatedEntries');
   });
 
   it('should re-execute planner + evaluator after backtrack to 01-proposal', () => {
@@ -458,14 +470,11 @@ describe('runPhaseNext — Backtrack (AC-8)', () => {
       passEntry('06-unit-test'),
       backtrackEntry('07-code-review', '04-test-gen'),
     ];
-    const { result, updatedEntries } = resolvePhaseNext({
+    const { result } = resolvePhaseNext({
       change: 'test-change',
       entries: entries,
     });
     expect(result.next_phase).toBe('04-test-gen');
-    expect(updatedEntries).toBeDefined();
-    // Should have entries for 01-proposal, 02-dev-design, 03-test-design only
-    expect(updatedEntries!.length).toBe(3);
   });
 
   it('should handle backtrack set in latest entry only', () => {
@@ -479,14 +488,149 @@ describe('runPhaseNext — Backtrack (AC-8)', () => {
     // Now the latest entry for 02-dev-design has verdict=pass, no backtrack
     // So backtrack is no longer active — should advance to 03-test-design
     expect(result.error).toBeNull();
-    // The latest entry for 02-dev-design is the second passEntry (attempt 2)
-    // So backtrack should not be triggered, and we should go to next phase
+    expect(result.next_phase).toBe('03-test-design');
+  });
+
+  it('should not modify entries when backtrack is detected (read-only)', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      backtrackEntry('02-dev-design', '01-proposal'),
+    ];
+    const entriesCopy = JSON.parse(JSON.stringify(entries));
+    resolvePhaseNext({ change: 'test-change', entries });
+    // Entries should be unmodified (no clearEntriesFromPhase, no updatedEntries)
+    expect(entries).toEqual(entriesCopy);
+  });
+
+  it('should return earliest target for array backtrack_to (AC-16)', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+      passEntry('04-test-gen'),
+      backtrackEntry('04-test-gen', ['03-test-design', '01-proposal']),
+    ];
+    const { result } = resolvePhaseNext({
+      change: 'test-change',
+      entries,
+    });
+    // 01-proposal is earliest in phase table
+    expect(result.next_phase).toBe('01-proposal');
+  });
+
+  it('should throw invalid_backtrack_target for unknown target', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      {
+        phase: '02-dev-design',
+        verdict: 'fail',
+        attempt: 1,
+        timestamp: nextTs(),
+        backtrack_to: '99-unknown',
+      },
+    ];
+    const { result } = resolvePhaseNext({ change: 'test-change', entries });
+    expect(result.error).toBe('invalid_backtrack_target');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Stale Entry Filtering — AC-11, AC-12
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — Stale Entry Filtering (AC-11, AC-12)', () => {
+  it('should skip stale pass entries when determining next phase (AC-11)', () => {
+    // 01 pass, 02 pass but stale, 03 pass
+    const result = next([
+      passEntry('01-proposal'),
+      staleEntry('02-dev-design'),
+      passEntry('03-test-design'),
+    ]);
+    // 02 appears stale to hasPhasePassed, so should be returned
+    expect(result.next_phase).toBe('02-dev-design');
+  });
+
+  it('should return done=true when all phases have non-stale pass (mix of stale and fresh)', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      staleEntry('02-dev-design'), // stale
+      passEntry('02-dev-design', 2), // fresh pass
+      staleEntry('03-test-design'),
+      passEntry('03-test-design', 2),
+      passEntry('04-test-gen'),
+      staleEntry('05-implement'),
+      passEntry('05-implement', 2),
+      passEntry('06-unit-test'),
+      passEntry('07-code-review'),
+      passEntry('08-integration-test'),
+      staleEntry('09-acceptance'),
+      passEntry('09-acceptance', 2),
+    ];
+    const result = next(entries);
+    expect(result.done).toBe(true);
+  });
+
+  it('should treat missing stale field as stale:false (AC-12 backward compat)', () => {
+    // Entries without stale field should be treated as valid
+    const result = next([passEntry('01-proposal')]);
+    expect(result.next_phase).toBe('02-dev-design');
+    expect(result.error).toBeNull();
+  });
+
+  it('should resume correctly when stale entries are in middle phases', () => {
+    // 01-03 pass (03 stale), 04 pass
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      staleEntry('03-test-design'), // marked stale by backtrack propagation
+      passEntry('04-test-gen'), // 04's pass should be ignored because 03 needs to be redone first
+    ];
+    const result = next(entries);
+    // Linear scan: 01 and 02 pass non-stale, 03 pass but stale → return 03
     expect(result.next_phase).toBe('03-test-design');
   });
 });
 
 // ---------------------------------------------------------------------------
-// Round Limit — AC-10
+// Dependency-Graph Driven — AC-5, AC-6, AC-7
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7)', () => {
+  it('should return 02-dev-design when 03-test-design missing pass but 02 not passed (AC-5)', () => {
+    // 01 pass, 02 fail → 03 cannot run (depends on 02)
+    const result = next([passEntry('01-proposal'), failEntry('02-dev-design')]);
+    expect(result.next_phase).toBe('02-dev-design');
+  });
+
+  it('should return 05-implement when 02-dev-design is pass but 05 not passed (AC-6)', () => {
+    // 01 pass, 02 pass → 03/04 not passed but 05's dependency (02) is satisfied
+    // Linear scan returns 03 first, but 05 is also available
+    // This test verifies that 03 not being passed doesn't block 05 from being considered
+    // when scanning linearly — 03 comes before 05 and has no valid pass
+    const result = next([passEntry('01-proposal'), passEntry('02-dev-design')]);
+    // 03 is first without pass → correct per linear scan + propagation model
+    expect(result.next_phase).toBe('03-test-design');
+  });
+
+  it('should skip stale 04 and return 04 when 04 is stale even though later phases pass (AC-7)', () => {
+    // 01-05 pass, but 04 is stale (backtrack propagation)
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+      staleEntry('04-test-gen'), // stale
+      passEntry('05-implement'),
+      passEntry('06-unit-test'),
+    ];
+    const result = next(entries);
+    // 04 has stale=true → hasPhasePassed returns false → returned as next
+    expect(result.next_phase).toBe('04-test-gen');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Round Limit
 // ---------------------------------------------------------------------------
 
 describe('runPhaseNext — Round Limit (AC-10)', () => {

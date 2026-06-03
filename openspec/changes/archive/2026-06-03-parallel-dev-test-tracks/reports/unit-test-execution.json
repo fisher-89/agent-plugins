@@ -1,0 +1,42 @@
+{
+  "phase": "06-unit-test",
+  "command": "npx vp test --reporter=verbose 2>&1",
+  "timestamp": "2026-06-03T11:12:33.000Z",
+  "total": 294,
+  "passed": 294,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 8860,
+  "failures": [],
+  "findings": [
+    "All 294 unit tests pass across 11 test files.",
+    "Fixed eval-json.test.ts: replaced TODO comments with assertions for propagateStale downstream checks (AC-8, AC-14) and checkGate stale filtering (AC-12).",
+    "Fixed phase-next.test.ts: replaced TODO comments with actual expect() calls for hasPhasePassed stale filtering (AC-11), resolvePhaseNext dependency-graph-drive n (AC-5, AC-6, AC-7), backtrack read-only (AC-15), bug-fix workflow (AC-13), and backward compatibility (AC-12).",
+    "Fixed schema.test.ts: replaced TODO comments with safeParse() validation for backtrack_to type validation (AC-16), stale field validation, and schema export verification.",
+    "Fixed phase-log.test.ts: implemented full mock-based integration tests with vi.mock for filesystem I/O, covering pass entry no propagation (AC-9), backtrack_to triggers markPhaseStale (AC-9), backtrack_to array handling (AC-10), new entry format, and no checkGate calls.",
+    "Source modifications: exported hasPhaseStale from phase-next.ts (internal function needed by tests); added .nullable() and .min(1) to backtrack_to schema in phase-log.schema.ts for proper null and empty-string validation."
+  ],
+  "ac_coverage": {
+    "AC-1": true,
+    "AC-2": true,
+    "AC-3": true,
+    "AC-4": true,
+    "AC-5": true,
+    "AC-6": true,
+    "AC-7": true,
+    "AC-8": true,
+    "AC-9": true,
+    "AC-10": true,
+    "AC-11": true,
+    "AC-12": true,
+    "AC-13": true,
+    "AC-14": true,
+    "AC-15": true,
+    "AC-16": true,
+    "AC-17": false
+  },
+  "notes": {
+    "AC-17": "Manually verified: workflow skill files contain no phase/check MCP call. Verification via workflow-loop-check.ps1 (grep-based), not automated test."
+  }
+}

@@ -16,13 +16,5 @@ export const phaseCheckOutputSchema = z.object({
       passed: z.boolean(),
       missing: z.array(z.string()),
     }),
-    timestamp_order: z.object({
-      passed: z.boolean(),
-      order_valid: z.boolean(),
-    }),
-    backtrack: z.object({
-      passed: z.boolean(),
-      active_backtrack_phases: z.array(z.string()),
-    }),
   }),
 });

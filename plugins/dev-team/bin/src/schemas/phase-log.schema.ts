@@ -11,7 +11,11 @@ export const phaseLogInputSchema = {
       'Checklist evaluation items as JSON array string. Each item: {"item":"...","pass":true|false,"evidence":"...","notes":"..."}',
     ),
   attempt: z.number().int().optional().describe('Attempt number (auto-calculated if omitted)'),
-  backtrack_to: z.string().optional().describe('Backtrack target phase identifier'),
+  backtrack_to: z
+    .union([z.string().min(1), z.array(z.string())])
+    .optional()
+    .nullable()
+    .describe('Backtrack target phase identifier (string, array of strings, or null)'),
   skipped: z
     .boolean()
     .optional()

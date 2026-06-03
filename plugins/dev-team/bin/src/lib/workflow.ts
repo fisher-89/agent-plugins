@@ -235,6 +235,97 @@ export const PHASE_TABLES: Record<string, PhaseDefinition[]> = {
 };
 
 // ---------------------------------------------------------------------------
+// Prerequisite tables — defined per workflow_type
+// ---------------------------------------------------------------------------
+
+/**
+ * Prerequisite dependency table for the `requirement` workflow_type.
+ * Each phase lists its direct dependencies (phases that must have a non-stale
+ * pass entry before this phase can execute).
+ *
+ * This is the single source of truth for the dependency graph.
+ * `getDependents()` derives the reverse mapping from this table.
+ */
+export const PHASE_PREREQUISITES: Record<string, string[]> = {
+  '01-proposal': [],
+  '02-dev-design': ['01-proposal'],
+  '03-test-design': ['01-proposal', '02-dev-design'],
+  '04-test-gen': ['03-test-design'],
+  '05-implement': ['02-dev-design'],
+  '06-unit-test': ['04-test-gen', '05-implement'],
+  '07-code-review': ['04-test-gen', '05-implement'],
+  '08-integration-test': ['04-test-gen', '05-implement'],
+  '09-acceptance': ['01-proposal', '02-dev-design', '05-implement'],
+};
+
+/**
+ * Prerequisite dependency table for the `bug-fix` workflow_type.
+ * Simplified pipeline — only core development phases.
+ */
+export const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
+  '01-proposal': [],
+  '02-dev-design': ['01-proposal'],
+  '05-implement': ['02-dev-design'],
+  '06-unit-test': ['05-implement'],
+  '07-code-review': ['05-implement'],
+  '09-acceptance': ['07-code-review'],
+};
+
+/**
+ * Prerequisite dependency table for the `refactor` workflow_type.
+ * Matches the `requirement` table.
+ */
+export const PHASE_REFACTOR_PREREQUISITES: Record<string, string[]> = PHASE_PREREQUISITES;
+
+export const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>> = {
+  requirement: PHASE_PREREQUISITES,
+  'bug-fix': PHASE_BUG_FIX_PREREQUISITES,
+  refactor: PHASE_REFACTOR_PREREQUISITES,
+};
+
+/**
+ * Return the prerequisite table for the given workflow_type.
+ * Defaults to "requirement" if unknown.
+ */
+export function getPrerequisiteTable(workflowType?: string): Record<string, string[]> {
+  const key = (workflowType || DEFAULT_WORKFLOW).toLowerCase();
+  return PHASE_PREREQUISITES_TABLES[key] || PHASE_PREREQUISITES_TABLES[DEFAULT_WORKFLOW];
+}
+
+/**
+ * Return the list of prerequisite phase IDs for a given phase in the specified workflow.
+ *
+ * - Returns an empty array for phases with no prerequisites.
+ * - Returns an empty array for unknown phase IDs (fault-tolerant).
+ * - Defaults to "requirement" workflow_type.
+ */
+export function getPrerequisites(phaseId: string, workflowType?: string): string[] {
+  const table = getPrerequisiteTable(workflowType);
+  return table[phaseId] || [];
+}
+
+/**
+ * Return the list of phases that depend on the given phase in the specified workflow.
+ *
+ * Derived from `getPrerequisites()` (single source of truth): a phase B depends on phase A
+ * iff `getPrerequisites(B)` includes A. This function iterates all phases in the workflow
+ * table and returns those whose prerequisites include `phaseId`.
+ *
+ * - Returns an empty array for phases with no dependents.
+ * - Returns an empty array for unknown phase IDs (fault-tolerant).
+ * - Defaults to "requirement" workflow_type.
+ */
+export function getDependents(phaseId: string, workflowType?: string): string[] {
+  const table = getPhaseTable(workflowType);
+  return table
+    .filter((p) => {
+      const prereqs = getPrerequisites(p.id, workflowType);
+      return prereqs.includes(phaseId);
+    })
+    .map((p) => p.id);
+}
+
+// ---------------------------------------------------------------------------
 // Derived: ordered phase ID list (requirement workflow is canonical)
 // ---------------------------------------------------------------------------
 

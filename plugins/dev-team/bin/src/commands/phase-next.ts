@@ -5,12 +5,13 @@
  * Handles: initial run, normal progression, retry, backtrack, round limit,
  * mid-phase interruption, and skipped entries.
  *
+ * KEY CHANGE: phase/next is now READ-ONLY. It never modifies eval.json.
+ * Stale marking and propagation are handled by phase/log when writing entries
+ * with backtrack_to.
+ *
  * The workflow skill calls phase/next in a loop and executes the returned
  * planner/evaluator agents without any hardcoded phase knowledge.
  */
-
-import * as fs from 'fs';
-import * as path from 'path';
 
 import { getChangeDir } from '../lib/change';
 import { readEvalJson } from '../lib/eval-json';
@@ -161,18 +162,22 @@ function computeRound(entries: any[]): number {
 }
 
 /**
- * Check if a phase has passed (has a pass or skipped entry).
+ * Check if a phase has passed (has a pass or skipped entry) that is NOT stale.
+ *
+ * Entries with `stale: true` are ignored.
+ * Entries without a `stale` field are treated as `stale: false` (backward compatible).
  */
-function hasPhasePassed(entries: any[], phaseId: string): boolean {
+export function hasPhasePassed(entries: any[], phaseId: string): boolean {
   return entries.some(
-    (e: any) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true),
+    (e: any) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true) && !e.stale,
   );
 }
 
 /**
- * Check if the latest entry for a phase has a non-null backtrack_to.
+ * Check if the latest entry has a non-null backtrack_to.
+ * Returns the raw value (string, string[], or null).
  */
-function getLatestBacktrackTarget(entries: any[]): string | null {
+function getLatestBacktrackTarget(entries: any[]): string | string[] | null {
   if (entries.length === 0) return null;
   const sorted = [...entries].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
@@ -188,31 +193,6 @@ function countAttempts(entries: any[], phaseId: string): number {
   return entries.filter((e: any) => e.phase === phaseId).length;
 }
 
-/**
- * Remove all entries from a target phase onward from the entries array.
- * A phase is "from target onward" if its index in the phase table is >= the target's index.
- */
-function clearEntriesFromPhase(
-  entries: any[],
-  targetPhaseId: string,
-  phaseTable: PhaseDefinition[],
-): any[] {
-  const targetIdx = phaseTable.findIndex((p) => p.id === targetPhaseId);
-  if (targetIdx === -1) return entries;
-
-  const targetIds = new Set(phaseTable.slice(targetIdx).map((p) => p.id));
-  return entries.filter((e: any) => !targetIds.has(e.phase));
-}
-
-/**
- * Write updated entries back to eval.json.
- */
-function writeEvalJson(changeDir: string, entries: any[]): void {
-  const filePath = path.join(changeDir, 'eval.json');
-  fs.mkdirSync(changeDir, { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
-}
-
 // ---------------------------------------------------------------------------
 // Main exported function
 // ---------------------------------------------------------------------------
@@ -223,9 +203,10 @@ function writeEvalJson(changeDir: string, entries: any[]): void {
  * This is the core orchestrator, extracted from filesystem I/O so it can be
  * unit-tested without disk access.
  *
+ * IMPORTANT: This function is READ-ONLY. It does NOT modify the entries array.
+ * All stale marking is handled by phase/log.
+ *
  * Returns the next phase config or a done/error response.
- * When backtrack is detected, returns the modified entries back so the caller
- * can persist them.
  */
 export interface ResolvePhaseNextOptions {
   change: string;
@@ -235,7 +216,6 @@ export interface ResolvePhaseNextOptions {
 
 export interface ResolvePhaseNextResult {
   result: PhaseNextResult;
-  updatedEntries?: any[]; // Set when backtrack modified entries
 }
 
 export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult {
@@ -244,7 +224,7 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
   const totalPhases = phaseTable.length;
   const round = computeRound(entries);
 
-  // -- Round limit check (AC-10) --
+  // -- Round limit check --
   if (round > 20) {
     return {
       result: buildErrorResponse(
@@ -256,39 +236,52 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
     };
   }
 
-  // -- Backtrack check (AC-8) --
+  // -- Backtrack detection --
+  // phase/log already handled stale marking when the backtrack entry was written.
+  // phase/next only reads the backtrack_to to determine the next phase to return.
   const backtrackTarget = getLatestBacktrackTarget(entries);
   if (backtrackTarget) {
-    const targetPhase = phaseTable.find((p) => p.id === backtrackTarget);
-    if (!targetPhase) {
+    const targets = Array.isArray(backtrackTarget) ? backtrackTarget : [backtrackTarget];
+
+    // Find the earliest target in phase table order
+    let earliestTarget: string | null = null;
+    let earliestIdx = Infinity;
+    for (const target of targets) {
+      const idx = phaseTable.findIndex((p) => p.id === target);
+      if (idx !== -1 && idx < earliestIdx) {
+        earliestIdx = idx;
+        earliestTarget = target;
+      }
+    }
+
+    if (!earliestTarget) {
       return {
         result: buildErrorResponse(
           'invalid_backtrack_target',
-          `回溯目标 "${backtrackTarget}" 不是有效的 phase 标识符`,
+          `回溯目标 "${JSON.stringify(backtrackTarget)}" 不包含有效的 phase 标识符`,
           round,
           totalPhases,
         ),
       };
     }
 
-    const filteredEntries = clearEntriesFromPhase(entries, backtrackTarget, phaseTable);
-    const targetIdx = phaseTable.findIndex((p) => p.id === backtrackTarget);
+    const targetPhase = phaseTable[earliestIdx];
 
     return {
-      result: buildPhaseResponse(targetPhase, round, totalPhases, targetIdx + 1, change),
-      updatedEntries: filteredEntries,
+      result: buildPhaseResponse(targetPhase, round, totalPhases, earliestIdx + 1, change),
     };
   }
 
-  // -- Determine which phases have passed --
+  // -- Determine which phases have passed (filtering stale entries) --
   const passedPhases = phaseTable.filter((p) => hasPhasePassed(entries, p.id));
 
-  // -- If all phases passed, we're done (AC-4) --
+  // -- If all phases passed, we're done --
   if (passedPhases.length >= totalPhases) {
     return { result: buildDoneResponse(round, totalPhases) };
   }
 
-  // -- Find the first phase that has not passed --
+  // -- Find the first phase that has not passed (linear scan respects dependency graph
+  //    because propagation marks downstream entries stale when an upstream is stale) --
   const nextPhaseDef = phaseTable.find((p) => !hasPhasePassed(entries, p.id));
   if (!nextPhaseDef) {
     return { result: buildDoneResponse(round, totalPhases) };
@@ -296,7 +289,7 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
 
   const phaseIndex = phaseTable.indexOf(nextPhaseDef) + 1;
 
-  // -- Check retry logic for the current phase (AC-7) --
+  // -- Check retry logic for the current phase --
   const attempts = countAttempts(entries, nextPhaseDef.id);
 
   const phaseEntries = entries
@@ -328,8 +321,10 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
 }
 
 /**
- * Full phase/next: reads eval.json from disk, resolves next phase, and persists
- * any backtrack-triggered entry cleanup.
+ * Full phase/next: reads eval.json from disk, resolves next phase.
+ *
+ * This function is READ-ONLY — it never writes to eval.json.
+ * Stale marking and propagation are handled entirely by phase/log.
  *
  * Called by the MCP tool handler.
  */
@@ -351,16 +346,11 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
     throw new Error(`Failed to read eval.json: ${e.message}`);
   }
 
-  const { result, updatedEntries } = resolvePhaseNext({
+  const { result } = resolvePhaseNext({
     change,
     entries,
     workflowType,
   });
-
-  // Persist backtrack cleanup if needed
-  if (updatedEntries) {
-    writeEvalJson(changeDir, updatedEntries);
-  }
 
   return result;
 }

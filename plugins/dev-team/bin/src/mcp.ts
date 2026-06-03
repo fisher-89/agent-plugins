@@ -87,8 +87,9 @@ async function main(): Promise<void> {
     'phase/check',
     {
       description:
-        'Check if all prior workflow phases have passed evaluation for a given phase. ' +
-        'Runs gate check, timestamp order check, and backtrack check. Returns structured result.',
+        '[DEPRECATED] Check if all prior workflow phases have passed evaluation for a given phase. ' +
+        'Retained for debugging only — the workflow loop uses phase/next as the single decision point. ' +
+        'Runs prerequisite gate check and returns structured result.',
       inputSchema: phaseCheckInputSchema,
       outputSchema: phaseCheckOutputSchema,
     },

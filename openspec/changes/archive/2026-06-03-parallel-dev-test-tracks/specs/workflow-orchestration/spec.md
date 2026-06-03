@@ -26,7 +26,7 @@ For the `bug-fix` workflow_type:
 | 05-implement | [02-dev-design] |
 | 06-unit-test | [05-implement] |
 | 07-code-review | [05-implement] |
-| 09-acceptance | [07-code-review] |
+| 09-acceptance | [01-proposal, 02-dev-design, 05-implement] |
 
 For the `refactor` workflow_type, the prerequisite table SHALL match `requirement`.
 
@@ -199,6 +199,8 @@ Entries without an `stale` field SHALL be treated as `stale: false` (backward co
 - **GIVEN** eval.json has `[{phase: "02-dev-design", verdict: "pass"}]` (no stale field)
 - **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
 - **THEN** it returns `true` (missing stale treated as false)
+
+## MODIFIED Requirements
 
 ### Requirement: phase/next MCP tool
 The system SHALL provide `mcp__plugin_dev-team_dev-team__phase/next` MCP tool that returns the next phase to execute, its agent assignments, and prompt strings.
