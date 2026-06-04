@@ -54,11 +54,11 @@ Prepare the evaluation data and call the MCP tool:
 mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "05-implement", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
-The `items` parameter is a JSON array string:
+The `items` parameter is a JSON array:
 
 ```json
 [
-  {"item": "design.md 中每个架构组件都有实现代码", "pass": true, "evidence": "src/auth.py:120 implements AuthService", "notes": "..."},
+  {"item": "design.md 中每个架构组件都有实现代码", "pass": true, "evidence": "src/auth.py:120 implements AuthService"},
   ...
 ]
 ```

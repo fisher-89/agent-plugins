@@ -57,11 +57,11 @@ mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "09-ac
 
 Include `backtrack_to: "01-proposal"` if requirements gaps were found (verdict must be "fail" when backtracking).
 
-The `items` parameter is a JSON array string:
+The `items` parameter is a JSON array:
 
 ```json
 [
-  {"item": "proposal.md 中每个验收标准都有实现证据", "pass": true, "evidence": "AC-1: src/auth.py:45-67 implements login flow", "notes": "..."},
+  {"item": "proposal.md 中每个验收标准都有实现证据", "pass": true, "evidence": "AC-1: src/auth.py:45-67 implements login flow"},
   ...
 ]
 ```

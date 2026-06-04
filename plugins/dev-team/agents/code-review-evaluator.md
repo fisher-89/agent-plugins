@@ -61,11 +61,11 @@ mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "07-co
 
 Include `backtrack_to: "02-dev-design"` if design contradictions were found (verdict must be "fail" when backtracking).
 
-The `items` parameter is a JSON array string:
+The `items` parameter is a JSON array:
 
 ```json
 [
-  {"item": "变更代码中无安全漏洞", "pass": true, "evidence": "...", "notes": "..."},
+  {"item": "变更代码中无安全漏洞", "pass": true, "evidence": "..."},
   ...
 ]
 ```

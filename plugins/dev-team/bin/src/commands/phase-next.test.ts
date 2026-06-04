@@ -11,17 +11,16 @@
  */
 
 import { describe, it, expect } from 'vite-plus/test';
-import type z4 from 'zod/v4';
 
 import { resolvePhaseNext } from '../commands/phase-next';
+import { type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable, getPhasePattern } from '../lib/workflow';
-import { type phaseLogInputSchema } from '../schemas';
 
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios
 // ---------------------------------------------------------------------------
 
-type MockEntry = z4.infer<typeof phaseLogInputSchema>;
+type MockEntry = EvalEntry;
 
 // Module-level counter ensures each mock entry gets a unique, increasing timestamp.
 let _tsCounter = 0;
@@ -40,6 +39,8 @@ function passEntry(
     attempt,
     timestamp: nextTs(),
     backtrack_to: null,
+    report: '',
+    items: [],
     ...overrides,
   };
 }
@@ -55,6 +56,8 @@ function failEntry(
     attempt,
     timestamp: nextTs(),
     backtrack_to: null,
+    report: '',
+    items: [],
     ...overrides,
   };
 }
@@ -70,6 +73,8 @@ function backtrackEntry(
     attempt,
     timestamp: nextTs(),
     backtrack_to,
+    report: '',
+    items: [],
   };
 }
 
@@ -80,6 +85,9 @@ function skippedEntry(phase: string, attempt: number = 1): MockEntry {
     attempt,
     timestamp: nextTs(),
     skipped: true,
+    backtrack_to: null,
+    report: '',
+    items: [],
   };
 }
 
@@ -99,6 +107,8 @@ function staleEntry(
     timestamp: nextTs(),
     backtrack_to: null,
     stale: true,
+    report: '',
+    items: [],
     ...overrides,
   };
 }
@@ -522,13 +532,7 @@ describe('runPhaseNext — Backtrack', () => {
   it('should throw invalid_backtrack_target for unknown target', () => {
     const entries = [
       passEntry('01-proposal'),
-      {
-        phase: '02-dev-design',
-        verdict: 'fail',
-        attempt: 1,
-        timestamp: nextTs(),
-        backtrack_to: '99-unknown',
-      },
+      failEntry('02-dev-design', 1, { backtrack_to: '99-unknown' } as Partial<EvalEntry>),
     ];
     const { result } = resolvePhaseNext({ change: 'test-change', entries });
     expect(result.error).toBe('invalid_backtrack_target');
@@ -677,6 +681,8 @@ describe('runPhaseNext — Round Limit (AC-10)', () => {
         attempt: Math.floor(i / 2) + 1,
         timestamp: new Date(Date.now() + i).toISOString(),
         backtrack_to: i % 2 === 1 ? '01-proposal' : null,
+        report: '',
+        items: [],
       };
       entries.push(entry);
     }

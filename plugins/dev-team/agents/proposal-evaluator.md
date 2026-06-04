@@ -54,11 +54,11 @@ Prepare the evaluation data and call the MCP tool:
 mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "01-proposal", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
-The `items` parameter is a JSON array string:
+The `items` parameter is a JSON array:
 
 ```json
 [
-  {"item": "问题描述清晰，包含背景和动机", "pass": true, "evidence": "...", "notes": "..."},
+  {"item": "问题描述清晰，包含背景和动机", "pass": true, "evidence": "..."},
   ...
 ]
 ```

@@ -14,7 +14,7 @@
  */
 
 import { getChangeDir } from '../lib/change';
-import { readEvalJson } from '../lib/eval-json';
+import { readEvalJson, type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable, type PhaseAgentDef, type PhaseDefinition } from '../lib/workflow';
 
 // ---------------------------------------------------------------------------
@@ -157,7 +157,7 @@ function buildErrorResponse(
  * Compute the current round number from eval.json entries.
  * Round = total entries + 1 (next round to execute).
  */
-function computeRound(entries: any[]): number {
+function computeRound(entries: EvalEntry[]): number {
   return entries.length + 1;
 }
 
@@ -167,9 +167,9 @@ function computeRound(entries: any[]): number {
  * Entries with `stale: true` are ignored.
  * Entries without a `stale` field are treated as `stale: false` (backward compatible).
  */
-export function hasPhasePassed(entries: any[], phaseId: string): boolean {
+export function hasPhasePassed(entries: EvalEntry[], phaseId: string): boolean {
   return entries.some(
-    (e: any) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true) && !e.stale,
+    (e) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true) && !e.stale,
   );
 }
 
@@ -177,7 +177,7 @@ export function hasPhasePassed(entries: any[], phaseId: string): boolean {
  * Check if the latest entry has a non-null backtrack_to.
  * Returns the raw value (string, string[], or null).
  */
-function getLatestBacktrackTarget(entries: any[]): string | string[] | null {
+function getLatestBacktrackTarget(entries: EvalEntry[]): string | string[] | null {
   if (entries.length === 0) return null;
   const sorted = [...entries].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
@@ -189,8 +189,8 @@ function getLatestBacktrackTarget(entries: any[]): string | string[] | null {
 /**
  * Count attempts for a specific phase from eval entries.
  */
-function countAttempts(entries: any[], phaseId: string): number {
-  return entries.filter((e: any) => e.phase === phaseId).length;
+function countAttempts(entries: EvalEntry[], phaseId: string): number {
+  return entries.filter((e) => e.phase === phaseId).length;
 }
 
 // ---------------------------------------------------------------------------
@@ -210,7 +210,7 @@ function countAttempts(entries: any[], phaseId: string): number {
  */
 export interface ResolvePhaseNextOptions {
   change: string;
-  entries: any[];
+  entries: EvalEntry[];
   workflowType?: string;
 }
 
@@ -293,8 +293,8 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
   const attempts = countAttempts(entries, nextPhaseDef.id);
 
   const phaseEntries = entries
-    .filter((e: any) => e.phase === nextPhaseDef.id)
-    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    .filter((e) => e.phase === nextPhaseDef.id)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   if (phaseEntries.length > 0) {
     const latest = phaseEntries[0];
@@ -339,11 +339,12 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
 
   // -- Read eval.json --
   const changeDir = getChangeDir(change);
-  let entries: any[];
+  let entries: EvalEntry[];
   try {
     entries = readEvalJson(changeDir);
-  } catch (e: any) {
-    throw new Error(`Failed to read eval.json: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`Failed to read eval.json: ${msg}`);
   }
 
   const { result } = resolvePhaseNext({

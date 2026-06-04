@@ -28,7 +28,7 @@ Check that the report contains all required fields:
 
 If any required field is missing or has wrong type, set:
 - `verdict`: `"fail"`
-- `findings`: `"报告不完整: [缺失字段列表]"`
+- `report`: `"报告不完整: [缺失字段列表]"`
 - `backtrack_to`: `"06-unit-test"` (re-run the test executor)
 
 ### Step 2: No-op / empty check
@@ -36,14 +36,14 @@ If any required field is missing or has wrong type, set:
 If `total === 0`:
 - `verdict`: `"pass"`
 - `skipped`: `true`
-- `findings`: `"未发现单元测试文件，阶段跳过"`
+- `report`: `"未发现单元测试文件，阶段跳过"`
 - `backtrack_to`: `null`
 
 ### Step 3: All-pass check
 
 If `failed === 0` and `total > 0`:
 - `verdict`: `"pass"`
-- `findings`: `"所有 ${total} 个单元测试通过"`
+- `report`: `"所有 ${total} 个单元测试通过"`
 - `backtrack_to`: `null`
 
 ### Step 4: Apply diagnostic decision tree
@@ -107,19 +107,18 @@ ${failure_details_summary}
 
 Use the MCP phase_log tool to append the result:
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", verdict: "<pass|fail>", report: "<summary, max 500 chars>", items: '[...]', backtrack_to: "<target|null>", findings: "<structured findings>"})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", verdict: "<pass|fail>", report: "<summary & structured findings, max 500 chars>", items: '[...]', backtrack_to: "<target|null>"})
 ```
 
 If the phase was skipped (total=0), append with `skipped: true`:
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", verdict: "pass", report: "No unit tests found, phase skipped", items: '[]', backtrack_to: null, skipped: true, findings: "未发现单元测试文件，阶段跳过"})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", verdict: "pass", report: "未发现单元测试文件，阶段跳过", items: '[]', backtrack_to: null, skipped: true})
 ```
 
 ## Constraints
 
-- findings MUST be a detailed diagnostic analysis, not a one-line summary
 - backtrack_to must always be set to a valid phase identifier or null
 - When using AskUserQuestion: present a summary of all failures, the diagnostic tree path, and 3-4 recommended backtrack options. Set a timeout of 5 minutes.
 - Do NOT modify test files or source code
 - Do NOT re-run tests — evaluation is based on the existing report only
-- If the report file does not exist, set verdict "fail" with finding "测试执行报告不存在，请先运行 Executor"
+- If the report file does not exist, set verdict "fail" with report "测试执行报告不存在，请先运行 Executor"

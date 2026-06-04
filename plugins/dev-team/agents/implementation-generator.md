@@ -70,4 +70,3 @@ If the static check script exists, write a structured JSON report to `openspec/c
 - Include necessary imports and wiring (register new modules, update indexes, etc.)
 - **测试目录黑名单: 禁止读取以下目录中的任何文件** (测试文件应当只由 test-gen-generator 处理):
   - `tests/`, `__tests__/`, `test/` 目录下的所有文件
-  - 违反此约束的记录将被加入到 eval.json 的 findings 中，并要求重新生成

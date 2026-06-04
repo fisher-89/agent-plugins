@@ -10,7 +10,7 @@
 import * as fs from 'fs';
 
 import { getChangeDir } from '../lib/change';
-import { readEvalJson, checkGate, type GateResult } from '../lib/eval-json';
+import { readEvalJson, checkGate, type GateResult, type EvalEntry } from '../lib/eval-json';
 import { getPriorPhases, getPhaseIndex, PHASES } from '../lib/workflow';
 
 export const SCHEMA_VERSION = '1.0';
@@ -44,7 +44,7 @@ export interface BuildPhaseCheckResultOptions {
  * Check that all prior phases have at least one non-stale pass record.
  * Delegates to checkGate from eval-json.ts.
  */
-function checkPriorPhases(entries: any[], priorPhases: string[]): GateResult {
+function checkPriorPhases(entries: EvalEntry[], priorPhases: string[]): GateResult {
   return checkGate(entries, priorPhases);
 }
 
@@ -55,10 +55,10 @@ function checkPriorPhases(entries: any[], priorPhases: string[]): GateResult {
  * - Latest entry verdict is "pass" (including skipped entries): "passed"
  * - Entries with `skipped: true` are treated as "passed" regardless of verdict.
  */
-function determinePhaseState(entries: any[], currentPhase: string): PhaseState {
+function determinePhaseState(entries: EvalEntry[], currentPhase: string): PhaseState {
   const phaseEntries = entries
-    .filter((e: any) => e.phase === currentPhase)
-    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    .filter((e) => e.phase === currentPhase)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   if (phaseEntries.length === 0) return 'first_run';
 
@@ -120,11 +120,12 @@ export function runPhaseCheck(options: PhaseCheckOptions): PhaseCheckResult {
     throw new Error(`变更 "${options.change}" 的目录不存在: ${changeDir}`);
   }
 
-  let entries: any[];
+  let entries: EvalEntry[];
   try {
     entries = readEvalJson(changeDir);
-  } catch (e: any) {
-    throw new Error(`读取 eval.json 失败: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`读取 eval.json 失败: ${msg}`);
   }
 
   const priorPhases = getPriorPhases(options.phase);

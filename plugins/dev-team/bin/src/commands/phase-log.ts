@@ -3,25 +3,24 @@ import {
   readEvalJson,
   validateVerdict,
   validateReportLength,
-  validateItemsJson,
   buildEntry,
   computeAttempt,
   markPhaseStale,
   writeEvalJson,
   appendEntry,
+  type EvalEntry,
 } from '../lib/eval-json';
 import { getPhaseIndex } from '../lib/workflow';
 
 export interface PhaseLogOptions {
   change: string;
   phase: string;
-  verdict: string;
+  verdict: 'pass' | 'fail';
   report: string;
-  items: string;
+  items: { item: string; pass: boolean; evidence: string }[];
   attempt?: string;
-  backtrackTo?: string | string[];
+  backtrackTo?: string | string[] | null;
   skipped?: boolean;
-  findings?: string;
 }
 
 export interface PhaseLogResult {
@@ -50,15 +49,14 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   validateVerdict(options.verdict, options.skipped === true);
   validateReportLength(options.report);
 
-  const itemsList = validateItemsJson(options.items);
-
   const changeDir = getChangeDir(options.change);
 
-  let entries: any[];
+  let entries: EvalEntry[];
   try {
     entries = readEvalJson(changeDir);
-  } catch (e: any) {
-    throw new Error(`读取 eval.json 失败: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`读取 eval.json 失败: ${msg}`);
   }
 
   // -- Handle backtrack: mark stale targets BEFORE writing new entry --
@@ -90,11 +88,10 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     phase: options.phase,
     verdict: options.verdict,
     report: options.report,
-    items: itemsList,
+    items: options.items,
     attempt,
     backtrack_to: options.backtrackTo || null,
     skipped: options.skipped === true ? true : undefined,
-    findings: options.findings || undefined,
   });
 
   try {
@@ -106,8 +103,9 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
       // Normal path: no stale modifications, just append
       appendEntry(changeDir, entry);
     }
-  } catch (e: any) {
-    throw new Error(`写入 eval.json 失败: ${e.message}`);
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    throw new Error(`写入 eval.json 失败: ${msg}`);
   }
 
   return { written: true, phase: options.phase, attempt };

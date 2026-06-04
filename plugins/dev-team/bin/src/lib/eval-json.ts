@@ -1,10 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { type z } from 'zod/v4';
+
+import { type phaseLogInputSchema, phaseLogSchema } from '../schemas/phase-log.schema';
 import { getDependents } from './workflow';
 
 const EVAL_JSON_FILE = 'eval.json';
-const SCHEMA_VERSION = '1.0';
 
 export interface Item {
   item: string;
@@ -13,17 +15,9 @@ export interface Item {
   notes: string;
 }
 
-export interface BuildEntryParams {
-  phase: string;
-  verdict: string;
-  report: string;
-  items: Item[];
-  attempt: number;
-  backtrack_to?: string | string[] | null;
-  skipped?: boolean;
-  findings?: string;
-  phase_suffix?: string;
-}
+export type EvalEntry = z.infer<typeof phaseLogSchema>;
+
+export type BuildEntryParams = z.infer<typeof phaseLogInputSchema>;
 
 export interface GateResult {
   passed: boolean;
@@ -35,19 +29,19 @@ export interface GateResult {
  * Returns an empty array if the file does not exist.
  * Throws an error if JSON parsing fails.
  */
-export function readEvalJson(changeDir: string): any[] {
+export function readEvalJson(changeDir: string): EvalEntry[] {
   const filePath = path.join(changeDir, EVAL_JSON_FILE);
   if (!fs.existsSync(filePath)) {
     return [];
   }
   const raw = fs.readFileSync(filePath, 'utf-8');
   try {
-    const parsed = JSON.parse(raw);
+    const parsed = JSON.parse(raw) as unknown;
     if (!Array.isArray(parsed)) {
       throw new Error(`eval.json 根元素必须是数组，但实际类型为 ${typeof parsed}`);
     }
-    return parsed;
-  } catch (e: any) {
+    return parsed.map((record) => phaseLogSchema.parse(record));
+  } catch (e: unknown) {
     if (e instanceof SyntaxError) {
       throw new Error(`eval.json 解析失败: ${e.message}`);
     }
@@ -60,7 +54,7 @@ export function readEvalJson(changeDir: string): any[] {
  * When skipped is true, "pass" verdict is always allowed (no-op skip).
  * Throws an error if invalid.
  */
-export function validateVerdict(verdict: any, skipped?: boolean): void {
+export function validateVerdict(verdict: string, skipped?: boolean): void {
   if (verdict !== 'pass' && verdict !== 'fail') {
     throw new Error(`verdict 必须为 "pass" 或 "fail"，但收到: ${JSON.stringify(verdict)}`);
   }
@@ -80,33 +74,12 @@ export function validateReportLength(report: string): void {
 }
 
 /**
- * Validate that itemsStr is a valid JSON array string.
- * Returns the parsed array.
- * Throws an error if parsing fails.
- */
-export function validateItemsJson(itemsStr: string): any[] {
-  let parsed: any;
-  try {
-    parsed = JSON.parse(itemsStr);
-  } catch (e: any) {
-    throw new Error(
-      `items 参数不是有效的 JSON 数组。请确保使用单引号包裹 JSON 字符串，例如: --items '[{"item":"问题描述清晰，包含背景和动机","pass":true}]'。解析错误: ${e.message}`,
-    );
-  }
-  if (!Array.isArray(parsed)) {
-    throw new Error(`items 参数必须是一个 JSON 数组，但收到: ${typeof parsed}`);
-  }
-  return parsed;
-}
-
-/**
  * Build an EvalEntry object with auto-generated fields.
  * - timestamp: current ISO 8601 string
- * - schema_version: "1.0"
  * - backtrack_to: included only if explicitly provided in params
  */
-export function buildEntry(params: BuildEntryParams): Record<string, any> {
-  const entry: Record<string, any> = {
+export function buildEntry(params: BuildEntryParams): EvalEntry {
+  const entry: EvalEntry = {
     phase: params.phase,
     timestamp: new Date().toISOString(),
     attempt: params.attempt,
@@ -114,17 +87,10 @@ export function buildEntry(params: BuildEntryParams): Record<string, any> {
     report: params.report,
     items: params.items,
     backtrack_to: params.backtrack_to !== undefined ? params.backtrack_to : null,
-    schema_version: SCHEMA_VERSION,
   };
   // Extended fields: only include when explicitly set
   if (params.skipped !== undefined) {
     entry.skipped = params.skipped;
-  }
-  if (params.findings !== undefined) {
-    entry.findings = params.findings;
-  }
-  if (params.phase_suffix !== undefined) {
-    entry.phase_suffix = params.phase_suffix;
   }
   return entry;
 }
@@ -134,14 +100,18 @@ export function buildEntry(params: BuildEntryParams): Record<string, any> {
  * If explicitAttempt is provided, return it directly.
  * Otherwise, count existing entries for the phase and return count + 1.
  */
-export function computeAttempt(entries: any[], phase: string, explicitAttempt?: number): number {
+export function computeAttempt(
+  entries: EvalEntry[],
+  phase: string,
+  explicitAttempt?: number,
+): number {
   if (explicitAttempt !== undefined) {
     if (!Number.isInteger(explicitAttempt) || explicitAttempt < 1) {
       throw new Error(`attempt 必须为正整数，但收到: ${explicitAttempt}`);
     }
     return explicitAttempt;
   }
-  const phaseEntries = entries.filter((e: any) => e.phase === phase);
+  const phaseEntries = entries.filter((e) => e.phase === phase);
   return phaseEntries.length + 1;
 }
 
@@ -153,10 +123,10 @@ export function computeAttempt(entries: any[], phase: string, explicitAttempt?: 
  * Entries with `stale: true` are ignored (treated as not passed).
  * Entries without a `stale` field are treated as `stale: false` (backward compatible).
  */
-export function checkGate(entries: any[], prerequisites: string[]): GateResult {
+export function checkGate(entries: EvalEntry[], prerequisites: string[]): GateResult {
   const missing: string[] = [];
   for (const phase of prerequisites) {
-    const hasPass = entries.some((e: any) => e.phase === phase && e.verdict === 'pass' && !e.stale);
+    const hasPass = entries.some((e) => e.phase === phase && e.verdict === 'pass' && !e.stale);
     if (!hasPass) {
       missing.push(phase);
     }
@@ -174,7 +144,7 @@ export function checkGate(entries: any[], prerequisites: string[]): GateResult {
  *
  * Dependent phases with no entries in the array are silently skipped.
  */
-export function propagateStale(entries: any[], phaseId: string, workflowType?: string): void {
+export function propagateStale(entries: EvalEntry[], phaseId: string, workflowType?: string): void {
   const visited = new Set<string>();
 
   function propagate(pid: string): void {
@@ -207,10 +177,10 @@ export function propagateStale(entries: any[], phaseId: string, workflowType?: s
  *
  * If no pass entry exists, the function is a no-op (no propagation occurs).
  */
-export function markPhaseStale(entries: any[], phaseId: string): void {
+export function markPhaseStale(entries: EvalEntry[], phaseId: string): void {
   const phaseEntries = entries
-    .filter((e: any) => e.phase === phaseId)
-    .sort((a: any, b: any) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+    .filter((e) => e.phase === phaseId)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
 
   // Find the latest pass entry
   // We need to iterate through entries (which are mutated) to find a non-stale pass
@@ -237,7 +207,7 @@ export function markPhaseStale(entries: any[], phaseId: string): void {
  * Creates the directory if it does not exist.
  * Output uses 2-space indentation with trailing newline.
  */
-export function writeEvalJson(changeDir: string, entries: any[]): void {
+export function writeEvalJson(changeDir: string, entries: EvalEntry[]): void {
   const filePath = path.join(changeDir, EVAL_JSON_FILE);
   fs.mkdirSync(changeDir, { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
@@ -250,12 +220,12 @@ export function writeEvalJson(changeDir: string, entries: any[]): void {
  * - Appends to the existing array otherwise.
  * - Output uses 2-space indentation with trailing newline.
  */
-export function appendEntry(changeDir: string, entry: object): void {
+export function appendEntry(changeDir: string, entry: EvalEntry): void {
   // Ensure change directory exists
   fs.mkdirSync(changeDir, { recursive: true });
 
   const filePath = path.join(changeDir, EVAL_JSON_FILE);
-  let data: any[];
+  let data: EvalEntry[];
 
   if (fs.existsSync(filePath)) {
     data = readEvalJson(changeDir);

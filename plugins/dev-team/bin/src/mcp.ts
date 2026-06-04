@@ -1,5 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
+import z from 'zod/v4';
 
 import pluginConfig from '../../.claude-plugin/plugin.json';
 import { runConfigContext } from './commands/config-context';
@@ -63,8 +64,10 @@ async function main(): Promise<void> {
     {
       description:
         'Append an evaluation result entry to eval.json for a given workflow phase. ' +
-        'Records the verdict (pass/fail), checklist items, and optional backtrack/findings for a change.',
-      inputSchema: phaseLogInputSchema,
+        'Records the verdict (pass/fail), checklist items, and optional backtrack_to for a change.',
+      inputSchema: phaseLogInputSchema.extend({
+        change: z.string(),
+      }),
       outputSchema: phaseLogOutputSchema,
     },
     async (args) => {
@@ -77,7 +80,6 @@ async function main(): Promise<void> {
         attempt: args.attempt != null ? String(args.attempt) : undefined,
         backtrackTo: args.backtrack_to,
         skipped: args.skipped,
-        findings: args.findings,
       });
       return jsonContent(result);
     },

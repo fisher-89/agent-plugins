@@ -7,6 +7,7 @@ import {
   markPhaseStale,
   propagateStale,
   type BuildEntryParams,
+  type EvalEntry,
 } from './eval-json';
 
 describe('validateVerdict', () => {
@@ -44,8 +45,9 @@ describe('buildEntry', () => {
     phase: '06-unit-test',
     verdict: 'pass',
     report: 'All tests passed',
-    items: [{ item: '测试覆盖率达到80%', pass: true, evidence: 'ok', notes: '' }],
+    items: [{ item: '测试覆盖率达到80%', pass: true, evidence: 'ok' }],
     attempt: 1,
+    backtrack_to: null,
   };
 
   it('should build a basic entry with required fields', () => {
@@ -53,13 +55,10 @@ describe('buildEntry', () => {
     expect(entry.phase).toBe('06-unit-test');
     expect(entry.verdict).toBe('pass');
     expect(entry.attempt).toBe(1);
-    expect(entry.schema_version).toBe('1.0');
     expect(entry.timestamp).toBeDefined();
     expect(entry.backtrack_to).toBeNull();
     // Extended fields not set
     expect(entry.skipped).toBeUndefined();
-    expect(entry.findings).toBeUndefined();
-    expect(entry.phase_suffix).toBeUndefined();
   });
 
   it('should include skipped field when set', () => {
@@ -67,30 +66,15 @@ describe('buildEntry', () => {
     expect(entry.skipped).toBe(true);
   });
 
-  it('should include findings field when set', () => {
-    const entry = buildEntry({
-      ...baseParams,
-      findings: 'Root cause: syntax error in test file',
-    });
-    expect(entry.findings).toBe('Root cause: syntax error in test file');
-  });
-
-  it('should include phase_suffix field when set', () => {
-    const entry = buildEntry({ ...baseParams, phase_suffix: 'static-check' });
-    expect(entry.phase_suffix).toBe('static-check');
-  });
-
   it('should include all extended fields simultaneously', () => {
     const params: BuildEntryParams = {
       ...baseParams,
       skipped: true,
-      findings: 'No tests found, skipping',
-      phase_suffix: 'noop-check',
+      report: 'No tests found, skipping',
     };
     const entry = buildEntry(params);
     expect(entry.skipped).toBe(true);
-    expect(entry.findings).toBe('No tests found, skipping');
-    expect(entry.phase_suffix).toBe('noop-check');
+    expect(entry.report).toBe('No tests found, skipping');
   });
 
   it('should include backtrack_to when set', () => {
@@ -114,10 +98,18 @@ describe('buildEntry', () => {
 // ---------------------------------------------------------------------------
 
 describe('checkGate', () => {
-  const entries = [
-    { phase: '01-proposal', verdict: 'pass', timestamp: '2026-01-01T00:00:00.000Z' },
-    { phase: '02-dev-design', verdict: 'pass', timestamp: '2026-01-02T00:00:00.000Z' },
+  const base = {
+    report: '',
+    items: [],
+    schema_version: '1.0',
+    attempt: 1,
+    backtrack_to: null as string | string[] | null,
+  };
+  const entries: EvalEntry[] = [
+    { ...base, phase: '01-proposal', verdict: 'pass', timestamp: '2026-01-01T00:00:00.000Z' },
+    { ...base, phase: '02-dev-design', verdict: 'pass', timestamp: '2026-01-02T00:00:00.000Z' },
     {
+      ...base,
       phase: '03-test-design',
       verdict: 'pass',
       timestamp: '2026-01-03T00:00:00.000Z',
@@ -152,23 +144,27 @@ describe('checkGate', () => {
 // markPhaseStale — AC-8, AC-14
 // ---------------------------------------------------------------------------
 
-function makePassEntry(phase: string, attempt: number = 1, ts?: string): Record<string, any> {
+function makePassEntry(phase: string, attempt: number = 1, ts?: string): EvalEntry {
   return {
     phase,
     verdict: 'pass',
     attempt,
     timestamp: ts || new Date(Date.now() + attempt).toISOString(),
     backtrack_to: null,
+    report: '',
+    items: [],
   };
 }
 
-function makeFailEntry(phase: string, attempt: number = 1): Record<string, any> {
+function makeFailEntry(phase: string, attempt: number = 1): EvalEntry {
   return {
     phase,
     verdict: 'fail',
     attempt,
     timestamp: new Date(Date.now() + attempt).toISOString(),
     backtrack_to: null,
+    report: '',
+    items: [],
   };
 }
 
@@ -184,17 +180,17 @@ describe('markPhaseStale', () => {
     markPhaseStale(entries, '02-dev-design');
 
     // 02 should be stale
-    const e2 = entries.find((e) => e.phase === '02-dev-design');
+    const e2 = entries.find((e) => e.phase === '02-dev-design')!;
     expect(e2.stale).toBe(true);
 
     // Downstream should be propagated: 03 (dep on 02), 05 (dep on 02)
-    const e3 = entries.find((e) => e.phase === '03-test-design');
+    const e3 = entries.find((e) => e.phase === '03-test-design')!;
     expect(e3.stale).toBe(true);
-    const e5 = entries.find((e) => e.phase === '05-implement');
+    const e5 = entries.find((e) => e.phase === '05-implement')!;
     expect(e5.stale).toBe(true);
 
     // 01 should NOT be stale (no dependency on 02)
-    const e1 = entries.find((e) => e.phase === '01-proposal');
+    const e1 = entries.find((e) => e.phase === '01-proposal')!;
     expect(e1.stale).toBeUndefined();
   });
 

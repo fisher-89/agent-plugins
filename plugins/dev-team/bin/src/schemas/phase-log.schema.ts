@@ -1,16 +1,19 @@
 import { z } from 'zod/v4';
 
-export const phaseLogInputSchema = {
-  change: z.string().describe('Change name (corresponds to openspec/changes/<name>)'),
+export const phaseLogSchema = z.object({
   phase: z.string().describe('Phase identifier (e.g. 01-proposal)'),
+  attempt: z.number().int().optional().describe('Attempt number (auto-calculated if omitted)'),
   verdict: z.enum(['pass', 'fail']).describe('Evaluation verdict'),
   report: z.string().max(500).describe('Evaluation report text (max 500 chars)'),
   items: z
-    .string()
-    .describe(
-      'Checklist evaluation items as JSON array string. Each item: {"item":"...","pass":true|false,"evidence":"...","notes":"..."}',
-    ),
-  attempt: z.number().int().optional().describe('Attempt number (auto-calculated if omitted)'),
+    .array(
+      z.object({
+        item: z.string().describe('检查项'),
+        pass: z.boolean().describe('是否通过'),
+        evidence: z.string().describe('检查通过/不通过的依据'),
+      }),
+    )
+    .describe('Checklist evaluation items'),
   backtrack_to: z
     .union([z.string().min(1), z.array(z.string())])
     .optional()
@@ -20,8 +23,23 @@ export const phaseLogInputSchema = {
     .boolean()
     .optional()
     .describe('Mark entry as skipped (no-op phase, requires verdict pass)'),
-  findings: z.string().optional().describe('Diagnostic findings text from decision tree analysis'),
-};
+  timestamp: z.iso.datetime().describe('Recorded at'),
+  stale: z.boolean().optional().describe('Phase need redo'),
+});
+
+export const phaseLogInputSchema = phaseLogSchema
+  .pick({
+    phase: true,
+    attempt: true,
+    verdict: true,
+    report: true,
+    items: true,
+    backtrack_to: true,
+    skipped: true,
+  })
+  .partial({
+    attempt: true,
+  });
 
 export const phaseLogOutputSchema = z.object({
   written: z.boolean().describe('Whether the entry was written successfully'),

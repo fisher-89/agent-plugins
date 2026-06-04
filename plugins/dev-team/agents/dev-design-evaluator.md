@@ -52,11 +52,11 @@ Prepare the evaluation data and call the MCP tool:
 mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "02-dev-design", verdict: "pass|fail", report: "<report>", items: '<items>'})
 ```
 
-The `items` parameter is a JSON array string:
+The `items` parameter is a JSON array:
 
 ```json
 [
-  {"item": "架构组件已列出职责、依赖、技术栈和文件路径", "pass": true, "evidence": "...", "notes": "..."},
+  {"item": "架构组件已列出职责、依赖、技术栈和文件路径", "pass": true, "evidence": "..."},
   ...
 ]
 ```
