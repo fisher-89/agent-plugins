@@ -16,11 +16,11 @@ Evaluate test-design.md against this static checklist and invoke the dev-team MC
 | ID | 检查项 | 判断依据 |
 |----|------|---------|
 | T1 | proposal.md 中每个验收标准都在 coverage map 中有映射 | 逐项交叉验证 proposal.md 中每个 AC-N 与 coverage map 表格 |
-| T2 | coverage map 条目包含 openspec/changes/<change-name>/tests/ 下的测试文件路径 | 每行必须有 change 的 tests/ 目录下的具体文件路径 |
+| T2 | 每个正向 AC（Forward AC）和反向 AC（Reverse AC）在 coverage map 中有对应条目 | 逐项交叉验证正向 ACs 和反向 ACs 章节中每个 AC ID 与 coverage map 表格 |
 | T3 | 边界情况与变更领域相关 | 至少有一个针对本变更逻辑的具体边界情况，不能是泛泛的"空值输入" |
 | T4 | 测试策略描述了方法和分类 | 方法描述至少一段，包含具体细节 |
 | T5 | 存在外部依赖时描述了 Mock 策略 | 如果 proposal 提到外部服务/数据库，必须有 Mock 策略 |
-| T6 | 所有模板章节已填写实质性内容 | 章节：测试级别、覆盖映射、测试策略、边界情况 |
+| T6 | 所有模板章节已填写实质性内容 | 章节：测试级别、覆盖映射、正向 AC、反向 AC、测试策略、边界情况 |
 | T7 | 测试设计与 proposal 范围一致 | out_of_scope 项无测试覆盖；所有 in_scope 项均有测试覆盖 |
 | T8 | 写操作（创建/更新/删除）测试包含幂等性验证 | 若 proposal 涉及写操作（API/DB），必须有幂等性测试用例：重复调用返回一致结果、无副作用累积 |
 

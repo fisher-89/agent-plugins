@@ -15,11 +15,11 @@ Evaluate the Generator's test code output against test-design.md using this stat
 
 | ID | 检查项 | 判断依据 |
 |----|------|---------|
-| G1 | test-design.md 中每个 coverage map 条目在 `openspec/changes/<change-name>/tests/` 下都有对应的测试文件 | 逐项交叉验证 coverage map 每行与 git diff 中 tests/ 目录下的文件 |
-| G2 | 测试文件遵循项目命名规范且位于 `openspec/changes/<change-name>/tests/` | 检查文件名匹配现有模式（test_*.py、*.test.ts 等）且位于 change 的 tests/ 目录下 |
+| G1 | 源码中每个公开方法在源码目录中有对应的测试文件 | 逐项交叉验证源码目录中每个受影响的公开方法与对应的共存测试文件 |
+| G2 | 测试文件命名遵循语言规范且与源码共存于同一目录 | 检查文件名匹配语言规范（test_*.py、*.test.ts、*_test.rs、*_test.go）且存在于源码文件的同一目录 |
 | G3 | 测试骨架包含与 test-design 级别匹配的测试结构 | 每个测试文件应有与覆盖目标对应的测试函数/方法 |
 | G4 | 测试文件使用正确的框架和导入 | 验证导入与 test-design.md 中指定的框架一致 |
-| G5 | test-design.md 中的边界情况已覆盖 | 每个边界情况必须有对应的测试骨架 |
+| G5 | test-design.md 中的边界情况已覆盖 | 每个边界情况必须有对应的测试骨架；至少覆盖类型映射表中每种参数类型的 2 个边界值 |
 | G6 | diff 中无 JSON 报告或摘要文件 | git diff 必须只包含代码文件，不能有 .json（现有项目数据文件除外） |
 | G7 | 测试代码包含清理/还原逻辑 | 检查生成的测试文件中是否包含 teardown/cleanup/restore 逻辑（如清理临时文件、还原 mock、恢复状态等）。若未生成任何文件，空清理块可接受 |
 
@@ -58,7 +58,7 @@ The `items` parameter is a JSON array string:
 
 ```json
 [
-  {"item": "test-design.md 中每个 coverage map 条目在 tests/ 下都有对应的测试文件", "pass": true, "evidence": "test_user_auth.py:45 covers AC-1", "notes": "..."},
+  {"item": "源码中每个公开方法在源码目录中有对应的测试文件", "pass": true, "evidence": "src/auth.py -> src/test_auth.py covers AC-1", "notes": "..."},
   ...
 ]
 ```
