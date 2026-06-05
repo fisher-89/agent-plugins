@@ -5,7 +5,7 @@
 - [ ] 使用静态扫描工具检查测试文件（关联：plugins\dev-team\agents\test-gen-evaluator.md G3）
 - [ ] config统一指定测试框架（关联：plugins\dev-team\agents\test-gen-evaluator.md G5）
 - [ ] 禁止直接写入eval.json
-- [ ] unit-test生成覆盖度报告
+- [x] unit-test生成覆盖度报告
 - [ ] 下线python脚本
 - [ ] 下线openspec执行文件
 - [x] mcp工具改回下划线，避免claude code转义“/”导致找不到tools

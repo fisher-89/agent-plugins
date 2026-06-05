@@ -57,7 +57,9 @@ Apply the systematic parameter type→edge case mapping (see table below).
 
 ### 6. Generate framework-specific test skeletons
 
-Use the detected framework's native test syntax:
+Use the detected framework's native test syntax.
+
+**Test descriptions MUST be written in Chinese.** All `describe()`, `it()`, `test()` block descriptions should use Chinese to describe the test scenario, e.g., `describe('用户登录模块')`, `it('应在密码为空时返回错误')`. This applies to all JS/TS test frameworks (jest, vitest, vite-plus, bun).
 
 | Framework | Test Syntax | Import / Module Declaration | Test File Naming |
 |-----------|-------------|----------------------------|------------------|
@@ -119,5 +121,6 @@ Write test files colocated with their corresponding source files in the same dir
 - Test skeletons SHALL include TODO or skip markers to prevent premature execution by CI/CD pipelines
 - For untyped parameters, inferred types must be marked P2 with a TODO comment
 - Test files SHALL be written to the same directory as the source file they test, NOT under `openspec/changes/<name>/tests/`
+- Test descriptions (describe/it/test block names) MUST be written in Chinese, e.g., `describe('用户登录模块')`, `it('应在输入无效时返回 400')`
 - Use the tool `mcp__plugin_dev-team_dev-team__test_detect_frameworks` to detect the project test framework(s)
 - Use the tool `mcp__plugin_dev-team_dev-team__test_get_framework_config` to get framework configuration and conventions

@@ -57,7 +57,7 @@ Write files:
 
 ## Language
 
-All narrative content in the output proposal.md SHALL be written in Chinese (简体中文).
+All narrative content in the output artifacts (proposal.md and specs/<capability>/spec.md) SHALL be written in Chinese (简体中文).
 
 The following SHALL remain in English:
 - Code identifiers (variable names, function names, class names)
