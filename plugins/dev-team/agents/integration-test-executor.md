@@ -20,7 +20,7 @@ Read:
 
 1. Determine the active change name
 2. Identify integration test files:
-   - Glob for `**/*.integration.test.ts`, `**/*.integration.test.js`, `**/*.integration.test.py`
+   - Glob for `**/*.integration.test.ts`, `**/*.integration.test.js`
    - Glob for `**/tests/integration/**`
    - Glob for `**/*.integration.test.go`, `**/*.integration_test.rs`
 3. Run the appropriate test command based on what tests are found:

@@ -19,6 +19,44 @@ export const configSchema = z
       })
       .optional(),
     static_analysis: z.string().optional(),
+    test: z
+      .object({
+        frameworks: z
+          .union([
+            z.enum(['jest', 'vitest', 'vite-plus', 'bun', 'rust']),
+            z.array(
+              z.object({
+                glob: z.string(),
+                framework: z.string(),
+              }),
+            ),
+          ])
+          .optional(),
+        coverage: z
+          .object({
+            thresholds: z
+              .object({
+                lines: z.number().default(80),
+                branches: z.number().default(70),
+                functions: z.number().default(75),
+              })
+              .optional(),
+            overrides: z
+              .array(
+                z.object({
+                  glob: z.string(),
+                  thresholds: z.object({
+                    lines: z.number().optional(),
+                    branches: z.number().optional(),
+                    functions: z.number().optional(),
+                  }),
+                }),
+              )
+              .optional(),
+          })
+          .optional(),
+      })
+      .optional(),
   })
   .passthrough();
 

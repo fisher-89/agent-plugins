@@ -13,6 +13,7 @@ Generate test skeleton files based on the test design and source code analysis.
 ## Input
 
 Read:
+- `openspec/config.json` — read `test.frameworks` to detect the project's test framework(s)
 - `openspec/changes/<change-name>/test-design.md` — test levels, coverage map, forward ACs, reverse ACs, strategy, boundary cases
 - Source code files for the affected modules — read directly to extract method signatures, parameter types, return types, and implementation logic
 - The project's existing test files and patterns (Grep/Glob to find them)
@@ -20,30 +21,71 @@ Read:
 
 ## Process
 
-1. Determine the active change name
-2. Read test-design.md to understand the full test plan, including Forward ACs and Reverse ACs
-3. Read the affected source code files directly to understand:
-   - Function/method signatures and actual parameter types
-   - Return types and error handling patterns
-   - Business logic for accurate test assertions
-4. Extract parameter types from source code signatures and apply the systematic parameter type→edge case mapping (see table below)
-5. Create test files colocated with each source file in the same directory, following language-specific naming conventions:
+### 1. Framework detection
 
-   | Source Type | Test File Naming | Location |
-   |-------------|-----------------|----------|
-   | `.py` | `test_<module>.py` | Same directory as source |
-   | `.ts` / `.tsx` | `<module>.test.ts` / `<module>.test.tsx` | Same directory as source |
-   | `.rs` | `<module>_test.rs` or inline `#[cfg(test)] mod tests` | Same directory as source |
-   | `.go` | `<module>_test.go` | Same directory as source |
+Call the MCP tool `test_detect_frameworks` to detect the project's test framework(s):
+```
+mcp__plugin_dev-team_dev-team__test_detect_frameworks({})
+```
+Collect the `frameworks` list from the result. If config.json has `test.frameworks` configured, use the detected framework(s). Otherwise, fall back to file-extension heuristics:
+- `.ts` / `.tsx` / `.js` / `.jsx` => vitest-style (describe / it / expect)
+- `.py` => pytest (def test_*)
+- `.rs` => rust (#[cfg(test)] mod tests)
 
-6. For each test file, generate:
-   - **Happy path tests** derived from Forward ACs
-   - **Sad path tests** derived from Reverse ACs (error handling, invalid inputs)
-   - **Edge case tests** systematically derived from parameter types using the mapping below
+### 2. Framework config resolution
 
-7. For untyped files (JavaScript, Python without type hints), infer parameter types from parameter names (e.g., `username`→`str`, `count`→`int`, `flags`→`boolean`). Mark these inferred-type tests as priority **P2** and add a `# TODO: Review inferred type` comment.
+For each detected framework, call `test_get_framework_config` to get framework information:
+```
+mcp__plugin_dev-team_dev-team__test_get_framework_config({framework: "<framework_name>"})
+```
+Use the returned framework name to select the correct test syntax for skeleton generation.
 
-8. All generated test skeletons SHALL include TODO or skip markers (e.g., `@pytest.mark.skip`, `test.skip(...)`, `#[ignore]`) to prevent automated test frameworks from executing incomplete skeletons.
+### 3. Read test-design.md to understand the full test plan
+
+Including Forward ACs and Reverse ACs.
+
+### 4. Read the affected source code files directly
+
+Understand:
+- Function/method signatures and actual parameter types
+- Return types and error handling patterns
+- Business logic for accurate test assertions
+
+### 5. Extract parameter types from source code signatures
+
+Apply the systematic parameter type→edge case mapping (see table below).
+
+### 6. Generate framework-specific test skeletons
+
+Use the detected framework's native test syntax:
+
+| Framework | Test Syntax | Import / Module Declaration | Test File Naming |
+|-----------|-------------|----------------------------|------------------|
+| jest | `describe` / `it` / `expect` | `import { describe, it, expect } from '@jest/globals'` | `<module>.test.ts` |
+| vitest | `describe` / `it` / `expect` / `vi` | `import { describe, it, expect, vi } from 'vitest'` | `<module>.test.ts` |
+| vite-plus | `describe` / `it` / `expect` | (same as vitest convention) | `<module>.test.ts` |
+| bun | `describe` / `test` / `expect` | `import { describe, test, expect } from 'bun:test'` | `<module>.test.ts` |
+| rust | `#[cfg(test)]` module, `#[test]` functions | `mod tests { use super::*; #[test] fn ... }` | Inline in source or `<module>_test.rs` |
+
+Create test files colocated with each source file in the same directory, following the naming conventions above.
+
+**Skip markers:** All generated test skeletons SHALL include framework-appropriate skip markers:
+- Jest / Vitest / Vite-plus / Bun: `it.skip(...)` or `test.skip(...)`
+- Rust: `#[ignore]`
+
+### 7. For each test file, generate:
+
+- **Happy path tests** derived from Forward ACs
+- **Sad path tests** derived from Reverse ACs (error handling, invalid inputs)
+- **Edge case tests** systematically derived from parameter types using the mapping below
+
+### 8. For untyped files (JavaScript, Python without type hints)
+
+Infer parameter types from parameter names (e.g., `username`→`str`, `count`→`int`, `flags`→`boolean`). Mark these inferred-type tests as priority **P2** and add a `# TODO: Review inferred type` comment.
+
+### 9. All generated test skeletons SHALL include TODO or skip markers
+
+This prevents automated test frameworks from executing incomplete skeletons.
 
 ### Parameter Type → Edge Case Systematic Mapping
 
@@ -69,7 +111,7 @@ Write test files colocated with their corresponding source files in the same dir
 ## Constraints
 
 - Follow existing test naming conventions exactly (e.g., `test_<module>.py`, `<module>.test.ts{x}`, `<module>_test.rs`, `<module>_test.go`)
-- Use the same test framework and assertion style as existing tests
+- Use the same test framework and assertion style as existing tests (use the detected framework's syntax)
 - Write valid, parseable code — no syntax errors
 - Include necessary imports and fixtures
 - Do NOT generate JSON reports or summary files
@@ -77,3 +119,5 @@ Write test files colocated with their corresponding source files in the same dir
 - Test skeletons SHALL include TODO or skip markers to prevent premature execution by CI/CD pipelines
 - For untyped parameters, inferred types must be marked P2 with a TODO comment
 - Test files SHALL be written to the same directory as the source file they test, NOT under `openspec/changes/<name>/tests/`
+- Use the tool `mcp__plugin_dev-team_dev-team__test_detect_frameworks` to detect the project test framework(s)
+- Use the tool `mcp__plugin_dev-team_dev-team__test_get_framework_config` to get framework configuration and conventions

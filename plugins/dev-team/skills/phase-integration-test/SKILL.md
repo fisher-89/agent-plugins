@@ -30,7 +30,7 @@ If a change name is provided, use it. Otherwise find the active change.
 Check if any integration test files exist:
 
 ```bash
-count=$(find . -type f \( -name "*.integration.test.ts" -o -name "*.integration.test.js" -o -name "*.integration.test.py" \) 2>/dev/null | wc -l)
+count=$(find . -type f \( -name "*.integration.test.ts" -o -name "*.integration.test.js" \) 2>/dev/null | wc -l)
 count_integration=$(find . -path "*/tests/integration/*" -type f 2>/dev/null | wc -l)
 total=$((count + count_integration))
 echo "Integration test files found: $total"

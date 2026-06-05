@@ -12,25 +12,29 @@ Proposal phase — Planner writes proposal.md + specs/ with P→E loop.
 
 **MODE: artifact generation only. Your output is proposal.md + specs/. You are NOT implementing — do not edit source code outside openspec/changes/<name>/.**
 
-## Usage
+## Input:
 
-```
-/dev-team:phase-proposal [change-name-or-description]
-```
+The user's request should include a change name (kebab-case) OR a description of what they want to build.
 
 ## Steps
 
-### 1. Parse change name
+### Step 0: **If no clear input provided, ask what they want to build**
 
-Source `plugins/dev-team/utils/openspec-cli.sh`.
+Use the **AskUserQuestion tool** (open-ended, no preset options) to ask:
 
-**With argument — classify by format:**
+> "What change do you want to work on? Describe what you want to build or fix."
 
-- **Arg is pure kebab-case** (`[a-z][a-z0-9-]*`): treat as existing change name → validate via `validate_change_name`. If not exists, `openspec_new_change`. Proceed to Step 2.
+From their description, derive a kebab-case name (e.g., "add user authentication" → `add-user-auth`).
 
-- **Arg is NOT kebab-case** (contains Chinese, spaces, or natural language): treat as change description → derive kebab-case via `derive_kebab_case`, confirm with user, scaffold via `openspec_new_change`. Handle conflicts with numeric suffix. Proceed to Step 2.
+**IMPORTANT**: Do NOT proceed without understanding what the user wants to build.
 
-**Without argument:** Detect explore context (decision tables, diagrams, "What We Figured Out"). If found: extract decisions, ask user for kebab-case name, `derive_kebab_case`, confirm, scaffold. If not: ask "想构建什么变更？" derive kebab-case, confirm, scaffold. Handle conflicts with numeric suffix. Save explore context as EXPLORE_CONTEXT_SUMMARY.
+### Step 1: Create the change directory\*\*
+
+```bash
+openspec new change "<name>"
+```
+
+This creates a scaffolded change in the planning home resolved by the CLI with `.openspec.yaml`.
 
 ### 2. Gate check
 

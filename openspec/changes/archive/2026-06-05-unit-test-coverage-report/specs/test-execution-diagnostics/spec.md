@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: Executor (sonnet) 执行测试并产出结构化报告
 
@@ -81,7 +81,7 @@ Evaluator SHALL 优先使用报告中的 `coverage_pass` 布尔值进行门控�
 - **WHEN** 报告中的 `coverage` 为 null（覆盖率生成未执行或失败）
 - **THEN** checklist 中覆盖率条目标记为 pass，evidence 注明 "覆盖率检查未配置或生成失败，跳过"
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: Executor 使用框架检测工具确定覆盖率命令
 

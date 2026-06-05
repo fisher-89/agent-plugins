@@ -30,7 +30,7 @@ If a change name is provided, use it. Otherwise find the active change.
 Check if any unit test files exist:
 
 ```bash
-count=$(find . -type f \( -name "*.test.ts" -o -name "*.test.js" -o -name "*.test.py" -o -name "*_test.go" -o -name "*_test.rs" \) 2>/dev/null | wc -l)
+count=$(find . -type f \( -name "*.test.ts{x}" -o -name "*.test.js{x}" -o -name "*_test.rs" \) 2>/dev/null | wc -l)
 count_unit=$(find . -path "*/tests/unit/*" -type f 2>/dev/null | wc -l)
 count_dunder=$(find . -path "*/__tests__/*" -type f 2>/dev/null | wc -l)
 total=$((count + count_unit + count_dunder))

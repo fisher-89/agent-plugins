@@ -10,6 +10,8 @@ import { runConfigUnset } from './commands/config-unset';
 import { runPhaseCheck } from './commands/phase-check';
 import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
+import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
+import { runTestGetFrameworkConfig } from './commands/test-get-framework-config';
 import { queryModel } from './lib/archi-query';
 import { validateDsl } from './lib/archi-validate';
 import { writeDsl } from './lib/archi-write';
@@ -37,6 +39,10 @@ import {
   configUnsetOutputSchema,
   configContextInputSchema,
   configContextOutputSchema,
+  testDetectFrameworksInputSchema,
+  testDetectFrameworksOutputSchema,
+  testGetFrameworkConfigInputSchema,
+  testGetFrameworkConfigOutputSchema,
 } from './schemas';
 
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
@@ -267,6 +273,45 @@ async function main(): Promise<void> {
       const result = runConfigContext({
         context: args.context,
         projectRoot,
+      });
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'test_detect_frameworks',
+    {
+      description:
+        'Detect test framework(s) for given files based on config.json ' +
+        'test.frameworks glob mappings. When files is omitted, auto-scan ' +
+        'the project for matching test files. Returns per-file framework ' +
+        'detection and a deduplicated framework list.',
+      inputSchema: testDetectFrameworksInputSchema,
+      outputSchema: testDetectFrameworksOutputSchema,
+    },
+    async (args) => {
+      const projectRoot = resolveProjectRoot(args.project_root);
+      const result = runTestDetectFrameworks({
+        files: args.files,
+        projectRoot,
+      });
+      return jsonContent(result);
+    },
+  );
+
+  server.registerTool(
+    'test_get_framework_config',
+    {
+      description:
+        'Get the test and coverage command configuration for a known ' +
+        'test framework (jest, vitest, vite-plus, bun, rust). Returns ' +
+        'test_cmd, coverage_cmd, coverage_format, and coverage_output.',
+      inputSchema: testGetFrameworkConfigInputSchema,
+      outputSchema: testGetFrameworkConfigOutputSchema,
+    },
+    async (args) => {
+      const result = runTestGetFrameworkConfig({
+        framework: args.framework,
       });
       return jsonContent(result);
     },

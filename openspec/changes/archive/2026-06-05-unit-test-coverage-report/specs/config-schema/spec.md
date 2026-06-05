@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: config-schema defines a Zod schema for config.json
 
@@ -101,7 +101,7 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 - **WHEN** a config object `{"test": {"frameworks": 123}}` is validated
 - **THEN** validation fails with a ZodError indicating that the value must be either a string or an array
 
-## Requirements
+## ADDED Requirements
 
 ### Requirement: config-schema supports runtime lookup of framework config via MCP tools
 
