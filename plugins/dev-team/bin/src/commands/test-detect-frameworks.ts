@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readConfig } from '../lib/config';
-import { getDefaultGlobForFramework } from './test-get-framework-config';
+import { getDefaultGlobForFramework, runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -21,6 +21,17 @@ interface DetectedFile {
 export interface TestDetectFrameworksResult {
   detected: DetectedFile[];
   frameworks: string[];
+  plan: PlanEntry[];
+}
+
+export interface PlanEntry {
+  directory: string;
+  framework: string;
+  coverage_cmd: string;
+  coverage_format: 'istanbul' | 'llvm-cov';
+  coverage_output: string;
+  coverage_artifacts: string[];
+  coverage_cleanup: string[];
 }
 
 export interface TestDetectFrameworksOptions {
@@ -54,8 +65,15 @@ function globToRegex(pattern: string): RegExp {
 
     if (ch === '*' && normalised[i + 1] === '*') {
       // ** matches any number of path segments
-      regexStr += '.*';
-      i += 2;
+      // When followed by /, handle zero-or-more directory levels properly
+      if (normalised[i + 2] === '/') {
+        // **/ -- match zero or more complete path segments
+        regexStr += '(?:.+/)?';
+        i += 3;
+      } else {
+        regexStr += '.*';
+        i += 2;
+      }
     } else if (ch === '*') {
       // * matches any characters within a single segment (non-greedy)
       regexStr += '[^/]*';
@@ -200,6 +218,49 @@ function normaliseFrameworks(frameworks: unknown): FrameworkMapping[] {
 }
 
 // ---------------------------------------------------------------------------
+// deriveWorkingDirectory
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive the working directory from a glob pattern.
+ *
+ * Rules:
+ * 1. Normalise backslashes to forward slashes (cross-platform).
+ * 2. Merge consecutive forward slashes into one.
+ * 3. Find the first wildcard character (`*`, `?`, `{`).
+ * 4. If no wildcard is found, return the entire (normalised) string.
+ * 5. Take the substring before the first wildcard, then strip any trailing
+ *    path separator (`/`).  If the result is empty, return `"."`.
+ *
+ * Examples:
+ *   - `"plugins/dev-team/bin"`      -> `"plugins/dev-team/bin"`
+ *   - `"tests/?nit/*.test.ts"`      -> `"tests"`
+ *   - `"{src,lib}/*.test.ts"`       -> `"."`
+ */
+export function deriveWorkingDirectory(glob: string): string {
+  // 1. Normalise backslashes to forward slashes
+  let normalised = glob.replace(/\\/g, '/');
+
+  // 2. Merge consecutive forward slashes
+  normalised = normalised.replace(/\/+/g, '/');
+
+  // 3. Find first wildcard character
+  const WILDCARD_PATTERN = /[*?{]/;
+  const match = WILDCARD_PATTERN.exec(normalised);
+
+  if (!match) {
+    // 4. No wildcard — return the entire normalised string
+    return normalised;
+  }
+
+  // 5. Take the substring before the first wildcard
+  const prefix = normalised.slice(0, match.index);
+  const trimmed = prefix.replace(/\/+$/, '');
+
+  return trimmed || '.';
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -230,7 +291,7 @@ export function runTestDetectFrameworks(
     );
   } else if (options.files !== undefined && options.files.length === 0) {
     // Empty file list — return empty result
-    return { detected: [], frameworks: [] };
+    return { detected: [], frameworks: [], plan: [] };
   } else {
     // Auto-scan
     filesToCheck = collectFiles(projectRoot);
@@ -242,7 +303,27 @@ export function runTestDetectFrameworks(
       file,
       framework: 'unknown',
     }));
-    return { detected, frameworks: [] };
+    return { detected, frameworks: [], plan: [] };
+  }
+
+  // Generate execution plan from the configured framework mappings
+  const plan: PlanEntry[] = [];
+  for (const mapping of mappings) {
+    try {
+      const directory = deriveWorkingDirectory(mapping.glob);
+      const config = runTestGetFrameworkConfig({ framework: mapping.framework });
+      plan.push({
+        directory,
+        framework: config.framework,
+        coverage_cmd: config.coverage_cmd,
+        coverage_format: config.coverage_format,
+        coverage_output: config.coverage_output,
+        coverage_artifacts: config.coverage_artifacts,
+        coverage_cleanup: config.coverage_cleanup,
+      });
+    } catch {
+      // Skip entries for frameworks not in the registry
+    }
   }
 
   // First-match per file
@@ -269,5 +350,6 @@ export function runTestDetectFrameworks(
   return {
     detected,
     frameworks: Array.from(frameworkSet).sort(),
+    plan,
   };
 }

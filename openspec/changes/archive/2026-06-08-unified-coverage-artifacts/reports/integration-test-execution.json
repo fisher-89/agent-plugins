@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "npx vp test run --reporter=verbose 2>&1",
+  "timestamp": "2026-06-08T18:27:00.000Z",
+  "total": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 0,
+  "failures": [],
+  "findings": "未找到集成测试文件。test-design.md 定义了 AC-6 至 AC-11 共 6 个集成测试场景（覆盖率产物移动、路径更新、原始目录清理、移动失败容错、空配置跳过、多框架隔离），但 openspec/changes/unified-coverage-artifacts/ 目录下不存在 tests/ 目录或 *.integration.test.ts 文件。tasks.md 的阶段 5（单元测试）已完成并通过（367 tests all pass），但未包含集成测试文件的创建任务。需要创建以下集成测试文件来覆盖 AC-6 至 AC-11：基于临时目录文件系统操作的 Agent 模拟场景，验证 unit-test-executor 的覆盖率产物移动、路径更新、清理、容错和跳过行为。"
+}

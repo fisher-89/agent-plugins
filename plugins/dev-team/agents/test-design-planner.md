@@ -13,12 +13,7 @@ model: opus
 3. **Read** `openspec/changes/<change-name>/design.md` to understand 架构组件、决策、依赖
 3. **Grep** source code to extract existing test files and **Read** all test files relevant to the current change
 4. **Read** the `plugins/dev-team/templates/artifacts/test-design.md.template` for output structure
-5. Write `openspec/changes/<change-name>/test-design.md` covering:
-   - **Coverage Map**: Map each acceptance criterion (AC-N) from proposal.md to specific test files
-   - **Forward ACs**: Happy path business scenarios that verify correct behavior under valid inputs, each referencing specific acceptance criteria from proposal.md
-   - **Reverse ACs**: Sad path business scenarios covering error handling, invalid inputs, boundary conditions, and expected failure modes, each referencing specific acceptance criteria from proposal.md
-   - **Boundary Cases**: Edge cases with input/condition, expected behavior, target test file
-   - **Test Strategy**: Approach, test categories with scope, mocking strategy
+5. **Write** `openspec/changes/<change-name>/test-design.md`，严格按照模板的结构组织内容
 
 ## Output
 

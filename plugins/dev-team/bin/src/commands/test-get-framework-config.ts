@@ -12,6 +12,8 @@ interface FrameworkConfig {
   coverage_cmd: string;
   coverage_format: 'istanbul' | 'llvm-cov';
   coverage_output: string;
+  coverage_artifacts: string[];
+  coverage_cleanup: string[];
 }
 
 const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
@@ -21,6 +23,8 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_cmd: 'npx jest --coverage',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
+    coverage_artifacts: ['coverage/**'],
+    coverage_cleanup: ['coverage', '.nyc_output'],
   },
   vitest: {
     framework: 'vitest',
@@ -28,6 +32,8 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_cmd: 'npx vitest run --coverage',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
+    coverage_artifacts: ['coverage/**'],
+    coverage_cleanup: ['coverage', '.nyc_output'],
   },
   'vite-plus': {
     framework: 'vite-plus',
@@ -35,6 +41,8 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_cmd: 'vp test --coverage',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
+    coverage_artifacts: ['coverage/**'],
+    coverage_cleanup: ['coverage', '.nyc_output'],
   },
   bun: {
     framework: 'bun',
@@ -42,6 +50,8 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_cmd: 'bun test --coverage',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
+    coverage_artifacts: ['coverage/**'],
+    coverage_cleanup: ['coverage'],
   },
   rust: {
     framework: 'rust',
@@ -49,6 +59,8 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_cmd: 'cargo llvm-cov --all --coverage',
     coverage_format: 'llvm-cov',
     coverage_output: 'coverage/coverage-summary.json',
+    coverage_artifacts: ['coverage/**', 'target/llvm-cov/**'],
+    coverage_cleanup: ['coverage', 'target/llvm-cov'],
   },
 };
 

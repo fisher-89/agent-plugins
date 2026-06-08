@@ -11,10 +11,11 @@
  * @see openspec/changes/unit-test-coverage-report/test-design.md
  */
 
-import { describe, it, expect } from 'vite-plus/test';
 import * as fs from 'fs';
-import * as path from 'path';
 import * as os from 'os';
+import * as path from 'path';
+
+import { describe, it, expect } from 'vite-plus/test';
 
 import { parseCoverageOutput } from './coverage-parser';
 
@@ -225,7 +226,8 @@ describe('parseCoverageOutput -- error handling (reverse AC-11)', () => {
     };
     const { filePath, cleanup } = writeTempFile(JSON.stringify(data));
     try {
-      const result = parseCoverageOutput(filePath, 'unknown-format' as 'istanbul');
+      // @ts-expect-error -- testing with invalid format type
+      const result = parseCoverageOutput(filePath, 'unknown-format');
       expect(result).toBeNull();
     } finally {
       cleanup();
@@ -283,7 +285,8 @@ describe('parseCoverageOutput -- edge cases', () => {
     const data = { total: { lines: { pct: 85 }, branches: { pct: 74 }, functions: { pct: 80 } } };
     const { filePath, cleanup } = writeTempFile(JSON.stringify(data));
     try {
-      const result = parseCoverageOutput(filePath, '' as 'istanbul');
+      // @ts-expect-error -- testing with empty format string
+      const result = parseCoverageOutput(filePath, '');
       expect(result).toBeNull();
     } finally {
       cleanup();
