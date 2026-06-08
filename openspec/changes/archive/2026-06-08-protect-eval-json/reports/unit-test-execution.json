@@ -1,0 +1,18 @@
+{
+  "phase": "06-unit-test",
+  "command": "pnpm run test",
+  "timestamp": "2026-06-08T12:14:44.000Z",
+  "total": 390,
+  "passed": 387,
+  "failed": 0,
+  "skipped": 3,
+  "coverage": null,
+  "coverage_thresholds": null,
+  "coverage_overrides": [],
+  "coverage_pass": false,
+  "coverage_by_framework": [],
+  "html_reports": [],
+  "duration_seconds": 140.08,
+  "failures": [],
+  "findings": "All 387 tests pass across 15 test files. 3 tests are intentionally skipped (manual verification items marked [手动] in auto-activation.test.ts). Fixed issues: (1) JSDoc block comment in auto-activation.test.ts contained '*/' sequence which prematurely closed the comment and caused oxc parser error on Chinese characters. (2) bash resolution on Windows: added resolveBashPath() helper to locate Git Bash at C:\\Program Files\\Git\\bin\\bash.exe. (3) protect-eval.sh detect_bash_write: updated tee regex to handle flags like 'tee -a' by using '.*' instead of a space-excluding character class; added explicit Pattern 4 for '>&' file descriptor redirect syntax. (4) Corrected test expectation for 'project/sub/changes/test/eval.json' — path does not match openspec/changes prefix, correctly returns allow per spec. Coverage not configured in openspec/config.json."
+}

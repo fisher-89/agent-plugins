@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && npx vp test --reporter=verbose ../../../openspec/changes/protect-eval-json/tests/",
+  "timestamp": "2026-06-08T12:24:00.000Z",
+  "total": 28,
+  "passed": 25,
+  "failed": 0,
+  "skipped": 3,
+  "coverage": 0,
+  "duration_ms": 500,
+  "failures": [],
+  "findings": "所有集成测试通过。3 个跳过的测试为手动验证项（AC-12 的手动验证步骤），在实际 Claude Code 环境中需人工确认。集成测试覆盖了 AC-7（phase_log 不受 hook 影响，11 个测试）和 AC-12（插件自动激活验证，17 个测试含 3 个手动跳过）。"
+}
