@@ -27,7 +27,6 @@ Evaluate the Generator's test code output against test-design.md using this stat
 
 Read:
 - `openspec/changes/<change-name>/test-design.md` — the design reference
-- `plugins/dev-team/templates/artifacts/eval.schema.json` — output format reference
 
 Run:
 - `git diff --stat` — see what files changed

@@ -33,7 +33,6 @@ Evaluate the artifact against these items. Each item must pass for an overall "p
 Read only:
 - `openspec/changes/<change-name>/proposal.md` — the artifact to evaluate
 - `openspec/changes/<change-name>/specs/` — generated spec files to cross-check against proposal capabilities
-- `plugins/dev-team/templates/artifacts/eval.schema.json` — output format reference
 
 ## Process
 

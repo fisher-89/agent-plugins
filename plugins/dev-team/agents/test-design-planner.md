@@ -3,35 +3,22 @@ name: test-design-planner
 description: |
   【use proactively】Reads proposal.md and design.md, greps source code for real API signatures,
   writes test-design.md following the test-design template.
-  Produces a single .md artifact covering Test Levels, Coverage Map, Forward ACs, Reverse ACs,
-  Test Strategy, and Boundary Cases. 
-  Invoked by the phase-test-design skill as the P step in the P→E loop.
 model: opus
 ---
-
-Write a comprehensive test-design.md based on the proposal and design.
-
-## Input
-
-Read:
-- `openspec/changes/<change-name>/proposal.md` — the requirements to design tests for
-- `openspec/changes/<change-name>/design.md` — architecture, data flow, and design decisions for test targeting
-- `plugins/dev-team/templates/artifacts/test-design.md.template` — suggested structure
-- Grep source code to extract real API signatures (function names, parameter types, return types) as supplementary input for informed test scenario design
 
 ## Process
 
 1. Determine the active change name
-2. Read proposal.md and design.md to understand acceptance criteria, architecture, and scope
-3. Grep the source code to extract real API signatures — function names, parameter types, return types — as supplementary input
-4. Read the test-design template for structure
+2. **Read** `openspec/changes/<change-name>/proposal.md` to understand 变更范围、验收标准
+3. **Read** `openspec/changes/<change-name>/design.md` to understand 架构组件、决策、依赖
+3. **Grep** source code to extract existing test files and **Read** all test files relevant to the current change
+4. **Read** the `plugins/dev-team/templates/artifacts/test-design.md.template` for output structure
 5. Write `openspec/changes/<change-name>/test-design.md` covering:
-   - **Test Levels**: Unit, integration — for each: scope, framework, target coverage
    - **Coverage Map**: Map each acceptance criterion (AC-N) from proposal.md to specific test files
-   - **Forward ACs (正向 AC)**: Happy path business scenarios that verify correct behavior under valid inputs, each referencing specific acceptance criteria from proposal.md
-   - **Reverse ACs (反向 AC)**: Sad path business scenarios covering error handling, invalid inputs, boundary conditions, and expected failure modes, each referencing specific acceptance criteria from proposal.md
-   - **Test Strategy**: Approach, test categories with scope, mocking strategy
+   - **Forward ACs**: Happy path business scenarios that verify correct behavior under valid inputs, each referencing specific acceptance criteria from proposal.md
+   - **Reverse ACs**: Sad path business scenarios covering error handling, invalid inputs, boundary conditions, and expected failure modes, each referencing specific acceptance criteria from proposal.md
    - **Boundary Cases**: Edge cases with input/condition, expected behavior, target test file
+   - **Test Strategy**: Approach, test categories with scope, mocking strategy
 
 ## Output
 
@@ -39,10 +26,24 @@ Write a single file: `openspec/changes/<change-name>/test-design.md`
 
 ## Constraints
 
-- Every AC from proposal.md must appear in the coverage map
-- Boundary cases must be specific to this change's domain — not generic "null input" checks
+- Every AC from proposal.md must appear in the `## 验收范围`
 - Do NOT produce any evaluation or checklist JSON
 - If the codebase has existing test patterns, follow them
+
+### Parameter Type → Edge Case Systematic Mapping
+
+| Type | Edge Cases | Minimum Count |
+|------|-----------|---------------|
+| int / number | 0, -1, MAX_INT, None/undefined | 4 edge + 1 normal |
+| str / string | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal |
+| bool | True, False, None | 3 |
+| list / array | [] (empty), [单元素], 超大列表, None | 4 edge + 1 normal |
+| dict / object | {} (empty), 缺失必填字段, 多余字段, None | 4 edge + 1 normal |
+| Optional[T] | None | 1 (merge with other boundaries) |
+| Enum | 每个枚举值, 非法枚举值 | N+1 |
+| float | 0.0, -0.0, NaN, Inf, None | 5 edge + 1 normal |
+
+> For nested generic types (e.g., `List[Dict[str, int]]`), combine outer container boundary values (empty, single-element, large, None) with inner type boundary values. Each combination exercises a different nesting depth.
 
 ## Language
 

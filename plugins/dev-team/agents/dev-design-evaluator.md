@@ -31,7 +31,6 @@ Read only:
 - `openspec/changes/<change-name>/design.md` — the artifact to evaluate
 - `openspec/changes/<change-name>/tasks.md` — implementation tasks
 - `openspec/changes/<change-name>/proposal.md` — requirements for cross-reference
-- `plugins/dev-team/templates/artifacts/eval.schema.json` — output format reference
 
 ## Process
 
