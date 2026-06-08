@@ -26,7 +26,7 @@ If a change name is provided, use it. Otherwise run `openspec list --json` and p
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="03-test-design". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `03-test-design`, stop — prior phase gates have not passed.
 
 ### 3. P→E Loop
 
@@ -34,8 +34,8 @@ Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase
 ```
 Agent({
   description: "Write test-design.md",
-  subagent_type: "dev-team:test-design-planner",
-  prompt: "Write test-design.md for change '<name>'."
+  subagent_type: result.planner.agent_type,
+  prompt: result.planner.prompt
 })
 ```
 
@@ -43,8 +43,8 @@ Agent({
 ```
 Agent({
   description: "Evaluate test-design.md",
-  subagent_type: "dev-team:test-design-evaluator",
-  prompt: "Evaluate test-design.md for change '<name>' against proposal.md. Append result to eval.json."
+  subagent_type: result.evaluator.agent_type,
+  prompt: result.evaluator.prompt
 })
 ```
 
