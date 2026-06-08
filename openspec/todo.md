@@ -1,9 +1,9 @@
-- [ ] plugins\dev-team\bin\src\commands\phase-log.ts 检查backtrack_to必须在步骤中或null，避免传入"null"字符串
+- [x] plugins\dev-team\bin\src\commands\phase-log.ts 检查backtrack_to必须在步骤中或null，避免传入"null"字符串
 - [x] 所有evaluator的checklist不区分是否“必须”，都是必要检查项
 - [x] 测试文件直接写入源码目录，不放在openspec目录下（关联：plugins\dev-team\agents\test-design-evaluator.md T2）
 - [x] 使用静态扫描工具检查源码
 - [ ] 使用静态扫描工具检查测试文件（关联：plugins\dev-team\agents\test-gen-evaluator.md G3）
-- [ ] config统一指定测试框架（关联：plugins\dev-team\agents\test-gen-evaluator.md G5）
+- [x] config统一指定测试框架（关联：plugins\dev-team\agents\test-gen-evaluator.md G5）
 - [ ] 禁止直接写入eval.json
 - [x] unit-test生成覆盖度报告
 - [ ] 下线python脚本

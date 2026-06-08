@@ -15,7 +15,16 @@ export const phaseLogSchema = z.object({
     )
     .describe('Checklist evaluation items'),
   backtrack_to: z
-    .union([z.string().min(1), z.array(z.string())])
+    .union([
+      z
+        .string()
+        .min(1)
+        .refine((v) => v !== 'null', {
+          message:
+            'backtrack_to 不能为字符串 "null"。若要表示空值，请传入 null（不传引号）或不传该字段',
+        }),
+      z.array(z.string()),
+    ])
     .optional()
     .nullable()
     .describe('Backtrack target phase identifier (string, array of strings, or null)'),
