@@ -159,12 +159,12 @@ describe('test.coverage.thresholds defaults (AC-2)', () => {
 
   it('should reject thresholds with non-numeric values', () => {
     const result = configSchema.safeParse({
-        schema: 'spec-driven',
-        test: {
-          frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
-          coverage: { thresholds: { lines: 'high' } },
-        },
-      });
+      schema: 'spec-driven',
+      test: {
+        frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
+        coverage: { thresholds: { lines: 'high' } },
+      },
+    });
     expect(result.success).toBe(false);
   });
 
@@ -324,5 +324,12 @@ describe('configSchema.parse existing behaviour', () => {
     if (!result.success) {
       expect(result.error).toBeDefined();
     }
+  });
+});
+
+describe('默认值', () => {
+  it('解析空对象应补全所有深层默认值', () => {
+    const parsed = configSchema.parse({});
+    expect(parsed.test?.coverage?.thresholds?.branches).toBe(70);
   });
 });

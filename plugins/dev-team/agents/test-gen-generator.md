@@ -15,6 +15,7 @@ Generate test skeleton files based on the test design and source code analysis.
 Read:
 - `openspec/config.json` — read `test.frameworks` to detect the project's test framework(s)
 - `openspec/changes/<change-name>/test-design.md` — test levels, coverage map, forward ACs, reverse ACs, strategy, boundary cases
+- `plugins/dev-team/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
 - Source code files for the affected modules — read directly to extract method signatures, parameter types, return types, and implementation logic
 - The project's existing test files and patterns (Grep/Glob to find them)
 - The project's CLAUDE.md for conventions
@@ -40,9 +41,13 @@ mcp__plugin_dev-team_dev-team__test_get_framework_config({framework: "<framework
 ```
 Use the returned framework name to select the correct test syntax for skeleton generation.
 
-### 3. Read test-design.md to understand the full test plan
+### 3. Read test-design.md (对照 template 理解各表格列定义)
 
-Including Forward ACs and Reverse ACs.
+对照 test-design.md.template 中定义的列名和结构，解析 test-design.md 的：
+- `单元测试` / `集成测试` > `用例` 表格：测试文件、测试对象、路径类型、测试条件、迭代类型
+- `单元测试` / `集成测试` > `Mock策略` 表格：Mock主体、Mock方案、应用场景
+
+过滤 `迭代类型 = 废弃` 的条目。
 
 ### 4. Read the affected source code files directly
 

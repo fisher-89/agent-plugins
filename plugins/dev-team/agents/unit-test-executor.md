@@ -1,21 +1,22 @@
 ---
 name: unit-test-executor
 description: |
-  【use proactively】Executes unit test commands, captures output, and produces a structured JSON execution report.
+  【use proactively】Executes unit tests (with coverage and per-case timing) and integration tests (separately), captures output, and produces a structured JSON execution report.
   Invoked by the phase-unit-test skill as the Executor step in the EXEC (Executor->Evaluator) pattern.
   Uses sonnet model for cost efficiency — task is deterministic report generation.
 model: sonnet
 ---
 
-Execute unit tests and produce a structured execution report.
+Execute unit tests and integration tests separately, and produce a structured execution report. Unit tests include coverage measurement and per-test-case execution timing.
 
 ## Input
 
 Read:
 - `openspec/config.json` — read `test.frameworks`, `test.coverage.thresholds`, `test.coverage.overrides`
 - The project's CLAUDE.md for test command conventions
-- `openspec/changes/<change-name>/test-design.md` for unit test scope and coverage targets
-- Existing test files (Glob to find `**/*.test.*`, `**/tests/unit/**`, `**/__tests__/**`)
+- `openspec/changes/<change-name>/test-design.md` — read `单元测试 > 用例` for unit test scope, `集成测试 > 用例` for integration test scope
+- `plugins/dev-team/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 表格结构
+- Existing test files (Glob to find `**/*.test.*`, `**/tests/unit/**`, `**/__tests__/**` for unit; `**/*.integration.test.*`, `**/tests/integration/**` for integration)
 
 ## Process
 
@@ -31,9 +32,27 @@ Collect the `plan` array and `frameworks` array from the result. If frameworks a
 - Glob for `**/__tests__/**`
 - Report `coverage: null` and `coverage_pass: false` in the final report (no coverage config)
 
-### 2. Per-directory coverage execution (using plan)
+### 2. Execute unit tests with per-case timing (using plan)
 
 For each entry in the `plan` array returned by `test_detect_frameworks`:
+
+**2a. Run unit tests with verbose reporter for per-case timing**
+
+First, run the test command with a reporter that outputs per-case duration. Prefer JSON reporters when available:
+- **vitest**: `npx vitest run --reporter=json 2>&1` — parse `testResults[].assertionResults[]` for `title`, `ancestorTitles`, `duration`, `status`
+- **jest**: `npx jest --json 2>&1` — parse `testResults[].assertionResults[]` for `title`, `ancestorTitles`, `duration`, `status`
+- **pytest**: `python -m pytest <unit_test_dir> -v --durations=0 2>&1` — parse lines matching `PASSED`/`FAILED` with trailing `[xx%]` or use `--json-report`
+- **cargo test**: `cargo test -- --show-output 2>&1` — parse `test <name> ... ok` lines
+- Other frameworks: fall back to verbose output, parse `describe`/`it` pass/fail lines with duration annotations
+
+Extract from the output for each test case:
+- `name`: test name (for vitest/jest: `ancestorTitles.join(' > ') + ' > ' + title`)
+- `file`: test file path (relative to project root)
+- `duration_ms`: execution time in milliseconds
+- `status`: `"passed"` | `"failed"` | `"skipped"`
+
+**2b. Run coverage_cmd for coverage data**
+
 - Change to the `directory` specified in the plan entry (relative to the project root)
 - Run `coverage_cmd` in that directory, capturing stdout, stderr, and exit code
 - Record `coverage_format` and `coverage_output` for later parsing — note that `coverage_output` is relative to the `directory`
@@ -44,6 +63,7 @@ For each entry in the `plan` array returned by `test_detect_frameworks`:
 - Exclude the framework from `html_reports`
 - Skip the move artifacts step for this framework
 - Do NOT block the overall report writing
+- Per-case timing data from 2a is still valid even if 2b fails
 
 ### 3. Move coverage artifacts to unified directory
 
@@ -108,7 +128,31 @@ mcp__plugin_dev-team_dev-team__config_get({key: "test"})
 
 If all framework coverage commands failed, set `coverage: null` and `coverage_pass: false`.
 
-### 6. Report writing
+### 6. Execute integration tests separately
+
+Read the `集成测试 > 用例` table from test-design.md (过滤 `迭代类型 = 新增`) to identify integration test scope.
+
+Identify integration test files:
+- Glob for `**/*.integration.test.{ts,js}`, `**/*.integration.test.ts{x}`
+- Glob for `**/tests/integration/**`
+- Glob for `**/*.integration.test.go`, `**/*.integration_test.rs`
+- Read test-design.md `集成测试 > 用例` 表格的 `测试文件` 列
+
+If integration test files or test-design entries exist, run integration tests separately from unit tests:
+- **vitest**: `npx vitest run --reporter=json <integration_test_files> 2>&1`
+- **jest**: `npx jest --json --testMatch '**/*.integration.*' 2>&1`
+- **python**: `python -m pytest tests/integration/ -v --durations=0 2>&1`
+- **cargo test**: `cargo test --test integration 2>&1`
+
+Extract from the output:
+- `total`, `passed`, `failed`, `skipped` — overall counts
+- `duration_ms` — total execution time
+- `test_cases[]` — per-case: `name`, `file`, `duration_ms`, `status`
+- `failures[]` — detailed failure info
+
+**If no integration test files are found**, skip this step and set `integration_test: null` in the report.
+
+### 7. Report writing
 
 Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-test-execution.json`:
 
@@ -121,6 +165,7 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
   "passed": 40,
   "failed": 2,
   "skipped": 0,
+  "duration_seconds": 3.45,
   "coverage": { "lines": 82, "branches": 74, "functions": 81 },
   "coverage_thresholds": { "lines": 80, "branches": 70, "functions": 75 },
   "coverage_overrides": [
@@ -140,7 +185,45 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
     }
   ],
   "html_reports": ["reports/coverage/vitest/index.html"],
-  "duration_seconds": 3.45,
+  "test_cases": [
+    {
+      "name": "describe 标题 > it 标题",
+      "file": "src/utils/parser.test.ts",
+      "duration_ms": 2.3,
+      "status": "passed"
+    },
+    {
+      "name": "describe 标题 > it 标题",
+      "file": "src/utils/parser.test.ts",
+      "duration_ms": 15.7,
+      "status": "failed"
+    }
+  ],
+  "integration_test": {
+    "total": 15,
+    "passed": 13,
+    "failed": 2,
+    "skipped": 0,
+    "duration_ms": 12500,
+    "test_cases": [
+      {
+        "name": "describe 标题 > it 标题",
+        "file": "tests/integration/test_api.ts",
+        "duration_ms": 340.5,
+        "status": "passed"
+      }
+    ],
+    "failures": [
+      {
+        "name": "should return 200 for valid request",
+        "file": "tests/integration/test_api.ts",
+        "line": 88,
+        "error_type": "AssertionError",
+        "error_message": "Expected 200 but got 403",
+        "stack_trace": "  at test_api.ts:88:13\n  at ..."
+      }
+    ]
+  },
   "failures": [
     {
       "name": "should handle empty input",
@@ -166,21 +249,27 @@ When no coverage was generated (no `test` config or all commands failed):
 }
 ```
 
+When no integration tests exist:
+```json
+{
+  "integration_test": null
+}
+```
+
 ---
 
 ## Process Change Summary
 
 | Step | 原流程 | 新流程 |
 |------|--------|--------|
-| Steps | 7 步骤 | 6 步骤 |
-| 1 | 框架检测（test_detect_frameworks） | 框架检测（test_detect_frameworks），返回包含 `plan` 的完整结果 |
-| 2 | 命令解析（调用 `test_get_framework_config`） | **移除**：直接从 `plan` 获取命令配置 |
-| 3 | 单独运行 `test_cmd`（项目根目录） | 逐目录执行覆盖率命令（运行 `plan` 每个条目的 `coverage_cmd`，在其 `directory` 下） |
-| 4 | 单独运行 `coverage_cmd`（项目根目录） | **合并到步骤 3**：覆盖率命令已包含测试运行 |
-| 5 | 覆盖率解析 | **移动覆盖率产物到统一目录**：按 `coverage_artifacts` glob 移动产物，按 `coverage_cleanup` 清理，更新路径 |
-| 6 | 阈值判定 | 覆盖率解析（从统一位置读取 `reports/coverage/<framework>/coverage-summary.json`） |
-| 7 | 报告写入 | 阈值判定（不变） |
-| — | — | 报告写入，`html_report` 指向统一位置 `reports/coverage/<framework>/index.html` |
+| Steps | 6 步骤 | 7 步骤 |
+| 1 | 框架检测（test_detect_frameworks） | 框架检测（不变） |
+| 2 | 逐目录执行覆盖率命令 | **拆分为 2a+2b**：2a 先跑 verbose/json reporter 获取每用例耗时，2b 再跑 coverage_cmd 获取覆盖率 |
+| 3 | 移动覆盖率产物到统一目录 | 移动覆盖率产物到统一目录（不变） |
+| 4 | 覆盖率解析 | 覆盖率解析（不变） |
+| 5 | 阈值判定 | 阈值判定（不变） |
+| — | — | **新增步骤 6**：集成测试单独执行，解析每用例耗时和失败详情 |
+| 6 | 报告写入 | 报告写入（步骤 7），新增 `test_cases[]`（含 duration_ms）、`integration_test` 字段 |
 
 ## Constraints
 

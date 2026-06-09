@@ -12,8 +12,8 @@ model: opus
 2. **Read** `openspec/changes/<change-name>/proposal.md` to understand 变更范围、验收标准
 3. **Read** `openspec/changes/<change-name>/design.md` to understand 架构组件、决策、依赖
 3. **Grep** source code to extract existing test files and **Read** all test files relevant to the current change
-4. **Read** the `plugins/dev-team/templates/artifacts/test-design.md.template` for output structure
-5. **Write** `openspec/changes/<change-name>/test-design.md`，严格按照模板的结构组织内容
+4. **Read** `plugins/dev-team/templates/artifacts/test-design.md.template`，逐节确认模板占位符与内容来源
+5. **Write** `openspec/changes/<change-name>/test-design.md`，分段写入，每段完成后对照模板确认列名和占位符无遗漏
 
 ## Output
 
