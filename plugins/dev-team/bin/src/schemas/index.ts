@@ -17,5 +17,5 @@ export {
 } from './test-get-framework-config.schema';
 export { configUnsetInputSchema, configUnsetOutputSchema } from './config-unset.schema';
 export { configContextInputSchema, configContextOutputSchema } from './config-context.schema';
-export { configSchema, parseConfig, safeParseConfig } from './config.schema';
-export type { OpenSpecConfig } from './config.schema';
+export { configSchema } from './config/config.schema';
+export type { OpenSpecConfig } from './config/config.schema';

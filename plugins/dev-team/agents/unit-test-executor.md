@@ -94,7 +94,7 @@ If the file does not exist, JSON is malformed, or the expected structure is miss
 
 Read `test.coverage.thresholds` and `test.coverage.overrides` from `openspec/config.json` using:
 ```
-mcp__plugin_dev-team_dev-team__config_get({key: "test"}
+mcp__plugin_dev-team_dev-team__config_get({key: "test"})
 ```
 
 **Weighted average:** When multiple frameworks have coverage data, compute weighted average coverage by source file count for each dimension:

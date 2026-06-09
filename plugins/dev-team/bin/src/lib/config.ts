@@ -1,11 +1,9 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { parseConfig, safeParseConfig, type OpenSpecConfig } from '../schemas/config.schema';
+import { configSchema, type OpenSpecConfig } from '../schemas/';
 
 const CONFIG_FILE = 'openspec/config.json';
-
-const DEFAULT_CONFIG: OpenSpecConfig = { schema: 'spec-driven' };
 
 // ---------------------------------------------------------------------------
 // Core read / write
@@ -27,28 +25,23 @@ const DEFAULT_CONFIG: OpenSpecConfig = { schema: 'spec-driven' };
 export function readConfig(projectRoot: string): OpenSpecConfig {
   const jsonPath = path.join(projectRoot, CONFIG_FILE);
 
+  let parsed: object;
+
   // No config file at all — return default
   if (!fs.existsSync(jsonPath)) {
-    return { ...DEFAULT_CONFIG };
+    parsed = {};
+  } else {
+    try {
+      const raw = fs.readFileSync(jsonPath, 'utf-8');
+      parsed = JSON.parse(raw);
+    } catch {
+      parsed = {};
+    }
   }
 
-  // Read and parse JSON
-  try {
-    const raw = fs.readFileSync(jsonPath, 'utf-8');
-    const parsed = JSON.parse(raw);
-    if (parsed == null || typeof parsed !== 'object') {
-      return { ...DEFAULT_CONFIG };
-    }
-    const result = safeParseConfig(parsed);
-    if (result.success) {
-      return result.data;
-    }
-    // Graceful degradation: return the raw data even if schema validation fails
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion -- JSON.parse returns any
-    return parsed as OpenSpecConfig;
-  } catch {
-    return { ...DEFAULT_CONFIG };
-  }
+  const result = configSchema.safeDecode(parsed);
+
+  return result.success ? result.data : configSchema.decode({});
 }
 
 /**
@@ -62,7 +55,7 @@ export function readConfig(projectRoot: string): OpenSpecConfig {
  */
 export function writeConfig(projectRoot: string, data: OpenSpecConfig): void {
   // Validate before touching the file system (D6)
-  const validated = parseConfig(data);
+  const validated = configSchema.encode(data);
 
   const dirPath = path.join(projectRoot, 'openspec');
   fs.mkdirSync(dirPath, { recursive: true });

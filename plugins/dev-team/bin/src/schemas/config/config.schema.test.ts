@@ -16,7 +16,7 @@
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import { parseConfig, safeParseConfig } from './config.schema';
+import { configSchema } from './config.schema';
 
 // ---------------------------------------------------------------------------
 // Test Data
@@ -59,7 +59,7 @@ const minimalConfig = {
 
 describe('test.frameworks array structure (AC-1)', () => {
   it('should accept frameworks as array of {glob, framework} objects', () => {
-    const result = parseConfig(fullConfig);
+    const result = configSchema.parse(fullConfig);
     expect(result.test?.frameworks).toEqual([
       { glob: '**/*.test.ts', framework: 'vitest' },
       { glob: '**/tests/**/*.rs', framework: 'rust' },
@@ -67,7 +67,7 @@ describe('test.frameworks array structure (AC-1)', () => {
   });
 
   it('should reject frameworks array element missing framework field', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: { frameworks: [{ glob: '**/*.test.ts' }] },
     });
@@ -75,28 +75,27 @@ describe('test.frameworks array structure (AC-1)', () => {
   });
 
   it('should reject frameworks non-string non-array value (AC-1, AC-13)', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: { frameworks: 123 },
     });
     expect(result.success).toBe(false);
   });
 
-  it('should accept frameworks array element with empty framework string (boundary)', () => {
-    // Zod string() does not reject empty strings at schema level
-    const result = safeParseConfig({
+  it('should reject frameworks array element with empty framework string (boundary)', () => {
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: { frameworks: [{ glob: '**/*.ts', framework: '' }] },
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 
-  it('should accept frameworks array element with empty glob string (boundary)', () => {
-    const result = safeParseConfig({
+  it('should reject frameworks array element with empty glob string (boundary)', () => {
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: { frameworks: [{ glob: '', framework: 'vitest' }] },
     });
-    expect(result.success).toBe(true);
+    expect(result.success).toBe(false);
   });
 });
 
@@ -108,14 +107,14 @@ describe('test.coverage.thresholds defaults (AC-2)', () => {
   it('should use default thresholds when coverage is not configured', () => {
     // When no coverage node: thresholds defaults are NOT auto-applied since
     // thresholds itself is optional. Defaults apply only when thresholds exists.
-    const parsed = parseConfig(minimalConfig);
+    const parsed = configSchema.parse(minimalConfig);
     expect(parsed.test?.coverage?.thresholds).toBeUndefined();
   });
 
   it('should use default thresholds when thresholds is not configured but coverage exists', () => {
     // When coverage exists but thresholds is omitted: thresholds is undefined
     // since thresholds itself is .optional()
-    const parsed = parseConfig({
+    const parsed = configSchema.parse({
       schema: 'spec-driven',
       test: {
         frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
@@ -127,7 +126,7 @@ describe('test.coverage.thresholds defaults (AC-2)', () => {
 
   it('should apply dimension defaults when thresholds object is provided empty', () => {
     // When thresholds: {} is provided, the .default() values kick in for each dimension
-    const parsed = parseConfig({
+    const parsed = configSchema.parse({
       schema: 'spec-driven',
       test: {
         frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
@@ -142,7 +141,7 @@ describe('test.coverage.thresholds defaults (AC-2)', () => {
   });
 
   it('should fill missing dimensions with defaults when thresholds partially configured', () => {
-    const parsed = parseConfig({
+    const parsed = configSchema.parse({
       schema: 'spec-driven',
       test: {
         frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
@@ -159,23 +158,23 @@ describe('test.coverage.thresholds defaults (AC-2)', () => {
   });
 
   it('should reject thresholds with non-numeric values', () => {
-    const result = safeParseConfig({
-      schema: 'spec-driven',
-      test: {
-        frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
-        coverage: { thresholds: { lines: 'high' } },
-      },
-    });
+    const result = configSchema.safeParse({
+        schema: 'spec-driven',
+        test: {
+          frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
+          coverage: { thresholds: { lines: 'high' } },
+        },
+      });
     expect(result.success).toBe(false);
   });
 
   it('should accept empty test node (boundary)', () => {
-    const result = safeParseConfig({ schema: 'spec-driven', test: {} });
+    const result = configSchema.safeParse({ schema: 'spec-driven', test: {} });
     expect(result.success).toBe(true);
   });
 
   it('should accept config without test node at all (boundary)', () => {
-    const result = safeParseConfig({ schema: 'spec-driven' });
+    const result = configSchema.safeParse({ schema: 'spec-driven' });
     expect(result.success).toBe(true);
     expect(result.success && result.data.test).toBeUndefined();
   });
@@ -187,7 +186,7 @@ describe('test.coverage.thresholds defaults (AC-2)', () => {
 
 describe('test.coverage.overrides (AC-3)', () => {
   it('should accept overrides with partial thresholds inheriting global defaults', () => {
-    const parsed = parseConfig(fullConfig);
+    const parsed = configSchema.parse(fullConfig);
     expect(parsed.test?.coverage?.overrides).toHaveLength(1);
     expect(parsed.test?.coverage?.overrides![0]).toEqual({
       glob: 'demo/**',
@@ -196,7 +195,7 @@ describe('test.coverage.overrides (AC-3)', () => {
   });
 
   it('should accept overrides entry with empty thresholds (inherits all global)', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: {
         frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
@@ -210,7 +209,7 @@ describe('test.coverage.overrides (AC-3)', () => {
   });
 
   it('should reject overrides entry missing glob field', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: {
         frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
@@ -223,7 +222,7 @@ describe('test.coverage.overrides (AC-3)', () => {
   });
 
   it('should reject overrides thresholds with non-numeric value', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: {
         frameworks: [{ glob: '**/*.test.ts', framework: 'vitest' }],
@@ -242,14 +241,14 @@ describe('test.coverage.overrides (AC-3)', () => {
 
 describe('test.frameworks string shorthand (AC-13)', () => {
   it('should accept frameworks as a single valid framework string', () => {
-    const parsed = parseConfig(stringFrameworksConfig);
+    const parsed = configSchema.parse(stringFrameworksConfig);
     expect(parsed.test?.frameworks).toBe('vitest');
   });
 
   it('should accept all valid framework enum values', () => {
     const validFrameworks = ['jest', 'vitest', 'vite-plus', 'bun', 'rust'];
     for (const fw of validFrameworks) {
-      const result = safeParseConfig({
+      const result = configSchema.safeParse({
         schema: 'spec-driven',
         test: { frameworks: fw },
       });
@@ -264,7 +263,7 @@ describe('test.frameworks string shorthand (AC-13)', () => {
 
 describe('Invalid framework name rejection (AC-14)', () => {
   it('should reject invalid framework name string "mocha"', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: { frameworks: 'mocha' },
     });
@@ -272,7 +271,7 @@ describe('Invalid framework name rejection (AC-14)', () => {
   });
 
   it('should reject empty string as framework name', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: { frameworks: '' },
     });
@@ -280,7 +279,7 @@ describe('Invalid framework name rejection (AC-14)', () => {
   });
 
   it('should reject with invalid option error mentioning valid values', () => {
-    const result = safeParseConfig({
+    const result = configSchema.safeParse({
       schema: 'spec-driven',
       test: { frameworks: 'mocha' },
     });
@@ -293,34 +292,34 @@ describe('Invalid framework name rejection (AC-14)', () => {
 });
 
 // ===========================================================================
-// parseConfig / safeParseConfig — existing behaviour unaffected
+// configSchema.parse / configSchema.safeParse — existing behaviour unaffected
 // ===========================================================================
 
-describe('parseConfig existing behaviour', () => {
+describe('configSchema.parse existing behaviour', () => {
   it('should pass through known top-level fields', () => {
     const data = { schema: 'spec-driven', context: 'some context' };
-    const parsed = parseConfig(data);
+    const parsed = configSchema.parse(data);
     expect(parsed.schema).toBe('spec-driven');
     expect(parsed.context).toBe('some context');
   });
 
-  it('should preserve unknown passthrough fields', () => {
+  it('should not preserve unknown passthrough fields', () => {
     const data = { schema: 'spec-driven', static_check: ['npm test'] };
-    const parsed = parseConfig(data);
-    expect((parsed as Record<string, unknown>).static_check).toEqual(['npm test']);
+    const parsed = configSchema.parse(data);
+    expect(parsed).not.toHaveProperty('static_check');
   });
 
   it('should throw on invalid data', () => {
-    expect(() => parseConfig({ schema: 123 })).toThrow();
+    expect(() => configSchema.parse({ schema: 123 })).toThrow();
   });
 
-  it('should return success: true from safeParseConfig for valid data', () => {
-    const result = safeParseConfig({ schema: 'spec-driven' });
+  it('should return success: true from configSchema.safeParse for valid data', () => {
+    const result = configSchema.safeParse({ schema: 'spec-driven' });
     expect(result.success).toBe(true);
   });
 
-  it('should return success: false from safeParseConfig for invalid data', () => {
-    const result = safeParseConfig({ schema: 123 });
+  it('should return success: false from configSchema.safeParse for invalid data', () => {
+    const result = configSchema.safeParse({ schema: 123 });
     expect(result.success).toBe(false);
     if (!result.success) {
       expect(result.error).toBeDefined();

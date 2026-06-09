@@ -1,6 +1,6 @@
 import { z } from 'zod/v4';
 
-import { configSchema } from './config.schema';
+import { configSchema } from './config/config.schema';
 
 export const configGetInputSchema = {
   key: z

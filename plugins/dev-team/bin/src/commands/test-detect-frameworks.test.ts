@@ -83,7 +83,7 @@ describe('detectFrameworks -- glob first-match (AC-4)', () => {
       schema: 'spec-driven',
       test: {
         frameworks: [
-          { glob: '**/e2e/**', framework: 'cypress' },
+          { glob: '**/e2e/**', framework: 'vite-plus' },
           { glob: '**/*.ts', framework: 'vitest' },
         ],
       },
@@ -93,7 +93,7 @@ describe('detectFrameworks -- glob first-match (AC-4)', () => {
         files: ['tests/e2e/test_app.ts'],
         projectRoot: project.root,
       });
-      expect(result.detected[0].framework).toBe('cypress');
+      expect(result.detected[0].framework).toBe('vite-plus');
     } finally {
       project.cleanup();
     }
@@ -619,7 +619,7 @@ describe('runTestDetectFrameworks -- 向后兼容（AC-11）', () => {
       schema: 'spec-driven',
       test: {
         frameworks: [
-          { glob: '**/e2e/**', framework: 'cypress' },
+          { glob: '**/e2e/**', framework: 'vite-plus' },
           { glob: '**/*.ts', framework: 'vitest' },
         ],
       },
@@ -630,7 +630,7 @@ describe('runTestDetectFrameworks -- 向后兼容（AC-11）', () => {
         projectRoot: project.root,
       });
       // 应返回第一个匹配的 cypress，而非 vitest
-      expect(result.detected[0].framework).toBe('cypress');
+      expect(result.detected[0].framework).toBe('vite-plus');
     } finally {
       project.cleanup();
     }
