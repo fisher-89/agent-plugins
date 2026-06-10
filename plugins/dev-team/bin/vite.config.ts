@@ -1,3 +1,5 @@
+import { writeFileSync } from 'node:fs';
+
 import { defineConfig } from 'vite-plus';
 
 const OUTPUT_FILE_NAME = 'dev-team-mcp.cjs';
@@ -45,6 +47,13 @@ export default defineConfig({
     minify: true,
     sourcemap: true,
     clean: false,
+    hooks: {
+      'build:done': async () => {
+        const { configSchema } = await import('./src/schemas');
+        const jsonSchemaContent = JSON.stringify(configSchema.toJSONSchema(), null, 2);
+        writeFileSync('./dev-team-config.schema.json', jsonSchemaContent);
+      },
+    },
   },
   test: {
     globals: true,

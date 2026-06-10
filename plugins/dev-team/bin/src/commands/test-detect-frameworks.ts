@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readConfig } from '../lib/config';
+import { OpenSpecConfig, type TestFrameworks } from '../schemas';
 import { getDefaultGlobForFramework, runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
@@ -10,7 +11,7 @@ import { getDefaultGlobForFramework, runTestGetFrameworkConfig } from './test-ge
 
 interface FrameworkMapping {
   glob: string;
-  framework: string;
+  framework: TestFrameworks;
 }
 
 interface DetectedFile {
@@ -32,6 +33,7 @@ export interface PlanEntry {
   coverage_output: string;
   coverage_artifacts: string[];
   coverage_cleanup: string[];
+  script: string;
 }
 
 export interface TestDetectFrameworksOptions {
@@ -179,42 +181,32 @@ function collectFiles(rootDir: string): string[] {
 // ---------------------------------------------------------------------------
 
 /**
- * Normalise the `test.frameworks` config value into an array of
+ * Normalise the `test.framework` + `test.overrides` config into an array of
  * `{glob, framework}` mappings.
  *
- * - If it is a string (shorthand for known frameworks), expand to a single
- *   entry using the framework's default glob pattern.
- * - If it is already an array, return as-is.
- * - If it is undefined/null/empty, return an empty array.
+ * - If `framework` is set, it becomes the first mapping using the framework's default glob.
+ * - For each override with a `framework` field, a mapping is added using the override's `file` glob.
+ * - If both are empty/undefined, return an empty array.
  */
-function normaliseFrameworks(frameworks: unknown): FrameworkMapping[] {
-  if (!frameworks) {
-    return [];
+function normalizeFrameworks(
+  framework: OpenSpecConfig['test']['framework'],
+  overrides: OpenSpecConfig['test']['overrides'],
+): FrameworkMapping[] {
+  const frameworkMapping: FrameworkMapping[] = [];
+  if (framework) {
+    const glob = getDefaultGlobForFramework(framework);
+    frameworkMapping.push({ glob, framework });
   }
 
-  if (typeof frameworks === 'string') {
-    const fw = frameworks.trim();
-    // The shorthand is assumed to be valid since the Zod schema enforces the enum.
-    // Defensively return empty for unknown framework names.
-    try {
-      const glob = getDefaultGlobForFramework(fw);
-      return [{ glob, framework: fw }];
-    } catch {
-      return [];
+  if (Array.isArray(overrides)) {
+    for (const override of overrides) {
+      if (override.framework) {
+        frameworkMapping.push({ glob: override.file, framework: override.framework });
+      }
     }
   }
 
-  if (Array.isArray(frameworks)) {
-    return frameworks.filter(
-      (entry): entry is FrameworkMapping =>
-        entry != null &&
-        typeof entry === 'object' &&
-        typeof entry.glob === 'string' &&
-        typeof entry.framework === 'string',
-    );
-  }
-
-  return [];
+  return frameworkMapping;
 }
 
 // ---------------------------------------------------------------------------
@@ -261,6 +253,63 @@ export function deriveWorkingDirectory(glob: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// generateScript
+// ---------------------------------------------------------------------------
+
+export interface GenerateScriptInput {
+  directory: string;
+  coverage_cmd: string;
+  coverage_cleanup: string[];
+}
+
+/**
+ * Generate a bash execution script from plan entry fields.
+ *
+ * Rules:
+ * 1. First line is always `#!/bin/bash`
+ * 2. Second line is always `set -e`
+ * 3. When `directory !== "."`, insert `cd <directory>` line
+ * 4. For each entry in `coverage_cleanup`, insert `rm -rf <item>` line
+ * 5. When `coverage_cleanup` is empty, skip all `rm -rf` lines
+ * 6. Last line is `<coverage_cmd>`
+ * 7. Lines are separated by `\n`, trailing newline included
+ */
+export function generateScript(input: GenerateScriptInput): string {
+  if (input === null || input === undefined) {
+    throw new TypeError('generateScript input must not be null or undefined');
+  }
+
+  const { directory, coverage_cmd, coverage_cleanup } = input;
+
+  if (typeof directory !== 'string') {
+    throw new TypeError('generateScript: directory must be a string');
+  }
+  if (typeof coverage_cmd !== 'string') {
+    throw new TypeError('generateScript: coverage_cmd must be a string');
+  }
+  if (!Array.isArray(coverage_cleanup)) {
+    throw new TypeError('generateScript: coverage_cleanup must be an array');
+  }
+
+  const lines: string[] = [];
+
+  lines.push('#!/bin/bash');
+  lines.push('set -e');
+
+  if (directory !== '.') {
+    lines.push(`cd ${directory}`);
+  }
+
+  for (const item of coverage_cleanup) {
+    lines.push(`rm -rf ${item}`);
+  }
+
+  lines.push(coverage_cmd);
+
+  return lines.join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -277,8 +326,8 @@ export function runTestDetectFrameworks(
   const projectRoot = options.projectRoot || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 
   const config = readConfig(projectRoot);
-  const configFrameworks = config.test?.frameworks;
-  const mappings = normaliseFrameworks(configFrameworks);
+  const { framework, overrides } = config.test;
+  const mappings = normalizeFrameworks(framework, overrides);
 
   // Determine the list of files to process
   let filesToCheck: string[];
@@ -320,6 +369,11 @@ export function runTestDetectFrameworks(
         coverage_output: config.coverage_output,
         coverage_artifacts: config.coverage_artifacts,
         coverage_cleanup: config.coverage_cleanup,
+        script: generateScript({
+          directory,
+          coverage_cleanup: config.coverage_cleanup,
+          coverage_cmd: config.coverage_cmd,
+        }),
       });
     } catch {
       // Skip entries for frameworks not in the registry

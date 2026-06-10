@@ -1,15 +1,14 @@
 import { z } from 'zod/v4';
 
+import { testFrameworkSchema } from './config/config.schema';
+
 /**
  * Input schema for `test_get_framework_config` MCP tool.
  *
  * Accepts a framework name to look up in the hardcoded command registry.
  */
 export const testGetFrameworkConfigInputSchema = {
-  framework: z
-    .string()
-    .min(1)
-    .describe('Framework name to look up (e.g. "vitest", "jest", "rust")'),
+  framework: testFrameworkSchema,
   project_root: z
     .string()
     .optional()
@@ -23,7 +22,7 @@ export const testGetFrameworkConfigInputSchema = {
  * Returns the test and coverage command configuration for a known framework.
  */
 export const testGetFrameworkConfigOutputSchema = z.object({
-  framework: z.string().describe('Framework name'),
+  framework: testFrameworkSchema,
   test_cmd: z.string().describe('Test command to execute'),
   coverage_cmd: z.string().describe('Coverage command to execute'),
   coverage_format: z.enum(['istanbul', 'llvm-cov']).describe('Coverage output format identifier'),

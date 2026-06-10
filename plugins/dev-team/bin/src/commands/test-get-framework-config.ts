@@ -6,6 +6,8 @@
 // plugin maintainer, NOT by project config.json (see design decision D1).
 // ---------------------------------------------------------------------------
 
+import { type TestFrameworks } from '../schemas';
+
 interface FrameworkConfig {
   framework: string;
   test_cmd: string;
@@ -14,9 +16,10 @@ interface FrameworkConfig {
   coverage_output: string;
   coverage_artifacts: string[];
   coverage_cleanup: string[];
+  default_glob: string;
 }
 
-const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
+const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   jest: {
     framework: 'jest',
     test_cmd: 'npx jest --verbose',
@@ -25,6 +28,7 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
     coverage_cleanup: ['coverage', '.nyc_output'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   vitest: {
     framework: 'vitest',
@@ -33,7 +37,8 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
-    coverage_cleanup: ['coverage', '.nyc_output'],
+    coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   'vite-plus': {
     framework: 'vite-plus',
@@ -42,7 +47,8 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
-    coverage_cleanup: ['coverage', '.nyc_output'],
+    coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   bun: {
     framework: 'bun',
@@ -52,6 +58,7 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
     coverage_cleanup: ['coverage'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   rust: {
     framework: 'rust',
@@ -61,6 +68,7 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**', 'target/llvm-cov/**'],
     coverage_cleanup: ['coverage', 'target/llvm-cov'],
+    default_glob: '**/tests/**/*.rs',
   },
 };
 
@@ -69,7 +77,7 @@ const FRAMEWORK_REGISTRY: Record<string, FrameworkConfig> = {
 // ---------------------------------------------------------------------------
 
 export interface TestGetFrameworkConfigOptions {
-  framework: string;
+  framework: TestFrameworks;
 }
 
 /**
@@ -82,23 +90,13 @@ export interface TestGetFrameworkConfigOptions {
 export function runTestGetFrameworkConfig(options: TestGetFrameworkConfigOptions): FrameworkConfig {
   const { framework } = options;
 
-  if (!framework || typeof framework !== 'string') {
-    throw new Error('Framework name is required and must be a non-empty string');
-  }
-
-  const trimmed = framework.trim();
-  if (!trimmed) {
-    throw new Error('Framework name must not be empty');
-  }
-
-  const entry = FRAMEWORK_REGISTRY[trimmed];
+  const entry = FRAMEWORK_REGISTRY[framework];
   if (!entry) {
     throw new Error(
-      `Unknown framework "${trimmed}". Supported frameworks: ${Object.keys(FRAMEWORK_REGISTRY).join(', ')}`,
+      `Unknown framework "${framework}". Supported frameworks: ${Object.keys(FRAMEWORK_REGISTRY).join(', ')}`,
     );
   }
 
-  // Return a shallow copy to prevent mutation of the registry
   return { ...entry };
 }
 
@@ -112,19 +110,9 @@ export function getSupportedFrameworks(): string[] {
 /**
  * Return the default glob pattern for a given framework.
  *
- * Used when `test.frameworks` is configured as a string shorthand (e.g.
- * `"vitest"`) and needs to be normalised to a `{glob, framework}` entry.
+ * Used to expand a `test.framework` enum value into a `{glob, framework}` mapping
+ * for the detection engine.
  */
-export function getDefaultGlobForFramework(framework: string): string {
-  switch (framework) {
-    case 'jest':
-    case 'vitest':
-    case 'vite-plus':
-    case 'bun':
-      return '**/*.{test,spec}.{js,ts,jsx,tsx}';
-    case 'rust':
-      return '**/tests/**/*.rs';
-    default:
-      throw new Error(`No default glob pattern for unknown framework "${framework}"`);
-  }
+export function getDefaultGlobForFramework(framework: TestFrameworks): string {
+  return FRAMEWORK_REGISTRY[framework].default_glob;
 }

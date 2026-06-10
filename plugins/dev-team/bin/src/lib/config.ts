@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { configSchema, type OpenSpecConfig } from '../schemas/';
+import { configSchema, type OpenSpecConfig, type OpenSpecConfigInput } from '../schemas/';
 
 const CONFIG_FILE = 'openspec/config.json';
 
@@ -53,9 +53,9 @@ export function readConfig(projectRoot: string): OpenSpecConfig {
  * The JSON is written with 2-space indentation (ecosystem convention shared
  * by `tsconfig.json`, `package.json`, etc.).
  */
-export function writeConfig(projectRoot: string, data: OpenSpecConfig): void {
+export function writeConfig(projectRoot: string, data: OpenSpecConfigInput): void {
   // Validate before touching the file system (D6)
-  const validated = configSchema.encode(data);
+  const validated = configSchema.parse(data);
 
   const dirPath = path.join(projectRoot, 'openspec');
   fs.mkdirSync(dirPath, { recursive: true });
@@ -194,7 +194,7 @@ export function ensureConfigFile(projectRoot: string): OpenSpecConfig {
   if (!fs.existsSync(filePath)) {
     const dirPath = path.join(projectRoot, 'openspec');
     fs.mkdirSync(dirPath, { recursive: true });
-    const defaultConfig: OpenSpecConfig = { schema: 'spec-driven' };
+    const defaultConfig: OpenSpecConfigInput = { schema: 'spec-driven' };
     fs.writeFileSync(filePath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
   }
   return readConfig(projectRoot);

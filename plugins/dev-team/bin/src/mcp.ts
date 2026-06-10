@@ -283,7 +283,7 @@ async function main(): Promise<void> {
     {
       description:
         'Detect test framework(s) for given files based on config.json ' +
-        'test.frameworks glob mappings. When files is omitted, auto-scan ' +
+        'test.framework glob mappings. When files is omitted, auto-scan ' +
         'the project for matching test files. Returns per-file framework ' +
         'detection and a deduplicated framework list.',
       inputSchema: testDetectFrameworksInputSchema,

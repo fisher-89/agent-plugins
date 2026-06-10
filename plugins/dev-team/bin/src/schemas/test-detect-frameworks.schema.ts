@@ -52,6 +52,9 @@ export const testDetectFrameworksOutputSchema = z.object({
           .array(z.string())
           .optional()
           .describe('Directory/file names to clean up after successful move'),
+        script: z
+          .string()
+          .describe('Bash execution script with shebang, set -e, cd, rm -rf, and coverage command'),
       }),
     )
     .describe('Execution plan: one entry per configured framework mapping'),

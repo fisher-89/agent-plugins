@@ -1,0 +1,139 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "properties": {
+    "schema": {
+      "description": "@deprecated 模式标识，固定为 spec-driven",
+      "type": "string",
+      "const": "spec-driven"
+    },
+    "context": {
+      "description": "项目上下文描述，用于向 AI 提供业务背景信息",
+      "type": "string"
+    },
+    "rules": {
+      "description": "自定义规则配置，按工作流阶段分组",
+      "type": "object",
+      "properties": {
+        "proposal": {
+          "description": "提案阶段的自定义规则列表",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "tasks": {
+          "description": "任务阶段的自定义规则列表",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    },
+    "static_analysis": {
+      "description": "静态分析工具配置（如 ESLint、Prettier）",
+      "type": "string"
+    },
+    "test": {
+      "description": "测试相关配置",
+      "type": "object",
+      "properties": {
+        "framework": {
+          "type": "string",
+          "enum": [
+            "jest",
+            "vitest",
+            "vite-plus",
+            "bun",
+            "rust"
+          ],
+          "description": "测试框架"
+        },
+        "coverage": {
+          "description": "测试覆盖率",
+          "type": "object",
+          "properties": {
+            "lines": {
+              "description": "行覆盖率阈值（百分比，默认 80）",
+              "type": "number"
+            },
+            "branches": {
+              "description": "分支覆盖率阈值（百分比，默认 70）",
+              "type": "number"
+            },
+            "functions": {
+              "description": "函数覆盖率阈值（百分比，默认 75）",
+              "type": "number"
+            }
+          },
+          "required": [
+            "lines",
+            "branches",
+            "functions"
+          ],
+          "additionalProperties": false
+        },
+        "overrides": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "file": {
+                "type": "string",
+                "minLength": 1,
+                "description": "文件路径，支持glob规则（如 \"src/**/*.test.ts\"）"
+              },
+              "framework": {
+                "type": "string",
+                "enum": [
+                  "jest",
+                  "vitest",
+                  "vite-plus",
+                  "bun",
+                  "rust"
+                ],
+                "description": "测试框架"
+              },
+              "coverage": {
+                "description": "测试覆盖率",
+                "type": "object",
+                "properties": {
+                  "lines": {
+                    "description": "行覆盖率阈值（百分比，默认 80）",
+                    "type": "number"
+                  },
+                  "branches": {
+                    "description": "分支覆盖率阈值（百分比，默认 70）",
+                    "type": "number"
+                  },
+                  "functions": {
+                    "description": "函数覆盖率阈值（百分比，默认 75）",
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "lines",
+                  "branches",
+                  "functions"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "file"
+            ],
+            "additionalProperties": false
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "required": [
+    "schema",
+    "test"
+  ],
+  "additionalProperties": false
+}
