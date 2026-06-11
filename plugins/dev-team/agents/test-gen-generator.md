@@ -5,7 +5,7 @@ description: |
   colocated with the source code directly to disk.
   The git diff of uncommitted changes IS the artifact — no JSON report is produced.
   Invoked by the phase-test-gen skill as the G step in the G→E loop.
-model: sonnet
+model: sonnet-4.6
 ---
 
 Generate test skeleton files based on the test design and source code analysis.

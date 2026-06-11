@@ -1,3 +1,5 @@
+import z from 'zod/v4';
+
 import { getChangeDir } from '../lib/change';
 import {
   readEvalJson,
@@ -11,23 +13,11 @@ import {
   type EvalEntry,
 } from '../lib/eval-json';
 import { getPhaseIndex } from '../lib/workflow';
+import { type phaseLogInputSchema, type phaseLogOutputSchema } from '../schemas';
 
-export interface PhaseLogOptions {
-  change: string;
-  phase: string;
-  verdict: 'pass' | 'fail';
-  report: string;
-  items: { item: string; pass: boolean; evidence: string }[];
-  attempt?: string;
-  backtrackTo?: string | string[] | null;
-  skipped?: boolean;
-}
+type PhaseLogOptions = z.input<typeof phaseLogInputSchema>;
 
-export interface PhaseLogResult {
-  written: boolean;
-  phase: string;
-  attempt: number;
-}
+type PhaseLogResult = z.output<typeof phaseLogOutputSchema>;
 
 /**
  * Core logic for phase-log: validate, handle backtrack stale marking,
@@ -61,10 +51,10 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
 
   // -- Handle backtrack: mark stale targets BEFORE writing new entry --
   let modifiedByBacktrack = false;
-  if (options.backtrackTo != null && options.backtrackTo !== '') {
-    const targets = Array.isArray(options.backtrackTo)
-      ? options.backtrackTo
-      : [options.backtrackTo];
+  if (options.backtrack_to != null && options.backtrack_to !== '') {
+    const targets = Array.isArray(options.backtrack_to)
+      ? options.backtrack_to
+      : [options.backtrack_to];
 
     // Validate each target is a known phase ID
     for (const target of targets) {
@@ -81,8 +71,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     modifiedByBacktrack = true;
   }
 
-  const explicitAttempt = options.attempt ? parseInt(options.attempt, 10) : undefined;
-  const attempt = computeAttempt(entries, options.phase, explicitAttempt);
+  const attempt = computeAttempt(entries, options.phase, options.attempt);
 
   const entry = buildEntry({
     phase: options.phase,
@@ -90,7 +79,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     report: options.report,
     items: options.items,
     attempt,
-    backtrack_to: options.backtrackTo || null,
+    backtrack_to: options.backtrack_to || null,
     skipped: options.skipped === true ? true : undefined,
   });
 

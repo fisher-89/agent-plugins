@@ -46,8 +46,8 @@ export const phaseLogInputSchema = phaseLogSchema
     backtrack_to: true,
     skipped: true,
   })
-  .partial({
-    attempt: true,
+  .extend({
+    change: z.string(),
   });
 
 export const phaseLogOutputSchema = z.object({

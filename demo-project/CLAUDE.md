@@ -1,3 +1,9 @@
+---
+description: 
+globs: /demo
+alwaysApply: false
+---
+
 # Demo Project
 
 This is a demo project for testing the wps-claude-plugin hooks.

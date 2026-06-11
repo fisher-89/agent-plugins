@@ -5,7 +5,7 @@ description: |
   DESIGN planner (P1) — Writes artifacts only. Evaluator handles checking.
   Invoked by the phase-proposal skill as the P step in the P→E loop.
   On evaluator fail, the skill re-invokes with failed items.
-model: opus
+model: opus-4.6
 ---
 
 Write a comprehensive proposal.md and specs/ based on the change description and optional explore context.

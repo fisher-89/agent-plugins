@@ -2,6 +2,10 @@
  * C4 type definitions for archi CLI commands.
  */
 
+import z from 'zod/v4';
+
+import { archiQueryOutputSchema, archiValidateOutputSchema } from '../schemas';
+
 /**
  * Represents a parsed C4 element from DSL.
  */
@@ -34,22 +38,12 @@ export interface C4ParseResult {
 /**
  * Result of dev-team archi query command.
  */
-export interface ArchiQueryResult {
-  element?: C4Element;
-  relationships?: C4Relation[];
-  elements?: C4Element[];
-  error?: string;
-}
+export type ArchiQueryResult = z.output<typeof archiQueryOutputSchema>;
 
 /**
  * Result of dev-team archi validate command.
  */
-export interface ArchiValidateResult {
-  valid: boolean;
-  error?: string;
-  errors?: string[];
-  warnings?: string[];
-}
+export type ArchiValidateResult = z.output<typeof archiValidateOutputSchema>;
 
 /**
  * Result of dev-team archi write command.

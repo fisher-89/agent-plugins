@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
-import z from 'zod/v4';
+import { z, type ZodType } from 'zod/v4';
 
 import pluginConfig from '../../.claude-plugin/plugin.json';
 import { runConfigContext } from './commands/config-context';
@@ -51,11 +51,10 @@ function resolveProjectRoot(cwd?: string | null): string {
   return cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
 }
 
-function jsonContent(data: unknown) {
+function jsonContent<S extends ZodType>(_outputSchema: S, data: z.output<S>) {
   return {
     content: [{ type: 'text' as const, text: JSON.stringify(data) }],
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion -- structuredContent is Record<string, unknown>, data is unknown
-    structuredContent: data as Record<string, unknown>,
+    structuredContent: data,
   };
 }
 
@@ -71,23 +70,12 @@ async function main(): Promise<void> {
       description:
         'Append an evaluation result entry to eval.json for a given workflow phase. ' +
         'Records the verdict (pass/fail), checklist items, and optional backtrack_to for a change.',
-      inputSchema: phaseLogInputSchema.extend({
-        change: z.string(),
-      }),
+      inputSchema: phaseLogInputSchema,
       outputSchema: phaseLogOutputSchema,
     },
     async (args) => {
-      const result = runPhaseLog({
-        change: args.change,
-        phase: args.phase,
-        verdict: args.verdict,
-        report: args.report,
-        items: args.items,
-        attempt: args.attempt != null ? String(args.attempt) : undefined,
-        backtrackTo: args.backtrack_to,
-        skipped: args.skipped,
-      });
-      return jsonContent(result);
+      const result = runPhaseLog(args);
+      return jsonContent(phaseLogOutputSchema, result);
     },
   );
 
@@ -102,11 +90,8 @@ async function main(): Promise<void> {
       outputSchema: phaseCheckOutputSchema,
     },
     async (args) => {
-      const result = runPhaseCheck({
-        change: args.change,
-        phase: args.phase,
-      });
-      return jsonContent(result);
+      const result = runPhaseCheck(args);
+      return jsonContent(phaseCheckOutputSchema, result);
     },
   );
 
@@ -121,7 +106,7 @@ async function main(): Promise<void> {
     async (args) => {
       const projectRoot = resolveProjectRoot(args.project_root);
       const result = await queryModel(projectRoot, args.element);
-      return jsonContent(result);
+      return jsonContent(archiQueryOutputSchema, result);
     },
   );
 
@@ -136,7 +121,7 @@ async function main(): Promise<void> {
     async (args) => {
       const projectRoot = resolveProjectRoot(args.project_root);
       const result = await validateDsl(projectRoot, args.source);
-      return jsonContent(result);
+      return jsonContent(archiValidateOutputSchema, result);
     },
   );
 
@@ -151,7 +136,7 @@ async function main(): Promise<void> {
     async (args) => {
       const projectRoot = resolveProjectRoot(args.project_root);
       const result = await writeDsl(projectRoot, args.source, args.path);
-      return jsonContent(result);
+      return jsonContent(archiWriteOutputSchema, result);
     },
   );
 
@@ -176,7 +161,7 @@ async function main(): Promise<void> {
         staged: !!args.staged,
         files,
       });
-      return jsonContent(result);
+      return jsonContent(archiCheckOutputSchema, result);
     },
   );
 
@@ -195,7 +180,7 @@ async function main(): Promise<void> {
         change: args.change,
         workflow_type: args.workflow_type,
       });
-      return jsonContent(result);
+      return jsonContent(phaseNextOutputSchema, result);
     },
   );
 
@@ -214,7 +199,7 @@ async function main(): Promise<void> {
         key: args.key,
         projectRoot,
       });
-      return jsonContent(result);
+      return jsonContent(configGetOutputSchema, result);
     },
   );
 
@@ -235,7 +220,7 @@ async function main(): Promise<void> {
         value: args.value,
         projectRoot,
       });
-      return jsonContent(result);
+      return jsonContent(configSetOutputSchema, result);
     },
   );
 
@@ -254,7 +239,7 @@ async function main(): Promise<void> {
         key: args.key,
         projectRoot,
       });
-      return jsonContent(result);
+      return jsonContent(configUnsetOutputSchema, result);
     },
   );
 
@@ -274,7 +259,7 @@ async function main(): Promise<void> {
         context: args.context,
         projectRoot,
       });
-      return jsonContent(result);
+      return jsonContent(configContextOutputSchema, result);
     },
   );
 
@@ -295,7 +280,7 @@ async function main(): Promise<void> {
         files: args.files,
         projectRoot,
       });
-      return jsonContent(result);
+      return jsonContent(testDetectFrameworksOutputSchema, result);
     },
   );
 
@@ -313,7 +298,7 @@ async function main(): Promise<void> {
       const result = runTestGetFrameworkConfig({
         framework: args.framework,
       });
-      return jsonContent(result);
+      return jsonContent(testGetFrameworkConfigOutputSchema, result);
     },
   );
 

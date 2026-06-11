@@ -12,5 +12,5 @@ export const archiValidateOutputSchema = z.object({
   valid: z.boolean().describe('Whether the DSL is valid'),
   error: z.string().optional().describe('Top-level error message'),
   errors: z.array(z.string()).optional().describe('List of validation errors'),
-  warnings: z.array(z.unknown()).describe('List of validation warnings'),
+  warnings: z.array(z.unknown()).optional().describe('List of validation warnings'),
 });

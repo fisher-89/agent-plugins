@@ -9,27 +9,16 @@
 
 import * as fs from 'fs';
 
+import { z } from 'zod/v4';
+
 import { getChangeDir } from '../lib/change';
 import { readEvalJson, checkGate, type GateResult, type EvalEntry } from '../lib/eval-json';
 import { getPriorPhases, getPhaseIndex, PHASES } from '../lib/workflow';
+import { phaseCheckInputSchema, phaseCheckOutputSchema } from '../schemas';
 
-export const SCHEMA_VERSION = '1.0';
+type PhaseCheckOptions = z.input<typeof phaseCheckInputSchema>;
 
-export interface PhaseCheckOptions {
-  change: string;
-  phase: string;
-}
-
-export interface PhaseCheckResult {
-  passed: boolean;
-  phase: string;
-  prior_phases: string[];
-  block_reasons: string[];
-  phase_state: 'first_run' | 'retry' | 'passed';
-  details: {
-    prior_phase_gate: { passed: boolean; missing: string[] };
-  };
-}
+type PhaseCheckResult = z.output<typeof phaseCheckOutputSchema>;
 
 export type PhaseState = 'first_run' | 'retry' | 'passed';
 

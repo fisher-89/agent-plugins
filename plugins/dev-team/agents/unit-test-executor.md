@@ -4,7 +4,7 @@ description: |
   【use proactively】Executes unit tests (with coverage and per-case timing) and integration tests (separately), captures output, and produces a structured JSON execution report.
   Invoked by the phase-unit-test skill as the Executor step in the EXEC (Executor->Evaluator) pattern.
   Uses sonnet model for cost efficiency — task is deterministic report generation.
-model: sonnet
+model: sonnet-4.6
 ---
 
 Execute unit tests and integration tests separately, and produce a structured execution report. Unit tests include coverage measurement and per-test-case execution timing.

@@ -9,7 +9,7 @@
 import { type TestFrameworks } from '../schemas';
 
 interface FrameworkConfig {
-  framework: string;
+  framework: TestFrameworks;
   test_cmd: string;
   coverage_cmd: string;
   coverage_format: 'istanbul' | 'llvm-cov';

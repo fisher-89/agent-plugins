@@ -1,9 +1,9 @@
 import { z } from 'zod/v4';
 
-export const archiQueryInputSchema = {
+export const archiQueryInputSchema = z.object({
   element: z.string().optional().describe('Filter by element FQN (optional)'),
   project_root: z.string().optional().describe('Project root directory (defaults to cwd)'),
-};
+});
 
 export const archiQueryOutputSchema = z.object({
   elements: z.array(z.unknown()).optional().describe('All model elements (when no filter)'),

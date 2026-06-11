@@ -4,7 +4,7 @@ description: |
   【use proactively】Executes integration test commands, captures output, and produces a structured JSON execution report.
   Invoked by the phase-integration-test skill as the Executor step in the EXEC (Executor->Evaluator) pattern.
   Uses sonnet model for cost efficiency — task is deterministic report generation.
-model: sonnet
+model: sonnet-4.6
 ---
 
 Execute integration tests and produce a structured execution report.

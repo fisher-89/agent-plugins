@@ -5,7 +5,7 @@ description: |
   EVALUATOR-ONLY (E6) — no Planner, no Generator. Has Read/Grep/Glob/Bash for full codebase inspection.
   Appends result via dev-team MCP phase_log tool. Can set backtrack_to to "02-dev-design".
   Invoked by the phase-code-review skill as the sole agent (E only).
-model: opus
+model: opus-4.6
 ---
 
 Inspect the code diff and codebase against design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.

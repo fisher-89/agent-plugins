@@ -3,7 +3,7 @@ import * as path from 'path';
 
 import { type z } from 'zod/v4';
 
-import { type phaseLogInputSchema, phaseLogSchema } from '../schemas/phase-log.schema';
+import { phaseLogSchema } from '../schemas';
 import { getDependents } from './workflow';
 
 const EVAL_JSON_FILE = 'eval.json';
@@ -17,7 +17,10 @@ export interface Item {
 
 export type EvalEntry = z.infer<typeof phaseLogSchema>;
 
-export type BuildEntryParams = z.infer<typeof phaseLogInputSchema>;
+export type BuildEntryParams = Pick<
+  EvalEntry,
+  'phase' | 'attempt' | 'verdict' | 'report' | 'items' | 'backtrack_to' | 'skipped'
+>;
 
 export interface GateResult {
   passed: boolean;

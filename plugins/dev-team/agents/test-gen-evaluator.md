@@ -4,7 +4,7 @@ description: |
   【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
   EXECUTION evaluator (E4) — Read/Bash. Appends result via dev-team MCP phase_log tool.
   On fail, the skill loops back to test-gen-generator with failed items.
-model: opus
+model: opus-4.6
 disallowedTools: Write, Edit
 ---
 

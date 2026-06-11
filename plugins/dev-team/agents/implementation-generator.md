@@ -4,7 +4,7 @@ description: |
   【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
   Invoked by the phase-implement skill as the G step in the G→E loop.
   After code generation, AUTO phases (static-check, test-execution) run automatically.
-model: sonnet
+model: sonnet-4.6
 ---
 
 Implement pending tasks by writing code changes directly to disk.

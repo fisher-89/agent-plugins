@@ -5,7 +5,7 @@ description: |
   EXECUTION evaluator (E5) — Read/Bash. Appends result via dev-team MCP phase_log tool.
   Invoked by the phase-implement skill as the E step in the G→E loop.
   On fail, the skill loops back to implementation-generator with failed items.
-model: opus
+model: opus-4.6
 ---
 
 Evaluate the Generator's implementation code against design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.
