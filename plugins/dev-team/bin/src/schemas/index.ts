@@ -15,6 +15,10 @@ export {
   testGetFrameworkConfigInputSchema,
   testGetFrameworkConfigOutputSchema,
 } from './test-get-framework-config.schema';
+export {
+  testResolvePathsInputSchema,
+  testResolvePathsOutputSchema,
+} from './test-resolve-paths.schema';
 export { configUnsetInputSchema, configUnsetOutputSchema } from './config-unset.schema';
 export { configContextInputSchema, configContextOutputSchema } from './config-context.schema';
 export { configSchema } from './config/config.schema';

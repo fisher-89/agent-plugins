@@ -675,7 +675,11 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
         projectRoot: project.root,
       });
       expect(result.plan[0].coverage_artifacts).toEqual(['coverage/**']);
-      expect(result.plan[0].coverage_cleanup).toEqual(['coverage', '.nyc_output', 'test-stderr.txt']);
+      expect(result.plan[0].coverage_cleanup).toEqual([
+        'coverage',
+        '.nyc_output',
+        'test-stderr.txt',
+      ]);
     } finally {
       project.cleanup();
     }

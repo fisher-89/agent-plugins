@@ -1,6 +1,6 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
-import { z, type ZodType } from 'zod/v4';
+import { type z, type ZodType } from 'zod/v4';
 
 import pluginConfig from '../../.claude-plugin/plugin.json';
 import { runConfigContext } from './commands/config-context';
@@ -12,6 +12,7 @@ import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
 import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
 import { runTestGetFrameworkConfig } from './commands/test-get-framework-config';
+import { runTestResolvePaths } from './commands/test-resolve-paths';
 import { queryModel } from './lib/archi-query';
 import { validateDsl } from './lib/archi-validate';
 import { writeDsl } from './lib/archi-write';
@@ -43,6 +44,8 @@ import {
   testDetectFrameworksOutputSchema,
   testGetFrameworkConfigInputSchema,
   testGetFrameworkConfigOutputSchema,
+  testResolvePathsInputSchema,
+  testResolvePathsOutputSchema,
 } from './schemas';
 
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
@@ -299,6 +302,23 @@ async function main(): Promise<void> {
         framework: args.framework,
       });
       return jsonContent(testGetFrameworkConfigOutputSchema, result);
+    },
+  );
+
+  server.registerTool(
+    'test_resolve_paths',
+    {
+      description:
+        'Derive unit and integration test file paths from a module list ' +
+        '(files or directories). Returns colocated unit test paths per source ' +
+        'file and __tests__/<scenario>/ integration test paths.',
+      inputSchema: testResolvePathsInputSchema,
+      outputSchema: testResolvePathsOutputSchema,
+    },
+    async (args) => {
+      const projectRoot = resolveProjectRoot(args.project_root);
+      const result = runTestResolvePaths({ ...args, project_root: projectRoot });
+      return jsonContent(testResolvePathsOutputSchema, result);
     },
   );
 

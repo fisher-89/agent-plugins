@@ -1,0 +1,40 @@
+{
+  "phase": "08-integration-test",
+  "command": "python -m pytest openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py -v 2>&1; npm run test (plugins/dev-team/bin); npm run build (plugins/dev-team/bin)",
+  "timestamp": "2026-06-11T06:57:10.000Z",
+  "total": 12,
+  "passed": 12,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 20100,
+  "failures": [],
+  "build_verification": {
+    "command": "npm run build (plugins/dev-team/bin)",
+    "status": "passed",
+    "design_ref": "AC-13"
+  },
+  "suites": [
+    {
+      "name": "TestAgentPlannerResolvePaths + TestMcpToolRegistration",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "framework": "pytest",
+      "total": 10,
+      "passed": 10,
+      "failed": 0,
+      "duration_ms": 40,
+      "design_refs": ["AC-11", "AC-12"]
+    },
+    {
+      "name": "runTestResolvePaths -- 端到端编排",
+      "file": "plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "framework": "vitest",
+      "total": 2,
+      "passed": 2,
+      "failed": 0,
+      "duration_ms": 9620,
+      "design_refs": ["AC-1", "AC-2", "AC-3", "AC-4", "AC-5", "AC-6", "AC-7", "AC-8", "AC-9"]
+    }
+  ],
+  "findings": "All integration tests passed on first run. No fixes required. Python static checks (AC-11, AC-12) and Vitest runTestResolvePaths E2E orchestration (AC-1~AC-9) verified. Build (AC-13) completed without errors."
+}

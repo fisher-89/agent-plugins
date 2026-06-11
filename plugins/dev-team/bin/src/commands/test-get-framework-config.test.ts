@@ -34,6 +34,7 @@ interface FrameworkConfig {
   coverage_output: string;
   coverage_artifacts: string[];
   coverage_cleanup: string[];
+  default_glob: string;
 }
 
 const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
@@ -45,6 +46,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
     coverage_cleanup: ['coverage', '.nyc_output'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   vitest: {
     framework: 'vitest',
@@ -53,7 +55,8 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
-    coverage_cleanup: ['coverage', '.nyc_output'],
+    coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   'vite-plus': {
     framework: 'vite-plus',
@@ -62,7 +65,8 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
-    coverage_cleanup: ['coverage', '.nyc_output'],
+    coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   bun: {
     framework: 'bun',
@@ -72,6 +76,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**'],
     coverage_cleanup: ['coverage'],
+    default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
   },
   rust: {
     framework: 'rust',
@@ -81,6 +86,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/**', 'target/llvm-cov/**'],
     coverage_cleanup: ['coverage', 'target/llvm-cov'],
+    default_glob: '**/tests/**/*.rs',
   },
 };
 
@@ -153,9 +159,8 @@ describe('getFrameworkConfig -- coverage tool availability (AC-11)', () => {
 // ===========================================================================
 
 describe('getFrameworkConfig -- edge cases', () => {
-  it('should handle framework name with leading/trailing whitespace', () => {
-    const result = runTestGetFrameworkConfig({ framework: '  vitest  ' });
-    expect(result.framework).toBe('vitest');
+  it('should reject framework name with leading/trailing whitespace', () => {
+    expect(() => runTestGetFrameworkConfig({ framework: '  vitest  ' })).toThrow();
   });
 
   it('should be case-sensitive and reject uppercase "Vitest"', () => {
@@ -177,10 +182,10 @@ describe('getFrameworkConfig -- edge cases', () => {
 // ===========================================================================
 
 describe('getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2)', () => {
-  it('vitest 框架应返回 coverage_artifacts: ["coverage/**"] 和 coverage_cleanup: ["coverage", ".nyc_output"]', () => {
+  it('vitest 框架应返回 coverage_artifacts: ["coverage/**"] 和 coverage_cleanup: ["coverage", ".nyc_output", "test-stderr.txt"]', () => {
     const result = runTestGetFrameworkConfig({ framework: 'vitest' });
     expect(result.coverage_artifacts).toEqual(['coverage/**']);
-    expect(result.coverage_cleanup).toEqual(['coverage', '.nyc_output']);
+    expect(result.coverage_cleanup).toEqual(['coverage', '.nyc_output', 'test-stderr.txt']);
   });
 
   it('rust 框架应返回 coverage_artifacts 包含 coverage/** 和 target/llvm-cov/**', () => {
@@ -208,7 +213,7 @@ describe('getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (
   it('vite-plus 框架应返回 coverage_artifacts 和 coverage_cleanup 字段', () => {
     const result = runTestGetFrameworkConfig({ framework: 'vite-plus' });
     expect(result.coverage_artifacts).toEqual(['coverage/**']);
-    expect(result.coverage_cleanup).toEqual(['coverage', '.nyc_output']);
+    expect(result.coverage_cleanup).toEqual(['coverage', '.nyc_output', 'test-stderr.txt']);
   });
 
   it('bun 框架应返回 coverage_cleanup 不含 .nyc_output（仅 coverage）', () => {
@@ -241,13 +246,14 @@ describe('getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3)', () =
     }
   });
 
-  it('返回对象应包含全部 7 个字段（原有 5 字段 + 新增 2 字段）', () => {
+  it('返回对象应包含全部 8 个字段（原有 5 字段 + coverage_artifacts + coverage_cleanup + default_glob）', () => {
     for (const fw of ALL_FRAMEWORKS) {
       const result = runTestGetFrameworkConfig({ framework: fw });
       const keys = Object.keys(result);
       expect(keys).toContain('coverage_artifacts');
       expect(keys).toContain('coverage_cleanup');
-      expect(keys.length).toBe(7);
+      expect(keys).toContain('default_glob');
+      expect(keys.length).toBe(8);
     }
   });
 

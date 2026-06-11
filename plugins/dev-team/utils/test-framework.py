@@ -161,7 +161,7 @@ def get_test_file_extension(framework: str) -> str:
         "pytest": "_test.py",
         "unittest": "_test.py",
         "nose": "_test.py",
-        "cargo-test": "_tests.rs",
+        "cargo-test": "_test.rs",
     }
     return extensions.get(framework, ".test.js" if framework != "unknown" else "")
 

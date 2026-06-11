@@ -1,0 +1,3012 @@
+{
+  "phase": "06-unit-test",
+  "command": "npm run test (plugins/dev-team/bin)",
+  "timestamp": "2026-06-11T06:53:10.208826Z",
+  "total": 484,
+  "passed": 484,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": -1781160705.84,
+  "coverage": {
+    "lines": 82.49,
+    "branches": 74.11,
+    "functions": 85.91
+  },
+  "coverage_thresholds": {
+    "lines": 80,
+    "branches": 70,
+    "functions": 75
+  },
+  "coverage_overrides": [],
+  "coverage_pass": true,
+  "coverage_by_framework": [
+    {
+      "framework": "vite-plus",
+      "coverage": {
+        "lines": 82.49,
+        "branches": 74.11,
+        "functions": 85.91
+      },
+      "html_report": null
+    }
+  ],
+  "html_reports": [],
+  "test_cases": [
+    {
+      "name": "PHASE_TABLES > should have exactly 9 phases for requirement workflow_type",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 1.0643999999999778,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should start with 01-proposal (not 01-requirements)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.14400000000000546,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should include all 9 phases in order",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.47709999999983665,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should have 6 phases for bug-fix workflow_type",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.7944999999999709,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should have same 9 phases for refactor workflow_type",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.30120000000010805,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should default to requirement table for unknown workflow_type",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.2233000000001084,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return DESIGN for 01-proposal",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.25499999999988177,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return DESIGN for 02-dev-design and 03-test-design",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.171100000000024,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EXEC for 04-test-gen and 05-implement",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.17589999999995598,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EXEC for 06-unit-test and 08-integration-test",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.2155999999999949,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EVAL-ONLY for 07-code-review and 09-acceptance",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.12619999999992615,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return null for unknown phase",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.12570000000005166,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return DESIGN for 01-proposal with planner + evaluator",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.2600999999999658,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EVAL-ONLY for 07-code-review with planner null",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.17069999999989705,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should return 01-proposal as next_phase when entries is empty",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.42859999999996035,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should return proposal-planner as planner agent_type",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.12110000000006949,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should return proposal-evaluator as evaluator agent_type",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.1331000000000131,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should set round to 1 on first call",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.08490000000006148,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should set phase_index to 1 and total_phases to 9",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.11300000000005639,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should include change name in planner prompt",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.0989999999999327,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 02-dev-design after 01-proposal passes",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 2.580600000000004,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 03-test-design after phases 01-02 pass",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.2720999999999094,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 05-implement after phases 01-04 pass",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.1995999999999185,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 07-code-review with planner: null (EVAL-ONLY)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.20690000000013242,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 09-acceptance with planner: null (EVAL-ONLY)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.15020000000004075,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return done=true when all 9 phases pass",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.22460000000000946,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should skip to 04-test-gen when phases 01-03 already pass",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.1147000000000844,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should skip to 06-unit-test when phases 01-05 already pass",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.09930000000008476,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should return done=true when all phases have pass records",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.13269999999988613,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return same phase for first retry after fail",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.19180000000005748,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return same phase on 4th consecutive fail (attempt 5)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.17090000000007421,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return max_retries_exceeded error on 5th consecutive fail",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.20659999999998035,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return error message in Chinese for max retries",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.12440000000015061,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should reset retry count after a pass (then fail, then pass, then fail)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.12379999999984648,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should return target phase on backtrack without clearing entries",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.6626999999998588,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should re-execute planner + evaluator after backtrack to 01-proposal",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.15760000000000218,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should handle backtrack from a later phase to mid-chain",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.12329999999997199,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should handle backtrack set in latest entry only",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.1327000000001135,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should not modify entries when backtrack is detected (read-only)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.23039999999991778,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should return earliest target for array backtrack_to (AC-16)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.14020000000004984,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should throw invalid_backtrack_target for unknown target",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.15779999999995198,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should skip stale pass entries when determining next phase (AC-11)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.157399999999825,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should return done=true when all phases have non-stale pass (mix of stale and fresh)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.16270000000008622,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should treat missing stale field as stale:false (AC-12 backward compat)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.10659999999984393,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should resume correctly when stale entries are in middle phases",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.11010000000010223,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return 02-dev-design when 03-test-design missing pass but 02 not passed (AC-5)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.08469999999988431,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return 05-implement when 02-dev-design is pass but 05 not passed (AC-6)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.10990000000015243,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should skip stale 04 and return 04 when 04 is stale even though later phases pass (AC-7)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.16020000000003165,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should return round_limit_exceeded error when round > 20",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.15270000000009532,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should return Chinese error message for round limit",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.14540000000010878,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should NOT error at exactly round 20 with all pass",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.13869999999997162,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should detect round limit via backtrack cycles",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.22850000000016735,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Mid-Phase Interruption > should re-return the phase when evaluator has not logged (no entries for phase)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.098700000000008,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Mid-Phase Interruption > should return the incomplete phase if evaluator never logged",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.09329999999999927,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skipped Phases > should treat skipped entries as pass",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.18079999999986285,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skipped Phases > should advance past a mix of skipped and passed phases",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.10260000000016589,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should default to requirement when workflow_type is omitted",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.0725999999999658,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should follow bug-fix phase table when workflow_type is bug-fix",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.06560000000013133,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should follow refactor phase table when workflow_type is refactor",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.08479999999985921,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should return 09-acceptance from bug-fix after 07-code-review passes",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.09500000000002728,
+      "status": "passed"
+    },
+    {
+      "name": "resolvePhaseNext — Input Validation > should not throw for empty entries array",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.6648000000000138,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle empty eval.json (first run)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.14000000000010004,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle all phases as first_run (empty entries)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.0988999999999578,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle exactly 20 rounds with all pass (no limit error)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.22239999999987958,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle skipped phases correctly",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.15020000000004075,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle change name with special characters",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.10820000000012442,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should distinguish 01-proposal from 01-requirements entries",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.1146000000001095,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should return done=true after 09-acceptance passes",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.16049999999995634,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return valid JSON when next phase is ready",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.27710000000001855,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return valid JSON when all phases are done",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.18370000000004438,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return valid JSON on error",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.1835000000000946,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return same prompt on retry (skill handles retry context)",
+      "file": "src/commands/phase-next.test.ts",
+      "duration_ms": 0.15480000000002292,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should map each file to its matching framework via default + overrides",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 11.75709999999981,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should use first-match rule when a file matches both default and override globs",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.638699999999972,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should return \"unknown\" for files not matching any glob (reverse AC-4)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.290399999999863,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should return empty detected for empty file list (reverse AC-4)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.932999999999993,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework > should detect framework from default config and match files",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 7.038100000000213,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework > should apply framework default glob for matching",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.673999999999978,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework > should match no files when framework config has no matching files",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.232000000000426,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle files parameter as undefined (auto-scan) gracefully",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 9.565900000000056,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle config with no framework gracefully",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.804299999999785,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle a very large file list without error",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 10.07510000000002,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle files with special characters in paths",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.101000000000113,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle missing config gracefully",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.778399999999692,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应返回无通配符路径自身（AC-2）: \"plugins/dev-team/bin\" → \"plugins/dev-team/bin\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.16719999999986612,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应取 ** 通配符前路径（AC-3）: \"src/**/*.test.ts\" → \"src\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.0704000000000633,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理通配符起始（AC-4）: \"**/*.test.ts\" → \".\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.0488999999997759,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理 {} 通配符（AC-5）: \"{src,lib}/*.test.ts\" → \".\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.043400000000019645,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理 ? 通配符: \"tests/?nit/*.test.ts\" → \"tests\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.06860000000006039,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理多层 *: \"packages/*/src/__tests__/*.test.ts\" → \"packages\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04559999999992215,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应归一化 Windows 反斜杠: \"plugins\\\\dev-team\\\\bin\" → \"plugins/dev-team/bin\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04030000000011569,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 异常测试 > 应对空字符串返回自身: \"\" → \"\"（无通配符，返回自身）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04559999999992215,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 异常测试 > 应对 null/undefined 输入进行防御处理",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.628099999999904,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理超长无通配符 glob（1000 字符）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08230000000003201,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理超长含通配符 glob（500 字符前缀 + \"/*/b\"）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.06309999999984939,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理含空格的路径: \"src/my test file/*.ts\" → \"src/my test file\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.056199999999989814,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理纯通配符: \"*\" → \".\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.051899999999932334,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应以 \"/\" 结尾的通配符: \"src/**\" → \"src\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.05490000000008877,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理仅有点的路径: \".\" → \".\"（无通配符，返回自身）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04100000000016735,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理仅斜杠的路径: \"/\" → \"/\"（无通配符，返回自身）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.03440000000000509,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应合并连续分隔符: \"src//lib/**/*.ts\" → \"src/lib\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.0648999999998523,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) > 应为单框架配置生成正确的 plan 条目",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.641699999999673,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) > 应为多框架多目录配置生成正确的 plan 数组（default first, then overrides）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.833999999999833,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"vitest\" 生成 plan，directory 为 \".\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.085999999999785,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"jest\" 生成 plan，directory 为 \".\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.754099999999653,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"rust\" 生成 plan，directory 为 \".\"，coverage_format 为 \"llvm-cov\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 9.885400000000118,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) > 应在无 framework 配置时返回空 plan",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.270600000000286,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) > 应在无 test 配置时返回空 plan",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.727800000000116,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后 detected 字段结构和内容不变",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.944500000000062,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后 frameworks 字段结构和内容不变",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.870100000000093,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后首匹配规则不变",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.092600000000402,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后无匹配文件仍返回 \"unknown\"",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.764999999999873,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 配置 vitest 框架时，plan 条目包含 coverage_artifacts 和 coverage_cleanup",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.019600000000082,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > vitest plan 条目的 coverage_artifacts 为 [\"coverage/**\"]，coverage_cleanup 为 [\"coverage\", \".nyc_output\", \"test-stderr.txt\"]",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.002100000000155,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 多框架 [vitest, rust] 时每个 plan 条目包含对应 coverage_artifacts 和 coverage_cleanup",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.873399999999947,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > rust plan 条目 coverage_artifacts 包含 coverage/** 和 target/llvm-cov/**",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.233400000000074,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 单框架 \"vitest\" 时 plan 条目也包含 coverage_artifacts 和 coverage_cleanup",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.308800000000247,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 vitest 框架生成包含 npx vitest run --coverage、rm -rf coverage 和 rm -rf .nyc_output 的 bash 脚本 (AC-1)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.21620000000029904,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 vite-plus 框架（directory 为 plugins/dev-team/bin）生成包含 cd plugins/dev-team/bin 和 vp test --coverage 的脚本 (AC-4)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.12269999999989523,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 rust 框架生成包含 cargo llvm-cov --all --coverage、rm -rf coverage 和 rm -rf target/llvm-cov 的脚本 (AC-5)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.10300000000006548,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 bun 框架生成包含 bun test --coverage 和 rm -rf coverage 的脚本",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.0650999999998021,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 jest 框架（coverage_cleanup 为空）生成不含 rm -rf 行的脚本 (AC-6)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.10230000000001382,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 脚本结构测试 > 脚本第一行为 #!/bin/bash (AC-2)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.07470000000012078,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 脚本结构测试 > 脚本第二行为 set -e (AC-2)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.052800000000388536,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 脚本结构测试 > 脚本最后一行等于 coverage_cmd 的值并以换行符结尾",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.06120000000009895,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 为 \".\" 时生成的脚本不含 cd 行 (AC-3)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.11520000000018626,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 为 \"/absolute/path\" 时生成 cd /absolute/path",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.05780000000004293,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 为空字符串时仍生成 cd 行（bash 语法上无效，但函数不验证输入）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04300000000012005,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 含空格时（如 \"my project/tests\"）生成 cd my project/tests",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.061300000000301225,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 为空数组 [] 时不含任何 rm -rf 行 (AC-6)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.053100000000085856,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 为单元素 [\"coverage\"] 时生成单条 rm -rf coverage",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.10849999999982174,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 为三元素 [\"a\", \"b\", \"c\"] 时按序生成三条 rm -rf 行",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.1453999999998814,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 条目含路径分隔符时（如 \"target/llvm-cov\"）正确保留",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.06309999999984939,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > 输入对象为 null 时抛出 TypeError",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08060000000023138,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > directory 为 null 时抛出 TypeError",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08240000000023429,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > coverage_cmd 为 undefined 时抛出 TypeError",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.06260000000020227,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > coverage_cleanup 为 null 时抛出 TypeError",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.05480000000034124,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > coverage_cmd 为空字符串时生成不含有效命令行的脚本（最后一行为空行）",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.0522000000000844,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 特殊字符测试 > coverage_cmd 含 $HOME、反引号、$(subshell) 时原样保留",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.07450000000017099,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 特殊字符测试 > coverage_cmd 为超长字符串（>1000 字符）时正确拼接",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.06759999999985666,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 特殊字符测试 > directory 含 ~ 或 $VAR 时原样保留",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04390000000012151,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > vitest 框架配置时 plan 条目包含非空 script 字段 (AC-7)",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.832799999999679,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > 多框架 [vitest, rust] 配置时每个 plan 条目都包含非空 script",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.873700000000099,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > plan 条目 script 内容与 generateScript() 对同输入的输出一致",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.877100000000155,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > vite-plus 框架（directory 非 \".\"）时 script 含 cd 行",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.407400000000052,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > 空 framework 配置时 plan 为空数组",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.150100000000293,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"vitest\" 时 plan 条目 script 字段为非空字符串",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.948199999999815,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"jest\" 时 plan 条目 script 字段为非空字符串",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.95029999999997,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"rust\" 时 plan 条目 script 字段为非空字符串",
+      "file": "src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.539400000000114,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"jest\" framework",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 2.003400000000056,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"vitest\" framework",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.18410000000017135,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"vite-plus\" framework",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.11969999999996617,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"bun\" framework",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.12930000000005748,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"rust\" framework",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.13259999999991123,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct coverage_format for istanbul frameworks",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.2613000000001193,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct coverage_format for llvm-cov (rust)",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.15810000000010405,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return coverage_output path for all frameworks",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.21109999999998763,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework (reverse AC-5) > should throw for unknown framework name \"unknown-framework\"",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.7735000000000127,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework (reverse AC-5) > should throw for empty framework name",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.34629999999992833,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework (reverse AC-5) > should throw for nullish framework name",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.33359999999993306,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage tool availability (AC-11) > should return coverage_cmd for all known frameworks",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.20939999999995962,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should reject framework name with leading/trailing whitespace",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.22829999999999018,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should be case-sensitive and reject uppercase \"Vitest\"",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.1715999999998985,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should handle framework names with special regex characters (e.g. \"jest?\")",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.2017000000000735,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should handle a very long framework name string (>1000 chars)",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.21920000000000073,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > vitest 框架应返回 coverage_artifacts: [\"coverage/**\"] 和 coverage_cleanup: [\"coverage\", \".nyc_output\", \"test-stderr.txt\"]",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.20059999999989486,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > rust 框架应返回 coverage_artifacts 包含 coverage/** 和 target/llvm-cov/**",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 1.1090999999998985,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > rust 框架应返回 coverage_cleanup 包含 coverage 和 target/llvm-cov",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.3664000000001124,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > jest 框架应返回 coverage_artifacts 和 coverage_cleanup 字段",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.20069999999986976,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > vite-plus 框架应返回 coverage_artifacts 和 coverage_cleanup 字段",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.15460000000007312,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > bun 框架应返回 coverage_cleanup 不含 .nyc_output（仅 coverage）",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.1612999999999829,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > 每个框架的 coverage_artifacts 应为非空字符串数组",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.33789999999999054,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > 每个框架的 coverage_cleanup 应为非空字符串数组",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.23889999999983047,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > 返回对象应包含全部 8 个字段（原有 5 字段 + coverage_artifacts + coverage_cleanup + default_glob）",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.7828999999999269,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > coverage_artifacts 中每个元素均为非空字符串",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.3129999999998745,
+      "status": "passed"
+    },
+    {
+      "name": "getSupportedFrameworks > should return all five known frameworks",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.11329999999998108,
+      "status": "passed"
+    },
+    {
+      "name": "getDefaultGlobForFramework > should return the correct default glob for JS/TS frameworks",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.11140000000000327,
+      "status": "passed"
+    },
+    {
+      "name": "getDefaultGlobForFramework > should return the correct default glob for rust",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.050700000000006185,
+      "status": "passed"
+    },
+    {
+      "name": "getDefaultGlobForFramework > should throw for unknown framework",
+      "file": "src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.1512000000000171,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/config.ts 推导为 src/config.test.ts (AC-1)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 1.759999999999991,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/component/Button.tsx 推导为 src/component/Button.test.tsx (AC-2)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2743000000000393,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/auth.py 推导为 src/test_auth.py (AC-3)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.18629999999984648,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/handler.go 推导为 src/handler_test.go (AC-4)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.16259999999988395,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/lib.rs 推导为 src/lib_test.rs (AC-5)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1715999999998985,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .js 生成 <name>.test.js 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.16010000000005675,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .jsx 生成 <name>.test.jsx 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.14370000000008076,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .mjs 生成 <name>.test.mjs 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.13840000000004693,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .cjs 生成 <name>.test.cjs 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1607000000001335,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 边界 > 相同输入多次调用应产生相同输出（不依赖 fs）",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2886000000000877,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 边界 > 源路径含空格时 basename 应正确保留",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.13889999999992142,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 边界 > 源路径含 Unicode 字符时 basename 应正确保留",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.09159999999997126,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- 纯函数 > scenario=\"api-flow\", ext=\"ts\" 应生成 __tests__/api-flow/api-flow.test.ts (AC-7)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1191999999998643,
+      "status": "passed"
+    },
+    {
+      "name": "normalizeExtension -- 正向 > 应将 \".ts\" 规范为 \"ts\"",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.09610000000020591,
+      "status": "passed"
+    },
+    {
+      "name": "normalizeExtension -- 正向 > 应将 \"TS\" 规范为小写 \"ts\"",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.06960000000003674,
+      "status": "passed"
+    },
+    {
+      "name": "normalizeExtension -- 边界 > 空字符串 \"\" 应回退默认或按实现约定处理",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.10300000000006548,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 正向 > 源文件均为 .py 时应推断 py (AC-8)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2037000000000262,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 正向 > 显式 extension 应优先于众数推断",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.08639999999991232,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 边界 > 无有效源文件时应默认 ts",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.0724999999999909,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 边界 > 混合扩展名时应取众数（2×.ts + 1×.py → ts）",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.09609999999997854,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 foo.test.ts 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2236000000000331,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 test_auth.py 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.18450000000007094,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 handler_test.go 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.17020000000002256,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 lib_test.rs 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1511000000000422,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 异常 > README.md 应识别为非源文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.151299999999992,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 异常 > config.json 应识别为非源文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.09719999999992979,
+      "status": "passed"
+    },
+    {
+      "name": "isWithinProjectRoot -- 异常 > ../../../outside.ts 解析后越出 project_root 应返回 false",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.20080000000007203,
+      "status": "passed"
+    },
+    {
+      "name": "toPosixRelativePath -- 边界 > 应将 Windows 反斜杠路径规范为 POSIX / 分隔符",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.18830000000002656,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 目录展开 > 目录 src/commands/ 含 foo.ts 与 bar.ts 应返回两条 unit_tests (AC-6)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 25.2337,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 目录展开 > unit_tests 应按 source 字典序排序且去重",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 12.803900000000112,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 目录展开 > src/node_modules/pkg/index.ts 应被跳过",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 12.050300000000107,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 目录展开 > 应跳过 .git、dist、build、coverage、.nyc_output、target 目录",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 23.22810000000004,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 目录展开 > 已有测试文件 foo.test.ts 不应被当作源文件展开",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 8.949100000000044,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 目录展开 > 应跳过 .md、.json、.yaml、.yml、.txt、.lock 文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 17.354299999999967,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > integration_scenarios: [\"api-flow\"] + extension: \"ts\" (AC-7)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 6.846000000000004,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > modules: [\"src/auth.py\"] + integration_scenarios: [\"db-roundtrip\"] 无 extension (AC-8)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 6.5417999999999665,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > 无有效源文件时集成测试应默认 .test.ts 扩展名",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 7.824700000000121,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > 多个 integration_scenarios 应按 scenario 字典序排序",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 7.1107999999999265,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > integration_scenarios 未传或为空数组时 integration_tests 应为空",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 8.737300000000005,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > src/missing.ts 不存在 + src/config.ts 存在：errors 含缺失项，unit_tests 仍含有效条目 (AC-9)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 7.315900000000056,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > README.md 应写入 errors，unit_tests 应为空",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 6.4336000000000695,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > 传入已是测试文件的路径应写入 errors",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 6.7025000000001,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > 路径穿越 ../../../outside.ts 应写入 errors",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 1.9412999999999556,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > errors 应按 path 字典序排序",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 2.069099999999935,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > 单条失败不应中断其余 modules 条目的处理",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 7.014900000000125,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- modules 边界 > modules 含单元素文件路径时应返回单条 unit_tests",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 6.483200000000124,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- modules 边界 > modules 含大量文件路径（100+ 条）时不应抛错且全部解析",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 298.5204000000001,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- modules 边界 > modules 混合文件与目录路径时应合并展开结果",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 8.325600000000122,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 端到端编排 > 传入 modules、integration_scenarios、extension 应返回与 resolveTestPaths 一致的结构",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 10.511099999999715,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 端到端编排 > project_root 指向绝对路径且源文件存在时相对路径解析应正确",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 5.48510000000033,
+      "status": "passed"
+    },
+    {
+      "name": "queryModel > should return elements and relationships when model files exist",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 341.9480999999996,
+      "status": "passed"
+    },
+    {
+      "name": "queryModel > should filter by element FQN when --element is provided",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 285.5491999999995,
+      "status": "passed"
+    },
+    {
+      "name": "queryModel > should return error for unknown element FQN",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 220.2399000000005,
+      "status": "passed"
+    },
+    {
+      "name": "queryModel > should return error when no model files exist",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 1.6671999999998661,
+      "status": "passed"
+    },
+    {
+      "name": "validateDsl > should validate correct DSL from model files",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 375.16269999999986,
+      "status": "passed"
+    },
+    {
+      "name": "validateDsl > should validate DSL text passed via --source",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 315.76600000000053,
+      "status": "passed"
+    },
+    {
+      "name": "validateDsl > should detect errors in invalid DSL text (unmatched braces)",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 325.7367999999997,
+      "status": "passed"
+    },
+    {
+      "name": "validateDsl > should return error when no model files exist",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 1.5531000000000859,
+      "status": "passed"
+    },
+    {
+      "name": "writeDsl > should validate and write DSL to model file",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 340.9236000000001,
+      "status": "passed"
+    },
+    {
+      "name": "writeDsl > should reject invalid DSL (unmatched braces) and not write file",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 300.4450000000006,
+      "status": "passed"
+    },
+    {
+      "name": "writeDsl > should reject path traversal outside models/ directory",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 0.25970000000052096,
+      "status": "passed"
+    },
+    {
+      "name": "writeDsl > should reject absolute path outside models/ directory",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 0.26969999999982974,
+      "status": "passed"
+    },
+    {
+      "name": "runCrossRefCheck > should return no_changes status when no files are provided",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 148.6324999999997,
+      "status": "passed"
+    },
+    {
+      "name": "runCrossRefCheck > should detect dependencies and match files to elements",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 157.93539999999848,
+      "status": "passed"
+    },
+    {
+      "name": "runCrossRefCheck > should return violations_found for unmodeled dependencies",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 155.58629999999903,
+      "status": "passed"
+    },
+    {
+      "name": "runCrossRefCheck > should handle Python import files correctly",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 161.20769999999902,
+      "status": "passed"
+    },
+    {
+      "name": "getModelFiles > should list model .c4 files in order",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 0.7863999999990483,
+      "status": "passed"
+    },
+    {
+      "name": "getModelFiles > should return empty array when models/ does not exist",
+      "file": "src/lib/archi-commands.test.ts",
+      "duration_ms": 1.7254999999986467,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Query pipeline > should parse model files and query all elements with relationships",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 709.3022999999994,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Query pipeline > parse-to-query: element FQN filter should match parsed element",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 414.65049999999974,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Query pipeline > getModelFiles should return files that readAllModels can parse",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 2.477899999999863,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Validate pipeline > should validate parsed DSL as structurally sound",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 517.8966,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Validate pipeline > validateDsl should use findSpecificationBlock to prepend spec for source-only DSL",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 317.66949999999997,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Validate pipeline > validateDsl should fail when model files contain duplicate specs",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 333.83389999999963,
+      "status": "passed"
+    },
+    {
+      "name": "Validate → Write pipeline > should validate DSL then write to models/ directory",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 633.1267000000007,
+      "status": "passed"
+    },
+    {
+      "name": "Validate → Write pipeline > should reject write when validation fails (validate-before-write contract)",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 625.7796000000017,
+      "status": "passed"
+    },
+    {
+      "name": "Validate → Write pipeline > should enforce path containment: writeDsl rejects paths outside models/",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 309.924500000001,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Cross-Reference pipeline > should match changed files to model elements via metadata.path",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 178.22530000000006,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Cross-Reference pipeline > should detect unmodeled dependency when import has no relationship",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 171.35629999999946,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Cross-Reference pipeline > should warn about unmapped import targets not in any model element",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 165.51940000000104,
+      "status": "passed"
+    },
+    {
+      "name": "Parse → Cross-Reference pipeline > should return no_changes when file list is empty",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 158.7464999999993,
+      "status": "passed"
+    },
+    {
+      "name": "Full pipeline: parse → validate → query → write → check > should complete the full lifecycle for a new module",
+      "file": "src/lib/archi-integration.test.ts",
+      "duration_ms": 1126.6032000000014,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl > should parse a simple model with specification block",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 325.90260000000035,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl > should return empty elements for empty DSL",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 0.9963999999999942,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl > should parse extend relationships correctly",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 218.01339999999982,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl > should extract path_to_element mappings",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 256.53750000000036,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl > should parse metadata with array values",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 200.60879999999997,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl > should handle elements with no metadata",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 179.45280000000002,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl > should handle comments",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 179.08320000000003,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl > should validate a correct DSL",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 336.84429999999975,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl > should detect missing specification block",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 319.6957000000002,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl > should detect missing model content",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 343.1426999999994,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl > should detect duplicate specification blocks across multiple files",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 326.4305999999997,
+      "status": "passed"
+    },
+    {
+      "name": "getModelFiles > should list .c4 files in alphabetical order",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 11.670900000000074,
+      "status": "passed"
+    },
+    {
+      "name": "getModelFiles > should return empty array when models/ directory does not exist",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 1.420600000000377,
+      "status": "passed"
+    },
+    {
+      "name": "readAllModels > should concatenate content from all model files",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 13.23620000000028,
+      "status": "passed"
+    },
+    {
+      "name": "readAllModels > should return null when no model files exist",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 1.4391000000005079,
+      "status": "passed"
+    },
+    {
+      "name": "findSpecificationBlock > should find and return the specification block",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 10.73359999999957,
+      "status": "passed"
+    },
+    {
+      "name": "findSpecificationBlock > should return null when no specification block exists",
+      "file": "src/lib/c4-parser.test.ts",
+      "duration_ms": 10.726300000000265,
+      "status": "passed"
+    },
+    {
+      "name": "computeWeightedAverage -- weighted average (AC-7) > should compute weighted average across multiple frameworks",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 2.33400000000006,
+      "status": "passed"
+    },
+    {
+      "name": "computeWeightedAverage -- weighted average (AC-7) > should handle single framework (weighted average = its coverage)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.3188999999999851,
+      "status": "passed"
+    },
+    {
+      "name": "computeWeightedAverage -- weighted average (AC-7) > should handle frameworks with equal source file counts",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.26350000000002183,
+      "status": "passed"
+    },
+    {
+      "name": "computeWeightedAverage -- weighted average (AC-7) > should ignore frameworks with null coverage in weighted average (boundary)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.23440000000005057,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- ALL pass (AC-8) > should return true when all three dimensions meet thresholds",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.2584999999999127,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- ALL pass (AC-8) > should return true when coverage exactly equals thresholds",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.14240000000006603,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- ALL pass (AC-8) > should return true when coverage significantly exceeds thresholds",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.18029999999998836,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- ALL fail (reverse AC-8) > should return false when branches below threshold",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.8231999999999289,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- ALL fail (reverse AC-8) > should return false when lines below threshold",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.27159999999992124,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- ALL fail (reverse AC-8) > should return false when functions below threshold",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.1935999999999467,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- ALL fail (reverse AC-8) > should report all failing dimensions in the result",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.1976999999999407,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- overrides (AC-9) > should return true when overrides groups all pass",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.22540000000003602,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- overrides (AC-9) > should return false when an overrides group fails (reverse AC-9)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.5670999999999822,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- overrides (AC-9) > should inherit global defaults for missing override threshold dimensions",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.30150000000003274,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- overrides (AC-9) > should pass overrides group when glob matches no files (reverse AC-9)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.17619999999999436,
+      "status": "passed"
+    },
+    {
+      "name": "checkCoveragePass -- all coverage null (reverse AC-7, AC-11) > should return coverage=null and coverage_pass=false when all frameworks return null",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.18709999999998672,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle empty coverage_by_framework array",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.10869999999999891,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle sourceFileCount of 0 gracefully",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.08289999999999509,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle negative coverage values (if input is corrupt)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.07560000000000855,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle coverage values above 100 (passes threshold)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.08130000000005566,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle nullish thresholds gracefully",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.08979999999996835,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle nullish overrides array",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.09389999999996235,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle floating point coverage values in weighted average",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.19299999999998363,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle very large sourceFileCount values",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.16579999999999018,
+      "status": "passed"
+    },
+    {
+      "name": "coverage-calculator -- edge cases > should handle overrides with extremely large number of entries (>100)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.2881999999999607,
+      "status": "passed"
+    },
+    {
+      "name": "buildCoverageOverrides > should build override results from config entries",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.2556999999999334,
+      "status": "passed"
+    },
+    {
+      "name": "buildCoverageOverrides > should return empty array when no overrides",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.10050000000001091,
+      "status": "passed"
+    },
+    {
+      "name": "buildCoverageOverrides > should handle undefined overrides gracefully",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.14829999999994925,
+      "status": "passed"
+    },
+    {
+      "name": "buildCoverageOverrides > should mark pass=true when override has no coverage data (no matching files)",
+      "file": "src/lib/coverage-calculator.test.ts",
+      "duration_ms": 0.12840000000005602,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- istanbul format (AC-6) > should parse valid istanbul coverage-summary.json",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 6.854699999999866,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- istanbul format (AC-6) > should extract lines.pct from total.lines",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 4.940700000000106,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- istanbul format (AC-6) > should extract branches.pct from total.branches",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 3.8963999999998578,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- istanbul format (AC-6) > should extract functions.pct from total.functions",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 5.2379000000000815,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- istanbul format (AC-6) > should handle istanbul with decimal pct values (e.g. 85.3)",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 5.523599999999988,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- llvm-cov format (AC-6) > should parse valid llvm-cov JSON output",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 11.991500000000087,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- llvm-cov format (AC-6) > should navigate data[0].totals for llvm-cov structure",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 6.678200000000061,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- llvm-cov format (AC-6) > should return null when llvm-cov data array is empty (boundary)",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 10.651900000000069,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- error handling (reverse AC-11) > should return null when coverage output file does not exist",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 0.49220000000013897,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- error handling (reverse AC-11) > should return null when coverage output file JSON is malformed",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 10.804000000000087,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- error handling (reverse AC-11) > should return null when coverage output file is empty",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 4.266900000000078,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- error handling (reverse AC-11) > should return null for unsupported coverage format",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 4.937099999999873,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- boundary: missing dimensions > should return null when istanbul total is missing branches field",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 4.773099999999886,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- boundary: missing dimensions > should handle istanbul with pct values as strings",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 11.787199999999984,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- edge cases > should return null for nullish output path",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 0.2378000000001066,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- edge cases > should return null when format is null/undefined",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 5.5452000000000226,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageOutput -- edge cases > should handle istanbul JSON with extra unexpected fields",
+      "file": "src/lib/coverage-parser.test.ts",
+      "duration_ms": 13.747899999999845,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should accept 'pass'",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 2.0007000000000517,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should accept 'fail'",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.35149999999998727,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject invalid verdict",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.2747999999999138,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject empty string",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.23520000000007713,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should accept 'pass' when skipped is true",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.22229999999990468,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject 'fail' when skipped is true",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.266399999999976,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject 'pass' when skipped is false (same behavior as undefined)",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.1958999999999378,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should build a basic entry with required fields",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 3.261399999999867,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should include skipped field when set",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.25310000000013133,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should include all extended fields simultaneously",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.2505999999998494,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should include backtrack_to when set",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.1594000000000051,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should set backtrack_to null when undefined",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.11569999999983338,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should accept backtrack_to as array",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.6957999999999629,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should return passed=true when all prerequisites have non-stale pass",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.2420999999999367,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should return passed=false when prerequisite has stale pass only",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.7334999999998217,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should treat missing stale field as stale:false (backward compat)",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.15689999999995052,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should return passed=false for missing prerequisite",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.23289999999997235,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should mark latest pass entry stale and propagate downstream (AC-8)",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.5079000000000633,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should mark latest of multiple pass entries",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.17229999999995016,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should be no-op when no pass entry exists",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.24270000000001346,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should propagate to full transitive closure (AC-14)",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.3602000000000771,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should not mark same-phase new entry as stale",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.13750000000004547,
+      "status": "passed"
+    },
+    {
+      "name": "propagateStale > should propagate from 01-proposal to all phases",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.2557999999999083,
+      "status": "passed"
+    },
+    {
+      "name": "propagateStale > should not mark source phase itself if not a dependent of itself",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.125,
+      "status": "passed"
+    },
+    {
+      "name": "propagateStale > should propagate from 03-test-design to test track only",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.26860000000010587,
+      "status": "passed"
+    },
+    {
+      "name": "propagateStale > should be no-op for leaf phases",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.09260000000017499,
+      "status": "passed"
+    },
+    {
+      "name": "propagateStale > should handle no downstream entries gracefully",
+      "file": "src/lib/eval-json.test.ts",
+      "duration_ms": 0.2601000000001932,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should have exactly 9 phases",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 1.8827999999999747,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should have correct order",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.7765000000000555,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should include new phases 06-unit-test and 08-integration-test",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.8852000000000544,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should have renamed 05-implementation to 05-implement",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.40199999999992997,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return 0 for first phase",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.20240000000001146,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return correct index for 05-implement",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.16169999999999618,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return correct index for new 06-unit-test",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.18230000000005475,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return correct index for new 08-integration-test",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.13750000000004547,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return -1 for unknown phase",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.14009999999996126,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return -1 for old phase name",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.17889999999999873,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return empty array for first phase",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.17199999999991178,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return 5 prior phases for 06-unit-test",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.11489999999992051,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return all phases except the last for 09-acceptance",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.1331000000000131,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return empty array for unknown phase",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.10490000000004329,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have empty prerequisites for 01-proposal (AC-1)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.1110999999999649,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have 01-proposal as prerequisite for 02-dev-design (AC-1)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.07740000000001146,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have 01-proposal and 02-dev-design as prerequisites for 03-test-design (AC-2)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.1170999999999367,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have 04-test-gen and 05-implement as prerequisites for 07-code-review (AC-3)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.11930000000006658,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [] for 01-proposal in requirement workflow",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.1493000000000393,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"01-proposal\"] for 02-dev-design requirement (AC-1)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.11750000000006366,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"01-proposal\", \"02-dev-design\"] for 03-test-design requirement (AC-2)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.13400000000001455,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"04-test-gen\", \"05-implement\"] for 07-code-review requirement (AC-3)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.07889999999997599,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"02-dev-design\"] for 05-implement bug-fix",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.06580000000008113,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"07-code-review\"] for 09-acceptance bug-fix",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.07549999999991996,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [] for unknown phase (fault-tolerant)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.0665000000000191,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should default to requirement workflow_type",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.0866999999999507,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should match requirement for refactor workflow_type",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.09160000000008495,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [02-dev-design, 03-test-design, 09-acceptance] for 01-proposal (AC-4)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.18250000000000455,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [03-test-design, 05-implement, 09-acceptance] for 02-dev-design (AC-4)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.10059999999998581,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [04-test-gen] for 03-test-design",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.12369999999998527,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [06, 07, 08] for 04-test-gen",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.09020000000009532,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [06, 07, 08, 09] for 05-implement",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.08379999999999654,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [] for leaf phases (06, 07, 08, 09)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.15760000000000218,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [] for unknown phase (fault-tolerant)",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.08969999999999345,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should default to requirement workflow_type",
+      "file": "src/lib/workflow.test.ts",
+      "duration_ms": 0.09130000000004657,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证包含完整 plan 数组的输出对象通过 schema 验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 2.875500000000102,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证包含多个 plan 条目的数组通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.34050000000002,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证空 plan 数组 [] 通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.5989000000001852,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证包含多余未知字段的 plan 条目通过 passthrough 验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.2057999999999538,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目缺少 directory 字段时拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.6665000000000418,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目缺少 framework 字段时拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.32310000000006767,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目缺少 coverage_cmd 字段时拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.2321999999999207,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目的 directory 为 null 时拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.21199999999998909,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 coverage_format 为非法枚举值（非 istanbul/llvm-cov）时拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.31219999999984793,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 为非数组类型（如字符串）时拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.4057000000000244,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 边界测试 > 应区分 coverage_format 大小写：istanbul 通过，Istanbul 拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.27660000000014406,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 边界测试 > 应验证完整输出对象（detected + frameworks + plan）通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.12000000000011823,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 边界测试 > 应在 plan 条目 directory 为空字符串时通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.08960000000001855,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > 包含 coverage_artifacts 和 coverage_cleanup 的 plan 条目通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.11869999999998981,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > 新字段值为非空字符串数组时通过 schema 验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.6839999999999691,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > coverage_artifacts 和 coverage_cleanup 均为空数组时通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.16439999999988686,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > 多个 plan 条目各自包含新的字段时通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.1653999999998632,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > plan 条目中无 coverage_artifacts 和 coverage_cleanup 时 schema 验证通过",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.14269999999987704,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > plan 条目包含新旧全部字段通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.13020000000005894,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > 完整输出（detected + frameworks + plan 含新字段）通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.1515999999999167,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > plan 条目含多余未知字段 + 新字段仍通过 passthrough 验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.1392000000000735,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_artifacts 为 null 时 schema 拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.2597000000000662,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_cleanup 为字符串（非数组）时 schema 拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.29110000000014224,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_artifacts 含数字元素时 schema 拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.18679999999994834,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_cleanup 含 null 元素时 schema 拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.17460000000005493,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 正向测试 (AC-7) > plan 条目包含 script 字符串字段时通过 schema 验证 (AC-7)",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.17480000000000473,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 正向测试 (AC-7) > script 为多行 bash 脚本（含 \\n）时通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.09730000000013206,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 正向测试 (AC-7) > 多个 plan 条目各自包含 script 字段时通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.11039999999979955,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目缺少 script 字段时 schema 拒绝 (AC-8)",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.2379000000000815,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目 script 为 null 时 schema 拒绝 (AC-8)",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.16800000000012005,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目 script 为数字时 schema 拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.15859999999997854,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目 script 为数组时 schema 拒绝",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.16229999999995925,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 边界测试 > script 为空字符串 \"\" 时通过 schema 验证（string 类型允许空值）",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.10419999999999163,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 边界测试 > script 为超长字符串（10000 字符）时通过验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.11400000000003274,
+      "status": "passed"
+    },
+    {
+      "name": "testDetectFrameworksOutputSchema -- plan script 边界测试 > plan 条目含多余未知字段 + script 时通过 passthrough 验证",
+      "file": "src/schemas/test-detect-frameworks.schema.test.ts",
+      "duration_ms": 0.11370000000010805,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 向后兼容 (AC-5) > 输出对象无 coverage_artifacts 和 coverage_cleanup 时 schema 验证通过",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 2.197200000000066,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 向后兼容 (AC-5) > 输出对象包含 coverage_artifacts 和 coverage_cleanup 时通过验证",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.698099999999954,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 向后兼容 (AC-5) > 新字段显式设置为 undefined 时 schema 验证通过",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.24900000000002365,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 向后兼容 (AC-5) > 新字段仅为可选，不应破坏原有必填字段的校验",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.7516000000000531,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段边界测试 > coverage_artifacts 为空数组时通过验证",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.21669999999994616,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段边界测试 > coverage_cleanup 为单元素数组时通过验证",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.19780000000002929,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段边界测试 > coverage_artifacts 含超长字符串元素（2000 字符）时通过验证",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.16370000000006257,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段异常测试 > coverage_artifacts 为 null 时 schema 拒绝",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.22249999999996817,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段异常测试 > coverage_artifacts 为字符串（非数组）时 schema 拒绝",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.155399999999986,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段异常测试 > coverage_cleanup 含 null 元素时 schema 拒绝",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.25709999999992306,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段异常测试 > coverage_artifacts 含数字元素时 schema 拒绝",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.15270000000009532,
+      "status": "passed"
+    },
+    {
+      "name": "testGetFrameworkConfigOutputSchema -- 新字段异常测试 > coverage_cleanup 为对象时 schema 拒绝",
+      "file": "src/schemas/test-get-framework-config.schema.test.ts",
+      "duration_ms": 0.13370000000008986,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > 完整有效输入（含 modules、integration_scenarios、extension、project_root）应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 2.8827,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > 仅 modules 最小必填输入应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.3088999999999942,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > extension 带前导 \".\" 的输入应通过 schema（规范化在 command 层）",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.23829999999998108,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > project_root 为 null 时应通过验证（nullable）",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2198999999999387,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 异常 > modules: [] 应被 input schema 拒绝 (AC-10)",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.8277000000000498,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 异常 > 缺少 modules 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.34369999999989886,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 异常 > modules 为非数组类型时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2798999999999978,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 正向 > 完整输出对象（含 unit_tests、integration_tests、errors）应通过验证 (AC-11)",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 1.0119000000000824,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 正向 > 三个数组均为空 [] 时应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.25660000000004857,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 unit_tests 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.34780000000000655,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 integration_tests 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.26400000000001,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 errors 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2100999999998976,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > unit_tests 条目缺少 source 时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.26340000000004693,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > unit_tests 条目缺少 test_file 时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.19290000000000873,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > errors 条目 message 为 null 时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.20830000000000837,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 边界 > integration_tests 含多条 scenario 条目时应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.8327000000000453,
+      "status": "passed"
+    },
+    {
+      "name": "test.framework enum validation > should accept all valid framework enum values",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 3.819400000000087,
+      "status": "passed"
+    },
+    {
+      "name": "test.framework enum validation > should reject invalid framework name \"mocha\"",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.8596000000000004,
+      "status": "passed"
+    },
+    {
+      "name": "test.framework enum validation > should reject empty string as framework name",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.39210000000002765,
+      "status": "passed"
+    },
+    {
+      "name": "test.framework enum validation > should reject non-string framework value",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.2870999999997821,
+      "status": "passed"
+    },
+    {
+      "name": "test.framework enum validation > should pass when framework is not set",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.24849999999992178,
+      "status": "passed"
+    },
+    {
+      "name": "test.coverage defaults > should fill all coverage dimensions with defaults when coverage not configured",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.6829999999999927,
+      "status": "passed"
+    },
+    {
+      "name": "test.coverage defaults > should fill all dimensions with defaults when coverage is empty object",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.3569999999999709,
+      "status": "passed"
+    },
+    {
+      "name": "test.coverage defaults > should fill missing dimensions with defaults when coverage is partial",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.3287000000000262,
+      "status": "passed"
+    },
+    {
+      "name": "test.coverage defaults > should reject coverage dimensions with non-numeric values",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.4778999999998632,
+      "status": "passed"
+    },
+    {
+      "name": "test.coverage defaults > should accept empty test node and fill coverage defaults",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.28670000000010987,
+      "status": "passed"
+    },
+    {
+      "name": "test.coverage defaults > should fill defaults even when test node is missing entirely",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.23730000000000473,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should accept overrides with framework and coverage",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 1.654299999999921,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should accept override with only file (no framework or coverage)",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.304300000000012,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should accept override with file and partial coverage",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.21829999999999927,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should reject override missing file field",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.3750999999999749,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should reject override with empty file string",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.3128999999998996,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should reject override framework with invalid enum value",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.3084000000001197,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should reject override coverage with non-numeric value",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.23320000000012442,
+      "status": "passed"
+    },
+    {
+      "name": "test.overrides > should accept multiple overrides",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.27359999999998763,
+      "status": "passed"
+    },
+    {
+      "name": "configSchema.parse general behaviour > should pass through known top-level fields",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.21070000000008804,
+      "status": "passed"
+    },
+    {
+      "name": "configSchema.parse general behaviour > should not preserve unknown passthrough fields",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.5992999999998574,
+      "status": "passed"
+    },
+    {
+      "name": "configSchema.parse general behaviour > should throw on invalid data",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.8811000000000604,
+      "status": "passed"
+    },
+    {
+      "name": "configSchema.parse general behaviour > should return success: true from safeParse for valid data",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.17470000000002983,
+      "status": "passed"
+    },
+    {
+      "name": "configSchema.parse general behaviour > should return success: false from safeParse for invalid data",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.2563999999999851,
+      "status": "passed"
+    },
+    {
+      "name": "default value cascade > should fill all nested defaults from empty object",
+      "file": "src/schemas/config/config.schema.test.ts",
+      "duration_ms": 0.19820000000004256,
+      "status": "passed"
+    },
+    {
+      "name": "TestAgentPlannerResolvePaths::test_process_contains_test_resolve_paths_call",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestAgentPlannerResolvePaths::test_process_forbids_manual_path_concatenation",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestAgentPlannerResolvePaths::test_process_maps_errors_to_untestable_section",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestAgentPlannerResolvePaths::test_process_maps_integration_tests_to_test_file_column",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestAgentPlannerResolvePaths::test_process_maps_unit_tests_to_test_file_column",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestMcpToolRegistration::test_mcp_handler_calls_run_test_resolve_paths",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestMcpToolRegistration::test_mcp_imports_input_schema",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestMcpToolRegistration::test_mcp_imports_output_schema",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestMcpToolRegistration::test_mcp_registers_test_resolve_paths_tool",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    },
+    {
+      "name": "TestMcpToolRegistration::test_schema_file_exists",
+      "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+      "duration_ms": 0,
+      "status": "passed"
+    }
+  ],
+  "integration_test": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 40,
+    "test_cases": [
+      {
+        "name": "TestAgentPlannerResolvePaths::test_process_contains_test_resolve_paths_call",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestAgentPlannerResolvePaths::test_process_forbids_manual_path_concatenation",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestAgentPlannerResolvePaths::test_process_maps_errors_to_untestable_section",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestAgentPlannerResolvePaths::test_process_maps_integration_tests_to_test_file_column",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestAgentPlannerResolvePaths::test_process_maps_unit_tests_to_test_file_column",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestMcpToolRegistration::test_mcp_handler_calls_run_test_resolve_paths",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestMcpToolRegistration::test_mcp_imports_input_schema",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestMcpToolRegistration::test_mcp_imports_output_schema",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestMcpToolRegistration::test_mcp_registers_test_resolve_paths_tool",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      },
+      {
+        "name": "TestMcpToolRegistration::test_schema_file_exists",
+        "file": "openspec/changes/add-test-path-resolver-api/tests/test_agent_planner_resolve_paths.py",
+        "duration_ms": 0,
+        "status": "passed"
+      }
+    ],
+    "failures": []
+  },
+  "failures": [],
+  "findings": "Fixed 10 stale assertions in test-get-framework-config.test.ts and config.schema.test.ts. Coverage from terminal --coverage run; no coverage-summary.json artifact persisted."
+}

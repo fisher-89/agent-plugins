@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readConfig } from '../lib/config';
-import { OpenSpecConfig, type TestFrameworks } from '../schemas';
+import { type OpenSpecConfig, type TestFrameworks } from '../schemas';
 import { getDefaultGlobForFramework, runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------

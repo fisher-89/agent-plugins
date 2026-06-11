@@ -9,12 +9,12 @@
 
 import * as fs from 'fs';
 
-import { z } from 'zod/v4';
+import { type z } from 'zod/v4';
 
 import { getChangeDir } from '../lib/change';
 import { readEvalJson, checkGate, type GateResult, type EvalEntry } from '../lib/eval-json';
 import { getPriorPhases, getPhaseIndex, PHASES } from '../lib/workflow';
-import { phaseCheckInputSchema, phaseCheckOutputSchema } from '../schemas';
+import { type phaseCheckInputSchema, type phaseCheckOutputSchema } from '../schemas';
 
 type PhaseCheckOptions = z.input<typeof phaseCheckInputSchema>;
 

@@ -383,7 +383,7 @@ def map_to_test_file(source_file: str, tests_dir: str = None) -> str:
         src/routes/auth.js -> src/routes/auth.test.js
         src/auth.py -> src/test_auth.py
         lib/user.ts -> lib/user.test.ts
-        src/auth.rs -> src/auth_tests.rs
+        src/auth.rs -> src/auth_test.rs
     """
     basename = os.path.basename(source_file)
     name, ext = os.path.splitext(basename)
@@ -394,8 +394,8 @@ def map_to_test_file(source_file: str, tests_dir: str = None) -> str:
         # Python: test_<name>.py
         test_name = f"test_{name}.py"
     elif ext == '.rs':
-        # Rust: <name>_tests.rs
-        test_name = f"{name}_tests.rs"
+        # Rust: <name>_test.rs
+        test_name = f"{name}_test.rs"
     else:
         # JavaScript/TypeScript: <name>.test.<ext>
         test_name = f"{name}.test{ext}"

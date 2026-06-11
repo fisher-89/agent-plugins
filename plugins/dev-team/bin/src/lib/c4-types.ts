@@ -2,9 +2,9 @@
  * C4 type definitions for archi CLI commands.
  */
 
-import z from 'zod/v4';
+import type z from 'zod/v4';
 
-import { archiQueryOutputSchema, archiValidateOutputSchema } from '../schemas';
+import { type archiQueryOutputSchema, type archiValidateOutputSchema } from '../schemas';
 
 /**
  * Represents a parsed C4 element from DSL.

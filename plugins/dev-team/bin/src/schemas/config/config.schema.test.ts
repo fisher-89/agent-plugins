@@ -22,9 +22,7 @@ const fullConfig = {
   test: {
     framework: 'vitest' as const,
     coverage: { lines: 90, branches: 80, functions: 85 },
-    overrides: [
-      { file: 'demo/**', framework: 'vite-plus' as const, coverage: { lines: 60 } },
-    ],
+    overrides: [{ file: 'demo/**', framework: 'vite-plus' as const, coverage: { lines: 60 } }],
   },
 };
 
@@ -179,7 +177,7 @@ describe('test.overrides', () => {
     expect(parsed.test?.overrides![0]).toEqual({
       file: 'demo/**',
       framework: 'vite-plus',
-      coverage: { lines: 60 },
+      coverage: { lines: 60, branches: 70, functions: 75 },
     });
   });
 
