@@ -30,12 +30,6 @@ type PhaseLogResult = z.output<typeof phaseLogOutputSchema>;
  * - Does NOT perform gate-check (gate logic is entirely owned by phase_next).
  */
 export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
-  const REQUIRED_ARGS = ['change', 'phase', 'verdict', 'report', 'items'] as const;
-  const missing = REQUIRED_ARGS.filter((r) => !options[r] || options[r] === '');
-  if (missing.length > 0) {
-    throw new Error(`缺少必填参数: --${missing.join(', --')}`);
-  }
-
   validateVerdict(options.verdict, options.skipped === true);
   validateReportLength(options.report);
 
