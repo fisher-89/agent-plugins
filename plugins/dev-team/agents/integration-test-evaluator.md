@@ -84,9 +84,12 @@ If `failed > 0`, analyze each failure and apply the following decision tree:
 
 6. **无法判断 (multiple ambiguous errors or no clear pattern)**
    - IF no single root cause dominates
-   - THEN AskUserQuestion with diagnostic summary, timeout 5 minutes
-   - On timeout / no response: backtrack_to: `"02-dev-design"`
-   - Finding reason: "无法自动判断根因，回退到 dev-design"
+   - THEN do NOT call phase_log. Return to the main agent with:
+     - A structured diagnostic summary of all failures and the decision tree analysis
+     - 3-4 recommended backtrack options with phase identifiers and reasons
+     - Default recommendation: backtrack_to `"02-dev-design"`
+   - The main agent will ask the user to choose a backtrack target and call phase_log
+   - Finding reason: "无法自动判断根因，需用户确认回溯目标"
 
 **Priority (when multiple error types exist):**
 - Design conflict (3) > Syntax error (1) > Logic error (2) > Environment (5) > Interface mismatch (4) > Unknown (6)
@@ -123,7 +126,7 @@ mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "08-integrati
 ## Constraints
 
 - backtrack_to must always be set to a valid phase identifier or null
-- When using AskUserQuestion: present a summary of all failures, the diagnostic tree path, and 3-4 recommended backtrack options. Set a timeout of 5 minutes.
+- When the diagnostic result is "无法判断": do NOT call phase_log. Return a structured response to the main agent containing the diagnostic summary and recommended backtrack options, so the main agent can ask the user.
 - Do NOT modify test files or source code
 - Do NOT re-run tests — evaluation is based on the existing report only
 - If the report file does not exist, set verdict "fail" with finding "集成测试执行报告不存在，请先运行 Executor"
