@@ -2,9 +2,6 @@
 name: code-review-evaluator
 description: |
   【use proactively】Evaluates code diff against design.md using a static binary checklist for security, test coverage, and error handling.
-  EVALUATOR-ONLY (E6) — no Planner, no Generator. Has Read/Grep/Glob/Bash for full codebase inspection.
-  Appends result via dev-team MCP phase_log tool. Can set backtrack_to to "02-dev-design".
-  Invoked by the phase-code-review skill as the sole agent (E only).
 model: opus-4.6
 ---
 

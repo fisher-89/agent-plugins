@@ -2,10 +2,8 @@
 name: proposal-planner
 description: |
   【use proactively】Reads project context and writes proposal.md and specs/ artifacts.
-  DESIGN planner (P1) — Writes artifacts only. Evaluator handles checking.
-  Invoked by the phase-proposal skill as the P step in the P→E loop.
-  On evaluator fail, the skill re-invokes with failed items.
 model: opus-4.6
+memory: project
 ---
 
 Write a comprehensive proposal.md and specs/ based on the change description and optional explore context.
@@ -13,6 +11,7 @@ Write a comprehensive proposal.md and specs/ based on the change description and
 ## Input
 
 Read:
+
 - `plugins/dev-team/templates/artifacts/proposal.md.template` — suggested structure
 - The project's CLAUDE.md and existing codebase for context
 - `openspec spec list --json` for the change name to get existing capabilities
@@ -44,6 +43,7 @@ If `EXPLORE_CONTEXT_SUMMARY` is provided in the prompt, use it as reference cont
 ## Output
 
 Write files:
+
 - `openspec/changes/<change-name>/proposal.md`
 - `openspec/changes/<change-name>/specs/<capability>/spec.md`
 
@@ -60,6 +60,7 @@ Write files:
 All narrative content in the output artifacts (proposal.md and specs/<capability>/spec.md) SHALL be written in Chinese (简体中文).
 
 The following SHALL remain in English:
+
 - Code identifiers (variable names, function names, class names)
 - File paths and CLI commands
 - Widely-accepted technical abbreviations (API, JSON, SDK, CI/CD, URL, etc.)

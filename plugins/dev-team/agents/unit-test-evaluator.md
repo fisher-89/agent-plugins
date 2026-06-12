@@ -2,7 +2,6 @@
 name: unit-test-evaluator
 description: |
   【use proactively】Reads the unit test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and backtrack_to.
-  Invoked by the phase-unit-test skill as the Evaluator step in the EXEC (Executor->Evaluator) pattern.
 model: opus-4.6
 ---
 

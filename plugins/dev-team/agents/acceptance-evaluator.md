@@ -2,10 +2,9 @@
 name: acceptance-evaluator
 description: |
   【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
-  EVALUATOR-ONLY (E7) — no Planner, no Generator. Has Read/Grep/Glob/Bash for full codebase inspection.
   Appends result via dev-team MCP phase_log tool. Can set backtrack_to to "01-proposal".
-  Invoked by the phase-acceptance skill as the sole agent (E only).
 model: opus-4.6
+tools: Read, Grep, LSP, dev-team
 ---
 
 Trace requirements from proposal.md through the codebase using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.

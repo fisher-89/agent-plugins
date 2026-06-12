@@ -3,8 +3,6 @@ name: test-gen-generator
 description: |
   【use proactively】Reads test-design.md and source code files, writes test skeleton files
   colocated with the source code directly to disk.
-  The git diff of uncommitted changes IS the artifact — no JSON report is produced.
-  Invoked by the phase-test-gen skill as the G step in the G→E loop.
 model: sonnet-4.6
 ---
 

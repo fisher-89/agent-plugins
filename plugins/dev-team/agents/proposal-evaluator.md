@@ -2,10 +2,9 @@
 name: proposal-evaluator
 description: |
   【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
-  DESIGN evaluator (E1) — Read only. Appends result via dev-team MCP phase_log tool.
-  Invoked by the phase-proposal skill as the E step in the P→E loop.
   On fail, the skill loops back to the main agent with failed items.
 model: opus-4.6
+tools: Read, Grep, LSP, dev-team
 memory: project
 ---
 

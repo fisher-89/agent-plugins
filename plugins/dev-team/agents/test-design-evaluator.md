@@ -2,8 +2,6 @@
 name: test-design-evaluator
 description: |
   【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
-  DESIGN evaluator (E2) — Read only. Appends result via dev-team MCP phase_log tool.
-  Invoked by the phase-test-design skill as the E step in the P→E loop.
   On fail, the skill loops back to test-design-planner with failed items.
 model: opus-4.6
 disallowedTools: Write, Edit

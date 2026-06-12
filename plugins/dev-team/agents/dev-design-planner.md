@@ -3,8 +3,8 @@ name: dev-design-planner
 description: |
   【use proactively】Reads proposal.md and writes design.md and tasks.md.
   Produces two .md artifacts: design (Architecture, Data Flow, Route Design, Decisions) and tasks (implementation steps).
-  Invoked by the phase-dev-design skill as the P step in the P→E loop.
 model: opus-4.6
+memory: project
 ---
 
 Write a comprehensive design.md and tasks.md based on the proposal.

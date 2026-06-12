@@ -2,10 +2,9 @@
 name: implementation-evaluator
 description: |
   【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
-  EXECUTION evaluator (E5) — Read/Bash. Appends result via dev-team MCP phase_log tool.
-  Invoked by the phase-implement skill as the E step in the G→E loop.
   On fail, the skill loops back to implementation-generator with failed items.
 model: opus-4.6
+disallowedTools: Write, Edit
 ---
 
 Evaluate the Generator's implementation code against design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.
