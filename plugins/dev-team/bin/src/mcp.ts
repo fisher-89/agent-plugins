@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 import { type z, type ZodType } from 'zod/v4';
 
 import pluginConfig from '../../.claude-plugin/plugin.json';
+import { runChangeList } from './commands/change-list';
 import { runConfigContext } from './commands/config-context';
 import { runConfigGet } from './commands/config-get';
 import { runConfigSet } from './commands/config-set';
@@ -46,6 +47,8 @@ import {
   testGetFrameworkConfigOutputSchema,
   testResolvePathsInputSchema,
   testResolvePathsOutputSchema,
+  changeListInputSchema,
+  changeListOutputSchema,
 } from './schemas';
 
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
@@ -319,6 +322,22 @@ async function main(): Promise<void> {
       const projectRoot = resolveProjectRoot(args.project_root);
       const result = runTestResolvePaths({ ...args, project_root: projectRoot });
       return jsonContent(testResolvePathsOutputSchema, result);
+    },
+  );
+
+  server.registerTool(
+    'change_list',
+    {
+      description:
+        'List all active (non-archived) changes under openspec/changes/. ' +
+        'Returns each change with its artifacts, task progress, and latest eval phase.',
+      inputSchema: changeListInputSchema,
+      outputSchema: changeListOutputSchema,
+    },
+    async (args) => {
+      const projectRoot = resolveProjectRoot(args.project_root);
+      const result = runChangeList({ project_root: projectRoot });
+      return jsonContent(changeListOutputSchema, result);
     },
   );
 

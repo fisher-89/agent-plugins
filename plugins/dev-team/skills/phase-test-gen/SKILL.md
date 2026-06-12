@@ -22,7 +22,7 @@ Test generation phase — Generator writes test files, Evaluator inspects.
 
 ### 1. Parse change name
 
-If a change name is provided, use it. Otherwise run `openspec list --json` and prompt user to select.
+If a change name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__change_list` to get active changes and prompt user to select.
 
 ### 2. Gate check
 

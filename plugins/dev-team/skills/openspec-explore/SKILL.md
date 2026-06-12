@@ -82,14 +82,11 @@ You have full context of the OpenSpec system. Use it naturally, don't force it.
 
 ### Check for context
 
-At the start, quickly check what exists:
-```bash
-openspec list --json
-```
+At the start, quickly check what exists by calling `mcp__plugin_dev-team_dev-team__change_list`.
 
 This tells you:
 - If there are active changes
-- Their names, schemas, and status
+- Their names, artifacts, task progress, and latest eval phase
 - What the user might be working on
 
 ### When no change exists

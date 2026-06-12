@@ -20,7 +20,7 @@ Implementation phase — Generator writes code, Evaluator inspects.
 ## Steps
 
 ### 1. Parse change name
-If a name is provided, use it. Otherwise run `openspec list --json` and prompt user to select.
+If a name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__change_list` to get active changes and prompt user to select.
 
 ### 2. Gate check
 

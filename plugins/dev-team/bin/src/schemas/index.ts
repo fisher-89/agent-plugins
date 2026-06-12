@@ -21,5 +21,6 @@ export {
 } from './test-resolve-paths.schema';
 export { configUnsetInputSchema, configUnsetOutputSchema } from './config-unset.schema';
 export { configContextInputSchema, configContextOutputSchema } from './config-context.schema';
+export { changeListInputSchema, changeListOutputSchema } from './change-list.schema';
 export { configSchema } from './config/config.schema';
 export type { OpenSpecConfig, OpenSpecConfigInput, TestFrameworks } from './config/config.schema';
