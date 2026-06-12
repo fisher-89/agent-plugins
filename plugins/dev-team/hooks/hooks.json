@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/scripts/protect-eval.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.sh\""
           }
         ]
       },
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "\"${CLAUDE_PLUGIN_ROOT}\"/hooks/scripts/protect-eval.sh"
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.sh\""
           }
         ]
       }
