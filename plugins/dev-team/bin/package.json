@@ -13,6 +13,7 @@
   "dependencies": {
     "@likec4/language-services": "^1.57.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
+    "cac": "^6.7.14",
     "zod": "^4.4.3"
   },
   "devDependencies": {

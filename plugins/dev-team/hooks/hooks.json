@@ -1,5 +1,5 @@
 {
-  "description": "保护 eval.json 不被 agent 直接写入：所有对 openspec/changes/<name>/eval.json 的写入必须通过 phase_log MCP 工具 (mcp__plugin_dev-team_dev-team__phase_log) 完成。拦截内置工具 Write、Edit 和 Bash 对 eval.json 的直接写入。",
+  "description": "dev-team 插件 hooks：PreToolUse 保护 eval.json 不被 agent 直接写入；subagentStop 在 implementation-generator 结束时自动执行 static_analysis 静态检查，未通过则返回 followup_message 要求修复（最多 5 次循环）。",
   "hooks": {
     "PreToolUse": [
       {
@@ -17,6 +17,18 @@
           {
             "type": "command",
             "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.sh\""
+          }
+        ]
+      }
+    ],
+    "subagentStop": [
+      {
+        "matcher": "implementation-generator",
+        "loop_limit": 5,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.sh\""
           }
         ]
       }

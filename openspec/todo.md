@@ -10,5 +10,8 @@
 - [ ] 下线openspec执行文件
 - [x] mcp工具改回下划线，避免claude code转义“/”导致找不到tools
 - [x] 明确测试文件的路径规则（test-design）
-- [ ] unit-test-evaluator检查覆盖率
+- [x] unit-test-evaluator检查覆盖率
 - [ ] 引入突变测试
+- [ ] test_resolve_paths - 不检查源文件是否存在、集成测试__tests__放在测试运行的根目录下
+- [ ] test_resolve_paths - 设置白名单，拒绝生成vite.config、tsconfig等文件的单测
+- [ ] unit-test-execution.json coverage_overrides和coverage_by_framework重复

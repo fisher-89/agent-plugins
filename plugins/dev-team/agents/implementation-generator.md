@@ -2,7 +2,6 @@
 name: implementation-generator
 description: |
   【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
-  After code generation, AUTO phases (static-check, test-execution) run automatically.
 model: sonnet-4.6
 ---
 
@@ -29,36 +28,10 @@ Read:
 4. Work through pending tasks (unchecked `[ ]` items in tasks.md) in dependency order
 5. For each task, write the implementation code directly to the appropriate files
 6. Mark completed tasks as `[x]` in tasks.md, continue until all tasks is finished
-7. After all code is written, retrieve the static check script.`mcp__plugin_dev-team_dev-team__config_get({key: "static_analysis"})` 
-8. If a script exists, run the validation and fix issues until no error stdout. 
 
 ## Output
 
 Write implementation code directly to disk.
-
-If the static check script exists, write a structured JSON report to `openspec/changes/<change-name>/reports/static_analysis.json`:
-
-```json
-{
-  "phase": "05-implement",
-  "command": "<static check script>",
-  "timestamp": "2026-05-25T10:30:00.000Z",
-  "rounds": [
-    {
-      "script_duration": "3.2s",
-      "pass": false,
-      "failures": [
-        {
-          "file": "src/utils/parser.test.ts",
-          "line": 45,
-          "error_message": "Expected 5 but got 3"
-        }
-        ...
-      ]
-    }
-  ]
-}
-```
 
 ## Constraints
 

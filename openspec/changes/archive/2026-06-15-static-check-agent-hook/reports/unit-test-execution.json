@@ -1,0 +1,177 @@
+{
+  "phase": "06-unit-test",
+  "command": "pnpm test -- --coverage --reporter=json src/commands/run-static-analysis.test.ts vite.config.test.ts",
+  "timestamp": "2026-06-12T08:19:46.000Z",
+  "total": 23,
+  "passed": 23,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 0.81,
+  "coverage": {
+    "lines": 65,
+    "branches": 54,
+    "functions": 42
+  },
+  "coverage_thresholds": {
+    "lines": 80,
+    "branches": 70,
+    "functions": 75
+  },
+  "coverage_overrides": [],
+  "coverage_pass": false,
+  "coverage_by_framework": [
+    {
+      "framework": "vite-plus",
+      "coverage": {
+        "lines": 65,
+        "branches": 54,
+        "functions": 42
+      },
+      "html_report": null
+    }
+  ],
+  "html_reports": [],
+  "test_cases": [
+    {
+      "name": "vite.config.ts — 双打包入口 (AC-7) > pack.entry 应含 src/mcp.ts 与 src/cli.ts",
+      "file": "plugins/dev-team/bin/vite.config.test.ts",
+      "duration_ms": 1.75,
+      "status": "passed"
+    },
+    {
+      "name": "vite.config.ts — 双打包入口 (AC-7) > 应分别输出 dev-team-mcp.cjs 与 dev-team-cli.cjs",
+      "file": "plugins/dev-team/bin/vite.config.test.ts",
+      "duration_ms": 0.66,
+      "status": "passed"
+    },
+    {
+      "name": "vite.config.ts — MCP 配置不变 (AC-7) > platform 应为 node",
+      "file": "plugins/dev-team/bin/vite.config.test.ts",
+      "duration_ms": 0.22,
+      "status": "passed"
+    },
+    {
+      "name": "vite.config.ts — MCP 配置不变 (AC-7) > format 应为 cjs",
+      "file": "plugins/dev-team/bin/vite.config.test.ts",
+      "duration_ms": 0.12,
+      "status": "passed"
+    },
+    {
+      "name": "vite.config.ts — MCP 配置不变 (AC-7) > minify 应为 true（与现有 MCP 打包一致）",
+      "file": "plugins/dev-team/bin/vite.config.test.ts",
+      "duration_ms": 0.13,
+      "status": "passed"
+    },
+    {
+      "name": "vite.config.ts — MCP 配置不变 (AC-7) > lint/fmt ignorePatterns 应包含 dev-team-cli.cjs",
+      "file": "plugins/dev-team/bin/vite.config.test.ts",
+      "duration_ms": 0.14,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 未配置放行 (AC-4, AC-7) > openspec/config.json 不存在时应 exit 0 且不执行外部命令",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 329.62,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 未配置放行 (AC-4, AC-7) > config 存在但无 static_analysis 字段时应 exit 0",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.25,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 空配置放行 (边界) > static_analysis 为空字符串时应 exit 0 且不执行外部命令",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 6.1,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 空配置放行 (边界) > static_analysis 为仅空白字符串时应 exit 0（trim 后视为空）",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.13,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令成功 (AC-3, AC-7) > 已配置且 mock 命令 exit 0 时 CLI 应 exit 0",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 4.85,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令成功 (AC-3, AC-7) > 命令 exit 0 时 CLI stdout 应无多余输出",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.9,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令失败 (AC-5, AC-7) > 已配置且 mock 命令 exit 非 0 时 CLI 应返回相同 exit code",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.96,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令失败 (AC-5, AC-7) > 命令失败时 CLI stderr 应含 stdout/stderr 合并输出",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.16,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — exit code 传播 (边界) > mock 命令 exit 1 时 CLI 应返回相同 exit code",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.59,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — exit code 传播 (边界) > mock 命令 exit 2 时 CLI 应返回相同 exit code",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.66,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — exit code 传播 (边界) > mock 命令 exit 127 时 CLI 应返回相同 exit code",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 4.44,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) > 应优先使用 CLAUDE_PROJECT_DIR 环境变量定位 config",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 8.27,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) > 未设置 CLAUDE_PROJECT_DIR 时应使用 process.cwd()",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 7.21,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) > options.projectRoot 应优先于 CLAUDE_PROJECT_DIR",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 10.64,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — config 容错 (边界) > openspec/config.json JSON 解析失败时应等同未配置并 exit 0",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 6.43,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 工作目录与参数 (AC-7) > 已配置时应在项目根目录执行命令（cwd 为 projectRoot）",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 6.54,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 工作目录与参数 (AC-7) > 执行 static_analysis 命令时不应传入 change name 或其他 CLI 参数",
+      "file": "plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "duration_ms": 5.61,
+      "status": "passed"
+    }
+  ],
+  "integration_test": null,
+  "failures": [],
+  "findings": "All 23 unit tests passed. Overall coverage (65% lines) is below global thresholds (80/70/75) because execCommand is mocked and transitive config/schema imports are included; primary subject run-static-analysis.ts is at 84% lines / 75% branches. Uncovered branches: spawn error (lines 40-41) and null status (line 45)."
+}

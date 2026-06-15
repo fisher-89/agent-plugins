@@ -1,12 +1,19 @@
-import { writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
+import { join } from 'node:path';
 
 import { defineConfig } from 'vite-plus';
 
-const OUTPUT_FILE_NAME = 'dev-team-mcp.cjs';
+const MCP_OUTPUT_FILE_NAME = 'dev-team-mcp.cjs';
+const CLI_OUTPUT_FILE_NAME = 'dev-team-cli.cjs';
+const OUTPUT_FILE_NAMES = [
+  MCP_OUTPUT_FILE_NAME,
+  CLI_OUTPUT_FILE_NAME,
+  'openspec-bundled.js',
+];
 
 export default defineConfig({
   lint: {
-    ignorePatterns: [OUTPUT_FILE_NAME, 'openspec-bundled.js'],
+    ignorePatterns: OUTPUT_FILE_NAMES,
     options: {
       typeCheck: true,
       typeAware: true,
@@ -29,34 +36,53 @@ export default defineConfig({
     ],
   },
   fmt: {
-    ignorePatterns: [OUTPUT_FILE_NAME, 'openspec-bundled.js'],
+    ignorePatterns: OUTPUT_FILE_NAMES,
     singleQuote: true,
     sortImports: true,
   },
-  pack: {
-    entry: ['src/mcp.ts'],
-    platform: 'node',
-    format: 'cjs',
-    outputOptions: {
-      file: OUTPUT_FILE_NAME,
-    },
-    deps: {
-      alwaysBundle: [/.*/],
-    },
-    dts: false,
-    minify: true,
-    sourcemap: true,
-    clean: false,
-    hooks: {
-      'build:done': async () => {
-        const { configSchema } = await import('./src/schemas');
-        const jsonSchemaContent = JSON.stringify(configSchema.toJSONSchema(), null, 2);
-        writeFileSync('./dev-team-config.schema.json', jsonSchemaContent);
+  pack: [
+    {
+      name: 'mcp',
+      platform: 'node',
+      entry: 'src/mcp.ts',
+      outputOptions: {
+        file: MCP_OUTPUT_FILE_NAME,
+        format: 'cjs',
+        minify: true,
+        sourcemap: true,
+        cleanDir: false,
+      },
+      deps: {
+        alwaysBundle: [/.*/],
+      },
+      dts: false,
+      hooks: {
+        'build:done': async () => {
+          const { configSchema } = await import('./src/schemas');
+          const jsonSchemaContent = JSON.stringify(configSchema.toJSONSchema(), null, 2);
+          writeFileSync('./dev-team-config.schema.json', jsonSchemaContent);
+        },
       },
     },
-  },
+    {
+      name: 'cli',
+      platform: 'node',
+      entry: 'src/cli.ts',
+      outputOptions: {
+        file: CLI_OUTPUT_FILE_NAME,
+        format: 'cjs',
+        minify: true,
+        sourcemap: true,
+        cleanDir: false,
+      },
+      deps: {
+        alwaysBundle: [/.*/],
+      },
+      dts: false,
+    },
+  ],
   test: {
     globals: true,
-    include: ['src/**/*.test.ts'],
+    include: ['src/**/*.test.ts', './__tests__/**/*.test.ts'],
   },
 });
