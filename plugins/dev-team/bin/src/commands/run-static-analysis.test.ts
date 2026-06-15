@@ -289,9 +289,9 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
     project.cleanup();
   });
 
-  it('应优先使用 CLAUDE_PROJECT_DIR 环境变量定位 config', async () => {
+  it('应优先使用 PROJECT_DIR 环境变量定位 config', async () => {
     const runStaticAnalysis = await loadRunStaticAnalysis();
-    vi.stubEnv('CLAUDE_PROJECT_DIR', project.root);
+    vi.stubEnv('PROJECT_DIR', project.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
       status: 0,
       stdout: '',
@@ -312,9 +312,9 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
     }
   });
 
-  it('未设置 CLAUDE_PROJECT_DIR 时应使用 process.cwd()', async () => {
+  it('未设置 PROJECT_DIR 时应使用 process.cwd()', async () => {
     const runStaticAnalysis = await loadRunStaticAnalysis();
-    delete process.env.CLAUDE_PROJECT_DIR;
+    delete process.env.PROJECT_DIR;
     process.chdir(project.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
       status: 0,
@@ -336,10 +336,10 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
     }
   });
 
-  it('options.projectRoot 应优先于 CLAUDE_PROJECT_DIR', async () => {
+  it('options.projectRoot 应优先于 PROJECT_DIR', async () => {
     const runStaticAnalysis = await loadRunStaticAnalysis();
     const other = createTempProject({ schema: 'spec-driven', static_analysis: 'echo ok' });
-    vi.stubEnv('CLAUDE_PROJECT_DIR', other.root);
+    vi.stubEnv('PROJECT_DIR', other.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
       status: 0,
       stdout: '',

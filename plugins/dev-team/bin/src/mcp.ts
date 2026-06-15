@@ -54,7 +54,7 @@ import {
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
 
 function resolveProjectRoot(cwd?: string | null): string {
-  return cwd || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  return cwd || process.env.PROJECT_DIR || process.cwd();
 }
 
 function jsonContent<S extends ZodType>(_outputSchema: S, data: z.output<S>) {

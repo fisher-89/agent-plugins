@@ -375,7 +375,7 @@ export function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPat
  * MCP command entry: resolve project_root then delegate to resolveTestPaths.
  */
 export function runTestResolvePaths(args: TestResolvePathsInput): ResolveTestPathsResult {
-  const projectRoot = args.project_root || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = args.project_root || process.env.PROJECT_DIR || process.cwd();
   return resolveTestPaths({
     projectRoot,
     modules: args.modules,

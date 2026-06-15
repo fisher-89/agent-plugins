@@ -16,7 +16,7 @@ export interface ConfigGetResult {
  * Ensures the config file exists before reading.
  */
 export function runConfigGet(options: ConfigGetOptions): ConfigGetResult {
-  const projectRoot = options.projectRoot || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
 
   // Ensure the config file exists (creates skeleton if missing)
   const config = ensureConfigFile(projectRoot);

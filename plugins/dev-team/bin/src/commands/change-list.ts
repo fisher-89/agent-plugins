@@ -45,7 +45,7 @@ function countTasks(tasksPath: string): { total: number; done: number } {
  * Pure filesystem scan — no CLI dependency.
  */
 export function runChangeList(options: ChangeListOptions): ChangeListResult {
-  const projectRoot = options.project_root || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = options.project_root || process.env.PROJECT_DIR || process.cwd();
   const changesDir = path.resolve(projectRoot, 'openspec', 'changes');
 
   if (!fs.existsSync(changesDir)) {

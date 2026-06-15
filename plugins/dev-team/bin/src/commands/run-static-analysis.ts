@@ -6,7 +6,7 @@ export interface RunStaticAnalysisOptions {
 }
 
 function resolveProjectRoot(options?: RunStaticAnalysisOptions): string {
-  return options?.projectRoot || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  return options?.projectRoot || process.env.PROJECT_DIR || process.cwd();
 }
 
 /**

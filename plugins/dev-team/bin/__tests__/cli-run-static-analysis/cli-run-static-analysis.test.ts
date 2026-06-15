@@ -119,7 +119,7 @@ describe('dev-team-cli.cjs run_static_analysis — 端到端 (AC-7)', () => {
   it('配置 node -e process.exit(0) 时 CLI 应 exit 0', () => {
     project = createTempProject('node -e process.exit(0)');
     const { status } = runCli(['run_static_analysis'], {
-      CLAUDE_PROJECT_DIR: project.root,
+      PROJECT_DIR: project.root,
     });
     expect(status).toBe(0);
   });
@@ -127,7 +127,7 @@ describe('dev-team-cli.cjs run_static_analysis — 端到端 (AC-7)', () => {
   it('配置 node -e process.exit(1) 时 CLI 应 exit 1 且 stderr 非空', () => {
     project = createTempProject('node -e "process.stderr.write(\\"fail\\"); process.exit(1)"');
     const { status, stderr } = runCli(['run_static_analysis'], {
-      CLAUDE_PROJECT_DIR: project.root,
+      PROJECT_DIR: project.root,
     });
     expect(status).toBe(1);
     expect(stderr.length).toBeGreaterThan(0);

@@ -323,7 +323,7 @@ export function generateScript(input: GenerateScriptInput): string {
 export function runTestDetectFrameworks(
   options: TestDetectFrameworksOptions,
 ): TestDetectFrameworksResult {
-  const projectRoot = options.projectRoot || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
 
   const config = readConfig(projectRoot);
   const { framework, overrides } = config.test;

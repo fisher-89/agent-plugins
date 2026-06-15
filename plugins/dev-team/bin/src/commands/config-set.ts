@@ -17,7 +17,7 @@ export interface ConfigSetResult {
  * Creates skeleton config file if missing.
  */
 export function runConfigSet(options: ConfigSetOptions): ConfigSetResult {
-  const projectRoot = options.projectRoot || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
 
   // Read current config (returns default if no file exists yet)
   const config = readConfig(projectRoot);

@@ -21,7 +21,7 @@
         ]
       }
     ],
-    "subagentStop": [
+    "SubagentStop": [
       {
         "matcher": "implementation-generator",
         "loop_limit": 5,

@@ -5,10 +5,10 @@ import * as path from 'path';
  * Returns the absolute path to `openspec/changes/<change-name>`.
  */
 function resolveChangeDir(changeName: string): string {
-  const projectRoot = process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = process.env.PROJECT_DIR || process.cwd();
   if (!projectRoot) {
     throw new Error(
-      `无法获取工程目录,process.env.CLAUDE_PROJECT_DIR=${process.env.CLAUDE_PROJECT_DIR}`,
+      `无法获取工程目录,process.env.PROJECT_DIR=${process.env.PROJECT_DIR}`,
     );
   }
   return path.resolve(projectRoot, 'openspec', 'changes', changeName);

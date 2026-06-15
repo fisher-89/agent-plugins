@@ -15,7 +15,7 @@ export interface ConfigUnsetResult {
  * Returns removed: false if the key did not exist.
  */
 export function runConfigUnset(options: ConfigUnsetOptions): ConfigUnsetResult {
-  const projectRoot = options.projectRoot || process.env.CLAUDE_PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
 
   // Read current config
   const config = readConfig(projectRoot);
