@@ -1,7 +1,7 @@
 {
   "mcpServers": {
     "dev-team": {
-      "command": "set PROJECT_DIR=${CLAUDE_PROJECT_DIR} && node ${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs",
+      "command": "set PROJECT_DIR=${workspaceFolder} && node ${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs",
       "cwd": "${CLAUDE_PROJECT_DIR}"
     }
   }
