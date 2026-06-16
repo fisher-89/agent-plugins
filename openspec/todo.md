@@ -15,3 +15,8 @@
 - [ ] test_resolve_paths - 不检查源文件是否存在、集成测试__tests__放在测试运行的根目录下
 - [ ] test_resolve_paths - 设置白名单，拒绝生成vite.config、tsconfig等文件的单测
 - [ ] unit-test-execution.json coverage_overrides和coverage_by_framework重复
+- [ ] mcp移除test_get_framework_config ，功能合入 test_detect_frameworks
+- [ ] 使用fast-glob解析glob表达式
+- [ ] task.md中不要包含单元测试
+- [ ] test-gen-generator上下文预制常见的mock技能（mock文件、mock接口）
+- [ ] unit-test-evaluator、integration-test-evaluator设置checklist

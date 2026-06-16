@@ -32,7 +32,7 @@ Check that the report contains all required fields:
 If any required field is missing or has wrong type, set:
 - `verdict`: `"fail"`
 - `report`: `"报告不完整: [缺失字段列表]"`
-- `backtrack_to`: `"06-unit-test"` (re-run the test executor)
+- `backtrack_to`: `null` (re-run the test executor)
 
 Note: `coverage_by_framework` and `html_reports` may be empty arrays when coverage was not generated. This is acceptable.
 

@@ -40,13 +40,13 @@
 ### Mock策略
 
 <!-- - `测试文件`：文件路径
-   - `Mock主体`：被测对象之外需要 mock 的依赖（模块、hook、组件）
-   - `Mock方案`：具体 mock 方式（vi.mock、stubGlobal、spyOn 等）
+   - `Mock主体`：系统边界之外需要 mock 的依赖（文件、接口、全局变量、运行环境）
+   - `Mock方案`：具体 mock 的路径、输入输出、转换逻辑
    - `应用场景`：哪些 describe 需要此 mock -->
 
 | 测试文件 | Mock主体 | Mock方案 | 应用场景 |
 |---------|---------|----------|----------|
-| {{test_file}} | 正向/异常/边界 | {{it_title}} | {{describe_titles}} |
+| {{test_file}} | 文件/接口/全局变量/运行环境 | {{how_to_mock}} | {{describe_titles}} |
 
 ---
 
@@ -73,7 +73,7 @@
 
 | 测试文件 | Mock主体 | Mock方案 | 应用场景 |
 |---------|---------|----------|----------|
-| {{test_file}} | 正向/异常/边界 | {{it_title}} | {{describe_titles}} |
+| {{test_file}} | 文件/接口/全局变量/运行环境 | {{how_to_mock}} | {{describe_titles}} |
 
 ---
 

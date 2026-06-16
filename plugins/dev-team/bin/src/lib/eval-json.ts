@@ -147,7 +147,7 @@ export function checkGate(entries: EvalEntry[], prerequisites: string[]): GateRe
  *
  * Dependent phases with no entries in the array are silently skipped.
  */
-export function propagateStale(entries: EvalEntry[], phaseId: string, workflowType?: string): void {
+function propagateStale(entries: EvalEntry[], phaseId: string, workflowType?: string): void {
   const visited = new Set<string>();
 
   function propagate(pid: string): void {

@@ -5,7 +5,6 @@ import {
   buildEntry,
   checkGate,
   markPhaseStale,
-  propagateStale,
   type BuildEntryParams,
   type EvalEntry,
 } from './eval-json';
@@ -259,91 +258,5 @@ describe('markPhaseStale', () => {
     entries.push(makePassEntry('02-dev-design', 2));
     const newEntry = entries.find((e) => e.phase === '02-dev-design' && e.attempt === 2)!;
     expect(newEntry.stale).toBeUndefined();
-  });
-});
-
-// ---------------------------------------------------------------------------
-// propagateStale
-// ---------------------------------------------------------------------------
-
-describe('propagateStale', () => {
-  it('should propagate from 01-proposal to all phases', () => {
-    const entries = [];
-    for (const phase of [
-      '01-proposal',
-      '02-dev-design',
-      '03-test-design',
-      '04-test-gen',
-      '05-implement',
-      '06-unit-test',
-      '07-code-review',
-      '08-integration-test',
-      '09-acceptance',
-    ]) {
-      entries.push(makePassEntry(phase, 1));
-    }
-    propagateStale(entries, '01-proposal', 'requirement');
-
-    // Everything should be stale
-    for (const phase of [
-      '02-dev-design',
-      '03-test-design',
-      '04-test-gen',
-      '05-implement',
-      '06-unit-test',
-      '07-code-review',
-      '08-integration-test',
-      '09-acceptance',
-    ]) {
-      expect(entries.find((e) => e.phase === phase)!.stale).toBe(true);
-    }
-  });
-
-  it('should not mark source phase itself if not a dependent of itself', () => {
-    const entries = [makePassEntry('01-proposal', 1)];
-    propagateStale(entries, '01-proposal', 'requirement');
-    // 01 is not in its own dependents list
-    expect(entries[0].stale).toBeUndefined();
-  });
-
-  it('should propagate from 03-test-design to test track only', () => {
-    const entries = [];
-    for (const phase of [
-      '01-proposal',
-      '02-dev-design',
-      '03-test-design',
-      '04-test-gen',
-      '05-implement',
-      '06-unit-test',
-      '07-code-review',
-      '08-integration-test',
-      '09-acceptance',
-    ]) {
-      entries.push(makePassEntry(phase, 1));
-    }
-    propagateStale(entries, '03-test-design', 'requirement');
-
-    // Test track phases should be stale
-    expect(entries.find((e) => e.phase === '04-test-gen')!.stale).toBe(true);
-    expect(entries.find((e) => e.phase === '06-unit-test')!.stale).toBe(true);
-    expect(entries.find((e) => e.phase === '07-code-review')!.stale).toBe(true);
-    expect(entries.find((e) => e.phase === '08-integration-test')!.stale).toBe(true);
-
-    // Dev track phases should NOT be stale
-    expect(entries.find((e) => e.phase === '01-proposal')!.stale).toBeUndefined();
-    expect(entries.find((e) => e.phase === '02-dev-design')!.stale).toBeUndefined();
-    expect(entries.find((e) => e.phase === '05-implement')!.stale).toBeUndefined();
-    expect(entries.find((e) => e.phase === '09-acceptance')!.stale).toBeUndefined();
-  });
-
-  it('should be no-op for leaf phases', () => {
-    const entries = [makePassEntry('06-unit-test', 1)];
-    propagateStale(entries, '06-unit-test', 'requirement');
-    expect(entries[0].stale).toBeUndefined();
-  });
-
-  it('should handle no downstream entries gracefully', () => {
-    const entries = [makePassEntry('02-dev-design', 1)];
-    expect(() => propagateStale(entries, '02-dev-design', 'requirement')).not.toThrow();
   });
 });

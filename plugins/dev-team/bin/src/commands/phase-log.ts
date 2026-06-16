@@ -50,11 +50,15 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
       ? options.backtrack_to
       : [options.backtrack_to];
 
+    const currentIdx = getPhaseIndex(options.phase);
     // Validate each target is a known phase ID
     for (const target of targets) {
       const idx = getPhaseIndex(target);
       if (idx === -1) {
         throw new Error(`无效的回溯目标 phase: "${target}"。请使用有效的 phase 标识符。`);
+      }
+      if(idx >= currentIdx) {
+        throw new Error(`无效的回溯目标 phase: "${target}"。不支持回溯到当前或未来phase。`);
       }
     }
 
