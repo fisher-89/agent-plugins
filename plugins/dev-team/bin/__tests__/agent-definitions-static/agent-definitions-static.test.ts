@@ -17,8 +17,10 @@ import { describe, expect, it } from 'vite-plus/test';
 
 /** vitest CWD 为 plugins/dev-team/bin/ */
 const projectRoot = path.resolve(process.cwd(), '../../..');
-const generatorPath = path.resolve(projectRoot, 'plugins/dev-team/agents/implementation-generator.md');
-const evaluatorPath = path.resolve(projectRoot, 'plugins/dev-team/agents/implementation-evaluator.md');
+const generatorPath = path.resolve(
+  projectRoot,
+  'plugins/dev-team/agents/implementation-generator.md',
+);
 
 function readAgent(filePath: string): string {
   return fs.readFileSync(filePath, 'utf-8');

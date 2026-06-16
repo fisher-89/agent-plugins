@@ -32,7 +32,10 @@ interface StubPluginRoot {
   cleanup: () => void;
 }
 
-function createStubPluginRoot(cliBehavior: 'pass' | 'fail', stderrText = 'mock lint error'): StubPluginRoot {
+function createStubPluginRoot(
+  cliBehavior: 'pass' | 'fail',
+  stderrText = 'mock lint error',
+): StubPluginRoot {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'static-check-stub-'));
   const binDir = path.join(root, 'bin');
   const hooksDir = path.join(root, 'hooks', 'scripts');
@@ -209,7 +212,13 @@ describe('static-check.sh — 语法与副作用', () => {
 
   it('执行后不应生成 reports/static_analysis.json', () => {
     const stub = createStubPluginRoot('pass');
-    const reportsDir = path.join(projectRoot, 'openspec', 'changes', 'static-check-agent-hook', 'reports');
+    const reportsDir = path.join(
+      projectRoot,
+      'openspec',
+      'changes',
+      'static-check-agent-hook',
+      'reports',
+    );
     const reportPath = path.join(reportsDir, 'static_analysis.json');
     const existedBefore = fs.existsSync(reportPath);
     try {

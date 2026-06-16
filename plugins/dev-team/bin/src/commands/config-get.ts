@@ -1,4 +1,5 @@
 import { getValue, ensureConfigFile } from '../lib/config';
+import { getProjectDir } from '../utils';
 
 export interface ConfigGetOptions {
   key: string;
@@ -16,7 +17,7 @@ export interface ConfigGetResult {
  * Ensures the config file exists before reading.
  */
 export function runConfigGet(options: ConfigGetOptions): ConfigGetResult {
-  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || getProjectDir();
 
   // Ensure the config file exists (creates skeleton if missing)
   const config = ensureConfigFile(projectRoot);

@@ -1,5 +1,5 @@
 /**
- * 集成测试: hooks.json subagentStop 声明与 plugin.json 版本
+ * 集成测试: hooks.json SubagentStop 声明与 plugin.json 版本
  *
  * 覆盖 AC-11、AC-12：matcher、loop_limit、PreToolUse 不变、版本递增。
  *
@@ -27,7 +27,7 @@ type HooksJson = {
       matcher?: string;
       hooks?: Array<{ type?: string; command?: string }>;
     }>;
-    subagentStop?: Array<{
+    SubagentStop?: Array<{
       matcher?: string;
       loop_limit?: number;
       hooks?: Array<{ type?: string; command?: string }>;
@@ -56,30 +56,30 @@ function isGreaterThan(a: string, b: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// AC-11: subagentStop 声明
+// AC-11: SubagentStop 声明
 // ---------------------------------------------------------------------------
 
-describe('hooks.json — subagentStop 声明 (AC-11)', () => {
-  it('JSON 解析成功且 hooks.subagentStop 数组至少一项', () => {
+describe('hooks.json — SubagentStop 声明 (AC-11)', () => {
+  it('JSON 解析成功且 hooks.SubagentStop 数组至少一项', () => {
     const parsed = readHooksJson();
-    expect(parsed.hooks?.subagentStop?.length).toBeGreaterThan(0);
+    expect(parsed.hooks?.SubagentStop?.length).toBeGreaterThan(0);
   });
 
-  it('subagentStop 项 matcher 应为 implementation-generator', () => {
+  it('SubagentStop 项 matcher 应为 implementation-generator', () => {
     const parsed = readHooksJson();
-    const entry = parsed.hooks?.subagentStop?.[0];
+    const entry = parsed.hooks?.SubagentStop?.[0];
     expect(entry?.matcher).toBe('implementation-generator');
   });
 
-  it('subagentStop 项 loop_limit 应为 5', () => {
+  it('SubagentStop 项 loop_limit 应为 5', () => {
     const parsed = readHooksJson();
-    const entry = parsed.hooks?.subagentStop?.[0];
+    const entry = parsed.hooks?.SubagentStop?.[0];
     expect(entry?.loop_limit).toBe(5);
   });
 
   it('hook command 应指向 static-check.sh', () => {
     const parsed = readHooksJson();
-    const command = parsed.hooks?.subagentStop?.[0]?.hooks?.[0]?.command ?? '';
+    const command = parsed.hooks?.SubagentStop?.[0]?.hooks?.[0]?.command ?? '';
     expect(command).toMatch(/static-check\.sh/);
     expect(command).toContain('${CLAUDE_PLUGIN_ROOT}');
   });

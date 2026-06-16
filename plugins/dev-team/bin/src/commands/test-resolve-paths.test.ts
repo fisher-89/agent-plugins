@@ -232,16 +232,13 @@ describe('toPosixRelativePath -- 边界', () => {
 // resolveTestPaths -- 目录展开 (AC-6)
 // ===========================================================================
 
-describe('resolveTestPaths -- 目录展开', () => {
-  it('目录 src/commands/ 含 foo.ts 与 bar.ts 应返回两条 unit_tests (AC-6)', () => {
+describe('resolveTestPaths -- 文件路径解析', () => {
+  it('多个源文件路径应各自返回同级测试文件 (AC-6)', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/commands/foo.ts', 'export {}');
-      writeFile(project.root, 'src/commands/bar.ts', 'export {}');
-
       const result = resolveTestPaths({
         projectRoot: project.root,
-        modules: ['src/commands/'],
+        modules: ['src/commands/foo.ts', 'src/commands/bar.ts'],
       });
 
       expect(result.unit_tests).toHaveLength(2);
@@ -261,9 +258,6 @@ describe('resolveTestPaths -- 目录展开', () => {
   it('unit_tests 应按 source 字典序排序且去重', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/z.ts', '');
-      writeFile(project.root, 'src/a.ts', '');
-
       const result = resolveTestPaths({
         projectRoot: project.root,
         modules: ['src/z.ts', 'src/a.ts', 'src/a.ts'],
@@ -277,86 +271,37 @@ describe('resolveTestPaths -- 目录展开', () => {
     }
   });
 
-  it('src/node_modules/pkg/index.ts 应被跳过', () => {
+  it('已是测试文件的路径应写入 errors 而非 unit_tests', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/node_modules/pkg/index.ts', '');
-      writeFile(project.root, 'src/app.ts', '');
-
       const result = resolveTestPaths({
         projectRoot: project.root,
-        modules: ['src/'],
-      });
-
-      const sources = result.unit_tests.map((e) => e.source);
-      expect(sources).not.toContain('src/node_modules/pkg/index.ts');
-      expect(sources).toContain('src/app.ts');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('应跳过 .git、dist、build、coverage、.nyc_output、target 目录', () => {
-    const project = createTempProject();
-    try {
-      const skipDirs = ['.git', 'dist', 'build', 'coverage', '.nyc_output', 'target'];
-      for (const dir of skipDirs) {
-        writeFile(project.root, `${dir}/hidden.ts`, '');
-      }
-      writeFile(project.root, 'src/visible.ts', '');
-
-      const result = resolveTestPaths({
-        projectRoot: project.root,
-        modules: ['.'],
-      });
-
-      const sources = result.unit_tests.map((e) => e.source);
-      for (const dir of skipDirs) {
-        expect(sources.some((s) => s.includes(`${dir}/`))).toBe(false);
-      }
-      expect(sources).toContain('src/visible.ts');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('已有测试文件 foo.test.ts 不应被当作源文件展开', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/foo.ts', '');
-      writeFile(project.root, 'src/foo.test.ts', '');
-
-      const result = resolveTestPaths({
-        projectRoot: project.root,
-        modules: ['src/'],
+        modules: ['src/foo.ts', 'src/foo.test.ts'],
       });
 
       const sources = result.unit_tests.map((e) => e.source);
       expect(sources).toContain('src/foo.ts');
       expect(sources).not.toContain('src/foo.test.ts');
+      expect(result.errors.some((e) => e.path === 'src/foo.test.ts')).toBe(true);
     } finally {
       project.cleanup();
     }
   });
 
-  it('应跳过 .md、.json、.yaml、.yml、.txt、.lock 文件', () => {
+  it('非源文件（.md、.json、.yaml 等）路径应写入 errors', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/README.md', '#');
-      writeFile(project.root, 'src/config.json', '{}');
-      writeFile(project.root, 'src/data.yaml', '');
-      writeFile(project.root, 'src/data.yml', '');
-      writeFile(project.root, 'src/notes.txt', '');
-      writeFile(project.root, 'src/yarn.lock', '');
-      writeFile(project.root, 'src/app.ts', '');
-
       const result = resolveTestPaths({
         projectRoot: project.root,
-        modules: ['src/'],
+        modules: ['src/app.ts', 'README.md', 'config.json', 'data.yaml', 'notes.txt'],
       });
 
-      const sources = result.unit_tests.map((e) => e.source);
-      expect(sources).toEqual(['src/app.ts']);
+      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests[0]).toEqual({
+        source: 'src/app.ts',
+        test_file: 'src/app.test.ts',
+      });
+      expect(result.errors).toHaveLength(4);
     } finally {
       project.cleanup();
     }
@@ -477,17 +422,19 @@ describe('resolveTestPaths -- 集成测试路径', () => {
 // ===========================================================================
 
 describe('resolveTestPaths -- 错误收集', () => {
-  it('src/missing.ts 不存在 + src/config.ts 存在：errors 含缺失项，unit_tests 仍含有效条目 (AC-9)', () => {
+  it('不存在的源文件路径仍应推导出测试路径（无需判断文件是否存在）(AC-9)', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/config.ts', '');
-
       const result = resolveTestPaths({
         projectRoot: project.root,
         modules: ['src/missing.ts', 'src/config.ts'],
       });
 
-      expect(result.errors.some((e) => e.path === 'src/missing.ts')).toBe(true);
+      expect(result.errors).toHaveLength(0);
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/missing.ts',
+        test_file: 'src/missing.test.ts',
+      });
       expect(result.unit_tests).toContainEqual({
         source: 'src/config.ts',
         test_file: 'src/config.test.ts',
@@ -550,9 +497,10 @@ describe('resolveTestPaths -- 错误收集', () => {
     try {
       const result = resolveTestPaths({
         projectRoot: project.root,
-        modules: ['z-missing.ts', 'a-missing.ts', 'm-missing.ts'],
+        modules: ['z-file.yaml', 'a-file.json', 'm-file.md'],
       });
 
+      expect(result.errors).toHaveLength(3);
       const paths = result.errors.map((e) => e.path);
       expect(paths).toEqual([...paths].sort());
     } finally {
@@ -563,17 +511,20 @@ describe('resolveTestPaths -- 错误收集', () => {
   it('单条失败不应中断其余 modules 条目的处理', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/valid.ts', '');
-
       const result = resolveTestPaths({
         projectRoot: project.root,
         modules: ['README.md', 'src/valid.ts', 'src/missing.ts'],
       });
 
-      expect(result.errors.length).toBeGreaterThanOrEqual(2);
+      expect(result.errors).toHaveLength(1);
+      expect(result.errors[0].path).toBe('README.md');
       expect(result.unit_tests).toContainEqual({
         source: 'src/valid.ts',
         test_file: 'src/valid.test.ts',
+      });
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/missing.ts',
+        test_file: 'src/missing.test.ts',
       });
     } finally {
       project.cleanup();
@@ -627,20 +578,21 @@ describe('resolveTestPaths -- modules 边界', () => {
     }
   });
 
-  it('modules 混合文件与目录路径时应合并展开结果', () => {
+  it('modules 含多个不同目录的文件路径时应各自返回同级测试文件', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/standalone.ts', '');
-      writeFile(project.root, 'src/dir/inner.ts', '');
-
       const result = resolveTestPaths({
         projectRoot: project.root,
-        modules: ['src/standalone.ts', 'src/dir/'],
+        modules: ['src/standalone.ts', 'src/dir/inner.ts'],
       });
 
       const sources = result.unit_tests.map((e) => e.source);
       expect(sources).toContain('src/standalone.ts');
       expect(sources).toContain('src/dir/inner.ts');
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/dir/inner.ts',
+        test_file: 'src/dir/inner.test.ts',
+      });
     } finally {
       project.cleanup();
     }

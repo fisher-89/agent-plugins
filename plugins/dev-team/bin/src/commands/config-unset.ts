@@ -1,4 +1,5 @@
 import { readConfig, writeConfig, unsetValue } from '../lib/config';
+import { getProjectDir } from '../utils';
 
 export interface ConfigUnsetOptions {
   key: string;
@@ -15,7 +16,7 @@ export interface ConfigUnsetResult {
  * Returns removed: false if the key did not exist.
  */
 export function runConfigUnset(options: ConfigUnsetOptions): ConfigUnsetResult {
-  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || getProjectDir();
 
   // Read current config
   const config = readConfig(projectRoot);

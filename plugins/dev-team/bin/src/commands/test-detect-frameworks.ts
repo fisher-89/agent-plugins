@@ -3,6 +3,7 @@ import * as path from 'path';
 
 import { readConfig } from '../lib/config';
 import { type OpenSpecConfig, type TestFrameworks } from '../schemas';
+import { getProjectDir } from '../utils';
 import { getDefaultGlobForFramework, runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
@@ -323,7 +324,7 @@ export function generateScript(input: GenerateScriptInput): string {
 export function runTestDetectFrameworks(
   options: TestDetectFrameworksOptions,
 ): TestDetectFrameworksResult {
-  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || getProjectDir();
 
   const config = readConfig(projectRoot);
   const { framework, overrides } = config.test;

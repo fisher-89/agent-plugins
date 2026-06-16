@@ -50,11 +50,12 @@ import {
   changeListInputSchema,
   changeListOutputSchema,
 } from './schemas';
+import { getProjectDir } from './utils';
 
 const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
 
 function resolveProjectRoot(cwd?: string | null): string {
-  return cwd || process.env.PROJECT_DIR || process.cwd();
+  return cwd || getProjectDir();
 }
 
 function jsonContent<S extends ZodType>(_outputSchema: S, data: z.output<S>) {

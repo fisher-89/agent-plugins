@@ -1,12 +1,13 @@
 import { ensureConfigFile, getValue } from '../lib/config';
 import { execCommand } from '../lib/exec-command';
+import { getProjectDir } from '../utils';
 
 export interface RunStaticAnalysisOptions {
   projectRoot?: string;
 }
 
 function resolveProjectRoot(options?: RunStaticAnalysisOptions): string {
-  return options?.projectRoot || process.env.PROJECT_DIR || process.cwd();
+  return options?.projectRoot || getProjectDir();
 }
 
 /**

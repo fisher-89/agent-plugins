@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readEvalJson } from '../lib/eval-json';
+import { getProjectDir } from '../utils';
 
 export interface ChangeListOptions {
   project_root?: string | null;
@@ -45,7 +46,7 @@ function countTasks(tasksPath: string): { total: number; done: number } {
  * Pure filesystem scan — no CLI dependency.
  */
 export function runChangeList(options: ChangeListOptions): ChangeListResult {
-  const projectRoot = options.project_root || process.env.PROJECT_DIR || process.cwd();
+  const projectRoot = options.project_root || getProjectDir();
   const changesDir = path.resolve(projectRoot, 'openspec', 'changes');
 
   if (!fs.existsSync(changesDir)) {

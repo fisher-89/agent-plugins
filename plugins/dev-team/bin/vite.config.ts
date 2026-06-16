@@ -1,15 +1,10 @@
-import { copyFileSync, existsSync, readdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { writeFileSync } from 'node:fs';
 
 import { defineConfig } from 'vite-plus';
 
 const MCP_OUTPUT_FILE_NAME = 'dev-team-mcp.cjs';
 const CLI_OUTPUT_FILE_NAME = 'dev-team-cli.cjs';
-const OUTPUT_FILE_NAMES = [
-  MCP_OUTPUT_FILE_NAME,
-  CLI_OUTPUT_FILE_NAME,
-  'openspec-bundled.js',
-];
+const OUTPUT_FILE_NAMES = [MCP_OUTPUT_FILE_NAME, CLI_OUTPUT_FILE_NAME, 'openspec-bundled.js'];
 
 export default defineConfig({
   lint: {

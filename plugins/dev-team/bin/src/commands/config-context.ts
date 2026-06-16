@@ -1,4 +1,5 @@
 import { writeConfig, ensureConfigFile } from '../lib/config';
+import { getProjectDir } from '../utils';
 
 export interface ConfigContextOptions {
   context?: string;
@@ -16,7 +17,7 @@ export interface ConfigContextResult {
  * - With `context` param: writes the new context value and returns it.
  */
 export function runConfigContext(options: ConfigContextOptions): ConfigContextResult {
-  const projectRoot = options.projectRoot || process.env.PROJECT_DIR || process.cwd();
+  const projectRoot = options.projectRoot || getProjectDir();
 
   // Ensure the config file exists
   const config = ensureConfigFile(projectRoot);

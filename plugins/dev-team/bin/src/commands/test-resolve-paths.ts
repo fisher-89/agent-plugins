@@ -1,6 +1,8 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { getProjectDir } from '../utils';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -101,7 +103,7 @@ export function isTestFile(filePath: string): boolean {
   if (/\.test\./.test(base)) return true;
   if (/^test_.*\.py$/.test(base)) return true;
   if (/.*_test\.go$/.test(base)) return true;
-  if (/.*_tests\.rs$/.test(base)) return true;
+  if (/.*_tests?\.rs$/.test(base)) return true;
   return false;
 }
 
@@ -251,73 +253,6 @@ function addUnitTest(unitTests: Map<string, UnitTestEntry>, sourcePath: string):
   }
 }
 
-function processFileModule(
-  modulePath: string,
-  projectRoot: string,
-  unitTests: Map<string, UnitTestEntry>,
-  errors: ResolveError[],
-  collectedSources: string[],
-): void {
-  const posix = modulePath.replace(/\\/g, '/');
-
-  if (!isWithinProjectRoot(projectRoot, modulePath)) {
-    errors.push({ path: posix, message: 'Path is outside project root' });
-    return;
-  }
-
-  const absolutePath = path.resolve(projectRoot, modulePath);
-  if (!fs.existsSync(absolutePath)) {
-    errors.push({ path: posix, message: 'Path does not exist' });
-    return;
-  }
-
-  if (isTestFile(posix)) {
-    errors.push({ path: posix, message: 'Path is already a test file' });
-    return;
-  }
-
-  if (!isSourceFile(posix)) {
-    errors.push({ path: posix, message: 'Not a testable source file' });
-    return;
-  }
-
-  const relative = toPosixRelativePath(absolutePath, projectRoot);
-  collectedSources.push(relative);
-  addUnitTest(unitTests, relative);
-}
-
-function processDirectoryModule(
-  modulePath: string,
-  projectRoot: string,
-  unitTests: Map<string, UnitTestEntry>,
-  errors: ResolveError[],
-  collectedSources: string[],
-): void {
-  const posix = modulePath.replace(/\\/g, '/');
-
-  if (!isWithinProjectRoot(projectRoot, modulePath)) {
-    errors.push({ path: posix, message: 'Path is outside project root' });
-    return;
-  }
-
-  const absolutePath = path.resolve(projectRoot, modulePath);
-  if (!fs.existsSync(absolutePath)) {
-    errors.push({ path: posix, message: 'Path does not exist' });
-    return;
-  }
-
-  if (!fs.statSync(absolutePath).isDirectory()) {
-    processFileModule(modulePath, projectRoot, unitTests, errors, collectedSources);
-    return;
-  }
-
-  const sources = expandDirectory(modulePath, projectRoot);
-  for (const source of sources) {
-    collectedSources.push(source);
-    addUnitTest(unitTests, source);
-  }
-}
-
 /**
  * Resolve unit and integration test paths from a module list.
  * Errors are collected per module; processing continues for remaining entries.
@@ -330,24 +265,24 @@ export function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPat
 
   for (const moduleEntry of params.modules) {
     const posix = moduleEntry.replace(/\\/g, '/');
-    const absolutePath = path.resolve(projectRoot, moduleEntry);
 
     if (!isWithinProjectRoot(projectRoot, moduleEntry)) {
       errors.push({ path: posix, message: 'Path is outside project root' });
       continue;
     }
 
-    if (!fs.existsSync(absolutePath)) {
-      errors.push({ path: posix, message: 'Path does not exist' });
+    if (isTestFile(posix)) {
+      errors.push({ path: posix, message: 'Path is already a test file' });
       continue;
     }
 
-    const stat = fs.statSync(absolutePath);
-    if (stat.isDirectory()) {
-      processDirectoryModule(moduleEntry, projectRoot, unitTestMap, errors, collectedSources);
-    } else {
-      processFileModule(moduleEntry, projectRoot, unitTestMap, errors, collectedSources);
+    if (!isSourceFile(posix)) {
+      errors.push({ path: posix, message: 'Not a testable source file' });
+      continue;
     }
+
+    collectedSources.push(posix);
+    addUnitTest(unitTestMap, posix);
   }
 
   const unit_tests = Array.from(unitTestMap.values()).sort((a, b) =>
@@ -375,7 +310,7 @@ export function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPat
  * MCP command entry: resolve project_root then delegate to resolveTestPaths.
  */
 export function runTestResolvePaths(args: TestResolvePathsInput): ResolveTestPathsResult {
-  const projectRoot = args.project_root || process.env.PROJECT_DIR || process.cwd();
+  const projectRoot = args.project_root || getProjectDir();
   return resolveTestPaths({
     projectRoot,
     modules: args.modules,
