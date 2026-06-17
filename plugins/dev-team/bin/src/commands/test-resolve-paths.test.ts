@@ -650,3 +650,275 @@ describe('runTestResolvePaths -- 端到端编排', () => {
     }
   });
 });
+
+// ===========================================================================
+// add-integration-root-param — deriveIntegrationTestPath + integrationRoot
+// @see openspec/changes/add-integration-root-param/test-design.md
+// ===========================================================================
+
+describe('deriveIntegrationTestPath -- integrationRoot 纯函数', () => {
+  it('未传 integrationRoot 第三参数时 ("api-flow", "ts") → __tests__/api-flow/api-flow.test.ts (AC-1)', () => {
+    expect(deriveIntegrationTestPath('api-flow', 'ts')).toBe('__tests__/api-flow/api-flow.test.ts');
+  });
+
+  it('integrationRoot: "." 时 → __tests__/api-flow/api-flow.test.ts (AC-2)', () => {
+    expect(deriveIntegrationTestPath('api-flow', 'ts', '.')).toBe(
+      '__tests__/api-flow/api-flow.test.ts',
+    );
+  });
+
+  it('("api-flow", "ts", "plugins/dev-team/bin") → plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts (AC-4)', () => {
+    expect(deriveIntegrationTestPath('api-flow', 'ts', 'plugins/dev-team/bin')).toBe(
+      'plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts',
+    );
+  });
+
+  it('integrationRoot: "plugins/dev-team/bin/" 尾部斜杠规范化后无 // 重复 (AC-5)', () => {
+    const result = deriveIntegrationTestPath('api-flow', 'ts', 'plugins/dev-team/bin/');
+    expect(result).toBe('plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts');
+    expect(result).not.toMatch(/\/\//);
+  });
+
+  it('integrationRoot: "" 空字符串时行为与未传或 "." 一致（无前缀）', () => {
+    expect(deriveIntegrationTestPath('api-flow', 'ts', '')).toBe(
+      '__tests__/api-flow/api-flow.test.ts',
+    );
+  });
+
+  it('Windows 反斜杠 integrationRoot: "plugins\\dev-team\\bin" 规范为 POSIX / 分隔符', () => {
+    expect(deriveIntegrationTestPath('api-flow', 'ts', 'plugins\\dev-team\\bin')).toBe(
+      'plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts',
+    );
+  });
+});
+
+describe('resolveTestPaths -- integration_root 向后兼容', () => {
+  it('未传 integrationRoot + integration_scenarios: ["api-flow"] + extension: "ts" → __tests__/api-flow/api-flow.test.ts (AC-1)', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const result = resolveTestPaths({
+        projectRoot: project.root,
+        modules: ['src/config.ts'],
+        integrationScenarios: ['api-flow'],
+        extension: 'ts',
+      });
+
+      expect(result.integration_tests).toContainEqual({
+        scenario: 'api-flow',
+        test_file: '__tests__/api-flow/api-flow.test.ts',
+      });
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('resolveTestPaths -- integration_root 为点号', () => {
+  it('integrationRoot: "." + 同上场景 → 与 AC-1 相同 (AC-2)', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const result = resolveTestPaths({
+        projectRoot: project.root,
+        modules: ['src/config.ts'],
+        integrationScenarios: ['api-flow'],
+        extension: 'ts',
+        integrationRoot: '.',
+      });
+
+      expect(result.integration_tests).toContainEqual({
+        scenario: 'api-flow',
+        test_file: '__tests__/api-flow/api-flow.test.ts',
+      });
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('resolveTestPaths -- integration_root 子目录前缀', () => {
+  it('integrationRoot: "plugins/dev-team/bin" + integration_scenarios: ["api-flow"] → 带子目录前缀路径 (AC-3)', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const result = resolveTestPaths({
+        projectRoot: project.root,
+        modules: ['src/config.ts'],
+        integrationScenarios: ['api-flow'],
+        extension: 'ts',
+        integrationRoot: 'plugins/dev-team/bin',
+      });
+
+      expect(result.integration_tests).toContainEqual({
+        scenario: 'api-flow',
+        test_file: 'plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts',
+      });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('integration_root: "plugins/dev-team/bin/" 经 runTestResolvePaths 映射后路径与 AC-3 一致 (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const result = runTestResolvePaths({
+        modules: ['src/config.ts'],
+        integration_scenarios: ['api-flow'],
+        extension: 'ts',
+        integration_root: 'plugins/dev-team/bin/',
+        project_root: project.root,
+      });
+
+      expect(result.integration_tests).toContainEqual({
+        scenario: 'api-flow',
+        test_file: 'plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts',
+      });
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('resolveTestPaths -- integration_root 与 unit_tests 隔离', () => {
+  it('modules: ["src/config.ts"] + integrationRoot: "plugins/dev-team/bin" 时 unit_tests[0].test_file 仍为 src/config.test.ts (AC-6)', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const result = resolveTestPaths({
+        projectRoot: project.root,
+        modules: ['src/config.ts'],
+        integrationScenarios: ['api-flow'],
+        integrationRoot: 'plugins/dev-team/bin',
+        extension: 'ts',
+      });
+
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/config.ts',
+        test_file: 'src/config.test.ts',
+      });
+      expect(result.integration_tests[0]?.test_file).toContain('plugins/dev-team/bin/__tests__/');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('多个 modules 含不同语言源文件时 integrationRoot 仅改变 integration_tests (AC-6)', () => {
+    const project = createTempProject();
+    try {
+      const modules = ['src/a.ts', 'src/b.py', 'src/c.go'];
+
+      const withoutRoot = resolveTestPaths({
+        projectRoot: project.root,
+        modules,
+        integrationScenarios: ['api-flow'],
+        extension: 'ts',
+      });
+
+      const withRoot = resolveTestPaths({
+        projectRoot: project.root,
+        modules,
+        integrationScenarios: ['api-flow'],
+        extension: 'ts',
+        integrationRoot: 'plugins/dev-team/bin',
+      });
+
+      expect(withRoot.unit_tests).toEqual(withoutRoot.unit_tests);
+      expect(withRoot.integration_tests[0]?.test_file).toMatch(
+        /^plugins\/dev-team\/bin\/__tests__\//,
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('resolveTestPaths -- integration_root 路径穿越', () => {
+  it('integrationRoot: "../outside" 含 .. 段时写入 errors 且 integration_tests 为空 (D7)', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const result = resolveTestPaths({
+        projectRoot: project.root,
+        modules: ['src/config.ts'],
+        integrationScenarios: ['api-flow'],
+        integrationRoot: '../outside',
+        extension: 'ts',
+      });
+
+      expect(result.integration_tests).toEqual([]);
+      expect(
+        result.errors.some((e) => e.path.includes('integration') || e.message.length > 0),
+      ).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestResolvePaths -- integration_root snake_case 映射', () => {
+  it('runTestResolvePaths({ integration_root: "plugins/dev-team/bin" }) 与 resolveTestPaths({ integrationRoot }) 结果一致', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const modules = ['src/config.ts'];
+      const integrationScenarios = ['api-flow'];
+      const extension = 'ts';
+      const integrationRoot = 'plugins/dev-team/bin';
+
+      const direct = resolveTestPaths({
+        projectRoot: project.root,
+        modules,
+        integrationScenarios,
+        extension,
+        integrationRoot,
+      });
+
+      const viaRunner = runTestResolvePaths({
+        modules,
+        integration_scenarios: integrationScenarios,
+        extension,
+        integration_root: integrationRoot,
+        project_root: project.root,
+      });
+
+      expect(viaRunner).toEqual(direct);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('未传 integration_root 时 runTestResolvePaths 与 resolveTestPaths 行为与变更前一致（回归）', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/config.ts', '');
+
+      const params = {
+        projectRoot: project.root,
+        modules: ['src/config.ts'],
+        integrationScenarios: ['api-flow'],
+        extension: 'ts',
+      };
+
+      const direct = resolveTestPaths(params);
+      const viaRunner = runTestResolvePaths({
+        modules: params.modules,
+        integration_scenarios: params.integrationScenarios,
+        extension: params.extension,
+        project_root: project.root,
+      });
+
+      expect(viaRunner).toEqual(direct);
+    } finally {
+      project.cleanup();
+    }
+  });
+});

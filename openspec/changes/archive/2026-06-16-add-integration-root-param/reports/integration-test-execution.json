@@ -1,0 +1,57 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && npm run test; cd /D/Projects/wps-claude-plugin && python -m pytest openspec/changes/add-integration-root-param/tests/test_agent_planner_integration_root.py -v; cd plugins/dev-team/bin && npm run build",
+  "timestamp": "2026-06-16T09:38:00.000Z",
+  "total": 540,
+  "passed": 540,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 10310,
+  "failures": [],
+  "findings": {
+    "type": "All integration tests passed. No failures to report.",
+    "test_breakdown": {
+      "typescript": {
+        "command": "npm run test (vp test)",
+        "total": 532,
+        "passed": 532,
+        "failed": 0,
+        "skipped": 0,
+        "test_files": 21,
+        "duration_ms": 10260
+      },
+      "python": {
+        "command": "python -m pytest test_agent_planner_integration_root.py -v",
+        "total": 8,
+        "passed": 8,
+        "failed": 0,
+        "skipped": 0,
+        "duration_ms": 50
+      },
+      "build": {
+        "command": "npm run build (vp pack)",
+        "success": true,
+        "warnings": [
+          "[INVALID_OPTION] Invalid value for option \"output.dir\" - you must set either \"output.file\" for a single-file build or \"output.dir\" when generating multiple chunks.",
+          "[EMPTY_IMPORT_META] import.meta may not be a valid syntax with the cjs output format."
+        ]
+      }
+    },
+    "coverage_note": "Coverage data not collected during this test run. Coverage is 0.",
+    "lint_note": "vp test reports 'lint failed' due to pre-existing type errors in test-get-framework-config.test.ts and archi-*.test.ts (unrelated to this change). All 532 tests pass regardless of lint status.",
+    "ac_10_verification": "npm run test (532/532 pass) and npm run build (success) - AC-10 satisfied.",
+    "integration_test_cases": {
+      "runTestResolvePaths_end_to_end": {
+        "count": 5,
+        "all_passed": true,
+        "description": "AC-1~AC-6: runTestResolvePaths integration_root end-to-end in test-resolve-paths.test.ts"
+      },
+      "python_static_checks": {
+        "count": 8,
+        "all_passed": true,
+        "description": "AC-8 (MCP registration) and AC-9 (test-design-planner agent) static checks"
+      }
+    }
+  }
+}

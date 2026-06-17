@@ -1,0 +1,519 @@
+{
+  "phase": "06-unit-test",
+  "command": "npx vp test --reporter=verbose 2>&1",
+  "timestamp": "2026-06-16T15:33:00.000Z",
+  "total": 537,
+  "passed": 537,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 10.81,
+  "coverage": null,
+  "coverage_thresholds": null,
+  "coverage_overrides": null,
+  "coverage_pass": false,
+  "coverage_by_framework": [],
+  "html_reports": [],
+  "test_cases": [
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/config.ts 推导为 src/config.test.ts (AC-1)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 1.6,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/component/Button.tsx 推导为 src/component/Button.test.tsx (AC-2)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.3,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/auth.py 推导为 src/test_auth.py (AC-3)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/handler.go 推导为 src/handler_test.go (AC-4)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 纯函数确定性 > 应将 src/lib.rs 推导为 src/lib_test.rs (AC-5)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .js 生成 <name>.test.js 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .jsx 生成 <name>.test.jsx 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .mjs 生成 <name>.test.mjs 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- JS/TS 扩展名全覆盖 > 应为 .cjs 生成 <name>.test.cjs 同级路径",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 边界 > 相同输入多次调用应产生相同输出（不依赖 fs）",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 边界 > 源路径含空格时 basename 应正确保留",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "deriveUnitTestPath -- 边界 > 源路径含 Unicode 字符时 basename 应正确保留",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- 纯函数 > scenario=\"api-flow\", ext=\"ts\" 应生成 __tests__/api-flow/api-flow.test.ts (AC-7)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "normalizeExtension -- 正向 > 应将 \".ts\" 规范为 \"ts\"",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "normalizeExtension -- 正向 > 应将 \"TS\" 规范为小写 \"ts\"",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "normalizeExtension -- 边界 > 空字符串 \"\" 应回退默认或按实现约定处理",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 正向 > 源文件均为 .py 时应推断 py (AC-8)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 正向 > 显式 extension 应优先于众数推断",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 边界 > 无有效源文件时应默认 ts",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "inferExtension -- 边界 > 混合扩展名时应取众数（2×.ts + 1×.py → ts）",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 foo.test.ts 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 test_auth.py 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 handler_test.go 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 正向 > 应识别 lib_test.rs 为测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.3,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 异常 > README.md 应识别为非源文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "isTestFile / isSourceFile -- 异常 > config.json 应识别为非源文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "isWithinProjectRoot -- 异常 > ../../../outside.ts 解析后越出 project_root 应返回 false",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "toPosixRelativePath -- 边界 > 应将 Windows 反斜杠路径规范为 POSIX / 分隔符",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.5,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 文件路径解析 > 多个源文件路径应各自返回同级测试文件 (AC-6)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 14.9,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 文件路径解析 > unit_tests 应按 source 字典序排序且去重",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 2.6,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 文件路径解析 > 已是测试文件的路径应写入 errors 而非 unit_tests",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 2.5,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 文件路径解析 > 非源文件（.md、.json、.yaml 等）路径应写入 errors",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 2.1,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > integration_scenarios: [\"api-flow\"] + extension: \"ts\" (AC-7)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 8.4,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > modules: [\"src/auth.py\"] + integration_scenarios: [\"db-roundtrip\"] 无 extension (AC-8)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 6.1,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > 无有效源文件时集成测试应默认 .test.ts 扩展名",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 5.3,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > 多个 integration_scenarios 应按 scenario 字典序排序",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 5.3,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 集成测试路径 > integration_scenarios 未传或为空数组时 integration_tests 应为空",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 8.5,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > 不存在的源文件路径仍应推导出测试路径（无需判断文件是否存在）(AC-9)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 2.0,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > README.md 应写入 errors，unit_tests 应为空",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 5.3,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > 传入已是测试文件的路径应写入 errors",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 5.4,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > 路径穿越 ../../../outside.ts 应写入 errors",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 2.0,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > errors 应按 path 字典序排序",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 2.4,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- 错误收集 > 单条失败不应中断其余 modules 条目的处理",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 1.7,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- modules 边界 > modules 含单元素文件路径时应返回单条 unit_tests",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 5.8,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- modules 边界 > modules 含大量文件路径（100+ 条）时不应抛错且全部解析",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 222.7,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- modules 边界 > modules 含多个不同目录的文件路径时应各自返回同级测试文件",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 1.5,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 端到端编排 > 传入 modules、integration_scenarios、extension 应返回与 resolveTestPaths 一致的结构",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 5.6,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 端到端编排 > project_root 指向绝对路径且源文件存在时相对路径解析应正确",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 3.6,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- integrationRoot 纯函数 > 未传 integrationRoot 第三参数时 (\"api-flow\", \"ts\") → __tests__/api-flow/api-flow.test.ts (AC-1)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- integrationRoot 纯函数 > integrationRoot: \".\" 时 → __tests__/api-flow/api-flow.test.ts (AC-2)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- integrationRoot 纯函数 > (\"api-flow\", \"ts\", \"plugins/dev-team/bin\") → plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts (AC-4)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- integrationRoot 纯函数 > integrationRoot: \"plugins/dev-team/bin/\" 尾部斜杠规范化后无 // 重复 (AC-5)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- integrationRoot 纯函数 > integrationRoot: \"\" 空字符串时行为与未传或 \".\" 一致（无前缀）",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "deriveIntegrationTestPath -- integrationRoot 纯函数 > Windows 反斜杠 integrationRoot: \"plugins\\dev-team\\bin\" 规范为 POSIX / 分隔符",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- integration_root 向后兼容 > 未传 integrationRoot + integration_scenarios: [\"api-flow\"] + extension: \"ts\" → __tests__/api-flow/api-flow.test.ts (AC-1)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 3.9,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- integration_root 为点号 > integrationRoot: \".\" + 同上场景 → 与 AC-1 相同 (AC-2)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 4.2,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- integration_root 子目录前缀 > integrationRoot: \"plugins/dev-team/bin\" + integration_scenarios: [\"api-flow\"] → 带子目录前缀路径 (AC-3)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 3.9,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- integration_root 子目录前缀 > integration_root: \"plugins/dev-team/bin/\" 经 runTestResolvePaths 映射后路径与 AC-3 一致 (AC-5)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 4.0,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- integration_root 与 unit_tests 隔离 > modules: [\"src/config.ts\"] + integrationRoot: \"plugins/dev-team/bin\" 时 unit_tests[0].test_file 仍为 src/config.test.ts (AC-6)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 3.5,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- integration_root 与 unit_tests 隔离 > 多个 modules 含不同语言源文件时 integrationRoot 仅改变 integration_tests (AC-6)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 1.6,
+      "status": "passed"
+    },
+    {
+      "name": "resolveTestPaths -- integration_root 路径穿越 > integrationRoot: \"../outside\" 含 .. 段时写入 errors 且 integration_tests 为空 (D7)",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 3.8,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root snake_case 映射 > runTestResolvePaths({ integration_root: \"plugins/dev-team/bin\" }) 与 resolveTestPaths({ integrationRoot }) 结果一致",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 3.4,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root snake_case 映射 > 未传 integration_root 时 runTestResolvePaths 与 resolveTestPaths 行为与变更前一致（回归）",
+      "file": "src/commands/test-resolve-paths.test.ts",
+      "duration_ms": 3.6,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > 完整有效输入（含 modules、integration_scenarios、extension、project_root）应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 3.3,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > 仅 modules 最小必填输入应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.3,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > extension 带前导 \".\" 的输入应通过 schema（规范化在 command 层）",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 正向 > project_root 为 null 时应通过验证（nullable）",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 异常 > modules: [] 应被 input schema 拒绝 (AC-10)",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.9,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 异常 > 缺少 modules 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.4,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- 异常 > modules 为非数组类型时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.3,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 正向 > 完整输出对象（含 unit_tests、integration_tests、errors）应通过验证 (AC-11)",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 1.0,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 正向 > 三个数组均为空 [] 时应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.3,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 unit_tests 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.3,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 integration_tests 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.3,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 errors 字段时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > unit_tests 条目缺少 source 时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > unit_tests 条目缺少 test_file 时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 异常 > errors 条目 message 为 null 时应拒绝",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsOutputSchema -- 边界 > integration_tests 含多条 scenario 条目时应通过验证",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.9,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > 含 integration_root: \"plugins/dev-team/bin\" 的完整有效输入应通过验证 (AC-7)",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.7,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > 不含 integration_root 的最小必填输入仍应通过（向后兼容）",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > integration_root: \"\" 空字符串应通过 schema（规范化在 command 层）",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > integration_root: \".\" 应通过 schema",
+      "file": "src/schemas/test-resolve-paths.schema.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    }
+  ],
+  "integration_test": null,
+  "failures": [],
+  "findings": "framework-auto-detect: No frameworks detected (plan is empty) -- fell back to manual 'vp test' execution. Coverage not available in fallback mode (coverage=null). Formatting fix applied to test-resolve-paths.ts line 331: replaced non-null assertion with normalizedRoot. All 537 tests passed across 21 test files. Python static tests (8/8) in test_agent_planner_integration_root.py also passed."
+}

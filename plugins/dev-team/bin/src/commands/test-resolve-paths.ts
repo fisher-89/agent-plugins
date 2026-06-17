@@ -27,6 +27,7 @@ export interface ResolveTestPathsParams {
   modules: string[];
   integrationScenarios?: string[];
   extension?: string;
+  integrationRoot?: string;
 }
 
 export interface ResolveTestPathsResult {
@@ -39,6 +40,7 @@ export interface TestResolvePathsInput {
   modules: string[];
   integration_scenarios?: string[];
   extension?: string;
+  integration_root?: string;
   project_root?: string | null;
 }
 
@@ -141,10 +143,38 @@ export function deriveUnitTestPath(sourcePath: string): string {
   return dir === '.' ? testName : `${dir}/${testName}`;
 }
 
+/** Normalize integration_root: POSIX slashes, strip trailing slash; "." / "" → no prefix. */
+function normalizeIntegrationRoot(integrationRoot?: string): string | undefined {
+  if (integrationRoot === undefined || integrationRoot === '') {
+    return undefined;
+  }
+
+  const posix = integrationRoot.replace(/\\/g, '/').replace(/\/+$/, '');
+  if (posix === '' || posix === '.') {
+    return undefined;
+  }
+
+  return posix;
+}
+
+/** Return true when integrationRoot has no path-traversal segments. */
+function isValidIntegrationRoot(integrationRoot: string): boolean {
+  return !integrationRoot.split('/').some((segment) => segment === '..');
+}
+
 /** Derive integration test path: __tests__/<scenario>/<scenario>.test.<ext> */
-export function deriveIntegrationTestPath(scenario: string, ext: string): string {
+export function deriveIntegrationTestPath(
+  scenario: string,
+  ext: string,
+  integrationRoot?: string,
+): string {
   const normalized = normalizeExtension(ext);
-  return `__tests__/${scenario}/${scenario}.test.${normalized}`;
+  const basePath = `__tests__/${scenario}/${scenario}.test.${normalized}`;
+  const root = normalizeIntegrationRoot(integrationRoot);
+  if (!root) {
+    return basePath;
+  }
+  return `${root}/${basePath}`;
 }
 
 /** Strip leading dot and lower-case an extension string. */
@@ -293,11 +323,21 @@ export function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPat
   const scenarios = params.integrationScenarios;
   if (scenarios && scenarios.length > 0) {
     const ext = inferExtension(collectedSources, params.extension);
-    for (const scenario of [...scenarios].sort((a, b) => a.localeCompare(b))) {
-      integration_tests.push({
-        scenario,
-        test_file: deriveIntegrationTestPath(scenario, ext),
+    const normalizedRoot = normalizeIntegrationRoot(params.integrationRoot);
+    const invalidRoot = normalizedRoot !== undefined && !isValidIntegrationRoot(normalizedRoot);
+
+    if (invalidRoot) {
+      errors.push({
+        path: normalizedRoot.replace(/\\/g, '/'),
+        message: 'integration_root path is outside project root',
       });
+    } else {
+      for (const scenario of [...scenarios].sort((a, b) => a.localeCompare(b))) {
+        integration_tests.push({
+          scenario,
+          test_file: deriveIntegrationTestPath(scenario, ext, params.integrationRoot),
+        });
+      }
     }
   }
 
@@ -316,5 +356,6 @@ export function runTestResolvePaths(args: TestResolvePathsInput): ResolveTestPat
     modules: args.modules,
     integrationScenarios: args.integration_scenarios,
     extension: args.extension,
+    integrationRoot: args.integration_root,
   });
 }

@@ -57,7 +57,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
       if (idx === -1) {
         throw new Error(`无效的回溯目标 phase: "${target}"。请使用有效的 phase 标识符。`);
       }
-      if(idx >= currentIdx) {
+      if (idx >= currentIdx) {
         throw new Error(`无效的回溯目标 phase: "${target}"。不支持回溯到当前或未来phase。`);
       }
     }

@@ -16,6 +16,10 @@ export const testResolvePathsInputSchema = z.object({
     .string()
     .optional()
     .describe('Integration test file extension (e.g. "ts", "py"; leading dot optional)'),
+  integration_root: z
+    .string()
+    .optional()
+    .describe('Parent directory of __tests__/ (relative to project_root)'),
   project_root: z
     .string()
     .optional()

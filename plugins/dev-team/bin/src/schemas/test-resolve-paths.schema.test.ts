@@ -202,3 +202,51 @@ describe('testResolvePathsOutputSchema -- 边界', () => {
     }
   });
 });
+
+// ===========================================================================
+// add-integration-root-param — testResolvePathsInputSchema.integration_root
+// @see openspec/changes/add-integration-root-param/test-design.md
+// ===========================================================================
+
+describe('testResolvePathsInputSchema -- integration_root 可选字段', () => {
+  it('含 integration_root: "plugins/dev-team/bin" 的完整有效输入应通过验证 (AC-7)', () => {
+    const input = {
+      modules: ['src/config.ts'],
+      integration_scenarios: ['api-flow'],
+      extension: 'ts',
+      integration_root: 'plugins/dev-team/bin',
+      project_root: '/abs/project',
+    };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data).toHaveProperty('integration_root', 'plugins/dev-team/bin');
+    }
+  });
+
+  it('不含 integration_root 的最小必填输入仍应通过（向后兼容）', () => {
+    const input = {
+      modules: ['src/a.ts'],
+    };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it('integration_root: "" 空字符串应通过 schema（规范化在 command 层）', () => {
+    const input = {
+      modules: ['src/a.ts'],
+      integration_root: '',
+    };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it('integration_root: "." 应通过 schema', () => {
+    const input = {
+      modules: ['src/a.ts'],
+      integration_root: '.',
+    };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+});
