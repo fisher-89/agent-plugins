@@ -12,41 +12,52 @@ Execute unit tests and integration tests separately, and produce a structured ex
 
 Read:
 
-- `openspec/config.json` — read `test.frameworks`, `test.coverage.thresholds`, `test.coverage.overrides`
 - The project's CLAUDE.md for test command conventions
 - `openspec/changes/<change-name>/test-design.md` — read `单元测试 > 用例` for unit test scope, `集成测试 > 用例` for integration test scope
 - `plugins/dev-team/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 表格结构
-- Existing test files (Glob to find `**/*.test.*`, `**/tests/unit/**`, `**/__tests__/**` for unit; `**/*.integration.test.*`, `**/tests/integration/**` for integration)
 
 ## Process
 
-### 1. Framework detection
+### 1. Detect frameworks and obtain execution plan
 
-Call the MCP tool `test_detect_frameworks` to detect which test frameworks the project uses:
+Call the MCP tool `test_detect_frameworks` (without `files` parameter to scan all test files in the project):
 
 ```
 mcp__plugin_dev-team_dev-team__test_detect_frameworks({})
 ```
 
-Collect the `plan` array and `frameworks` array from the result. If frameworks are detected, proceed to step 2. If no frameworks are detected (empty list), fall back to manual file globbing:
+The tool returns:
 
-- Glob for `**/*.test.ts{x}`, `**/*.test.js{x}`, `**/*_test.rs`
-- Glob for `**/tests/unit/**`
-- Glob for `**/__tests__/**`
+- `detected`: per-file framework detection results (`{file, framework}[]`) — all discovered test files
+- `plan`: execution plan per framework, each entry contains:
+  - `directory` — working directory (relative to project root)
+  - `framework` — framework name (e.g. "vitest", "jest", "pytest")
+  - `coverage_cmd` — command that runs tests AND generates coverage
+  - `coverage_format` — output format ("istanbul" | "llvm-cov")
+  - `coverage_output` — coverage output file path (relative to `directory`)
+  - `coverage_artifacts` — glob patterns for artifacts to move
+  - `coverage_cleanup` — paths to clean up after move
+  - `script` — complete bash script (shebang, set -e, cd, rm -rf, coverage command)
+- `frameworks`: deduplicated list of framework names
 
-### 2. Execute unit tests with per-case timing (using plan)
+If no frameworks are detected (empty `frameworks` list), write a report with `total: 0, passed: 0, failed: 0` and note in `findings`.
 
-For each entry in the `plan` array returned by `test_detect_frameworks`:
+### 2. Execute unit tests (using plan scripts)
 
-**2a. Run unit tests with verbose reporter for per-case timing**
+For each entry in the `plan` array:
 
-First, run the test command with a reporter that outputs per-case duration. Prefer JSON reporters when available:
+**Run the `script` directly** — it handles directory setup, cleanup, and test execution with coverage:
 
-- **vitest**: `npx vitest run --reporter=json 2>&1` — parse `testResults[].assertionResults[]` for `title`, `ancestorTitles`, `duration`, `status`
-- **jest**: `npx jest --json 2>&1` — parse `testResults[].assertionResults[]` for `title`, `ancestorTitles`, `duration`, `status`
-- **pytest**: `python -m pytest <unit_test_dir> -v --durations=0 2>&1` — parse lines matching `PASSED`/`FAILED` with trailing `[xx%]` or use `--json-report`
-- **cargo test**: `cargo test -- --show-output 2>&1` — parse `test <name> ... ok` lines
-- Other frameworks: fall back to verbose output, parse `describe`/`it` pass/fail lines with duration annotations
+```bash
+bash -c "<script content>" 2>&1
+```
+
+Capture stdout, stderr, and exit code. The script runs tests with coverage in one pass. Parse the test output from stdout to extract per-case results:
+
+- **vitest/jest** (JSON on stdout): parse `testResults[].assertionResults[]` for `title`, `ancestorTitles`, `duration`, `status`
+- **pytest**: parse lines matching `PASSED`/`FAILED` with trailing duration, or use `--json-report` output
+- **cargo test**: parse `test <name> ... ok/FAILED` lines
+- Other frameworks: parse verbose output for pass/fail/duration annotations
 
 Extract from the output for each test case:
 
@@ -55,20 +66,16 @@ Extract from the output for each test case:
 - `duration_ms`: execution time in milliseconds
 - `status`: `"passed"` | `"failed"` | `"skipped"`
 
-**2b. Run coverage_cmd for coverage data**
+Record `coverage_format` and `coverage_output` from the plan entry for later parsing (note: `coverage_output` is relative to the plan entry's `directory`).
 
-- Change to the `directory` specified in the plan entry (relative to the project root)
-- Run `coverage_cmd` in that directory, capturing stdout, stderr, and exit code
-- Record `coverage_format` and `coverage_output` for later parsing — note that `coverage_output` is relative to the `directory`
+**Failure handling:** If the script exits with a non-zero code:
 
-**Failure handling:** If a coverage command exits with a non-zero code:
-
+- Still parse stdout for any test case results (partial results are valid)
 - Set that framework's `coverage` three dimensions to 0
 - Record an error finding (e.g. "vitest coverage command failed: <error message>")
 - Exclude the framework from `html_reports`
 - Skip the move artifacts step for this framework
-- Do NOT block the overall report writing
-- Per-case timing data from 2a is still valid even if 2b fails
+- DO NOT block the overall report writing
 
 ### 3. Move coverage artifacts to unified directory
 
@@ -92,15 +99,6 @@ For each entry in the `plan` array where `coverage_artifacts` is non-empty and c
 - **If artifacts do not exist** (source glob matches nothing): record a finding (e.g. "vitest coverage artifacts not found, skipping move"), skip cleanup, do NOT block the flow, set coverage to null
 - **If move fails** (e.g. permission error): record the error to findings, preserve original state, do NOT run cleanup, do NOT block the flow
 - **If `coverage_artifacts` is empty**: skip the entire move and cleanup step for this framework
-
-If framework detection fell back to manual globbing (step 1 fallback), use existing heuristic:
-
-- TypeScript/Jest/Vitest: `npx vitest run --reporter=verbose 2>&1` or `npx jest --verbose 2>&1`
-- Python: `python -m pytest tests/ -v 2>&1`
-- Go: `go test ./... -v 2>&1`
-- Rust: `cargo test 2>&1`
-  Run these commands from the project root directory.
-  Note: coverage is not available in fallback mode — report `coverage: null` and `coverage_pass: false`.
 
 ### 4. Coverage parsing
 
@@ -271,22 +269,9 @@ When no integration tests exist:
 
 ---
 
-## Process Change Summary
-
-| Step  | 原流程                             | 新流程                                                                                          |
-| ----- | ---------------------------------- | ----------------------------------------------------------------------------------------------- |
-| Steps | 6 步骤                             | 7 步骤                                                                                          |
-| 1     | 框架检测（test_detect_frameworks） | 框架检测（不变）                                                                                |
-| 2     | 逐目录执行覆盖率命令               | **拆分为 2a+2b**：2a 先跑 verbose/json reporter 获取每用例耗时，2b 再跑 coverage_cmd 获取覆盖率 |
-| 3     | 移动覆盖率产物到统一目录           | 移动覆盖率产物到统一目录（不变）                                                                |
-| 4     | 覆盖率解析                         | 覆盖率解析（不变）                                                                              |
-| 5     | 阈值判定                           | 阈值判定（不变）                                                                                |
-| —     | —                                  | **新增步骤 6**：集成测试单独执行，解析每用例耗时和失败详情                                      |
-| 6     | 报告写入                           | 报告写入（步骤 7），新增 `test_cases[]`（含 duration_ms）、`integration_test` 字段              |
-
 ## Constraints
 
-- Do NOT modify any source code or test files
+- DO NOT modify any source code or test files
 - Capture the full stdout/stderr for accurate reporting
 - If coverage data is not available, report `coverage: null` (not 0)
 - If no test files are found, write a report with `total: 0, passed: 0, failed: 0` and note the situation in a `findings` field
@@ -294,7 +279,7 @@ When no integration tests exist:
 - Exit code handling: capture exit code but do NOT fail on non-zero exit (the report captures failure details)
 - Report file MUST use valid JSON — validate the output before writing
 - Coverage command failure must NOT block test report generation
-- Use the tool `mcp__plugin_dev-team_dev-team__test_detect_frameworks` to detect frameworks and obtain the execution plan
-- Do NOT call `test_get_framework_config` — all command configuration is available in the `plan` array
-- For each `plan` entry, run `coverage_cmd` in the specified `directory` (relative to the project root)
+- Use `test_detect_frameworks` to obtain the execution plan — run the returned `script` directly
+- DO NOT call `test_get_framework_config` — all command configuration is available in the `plan` array
+- DO NOT manually construct test commands — use the `script` field from each plan entry
 - `coverage_output` paths are relative to each plan entry's `directory`

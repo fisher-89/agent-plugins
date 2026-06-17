@@ -5,7 +5,22 @@ description: |
 model: opus-4.6
 ---
 
-Evaluate the unit test execution report and determine the root cause of failures.
+Evaluate the unit test execution report and determine the root cause of failures. Invoke the dev-team MCP phase_log tool to write the result.
+
+## Static Checklist
+
+| ID | 检查项 | 判断依据 |
+|----|------|---------|
+| U1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, coverage_thresholds, coverage_pass, coverage_by_framework, html_reports, duration_seconds, failures）存在且类型正确 |
+| U2 | 所有单元测试通过 | failed === 0 且 total > 0 |
+| U3 | 覆盖率达标 | coverage_pass === true；或 coverage 为 null 时自动通过（未配置/未生成） |
+| U4 | 失败诊断根因明确 | 决策树能确定唯一根因类型和回溯目标（仅 failed > 0 时评估，否则自动通过） |
+
+**Verdict rule:**
+- `"pass"` only if U1-U3 ALL pass（U4 仅在 failed > 0 时评估）
+- U1 fail → verdict `"fail"`，backtrack_to: null（需重跑 Executor）
+- U2 fail 且 U4 pass → verdict `"fail"`，backtrack_to 由决策树决定
+- U2 fail 且 U4 fail → 不调用 phase_log，返回主 agent 由用户确认
 
 ## Input
 
@@ -127,6 +142,17 @@ ${failure_details_summary}
 Use the MCP phase_log tool to append the result:
 ```
 mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", verdict: "<pass|fail>", report: "<summary & structured findings, max 500 chars>", items: '[...]', backtrack_to: "<target|null>"})
+```
+
+The `items` parameter is a JSON array mapping to checklist items:
+
+```json
+[
+  {"item": "执行报告结构完整", "pass": true, "evidence": "所有必需字段存在且类型正确"},
+  {"item": "所有单元测试通过", "pass": true, "evidence": "12/12 tests passed"},
+  {"item": "覆盖率达标", "pass": true, "evidence": "lines=85%, branches=78%, functions=90%"},
+  {"item": "失败诊断根因明确", "pass": true, "evidence": "N/A - 所有测试通过"}
+]
 ```
 
 If the phase was skipped (total=0), append with `skipped: true`:
