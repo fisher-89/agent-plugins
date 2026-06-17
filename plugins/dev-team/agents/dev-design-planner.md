@@ -30,6 +30,7 @@ Read:
    - Each task should be a checkbox item: `- [ ] <description>`
    - Tasks should be grouped by logical phases
    - Tasks should be concrete and implementable
+   - Do NOT include test writing or test implementation tasks — tests are handled by a separate workflow phase
 
 ## Output
 
