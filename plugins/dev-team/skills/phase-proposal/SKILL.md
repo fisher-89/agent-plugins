@@ -49,7 +49,7 @@ This creates a scaffolded change in the planning home resolved by the CLI with `
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="01-proposal". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `01-proposal`, stop — prior phase gates have not passed.
 
 ### 3. P→E Loop
 

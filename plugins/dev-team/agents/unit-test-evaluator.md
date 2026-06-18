@@ -11,9 +11,9 @@ Evaluate the unit test execution report and determine the root cause of failures
 
 | ID | 检查项 | 判断依据 |
 |----|------|---------|
-| U1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, coverage_thresholds, coverage_pass, coverage_by_framework, html_reports, duration_seconds, failures）存在且类型正确 |
+| U1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds, test_cases）存在且类型正确 |
 | U2 | 所有单元测试通过 | failed === 0 且 total > 0 |
-| U3 | 覆盖率达标 | coverage_pass === true；或 coverage 为 null 时自动通过（未配置/未生成） |
+| U3 | 覆盖率达标 | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成） |
 | U4 | 失败诊断根因明确 | 决策树能确定唯一根因类型和回溯目标（仅 failed > 0 时评估，否则自动通过） |
 
 **Verdict rule:**
@@ -36,20 +36,16 @@ Read:
 Check that the report contains all required fields:
 - `phase`, `command`, `timestamp` — metadata
 - `total`, `passed`, `failed`, `skipped` — counts (numbers)
-- `coverage` — object `{lines, branches, functions}` or null
-- `coverage_thresholds` — object `{lines, branches, functions}`
-- `coverage_pass` — boolean
-- `coverage_by_framework` — array (may be empty)
-- `html_reports` — string array
+- `coverage` — nested object with `coverage.pass`, `coverage.measured`, `coverage.thresholds`, `coverage.by_framework`, `coverage.overrides`, or `null`
 - `duration_seconds` — number
-- `failures` — array (may be empty)
+- `test_cases` — array (may be empty); failed entries must include `line`, `error_type`, `error_message`, `stack_trace`
 
 If any required field is missing or has wrong type, set:
 - `verdict`: `"fail"`
 - `report`: `"报告不完整: [缺失字段列表]"`
 - `backtrack_to`: `null` (re-run the test executor)
 
-Note: `coverage_by_framework` and `html_reports` may be empty arrays when coverage was not generated. This is acceptable.
+Note: `coverage` may be `null` when coverage was not generated. This is acceptable.
 
 ### Step 2: No-op / empty check
 
@@ -66,16 +62,16 @@ If `failed === 0` and `total > 0`:
 - `report`: `"所有 ${total} 个单元测试通过"`
 - `backtrack_to`: `null`
 
-**Coverage sub-check (within all-pass):** If the report contains `coverage_pass`, also verify:
-- If `coverage_pass` is `true` and `coverage` is not null, add to findings: "覆盖率达标: lines=X%, branches=X%, functions=X%"
-- If `coverage_pass` is `false` and `coverage` is not null, mark the coverage checklist item as `fail`, with evidence listing each failing dimension: "lines=X% (阈值 Y%), branches=X% (阈值 Y%), functions=X% (阈值 Y%)" and any failing override groups: "${glob}: ${dimension}=X% 低于 override 阈值 Y%"
-- If `coverage` is null, mark the coverage checklist item as `pass` with evidence "覆盖率检查未配置或生成失败，跳过"
+**Coverage sub-check (within all-pass):** If the report contains `coverage`, also verify:
+- If `coverage.pass` is `true` and `coverage` is not null, add to findings: "覆盖率达标: lines=X%, branches=X%, functions=X%" (read from `coverage.measured`)
+- If `coverage.pass` is `false` and `coverage` is not null, mark the coverage checklist item as `fail`, with evidence listing each failing dimension: "lines=X% (阈值 Y%), branches=X% (阈值 Y%), functions=X% (阈值 Y%)" (compare `coverage.measured` vs `coverage.thresholds`) and any failing override groups: "${glob}: ${dimension}=X% 低于 override 阈值 Y%" (from `coverage.overrides`)
+- If `coverage === null`, mark the coverage checklist item as `pass` with evidence "覆盖率检查未配置或生成失败，跳过"
 
 If the verdict is pass but coverage fails, still set verdict pass (test execution results are the main gate), but include coverage findings for visibility.
 
 ### Step 4: Apply diagnostic decision tree
 
-If `failed > 0`, analyze each failure and apply the following decision tree:
+If `failed > 0`, analyze each failure from `test_cases.filter(c => c.status === "failed")` and apply the following decision tree. For each failed entry, read `error_type`, `file`, and `line`:
 
 **Decision Tree:**
 
@@ -122,11 +118,11 @@ Construct a structured findings string:
 ```
 诊断分析: ${phase} 阶段测试执行结果
 总计: ${total} | 通过: ${passed} | 失败: ${failed} | 跳过: ${skipped}
-覆盖率: ${coverage ? `lines=${coverage.lines}%, branches=${coverage.branches}%, functions=${coverage.functions}%` : '未生成'}
-覆盖率达标: ${coverage_pass}
+覆盖率: ${coverage ? `lines=${coverage.measured.lines}%, branches=${coverage.measured.branches}%, functions=${coverage.measured.functions}%` : '未生成'}
+覆盖率达标: ${coverage ? coverage.pass : 'N/A'}
 
 各框架覆盖率详情:
-${coverage_by_framework.map(fw => `- ${fw.framework}: lines=${fw.coverage.lines}%, branches=${fw.coverage.branches}%, functions=${fw.coverage.functions}% (HTML报告: ${fw.html_report || '无'})`).join('\n')}
+${coverage ? coverage.by_framework.map(fw => `- ${fw.framework}: lines=${fw.measured.lines}%, branches=${fw.measured.branches}%, functions=${fw.measured.functions}%`).join('\n') : '无'}
 
 失败详情:
 ${failure_details_summary}
@@ -167,5 +163,5 @@ mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test
 - Do NOT modify test files or source code
 - Do NOT re-run tests — evaluation is based on the existing report only
 - If the report file does not exist, set verdict "fail" with report "测试执行报告不存在，请先运行 Executor"
-- Coverage evaluation uses the pre-computed `coverage_pass` from the report — do NOT re-calculate coverage or thresholds
-- When `coverage` is null, always pass the coverage check with explanation — do not fail the phase for missing coverage data
+- Coverage evaluation uses the pre-computed `coverage.pass` from the report — do NOT re-calculate coverage or thresholds
+- When `coverage === null`, always pass the coverage check with explanation — do not fail the phase for missing coverage data

@@ -8,7 +8,6 @@ import { runConfigContext } from './commands/config-context';
 import { runConfigGet } from './commands/config-get';
 import { runConfigSet } from './commands/config-set';
 import { runConfigUnset } from './commands/config-unset';
-import { runPhaseCheck } from './commands/phase-check';
 import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
 import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
@@ -21,8 +20,6 @@ import { runCrossRefCheck } from './lib/c4-cross-ref';
 import {
   phaseLogInputSchema,
   phaseLogOutputSchema,
-  phaseCheckInputSchema,
-  phaseCheckOutputSchema,
   archiQueryInputSchema,
   archiQueryOutputSchema,
   archiValidateInputSchema,
@@ -83,22 +80,6 @@ async function main(): Promise<void> {
     async (args) => {
       const result = runPhaseLog(args);
       return jsonContent(phaseLogOutputSchema, result);
-    },
-  );
-
-  server.registerTool(
-    'phase_check',
-    {
-      description:
-        '[DEPRECATED] Check if all prior workflow phases have passed evaluation for a given phase. ' +
-        'Retained for debugging only — the workflow loop uses phase_next as the single decision point. ' +
-        'Runs prerequisite gate check and returns structured result.',
-      inputSchema: phaseCheckInputSchema,
-      outputSchema: phaseCheckOutputSchema,
-    },
-    async (args) => {
-      const result = runPhaseCheck(args);
-      return jsonContent(phaseCheckOutputSchema, result);
     },
   );
 

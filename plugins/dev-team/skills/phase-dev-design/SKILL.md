@@ -25,7 +25,7 @@ If a name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__ch
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="02-dev-design". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `02-dev-design`, stop — prior phase gates have not passed.
 
 ### 3. Check backtrack
 Read eval.json for `backtrack_to` = "02-dev-design". If found, run Evaluator first.

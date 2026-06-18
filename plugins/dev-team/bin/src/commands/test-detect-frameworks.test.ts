@@ -23,6 +23,7 @@ import {
   deriveWorkingDirectory,
   generateScript,
 } from './test-detect-frameworks';
+import { runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
 // Helpers: create temp project directories with config.json
@@ -410,7 +411,7 @@ describe('runTestDetectFrameworks -- plan 内容正确性 (AC-6)', () => {
       expect(result.plan[0]).toMatchObject({
         directory: '.',
         framework: 'vite-plus',
-        coverage_cmd: 'vp test --coverage',
+        coverage_cmd: 'vp test --coverage --coverage.reporter=json-summary',
         coverage_format: 'istanbul',
         coverage_output: 'coverage/coverage-summary.json',
       });
@@ -462,7 +463,7 @@ describe('runTestDetectFrameworks -- 单框架 plan (AC-9)', () => {
       expect(result.plan[0]).toMatchObject({
         directory: '.',
         framework: 'vitest',
-        coverage_cmd: 'npx vitest run --coverage',
+        coverage_cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
         coverage_format: 'istanbul',
         coverage_output: 'coverage/coverage-summary.json',
       });
@@ -487,7 +488,7 @@ describe('runTestDetectFrameworks -- 单框架 plan (AC-9)', () => {
       expect(result.plan[0]).toMatchObject({
         directory: '.',
         framework: 'jest',
-        coverage_cmd: 'npx jest --coverage',
+        coverage_cmd: 'npx jest --coverage --coverageReporters=json-summary',
         coverage_format: 'istanbul',
       });
     } finally {
@@ -662,7 +663,7 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
     }
   });
 
-  it('vitest plan 条目的 coverage_artifacts 为 ["coverage/**"]，coverage_cleanup 为 ["coverage", ".nyc_output", "test-stderr.txt"]', () => {
+  it('vitest plan 条目的 coverage_artifacts 为 ["coverage/coverage-summary.json"]，coverage_cleanup 为 ["coverage", ".nyc_output", "test-stderr.txt"]', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -674,7 +675,7 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
         files: ['src/test.test.ts'],
         projectRoot: project.root,
       });
-      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/**']);
+      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
       expect(result.plan[0].coverage_cleanup).toEqual([
         'coverage',
         '.nyc_output',
@@ -708,7 +709,7 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
     }
   });
 
-  it('rust plan 条目 coverage_artifacts 包含 coverage/** 和 target/llvm-cov/**', () => {
+  it('rust plan 条目 coverage_artifacts 为 ["coverage/coverage-summary.json"]', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -720,8 +721,7 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
         files: ['tests/test_auth.rs'],
         projectRoot: project.root,
       });
-      expect(result.plan[0].coverage_artifacts).toContain('coverage/**');
-      expect(result.plan[0].coverage_artifacts).toContain('target/llvm-cov/**');
+      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
       expect(result.plan[0].coverage_cleanup).toContain('coverage');
       expect(result.plan[0].coverage_cleanup).toContain('target/llvm-cov');
     } finally {
@@ -744,7 +744,7 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
       expect(result.plan).toHaveLength(1);
       expect(result.plan[0]).toHaveProperty('coverage_artifacts');
       expect(result.plan[0]).toHaveProperty('coverage_cleanup');
-      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/**']);
+      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
     } finally {
       project.cleanup();
     }
@@ -1204,6 +1204,106 @@ describe('runTestDetectFrameworks -- 单框架 plan script', () => {
       expect(result.plan).toHaveLength(1);
       expect(typeof result.plan[0].script).toBe('string');
       expect(result.plan[0].script.length).toBeGreaterThan(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// AC-9: plan 传播 JSON-only 覆盖率配置 (simplify-test-report-schema)
+// @see openspec/changes/simplify-test-report-schema/test-design.md
+// ===========================================================================
+
+describe('runTestDetectFrameworks — plan JSON-only 传播 (AC-9)', () => {
+  it('vitest plan 条目 coverage_cmd 应等于注册表 JSON-only 命令', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const expected = runTestGetFrameworkConfig({ framework: 'vitest' });
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan[0].coverage_cmd).toBe(expected.coverage_cmd);
+      expect(expected.coverage_cmd).toContain('json-summary');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('vitest plan 条目 coverage_artifacts 应为 ["coverage/coverage-summary.json"]', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('rust plan 条目 coverage_cmd 应为 cargo llvm-cov --json', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'rust' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['tests/test_auth.rs'],
+        projectRoot: project.root,
+      });
+      expect(result.plan[0].coverage_cmd).toBe('cargo llvm-cov --json');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('多框架 [vitest, rust] 时每个 plan 条目 coverage_cmd/coverage_artifacts 与对应注册表一致', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [{ file: 'tests/**/*.rs', framework: 'rust' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts', 'tests/test_auth.rs'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(2);
+      for (const entry of result.plan) {
+        const expected = runTestGetFrameworkConfig({ framework: entry.framework });
+        expect(entry.coverage_cmd).toBe(expected.coverage_cmd);
+        expect(entry.coverage_artifacts).toEqual(expected.coverage_artifacts);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('vitest plan 生成的 script 最后一行应等于含 json-summary 的 coverage_cmd', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      const script = result.plan[0].script;
+      const lastLine = script.trimEnd().split('\n').pop() ?? '';
+      expect(lastLine).toBe(result.plan[0].coverage_cmd);
+      expect(lastLine).toContain('json-summary');
     } finally {
       project.cleanup();
     }

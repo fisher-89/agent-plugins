@@ -24,7 +24,7 @@ If a name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__ch
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="05-implement". If `passed` is false, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `05-implement`, stop — prior phase gates have not passed.
 
 ### 3. G→E Loop
 

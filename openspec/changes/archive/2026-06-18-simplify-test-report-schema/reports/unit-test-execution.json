@@ -1,0 +1,946 @@
+{
+  "phase": "06-unit-test",
+  "command": "pnpm test -- src/commands/test-get-framework-config.test.ts src/commands/test-detect-frameworks.test.ts --coverage --coverage.reporter=json-summary",
+  "timestamp": "2026-06-18T02:27:19.715Z",
+  "total": 122,
+  "passed": 122,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 0.97,
+  "coverage": {
+    "pass": false,
+    "measured": {
+      "lines": 72.76,
+      "branches": 62.88,
+      "functions": 64
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": [
+      {
+        "framework": "vite-plus",
+        "measured": {
+          "lines": 72.76,
+          "branches": 62.88,
+          "functions": 64
+        }
+      }
+    ],
+    "overrides": []
+  },
+  "test_cases": [
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should map each file to its matching framework via default + overrides",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 9.360100000000102,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should use first-match rule when a file matches both default and override globs",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.862799999999993,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should return \"unknown\" for files not matching any glob (reverse AC-4)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.828999999999951,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > should return empty detected for empty file list (reverse AC-4)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.580999999999904,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework > should detect framework from default config and match files",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.005100000000084,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework > should apply framework default glob for matching",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.16050000000007,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework > should match no files when framework config has no matching files",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.988100000000031,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle files parameter as undefined (auto-scan) gracefully",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 8.842100000000073,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle config with no framework gracefully",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.679399999999987,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle a very large file list without error",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 10.983799999999974,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle files with special characters in paths",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.305899999999951,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases > should handle missing config gracefully",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.509600000000091,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应返回无通配符路径自身（AC-2）: \"plugins/dev-team/bin\" → \"plugins/dev-team/bin\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.17240000000003874,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应取 ** 通配符前路径（AC-3）: \"src/**/*.test.ts\" → \"src\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.07699999999999818,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理通配符起始（AC-4）: \"**/*.test.ts\" → \".\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04870000000005348,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理 {} 通配符（AC-5）: \"{src,lib}/*.test.ts\" → \".\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04399999999998272,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理 ? 通配符: \"tests/?nit/*.test.ts\" → \"tests\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.041299999999978354,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应处理多层 *: \"packages/*/src/__tests__/*.test.ts\" → \"packages\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.046099999999910324,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 正向测试 > 应归一化 Windows 反斜杠: \"plugins\\\\dev-team\\\\bin\" → \"plugins/dev-team/bin\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04809999999997672,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 异常测试 > 应对空字符串返回自身: \"\" → \"\"（无通配符，返回自身）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.05489999999997508,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 异常测试 > 应对 null/undefined 输入进行防御处理",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.5293000000000347,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理超长无通配符 glob（1000 字符）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.07349999999996726,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理超长含通配符 glob（500 字符前缀 + \"/*/b\"）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.09309999999993579,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理含空格的路径: \"src/my test file/*.ts\" → \"src/my test file\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04759999999998854,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理纯通配符: \"*\" → \".\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.045900000000074215,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应以 \"/\" 结尾的通配符: \"src/**\" → \"src\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04680000000007567,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理仅有点的路径: \".\" → \".\"（无通配符，返回自身）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04690000000005057,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应处理仅斜杠的路径: \"/\" → \"/\"（无通配符，返回自身）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.04360000000008313,
+      "status": "passed"
+    },
+    {
+      "name": "deriveWorkingDirectory -- 边界测试 > 应合并连续分隔符: \"src//lib/**/*.ts\" → \"src/lib\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.03779999999994743,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) > 应为单框架配置生成正确的 plan 条目",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.092800000000011,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) > 应为多框架多目录配置生成正确的 plan 数组（default first, then overrides）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.0248000000000275,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"vitest\" 生成 plan，directory 为 \".\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.981799999999907,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"jest\" 生成 plan，directory 为 \".\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.754799999999932,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"rust\" 生成 plan，directory 为 \".\"，coverage_format 为 \"llvm-cov\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 12.134300000000053,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) > 应在无 framework 配置时返回空 plan",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.374599999999987,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) > 应在无 test 配置时返回空 plan",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.791899999999941,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后 detected 字段结构和内容不变",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.20900000000006,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后 frameworks 字段结构和内容不变",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.266099999999938,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后首匹配规则不变",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.431600000000003,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后无匹配文件仍返回 \"unknown\"",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.82409999999993,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 配置 vitest 框架时，plan 条目包含 coverage_artifacts 和 coverage_cleanup",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.376700000000028,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > vitest plan 条目的 coverage_artifacts 为 [\"coverage/coverage-summary.json\"]，coverage_cleanup 为 [\"coverage\", \".nyc_output\", \"test-stderr.txt\"]",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.626700000000028,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 多框架 [vitest, rust] 时每个 plan 条目包含对应 coverage_artifacts 和 coverage_cleanup",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.778299999999945,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > rust plan 条目 coverage_artifacts 为 [\"coverage/coverage-summary.json\"]",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.8320999999999685,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 单框架 \"vitest\" 时 plan 条目也包含 coverage_artifacts 和 coverage_cleanup",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.057299999999941,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 vitest 框架生成包含 npx vitest run --coverage、rm -rf coverage 和 rm -rf .nyc_output 的 bash 脚本 (AC-1)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.2016999999999598,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 vite-plus 框架（directory 为 plugins/dev-team/bin）生成包含 cd plugins/dev-team/bin 和 vp test --coverage 的脚本 (AC-4)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.11630000000002383,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 rust 框架生成包含 cargo llvm-cov --all --coverage、rm -rf coverage 和 rm -rf target/llvm-cov 的脚本 (AC-5)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08429999999998472,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 bun 框架生成包含 bun test --coverage 和 rm -rf coverage 的脚本",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08140000000003056,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 各框架正向测试 > 应为 jest 框架（coverage_cleanup 为空）生成不含 rm -rf 行的脚本 (AC-6)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08699999999998909,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 脚本结构测试 > 脚本第一行为 #!/bin/bash (AC-2)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.10370000000000346,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 脚本结构测试 > 脚本第二行为 set -e (AC-2)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08180000000004384,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 脚本结构测试 > 脚本最后一行等于 coverage_cmd 的值并以换行符结尾",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.09039999999993142,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 为 \".\" 时生成的脚本不含 cd 行 (AC-3)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.17060000000003583,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 为 \"/absolute/path\" 时生成 cd /absolute/path",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08559999999999945,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 为空字符串时仍生成 cd 行（bash 语法上无效，但函数不验证输入）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.06509999999991578,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- cd 行为边界测试 > directory 含空格时（如 \"my project/tests\"）生成 cd my project/tests",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.13990000000001146,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 为空数组 [] 时不含任何 rm -rf 行 (AC-6)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.0866999999999507,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 为单元素 [\"coverage\"] 时生成单条 rm -rf coverage",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.1736999999999398,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 为三元素 [\"a\", \"b\", \"c\"] 时按序生成三条 rm -rf 行",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.21529999999995653,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 清理步骤边界测试 > coverage_cleanup 条目含路径分隔符时（如 \"target/llvm-cov\"）正确保留",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.10450000000003001,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > 输入对象为 null 时抛出 TypeError",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.1310000000000855,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > directory 为 null 时抛出 TypeError",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08719999999993888,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > coverage_cmd 为 undefined 时抛出 TypeError",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.09199999999998454,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > coverage_cleanup 为 null 时抛出 TypeError",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08280000000002019,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 异常输入测试 > coverage_cmd 为空字符串时生成不含有效命令行的脚本（最后一行为空行）",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08200000000010732,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 特殊字符测试 > coverage_cmd 含 $HOME、反引号、$(subshell) 时原样保留",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.11120000000005348,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 特殊字符测试 > coverage_cmd 为超长字符串（>1000 字符）时正确拼接",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.07990000000006603,
+      "status": "passed"
+    },
+    {
+      "name": "generateScript -- 特殊字符测试 > directory 含 ~ 或 $VAR 时原样保留",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 0.08699999999998909,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > vitest 框架配置时 plan 条目包含非空 script 字段 (AC-7)",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.461500000000001,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > 多框架 [vitest, rust] 配置时每个 plan 条目都包含非空 script",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.754000000000019,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > plan 条目 script 内容与 generateScript() 对同输入的输出一致",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.2905000000000655,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > vite-plus 框架（directory 非 \".\"）时 script 含 cd 行",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 6.176600000000008,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > 空 framework 配置时 plan 为空数组",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.195600000000013,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"vitest\" 时 plan 条目 script 字段为非空字符串",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.528599999999983,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"jest\" 时 plan 条目 script 字段为非空字符串",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.67470000000003,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"rust\" 时 plan 条目 script 字段为非空字符串",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 4.4529999999999745,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > vitest plan 条目 coverage_cmd 应等于注册表 JSON-only 命令",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.007099999999923,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > vitest plan 条目 coverage_artifacts 应为 [\"coverage/coverage-summary.json\"]",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.44539999999995,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > rust plan 条目 coverage_cmd 应为 cargo llvm-cov --json",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.322999999999979,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > 多框架 [vitest, rust] 时每个 plan 条目 coverage_cmd/coverage_artifacts 与对应注册表一致",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.3185000000000855,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > vitest plan 生成的 script 最后一行应等于含 json-summary 的 coverage_cmd",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "duration_ms": 5.986700000000042,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"jest\" framework",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 1.254099999999994,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"vitest\" framework",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.14229999999997744,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"vite-plus\" framework",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.09390000000001919,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"bun\" framework",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.07710000000002992,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct config for \"rust\" framework",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.07859999999999445,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct coverage_format for istanbul frameworks",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.194500000000005,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return correct coverage_format for llvm-cov (rust)",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.09819999999996298,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks (AC-5) > should return coverage_output path for all frameworks",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.14359999999999218,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework (reverse AC-5) > should throw for unknown framework name \"unknown-framework\"",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.4848999999999819,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework (reverse AC-5) > should throw for empty framework name",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.17200000000002547,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework (reverse AC-5) > should throw for nullish framework name",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.22069999999996526,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage tool availability (AC-11) > should return coverage_cmd for all known frameworks",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.14550000000002683,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should reject framework name with leading/trailing whitespace",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.10470000000003665,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should be case-sensitive and reject uppercase \"Vitest\"",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.09440000000000737,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should handle framework names with special regex characters (e.g. \"jest?\")",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.11309999999997444,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases > should handle a very long framework name string (>1000 chars)",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.13240000000001828,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > vitest 框架应返回 coverage_artifacts: [\"coverage/coverage-summary.json\"] 和 coverage_cleanup: [\"coverage\", \".nyc_output\", \"test-stderr.txt\"]",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.10099999999999909,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > rust 框架应返回 coverage_artifacts 为单元素 JSON 摘要路径",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.6860000000000355,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > rust 框架应返回 coverage_cleanup 包含 coverage 和 target/llvm-cov",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.24540000000001783,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > jest 框架应返回 coverage_artifacts 和 coverage_cleanup 字段",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.17349999999999,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > vite-plus 框架应返回 coverage_artifacts 和 coverage_cleanup 字段",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.11860000000001492,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts 和 coverage_cleanup 字段 (AC-1, AC-2) > bun 框架应返回 coverage_cleanup 不含 .nyc_output（仅 coverage）",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.10059999999998581,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > 每个框架的 coverage_artifacts 应为非空字符串数组",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.30419999999998026,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > 每个框架的 coverage_cleanup 应为非空字符串数组",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.233600000000024,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > 返回对象应包含全部 8 个字段（原有 5 字段 + coverage_artifacts + coverage_cleanup + default_glob）",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.9717999999999734,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3) > coverage_artifacts 中每个元素均为非空字符串",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.2850999999999999,
+      "status": "passed"
+    },
+    {
+      "name": "getSupportedFrameworks > should return all five known frameworks",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.13750000000004547,
+      "status": "passed"
+    },
+    {
+      "name": "getDefaultGlobForFramework > should return the correct default glob for JS/TS frameworks",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.17320000000000846,
+      "status": "passed"
+    },
+    {
+      "name": "getDefaultGlobForFramework > should return the correct default glob for rust",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.09489999999999554,
+      "status": "passed"
+    },
+    {
+      "name": "getDefaultGlobForFramework > should throw for unknown framework",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.16130000000003974,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > jest 应返回 JSON-only coverage_cmd 与单元素 coverage_artifacts",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.12739999999996598,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > vitest 应返回含 --coverage.reporter=json-summary 的 coverage_cmd",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.08320000000003347,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > vite-plus 应返回含 --coverage.reporter=json-summary 的 coverage_cmd",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.06929999999999836,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > bun 应返回含 --coverageReporters=json-summary 的 coverage_cmd",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.0928000000000111,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > rust 应返回 cargo llvm-cov --json，coverage_artifacts 不含 target/llvm-cov/**",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.19929999999999382,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > 五个框架 coverage_cmd 均含 JSON reporter 参数，coverage_artifacts 均为单元素 JSON 摘要路径",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.7710999999999899,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > 各框架 coverage_cleanup 与变更前一致",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.26319999999998345,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 覆盖率配置 (AC-9) > 更新 EXPECTED_CONFIGS 后五个框架 toEqual 期望值全部通过",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.28590000000002647,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 边界与异常 (AC-9) > 五个框架 coverage_artifacts.length === 1 且元素为 coverage/coverage-summary.json",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.28710000000000946,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig — JSON-only 边界与异常 (AC-9) > 五个框架 coverage_cmd 为非空字符串且包含 coverage 或 JSON 关键字",
+      "file": "plugins/dev-team/bin/src/commands/test-get-framework-config.test.ts",
+      "duration_ms": 0.2983000000000402,
+      "status": "passed"
+    }
+  ],
+  "integration_test": {
+    "total": 28,
+    "passed": 28,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 774,
+    "test_cases": [
+      {
+        "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > Static Checklist U1 必需字段应含 coverage（object 或 null）、test_cases",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 2.1417000000000144,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > U3 判定依据应引用 coverage.pass === true 或 coverage === null",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.5281999999999982,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > Step 1 应要求 coverage 为嵌套对象（含 pass, measured, thresholds, by_framework, overrides）或 null",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.5052000000000021,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > Step 3 覆盖率子检查应引用 coverage.pass、coverage.measured、coverage.thresholds、coverage.overrides",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.4170000000000016,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — Step 4 决策树输入 (AC-6) > Step 4 应明确从 test_cases.filter(c => c.status === \"failed\") 读取 error_type、file、line",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.4738999999999862,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — Step 4 决策树输入 (AC-6) > 决策树 5 类分类与优先级文本应保持（设计冲突 > 语法 > 逻辑 > 接口 > 无法判断）",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.49109999999998877,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — coverage null 跳过 (AC-7) > Step 3 含 coverage === null 时 evidence「覆盖率检查未配置或生成失败，跳过」",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.43830000000002656,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — coverage null 跳过 (AC-7) > Constraints 含 coverage === null 时覆盖率检查始终 pass",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.3704000000000178,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — Step 5 findings 无 HTML (AC-8) > Step 5 findings 模板应引用 coverage.measured、coverage.pass、coverage.by_framework[].measured",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.39859999999998763,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-evaluator.md — Step 5 findings 无 HTML (AC-8) > 全文不应含 coverage_pass、coverage_thresholds、html_reports（grep 断言）",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+        "duration_ms": 0.46299999999996544,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 runTestGetFrameworkConfig(\"jest\") 一致",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 9.743299999999977,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 runTestGetFrameworkConfig(\"vitest\") 一致",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 5.1597000000000435,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 runTestGetFrameworkConfig(\"vite-plus\") 一致",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 4.435200000000009,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 runTestGetFrameworkConfig(\"bun\") 一致",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 5.1381000000000085,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 runTestGetFrameworkConfig(\"rust\") 一致",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 9.852500000000077,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > rust plan 仍含 coverage_cleanup: [\"coverage\", \"target/llvm-cov\"]（未变）",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 6.761699999999905,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — generateScript 末行 JSON-only coverage_cmd (AC-9) > vitest plan 生成的 script 最后一行应含 --coverage.reporter=json-summary",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 5.4664000000000215,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — generateScript 末行 JSON-only coverage_cmd (AC-9) > jest plan 生成的 script 最后一行应含 --coverageReporters=json-summary",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 4.86850000000004,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — generateScript 末行 JSON-only coverage_cmd (AC-9) > generateScript 输出末行应等于 JSON-only coverage_cmd（vitest 直接调用）",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+        "duration_ms": 0.3129999999999882,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > Step 7 JSON 示例应含嵌套 coverage 对象（pass、measured、thresholds、by_framework、overrides）",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 1.6544999999999845,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > 报告 JSON 示例不应含扁平 coverage 字段（coverage_thresholds、coverage_pass 等）",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.4963000000000193,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > by_framework 条目不应含 html_report 字段",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.36549999999999727,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > Process 步骤 2/3/5 不应引用 html_reports、html_report、index.html",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.3972999999999729,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — no-coverage 示例 (AC-2) > no-coverage JSON 块应仅含 \"coverage\": null，不含其他 coverage 相关顶层字段",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.420599999999979,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — 失败详情合并到 test_cases (AC-3) > 主报告 test_cases[] 中 status: \"failed\" 条目应含 line、error_type、error_message、stack_trace",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.5016000000000531,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — 失败详情合并到 test_cases (AC-3) > 报告 JSON 示例与 Step 6/7 说明不应含顶层 failures 数组",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.455600000000004,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — 失败详情合并到 test_cases (AC-3) > Step 6 提取说明不应含 failures[]，失败详情应写入 test_cases",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.4077000000000339,
+        "status": "passed"
+      },
+      {
+        "name": "unit-test-executor.md — integration_test 子报告 schema (AC-4) > integration_test 示例应含 test_cases[] 失败条目 error 字段，不含 failures[]",
+        "file": "plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+        "duration_ms": 0.39920000000000755,
+        "status": "passed"
+      }
+    ]
+  },
+  "findings": "Global coverage below thresholds (lines 72.76% < 80%, branches 62.88% < 70%, functions 64% < 75%). Scoped unit tests pull in schema/config imports; change-specific command modules have 92-100% line coverage."
+}

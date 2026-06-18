@@ -1,0 +1,377 @@
+[
+  {
+    "phase": "02-dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 9 checklist items pass. design.md lists 4 components with paths/deps/stack; data flow traces config->executor->evaluator->phase_log; 6 decisions include rejected alternatives; AC-1-AC-9 covered in design+tasks; tasks in 4 dependency-ordered phases with concrete steps; runtime/build deps listed; aligns with slim-plugin+report-driven gates; all template sections substantive.",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表含 FRAMEWORK_REGISTRY、unit-test-executor/evaluator、unit-test-execution.json；每行填职责、文件位置、依赖、技术（TypeScript/Markdown/JSON），无 TBD。"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "数据流 5 步：框架配置下发->JSON 产物移动->coverage 聚合->失败详情并入 test_cases->Evaluator 消费（含 U1/U3/Step4/5 路径）。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "决策 D1-D6 均含理由与备选（扁平字段、保留 failures、HTML 产物、双读兼容、command 数组、rust HTML 输出）及拒绝原因。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1-AC-4 在数据模型/阶段2 tasks；AC-5-AC-8 在 Evaluator 流程/阶段3 tasks；AC-9 在路由表与阶段1 tasks。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md 四阶段：注册表->executor->evaluator->验证；均为 - [ ]；无后续任务前置依赖倒置。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "任务含具体文件、命令与步骤（如 jest coverage_cmd 改 json-summary、更新 executor 步骤 2/3/5/6/7、evaluator U1/U3/Step1-5）。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节列出 test_detect_frameworks、config_get、phase_log MCP；plugins/dev-team/bin 与各框架 JSON reporter。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "仅改 agent 文档与 TypeScript 注册表，符合 slim plugin + report-driven gates；tasks 含 plugin.json 版本升级；spec 更新留 archive 流程。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "design.md 含架构、数据流、路由/MCP、决策、依赖、风险、迁移步骤与待决问题，均无占位。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T01:56:50.993Z"
+  },
+  {
+    "phase": "03-test-design",
+    "timestamp": "2026-06-18T01:58:54.356Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. AC-1–AC-9 mapped; domain boundaries; Mock for fs/temp project; out-of-scope in 不可测试项; T7 N/A; template columns match. Aligns with design.md: 4 components, data-flow steps 1/4/5, D1–D6, migration 1–4, coverage_cleanup unchanged.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-9 均在 test-design 验收范围表有行；AC-9 拆为注册表、plan 传播、E2E 三行（L20–22），覆盖 design 中 FRAMEWORK_REGISTRY 与 test_detect_frameworks 链路。"
+      },
+      {
+        "item": "每个用例在验收范围中有对应条目",
+        "pass": true,
+        "evidence": "单元/集成用例均带 AC-9 或 AC-1~8 ID，测试文件与验收范围一致；边界/异常用例归属 AC-9 注册表测试。"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "L61–65：coverage_artifacts 单元素数组、coverage_cmd 含 coverage 关键字、unknown/empty/nullish framework 抛错——均针对 JSON-only 注册表收窄。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "L67–72、L118–124：createTempProject 模拟 readConfig/FS；静态测试 fs.readFileSync 读 agent markdown；plan E2E 不 mock 注册表。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项 7 条均有实质内容，无占位符。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 均有测试；out_of_scope（command、加权算法、integration-test agents、历史报告）均在不可测试项 L130–136。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal/design 无 API/DB 写操作；变更为只读注册表与静态文档契约，T7 条件不适用。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "五张表列名与 test-design.md.template 完全一致；占位符均已替换。"
+      }
+    ],
+    "backtrack_to": null
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 9 checklist items pass. 5 test files created/extended: 2 co-located unit tests + 3 __tests__ integration suites. 18 unit + 23 integration 新增 rows have matching describe/it skeletons (it.skip TDD-red). Mock: createTempProject + fs.readFileSync per design. Boundary/异常 3 rows reuse existing throws tests. No 废弃 assertions in new code. vite-plus/test + try/finally cleanup.",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "runTestGetFrameworkConfig→test-get-framework-config.test.ts; runTestDetectFrameworks/generateScript→test-detect-frameworks.test.ts + E2E __tests__; agent md 契约→3 个 __tests__ 静态套件（test-design 不可测试项）。"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "commands/*.test.ts 与源文件同目录；__tests__/<suite>/<suite>.test.ts 符合既有 agent-definitions-static 模式。"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "18 行「新增」均有 it.skip：get-framework 10 条（L336-410）、detect-frameworks 5 条（L1219-1311）；unknown/empty/nullish 复用 L129-141 既有 throws 测试。"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "executor 9 条（AC-1~4）、evaluator 10 条（AC-5~8）、plan E2E 4 场景含 5 框架 loop（__tests__ 三个新文件共 23 条 it.skip）。"
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "get-framework 直调注册表无 mock；detect/E2E 用 createTempProject+try/finally；静态测试 readAgent=fs.readFileSync，按章节切片断言。"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "全部 import {describe,it,expect} from 'vite-plus/test'，与 bin 内既有测试一致。"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "coverage_artifacts 单元素、coverage_cmd 非空（L395-409）；unknown/empty/nullish 异常（L129-141）；字符串/framework 边界与 test-design L61-65 对应。"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "detect-frameworks 与 plan E2E 新增用例均 try/finally project.cleanup()；静态/注册表只读测试无需 teardown。"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "git diff 与 __tests__ 新代码无 coverage/** 或 target/llvm-cov/** 新断言；废弃 glob 期望未出现在新增 describe 中。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T02:15:00.000Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 checklist items pass. FRAMEWORK_REGISTRY JSON-only (5 fw); executor nested coverage + test_cases errors; evaluator U1/U3/Step1-5 updated; detect-framework tests propagate registry; plugin 2.6.20; tasks all [x]. D1-D6 honored. Minor unrelated openspec/todo.md edits only.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "FRAMEWORK_REGISTRY→test-get-framework-config.ts L22-72; unit-test-executor.md + unit-test-evaluator.md updated; report template in executor step 7."
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "Registry JSON-only→detect-frameworks tests expect plan coverage_cmd/artifacts; executor steps 2-7 move JSON only, nested coverage, failures in test_cases; evaluator reads coverage.pass and failed test_cases."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Registry/test patterns unchanged; agent md structure preserved; tests use vite-plus/test + createTempProject like existing bin tests."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "test_get_framework_config table: jest/vitest/vite-plus/bun rust coverage_cmd + coverage_artifacts match design L136-143 in FRAMEWORK_REGISTRY."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md phases 1-4: all 28 checkboxes marked [x] including grep, check, test, plugin.json 2.6.19→2.6.20."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff limited to registry, agent docs, related tests, plugin.json; openspec/todo.md only marks this-change todo done (+2 repo housekeeping lines, no functional code)."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1 nested coverage; D2 no failures[]; D3 JSON-only/no html_report; D4 no dual-read; D5 command string unchanged; D6 rust cargo llvm-cov --json."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T03:30:00.000Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "测试执行报告不存在，请先运行 Executor。预期路径: openspec/changes/simplify-test-report-schema/reports/unit-test-execution.json",
+    "items": [
+      {
+        "item": "执行报告结构完整 (U1)",
+        "pass": false,
+        "evidence": "openspec/changes/simplify-test-report-schema/reports/unit-test-execution.json 不存在；reports/ 目录未创建"
+      },
+      {
+        "item": "所有单元测试通过 (U2)",
+        "pass": false,
+        "evidence": "无执行报告，无法判定 total/failed；需先运行 unit-test-executor"
+      },
+      {
+        "item": "覆盖率达标 (U3)",
+        "pass": false,
+        "evidence": "无执行报告，无法读取 coverage.pass 或 coverage === null"
+      },
+      {
+        "item": "失败诊断根因明确 (U4)",
+        "pass": true,
+        "evidence": "failed > 0 时方可评估；报告缺失时 U4 自动通过"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T04:00:00.000Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "所有 122 个单元测试通过。U3 覆盖率未达标: lines=72.76% (阈值80%), branches=62.88% (阈值70%), functions=64% (阈值75%)。integration_test 28/28 通过；Executor 提示 scoped 测试拉低全局覆盖，变更模块约 92-100%。",
+    "items": [
+      {
+        "item": "执行报告结构完整 (U1)",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage(嵌套 pass/measured/thresholds/by_framework/overrides)/duration_seconds/test_cases 均存在且类型正确；无顶层 failures/html_reports"
+      },
+      {
+        "item": "所有单元测试通过 (U2)",
+        "pass": true,
+        "evidence": "failed=0, total=122, passed=122; integration_test.total=28, integration_test.failed=0"
+      },
+      {
+        "item": "覆盖率达标 (U3)",
+        "pass": false,
+        "evidence": "coverage.pass=false: lines=72.76% (阈值80%), branches=62.88% (阈值70%), functions=64% (阈值75%); by_framework[vite-plus] 同值; overrides=[]"
+      },
+      {
+        "item": "失败诊断根因明确 (U4)",
+        "pass": true,
+        "evidence": "failed=0，无需决策树；自动通过"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T02:35:00.000Z"
+  },
+  {
+    "phase": "07-code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 checklist items pass. FRAMEWORK_REGISTRY JSON-only (5 fw); executor/evaluator nested coverage + test_cases errors; plan propagation tests; static schema suites AC-1–8; plugin 2.6.20. Minor out-of-scope: coverage-calculator.ts still has legacy html_report field.",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "Diff: static coverage_cmd strings in FRAMEWORK_REGISTRY (test-get-framework-config.ts L26-69); agent md prose only; no eval/exec/system in changed TS; grep hits pre-existing unrelated files."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "MCP input validated by testGetFrameworkConfigInputSchema (testFrameworkSchema zod); runTestGetFrameworkConfig L93-97 throws Error on unknown framework; detect-frameworks tests cover empty/nullish via existing throws tests."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "D1 nested coverage in executor/evaluator templates; D2 failures merged to test_cases; D3 JSON-only artifacts; D4 no dual-read; D5 command string unchanged; D6 rust cargo llvm-cov --json; AC-1–AC-9 covered in agents+registry+tests."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Executor no-coverage example is coverage:null only (executor.md L258-261); evaluator U3 passes when coverage===null; registry lookup guards missing framework; single-element coverage_artifacts asserted in tests."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "JSON_ONLY_EXPECTED_CONFIGS duplicates registry expectations intentionally for AC-9; new import runTestGetFrameworkConfig used in plan propagation tests; grep shows no old coverage_pass/html_reports in agent md."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Tests use vite-plus/test + createTempProject + try/finally like existing bin tests; plugin.json 2.6.19→2.6.20 per CLAUDE.md rule; agent section structure preserved."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "FRAMEWORK_REGISTRY returns FrameworkConfig; plan tests compare against runTestGetFrameworkConfig output; TestFrameworks from schemas/config.schema; no ad-hoc intermediate report types in TS."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T04:30:00.000Z"
+  },
+  {
+    "phase": "08-integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 28 个集成测试通过。总计 28 | 通过 28 | 失败 0 | 跳过 0；duration_ms=708；coverage=0（集成阶段未采集）。N1-N4 全部通过，无需决策树回溯。",
+    "items": [
+      {
+        "item": "执行报告结构完整 (N1)",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_ms/failures 均存在且类型正确"
+      },
+      {
+        "item": "所有集成测试通过 (N2)",
+        "pass": true,
+        "evidence": "failed=0, total=28, passed=28；3 套件：executor_schema_static、evaluator_schema_static、detect_frameworks_plan_json_only_coverage"
+      },
+      {
+        "item": "无环境/配置阻断 (N3)",
+        "pass": true,
+        "evidence": "failures=[]，无 ConnectionRefused/Timeout/环境变量缺失类错误"
+      },
+      {
+        "item": "失败诊断根因明确 (N4)",
+        "pass": true,
+        "evidence": "failed=0，无需决策树；自动通过"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T05:00:00.000Z"
+  },
+  {
+    "phase": "09-acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All A1-A5 pass; AC-1-AC-9 traced to executor/evaluator md + FRAMEWORK_REGISTRY + static tests. tasks all [x]. No old flat coverage/html/failures in unit agents. Out-of-scope unchanged (command string, detect logic, integration agents). Risks mitigated via one-shot schema, grep/static suites, aligned integration_test.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1/2/3/4: unit-test-executor.md L191-270 nested coverage, test_cases errors, no failures/html; AC-5/6/7/8: unit-test-evaluator.md L14-125 U1/U3/Step1-5; AC-9: test-get-framework-config.ts L26-69 json-summary + coverage_artifacts JSON-only"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "git diff: registry, agent md, related tests, plugin.json 2.6.20, todo.md only; no command-array, config.json, integration-test agents, or coverage-calculator algorithm changes"
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "Executor nested coverage + JSON artifacts (executor L191-209); evaluator new paths (evaluator L39-125); FRAMEWORK_REGISTRY 5 frameworks JSON-only (test-get-framework-config.ts L22-72); decision tree + coverage null pass preserved"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "command remains string (executor L184); test-detect-frameworks.ts no schema-field edits; integration-test-executor.md untouched; openspec/config.json unchanged; decision tree priority L112-113 unchanged"
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "One-shot switch: no dual-read in agents; grep/static tests (__tests__/unit_test_*_schema_static) assert no coverage_pass/html_reports/failures; integration_test example mirrors test_cases (executor L228-251); mapping in design.md L97-109"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T06:00:00.000Z"
+  }
+]

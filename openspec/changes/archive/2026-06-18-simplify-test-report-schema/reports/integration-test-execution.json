@@ -1,0 +1,12 @@
+{
+  "phase": "08-integration-test",
+  "command": "pnpm run -C ./plugins/dev-team/bin test -- __tests__/unit_test_executor_schema_static __tests__/unit_test_evaluator_schema_static __tests__/test_detect_frameworks_plan_json_only_coverage --reporter=verbose 2>&1",
+  "timestamp": "2026-06-18T02:30:46.000Z",
+  "total": 28,
+  "passed": 28,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 708,
+  "failures": []
+}

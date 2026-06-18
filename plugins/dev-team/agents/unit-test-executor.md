@@ -65,6 +65,12 @@ Extract from the output for each test case:
 - `file`: test file path (relative to project root)
 - `duration_ms`: execution time in milliseconds
 - `status`: `"passed"` | `"failed"` | `"skipped"`
+- For `status: "failed"` entries, also extract:
+  - `line`: failure line number
+  - `error_type`: error class (e.g. `AssertionError`, `SyntaxError`)
+  - `error_message`: error message text
+  - `stack_trace`: stack trace string
+  - `design_ref` (optional): reference to test-design.md case ID
 
 Record `coverage_format` and `coverage_output` from the plan entry for later parsing (note: `coverage_output` is relative to the plan entry's `directory`).
 
@@ -73,7 +79,6 @@ Record `coverage_format` and `coverage_output` from the plan entry for later par
 - Still parse stdout for any test case results (partial results are valid)
 - Set that framework's `coverage` three dimensions to 0
 - Record an error finding (e.g. "vitest coverage command failed: <error message>")
-- Exclude the framework from `html_reports`
 - Skip the move artifacts step for this framework
 - DO NOT block the overall report writing
 
@@ -83,13 +88,12 @@ For each entry in the `plan` array where `coverage_artifacts` is non-empty and c
 
 1. **Determine target directory:** `reports/coverage/<framework>/` (relative to the change directory, i.e. `openspec/changes/<change-name>/reports/coverage/<framework>/`)
 2. **Create target directory** if it does not exist
-3. **For each glob pattern** in `coverage_artifacts` (e.g. `"coverage/**"`):
-   - Use shell glob expansion (`cp <glob> <target>/`) to copy matching files/directories from the plan entry's `directory` to the unified target directory
+3. **For each path** in `coverage_artifacts` (e.g. `"coverage/coverage-summary.json"`):
+   - Copy the JSON summary file from the plan entry's `directory` to the unified target directory
    - The target path retains the original filename: e.g. `coverage/coverage-summary.json` becomes `reports/coverage/vitest/coverage-summary.json`
 4. **Verify move succeeded** — check that the target file (e.g. `coverage-summary.json`) exists in the unified directory
 5. **Update paths:**
    - Set `coverage_output` to `reports/coverage/<framework>/coverage-summary.json` (for coverage parsing step)
-   - The `html_report` path will be `reports/coverage/<framework>/index.html` (used in report writing step)
 6. **Clean up original directories** — for each entry in `coverage_cleanup` (e.g. `"coverage"`, `".nyc_output"`):
    - Recursively delete the directory/file from the plan entry's working directory
    - Example: `rm -rf coverage/ .nyc_output/`
@@ -128,11 +132,20 @@ mcp__plugin_dev-team_dev-team__config_get({key: "test"})
 - `weighted_lines = sum(fw.lines * fw.sourceFileCount) / totalSourceFiles`
 - Same for branches and functions
 
-**coverage_pass (ALL logic):**
+**coverage.pass (ALL logic):**
 
 1. Global: `lines >= thresholds.lines AND branches >= thresholds.branches AND functions >= thresholds.functions`
 2. Each override entry: matching directory must independently pass its thresholds (missing dimensions inherit global defaults)
-3. ALL pass → `coverage_pass = true`
+3. ALL pass → `coverage.pass = true`
+
+Write the nested `coverage` object to the report:
+- `coverage.pass` — boolean, overall pass/fail
+- `coverage.measured` — weighted average `{lines, branches, functions}`
+- `coverage.thresholds` — from `test.coverage.thresholds` in config
+- `coverage.by_framework` — array of `{framework, measured}` per framework
+- `coverage.overrides` — array of `{glob, thresholds, measured, pass}` (entry `coverage` field renamed to `measured`)
+
+If all frameworks failed to generate coverage, set top-level `"coverage": null` (not an empty object with `pass: false`).
 
 ### 6. Execute integration tests separately
 
@@ -157,7 +170,7 @@ Extract from the output:
 - `total`, `passed`, `failed`, `skipped` — overall counts
 - `duration_ms` — total execution time
 - `test_cases[]` — per-case: `name`, `file`, `duration_ms`, `status`
-- `failures[]` — detailed failure info
+- For `status: "failed"` entries in `test_cases[]`, also extract `line`, `error_type`, `error_message`, `stack_trace` (and optional `design_ref`)
 
 **If no integration test files are found**, skip this step and set `integration_test: null` in the report.
 
@@ -175,25 +188,25 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
   "failed": 2,
   "skipped": 0,
   "duration_seconds": 3.45,
-  "coverage": { "lines": 82, "branches": 74, "functions": 81 },
-  "coverage_thresholds": { "lines": 80, "branches": 70, "functions": 75 },
-  "coverage_overrides": [
-    {
-      "glob": "demo/**",
-      "thresholds": { "lines": 60, "branches": 70, "functions": 75 },
-      "coverage": { "lines": 65, "branches": 75, "functions": 80 },
-      "pass": true
-    }
-  ],
-  "coverage_pass": true,
-  "coverage_by_framework": [
-    {
-      "framework": "vitest",
-      "coverage": { "lines": 90, "branches": 80, "functions": 85 },
-      "html_report": "reports/coverage/vitest/index.html"
-    }
-  ],
-  "html_reports": ["reports/coverage/vitest/index.html"],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 82, "branches": 74, "functions": 81 },
+    "thresholds": { "lines": 80, "branches": 70, "functions": 75 },
+    "by_framework": [
+      {
+        "framework": "vitest",
+        "measured": { "lines": 90, "branches": 80, "functions": 85 }
+      }
+    ],
+    "overrides": [
+      {
+        "glob": "demo/**",
+        "thresholds": { "lines": 60, "branches": 70, "functions": 75 },
+        "measured": { "lines": 65, "branches": 75, "functions": 80 },
+        "pass": true
+      }
+    ]
+  },
   "test_cases": [
     {
       "name": "describe 标题 > it 标题",
@@ -205,7 +218,11 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
       "name": "describe 标题 > it 标题",
       "file": "src/utils/parser.test.ts",
       "duration_ms": 15.7,
-      "status": "failed"
+      "status": "failed",
+      "line": 45,
+      "error_type": "AssertionError",
+      "error_message": "Expected 5 but got 3",
+      "stack_trace": "  at Object.<anonymous> (src/utils/parser.test.ts:45:13)\n  at ..."
     }
   ],
   "integration_test": {
@@ -220,12 +237,12 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
         "file": "tests/integration/test_api.ts",
         "duration_ms": 340.5,
         "status": "passed"
-      }
-    ],
-    "failures": [
+      },
       {
         "name": "should return 200 for valid request",
         "file": "tests/integration/test_api.ts",
+        "duration_ms": 520.0,
+        "status": "failed",
         "line": 88,
         "error_type": "AssertionError",
         "error_message": "Expected 200 but got 403",
@@ -233,16 +250,6 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
       }
     ]
   },
-  "failures": [
-    {
-      "name": "should handle empty input",
-      "file": "src/utils/parser.test.ts",
-      "line": 45,
-      "error_type": "AssertionError",
-      "error_message": "Expected 5 but got 3",
-      "stack_trace": "  at Object.<anonymous> (src/utils/parser.test.ts:45:13)\n  at ..."
-    }
-  ],
   "findings": "Optional diagnostic information about coverage failures"
 }
 ```
@@ -251,11 +258,7 @@ When no coverage was generated (no `test` config or all commands failed):
 
 ```json
 {
-  "coverage": null,
-  "coverage_thresholds": { "lines": 80, "branches": 70, "functions": 75 },
-  "coverage_pass": false,
-  "coverage_by_framework": [],
-  "html_reports": []
+  "coverage": null
 }
 ```
 
