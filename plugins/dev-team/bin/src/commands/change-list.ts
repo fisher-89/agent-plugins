@@ -1,24 +1,15 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import type z from 'zod/v4';
+
 import { readEvalJson } from '../lib/eval-json';
+import { changeListOutputSchema, type changeListInputSchema } from '../schemas';
 import { getProjectDir } from '../utils';
 
-export interface ChangeListOptions {
-  project_root?: string | null;
-}
+type ChangeListOptions = z.input<typeof changeListInputSchema>;
 
-interface ChangeEntry {
-  name: string;
-  artifacts: string[];
-  tasks: { total: number; done: number } | null;
-  latest_phase: { phase: string; verdict: string; stale?: boolean } | null;
-}
-
-export interface ChangeListResult {
-  changes: ChangeEntry[];
-  count: number;
-}
+type ChangeListResult = z.output<typeof changeListOutputSchema>;
 
 const KNOWN_ARTIFACTS = ['proposal.md', 'design.md', 'tasks.md', 'test-design.md', 'eval.json'];
 
@@ -50,7 +41,7 @@ export function runChangeList(options: ChangeListOptions): ChangeListResult {
   const changesDir = path.resolve(projectRoot, 'openspec', 'changes');
 
   if (!fs.existsSync(changesDir)) {
-    return { changes: [], count: 0 };
+    return { project_root: projectRoot, changes: [], count: 0 };
   }
 
   const entries = fs.readdirSync(changesDir, { withFileTypes: true });
@@ -101,5 +92,5 @@ export function runChangeList(options: ChangeListOptions): ChangeListResult {
 
   changes.sort((a, b) => a.name.localeCompare(b.name));
 
-  return { changes, count: changes.length };
+  return { project_root: projectRoot, changes, count: changes.length };
 }

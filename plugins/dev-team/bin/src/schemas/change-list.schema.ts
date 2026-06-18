@@ -1,12 +1,12 @@
 import { z } from 'zod/v4';
 
-export const changeListInputSchema = {
+export const changeListInputSchema = z.object({
   project_root: z
     .string()
     .optional()
     .nullable()
     .describe('Project root directory (defaults to cwd)'),
-};
+});
 
 const changeEntrySchema = z.object({
   name: z.string().describe('Change directory name (kebab-case)'),
@@ -31,6 +31,7 @@ const changeEntrySchema = z.object({
 });
 
 export const changeListOutputSchema = z.object({
+  project_root: z.string().describe('项目根目录'),
   changes: z.array(changeEntrySchema).describe('List of active (non-archived) changes'),
   count: z.number().describe('Number of active changes'),
 });
