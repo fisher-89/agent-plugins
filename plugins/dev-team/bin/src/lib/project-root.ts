@@ -3,8 +3,6 @@ import { fileURLToPath } from 'node:url';
 
 import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
 
-const ROOTS_LIST_CHANGED_NOTIFICATION = 'notifications/roots/list_changed';
-
 /** Module-level MCP project root cache (process lifetime). */
 let mcpProjectRootCache: string | null = null;
 
@@ -62,10 +60,4 @@ export async function initProjectRootFromMcp(server: Server): Promise<void> {
   }
 
   await refreshProjectRootFromMcp(server);
-
-  if (rootsCapability.listChanged === true) {
-    server.setNotificationHandler(ROOTS_LIST_CHANGED_NOTIFICATION, async () => {
-      await refreshProjectRootFromMcp(server);
-    });
-  }
 }

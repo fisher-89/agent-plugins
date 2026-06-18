@@ -1,7 +1,10 @@
 {
   "mcpServers": {
     "dev-team": {
-      "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs"
+      "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs",
+      "env": {
+        "PROJECT_DIR": "${workspaceFolder:-}"
+      }
     }
   }
 }

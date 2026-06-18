@@ -8,7 +8,7 @@
     "build": "vp pack",
     "start": "node dev-team-mcp.cjs",
     "test": "vp test",
-    "check": "vp check --fix"
+    "check": "vp check --fix && knip"
   },
   "dependencies": {
     "@likec4/language-services": "^1.57.0",
