@@ -1,0 +1,107 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && pnpm test 2>&1; cd plugins/dev-team/bin && pnpm build 2>&1",
+  "timestamp": "2026-06-18T07:44:00.000Z",
+  "total": 682,
+  "passed": 617,
+  "failed": 27,
+  "skipped": 38,
+  "coverage": 0,
+  "duration_ms": 15100,
+  "build": {
+    "command": "cd plugins/dev-team/bin && pnpm build",
+    "exit_code": 0,
+    "passed": true,
+    "artifacts": ["dev-team-mcp.cjs", "dev-team-cli.cjs"]
+  },
+  "change_specific": {
+    "tests": [
+      "src/lib/project-root.test.ts",
+      "src/utils/constant.test.ts",
+      "src/lib/change.test.ts"
+    ],
+    "passed": 24,
+    "failed": 0,
+    "ac_coverage": ["AC-1", "AC-4", "AC-5", "AC-6", "AC-8"]
+  },
+  "findings": "use-mcp-roots-list change tests (24/24) and build (AC-8) pass. Full suite has 27 failures: 5 pre-existing test-detect-frameworks/glob failures (unrelated to this change, as noted in tasks.md) and 22 failures in change-list.test.ts from sibling change fix-change-list-archived-filter (tests present but getArchivedChangeNames/isWorkflowComplete not yet implemented). Manual AC-2, AC-3, AC-7 deferred to acceptance phase per test-design.md.",
+  "pre_existing_failures": 5,
+  "unrelated_failures": 22,
+  "failures": [
+    {
+      "name": "getArchivedChangeNames -- archive 名称解析 > archive/2026-06-18-done-change/ 存在时集合应含 \"done-change\" (AC-1)",
+      "file": "plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "line": 117,
+      "error_type": "TypeError",
+      "error_message": "getArchivedChangeNames is not a function",
+      "design_ref": "AC-8",
+      "category": "unrelated-sibling-change",
+      "note": "fix-change-list-archived-filter — implementation not yet in change-list.ts"
+    },
+    {
+      "name": "isWorkflowComplete -- 最新 acceptance 判定 > 仅一条 09-acceptance 且 verdict: \"pass\" 时应返回 true (AC-2)",
+      "file": "plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "line": 241,
+      "error_type": "TypeError",
+      "error_message": "isWorkflowComplete is not a function",
+      "design_ref": "AC-8",
+      "category": "unrelated-sibling-change",
+      "note": "fix-change-list-archived-filter — implementation not yet in change-list.ts"
+    },
+    {
+      "name": "runChangeList -- archive 已登记 change 排除 > 存在 archive/2026-06-18-done-change/ 且 changes/done-change/ 残留时结果不含 done-change (AC-1)",
+      "file": "plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "line": 416,
+      "error_type": "AssertionError",
+      "error_message": "expected [ 'done-change' ] to not include 'done-change'",
+      "design_ref": "AC-8",
+      "category": "unrelated-sibling-change",
+      "note": "fix-change-list-archived-filter — runChangeList filtering not wired"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) > override 使用无通配符路径 plugins/dev-team/bin 时应检测子目录测试文件为对应框架",
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "line": 966,
+      "error_type": "AssertionError",
+      "error_message": "framework detection mismatch for plugins/dev-team/bin path",
+      "design_ref": "AC-8",
+      "category": "pre-existing"
+    },
+    {
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 省略 files 参数时应检测 src/app.test.ts 与 tests/auth.rs 并归属正确框架",
+      "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+      "line": 60,
+      "error_type": "AssertionError",
+      "error_message": "auto-scan framework detection mismatch",
+      "design_ref": "AC-8",
+      "category": "pre-existing"
+    },
+    {
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 仅含 readme.md 非测试文件时 detected 应为空",
+      "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+      "line": 91,
+      "error_type": "AssertionError",
+      "error_message": "expected [] but received entries with framework unknown for config.json and readme.md",
+      "design_ref": "AC-8",
+      "category": "pre-existing"
+    },
+    {
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 自动扫描结果不应含 unknown 非测试文件（D5 语义变更）",
+      "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+      "line": 127,
+      "error_type": "AssertionError",
+      "error_message": "expected result.detected.every(d => d.framework !== 'unknown') to be true",
+      "design_ref": "AC-8",
+      "category": "pre-existing"
+    },
+    {
+      "name": "test_detect_frameworks — glob 模式匹配 > 应正确检测 {} 花括号、** 跨目录与无通配符目录前缀三类 pattern",
+      "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+      "line": 80,
+      "error_type": "AssertionError",
+      "error_message": "expected 'jest' but received 'unknown'",
+      "design_ref": "AC-8",
+      "category": "pre-existing"
+    }
+  ]
+}

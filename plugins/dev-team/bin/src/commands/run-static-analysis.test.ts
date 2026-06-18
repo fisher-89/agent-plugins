@@ -315,7 +315,6 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
   it('未设置 CLAUDE_PROJECT_DIR 时应使用 process.cwd()', async () => {
     const runStaticAnalysis = await loadRunStaticAnalysis();
     delete process.env.CLAUDE_PROJECT_DIR;
-    delete process.env.CURSOR_PROJECT_DIR;
     process.chdir(project.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
       status: 0,

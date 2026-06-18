@@ -17,6 +17,7 @@ import { queryModel } from './lib/archi-query';
 import { validateDsl } from './lib/archi-validate';
 import { writeDsl } from './lib/archi-write';
 import { runCrossRefCheck } from './lib/c4-cross-ref';
+import { initProjectRootFromMcp } from './lib/project-root';
 import {
   phaseLogInputSchema,
   phaseLogOutputSchema,
@@ -325,6 +326,7 @@ async function main(): Promise<void> {
 
   const transport = new StdioServerTransport();
   await server.connect(transport);
+  await initProjectRootFromMcp(server.server);
 }
 
 main().catch((e) => {

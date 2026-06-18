@@ -20,4 +20,4 @@
 - [x] task.md中不要包含单元测试
 - [ ] test-gen-generator上下文预制常见的mock技能（mock文件、mock接口）
 - [x] unit-test-evaluator、integration-test-evaluator设置checklist
-- [ ] change_list没有屏蔽已完成change
+- [x] change_list没有屏蔽已完成change

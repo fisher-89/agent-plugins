@@ -1,0 +1,9 @@
+{
+  "$schema": "https://unpkg.com/knip@6/schema.json",
+  "tags": ["-lintignore"],
+  "entry": ["src/mcp.ts", "src/cli.ts"],
+  "project": ["src/**/*.ts", "!src/**/*.test.ts"],
+  "typescript": {
+    "config": ["tsconfig.json"]
+  }
+}
