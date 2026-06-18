@@ -327,6 +327,11 @@ async function main(): Promise<void> {
   const transport = new StdioServerTransport();
   await server.connect(transport);
   await initProjectRootFromMcp(server.server);
+
+  server.sendLoggingMessage({
+    level: 'info',
+    data: `MCP server started in project: ${getProjectDir()}`,
+  });
 }
 
 main().catch((e) => {
