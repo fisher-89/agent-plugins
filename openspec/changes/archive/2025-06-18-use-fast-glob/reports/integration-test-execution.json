@@ -1,0 +1,39 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && pnpm exec vp test --reporter=verbose -- \"__tests__/test_detect_frameworks_auto_scan\" \"__tests__/test_detect_frameworks_first_match\" \"__tests__/test_detect_frameworks_glob_matching\" \"__tests__/test_detect_frameworks_plan_output\" \"src/commands/test-detect-frameworks.test.ts\"",
+  "timestamp": "2026-06-18T12:44:00.000Z",
+  "total": 93,
+  "passed": 93,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 1260,
+  "failures": [],
+  "findings": "All integration tests passed. No fixes required. Tests must run via `vp test` (vite-plus/test runner); direct `npx vitest` fails with TypeError on describe() because vite-plus test config is not loaded.",
+  "integration_scope": {
+    "test_files": 5,
+    "new_e2e_tests": {
+      "total": 10,
+      "passed": 10,
+      "files": [
+        "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+        "plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+        "plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+        "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts"
+      ]
+    },
+    "command_layer_regression": {
+      "file": "plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "total": 83,
+      "passed": 83,
+      "covers_ac": ["AC-3", "AC-6", "AC-8"]
+    },
+    "ac_coverage": {
+      "AC-3": "glob pattern matching ({} / ** / literal directory prefix)",
+      "AC-4": "Windows backslash path normalization",
+      "AC-6": "first-match framework rule",
+      "AC-7": "auto-scan without files parameter",
+      "AC-8": "detected/frameworks/plan output schema unchanged"
+    }
+  }
+}

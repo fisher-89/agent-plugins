@@ -1,0 +1,334 @@
+{
+  "phase": "06-unit-test",
+  "command": "pnpm test (vp test --coverage) in plugins/dev-team/bin",
+  "timestamp": "2026-06-18T12:38:00.000Z",
+  "total": 624,
+  "passed": 624,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 17.66,
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 83.01,
+      "branches": 74.95,
+      "functions": 85.43
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": [
+      {
+        "framework": "vitest",
+        "measured": {
+          "lines": 83.01,
+          "branches": 74.95,
+          "functions": 85.43
+        }
+      }
+    ],
+    "overrides": []
+  },
+  "test_cases": [
+    {
+      "name": "glob.ts 模块导出 > 应从 lib/glob.ts 可导入 matchGlob 与 scanProjectFiles 且为函数类型",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 1.0,
+      "status": "passed"
+    },
+    {
+      "name": "glob.ts 模块导出 > matchGlob 对相同输入多次调用结果应一致（纯函数确定性）",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 1.92,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 vitest 默认 glob: src/utils/helper.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.21,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 .spec.js 文件: src/util.spec.js",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.16,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 rust 测试 glob: tests/integration/test_auth.rs",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.22,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配无通配符目录前缀: plugins/dev-team/bin/src/foo.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.11,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 e2e 目录 glob: tests/e2e/test_app.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.19,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 路径分隔符归一化 > Windows 反斜杠与 POSIX 正斜杠路径应对 **/*.test.ts 均返回 true",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.27,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 路径分隔符归一化 > Windows 反斜杠路径应对无通配符目录前缀返回 true",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.15,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 路径分隔符归一化 > pattern 含反斜杠与正斜杠时对同一路径应产生相同结果",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.21,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 不匹配路径 > 非测试文件 helper.ts 不应匹配 **/*.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.13,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 不匹配路径 > readme.md 不应匹配 vitest 默认 glob",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.13,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 > ** 零段路径: foo.test.ts 应匹配 **/*.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 > ? 单字符通配: tests/unit/foo.test.ts 应匹配 tests/?nit/*.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.12,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 > 花括号备选: lib/utils.test.ts 应匹配 {src,lib}/*.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.13,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 > 无通配符精确路径不匹配: other/foo.test.ts 不应匹配 plugins/dev-team/bin",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.08,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 > 无通配符目录自身应匹配: plugins/dev-team/bin",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.07,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 > filePath 为空字符串时应返回确定性布尔值",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.13,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 > pattern 为空字符串时应返回确定性结果",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.11,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 > 超长路径（>1000 字符）+ 标准 glob 模式不应抛出异常",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.65,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 > 路径含空格与 Unicode 时应匹配 **/*.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 0.14,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 多模式扫描 > 多 pattern 应返回 src/a.test.ts 与 tests/foo.rs 的绝对路径",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 11.59,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 多模式扫描 > 无通配符目录 pattern 应扫描子目录文件",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 7.04,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 多模式扫描 > 多 pattern 重叠匹配同一文件时结果应去重且按字典序排序",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 4.21,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 多模式扫描 > 扫描结果应仅含文件不含目录节点",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 3.66,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: node_modules/pkg/index.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 4.51,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: .git/hooks/pre-commit.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 6.36,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: dist/bundle.test.js",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 2.99,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: build/output.test.js",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 2.87,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: target/debug/deps/test.rs",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 4.63,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: .vp/cache.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 3.23,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: coverage/lcov.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 2.94,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: .nyc_output/temp.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 3.08,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录内文件不应出现在结果中: .claude/cache.test.ts",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 2.65,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 默认排除目录 > 排除目录之外的 src/valid.test.ts 应正常返回",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 3.06,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 输入边界 > patterns 为空数组时应返回 []",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 2.47,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 输入边界 > 项目根目录无匹配文件时应返回 []",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 2.78,
+      "status": "passed"
+    },
+    {
+      "name": "scanProjectFiles — 输入边界 > 通过 options.ignore 追加排除模式后对应路径应被过滤",
+      "file": "plugins/dev-team/bin/src/lib/glob.test.ts",
+      "duration_ms": 5.11,
+      "status": "passed"
+    }
+  ],
+  "integration_test": {
+    "total": 10,
+    "passed": 10,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 113.35,
+    "test_cases": [
+      {
+        "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 省略 files 参数时应检测 src/app.test.ts 与 tests/auth.rs 并归属正确框架",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+        "duration_ms": 21.57,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 仅含 readme.md 非测试文件时 detected 应为空",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+        "duration_ms": 8.79,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — 自动扫描匹配文件集合 > node_modules/pkg/index.test.ts 不应被自动扫描纳入 detected",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+        "duration_ms": 9.72,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 自动扫描结果不应含 unknown 非测试文件（D5 语义变更）",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+        "duration_ms": 8.41,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — 首匹配规则 > tests/e2e/test_app.ts 同时匹配 **/*.ts 与 **/e2e/** 时应归属数组首项 vitest",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+        "duration_ms": 15.65,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — 首匹配规则 > 交换 override 顺序后框架归属应随之改变",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+        "duration_ms": 7.2,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — glob 模式匹配 > 应正确检测 {} 花括号、** 跨目录与无通配符目录前缀三类 pattern",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+        "duration_ms": 11.97,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — Windows 路径 > 以反斜杠形式传入 files 参数时检测结果应与正斜杠形式一致",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+        "duration_ms": 6.43,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan 输出结构 > 字符串简写 \"vitest\" 配置时 plan 应含完整字段且通过 schema 校验",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts",
+        "duration_ms": 16.86,
+        "status": "passed"
+      },
+      {
+        "name": "test_detect_frameworks — plan 输出结构 > 无 test.framework 配置时 plan 应为空数组且 detected 均为 unknown",
+        "file": "plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts",
+        "duration_ms": 5.75,
+        "status": "passed"
+      }
+    ]
+  },
+  "findings": "Enabled 11 previously skipped tests (it.skip -> it). Fixed 2 failing tests by correcting test setup: (1) literal-path override test now uses override-only config without conflicting default vitest framework; (2) glob_matching test uses non-overlapping override-only mappings and findDetected() helper for Windows path normalization. Full suite 624/624 passed. Coverage meets thresholds (lines 83.01%, branches 74.95%, functions 85.43%). Pre-existing vp check lint/type errors remain unrelated."
+}

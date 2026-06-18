@@ -209,6 +209,10 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 4. 匹配到的第一个 glob 对应的 framework 即为该文件的框架归属
 5. 无匹配时返回 `"unknown"`
 
+文件路径与 glob 模式的匹配 SHALL 通过 `plugins/dev-team/bin/src/lib/glob.ts` 导出的 `matchGlob` 函数完成，SHALL NOT 使用手写 glob-to-regex 转换。
+
+当 `files` 参数省略时，自动扫描 SHALL 调用 `scanProjectFiles(projectRoot, mappingGlobs)` 获取候选文件列表，其中 `mappingGlobs` 为归一化后所有 `{glob, framework}` 映射的 glob 字符串数组；SHALL NOT 使用自定义递归目录遍历加逐文件 regex 测试的方式。
+
 `plan` 数组的生成逻辑 SHALL 为：
 1. 对 `test.frameworks` 配置（归一化后）中的每个 `{glob, framework}` 条目：
    - 调用 `deriveWorkingDirectory(glob)` 推导工作目录
@@ -250,7 +254,7 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 #### Scenario: test_detect_frameworks 自动扫描文件
 
 - **WHEN** `test_detect_frameworks` 收到参数 `{}`（无 files 参数）
-- **THEN** 它自动扫描项目中匹配 `test.frameworks[*].glob` 模式的文件
+- **THEN** 它通过 `scanProjectFiles` 自动扫描项目中匹配 `test.frameworks[*].glob` 模式的文件
 - **AND** 返回所有匹配文件的框架归属及包含 `script` 的完整 `plan` 数组
 
 #### Scenario: test_detect_frameworks 首匹配规则
@@ -585,3 +589,13 @@ openspec/changes/<change>/
 | U3 覆盖率 | `coverage_pass === true` 或 `coverage === null` | `coverage.pass === true` 或 `coverage === null` |
 | 决策树输入 | `failures[]` | `test_cases` 中 `status: "failed"` 条目 |
 | findings | `coverage_pass`, `coverage_by_framework`, `html_reports` | `coverage.pass`, `coverage.measured`, `coverage.by_framework[].measured` |
+
+### Function: runTestDetectFrameworks (glob integration)
+
+| Property | Description |
+|----------|-------------|
+| **Module** | `commands/test-detect-frameworks.ts` |
+| **Glob dependency** | `matchGlob` from `lib/glob.ts` — per-file framework detection |
+| **Glob dependency** | `scanProjectFiles` from `lib/glob.ts` — auto-scan when `files` omitted |
+| **Removed** | Private `globToRegex`, `matchGlob`, `collectFiles` functions |
+| **Unchanged** | `deriveWorkingDirectory`, `normalizeFrameworks`, `generateScript` |

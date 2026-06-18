@@ -138,6 +138,25 @@ describe('detectFrameworks -- glob first-match (AC-4)', () => {
       project.cleanup();
     }
   });
+
+  it('override 使用无通配符路径 plugins/dev-team/bin 时应检测子目录测试文件为对应框架', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        overrides: [{ file: 'plugins/dev-team/bin', framework: 'vite-plus' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['plugins/dev-team/bin/src/foo.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected).toHaveLength(1);
+      expect(result.detected[0].framework).toBe('vite-plus');
+    } finally {
+      project.cleanup();
+    }
+  });
 });
 
 // ===========================================================================

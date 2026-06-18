@@ -4,7 +4,7 @@ import * as path from 'path';
 import type z from 'zod/v4';
 
 import { readEvalJson } from '../lib/eval-json';
-import { changeListOutputSchema, type changeListInputSchema } from '../schemas';
+import { type changeListOutputSchema, type changeListInputSchema } from '../schemas';
 import { getProjectDir } from '../utils';
 
 type ChangeListOptions = z.input<typeof changeListInputSchema>;
