@@ -2,6 +2,15 @@
   "schema": "spec-driven",
   "static_analysis": "pnpm run -C ./plugins/dev-team/bin check",
   "test": {
-    "frameworks": [{ "glob": "plugins/dev-team/bin", "framework": "vite-plus" }]
+    "overrides": [
+      {
+        "files": "plugins/dev-team/bin",
+        "framework": "vite-plus"
+      },
+      {
+        "files": "plugins/dev-team/hooks/scripts",
+        "framework": "vite-plus"
+      }
+    ]
   }
 }
