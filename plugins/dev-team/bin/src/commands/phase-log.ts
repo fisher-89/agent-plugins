@@ -20,6 +20,38 @@ type PhaseLogOptions = z.input<typeof phaseLogInputSchema>;
 type PhaseLogResult = z.output<typeof phaseLogOutputSchema>;
 
 /**
+ * Handle backtrack stale marking when backtrack_to is set.
+ * Returns true if entries were modified, false otherwise.
+ */
+function handleBacktrackMarking(entries: EvalEntry[], options: PhaseLogOptions): boolean {
+  if (options.backtrack_to == null || options.backtrack_to === '') {
+    return false;
+  }
+
+  const targets = Array.isArray(options.backtrack_to)
+    ? options.backtrack_to
+    : [options.backtrack_to];
+
+  const currentIdx = getPhaseIndex(options.phase);
+  // Validate each target is a known phase ID
+  for (const target of targets) {
+    const idx = getPhaseIndex(target);
+    if (idx === -1) {
+      throw new Error(`无效的回溯目标 phase: "${target}"。请使用有效的 phase 标识符。`);
+    }
+    if (idx >= currentIdx) {
+      throw new Error(`无效的回溯目标 phase: "${target}"。不支持回溯到当前或未来phase。`);
+    }
+  }
+
+  // Mark stale for each target (handles propagation internally)
+  for (const target of targets) {
+    markPhaseStale(entries, target);
+  }
+  return true;
+}
+
+/**
  * Core logic for phase-log: validate, handle backtrack stale marking,
  * build entry, and persist to eval.json.
  *
@@ -43,31 +75,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     throw new Error(`读取 eval.json 失败: ${msg}`);
   }
 
-  // -- Handle backtrack: mark stale targets BEFORE writing new entry --
-  let modifiedByBacktrack = false;
-  if (options.backtrack_to != null && options.backtrack_to !== '') {
-    const targets = Array.isArray(options.backtrack_to)
-      ? options.backtrack_to
-      : [options.backtrack_to];
-
-    const currentIdx = getPhaseIndex(options.phase);
-    // Validate each target is a known phase ID
-    for (const target of targets) {
-      const idx = getPhaseIndex(target);
-      if (idx === -1) {
-        throw new Error(`无效的回溯目标 phase: "${target}"。请使用有效的 phase 标识符。`);
-      }
-      if (idx >= currentIdx) {
-        throw new Error(`无效的回溯目标 phase: "${target}"。不支持回溯到当前或未来phase。`);
-      }
-    }
-
-    // Mark stale for each target (handles propagation internally)
-    for (const target of targets) {
-      markPhaseStale(entries, target);
-    }
-    modifiedByBacktrack = true;
-  }
+  const modifiedByBacktrack = handleBacktrackMarking(entries, options);
 
   const attempt = computeAttempt(entries, options.phase, options.attempt);
 

@@ -219,6 +219,35 @@ function addUnitTest(unitTests: Map<string, UnitTestEntry>, sourcePath: string):
   }
 }
 
+function resolveIntegrationTests(
+  params: ResolveTestPathsParams,
+  collectedSources: string[],
+  errors: ResolveError[],
+): IntegrationTestEntry[] {
+  const integration_tests: IntegrationTestEntry[] = [];
+  const scenarios = params.integrationScenarios;
+  if (scenarios && scenarios.length > 0) {
+    const ext = inferExtension(collectedSources, params.extension);
+    const normalizedRoot = normalizeIntegrationRoot(params.integrationRoot);
+    const invalidRoot = normalizedRoot !== undefined && !isValidIntegrationRoot(normalizedRoot);
+
+    if (invalidRoot) {
+      errors.push({
+        path: normalizedRoot.replace(/\\/g, '/'),
+        message: 'integration_root path is outside project root',
+      });
+    } else {
+      for (const scenario of [...scenarios].sort((a, b) => a.localeCompare(b))) {
+        integration_tests.push({
+          scenario,
+          test_file: deriveIntegrationTestPath(scenario, ext, params.integrationRoot),
+        });
+      }
+    }
+  }
+  return integration_tests;
+}
+
 /**
  * Resolve unit and integration test paths from a module list.
  * Errors are collected per module; processing continues for remaining entries.
@@ -255,27 +284,7 @@ export function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPat
     a.source.localeCompare(b.source),
   );
 
-  const integration_tests: IntegrationTestEntry[] = [];
-  const scenarios = params.integrationScenarios;
-  if (scenarios && scenarios.length > 0) {
-    const ext = inferExtension(collectedSources, params.extension);
-    const normalizedRoot = normalizeIntegrationRoot(params.integrationRoot);
-    const invalidRoot = normalizedRoot !== undefined && !isValidIntegrationRoot(normalizedRoot);
-
-    if (invalidRoot) {
-      errors.push({
-        path: normalizedRoot.replace(/\\/g, '/'),
-        message: 'integration_root path is outside project root',
-      });
-    } else {
-      for (const scenario of [...scenarios].sort((a, b) => a.localeCompare(b))) {
-        integration_tests.push({
-          scenario,
-          test_file: deriveIntegrationTestPath(scenario, ext, params.integrationRoot),
-        });
-      }
-    }
-  }
+  const integration_tests = resolveIntegrationTests(params, collectedSources, errors);
 
   errors.sort((a, b) => a.path.localeCompare(b.path));
 

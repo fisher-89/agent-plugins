@@ -224,26 +224,10 @@ export function generateScript(input: GenerateScriptInput): string {
 }
 
 // ---------------------------------------------------------------------------
-// Main handler
+// Plan and detection helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Run `test_detect_frameworks`: detect which test framework(s) each file
- * belongs to, based on the glob-to-framework mappings in config.json.
- *
- * When `files` is provided, match only those files.  When omitted,
- * auto-scan the project for files matching any of the configured globs.
- */
-export function runTestDetectFrameworks(
-  options: TestDetectFrameworksOptions,
-): TestDetectFrameworksResult {
-  const projectRoot = options.projectRoot || getProjectDir();
-
-  const config = readConfig(projectRoot);
-  const { framework, overrides } = config.test;
-  const mappings = normalizeFrameworks(framework, overrides);
-
-  // Generate execution plan from the configured framework mappings
+function buildPlanFromMappings(mappings: FrameworkMapping[]): PlanEntry[] {
   const plan: PlanEntry[] = [];
   for (const mapping of mappings) {
     try {
@@ -267,36 +251,15 @@ export function runTestDetectFrameworks(
       // Skip entries for frameworks not in the registry
     }
   }
+  return plan;
+}
 
-  // Determine the list of files to process
-  let filesToCheck: string[];
-
-  if (options.files && options.files.length > 0) {
-    // Provided file list
-    // Resolve relative paths against project root
-    filesToCheck = options.files.map((f) =>
-      path.isAbsolute(f) ? f : path.resolve(projectRoot, f),
-    );
-  } else if (options.files !== undefined && options.files.length === 0) {
-    // Empty file list — return empty result
-    return { detected: [], frameworks: [], plan: [] };
-  } else {
-    // Auto-scan
-    filesToCheck = collectFiles(projectRoot);
-  }
-
-  // If no mappings exist, everything is "unknown"
-  if (mappings.length === 0) {
-    const detected: DetectedFile[] = filesToCheck.map((file) => ({
-      file,
-      framework: 'unknown',
-    }));
-    return { detected, frameworks: [], plan: [] };
-  }
-
-  const isAutoScan = options.files === undefined;
-
-  // First-match per file (use relative path for glob matching)
+function detectFrameworksForFiles(
+  filesToCheck: string[],
+  projectRoot: string,
+  mappings: FrameworkMapping[],
+  isAutoScan: boolean,
+): { detected: DetectedFile[]; frameworks: string[] } {
   const detected: DetectedFile[] = [];
   const frameworkSet = new Set<string>();
 
@@ -321,6 +284,76 @@ export function runTestDetectFrameworks(
   return {
     detected,
     frameworks: Array.from(frameworkSet).sort(),
-    plan,
   };
+}
+
+function resolveFilesToCheck(
+  options: TestDetectFrameworksOptions,
+  projectRoot: string,
+): string[] | 'empty' {
+  if (options.files && options.files.length > 0) {
+    // Provided file list — resolve relative paths against project root
+    return options.files.map((f) => (path.isAbsolute(f) ? f : path.resolve(projectRoot, f)));
+  }
+  if (options.files !== undefined && options.files.length === 0) {
+    // Empty file list — signal early return
+    return 'empty';
+  }
+  // Auto-scan
+  return collectFiles(projectRoot);
+}
+
+// ---------------------------------------------------------------------------
+// Main handler
+// ---------------------------------------------------------------------------
+
+function buildNoMappingsResult(
+  filesToCheck: string[],
+  isAutoScan: boolean,
+): TestDetectFrameworksResult {
+  const detected: DetectedFile[] = isAutoScan
+    ? []
+    : filesToCheck.map((file) => ({
+        file,
+        framework: 'unknown',
+      }));
+  return { detected, frameworks: [], plan: [] };
+}
+
+/**
+ * Run `test_detect_frameworks`: detect which test framework(s) each file
+ * belongs to, based on the glob-to-framework mappings in config.json.
+ *
+ * When `files` is provided, match only those files.  When omitted,
+ * auto-scan the project for files matching any of the configured globs.
+ */
+export function runTestDetectFrameworks(
+  options: TestDetectFrameworksOptions,
+): TestDetectFrameworksResult {
+  const projectRoot = options.projectRoot || getProjectDir();
+
+  const config = readConfig(projectRoot);
+  const { framework, overrides } = config.test;
+  const mappings = normalizeFrameworks(framework, overrides);
+  const plan = buildPlanFromMappings(mappings);
+
+  const filesResult = resolveFilesToCheck(options, projectRoot);
+  if (filesResult === 'empty') {
+    return { detected: [], frameworks: [], plan: [] };
+  }
+  const filesToCheck = filesResult;
+  const isAutoScan = options.files === undefined;
+
+  if (mappings.length === 0) {
+    return buildNoMappingsResult(filesToCheck, isAutoScan);
+  }
+
+  const { detected, frameworks } = detectFrameworksForFiles(
+    filesToCheck,
+    projectRoot,
+    mappings,
+    isAutoScan,
+  );
+
+  return { detected, frameworks, plan };
 }

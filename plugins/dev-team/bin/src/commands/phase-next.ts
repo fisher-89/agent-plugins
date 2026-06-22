@@ -191,6 +191,113 @@ function countAttempts(entries: EvalEntry[], phaseId: string): number {
   return entries.filter((e) => e.phase === phaseId).length;
 }
 
+/**
+ * Check round limit. Returns an error result if exceeded, or null to continue.
+ */
+function checkRoundLimit(round: number, totalPhases: number): ResolvePhaseNextResult | null {
+  if (round <= 20) {
+    return null;
+  }
+  return {
+    result: buildErrorResponse(
+      'round_limit_exceeded',
+      '超过 20 轮限制，可能存在循环回溯。请检查 eval.json 中的 backtrack 记录，或手动清理后重试。',
+      round,
+      totalPhases,
+    ),
+  };
+}
+
+/**
+ * Handle backtrack detection. Returns a result if backtrack was detected,
+ * or null if no backtrack is needed.
+ */
+function handleBacktrack(
+  entries: EvalEntry[],
+  phaseTable: PhaseDefinition[],
+  change: string,
+  round: number,
+  totalPhases: number,
+): ResolvePhaseNextResult | null {
+  // phase_log already handled stale marking when the backtrack entry was written.
+  // phase_next only reads the backtrack_to to determine the next phase to return.
+  const backtrackTarget = getLatestBacktrackTarget(entries);
+  if (!backtrackTarget) {
+    return null;
+  }
+
+  const targets = Array.isArray(backtrackTarget) ? backtrackTarget : [backtrackTarget];
+
+  // Find the earliest target in phase table order
+  let earliestTarget: string | null = null;
+  let earliestIdx = Infinity;
+  for (const target of targets) {
+    const idx = phaseTable.findIndex((p) => p.id === target);
+    if (idx !== -1 && idx < earliestIdx) {
+      earliestIdx = idx;
+      earliestTarget = target;
+    }
+  }
+
+  if (!earliestTarget) {
+    return {
+      result: buildErrorResponse(
+        'invalid_backtrack_target',
+        `回溯目标 "${JSON.stringify(backtrackTarget)}" 不包含有效的 phase 标识符`,
+        round,
+        totalPhases,
+      ),
+    };
+  }
+
+  const targetPhase = phaseTable[earliestIdx];
+
+  return {
+    result: buildPhaseResponse(targetPhase, round, totalPhases, earliestIdx + 1, change),
+  };
+}
+
+/**
+ * Check retry logic for the current phase. Returns a result if retry handling
+ * applies, or null to continue with normal flow.
+ */
+function checkRetryLimit(
+  entries: EvalEntry[],
+  nextPhaseDef: PhaseDefinition,
+  round: number,
+  totalPhases: number,
+  phaseIndex: number,
+  change: string,
+): ResolvePhaseNextResult | null {
+  const attempts = countAttempts(entries, nextPhaseDef.id);
+
+  const phaseEntries = entries
+    .filter((e) => e.phase === nextPhaseDef.id)
+    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
+
+  if (phaseEntries.length > 0) {
+    const latest = phaseEntries[0];
+
+    if (latest.verdict === 'fail') {
+      if (attempts >= 5) {
+        return {
+          result: buildErrorResponse(
+            'max_retries_exceeded',
+            `Phase "${nextPhaseDef.id}" 已失败 ${attempts} 次，超过最大重试次数（5 次）。请检查 artifact 质量或手动干预后重试。`,
+            round,
+            totalPhases,
+          ),
+        };
+      }
+      return {
+        result: buildPhaseResponse(nextPhaseDef, round, totalPhases, phaseIndex, change),
+      };
+    }
+  }
+
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // Main exported function
 // ---------------------------------------------------------------------------
@@ -222,99 +329,40 @@ export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNex
   const totalPhases = phaseTable.length;
   const round = computeRound(entries);
 
-  // -- Round limit check --
-  if (round > 20) {
-    return {
-      result: buildErrorResponse(
-        'round_limit_exceeded',
-        '超过 20 轮限制，可能存在循环回溯。请检查 eval.json 中的 backtrack 记录，或手动清理后重试。',
-        round,
-        totalPhases,
-      ),
-    };
+  const roundLimitResult = checkRoundLimit(round, totalPhases);
+  if (roundLimitResult) {
+    return roundLimitResult;
   }
 
   // -- Backtrack detection --
-  // phase_log already handled stale marking when the backtrack entry was written.
-  // phase_next only reads the backtrack_to to determine the next phase to return.
-  const backtrackTarget = getLatestBacktrackTarget(entries);
-  if (backtrackTarget) {
-    const targets = Array.isArray(backtrackTarget) ? backtrackTarget : [backtrackTarget];
-
-    // Find the earliest target in phase table order
-    let earliestTarget: string | null = null;
-    let earliestIdx = Infinity;
-    for (const target of targets) {
-      const idx = phaseTable.findIndex((p) => p.id === target);
-      if (idx !== -1 && idx < earliestIdx) {
-        earliestIdx = idx;
-        earliestTarget = target;
-      }
-    }
-
-    if (!earliestTarget) {
-      return {
-        result: buildErrorResponse(
-          'invalid_backtrack_target',
-          `回溯目标 "${JSON.stringify(backtrackTarget)}" 不包含有效的 phase 标识符`,
-          round,
-          totalPhases,
-        ),
-      };
-    }
-
-    const targetPhase = phaseTable[earliestIdx];
-
-    return {
-      result: buildPhaseResponse(targetPhase, round, totalPhases, earliestIdx + 1, change),
-    };
+  const backtrackResult = handleBacktrack(entries, phaseTable, change, round, totalPhases);
+  if (backtrackResult) {
+    return backtrackResult;
   }
 
-  // -- Determine which phases have passed (filtering stale entries) --
   const passedPhases = phaseTable.filter((p) => hasPhasePassed(entries, p.id));
-
-  // -- If all phases passed, we're done --
   if (passedPhases.length >= totalPhases) {
     return { result: buildDoneResponse(round, totalPhases) };
   }
 
-  // -- Find the first phase that has not passed (linear scan respects dependency graph
-  //    because propagation marks downstream entries stale when an upstream is stale) --
   const nextPhaseDef = phaseTable.find((p) => !hasPhasePassed(entries, p.id));
   if (!nextPhaseDef) {
     return { result: buildDoneResponse(round, totalPhases) };
   }
 
   const phaseIndex = phaseTable.indexOf(nextPhaseDef) + 1;
-
-  // -- Check retry logic for the current phase --
-  const attempts = countAttempts(entries, nextPhaseDef.id);
-
-  const phaseEntries = entries
-    .filter((e) => e.phase === nextPhaseDef.id)
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  if (phaseEntries.length > 0) {
-    const latest = phaseEntries[0];
-
-    if (latest.verdict === 'fail') {
-      if (attempts >= 5) {
-        return {
-          result: buildErrorResponse(
-            'max_retries_exceeded',
-            `Phase "${nextPhaseDef.id}" 已失败 ${attempts} 次，超过最大重试次数（5 次）。请检查 artifact 质量或手动干预后重试。`,
-            round,
-            totalPhases,
-          ),
-        };
-      }
-      return {
-        result: buildPhaseResponse(nextPhaseDef, round, totalPhases, phaseIndex, change),
-      };
-    }
+  const retryResult = checkRetryLimit(
+    entries,
+    nextPhaseDef,
+    round,
+    totalPhases,
+    phaseIndex,
+    change,
+  );
+  if (retryResult) {
+    return retryResult;
   }
 
-  // -- Normal flow: return the next phase to execute --
   return { result: buildPhaseResponse(nextPhaseDef, round, totalPhases, phaseIndex, change) };
 }
 

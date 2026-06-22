@@ -20,6 +20,7 @@ export default defineConfig({
       reportUnusedDisableDirectives: 'error',
     },
     rules: {
+      'max-lines-per-function': ['error', { max: 50 }],
       'no-duplicate-imports': ['error'],
       'no-unused-vars': 'error',
       'import/no-duplicates': 'error',
@@ -32,7 +33,13 @@ export default defineConfig({
       'unicorn/no-abusive-eslint-disable': 'error',
     },
     overrides: [
-      { files: ['*.test.ts', '*.spec.ts'], rules: { 'typescript/no-non-null-assertion': 'off' } },
+      {
+        files: ['*.test.ts', '*.spec.ts'],
+        rules: {
+          'max-lines-per-function': 'off',
+          'typescript/no-non-null-assertion': 'off',
+        },
+      },
     ],
   },
   fmt: {

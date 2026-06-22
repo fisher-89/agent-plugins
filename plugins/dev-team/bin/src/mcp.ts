@@ -63,12 +63,7 @@ function jsonContent<S extends ZodType>(_outputSchema: S, data: z.output<S>) {
   };
 }
 
-async function main(): Promise<void> {
-  const server = new McpServer(
-    { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: {} },
-  );
-
+function registerPhaseLogTool(server: McpServer): void {
   server.registerTool(
     'phase_log',
     {
@@ -83,7 +78,9 @@ async function main(): Promise<void> {
       return jsonContent(phaseLogOutputSchema, result);
     },
   );
+}
 
+function registerArchiQueryTool(server: McpServer): void {
   server.registerTool(
     'archi_query',
     {
@@ -98,7 +95,9 @@ async function main(): Promise<void> {
       return jsonContent(archiQueryOutputSchema, result);
     },
   );
+}
 
+function registerArchiValidateTool(server: McpServer): void {
   server.registerTool(
     'archi_validate',
     {
@@ -113,7 +112,9 @@ async function main(): Promise<void> {
       return jsonContent(archiValidateOutputSchema, result);
     },
   );
+}
 
+function registerArchiWriteTool(server: McpServer): void {
   server.registerTool(
     'archi_write',
     {
@@ -128,7 +129,9 @@ async function main(): Promise<void> {
       return jsonContent(archiWriteOutputSchema, result);
     },
   );
+}
 
+function registerArchiCheckTool(server: McpServer): void {
   server.registerTool(
     'archi_check',
     {
@@ -153,7 +156,9 @@ async function main(): Promise<void> {
       return jsonContent(archiCheckOutputSchema, result);
     },
   );
+}
 
+function registerPhaseNextTool(server: McpServer): void {
   server.registerTool(
     'phase_next',
     {
@@ -172,7 +177,9 @@ async function main(): Promise<void> {
       return jsonContent(phaseNextOutputSchema, result);
     },
   );
+}
 
+function registerConfigGetTool(server: McpServer): void {
   server.registerTool(
     'config_get',
     {
@@ -191,7 +198,9 @@ async function main(): Promise<void> {
       return jsonContent(configGetOutputSchema, result);
     },
   );
+}
 
+function registerConfigSetTool(server: McpServer): void {
   server.registerTool(
     'config_set',
     {
@@ -212,7 +221,9 @@ async function main(): Promise<void> {
       return jsonContent(configSetOutputSchema, result);
     },
   );
+}
 
+function registerConfigUnsetTool(server: McpServer): void {
   server.registerTool(
     'config_unset',
     {
@@ -231,7 +242,9 @@ async function main(): Promise<void> {
       return jsonContent(configUnsetOutputSchema, result);
     },
   );
+}
 
+function registerConfigContextTool(server: McpServer): void {
   server.registerTool(
     'config_context',
     {
@@ -251,7 +264,9 @@ async function main(): Promise<void> {
       return jsonContent(configContextOutputSchema, result);
     },
   );
+}
 
+function registerTestDetectFrameworksTool(server: McpServer): void {
   server.registerTool(
     'test_detect_frameworks',
     {
@@ -272,7 +287,9 @@ async function main(): Promise<void> {
       return jsonContent(testDetectFrameworksOutputSchema, result);
     },
   );
+}
 
+function registerTestGetFrameworkConfigTool(server: McpServer): void {
   server.registerTool(
     'test_get_framework_config',
     {
@@ -290,7 +307,9 @@ async function main(): Promise<void> {
       return jsonContent(testGetFrameworkConfigOutputSchema, result);
     },
   );
+}
 
+function registerTestResolvePathsTool(server: McpServer): void {
   server.registerTool(
     'test_resolve_paths',
     {
@@ -307,7 +326,9 @@ async function main(): Promise<void> {
       return jsonContent(testResolvePathsOutputSchema, result);
     },
   );
+}
 
+function registerChangeListTool(server: McpServer): void {
   server.registerTool(
     'change_list',
     {
@@ -323,6 +344,28 @@ async function main(): Promise<void> {
       return jsonContent(changeListOutputSchema, result);
     },
   );
+}
+
+async function main(): Promise<void> {
+  const server = new McpServer(
+    { name: SERVER_NAME, version: SERVER_VERSION },
+    { capabilities: {} },
+  );
+
+  registerPhaseLogTool(server);
+  registerArchiQueryTool(server);
+  registerArchiValidateTool(server);
+  registerArchiWriteTool(server);
+  registerArchiCheckTool(server);
+  registerPhaseNextTool(server);
+  registerConfigGetTool(server);
+  registerConfigSetTool(server);
+  registerConfigUnsetTool(server);
+  registerConfigContextTool(server);
+  registerTestDetectFrameworksTool(server);
+  registerTestGetFrameworkConfigTool(server);
+  registerTestResolvePathsTool(server);
+  registerChangeListTool(server);
 
   const transport = new StdioServerTransport();
   await server.connect(transport);

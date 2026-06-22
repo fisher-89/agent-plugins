@@ -32,6 +32,52 @@ function countTasks(tasksPath: string): { total: number; done: number } {
   return { total, done };
 }
 
+function processChangeEntry(
+  changesDir: string,
+  entry: fs.Dirent,
+): ChangeListResult['changes'][number] | null {
+  if (!entry.isDirectory() || entry.name === 'archive') return null;
+
+  const changeDir = path.join(changesDir, entry.name);
+
+  const artifacts = KNOWN_ARTIFACTS.filter((a) => fs.existsSync(path.join(changeDir, a)));
+
+  const tasksPath = path.join(changeDir, 'tasks.md');
+  let tasks: { total: number; done: number } | null = null;
+  if (fs.existsSync(tasksPath)) {
+    try {
+      tasks = countTasks(tasksPath);
+    } catch {
+      tasks = null;
+    }
+  }
+
+  let latestPhase: ChangeListResult['changes'][number]['latest_phase'] = null;
+  try {
+    const evalEntries = readEvalJson(changeDir);
+    if (evalEntries.length > 0) {
+      const sorted = [...evalEntries].sort(
+        (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+      );
+      const latest = sorted[0];
+      latestPhase = {
+        phase: latest.phase,
+        verdict: latest.verdict,
+        ...(latest.stale ? { stale: true } : {}),
+      };
+    }
+  } catch {
+    // eval.json parse error — treat as absent
+  }
+
+  return {
+    name: entry.name,
+    artifacts,
+    tasks,
+    latest_phase: latestPhase,
+  };
+}
+
 /**
  * List all active (non-archived) changes under openspec/changes/.
  * Pure filesystem scan — no CLI dependency.
@@ -48,46 +94,8 @@ export function runChangeList(options: ChangeListOptions): ChangeListResult {
   const changes: ChangeListResult['changes'] = [];
 
   for (const entry of entries) {
-    if (!entry.isDirectory() || entry.name === 'archive') continue;
-
-    const changeDir = path.join(changesDir, entry.name);
-
-    const artifacts = KNOWN_ARTIFACTS.filter((a) => fs.existsSync(path.join(changeDir, a)));
-
-    const tasksPath = path.join(changeDir, 'tasks.md');
-    let tasks: { total: number; done: number } | null = null;
-    if (fs.existsSync(tasksPath)) {
-      try {
-        tasks = countTasks(tasksPath);
-      } catch {
-        tasks = null;
-      }
-    }
-
-    let latestPhase: ChangeListResult['changes'][number]['latest_phase'] = null;
-    try {
-      const evalEntries = readEvalJson(changeDir);
-      if (evalEntries.length > 0) {
-        const sorted = [...evalEntries].sort(
-          (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
-        );
-        const latest = sorted[0];
-        latestPhase = {
-          phase: latest.phase,
-          verdict: latest.verdict,
-          ...(latest.stale ? { stale: true } : {}),
-        };
-      }
-    } catch {
-      // eval.json parse error — treat as absent
-    }
-
-    changes.push({
-      name: entry.name,
-      artifacts,
-      tasks,
-      latest_phase: latestPhase,
-    });
+    const change = processChangeEntry(changesDir, entry);
+    if (change) changes.push(change);
   }
 
   changes.sort((a, b) => a.name.localeCompare(b.name));

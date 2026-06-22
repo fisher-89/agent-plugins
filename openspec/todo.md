@@ -23,4 +23,4 @@
 - [x] change_list没有屏蔽已完成change
 - [x] 将test-gen移动到implement后面执行
 - [ ] 步骤定义中不包含序号，workflow动态生成
-- [ ] 禁止test-gen写入非.test文件
+- [ ] 禁止test-gen修改非.test文件

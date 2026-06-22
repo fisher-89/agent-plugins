@@ -10,7 +10,7 @@ import * as path from 'node:path';
 
 import { fromSource } from '@likec4/language-services';
 
-import { type C4ParseResult } from './c4-types';
+import { type C4Element, type C4ParseResult } from './c4-types';
 
 // ---------------------------------------------------------------------------
 // Preprocessor — minimal: convert "desc" to 'desc' in relationships
@@ -92,6 +92,54 @@ export function findSpecificationBlock(projectRoot: string): string | null {
 // Public API — parsing (delegates to likec4)
 // ---------------------------------------------------------------------------
 
+function parseModelElements(model: {
+  elements(): Iterable<{
+    kind: unknown;
+    id: unknown;
+    metadata?: Record<string, unknown>;
+  }>;
+}): C4Element[] {
+  const elements: C4Element[] = [];
+
+  for (const el of model.elements()) {
+    const paths: string[] = [];
+    const metadata: Record<string, string[]> = {};
+    if (el.metadata) {
+      for (const [key, val] of Object.entries(el.metadata)) {
+        const arr = Array.isArray(val) ? val : [String(val)];
+        metadata[key] = arr;
+        if (key === 'path') paths.push(...arr);
+      }
+    }
+
+    elements.push({
+      kind: String(el.kind),
+      name: String(el.id),
+      paths,
+      metadata,
+    });
+  }
+
+  return elements;
+}
+
+function checkDuplicateSpecificationBlocks(projectRoot: string): string[] {
+  const errors: string[] = [];
+  const files = getModelFiles(projectRoot);
+  if (files.length > 1) {
+    const specFiles = files.filter((f) =>
+      fs.readFileSync(f.filepath, 'utf-8').includes('specification'),
+    );
+    if (specFiles.length > 1) {
+      errors.push(
+        `Duplicate 'specification' blocks found in files: ${specFiles.map((f) => f.filename).join(', ')}. ` +
+          'Only one file may contain a specification block.',
+      );
+    }
+  }
+  return errors;
+}
+
 export async function parseC4Dsl(dslText: string): Promise<C4ParseResult> {
   const result: C4ParseResult = {
     elements: [],
@@ -114,24 +162,7 @@ export async function parseC4Dsl(dslText: string): Promise<C4ParseResult> {
 
     const model = likec4.syncComputedModel();
 
-    for (const el of model.elements()) {
-      const paths: string[] = [];
-      const metadata: Record<string, string[]> = {};
-      if (el.metadata) {
-        for (const [key, val] of Object.entries(el.metadata)) {
-          const arr = Array.isArray(val) ? val : [String(val)];
-          metadata[key] = arr;
-          if (key === 'path') paths.push(...arr);
-        }
-      }
-
-      result.elements.push({
-        kind: String(el.kind),
-        name: String(el.id),
-        paths,
-        metadata,
-      });
-    }
+    result.elements = parseModelElements(model);
 
     for (const rel of model.relationships()) {
       result.relationships.push({
@@ -181,18 +212,7 @@ export async function validateC4Dsl(
     );
 
     if (projectRoot) {
-      const files = getModelFiles(projectRoot);
-      if (files.length > 1) {
-        const specFiles = files.filter((f) =>
-          fs.readFileSync(f.filepath, 'utf-8').includes('specification'),
-        );
-        if (specFiles.length > 1) {
-          errors.push(
-            `Duplicate 'specification' blocks found in files: ${specFiles.map((f) => f.filename).join(', ')}. ` +
-              'Only one file may contain a specification block.',
-          );
-        }
-      }
+      errors.push(...checkDuplicateSpecificationBlocks(projectRoot));
     }
 
     await likec4.dispose();

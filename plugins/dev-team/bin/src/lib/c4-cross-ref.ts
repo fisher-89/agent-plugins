@@ -285,27 +285,24 @@ function mapFilesToElements(
   return mapping;
 }
 
-/**
- * Cross-reference imports against model relationships.
- */
-function crossReference(
-  importsByFile: Record<string, string[]>,
-  fileElementMap: Record<string, string | null>,
-  elements: C4Element[],
-  relationships: C4Relation[],
-  pathToElement: Record<string, string>,
-  projectRoot: string,
-): { violations: CrossRefViolation[]; warnings: CrossRefViolation[] } {
-  const violations: CrossRefViolation[] = [];
-  const warnings: CrossRefViolation[] = [];
-
-  // Build relationship lookup: (source, target)
+function buildRelationshipLookup(relationships: C4Relation[]): Set<string> {
   const relLookup = new Set<string>();
   for (const rel of relationships) {
     if (rel.source && rel.target) {
       relLookup.add(`${rel.source}::${rel.target}`);
     }
   }
+  return relLookup;
+}
+
+function checkImportsAgainstRelationships(
+  importsByFile: Record<string, string[]>,
+  fileElementMap: Record<string, string | null>,
+  pathToElement: Record<string, string>,
+  relLookup: Set<string>,
+): { violations: CrossRefViolation[]; warnings: CrossRefViolation[] } {
+  const violations: CrossRefViolation[] = [];
+  const warnings: CrossRefViolation[] = [];
 
   for (const [filepath, importTargets] of Object.entries(importsByFile)) {
     const sourceElem = fileElementMap[filepath];
@@ -344,7 +341,15 @@ function crossReference(
     }
   }
 
-  // Detect unused relationships
+  return { violations, warnings };
+}
+
+function detectUnusedRelationships(
+  importsByFile: Record<string, string[]>,
+  fileElementMap: Record<string, string | null>,
+  pathToElement: Record<string, string>,
+  relationships: C4Relation[],
+): CrossRefViolation[] {
   const importedPairs = new Set<string>();
   for (const [filepath, importTargets] of Object.entries(importsByFile)) {
     const sourceElem = fileElementMap[filepath];
@@ -359,6 +364,7 @@ function crossReference(
     }
   }
 
+  const warnings: CrossRefViolation[] = [];
   for (const rel of relationships) {
     if (rel.source && rel.target) {
       if (!importedPairs.has(`${rel.source}::${rel.target}`)) {
@@ -373,7 +379,15 @@ function crossReference(
     }
   }
 
-  // Check for path_not_found warnings
+  return warnings;
+}
+
+function checkPathNotFoundWarnings(
+  elements: C4Element[],
+  projectRoot: string,
+): CrossRefViolation[] {
+  const warnings: CrossRefViolation[] = [];
+
   for (const elem of elements) {
     for (const p of elem.paths) {
       const absPath = path.resolve(projectRoot, p.replace(/^\.\//, ''));
@@ -389,66 +403,69 @@ function crossReference(
     }
   }
 
-  return { violations, warnings };
+  return warnings;
 }
 
 /**
- * Run the full cross-reference check.
- * Returns an ArchiCheckResult with violations, warnings, and matched files.
+ * Cross-reference imports against model relationships.
  */
-export async function runCrossRefCheck(
+function crossReference(
+  importsByFile: Record<string, string[]>,
+  fileElementMap: Record<string, string | null>,
+  elements: C4Element[],
+  relationships: C4Relation[],
+  pathToElement: Record<string, string>,
   projectRoot: string,
-  options: { staged?: boolean; files?: string[] } = {},
-): Promise<ArchiCheckResult> {
-  // Load model
-  const model = await loadModel(projectRoot);
+): { violations: CrossRefViolation[]; warnings: CrossRefViolation[] } {
+  const relLookup = buildRelationshipLookup(relationships);
 
+  const { violations, warnings: importWarnings } = checkImportsAgainstRelationships(
+    importsByFile,
+    fileElementMap,
+    pathToElement,
+    relLookup,
+  );
+
+  const warnings: CrossRefViolation[] = [...importWarnings];
+  warnings.push(
+    ...detectUnusedRelationships(importsByFile, fileElementMap, pathToElement, relationships),
+  );
+  warnings.push(...checkPathNotFoundWarnings(elements, projectRoot));
+
+  return { violations, warnings };
+}
+
+function emptyCrossRefResult(status: 'skipped' | 'no_changes'): ArchiCheckResult {
+  return {
+    violations: [],
+    warnings: [],
+    matched: [],
+    unmatched_files: [],
+    status,
+  };
+}
+
+function getEarlyCrossRefResult(
+  model: C4ParseResult,
+  changedFiles?: string[],
+): ArchiCheckResult | null {
   const hasError = model.errors.some(
     (e) => e.toLowerCase().includes('not found') || e.toLowerCase().includes('not exist'),
   );
   if (hasError) {
-    return {
-      violations: [],
-      warnings: [],
-      matched: [],
-      unmatched_files: [],
-      status: 'skipped',
-    };
+    return emptyCrossRefResult('skipped');
   }
 
-  // Get changed files
-  const changedFiles = getChangedFiles(projectRoot, options);
-
-  if (changedFiles.length === 0) {
-    return {
-      violations: [],
-      warnings: [],
-      matched: [],
-      unmatched_files: [],
-      status: 'no_changes',
-    };
+  if (changedFiles !== undefined && changedFiles.length === 0) {
+    return emptyCrossRefResult('no_changes');
   }
 
-  // Map files to elements
-  const fileElementMap = mapFilesToElements(changedFiles, model.path_to_element);
+  return null;
+}
 
-  // Parse imports
-  const importsByFile: Record<string, string[]> = {};
-  for (const filepath of changedFiles) {
-    importsByFile[filepath] = parseImports(filepath, projectRoot);
-  }
-
-  // Cross-reference
-  const { violations, warnings } = crossReference(
-    importsByFile,
-    fileElementMap,
-    model.elements,
-    model.relationships,
-    model.path_to_element,
-    projectRoot,
-  );
-
-  // Build matched list
+function buildMatchedList(
+  fileElementMap: Record<string, string | null>,
+): Array<{ element_id: string; files: string[] }> {
   const seenElements = new Map<string, string[]>();
   for (const [filepath, elemName] of Object.entries(fileElementMap)) {
     if (elemName) {
@@ -461,11 +478,51 @@ export async function runCrossRefCheck(
     }
   }
 
-  const matched = Array.from(seenElements.entries()).map(([elementId, files]) => ({
+  return Array.from(seenElements.entries()).map(([elementId, files]) => ({
     element_id: elementId,
     files,
   }));
+}
 
+/**
+ * Run the full cross-reference check.
+ * Returns an ArchiCheckResult with violations, warnings, and matched files.
+ */
+export async function runCrossRefCheck(
+  projectRoot: string,
+  options: { staged?: boolean; files?: string[] } = {},
+): Promise<ArchiCheckResult> {
+  const model = await loadModel(projectRoot);
+
+  const skippedResult = getEarlyCrossRefResult(model);
+  if (skippedResult) {
+    return skippedResult;
+  }
+
+  const changedFiles = getChangedFiles(projectRoot, options);
+
+  const noChangesResult = getEarlyCrossRefResult(model, changedFiles);
+  if (noChangesResult) {
+    return noChangesResult;
+  }
+
+  const fileElementMap = mapFilesToElements(changedFiles, model.path_to_element);
+
+  const importsByFile: Record<string, string[]> = {};
+  for (const filepath of changedFiles) {
+    importsByFile[filepath] = parseImports(filepath, projectRoot);
+  }
+
+  const { violations, warnings } = crossReference(
+    importsByFile,
+    fileElementMap,
+    model.elements,
+    model.relationships,
+    model.path_to_element,
+    projectRoot,
+  );
+
+  const matched = buildMatchedList(fileElementMap);
   const unmatchedFiles = changedFiles.filter((f) => fileElementMap[f] === null);
 
   return {
