@@ -1,10 +1,4 @@
-# static-check-hook Specification
-
-## Purpose
-
-Automatically enforce static analysis (lint, type checking) when the `implementation-generator` subagent completes, via a `subagentStop` hook. Static check configuration is read from `openspec/config.json` and executed through the embedded `dev-team-cli.cjs run_static_analysis` command. Failed checks block agent completion and return a followup message for remediation, replacing prior agent-instruction-based static check flows and report file validation.
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: hooks.json 声明 subagentStop hook 匹配 implementation-generator
 
@@ -102,7 +96,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 
 ### Requirement: static-check hook 不影响现有 PreToolUse hook
 
-`subagentStop` hook SHALL NOT 改变 `PreToolUse` hook 的配置结构或拦截语义。
+`subagentStop` hook 的迁移 SHALL NOT 改变 `PreToolUse` hook 的配置结构或拦截语义。
 
 `protect-eval.mjs` 对 eval.json 的 Write/Edit/Bash 拦截行为 SHALL 保持不变。
 
@@ -114,12 +108,21 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 
 ### Requirement: 插件版本号递增
 
-`plugins/dev-team/.claude-plugin/plugin.json` 的 `version` 字段 SHALL 递增（patch bump），以反映 hook 脚本变更。
+`plugins/dev-team/.claude-plugin/plugin.json` 的 `version` 字段 SHALL 递增（patch bump），以反映 hook 脚本从 Bash 迁移至 Node.js。实现完成后版本号 SHALL 高于 `"2.6.22"`。
 
 #### Scenario: 插件版本号已升级
 
 - **WHEN** 读取 `plugins/dev-team/.claude-plugin/plugin.json`
-- **THEN** `version` 字段值遵循 semver
+- **THEN** `version` 字段值 SHALL 大于 `"2.6.22"`
+- **AND** 版本格式遵循 semver
+
+## REMOVED Requirements
+
+### Requirement: static-check.sh 通过 CLI 执行静态检查并根据 exit code 决定放行或 followup
+
+**Reason:** Bash 脚本在 Windows PowerShell 环境下无法通过 `bash` 命令调用；已由 `static-check.mjs` 替代。
+
+**Migration:** `hooks.json` command 改为 `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"`；删除 `static-check.sh`。
 
 ## Module Contract
 
@@ -143,3 +146,9 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 | **通过** | stdout `{}`，exit `0` |
 | **失败** | stdout `{"followup_message": "<错误输出 + 修复指令>"}`，exit `0` |
 | **报告** | 不生成任何 report 文件 |
+
+### 插件配置：`plugins/dev-team/.claude-plugin/plugin.json`
+
+| 字段 | 描述 |
+|------|------|
+| `version` | patch bump，实现完成后 SHALL 大于 `"2.6.22"` |

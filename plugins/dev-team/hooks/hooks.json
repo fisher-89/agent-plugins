@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.sh\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.mjs\""
           }
         ]
       },
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.sh\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.mjs\""
           }
         ]
       }
@@ -28,7 +28,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.sh\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs\""
           }
         ]
       }

@@ -1,0 +1,18 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && npm test -- __tests__/hooks-json-structure/hooks-json-structure.test.ts __tests__/protect-eval-regression/protect-eval-regression.test.ts __tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts",
+  "timestamp": "2026-06-18T11:01:20.351Z",
+  "total": 20,
+  "passed": 20,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 1250,
+  "failures": [],
+  "test_files": [
+    "plugins/dev-team/bin/__tests__/hooks-json-structure/hooks-json-structure.test.ts",
+    "plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+    "plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts"
+  ],
+  "findings": "All 20 integration tests pass via vp test (vite-plus runner). Tests import from vite-plus/test and must not be run with bare npx vitest (causes TypeError: Cannot read properties of undefined reading config). AC-1/7/8 covered by hooks-json-structure (5 tests); AC-4/7/9 by protect-eval-regression (10 tests); AC-7/10 by static-check-hook-e2e (5 tests). Deprecated integration scenarios (AC-3 Write/Edit, AC-5/6 CLI pass/fail) intentionally moved to unit tests in hooks/scripts/*.test.mjs."
+}

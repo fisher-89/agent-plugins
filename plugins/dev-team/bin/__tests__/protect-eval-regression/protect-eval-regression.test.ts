@@ -1,9 +1,7 @@
 /**
- * 集成测试: protect-eval.sh PreToolUse 回归
+ * 集成测试: protect-eval.mjs PreToolUse 回归
  *
- * 覆盖 AC-10：eval.json 写入拦截行为不受 static-check hook 变更影响。
- *
- * @see openspec/changes/static-check-agent-hook/test-design.md
+ * @see openspec/changes/rewrite-hooks-to-node/test-design.md
  */
 
 import { execFileSync } from 'node:child_process';
@@ -12,15 +10,14 @@ import * as path from 'node:path';
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { resolveBash } from '../helpers/resolve-bash';
-
 // ---------------------------------------------------------------------------
 // 路径
 // ---------------------------------------------------------------------------
 
 /** vitest CWD 为 plugins/dev-team/bin/ */
 const projectRoot = path.resolve(process.cwd(), '../../..');
-const scriptPath = path.resolve(projectRoot, 'plugins/dev-team/hooks/scripts/protect-eval.sh');
+const scriptPath = path.resolve(projectRoot, 'plugins/dev-team/hooks/scripts/protect-eval.mjs');
+const legacyShPath = path.resolve(projectRoot, 'plugins/dev-team/hooks/scripts/protect-eval.sh');
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -32,7 +29,7 @@ interface HookResult {
 }
 
 function runProtectEval(stdinJson: string): HookResult {
-  const stdout = execFileSync(resolveBash(), [scriptPath], {
+  const stdout = execFileSync(process.execPath, [scriptPath], {
     input: stdinJson,
     encoding: 'utf-8',
   });
@@ -49,48 +46,61 @@ function runProtectEval(stdinJson: string): HookResult {
 }
 
 // ---------------------------------------------------------------------------
-// AC-10: Write / Edit / Bash 拦截
+// AC-4: Bash 写入检测与豁免
 // ---------------------------------------------------------------------------
 
-describe('protect-eval.sh — Write 拦截 (AC-10)', () => {
-  it('Write openspec/changes/test/eval.json 应返回 permissionDecision deny', () => {
-    const input = JSON.stringify({
-      tool_name: 'Write',
-      tool_input: { file_path: 'openspec/changes/test-change/eval.json' },
-    });
-    const result = runProtectEval(input);
-    expect(result.permissionDecision).toBe('deny');
-    expect(result.permissionDecisionReason).toMatch(/phase_log|eval\.json/i);
-  });
-});
-
-describe('protect-eval.sh — Edit 拦截 (AC-10)', () => {
-  it('Edit eval.json 路径仍应被拦截', () => {
-    const input = JSON.stringify({
-      tool_name: 'Edit',
-      tool_input: { file_path: 'openspec/changes/my-change/eval.json' },
-    });
-    const result = runProtectEval(input);
-    expect(result.permissionDecision).toBe('deny');
-  });
-});
-
-describe('protect-eval.sh — Bash 重定向拦截 (AC-10)', () => {
-  it("echo '[]' > openspec/changes/test/eval.json 仍应被拦截", () => {
+describe('protect-eval.mjs — Bash tee (AC-4)', () => {
+  it("echo '[]' | tee openspec/changes/test/eval.json 应返回 deny", () => {
     const input = JSON.stringify({
       tool_name: 'Bash',
-      tool_input: { command: "echo '[]' > openspec/changes/test-change/eval.json" },
+      tool_input: { command: "echo '[]' | tee openspec/changes/test/eval.json" },
     });
     const result = runProtectEval(input);
     expect(result.permissionDecision).toBe('deny');
   });
 });
 
-describe('protect-eval.sh — 无关文件放行 (AC-10)', () => {
-  it('Write 非 eval.json 文件应返回 allow', () => {
+describe('protect-eval.mjs — Bash heredoc (AC-4)', () => {
+  it('heredoc 写 eval.json 应返回 deny', () => {
+    const command = "cat > openspec/changes/test-change/eval.json <<EOF\n[]\nEOF";
     const input = JSON.stringify({
-      tool_name: 'Write',
-      tool_input: { file_path: 'src/utils/helper.ts' },
+      tool_name: 'Bash',
+      tool_input: { command },
+    });
+    const result = runProtectEval(input);
+    expect(result.permissionDecision).toBe('deny');
+  });
+});
+
+describe('protect-eval.mjs — python 豁免 (AC-4)', () => {
+  it('python 命令应返回 allow', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: {
+        command: 'python plugins/dev-team/utils/eval-check.py --change test',
+      },
+    });
+    const result = runProtectEval(input);
+    expect(result.permissionDecision).toBe('allow');
+  });
+});
+
+describe('protect-eval.mjs — node 豁免 (AC-4)', () => {
+  it('node scripts/write-eval.mjs 应返回 allow', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'node scripts/write-eval.mjs' },
+    });
+    const result = runProtectEval(input);
+    expect(result.permissionDecision).toBe('allow');
+  });
+});
+
+describe('protect-eval.mjs — 只读 Bash (AC-4)', () => {
+  it('cat openspec/changes/test/eval.json 应返回 allow', () => {
+    const input = JSON.stringify({
+      tool_name: 'Bash',
+      tool_input: { command: 'cat openspec/changes/test/eval.json' },
     });
     const result = runProtectEval(input);
     expect(result.permissionDecision).toBe('allow');
@@ -98,12 +108,38 @@ describe('protect-eval.sh — 无关文件放行 (AC-10)', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 前置检查
+// AC-9: fail-open 回归
 // ---------------------------------------------------------------------------
 
-describe('protect-eval.sh — 脚本可用性', () => {
-  it('脚本文件应存在且非空', () => {
+describe('protect-eval.mjs — fail-open (AC-9)', () => {
+  it('空 stdin 应返回 allow', () => {
+    const result = runProtectEval('');
+    expect(result.permissionDecision).toBe('allow');
+  });
+
+  it('无效 JSON stdin 应返回 allow', () => {
+    const result = runProtectEval('{not json');
+    expect(result.permissionDecision).toBe('allow');
+  });
+
+  it('Write 缺失 tool_input.file_path 应返回 allow', () => {
+    const input = JSON.stringify({ tool_name: 'Write', tool_input: {} });
+    const result = runProtectEval(input);
+    expect(result.permissionDecision).toBe('allow');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// AC-7: 脚本可用性
+// ---------------------------------------------------------------------------
+
+describe('protect-eval.mjs — 脚本可用性 (AC-7)', () => {
+  it('protect-eval.mjs 应存在且非空', () => {
     expect(fs.existsSync(scriptPath)).toBe(true);
     expect(fs.statSync(scriptPath).size).toBeGreaterThan(0);
+  });
+
+  it('protect-eval.sh 不应再存在', () => {
+    expect(fs.existsSync(legacyShPath)).toBe(false);
   });
 });

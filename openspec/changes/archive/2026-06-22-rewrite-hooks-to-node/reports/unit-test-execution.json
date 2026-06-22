@@ -1,0 +1,279 @@
+{
+  "phase": "06-unit-test",
+  "command": "node --test protect-eval.test.mjs static-check.test.mjs",
+  "timestamp": "2026-06-18T00:00:00.000Z",
+  "total": 44,
+  "passed": 44,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 0.506,
+  "coverage": null,
+  "test_cases": [
+    {
+      "name": "isEvalJsonPath — 路径匹配 > 相对路径 openspec/changes/test-change/eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.7,
+      "status": "passed"
+    },
+    {
+      "name": "isEvalJsonPath — 路径匹配 > 绝对路径 D:/Projects/.../eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.16,
+      "status": "passed"
+    },
+    {
+      "name": "isEvalJsonPath — 路径匹配 > 非 eval 文件 openspec/changes/test/design.md 应返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.11,
+      "status": "passed"
+    },
+    {
+      "name": "isEvalJsonPath — 路径匹配 > changes 目录外路径应返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.08,
+      "status": "passed"
+    },
+    {
+      "name": "isEvalJsonPath — 路径匹配 > 反斜杠归一化 openspec\\changes\\test\\eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.09,
+      "status": "passed"
+    },
+    {
+      "name": "isEvalJsonPath — 路径匹配 > 空字符串应返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.08,
+      "status": "passed"
+    },
+    {
+      "name": "isEvalJsonPath — 路径匹配 > 超长路径仍含 eval.json 后缀时应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 写入模式 > > 重定向到 eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 1.34,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 写入模式 > >> 追加到 eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.18,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 写入模式 > tee 写入 eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.18,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 写入模式 > tee -a 追加 eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.12,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 写入模式 > heredoc 写入 eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.07,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 写入模式 > >& 重定向到 eval.json 应返回 true",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.12,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 写入模式 > 含 -> 但无 eval.json 写入时应返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.06,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 豁免与只读 > python 命令应豁免并返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 豁免与只读 > python3 命令应豁免并返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.07,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 豁免与只读 > node 命令应豁免并返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.11,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 豁免与只读 > 只读 cat eval.json 应返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.16,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 豁免与只读 > 无 eval.json 的命令 ls -la 应返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.08,
+      "status": "passed"
+    },
+    {
+      "name": "detectBashWrite — 豁免与只读 > 空命令应返回 false",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.07,
+      "status": "passed"
+    },
+    {
+      "name": "extractChangeName > 应从 eval.json 路径提取变更名 my-feature",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.19,
+      "status": "passed"
+    },
+    {
+      "name": "extractChangeName > 无匹配路径应返回空字符串",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.09,
+      "status": "passed"
+    },
+    {
+      "name": "buildDenyReason > 拒绝原因应含 phase_log、eval.json 及变更名",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.25,
+      "status": "passed"
+    },
+    {
+      "name": "parseInput — fail-open > 空 stdin 应触发 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.16,
+      "status": "passed"
+    },
+    {
+      "name": "parseInput — fail-open > 无效 JSON 应触发 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.1,
+      "status": "passed"
+    },
+    {
+      "name": "parseInput — fail-open > 缺失 tool_name 应触发 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.05,
+      "status": "passed"
+    },
+    {
+      "name": "parseInput — fail-open > Write 缺失 tool_input.file_path 应触发 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.05,
+      "status": "passed"
+    },
+    {
+      "name": "parseInput — fail-open > 未知工具 Read 应触发 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.06,
+      "status": "passed"
+    },
+    {
+      "name": "outputDeny — JSON 特殊字符 > reason 含换行、引号、反斜杠时 stdout 可 JSON.parse",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 0.21,
+      "status": "passed"
+    },
+    {
+      "name": "protect-eval.mjs — 黑盒 fail-open (AC-9) > 空 stdin 应输出 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 118.66,
+      "status": "passed"
+    },
+    {
+      "name": "protect-eval.mjs — 黑盒 fail-open (AC-9) > 无效 JSON stdin 应输出 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 115.1,
+      "status": "passed"
+    },
+    {
+      "name": "protect-eval.mjs — 黑盒 fail-open (AC-9) > 未知工具 Read 应输出 allow",
+      "file": "plugins/dev-team/hooks/scripts/protect-eval.test.mjs",
+      "duration_ms": 115.59,
+      "status": "passed"
+    },
+    {
+      "name": "buildFollowupMessage > 应含中文修复前缀",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.45,
+      "status": "passed"
+    },
+    {
+      "name": "buildFollowupMessage > 合并后的 CLI 输出应出现在 followup_message 中",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.11,
+      "status": "passed"
+    },
+    {
+      "name": "formatOutput > CLI exit 0 时应返回 {}",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.53,
+      "status": "passed"
+    },
+    {
+      "name": "formatOutput > CLI exit 非 0 时应返回含 followup_message 的对象",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.14,
+      "status": "passed"
+    },
+    {
+      "name": "formatOutput > CLI 输出含特殊字符时 JSON.stringify 可解析",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.2,
+      "status": "passed"
+    },
+    {
+      "name": "formatOutput > 应将 stdout 与 stderr 合并进 followup_message",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.12,
+      "status": "passed"
+    },
+    {
+      "name": "resolveCliPath > 正常 CLAUDE_PLUGIN_ROOT 下应拼接 bin/dev-team-cli.cjs",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.25,
+      "status": "passed"
+    },
+    {
+      "name": "resolveCliPath > 含空格的根目录 path.join 不应截断",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.14,
+      "status": "passed"
+    },
+    {
+      "name": "resolveCliPath > 未传参时应读取 process.env.CLAUDE_PLUGIN_ROOT",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 0.19,
+      "status": "passed"
+    },
+    {
+      "name": "handleMissingCli > CLI 文件不存在时应返回 followup_message 且不抛异常",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 1.56,
+      "status": "passed"
+    },
+    {
+      "name": "handleMissingCli > 空 CLAUDE_PLUGIN_ROOT 时输出应含路径说明",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 1.16,
+      "status": "passed"
+    },
+    {
+      "name": "static-check.mjs — 黑盒 CLI 缺失 (AC-10) > 无 dev-team-cli.cjs 时不应抛未捕获异常",
+      "file": "plugins/dev-team/hooks/scripts/static-check.test.mjs",
+      "duration_ms": 109.83,
+      "status": "passed"
+    }
+  ],
+  "integration_test": null,
+  "findings": "Initial run: 1 failure in static-check.test.mjs — fs.existsSync mock attempted assignment to read-only ESM export (TypeError). Fixed by removing redundant mock suite; handleMissingCli and black-box AC-10 tests already cover CLI-missing behavior. Re-run: 44/44 passed. node:test framework not in openspec/config.json test.framework mappings — coverage not measured."
+}

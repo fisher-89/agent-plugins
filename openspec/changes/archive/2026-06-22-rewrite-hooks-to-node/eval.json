@@ -1,0 +1,667 @@
+[
+  {
+    "phase": "01-proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked R1–R10 on proposal.md + specs/. Problem/scope/risks/ACs are concrete; two modified capabilities match static-check-hook and eval-json-protection spec deltas; no placeholders; aligns with CLAUDE.md hook architecture and version bump rule; proposal and specs agree on node/.mjs migration and behavior parity.",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节描述 Windows 上 bash 不可用、具体错误信息及 eval 保护与静态检查失效三项后果"
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "变更范围含「实现以下特性」8 项与「不要修改」5 项"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "4 项风险均有具体缓解：保留集成测试对照移植、path.join、grep 无残留、child_process 调用 CLI"
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1 至 AC-10 均列验证方法（读文件、手动执行、跑测试、grep）"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "符合 Slim Plugin 提供 hooks 架构；plugin.json patch bump 2.6.22→2.6.23"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "全文 grep 无 TODO/TBD/placeholder/{{...}}"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有完整实质内容"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 → ### 修改的能力 列出 static-check-hook、eval-json-protection"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "两能力对应 specs/static-check-hook/spec.md 与 specs/eval-json-protection/spec.md，无多余 spec"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "修改类型一致；hooks.json 三处 node 命令、.mjs 行为、fail-open、版本递增与 spec MODIFIED/REMOVED 及 AC 场景对齐"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T08:36:48.215Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "design.md 与 tasks.md 完整覆盖 proposal AC-1–AC-10。架构表含职责/路径/依赖/技术栈；数据流逐步描述 PreToolUse/SubagentStop；7 项决策均含备选方案；六阶段任务具体可执行、依赖顺序正确；运行时与 Vitest 依赖已列；与 CLAUDE.md slim hook 架构一致。",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "架构组件表 5 行均含职责、文件位置、依赖、技术列（如 protect-eval.mjs → Node.js ESM；hooks.json → JSON）"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "PreToolUse 6 步（stdin→parse→分支→stdout→exit）与 SubagentStop 7 步（spawnSync CLI→合并输出→{}或followup）完整追踪"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "D1–D7 决策表每行含理由与备选方案（如 D2 拒绝 Git Bash 绝对路径、PowerShell .ps1）"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1 hooks.json/Phase3；AC-2/6 Phase6；AC-3/4/9 protect-eval+测试；AC-5/6/10 static-check+测试；AC-7 删除.sh；AC-8 plugin.json bump"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "Phase1–2 实现脚本→Phase3 hooks→Phase4 版本→Phase5 测试→Phase6 验收，无逆序依赖"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "任务含具体路径、函数名与断言（如 spawnSync、isEvalJsonPath、execFileSync('node')、grep 残留）"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节列 Node.js、CLAUDE_PLUGIN_ROOT、dev-team-cli.cjs；构建/测试列 Vitest 及三个测试文件"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "保持 slim plugin hooks 门禁、不改 CLI/MCP；plugin.json 版本 bump 符合项目规则"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构、数据流、Hook协议、决策、依赖、风险、迁移步骤均已填写；待决问题明确为无"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T08:38:12.898Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "T1/T3–T8 通过：AC-1–AC-10 均已映射，design 数据流（fail-open、spawnSync、path.join、resolveBash 移除）有对应用例与 Mock。T2 未通过：单元测试 extractChangeName、buildDenyReason、outputDeny、resolveCliPath 及集成「无关文件放行」「PreToolUse 结构不变」等场景在验收范围表无对应条目。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-10 均在 test-design.md 验收范围表有行；AC-2 标注为不可测试项并说明手动 PowerShell 验收，与 design.md 迁移步骤 8 一致"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": false,
+        "evidence": "单元用例 extractChangeName、buildDenyReason、outputDeny、resolveCliPath（L58–72）及 buildFollowupMessage CLI 合并（L67）在验收范围无匹配行；集成「无关文件放行」（L107）、「PreToolUse 结构不变」（L123）亦无对应验收范围条目"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "覆盖 design 风险表与 D7：反斜杠路径、tee -a/heredoc/>、python3/node 豁免、CLAUDE_PLUGIN_ROOT 含空格、followup JSON 转义、fail-open 空 stdin"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 策略表覆盖 dev-team-cli.cjs stub、spawnSync/fs.existsSync、CLAUDE_PLUGIN_ROOT 临时目录；design 依赖 dev-team-cli.cjs 与 child_process 均有说明"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质表格与说明，无占位符"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 的 .mjs、hooks.json、测试迁移、plugin.json bump 均有覆盖；out_of_scope 的 CLI/MCP/openspec-cli.sh 列入不可测试项且无越界用例"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal/design 无 API/DB 写接口变更，仅为 hook 权限决策脚本迁移；不适用幂等性要求"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID/验收条件/测试类型等），全文无 {{placeholder}} 残留"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:32:37.286Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "T1/T3–T8 通过：AC-1–AC-10 均已映射，design 五组件、PreToolUse/SubagentStop 数据流、D1–D6 及风险表边界均有对应用例与 Mock。T2 未通过：单元 extractChangeName、buildDenyReason、outputDeny、resolveCliPath（含 D7 空格路径）、buildFollowupMessage CLI 合并及集成「无关文件放行」「PreToolUse 结构不变」在验收范围表无对应条目。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-10 均在 test-design.md 验收范围表有行；AC-2 标注不可测试项，与 design.md 迁移步骤 8 手动 PowerShell 验收一致"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": false,
+        "evidence": "单元用例 extractChangeName、buildDenyReason、outputDeny、resolveCliPath（L74–77）及 buildFollowupMessage CLI 合并（L70）在验收范围无匹配行；集成「无关文件放行」（L105）、「PreToolUse 结构不变」（L102）亦无对应验收范围条目"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "覆盖 design 风险表与 D7：反斜杠路径、tee -a/heredoc/>、python3/node 豁免、CLAUDE_PLUGIN_ROOT 含空格、followup JSON 转义、fail-open 空 stdin"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 策略表覆盖 dev-team-cli.cjs stub、spawnSync/fs.existsSync、CLAUDE_PLUGIN_ROOT 临时目录；design 依赖 dev-team-cli.cjs 与 child_process 均有说明"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质表格与说明，无占位符"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 的 .mjs、hooks.json、测试迁移、plugin.json bump 均有覆盖；out_of_scope 的 CLI/MCP/openspec-cli.sh 列入不可测试项且无越界用例"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal/design 无 API/DB 写接口变更，仅为 hook 权限决策脚本迁移；不适用幂等性要求"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID/验收条件/测试类型等），全文无 {{placeholder}} 残留"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:37:00.990Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 3,
+    "verdict": "fail",
+    "report": "T1/T3–T8 通过：AC-1–AC-10 均已映射；design.md 五组件、PreToolUse/SubagentStop 数据流、D1–D7 决策与风险边界均有对应用例与 Mock。T2 未通过：attempt2 缺口已补，但集成「未配置放行」「脚本 exit 0」「脚本质量」及单元 parseInput「未知工具」在验收范围表仍无对应条目。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-10 均在 test-design.md 验收范围表有行；AC-2 标注不可测试项，与 design.md 迁移步骤 8 手动 PowerShell 验收一致"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": false,
+        "evidence": "attempt2 缺口（extractChangeName、buildDenyReason、outputDeny、resolveCliPath、无关文件放行、PreToolUse 结构不变、CLI 合并）已补 L29–35；仍缺：单元 parseInput—未知工具(L74)；集成 static-check—未配置放行(L125)、脚本 exit 0(L127)、脚本质量(L131) 在验收范围无匹配行"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "覆盖 design.md 风险表与 D7：反斜杠路径归一化、tee -a/heredoc/>、python3/node 豁免、CLAUDE_PLUGIN_ROOT 含空格 path.join、followup JSON.stringify 转义、fail-open 空 stdin（design PreToolUse 步骤 6）"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 表覆盖 dev-team-cli.cjs stub、spawnSync/fs.existsSync、CLAUDE_PLUGIN_ROOT 临时目录；对应 design.md 运行时依赖 Node.js/child_process 与构建依赖 Vitest execFileSync('node')"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质表格与说明，无 {{placeholder}} 残留"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 的 .mjs、hooks.json 三处 node 命令、测试迁移、plugin.json bump 均有覆盖；design/proposal out_of_scope 的 CLI/MCP/openspec-cli.sh 列入不可测试项且无越界用例"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal/design 无 API/DB 写接口变更，仅为 hook 权限决策脚本迁移；不适用幂等性要求"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID/验收条件/测试类型/测试文件/测试对象/测试场景等），全文无模板占位符"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:39:22.155Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "T1–T8 通过：AC-1–AC-10 均已映射；design.md 五组件、PreToolUse/SubagentStop 数据流、Hook 协议、D1–D7 与迁移步骤 6–8 均有对应用例/Mock/不可测试项。attempt3 缺口（parseInput 未知工具、未配置放行、脚本 exit 0、脚本质量）已在验收范围 L36–39 补齐，全部单元/集成用例均有对应条目。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-10 均在 test-design.md 验收范围表有行；AC-2 标注不可测试项，与 design.md 迁移步骤 8 手动 PowerShell 验收一致"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": true,
+        "evidence": "单元 38 条与集成 28 条用例均在验收范围 L11–39 有匹配「测试对象/测试场景」条目（含 attempt3 补齐的 extractChangeName、resolveCliPath、无关文件放行、PreToolUse 结构不变、parseInput 未知工具、未配置放行、脚本 exit 0、脚本质量）"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "覆盖 design.md 风险表与 D3–D7：反斜杠 path 归一化、tee -a/heredoc/>、python3/node 豁免、CLAUDE_PLUGIN_ROOT 含空格 path.join、JSON.stringify 转义、fail-open（PreToolUse 步骤 6）"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 表覆盖 dev-team-cli.cjs stub、spawnSync/fs.existsSync、CLAUDE_PLUGIN_ROOT 临时目录；对应 design.md 运行时 child_process 与构建 Vitest execFileSync('node') 依赖"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质表格与说明，无 {{placeholder}} 残留"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 的 .mjs、hooks.json 三处 node 命令、测试迁移、plugin.json bump 均有覆盖；design/proposal out_of_scope 的 CLI/MCP/openspec-cli.sh 列入不可测试项且无越界用例"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal/design 无 API/DB 写接口变更，仅为 hook 权限决策脚本迁移；不适用幂等性要求"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID/验收条件/测试类型/测试文件/测试对象/测试场景等），全文无模板占位符"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:40:15.604Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "G3/G4/G6–G9 通过：38 条单元与 17 条新增集成骨架齐全，Vitest/node:test 导入正确，边界与废弃用例处理符合设计，集成 afterEach 有清理。G1 未通过：protect-eval.mjs/static-check.mjs 尚未存在。G5 未通过：单元 Mock 表 spawnSync/fs.existsSync/CLAUDE_PLUGIN_ROOT 未按方案实现（改用 direct import，可接受度不足）。",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": false,
+        "evidence": "hooks/scripts/ 仅有 protect-eval.sh/static-check.sh，protect-eval.mjs 与 static-check.mjs 不存在；虽已有 protect-eval.test.mjs/static-check.test.mjs（未跟踪），无法与 .mjs 公开导出交叉验证"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "plugins/dev-team/hooks/scripts/*.test.mjs 与源码同目录；集成 plugins/dev-team/bin/__tests__/**/*.test.ts 符合 Vitest 规范"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design L51–88 共 38 条「新增」均在 protect-eval.test.mjs/static-check.test.mjs 有 describe/it（如 isEvalJsonPath 7 条、detectBashWrite 13 条、parseInput 5 条、handleMissingCli 2 条）"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design L110–137「新增」17 条均已生成：hooks-json-structure 5 describe、protect-eval-regression 8 describe、static-check-hook-e2e 4 describe，AC ID 标注正确"
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": false,
+        "evidence": "集成 Mock 已实现（createStubPluginRoot stub CLI、execFileSync node、readHooksJson）。单元表 L96 spawnSync stub、L97 fs.existsSync stub、L98 CLAUDE_PLUGIN_ROOT 环境变量均未出现；static-check.test.mjs 直接调用 formatOutput/resolveCliPath 传参"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "单元 import node:test + node:assert/strict；集成 import vite-plus/test + node:child_process/fs，已移除 resolveBash helper"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "单元含反斜杠/空串/超长路径、tee -a/>/&/->、python3/node 豁免、fail-open、JSON 转义、含空格 path.join、空 CLAUDE_PLUGIN_ROOT；集成含 fail-open 与 CLI 缺失场景"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "static-check-hook-e2e.test.ts afterEach stub?.cleanup()；handleMissingCli 单测 finally fs.rmSync；reports 副作用用例 finally 清理 stub"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "git diff 已删除 Write/Edit/无关文件/Bash 重定向/static-check followup 等「废弃」describe；未新增 PreToolUse 结构不变用例"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:43:31.392Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "G1 未通过：hooks/scripts/ 仍仅有 protect-eval.sh/static-check.sh，protect-eval.mjs 与 static-check.mjs 不存在，无法与导出函数交叉验证。G2–G4/G6–G9 通过：38 条单元与 17 条新增集成骨架齐全（it.skip 待实现），Vitest/node:test 导入正确，边界与废弃用例符合设计。G5 通过：spawnSync 黑盒、fs.existsSync mock、CLAUDE_PLUGIN_ROOT 与集成 stub CLI 均已实现。",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": false,
+        "evidence": "hooks/scripts/ 仅有 protect-eval.sh、static-check.sh；protect-eval.mjs/static-check.mjs 不存在。虽有未跟踪 protect-eval.test.mjs/static-check.test.mjs，无法与 .mjs 公开导出交叉验证"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "plugins/dev-team/hooks/scripts/*.test.mjs 与目标脚本同目录；集成 tests 位于 plugins/dev-team/bin/__tests__/**/*.test.ts，符合 Vitest 规范"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design L51–88 共 38 条「新增」均在 protect-eval.test.mjs/static-check.test.mjs 有 describe/it（isEvalJsonPath 7 条、detectBashWrite 13 条、parseInput 5 条、handleMissingCli 2 条等）"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design L110–137「新增」17 条均已生成：hooks-json-structure 5 describe、protect-eval-regression 8 describe、static-check-hook-e2e 4 describe，AC ID 标注正确"
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "protect-eval.test.mjs L239–270 spawnSync 黑盒；static-check.test.mjs L171–184 fs.existsSync mock.fn、L113–127/L190–206 CLAUDE_PLUGIN_ROOT；集成 createStubPluginRoot stub CLI + execFileSync('node')"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "单元 import node:test + node:assert/strict；集成 import vite-plus/test + node:child_process/fs，已移除 resolveBash helper"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "单元含反斜杠/空串/超长路径、tee -a/>/&/->、python3/node 豁免、fail-open、JSON 转义、含空格 path.join、空 CLAUDE_PLUGIN_ROOT；集成含 fail-open 与 CLI 缺失场景"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "static-check-hook-e2e afterEach stub?.cleanup()；handleMissingCli 单测 finally fs.rmSync；resolveCliPath 还原 process.env；fs.existsSync mock finally 还原"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "git diff 已删除 Write/Edit/无关文件/Bash 重定向/static-check followup 等「废弃」describe；未新增 PreToolUse 结构不变用例"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:48:18.000Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "G1–G9 全部通过。protect-eval.mjs/static-check.mjs 已存在且 hooks/scripts/ 有共存 *.test.mjs；38 条单元与 17 条新增集成骨架齐全（集成 it.skip 待 hooks 迁移完成）；Mock 含 spawnSync 黑盒、fs.existsSync stub、CLAUDE_PLUGIN_ROOT 与 stub CLI；Vitest/node:test 导入正确；边界与废弃用例符合 test-design；afterEach/finally 有清理。",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "protect-eval.mjs/static-check.mjs 已存在；同目录 protect-eval.test.mjs、static-check.test.mjs 覆盖 isEvalJsonPath/detectBashWrite/formatOutput/handleMissingCli 等导出函数"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "hooks/scripts/*.test.mjs 与 .mjs 同目录；集成 tests 为 plugins/dev-team/bin/__tests__/**/*.test.ts"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design L51–88 共 38 条「新增」均在 protect-eval.test.mjs/static-check.test.mjs 有 describe/it（isEvalJsonPath 7、detectBashWrite 13、parseInput 5、static-check 9 等）"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design L110–137「新增」17 条均已生成：hooks-json-structure 5、protect-eval-regression 8、static-check-hook-e2e 4 describe，AC ID 标注正确"
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "protect-eval.test.mjs L239–270 spawnSync 黑盒；static-check.test.mjs L171–184 fs.existsSync mock、L113–127/L190–206 CLAUDE_PLUGIN_ROOT；集成 createStubPluginRoot stub CLI + execFileSync(process.execPath)"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "单元 node:test + node:assert/strict；集成 vite-plus/test + node:child_process/fs，已移除 resolveBash"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "单元含反斜杠/空串/超长路径、tee -a/>/&/->、python3/node 豁免、fail-open、JSON 转义、含空格 path.join、空 CLAUDE_PLUGIN_ROOT；集成含 fail-open 与 CLI 缺失"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "static-check-hook-e2e afterEach stub?.cleanup()；handleMissingCli 单测 finally fs.rmSync；resolveCliPath 还原 process.env；fs.existsSync mock finally 还原"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "git diff 已删除 Write/Edit/无关文件/Bash 重定向/static-check followup 等「废弃」describe；未新增 PreToolUse 结构不变用例"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:50:45.968Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "I1–I7 通过：五架构组件均已实现（protect-eval.mjs、static-check.mjs、hooks.json 三处 node 命令、.sh 已删、plugin.json 2.6.26>2.6.22）；PreToolUse/SubagentStop 数据流与 Hook 协议一致；D1–D7 决策落实；tasks 全部 [x]；集成测试 20/20 通过。注：.mjs 与单元测试文件尚未 git add。",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "protect-eval.mjs、static-check.mjs（hooks/scripts/）；hooks.json 三处 node .mjs；.sh 已删；plugin.json version 2.6.26；dev-team-cli.cjs 未改"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "protect-eval.mjs: readFileSync(0)+JSON.parse+fail-open+Write/Edit/Bash 分支；static-check.mjs: path.join(CLAUDE_PLUGIN_ROOT)+spawnSync+JSON.stringify+始终 exit 0"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Node ESM .mjs、path.join、导出函数供 node:test；集成测试 execFileSync(process.execPath) 替代 resolveBash；与 bin/__tests__ Vitest 风格一致"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "hooks.json: PreToolUse Write|Edit/Bash→protect-eval.mjs；SubagentStop implementation-generator loop_limit 5→static-check.mjs"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md Phase 1–6 共 38 项均已 [x]"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff 限于 hooks 迁移、测试更新、plugin.json bump、resolve-bash 删除；*.test.mjs 对应 test-design 单元测试表"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1 ESM .mjs；D2 node 非 bash；D3 JSON.parse；D4 JSON.stringify followup；D5 删 .sh；D6 bash 逻辑逐函数移植；D7 path.join"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:56:06.794Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "诊断分析: 06-unit-test 阶段测试执行结果\n总计: 44 | 通过: 44 | 失败: 0 | 跳过: 0\n覆盖率: 未生成（node:test 未在 openspec/config.json test.framework 映射中）\n覆盖率达标: N/A\n\nprotect-eval.test.mjs 32 条 + static-check.test.mjs 12 条全部通过（0.506s）。初始 1 失败（fs.existsSync ESM mock TypeError）已在 Executor 重跑前修复。无失败用例，无需决策树回溯。",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds/test_cases 均存在且类型正确"
+      },
+      {
+        "item": "所有单元测试通过",
+        "pass": true,
+        "evidence": "44/44 tests passed（protect-eval.test.mjs 32 + static-check.test.mjs 12）"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "coverage === null；node:test 框架未配置覆盖率阈值，跳过"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A — failed === 0，无需决策树诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:57:52.406Z"
+  },
+  {
+    "phase": "07-code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "C1–C7 通过：.mjs hook 与 design 数据流/Hook 协议一致（fail-open、spawnSync+path.join、JSON.stringify）；spawnSync 无 shell 降低注入风险；44 单元+20 集成测试全绿；.sh 已删 hooks.json 三处 node 命令。轻微：*.test.mjs 残留实现前 TODO 注释。",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "protect-eval.mjs/static-check.mjs 无 eval/exec/system/硬编码密钥；spawnSync(process.execPath,[cliPath,'run_static_analysis'],{encoding}) 无 shell；Bash 检测为设计内拦截逻辑"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "protect-eval.mjs L73–107: 空 stdin/JSON.parse try-catch/缺失 tool_name·file_path·command 均 fail-open；design D3 明确原生 JSON.parse 非 zod；static-check 忽略 stdin 符合设计"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "hooks.json L10/L19/L31 node .mjs；protect-eval readFileSync(0)+Write/Edit/Bash 分支；static-check resolveCliPath+spawnSync+JSON.stringify+CLI 缺失 followup；.sh 已删 plugin.json 2.6.26"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "isEvalJsonPath/detectBashWrite 空参返回 false；parseInput 空/无效/未知工具 allow；static-check result.status??1、mergeCliOutput null 过滤、handleMissingCli 空根目录"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "resolve-bash.ts 已删；.mjs 导出函数均被单测使用；仅 protect-eval.test.mjs L18、static-check.test.mjs L20 残留「实现后导出」TODO 注释（非运行时代码）"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "文件头契约注释、ESM .mjs+node:test 单测、集成 execFileSync(process.execPath) 替代 resolveBash；与 bin/__tests__ Vitest 风格一致"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "直接使用 Cursor stdin 字段 tool_name/tool_input.file_path/command 与 hookSpecificOutput/followup_message 输出契约，无额外中间 DTO 映射"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T10:59:38.355Z"
+  },
+  {
+    "phase": "08-integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "08-integration-test: 20/20 通过 (1250ms)。hooks-json-structure(5)、protect-eval-regression(10)、static-check-hook-e2e(5) 均通过 vp test。AC-1/7/8、AC-4/9、AC-10 覆盖；AC-3/5/6 已下沉至 hooks/scripts 单元测试。",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_ms/failures 均存在且类型正确"
+      },
+      {
+        "item": "所有集成测试通过",
+        "pass": true,
+        "evidence": "20/20 tests passed, failed=0"
+      },
+      {
+        "item": "无环境/配置阻断",
+        "pass": true,
+        "evidence": "failures 为空，无 ConnectionRefused/Timeout/缺少环境变量错误"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A — 所有测试通过，无需诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-18T11:01:45.932Z"
+  },
+  {
+    "phase": "09-acceptance",
+    "timestamp": "2026-06-18T11:03:17.282Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "A1–A5 通过：AC-1–AC-10 均有代码/测试证据；8 项 in_scope 均已实现；out_of_scope 未越界；4 项风险缓解可见（64 测试全绿、path.join、无 .sh 残留、spawnSync 隔离 CJS）。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1 hooks.json:10/19/31 node .mjs；AC-2 Windows node 手动执行合法 JSON；AC-3 protect-eval.mjs:86-93+isEvalJsonPath 单测；AC-4 regression+detectBashWrite；AC-5/6 formatOutput 单测；AC-7 .sh 已删；AC-8 plugin.json 2.6.26；AC-9/10 fail-open+handleMissingCli 单测/集成测"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "变更限于 .mjs hooks、hooks.json、测试迁移、plugin.json bump、删 resolve-bash/.sh；未改 dev-team-cli.cjs、MCP、agent/skill"
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "static-check.mjs、protect-eval.mjs、hooks.json 三处 node 命令、.sh 已删、三集成测已更新、plugin.json version 2.6.26>2.6.22"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "git diff 无 dev-team-cli.cjs/MCP/agent 变更；openspec-cli.sh 未动；hook 业务规则保持 Write/Edit/Bash 拦截与 followup 前缀不变"
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "边界行为：64 测试全绿；空格路径：static-check.mjs:17-19 path.join；.sh 残留：grep 仅测试 legacy 断言；ESM/CJS：static-check.mjs:51 spawnSync 无 require"
+      }
+    ],
+    "backtrack_to": null
+  }
+]

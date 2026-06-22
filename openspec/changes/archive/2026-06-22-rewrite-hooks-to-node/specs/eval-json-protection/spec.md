@@ -1,4 +1,4 @@
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: 插件 hooks.json 声明 PreToolUse hook 拦截 Write/Edit 工具
 
@@ -174,69 +174,35 @@ PreToolUse hook 脚本应处理 stdin JSON 缺少预期字段的情况。若 std
 - **WHEN** 脚本收到无法 `JSON.parse` 的 stdin 内容
 - **THEN** 脚本输出 `permissionDecision: "allow"`
 
-### Requirement: Hook 拒绝原因引导 agent 使用 phase_log
-
-PreToolUse hook 返回 `permissionDecision: "deny"` 时，`permissionDecisionReason` 字段应包含：
-1. 明确说明 eval.json 只能通过 phase_log MCP 工具写入
-2. 确切的 MCP 工具名 `mcp__plugin_dev-team_dev-team__phase_log`
-3. 从路径（Write/Edit）或命令字符串（Bash）推断的变更名称
-4. 简要说明为何不允许直接写入（数据完整性、审计追溯）
-
-拒绝原因使用**中文（简体中文）**书写，与项目约定保持一致。
-
-#### Scenario: 拒绝原因包含 phase_log 工具名和变更名称
-
-- **WHEN** protect-eval.mjs 拒绝 Write 写入 `openspec/changes/my-feature/eval.json` 时
-- **THEN** `permissionDecisionReason` 应包含：
-  - 字符串 "mcp__plugin_dev-team_dev-team__phase_log"
-  - 推断的变更名称 "my-feature"
-  - 中文说明
-
-#### Scenario: Bash 拒绝原因包含替代建议
-
-- **WHEN** protect-eval.mjs 拒绝一条写入 eval.json 的 Bash 命令时
-- **THEN** `permissionDecisionReason` 应包含 "phase_log" 或 "mcp__plugin_dev-team_dev-team__phase_log"
-- **AND** 说明使用中文
-
 ### Requirement: 插件版本号递增
 
-`plugins/dev-team/.claude-plugin/plugin.json` 文件的 `version` 字段应递增（patch bump），以反映 hook 脚本变更。
+`plugins/dev-team/.claude-plugin/plugin.json` 文件的 `version` 字段应递增（patch bump），以反映 hook 脚本从 Bash 迁移至 Node.js。上一版本 `"2.6.22"` 应更新为更高版本号。
 
 #### Scenario: 插件版本号已升级
 
 - **WHEN** 读取 `plugins/dev-team/.claude-plugin/plugin.json` 时
-- **THEN** `version` 字段值遵循 semver
+- **THEN** `version` 字段值应大于 `"2.6.22"`
+- **AND** 版本格式遵循 semver
 
-### Requirement: phase_log MCP 工具不受影响继续写入 eval.json
+## REMOVED Requirements
 
-MCP 工具 `mcp__plugin_dev-team_dev-team__phase_log` 不应受 PreToolUse hook 影响。Hook 仅拦截内置工具（Write、Edit、Bash），MCP 工具不会被针对内置工具的 PreToolUse hook 拦截。
+### Requirement: protect-eval.sh 拦截 Write/Edit 对 eval.json 的写入
 
-`phase_log` 工具应继续按设计读取、校验和写入 eval.json，所有现有校验逻辑（verdict 值域检查、report 长度限制、回溯 stale 传播、skipped 一致性检查、attempt 自动递增、时间戳生成）保持不变。
+**Reason:** Bash 脚本在 Windows PowerShell 环境下无法通过 `bash` 命令调用；已由 `protect-eval.mjs` 替代。
 
-#### Scenario: Hook 激活后 phase_log 仍可写入 eval.json
+**Migration:** `hooks.json` command 改为 `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.mjs"`；删除 `protect-eval.sh`。
 
-- **WHEN** agent 调用 `mcp__plugin_dev-team_dev-team__phase_log`，参数为 `{change: "test", phase: "01-requirements", verdict: "pass", report: "所有检查通过", items: [...]}`
-- **THEN** 调用成功
-- **AND** eval.json 包含新条目
-- **AND** hook 未干扰 MCP 工具
+### Requirement: protect-eval.sh 拦截 Bash 对 eval.json 的写入，但不拦截 Python
 
-#### Scenario: Agent 被 hook 拒绝后自我纠正使用 phase_log
+**Reason:** 同上，逻辑已迁移至 `protect-eval.mjs`。
 
-- **WHEN** agent 先尝试 Write eval.json（被 hook 拒绝并收到建议），随后改用 `mcp__plugin_dev-team_dev-team__phase_log`
-- **THEN** `phase_log` 调用成功
-- **AND** 条目正确追加到 eval.json
+**Migration:** 集成测试改为通过 `node` 调用 `.mjs` 脚本验证等价行为。
 
-### Requirement: 插件安装时保护自动激活
+### Requirement: Hook 脚本语法合法且可执行
 
-eval.json 保护应在 dev-team 插件被启用的 Claude Code 项目中自动激活。无需逐项目配置、手动注册 hook 或修改 settings 文件即可生效。
+**Reason:** `bash -n` 语法检查不再适用；已由「Hook 脚本可被 Node.js 直接执行」要求替代。
 
-Claude Code 应按照插件 hook 发现机制，自动发现 `plugins/dev-team/hooks/hooks.json` 中声明的 hook 并注册。
-
-#### Scenario: 新项目安装插件后保护生效
-
-- **WHEN** 新 Claude Code 项目启用了 dev-team 插件时
-- **THEN** `plugins/dev-team/hooks/hooks.json` 中的 hook 自动注册
-- **AND** 无需额外配置即可拒绝 Write/Edit 对 eval.json 的写入
+**Migration:** 使用 `node protect-eval.mjs` 执行验证。
 
 ## Module Contract
 
@@ -265,6 +231,12 @@ Claude Code 应按照插件 hook 发现机制，自动发现 `plugins/dev-team/h
 | **命中动作** | 输出 JSON `hookSpecificOutput.permissionDecision: "deny"` + 中文拒绝原因 + `phase_log` 建议 |
 | **未命中动作** | 输出 JSON `hookSpecificOutput.permissionDecision: "allow"` |
 | **错误处理** | 空 stdin、缺少 `file_path`/`command`/`tool_name` 或 JSON 解析失败 → 默认 `allow` |
+
+### 插件配置：plugins/dev-team/.claude-plugin/plugin.json
+
+| 字段 | 值 |
+|------|-----|
+| `version` | patch bump，实现完成后 SHALL 大于 `"2.6.22"` |
 
 ### MCP 工具（不受此变更影响）
 

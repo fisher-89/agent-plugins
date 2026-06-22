@@ -1,9 +1,7 @@
 /**
- * 集成测试: hooks.json SubagentStop 声明与 plugin.json 版本
+ * 集成测试: hooks.json / plugin.json — Node .mjs hook 声明
  *
- * 覆盖 AC-11、AC-12：matcher、loop_limit、PreToolUse 不变、版本递增。
- *
- * @see openspec/changes/static-check-agent-hook/test-design.md
+ * @see openspec/changes/rewrite-hooks-to-node/test-design.md
  */
 
 import * as fs from 'node:fs';
@@ -56,61 +54,74 @@ function isGreaterThan(a: string, b: string): boolean {
 }
 
 // ---------------------------------------------------------------------------
-// AC-11: SubagentStop 声明
+// AC-1: hooks.json command 使用 node + .mjs
 // ---------------------------------------------------------------------------
 
-describe('hooks.json — SubagentStop 声明 (AC-11)', () => {
-  it('JSON 解析成功且 hooks.SubagentStop 数组至少一项', () => {
+describe('hooks.json — PreToolUse Write|Edit (AC-1)', () => {
+  it('command 应以 node 开头且引用 protect-eval.mjs，不含 bash 或 .sh', () => {
     const parsed = readHooksJson();
-    expect(parsed.hooks?.SubagentStop?.length).toBeGreaterThan(0);
-  });
-
-  it('SubagentStop 项 matcher 应为 implementation-generator', () => {
-    const parsed = readHooksJson();
-    const entry = parsed.hooks?.SubagentStop?.[0];
-    expect(entry?.matcher).toBe('implementation-generator');
-  });
-
-  it('SubagentStop 项 loop_limit 应为 5', () => {
-    const parsed = readHooksJson();
-    const entry = parsed.hooks?.SubagentStop?.[0];
-    expect(entry?.loop_limit).toBe(5);
-  });
-
-  it('hook command 应指向 static-check.sh', () => {
-    const parsed = readHooksJson();
-    const command = parsed.hooks?.SubagentStop?.[0]?.hooks?.[0]?.command ?? '';
-    expect(command).toMatch(/static-check\.sh/);
+    const entry = parsed.hooks?.PreToolUse?.find((e) => e.matcher === 'Write|Edit');
+    const command = entry?.hooks?.[0]?.command ?? '';
+    expect(command).toMatch(/^node\s/);
+    expect(command).toMatch(/protect-eval\.mjs/);
+    expect(command).not.toMatch(/bash|\.sh/);
     expect(command).toContain('${CLAUDE_PLUGIN_ROOT}');
   });
 });
 
-// ---------------------------------------------------------------------------
-// AC-10 / AC-11: PreToolUse 不变
-// ---------------------------------------------------------------------------
-
-describe('hooks.json — PreToolUse 不变 (AC-10)', () => {
-  it('PreToolUse 应仍有两条 hook（Write|Edit、Bash → protect-eval.sh）', () => {
+describe('hooks.json — PreToolUse Bash (AC-1)', () => {
+  it('command 应以 node 开头且引用 protect-eval.mjs', () => {
     const parsed = readHooksJson();
-    const preToolUse = parsed.hooks?.PreToolUse ?? [];
-    expect(preToolUse).toHaveLength(2);
-    expect(preToolUse[0]?.matcher).toBe('Write|Edit');
-    expect(preToolUse[1]?.matcher).toBe('Bash');
-    for (const entry of preToolUse) {
-      expect(entry.hooks?.[0]?.type).toBe('command');
-      expect(entry.hooks?.[0]?.command).toMatch(/protect-eval\.sh/);
+    const entry = parsed.hooks?.PreToolUse?.find((e) => e.matcher === 'Bash');
+    const command = entry?.hooks?.[0]?.command ?? '';
+    expect(command).toMatch(/^node\s/);
+    expect(command).toMatch(/protect-eval\.mjs/);
+    expect(command).not.toMatch(/bash|\.sh/);
+  });
+});
+
+describe('hooks.json — SubagentStop (AC-1)', () => {
+  it('command 应以 node 开头且引用 static-check.mjs，loop_limit 仍为 5', () => {
+    const parsed = readHooksJson();
+    const entry = parsed.hooks?.SubagentStop?.[0];
+    expect(entry?.matcher).toBe('implementation-generator');
+    expect(entry?.loop_limit).toBe(5);
+    const command = entry?.hooks?.[0]?.command ?? '';
+    expect(command).toMatch(/^node\s/);
+    expect(command).toMatch(/static-check\.mjs/);
+    expect(command).not.toMatch(/bash|\.sh/);
+    expect(command).toContain('${CLAUDE_PLUGIN_ROOT}');
+  });
+});
+
+describe('hooks.json — command 不含 .sh (AC-7)', () => {
+  it('所有 hook command 不应引用 .sh 脚本', () => {
+    const parsed = readHooksJson();
+    const commands: string[] = [];
+    for (const entry of parsed.hooks?.PreToolUse ?? []) {
+      for (const hook of entry.hooks ?? []) {
+        if (hook.command) commands.push(hook.command);
+      }
+    }
+    for (const entry of parsed.hooks?.SubagentStop ?? []) {
+      for (const hook of entry.hooks ?? []) {
+        if (hook.command) commands.push(hook.command);
+      }
+    }
+    for (const command of commands) {
+      expect(command).not.toMatch(/\.sh/);
     }
   });
 });
 
 // ---------------------------------------------------------------------------
-// AC-12: plugin.json 版本号
+// AC-8: plugin.json 版本号
 // ---------------------------------------------------------------------------
 
-describe('plugin.json — 版本号 (AC-12)', () => {
-  it('version 应大于 2.6.9 且符合 semver', () => {
+describe('plugin.json — 版本号 (AC-8)', () => {
+  it('version 应大于 2.6.22 且符合 semver', () => {
     const parsed = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8')) as { version?: string };
     expect(parsed.version).toMatch(/^\d+\.\d+\.\d+$/);
-    expect(isGreaterThan(parsed.version!, '2.6.9')).toBe(true);
+    expect(isGreaterThan(parsed.version!, '2.6.22')).toBe(true);
   });
 });
