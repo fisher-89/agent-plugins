@@ -12,7 +12,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 
 import { getChangeDir } from './change';
-import { resetMcpProjectRootCacheForTests } from './project-root';
+import { type McpServerLike, resetMcpProjectRootCacheForTests } from './project-root';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -40,17 +40,10 @@ function resetMcpCache(): void {
   resetMcpProjectRootCacheForTests();
 }
 
-interface MockMcpServer {
-  getClientCapabilities: () => { roots?: { listChanged?: boolean } };
-  listRoots: () => Promise<{ roots: Array<{ uri: string }> }>;
-  setNotificationHandler: (method: string, handler: () => void | Promise<void>) => void;
-}
-
-function createMockServer(uri: string): MockMcpServer {
+function createMockServer(uri: string): McpServerLike {
   return {
     getClientCapabilities: () => ({ roots: { listChanged: false } }),
     listRoots: async () => ({ roots: [{ uri }] }),
-    setNotificationHandler: () => {},
   };
 }
 
@@ -77,7 +70,7 @@ describe('getChangeDir — MCP 缓存已设置时路径拼接', () => {
     const uri = `file://${projectRoot}`;
     const server = createMockServer(uri);
 
-    await initProjectRootFromMcp(server as never);
+    await initProjectRootFromMcp(server);
 
     expect(getChangeDir('my-change')).toBe(
       path.resolve(projectRoot, 'openspec', 'changes', 'my-change'),

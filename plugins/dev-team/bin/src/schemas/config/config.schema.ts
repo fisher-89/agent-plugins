@@ -41,6 +41,7 @@ const testCoverageSchema = z
  * @see design.md (D2 — zod/v4, D3 — .passthrough())
  */
 export const configSchema = z.object({
+  $schema: z.string().optional().describe('schema规则文件'),
   schema: z
     .literal('spec-driven')
     .optional()

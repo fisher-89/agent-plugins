@@ -1,4 +1,3 @@
-import * as fs from 'fs';
 import * as path from 'path';
 
 import { getProjectDir } from '../utils';
@@ -7,17 +6,17 @@ import { getProjectDir } from '../utils';
 // Types
 // ---------------------------------------------------------------------------
 
-export interface UnitTestEntry {
+interface UnitTestEntry {
   source: string;
   test_file: string;
 }
 
-export interface IntegrationTestEntry {
+interface IntegrationTestEntry {
   scenario: string;
   test_file: string;
 }
 
-export interface ResolveError {
+interface ResolveError {
   path: string;
   message: string;
 }
@@ -61,18 +60,6 @@ const SOURCE_EXTENSIONS = new Set([
 ]);
 
 const JS_TS_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
-
-const SKIP_DIRS = new Set([
-  'node_modules',
-  '.git',
-  'dist',
-  'build',
-  'coverage',
-  '.nyc_output',
-  'target',
-]);
-
-const SKIP_FILE_EXTENSIONS = new Set(['.md', '.json', '.yaml', '.yml', '.txt', '.lock']);
 
 // ---------------------------------------------------------------------------
 // Pure helpers (exported for unit tests)
@@ -216,57 +203,6 @@ export function inferExtension(sourceFiles: string[], explicitExtension?: string
     }
   }
   return bestExt;
-}
-
-// ---------------------------------------------------------------------------
-// Directory expansion
-// ---------------------------------------------------------------------------
-
-function shouldSkipFile(relativePath: string): boolean {
-  const posix = relativePath.replace(/\\/g, '/');
-  const ext = path.posix.extname(posix).toLowerCase();
-
-  if (SKIP_FILE_EXTENSIONS.has(ext)) return true;
-  if (!isSourceFile(posix)) return true;
-  if (isTestFile(posix)) return true;
-  return false;
-}
-
-/**
- * Recursively collect testable source files under a directory (depth-first).
- * Returns paths relative to projectRoot in POSIX form.
- */
-export function expandDirectory(dirPath: string, projectRoot: string): string[] {
-  const resolvedRoot = path.resolve(projectRoot);
-  const absoluteDir = path.resolve(resolvedRoot, dirPath);
-  const results: string[] = [];
-
-  function walk(currentDir: string): void {
-    let entries: fs.Dirent[];
-    try {
-      entries = fs.readdirSync(currentDir, { withFileTypes: true });
-    } catch {
-      return;
-    }
-
-    for (const entry of entries) {
-      const fullPath = path.join(currentDir, entry.name);
-
-      if (entry.isDirectory()) {
-        if (!SKIP_DIRS.has(entry.name)) {
-          walk(fullPath);
-        }
-      } else if (entry.isFile()) {
-        const relative = toPosixRelativePath(fullPath, resolvedRoot);
-        if (!shouldSkipFile(relative)) {
-          results.push(relative);
-        }
-      }
-    }
-  }
-
-  walk(absoluteDir);
-  return results;
 }
 
 // ---------------------------------------------------------------------------

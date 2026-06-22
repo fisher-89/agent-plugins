@@ -33,12 +33,12 @@ function runProtectEval(stdinJson: string): HookResult {
     input: stdinJson,
     encoding: 'utf-8',
   });
-  const parsed = JSON.parse(stdout.trim()) as {
+  const parsed: {
     hookSpecificOutput?: {
       permissionDecision?: string;
       permissionDecisionReason?: string;
     };
-  };
+  } = JSON.parse(stdout.trim());
   return {
     permissionDecision: parsed.hookSpecificOutput?.permissionDecision ?? '',
     permissionDecisionReason: parsed.hookSpecificOutput?.permissionDecisionReason,
@@ -62,7 +62,7 @@ describe('protect-eval.mjs — Bash tee (AC-4)', () => {
 
 describe('protect-eval.mjs — Bash heredoc (AC-4)', () => {
   it('heredoc 写 eval.json 应返回 deny', () => {
-    const command = "cat > openspec/changes/test-change/eval.json <<EOF\n[]\nEOF";
+    const command = 'cat > openspec/changes/test-change/eval.json <<EOF\n[]\nEOF';
     const input = JSON.stringify({
       tool_name: 'Bash',
       tool_input: { command },

@@ -1,0 +1,890 @@
+{
+  "phase": "06-unit-test",
+  "command": "npx vp test src/lib/workflow.test.ts src/commands/phase-next.test.ts src/lib/eval-json.test.ts --coverage --reporter=json",
+  "timestamp": "2026-06-22T02:07:06.181Z",
+  "total": 142,
+  "passed": 142,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 0.03,
+  "coverage": {
+    "pass": false,
+    "measured": {
+      "lines": 70.74,
+      "branches": 62.6,
+      "functions": 69.64
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": [
+      {
+        "framework": "vite-plus",
+        "measured": {
+          "lines": 70.74,
+          "branches": 62.6,
+          "functions": 69.64
+        }
+      }
+    ],
+    "overrides": []
+  },
+  "test_cases": [
+    {
+      "name": "PHASE_TABLES > should have exactly 9 phases for requirement workflow_type",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 1.237799999999993,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should start with 01-proposal (not 01-requirements)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.12590000000000146,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > phase 表 id 顺序与 AC-1 一致 — 05-implement 在 04-test-gen 之前（AC-1）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.48720000000002983,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should have 6 phases for bug-fix workflow_type",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.6954000000000633,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should have same 9 phases for refactor workflow_type",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.1291999999999689,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES > should default to requirement table for unknown workflow_type",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.10229999999990014,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return DESIGN for 01-proposal",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11270000000001801,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return DESIGN for 02-dev-design and 03-test-design",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09199999999998454,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EXEC for 04-test-gen and 05-implement",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08740000000000236,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EXEC for 06-unit-test and 08-integration-test",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.0784000000001015,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EVAL-ONLY for 07-code-review and 09-acceptance",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.070699999999988,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return null for unknown phase",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.07389999999998054,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return DESIGN for 01-proposal with planner + evaluator",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.14790000000004966,
+      "status": "passed"
+    },
+    {
+      "name": "getPhasePattern > should return EVAL-ONLY for 07-code-review with planner null",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.14240000000006603,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should return 01-proposal as next_phase when entries is empty",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.3992999999999256,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should return proposal-planner as planner agent_type",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.10789999999997235,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should return proposal-evaluator as evaluator agent_type",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08379999999999654,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should set round to 1 on first call",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11009999999998854,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should set phase_index to 1 and total_phases to 9",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.1048999999999296,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) > should include change name in planner prompt",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08439999999995962,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 02-dev-design after 01-proposal passes",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 1.949799999999982,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 03-test-design after phases 01-02 pass",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11670000000003711,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 05-implement after phases 01-03 pass（AC-5）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09600000000000364,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 04-test-gen after phases 01-03 and 05 pass（AC-6）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08200000000010732,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 06-unit-test after phases 01-05 and 04 pass",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08240000000000691,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 07-code-review with planner: null (EVAL-ONLY)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.10050000000001091,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return 09-acceptance with planner: null (EVAL-ONLY)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09239999999999782,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression > should return done=true when all 9 phases pass",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.12759999999991578,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should skip to 05-implement when 01-03 pass — 非 04-test-gen（AC-5）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.07609999999999673,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should skip to 06-unit-test when phases 01-05 and 04 pass",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09710000000006858,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should return done=true when all phases have pass records",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.10720000000003438,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return same phase for first retry after fail",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.14350000000001728,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return same phase on 4th consecutive fail (attempt 5)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11030000000005202,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return max_retries_exceeded error on 5th consecutive fail",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.10980000000006385,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return error message in Chinese for max retries",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08519999999998618,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) > should reset retry count after a pass (then fail, then pass, then fail)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08169999999995525,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should return target phase on backtrack without clearing entries",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.42269999999996344,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should re-execute planner + evaluator after backtrack to 01-proposal",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11029999999993834,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should handle backtrack from a later phase to mid-chain",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.088799999999992,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should handle backtrack set in latest entry only",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09220000000004802,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should not modify entries when backtrack is detected (read-only)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.15790000000004056,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should return earliest target for array backtrack_to (AC-16)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09020000000009532,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack > should throw invalid_backtrack_target for unknown target",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08370000000002165,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should skip stale pass entries when determining next phase (AC-11)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.12659999999993943,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should return done=true when all phases have non-stale pass (mix of stale and fresh)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11840000000006512,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should treat missing stale field as stale:false (AC-12 backward compat)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09339999999997417,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should resume correctly when stale entries are in middle phases",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.07740000000001146,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should return 04-test-gen when 05 pass but 04 is stale（AC-7）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.07529999999997017,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return 02-dev-design when 03-test-design missing pass but 02 not passed (AC-5)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.07049999999992451,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return 05-implement when 02-dev-design is pass but 05 not passed (AC-6)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.06510000000002947,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return 05-implement when 04 pass but 05 not passed — 线性扫描优先 05（AC-11 子场景）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08370000000002165,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should return round_limit_exceeded error when round > 20",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.1311000000000604,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should return Chinese error message for round limit",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.120900000000006,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should NOT error at exactly round 20 with all pass",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.15480000000002292,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) > should detect round limit via backtrack cycles",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.14760000000001128,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Mid-Phase Interruption > should re-return the phase when evaluator has not logged (no entries for phase)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09389999999996235,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Mid-Phase Interruption > should return the incomplete phase if evaluator never logged",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08839999999997872,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skipped Phases > should treat skipped entries as pass",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11509999999998399,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skipped Phases > should advance past a mix of skipped and passed phases",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09760000000005675,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should default to requirement when workflow_type is omitted",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.10119999999994889,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should follow bug-fix phase table when workflow_type is bug-fix",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08190000000001874,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should follow refactor phase table when workflow_type is refactor",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11069999999995161,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > bug-fix phase table 仍为 6 个 phase，不含 03/04/08（AC-10）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.27049999999997,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type > should return 09-acceptance from bug-fix after 07-code-review passes",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.12549999999998818,
+      "status": "passed"
+    },
+    {
+      "name": "resolvePhaseNext — Input Validation > should not throw for empty entries array",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.5860999999999876,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle empty eval.json (first run)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08749999999997726,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle all phases as first_run (empty entries)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.06860000000006039,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle exactly 20 rounds with all pass (no limit error)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.11879999999996471,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > 01-03 pass + skip 04 时仍返回 05-implement（05 未 pass）",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08490000000006148,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should handle change name with special characters",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.061599999999998545,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should distinguish 01-proposal from 01-requirements entries",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.08920000000000528,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios > should return done=true after 09-acceptance passes",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.09859999999991942,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return valid JSON when next phase is ready",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.17830000000003565,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return valid JSON when all phases are done",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.14800000000002456,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return valid JSON on error",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.17859999999996035,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema > should return same prompt on retry (skill handles retry context)",
+      "file": "plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "duration_ms": 0.10779999999999745,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should accept 'pass'",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 2.4370999999999867,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should accept 'fail'",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.22089999999991505,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject invalid verdict",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.21609999999998308,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject empty string",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.16269999999997253,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should accept 'pass' when skipped is true",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.15840000000002874,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject 'fail' when skipped is true",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.2458000000000311,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict > should reject 'pass' when skipped is false (same behavior as undefined)",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.18029999999998836,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should build a basic entry with required fields",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 3.2829999999999018,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should include skipped field when set",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.18000000000006366,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should include all extended fields simultaneously",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.09839999999996962,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should include backtrack_to when set",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.06939999999997326,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should set backtrack_to null when undefined",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.05639999999993961,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry > should accept backtrack_to as array",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.4843999999999369,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should return passed=true when all prerequisites have non-stale pass",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.143100000000004,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should return passed=false when prerequisite has stale pass only",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.4715999999999667,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should treat missing stale field as stale:false (backward compat)",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.08179999999993015,
+      "status": "passed"
+    },
+    {
+      "name": "checkGate > should return passed=false for missing prerequisite",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.10929999999996198,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should mark latest pass entry stale and propagate downstream (AC-8)",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.38779999999997017,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should mark latest of multiple pass entries",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.120900000000006,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should be no-op when no pass entry exists",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.157100000000014,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should propagate to full transitive closure (AC-14)",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.2606999999999289,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should not mark same-phase new entry as stale",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.11950000000001637,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should mark 04-test-gen stale when marking 05-implement — 04 为直接 downstream（AC-8）",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.1309999999999718,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should propagate from 05-implement to 06/07/08/09（AC-8）",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.1834999999999809,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should mark 04 and downstream stale when marking 03-test-design（AC-9）",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.15850000000000364,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale > should NOT mark 05-implement stale when marking 03-test-design（AC-9）",
+      "file": "plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "duration_ms": 0.15750000000002728,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should have exactly 9 phases",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 1.2866000000000213,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should have correct order — 期望数组为 […, 03-test-design, 05-implement, 04-test-gen, 06-unit-test, …]（AC-1）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.5556000000000267,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should include new phases 06-unit-test and 08-integration-test",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.5910999999999831,
+      "status": "passed"
+    },
+    {
+      "name": "PHASES > should have renamed 05-implementation to 05-implement",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.2145999999999617,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return 0 for first phase",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.11629999999996699,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return 3 for 05-implement（AC-1）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.08310000000000173,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return 4 for 04-test-gen（AC-1）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.07319999999998572,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return 5 for 06-unit-test（索引随 04/05 对调后仍正确）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.066599999999994,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return correct index for new 08-integration-test",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.07419999999996207,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return -1 for unknown phase",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.05160000000000764,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseIndex > should return -1 for old phase name",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.0483000000000402,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return empty array for first phase",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.10590000000001965,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return [01, 02, 03, 05-implement, 04-test-gen] for 06-unit-test（AC-1）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.08310000000000173,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return all phases except the last for 09-acceptance",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.11060000000003356,
+      "status": "passed"
+    },
+    {
+      "name": "getPriorPhases > should return empty array for unknown phase",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.0858000000000061,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have empty prerequisites for 01-proposal (AC-1)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.10610000000002628,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have 01-proposal as prerequisite for 02-dev-design (AC-1)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.1413000000000011,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have 01-proposal and 02-dev-design as prerequisites for 03-test-design (AC-2)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.10900000000003729,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have 04-test-gen and 05-implement as prerequisites for 07-code-review (AC-3)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06419999999997117,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_PREREQUISITES > should have [03-test-design, 05-implement] as prerequisites for 04-test-gen（AC-2）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.0624000000000251,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [] for 01-proposal in requirement workflow",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.09340000000003101,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"01-proposal\"] for 02-dev-design requirement (AC-1)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06529999999997926,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"01-proposal\", \"02-dev-design\"] for 03-test-design requirement (AC-2)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.05689999999998463,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"04-test-gen\", \"05-implement\"] for 07-code-review requirement (AC-3)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.11419999999998254,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"03-test-design\", \"05-implement\"] for 04-test-gen requirement（AC-2）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.08980000000002519,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"02-dev-design\"] for 05-implement requirement（AC-3）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.07189999999997099,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"02-dev-design\"] for 05-implement bug-fix",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06810000000001537,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [\"07-code-review\"] for 09-acceptance bug-fix",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.05750000000000455,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should return [] for unknown phase (fault-tolerant)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.05639999999999645,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should default to requirement workflow_type",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.05920000000003256,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > should match requirement for refactor workflow_type",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.058400000000006,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites > refactor workflow_type 与 requirement 对 04/05 前置一致",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06929999999999836,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [02-dev-design, 03-test-design, 09-acceptance] for 01-proposal (AC-4)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.12630000000001473,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [03-test-design, 05-implement, 09-acceptance] for 02-dev-design (AC-4)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.077699999999993,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [04-test-gen] for 03-test-design — 03 不依赖 05，05 非其 downstream（AC-4）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06649999999996226,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [06, 07, 08] for 04-test-gen（不变）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06459999999998445,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [04-test-gen, 06, 07, 08, 09] for 05-implement — 04 为直接 downstream（AC-4）",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.059299999999950614,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [] for leaf phases (06, 07, 08, 09)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.10480000000001155,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should return [] for unknown phase (fault-tolerant)",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06020000000000891,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents > should default to requirement workflow_type",
+      "file": "plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "duration_ms": 0.06459999999998445,
+      "status": "passed"
+    }
+  ],
+  "integration_test": null,
+  "findings": "All 142 change-scoped unit tests passed. Coverage measured over change test run only (workflow.ts 100% lines). Global coverage below thresholds because run was scoped to AC test files; branches 62.6% below 70% threshold."
+}

@@ -1,0 +1,408 @@
+[
+  {
+    "phase": "01-proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked R1–R10: problem/motivation clear; in/out scope defined; risks have concrete mitigations; AC-1–11 testable with methods; aligns with CLAUDE.md (surgical workflow.ts + plugin.json bump); no placeholders; 3 modified capabilities match 3 spec dirs; proposal ACs align with spec scenarios (order, prereqs, phase/next, propagateStale).",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节描述当前 04-before-05 顺序及三条具体痛点（缺真实实现、与后置测试策略不符、并行语义混淆），并说明仅调顺序不改 ID。"
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "变更范围含「实现以下特性」5 项与「不要修改」6 项（skill、bug-fix、eval schema 等）。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "四条风险均有具体缓解：eval 迁移说明、同步更新测试断言、更新 spec 依赖图、test-gen skip 约束与 evaluator 校验。"
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1–11 均列验证方法：读 workflow.ts、单元测试、手动/集成验证（如 AC-11）。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "仅改 workflow.ts 与相关测试，含 plugin.json 版本升级；不改 embedded skills，符合 Slim Plugin 架构。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "全文无 TBD/placeholder/{{}}；唯一 TODO 为风险中描述 test-gen-generator 既有 skip/TODO 标记，非未完成占位。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案（含依赖图与实现要点）、变更范围、验收标准表、风险表均有完整实质内容。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "「能力」下「修改的能力」列出 pge-workflow-engine、workflow-orchestration、pipeline-backtrack 三项。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "三项能力各对应 specs/pge-workflow-engine、workflow-orchestration、pipeline-backtrack 的 spec.md，无多余或缺失。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "PHASE 顺序、04 前置 [03,05]、05 dependents 含 04、phase/next 与 propagateStale 场景与 AC-1–10 及三份 MODIFIED spec 一致；bug-fix 不变与 out_of_scope 一致。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T01:35:43.491Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked D1–D9: 5 components with full 4-col metadata; data flows cover phase/next, stale propagation, AC-11; D1–D5 have rejected alts; all AC-1–11 mapped in design/tasks; tasks staged 1→2–4→5 with checkboxes; Vitest/TS deps listed; aligns with Slim Plugin (workflow.ts surgical); all template sections substantive.",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "5-row table: Workflow配置、Eval JSON管理、phase/next、phase/log、单元测试 — each has 职责、文件位置、依赖、技术（TypeScript/Vitest），无 TBD。"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "正常推进 5 步（phase/next→线性扫描→05→04）；回溯 5 步（phase/log→markPhaseStale→propagateStale→getDependents）；AC-11 兼容 3 步。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "D1–D5 均有理由与备选：如 D1 拒绝重编号；D2 拒绝 resolvePhaseNext 显式 prerequisite 检查；D5 拒绝自动迁移 eval。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1–4: PHASES/prereqs/dependents 表与依赖图；AC-5–7: phase/next 场景表；AC-8–9: 回溯传播与 tasks 阶段4；AC-10: D3；AC-11: 数据流兼容节与迁移步骤。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "阶段1 workflow.ts → 阶段2–4 并行测试更新 → 阶段5 验证/版本；前置任务不依赖后续；全部 `- [ ]` checkbox。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "例：交换 PHASE_REQUIREMENT 中 04/05 位置；更新 getPhaseIndex 断言 4→3/3→4；新增 propagateStale('05-implement') 用例。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时：parallel-dev-test-tracks、OpenSpec/MCP；构建/测试：Vitest、TypeScript 编译链，无新包。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "仅改 workflow.ts + 测试 + plugin.json 版本；workflow.ts 为唯一真相源；不改 embedded skills，符合 Slim Plugin + Report-Driven Gates。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构、数据流、路由/API、决策、依赖、风险与缓解、迁移步骤均已填写；待决问题明确为「无」。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T01:57:11.483Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked T1–T8 vs proposal/design: AC-1–11 mapped; design phase/next table (incl. 04-pass/05-unpass) covered; 3-file Vitest plan + mock table; change-specific edges (stale, unknown phase, 03→04 w/o 05); no new write APIs—T7 N/A; template columns OK.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "验收范围表逐条覆盖 AC-1–AC-11；AC-10 两行（workflow + phase-next）；AC-11 标为不可测试项并引用说明。"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": true,
+        "evidence": "46 条用例的测试文件/对象均落在验收范围所列 workflow.test.ts、phase-next.test.ts、eval-json.test.ts 及对应 describe（如 markPhaseStale、runPhaseNext — Normal Progression）。"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "含 04 pass/05 未 pass→05-implement（design 场景表）、05 pass/04 stale、03 stale 不波及 05、unknown phase、旧名 05-implementation、markPhaseStale 多 pass 条目等，均针对 04/05 重排语义。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Mock策略表说明 workflow 无外部依赖；phase-next/eval-json 用 passEntry/staleEntry 等内存构造 EvalEntry[]，不读写磁盘。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（明确无场景+空表）、不可测试项（AC-11、plugin.json）均有实质内容，无占位符。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope（workflow.ts、三测试文件）全覆盖；out_of_scope（skill、agent、eval schema、bug-fix 变更）无多余测试；plugin.json 列入不可测试项。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal 仅重排 PHASE_REQUIREMENT/prerequisites，无新增 API/DB 写端点；markPhaseStale 算法本身不变；scope 为只读 phase/next 与派生传播，幂等性不适用。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID|验收条件|测试类型|测试文件|测试对象等）；标题与日期已替换，无 {{}} 残留。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T01:58:39.993Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked G1–G9: 3 co-located Vitest files; all 37 新增 rows have matching describe/it skeletons (reorder cases use it.skip pending 05-implement); mock helpers match table; no integration tests per design; boundary cases present; 9 废弃 rows updated/skipped not duplicated; in-memory tests need no teardown.",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "workflow.ts→workflow.test.ts; phase-next.ts→phase-next.test.ts; eval-json.ts→eval-json.test.ts — all co-located under bin/src."
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "Three *.test.ts files sit beside their *.ts sources in lib/ and commands/."
+      },
+      {
+        "item": "`单元测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "All 37 新增 rows mapped: e.g. workflow.test.ts it.skip AC-1 order/index/prereq/dependents; phase-next.test.ts AC-5–7 progression/stale/boundary; eval-json.test.ts AC-8–9 markPhaseStale."
+      },
+      {
+        "item": "`集成测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design states 无集成测试场景; table is placeholder only — no __tests__ integration file required."
+      },
+      {
+        "item": "`Mock策略` 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "workflow: direct import; phase-next: passEntry/failEntry/staleEntry/skippedEntry + resolvePhaseNext; eval-json: makePassEntry/makeFailEntry + markPhaseStale — no disk I/O."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All three files import {describe,it,expect} from vite-plus/test (Vitest), matching existing project convention."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "unknown phase 99-unknown, old name 05-implementation, empty entries, markPhaseStale no-op/multi-pass/post-write, refactor 04/05 prereq parity — all have it/it.skip skeletons."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "Pure in-memory EvalEntry[] fixtures per test; no temp files, vi.mock, or global state — matches existing file pattern; no cleanup required."
+      },
+      {
+        "item": "`迭代类型 = 废弃` 的条目未生成新测试",
+        "pass": true,
+        "evidence": "9 废弃 rows handled by renaming/skipping/updating existing its (e.g. old 04-before-05 order test → it.skip with new AC-1 assertion); no standalone new tests for deprecated titles."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T02:01:59.753Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked I1–I7: workflow.ts swaps 05/04 + prereq [03,05]; phase-next/eval-json/phase-log unchanged (derived); 3 test files updated (it.skip→it); plugin.json 2.6.27; tasks all [x]; 142 targeted tests pass; D1–D5 honored.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "workflow.ts: PHASE_REQUIREMENT 05-before-04 + prereq; eval-json/phase-next/phase-log 按设计无需改码；workflow.test.ts、phase-next.test.ts、eval-json.test.ts 覆盖各组件。"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "顺序 …03→05→04→06；04 prereq ['03-test-design','05-implement']；05 prereq 仍为 ['02-dev-design']；phase-next 测试验证 03 后→05、05 后→04、04 pass/05 未 pass→05；eval-json 测试验证 propagateStale(05) 直接标记 04。"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "仅改 workflow.ts 配置与同级 *.test.ts；Vitest/vite-plus/test 导入；plugin.json patch bump 2.6.26→2.6.27；命名与现有 parallel-dev-test-tracks 模式一致。"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "设计明确无新 MCP schema；phase/next 行为变更由配置派生，phase-next.test.ts 覆盖 design 场景表全部 6 行（含 AC-11 04 pass/05 未 pass）。"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md 阶段 1–5 共 28 项均已 `- [x]`。"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff 仅 workflow.ts、三测试文件、plugin.json、tasks.md、eval.json；无 skill/agent/bug-fix/phase-next.ts 源码变更。"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1 phase ID 不变；D2 仅 workflow 配置；D3 bug-fix 未动；D4 无 skill 变更；D5 无 eval 自动迁移；PHASE_REFACTOR 仍引用 PHASE_REQUIREMENT。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T02:04:45.069Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "142/142 unit tests passed (workflow, phase-next, eval-json). Coverage below thresholds: lines=70.74% (80%), branches=62.6% (70%), functions=69.64% (75%) — scoped run to 3 AC test files; change-target code covered. No failures; backtrack not required.",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds/test_cases 均存在且类型正确"
+      },
+      {
+        "item": "所有单元测试通过",
+        "pass": true,
+        "evidence": "142/142 tests passed, failed=0"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": false,
+        "evidence": "lines=70.74% (阈值80%), branches=62.6% (阈值70%), functions=69.64% (阈值75%); coverage.pass=false — scoped run 仅含 3 个 AC 测试文件，全局分支未达阈值"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A — 所有测试通过，无需决策树诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T02:08:08.798Z"
+  },
+  {
+    "phase": "07-code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked C1–C7: workflow.ts swaps 05/04 order + 04 prereq [03,05]; no security/input surface; aligns with design D1–D5 & phase/next table; getPrerequisites unknown→[] unchanged; 142/142 tests pass; plugin 2.6.27; no dead code or design drift.",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "git diff 仅 workflow.ts 配置重排与 prereq 一行；无 SQL/XSS/命令注入/硬编码密钥；grep 无新增 eval/exec/system 调用。"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "无新 MCP/API/用户输入路径；phase-next.ts/eval-json.ts 未改；变更仅为静态 PHASE_REQUIREMENT/PHASE_PREREQUISITES 常量。"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "workflow.ts:77–101 05-before-04；253 行 04 prereq ['03-test-design','05-implement']；D1 ID 不变、D2 仅配置、D3 bug-fix 未动、D4 无 skill 变更、D5 无 eval 迁移；plugin.json 2.6.27。"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "getPrerequisites/getDependents 逻辑未变；302–304 行 unknown phaseId→[]；phase-next.test.ts 覆盖 AC-11 04 pass/05 未 pass、stale、unknown phase 边界。"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "最小 diff：交换两 PhaseDefinition 块 + 一行 prereq；三测试文件仅 it.skip→it；无未使用 import 或不可达分支。"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "命名/结构与 parallel-dev-test-tracks 模式一致；Vitest co-located *.test.ts；CLAUDE.md 要求 plugin.json patch bump 已执行。"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "复用既有 PhaseDefinition/PhasePrerequisites 类型；无新增中间 DTO 或外部数据映射。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T02:09:13.299Z"
+  },
+  {
+    "phase": "08-integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "未发现集成测试文件，阶段跳过。test-design.md 明确标注「无集成测试场景」；Glob 无 **/*.integration.test.* 匹配，phase/next 与 markPhaseStale 已由单元测试覆盖（142/142 pass）。",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_ms/failures 均存在且类型正确"
+      },
+      {
+        "item": "所有集成测试通过",
+        "pass": true,
+        "evidence": "total=0，无失败用例；按设计跳过"
+      },
+      {
+        "item": "无环境/配置阻断",
+        "pass": true,
+        "evidence": "无 ConnectionRefused/Timeout/环境变量错误"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A — failed=0，阶段按 test-design 设计跳过"
+      }
+    ],
+    "backtrack_to": null,
+    "skipped": true,
+    "timestamp": "2026-06-22T02:11:09.045Z"
+  },
+  {
+    "phase": "09-acceptance",
+    "timestamp": "2026-06-22T02:12:15.140Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "A1: AC-1–11 traced (workflow.ts:76–102,253; workflow/phase-next/eval-json tests). A2: diff limited to workflow.ts + 3 test files + plugin.json. A3: all in_scope done; tasks all [x]. A4: out_of_scope untouched (bug-fix, skills, agents, orchestrators). A5: risks mitigated via prereq, updated tests, AC-11 scenario test. 142/142 targeted tests pass.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1 workflow.ts:76–102+PHASES; AC-2–4 workflow.test.ts:153–228; AC-5–7 phase-next.test.ts:276–292,618–627,652–659; AC-8–9 eval-json.test.ts:263–327; AC-10 phase-next.test.ts:796; AC-11 phase-next.test.ts:652 + proposal.md:130"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "git diff: workflow.ts, workflow.test.ts, phase-next.test.ts, eval-json.test.ts, plugin.json only; phase-next.ts/eval-json.ts/phase-log.ts unchanged"
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "PHASE_REQUIREMENT 05-before-04 (workflow.ts:77–101); prereq ['03','05'] (253); tests updated; plugin.json 2.6.27"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "PHASE_BUG_FIX/PREREQUISITES unchanged (workflow.ts:152–272); no skill/agent/schema changes; phase IDs still 04-test-gen/05-implement"
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "eval 04-without-05→05-implement (phase-next.test.ts:652); index assertions updated (workflow.test.ts:48–53); propagateStale(05) marks 04 (eval-json.test.ts:263–298)"
+      }
+    ],
+    "backtrack_to": null
+  }
+]

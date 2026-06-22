@@ -8,13 +8,6 @@ import { getDependents } from './workflow';
 
 const EVAL_JSON_FILE = 'eval.json';
 
-export interface Item {
-  item: string;
-  pass: boolean;
-  evidence: string;
-  notes: string;
-}
-
 export type EvalEntry = z.infer<typeof phaseLogSchema>;
 
 export type BuildEntryParams = Pick<

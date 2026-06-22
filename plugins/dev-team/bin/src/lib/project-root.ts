@@ -1,7 +1,10 @@
 import * as path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-import type { Server } from '@modelcontextprotocol/sdk/server/index.js';
+import type { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
+
+/** Narrow interface covering only the Server methods used by project-root. */
+export type McpServerLike = Pick<McpServer['server'], 'getClientCapabilities' | 'listRoots'>;
 
 /** Module-level MCP project root cache (process lifetime). */
 let mcpProjectRootCache: string | null = null;
@@ -42,7 +45,7 @@ function applyRootsList(roots: { uri: string }[]): void {
 }
 
 /** Refresh project root cache after `roots/list_changed` notification. */
-export async function refreshProjectRootFromMcp(server: Server): Promise<void> {
+export async function refreshProjectRootFromMcp(server: McpServerLike): Promise<void> {
   try {
     const result = await server.listRoots();
     applyRootsList(result.roots);
@@ -53,7 +56,7 @@ export async function refreshProjectRootFromMcp(server: Server): Promise<void> {
 }
 
 /** Initialize project root from MCP `roots/list` after connect. */
-export async function initProjectRootFromMcp(server: Server): Promise<void> {
+export async function initProjectRootFromMcp(server: McpServerLike): Promise<void> {
   const rootsCapability = server.getClientCapabilities()?.roots;
   if (!rootsCapability) {
     return;

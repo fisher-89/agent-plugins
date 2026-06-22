@@ -2,6 +2,10 @@
   "$schema": "https://json-schema.org/draft/2020-12/schema",
   "type": "object",
   "properties": {
+    "$schema": {
+      "description": "schema规则文件",
+      "type": "string"
+    },
     "schema": {
       "description": "@deprecated 模式标识，固定为 spec-driven",
       "type": "string",

@@ -72,12 +72,16 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
 };
 
+function isTestFramework(framework: string): framework is TestFrameworks {
+  return framework in FRAMEWORK_REGISTRY;
+}
+
 // ---------------------------------------------------------------------------
 // Public interface
 // ---------------------------------------------------------------------------
 
 export interface TestGetFrameworkConfigOptions {
-  framework: TestFrameworks;
+  framework: string;
 }
 
 /**
@@ -90,13 +94,13 @@ export interface TestGetFrameworkConfigOptions {
 export function runTestGetFrameworkConfig(options: TestGetFrameworkConfigOptions): FrameworkConfig {
   const { framework } = options;
 
-  const entry = FRAMEWORK_REGISTRY[framework];
-  if (!entry) {
+  if (!isTestFramework(framework)) {
     throw new Error(
       `Unknown framework "${framework}". Supported frameworks: ${Object.keys(FRAMEWORK_REGISTRY).join(', ')}`,
     );
   }
 
+  const entry = FRAMEWORK_REGISTRY[framework];
   return { ...entry };
 }
 
@@ -113,6 +117,11 @@ export function getSupportedFrameworks(): string[] {
  * Used to expand a `test.framework` enum value into a `{glob, framework}` mapping
  * for the detection engine.
  */
-export function getDefaultGlobForFramework(framework: TestFrameworks): string {
+export function getDefaultGlobForFramework(framework: string): string {
+  if (!isTestFramework(framework)) {
+    throw new Error(
+      `Unknown framework "${framework}". Supported frameworks: ${Object.keys(FRAMEWORK_REGISTRY).join(', ')}`,
+    );
+  }
   return FRAMEWORK_REGISTRY[framework].default_glob;
 }

@@ -74,19 +74,6 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     auto_steps: [],
   },
   {
-    id: '04-test-gen',
-    pattern: 'EXEC',
-    planner: {
-      agent_type: 'dev-team:test-gen-generator',
-      prompt: 'Generate test code for change "<change>".',
-    },
-    evaluator: {
-      agent_type: 'dev-team:test-gen-evaluator',
-      prompt: 'Evaluate generated tests for change "<change>". Append result to eval.json.',
-    },
-    auto_steps: [],
-  },
-  {
     id: '05-implement',
     pattern: 'EXEC',
     planner: {
@@ -97,6 +84,19 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       agent_type: 'dev-team:implementation-evaluator',
       prompt:
         'Evaluate implementation for change "<change>" against design. Append result to eval.json.',
+    },
+    auto_steps: [],
+  },
+  {
+    id: '04-test-gen',
+    pattern: 'EXEC',
+    planner: {
+      agent_type: 'dev-team:test-gen-generator',
+      prompt: 'Generate test code for change "<change>".',
+    },
+    evaluator: {
+      agent_type: 'dev-team:test-gen-evaluator',
+      prompt: 'Evaluate generated tests for change "<change>". Append result to eval.json.',
     },
     auto_steps: [],
   },
@@ -228,7 +228,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
 
 const PHASE_REFACTOR: PhaseDefinition[] = PHASE_REQUIREMENT;
 
-export const PHASE_TABLES: Record<string, PhaseDefinition[]> = {
+const PHASE_TABLES: Record<string, PhaseDefinition[]> = {
   requirement: PHASE_REQUIREMENT,
   'bug-fix': PHASE_BUG_FIX,
   refactor: PHASE_REFACTOR,
@@ -250,7 +250,7 @@ export const PHASE_PREREQUISITES: Record<string, string[]> = {
   '01-proposal': [],
   '02-dev-design': ['01-proposal'],
   '03-test-design': ['01-proposal', '02-dev-design'],
-  '04-test-gen': ['03-test-design'],
+  '04-test-gen': ['03-test-design', '05-implement'],
   '05-implement': ['02-dev-design'],
   '06-unit-test': ['04-test-gen', '05-implement'],
   '07-code-review': ['04-test-gen', '05-implement'],
@@ -262,7 +262,7 @@ export const PHASE_PREREQUISITES: Record<string, string[]> = {
  * Prerequisite dependency table for the `bug-fix` workflow_type.
  * Simplified pipeline — only core development phases.
  */
-export const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
+const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
   '01-proposal': [],
   '02-dev-design': ['01-proposal'],
   '05-implement': ['02-dev-design'],
@@ -275,9 +275,9 @@ export const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
  * Prerequisite dependency table for the `refactor` workflow_type.
  * Matches the `requirement` table.
  */
-export const PHASE_REFACTOR_PREREQUISITES: Record<string, string[]> = PHASE_PREREQUISITES;
+const PHASE_REFACTOR_PREREQUISITES: Record<string, string[]> = PHASE_PREREQUISITES;
 
-export const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>> = {
+const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>> = {
   requirement: PHASE_PREREQUISITES,
   'bug-fix': PHASE_BUG_FIX_PREREQUISITES,
   refactor: PHASE_REFACTOR_PREREQUISITES,
@@ -287,7 +287,7 @@ export const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>
  * Return the prerequisite table for the given workflow_type.
  * Defaults to "requirement" if unknown.
  */
-export function getPrerequisiteTable(workflowType?: string): Record<string, string[]> {
+function getPrerequisiteTable(workflowType?: string): Record<string, string[]> {
   const key = (workflowType || DEFAULT_WORKFLOW).toLowerCase();
   return PHASE_PREREQUISITES_TABLES[key] || PHASE_PREREQUISITES_TABLES[DEFAULT_WORKFLOW];
 }

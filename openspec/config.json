@@ -1,14 +1,15 @@
 {
+  "$schema": "https://ksogitlab.kso.net/zhangbohan3/wps-agent-plugin/-/raw/master/plugins/dev-team/bin/dev-team-config.schema.json?ref_type=heads",
   "schema": "spec-driven",
   "static_analysis": "pnpm run -C ./plugins/dev-team/bin check",
   "test": {
     "overrides": [
       {
-        "files": "plugins/dev-team/bin",
+        "file": "plugins/dev-team/bin",
         "framework": "vite-plus"
       },
       {
-        "files": "plugins/dev-team/hooks/scripts",
+        "file": "plugins/dev-team/hooks/scripts",
         "framework": "vite-plus"
       }
     ]

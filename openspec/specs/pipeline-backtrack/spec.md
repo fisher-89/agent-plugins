@@ -65,6 +65,12 @@ The propagation SHALL NOT throw if some dependents have no entries in eval.json 
 - **THEN** `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test` entries are marked stale
 - **AND** `01-proposal`, `02-dev-design`, `05-implement`, `09-acceptance` entries are NOT stale
 
+#### Scenario: propagateStale from implement
+- **GIVEN** eval.json has entries for all phases
+- **WHEN** `propagateStale(entries, "05-implement")` is called
+- **THEN** `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test`, `09-acceptance` entries are marked stale (direct dependents of 05)
+- **AND** `01-proposal`, `02-dev-design`, `03-test-design` entries are NOT stale
+
 #### Scenario: propagateStale from leaf phase is no-op
 - **GIVEN** eval.json has entries for all phases
 - **WHEN** `propagateStale(entries, "06-unit-test")` is called
@@ -86,6 +92,22 @@ The propagation SHALL NOT throw if some dependents have no entries in eval.json 
 - **WHEN** `propagateStale(entries, "03-test-design")` is called
 - **THEN** the function skips 04-test-gen (no entries to mark) and continues to 06-unit-test
 - **AND** 06-unit-test entries are marked stale
+
+### Requirement: Implement backtrack invalidates test-gen directly
+Because `04-test-gen` lists `05-implement` as a prerequisite, any stale propagation from `05-implement` SHALL mark `04-test-gen` as a **direct** dependent (not only via transitive chain through other phases).
+
+#### Scenario: markPhaseStale on implement propagates to test-gen
+- **GIVEN** eval.json has valid pass entries for phases 01-05 and 04-test-gen
+- **WHEN** `markPhaseStale(entries, "05-implement")` is called
+- **THEN** the latest pass entry for `05-implement` is marked stale
+- **AND** all entries for `04-test-gen` are marked stale (direct dependent)
+- **AND** entries for `06-unit-test`, `07-code-review`, `08-integration-test`, `09-acceptance` are marked stale (transitive)
+
+#### Scenario: test-gen pass without implement pass is invalid after reorder
+- **GIVEN** eval.json has a non-stale pass for `04-test-gen` but no valid pass for `05-implement`
+- **WHEN** `phase/next` evaluates whether `04-test-gen` has passed
+- **THEN** `04-test-gen` SHALL NOT be considered complete for scheduling `06-unit-test`
+- **AND** `phase/next` SHALL return `05-implement` if its prerequisites are met, or block until prerequisites are satisfied
 
 ### Requirement: phase/log triggers markPhaseStale on backtrack_to (with immediate propagation)
 When `runPhaseLog()` writes an entry that has a non-null `backtrack_to` field, it SHALL call `markPhaseStale()` for each target phase BEFORE writing the new entry. `markPhaseStale` handles both marking the target stale and propagating downstream.
@@ -279,8 +301,14 @@ For array backtrack_to, cycle detection SHALL check each target independently. A
 
 | Export | Change | Purpose |
 |--------|--------|---------|
-| `markPhaseStale(entries, phaseId)` | NEW | Mark the latest pass entry for a phase as stale |
-| `propagateStale(entries, phaseId, workflowType?)` | NEW | Recursively mark all downstream dependent entries as stale |
+| `markPhaseStale(entries, phaseId)` | MODIFIED (behavior) | Backtrack to 05-implement immediately stale-marks 04-test-gen |
+| `propagateStale(entries, phaseId, workflowType?)` | MODIFIED (behavior) | Uses updated `getDependents()` where 05→04 is direct edge |
+
+### workflow.ts (lib/)
+
+| Export | Change | Purpose |
+|--------|--------|---------|
+| `getDependents("05-implement")` | MODIFIED | Now includes `04-test-gen` as direct dependent |
 
 ### phase-next.ts (commands/)
 

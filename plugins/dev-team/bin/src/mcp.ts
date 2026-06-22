@@ -328,7 +328,7 @@ async function main(): Promise<void> {
   await server.connect(transport);
   await initProjectRootFromMcp(server.server);
 
-  server.sendLoggingMessage({
+  void server.sendLoggingMessage({
     level: 'info',
     data: `MCP server started in project: ${getProjectDir()}`,
   });

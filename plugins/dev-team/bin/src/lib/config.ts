@@ -153,33 +153,6 @@ export function unsetValue(
 }
 
 // ---------------------------------------------------------------------------
-// Convenience: context field helpers
-// ---------------------------------------------------------------------------
-
-/**
- * Read the `context` field from `config.json`.
- * Returns an empty string when the field or file is missing.
- */
-export function readContext(projectRoot: string): { context: string } {
-  const config = readConfig(projectRoot);
-  return { context: typeof config.context === 'string' ? config.context : '' };
-}
-
-/**
- * Write the `context` field to `config.json`.
- * Returns the written context value and `written: true`.
- */
-export function writeContext(
-  projectRoot: string,
-  context: string,
-): { context: string; written: boolean } {
-  const config = readConfig(projectRoot);
-  config.context = context;
-  writeConfig(projectRoot, config);
-  return { context, written: true };
-}
-
-// ---------------------------------------------------------------------------
 // Skeleton management
 // ---------------------------------------------------------------------------
 

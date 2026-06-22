@@ -46,12 +46,12 @@ function writeFile(projectRoot: string, relativePath: string, content = ''): str
 // ===========================================================================
 
 describe('glob.ts 模块导出', () => {
-  it.skip('应从 lib/glob.ts 可导入 matchGlob 与 scanProjectFiles 且为函数类型', () => {
+  it('应从 lib/glob.ts 可导入 matchGlob 与 scanProjectFiles 且为函数类型', () => {
     expect(typeof matchGlob).toBe('function');
     expect(typeof scanProjectFiles).toBe('function');
   });
 
-  it.skip('matchGlob 对相同输入多次调用结果应一致（纯函数确定性）', () => {
+  it('matchGlob 对相同输入多次调用结果应一致（纯函数确定性）', () => {
     const filePath = 'src/utils/helper.test.ts';
     const pattern = '**/*.{test,spec}.{js,ts,jsx,tsx}';
     expect(matchGlob(filePath, pattern)).toBe(matchGlob(filePath, pattern));
@@ -63,23 +63,23 @@ describe('glob.ts 模块导出', () => {
 // ===========================================================================
 
 describe('matchGlob — 项目 glob 模式正向匹配', () => {
-  it.skip('应匹配 vitest 默认 glob: src/utils/helper.test.ts', () => {
+  it('应匹配 vitest 默认 glob: src/utils/helper.test.ts', () => {
     expect(matchGlob('src/utils/helper.test.ts', '**/*.{test,spec}.{js,ts,jsx,tsx}')).toBe(true);
   });
 
-  it.skip('应匹配 .spec.js 文件: src/util.spec.js', () => {
+  it('应匹配 .spec.js 文件: src/util.spec.js', () => {
     expect(matchGlob('src/util.spec.js', '**/*.{test,spec}.{js,ts,jsx,tsx}')).toBe(true);
   });
 
-  it.skip('应匹配 rust 测试 glob: tests/integration/test_auth.rs', () => {
+  it('应匹配 rust 测试 glob: tests/integration/test_auth.rs', () => {
     expect(matchGlob('tests/integration/test_auth.rs', '**/tests/**/*.rs')).toBe(true);
   });
 
-  it.skip('应匹配无通配符目录前缀: plugins/dev-team/bin/src/foo.test.ts', () => {
+  it('应匹配无通配符目录前缀: plugins/dev-team/bin/src/foo.test.ts', () => {
     expect(matchGlob('plugins/dev-team/bin/src/foo.test.ts', 'plugins/dev-team/bin')).toBe(true);
   });
 
-  it.skip('应匹配 e2e 目录 glob: tests/e2e/test_app.ts', () => {
+  it('应匹配 e2e 目录 glob: tests/e2e/test_app.ts', () => {
     expect(matchGlob('tests/e2e/test_app.ts', '**/e2e/**')).toBe(true);
   });
 });
@@ -89,19 +89,19 @@ describe('matchGlob — 项目 glob 模式正向匹配', () => {
 // ===========================================================================
 
 describe('matchGlob — 路径分隔符归一化', () => {
-  it.skip('Windows 反斜杠与 POSIX 正斜杠路径应对 **/*.test.ts 均返回 true', () => {
+  it('Windows 反斜杠与 POSIX 正斜杠路径应对 **/*.test.ts 均返回 true', () => {
     const pattern = '**/*.test.ts';
     expect(matchGlob('src\\utils\\helper.test.ts', pattern)).toBe(true);
     expect(matchGlob('src/utils/helper.test.ts', pattern)).toBe(true);
   });
 
-  it.skip('Windows 反斜杠路径应对无通配符目录前缀返回 true', () => {
+  it('Windows 反斜杠路径应对无通配符目录前缀返回 true', () => {
     expect(matchGlob('plugins\\dev-team\\bin\\src\\foo.test.ts', 'plugins/dev-team/bin')).toBe(
       true,
     );
   });
 
-  it.skip('pattern 含反斜杠与正斜杠时对同一路径应产生相同结果', () => {
+  it('pattern 含反斜杠与正斜杠时对同一路径应产生相同结果', () => {
     const filePath = 'src/utils/helper.test.ts';
     expect(matchGlob(filePath, '**\\*.test.ts')).toBe(matchGlob(filePath, '**/*.test.ts'));
   });
@@ -112,11 +112,11 @@ describe('matchGlob — 路径分隔符归一化', () => {
 // ===========================================================================
 
 describe('matchGlob — 不匹配路径', () => {
-  it.skip('非测试文件 helper.ts 不应匹配 **/*.test.ts', () => {
+  it('非测试文件 helper.ts 不应匹配 **/*.test.ts', () => {
     expect(matchGlob('src/utils/helper.ts', '**/*.test.ts')).toBe(false);
   });
 
-  it.skip('readme.md 不应匹配 vitest 默认 glob', () => {
+  it('readme.md 不应匹配 vitest 默认 glob', () => {
     expect(matchGlob('src/readme.md', '**/*.{test,spec}.{js,ts,jsx,tsx}')).toBe(false);
   });
 });
@@ -126,23 +126,23 @@ describe('matchGlob — 不匹配路径', () => {
 // ===========================================================================
 
 describe('matchGlob — glob 语法边界', () => {
-  it.skip('** 零段路径: foo.test.ts 应匹配 **/*.test.ts', () => {
+  it('** 零段路径: foo.test.ts 应匹配 **/*.test.ts', () => {
     expect(matchGlob('foo.test.ts', '**/*.test.ts')).toBe(true);
   });
 
-  it.skip('? 单字符通配: tests/unit/test.ts 应匹配 tests/?nit/*.test.ts', () => {
-    expect(matchGlob('tests/unit/test.ts', 'tests/?nit/*.test.ts')).toBe(true);
+  it('? 单字符通配: tests/unit/foo.test.ts 应匹配 tests/?nit/*.test.ts', () => {
+    expect(matchGlob('tests/unit/foo.test.ts', 'tests/?nit/*.test.ts')).toBe(true);
   });
 
-  it.skip('花括号备选: lib/utils.test.ts 应匹配 {src,lib}/*.test.ts', () => {
+  it('花括号备选: lib/utils.test.ts 应匹配 {src,lib}/*.test.ts', () => {
     expect(matchGlob('lib/utils.test.ts', '{src,lib}/*.test.ts')).toBe(true);
   });
 
-  it.skip('无通配符精确路径不匹配: other/foo.test.ts 不应匹配 plugins/dev-team/bin', () => {
+  it('无通配符精确路径不匹配: other/foo.test.ts 不应匹配 plugins/dev-team/bin', () => {
     expect(matchGlob('other/foo.test.ts', 'plugins/dev-team/bin')).toBe(false);
   });
 
-  it.skip('无通配符目录自身应匹配: plugins/dev-team/bin', () => {
+  it('无通配符目录自身应匹配: plugins/dev-team/bin', () => {
     expect(matchGlob('plugins/dev-team/bin', 'plugins/dev-team/bin')).toBe(true);
   });
 });
@@ -152,23 +152,23 @@ describe('matchGlob — glob 语法边界', () => {
 // ===========================================================================
 
 describe('matchGlob — 输入边界', () => {
-  it.skip('filePath 为空字符串时应返回确定性布尔值', () => {
+  it('filePath 为空字符串时应返回确定性布尔值', () => {
     const result = matchGlob('', '**/*.test.ts');
     expect(typeof result).toBe('boolean');
     expect(result).toBe(false);
   });
 
-  it.skip('pattern 为空字符串时应返回确定性结果', () => {
+  it('pattern 为空字符串时应返回确定性结果', () => {
     const result = matchGlob('src/foo.test.ts', '');
     expect(typeof result).toBe('boolean');
   });
 
-  it.skip('超长路径（>1000 字符）+ 标准 glob 模式不应抛出异常', () => {
+  it('超长路径（>1000 字符）+ 标准 glob 模式不应抛出异常', () => {
     const longSegment = 'a'.repeat(1000);
     expect(() => matchGlob(`${longSegment}/foo.test.ts`, '**/*.test.ts')).not.toThrow();
   });
 
-  it.skip('路径含空格与 Unicode 时应匹配 **/*.test.ts', () => {
+  it('路径含空格与 Unicode 时应匹配 **/*.test.ts', () => {
     expect(matchGlob('src/my test/测试.test.ts', '**/*.test.ts')).toBe(true);
   });
 });
@@ -178,7 +178,7 @@ describe('matchGlob — 输入边界', () => {
 // ===========================================================================
 
 describe('scanProjectFiles — 多模式扫描', () => {
-  it.skip('多 pattern 应返回 src/a.test.ts 与 tests/foo.rs 的绝对路径', () => {
+  it('多 pattern 应返回 src/a.test.ts 与 tests/foo.rs 的绝对路径', () => {
     const project = createTempProject();
     try {
       const testTs = writeFile(project.root, 'src/a.test.ts');
@@ -191,7 +191,7 @@ describe('scanProjectFiles — 多模式扫描', () => {
     }
   });
 
-  it.skip('无通配符目录 pattern 应扫描子目录文件', () => {
+  it('无通配符目录 pattern 应扫描子目录文件', () => {
     const project = createTempProject();
     try {
       const testFile = writeFile(project.root, 'plugins/dev-team/bin/src/foo.test.ts');
@@ -202,7 +202,7 @@ describe('scanProjectFiles — 多模式扫描', () => {
     }
   });
 
-  it.skip('多 pattern 重叠匹配同一文件时结果应去重且按字典序排序', () => {
+  it('多 pattern 重叠匹配同一文件时结果应去重且按字典序排序', () => {
     const project = createTempProject();
     try {
       writeFile(project.root, 'src/a.test.ts');
@@ -215,7 +215,7 @@ describe('scanProjectFiles — 多模式扫描', () => {
     }
   });
 
-  it.skip('扫描结果应仅含文件不含目录节点', () => {
+  it('扫描结果应仅含文件不含目录节点', () => {
     const project = createTempProject();
     try {
       writeFile(project.root, 'src/a.test.ts');
@@ -247,7 +247,7 @@ describe('scanProjectFiles — 默认排除目录', () => {
   ] as const;
 
   for (const relativePath of excludedPaths) {
-    it.skip(`排除目录内文件不应出现在结果中: ${relativePath}`, () => {
+    it(`排除目录内文件不应出现在结果中: ${relativePath}`, () => {
       const project = createTempProject();
       try {
         writeFile(project.root, relativePath);
@@ -260,7 +260,7 @@ describe('scanProjectFiles — 默认排除目录', () => {
     });
   }
 
-  it.skip('排除目录之外的 src/valid.test.ts 应正常返回', () => {
+  it('排除目录之外的 src/valid.test.ts 应正常返回', () => {
     const project = createTempProject();
     try {
       const validFile = writeFile(project.root, 'src/valid.test.ts');
@@ -277,7 +277,7 @@ describe('scanProjectFiles — 默认排除目录', () => {
 // ===========================================================================
 
 describe('scanProjectFiles — 输入边界', () => {
-  it.skip('patterns 为空数组时应返回 []', () => {
+  it('patterns 为空数组时应返回 []', () => {
     const project = createTempProject();
     try {
       writeFile(project.root, 'src/a.test.ts');
@@ -287,7 +287,7 @@ describe('scanProjectFiles — 输入边界', () => {
     }
   });
 
-  it.skip('项目根目录无匹配文件时应返回 []', () => {
+  it('项目根目录无匹配文件时应返回 []', () => {
     const project = createTempProject();
     try {
       writeFile(project.root, 'readme.md');
@@ -297,7 +297,7 @@ describe('scanProjectFiles — 输入边界', () => {
     }
   });
 
-  it.skip('通过 options.ignore 追加排除模式后对应路径应被过滤', () => {
+  it('通过 options.ignore 追加排除模式后对应路径应被过滤', () => {
     const project = createTempProject();
     try {
       writeFile(project.root, 'vendor/pkg/index.test.ts');

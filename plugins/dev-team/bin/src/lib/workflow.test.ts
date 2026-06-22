@@ -14,13 +14,13 @@ describe('PHASES', () => {
     expect(PHASES.length).toBe(9);
   });
 
-  it('should have correct order', () => {
+  it('should have correct order — 期望数组为 […, 03-test-design, 05-implement, 04-test-gen, 06-unit-test, …]（AC-1）', () => {
     const expected = [
       '01-proposal',
       '02-dev-design',
       '03-test-design',
-      '04-test-gen',
       '05-implement',
+      '04-test-gen',
       '06-unit-test',
       '07-code-review',
       '08-integration-test',
@@ -45,11 +45,15 @@ describe('getPhaseIndex', () => {
     expect(getPhaseIndex('01-proposal')).toBe(0);
   });
 
-  it('should return correct index for 05-implement', () => {
-    expect(getPhaseIndex('05-implement')).toBe(4);
+  it('should return 3 for 05-implement（AC-1）', () => {
+    expect(getPhaseIndex('05-implement')).toBe(3);
   });
 
-  it('should return correct index for new 06-unit-test', () => {
+  it('should return 4 for 04-test-gen（AC-1）', () => {
+    expect(getPhaseIndex('04-test-gen')).toBe(4);
+  });
+
+  it('should return 5 for 06-unit-test（索引随 04/05 对调后仍正确）', () => {
     expect(getPhaseIndex('06-unit-test')).toBe(5);
   });
 
@@ -71,14 +75,14 @@ describe('getPriorPhases', () => {
     expect(getPriorPhases('01-proposal')).toEqual([]);
   });
 
-  it('should return 5 prior phases for 06-unit-test', () => {
+  it('should return [01, 02, 03, 05-implement, 04-test-gen] for 06-unit-test（AC-1）', () => {
     const prior = getPriorPhases('06-unit-test');
     expect(prior).toEqual([
       '01-proposal',
       '02-dev-design',
       '03-test-design',
-      '04-test-gen',
       '05-implement',
+      '04-test-gen',
     ]);
   });
 
@@ -113,6 +117,10 @@ describe('PHASE_PREREQUISITES', () => {
   it('should have 04-test-gen and 05-implement as prerequisites for 07-code-review (AC-3)', () => {
     expect(PHASE_PREREQUISITES['07-code-review']).toEqual(['04-test-gen', '05-implement']);
   });
+
+  it('should have [03-test-design, 05-implement] as prerequisites for 04-test-gen（AC-2）', () => {
+    expect(PHASE_PREREQUISITES['04-test-gen']).toEqual(['03-test-design', '05-implement']);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -142,6 +150,17 @@ describe('getPrerequisites', () => {
     ]);
   });
 
+  it('should return ["03-test-design", "05-implement"] for 04-test-gen requirement（AC-2）', () => {
+    expect(getPrerequisites('04-test-gen', 'requirement')).toEqual([
+      '03-test-design',
+      '05-implement',
+    ]);
+  });
+
+  it('should return ["02-dev-design"] for 05-implement requirement（AC-3）', () => {
+    expect(getPrerequisites('05-implement', 'requirement')).toEqual(['02-dev-design']);
+  });
+
   it('should return ["02-dev-design"] for 05-implement bug-fix', () => {
     expect(getPrerequisites('05-implement', 'bug-fix')).toEqual(['02-dev-design']);
   });
@@ -163,6 +182,15 @@ describe('getPrerequisites', () => {
     const ref = getPrerequisites('06-unit-test', 'refactor');
     expect(ref).toEqual(req);
   });
+
+  it('refactor workflow_type 与 requirement 对 04/05 前置一致', () => {
+    expect(getPrerequisites('04-test-gen', 'refactor')).toEqual(
+      getPrerequisites('04-test-gen', 'requirement'),
+    );
+    expect(getPrerequisites('05-implement', 'refactor')).toEqual(
+      getPrerequisites('05-implement', 'requirement'),
+    );
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -180,19 +208,20 @@ describe('getDependents', () => {
     expect(deps).toEqual(['03-test-design', '05-implement', '09-acceptance']);
   });
 
-  it('should return [04-test-gen] for 03-test-design', () => {
+  it('should return [04-test-gen] for 03-test-design — 03 不依赖 05，05 非其 downstream（AC-4）', () => {
     const deps = getDependents('03-test-design', 'requirement');
     expect(deps).toEqual(['04-test-gen']);
   });
 
-  it('should return [06, 07, 08] for 04-test-gen', () => {
+  it('should return [06, 07, 08] for 04-test-gen（不变）', () => {
     const deps = getDependents('04-test-gen', 'requirement');
     expect(deps).toEqual(['06-unit-test', '07-code-review', '08-integration-test']);
   });
 
-  it('should return [06, 07, 08, 09] for 05-implement', () => {
+  it('should return [04-test-gen, 06, 07, 08, 09] for 05-implement — 04 为直接 downstream（AC-4）', () => {
     const deps = getDependents('05-implement', 'requirement');
     expect(deps).toEqual([
+      '04-test-gen',
       '06-unit-test',
       '07-code-review',
       '08-integration-test',

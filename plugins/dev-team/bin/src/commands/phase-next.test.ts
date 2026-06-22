@@ -91,10 +91,6 @@ function skippedEntry(phase: string, attempt: number = 1): MockEntry {
   };
 }
 
-function skipPedEntry(phase: string, attempt: number = 1): MockEntry {
-  return skippedEntry(phase, attempt);
-}
-
 function staleEntry(
   phase: string,
   attempt: number = 1,
@@ -134,14 +130,14 @@ describe('PHASE_TABLES', () => {
     expect(getPhaseTable('requirement')[0].id).toBe('01-proposal');
   });
 
-  it('should include all 9 phases in order', () => {
+  it('phase 表 id 顺序与 AC-1 一致 — 05-implement 在 04-test-gen 之前（AC-1）', () => {
     const phases = getPhaseTable('requirement').map((p) => p.id);
     expect(phases).toEqual([
       '01-proposal',
       '02-dev-design',
       '03-test-design',
-      '04-test-gen',
       '05-implement',
+      '04-test-gen',
       '06-unit-test',
       '07-code-review',
       '08-integration-test',
@@ -273,14 +269,34 @@ describe('runPhaseNext — Normal Progression', () => {
     expect(result.next_phase).toBe('03-test-design');
   });
 
-  it('should return 05-implement after phases 01-04 pass', () => {
+  it('should return 05-implement after phases 01-03 pass（AC-5）', () => {
     const result = next([
       passEntry('01-proposal'),
       passEntry('02-dev-design'),
       passEntry('03-test-design'),
-      passEntry('04-test-gen'),
     ]);
     expect(result.next_phase).toBe('05-implement');
+  });
+
+  it('should return 04-test-gen after phases 01-03 and 05 pass（AC-6）', () => {
+    const result = next([
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+      passEntry('05-implement'),
+    ]);
+    expect(result.next_phase).toBe('04-test-gen');
+  });
+
+  it('should return 06-unit-test after phases 01-05 and 04 pass', () => {
+    const result = next([
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+      passEntry('05-implement'),
+      passEntry('04-test-gen'),
+    ]);
+    expect(result.next_phase).toBe('06-unit-test');
   });
 
   it('should return 07-code-review with planner: null (EVAL-ONLY)', () => {
@@ -338,22 +354,22 @@ describe('runPhaseNext — Normal Progression', () => {
 // ---------------------------------------------------------------------------
 
 describe('runPhaseNext — Skip Passed Phases (AC-6)', () => {
-  it('should skip to 04-test-gen when phases 01-03 already pass', () => {
+  it('should skip to 05-implement when 01-03 pass — 非 04-test-gen（AC-5）', () => {
     const result = next([
       passEntry('01-proposal'),
       passEntry('02-dev-design'),
       passEntry('03-test-design'),
     ]);
-    expect(result.next_phase).toBe('04-test-gen');
+    expect(result.next_phase).toBe('05-implement');
   });
 
-  it('should skip to 06-unit-test when phases 01-05 already pass', () => {
+  it('should skip to 06-unit-test when phases 01-05 and 04 pass', () => {
     const entries = [
       passEntry('01-proposal'),
       passEntry('02-dev-design'),
       passEntry('03-test-design'),
-      passEntry('04-test-gen'),
       passEntry('05-implement'),
+      passEntry('04-test-gen'),
     ];
     const result = next(entries);
     expect(result.next_phase).toBe('06-unit-test');
@@ -594,6 +610,18 @@ describe('runPhaseNext — Stale Entry Filtering (AC-11, AC-12)', () => {
     // Linear scan: 01 and 02 pass non-stale, 03 pass but stale → return 03
     expect(result.next_phase).toBe('03-test-design');
   });
+
+  it('should return 04-test-gen when 05 pass but 04 is stale（AC-7）', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+      passEntry('05-implement'),
+      staleEntry('04-test-gen'),
+    ];
+    const result = next(entries);
+    expect(result.next_phase).toBe('04-test-gen');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -617,19 +645,14 @@ describe('runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7)', () => {
     expect(result.next_phase).toBe('03-test-design');
   });
 
-  it('should skip stale 04 and return 04 when 04 is stale even though later phases pass (AC-7)', () => {
-    // 01-05 pass, but 04 is stale (backtrack propagation)
-    const entries = [
+  it('should return 05-implement when 04 pass but 05 not passed — 线性扫描优先 05（AC-11 子场景）', () => {
+    const result = next([
       passEntry('01-proposal'),
       passEntry('02-dev-design'),
       passEntry('03-test-design'),
-      staleEntry('04-test-gen'), // stale
-      passEntry('05-implement'),
-      passEntry('06-unit-test'),
-    ];
-    const result = next(entries);
-    // 04 has stale=true → hasPhasePassed returns false → returned as next
-    expect(result.next_phase).toBe('04-test-gen');
+      passEntry('04-test-gen'),
+    ]);
+    expect(result.next_phase).toBe('05-implement');
   });
 });
 
@@ -726,14 +749,14 @@ describe('runPhaseNext — Skipped Phases', () => {
   });
 
   it('should advance past a mix of skipped and passed phases', () => {
-    // Pass 01, skip 02, pass 03 — should advance to 04
+    // Pass 01, skip 02, pass 03 — should advance to 05-implement
     const entries = [
       passEntry('01-proposal'),
       skippedEntry('02-dev-design'),
       passEntry('03-test-design'),
     ];
     const result = next(entries);
-    expect(result.next_phase).toBe('04-test-gen');
+    expect(result.next_phase).toBe('05-implement');
   });
 });
 
@@ -764,6 +787,14 @@ describe('runPhaseNext — workflow_type', () => {
       workflowType: 'refactor',
     }).result;
     expect(result.total_phases).toBe(9);
+  });
+
+  it('bug-fix phase table 仍为 6 个 phase，不含 03/04/08（AC-10）', () => {
+    const phases = getPhaseTable('bug-fix').map((p) => p.id);
+    expect(phases.length).toBe(6);
+    expect(phases).not.toContain('03-test-design');
+    expect(phases).not.toContain('04-test-gen');
+    expect(phases).not.toContain('08-integration-test');
   });
 
   it('should return 09-acceptance from bug-fix after 07-code-review passes', () => {
@@ -836,15 +867,14 @@ describe('Boundary Scenarios', () => {
     expect(result.error).toBeNull();
   });
 
-  it('should handle skipped phases correctly', () => {
+  it('01-03 pass + skip 04 时仍返回 05-implement（05 未 pass）', () => {
     const entries = [
       passEntry('01-proposal'),
       passEntry('02-dev-design'),
-      skippedEntry('03-test-design'),
-      skipPedEntry('04-test-gen'),
+      passEntry('03-test-design'),
+      skippedEntry('04-test-gen'),
     ];
     const result = next(entries);
-    // 01-04 all have pass or skipped, next should be 05-implement
     expect(result.next_phase).toBe('05-implement');
   });
 

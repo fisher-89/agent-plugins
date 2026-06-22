@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "npx vitest run --reporter=verbose '**/*.integration.test.*' 2>&1",
+  "timestamp": "2026-06-22T02:11:00.000Z",
+  "total": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 0,
+  "failures": [],
+  "findings": "test-design.md 集成测试 > 用例 表明确标注「无集成测试场景」：本变更仅调整 workflow.ts 中 PHASES 顺序与 PHASE_PREREQUISITES，phase/next 与 markPhaseStale 协作已在单元测试中通过内存 mock entries 覆盖（workflow.test.ts、phase-next.test.ts、eval-json.test.ts，142/142 通过）。Glob 检索 **/*.integration.test.*、**/tests/integration/** 在 openspec/changes/reorder-test-gen-after-implement/ 及变更相关模块下均无匹配文件。阶段按设计跳过，无需修复。"
+}

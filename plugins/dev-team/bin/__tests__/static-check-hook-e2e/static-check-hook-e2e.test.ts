@@ -64,10 +64,7 @@ process.exit(${exitCode});
   };
 }
 
-function runStaticCheckHook(
-  pluginRoot: string,
-  stdinJson = '{}',
-): { stdout: string } {
+function runStaticCheckHook(pluginRoot: string, stdinJson = '{}'): { stdout: string } {
   const copiedScript = path.join(pluginRoot, 'hooks', 'scripts', 'static-check.mjs');
   const actualScript = fs.existsSync(copiedScript) ? copiedScript : scriptPath;
 
@@ -94,8 +91,8 @@ describe('static-check.mjs — CLI 缺失 (AC-10)', () => {
   it('无 bin/dev-team-cli.cjs 时应输出 followup_message 且不抛异常', () => {
     stub = createStubPluginRoot({ cliBehavior: 'missing' });
     expect(() => runStaticCheckHook(stub!.root)).not.toThrow();
-    const { stdout } = runStaticCheckHook(stub!.root);
-    const parsed = JSON.parse(stdout) as { followup_message?: string };
+    const { stdout } = runStaticCheckHook(stub.root);
+    const parsed: { followup_message?: string } = JSON.parse(stdout);
     expect(parsed.followup_message).toBeDefined();
     expect(typeof parsed.followup_message).toBe('string');
   });
@@ -130,7 +127,7 @@ describe('static-check.mjs — 脚本质量 (AC-7)', () => {
     const reportPath = path.join(reportsDir, 'static_analysis.json');
     const existedBefore = fs.existsSync(reportPath);
     try {
-      runStaticCheckHook(stub!.root);
+      runStaticCheckHook(stub.root);
       expect(fs.existsSync(reportPath)).toBe(existedBefore);
     } finally {
       stub?.cleanup();

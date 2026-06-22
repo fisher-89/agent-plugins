@@ -259,4 +259,79 @@ describe('markPhaseStale', () => {
     const newEntry = entries.find((e) => e.phase === '02-dev-design' && e.attempt === 2)!;
     expect(newEntry.stale).toBeUndefined();
   });
+
+  it('should mark 04-test-gen stale when marking 05-implement — 04 为直接 downstream（AC-8）', () => {
+    const entries = [
+      makePassEntry('01-proposal', 1),
+      makePassEntry('02-dev-design', 1),
+      makePassEntry('03-test-design', 1),
+      makePassEntry('04-test-gen', 1),
+      makePassEntry('05-implement', 1),
+    ];
+    markPhaseStale(entries, '05-implement');
+
+    expect(entries.find((e) => e.phase === '05-implement')!.stale).toBe(true);
+    expect(entries.find((e) => e.phase === '04-test-gen')!.stale).toBe(true);
+    expect(entries.find((e) => e.phase === '03-test-design')!.stale).toBeUndefined();
+  });
+
+  it('should propagate from 05-implement to 06/07/08/09（AC-8）', () => {
+    const entries = [];
+    for (const phase of [
+      '01-proposal',
+      '02-dev-design',
+      '03-test-design',
+      '04-test-gen',
+      '05-implement',
+      '06-unit-test',
+      '07-code-review',
+      '08-integration-test',
+      '09-acceptance',
+    ]) {
+      entries.push(makePassEntry(phase, 1));
+    }
+    markPhaseStale(entries, '05-implement');
+
+    for (const phase of [
+      '05-implement',
+      '04-test-gen',
+      '06-unit-test',
+      '07-code-review',
+      '08-integration-test',
+      '09-acceptance',
+    ]) {
+      expect(entries.find((e) => e.phase === phase)!.stale).toBe(true);
+    }
+    expect(entries.find((e) => e.phase === '03-test-design')!.stale).toBeUndefined();
+  });
+
+  it('should mark 04 and downstream stale when marking 03-test-design（AC-9）', () => {
+    const entries = [
+      makePassEntry('01-proposal', 1),
+      makePassEntry('02-dev-design', 1),
+      makePassEntry('03-test-design', 1),
+      makePassEntry('04-test-gen', 1),
+      makePassEntry('05-implement', 1),
+      makePassEntry('06-unit-test', 1),
+    ];
+    markPhaseStale(entries, '03-test-design');
+
+    for (const phase of ['03-test-design', '04-test-gen', '06-unit-test']) {
+      expect(entries.find((e) => e.phase === phase)!.stale).toBe(true);
+    }
+  });
+
+  it('should NOT mark 05-implement stale when marking 03-test-design（AC-9）', () => {
+    const entries = [
+      makePassEntry('01-proposal', 1),
+      makePassEntry('02-dev-design', 1),
+      makePassEntry('03-test-design', 1),
+      makePassEntry('04-test-gen', 1),
+      makePassEntry('05-implement', 1),
+    ];
+    markPhaseStale(entries, '03-test-design');
+
+    expect(entries.find((e) => e.phase === '05-implement')!.stale).toBeUndefined();
+    expect(entries.find((e) => e.phase === '04-test-gen')!.stale).toBe(true);
+  });
 });

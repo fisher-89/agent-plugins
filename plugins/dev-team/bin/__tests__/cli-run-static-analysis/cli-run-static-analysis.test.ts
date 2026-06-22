@@ -47,6 +47,14 @@ function createTempProject(staticAnalysis?: string): TempProject {
   };
 }
 
+function isExecFileError(err: unknown): err is {
+  stdout?: Buffer;
+  stderr?: Buffer;
+  status?: number;
+} {
+  return typeof err === 'object' && err !== null;
+}
+
 function runCli(
   args: string[],
   env: NodeJS.ProcessEnv = {},
@@ -63,11 +71,13 @@ function runCli(
     });
     return { stdout: stdout.trim(), stderr: '', status: 0 };
   } catch (err: unknown) {
-    const e = err as { stdout?: Buffer; stderr?: Buffer; status?: number };
+    if (!isExecFileError(err)) {
+      throw err;
+    }
     return {
-      stdout: e.stdout?.toString().trim() ?? '',
-      stderr: e.stderr?.toString().trim() ?? '',
-      status: e.status ?? 1,
+      stdout: err.stdout?.toString().trim() ?? '',
+      stderr: err.stderr?.toString().trim() ?? '',
+      status: err.status ?? 1,
     };
   }
 }

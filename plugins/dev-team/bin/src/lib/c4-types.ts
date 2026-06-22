@@ -80,27 +80,3 @@ export interface ArchiCheckResult {
   unmatched_files: string[];
   status: 'clean' | 'violations_found' | 'no_changes' | 'skipped';
 }
-
-/**
- * Element kind constants supported by the model.
- */
-export const ELEMENT_KINDS = [
-  'package',
-  'domain',
-  'module',
-  'component',
-  'softwareSystem',
-  'container',
-  'system',
-  'person',
-] as const;
-
-/**
- * C4 element definition from a parsed DSL element line.
- */
-export interface ParsedElementDef {
-  kind: string;
-  name: string;
-  paths: string[];
-  metadata: Record<string, string[]>;
-}

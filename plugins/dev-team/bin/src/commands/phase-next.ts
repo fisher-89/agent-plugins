@@ -21,8 +21,6 @@ import { getPhaseTable, type PhaseAgentDef, type PhaseDefinition } from '../lib/
 // Types (local to phase_next)
 // ---------------------------------------------------------------------------
 
-export type { PhaseAgentDef, PhaseDefinition };
-
 export interface PhaseNextOptions {
   change: string;
   workflow_type?: string;
@@ -167,7 +165,7 @@ function computeRound(entries: EvalEntry[]): number {
  * Entries with `stale: true` are ignored.
  * Entries without a `stale` field are treated as `stale: false` (backward compatible).
  */
-export function hasPhasePassed(entries: EvalEntry[], phaseId: string): boolean {
+function hasPhasePassed(entries: EvalEntry[], phaseId: string): boolean {
   return entries.some(
     (e) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true) && !e.stale,
   );

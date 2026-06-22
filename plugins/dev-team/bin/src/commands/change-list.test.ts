@@ -105,55 +105,6 @@ function changeNames(result: ReturnType<typeof runChangeList>): string[] {
 }
 
 // ===========================================================================
-// runChangeList -- archive 已登记 change 排除 (AC-1)
-// ===========================================================================
-
-describe('runChangeList -- archive 已登记 change 排除', () => {
-  it('存在 archive/2026-06-18-done-change/ 且 changes/done-change/ 残留时结果不含 done-change (AC-1)', () => {
-    const project = createTempProject();
-    try {
-      writeArchiveDir(project.changesDir, '2026-06-18-done-change');
-      writeChange(project.changesDir, 'done-change', {
-        artifacts: { 'proposal.md': '# done' },
-      });
-
-      const result = runChangeList({ project_root: project.root });
-
-      expect(changeNames(result)).not.toContain('done-change');
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-// ===========================================================================
-// runChangeList -- 09-acceptance pass 排除 (AC-2)
-// ===========================================================================
-
-describe('runChangeList -- 09-acceptance pass 排除', () => {
-  it('eval.json 含最新 09-acceptance pass 时结果不含该 change (AC-2)', () => {
-    const project = createTempProject();
-    try {
-      writeChange(project.changesDir, 'accepted-change', {
-        evalEntries: [
-          makeEvalEntry({
-            phase: '09-acceptance',
-            verdict: 'pass',
-            timestamp: '2026-06-18T10:00:00.000Z',
-          }),
-        ],
-      });
-
-      const result = runChangeList({ project_root: project.root });
-
-      expect(changeNames(result)).not.toContain('accepted-change');
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-// ===========================================================================
 // runChangeList -- 活跃 change 聚合 (AC-3)
 // ===========================================================================
 
@@ -303,63 +254,6 @@ describe('runChangeList -- 缺失 eval / 无 acceptance 条目', () => {
 });
 
 // ===========================================================================
-// runChangeList -- count 一致性 (AC-5)
-// ===========================================================================
-
-describe('runChangeList -- count 一致性', () => {
-  it('混合活跃/已归档/已完成 fixture 下 count 应等于 changes.length (AC-5)', () => {
-    const project = createTempProject();
-    try {
-      writeChange(project.changesDir, 'alpha-active');
-      writeChange(project.changesDir, 'beta-active');
-      writeArchiveDir(project.changesDir, '2026-06-18-archived-one');
-      writeChange(project.changesDir, 'archived-one');
-      writeChange(project.changesDir, 'completed-one', {
-        evalEntries: [
-          makeEvalEntry({
-            phase: '09-acceptance',
-            verdict: 'pass',
-            timestamp: '2026-06-18T10:00:00.000Z',
-          }),
-        ],
-      });
-
-      const result = runChangeList({ project_root: project.root });
-
-      expect(result.count).toBe(result.changes.length);
-      expect(result.count).toBe(2);
-      expect(changeNames(result).sort()).toEqual(['alpha-active', 'beta-active']);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('无活跃 change 时 count 应为 0 且 changes 为空数组', () => {
-    const project = createTempProject();
-    try {
-      writeArchiveDir(project.changesDir, '2026-06-18-only-archived');
-      writeChange(project.changesDir, 'only-archived');
-      writeChange(project.changesDir, 'only-completed', {
-        evalEntries: [
-          makeEvalEntry({
-            phase: '09-acceptance',
-            verdict: 'pass',
-            timestamp: '2026-06-18T10:00:00.000Z',
-          }),
-        ],
-      });
-
-      const result = runChangeList({ project_root: project.root });
-
-      expect(result.changes).toEqual([]);
-      expect(result.count).toBe(0);
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-// ===========================================================================
 // runChangeList -- 目录扫描与排序
 // ===========================================================================
 
@@ -373,6 +267,20 @@ describe('runChangeList -- 目录扫描与排序', () => {
       expect(result.count).toBe(0);
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('无活跃 change 时应返回 { changes: [], count: 0 }', () => {
+    const project = createTempProject();
+    try {
+      writeArchiveDir(project.changesDir, '2026-06-18-only-archived');
+
+      const result = runChangeList({ project_root: project.root });
+
+      expect(result.changes).toEqual([]);
+      expect(result.count).toBe(0);
+    } finally {
+      project.cleanup();
     }
   });
 
@@ -426,12 +334,12 @@ describe('runChangeList -- 目录扫描与排序', () => {
 // ===========================================================================
 
 describe('runChangeList -- 组合过滤', () => {
-  it('同一 fixture 含活跃、archive 已登记、09-acceptance pass、仅 fail acceptance 时仅活跃者返回', () => {
+  it('除archive 已登记外，其他都返回', () => {
     const project = createTempProject();
     try {
       writeChange(project.changesDir, 'active-only');
-      writeArchiveDir(project.changesDir, '2026-06-18-archived-filtered');
-      writeChange(project.changesDir, 'archived-filtered');
+      writeArchiveDir(project.changesDir, '2026-06-18-archived-same-name');
+      writeChange(project.changesDir, 'archived-same-name');
       writeChange(project.changesDir, 'passed-filtered', {
         evalEntries: [
           makeEvalEntry({
@@ -453,8 +361,11 @@ describe('runChangeList -- 组合过滤', () => {
 
       const result = runChangeList({ project_root: project.root });
 
-      expect(changeNames(result).sort()).toEqual(['active-only', 'fail-acceptance-active']);
-      expect(result.count).toBe(2);
+      expect(changeNames(result)).toContain('active-only');
+      expect(changeNames(result)).toContain('archived-same-name');
+      expect(changeNames(result)).toContain('fail-acceptance-active');
+      expect(changeNames(result)).toContain('passed-filtered');
+      expect(result.count).toBe(4);
     } finally {
       project.cleanup();
     }

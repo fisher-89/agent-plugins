@@ -30,9 +30,9 @@ The deprecated `phase/check` MCP tool is retained for debugging only.
 - **WHEN** `phase/next` is called and 02-dev-design's only pass entry is stale
 - **THEN** it returns `next_phase: "02-dev-design"` (not 03 or 05 which depend on 02)
 
-#### Scenario: phase/next naturally blocks convergence when one prerequisite missing
+#### Scenario: phase/next blocks test-gen when implement is stale
 - **WHEN** `phase/next` is called, 04-test-gen has valid pass but 05-implement has only stale pass
-- **THEN** it returns `next_phase: "05-implement"` (06-unit-test needs both, so 05 must be redone first)
+- **THEN** it returns `next_phase: "05-implement"` (04-test-gen requires 05-implement; 04 must be regenerated after 05 is redone)
 
 ### Requirement: phase-check.ts functions retained for internal use only
 The `phase-check.ts` module SHALL be simplified to internal utility functions only. The MCP tool `phase/check` is DEPRECATED from the workflow loop.
@@ -55,14 +55,16 @@ The system SHALL support 9 sequential phases with the following identifiers:
 | 01-proposal | 01-proposal | DESIGN Planner->Evaluator | Proposal and requirements (replaces 01-requirements) |
 | 02-dev-design | 02-dev-design | DESIGN Planner->Evaluator | Implementation design |
 | 03-test-design | 03-test-design | DESIGN Planner->Evaluator | Test scenario design |
-| 04-test-gen | 04-test-gen | EXEC Generator->Evaluator | Test code generation |
 | 05-implement | 05-implement | EXEC Generator->Evaluator + AUTO static-check | Implementation code generation |
+| 04-test-gen | 04-test-gen | EXEC Generator->Evaluator | Test code generation |
 | 06-unit-test | 06-unit-test | EXEC Executor->Evaluator (sonnet) | Unit test execution and report validation |
 | 07-code-review | 07-code-review | EVAL-ONLY Evaluator | Code review evaluation |
 | 08-integration-test | 08-integration-test | EXEC Executor->Evaluator (sonnet) | Integration test execution and report validation |
 | 09-acceptance | 09-acceptance | EVAL-ONLY Evaluator | Acceptance evaluation |
 
 The phase formerly named `01-requirements` is RENAMED to `01-proposal`. The planner for phase 01 changes from the main agent (skill directly writes artifacts) to the `proposal-planner` sub-agent, consistent with phases 02-03.
+
+**Execution order change:** `05-implement` SHALL appear before `04-test-gen` in the canonical `PHASES` array (derived from `PHASE_REQUIREMENT`). Phase identifiers are NOT renumbered — only scheduling order changes so implementation completes before test generation.
 
 Each phase SHALL append its result to eval.json upon completion.
 
@@ -81,8 +83,17 @@ Each phase SHALL append its result to eval.json upon completion.
 - **THEN** phase/next SHALL return 02-dev-design (03-test-design requires 02 as prerequisite)
 - **AND** 03-test-design SHALL NOT be returned until 02 has a valid pass
 
-- **WHEN** phase/next scans and 04-test-gen has no valid pass but 05-implement does
-- **THEN** phase/next SHALL return 04-test-gen (06-unit-test requires 04 as prerequisite)
+- **WHEN** phase/next scans and 05-implement has no valid pass but 04-test-gen does
+- **THEN** phase/next SHALL return 05-implement (04-test-gen requires 05 as prerequisite; 04 pass alone is insufficient)
+
+#### Scenario: Implement executes before test-gen in canonical order
+- **WHEN** phases 01-proposal, 02-dev-design, and 03-test-design have valid pass entries and neither 05-implement nor 04-test-gen has passed
+- **THEN** `PHASES` index of `05-implement` is less than `04-test-gen`
+- **AND** phase/next SHALL return `05-implement` as the next phase
+
+#### Scenario: Test-gen runs after implement pass
+- **WHEN** phases 01 through 03 and 05-implement have valid pass entries and 04-test-gen has not passed
+- **THEN** phase/next SHALL return `04-test-gen` as the next phase
 
 ### Requirement: Workflow orchestration layer
 The system SHALL support a workflow orchestration layer above the phase level. Workflow skills (`workflow-requirement`, and future `workflow-bug-fix`, `workflow-refactor`) SHALL invoke phases directly via Agent + MCP + Bash calls rather than through the Skill tool.
@@ -123,6 +134,18 @@ Existing eval.json files using `01-requirements` SHALL NOT be migrated — backw
 
 ## Module Contract
 
+### workflow.ts (`plugins/dev-team/bin/src/lib/`)
+
+| Export / Constant | Change | Purpose |
+|-------------------|--------|---------|
+| `PHASE_REQUIREMENT` | MODIFIED | Swap array positions: `05-implement` before `04-test-gen` |
+| `PHASES` | MODIFIED (derived) | Canonical ordered ID list reflects implement-before-test-gen |
+| `PHASE_PREREQUISITES['04-test-gen']` | MODIFIED | Add `'05-implement'` prerequisite |
+| `getPrerequisites()` | MODIFIED (derived) | Returns updated deps for 04-test-gen |
+| `getDependents()` | MODIFIED (derived) | `05-implement` now lists `04-test-gen` as dependent |
+| `getPhaseIndex('05-implement')` | MODIFIED (derived) | Index 3 (was 4) |
+| `getPhaseIndex('04-test-gen')` | MODIFIED (derived) | Index 4 (was 3) |
+
 ### Workflow Skills (`plugins/dev-team/skills/`)
 
 | Workflow | workflow_type | Phase Table (server-side) |
@@ -137,7 +160,8 @@ All workflow skills follow the thin loop pattern: context assembly → `phase/ne
 
 | Export | Change | Purpose |
 |--------|--------|---------|
-| `hasPhasePassed()` | MODIFIED | Filters `stale: true` entries; replaces standalone gate-check |
+| `hasPhasePassed()` | UNCHANGED | Filters `stale: true` entries |
+| `runPhaseNext()` | MODIFIED (behavior) | Scans reordered phase table; respects new 04→05 prerequisite |
 | `getLatestBacktrackTarget()` | UNCHANGED | Detects backtrack_to in latest entry |
 
 ### phase-check.ts (commands/)

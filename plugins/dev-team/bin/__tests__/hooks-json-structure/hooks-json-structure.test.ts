@@ -34,7 +34,7 @@ type HooksJson = {
 };
 
 function readHooksJson(): HooksJson {
-  return JSON.parse(fs.readFileSync(hooksJsonPath, 'utf-8')) as HooksJson;
+  return JSON.parse(fs.readFileSync(hooksJsonPath, 'utf-8'));
 }
 
 function parseSemver(version: string): [number, number, number] {
@@ -120,6 +120,7 @@ describe('hooks.json — command 不含 .sh (AC-7)', () => {
 
 describe('plugin.json — 版本号 (AC-8)', () => {
   it('version 应大于 2.6.22 且符合 semver', () => {
+    // eslint-disable-next-line typescript/no-unsafe-type-assertion -- plugin.json shape validated inline
     const parsed = JSON.parse(fs.readFileSync(pluginJsonPath, 'utf-8')) as { version?: string };
     expect(parsed.version).toMatch(/^\d+\.\d+\.\d+$/);
     expect(isGreaterThan(parsed.version!, '2.6.22')).toBe(true);

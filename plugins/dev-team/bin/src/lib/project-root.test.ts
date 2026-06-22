@@ -16,40 +16,25 @@ import {
   fileUriToPath,
   getMcpCachedProjectRoot,
   initProjectRootFromMcp,
+  type McpServerLike,
   refreshProjectRootFromMcp,
   resetMcpProjectRootCacheForTests,
 } from './project-root';
 
 // ---------------------------------------------------------------------------
-// Mock MCP Server 最小接口
+// Simple mock matching the narrow McpServerLike interface
 // ---------------------------------------------------------------------------
-
-interface MockRoot {
-  uri: string;
-  name?: string;
-}
-
-interface MockMcpServer {
-  getClientCapabilities: () => { roots?: { listChanged?: boolean } } | undefined;
-  listRoots: () => Promise<{ roots: MockRoot[] }>;
-  setNotificationHandler: (method: string, handler: () => void | Promise<void>) => void;
-}
 
 interface MockServerOptions {
   capabilities?: { roots?: { listChanged?: boolean } };
-  listRootsResult?: { roots: MockRoot[] };
+  listRootsResult?: { roots: { uri: string; name?: string }[] };
   listRootsError?: Error;
 }
 
-function createMockServer(options: MockServerOptions = {}): {
-  server: MockMcpServer;
-  notificationHandlers: Map<string, () => void | Promise<void>>;
-  listRootsCalls: number;
-} {
-  const notificationHandlers = new Map<string, () => void | Promise<void>>();
+function createMockServer(options: MockServerOptions = {}) {
   let listRootsCalls = 0;
 
-  const server: MockMcpServer = {
+  const server: McpServerLike = {
     getClientCapabilities: () =>
       options.capabilities !== undefined ? options.capabilities : { roots: { listChanged: false } },
     listRoots: async () => {
@@ -59,14 +44,10 @@ function createMockServer(options: MockServerOptions = {}): {
       }
       return options.listRootsResult ?? { roots: [] };
     },
-    setNotificationHandler: (method, handler) => {
-      notificationHandlers.set(method, handler);
-    },
   };
 
   return {
     server,
-    notificationHandlers,
     get listRootsCalls() {
       return listRootsCalls;
     },
@@ -175,7 +156,7 @@ describe('initProjectRootFromMcp — roots 可用时缓存首个 root', () => {
       listRootsResult: { roots: [{ uri, name: 'wps-claude-plugin' }] },
     });
 
-    await initProjectRootFromMcp(server as never);
+    await initProjectRootFromMcp(server);
 
     expect(getMcpCachedProjectRoot()).toBe(expected);
     expect(getProjectDir()).toBe(expected);
@@ -191,7 +172,7 @@ describe('initProjectRootFromMcp — roots 可用时缓存首个 root', () => {
       },
     });
 
-    await initProjectRootFromMcp(server as never);
+    await initProjectRootFromMcp(server);
 
     expect(getMcpCachedProjectRoot()).toBe(path.resolve('D:/Projects/first-root'));
   });
@@ -214,10 +195,9 @@ describe('initProjectRootFromMcp — 无 roots capability', () => {
   });
 
   it('getClientCapabilities()?.roots 为 undefined 时不调用 listRoots，缓存保持 null (AC-4)', async () => {
-    const mock = createMockServer();
-    mock.server.getClientCapabilities = () => ({});
+    const mock = createMockServer({ capabilities: {} });
 
-    await initProjectRootFromMcp(mock.server as never);
+    await initProjectRootFromMcp(mock.server);
 
     expect(getMcpCachedProjectRoot()).toBeNull();
     expect(mock.listRootsCalls).toBe(0);
@@ -244,7 +224,7 @@ describe('initProjectRootFromMcp — listRoots 抛错', () => {
       listRootsError: new Error('listRoots failed'),
     });
 
-    await expect(initProjectRootFromMcp(server as never)).resolves.toBeUndefined();
+    await expect(initProjectRootFromMcp(server)).resolves.toBeUndefined();
 
     expect(getMcpCachedProjectRoot()).toBeNull();
     expect(getProjectDir()).toBe('/fallback/from-env');
@@ -275,7 +255,7 @@ describe('initProjectRootFromMcp — 空 roots 数组', () => {
       listRootsResult: { roots: [] },
     });
 
-    await initProjectRootFromMcp(server as never);
+    await initProjectRootFromMcp(server);
 
     expect(getMcpCachedProjectRoot()).toBeNull();
     expect(getProjectDir()).toBe('/fallback/cursor');
@@ -283,59 +263,10 @@ describe('initProjectRootFromMcp — 空 roots 数组', () => {
 });
 
 // ===========================================================================
-// initProjectRootFromMcp — list_changed 注册 (AC-6)
+// refreshProjectRootFromMcp — 缓存更新 (AC-6, D6)
 // ===========================================================================
 
-describe('initProjectRootFromMcp — list_changed 注册', () => {
-  beforeEach(() => {
-    resetCache();
-  });
-
-  it('roots.listChanged === true 时应注册 notifications/roots/list_changed handler (AC-6)', async () => {
-    const mock = createMockServer({
-      capabilities: { roots: { listChanged: true } },
-      listRootsResult: {
-        roots: [{ uri: 'file:///D:/Projects/wps-claude-plugin' }],
-      },
-    });
-
-    await initProjectRootFromMcp(mock.server as never);
-
-    expect(mock.notificationHandlers.has('notifications/roots/list_changed')).toBe(true);
-  });
-
-  it('roots.listChanged 为 false 时不注册 notification handler (AC-6)', async () => {
-    const mock = createMockServer({
-      capabilities: { roots: { listChanged: false } },
-      listRootsResult: {
-        roots: [{ uri: 'file:///D:/Projects/wps-claude-plugin' }],
-      },
-    });
-
-    await initProjectRootFromMcp(mock.server as never);
-
-    expect(mock.notificationHandlers.has('notifications/roots/list_changed')).toBe(false);
-  });
-
-  it('roots.listChanged 未声明时不注册 notification handler (AC-6)', async () => {
-    const mock = createMockServer({
-      capabilities: { roots: {} },
-      listRootsResult: {
-        roots: [{ uri: 'file:///D:/Projects/wps-claude-plugin' }],
-      },
-    });
-
-    await initProjectRootFromMcp(mock.server as never);
-
-    expect(mock.notificationHandlers.has('notifications/roots/list_changed')).toBe(false);
-  });
-});
-
-// ===========================================================================
-// refreshProjectRootFromMcp / list_changed — 缓存更新 (AC-6, D6)
-// ===========================================================================
-
-describe('refreshProjectRootFromMcp / list_changed 通知 — 缓存更新', () => {
+describe('refreshProjectRootFromMcp — 缓存更新', () => {
   let savedEnv: ReturnType<typeof saveEnv>;
 
   beforeEach(() => {
@@ -348,25 +279,20 @@ describe('refreshProjectRootFromMcp / list_changed 通知 — 缓存更新', () 
     restoreEnv(savedEnv);
   });
 
-  it('list_changed 后 listRoots 返回新 URI 时 getProjectDir 应返回新路径 (AC-6)', async () => {
+  it('refresh 后 listRoots 返回新 URI 时 getProjectDir 应返回新路径 (AC-6)', async () => {
     const oldUri = 'file:///D:/Projects/old-workspace';
     const newUri = 'file:///D:/Projects/new-workspace';
-    let listRootsResult: { roots: MockRoot[] } = { roots: [{ uri: oldUri }] };
 
     const mock = createMockServer({
       capabilities: { roots: { listChanged: true } },
+      listRootsResult: { roots: [{ uri: oldUri }] },
     });
-    mock.server.listRoots = async () => {
-      return listRootsResult;
-    };
 
-    await initProjectRootFromMcp(mock.server as never);
+    await initProjectRootFromMcp(mock.server);
     expect(getMcpCachedProjectRoot()).toBe(path.resolve('D:/Projects/old-workspace'));
 
-    listRootsResult = { roots: [{ uri: newUri }] };
-    const handler = mock.notificationHandlers.get('notifications/roots/list_changed');
-    expect(handler).toBeDefined();
-    await handler!();
+    mock.server.listRoots = async () => ({ roots: [{ uri: newUri }] });
+    await refreshProjectRootFromMcp(mock.server);
 
     expect(getProjectDir()).toBe(path.resolve('D:/Projects/new-workspace'));
   });
@@ -384,15 +310,17 @@ describe('refreshProjectRootFromMcp — 刷新失败保留旧缓存', () => {
       listRootsResult: { roots: [{ uri: `file:///${oldPath.replace(/\\/g, '/')}` }] },
     });
 
-    await initProjectRootFromMcp(mock.server as never);
+    await initProjectRootFromMcp(mock.server);
     expect(getMcpCachedProjectRoot()).toBe(oldPath);
 
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
     mock.server.listRoots = async () => {
       throw new Error('refresh failed');
     };
 
-    await expect(refreshProjectRootFromMcp(mock.server as never)).resolves.toBeUndefined();
+    await expect(refreshProjectRootFromMcp(mock.server)).resolves.toBeUndefined();
     expect(getProjectDir()).toBe(oldPath);
+    stderrSpy.mockRestore();
   });
 });
 
@@ -408,12 +336,12 @@ describe('refreshProjectRootFromMcp — 刷新返回空 roots', () => {
       listRootsResult: { roots: [{ uri: `file:///${oldPath.replace(/\\/g, '/')}` }] },
     });
 
-    await initProjectRootFromMcp(mock.server as never);
+    await initProjectRootFromMcp(mock.server);
     expect(getMcpCachedProjectRoot()).toBe(oldPath);
 
     mock.server.listRoots = async () => ({ roots: [] });
 
-    await refreshProjectRootFromMcp(mock.server as never);
+    await refreshProjectRootFromMcp(mock.server);
     expect(getProjectDir()).toBe(oldPath);
   });
 });
@@ -431,7 +359,7 @@ describe('resetMcpProjectRootCacheForTests — 测试隔离', () => {
       },
     });
 
-    await initProjectRootFromMcp(server as never);
+    await initProjectRootFromMcp(server);
     expect(getMcpCachedProjectRoot()).not.toBeNull();
 
     resetMcpProjectRootCacheForTests();

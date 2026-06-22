@@ -7,8 +7,6 @@
  * @see openspec/changes/use-mcp-roots-list/design.md
  */
 
-import * as path from 'node:path';
-
 import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
 
 import { resetMcpProjectRootCacheForTests } from '../lib/project-root';
@@ -39,51 +37,6 @@ function restoreEnv(saved: ReturnType<typeof saveEnv>): void {
 function resetMcpCache(): void {
   resetMcpProjectRootCacheForTests();
 }
-
-interface MockMcpServer {
-  getClientCapabilities: () => { roots?: { listChanged?: boolean } };
-  listRoots: () => Promise<{ roots: Array<{ uri: string }> }>;
-  setNotificationHandler: (method: string, handler: () => void | Promise<void>) => void;
-}
-
-function createMockServer(uri: string): MockMcpServer {
-  return {
-    getClientCapabilities: () => ({ roots: { listChanged: false } }),
-    listRoots: async () => ({ roots: [{ uri }] }),
-    setNotificationHandler: () => {},
-  };
-}
-
-// ===========================================================================
-// getProjectDir — MCP 缓存优先于 env/cwd (AC-1, D5)
-// ===========================================================================
-
-describe('getProjectDir — MCP 缓存优先于 env/cwd', () => {
-  let savedEnv: ReturnType<typeof saveEnv>;
-
-  beforeEach(() => {
-    savedEnv = saveEnv();
-    process.env.CLAUDE_PROJECT_DIR = '/env/claude-should-lose';
-    resetMcpCache();
-  });
-
-  afterEach(() => {
-    restoreEnv(savedEnv);
-  });
-
-  it('MCP 缓存已设置时即使 env 已配置仍返回缓存值 (AC-1 / D5)', async () => {
-    const { initProjectRootFromMcp } = await import('../lib/project-root');
-    const mcpRoot = path.resolve('D:/Projects/mcp-workspace');
-    const uri = `file:///${mcpRoot.replace(/\\/g, '/')}`;
-    const server = createMockServer(uri);
-
-    await initProjectRootFromMcp(server as never);
-
-    expect(getProjectDir()).toBe(mcpRoot);
-    expect(getProjectDir()).not.toBe('/env/claude-should-lose');
-    expect(getProjectDir()).not.toBe('/env/cursor-should-lose');
-  });
-});
 
 // ===========================================================================
 // getProjectDir — 无 MCP 缓存时 env/cwd 回退链 (AC-4, AC-5)

@@ -1,4 +1,4 @@
-## ADDED Requirements
+## MODIFIED Requirements
 
 ### Requirement: Prerequisite dependency table
 The workflow layer SHALL define explicit prerequisites for each phase via a new `getPrerequisites(phaseId: string, workflowType?: string): string[]` function in `workflow.ts`. This SHALL replace the implicit "all prior phases" logic in gate-check, timestamp-check, and backtrack-check, while the existing `getPriorPhases()` SHALL be retained for backward compatibility.
@@ -12,7 +12,7 @@ The prerequisite table for the `requirement` workflow_type SHALL be:
 | 03-test-design | [01-proposal, 02-dev-design] | Depends on proposal and dev-design |
 | 05-implement | [02-dev-design] | Only depends on dev-design; may run in parallel with 03-test-design after 02 passes |
 | 04-test-gen | [03-test-design, 05-implement] | Requires both test design AND completed implementation |
-| 06-unit-test | [04-test-gen, 05-implement] | Needs both tracks |
+| 06-unit-test | [04-test-gen, 05-implement] | Needs both test-gen and implement |
 | 07-code-review | [04-test-gen, 05-implement] | Same prerequisites as unit-test — can run in parallel |
 | 08-integration-test | [04-test-gen, 05-implement] | Same prerequisites — parallel leaf node |
 | 09-acceptance | [01-proposal, 02-dev-design, 05-implement] | Pure dev track, no test track dependency |
@@ -114,91 +114,6 @@ The function SHALL:
 #### Scenario: getDependents is fault-tolerant
 - **WHEN** `getDependents("99-unknown")` is called
 - **THEN** it returns `[]`
-
-### Requirement: markPhaseStale propagates immediately on call
-The `markPhaseStale(entries, phaseId)` function in `eval-json.ts` SHALL:
-
-1. Find the latest pass entry for `phaseId` and mark it `stale: true`
-2. Immediately call `propagateStale(entries, phaseId)` to mark all downstream dependents stale
-3. If no pass entry exists, do nothing (no-op)
-
-`propagateStale` SHALL recursively follow dependents via `getDependents()` and mark ALL entries for each affected phase as `stale: true`.
-
-This ensures downstream invalidation happens atomically at the moment of marking, not deferred to when the phase is redone.
-
-#### Scenario: markPhaseStale propagates along dev track
-- **GIVEN** eval.json has pass entries for all phases 01-09
-- **WHEN** `markPhaseStale(entries, "02-dev-design")` is called
-- **THEN** the latest `02-dev-design` pass entry is marked `stale: true`
-- **AND** entries for `03-test-design`, `05-implement`, `09-acceptance` are marked stale (direct dependents)
-- **AND** entries for `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test` are marked stale (transitive)
-
-#### Scenario: markPhaseStale propagates along test track only
-- **GIVEN** eval.json has pass entries for all phases 01-09
-- **WHEN** `markPhaseStale(entries, "03-test-design")` is called
-- **THEN** entries for `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test` are marked stale
-- **AND** entries for `01-proposal`, `02-dev-design`, `05-implement`, `09-acceptance` remain non-stale
-
-#### Scenario: markPhaseStale full transitive closure
-- **GIVEN** eval.json has pass entries for all phases 01-09
-- **WHEN** `markPhaseStale(entries, "01-proposal")` is called
-- **THEN** all entries for phases 01-09 are marked stale (root phase change affects everything)
-
-#### Scenario: markPhaseStale when no downstream entries exist
-- **GIVEN** eval.json only has entries for phases 01-02
-- **WHEN** `markPhaseStale(entries, "02-dev-design")` is called
-- **THEN** `propagateStale` completes without error (no downstream entries to mark)
-- **AND** eval.json is not corrupted
-
-#### Scenario: markPhaseStale does not affect same-phase new entry
-- **GIVEN** eval.json has a previous pass entry for `02-dev-design` (attempt 1)
-- **WHEN** a NEW pass entry for `02-dev-design` (attempt 2) is written AFTER markPhaseStale was called
-- **THEN** the new entry is NOT stale (only old entries were marked)
-- **AND** `hasPhasePassed` finds the new non-stale entry and returns true
-
-### Requirement: Backtrack triggers markPhaseStale (with immediate propagation)
-When `phase_log` writes an entry that contains `backtrack_to`, it SHALL call `markPhaseStale()` for each target phase BEFORE writing the new entry. `markPhaseStale` handles both marking the target and propagating downstream.
-
-This replaces the previous behavior of deleting entries via `clearEntriesFromPhase()`.
-
-#### Scenario: single backtrack_to marks target + propagates
-- **GIVEN** eval.json has pass entries for 01-proposal through 05-implement
-- **WHEN** `phase_log` writes a fail entry for `05-implement` with `backtrack_to: "02-dev-design"`
-- **THEN** `markPhaseStale("02-dev-design")` is called
-- **AND** 02 latest pass is marked stale, and downstream 03,04,05,06,07,08,09 are all stale (propagated)
-- **AND** only 01 remains non-stale
-
-#### Scenario: array backtrack_to calls markPhaseStale for each target
-- **GIVEN** eval.json has pass entries for 01-09
-- **WHEN** `phase_log` writes a fail entry with `backtrack_to: ["02-dev-design", "03-test-design"]`
-- **THEN** `markPhaseStale` is called for "02-dev-design" (propagates to 03,05,09 and beyond)
-- **AND** `markPhaseStale` is called for "03-test-design" (propagates to 04,06,07,08)
-
-#### Scenario: backtrack_to target has no pass entry
-- **GIVEN** eval.json has no entry for 02-dev-design
-- **WHEN** `phase_log` writes a fail entry with `backtrack_to: "02-dev-design"`
-- **THEN** `markPhaseStale` completes without error (nothing to mark)
-- **AND** the fail entry is written normally
-
-### Requirement: hasPhasePassed filters stale entries
-The `hasPhasePassed()` function in `phase-next.ts` SHALL ignore entries where `stale === true`. A phase is considered "passed" only if it has at least one entry with `verdict === 'pass'` (or `skipped === true`) AND `stale` is NOT `true`.
-
-Entries without an `stale` field SHALL be treated as `stale: false` (backward compatibility).
-
-#### Scenario: hasPhasePassed returns false for stale entries
-- **GIVEN** eval.json has `[{phase: "02-dev-design", verdict: "pass", stale: true}]`
-- **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
-- **THEN** it returns `false`
-
-#### Scenario: hasPhasePassed returns true for non-stale pass
-- **GIVEN** eval.json has `[{phase: "02-dev-design", verdict: "pass", stale: false}]` and `[{phase: "02-dev-design", verdict: "pass", stale: true}]`
-- **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
-- **THEN** it returns `true` (finds the non-stale entry)
-
-#### Scenario: hasPhasePassed backward compatible with no stale field
-- **GIVEN** eval.json has `[{phase: "02-dev-design", verdict: "pass"}]` (no stale field)
-- **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
-- **THEN** it returns `true` (missing stale treated as false)
 
 ### Requirement: phase_next MCP tool
 The system SHALL provide `mcp__plugin_dev-team_dev-team__phase_next` MCP tool that returns the next phase to execute, its agent assignments, and prompt strings.
@@ -360,133 +275,16 @@ The system SHALL provide `mcp__plugin_dev-team_dev-team__phase_next` MCP tool th
 - **THEN** it processes it identically to `["02-dev-design"]` (single-element array)
 - **AND** returns the target phase as `next_phase`
 
-### Requirement: Workflow skill thin loop
-The workflow skill SHALL be a thin orchestration loop with no hardcoded phase knowledge. All phase sequencing, agent assignment, and prompt generation SHALL be owned by `phase_next` on the MCP server.
-
-**Workflow skill logic:**
-```
-1. Assemble context (change name, explore context if available)
-2. If change does not exist -> scaffold (openspec_new_change)
-3. Loop:
-   a. result = MCP phase_next(change, workflow_type)
-   b. if result.error -> report error, STOP
-   c. if result.done -> stop, report completion, PushNotification（用户手动 archive）
-   d. if result.planner -> Agent(result.planner.agent_type, result.planner.prompt)
-   e. for step in result.auto_steps -> Bash(step.command)
-   f. if result.evaluator -> Agent(result.evaluator.agent_type, result.evaluator.prompt)
-   g. output: "[Round {result.round}/20] [Phase {result.phase_index}/{result.total_phases}] {result.next_phase}: executed"
-4. 全部 phase pass 后停止，显示完成摘要，提醒用户检查后手动执行 `/dev-team:openspec-archive-change`
-```
-
-The workflow skill SHALL NOT:
-- Contain a hardcoded phase table
-- Know which agent to invoke for which phase
-- Generate prompts for sub-agents
-- Know the phase ordering or sequence
-- Handle backtrack logic (phase_next handles it server-side)
-- Handle stale marking (phase_log handles it server-side)
-
-#### Scenario: Workflow skill is a thin loop
-- **WHEN** reading `skills/workflow-requirement/SKILL.md`
-- **THEN** it contains no hardcoded phase table
-- **AND** it contains no agent name references other than in the phase_next response handling
-- **AND** it delegates all sequencing decisions to `phase_next`
-
-#### Scenario: Workflow skill handles phase_next error
-- **WHEN** `phase_next` returns `error: "round_limit_exceeded"` or `error: "max_retries_exceeded"`
-- **THEN** the workflow skill SHALL stop and display the error message
-- **AND** PushNotification SHALL be sent
-
-#### Scenario: Workflow skill resumes incomplete change
-- **WHEN** user invokes `/dev-team:workflow-requirement <existing-change>` for a change with partial eval.json entries
-- **THEN** the workflow detects the change already exists and does NOT re-scaffold
-- **AND** `phase_next` returns the first phase without valid pass entry
-- **AND** the workflow resumes from that phase
-
-#### Scenario: Workflow skill resumes after interruption
-- **WHEN** user re-invokes `/dev-team:workflow-requirement <change>` after a previous run was stopped (e.g., max retries, user interrupt)
-- **THEN** the workflow picks up from where it left off
-- **AND** already-passed phases are skipped via `phase_next` server-side logic
-- **AND** the round counter resets to the count from eval.json history
-
-### Requirement: Explore context inheritance
-The workflow-orchestration system SHALL detect and extract explore context from the conversation when no explicit change name is provided.
-
-Explore context detection signals:
-- "What We Figured Out" summary section
-- ASCII decision tables or comparison diagrams
-- Architectural analysis (component diagrams, data flow diagrams)
-- Explicit exploration conclusions
-
-When explore context is detected, the system SHALL:
-1. Extract key decisions and conclusions as EXPLORE_CONTEXT_SUMMARY
-2. Derive a kebab-case change name from the explore topic
-3. Pass EXPLORE_CONTEXT_SUMMARY to the proposal-planner agent prompt
-4. Allow the user to confirm or override the derived change name
-
-#### Scenario: Explore context detected and used
-- **WHEN** user invokes workflow-requirement after an explore session
-- **THEN** the workflow extracts the problem statement, approach, and decisions
-- **AND** derives a change name
-- **AND** passes the extracted context to proposal-planner via the prompt from phase_next
-
-#### Scenario: No explore context — ask user
-- **WHEN** user invokes workflow-requirement without argument and no explore context is detected
-- **THEN** the workflow prompts the user: "想构建什么变更？"
-- **AND** derives kebab-case from the user's response
-
-### Requirement: Workflow completion notification
-After `phase_next` returns `done: true`, the workflow-orchestration system SHALL stop and notify the user that all phases have passed. Archive is a manual step performed by the user.
-
-The completion step SHALL:
-1. Display a completion summary listing all phases and their verdicts
-2. Send a PushNotification: "所有 phase 已完成，请检查后手动执行 /dev-team:openspec-archive-change"
-3. NOT automatically run `openspec archive` or move the change directory
-
-The user SHALL manually inspect the results and run `/dev-team:openspec-archive-change` when satisfied.
-
-#### Scenario: Workflow stops on completion, user manually archives
-- **WHEN** phase_next returns `done: true`
-- **THEN** the workflow displays a completion summary and stops
-- **AND** sends PushNotification reminding user to manually archive
-- **AND** does NOT move the change to openspec/changes/archive/
-
-### Requirement: Extensibility for workflow variants
-The workflow-orchestration system SHALL support multiple `workflow_type` values via the `phase_next` interface. New workflow variants SHALL be created by:
-1. Defining a new phase table in the MCP server for the `workflow_type`
-2. Creating a thin skill file that calls `phase_next` with the appropriate `workflow_type`
-
-No skill-level changes to pipeline logic are required for new variants.
-
-Reserved workflow variants:
-- `workflow-bug-fix`: Simplified pipeline (skip test-design, test-gen, integration-test)
-- `workflow-refactor`: Full pipeline with emphasis on design review
-
-#### Scenario: New workflow variant requires only skill file + server phase table
-- **WHEN** a future `workflow-bug-fix` skill is created
-- **THEN** the skill file is a copy of workflow-requirement with `workflow_type: "bug-fix"`
-- **AND** the MCP server has the bug-fix phase table defined
-- **AND** no other changes are needed
-
 ## Module Contract
 
-### workflow.ts (lib/)
+### workflow.ts (`plugins/dev-team/bin/src/lib/`)
 
-| Export | Type | Purpose |
-|--------|------|---------|
-| `getPrerequisites(phaseId, workflowType?)` | `string[]` | Return explicit prerequisite phase list for a given phase |
-| `getDependents(phaseId, workflowType?)` | `string[]` | Return phases that list the given phase as a prerequisite (derived from prerequisites) |
-| `PHASE_PREREQUISITES` | `Record<string, string[]>` | Prerequisite table keyed by phase ID; `04-test-gen` adds `05-implement` |
-| `PHASE_REQUIREMENT` | `string[]` | MODIFIED: `05-implement` entry before `04-test-gen` |
-| `getPriorPhases(phaseId)` | `string[]` | Retained for backward compatibility — returns all prior phases |
-
-### eval-json.ts (lib/)
-
-| Export | Type | Purpose |
-|--------|------|---------|
-| `propagateStale(entries, phaseId, workflowType?)` | `void` | Recursively mark all downstream dependent phase entries as stale (called by `markPhaseStale`) |
-| `markPhaseStale(entries, phaseId)` | `void` | Mark the latest pass entry stale AND immediately call `propagateStale` for downstream propagation |
-| `checkGate(entries, prerequisites)` | `GateResult` | Check each prerequisite has a non-stale pass entry |
+| Function / Constant | Change | Purpose |
+|---------------------|--------|---------|
+| `PHASE_REQUIREMENT` | MODIFIED | `05-implement` entry before `04-test-gen` |
+| `PHASE_PREREQUISITES` | MODIFIED | `04-test-gen` adds `05-implement` |
+| `getPrerequisites()` | MODIFIED (derived) | Reflects new 04 prerequisites |
+| `getDependents()` | MODIFIED (derived) | `05-implement` includes `04-test-gen` |
 
 ### MCP Tools
 
@@ -494,4 +292,4 @@ Reserved workflow variants:
 |------|--------|---------|
 | phase_next | MODIFIED (behavior) | Phase table order and prerequisite checks for implement-before-test-gen |
 | phase_log | UNCHANGED | Stale propagation uses updated dependents graph |
-| phase_check | DEPRECATED | Removed from workflow loop; logic merged into `phase_next`. Tool retained for debugging. |
+| phase_check | UNCHANGED | Deprecated; debugging only |
