@@ -143,7 +143,7 @@ function normalizeFrameworks(
  *   - `"tests/?nit/*.test.ts"`      -> `"tests"`
  *   - `"{src,lib}/*.test.ts"`       -> `"."`
  */
-export function deriveWorkingDirectory(glob: string): string {
+function deriveWorkingDirectory(glob: string): string {
   // 1. Normalise backslashes to forward slashes
   let normalised = glob.replace(/\\/g, '/');
 
@@ -170,7 +170,7 @@ export function deriveWorkingDirectory(glob: string): string {
 // generateScript
 // ---------------------------------------------------------------------------
 
-export interface GenerateScriptInput {
+interface GenerateScriptInput {
   directory: string;
   coverage_cmd: string;
   coverage_cleanup: string[];
@@ -188,7 +188,7 @@ export interface GenerateScriptInput {
  * 6. Last line is `<coverage_cmd>`
  * 7. Lines are separated by `\n`, trailing newline included
  */
-export function generateScript(input: GenerateScriptInput): string {
+function generateScript(input: GenerateScriptInput): string {
   if (input === null || input === undefined) {
     throw new TypeError('generateScript input must not be null or undefined');
   }

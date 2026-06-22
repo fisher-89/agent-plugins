@@ -3,7 +3,7 @@
  * Ported from Python archi-model.py --command query.
  */
 
-import { readAllModels, parseC4Dsl, getModelFiles } from './c4-parser';
+import { readAllModels, parseC4Dsl } from './c4-parser';
 import type { C4Element, C4Relation, ArchiQueryResult } from './c4-types';
 
 /**
@@ -48,8 +48,3 @@ function filterElement(
 
   return { element, relationships: related };
 }
-
-/**
- * Get the list of model files.
- */
-export { getModelFiles };

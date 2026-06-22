@@ -7,10 +7,7 @@
  * @see openspec/changes/use-mcp-roots-list/design.md
  */
 
-import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
-
-import { resetMcpProjectRootCacheForTests } from '../lib/project-root';
-import { getProjectDir } from './constant';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -34,10 +31,6 @@ function restoreEnv(saved: ReturnType<typeof saveEnv>): void {
   }
 }
 
-function resetMcpCache(): void {
-  resetMcpProjectRootCacheForTests();
-}
-
 // ===========================================================================
 // getProjectDir — 无 MCP 缓存时 env/cwd 回退链 (AC-4, AC-5)
 // ===========================================================================
@@ -47,21 +40,23 @@ describe('getProjectDir — 无 MCP 缓存时 env/cwd 回退链', () => {
 
   beforeEach(() => {
     savedEnv = saveEnv();
-    resetMcpCache();
+    vi.resetModules();
   });
 
   afterEach(() => {
     restoreEnv(savedEnv);
   });
 
-  it('缓存为 null 且 CLAUDE_PROJECT_DIR 已设置时返回该 env 值 (AC-4)', () => {
+  it('缓存为 null 且 CLAUDE_PROJECT_DIR 已设置时返回该 env 值 (AC-4)', async () => {
     process.env.CLAUDE_PROJECT_DIR = '/from/claude-project-dir';
+    const { getProjectDir } = await import('./constant');
 
     expect(getProjectDir()).toBe('/from/claude-project-dir');
   });
 
-  it('无 MCP 缓存且两 env 均未设置时返回 process.cwd() (AC-4 / AC-5)', () => {
+  it('无 MCP 缓存且两 env 均未设置时返回 process.cwd() (AC-4 / AC-5)', async () => {
     delete process.env.CLAUDE_PROJECT_DIR;
+    const { getProjectDir } = await import('./constant');
 
     expect(getProjectDir()).toBe(process.cwd());
   });
@@ -76,15 +71,16 @@ describe('getProjectDir — env 空字符串', () => {
 
   beforeEach(() => {
     savedEnv = saveEnv();
-    resetMcpCache();
+    vi.resetModules();
   });
 
   afterEach(() => {
     restoreEnv(savedEnv);
   });
 
-  it('CLAUDE_PROJECT_DIR="" 视为未设置，继续检查 process.cwd()', () => {
+  it('CLAUDE_PROJECT_DIR="" 视为未设置，继续检查 process.cwd()', async () => {
     process.env.CLAUDE_PROJECT_DIR = '';
+    const { getProjectDir } = await import('./constant');
 
     expect(getProjectDir()).toBe(process.cwd());
   });

@@ -13,7 +13,7 @@ import * as path from 'node:path';
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { runTestDetectFrameworks, generateScript } from '../../src/commands/test-detect-frameworks';
+import { runTestDetectFrameworks } from '../../src/commands/test-detect-frameworks';
 import { runTestGetFrameworkConfig } from '../../src/commands/test-get-framework-config';
 
 // ---------------------------------------------------------------------------
@@ -136,15 +136,23 @@ describe('test_detect_frameworks — generateScript 末行 JSON-only coverage_cm
     }
   });
 
-  it('generateScript 输出末行应等于 JSON-only coverage_cmd（vitest 直接调用）', () => {
+  it('plan script 末行应等于 JSON-only coverage_cmd（vitest via runTestDetectFrameworks）', () => {
     const expected = runTestGetFrameworkConfig({ framework: 'vitest' });
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: expected.coverage_cmd,
-      coverage_cleanup: expected.coverage_cleanup,
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
     });
-    const lastLine = script.trimEnd().split('\n').pop() ?? '';
-    expect(lastLine).toBe(expected.coverage_cmd);
-    expect(lastLine).toContain('json-summary');
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const script = result.plan[0].script;
+      const lastLine = script.trimEnd().split('\n').pop() ?? '';
+      expect(lastLine).toBe(expected.coverage_cmd);
+      expect(lastLine).toContain('json-summary');
+    } finally {
+      project.cleanup();
+    }
   });
 });

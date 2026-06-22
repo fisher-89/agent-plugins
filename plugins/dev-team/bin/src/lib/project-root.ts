@@ -14,13 +14,8 @@ export function getMcpCachedProjectRoot(): string | null {
   return mcpProjectRootCache;
 }
 
-/** Clear the MCP project root cache (test isolation only). */
-export function resetMcpProjectRootCacheForTests(): void {
-  mcpProjectRootCache = null;
-}
-
 /** Convert a `file://` URI to a platform-local absolute path. */
-export function fileUriToPath(uri: string): string {
+function fileUriToPath(uri: string): string {
   if (!uri) {
     throw new TypeError('Invalid URL');
   }
@@ -45,7 +40,7 @@ function applyRootsList(roots: { uri: string }[]): void {
 }
 
 /** Refresh project root cache after `roots/list_changed` notification. */
-export async function refreshProjectRootFromMcp(server: McpServerLike): Promise<void> {
+async function refreshProjectRootFromMcp(server: McpServerLike): Promise<void> {
   try {
     const result = await server.listRoots();
     applyRootsList(result.roots);

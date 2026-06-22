@@ -105,13 +105,6 @@ export function runTestGetFrameworkConfig(options: TestGetFrameworkConfigOptions
 }
 
 /**
- * Return the list of all supported framework names.
- */
-export function getSupportedFrameworks(): string[] {
-  return Object.keys(FRAMEWORK_REGISTRY);
-}
-
-/**
  * Return the default glob pattern for a given framework.
  *
  * Used to expand a `test.framework` enum value into a `{glob, framework}` mapping

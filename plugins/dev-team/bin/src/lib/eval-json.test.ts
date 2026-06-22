@@ -3,7 +3,6 @@ import { describe, it, expect } from 'vite-plus/test';
 import {
   validateVerdict,
   buildEntry,
-  checkGate,
   markPhaseStale,
   type BuildEntryParams,
   type EvalEntry,
@@ -89,53 +88,6 @@ describe('buildEntry', () => {
   it('should accept backtrack_to as array', () => {
     const entry = buildEntry({ ...baseParams, backtrack_to: ['02-dev-design', '03-test-design'] });
     expect(entry.backtrack_to).toEqual(['02-dev-design', '03-test-design']);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// checkGate — stale filtering
-// ---------------------------------------------------------------------------
-
-describe('checkGate', () => {
-  const base = {
-    report: '',
-    items: [],
-    schema_version: '1.0',
-    attempt: 1,
-    backtrack_to: null as string | string[] | null,
-  };
-  const entries: EvalEntry[] = [
-    { ...base, phase: '01-proposal', verdict: 'pass', timestamp: '2026-01-01T00:00:00.000Z' },
-    { ...base, phase: '02-dev-design', verdict: 'pass', timestamp: '2026-01-02T00:00:00.000Z' },
-    {
-      ...base,
-      phase: '03-test-design',
-      verdict: 'pass',
-      timestamp: '2026-01-03T00:00:00.000Z',
-      stale: true,
-    },
-  ];
-
-  it('should return passed=true when all prerequisites have non-stale pass', () => {
-    const result = checkGate(entries, ['01-proposal']);
-    expect(result.passed).toBe(true);
-  });
-
-  it('should return passed=false when prerequisite has stale pass only', () => {
-    const result = checkGate(entries, ['03-test-design']);
-    expect(result.passed).toBe(false);
-    expect(result.missing).toContain('03-test-design');
-  });
-
-  it('should treat missing stale field as stale:false (backward compat)', () => {
-    const result = checkGate(entries, ['02-dev-design']);
-    expect(result.passed).toBe(true);
-  });
-
-  it('should return passed=false for missing prerequisite', () => {
-    const result = checkGate(entries, ['04-test-gen']);
-    expect(result.passed).toBe(false);
-    expect(result.missing).toContain('04-test-gen');
   });
 });
 

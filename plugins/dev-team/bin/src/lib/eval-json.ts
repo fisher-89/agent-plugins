@@ -15,11 +15,6 @@ export type BuildEntryParams = Pick<
   'phase' | 'attempt' | 'verdict' | 'report' | 'items' | 'backtrack_to' | 'skipped'
 >;
 
-export interface GateResult {
-  passed: boolean;
-  missing: string[];
-}
-
 /**
  * Read eval.json from the change directory.
  * Returns an empty array if the file does not exist.
@@ -109,25 +104,6 @@ export function computeAttempt(
   }
   const phaseEntries = entries.filter((e) => e.phase === phase);
   return phaseEntries.length + 1;
-}
-
-/**
- * Check that all prerequisite phases have at least one non-stale entry with verdict "pass".
- * Returns { passed: true } if all pass, or { passed: false, missing: [...] } listing
- * phases without a valid pass record.
- *
- * Entries with `stale: true` are ignored (treated as not passed).
- * Entries without a `stale` field are treated as `stale: false` (backward compatible).
- */
-export function checkGate(entries: EvalEntry[], prerequisites: string[]): GateResult {
-  const missing: string[] = [];
-  for (const phase of prerequisites) {
-    const hasPass = entries.some((e) => e.phase === phase && e.verdict === 'pass' && !e.stale);
-    if (!hasPass) {
-      missing.push(phase);
-    }
-  }
-  return { passed: missing.length === 0, missing };
 }
 
 /**

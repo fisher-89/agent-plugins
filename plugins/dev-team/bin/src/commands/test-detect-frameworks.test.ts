@@ -18,11 +18,7 @@ import * as path from 'path';
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import {
-  runTestDetectFrameworks,
-  deriveWorkingDirectory,
-  generateScript,
-} from './test-detect-frameworks';
+import { runTestDetectFrameworks } from './test-detect-frameworks';
 import { runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
@@ -322,90 +318,6 @@ describe('detectFrameworks -- edge cases', () => {
     } finally {
       project.cleanup();
     }
-  });
-});
-
-// ===========================================================================
-// deriveWorkingDirectory -- 纯函数测试
-// ===========================================================================
-
-describe('deriveWorkingDirectory -- 正向测试', () => {
-  it('应返回无通配符路径自身（AC-2）: "plugins/dev-team/bin" → "plugins/dev-team/bin"', () => {
-    expect(deriveWorkingDirectory('plugins/dev-team/bin')).toBe('plugins/dev-team/bin');
-  });
-
-  it('应取 ** 通配符前路径（AC-3）: "src/**/*.test.ts" → "src"', () => {
-    expect(deriveWorkingDirectory('src/**/*.test.ts')).toBe('src');
-  });
-
-  it('应处理通配符起始（AC-4）: "**/*.test.ts" → "."', () => {
-    expect(deriveWorkingDirectory('**/*.test.ts')).toBe('.');
-  });
-
-  it('应处理 {} 通配符（AC-5）: "{src,lib}/*.test.ts" → "."', () => {
-    expect(deriveWorkingDirectory('{src,lib}/*.test.ts')).toBe('.');
-  });
-
-  it('应处理 ? 通配符: "tests/?nit/*.test.ts" → "tests"', () => {
-    expect(deriveWorkingDirectory('tests/?nit/*.test.ts')).toBe('tests');
-  });
-
-  it('应处理多层 *: "packages/*/src/__tests__/*.test.ts" → "packages"', () => {
-    expect(deriveWorkingDirectory('packages/*/src/__tests__/*.test.ts')).toBe('packages');
-  });
-
-  it('应归一化 Windows 反斜杠: "plugins\\\\dev-team\\\\bin" → "plugins/dev-team/bin"', () => {
-    expect(deriveWorkingDirectory('plugins\\dev-team\\bin')).toBe('plugins/dev-team/bin');
-  });
-});
-
-describe('deriveWorkingDirectory -- 异常测试', () => {
-  it('应对空字符串返回自身: "" → ""（无通配符，返回自身）', () => {
-    expect(deriveWorkingDirectory('')).toBe('');
-  });
-
-  it('应对 null/undefined 输入进行防御处理', () => {
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion
-    expect(() => deriveWorkingDirectory(null as unknown as string)).toThrow();
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion
-    expect(() => deriveWorkingDirectory(undefined as unknown as string)).toThrow();
-  });
-});
-
-describe('deriveWorkingDirectory -- 边界测试', () => {
-  it('应处理超长无通配符 glob（1000 字符）', () => {
-    const longPath = 'a'.repeat(1000);
-    expect(deriveWorkingDirectory(longPath)).toBe(longPath);
-  });
-
-  it('应处理超长含通配符 glob（500 字符前缀 + "/*/b"）', () => {
-    const prefix = 'a'.repeat(500);
-    const result = deriveWorkingDirectory(prefix + '/*/b');
-    expect(result).toBe(prefix);
-  });
-
-  it('应处理含空格的路径: "src/my test file/*.ts" → "src/my test file"', () => {
-    expect(deriveWorkingDirectory('src/my test file/*.ts')).toBe('src/my test file');
-  });
-
-  it('应处理纯通配符: "*" → "."', () => {
-    expect(deriveWorkingDirectory('*')).toBe('.');
-  });
-
-  it('应以 "/" 结尾的通配符: "src/**" → "src"', () => {
-    expect(deriveWorkingDirectory('src/**')).toBe('src');
-  });
-
-  it('应处理仅有点的路径: "." → "."（无通配符，返回自身）', () => {
-    expect(deriveWorkingDirectory('.')).toBe('.');
-  });
-
-  it('应处理仅斜杠的路径: "/" → "/"（无通配符，返回自身）', () => {
-    expect(deriveWorkingDirectory('/')).toBe('/');
-  });
-
-  it('应合并连续分隔符: "src//lib/**/*.ts" → "src/lib"', () => {
-    expect(deriveWorkingDirectory('src//lib/**/*.ts')).toBe('src/lib');
   });
 });
 
@@ -771,285 +683,6 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
 });
 
 // ===========================================================================
-// generateScript -- 各框架正向测试 (AC-1, AC-4, AC-5, AC-6)
-// ===========================================================================
-
-describe('generateScript -- 各框架正向测试', () => {
-  it('应为 vitest 框架生成包含 npx vitest run --coverage、rm -rf coverage 和 rm -rf .nyc_output 的 bash 脚本 (AC-1)', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: ['coverage', '.nyc_output'],
-    });
-    expect(script).toContain('npx vitest run --coverage');
-    expect(script).toContain('rm -rf coverage');
-    expect(script).toContain('rm -rf .nyc_output');
-  });
-
-  it('应为 vite-plus 框架（directory 为 plugins/dev-team/bin）生成包含 cd plugins/dev-team/bin 和 vp test --coverage 的脚本 (AC-4)', () => {
-    const script = generateScript({
-      directory: 'plugins/dev-team/bin',
-      coverage_cmd: 'vp test --coverage',
-      coverage_cleanup: ['coverage', '.nyc_output'],
-    });
-    expect(script).toContain('cd plugins/dev-team/bin');
-    expect(script).toContain('vp test --coverage');
-  });
-
-  it('应为 rust 框架生成包含 cargo llvm-cov --all --coverage、rm -rf coverage 和 rm -rf target/llvm-cov 的脚本 (AC-5)', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'cargo llvm-cov --all --coverage',
-      coverage_cleanup: ['coverage', 'target/llvm-cov'],
-    });
-    expect(script).toContain('cargo llvm-cov --all --coverage');
-    expect(script).toContain('rm -rf coverage');
-    expect(script).toContain('rm -rf target/llvm-cov');
-  });
-
-  it('应为 bun 框架生成包含 bun test --coverage 和 rm -rf coverage 的脚本', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'bun test --coverage',
-      coverage_cleanup: ['coverage'],
-    });
-    expect(script).toContain('bun test --coverage');
-    expect(script).toContain('rm -rf coverage');
-  });
-
-  it('应为 jest 框架（coverage_cleanup 为空）生成不含 rm -rf 行的脚本 (AC-6)', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx jest --coverage',
-      coverage_cleanup: [],
-    });
-    expect(script).toContain('npx jest --coverage');
-    expect(script).not.toContain('rm -rf');
-  });
-});
-
-// ===========================================================================
-// generateScript -- 脚本结构测试 (AC-2)
-// ===========================================================================
-
-describe('generateScript -- 脚本结构测试', () => {
-  it('脚本第一行为 #!/bin/bash (AC-2)', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    const lines = script.split('\n');
-    expect(lines[0]).toBe('#!/bin/bash');
-  });
-
-  it('脚本第二行为 set -e (AC-2)', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    const lines = script.split('\n');
-    expect(lines[1]).toBe('set -e');
-  });
-
-  it('脚本最后一行等于 coverage_cmd 的值并以换行符结尾', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    const trimmed = script.endsWith('\n') ? script.slice(0, -1) : script;
-    const lines = trimmed.split('\n');
-    expect(lines[lines.length - 1]).toBe('npx vitest run --coverage');
-  });
-});
-
-// ===========================================================================
-// generateScript -- cd 行为边界测试 (AC-3)
-// ===========================================================================
-
-describe('generateScript -- cd 行为边界测试', () => {
-  it('directory 为 "." 时生成的脚本不含 cd 行 (AC-3)', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    expect(script).not.toMatch(/^cd\s/m);
-  });
-
-  it('directory 为 "/absolute/path" 时生成 cd /absolute/path', () => {
-    const script = generateScript({
-      directory: '/absolute/path',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    expect(script).toContain('cd /absolute/path');
-  });
-
-  it('directory 为空字符串时仍生成 cd 行（bash 语法上无效，但函数不验证输入）', () => {
-    const script = generateScript({
-      directory: '',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    expect(script).toContain('cd ');
-  });
-
-  it('directory 含空格时（如 "my project/tests"）生成 cd my project/tests', () => {
-    const script = generateScript({
-      directory: 'my project/tests',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    expect(script).toContain('cd my project/tests');
-  });
-});
-
-// ===========================================================================
-// generateScript -- 清理步骤边界测试 (AC-6)
-// ===========================================================================
-
-describe('generateScript -- 清理步骤边界测试', () => {
-  it('coverage_cleanup 为空数组 [] 时不含任何 rm -rf 行 (AC-6)', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: [],
-    });
-    expect(script).not.toContain('rm -rf');
-  });
-
-  it('coverage_cleanup 为单元素 ["coverage"] 时生成单条 rm -rf coverage', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: ['coverage'],
-    });
-    expect(script).toContain('rm -rf coverage');
-    const rmLines = script.split('\n').filter((l) => l.trim().startsWith('rm -rf'));
-    expect(rmLines).toHaveLength(1);
-  });
-
-  it('coverage_cleanup 为三元素 ["a", "b", "c"] 时按序生成三条 rm -rf 行', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'npx vitest run --coverage',
-      coverage_cleanup: ['a', 'b', 'c'],
-    });
-    const rmLines = script.split('\n').filter((l) => l.trim().startsWith('rm -rf'));
-    expect(rmLines).toHaveLength(3);
-    expect(rmLines[0].trim()).toBe('rm -rf a');
-    expect(rmLines[1].trim()).toBe('rm -rf b');
-    expect(rmLines[2].trim()).toBe('rm -rf c');
-  });
-
-  it('coverage_cleanup 条目含路径分隔符时（如 "target/llvm-cov"）正确保留', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'cargo llvm-cov --all --coverage',
-      coverage_cleanup: ['coverage', 'target/llvm-cov'],
-    });
-    expect(script).toContain('rm -rf coverage');
-    expect(script).toContain('rm -rf target/llvm-cov');
-  });
-});
-
-// ===========================================================================
-// generateScript -- 异常输入测试
-// ===========================================================================
-
-describe('generateScript -- 异常输入测试', () => {
-  it('输入对象为 null 时抛出 TypeError', () => {
-    expect(() => {
-      // eslint-disable-next-line typescript/no-unsafe-type-assertion
-      generateScript(null as unknown as Parameters<typeof generateScript>[0]);
-    }).toThrow(TypeError);
-  });
-
-  it('directory 为 null 时抛出 TypeError', () => {
-    expect(() => {
-      generateScript({
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        directory: null as unknown as string,
-        coverage_cmd: 'test',
-        coverage_cleanup: [],
-      });
-    }).toThrow(TypeError);
-  });
-
-  it('coverage_cmd 为 undefined 时抛出 TypeError', () => {
-    expect(() => {
-      generateScript({
-        directory: '.',
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        coverage_cmd: undefined as unknown as string,
-        coverage_cleanup: [],
-      });
-    }).toThrow(TypeError);
-  });
-
-  it('coverage_cleanup 为 null 时抛出 TypeError', () => {
-    expect(() => {
-      generateScript({
-        directory: '.',
-        coverage_cmd: 'test',
-        // eslint-disable-next-line typescript/no-unsafe-type-assertion
-        coverage_cleanup: null as unknown as string[],
-      });
-    }).toThrow(TypeError);
-  });
-
-  it('coverage_cmd 为空字符串时生成不含有效命令行的脚本（最后一行为空行）', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: '',
-      coverage_cleanup: [],
-    });
-    const trimmed = script.endsWith('\n') ? script.slice(0, -1) : script;
-    const lines = trimmed.split('\n');
-    expect(lines[lines.length - 1]).toBe('');
-  });
-});
-
-// ===========================================================================
-// generateScript -- 特殊字符测试
-// ===========================================================================
-
-describe('generateScript -- 特殊字符测试', () => {
-  it('coverage_cmd 含 $HOME、反引号、$(subshell) 时原样保留', () => {
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: 'echo "$HOME" && echo `date` && echo $(pwd)',
-      coverage_cleanup: [],
-    });
-    expect(script).toContain('echo "$HOME"');
-    expect(script).toContain('echo `date`');
-    expect(script).toContain('echo $(pwd)');
-  });
-
-  it('coverage_cmd 为超长字符串（>1000 字符）时正确拼接', () => {
-    const longCmd = 'echo ' + 'x'.repeat(1000);
-    const script = generateScript({
-      directory: '.',
-      coverage_cmd: longCmd,
-      coverage_cleanup: [],
-    });
-    expect(script).toContain(longCmd);
-  });
-
-  it('directory 含 ~ 或 $VAR 时原样保留', () => {
-    const script = generateScript({
-      directory: '~/$PROJECT/tests',
-      coverage_cmd: 'npm test',
-      coverage_cleanup: [],
-    });
-    expect(script).toContain('cd ~/$PROJECT/tests');
-  });
-});
-
-// ===========================================================================
 // runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)
 // ===========================================================================
 
@@ -1099,7 +732,7 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
     }
   });
 
-  it('plan 条目 script 内容与 generateScript() 对同输入的输出一致', () => {
+  it('plan 条目 script 内容应由 directory、coverage_cmd、coverage_cleanup 组装', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -1113,12 +746,11 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
       });
       expect(result.plan).toHaveLength(1);
       const entry = result.plan[0];
-      const expectedScript = generateScript({
-        directory: entry.directory,
-        coverage_cmd: entry.coverage_cmd,
-        coverage_cleanup: entry.coverage_cleanup ?? [],
-      });
-      expect(entry.script).toBe(expectedScript);
+      expect(entry.script.startsWith('#!/bin/bash\nset -e\n')).toBe(true);
+      for (const item of entry.coverage_cleanup ?? []) {
+        expect(entry.script).toContain(`rm -rf ${item}`);
+      }
+      expect(entry.script.trimEnd().endsWith(entry.coverage_cmd)).toBe(true);
     } finally {
       project.cleanup();
     }

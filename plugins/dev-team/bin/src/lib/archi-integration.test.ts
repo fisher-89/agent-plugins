@@ -19,13 +19,7 @@ import { queryModel } from './archi-query';
 import { validateDsl } from './archi-validate';
 import { writeDsl } from './archi-write';
 import { runCrossRefCheck } from './c4-cross-ref';
-import {
-  parseC4Dsl,
-  validateC4Dsl,
-  getModelFiles,
-  readAllModels,
-  findSpecificationBlock,
-} from './c4-parser';
+import { parseC4Dsl, validateC4Dsl, readAllModels, findSpecificationBlock } from './c4-parser';
 
 // ---------------------------------------------------------------------------
 // Fixture: shared temp project with realistic multi-module model
@@ -147,13 +141,10 @@ describe('Parse → Query pipeline', () => {
     expect(queryResult.element!.kind).toBe(loginEl!.kind);
   });
 
-  it('getModelFiles should return files that readAllModels can parse', () => {
-    const files = getModelFiles(projectRoot);
-    expect(files.length).toBe(2);
-    for (const f of files) {
-      const content = fs.readFileSync(f.filepath, 'utf-8');
-      expect(content.length).toBeGreaterThan(0);
-    }
+  it('readAllModels should parse all .c4 files in models directory', () => {
+    const dsl = readAllModels(projectRoot);
+    expect(dsl).not.toBeNull();
+    expect(dsl!.length).toBeGreaterThan(0);
   });
 });
 
@@ -211,8 +202,9 @@ describe('Validate → Write pipeline', () => {
     const writeResult = await writeDsl(projectRoot, dsl, '03-new-module.c4');
     expect(writeResult.success).toBe(true);
 
-    const updatedFiles = getModelFiles(projectRoot);
-    expect(updatedFiles.some((f) => f.filename === '03-new-module.c4')).toBe(true);
+    const modelsDir = path.join(projectRoot, 'openspec', 'specs', 'architecture', 'models');
+    const writtenFiles = fs.readdirSync(modelsDir);
+    expect(writtenFiles.includes('03-new-module.c4')).toBe(true);
   });
 
   it('should reject write when validation fails (validate-before-write contract)', async () => {

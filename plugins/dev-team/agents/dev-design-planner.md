@@ -26,11 +26,12 @@ Read:
    - **Data Flow**: How data moves through the system, data models with fields and relationships
    - **Route / API Design**: If applicable — endpoints with method, path, input, output, auth
    - **Decisions**: Key architectural decisions with rationale and alternatives considered
+   - Do NOT include testing strategy, test architecture, unit test, or integration test sections — tests are handled by a separate workflow phase
 5. Write `openspec/changes/<change-name>/tasks.md` with ordered implementation tasks
    - Each task should be a checkbox item: `- [ ] <description>`
    - Tasks should be grouped by logical phases
    - Tasks should be concrete and implementable
-   - Do NOT include test writing or test implementation tasks — tests are handled by a separate workflow phase
+   - Do NOT include test writing, test implementation, unit test, or integration test tasks — tests are handled by a separate workflow phase
 
 ## Output
 

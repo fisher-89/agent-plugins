@@ -9,10 +9,7 @@
 
 import * as path from 'node:path';
 
-import { afterEach, beforeEach, describe, expect, it } from 'vite-plus/test';
-
-import { getChangeDir } from './change';
-import { type McpServerLike, resetMcpProjectRootCacheForTests } from './project-root';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -36,17 +33,6 @@ function restoreEnv(saved: ReturnType<typeof saveEnv>): void {
   }
 }
 
-function resetMcpCache(): void {
-  resetMcpProjectRootCacheForTests();
-}
-
-function createMockServer(uri: string): McpServerLike {
-  return {
-    getClientCapabilities: () => ({ roots: { listChanged: false } }),
-    listRoots: async () => ({ roots: [{ uri }] }),
-  };
-}
-
 // ===========================================================================
 // getChangeDir — MCP 缓存已设置时路径拼接
 // ===========================================================================
@@ -57,7 +43,7 @@ describe('getChangeDir — MCP 缓存已设置时路径拼接', () => {
   beforeEach(() => {
     savedEnv = saveEnv();
     delete process.env.CLAUDE_PROJECT_DIR;
-    resetMcpCache();
+    vi.resetModules();
   });
 
   afterEach(() => {
@@ -66,9 +52,13 @@ describe('getChangeDir — MCP 缓存已设置时路径拼接', () => {
 
   it('MCP 缓存为 /workspace/project 时 getChangeDir 应拼接 openspec/changes/<name> (AC-1~AC-3)', async () => {
     const { initProjectRootFromMcp } = await import('./project-root');
+    const { getChangeDir } = await import('./change');
     const projectRoot = path.resolve('/workspace/project');
     const uri = `file://${projectRoot}`;
-    const server = createMockServer(uri);
+    const server = {
+      getClientCapabilities: () => ({ roots: { listChanged: false } }),
+      listRoots: async () => ({ roots: [{ uri }] }),
+    };
 
     await initProjectRootFromMcp(server);
 
@@ -87,16 +77,17 @@ describe('getChangeDir — 无 MCP 缓存时回退', () => {
 
   beforeEach(() => {
     savedEnv = saveEnv();
-    resetMcpCache();
+    vi.resetModules();
   });
 
   afterEach(() => {
     restoreEnv(savedEnv);
   });
 
-  it('无 MCP 缓存、设置 CLAUDE_PROJECT_DIR 时 getChangeDir 基于 env 根目录拼接', () => {
+  it('无 MCP 缓存、设置 CLAUDE_PROJECT_DIR 时 getChangeDir 基于 env 根目录拼接', async () => {
     const envRoot = path.resolve('/env/project-root');
     process.env.CLAUDE_PROJECT_DIR = envRoot;
+    const { getChangeDir } = await import('./change');
 
     expect(getChangeDir('my-change')).toBe(
       path.resolve(envRoot, 'openspec', 'changes', 'my-change'),

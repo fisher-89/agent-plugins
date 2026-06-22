@@ -15,7 +15,7 @@ export interface PhaseAgentDef {
   prompt: string;
 }
 
-export type PhasePattern = 'DESIGN' | 'EXEC' | 'EVAL-ONLY';
+type PhasePattern = 'DESIGN' | 'EXEC' | 'EVAL-ONLY';
 
 export interface PhaseDefinition {
   id: string;
@@ -246,7 +246,7 @@ const PHASE_TABLES: Record<string, PhaseDefinition[]> = {
  * This is the single source of truth for the dependency graph.
  * `getDependents()` derives the reverse mapping from this table.
  */
-export const PHASE_PREREQUISITES: Record<string, string[]> = {
+const PHASE_PREREQUISITES: Record<string, string[]> = {
   '01-proposal': [],
   '02-dev-design': ['01-proposal'],
   '03-test-design': ['01-proposal', '02-dev-design'],
@@ -299,7 +299,7 @@ function getPrerequisiteTable(workflowType?: string): Record<string, string[]> {
  * - Returns an empty array for unknown phase IDs (fault-tolerant).
  * - Defaults to "requirement" workflow_type.
  */
-export function getPrerequisites(phaseId: string, workflowType?: string): string[] {
+function getPrerequisites(phaseId: string, workflowType?: string): string[] {
   const table = getPrerequisiteTable(workflowType);
   return table[phaseId] || [];
 }
@@ -333,7 +333,7 @@ export function getDependents(phaseId: string, workflowType?: string): string[] 
  * Ordered list of PGE workflow phases.
  * Derived from PHASE_REQUIREMENT — the single source of truth.
  */
-export const PHASES: readonly string[] = PHASE_REQUIREMENT.map((p) => p.id);
+const PHASES: readonly string[] = PHASE_REQUIREMENT.map((p) => p.id);
 
 // ---------------------------------------------------------------------------
 // Accessors
@@ -349,30 +349,9 @@ export function getPhaseTable(workflowType?: string): PhaseDefinition[] {
 }
 
 /**
- * Return the phase pattern for a given phase ID.
- * Returns null if the phase is not in the requirement table.
- */
-export function getPhasePattern(phaseId: string): PhasePattern | null {
-  const table = getPhaseTable('requirement');
-  const phase = table.find((p) => p.id === phaseId);
-  return phase ? phase.pattern : null;
-}
-
-/**
  * Return the index of a phase in the PHASES array.
  * Returns -1 if the phase is not found.
  */
 export function getPhaseIndex(phase: string): number {
   return PHASES.indexOf(phase);
-}
-
-/**
- * Return the list of phases that come before the given phase.
- * - If phase is the first phase, returns an empty array.
- * - If phase is not in PHASES, returns an empty array (fault-tolerant).
- */
-export function getPriorPhases(phase: string): string[] {
-  const idx = getPhaseIndex(phase);
-  if (idx <= 0) return [];
-  return PHASES.slice(0, idx);
 }

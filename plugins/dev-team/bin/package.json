@@ -15,7 +15,6 @@
     "@likec4/language-services": "^1.57.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "cac": "^6.7.14",
-    "fast-glob": "^3.3.3",
     "picomatch": "^4.0.4",
     "zod": "^4.4.3"
   },

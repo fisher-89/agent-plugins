@@ -4,13 +4,7 @@ import * as path from 'path';
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import {
-  parseC4Dsl,
-  validateC4Dsl,
-  getModelFiles,
-  readAllModels,
-  findSpecificationBlock,
-} from './c4-parser';
+import { parseC4Dsl, validateC4Dsl, readAllModels, findSpecificationBlock } from './c4-parser';
 
 describe('parseC4Dsl', () => {
   it('should parse a simple model with specification block', async () => {
@@ -159,41 +153,6 @@ model {
       const result = await validateC4Dsl(dsl, tmpDir);
       expect(result.valid).toBe(false);
       expect(result.errors.some((e) => e.includes('Duplicate'))).toBe(true);
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-});
-
-// ===========================================================================
-// getModelFiles
-// ===========================================================================
-
-describe('getModelFiles', () => {
-  it('should list .c4 files in alphabetical order', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c4-test-gmf-'));
-    try {
-      const modelsDir = path.join(tmpDir, 'openspec', 'specs', 'architecture', 'models');
-      fs.mkdirSync(modelsDir, { recursive: true });
-      fs.writeFileSync(path.join(modelsDir, '02-second.c4'), '');
-      fs.writeFileSync(path.join(modelsDir, '01-first.c4'), '');
-      fs.writeFileSync(path.join(modelsDir, 'readme.md'), '');
-
-      const files = getModelFiles(tmpDir);
-      expect(files.length).toBe(2);
-      expect(files[0].filename).toBe('01-first.c4');
-      expect(files[1].filename).toBe('02-second.c4');
-      expect(files[0].filepath).toContain('models');
-    } finally {
-      fs.rmSync(tmpDir, { recursive: true, force: true });
-    }
-  });
-
-  it('should return empty array when models/ directory does not exist', () => {
-    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c4-test-gmf-empty-'));
-    try {
-      const files = getModelFiles(tmpDir);
-      expect(files).toEqual([]);
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
     }

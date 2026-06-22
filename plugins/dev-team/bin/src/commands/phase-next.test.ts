@@ -5,16 +5,23 @@
  * retry logic, backtrack, round limit, mid-phase interruption, skipped entries,
  * workflow_type variants, input validation, and all boundary scenarios.
  *
- * All tests call resolvePhaseNext with in-memory eval.json data — no filesystem access.
+ * Tests call runPhaseNext with mocked eval.json reads — no real filesystem access.
  *
  * @see openspec/changes/add-workflow-requirement-skill/test-design.md
  */
 
-import { describe, it, expect } from 'vite-plus/test';
+import * as fs from 'fs';
 
-import { resolvePhaseNext } from '../commands/phase-next';
+import { describe, it, expect, vi } from 'vite-plus/test';
+
+vi.mock('fs', async (importOriginal) => {
+  const actual = await importOriginal<typeof fs>();
+  return { ...actual, existsSync: vi.fn(), readFileSync: vi.fn() };
+});
+
+import { runPhaseNext } from '../commands/phase-next';
 import { type EvalEntry } from '../lib/eval-json';
-import { getPhaseTable, getPhasePattern } from '../lib/workflow';
+import { getPhaseTable } from '../lib/workflow';
 
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios
@@ -112,9 +119,14 @@ function staleEntry(
 // Note: the counter is intentionally not reset between tests — relative
 // ordering within each test case is all that matters.
 
-// Helper to call resolvePhaseNext
 function next(entries: MockEntry[], change: string = 'test-change', workflowType?: string) {
-  return resolvePhaseNext({ change, entries, workflowType }).result;
+  if (entries.length === 0) {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+  } else {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(entries));
+  }
+  return runPhaseNext({ change, workflow_type: workflowType });
 }
 
 // ---------------------------------------------------------------------------
@@ -164,54 +176,6 @@ describe('PHASE_TABLES', () => {
     const def = getPhaseTable('unknown').map((p) => p.id);
     const req = getPhaseTable('requirement').map((p) => p.id);
     expect(def).toEqual(req);
-  });
-});
-
-// ---------------------------------------------------------------------------
-// Phase Patterns
-// ---------------------------------------------------------------------------
-
-describe('getPhasePattern', () => {
-  it('should return DESIGN for 01-proposal', () => {
-    expect(getPhasePattern('01-proposal')).toBe('DESIGN');
-  });
-
-  it('should return DESIGN for 02-dev-design and 03-test-design', () => {
-    expect(getPhasePattern('02-dev-design')).toBe('DESIGN');
-    expect(getPhasePattern('03-test-design')).toBe('DESIGN');
-  });
-
-  it('should return EXEC for 04-test-gen and 05-implement', () => {
-    expect(getPhasePattern('04-test-gen')).toBe('EXEC');
-    expect(getPhasePattern('05-implement')).toBe('EXEC');
-  });
-
-  it('should return EXEC for 06-unit-test and 08-integration-test', () => {
-    expect(getPhasePattern('06-unit-test')).toBe('EXEC');
-    expect(getPhasePattern('08-integration-test')).toBe('EXEC');
-  });
-
-  it('should return EVAL-ONLY for 07-code-review and 09-acceptance', () => {
-    expect(getPhasePattern('07-code-review')).toBe('EVAL-ONLY');
-    expect(getPhasePattern('09-acceptance')).toBe('EVAL-ONLY');
-  });
-
-  it('should return null for unknown phase', () => {
-    expect(getPhasePattern('99-unknown')).toBeNull();
-  });
-
-  it('should return DESIGN for 01-proposal with planner + evaluator', () => {
-    const phase = getPhaseTable('requirement').find((p) => p.id === '01-proposal')!;
-    expect(phase.pattern).toBe('DESIGN');
-    expect(phase.planner).not.toBeNull();
-    expect(phase.evaluator).not.toBeNull();
-  });
-
-  it('should return EVAL-ONLY for 07-code-review with planner null', () => {
-    const phase = getPhaseTable('requirement').find((p) => p.id === '07-code-review')!;
-    expect(phase.pattern).toBe('EVAL-ONLY');
-    expect(phase.planner).toBeNull();
-    expect(phase.evaluator).not.toBeNull();
   });
 });
 
@@ -464,24 +428,18 @@ describe('runPhaseNext — Backtrack', () => {
       passEntry('03-test-design'),
       backtrackEntry('03-test-design', '01-proposal'),
     ];
-    const { result } = resolvePhaseNext({
-      change: 'test-change',
-      entries: entries,
-    });
+    const result = next(entries);
     expect(result.next_phase).toBe('01-proposal');
     // No updatedEntries — phase_next is read-only
     expect(result).not.toHaveProperty('updatedEntries');
   });
 
   it('should re-execute planner + evaluator after backtrack to 01-proposal', () => {
-    const { result } = resolvePhaseNext({
-      change: 'test-change',
-      entries: [
-        passEntry('01-proposal'),
-        passEntry('02-dev-design'),
-        backtrackEntry('02-dev-design', '01-proposal'),
-      ],
-    });
+    const result = next([
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      backtrackEntry('02-dev-design', '01-proposal'),
+    ]);
     expect(result.planner!.agent_type).toBe('dev-team:proposal-planner');
     expect(result.evaluator!.agent_type).toBe('dev-team:proposal-evaluator');
   });
@@ -496,10 +454,7 @@ describe('runPhaseNext — Backtrack', () => {
       passEntry('06-unit-test'),
       backtrackEntry('07-code-review', '04-test-gen'),
     ];
-    const { result } = resolvePhaseNext({
-      change: 'test-change',
-      entries: entries,
-    });
+    const result = next(entries);
     expect(result.next_phase).toBe('04-test-gen');
   });
 
@@ -524,7 +479,7 @@ describe('runPhaseNext — Backtrack', () => {
       backtrackEntry('02-dev-design', '01-proposal'),
     ];
     const entriesCopy = JSON.parse(JSON.stringify(entries));
-    resolvePhaseNext({ change: 'test-change', entries });
+    next(entries);
     // Entries should be unmodified (no clearEntriesFromPhase, no updatedEntries)
     expect(entries).toEqual(entriesCopy);
   });
@@ -537,10 +492,7 @@ describe('runPhaseNext — Backtrack', () => {
       passEntry('04-test-gen'),
       backtrackEntry('04-test-gen', ['03-test-design', '01-proposal']),
     ];
-    const { result } = resolvePhaseNext({
-      change: 'test-change',
-      entries,
-    });
+    const result = next(entries);
     // 01-proposal is earliest in phase table
     expect(result.next_phase).toBe('01-proposal');
   });
@@ -550,7 +502,7 @@ describe('runPhaseNext — Backtrack', () => {
       passEntry('01-proposal'),
       failEntry('02-dev-design', 1, { backtrack_to: '99-unknown' } as Partial<EvalEntry>),
     ];
-    const { result } = resolvePhaseNext({ change: 'test-change', entries });
+    const result = next(entries);
     expect(result.error).toBe('invalid_backtrack_target');
   });
 });
@@ -772,20 +724,12 @@ describe('runPhaseNext — workflow_type', () => {
   });
 
   it('should follow bug-fix phase table when workflow_type is bug-fix', () => {
-    const result = resolvePhaseNext({
-      change: 'test-change',
-      entries: [],
-      workflowType: 'bug-fix',
-    }).result;
+    const result = next([], 'test-change', 'bug-fix');
     expect(result.total_phases).toBe(6);
   });
 
   it('should follow refactor phase table when workflow_type is refactor', () => {
-    const result = resolvePhaseNext({
-      change: 'test-change',
-      entries: [],
-      workflowType: 'refactor',
-    }).result;
+    const result = next([], 'test-change', 'refactor');
     expect(result.total_phases).toBe(9);
   });
 
@@ -805,11 +749,7 @@ describe('runPhaseNext — workflow_type', () => {
       passEntry('06-unit-test'),
       passEntry('07-code-review'),
     ];
-    const { result } = resolvePhaseNext({
-      change: 'test-change',
-      entries: entries,
-      workflowType: 'bug-fix',
-    });
+    const result = next(entries, 'test-change', 'bug-fix');
     expect(result.next_phase).toBe('09-acceptance');
   });
 });
@@ -818,7 +758,7 @@ describe('runPhaseNext — workflow_type', () => {
 // Input Validation
 // ---------------------------------------------------------------------------
 
-describe('resolvePhaseNext — Input Validation', () => {
+describe('runPhaseNext — Input Validation', () => {
   it('should not throw for empty entries array', () => {
     expect(() => next([], 'test-change')).not.toThrow();
   });
@@ -914,7 +854,7 @@ describe('Boundary Scenarios', () => {
 
 describe('phase_next Output Schema', () => {
   it('should return valid JSON when next phase is ready', () => {
-    const result = resolvePhaseNext({ change: 'test', entries: [] }).result;
+    const result = next([], 'test');
     // Verify all required fields exist
     expect(result).toHaveProperty('done');
     expect(result).toHaveProperty('error');

@@ -2,7 +2,7 @@
  * Vitest tests for archi CLI commands and c4-cross-ref module.
  *
  * Covers:
- * - archi-query: queryModel, getModelFiles
+ * - archi-query: queryModel
  * - archi-validate: validateDsl
  * - archi-write: writeDsl (path traversal protection, validation-before-write)
  * - c4-cross-ref: runCrossRefCheck (file-based import cross-referencing)
@@ -14,7 +14,7 @@ import * as path from 'path';
 
 import { describe, it, expect, beforeAll, afterAll } from 'vite-plus/test';
 
-import { queryModel, getModelFiles } from './archi-query';
+import { queryModel } from './archi-query';
 import { validateDsl } from './archi-validate';
 import { writeDsl } from './archi-write';
 import { runCrossRefCheck } from './c4-cross-ref';
@@ -296,29 +296,5 @@ describe('runCrossRefCheck', () => {
     const result = await runCrossRefCheck(tmpDir, { files });
     expect(result.status).toBe('clean');
     expect(Array.isArray(result.matched)).toBe(true);
-  });
-});
-
-// ===========================================================================
-// getModelFiles (shared utility from c4-parser)
-// ===========================================================================
-
-describe('getModelFiles', () => {
-  it('should list model .c4 files in order', () => {
-    const files = getModelFiles(tmpDir);
-    expect(files.length).toBeGreaterThanOrEqual(2);
-    // Files should be sorted alphabetically
-    expect(files[0].filename).toBe('01-core.c4');
-    expect(files[1].filename).toBe('02-relationships.c4');
-  });
-
-  it('should return empty array when models/ does not exist', () => {
-    const emptyDir = fs.mkdtempSync(path.join(os.tmpdir(), 'archi-empty-'));
-    try {
-      const files = getModelFiles(emptyDir);
-      expect(files).toEqual([]);
-    } finally {
-      fs.rmSync(emptyDir, { recursive: true, force: true });
-    }
   });
 });

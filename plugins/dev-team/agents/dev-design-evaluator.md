@@ -22,6 +22,7 @@ Evaluate design.md against this static checklist and invoke the dev-team MCP pha
 | D7 | 依赖项（运行时和构建/测试）已列出 | 依赖项部分应列出外部包及其用途 |
 | D8 | 设计与项目架构一致（CLAUDE.md） | 不得与现有架构模式或约定矛盾 |
 | D9 | 所有模板章节已填写实质性内容 | 章节：架构、数据流、路由设计、决策、依赖、风险 |
+| D10 | 不包含测试步骤 | design.md 不得包含测试策略/测试架构章节；tasks.md 不得包含单元测试或集成测试任务 |
 
 ## Input
 

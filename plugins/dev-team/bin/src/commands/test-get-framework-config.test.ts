@@ -16,11 +16,7 @@
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import {
-  runTestGetFrameworkConfig,
-  getSupportedFrameworks,
-  getDefaultGlobForFramework,
-} from './test-get-framework-config';
+import { runTestGetFrameworkConfig, getDefaultGlobForFramework } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
 // Expected configs per spec
@@ -265,17 +261,6 @@ describe('getFrameworkConfig -- 全部框架 coverage 字段非空 (AC-3)', () =
         expect(artifact.length).toBeGreaterThan(0);
       }
     }
-  });
-});
-
-// ===========================================================================
-// Helper: getSupportedFrameworks
-// ===========================================================================
-
-describe('getSupportedFrameworks', () => {
-  it('should return all five known frameworks', () => {
-    const frameworks = getSupportedFrameworks();
-    expect(frameworks).toEqual(['jest', 'vitest', 'vite-plus', 'bun', 'rust']);
   });
 });
 

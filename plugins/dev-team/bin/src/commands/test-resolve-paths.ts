@@ -21,7 +21,7 @@ interface ResolveError {
   message: string;
 }
 
-export interface ResolveTestPathsParams {
+interface ResolveTestPathsParams {
   projectRoot: string;
   modules: string[];
   integrationScenarios?: string[];
@@ -62,22 +62,11 @@ const SOURCE_EXTENSIONS = new Set([
 const JS_TS_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 
 // ---------------------------------------------------------------------------
-// Pure helpers (exported for unit tests)
+// Pure helpers
 // ---------------------------------------------------------------------------
 
-/** Normalise a path to POSIX-style forward slashes; optionally make relative to projectRoot. */
-export function toPosixRelativePath(filePath: string, projectRoot?: string): string {
-  if (!projectRoot) {
-    return filePath.replace(/\\/g, '/');
-  }
-
-  const absolute = path.isAbsolute(filePath) ? filePath : path.resolve(projectRoot, filePath);
-  const relative = path.relative(path.resolve(projectRoot), absolute);
-  return relative.replace(/\\/g, '/');
-}
-
 /** Return true when resolved inputPath stays within projectRoot (path-traversal guard). */
-export function isWithinProjectRoot(projectRoot: string, inputPath: string): boolean {
+function isWithinProjectRoot(projectRoot: string, inputPath: string): boolean {
   const resolvedRoot = path.resolve(projectRoot);
   const resolvedPath = path.isAbsolute(inputPath)
     ? path.resolve(inputPath)
@@ -87,7 +76,7 @@ export function isWithinProjectRoot(projectRoot: string, inputPath: string): boo
 }
 
 /** Detect existing test files by naming convention. */
-export function isTestFile(filePath: string): boolean {
+function isTestFile(filePath: string): boolean {
   const base = path.posix.basename(filePath.replace(/\\/g, '/'));
   if (/\.test\./.test(base)) return true;
   if (/^test_.*\.py$/.test(base)) return true;
@@ -97,7 +86,7 @@ export function isTestFile(filePath: string): boolean {
 }
 
 /** Return true when the file extension is in the testable source set (excludes test files). */
-export function isSourceFile(filePath: string): boolean {
+function isSourceFile(filePath: string): boolean {
   if (isTestFile(filePath)) return false;
   const ext = path.posix.extname(filePath.replace(/\\/g, '/')).toLowerCase();
   return SOURCE_EXTENSIONS.has(ext);
@@ -107,7 +96,7 @@ export function isSourceFile(filePath: string): boolean {
  * Derive the colocated unit test path for a source file.
  * Rules align with test-gen-generator colocated naming table.
  */
-export function deriveUnitTestPath(sourcePath: string): string {
+function deriveUnitTestPath(sourcePath: string): string {
   const posix = sourcePath.replace(/\\/g, '/');
   const dir = path.posix.dirname(posix);
   const base = path.posix.basename(posix);
@@ -150,7 +139,7 @@ function isValidIntegrationRoot(integrationRoot: string): boolean {
 }
 
 /** Derive integration test path: __tests__/<scenario>/<scenario>.test.<ext> */
-export function deriveIntegrationTestPath(
+function deriveIntegrationTestPath(
   scenario: string,
   ext: string,
   integrationRoot?: string,
@@ -165,7 +154,7 @@ export function deriveIntegrationTestPath(
 }
 
 /** Strip leading dot and lower-case an extension string. */
-export function normalizeExtension(ext: string): string {
+function normalizeExtension(ext: string): string {
   const trimmed = ext.startsWith('.') ? ext.slice(1) : ext;
   return trimmed.toLowerCase();
 }
@@ -173,7 +162,7 @@ export function normalizeExtension(ext: string): string {
 /**
  * Resolve integration test extension: explicit > mode of source extensions > "ts".
  */
-export function inferExtension(sourceFiles: string[], explicitExtension?: string): string {
+function inferExtension(sourceFiles: string[], explicitExtension?: string): string {
   if (explicitExtension !== undefined && explicitExtension !== '') {
     return normalizeExtension(explicitExtension);
   }
@@ -252,7 +241,7 @@ function resolveIntegrationTests(
  * Resolve unit and integration test paths from a module list.
  * Errors are collected per module; processing continues for remaining entries.
  */
-export function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResult {
+function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResult {
   const projectRoot = path.resolve(params.projectRoot);
   const unitTestMap = new Map<string, UnitTestEntry>();
   const errors: ResolveError[] = [];

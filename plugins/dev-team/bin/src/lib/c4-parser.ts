@@ -22,13 +22,13 @@ function preprocessForLikeC4(dsl: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Public API — file management
+// File management
 // ---------------------------------------------------------------------------
 
 const ARCHITECTURE_DIR = 'openspec/specs/architecture';
 const MODELS_DIR = path.join(ARCHITECTURE_DIR, 'models');
 
-export function getModelFiles(projectRoot: string): { filename: string; filepath: string }[] {
+function getModelFiles(projectRoot: string): { filename: string; filepath: string }[] {
   const modelsDir = path.resolve(projectRoot, MODELS_DIR);
   if (!fs.existsSync(modelsDir)) return [];
   return fs

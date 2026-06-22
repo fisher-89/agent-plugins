@@ -313,17 +313,17 @@ function checkRetryLimit(
  *
  * Returns the next phase config or a done/error response.
  */
-export interface ResolvePhaseNextOptions {
+interface ResolvePhaseNextOptions {
   change: string;
   entries: EvalEntry[];
   workflowType?: string;
 }
 
-export interface ResolvePhaseNextResult {
+interface ResolvePhaseNextResult {
   result: PhaseNextResult;
 }
 
-export function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult {
+function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult {
   const { change, entries, workflowType } = opts;
   const phaseTable = getPhaseTable(workflowType);
   const totalPhases = phaseTable.length;
