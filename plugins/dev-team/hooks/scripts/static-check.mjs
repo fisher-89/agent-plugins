@@ -14,9 +14,8 @@ import { spawnSync } from 'node:child_process';
 
 const FOLLOWUP_PREFIX = '静态检查未通过，请修复以下错误后重新提交：\n\n';
 
-export function resolveCliPath(pluginRoot = process.env.CLAUDE_PLUGIN_ROOT || '') {
-  if (!pluginRoot) return path.join('', 'bin', 'dev-team-cli.cjs');
-  return path.join(pluginRoot, 'bin', 'dev-team-cli.cjs');
+export function resolveCliPath() {
+  return fileURLToPath(import.meta.resolve('../../bin/dev-team-cli.cjs'));
 }
 
 export function mergeCliOutput(stdout, stderr) {
@@ -45,7 +44,7 @@ export function parseWorkspaceRoot(stdinRaw) {
     const event = JSON.parse(stdinRaw);
     const roots = event?.workspace_roots;
     if (Array.isArray(roots) && roots.length > 0 && typeof roots[0] === 'string') {
-      return path.resolve(roots[0]);
+      return path.posix.resolve(roots[0]);
     }
   } catch {
     // ignore JSON parse errors
@@ -54,13 +53,7 @@ export function parseWorkspaceRoot(stdinRaw) {
 }
 
 function main() {
-  let stdinRaw = '';
-  try {
-    stdinRaw = readFileSync(0, 'utf-8');
-  } catch {
-    // stdin may not be available
-  }
-
+  const stdinRaw = readFileSync(0, 'utf-8');
   const workspaceRoot = parseWorkspaceRoot(stdinRaw);
   const cliPath = resolveCliPath();
 

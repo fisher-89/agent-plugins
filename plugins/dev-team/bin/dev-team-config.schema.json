@@ -51,7 +51,10 @@
             "vitest",
             "vite-plus",
             "bun",
-            "rust"
+            "rust",
+            "node-test",
+            "go",
+            "pytest"
           ],
           "description": "测试框架"
         },
@@ -96,7 +99,10 @@
                   "vitest",
                   "vite-plus",
                   "bun",
-                  "rust"
+                  "rust",
+                  "node-test",
+                  "go",
+                  "pytest"
                 ],
                 "description": "测试框架"
               },
