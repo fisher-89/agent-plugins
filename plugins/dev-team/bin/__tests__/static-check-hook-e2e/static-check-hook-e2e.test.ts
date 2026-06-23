@@ -64,12 +64,13 @@ process.exit(${exitCode});
   };
 }
 
-function runStaticCheckHook(pluginRoot: string, stdinJson = '{}'): { stdout: string } {
+function runStaticCheckHook(pluginRoot: string, stdinJson?: string): { stdout: string } {
   const copiedScript = path.join(pluginRoot, 'hooks', 'scripts', 'static-check.mjs');
   const actualScript = fs.existsSync(copiedScript) ? copiedScript : scriptPath;
 
+  const defaultStdin = JSON.stringify({ workspace_roots: [projectRoot] });
   const stdout = execFileSync(process.execPath, [actualScript], {
-    input: stdinJson,
+    input: stdinJson ?? defaultStdin,
     encoding: 'utf-8',
     env: { ...process.env, CLAUDE_PLUGIN_ROOT: pluginRoot },
   });

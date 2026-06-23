@@ -17,7 +17,6 @@ import { fileURLToPath } from 'node:url';
 const scriptPath = fileURLToPath(new URL('./static-check.mjs', import.meta.url));
 const scriptExists = fs.existsSync(scriptPath);
 
-// TODO: static-check.mjs 实现后需导出以下函数
 const mod = scriptExists ? await import('./static-check.mjs') : null;
 
 const {
@@ -26,6 +25,7 @@ const {
   resolveCliPath,
   handleMissingCli,
   mergeCliOutput,
+  parseWorkspaceRoot,
 } = mod ?? {};
 
 function skipIfMissing(name, fn) {
@@ -165,6 +165,35 @@ describe('handleMissingCli', () => {
 });
 
 // ---------------------------------------------------------------------------
+// parseWorkspaceRoot
+// ---------------------------------------------------------------------------
+
+describe('parseWorkspaceRoot', () => {
+  skipIfMissing('应从合法 event JSON 提取 workspace_roots[0]', () => {
+    const event = JSON.stringify({ workspace_roots: ['/d:/Projects/my-proj'] });
+    const root = parseWorkspaceRoot(event);
+    assert.ok(typeof root === 'string');
+    assert.ok(root.length > 0);
+    assert.ok(root.includes('my-proj'));
+  });
+
+  skipIfMissing('workspace_roots 为空数组时返回 null', () => {
+    const event = JSON.stringify({ workspace_roots: [] });
+    assert.equal(parseWorkspaceRoot(event), null);
+  });
+
+  skipIfMissing('无 workspace_roots 字段时返回 null', () => {
+    const event = JSON.stringify({ subagent_type: 'implementation-generator' });
+    assert.equal(parseWorkspaceRoot(event), null);
+  });
+
+  skipIfMissing('非法 JSON 时返回 null 且不抛异常', () => {
+    assert.equal(parseWorkspaceRoot('not json'), null);
+    assert.equal(parseWorkspaceRoot(''), null);
+  });
+});
+
+// ---------------------------------------------------------------------------
 // 黑盒: spawnSync + CLAUDE_PLUGIN_ROOT 临时目录 (Mock 策略)
 // ---------------------------------------------------------------------------
 
@@ -172,8 +201,9 @@ describe('static-check.mjs — 黑盒 CLI 缺失 (AC-10)', () => {
   skipIfNoScript('无 dev-team-cli.cjs 时不应抛未捕获异常', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'static-check-e2e-'));
     try {
+      const stdinJson = JSON.stringify({ workspace_roots: [tmpRoot] });
       const { status, stdout } = spawnSync(process.execPath, [scriptPath], {
-        input: '{}',
+        input: stdinJson,
         encoding: 'utf-8',
         env: { ...process.env, CLAUDE_PLUGIN_ROOT: tmpRoot },
       });

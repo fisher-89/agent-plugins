@@ -31,6 +31,16 @@
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs\""
           }
         ]
+      },
+      {
+        "matcher": "test-gen-generator",
+        "loop_limit": 5,
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs\""
+          }
+        ]
       }
     ]
   }

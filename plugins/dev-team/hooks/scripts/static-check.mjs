@@ -4,10 +4,10 @@
 // Calls dev-team-cli.cjs run_static_analysis and returns {} on success or
 // followup_message on failure so the agent can fix lint/type errors.
 //
-// Input:  stdin  — subagentStop event JSON (ignored)
+// Input:  stdin  — subagentStop event JSON (workspace_roots[0] → --project-root)
 // Output: stdout — {} or { "followup_message": "..." }
 
-import { existsSync } from 'node:fs';
+import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
@@ -40,7 +40,28 @@ export function handleMissingCli(cliPath) {
   };
 }
 
+export function parseWorkspaceRoot(stdinRaw) {
+  try {
+    const event = JSON.parse(stdinRaw);
+    const roots = event?.workspace_roots;
+    if (Array.isArray(roots) && roots.length > 0 && typeof roots[0] === 'string') {
+      return path.resolve(roots[0]);
+    }
+  } catch {
+    // ignore JSON parse errors
+  }
+  return null;
+}
+
 function main() {
+  let stdinRaw = '';
+  try {
+    stdinRaw = readFileSync(0, 'utf-8');
+  } catch {
+    // stdin may not be available
+  }
+
+  const workspaceRoot = parseWorkspaceRoot(stdinRaw);
   const cliPath = resolveCliPath();
 
   if (!existsSync(cliPath)) {
@@ -48,9 +69,12 @@ function main() {
     return;
   }
 
-  const result = spawnSync(process.execPath, [cliPath, 'run_static_analysis'], {
-    encoding: 'utf-8',
-  });
+  const args = [cliPath, 'run_static_analysis'];
+  if (workspaceRoot) {
+    args.push('--project-root', workspaceRoot);
+  }
+
+  const result = spawnSync(process.execPath, args, { encoding: 'utf-8' });
 
   const stdout = (result.stdout || '').trim();
   const stderr = (result.stderr || '').trim();
