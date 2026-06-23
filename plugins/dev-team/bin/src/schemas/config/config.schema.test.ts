@@ -83,6 +83,16 @@ describe('test.framework enum validation', () => {
       expect(result.data.test?.framework).toBeUndefined();
     }
   });
+
+  it('应接受 node-test、go、pytest 三个新枚举值 (AC-1)', () => {
+    for (const fw of ['node-test', 'go', 'pytest']) {
+      const result = configSchema.safeParse({
+        schema: 'spec-driven',
+        test: { framework: fw },
+      });
+      expect(result.success).toBe(true);
+    }
+  });
 });
 
 // ===========================================================================
@@ -261,6 +271,19 @@ describe('test.overrides', () => {
     expect(result.success).toBe(true);
     if (result.success) {
       expect(result.data.test?.overrides).toHaveLength(2);
+    }
+  });
+
+  it('overrides 条目中 framework 为 go / node-test / pytest 时通过验证 (AC-1)', () => {
+    for (const fw of ['go', 'node-test', 'pytest']) {
+      const result = configSchema.safeParse({
+        schema: 'spec-driven',
+        test: {
+          framework: 'vitest',
+          overrides: [{ file: 'src/**', framework: fw }],
+        },
+      });
+      expect(result.success).toBe(true);
     }
   });
 });

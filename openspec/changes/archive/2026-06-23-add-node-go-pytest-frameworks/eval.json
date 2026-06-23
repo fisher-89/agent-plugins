@@ -1,0 +1,507 @@
+[
+  {
+    "phase": "01-proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "R1–R11 全部通过：问题含 5 条具体痛点；实现/测试/不要修改划分清晰；5 项风险均有具体缓解；AC-1–13 均有验证方法；决策表含备选方案；与 CLAUDE.md 一致；无 TODO/占位符；三能力 config-schema/test-execution-diagnostics/phase-agents 与 specs/ 一一对应且无逻辑冲突。",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "§问题列出 config schema、MCP 注册表、nullable 覆盖率、Executor/Evaluator 解析、Python 工具链共 5 条具体痛点与动机"
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "§变更范围含 实现文件(10项)、测试文件(6项) 与 不要修改(6项)，等价 in/out scope"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "5 项风险均有具体缓解，如 node-test 独立 parser+fixture、Go 匹配 total: 行、pytest 捕获失败不阻塞、null 维度跳过规则"
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1–13 表格每行均含验证方法列（单元测试、schema 测试、agent 规则审查、Python 测试或手动验证）"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "§决策 D1 拒绝仅 lines/c8；D2 拒绝省略字段/-1 哨兵；D3 拒绝 nodetest/node_test；Go/pytest 行亦有备选"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "扩展 dev-team 插件测试基础设施，遵循 slim plugin、report-driven gates、最小范围变更，无嵌入式 skill 或架构冲突"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal 与 specs/ 全文无 TODO、TBD、placeholder 或 {{...}} 标记"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准(13 AC)、风险(5项)、过程(决策+待决)均有实质内容"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "§能力 §修改的能力 列出 config-schema、test-execution-diagnostics、phase-agents 三项"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "三能力各对应 specs/config-schema、test-execution-diagnostics、phase-agents/spec.md，无多余 spec"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "三 spec 均为 MODIFIED(+ADDED) 与修改声明一致；AC-1–13 在 specs scenarios/requirements 有对应；nullable 维度、5 值 coverage_format、两步 node-test 脚本与 proposal 一致"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:31:03.198Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "D1–D9 全部通过：9 个架构组件均含职责/路径/依赖/技术栈；数据流 7 步完整；AC-1–13 均有设计映射；tasks 分 8 阶段依赖有序且可执行；运行时与构建依赖已列；与 CLAUDE.md slim plugin 一致；模板章节无占位；design/tasks 无测试执行步骤。",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "§架构组件表 9 行均含职责、文件位置、依赖、技术四列；技术栈无 TBD；路径如 config.schema.ts、parse-node-test-coverage.mjs 均为具体文件"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "§数据流 流程描述 1–7 步：config 验证 → plan 生成 → 执行 script → 产物移动 → 覆盖率解析 → 加权/门控 → Evaluator；组件图同步完整路径"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1 schema(§testFrameworkSchema)；AC-2–4 REGISTRY 表与 MCP；AC-5 PlanEntry/schema；AC-6 parser 组件；AC-7–8 Nullable 映射表；AC-9–10 D6+Step5；AC-11 evaluator；AC-12–13 Python 组件"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "8 阶段：schema→registry→parser→MCP schema→agents→Python→build；registry 引用 parser 仅为路径字符串，不阻塞前置任务；无后续阶段被更早阶段硬依赖"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "各任务含具体文件路径与字段/命令，如 Phase2 REGISTRY 字段、Phase3 CLI 签名、Phase5 Step2–5 解析规则，非泛化“实现功能”"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "§依赖 运行时：Node/Go/pytest/zod；构建：pnpm check、plugin.json 版本升级"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "扩展 dev-team TypeScript MCP + Agent 指南 + Python 工具；report-driven unit-test-execution.json；Phase8 升级 plugin.json；无嵌入式 skill"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构/数据流/路由(API)/决策(9项)/依赖均有实质内容；另含风险与待决问题，无 TODO/TBD 占位"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md 无测试策略章节；tasks.md 仅 Phase8 pnpm typecheck 与版本号，无单元/集成测试编写或执行任务"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:32:58.908Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "T1/T3–T8 通过；T2 失败：验收范围缺 10+ 用例测试对象映射（test.overrides、getDefaultGlobForFramework、runTestDetectFrameworks plan 五条、runTestGetFrameworkConfig 扩展场景等）。design.md 九组件与 D1–D9 在用例/不可测试项有覆盖，PlanEntry plan 用例未入验收范围表。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "验收范围表 AC-1–AC-13 均有行；AC-7–11 标注不可测试并链至 §不可测试项"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": false,
+        "evidence": "§用例中 test.overrides framework 字段、getDefaultGlobForFramework、runTestGetFrameworkConfig — 八框架完整性/未知框架/边界、runTestDetectFrameworks — go|node-test|pytest plan/多框架/glob 检测（design PlanEntry）共 10+ 测试对象在验收范围 测试对象/测试场景 列无对应行"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "含 node:test 缺列解析(D8)、Go+package.json 检测顺序(D9)、coverage_format 大小写、仅表头 stdout、Windows bash/tee 等变更域边界，非泛化空值"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "§Mock策略 覆盖 readConfig/FS、fixtures、subprocess.patch、TemporaryDirectory 等 8 个测试文件的外部依赖"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试(用例+Mock)、集成测试(说明本次无)、不可测试项 均已填写，无 {{}} 占位"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "不覆盖 08-integration-test/test-gen-generator/HTML；in_scope 10 实现文件均有 AC 或不可测试缓解；design D7 artifacts/cleanup 经 REGISTRY 断言覆盖"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal/design 无 API/DB 写操作，仅 schema 注册表与只读 MCP 查询；T7 条件不适用"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "表格列名与 test-design.md.template 一致(验收范围 5 列、用例 5 列、Mock 4 列、集成 5 列)；章节结构匹配"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:35:20.818Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "T1–T8 全部通过。验收范围已补齐 test.overrides、getDefaultGlobForFramework、八框架完整性/未知/边界及 runTestDetectFrameworks 五条 plan 映射；design.md 九组件与 D1–D9 在用例/Mock/不可测试项均有对应（D7 artifacts/cleanup 经 REGISTRY 断言；D6/D8 null/失败语义经不可测试项+文档审核缓解）。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "验收范围表 AC-1–AC-13 均有行；AC-7–11 标注不可测试并链至 §不可测试项"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": true,
+        "evidence": "§用例全部测试对象（含 test.overrides、getDefaultGlobForFramework、八框架完整性/未知/边界、runTestDetectFrameworks go|node-test|pytest|多框架|glob）均在验收范围 测试对象/测试场景 列有对应行"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "含 node:test 缺列/仅表头(D8)、Go+package.json 检测顺序(D9)、coverage_format 大小写、Windows bash/tee、subprocess timeout 等变更域边界"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "§Mock策略 覆盖 readConfig/FS、fixtures、subprocess.patch、TemporaryDirectory 等 8 个测试文件的外部依赖"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试(用例+Mock)、集成测试(说明本次无)、不可测试项 均已填写，无 {{}} 占位"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "不覆盖 08-integration-test/test-gen-generator/HTML；in_scope 10 实现文件均有 AC 或不可测试缓解；design D7 artifacts/cleanup 经 REGISTRY/plan 断言覆盖"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal/design 无 API/DB 写操作，仅 schema 注册表与只读 MCP 查询；T7 条件不适用"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "表格列名与 test-design.md.template 一致(验收范围 5 列、用例 5 列、Mock 4 列、集成 5 列)；章节结构匹配"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:38:09.929Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "I1–I7 全部通过：9 架构组件均有实现（含 parse-node-test-coverage.mjs）；数据流 7 步与 MCP 五值 coverage_format 一致；tasks 全 [x]；D1–D9 决策均有体现；plugin 2.7.1→2.8.0；openspec/specs 变更仅为 CRLF 无实质代码。",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "config.schema.ts 三框架枚举；test-get-framework-config.ts REGISTRY 8 条目+三步 coverage_cmd；scripts/parse-node-test-coverage.mjs；两 MCP schema+PlanEntry；unit-test-executor/evaluator.md；test-framework.py go.mod；test-runner.py go/node-test 分支"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "config→testFrameworkSchema→test_detect_frameworks(runTestGetFrameworkConfig+generateScript)→executor Step2–5(null 解析/加权/门控)→evaluator U1/U3/findings N/A"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "FRAMEWORK_REGISTRY 结构与既有五框架一致；Python 检测/运行器沿用 subprocess 模式；ESM parser 置于 scripts/；plugin.json 版本 2.8.0"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "test_get_framework_config/test_detect_frameworks schema 扩展 coverage_format 五值；node-test 两步 coverage_cmd 含 parse-node-test-coverage.mjs 路径"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md 阶段 1–8 共 28 项任务均为 [x]"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff 10 文件均为 dev-team 插件实现；openspec/specs 三文件 diff 为空(仅 CRLF)；变更文件与 design 路径一一对应"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1 两步 node-test+D9 parser 路径；D2/D6 null 维度 executor Step4–5；D4 go-cover total: 行；D5 coverage-py JSON；D7 artifacts 仅 JSON；D8 失败设 0；D3 node-test 命名；Go 检测在 package.json 前"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:40:43.070Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "G1–G9 全部通过：8 个源码文件均有共存测试文件；35 条「新增」用例均已生成 describe/it 骨架（Vitest/node:test/unittest）；Mock 策略（createTempProject、fixtures+spawnSync、TemporaryDirectory、patch subprocess）均已声明；边界含空 coverage_format、CLI 缺参、go 优先级等；含 finally/cleanup；「废弃」项未新增测试。全部骨架为 it.skip/@unittest.skip 待启用。",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "config.schema.ts→config.schema.test.ts；test-get-framework-config.ts→.test.ts；test-detect-frameworks.ts→.test.ts；两 schema 源文件→对应 .test.ts；parse-node-test-coverage.mjs→.test.mjs；test-framework.py→test_test-framework.py；test-runner.py→test_test-runner.py"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "TS 为 *.test.ts 与源文件同目录；Python 为 test_*.py 于 utils/；MJS 为 parse-node-test-coverage.test.mjs 于 scripts/"
+      },
+      {
+        "item": "`单元测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "35 条迭代类型=新增用例均已生成：AC-1 两 it.skip；AC-2~4 八框架/go/node-test/pytest/getDefaultGlob/未知框架 describe+it；AC-5 schema 四组+detect 五 describe；AC-6 八 it.skip；AC-12 四 TestCase 类；AC-13 五 TestCase 类"
+      },
+      {
+        "item": "`集成测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design.md 集成测试表标注「本次无新增集成测试」，无 新增 行需生成"
+      },
+      {
+        "item": "`Mock策略` 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "get-framework-config 直接调用 runTestGetFrameworkConfig；detect 用 createTempProject+cleanup；schema 用 safeParse；parser 用 withTempDir+spawnSync+fixtures；Python 用 TemporaryDirectory 与 @patch subprocess.run"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "TS 文件 import {describe,it,expect} from 'vite-plus/test'；parse-node-test-coverage.test.mjs 用 node:test+assert；Python 用 unittest+unittest.mock.patch"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "含 coverage_format 空字符串、parse CLI 缺输出/空输入、仅表头 stdout、缺失列、go+package.json 优先级、project_root 空/不存在、timeout=0/极大值、test_file=None 等边界 describe/it"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "parse withTempDir finally fs.rmSync；detect 测试 try/finally project.cleanup()；Python tempfile.TemporaryDirectory 上下文；subprocess patch 自动还原"
+      },
+      {
+        "item": "`迭代类型 = 废弃` 的条目未生成新测试",
+        "pass": true,
+        "evidence": "未新增 mocha/空 framework/非字符串、getFrameworkConfig 空nullundefined 边界、coverage_format 大小写、detect schema cobertura 等废弃行；既有测试保留未重复添加"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:44:11.052Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "U1/U2/U4 通过：194/194 测试全通过(6.5s)。U3 未达标：lines=67.1%(<80%)、branches=53%(<70%)、functions=60%(<75%)；override plugins/dev-team/bin 同样未达标（变更范围测试未覆盖全目录依赖模块）。Executor findings：scoped vite-plus 覆盖率低于全局阈值。",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds/test_cases 均存在且类型正确"
+      },
+      {
+        "item": "所有单元测试通过",
+        "pass": true,
+        "evidence": "194/194 passed, 0 failed, 0 skipped"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": false,
+        "evidence": "coverage.pass=false: lines=67.1%(<80%), branches=53%(<70%), functions=60%(<75%); override plugins/dev-team/bin 同维度未达标"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A — failed=0，无需决策树诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:48:55.339Z"
+  },
+  {
+    "phase": "07-code-review",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "C1/C2/C4/C6/C7 通过；C3 失败：coverage_cmd 引用 parse-node-test-coverage.mjs 但 plugins/dev-team/scripts/ 未纳入版本库；4 列表格将 Stmts 映射为 lines.pct 而非 Lines 列(80.00)。C5 失败：scripts/ 含 tmp-out.txt、tmp-summary.json 调试产物。",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "无硬编码密钥/SQL/XSS；grep 仅既有 RegExp.exec 与 subprocess shell=True（test-runner.py:230-274，与 jest 路径一致）；registry 为静态命令字符串"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "MCP 输入 testFrameworkSchema zod 枚举(test-get-framework-config.schema.ts:11)；runTestGetFrameworkConfig 未知框架抛错(:129-132)；parse-node-test-coverage.mjs 校验 CLI 空路径(:44-54)、NaN(:72-76)、读写出错(:57-83)"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": false,
+        "evidence": "D1/D2/D6–D9 在 REGISTRY 与 agent 规则已体现；但 node-test coverage_cmd(:76-77) 依赖 scripts/parse-node-test-coverage.mjs 而该目录 git 未跟踪；parser(:16-24) 对 4 列 stdout(tmp-out.txt) 取 Stmts/Branch/Funcs，lines.pct=85.71 非 Lines 列 80.00，与 istanbul lines 语义偏差"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "未知框架/空 framework 抛错(test-get-framework-config.ts:129)；parser 缺表/缺参/NaN 非零退出(parse-node-test-coverage.mjs:44-76)；go 检测 package 摘要回退(test-runner.py:397-404)；executor D8 失败设 0 非 null"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": false,
+        "evidence": "plugins/dev-team/scripts/tmp-out.txt、tmp-summary.json 为调试临时文件，应删除或 gitignore；test-runner.py:393-410 块内重复 import re（与既有 pytest 分支同模式，影响较小）"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "REGISTRY 结构与 jest/vitest 一致；Python go/node-test 分支镜像 _run_node_tests 超时/错误处理；测试按 AC 分区注释；plugin.json 2.8.0"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "TestFrameworks 派生自 testFrameworkSchema(config.schema.ts:83)；MCP 输入/输出与 PlanEntry 共用 zod 枚举；FrameworkConfig.framework 用 TestFrameworks 非自定义字符串"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:50:18.253Z"
+  },
+  {
+    "phase": "07-code-review",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "C1–C7 全部通过：parser 已 staged 且 4 列映射正确(lines=match[4]→80.00)；tmp-out/tmp-summary 已删；8/8 parser 测试通过；D1–D9 与 REGISTRY/agent/Python 一致；zod 校验与边界处理完备。",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "无硬编码密钥/SQL/XSS；grep 仅既有 RegExp.exec 与 subprocess shell=True（test-runner.py:192/233/271，与 jest 路径一致）；registry 为静态命令字符串"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "MCP 输入 testFrameworkSchema zod 枚举(config.schema.ts:11)；runTestGetFrameworkConfig 未知框架抛错(:129-132)；parse-node-test-coverage.mjs 校验 CLI 空路径(:44-54)、NaN(:72-76)、读写出错(:57-83)"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "parse-node-test-coverage.mjs 已 git staged(A)；:15-24 四列 % Stmts|Branch|Funcs|Lines 映射 lines=match[4]/branches=match[2]/functions=match[3]；测试断言 lines.pct=80.0(:70)；node-test coverage_cmd(:76-77) 两步脚本与 D1/D7/D9 一致；go/pytest REGISTRY 与 nullable agent 规则对齐 design"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "未知框架/空 framework 抛错(test-get-framework-config.ts:129)；parser 缺表/缺参/NaN/仅表头非零退出(parse-node-test-coverage.mjs:44-76)；go 检测 package.json 前(test-framework.py:29-32)；executor D8 失败设 0 非 null"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "tmp-out.txt、tmp-summary.json 已删除(glob 0 匹配)；scripts/ 仅 parser 与 test.mjs；test.mjs:134 TODO 为边界行为文档注释，非死代码"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "REGISTRY 结构与 jest/vitest 一致；Python go/node-test 分支镜像既有 subprocess 模式；测试按 AC 分区注释；plugin.json 2.8.0"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "TestFrameworks 派生自 testFrameworkSchema(config.schema.ts:83)；MCP 输入/输出与 PlanEntry 共用 zod 五值 coverage_format 枚举；FrameworkConfig.framework 用 TestFrameworks 非自定义字符串"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:53:43.690Z"
+  },
+  {
+    "phase": "08-integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "N1–N4 全部通过：报告结构完整；19/19 通过(0 failed)；无环境/配置阻断。test-design.md 标注「本次无新增集成测试」；Executor 改跑 Agent 静态集成测试(evaluator 10 + executor 9)全绿；evaluator Step3 已补 coverage.thresholds/overrides 回归修复。",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_ms/failures 均存在且类型正确"
+      },
+      {
+        "item": "所有集成测试通过",
+        "pass": true,
+        "evidence": "19/19 passed, 0 failed, 0 skipped (unit_test_evaluator_schema_static 10 + unit_test_executor_schema_static 9)"
+      },
+      {
+        "item": "无环境/配置阻断",
+        "pass": true,
+        "evidence": "failures 为空；findings 无 ConnectionRefused/Timeout/缺环境变量；411ms 正常完成"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A — failed=0，无需决策树诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-23T08:58:12.136Z"
+  },
+  {
+    "phase": "09-acceptance",
+    "timestamp": "2026-06-23T08:59:40.662Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "A1–A5 全部通过：AC-1–13 均有代码/测试/agent 证据；tasks 28 项全 [x]；in_scope 10 实现+8 测试文件均已交付；out_of_scope（五框架/test-gen/HTML/08 集成）未越界；5 项风险缓解均在 parser/fixture、total: 行、executor D8/null 门控与 evaluator N/A 标注中可见。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1 config.schema.test.ts:87-88+mocha拒绝:52; AC-2–4 test-get-framework-config.test.ts:473-492; AC-5 test-detect-frameworks.schema.test.ts:823+detect.test.ts:969; AC-6 parse-node-test-coverage.mjs+:15-37+.test.mjs:70-72; AC-7–10 unit-test-executor.md:125-152+示例:216-217; AC-11 unit-test-evaluator.md:66-67; AC-12 test-framework.py:29-32+test_test-framework.py:33-38; AC-13 test-runner.py:145/406+test_test-runner.py:53-72"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "git diff 19 文件均为 dev-team 插件 schema/registry/parser/agents/Python+对应测试；无 test-gen-generator.md 变更；无新 MCP 工具或 HTML 报告逻辑；openspec/specs 未含实质 diff"
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "§变更范围 10 实现文件均存在且 tasks 阶段1–8 全 [x]：config.schema.ts、test-get-framework-config.ts、两 MCP schema、test-detect-frameworks.ts、parse-node-test-coverage.mjs、unit-test-executor/evaluator.md、test-framework.py、test-runner.py 及 8 个测试文件"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "jest–rust REGISTRY 条目未改(test-get-framework-config.ts:23-72)；test-gen-generator.md 无 node-test/go/pytest；pytest cleanup 仅列 htmlcov 非新增 HTML 解析；proposal 声明 08-integration-test 本次不涉及"
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "node-test API 变更→独立 parser+fixture+失败设0(executor.md:134)；Go total:→executor.md:126；pytest-cov 缺失→executor findings 容错+design D8；null 门控冲突→executor.md:152+evaluator U3:16；加权分母→executor.md:144-148 null 不参与"
+      }
+    ],
+    "backtrack_to": null
+  }
+]

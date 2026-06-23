@@ -33,7 +33,7 @@ The tool returns:
   - `directory` — working directory (relative to project root)
   - `framework` — framework name (e.g. "vitest", "jest", "pytest")
   - `coverage_cmd` — command that runs tests AND generates coverage
-  - `coverage_format` — output format ("istanbul" | "llvm-cov")
+  - `coverage_format` — output format ("istanbul" | "llvm-cov" | "node-test" | "go-cover" | "coverage-py")
   - `coverage_output` — coverage output file path (relative to `directory`)
   - `coverage_artifacts` — glob patterns for artifacts to move
   - `coverage_cleanup` — paths to clean up after move
@@ -57,6 +57,8 @@ Capture stdout, stderr, and exit code. The script runs tests with coverage in on
 - **vitest/jest** (JSON on stdout): parse `testResults[].assertionResults[]` for `title`, `ancestorTitles`, `duration`, `status`
 - **pytest**: parse lines matching `PASSED`/`FAILED` with trailing duration, or use `--json-report` output
 - **cargo test**: parse `test <name> ... ok/FAILED` lines
+- **node-test**: parse `✔`/`✖` result lines and `# Subtest:` hierarchy for nested test names
+- **go**: parse `--- PASS:`/`--- FAIL:` per-test lines and package summary lines (`ok`/`FAIL` with package path)
 - Other frameworks: parse verbose output for pass/fail/duration annotations
 
 Extract from the output for each test case:
@@ -116,8 +118,20 @@ For each framework that ran coverage successfully, read the coverage output file
   - `data[0].totals.lines.percent` → `lines`
   - `data[0].totals.branches.percent` → `branches`
   - `data[0].totals.functions.percent` → `functions`
+- **`node-test`**: Read parser-produced `coverage-summary.json` (istanbul-compatible structure), extract:
+  - `total.lines.pct` → `lines`
+  - `total.branches.pct` → `branches`
+  - `total.functions.pct` → `functions`
+- **`go-cover`**: Read `func-summary.txt`, extract:
+  - `total:` line percentage → `lines`
+  - `branches` → `null` (Go native tooling does not report branch coverage)
+  - `functions` → `null` (func-summary reports per-function lines, not function coverage %)
+- **`coverage-py`**: Read `coverage.json`, extract:
+  - `totals.percent_covered` → `lines`
+  - `totals.percent_covered_branches` → `branches` (if present; otherwise `null`)
+  - `functions` → `null` (coverage.py JSON does not report function coverage)
 
-If the file does not exist, JSON is malformed, or the expected structure is missing, set that framework's coverage dimensions to 0.
+If the file does not exist, JSON is malformed, or the expected structure is missing, set that framework's coverage dimensions to 0 (all three as `0`, not `null` — null is reserved for unsupported dimensions on successful parse).
 
 ### 5. Thresholds & overrides check
 
@@ -127,22 +141,23 @@ Read `test.coverage.thresholds` and `test.coverage.overrides` from `openspec/con
 mcp__plugin_dev-team_dev-team__config_get({key: "test"})
 ```
 
-**Weighted average:** When multiple frameworks have coverage data, compute weighted average coverage by source file count for each dimension:
+**Weighted average:** When multiple frameworks have coverage data, compute weighted average coverage by source file count for each dimension. Dimensions with `null` values do NOT participate in the weighted average (neither numerator nor denominator):
 
-- `weighted_lines = sum(fw.lines * fw.sourceFileCount) / totalSourceFiles`
-- Same for branches and functions
+- `weighted_lines = sum(fw.lines * fw.sourceFileCount for fw where fw.lines is not null) / sum(fw.sourceFileCount for fw where fw.lines is not null)`
+- Same pattern for branches and functions — only frameworks with non-null values for that dimension contribute
+- If all frameworks have `null` for a dimension, the overall value for that dimension is `null`
 
 **coverage.pass (ALL logic):**
 
-1. Global: `lines >= thresholds.lines AND branches >= thresholds.branches AND functions >= thresholds.functions`
-2. Each override entry: matching directory must independently pass its thresholds (missing dimensions inherit global defaults)
+1. Global: for each non-null dimension, `measured.<dim> >= thresholds.<dim>`; null dimensions skip comparison (treated as pass)
+2. Each override entry: matching directory must independently pass its thresholds (missing dimensions inherit global defaults); null dimensions skip comparison
 3. ALL pass → `coverage.pass = true`
 
 Write the nested `coverage` object to the report:
 - `coverage.pass` — boolean, overall pass/fail
-- `coverage.measured` — weighted average `{lines, branches, functions}`
+- `coverage.measured` — weighted average `{lines: number, branches: number | null, functions: number | null}`
 - `coverage.thresholds` — from `test.coverage.thresholds` in config
-- `coverage.by_framework` — array of `{framework, measured}` per framework
+- `coverage.by_framework` — array of `{framework, measured}` per framework; each `measured` is `{lines: number, branches: number | null, functions: number | null}`
 - `coverage.overrides` — array of `{glob, thresholds, measured, pass}` (entry `coverage` field renamed to `measured`)
 
 If all frameworks failed to generate coverage, set top-level `"coverage": null` (not an empty object with `pass: false`).
@@ -196,6 +211,10 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
       {
         "framework": "vitest",
         "measured": { "lines": 90, "branches": 80, "functions": 85 }
+      },
+      {
+        "framework": "go",
+        "measured": { "lines": 72, "branches": null, "functions": null }
       }
     ],
     "overrides": [

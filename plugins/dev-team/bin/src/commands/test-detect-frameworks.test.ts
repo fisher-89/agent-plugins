@@ -960,3 +960,110 @@ describe('runTestDetectFrameworks — plan JSON-only 传播 (AC-9)', () => {
     }
   });
 });
+
+// ===========================================================================
+// add-node-go-pytest-frameworks: 新框架 plan 生成 (AC-5)
+// @see openspec/changes/add-node-go-pytest-frameworks/test-design.md
+// ===========================================================================
+
+describe('runTestDetectFrameworks — go plan (AC-5)', () => {
+  it('config framework: "go" 时 plan 含 coverage_format: "go-cover" 及注册表 artifacts/cleanup', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'go' },
+    });
+    try {
+      const expected = runTestGetFrameworkConfig({ framework: 'go' });
+      const result = runTestDetectFrameworks({
+        files: ['pkg/foo/foo_test.go'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].coverage_format).toBe('go-cover');
+      expect(result.plan[0].coverage_artifacts).toEqual(expected.coverage_artifacts);
+      expect(result.plan[0].coverage_cleanup).toEqual(expected.coverage_cleanup);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestDetectFrameworks — node-test plan (AC-5)', () => {
+  it('config framework: "node-test" 时 plan 的 coverage_cmd 为两步脚本且 script 含 bash shebang', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'node-test' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.mjs'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].coverage_cmd).toContain('parse-node-test-coverage.mjs');
+      expect(result.plan[0].script.startsWith('#!/bin/bash\nset -e\n')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestDetectFrameworks — pytest plan (AC-5)', () => {
+  it('config framework: "pytest" 时 plan 含 coverage_format: "coverage-py"', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'pytest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['tests/test_foo.py'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].coverage_format).toBe('coverage-py');
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestDetectFrameworks — 多框架 (AC-5)', () => {
+  it('配置 [vitest, go] 时 plan 两条目各自携带正确 coverage_format', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [{ file: '**/*_test.go', framework: 'go' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts', 'pkg/foo_test.go'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(2);
+      expect(result.plan[0].coverage_format).toBe('istanbul');
+      expect(result.plan[1].coverage_format).toBe('go-cover');
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestDetectFrameworks — glob 检测 (AC-5)', () => {
+  it('*_test.go 文件在 go 配置下映射为 go 框架', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'go' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['internal/util/util_test.go'],
+        projectRoot: project.root,
+      });
+      expect(result.detected[0].framework).toBe('go');
+    } finally {
+      project.cleanup();
+    }
+  });
+});

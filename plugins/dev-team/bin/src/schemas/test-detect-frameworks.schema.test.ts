@@ -805,3 +805,38 @@ describe('testDetectFrameworksOutputSchema -- plan script 边界测试', () => {
     expect(result.success).toBe(true);
   });
 });
+
+// ===========================================================================
+// add-node-go-pytest-frameworks: plan coverage_format 新枚举值 (AC-5)
+// @see openspec/changes/add-node-go-pytest-frameworks/test-design.md
+// ===========================================================================
+
+describe('testDetectFrameworksOutputSchema — plan coverage_format (AC-5)', () => {
+  const planBase = {
+    directory: '.',
+    framework: 'vitest',
+    coverage_cmd: 'npx vitest run --coverage',
+    coverage_output: 'coverage/coverage-summary.json',
+    script: '#!/bin/bash\nset -e\n\necho test',
+  };
+
+  it('plan 条目 coverage_format 为 node-test / go-cover / coverage-py 时通过验证', () => {
+    for (const fmt of ['node-test', 'go-cover', 'coverage-py']) {
+      const output = {
+        detected: [],
+        frameworks: [],
+        plan: [{ ...planBase, coverage_format: fmt }],
+      };
+      expect(testDetectFrameworksOutputSchema.safeParse(output).success).toBe(true);
+    }
+  });
+
+  it('空字符串 coverage_format 被拒绝', () => {
+    const output = {
+      detected: [],
+      frameworks: [],
+      plan: [{ ...planBase, coverage_format: '' }],
+    };
+    expect(testDetectFrameworksOutputSchema.safeParse(output).success).toBe(false);
+  });
+});

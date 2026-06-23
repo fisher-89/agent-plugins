@@ -8,7 +8,7 @@ const TEST_COVERAGE_BRANCH_DEFAULT = 70;
 const TEST_COVERAGE_FUNCTION_DEFAULT = 75;
 
 export const testFrameworkSchema = z
-  .enum(['jest', 'vitest', 'vite-plus', 'bun', 'rust'])
+  .enum(['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'])
   .describe('测试框架');
 
 const testCoverageSchema = z

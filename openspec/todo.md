@@ -25,3 +25,5 @@
 - [ ] 步骤定义中不包含序号，workflow动态生成
 - [ ] 禁止test-gen修改非.test文件
 - [ ] phase-next返回allowed_backtracks
+- [ ] fix: code-review未指定backtrack_to
+- [ ] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli

@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && npx vp test --reporter=verbose \"__tests__/unit_test_evaluator_schema_static\" \"__tests__/unit_test_executor_schema_static\" 2>&1",
+  "timestamp": "2026-06-23T08:58:00.000Z",
+  "total": 19,
+  "passed": 19,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 411,
+  "failures": [],
+  "findings": "test-design.md 集成测试 > 用例 表明确标注「本次无新增集成测试」；Glob 检索 **/*.integration.test.* 与 **/tests/integration/** 在变更目录及项目活跃代码中无匹配（仅 archive 下 1 个历史文件）。按设计跳过标准集成测试执行。变更相关的 Agent 静态集成测试（unit_test_evaluator_schema_static 10 项、unit_test_executor_schema_static 9 项）全部通过。修复：unit-test-evaluator.md Step 3 覆盖率子检查补全 coverage.thresholds 与 coverage.overrides 显式字段引用（回归来自 nullable 维度 findings 更新）。plugin.json 2.8.0 → 2.8.1。"
+}

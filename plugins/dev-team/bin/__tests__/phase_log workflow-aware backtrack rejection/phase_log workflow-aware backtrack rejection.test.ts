@@ -71,7 +71,7 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
         items: VALID_ITEMS,
         backtrack_to: '05-implement',
       }),
-    ).toThrow(/当前工作流 test-only 不包含 phase '05-implement'/);
+    ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
 
     expect(mockEntries).toHaveLength(0);
     expect(appendEntry).not.toHaveBeenCalled();

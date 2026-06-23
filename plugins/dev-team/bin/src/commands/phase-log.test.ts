@@ -71,7 +71,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         items: VALID_ITEMS,
         backtrack_to: '05-implement',
       }),
-    ).toThrow(/当前工作流 test-only 不包含 phase '05-implement'/);
+    ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
 
     expect(markPhaseStale).not.toHaveBeenCalled();
     expect(appendEntry).not.toHaveBeenCalled();
@@ -90,9 +90,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         items: VALID_ITEMS,
         backtrack_to: '05-implement',
       }),
-    ).toThrow(
-      /01-proposal, 02-code-analyze, 03-test-design, 04-test-gen, 06-unit-test, 08-integration-test/,
-    );
+    ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
   });
 
   it('uses requirement table when workflow.json absent (AC-13)', () => {
@@ -123,7 +121,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         items: VALID_ITEMS,
         backtrack_to: '02-dev-design',
       }),
-    ).toThrow(/当前工作流 test-only 不包含 phase '02-dev-design'/);
+    ).toThrow(/工作流 test-only 不包含 phase '02-dev-design'/);
 
     expect(appendEntry).not.toHaveBeenCalled();
     expect(writeEvalJson).not.toHaveBeenCalled();

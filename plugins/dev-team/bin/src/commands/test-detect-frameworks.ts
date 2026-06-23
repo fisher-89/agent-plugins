@@ -31,7 +31,7 @@ interface PlanEntry {
   directory: string;
   framework: string;
   coverage_cmd: string;
-  coverage_format: 'istanbul' | 'llvm-cov';
+  coverage_format: 'istanbul' | 'llvm-cov' | 'node-test' | 'go-cover' | 'coverage-py';
   coverage_output: string;
   coverage_artifacts: string[];
   coverage_cleanup: string[];

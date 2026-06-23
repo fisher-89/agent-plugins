@@ -25,7 +25,9 @@ export const testGetFrameworkConfigOutputSchema = z.object({
   framework: testFrameworkSchema,
   test_cmd: z.string().describe('Test command to execute'),
   coverage_cmd: z.string().describe('Coverage command to execute'),
-  coverage_format: z.enum(['istanbul', 'llvm-cov']).describe('Coverage output format identifier'),
+  coverage_format: z
+    .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
+    .describe('Coverage output format identifier'),
   coverage_output: z.string().describe('Coverage output file path (relative to project root)'),
   coverage_artifacts: z
     .array(z.string())

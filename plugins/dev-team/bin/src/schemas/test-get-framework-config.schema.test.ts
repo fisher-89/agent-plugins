@@ -196,3 +196,35 @@ describe('testGetFrameworkConfigOutputSchema -- 新字段异常测试', () => {
     expect(result.success).toBe(false);
   });
 });
+
+// ===========================================================================
+// add-node-go-pytest-frameworks: coverage_format 五值枚举 (AC-5)
+// @see openspec/changes/add-node-go-pytest-frameworks/test-design.md
+// ===========================================================================
+
+describe('testGetFrameworkConfigOutputSchema — coverage_format (AC-5)', () => {
+  const baseOutput = {
+    framework: 'vitest' as const,
+    test_cmd: 'npx vitest run',
+    coverage_cmd: 'npx vitest run --coverage',
+    coverage_output: 'coverage/coverage-summary.json',
+  };
+
+  it('istanbul、llvm-cov、node-test、go-cover、coverage-py 均通过验证', () => {
+    for (const fmt of ['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py']) {
+      const result = testGetFrameworkConfigOutputSchema.safeParse({
+        ...baseOutput,
+        coverage_format: fmt,
+      });
+      expect(result.success).toBe(true);
+    }
+  });
+
+  it('非法值 cobertura 被拒绝', () => {
+    const result = testGetFrameworkConfigOutputSchema.safeParse({
+      ...baseOutput,
+      coverage_format: 'cobertura',
+    });
+    expect(result.success).toBe(false);
+  });
+});

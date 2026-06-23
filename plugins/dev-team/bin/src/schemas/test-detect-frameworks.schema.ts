@@ -42,7 +42,9 @@ export const testDetectFrameworksOutputSchema = z.object({
           .describe('Working directory for command execution (relative to project root)'),
         framework: z.string().describe('Framework name'),
         coverage_cmd: z.string().describe('Coverage command (includes test execution)'),
-        coverage_format: z.enum(['istanbul', 'llvm-cov']).describe('Coverage output format'),
+        coverage_format: z
+          .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
+          .describe('Coverage output format'),
         coverage_output: z.string().describe('Coverage output file path (relative to directory)'),
         coverage_artifacts: z
           .array(z.string())

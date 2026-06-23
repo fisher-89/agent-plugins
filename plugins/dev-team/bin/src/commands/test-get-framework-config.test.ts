@@ -171,6 +171,22 @@ describe('getFrameworkConfig -- edge cases', () => {
     const longName = 'x'.repeat(1001);
     expect(() => runTestGetFrameworkConfig({ framework: longName })).toThrow();
   });
+
+  it('未知框架名抛出错误，错误信息列出全部八个框架名 (AC-2)', () => {
+    const allFrameworks = [
+      'jest',
+      'vitest',
+      'vite-plus',
+      'bun',
+      'rust',
+      'node-test',
+      'go',
+      'pytest',
+    ];
+    expect(() => runTestGetFrameworkConfig({ framework: 'mocha' })).toThrow(
+      new RegExp(allFrameworks.join('|')),
+    );
+  });
 });
 
 // ===========================================================================
@@ -282,6 +298,18 @@ describe('getDefaultGlobForFramework', () => {
 
   it('should throw for unknown framework', () => {
     expect(() => getDefaultGlobForFramework('unknown')).toThrow();
+  });
+
+  it('node-test 应返回 **/*.test.{mjs,js,cjs} (AC-2)', () => {
+    expect(getDefaultGlobForFramework('node-test')).toBe('**/*.test.{mjs,js,cjs}');
+  });
+
+  it('go 应返回 **/*_test.go (AC-2)', () => {
+    expect(getDefaultGlobForFramework('go')).toBe('**/*_test.go');
+  });
+
+  it('pytest 应返回 **/test_*.py (AC-2)', () => {
+    expect(getDefaultGlobForFramework('pytest')).toBe('**/test_*.py');
   });
 });
 
@@ -398,6 +426,84 @@ describe('getFrameworkConfig — JSON-only 边界与异常 (AC-9)', () => {
       } else {
         expect(result.coverage_cmd.toLowerCase()).toContain('coverage');
       }
+    }
+  });
+});
+
+// ===========================================================================
+// add-node-go-pytest-frameworks: go / node-test / pytest 注册表 (AC-2 ~ AC-4)
+// @see openspec/changes/add-node-go-pytest-frameworks/test-design.md
+// ===========================================================================
+
+const NEW_FRAMEWORK_EXPECTED: Record<string, FrameworkConfig> = {
+  go: {
+    framework: 'go',
+    test_cmd: 'go test ./...',
+    coverage_cmd:
+      'go test -coverprofile=coverage.out -covermode=atomic ./... && mkdir -p coverage && go tool cover -func=coverage.out > coverage/func-summary.txt',
+    coverage_format: 'go-cover',
+    coverage_output: 'coverage/func-summary.txt',
+    coverage_artifacts: ['coverage/func-summary.txt'],
+    coverage_cleanup: ['coverage', 'coverage.out'],
+    default_glob: '**/*_test.go',
+  },
+  'node-test': {
+    framework: 'node-test',
+    test_cmd: 'node --test',
+    coverage_cmd:
+      'node --test --experimental-test-coverage 2>&1 | tee coverage/node-test-output.txt && node plugins/dev-team/scripts/parse-node-test-coverage.mjs coverage/node-test-output.txt coverage/coverage-summary.json',
+    coverage_format: 'node-test',
+    coverage_output: 'coverage/coverage-summary.json',
+    coverage_artifacts: ['coverage/coverage-summary.json'],
+    coverage_cleanup: ['coverage'],
+    default_glob: '**/*.test.{mjs,js,cjs}',
+  },
+  pytest: {
+    framework: 'pytest',
+    test_cmd: 'pytest -v',
+    coverage_cmd: 'pytest --cov=. --cov-report=json --cov-branch -q',
+    coverage_format: 'coverage-py',
+    coverage_output: 'coverage.json',
+    coverage_artifacts: ['coverage.json'],
+    coverage_cleanup: ['.coverage', 'htmlcov'],
+    default_glob: '**/test_*.py',
+  },
+};
+
+describe('runTestGetFrameworkConfig — go (AC-2)', () => {
+  it('应返回 coverage_format: "go-cover" 及完整 artifacts/cleanup/default_glob', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'go' });
+    expect(result).toEqual(NEW_FRAMEWORK_EXPECTED.go);
+  });
+});
+
+describe('runTestGetFrameworkConfig — node-test (AC-3)', () => {
+  it('coverage_cmd 应含 --experimental-test-coverage、tee、parse-node-test-coverage.mjs 两步脚本', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    expect(result.coverage_cmd).toContain('--experimental-test-coverage');
+    expect(result.coverage_cmd).toContain('tee');
+    expect(result.coverage_cmd).toContain('parse-node-test-coverage.mjs');
+  });
+});
+
+describe('runTestGetFrameworkConfig — pytest (AC-4)', () => {
+  it('应返回 coverage_format: "coverage-py"、coverage_output: "coverage.json"', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'pytest' });
+    expect(result.coverage_format).toBe('coverage-py');
+    expect(result.coverage_output).toBe('coverage.json');
+  });
+});
+
+describe('runTestGetFrameworkConfig — 八框架完整性 (AC-2)', () => {
+  const ALL_EIGHT = ['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'];
+
+  it('遍历全部八个框架，每个返回非空 test_cmd、coverage_cmd、coverage_artifacts、coverage_cleanup', () => {
+    for (const fw of ALL_EIGHT) {
+      const result = runTestGetFrameworkConfig({ framework: fw });
+      expect(result.test_cmd.length).toBeGreaterThan(0);
+      expect(result.coverage_cmd.length).toBeGreaterThan(0);
+      expect(result.coverage_artifacts.length).toBeGreaterThan(0);
+      expect(result.coverage_cleanup.length).toBeGreaterThan(0);
     }
   });
 });
