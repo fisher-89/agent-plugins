@@ -48,9 +48,9 @@
 
 ## 验收标准
 
-| ID | 验收条件 | 验证方法 |
+| ID | 变更实现 | 验收条件 |
 |----|---------|----------|
-| AC-{{n}} | {{criterion}} | {{validation_method}} |
+| AC-{{n}} | {{in_scope_implementation}} | {{evidence}} |
 
 ---
 
