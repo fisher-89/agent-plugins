@@ -39,7 +39,7 @@ If `EXPLORE_CONTEXT_SUMMARY` is provided in the prompt, use it as reference cont
    - **问题**: Background and motivation for the change
    - **提案**: Proposed solution overview
    - **能力**: List of capabilities being added or modified
-   - **变更范围**: In_scope and out_of_scope items
+   - **变更范围**: Split in-scope items into two subsections — **实现文件** and **测试文件** . Keep **不要修改** for out-of-scope items.
    - **验收标准**: Testable acceptance criteria with validation methods
    - **风险**: Risks with specific mitigation measures
 6. Write `openspec/changes/<change-name>/specs/<capability>/spec.md` for each capability:

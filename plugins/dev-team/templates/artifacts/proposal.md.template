@@ -32,9 +32,13 @@
 
 ## 变更范围
 
-### 实现以下特性
+### 实现文件
 
-- {{in_scope_item}}
+- {{in_scope_implementation_item}}
+
+### 测试文件
+
+- {{in_scope_test_item}}
 
 ### 不要修改
 

@@ -41,7 +41,7 @@ Write two files:
 
 ## Constraints
 
-- Design must address every acceptance criterion from proposal.md
+- Design must address every acceptance criterion from proposal.md, excluding testing
 - Decisions must include at least one alternative considered with rationale for rejection
 - Tasks must be ordered by dependency (earlier tasks unblock later ones)
 - Do NOT produce evaluation or checklist JSON
