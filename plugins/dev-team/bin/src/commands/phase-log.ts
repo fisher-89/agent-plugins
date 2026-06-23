@@ -1,6 +1,7 @@
 import type z from 'zod/v4';
 
 import { getChangeDir } from '../lib/change';
+import { getWorkflowType } from '../lib/change-config';
 import {
   readEvalJson,
   validateVerdict,
@@ -12,7 +13,7 @@ import {
   appendEntry,
   type EvalEntry,
 } from '../lib/eval-json';
-import { getPhaseIndex } from '../lib/workflow';
+import { getPhaseTable } from '../lib/workflow';
 import { type phaseLogInputSchema, type phaseLogOutputSchema } from '../schemas';
 
 type PhaseLogOptions = z.input<typeof phaseLogInputSchema>;
@@ -32,14 +33,16 @@ function handleBacktrackMarking(entries: EvalEntry[], options: PhaseLogOptions):
     ? options.backtrack_to
     : [options.backtrack_to];
 
-  const currentIdx = getPhaseIndex(options.phase);
-  // Validate each target is a known phase ID
+  const workflowType = getWorkflowType(options.change);
+  const phaseTable = getPhaseTable(workflowType);
+  const currentIdx = phaseTable.findIndex((p) => p.id === options.phase);
+
   for (const target of targets) {
-    const idx = getPhaseIndex(target);
-    if (idx === -1) {
-      throw new Error(`无效的回溯目标 phase: "${target}"。请使用有效的 phase 标识符。`);
+    const targetIdx = phaseTable.findIndex((p) => p.id === target);
+    if (targetIdx === -1) {
+      throw new Error(`工作流 ${workflowType} 不包含 phase '${target}'`);
     }
-    if (idx >= currentIdx) {
+    if (currentIdx === -1 || targetIdx >= currentIdx) {
       throw new Error(`无效的回溯目标 phase: "${target}"。不支持回溯到当前或未来phase。`);
     }
   }

@@ -1,0 +1,1057 @@
+[
+  {
+    "phase": "01-proposal",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "R9/R10 fail: 新增能力 test-only-workflow 缺 specs/test-only-workflow/spec.md；AC-10 回归无 spec requirement。其余 R1–R8、R5 均通过。",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "§问题说明三种 workflow 假设需改代码、test-only 场景缺口，及 test-design-planner 缺 design.md 的 artifact 链路断裂。"
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "§变更范围含「实现以下特性」7 项与「不要修改」6 项，均具体可执行。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "5 条风险均有具体缓解，如 evaluator checklist、proposal 覆盖范围交叉验证、skill 完成摘要说明 bug 发现即成功。"
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1~AC-10 表格均含验证方法：phase-next.test.ts、workflow.test.ts、agent 审查、手动 E2E、回归测试。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "薄 skill 编排、专用 agent、phase_next MCP 门控、plugin.json 版本递增，符合 Slim Plugin + Report-Driven Gates 架构。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "全文检索无 TODO、TBD、placeholder 或 {{...}}。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有完整实质内容，无空节或占位。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "§能力含新增 test-only-workflow 及修改 pge-workflow-engine、workflow-orchestration、phase-agents、phase-skills。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": false,
+        "evidence": "新增能力 test-only-workflow 无 specs/test-only-workflow/spec.md；内容分散在 pge-workflow-engine ADDED 节，与能力列表不一一对应。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": false,
+        "evidence": "AC-10（requirement/bug-fix/refactor 回归）在 specs 中无对应 requirement/scenario；新增能力声明与 spec 文件结构不一致。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T09:40:47.638Z"
+  },
+  {
+    "phase": "01-proposal",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "Checked R1–R10: problem/scope/risks/ACs complete; 5 capabilities map 1:1 to specs; six-phase test-only DAG, agents, and AC-1–AC-10 align with specs; matches CLAUDE.md slim-plugin pattern; no placeholders.",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节说明 requirement 流程对已有代码补测不适用，且 test-design-planner 依赖 design.md 而 test-only 无 02-dev-design。"
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "变更范围含「实现以下特性」7 项与「不要修改」6 项，边界清晰。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "5 条风险均有具体缓解：evaluator checklist、proposal AC 交叉验证、独立 eval.json、skill 完成摘要、schema 同步。"
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1–AC-10 均指定 phase-next.test.ts、workflow.test.ts、agent 审查或 E2E 等验证方法。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "薄 skill 编排 phase_next、新增 agent、plugin.json 版本递增，符合 Slim Plugin + Report-Driven Gates。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal.md 全文无 TODO、TBD、placeholder 或 {{...}}。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有完整实质内容。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "新增 test-only-workflow；修改 pge-workflow-engine、workflow-orchestration、phase-agents、phase-skills。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "5 项能力与 specs/ 下 5 个 spec.md 一一对应，无多余或缺失。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "六阶段 DAG、prerequisite、code-analyze agent、完成语义与 AC-1–AC-10 在 test-only-workflow/phase-agents/phase-skills/pge-workflow-engine spec 中一致。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T09:42:59.294Z"
+  },
+  {
+    "phase": "01-proposal",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "Checked R1–R10: problem/scope/risks/ACs complete; 5 capabilities map 1:1 to specs; six-phase test-only DAG, agents, backtrack handling, and AC-1–AC-16 align with specs; matches CLAUDE.md slim-plugin pattern; no placeholders.",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节说明现有 workflow 强制实现阶段、test-design-planner 依赖 design.md 但 test-only 无 02-dev-design，动机明确。"
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "变更范围含「实现以下特性」10+ 项与「不要修改」8 项，边界清晰。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "6 条风险均有具体缓解，如 evaluator checklist 强制 design.md 章节、phase_log 引擎层硬拒绝无效 backtrack。"
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1–AC-16 均列验证方法：phase-next.test.ts、phase-log.test.ts、agent/skill 审查、手动 E2E。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "薄 skill 编排 + MCP phase_next；不嵌入 skills；含 plugin.json 版本递增，符合 Slim Plugin 架构。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal.md 全文无 TODO、TBD、placeholder 或 {{...}}。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有完整实质内容，非占位。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "新增 test-only-workflow；修改 pge-workflow-engine、workflow-orchestration、phase-agents、phase-skills。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "5 项能力各对应 specs/test-only-workflow、pge-workflow-engine、workflow-orchestration、phase-agents、phase-skills 的 spec.md。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "六阶段 DAG、prerequisite、code-analyze agents、完成语义、backtrack 拦截与 AC-1–AC-16 在 specs 中一致引用且无矛盾。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T10:30:06.920Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "D1–D9 pass: 10 components w/ 4 cols; flows A/B/C trace I→P→O; D1–D8 w/ rejected alts; AC-1–16 mapped; tasks staged 1→8 w/ checkboxes; MCP/TS deps; Slim Plugin aligned; all template sections filled. D10 fail: tasks.md 阶段7 为单元测试任务（phase-next/workflow/phase-log.test.ts），违反不得含单元/集成测试任务。",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "主表 10 行 + 复用表 6 行均含职责、文件位置、依赖、技术四列；无 TBD；路径如 workflow.ts、phase-log.ts、code-analyze-planner.md。"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "流程 A 6 步（skill→phase_next→planner→evaluator→phase_log→done）；流程 B 6 步（proposal→代码探索→design.md→evaluator）；流程 C 完整 bug/backtrack 链路含错误与 skill 报告。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "D1–D8 每项含理由与备选方案及拒绝原因，如 D1 拒绝 requirement skip_phases；D4 拒绝修改 evaluator 决策树。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1/2/7→流程 A 与 MCP API；AC-3→code-analyze 组件与流程 B；AC-4→prerequisite DAG；AC-5/6→DAG 隐含 getDependents；AC-8–16→skill/WORKFLOW_CONTEXT/phase_log 拦截与 bug 报告设计。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "8 阶段：workflow.ts→phase_log→agents→skill→schema→版本构建→单元测试→验收；前置不依赖后续；全部 `- [ ]` checkbox。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "例：PHASE_TEST_ONLY 六阶段数组定义、handleBacktrackMarking 用 getPhaseTable 校验、创建 code-analyze-planner.md 指定 frontmatter 与 checklist。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时：OpenSpec CLI、dev-team MCP、现有 test phase agents；构建：TypeScript + Zod、现有 Vitest 测试框架。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "薄 skill 编排 phase_next；差异在 workflow.ts prompt；不改 embedded agent 决策树；tasks 含 plugin.json 版本递增，符合 Slim Plugin + Report-Driven Gates。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构、数据流、路由/API、决策、依赖、风险与缓解、待决问题均已填写实质内容。"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": false,
+        "evidence": "design.md 无测试策略章节（通过）。tasks.md 阶段7「单元测试（覆盖 proposal AC）」含 phase-next.test.ts、workflow.test.ts、phase-log.test.ts 编写任务，违反 D10 不得含单元测试任务。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T10:34:52.639Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "D1–D10 pass: 10 components w/ 4 cols; flows A/B/C I→P→O; D1–D8 w/ rejected alts; AC-1–16 mapped; tasks 6 stages 1→6 w/ checkboxes; deps listed; Slim Plugin aligned; tasks.md 无单元/集成测试任务（较 attempt1 修复 D10）。",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "主表 10 行均含职责、文件位置、依赖、技术四列；无 TBD；路径如 workflow.ts、phase-log.ts、code-analyze-planner.md。"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "流程 A 6 步（skill→phase_next→planner→evaluator→phase_log→done）；流程 B 6 步（proposal→代码探索→design.md→evaluator）；流程 C 完整 bug/backtrack 链路含 MCP 错误与 skill 报告。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "D1–D8 每项含理由与备选方案及拒绝原因，如 D1 拒绝 requirement skip_phases；D4 拒绝修改 evaluator 决策树。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1/2/7→流程 A 与 MCP API；AC-3→code-analyze 组件与流程 B；AC-4/5/6→prerequisite DAG；AC-8–16→skill/WORKFLOW_CONTEXT/phase_log 拦截与 bug 报告设计。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "6 阶段：workflow.ts→phase_log→agents→skill→schema→版本构建；前置不依赖后续；全部 `- [ ]` checkbox。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "例：PHASE_TEST_ONLY 六阶段数组、handleBacktrackMarking 用 getPhaseTable 校验、创建 code-analyze-planner.md 指定 frontmatter 与 checklist。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时：OpenSpec CLI、dev-team MCP、现有 test phase agents；构建：TypeScript + Zod、现有 Vitest 测试框架。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "薄 skill 编排 phase_next；差异在 workflow.ts prompt；不改 embedded agent 决策树；tasks 含 plugin.json 版本递增，符合 Slim Plugin + Report-Driven Gates。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构、数据流、路由/API、决策、依赖、风险与缓解、待决问题均已填写实质内容。"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md 无测试策略章节；tasks.md 仅 6 个实现阶段，无单元/集成测试编写任务（较 attempt 1 已移除阶段 7 测试任务）。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T10:36:23.773Z"
+  },
+  {
+    "phase": "01-proposal",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "Checked R1–R10: problem/scope/risks/ACs complete; 5 capabilities map 1:1 to specs/; no TODO/TBD; aligns with slim-plugin CLAUDE.md; proposal↔specs consistent on test-only DAG, .openspec.yaml SSOT, agents/skills.",
+    "items": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "§问题 covers irrelevant phases, design.md gap, workflow_type drift with concrete PGE context"
+      },
+      {
+        "item": "范围明确划分为 in_scope 和 out_of_scope",
+        "pass": true,
+        "evidence": "§变更范围 has 实现以下特性 (17+ bullets) and 不要修改 (6 bullets)"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "7 risks each with specific mitigations (evaluator checklist, default requirement, engine hard reject, etc.)"
+      },
+      {
+        "item": "验收标准可测试且有验证方法",
+        "pass": true,
+        "evidence": "AC-1–AC-19 table with unit tests, schema review, manual/E2E per row"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "Thin workflow skill, MCP phase_next loop, plugin.json version bump; no embedded skills conflict"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "grep found no TODO/TBD/placeholder/{{ in proposal.md"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题/提案/变更范围/验收标准/风险 all substantive, no stubs"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "新增 test-only-workflow; 修改 pge-workflow-engine, workflow-orchestration, phase-agents, phase-skills"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "5 capabilities → 5 spec dirs: test-only-workflow, pge-workflow-engine, workflow-orchestration, phase-agents, phase-skills"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "6-phase DAG, .openspec.yaml SSOT, code-analyze agents, bug backtrack flow, AC refs AC-1–AC-19 consistent across artifacts"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T10:58:29.769Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 3,
+    "verdict": "fail",
+    "report": "D1–D9 pass: 10 components w/ 4 cols; flows A–D I→P→O; D1–D9 w/ rejected alts; AC-1–19 mapped; tasks 9 stages w/ checkboxes; deps listed; Slim Plugin aligned; sections filled. D10 fail: tasks.md 阶段1/2/3/4 含 *.test.ts 编写任务，违反不得含单元/集成测试任务。",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "主表 10 行均含职责、文件位置、依赖、技术四列；无 TBD；路径如 change-config.ts、workflow.ts、code-analyze-planner.md。"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "流程 A 4 步 workflow.json 生命周期；流程 B 6 步六阶段推进；流程 C 6 步 code-analyze→design.md；流程 D 完整 bug/backtrack→skill 报告链路。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "D1–D9 每项含理由与备选方案及拒绝原因，如 D1 拒绝 requirement skip_phases；D5 拒绝修改 evaluator 决策树。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1/2/7→流程 B 与 MCP API；AC-3/4→流程 C 与 prerequisite；AC-5/6→DAG；AC-8–19→skill/WORKFLOW_CONTEXT/phase_log/proposal-planner/workflow.json 设计。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "9 阶段：change-config→workflow→phase_next→phase_log→agents→proposal→skills→schema→版本构建；前置不依赖后续；全部 `- [ ]` checkbox。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "例：PHASE_TEST_ONLY 六阶段数组、handleBacktrackMarking 用 getPhaseTable 校验、创建 code-analyze-planner.md 指定 frontmatter 与 checklist。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时：OpenSpec CLI、dev-team MCP、现有 test phase agents；构建：TypeScript + Zod、现有 workflow/phase-next/phase-log 测试框架。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "薄 skill 编排 phase_next；差异在 workflow.ts prompt；不改 embedded agent 决策树；tasks 含 plugin.json 版本递增，符合 Slim Plugin + Report-Driven Gates。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构、数据流、路由/API、决策、依赖、风险与缓解、迁移步骤、待决问题均已填写实质内容。"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": false,
+        "evidence": "design.md 无测试策略章节（通过）。tasks.md 阶段1/2/3/4 含 change-config.test.ts、workflow.test.ts、phase-next.test.ts、phase-log.test.ts 编写/更新任务，阶段9 含运行测试，违反 D10 不得含单元测试任务。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T11:23:42.063Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "D1–D10 pass: 12 components w/ 4 cols; flows A–D I→P→O; D1–D9 w/ rejected alts; AC-1–19 mapped; tasks 9 stages 1→9 w/ checkboxes; deps listed; Slim Plugin aligned; no test strategy in design.md; tasks.md 无单元/集成测试任务。",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "主表 12 行均含职责、文件位置、依赖、技术四列；无 TBD；路径如 change-config.ts、workflow.ts、code-analyze-planner.md。"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "流程 A 4 步 workflow.json 生命周期；流程 B 6 步六阶段推进；流程 C 6 步 code-analyze→design.md；流程 D 完整 bug/backtrack→skill 报告链路。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "D1–D9 每项含理由与备选方案及拒绝原因，如 D1 拒绝 requirement skip_phases；D5 拒绝修改 evaluator 决策树。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1/2/7→流程 B 与 MCP API；AC-3/4→流程 C 与 prerequisite；AC-5/6→DAG；AC-8–19→skill/WORKFLOW_CONTEXT/phase_log/proposal-planner/workflow.json 设计。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "9 阶段：change-config→workflow→phase_next→phase_log→agents→proposal→skills→schema→版本构建；前置不依赖后续；全部 `- [ ]` checkbox。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "例：PHASE_TEST_ONLY 六阶段数组、handleBacktrackMarking 用 getPhaseTable 校验、创建 code-analyze-planner.md 指定 frontmatter 与 checklist。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时：OpenSpec CLI、dev-team MCP、现有 test phase agents；构建：TypeScript + Zod、现有 workflow/phase-next/phase-log 测试框架。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "薄 skill 编排 phase_next；差异在 workflow.ts prompt；不改 embedded agent 决策树；tasks 含 plugin.json 版本递增，符合 Slim Plugin + Report-Driven Gates。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构、数据流、路由/API、决策、依赖、风险与缓解、迁移步骤、待决问题均已填写实质内容。"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md 无测试策略章节；tasks.md 9 阶段均为实现任务，无 *.test.ts 编写或运行单元/集成测试任务。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T11:25:13.387Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "T1/T3–T6/T8 pass: AC-1–19 mapped; design.md 12 组件与流程 A–D 有测试；Mock/边界/不可测试项完整。T2 fail: 单元用例中 readWorkflowConfig、getPhaseTable、getPrerequisites、PHASE_TABLES、Backtrack、Boundary Scenarios、pass-entry/input-validation 等 describe 未在验收范围表出现。T7 fail: phase_log/workflow.json 写操作无重复调用幂等性用例。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-19 均在 test-design.md 验收范围表有对应行（如 AC-11→phase-log.test.ts runPhaseLog — workflow-aware backtrack rejection）。"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": false,
+        "evidence": "单元测试用例表含 readWorkflowConfig、getPhaseTable、getPrerequisites、PHASE_TABLES、runPhaseNext — Backtrack、Boundary Scenarios、runPhaseLog — pass entry no propagation、input validation 等测试对象，验收范围表无匹配行。"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "含 workflow.json 缺失/缺字段/空串/非法 JSON、unknown workflow_type 缺省 requirement、test-only 非法 backtrack 不写入 eval、change name 特殊字符等本变更专属边界。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 表覆盖 fs、eval.json、workflow.json、eval-json 模块、agent/SKILL.md 文件读取，与 design.md 依赖一致。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质内容，无 {{placeholder}}。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 组件（change-config、workflow.ts、phase_next/log、mcp、agents、skills）均有对应用例；out_of_scope（test-design-planner 等 agent 不改、eval-json 结构、存量迁移）未越界测试，不可测试项说明 AC-8 E2E 等。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": false,
+        "evidence": "design.md/proposal 涉及 phase_log 写 eval 与 skill 写 workflow.json，但无「重复调用返回一致、无副作用累积」类用例；AC-11/16 仅测单次拒绝未写入。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID|验收条件|测试类型|测试文件|测试对象/测试场景 等），占位符已全部替换。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T11:34:47.949Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "T1/T3–T6/T8 pass; design.md 12 组件与流程 A–D 均有对应用例/Mock。T2 fail: readWorkflowConfig、getPhaseTable、getPrerequisites、Backtrack、Boundary Scenarios、pass-entry/markPhaseStale/input-validation 等 describe 未入验收范围表。T7 fail: phase_log 写 eval 无重复调用幂等用例。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-19 均在 test-design.md 验收范围表有行；design.md 引用的 AC-1/2/7→流程 B、AC-3/4→流程 C、AC-8–19→skill/MCP 设计均已被上述行覆盖。"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": false,
+        "evidence": "单元用例表含 readWorkflowConfig、getPhaseTable、getPrerequisites、runPhaseNext — Backtrack、Boundary Scenarios、runPhaseLog — pass entry no propagation、backtrack_to triggers markPhaseStale、input validation 等测试对象，验收范围表无匹配「测试对象/测试场景」行。"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "含 workflow.json 缺失/缺字段/空串/非法 JSON、unknown workflow_type 缺省 requirement、test-only 非法 backtrack 不写入 eval、change name 特殊字符等本变更专属边界（design.md 流程 A/D）。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 表覆盖 fs、eval.json、workflow.json、eval-json 模块、agent/SKILL.md 文件读取，与 design.md 依赖（OpenSpec CLI、MCP、Vitest fixture）一致。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质内容，无 {{placeholder}}。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "design.md 架构表 12 组件（change-config、PHASE_TEST_ONLY、phase_next/log、agents、skills）均有用例；proposal out_of_scope（不改 test-design-planner、eval-json 结构、存量迁移）未越界；不可测试项说明 AC-8 E2E、AC-18 AskQuestion。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": false,
+        "evidence": "design.md 流程 A/D 与 MCP phase_log 涉及 eval.json 写入；用例仅测单次拒绝/成功（AC-11/16），无「重复 phase_log 调用结果一致、无副作用累积」类用例。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID|验收条件|测试类型|测试文件|测试对象/测试场景 等），占位符已全部替换。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T11:37:55.021Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 3,
+    "verdict": "fail",
+    "report": "T1/T3–T6/T8 pass; design.md 12 组件与流程 A–D 均有对应用例/Mock。T2 fail: readWorkflowConfig、getPhaseTable、getPrerequisites、PHASE_TABLES、Backtrack、Boundary Scenarios、pass-entry/markPhaseStale/input-validation 未入验收范围表。T7 fail: phase_log 写 eval 无重复调用幂等用例。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-19 均在 test-design.md 验收范围表有行；design.md 引用的 AC-1/2/7→流程 B、AC-3/4→流程 C、AC-8–19→skill/MCP 设计均被上述行覆盖。"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": false,
+        "evidence": "单元用例表含 readWorkflowConfig、getPhaseTable、getPrerequisites、PHASE_TABLES、runPhaseNext — Backtrack、Boundary Scenarios、runPhaseLog — pass entry no propagation、backtrack_to triggers markPhaseStale、input validation 等测试对象，验收范围表无匹配「测试对象/测试场景」行。"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "含 workflow.json 缺失/缺字段/空串/非法 JSON、test-only 非法 backtrack 不写入 eval、change name 特殊字符等本变更专属边界（design.md 流程 A/D、MCP backtrack 校验）。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 表覆盖 fs、eval.json、workflow.json、eval-json 模块、agent/SKILL.md 文件读取，与 design.md 依赖（OpenSpec CLI、MCP、Vitest fixture）一致。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质内容，无 {{placeholder}}。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "design.md 架构表 12 组件（change-config、PHASE_TEST_ONLY、phase_next/log、agents、skills）均有用例；proposal out_of_scope（不改 test-design-planner、eval-json 结构、存量迁移）未越界；不可测试项说明 AC-8 E2E、AC-18 AskQuestion。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": false,
+        "evidence": "design.md 流程 A/D 与 MCP phase_log 涉及 eval.json 写入；用例仅测单次拒绝/成功（AC-11/16），无「重复 phase_log 调用结果一致、无副作用累积」类用例。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID|验收条件|测试类型|测试文件|测试对象/测试场景 等），占位符已全部替换。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T11:42:35.812Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "T1–T8 pass vs proposal+design.md: AC-1–19 mapped; 12 components & flows A–D covered; Mock/边界/不可测试项完整; 验收范围含 readWorkflowConfig/getPhaseTable/getPrerequisites/PHASE_TABLES/Backtrack/idempotency; phase_log 幂等用例已补。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1–AC-19 均在 test-design.md 验收范围表有行；design.md MCP API（phase_next/phase_log 无 workflow_type）、流程 B/C/D 与 AC-1/2/3/4/7/8/11–19 设计均被上述行覆盖。"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": true,
+        "evidence": "单元表 readWorkflowConfig、getPhaseTable、getPrerequisites、PHASE_TABLES、runPhaseNext — Backtrack、Boundary Scenarios、runPhaseLog — pass entry/markPhaseStale/input validation/idempotency 均已在验收范围 L36–45 有匹配「测试对象/测试场景」行；集成 AC-3/8/15/16/18/19 场景均有对应行。"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "含 workflow.json 缺失/缺字段/空串/非法 JSON（design.md 流程 A）、test-only 非法 backtrack 不写入 eval（流程 D）、change name 特殊字符、unknown phase 99-unknown 等本变更专属边界。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元/集成 Mock 表覆盖 fs、eval.json、workflow.json、eval-json 模块、agent/SKILL.md 文件读取，与 design.md 依赖（OpenSpec CLI、MCP、Vitest fixture）一致。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（用例+Mock）、集成测试（用例+Mock）、不可测试项均含实质内容，无 {{placeholder}}。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "design.md 架构表 12 组件（change-config、PHASE_TEST_ONLY、phase_next/log、code-analyze agents、workflow-* skills）均有用例；proposal out_of_scope（不改 test-design-planner、eval-json 结构、存量迁移）未越界；不可测试项说明 AC-8 E2E、AC-18 AskQuestion。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "design.md 流程 D 与 MCP phase_log 写 eval；验收范围 L45 AC-16 映射 runPhaseLog — idempotency；用例 L107–109 含相同 pass/fail 连续调用一致、无效 backtrack 重复抛错且 appendEntry 为 0。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "各表列名与 test-design.md.template 一致（AC ID|验收条件|测试类型|测试文件|测试对象/测试场景 等），占位符已全部替换。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T11:44:51.159Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "I1–I5 pass: 12 components + MCP/skills/agents implemented; flows A–D traceable; tasks all [x]. I6 fail: staged unit-test-evaluator.md backtrack default change out of scope. I7 fail: violates D5/D6 (no agent .md edits). Minor: readWorkflowConfig not exported.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "change-config.ts, workflow.ts PHASE_TEST_ONLY/PREREQ, phase-next/log, code-analyze agents, proposal-planner, workflow-* skills all present"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "skills write workflow.json; getWorkflowType in runPhaseNext/runPhaseLog; handleBacktrackMarking rejects invalid targets per flow D"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS patterns match workflow.ts/phase-log.ts; Zod schemas; agent .md structure consistent with dev-design-evaluator"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "mcp.ts phase_next(change only) and phase_log(no workflow_type); workflow-test-only SKILL.md entry documented"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–9 all checked [x] including build and schema check"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": false,
+        "evidence": "git diff --cached unit-test-evaluator.md: default backtrack 02-dev-design→01-proposal; not in tasks.md; design out_of_scope"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": false,
+        "evidence": "D5/D6 require engine-layer backtrack + WORKFLOW_CONTEXT in workflow.ts only; unit-test-evaluator.md edit breaks shared decision-tree rule"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T11:55:32.532Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "I1–I5 pass: 12 架构组件、MCP phase_next/phase_log、agents/skills 均已实现；509 测试通过；tasks 全 [x]。I6 fail: unit-test-evaluator.md 默认 backtrack 01-proposal→02-dev-design 无任务追溯且 out_of_scope。I7 fail: 违反 D6 不改 agent .md。",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "change-config.ts; workflow.ts PHASE_TEST_ONLY/PREREQ; phase-next.ts/log.ts; code-analyze-*.md; proposal-planner; workflow-test-only & workflow-requirement SKILL.md"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "skills scaffold workflow.json; getWorkflowType in runPhaseNext/runPhaseLog; handleBacktrackMarking rejects invalid backtrack per flow D"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS/Zod patterns match existing phase commands; agent .md structure mirrors dev-design-evaluator; tests in workflow.test.ts phase-log.test.ts"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "mcp.ts registerPhaseNextTool/LogTool: input change only, no workflow_type; SKILL documents mcp__plugin_dev-team_dev-team__phase_next"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–9 all [x] including plugin.json 2.6.29 and build"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": false,
+        "evidence": "git diff unit-test-evaluator.md L108: default backtrack 02-dev-design→01-proposal; not listed in tasks.md or design scope"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": false,
+        "evidence": "D6 requires WORKFLOW_CONTEXT in workflow.ts only (done); but unit-test-evaluator.md edit contradicts shared agent decision-tree rule"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T12:01:41.742Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "I1–I7 pass: 12 design components + MCP/skills/agents implemented; flows A–D via getWorkflowType/handleBacktrackMarking; tasks all [x]; 507 tests pass; D5/D6 WORKFLOW_CONTEXT in workflow.ts only; unit-test-evaluator.md unchanged vs HEAD.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "change-config.ts, workflow.ts PHASE_TEST_ONLY/PREREQ, phase-next/log.ts, mcp.ts, code-analyze-*.md, proposal-planner, workflow-* SKILL.md"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "skills write workflow.json; runPhaseNext/runPhaseLog call getWorkflowType; invalid backtrack throws without writing eval (phase-log.test.ts AC-11)"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS/Zod patterns match phase commands; agent .md mirrors dev-design-evaluator; Vitest in change-config/phase-log/workflow/phase-next tests"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "mcp.ts phase_next(change only) & phase_log(no workflow_type); workflow-test-only SKILL documents mcp__plugin_dev-team_dev-team__phase_next loop"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–9 all [x] including plugin.json 2.6.29 and build"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff HEAD unit-test-evaluator.md empty (staged 01-proposal reverted in working tree); plugins/dev-team changes trace to tasks 1–9"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1 test-only table; D2 workflow.json SSOT; D5 engine backtrack reject; D6 WORKFLOW_CONTEXT in workflow.ts 06/08 prompts; D8 proposal-planner AskQuestion"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T12:10:42.420Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "G3/G5 未全过：test-only Normal Progression 缺 02/03 两步 it；Completion 缺 done=true it；phase-log describe 名与 design 不符；mcp.test 未注册 tool 仅断言 schema；phase-log mock 用 fs 非 getWorkflowType。其余 G1/G2/G4/G7/G8/G9 基本满足。",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "change-config/getWorkflowType、workflow、phase-next、phase-log、schema、mcp 均有同目录 *.test.ts"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "单元测试均为 *.test.ts 与 src 共存；集成测试在 __tests__/ 按 design 约定"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "runPhaseNext — test-only Normal Progression 缺 02-code-analyze/03-test-design 两条 it；Completion 缺 done=true it；workflow/phase-log 多处 describe 名与 design 不一致"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "__tests__/ 下 3 个集成文件覆盖 AC-3/8/15/16/18/19 共 7 行场景与 it"
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": false,
+        "evidence": "mcp.test.ts 未 import registerPhaseNextTool/registerPhaseLogTool；phase-log.test 用 fs mock 替代 design 指定的 getWorkflowType mock"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "全部使用 vite-plus/test 与 vitest vi.mock，与现有 bin 测试一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "change-config 缺文件/空 key/空串/invalid JSON；phase-log 空 backtrack/null；phase-next 缺 workflow.json 等边界均有 it"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "phase-log/change-config/集成测试含 beforeEach+vi.clearAllMocks；phase-next 模块级 vi.mock 可接受"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "未生成 workflow_type MCP 参数废弃用例；next() 已改为读 workflow.json"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T12:19:12.848Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "G3 未全过：Normal Progression 缺 02/03 两步 it；Completion 缺 done=true it（均在 workflow_type describe）；workflow/phase-log describe 名与 design 不符（PHASE_TEST_ONLY、backtrack rejection 等）。G5 通过：fs mock 驱动 getWorkflowType；mcp 测 schema 等价注册 inputSchema。G1/G2/G4/G6–G9 满足。",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "getWorkflowType→change-config.test.ts；workflow/phase-next/phase-log→同目录 *.test.ts；schema→*.schema.test.ts；mcp 无 export 函数，mcp.test.ts 覆盖 schema"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "单元测试均为 src/**/*.test.ts 与源码同目录；集成测试在 bin/__tests__/ 三文件"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "runPhaseNext — test-only Normal Progression 仅 3 it，缺 design L83–84 的 02/03 步；Completion 缺 done=true it（L783 在 workflow_type）；PHASE_TEST_ONLY/backtrack rejection/default requirement 等 describe 名与 design 测试对象列不一致"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "__tests__/ 三文件覆盖 AC-3/8/15/16/18/19 共 7 行：code-analyze×3、workflow-test-only×4、phase_log E2E×1"
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "change-config/phase-next/phase-log vi.mock fs+eval-json；phase-log mockWorkflowType 经 fs 驱动 getWorkflowType；mcp.test 断言 phaseNext/LogInputSchema 与 mcp.ts registerTool 同源"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "全部 vite-plus/test + vitest vi.mock，与 bin 现有测试一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "workflow.json 缺失/缺 key/空串/invalid JSON、99-unknown phase、空/null backtrack_to、特殊字符 change name、schema 空 change 均有 it"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "change-config/phase-log/集成测试 beforeEach+vi.clearAllMocks；phase_log 集成 mockEntries.length=0"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "未生成 workflow_type MCP 参数用例（design L94 废弃）；next() 改读 workflow.json"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T12:24:35.591Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "G1–G9 全过：62 行单元+7 行集成用例骨架齐全；test-only Normal Progression/Completion 含 02/03 与 done=true；废弃 MCP workflow_type 未生成；fs mock 驱动 getWorkflowType；beforeEach 清理到位。",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "getWorkflowType→change-config.test.ts；runPhaseNext/Log→commands/*.test.ts；getPhaseTable/getDependents→workflow.test.ts；schema→*.schema.test.ts；mcp 私有 register* 由 mcp.test.ts 断言同源 schema"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "src/**/*.test.ts 与源码同目录；集成测试在 bin/__tests__/ 三文件，命名符合 Vitest 惯例"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "change-config 7 行、workflow 18 行、phase-next 18 行、phase-log 12 行、schema 7 行、mcp 2 行均有对应 describe/it；test-only Normal Progression L835–887 含 02/03/04/06/08；Completion L905–933 含 done=true"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "code-analyze agent definitions.test.ts 覆盖 AC-3/18 共 3 场景；workflow-test-only skill scaffold.test.ts 覆盖 AC-8/15/19；phase_log E2E 覆盖 AC-16"
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "change-config/phase-next/phase-log vi.mock fs+eval-json；phase-log mockWorkflowType 经 fs 驱动 getWorkflowType；集成测试 readFileSync 读 agent/SKILL.md；mcp.test 断言 phaseNext/LogInputSchema 与 registerTool 同源"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "全部 vite-plus/test + vitest vi.mock，与 bin 现有测试一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "workflow.json 缺失/缺 key/空串/invalid JSON；leaf/99-unknown phase；空/null backtrack_to；特殊字符 change name；schema 空 change 均有 it"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "change-config/phase-log/集成测试 beforeEach+vi.clearAllMocks；phase_log 集成 mockEntries.length=0；phase-next 每测 next() 重置 fs mock"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "未生成 workflow_type MCP 参数废弃用例（design L94）；next() 改读 workflow.json"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T12:29:57.782Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "U1–U4 pass: 151/151 unit tests passed (7 files, 1.09s). Coverage exceeds thresholds — lines 88.56% (≥80%), branches 75.85% (≥70%), functions 94.83% (≥75%). No failures; backtrack not required.",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "unit-test-execution.json 含 phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds/test_cases 且类型正确"
+      },
+      {
+        "item": "所有单元测试通过",
+        "pass": true,
+        "evidence": "151/151 passed, failed=0, skipped=0；7 个 workflow-test-only 单元测试文件全部通过"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "coverage.pass=true; lines=88.56% (阈值80%), branches=75.85% (阈值70%), functions=94.83% (阈值75%); plugins/dev-team/bin override 通过"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需决策树诊断；test_cases 为空无失败条目"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-22T12:36:55.020Z"
+  },
+  {
+    "phase": "07-code-review",
+    "timestamp": "2026-06-22T12:38:14.066Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "C1–C7 pass: workflow.json SSOT via change-config/getWorkflowType; PHASE_TEST_ONLY+prereq/backtrack+WORKFLOW_CONTEXT align design D1–D9; MCP schemas drop workflow_type; Zod/JSON input validation; 151 unit tests pass; no secrets/injection; workflow_type enum not strict (design-intended fallback).",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "Grep 无硬编码密钥/eval/exec；change-config.ts:24-35 JSON.parse 有 SyntaxError 捕获；path 经 getChangeDir 解析，无新增命令注入面。"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "phase-next.schema.ts:8 change min(1)；phase-log.schema.ts Zod verdict/report/items；change-config.ts:26-28 校验根对象为 object、:45-47 workflow_type 为 non-empty string；非法 JSON 抛错。"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "workflow.ts:234-376 PHASE_TEST_ONLY 六阶段+prereq；phase-log.ts:36-46 workflow-aware backtrack；phase-next.ts:382 getWorkflowType；mcp 移除 workflow_type；agents/skills 按设计新增。"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "change-config.ts:20-21 缺文件返回 {}；:45-48 空 workflow_type 缺省 requirement；phase-log.ts:28-30 null/'' backtrack 跳过；getPhaseTable:437 unknown 回退 requirement（design D9）。"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "readWorkflowConfig 仅被 getWorkflowType 使用；workflow.ts 移除 getPhaseIndex 全局校验；无未使用 import；PHASE_REFACTOR 仍复用 PHASE_REQUIREMENT（既有模式）。"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "change-config/workflow/phase-log 注释与命名匹配现有 phase 命令；Vitest 同目录 *.test.ts；plugin.json 2.6.29 已递增。"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "EvalEntry/PhaseDefinition 复用 workflow.ts/eval-json 既有类型；workflow.json 用 Record<string,unknown>+fault-tolerant 字符串读取，与 design 缺省 requirement 语义一致，未引入重复 DTO。"
+      }
+    ],
+    "backtrack_to": null
+  }
+]

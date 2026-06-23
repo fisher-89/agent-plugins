@@ -1,0 +1,59 @@
+{
+  "phase": "06-unit-test",
+  "command": "cd plugins/dev-team/bin && vp test --coverage --coverage.reporter=json-summary",
+  "timestamp": "2026-06-22T12:35:30.000Z",
+  "total": 151,
+  "passed": 151,
+  "failed": 0,
+  "skipped": 0,
+  "duration_seconds": 1.09,
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 88.56,
+      "branches": 75.85,
+      "functions": 94.83
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": [
+      {
+        "framework": "vite-plus",
+        "measured": {
+          "lines": 88.56,
+          "branches": 75.85,
+          "functions": 94.83
+        }
+      }
+    ],
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": 88.56,
+          "branches": 75.85,
+          "functions": 94.83
+        },
+        "pass": true
+      }
+    ]
+  },
+  "test_cases": [],
+  "integration_test": {
+    "total": 12,
+    "passed": 12,
+    "failed": 0,
+    "skipped": 0,
+    "duration_ms": 775,
+    "test_cases": []
+  },
+  "findings": "All 151 workflow-test-only unit tests (7 files) passed via vp test. Full dev-team/bin suite: 564/564 passed. Coverage exceeds thresholds (lines 88.56%, branches 75.85%, functions 94.83%). No fixes required. Note: stderr 'lint failed' during full suite run originates from run-static-analysis.test.ts mock output, not an actual lint failure."
+}

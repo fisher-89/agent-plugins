@@ -120,13 +120,32 @@ function staleEntry(
 // ordering within each test case is all that matters.
 
 function next(entries: MockEntry[], change: string = 'test-change', workflowType?: string) {
-  if (entries.length === 0) {
-    vi.mocked(fs.existsSync).mockReturnValue(false);
-  } else {
-    vi.mocked(fs.existsSync).mockReturnValue(true);
-    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify(entries));
-  }
-  return runPhaseNext({ change, workflow_type: workflowType });
+  vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
+    const p = String(filePath);
+    if (p.endsWith('workflow.json')) {
+      return workflowType !== undefined;
+    }
+    if (p.endsWith('eval.json')) {
+      return entries.length > 0;
+    }
+    return false;
+  });
+  vi.mocked(fs.readFileSync).mockImplementation(
+    (
+      path: fs.PathOrFileDescriptor,
+      _options?: BufferEncoding | fs.ObjectEncodingOptions | null,
+    ): string => {
+      const p = String(path);
+      if (p.endsWith('workflow.json')) {
+        return JSON.stringify({ workflow_type: workflowType ?? 'requirement' });
+      }
+      if (p.endsWith('eval.json')) {
+        return JSON.stringify(entries);
+      }
+      return '';
+    },
+  );
+  return runPhaseNext({ change });
 }
 
 // ---------------------------------------------------------------------------
@@ -176,6 +195,10 @@ describe('PHASE_TABLES', () => {
     const def = getPhaseTable('unknown').map((p) => p.id);
     const req = getPhaseTable('requirement').map((p) => p.id);
     expect(def).toEqual(req);
+  });
+
+  it('should have 6 phases for test-only workflow_type', () => {
+    expect(getPhaseTable('test-only')).toHaveLength(6);
   });
 });
 
@@ -733,6 +756,44 @@ describe('runPhaseNext — workflow_type', () => {
     expect(result.total_phases).toBe(9);
   });
 
+  it('should follow test-only phase table when workflow.json has test-only', () => {
+    const result = next([], 'test-change', 'test-only');
+    expect(result.total_phases).toBe(6);
+    expect(result.next_phase).toBe('01-proposal');
+  });
+
+  it('test-only 01-proposal prompt differs from requirement (AC-9)', () => {
+    const requirementResult = next([], 'test-change');
+    const testOnlyResult = next([], 'test-change', 'test-only');
+    expect(testOnlyResult.planner!.prompt).not.toBe(requirementResult.planner!.prompt);
+    expect(testOnlyResult.planner!.prompt).toMatch(/coverage gaps|testing strategy/i);
+  });
+
+  it('test-only returns 02-code-analyze after 01-proposal passes (AC-2)', () => {
+    const result = next([passEntry('01-proposal')], 'test-change', 'test-only');
+    expect(result.next_phase).toBe('02-code-analyze');
+  });
+
+  it('test-only returns 03-test-design after 01 and 02 pass (AC-4)', () => {
+    const entries = [passEntry('01-proposal'), passEntry('02-code-analyze')];
+    const result = next(entries, 'test-change', 'test-only');
+    expect(result.next_phase).toBe('03-test-design');
+  });
+
+  it('test-only returns done after all six phases pass (AC-7)', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-code-analyze'),
+      passEntry('03-test-design'),
+      passEntry('04-test-gen'),
+      passEntry('06-unit-test'),
+      passEntry('08-integration-test'),
+    ];
+    const result = next(entries, 'test-change', 'test-only');
+    expect(result.done).toBe(true);
+    expect(result.total_phases).toBe(6);
+  });
+
   it('bug-fix phase table 仍为 6 个 phase，不含 03/04/08（AC-10）', () => {
     const phases = getPhaseTable('bug-fix').map((p) => p.id);
     expect(phases.length).toBe(6);
@@ -751,6 +812,167 @@ describe('runPhaseNext — workflow_type', () => {
     ];
     const result = next(entries, 'test-change', 'bug-fix');
     expect(result.next_phase).toBe('09-acceptance');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// test-only workflow — dedicated scenarios
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — test-only First Run', () => {
+  it('should return 01-proposal when workflow.json is test-only and eval.json empty (AC-1)', () => {
+    const result = next([], 'test-change', 'test-only');
+    expect(result.next_phase).toBe('01-proposal');
+    expect(result.done).toBe(false);
+  });
+
+  it('should set total_phases to 6 for test-only', () => {
+    const result = next([], 'test-change', 'test-only');
+    expect(result.total_phases).toBe(6);
+  });
+});
+
+describe('runPhaseNext — test-only Normal Progression', () => {
+  it('should return 02-code-analyze after 01-proposal passes (AC-2)', () => {
+    const result = next([passEntry('01-proposal')], 'test-change', 'test-only');
+    expect(result.next_phase).toBe('02-code-analyze');
+  });
+
+  it('should return 03-test-design after 01-proposal and 02-code-analyze pass (AC-2)', () => {
+    const result = next(
+      [passEntry('01-proposal'), passEntry('02-code-analyze')],
+      'test-change',
+      'test-only',
+    );
+    expect(result.next_phase).toBe('03-test-design');
+  });
+
+  it('should return 04-test-gen after 01-03 pass (AC-2)', () => {
+    const result = next(
+      [passEntry('01-proposal'), passEntry('02-code-analyze'), passEntry('03-test-design')],
+      'test-change',
+      'test-only',
+    );
+    expect(result.next_phase).toBe('04-test-gen');
+  });
+
+  it('should return 06-unit-test after 01-04 pass (AC-2)', () => {
+    const result = next(
+      [
+        passEntry('01-proposal'),
+        passEntry('02-code-analyze'),
+        passEntry('03-test-design'),
+        passEntry('04-test-gen'),
+      ],
+      'test-change',
+      'test-only',
+    );
+    expect(result.next_phase).toBe('06-unit-test');
+  });
+
+  it('should return 08-integration-test when 06 pass and 08 not passed (AC-2 parallel leaf)', () => {
+    const result = next(
+      [
+        passEntry('01-proposal'),
+        passEntry('02-code-analyze'),
+        passEntry('03-test-design'),
+        passEntry('04-test-gen'),
+        passEntry('06-unit-test'),
+      ],
+      'test-change',
+      'test-only',
+    );
+    expect(result.next_phase).toBe('08-integration-test');
+  });
+});
+
+describe('runPhaseNext — test-only Gate (02-code-analyze)', () => {
+  it('should return 02-code-analyze when 01 pass but 02 not passed — 03 cannot run early (AC-4)', () => {
+    const result = next([passEntry('01-proposal')], 'test-change', 'test-only');
+    expect(result.next_phase).toBe('02-code-analyze');
+  });
+
+  it('should return 03-test-design when 01-02 pass — gate satisfied (AC-4)', () => {
+    const result = next(
+      [passEntry('01-proposal'), passEntry('02-code-analyze')],
+      'test-change',
+      'test-only',
+    );
+    expect(result.next_phase).toBe('03-test-design');
+  });
+});
+
+describe('runPhaseNext — test-only Completion', () => {
+  it('should return done=true when 01-04, 06, 08 all pass (AC-7)', () => {
+    const result = next(
+      [
+        passEntry('01-proposal'),
+        passEntry('02-code-analyze'),
+        passEntry('03-test-design'),
+        passEntry('04-test-gen'),
+        passEntry('06-unit-test'),
+        passEntry('08-integration-test'),
+      ],
+      'test-change',
+      'test-only',
+    );
+    expect(result.done).toBe(true);
+  });
+
+  it('should never return 05-implement or 09-acceptance for test-only', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-code-analyze'),
+      passEntry('03-test-design'),
+      passEntry('04-test-gen'),
+      passEntry('06-unit-test'),
+    ];
+    const result = next(entries, 'test-change', 'test-only');
+    expect(result.next_phase).not.toBe('05-implement');
+    expect(result.next_phase).not.toBe('09-acceptance');
+  });
+});
+
+describe('runPhaseNext — workflow.json default', () => {
+  it('should use requirement table when workflow.json missing (AC-13)', () => {
+    const result = next([], 'test-change');
+    expect(result.total_phases).toBe(9);
+  });
+
+  it('should use requirement table when workflow.json lacks workflow_type', () => {
+    vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
+      return String(filePath).endsWith('workflow.json') || String(filePath).endsWith('eval.json');
+    });
+    vi.mocked(fs.readFileSync).mockImplementation(
+      (
+        path: fs.PathOrFileDescriptor,
+        _options?: BufferEncoding | fs.ObjectEncodingOptions | null,
+      ): string => {
+        const p = String(path);
+        if (p.endsWith('workflow.json')) {
+          return '{}';
+        }
+        if (p.endsWith('eval.json')) {
+          return '[]';
+        }
+        return '';
+      },
+    );
+    const result = runPhaseNext({ change: 'test-change' });
+    expect(result.total_phases).toBe(9);
+  });
+});
+
+describe('runPhaseNext — Backtrack (test-only)', () => {
+  it('test-only backtrack_to 01-proposal still returns target phase', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-code-analyze'),
+      passEntry('03-test-design'),
+      backtrackEntry('03-test-design', '01-proposal'),
+    ];
+    const result = next(entries, 'test-change', 'test-only');
+    expect(result.next_phase).toBe('01-proposal');
   });
 });
 
@@ -820,6 +1042,11 @@ describe('Boundary Scenarios', () => {
 
   it('should handle change name with special characters', () => {
     const result = next([], 'my-test-变更');
+    expect(result.planner!.prompt).toContain('my-test-变更');
+  });
+
+  it('test-only change name with special characters still appears in planner prompt', () => {
+    const result = next([], 'my-test-变更', 'test-only');
     expect(result.planner!.prompt).toContain('my-test-变更');
   });
 

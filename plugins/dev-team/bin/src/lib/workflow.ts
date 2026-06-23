@@ -10,7 +10,7 @@
 // Types
 // ---------------------------------------------------------------------------
 
-export interface PhaseAgentDef {
+interface PhaseAgentDef {
   agent_type: string;
   prompt: string;
 }
@@ -228,10 +228,99 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
 
 const PHASE_REFACTOR: PhaseDefinition[] = PHASE_REQUIREMENT;
 
+const WORKFLOW_CONTEXT_TEST_ONLY =
+  "WORKFLOW_CONTEXT: test-only — 无 implement/dev-design 阶段。若 phase_log 因 backtrack 目标不存在而拒绝调用，以 verdict:'fail', backtrack_to:null 重新记录，report 中包含发现的代码 bug 详情，然后返回主 agent 附带 bug 信息摘要。";
+
+const PHASE_TEST_ONLY: PhaseDefinition[] = [
+  {
+    id: '01-proposal',
+    pattern: 'DESIGN',
+    planner: {
+      agent_type: 'dev-team:proposal-planner',
+      prompt:
+        'Write test-focused proposal.md and specs/ for change "<change>": coverage gaps, testing strategy, and acceptance criteria for existing code.',
+    },
+    evaluator: {
+      agent_type: 'dev-team:proposal-evaluator',
+      prompt: 'Evaluate proposal.md for change "<change>" against checklist.',
+    },
+    auto_steps: [],
+  },
+  {
+    id: '02-code-analyze',
+    pattern: 'DESIGN',
+    planner: {
+      agent_type: 'dev-team:code-analyze-planner',
+      prompt:
+        'Reverse-engineer existing code architecture and write design.md for change "<change>".',
+    },
+    evaluator: {
+      agent_type: 'dev-team:code-analyze-evaluator',
+      prompt:
+        'Evaluate design.md for change "<change>" against proposal.md. Append result to eval.json.',
+    },
+    auto_steps: [],
+  },
+  {
+    id: '03-test-design',
+    pattern: 'DESIGN',
+    planner: {
+      agent_type: 'dev-team:test-design-planner',
+      prompt: 'Write test design for change "<change>".',
+    },
+    evaluator: {
+      agent_type: 'dev-team:test-design-evaluator',
+      prompt:
+        'Evaluate test design for change "<change>" against design.md. Append result to eval.json.',
+    },
+    auto_steps: [],
+  },
+  {
+    id: '04-test-gen',
+    pattern: 'EXEC',
+    planner: {
+      agent_type: 'dev-team:test-gen-generator',
+      prompt: 'Generate test code for change "<change>".',
+    },
+    evaluator: {
+      agent_type: 'dev-team:test-gen-evaluator',
+      prompt: 'Evaluate generated tests for change "<change>". Append result to eval.json.',
+    },
+    auto_steps: [],
+  },
+  {
+    id: '06-unit-test',
+    pattern: 'EXEC',
+    planner: {
+      agent_type: 'dev-team:unit-test-executor',
+      prompt: 'Run and fix unit tests for change "<change>".',
+    },
+    evaluator: {
+      agent_type: 'dev-team:unit-test-evaluator',
+      prompt: `Evaluate unit test results for change "<change>". Append result to eval.json. ${WORKFLOW_CONTEXT_TEST_ONLY}`,
+    },
+    auto_steps: [],
+  },
+  {
+    id: '08-integration-test',
+    pattern: 'EXEC',
+    planner: {
+      agent_type: 'dev-team:integration-test-executor',
+      prompt: 'Run and fix integration tests for change "<change>".',
+    },
+    evaluator: {
+      agent_type: 'dev-team:integration-test-evaluator',
+      prompt: `Evaluate integration test results for change "<change>". Append result to eval.json. ${WORKFLOW_CONTEXT_TEST_ONLY}`,
+    },
+    auto_steps: [],
+  },
+];
+
 const PHASE_TABLES: Record<string, PhaseDefinition[]> = {
   requirement: PHASE_REQUIREMENT,
   'bug-fix': PHASE_BUG_FIX,
   refactor: PHASE_REFACTOR,
+  'test-only': PHASE_TEST_ONLY,
 };
 
 // ---------------------------------------------------------------------------
@@ -277,10 +366,20 @@ const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
  */
 const PHASE_REFACTOR_PREREQUISITES: Record<string, string[]> = PHASE_PREREQUISITES;
 
+const PHASE_TEST_ONLY_PREREQUISITES: Record<string, string[]> = {
+  '01-proposal': [],
+  '02-code-analyze': ['01-proposal'],
+  '03-test-design': ['01-proposal', '02-code-analyze'],
+  '04-test-gen': ['03-test-design'],
+  '06-unit-test': ['04-test-gen'],
+  '08-integration-test': ['04-test-gen'],
+};
+
 const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>> = {
   requirement: PHASE_PREREQUISITES,
   'bug-fix': PHASE_BUG_FIX_PREREQUISITES,
   refactor: PHASE_REFACTOR_PREREQUISITES,
+  'test-only': PHASE_TEST_ONLY_PREREQUISITES,
 };
 
 /**
@@ -326,16 +425,6 @@ export function getDependents(phaseId: string, workflowType?: string): string[] 
 }
 
 // ---------------------------------------------------------------------------
-// Derived: ordered phase ID list (requirement workflow is canonical)
-// ---------------------------------------------------------------------------
-
-/**
- * Ordered list of PGE workflow phases.
- * Derived from PHASE_REQUIREMENT — the single source of truth.
- */
-const PHASES: readonly string[] = PHASE_REQUIREMENT.map((p) => p.id);
-
-// ---------------------------------------------------------------------------
 // Accessors
 // ---------------------------------------------------------------------------
 
@@ -346,12 +435,4 @@ const PHASES: readonly string[] = PHASE_REQUIREMENT.map((p) => p.id);
 export function getPhaseTable(workflowType?: string): PhaseDefinition[] {
   const key = (workflowType || DEFAULT_WORKFLOW).toLowerCase();
   return PHASE_TABLES[key] || PHASE_TABLES[DEFAULT_WORKFLOW];
-}
-
-/**
- * Return the index of a phase in the PHASES array.
- * Returns -1 if the phase is not found.
- */
-export function getPhaseIndex(phase: string): number {
-  return PHASES.indexOf(phase);
 }

@@ -24,3 +24,4 @@
 - [x] 将test-gen移动到implement后面执行
 - [ ] 步骤定义中不包含序号，workflow动态生成
 - [ ] 禁止test-gen修改非.test文件
+- [ ] phase-next返回allowed_backtracks

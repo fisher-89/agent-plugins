@@ -172,7 +172,6 @@ function registerPhaseNextTool(server: McpServer): void {
     async (args) => {
       const result = runPhaseNext({
         change: args.change,
-        workflow_type: args.workflow_type,
       });
       return jsonContent(phaseNextOutputSchema, result);
     },

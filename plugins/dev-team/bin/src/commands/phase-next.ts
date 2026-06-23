@@ -13,42 +13,17 @@
  * planner/evaluator agents without any hardcoded phase knowledge.
  */
 
+import { type z } from 'zod/v4';
+
 import { getChangeDir } from '../lib/change';
+import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, type EvalEntry } from '../lib/eval-json';
-import { getPhaseTable, type PhaseAgentDef, type PhaseDefinition } from '../lib/workflow';
+import { getPhaseTable, type PhaseDefinition } from '../lib/workflow';
+import { type phaseNextInputSchema, type phaseNextOutputSchema } from '../schemas';
 
-// ---------------------------------------------------------------------------
-// Types (local to phase_next)
-// ---------------------------------------------------------------------------
+export type PhaseNextOptions = z.input<typeof phaseNextInputSchema>;
 
-export interface PhaseNextOptions {
-  change: string;
-  workflow_type?: string;
-}
-
-export interface PhaseNextResult {
-  done: boolean;
-  error: string | null;
-  message: string | null;
-  next_phase: string | null;
-  phase_pattern: string | null;
-  planner: PhaseAgentDef | null;
-  evaluator: PhaseAgentDef | null;
-  auto_steps: string[];
-  total_phases: number;
-  phase_index: number;
-  round: number;
-}
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const DEFAULT_WORKFLOW: string = 'requirement';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
+export type PhaseNextResult = z.output<typeof phaseNextOutputSchema>;
 
 /**
  * Replace '<change>' placeholder in a prompt string with the actual change name.
@@ -381,7 +356,7 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
   }
 
   const change = options.change;
-  const workflowType = options.workflow_type || DEFAULT_WORKFLOW;
+  const workflowType = getWorkflowType(change);
 
   // -- Read eval.json --
   const changeDir = getChangeDir(change);

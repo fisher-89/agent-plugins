@@ -495,3 +495,34 @@ Reserved workflow variants:
 | phase_next | MODIFIED (behavior) | Phase table order and prerequisite checks for implement-before-test-gen |
 | phase_log | UNCHANGED | Stale propagation uses updated dependents graph |
 | phase_check | DEPRECATED | Removed from workflow loop; logic merged into `phase_next`. Tool retained for debugging. |
+
+## ADDED Requirements
+
+### Requirement: Change directory workflow_type in workflow.json
+Each change directory SHALL store its workflow type in `openspec/changes/<name>/workflow.json` as the single source of truth:
+
+```json
+{
+  "workflow_type": "requirement | bug-fix | refactor | test-only"
+}
+```
+
+Rules:
+1. `workflow-*` skills SHALL write `workflow.json` when scaffolding a new change (Step 1)
+2. `phase_next` and `phase_log` SHALL read `workflow_type` from this file — they SHALL NOT accept `workflow_type` as an MCP parameter
+3. When `workflow.json` does not exist or `workflow_type` is absent, server-side logic SHALL default to `"requirement"` for backward compatibility
+4. A change directory SHOULD NOT modify `workflow.json` after workflow execution has begun
+
+#### Scenario: workflow-test-only writes workflow.json on scaffold (AC-19)
+- **WHEN** `workflow-test-only` skill creates a new change via `openspec new change`
+- **THEN** it writes `{"workflow_type": "test-only"}` to `workflow.json` before entering the orchestration loop
+
+#### Scenario: workflow-requirement writes workflow.json on scaffold
+- **WHEN** `workflow-requirement` skill creates a new change
+- **THEN** it writes `{"workflow_type": "requirement"}` to `workflow.json`
+
+#### Scenario: phase_next resolves workflow from file not parameter (AC-17)
+- **WHEN** inspecting `phaseNextInputSchema`
+- **THEN** it contains only `change` as input (no `workflow_type`)
+- **AND** `runPhaseNext()` calls `getWorkflowType(change)` to select the phase table (reading from `workflow.json`)
+

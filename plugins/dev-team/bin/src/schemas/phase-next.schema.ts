@@ -2,15 +2,11 @@ import { z } from 'zod/v4';
 
 /**
  * Input schema for phase_next MCP tool.
- * `change` is required; `workflow_type` defaults to "requirement".
+ * `change` is required; workflow_type is read from change `workflow.json`.
  */
-export const phaseNextInputSchema = {
+export const phaseNextInputSchema = z.object({
   change: z.string().min(1).describe('Change name (corresponds to openspec/changes/<name>)'),
-  workflow_type: z
-    .string()
-    .optional()
-    .describe('Workflow variant: "requirement" (default), "bug-fix", "refactor"'),
-};
+});
 
 /**
  * Phase agent definition — which agent type and prompt to use.

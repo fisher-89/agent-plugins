@@ -11,9 +11,6 @@ importers:
       '@likec4/language-services':
         specifier: ^1.57.0
         version: 1.57.0(bundle-require@5.1.0(esbuild@0.27.4))(esbuild@0.27.4)(react-dom@19.2.6(react@19.2.6))(react@19.2.6)
-      '@modelcontextprotocol/sdk':
-        specifier: ^1.29.0
-        version: 1.29.0(zod@4.4.3)
       cac:
         specifier: ^6.7.14
         version: 6.7.14
@@ -24,6 +21,9 @@ importers:
         specifier: ^4.4.3
         version: 4.4.3
     devDependencies:
+      '@modelcontextprotocol/sdk':
+        specifier: ^1.29.0
+        version: 1.29.0(zod@4.4.3)
       '@types/node':
         specifier: ^25.9.3
         version: 25.9.3

@@ -1,10 +1,10 @@
 ---
-name: workflow-requirement
+name: workflow-test-only
 description: |
-  Full PGE workflow orchestrator — executes all 9 phases sequentially.
+  Test-only PGE workflow orchestrator — executes 6 phases for supplementing test coverage on existing code.
   No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
   Calls Agent(planner) → Bash(auto_steps) → Agent(evaluator) in a loop until done.
-  On completion, notifies user to archive manually.
+  On code bug discovery, writes a report and asks user to continue or terminate.
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -12,14 +12,14 @@ metadata:
   version: "1.0"
 ---
 
-Full workflow orchestrator — executes all PGE phases via phase_next loop.
+Test-only workflow orchestrator — executes the 6-phase test-only pipeline via phase_next loop.
 
 This skill does NOT contain any hardcoded phase table, agent name, or prompt.
 Every phase, agent type, and prompt is returned by the phase_next MCP tool.
 
 ## Input:
 
-The user's request may include a change name (kebab-case), a description of what they want to build, or nothing at all.
+The user's request may include a change name (kebab-case), a description of test coverage to add, or nothing at all.
 
 ## Steps
 
@@ -38,7 +38,7 @@ Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
      - **Uncertain** → use AskQuestion to present the potentially matching change(s) plus a "Create a new change" option. Let the user decide.
 3. **No parameter provided AND exactly one active change exists** → auto-select that change, skip to Step 2.
 4. **No parameter provided AND multiple active changes exist** → use AskQuestion to present the list of active changes (plus an "Other — describe a new change" option). If the user picks an existing change, skip to Step 2. If the user describes a new change, derive a kebab-case name and proceed to Step 1.
-5. **No parameter provided AND zero active changes exist** → use AskQuestion (open-ended, no preset options) to ask: "What change do you want to work on? Describe what you want to build or fix." Derive a kebab-case name from the response and proceed to Step 1.
+5. **No parameter provided AND zero active changes exist** → use AskQuestion (open-ended, no preset options) to ask: "What change do you want to work on? Describe the test coverage you want to add or fix." Derive a kebab-case name from the response and proceed to Step 1.
 
 **IMPORTANT**: Do NOT proceed without a resolved change name.
 
@@ -55,7 +55,7 @@ This creates a scaffolded change in the planning home resolved by the CLI with `
 Write `openspec/changes/<name>/workflow.json`:
 
 ```json
-{"workflow_type": "requirement"}
+{"workflow_type": "test-only"}
 ```
 
 ### Step 2: Orchestration loop
@@ -86,11 +86,20 @@ LOOP:
     Bash(step.command)
 
   if result.evaluator:
-    Agent({
+    eval_result = Agent({
       description: "Evaluate artifacts for phase {result.next_phase}",
       subagent_type: result.evaluator.agent_type,
       prompt: result.evaluator.prompt
     })
+
+    if eval_result indicates code bugs found (verdict fail, backtrack_to null, report mentions code bugs):
+      Write openspec/changes/<name>/reports/code-bugs-found.md summarizing bugs from eval report
+      Notify user: tests discovered production code bugs
+      AskQuestion: continue workflow (e.g. proceed to integration-test) or terminate
+      if user chooses terminate:
+        STOP
+      else:
+        continue LOOP
 
   输出: "[Round {result.round}/20] [Phase {result.phase_index}/{result.total_phases}] {result.next_phase}: executed"
   PushNotification("Workflow {name}: Phase {result.next_phase} completed ({result.phase_index}/{result.total_phases})")
@@ -100,15 +109,16 @@ LOOP:
 
 ### Step 3: Completion
 
-All phases have passed evaluation.
+All six test-only phases have passed evaluation.
 
 1. 显示完成摘要:
-   - Done: all phases passed
-   - Total phases: {total_phases}
+   - Done: all test-only phases passed
+   - Total phases: 6
    - Total rounds: {round}
+   - Note: discovering implementation bugs via tests also fulfills the test-only workflow purpose
 
-2. PushNotification("Workflow for change '{name}' completed. Please verify and run /dev-team:openspec-archive-change")
+2. PushNotification("Test-only workflow for change '{name}' completed. Please verify and run /dev-team:openspec-archive-change")
 
 3. **Do NOT auto-archive.** The user must manually run `/dev-team:openspec-archive-change` after inspection.
 
-4. 完成提示: "All phases completed. Please review the results and run `/dev-team:openspec-archive-change` to finalize."
+4. 完成提示: "All test-only phases completed. Please review the results and run `/dev-team:openspec-archive-change` to finalize."
