@@ -40,7 +40,6 @@ export const phaseLogInputSchema = phaseLogSchema
   .pick({
     phase: true,
     attempt: true,
-    verdict: true,
     report: true,
     items: true,
     backtrack_to: true,

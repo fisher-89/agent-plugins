@@ -1086,10 +1086,9 @@ describe('phase_next Output Schema', () => {
     expect(result).toHaveProperty('done');
     expect(result).toHaveProperty('error');
     expect(result).toHaveProperty('next_phase');
-    expect(result).toHaveProperty('phase_pattern');
     expect(result).toHaveProperty('planner');
     expect(result).toHaveProperty('evaluator');
-    expect(result).toHaveProperty('auto_steps');
+    expect(result).toHaveProperty('allowed_backtrack_phases');
     expect(result).toHaveProperty('total_phases');
     expect(result).toHaveProperty('phase_index');
     expect(result).toHaveProperty('round');
@@ -1142,5 +1141,112 @@ describe('phase_next Output Schema', () => {
     // Both should have the same prompt
     expect(firstResult.planner!.prompt).toBe(retryResult.planner!.prompt);
     expect(retryResult.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// allowed_backtrack_phases
+// ---------------------------------------------------------------------------
+
+describe('phase_next — allowed_backtrack_phases', () => {
+  it('should return empty allowed_backtrack_phases for first phase', () => {
+    const result = next([], 'test-change');
+    expect(result.allowed_backtrack_phases).toEqual([]);
+  });
+
+  it('should return preceding phases for second phase', () => {
+    const result = next([passEntry('01-proposal')], 'test-change');
+    expect(result.allowed_backtrack_phases).toHaveLength(1);
+    expect(result.allowed_backtrack_phases[0].id).toBe('01-proposal');
+    expect(result.allowed_backtrack_phases[0].description).toBeTruthy();
+  });
+
+  it('should return all preceding phases with id and description', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+    ];
+    const result = next(entries, 'test-change');
+    expect(result.next_phase).toBe('05-implement');
+    // 05-implement is the 4th phase in the table → 3 preceding phases
+    expect(result.allowed_backtrack_phases).toHaveLength(3);
+    expect(result.allowed_backtrack_phases[0]).toEqual({
+      id: '01-proposal',
+      description: expect.any(String),
+    });
+    expect(result.allowed_backtrack_phases[1].id).toBe('02-dev-design');
+    expect(result.allowed_backtrack_phases[2].id).toBe('03-test-design');
+    // All descriptions should be non-empty strings
+    for (const p of result.allowed_backtrack_phases) {
+      expect(p.description).toBeTruthy();
+    }
+  });
+
+  it('should have empty allowed_backtrack_phases on done', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+      passEntry('04-test-gen'),
+      passEntry('05-implement'),
+      passEntry('06-unit-test'),
+      passEntry('07-code-review'),
+      passEntry('08-integration-test'),
+      passEntry('09-acceptance'),
+    ];
+    const result = next(entries, 'test-change');
+    expect(result.done).toBe(true);
+    expect(result.allowed_backtrack_phases).toEqual([]);
+  });
+
+  it('should have empty allowed_backtrack_phases on error', () => {
+    const entries = [
+      failEntry('01-proposal', 1),
+      failEntry('01-proposal', 2),
+      failEntry('01-proposal', 3),
+      failEntry('01-proposal', 4),
+      failEntry('01-proposal', 5),
+    ];
+    const result = next(entries, 'test-change');
+    expect(result.error).toBe('max_retries_exceeded');
+    expect(result.allowed_backtrack_phases).toEqual([]);
+  });
+
+  it('should append backtrack hint to evaluator prompt', () => {
+    const entries = [passEntry('01-proposal'), passEntry('02-dev-design')];
+    const result = next(entries, 'test-change');
+    expect(result.next_phase).toBe('03-test-design');
+    // Evaluator prompt should include backtrack hint
+    expect(result.evaluator!.prompt).toContain('可回退阶段 (backtrack_to)');
+    expect(result.evaluator!.prompt).toContain('01-proposal');
+    expect(result.evaluator!.prompt).toContain('02-dev-design');
+  });
+
+  it('should NOT append backtrack hint when no preceding phases', () => {
+    const result = next([], 'test-change');
+    expect(result.next_phase).toBe('01-proposal');
+    expect(result.evaluator!.prompt).not.toContain('可回退阶段');
+  });
+
+  it('should include backtrack hint on retry', () => {
+    const result = next([passEntry('01-proposal'), failEntry('02-dev-design')], 'test-change');
+    expect(result.next_phase).toBe('02-dev-design');
+    expect(result.evaluator!.prompt).toContain('可回退阶段 (backtrack_to)');
+    expect(result.evaluator!.prompt).toContain('01-proposal');
+  });
+
+  it('should include backtrack hint after backtrack detection', () => {
+    const entries = [
+      passEntry('01-proposal'),
+      passEntry('02-dev-design'),
+      passEntry('03-test-design'),
+      backtrackEntry('03-test-design', '01-proposal'),
+    ];
+    const result = next(entries, 'test-change');
+    expect(result.next_phase).toBe('01-proposal');
+    // 01-proposal is the first phase → no preceding phases
+    expect(result.allowed_backtrack_phases).toEqual([]);
+    expect(result.evaluator!.prompt).not.toContain('可回退阶段');
   });
 });

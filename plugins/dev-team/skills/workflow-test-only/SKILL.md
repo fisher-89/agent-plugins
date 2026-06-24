@@ -3,7 +3,6 @@ name: workflow-test-only
 description: |
   Test-only PGE workflow orchestrator — executes 6 phases for supplementing test coverage on existing code.
   No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
-  Calls Agent(planner) → Bash(auto_steps) → Agent(evaluator) in a loop until done.
   On code bug discovery, writes a report and asks user to continue or terminate.
 license: MIT
 disable-model-invocation: true
@@ -11,11 +10,6 @@ metadata:
   author: dev-team
   version: "1.0"
 ---
-
-Test-only workflow orchestrator — executes the 6-phase test-only pipeline via phase_next loop.
-
-This skill does NOT contain any hardcoded phase table, agent name, or prompt.
-Every phase, agent type, and prompt is returned by the phase_next MCP tool.
 
 **Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build.
 
@@ -79,9 +73,6 @@ LOOP:
       subagent_type: result.planner.agent_type,
       prompt: result.planner.prompt
     })
-
-  for step in result.auto_steps:
-    Bash(step.command)
 
   if result.evaluator:
     eval_result = Agent({

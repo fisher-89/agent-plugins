@@ -21,6 +21,14 @@ type PhaseLogOptions = z.input<typeof phaseLogInputSchema>;
 type PhaseLogResult = z.output<typeof phaseLogOutputSchema>;
 
 /**
+ * Auto-calculate verdict from checklist items when not explicitly provided.
+ * All pass → "pass", any fail → "fail".
+ */
+function resolveVerdict(items: { pass: boolean }[]): 'pass' | 'fail' {
+  return items.every((i) => i.pass) ? 'pass' : 'fail';
+}
+
+/**
  * Handle backtrack stale marking when backtrack_to is set.
  * Returns true if entries were modified, false otherwise.
  */
@@ -65,7 +73,8 @@ function handleBacktrackMarking(entries: EvalEntry[], options: PhaseLogOptions):
  * - Does NOT perform gate-check (gate logic is entirely owned by phase_next).
  */
 export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
-  validateVerdict(options.verdict, options.skipped === true);
+  const verdict = resolveVerdict(options.items);
+  validateVerdict(verdict, options.skipped === true);
   validateReportLength(options.report);
 
   const changeDir = getChangeDir(options.change);
@@ -84,11 +93,11 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
 
   const entry = buildEntry({
     phase: options.phase,
-    verdict: options.verdict,
+    verdict,
     report: options.report,
     items: options.items,
     attempt,
-    backtrack_to: options.backtrack_to || null,
+    backtrack_to: options.backtrack_to ?? null,
     skipped: options.skipped === true ? true : undefined,
   });
 

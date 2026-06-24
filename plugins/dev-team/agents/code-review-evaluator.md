@@ -42,7 +42,7 @@ Inspect:
 5. Glob for test files matching changed module names
 6. Read changed files to check error handling and null safety
 7. Evaluate each checklist item with specific file:line evidence
-8. If design contradictions found: set `backtrack_to` to "02-dev-design"
+8. Backtrack if design contradictions found
 9. Determine verdict: "pass" only if ALL items pass (C1-C8)
 10. Write report (≤500 chars)
 11. Call the dev-team MCP tool to append the evaluation result
@@ -52,10 +52,8 @@ Inspect:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "07-code-review", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<02-dev-design|null>"})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "07-code-review", report: "<report>", items: '<items>', backtrack_to: "<string|null>"})
 ```
-
-Include `backtrack_to: "02-dev-design"` if design contradictions were found (verdict must be "fail" when backtracking).
 
 The `items` parameter is a JSON array:
 
@@ -73,6 +71,4 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 - NO access to Generator or Planner reasoning — only artifacts and codebase
 - Do NOT modify any files — evaluation data is written via dev-team MCP phase_log tool
 - Security issues (C1 fail) always result in verdict "fail" — no exceptions
-- backtrack_to can only be set to "02-dev-design" (E6 is the only agent that can backtrack to dev-design)
-- When backtrack_to is set, verdict must be "fail"
 - Evidence must include file:line references for code issues

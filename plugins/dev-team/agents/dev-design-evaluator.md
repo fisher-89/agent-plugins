@@ -46,7 +46,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "02-dev-design", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "02-dev-design", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array:
@@ -64,5 +64,4 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 
 - NO access to the Planner's reasoning — only the .md artifacts
 - Do NOT modify design.md or tasks.md — read-only evaluation
-- E3 cannot set backtrack_to (only E6/E7 can)
 - Task ordering check: verify no later task is a dependency of an earlier task

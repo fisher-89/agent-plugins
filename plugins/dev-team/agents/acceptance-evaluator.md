@@ -2,7 +2,6 @@
 name: acceptance-evaluator
 description: |
   【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
-  Appends result via dev-team MCP phase_log tool. Can set backtrack_to to "01-proposal".
 model: opus-4.6
 tools: Read, Grep, LSP, dev-team
 ---
@@ -40,21 +39,18 @@ Inspect:
 4. For each AC: grep/glob the codebase for implementation evidence
 5. For each out_of_scope item: grep to verify absence
 6. For scope creep: check for components/APIs not in in_scope
-7. If requirements gaps found (AC without implementation): set `backtrack_to` to "01-proposal"
+7. Backtrack if requirements gaps found (AC without implementation)
 8. Evaluate each checklist item with specific file:line evidence
-9. Determine verdict: "pass" only if ALL items pass (A1-A5)
-10. Write report (≤500 chars)
-11. Call the dev-team MCP tool to append the evaluation result
+9. Write report (≤500 chars)
+10. Call the dev-team MCP tool to append the evaluation result
 
 ## Output
 
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "09-acceptance", verdict: "pass|fail", report: "<report>", items: '<items>', backtrack_to: "<01-proposal|null>"})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "09-acceptance", report: "<report>", items: '<items>', backtrack_to: "<string|null>"})
 ```
-
-Include `backtrack_to: "01-proposal"` if requirements gaps were found (verdict must be "fail" when backtracking).
 
 The `items` parameter is a JSON array:
 
@@ -71,7 +67,5 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 
 - NO access to Planner/Generator reasoning — only artifacts and codebase
 - Do NOT modify any files — evaluation data is written via dev-team MCP phase_log tool
-- backtrack_to can only be set to "01-proposal" (E7 is the only agent that can backtrack to P1)
-- When backtrack_to is set, verdict must be "fail"
 - Every AC must be traced to specific code evidence — "AC covered by general implementation" is insufficient
 - If tasks.md has unchecked items, the verdict is "fail"

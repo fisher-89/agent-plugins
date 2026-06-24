@@ -44,7 +44,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "03-test-design", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "03-test-design", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array:
@@ -63,4 +63,3 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 - NO access to the Planner's reasoning — only test-design.md and proposal.md artifacts
 - Do NOT modify test-design.md — read-only evaluation
 - Evidence must cross-reference specific lines/sections from both artifacts
-- E2 cannot set backtrack_to (only E6/E7 can)

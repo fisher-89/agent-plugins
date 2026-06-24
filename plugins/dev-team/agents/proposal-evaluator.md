@@ -50,7 +50,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "01-proposal", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "01-proposal", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array:
@@ -70,4 +70,3 @@ The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
 - Do NOT modify proposal.md or specs/ — this is read-only evaluation
 - Evidence must quote or reference specific content from the artifacts
 - If verdict is "fail", the skill will re-invoke the main agent with failed items (regenerates both proposal.md and specs/)
-- E1 cannot set backtrack_to (only E6/E7 can)

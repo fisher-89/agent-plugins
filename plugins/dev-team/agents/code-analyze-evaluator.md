@@ -43,7 +43,7 @@ Read only:
 Prepare the evaluation data and call the MCP tool:
 
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "02-code-analyze", verdict: "pass|fail", report: "<report>", items: '<items>'})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "02-code-analyze", report: "<report>", items: '<items>'})
 ```
 
 The `items` parameter is a JSON array:

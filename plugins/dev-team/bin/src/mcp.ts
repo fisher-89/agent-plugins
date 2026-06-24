@@ -67,9 +67,7 @@ function registerPhaseLogTool(server: McpServer): void {
   server.registerTool(
     'phase_log',
     {
-      description:
-        'Append an evaluation result entry to eval.json for a given workflow phase. ' +
-        'Records the verdict (pass/fail), checklist items, and optional backtrack_to for a change.',
+      description: 'Append an evaluation result entry to eval.json for a given workflow phase. ',
       inputSchema: phaseLogInputSchema,
       outputSchema: phaseLogOutputSchema,
     },
@@ -165,7 +163,7 @@ function registerPhaseNextTool(server: McpServer): void {
       description:
         'Return the next phase to execute in a PGE workflow. ' +
         'Handles gate check, skip passed phases, retry, backtrack, round limit, and mid-phase interruption. ' +
-        'Returns the phase identifier, planner/evaluator agent config, and auto_steps for the skill to execute.',
+        'Returns the phase identifier and planner/evaluator agent config for the skill to execute.',
       inputSchema: phaseNextInputSchema,
       outputSchema: phaseNextOutputSchema,
     },

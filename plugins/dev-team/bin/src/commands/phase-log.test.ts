@@ -28,7 +28,7 @@ vi.mock('../lib/change', () => ({
 
 import { markPhaseStale, appendEntry, writeEvalJson } from '../lib/eval-json';
 import { runPhaseLog } from './phase-log';
-
+const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'ok' }];
 const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
 
 function mockWorkflowType(workflowType?: string): void {
@@ -66,9 +66,8 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
       runPhaseLog({
         change: 'test-change',
         phase: '06-unit-test',
-        verdict: 'fail',
         report: 'bugs found',
-        items: VALID_ITEMS,
+        items: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
@@ -85,9 +84,8 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
       runPhaseLog({
         change: 'test-change',
         phase: '06-unit-test',
-        verdict: 'fail',
         report: 'bugs found',
-        items: VALID_ITEMS,
+        items: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
@@ -99,9 +97,8 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
     runPhaseLog({
       change: 'test-change',
       phase: '06-unit-test',
-      verdict: 'fail',
       report: 'test issue',
-      items: VALID_ITEMS,
+      items: FAILED_ITEMS,
       backtrack_to: '02-dev-design',
     });
 
@@ -116,9 +113,8 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
       runPhaseLog({
         change: 'test-change',
         phase: '06-unit-test',
-        verdict: 'fail',
         report: 'bugs found',
-        items: VALID_ITEMS,
+        items: FAILED_ITEMS,
         backtrack_to: '02-dev-design',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '02-dev-design'/);
@@ -133,9 +129,8 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
     runPhaseLog({
       change: 'test-change',
       phase: '06-unit-test',
-      verdict: 'fail',
       report: 'test issue',
-      items: VALID_ITEMS,
+      items: FAILED_ITEMS,
       backtrack_to: '05-implement',
     });
 
@@ -151,9 +146,8 @@ describe('runPhaseLog — adaptive fail after invalid backtrack', () => {
       runPhaseLog({
         change: 'test-change',
         phase: '06-unit-test',
-        verdict: 'fail',
         report: 'bugs found',
-        items: VALID_ITEMS,
+        items: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow();
@@ -161,9 +155,8 @@ describe('runPhaseLog — adaptive fail after invalid backtrack', () => {
     runPhaseLog({
       change: 'test-change',
       phase: '06-unit-test',
-      verdict: 'fail',
       report: 'bugs found, no backtrack',
-      items: VALID_ITEMS,
+      items: FAILED_ITEMS,
       backtrack_to: null,
     });
 
@@ -178,9 +171,9 @@ describe('runPhaseLog — pass entry no propagation', () => {
     runPhaseLog({
       change: 'test-change',
       phase: '01-proposal',
-      verdict: 'pass',
       report: 'ok',
       items: VALID_ITEMS,
+      backtrack_to: null,
     });
 
     expect(markPhaseStale).not.toHaveBeenCalled();
@@ -195,9 +188,8 @@ describe('runPhaseLog — backtrack_to triggers markPhaseStale', () => {
     runPhaseLog({
       change: 'test-change',
       phase: '03-test-design',
-      verdict: 'fail',
       report: 'needs redo',
-      items: VALID_ITEMS,
+      items: FAILED_ITEMS,
       backtrack_to: '01-proposal',
     });
 
@@ -207,31 +199,14 @@ describe('runPhaseLog — backtrack_to triggers markPhaseStale', () => {
 });
 
 describe('runPhaseLog — input validation', () => {
-  it('empty string backtrack_to does not trigger backtrack validation', () => {
-    mockWorkflowType('test-only');
-
-    runPhaseLog({
-      change: 'test-change',
-      phase: '06-unit-test',
-      verdict: 'fail',
-      report: 'fail without backtrack',
-      items: VALID_ITEMS,
-      backtrack_to: '',
-    });
-
-    expect(markPhaseStale).not.toHaveBeenCalled();
-    expect(appendEntry).toHaveBeenCalled();
-  });
-
   it('null backtrack_to writes fail entry normally', () => {
     mockWorkflowType('test-only');
 
     runPhaseLog({
       change: 'test-change',
       phase: '06-unit-test',
-      verdict: 'fail',
       report: 'fail no backtrack',
-      items: VALID_ITEMS,
+      items: FAILED_ITEMS,
       backtrack_to: null,
     });
 
@@ -249,6 +224,7 @@ describe('runPhaseLog — idempotency', () => {
       verdict: 'pass' as const,
       report: 'ok',
       items: VALID_ITEMS,
+      backtrack_to: null,
     };
 
     runPhaseLog(opts);
@@ -289,5 +265,45 @@ describe('runPhaseLog — idempotency', () => {
     expect(() => runPhaseLog(opts)).toThrow();
     expect(() => runPhaseLog(opts)).toThrow();
     expect(appendEntry).not.toHaveBeenCalled();
+  });
+});
+
+describe('runPhaseLog — auto-calculated verdict from items', () => {
+  it('auto-calculates pass when all items pass', () => {
+    mockWorkflowType('test-only');
+
+    runPhaseLog({
+      change: 'test-change',
+      phase: '01-proposal',
+      report: 'all good',
+      items: [
+        { item: 'check 1', pass: true, evidence: 'ok' },
+        { item: 'check 2', pass: true, evidence: 'ok' },
+      ],
+      backtrack_to: null,
+    });
+
+    expect(appendEntry).toHaveBeenCalled();
+    const entry = vi.mocked(appendEntry).mock.calls[0][1];
+    expect(entry.verdict).toBe('pass');
+  });
+
+  it('auto-calculates fail when any item fails', () => {
+    mockWorkflowType('test-only');
+
+    runPhaseLog({
+      change: 'test-change',
+      phase: '01-proposal',
+      report: 'has issues',
+      items: [
+        { item: 'check 1', pass: true, evidence: 'ok' },
+        { item: 'check 2', pass: false, evidence: 'broken' },
+      ],
+      backtrack_to: null,
+    });
+
+    expect(appendEntry).toHaveBeenCalled();
+    const entry = vi.mocked(appendEntry).mock.calls[0][1];
+    expect(entry.verdict).toBe('fail');
   });
 });

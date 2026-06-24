@@ -33,9 +33,39 @@ function interpolatePrompt(template: string, change: string): string {
 }
 
 /**
- * Build a phase definition with prompts interpolated for the given change name.
+ * Compute phases that the evaluator can backtrack to from the given phase.
+ * All phases that appear before the current phase in the phase table.
  */
-function buildPhaseDef(def: PhaseDefinition, change: string): PhaseDefinition {
+function computeAllowedBacktrackPhases(
+  currentPhaseId: string,
+  phaseTable: PhaseDefinition[],
+): { id: string; description: string }[] {
+  const idx = phaseTable.findIndex((p) => p.id === currentPhaseId);
+  if (idx <= 0) return [];
+  return phaseTable.slice(0, idx).map((p) => ({ id: p.id, description: p.description }));
+}
+
+/**
+ * Build a backtrack hint string to append to the evaluator prompt.
+ */
+function buildBacktrackHint(allowedPhases: { id: string; description: string }[]): string {
+  if (allowedPhases.length === 0) return '';
+  const lines = allowedPhases.map((p) => `  - ${p.id}: ${p.description}`);
+  return `\n\n可回退阶段 (backtrack_to):\n${lines.join('\n')}`;
+}
+
+/**
+ * Build a phase definition with prompts interpolated for the given change name.
+ * Dynamically appends allowed backtrack phases to the evaluator prompt.
+ */
+function buildPhaseDef(
+  def: PhaseDefinition,
+  change: string,
+  phaseTable: PhaseDefinition[],
+): PhaseDefinition {
+  const allowedBacktrack = computeAllowedBacktrackPhases(def.id, phaseTable);
+  const backtrackHint = buildBacktrackHint(allowedBacktrack);
+
   return {
     ...def,
     planner: def.planner
@@ -47,7 +77,7 @@ function buildPhaseDef(def: PhaseDefinition, change: string): PhaseDefinition {
     evaluator: def.evaluator
       ? {
           agent_type: def.evaluator.agent_type,
-          prompt: interpolatePrompt(def.evaluator.prompt, change),
+          prompt: interpolatePrompt(def.evaluator.prompt, change) + backtrackHint,
         }
       : null,
   };
@@ -60,19 +90,20 @@ function buildPhaseResponse(
   phase: PhaseDefinition,
   round: number,
   totalPhases: number,
-  phaseIndex: number,
   change: string,
+  phaseTable: PhaseDefinition[],
 ): PhaseNextResult {
-  const resolved = buildPhaseDef(phase, change);
+  const resolved = buildPhaseDef(phase, change, phaseTable);
+  const allowedBacktrack = computeAllowedBacktrackPhases(phase.id, phaseTable);
+  const phaseIndex = phaseTable.findIndex((p) => p.id === phase.id) + 1;
   return {
     done: false,
     error: null,
     message: null,
     next_phase: phase.id,
-    phase_pattern: phase.pattern,
     planner: resolved.planner,
     evaluator: resolved.evaluator,
-    auto_steps: phase.auto_steps,
+    allowed_backtrack_phases: allowedBacktrack,
     total_phases: totalPhases,
     phase_index: phaseIndex,
     round,
@@ -88,10 +119,9 @@ function buildDoneResponse(round: number, totalPhases: number): PhaseNextResult 
     error: null,
     message: 'All phases have passed evaluation. Ready for archiving.',
     next_phase: null,
-    phase_pattern: null,
     planner: null,
     evaluator: null,
-    auto_steps: [],
+    allowed_backtrack_phases: [],
     total_phases: totalPhases,
     phase_index: totalPhases,
     round,
@@ -112,10 +142,9 @@ function buildErrorResponse(
     error,
     message,
     next_phase: null,
-    phase_pattern: null,
     planner: null,
     evaluator: null,
-    auto_steps: [],
+    allowed_backtrack_phases: [],
     total_phases: totalPhases,
     phase_index: 0,
     round,
@@ -194,8 +223,6 @@ function handleBacktrack(
   round: number,
   totalPhases: number,
 ): ResolvePhaseNextResult | null {
-  // phase_log already handled stale marking when the backtrack entry was written.
-  // phase_next only reads the backtrack_to to determine the next phase to return.
   const backtrackTarget = getLatestBacktrackTarget(entries);
   if (!backtrackTarget) {
     return null;
@@ -203,7 +230,6 @@ function handleBacktrack(
 
   const targets = Array.isArray(backtrackTarget) ? backtrackTarget : [backtrackTarget];
 
-  // Find the earliest target in phase table order
   let earliestTarget: string | null = null;
   let earliestIdx = Infinity;
   for (const target of targets) {
@@ -228,7 +254,7 @@ function handleBacktrack(
   const targetPhase = phaseTable[earliestIdx];
 
   return {
-    result: buildPhaseResponse(targetPhase, round, totalPhases, earliestIdx + 1, change),
+    result: buildPhaseResponse(targetPhase, round, totalPhases, change, phaseTable),
   };
 }
 
@@ -241,8 +267,8 @@ function checkRetryLimit(
   nextPhaseDef: PhaseDefinition,
   round: number,
   totalPhases: number,
-  phaseIndex: number,
   change: string,
+  phaseTable: PhaseDefinition[],
 ): ResolvePhaseNextResult | null {
   const attempts = countAttempts(entries, nextPhaseDef.id);
 
@@ -265,7 +291,7 @@ function checkRetryLimit(
         };
       }
       return {
-        result: buildPhaseResponse(nextPhaseDef, round, totalPhases, phaseIndex, change),
+        result: buildPhaseResponse(nextPhaseDef, round, totalPhases, change, phaseTable),
       };
     }
   }
@@ -325,20 +351,21 @@ function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult
     return { result: buildDoneResponse(round, totalPhases) };
   }
 
-  const phaseIndex = phaseTable.indexOf(nextPhaseDef) + 1;
   const retryResult = checkRetryLimit(
     entries,
     nextPhaseDef,
     round,
     totalPhases,
-    phaseIndex,
     change,
+    phaseTable,
   );
   if (retryResult) {
     return retryResult;
   }
 
-  return { result: buildPhaseResponse(nextPhaseDef, round, totalPhases, phaseIndex, change) };
+  return {
+    result: buildPhaseResponse(nextPhaseDef, round, totalPhases, change, phaseTable),
+  };
 }
 
 /**

@@ -17,6 +17,14 @@ const phaseAgentSchema = z.object({
 });
 
 /**
+ * Backtrack target phase info — a phase that can be set as backtrack_to.
+ */
+const backtrackPhaseSchema = z.object({
+  id: z.string().describe('Phase identifier (e.g. 01-proposal)'),
+  description: z.string().describe('Human-readable phase description'),
+});
+
+/**
  * Output schema for a normal phase_next response (next phase available).
  */
 export const phaseNextOutputSchema = z.object({
@@ -24,17 +32,13 @@ export const phaseNextOutputSchema = z.object({
   error: z.string().nullable().describe('Error code if something went wrong (null on success)'),
   message: z.string().nullable().describe('Human-readable message (error details or info)'),
   next_phase: z.string().nullable().describe('Next phase identifier (null if done or error)'),
-  phase_pattern: z
-    .string()
-    .nullable()
-    .describe('Phase pattern: DESIGN | EXEC | EVAL-ONLY (null if done or error)'),
   planner: phaseAgentSchema
     .nullable()
     .describe('Planner agent config (null for EVAL-ONLY or done/error)'),
   evaluator: phaseAgentSchema.nullable().describe('Evaluator agent config (null if done or error)'),
-  auto_steps: z
-    .array(z.string())
-    .describe('Bash commands to execute between planner and evaluator'),
+  allowed_backtrack_phases: z
+    .array(backtrackPhaseSchema)
+    .describe('Phases that the evaluator can backtrack to from the current phase'),
   total_phases: z.number().int().describe('Total number of phases in this workflow'),
   phase_index: z.number().int().describe('1-based index of the current phase'),
   round: z.number().int().describe('Current workflow round (1-based)'),

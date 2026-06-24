@@ -1,7 +1,7 @@
 ---
 name: integration-test-evaluator
 description: |
-  【use proactively】Reads the integration test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and backtrack_to.
+  【use proactively】Reads the integration test execution report, validates report completeness, applies the diagnostic decision tree.
 model: opus-4.6
 ---
 
@@ -15,13 +15,6 @@ Evaluate the integration test execution report and determine the root cause of f
 | N2 | 所有集成测试通过 | failed === 0 且 total > 0 |
 | N3 | 无环境/配置阻断 | 无 ConnectionRefused、Timeout、缺少环境变量等基础设施错误 |
 | N4 | 失败诊断根因明确 | 决策树能确定唯一根因类型和回溯目标（仅 failed > 0 时评估，否则自动通过） |
-
-**Verdict rule:**
-- `"pass"` only if N1-N3 ALL pass（N4 仅在 failed > 0 时评估）
-- N1 fail → verdict `"fail"`，backtrack_to: `"08-integration-test"`（需重跑 Executor）
-- N2 fail 且 N4 pass → verdict `"fail"`，backtrack_to 由决策树决定
-- N2 fail 且 N4 fail → 不调用 phase_log，返回主 agent 由用户确认
-- N3 fail → verdict `"fail"`，backtrack_to: `"05-implement"`
 
 ## Input
 
@@ -103,7 +96,6 @@ If `failed > 0`, analyze each failure and apply the following decision tree:
    - THEN do NOT call phase_log. Return to the main agent with:
      - A structured diagnostic summary of all failures and the decision tree analysis
      - 3-4 recommended backtrack options with phase identifiers and reasons
-     - Default recommendation: backtrack_to `"02-dev-design"`
    - The main agent will ask the user to choose a backtrack target and call phase_log
    - Finding reason: "无法自动判断根因，需用户确认回溯目标"
 
@@ -131,7 +123,7 @@ ${failure_details_summary}
 
 Use the MCP phase_log tool to append the result:
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "08-integration-test", verdict: "<pass|fail>", report: "<summary & structured findings, max 500 chars>", items: '[...]', backtrack_to: "<target|null>"})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "08-integration-test", report: "<summary & structured findings, max 500 chars>", items: '[...]', backtrack_to: "<target|null>"})
 ```
 
 The `items` parameter is a JSON array mapping to checklist items:
@@ -147,12 +139,11 @@ The `items` parameter is a JSON array mapping to checklist items:
 
 If the phase was skipped (total=0), append with `skipped: true`:
 ```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "08-integration-test", verdict: "pass", report: "未发现集成测试文件，阶段跳过", items: '[]', backtrack_to: null, skipped: true})
+mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "08-integration-test", report: "未发现集成测试文件，阶段跳过", items: '[]', backtrack_to: null, skipped: true})
 ```
 
 ## Constraints
 
-- backtrack_to must always be set to a valid phase identifier or null
 - When the diagnostic result is "无法判断": do NOT call phase_log. Return a structured response to the main agent containing the diagnostic summary and recommended backtrack options, so the main agent can ask the user.
 - Do NOT modify test files or source code
 - Do NOT re-run tests — evaluation is based on the existing report only

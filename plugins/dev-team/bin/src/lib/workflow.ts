@@ -15,14 +15,11 @@ interface PhaseAgentDef {
   prompt: string;
 }
 
-type PhasePattern = 'DESIGN' | 'EXEC' | 'EVAL-ONLY';
-
 export interface PhaseDefinition {
   id: string;
-  pattern: PhasePattern;
+  description: string;
   planner: PhaseAgentDef | null;
   evaluator: PhaseAgentDef | null;
-  auto_steps: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -34,7 +31,7 @@ const DEFAULT_WORKFLOW: string = 'requirement';
 const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: '01-proposal',
-    pattern: 'DESIGN',
+    description: '需求提案与规格说明',
     planner: {
       agent_type: 'dev-team:proposal-planner',
       prompt: 'Write proposal.md and specs/ for change "<change>".',
@@ -43,11 +40,10 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       agent_type: 'dev-team:proposal-evaluator',
       prompt: 'Evaluate proposal.md for change "<change>" against checklist.',
     },
-    auto_steps: [],
   },
   {
     id: '02-dev-design',
-    pattern: 'DESIGN',
+    description: '详细设计与任务拆解',
     planner: {
       agent_type: 'dev-team:dev-design-planner',
       prompt: 'Write design.md and tasks.md for change "<change>".',
@@ -57,11 +53,10 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       prompt:
         'Evaluate design.md and tasks.md for change "<change>" against proposal.md. Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '03-test-design',
-    pattern: 'DESIGN',
+    description: '测试设计',
     planner: {
       agent_type: 'dev-team:test-design-planner',
       prompt: 'Write test design for change "<change>".',
@@ -71,11 +66,10 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       prompt:
         'Evaluate test design for change "<change>" against design.md. Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '05-implement',
-    pattern: 'EXEC',
+    description: '代码实现',
     planner: {
       agent_type: 'dev-team:implementation-generator',
       prompt: 'Implement the code for change "<change>".',
@@ -85,11 +79,10 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       prompt:
         'Evaluate implementation for change "<change>" against design. Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '04-test-gen',
-    pattern: 'EXEC',
+    description: '测试代码生成',
     planner: {
       agent_type: 'dev-team:test-gen-generator',
       prompt: 'Generate test code for change "<change>".',
@@ -98,11 +91,10 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       agent_type: 'dev-team:test-gen-evaluator',
       prompt: 'Evaluate generated tests for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '06-unit-test',
-    pattern: 'EXEC',
+    description: '单元测试执行与诊断',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
       prompt: 'Run and fix unit tests for change "<change>".',
@@ -111,21 +103,19 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       agent_type: 'dev-team:unit-test-evaluator',
       prompt: 'Evaluate unit test results for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '07-code-review',
-    pattern: 'EVAL-ONLY',
+    description: '代码审查',
     planner: null,
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
       prompt: 'Perform code review for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '08-integration-test',
-    pattern: 'EXEC',
+    description: '集成测试执行与诊断',
     planner: {
       agent_type: 'dev-team:integration-test-executor',
       prompt: 'Run and fix integration tests for change "<change>".',
@@ -135,24 +125,22 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       prompt:
         'Evaluate integration test results for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '09-acceptance',
-    pattern: 'EVAL-ONLY',
+    description: '验收评估',
     planner: null,
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
       prompt: 'Perform acceptance evaluation for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
 ];
 
 const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
     id: '01-proposal',
-    pattern: 'DESIGN',
+    description: '需求提案与规格说明',
     planner: {
       agent_type: 'dev-team:proposal-planner',
       prompt: 'Write proposal.md and specs/ for change "<change>".',
@@ -161,11 +149,10 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
       agent_type: 'dev-team:proposal-evaluator',
       prompt: 'Evaluate proposal.md for change "<change>" against checklist.',
     },
-    auto_steps: [],
   },
   {
     id: '02-dev-design',
-    pattern: 'DESIGN',
+    description: '详细设计与任务拆解',
     planner: {
       agent_type: 'dev-team:dev-design-planner',
       prompt: 'Write design.md and tasks.md for change "<change>".',
@@ -175,11 +162,10 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
       prompt:
         'Evaluate design.md and tasks.md for change "<change>" against proposal.md. Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '05-implement',
-    pattern: 'EXEC',
+    description: '代码实现',
     planner: {
       agent_type: 'dev-team:implementation-generator',
       prompt: 'Implement the code for change "<change>".',
@@ -189,11 +175,10 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
       prompt:
         'Evaluate implementation for change "<change>" against design. Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '06-unit-test',
-    pattern: 'EXEC',
+    description: '单元测试执行与诊断',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
       prompt: 'Run and fix unit tests for change "<change>".',
@@ -202,39 +187,36 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
       agent_type: 'dev-team:unit-test-evaluator',
       prompt: 'Evaluate unit test results for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '07-code-review',
-    pattern: 'EVAL-ONLY',
+    description: '代码审查',
     planner: null,
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
       prompt: 'Perform code review for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '09-acceptance',
-    pattern: 'EVAL-ONLY',
+    description: '验收评估',
     planner: null,
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
       prompt: 'Perform acceptance evaluation for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
 ];
 
 const PHASE_REFACTOR: PhaseDefinition[] = PHASE_REQUIREMENT;
 
 const WORKFLOW_CONTEXT_TEST_ONLY =
-  "WORKFLOW_CONTEXT: test-only — 无 implement/dev-design 阶段。若 phase_log 因 backtrack 目标不存在而拒绝调用，以 verdict:'fail', backtrack_to:null 重新记录，report 中包含发现的代码 bug 详情，然后返回主 agent 附带 bug 信息摘要。";
+  'WORKFLOW_CONTEXT: test-only — 无 implement/dev-design 阶段。若 phase_log 因 backtrack 目标不存在而拒绝调用，以 backtrack_to:null 重新记录，report 中包含发现的代码 bug 详情，然后返回主 agent 附带 bug 信息摘要。';
 
 const PHASE_TEST_ONLY: PhaseDefinition[] = [
   {
     id: '01-proposal',
-    pattern: 'DESIGN',
+    description: '测试需求提案与规格说明',
     planner: {
       agent_type: 'dev-team:proposal-planner',
       prompt:
@@ -244,11 +226,10 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
       agent_type: 'dev-team:proposal-evaluator',
       prompt: 'Evaluate proposal.md for change "<change>" against checklist.',
     },
-    auto_steps: [],
   },
   {
     id: '02-code-analyze',
-    pattern: 'DESIGN',
+    description: '逆向分析现有代码架构',
     planner: {
       agent_type: 'dev-team:code-analyze-planner',
       prompt:
@@ -259,11 +240,10 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
       prompt:
         'Evaluate design.md for change "<change>" against proposal.md. Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '03-test-design',
-    pattern: 'DESIGN',
+    description: '测试设计',
     planner: {
       agent_type: 'dev-team:test-design-planner',
       prompt: 'Write test design for change "<change>".',
@@ -273,11 +253,10 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
       prompt:
         'Evaluate test design for change "<change>" against design.md. Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '04-test-gen',
-    pattern: 'EXEC',
+    description: '测试代码生成',
     planner: {
       agent_type: 'dev-team:test-gen-generator',
       prompt: 'Generate test code for change "<change>".',
@@ -286,11 +265,10 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
       agent_type: 'dev-team:test-gen-evaluator',
       prompt: 'Evaluate generated tests for change "<change>". Append result to eval.json.',
     },
-    auto_steps: [],
   },
   {
     id: '06-unit-test',
-    pattern: 'EXEC',
+    description: '单元测试执行与诊断',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
       prompt: 'Run and fix unit tests for change "<change>".',
@@ -299,11 +277,10 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
       agent_type: 'dev-team:unit-test-evaluator',
       prompt: `Evaluate unit test results for change "<change>". Append result to eval.json. ${WORKFLOW_CONTEXT_TEST_ONLY}`,
     },
-    auto_steps: [],
   },
   {
     id: '08-integration-test',
-    pattern: 'EXEC',
+    description: '集成测试执行与诊断',
     planner: {
       agent_type: 'dev-team:integration-test-executor',
       prompt: 'Run and fix integration tests for change "<change>".',
@@ -312,7 +289,6 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
       agent_type: 'dev-team:integration-test-evaluator',
       prompt: `Evaluate integration test results for change "<change>". Append result to eval.json. ${WORKFLOW_CONTEXT_TEST_ONLY}`,
     },
-    auto_steps: [],
   },
 ];
 

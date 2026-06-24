@@ -3,7 +3,6 @@ name: workflow-requirement
 description: |
   Full PGE workflow orchestrator — executes all 9 phases sequentially.
   No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
-  Calls Agent(planner) → Bash(auto_steps) → Agent(evaluator) in a loop until done.
   On completion, notifies user to archive manually.
 license: MIT
 disable-model-invocation: true
@@ -11,11 +10,6 @@ metadata:
   author: dev-team
   version: "1.0"
 ---
-
-Full workflow orchestrator — executes all PGE phases via phase_next loop.
-
-This skill does NOT contain any hardcoded phase table, agent name, or prompt.
-Every phase, agent type, and prompt is returned by the phase_next MCP tool.
 
 **Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build.
 
@@ -79,9 +73,6 @@ LOOP:
       subagent_type: result.planner.agent_type,
       prompt: result.planner.prompt
     })
-
-  for step in result.auto_steps:
-    Bash(step.command)
 
   if result.evaluator:
     Agent({
