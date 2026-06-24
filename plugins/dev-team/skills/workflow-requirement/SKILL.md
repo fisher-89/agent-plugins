@@ -17,9 +17,7 @@ Full workflow orchestrator — executes all PGE phases via phase_next loop.
 This skill does NOT contain any hardcoded phase table, agent name, or prompt.
 Every phase, agent type, and prompt is returned by the phase_next MCP tool.
 
-## Input:
-
-The user's request may include a change name (kebab-case), a description of what they want to build, or nothing at all.
+**Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build.
 
 ## Steps
 

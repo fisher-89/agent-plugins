@@ -1,6 +1,6 @@
 ---
 name: phase-proposal
-description: DESIGN phase (P→E): proposal-planner writes proposal.md + specs/, evaluator checks. Loops on fail.
+description: proposal-planner writes proposal.md + specs/, evaluator checks. Loops on fail.
 license: MIT
 disable-model-invocation: true
 metadata:
@@ -10,11 +10,7 @@ metadata:
 
 Proposal phase — Planner writes proposal.md + specs/ with P→E loop.
 
-**MODE: artifact generation only. Your output is proposal.md + specs/. You are NOT implementing — do not edit source code outside openspec/changes/<name>/.**
-
-## Input:
-
-The user's request may include a change name (kebab-case), a description of what they want to build, or nothing at all.
+**Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build.
 
 ## Steps
 

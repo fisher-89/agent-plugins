@@ -17,9 +17,7 @@ Test-only workflow orchestrator — executes the 6-phase test-only pipeline via 
 This skill does NOT contain any hardcoded phase table, agent name, or prompt.
 Every phase, agent type, and prompt is returned by the phase_next MCP tool.
 
-## Input:
-
-The user's request may include a change name (kebab-case), a description of test coverage to add, or nothing at all.
+**Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build.
 
 ## Steps
 
