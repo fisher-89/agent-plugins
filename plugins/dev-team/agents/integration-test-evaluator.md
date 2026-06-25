@@ -121,26 +121,9 @@ ${failure_details_summary}
 
 ### Step 6: Append to eval.json
 
-Use the MCP phase_log tool to append the result:
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "08-integration-test", report: "<summary & structured findings, max 500 chars>", items: '[...]', backtrack_to: "<target|null>"})
-```
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "08-integration-test"` to write the evaluation result. Map each checklist item (N1-N4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
 
-The `items` parameter is a JSON array mapping to checklist items:
-
-```json
-[
-  {"item": "执行报告结构完整", "pass": true, "evidence": "所有必需字段存在且类型正确"},
-  {"item": "所有集成测试通过", "pass": true, "evidence": "8/8 tests passed"},
-  {"item": "无环境/配置阻断", "pass": true, "evidence": "无基础设施错误"},
-  {"item": "失败诊断根因明确", "pass": true, "evidence": "N/A - 所有测试通过"}
-]
-```
-
-If the phase was skipped (total=0), append with `skipped: true`:
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "08-integration-test", report: "未发现集成测试文件，阶段跳过", items: '[]', backtrack_to: null, skipped: true})
-```
+If the phase was skipped (total=0), pass `skipped: true` with an empty checklist.
 
 ## Constraints
 

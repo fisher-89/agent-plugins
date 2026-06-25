@@ -47,7 +47,7 @@ function passEntry(
     timestamp: nextTs(),
     backtrack_to: null,
     report: '',
-    items: [],
+    checklist: [],
     ...overrides,
   };
 }
@@ -64,7 +64,7 @@ function failEntry(
     timestamp: nextTs(),
     backtrack_to: null,
     report: '',
-    items: [],
+    checklist: [],
     ...overrides,
   };
 }
@@ -81,7 +81,7 @@ function backtrackEntry(
     timestamp: nextTs(),
     backtrack_to,
     report: '',
-    items: [],
+    checklist: [],
   };
 }
 
@@ -94,7 +94,7 @@ function skippedEntry(phase: string, attempt: number = 1): MockEntry {
     skipped: true,
     backtrack_to: null,
     report: '',
-    items: [],
+    checklist: [],
   };
 }
 
@@ -111,7 +111,7 @@ function staleEntry(
     backtrack_to: null,
     stale: true,
     report: '',
-    items: [],
+    checklist: [],
     ...overrides,
   };
 }
@@ -680,7 +680,7 @@ describe('runPhaseNext — Round Limit (AC-10)', () => {
         timestamp: new Date(Date.now() + i).toISOString(),
         backtrack_to: i % 2 === 1 ? '01-proposal' : null,
         report: '',
-        items: [],
+        checklist: [],
       };
       entries.push(entry);
     }

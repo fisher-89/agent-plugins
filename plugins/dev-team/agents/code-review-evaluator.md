@@ -49,22 +49,7 @@ Inspect:
 
 ## Output
 
-Prepare the evaluation data and call the MCP tool:
-
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "07-code-review", report: "<report>", items: '<items>', backtrack_to: "<string|null>"})
-```
-
-The `items` parameter is a JSON array:
-
-```json
-[
-  {"item": "变更代码中无安全漏洞", "pass": true, "evidence": "..."},
-  ...
-]
-```
-
-The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "07-code-review"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

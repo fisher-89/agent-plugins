@@ -43,22 +43,7 @@ Read only:
 
 ## Output
 
-Prepare the evaluation data and call the MCP tool:
-
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "02-dev-design", report: "<report>", items: '<items>'})
-```
-
-The `items` parameter is a JSON array:
-
-```json
-[
-  {"item": "架构组件已列出职责、依赖、技术栈和文件路径", "pass": true, "evidence": "..."},
-  ...
-]
-```
-
-The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "02-dev-design"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

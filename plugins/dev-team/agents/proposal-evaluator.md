@@ -46,22 +46,7 @@ Evaluate the artifact against these items. Each item must pass for an overall "p
 
 ## Output
 
-Prepare the evaluation data and call the MCP tool:
-
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "01-proposal", report: "<report>", items: '<items>'})
-```
-
-The `items` parameter is a JSON array:
-
-```json
-[
-  {"item": "问题描述清晰，包含背景和动机", "pass": true, "evidence": "..."},
-  ...
-]
-```
-
-The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "01-proposal"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

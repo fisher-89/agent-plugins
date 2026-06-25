@@ -67,7 +67,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         change: 'test-change',
         phase: '06-unit-test',
         report: 'bugs found',
-        items: FAILED_ITEMS,
+        checklist: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
@@ -85,7 +85,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         change: 'test-change',
         phase: '06-unit-test',
         report: 'bugs found',
-        items: FAILED_ITEMS,
+        checklist: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
@@ -98,7 +98,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
       change: 'test-change',
       phase: '06-unit-test',
       report: 'test issue',
-      items: FAILED_ITEMS,
+      checklist: FAILED_ITEMS,
       backtrack_to: '02-dev-design',
     });
 
@@ -114,7 +114,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         change: 'test-change',
         phase: '06-unit-test',
         report: 'bugs found',
-        items: FAILED_ITEMS,
+        checklist: FAILED_ITEMS,
         backtrack_to: '02-dev-design',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '02-dev-design'/);
@@ -130,7 +130,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
       change: 'test-change',
       phase: '06-unit-test',
       report: 'test issue',
-      items: FAILED_ITEMS,
+      checklist: FAILED_ITEMS,
       backtrack_to: '05-implement',
     });
 
@@ -147,7 +147,7 @@ describe('runPhaseLog — adaptive fail after invalid backtrack', () => {
         change: 'test-change',
         phase: '06-unit-test',
         report: 'bugs found',
-        items: FAILED_ITEMS,
+        checklist: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow();
@@ -156,7 +156,7 @@ describe('runPhaseLog — adaptive fail after invalid backtrack', () => {
       change: 'test-change',
       phase: '06-unit-test',
       report: 'bugs found, no backtrack',
-      items: FAILED_ITEMS,
+      checklist: FAILED_ITEMS,
       backtrack_to: null,
     });
 
@@ -172,7 +172,7 @@ describe('runPhaseLog — pass entry no propagation', () => {
       change: 'test-change',
       phase: '01-proposal',
       report: 'ok',
-      items: VALID_ITEMS,
+      checklist: VALID_ITEMS,
       backtrack_to: null,
     });
 
@@ -189,7 +189,7 @@ describe('runPhaseLog — backtrack_to triggers markPhaseStale', () => {
       change: 'test-change',
       phase: '03-test-design',
       report: 'needs redo',
-      items: FAILED_ITEMS,
+      checklist: FAILED_ITEMS,
       backtrack_to: '01-proposal',
     });
 
@@ -206,7 +206,7 @@ describe('runPhaseLog — input validation', () => {
       change: 'test-change',
       phase: '06-unit-test',
       report: 'fail no backtrack',
-      items: FAILED_ITEMS,
+      checklist: FAILED_ITEMS,
       backtrack_to: null,
     });
 
@@ -226,7 +226,7 @@ describe('runPhaseLog — idempotency', () => {
         phase: '01-proposal',
         verdict: 'pass' as const,
         report: 'ok',
-        items: VALID_ITEMS,
+        checklist: VALID_ITEMS,
         backtrack_to: null,
       };
 
@@ -247,7 +247,7 @@ describe('runPhaseLog — idempotency', () => {
       phase: '06-unit-test',
       verdict: 'fail' as const,
       report: 'bugs',
-      items: VALID_ITEMS,
+      checklist: VALID_ITEMS,
       backtrack_to: null,
     };
 
@@ -264,7 +264,7 @@ describe('runPhaseLog — idempotency', () => {
       phase: '06-unit-test',
       verdict: 'fail' as const,
       report: 'bugs',
-      items: VALID_ITEMS,
+      checklist: VALID_ITEMS,
       backtrack_to: '05-implement',
     };
 
@@ -274,15 +274,15 @@ describe('runPhaseLog — idempotency', () => {
   });
 });
 
-describe('runPhaseLog — auto-calculated verdict from items', () => {
-  it('auto-calculates pass when all items pass', () => {
+describe('runPhaseLog — auto-calculated verdict from checklist', () => {
+  it('auto-calculates pass when all checklist items pass', () => {
     mockWorkflowType('test-only');
 
     runPhaseLog({
       change: 'test-change',
       phase: '01-proposal',
       report: 'all good',
-      items: [
+      checklist: [
         { item: 'check 1', pass: true, evidence: 'ok' },
         { item: 'check 2', pass: true, evidence: 'ok' },
       ],
@@ -301,7 +301,7 @@ describe('runPhaseLog — auto-calculated verdict from items', () => {
       change: 'test-change',
       phase: '01-proposal',
       report: 'has issues',
-      items: [
+      checklist: [
         { item: 'check 1', pass: true, evidence: 'ok' },
         { item: 'check 2', pass: false, evidence: 'broken' },
       ],

@@ -48,22 +48,7 @@ Run:
 
 ## Output
 
-Prepare the evaluation data and call the MCP tool:
-
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "04-test-gen", report: "<report>", items: '<items>'})
-```
-
-The `items` parameter is a JSON array:
-
-```json
-[
-  {"item": "源码中每个公开方法在源码目录中有对应的测试文件", "pass": true, "evidence": "src/auth.py -> src/test_auth.py covers AC-1"},
-  ...
-]
-```
-
-The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "04-test-gen"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

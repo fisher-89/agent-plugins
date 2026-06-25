@@ -40,7 +40,7 @@ echo "Unit test files found: $total"
 If total is 0 (no unit test files found):
 - Skip the phase: append a skipped entry to eval.json via MCP:
   ```
-  mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", report: "No unit tests found, phase skipped (no-op)", items: '[]', backtrack_to: null, skipped: true, findings: "未发现单元测试文件，阶段跳过"})
+  mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", report: "No unit tests found, phase skipped (no-op)", checklist: '[]', backtrack_to: null, skipped: true, findings: "未发现单元测试文件，阶段跳过"})
   ```
 - Phase complete.
 

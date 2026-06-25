@@ -43,7 +43,7 @@ describe('buildEntry', () => {
     phase: '06-unit-test',
     verdict: 'pass',
     report: 'All tests passed',
-    items: [{ item: '测试覆盖率达到80%', pass: true, evidence: 'ok' }],
+    checklist: [{ item: '测试覆盖率达到80%', pass: true, evidence: 'ok' }],
     attempt: 1,
     backtrack_to: null,
   };
@@ -103,7 +103,7 @@ function makePassEntry(phase: string, attempt: number = 1, ts?: string): EvalEnt
     timestamp: ts || new Date(Date.now() + attempt).toISOString(),
     backtrack_to: null,
     report: '',
-    items: [],
+    checklist: [],
   };
 }
 
@@ -115,7 +115,7 @@ function makeFailEntry(phase: string, attempt: number = 1): EvalEntry {
     timestamp: new Date(Date.now() + attempt).toISOString(),
     backtrack_to: null,
     report: '',
-    items: [],
+    checklist: [],
   };
 }
 

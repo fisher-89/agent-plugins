@@ -5,7 +5,7 @@ export const phaseLogSchema = z.object({
   attempt: z.number().int().optional().describe('Attempt number (auto-calculated if omitted)'),
   verdict: z.enum(['pass', 'fail']).describe('Evaluation verdict'),
   report: z.string().max(500).describe('Evaluation report text (max 500 chars)'),
-  items: z
+  checklist: z
     .array(
       z.object({
         item: z.string().describe('检查项'),
@@ -41,7 +41,7 @@ export const phaseLogInputSchema = phaseLogSchema
     phase: true,
     attempt: true,
     report: true,
-    items: true,
+    checklist: true,
     backtrack_to: true,
     skipped: true,
   })

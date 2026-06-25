@@ -41,22 +41,7 @@ Read only:
 
 ## Output
 
-Prepare the evaluation data and call the MCP tool:
-
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "03-test-design", report: "<report>", items: '<items>'})
-```
-
-The `items` parameter is a JSON array:
-
-```json
-[
-  {"item": "proposal.md 中每个验收标准都在`验收范围`中有映射", "pass": true, "evidence": "..."},
-  ...
-]
-```
-
-The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "03-test-design"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

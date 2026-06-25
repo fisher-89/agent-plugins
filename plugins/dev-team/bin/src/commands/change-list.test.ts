@@ -53,7 +53,7 @@ function makeEvalEntry(
     attempt: 1,
     timestamp: '2026-06-18T12:00:00.000Z',
     report: 'test report',
-    items: [{ item: '检查项', pass: true, evidence: 'ok' }],
+    checklist: [{ item: '检查项', pass: true, evidence: 'ok' }],
     backtrack_to: null,
     ...overrides,
   };

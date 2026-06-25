@@ -24,8 +24,8 @@ type PhaseLogResult = z.output<typeof phaseLogOutputSchema>;
  * Auto-calculate verdict from checklist items when not explicitly provided.
  * All pass → "pass", any fail → "fail".
  */
-function resolveVerdict(items: { pass: boolean }[]): 'pass' | 'fail' {
-  return items.every((i) => i.pass) ? 'pass' : 'fail';
+function resolveVerdict(checklist: { pass: boolean }[]): 'pass' | 'fail' {
+  return checklist.every((i) => i.pass) ? 'pass' : 'fail';
 }
 
 /**
@@ -73,7 +73,7 @@ function handleBacktrackMarking(entries: EvalEntry[], options: PhaseLogOptions):
  * - Does NOT perform gate-check (gate logic is entirely owned by phase_next).
  */
 export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
-  const verdict = resolveVerdict(options.items);
+  const verdict = resolveVerdict(options.checklist);
   validateVerdict(verdict, options.skipped === true);
   validateReportLength(options.report);
 
@@ -95,7 +95,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     phase: options.phase,
     verdict,
     report: options.report,
-    items: options.items,
+    checklist: options.checklist,
     attempt,
     backtrack_to: options.backtrack_to ?? null,
     skipped: options.skipped === true ? true : undefined,

@@ -46,22 +46,7 @@ Inspect:
 
 ## Output
 
-Prepare the evaluation data and call the MCP tool:
-
-```
-mcp__plugin_dev-team_dev-team__phase_log({change: "<change-name>", phase: "09-acceptance", report: "<report>", items: '<items>', backtrack_to: "<string|null>"})
-```
-
-The `items` parameter is a JSON array:
-
-```json
-[
-  {"item": "proposal.md 中每个验收标准都有实现证据", "pass": true, "evidence": "AC-1: src/auth.py:45-67 implements login flow"},
-  ...
-]
-```
-
-The MCP tool auto-generates `timestamp`, `attempt`, and `schema_version`.
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "09-acceptance"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

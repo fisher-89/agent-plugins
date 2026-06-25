@@ -67,7 +67,7 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
         change: 'test-change',
         phase: '06-unit-test',
         report: 'bugs found',
-        items: FAILED_ITEMS,
+        checklist: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
@@ -79,7 +79,7 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
       change: 'test-change',
       phase: '06-unit-test',
       report: 'bugs found, adaptive retry',
-      items: FAILED_ITEMS,
+      checklist: FAILED_ITEMS,
       backtrack_to: null,
     });
 
