@@ -989,7 +989,7 @@ describe('runTestDetectFrameworks — go plan (AC-5)', () => {
 });
 
 describe('runTestDetectFrameworks — node-test plan (AC-5)', () => {
-  it('config framework: "node-test" 时 plan 的 coverage_cmd 为两步脚本且 script 含 bash shebang', () => {
+  it('config framework: "node-test" 时 plan 的 coverage_cmd 为 "node --test --experimental-test-coverage" 且 script 含 bash shebang', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: { framework: 'node-test' },
@@ -1000,8 +1000,30 @@ describe('runTestDetectFrameworks — node-test plan (AC-5)', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      expect(result.plan[0].coverage_cmd).toContain('parse-node-test-coverage.mjs');
+      expect(result.plan[0].coverage_cmd).toBe('node --test --experimental-test-coverage');
       expect(result.plan[0].script.startsWith('#!/bin/bash\nset -e\n')).toBe(true);
+      expect(result.plan[0].script.trimEnd().endsWith(result.plan[0].coverage_cmd)).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('node-test plan 的 script 最后一行为简化后的覆盖命令，不含管道符 (AC-6)', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'node-test' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.mjs'],
+        projectRoot: project.root,
+      });
+      const script = result.plan[0].script;
+      const lastLine = script.trimEnd().split('\n').pop() ?? '';
+      expect(lastLine).toBe('node --test --experimental-test-coverage');
+      expect(lastLine).not.toContain('|');
+      expect(lastLine).not.toContain('parse-node-test-coverage.mjs');
+      expect(lastLine).not.toContain('tee');
     } finally {
       project.cleanup();
     }

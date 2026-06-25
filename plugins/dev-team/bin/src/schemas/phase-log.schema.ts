@@ -46,7 +46,7 @@ export const phaseLogInputSchema = phaseLogSchema
     skipped: true,
   })
   .extend({
-    change: z.string(),
+    change: z.string().describe('Change name'),
   });
 
 export const phaseLogOutputSchema = z.object({

@@ -108,7 +108,7 @@ For each entry in the `plan` array where `coverage_artifacts` is non-empty and c
 
 ### 4. Coverage parsing
 
-For each framework that ran coverage successfully, read the coverage output file from the updated `coverage_output` path (after the move step, this points to the unified location `reports/coverage/<framework>/coverage-summary.json`, relative to the change directory). Parse the file based on `coverage_format`:
+For each framework that ran coverage successfully, read the coverage output file from the updated `coverage_output` path (after the move step, this points to the unified location `reports/coverage/<framework>/`, relative to the change directory). Parse the file based on `coverage_format`:
 
 - **`istanbul`**: Read `coverage/coverage-summary.json`, extract:
   - `total.lines.pct` → `lines`
@@ -118,10 +118,20 @@ For each framework that ran coverage successfully, read the coverage output file
   - `data[0].totals.lines.percent` → `lines`
   - `data[0].totals.branches.percent` → `branches`
   - `data[0].totals.functions.percent` → `functions`
-- **`node-test`**: Read parser-produced `coverage-summary.json` (istanbul-compatible structure), extract:
-  - `total.lines.pct` → `lines`
-  - `total.branches.pct` → `branches`
-  - `total.functions.pct` → `functions`
+- **`node-test`**: Read raw coverage text table from `coverage/node-test-output.txt`, extract:
+  - The text table uses the following format:
+    ```
+    ----------|---------|----------|---------|----------|
+    File      | % Stmts | % Branch | % Funcs | % Lines |
+    ----------|---------|----------|---------|----------|
+    All files |   85.71 |    50.00 |   66.67 |   80.00 |
+    ----------|---------|----------|---------|----------|
+    ```
+  - Use regex to match the `all files` row: `/all\s+files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/i`
+  - Extract capture groups:
+    - Group 4 (% Lines) → `lines`
+    - Group 2 (% Branch) → `branches`
+    - Group 3 (% Funcs) → `functions`
 - **`go-cover`**: Read `func-summary.txt`, extract:
   - `total:` line percentage → `lines`
   - `branches` → `null` (Go native tooling does not report branch coverage)

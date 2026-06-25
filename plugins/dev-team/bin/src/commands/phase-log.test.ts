@@ -217,21 +217,27 @@ describe('runPhaseLog — input validation', () => {
 
 describe('runPhaseLog — idempotency', () => {
   it('identical pass calls invoke appendEntry twice with consistent args (AC-16)', () => {
-    mockWorkflowType('test-only');
-    const opts = {
-      change: 'test-change',
-      phase: '01-proposal',
-      verdict: 'pass' as const,
-      report: 'ok',
-      items: VALID_ITEMS,
-      backtrack_to: null,
-    };
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-06-25T01:29:05.000Z'));
+    try {
+      mockWorkflowType('test-only');
+      const opts = {
+        change: 'test-change',
+        phase: '01-proposal',
+        verdict: 'pass' as const,
+        report: 'ok',
+        items: VALID_ITEMS,
+        backtrack_to: null,
+      };
 
-    runPhaseLog(opts);
-    runPhaseLog(opts);
+      runPhaseLog(opts);
+      runPhaseLog(opts);
 
-    expect(appendEntry).toHaveBeenCalledTimes(2);
-    expect(vi.mocked(appendEntry).mock.calls[0]).toEqual(vi.mocked(appendEntry).mock.calls[1]);
+      expect(appendEntry).toHaveBeenCalledTimes(2);
+      expect(vi.mocked(appendEntry).mock.calls[0]).toEqual(vi.mocked(appendEntry).mock.calls[1]);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it('identical fail+null calls behave consistently', () => {

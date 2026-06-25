@@ -84,6 +84,16 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
     coverage_cleanup: ['coverage', 'target/llvm-cov'],
     default_glob: '**/tests/**/*.rs',
   },
+  'node-test': {
+    framework: 'node-test',
+    test_cmd: 'node --test',
+    coverage_cmd: 'node --test --experimental-test-coverage',
+    coverage_format: 'node-test',
+    coverage_output: 'coverage/node-test-output.txt',
+    coverage_artifacts: ['coverage/node-test-output.txt'],
+    coverage_cleanup: ['coverage'],
+    default_glob: '**/*.test.{mjs,js,cjs}',
+  },
 };
 
 // ===========================================================================
@@ -450,11 +460,10 @@ const NEW_FRAMEWORK_EXPECTED: Record<string, FrameworkConfig> = {
   'node-test': {
     framework: 'node-test',
     test_cmd: 'node --test',
-    coverage_cmd:
-      'node --test --experimental-test-coverage 2>&1 | tee coverage/node-test-output.txt && node plugins/dev-team/scripts/parse-node-test-coverage.mjs coverage/node-test-output.txt coverage/coverage-summary.json',
+    coverage_cmd: 'node --test --experimental-test-coverage',
     coverage_format: 'node-test',
-    coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
+    coverage_output: 'coverage/node-test-output.txt',
+    coverage_artifacts: ['coverage/node-test-output.txt'],
     coverage_cleanup: ['coverage'],
     default_glob: '**/*.test.{mjs,js,cjs}',
   },
@@ -477,12 +486,129 @@ describe('runTestGetFrameworkConfig — go (AC-2)', () => {
   });
 });
 
-describe('runTestGetFrameworkConfig — node-test (AC-3)', () => {
-  it('coverage_cmd 应含 --experimental-test-coverage、tee、parse-node-test-coverage.mjs 两步脚本', () => {
+// ===========================================================================
+// AC-1: node-test coverage_cmd 简化（移除 tee/parse-node-test-coverage.mjs）
+// ===========================================================================
+
+describe('runTestGetFrameworkConfig — node-test (AC-1)', () => {
+  it('coverage_cmd 应为 "node --test --experimental-test-coverage" （不含 tee/脚本管道）', () => {
     const result = runTestGetFrameworkConfig({ framework: 'node-test' });
-    expect(result.coverage_cmd).toContain('--experimental-test-coverage');
-    expect(result.coverage_cmd).toContain('tee');
-    expect(result.coverage_cmd).toContain('parse-node-test-coverage.mjs');
+    expect(result.coverage_cmd).toBe('node --test --experimental-test-coverage');
+    expect(result.coverage_cmd).not.toContain('|');
+    expect(result.coverage_cmd).not.toContain('parse-node-test-coverage.mjs');
+  });
+
+  it('coverage_cmd 仅含 --test 和 --experimental-test-coverage 两个 flags，无管道符/命令链接符/tee/mjs （与 go-cover 单命令结构对标）', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    const flags = result.coverage_cmd.split(/\s+/).filter((s) => s.startsWith('-'));
+    expect(flags).toEqual(['--test', '--experimental-test-coverage']);
+    expect(result.coverage_cmd).not.toContain('|');
+    expect(result.coverage_cmd).not.toContain('&&');
+    expect(result.coverage_cmd).not.toContain('tee');
+    expect(result.coverage_cmd).not.toContain('.mjs');
+  });
+
+  it('其他框架（jest/vitest/vite-plus/bun）的 coverage_cmd 不受影响，仍含各自 reporter 参数', () => {
+    for (const fw of ['jest', 'vitest', 'vite-plus', 'bun'] as const) {
+      const result = runTestGetFrameworkConfig({ framework: fw });
+      expect(result.coverage_cmd).toMatch(/json|coverage/i);
+    }
+  });
+});
+
+// ===========================================================================
+// AC-2: node-test coverage_output 更改（从 coverage-summary.json 变为 node-test-output.txt）
+// ===========================================================================
+
+describe('runTestGetFrameworkConfig — node-test (AC-2)', () => {
+  it('node-test coverage_output 应为 "coverage/node-test-output.txt"，非 "coverage/coverage-summary.json"', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    expect(result.coverage_output).toBe('coverage/node-test-output.txt');
+    expect(result.coverage_output).not.toBe('coverage/coverage-summary.json');
+  });
+
+  it('node-test coverage_output 以 .txt 后缀结尾，区别于其他七框架的 .json 输出路径', () => {
+    const allEight = ['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'];
+    for (const fw of allEight) {
+      const result = runTestGetFrameworkConfig({ framework: fw });
+      if (fw === 'node-test' || fw === 'go') {
+        expect(result.coverage_output).toMatch(/\.txt$/);
+      } else {
+        expect(result.coverage_output).toMatch(/\.json$/);
+      }
+    }
+  });
+
+  it('其他框架 coverage_output 路径不变（jest/vitest/vite-plus/bun 仍为 coverage/coverage-summary.json）', () => {
+    for (const fw of ['jest', 'vitest', 'vite-plus', 'bun'] as const) {
+      const result = runTestGetFrameworkConfig({ framework: fw });
+      expect(result.coverage_output).toBe('coverage/coverage-summary.json');
+    }
+  });
+});
+
+// ===========================================================================
+// AC-3: node-test coverage_artifacts 更改
+// ===========================================================================
+
+describe('runTestGetFrameworkConfig — node-test (AC-3)', () => {
+  it('coverage_artifacts 应为 ["coverage/node-test-output.txt"]，非 ["coverage/coverage-summary.json"]', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    expect(result.coverage_artifacts).toEqual(['coverage/node-test-output.txt']);
+    expect(result.coverage_artifacts).not.toEqual(['coverage/coverage-summary.json']);
+  });
+
+  it('coverage_cleanup 仍为 ["coverage"]（不变）', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    expect(result.coverage_cleanup).toEqual(['coverage']);
+  });
+});
+
+// ===========================================================================
+// AC-5: node-test coverage_format 不变
+// ===========================================================================
+
+describe('runTestGetFrameworkConfig — node-test (AC-5)', () => {
+  it('coverage_format 仍为 "node-test"（枚举值不变）', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    expect(result.coverage_format).toBe('node-test');
+  });
+});
+
+// ===========================================================================
+// AC-7: node-test coverage_output 指向原始文本文件（非 JSON）
+// ===========================================================================
+
+describe('runTestGetFrameworkConfig — node-test (AC-7)', () => {
+  it('coverage_output 指向原始文本文件，路径类型从 .json 变为 .txt', () => {
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    expect(result.coverage_output).toMatch(/\.txt$/);
+    expect(result.coverage_output).not.toMatch(/\.json$/);
+  });
+});
+
+// ===========================================================================
+// EXPECTED_CONFIGS — node-test 新条目
+// ===========================================================================
+
+describe('EXPECTED_CONFIGS — node-test 新条目', () => {
+  it('EXPECTED_CONFIGS 包含 node-test 条目，覆盖全部 8 字段且与注册表一致', () => {
+    expect(EXPECTED_CONFIGS['node-test']).toBeDefined();
+    const result = runTestGetFrameworkConfig({ framework: 'node-test' });
+    expect(result).toEqual(EXPECTED_CONFIGS['node-test']);
+    // Verify all 8 fields are present
+    expect(Object.keys(result)).toEqual(
+      expect.arrayContaining([
+        'framework',
+        'test_cmd',
+        'coverage_cmd',
+        'coverage_format',
+        'coverage_output',
+        'coverage_artifacts',
+        'coverage_cleanup',
+        'default_glob',
+      ]),
+    );
   });
 });
 

@@ -1,0 +1,578 @@
+[
+  {
+    "phase": "01-proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated remove-parse-node-test-coverage-script proposal against 11-item checklist. All pass: R1 specific problem (script path/line 77/2 issues); R2 scope has 3 sections; R3 concrete mitigations; R4 7 ACs testable; R5 both decisions list rejected alternatives; R6 consistent w/ CLAUDE.md; R7 no TODO/TBD; R8 substantive sections; R9 2 modified capabilities; R10 specs 1:1; R11 no conflicts. Verdict: pass.",
+    "items": [
+      {
+        "item": "R1",
+        "pass": true,
+        "evidence": "Lines 9-22: names exact script file (87 lines), specific code location (line 77), two concrete problems (hardcoded path fragility, cohesion)"
+      },
+      {
+        "item": "R2",
+        "pass": true,
+        "evidence": "Lines 57-77: all three sections present with non-empty"
+      },
+      {
+        "item": "R3",
+        "pass": true,
+        "evidence": "Lines 95-100: 3 risks with specific mitigations"
+      },
+      {
+        "item": "R4",
+        "pass": true,
+        "evidence": "Lines 82-91: 7 ACs each specify object+condition"
+      },
+      {
+        "item": "R5",
+        "pass": true,
+        "evidence": "Decision table: decision 1 lists rejected alternative"
+      },
+      {
+        "item": "R6",
+        "pass": true,
+        "evidence": "Proposal enforces surgical changes, no speculative features"
+      },
+      {
+        "item": "R7",
+        "pass": true,
+        "evidence": "0 matches found in proposal.md for TODO/TBD/placeholder"
+      },
+      {
+        "item": "R8",
+        "pass": true,
+        "evidence": "All non-capability sections have substantive content"
+      },
+      {
+        "item": "R9",
+        "pass": true,
+        "evidence": "2 modified capabilities listed"
+      },
+      {
+        "item": "R10",
+        "pass": true,
+        "evidence": "2 capabilities match exactly 2 spec files"
+      },
+      {
+        "item": "R11",
+        "pass": true,
+        "evidence": "ACs map to REQs; scope matches scenarios; no contradictions"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-24T09:30:25.099Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL: D1 组件表缺少\"依赖\"列。要求至少4列（职责、依赖、技术栈、文件路径），当前表列为[组件,变更类型,文件位置,职责,技术]，无独立依赖列。D2-D9均通过。需补充依赖列或合并依赖信息至现有列。",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": false,
+        "evidence": "组件表列为[组件,变更类型,文件位置,职责,技术]，无独立的'依赖'列。要求至少4列（职责、依赖、技术栈、文件路径），依赖列缺失。"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "5步骤数据流（62-76行）完整追踪输入→处理→输出路径；包含变更前后对比表（79-85行）和框架对比（97-101行）。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "7项AC均覆盖：AC-1(13,65,81行), AC-2(13,65,83行), AC-3(13,66,84行), AC-4(15-16行), AC-5(14,53-56行), AC-6(132-134行), AC-7(54-56,97-101行)。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "5阶段16任务均含[-]复选框。阶段1(配置)→2(执行器)→3(删除)→4(测试)→5(验证)顺序合理，无依赖反转。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "每个任务指定精确文件路径和具体操作(e.g., '将coverage_cmd改为...', '删除parse-node-test-coverage.mjs')，不含模糊描述。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时依赖：Node.js experimental-test-coverage、go-cover模式。构建/测试：TypeScript检查、test-get-framework-config.test.ts、test-detect-frameworks.test.ts(124-134行)。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "符合slim plugin（无新MCP工具）、agent模式（executor解析覆盖率）、surgical变更（仅修改node-test条目）、匹配已有go-cover模式。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构(9-56行)、数据流(60-101行)、路由设计(105-108行)、决策(111-119行)、依赖(123-134行)均填充实质性内容。"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md无测试策略章节。tasks.md阶段4修改测试代码（非运行测试），阶段5为类型检查和grep验证，无测试执行任务。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-24T09:33:19.916Z"
+  },
+  {
+    "phase": "02-dev-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 9 items pass. D1: 4 required columns (职责/依赖/技术栈/文件路径) present with 6-col table, no TBD, concrete file paths. D2: 5-step data flow with before/after comparison. D3: all 7 ACs cross-referenced. D4: 5 phases 16 tasks with [ ], forward-only deps. D5: each task specifies exact file+action. D6: runtime deps (Node.js) and build/test deps listed. D7: aligns with CLAUDE.md patterns. D8: all 5 sections substantive. D9: no test steps. Verdict: pass.",
+    "items": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表6列：组件/变更类型/文件位置/职责/依赖/技术；4行均填写了职责、依赖、技术、文件路径；技术无TBD；文件路径均指向具体文件（如 plugins/dev-team/bin/src/commands/test-get-framework-config.ts）"
+      },
+      {
+        "item": "数据流描述有具体步骤",
+        "pass": true,
+        "evidence": "5步骤数据流（64-76行）完整追踪：框架配置查找→Plan生成→执行与产物移动→覆盖率解析→聚合与门控；含变更前后配置对比表（79-85行）和框架解析模式对比表（97-101行）"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "7项AC均被覆盖：AC-1(13,65,81行), AC-2(13,65,83行), AC-3(13,66,84行), AC-4(15-16行), AC-5(14,53-56,74-75行), AC-6(132-134行), AC-7(54-56,97-101行)"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "5阶段16任务均含[-]复选框。阶段1(配置)→2(执行器)→3(删除)→4(测试)→5(验证)顺序合理，无依赖反转"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "每个任务指定精确文件路径和具体操作（例如：'将coverage_cmd改为...'、'提供regex示例：/all\\s+files...'、'删除parse-node-test-coverage.mjs'），不含模糊描述"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时依赖（127-128行）：Node.js --experimental-test-coverage、go-cover模式。构建/测试依赖（132-134行）：TypeScript类型检查、test-get-framework-config.test.ts、test-detect-frameworks.test.ts"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "符合slim plugin（无新MCP工具）、agent模式（executor解析覆盖率）、surgical变更（仅修改node-test条目）、匹配已有go-cover解析模式"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构(9-56行)、数据流(60-101行)、路由/API设计(105-108行)、决策(111-119行)、依赖(123-134行)均填充实质性内容"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md无测试策略章节。tasks.md阶段4修改测试代码（非运行测试），阶段5为类型检查和grep验证，无测试执行任务"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-24T09:34:52.525Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL: T3 未通过——缺少边界情况测试用例。所有 14 条用例均为\"正向\"或\"异常\"类型，无\"边界\"类型用例。无针对本变更领域的具体边界测试（如空输出、异常格式、边缘框架值）。T1/T2/T4/T5/T6/T7/T8 均通过。",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal.md 7个AC（AC-1至AC-7）均映射至test-design.md验收范围表（第11-18行）。AC-1→第11行、AC-2→第12行、AC-3→第13行、AC-4→第14行（不可测试）、AC-5→第15-16行（两个条目）、AC-6→第17行、AC-7→第18行。"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": true,
+        "evidence": "单元测试14条用例均可追溯至验收范围：AC-1/2/3/5/7专用行覆盖直接映射用例；AC-6行（\"全部describe块回归验证\"）覆盖test-get-framework-config.test.ts和test-detect-frameworks.test.ts中的综合用例（EXPECTED_CONFIGS、NEW_FRAMEWORK_EXPECTED、八框架完整性、runTestDetectFrameworks）。集成测试无用例，已说明原因。"
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": false,
+        "evidence": "单元测试全部14条用例中，8条\"正向\"（happy path）、1条\"异常\"（其他框架不受影响）、5条\"修改/废弃/新增\"（迭代类型），无1条类型为\"边界\"。缺少针对本变更的具体边界测试场景，例如：node-test空输出格式、覆盖率字段缺失、输出文件内容格式异常、ENUM边界值等。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Mock策略表（第44-49行）完整描述三个测试文件的Mock方案：test-get-framework-config.test.ts无mock（纯函数）；test-detect-frameworks.test.ts使用createTempProject模拟文件系统；unit_test_executor_schema_static.test.ts使用readAgent/extractSection读取agent文件。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围（第8-18行）、单元测试（第22-49行）、集成测试（第53-73行）、不可测试项（第77-86行）均填写实质性内容，无空章节或占位符残留。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope项（FRAMEWORK_REGISTRY修改、unit-test-executor.md更新、测试文件更新）均有测试覆盖；out_of_scope项（其他框架、schema文件、config.schema、plugin.json、test-resolve-paths）均无测试覆盖。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "本变更不涉及运行时写操作（API/DB）。FRAMEWORK_REGISTRY为编译时常量修改，文件删除为git操作，无运行时副作用累积，幂等性不适用。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "所有表格列名与模板完全一致：验收范围 [AC ID/验收条件/测试类型/测试文件/测试对象/测试场景]、单元测试用例 [测试文件/测试对象/路径类型/测试条件/迭代类型]、Mock策略 [测试文件/Mock主体/Mock方案/应用场景]、集成测试用例 [AC ID/测试文件/测试场景/测试条件/迭代类型]。无占位符残留。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-24T09:38:10.745Z"
+  },
+  {
+    "phase": "03-test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS: all 8 checklist items verified. 验收范围 covers all 7 ACs; 18 unit test cases mapped to appropriate ACs; 4 boundary cases specific to the change (single-command structure, .txt suffix, plan propagation, regex 0%/100%); mock strategy covers file system deps; no API/DB write ops requiring idempotency; template format and column names match.",
+    "items": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal.md AC-1~AC-7 (lines 84-90) all appear in 验收范围 table (test-design.md lines 11-18): AC-1 coverage_cmd → line 11, AC-2 coverage_output → line 12, AC-3 coverage_artifacts → line 13, AC-4 文件删除 → line 14 (不可测试), AC-5 解析方式/coverage_format → lines 15-16, AC-6 回归 → line 17, AC-7 原始文本路径 → line 18"
+      },
+      {
+        "item": "每个用例在`验收范围`中有对应条目",
+        "pass": true,
+        "evidence": "All 18 unit test case rows (test-design.md lines 28-45) reference an AC-ID in their 测试对象 column and map to the corresponding row in 验收范围 table (lines 11-18). Lines 38-40 (EXPECTED_CONFIGS, NEW_FRAMEWORK_EXPECTED, 八框架完整性) fall under AC-6 umbrella '全部 describe 块回归验证' at line 17."
+      },
+      {
+        "item": "边界情况与变更领域相关",
+        "pass": true,
+        "evidence": "4 边界 cases present, all domain-specific: (1) Line 29: single-command no-pipe structure vs go-cover pattern; (2) Line 32: .txt suffix vs other 7 frameworks' .json; (3) Line 43: plan propagating single command vs multi-step chain; (4) Line 45: regex parsing 0.00%/100.00% edge values. None are generic '空值输入'."
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Mock 策略 table (lines 48-54) covers all deps: test-get-framework-config (no mock, pure function), test-detect-frameworks (filesystem via createTempProject + cleanup), unit_test_executor_schema_static (filesystem via readAgent + extractSection). No external services/DBs/APIs in scope."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围 (7 rows), 单元测试-用例 (18 rows), 单元测试-Mock策略 (3 rows), 集成测试-用例 (marked with '—' with rationale lines 59-65), 集成测试-Mock策略 (marked '—'), 不可测试项 (3 items with reasons). All sections have substantive content."
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "All in_scope items (proposal.md lines 57-68) have test coverage: coverage_cmd/coverage_output/coverage_artifacts → AC-1/2/3, unit-test-executor.md → AC-5, deleted files → AC-4 (不可测试). Out_of_scope items (lines 70-76: schema files, plugin.json, other frameworks) have zero test cases in this design."
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "Change involves only static source-code config value modifications and git-level file deletion — no runtime API/DB write operations. Registry tests are read-only assertions on constants (inherently idempotent). AC-4 (file deletion) correctly marked as 不可测试 since deletion is a one-time SCM operation, not a repeatable runtime action."
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "Column names in all tables match template exactly (test-design.md.template): 验收范围 (AC ID|验收条件|测试类型|测试文件|测试对象/测试场景), 单元测试 (测试文件|测试对象|路径类型|测试条件|迭代类型), Mock策略 (测试文件|Mock主体|Mock方案|应用场景). All {{placeholders}} replaced. Section order matches template."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-24T09:41:14.447Z"
+  },
+  {
+    "phase": "05-implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "I1-I7 ALL PASS: node-test registry simplified (test-get-framework-config.ts:73-82), executor regex parsing added (unit-test-executor.md:121-134), both parser scripts deleted, test assertions updated for simplified cmd, plugin.json/schemas unmodified, tasks.md fully checked, no extraneous changes beyond scope.",
+    "items": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "FRAMEWORK_REGISTRY node-test simplified (test-get-framework-config.ts:73-82); executor step 4 regex parsing (unit-test-executor.md:121-134); parse-node-test-coverage.mjs deleted; parse-node-test-coverage.test.mjs deleted"
+      },
+      {
+        "item": "实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "coverage_cmd simplified (no pipe/tee/script), coverage_output points to raw text file, executor reads raw text and extracts via regex matching design's group mapping"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "camelCase naming, *.test.ts convention, relative imports, hardcoded registry pattern consistent with existing 8 frameworks"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md states no new/modified MCP tools; no schema files changed in git diff"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 5 phases (20+ sub-tasks) checked [x] including registry, executor, script deletion, test assertions, and completeness verification"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "All 8 changed files in git diff directly traceable to tasks: registry config, executor doc, test assertions, deleted scripts, auto-bundled mcp.cjs, todo.md task marking"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "D1: scripts deleted+executor regex; D2: coverage_output=raw text; D3: coverage_cleanup=['coverage']; D4: plugin.json unchanged; D5: schema files unchanged"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-24T09:45:59.952Z"
+  },
+  {
+    "phase": "04-test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "ALL 9 items PASS. G1: 3 exported functions across 2 source files, each with colocated .test.ts. G2: .test.ts suffixed, co-located. G3: 3 新增 rows all have describe/it with matching test conditions (minor describe label AC-5 vs AC-6). G4: N/A (empty integration table). G5: all 3 mock strategies implemented. G6: all import vite-plus/test. G7: 4 domain boundary cases + parameter type edge cases covered. G8: try/finally cleanup + no side effects. G9: 0 废弃 entries generated.",
+    "items": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "test-get-framework-config.ts: runTestGetFrameworkConfig + getDefaultGlobForFramework both tested in colocated test-get-framework-config.test.ts. test-detect-frameworks.ts: runTestDetectFrameworks tested in colocated test-detect-frameworks.test.ts. Deleted parse-node-test-coverage.mjs was a script, not a module with public methods."
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "test-get-framework-config.test.ts and test-detect-frameworks.test.ts: .test.ts suffix, same dir as source. unit_test_executor_schema_static.test.ts: .test.ts suffix in __tests__/ dir (integration test convention for agent doc source)."
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "3 新增 rows: (1) EXPECTED_CONFIGS -- node-test at test-get-framework-config.test.ts L594 describe+L595 it; (2)-(3) runTestDetectFrameworks at test-detect-frameworks.test.ts L991 describe+L1011 it covering both 正向 and 边界 path types. Describe title minor (AC-5 vs AC-6) but it titles match and content correct."
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design.md 集成测试 > 用例 表格为空（本变更不涉及新集成测试场景）。N/A - pass by default."
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "(1) test-get-framework-config.test.ts: no mocks (pure functions). (2) test-detect-frameworks.test.ts: createTempProject + cleanup() used in all describes. (3) unit_test_executor_schema_static.test.ts: readAgent + extractSection used in all describes."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All 3 test files: import { describe, it, expect } from 'vite-plus/test'. Matches project test framework."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "4 domain-specific boundaries: (1) node-test single-command AC-1 at test-get-framework-config.test.ts L501-509; (2) .txt suffix AC-2 at L530-540; (3) node-test plan propagation AC-6 at test-detect-frameworks.test.ts L1023; (4) regex 0%/100% AC-5 at unit_test_executor_schema_static.test.ts L177-188. Parameter type edge cases: empty/null/whitespace/case/special-chars/long-string."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test-detect-frameworks.test.ts: try { ... } finally { project.cleanup() } pattern throughout. test-get-framework-config.test.ts: no side effects (pure function assertions). unit_test_executor_schema_static.test.ts: read-only file ops, no state to clean up."
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "Only 1 废弃 entry: NEW_FRAMEWORK_EXPECTED -- node-test 旧期望值. No corresponding describe/it for old node-test values (tee/parser) exists in generated test code. EXPECTED_CONFIGS has only the simplified values."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-24T09:53:00.340Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "所有 594 个单元测试通过。覆盖率达标: lines=88.7%(阈值80%), branches=76.12%(阈值70%), functions=95.06%(阈值75%)。Override 分组均通过。U1: test_cases 字段缺失(微型 schema 问题, 无失败用例无需诊断)。",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": false,
+        "evidence": "缺少必需字段 test_cases（微型 schema 问题，因 failed=0 无需诊断）"
+      },
+      {
+        "item": "所有单元测试通过",
+        "pass": true,
+        "evidence": "594/594 tests passed"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "lines=88.7% (阈值80%), branches=76.12% (阈值70%), functions=95.06% (阈值75%); overrides all pass"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A - 无失败用例"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-25T01:39:28.465Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "所有 594 个单元测试通过。覆盖率全局阈值达标(lines=88.7%/80%, branches=76.12%/70%, functions=95.06%/75%)，但 override plugins/dev-team/hooks/scripts 不达标(lines=0%/80%, branches=0%/70%, functions=0%/75%)",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "所有必需字段存在且类型正确: phase, command, timestamp, total(594), passed(594), failed(0), skipped(0), coverage, duration_seconds, test_cases"
+      },
+      {
+        "item": "所有单元测试通过",
+        "pass": true,
+        "evidence": "594/594 tests passed, 0 failed"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": false,
+        "evidence": "全局阈值通过(lines=88.7%/80%, branches=76.12%/70%, functions=95.06%/75%)。Override 不达标: plugins/dev-team/hooks/scripts: lines=0%(阈值80%), branches=0%(阈值70%), functions=0%(阈值75%)"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A - 所有测试通过，无需诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-25T01:45:13.887Z"
+  },
+  {
+    "phase": "06-unit-test",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "诊断分析: 06-unit-test 阶段测试执行结果\n总计: 594 | 通过: 594 | 失败: 0 | 跳过: 0\n覆盖率: lines=88.7%, branches=76.12%, functions=95.06%\n覆盖率达标: true\n失败详情: 无失败用例\n诊断决策树分析: N/A - 所有测试通过",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds, test_cases）存在且类型正确"
+      },
+      {
+        "item": "所有单元测试通过",
+        "pass": true,
+        "evidence": "594/594 tests passed"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "lines=88.7% (阈值 80%), branches=76.12% (阈值 70%), functions=95.06% (阈值 75%) — 全部高于阈值"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A - 所有测试通过，无需诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-25T01:50:02.093Z"
+  },
+  {
+    "phase": "07-code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Code review passed. 8/8 checks pass. Implementation matches design: node-test coverage_cmd simplified (no pipe/tee/parser), coverage_output -> .txt, coverage_artifacts updated. Both parse scripts deleted. unit-test-executor.md step 4 updated with regex extraction. Tests assert old references removed. No security issues; input validated via isTestFramework(); edge cases covered. Minor scope addition (phase-log.test.ts fake-timers) non-contradictory.",
+    "items": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No SQLi/XSS/command injection/hardcoded keys in changed source files. Security grep matches only in pre-existing bundled/third-party code."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "runTestGetFrameworkConfig validates framework via isTestFramework() against registry (test-get-framework-config.ts:106-108,128-132). Tests verify empty/null/unknown/special-chars all throw."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "coverage_cmd simplified to node --test --experimental-test-coverage (L76), coverage_output -> coverage/node-test-output.txt (L78), coverage_artifacts updated (L79), both scripts deleted, agent step 4 updated with regex parsing (L121-134). phase-log.test.ts fake-timers fix is non-contradictory addition."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Framework validation handles empty/null/unknown. Agent doc covers missing file -> 0, no coverage -> null, no integration -> null, empty artifacts -> skip move."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "Removed parse-node-test-coverage.mjs (87 lines) and its test (173 lines). All exported functions in test-get-framework-config.ts are used. No dead tests."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "TypeScript with proper types, clear comments, agent doc follows existing format. Test files use established describe/it pattern with Chinese descriptions."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "No new types introduced. Removed intermediate type (parse script -> JSON -> executor). coverage_format: node-test enum unchanged. FrameworkConfig interface unchanged."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-25T01:51:41.955Z"
+  },
+  {
+    "phase": "08-integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "未发现集成测试文件，阶段跳过。test-design.md 显式声明本变更不涉及新集成测试场景。所有行为变更（FRAMEWORK_REGISTRY 字段更新、agent 文档更新、文件删除）均已由单元测试充分覆盖。",
+    "items": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "所有必需字段存在且类型正确"
+      },
+      {
+        "item": "所有集成测试通过",
+        "pass": true,
+        "evidence": "N/A - total=0, 阶段跳过"
+      },
+      {
+        "item": "无环境/配置阻断",
+        "pass": true,
+        "evidence": "无基础设施错误"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "N/A - total=0, 无需诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "skipped": true,
+    "timestamp": "2026-06-25T01:52:27.454Z"
+  },
+  {
+    "phase": "09-acceptance",
+    "timestamp": "2026-06-25T01:54:36.734Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "ALL 5 items PASS. A1: all 7 ACs have implementation evidence (simplified cmd/coverage_output/artifacts, scripts deleted, regex parsing in executor, test assertions updated, 594/594 pass). A2: no scope creep (other 7 frameworks unchanged, schema files unchanged, plugin.json unchanged). A3: all 6 in_scope items implemented. A4: all out_of_scope items unmodified. A5: 3 risks mitigated (regex error→0, test refs updated, agent doc with regex example).",
+    "items": [
+      {
+        "item": "A1: 所有 AC 有实现证据",
+        "pass": true,
+        "evidence": "AC-1至AC-7均在源码/agent文档/测试中有直接实现证据; test-get-framework-config.ts:76-79 简化字段; unit-test-executor.md:121-134 regex解析; 两个脚本已删除; 594/594测试通过"
+      },
+      {
+        "item": "A2: 无范围蔓延",
+        "pass": true,
+        "evidence": "仅6个in_scope文件变更; 其他7个框架条目/schema文件/plugin.json/test-resolve-paths.ts均未修改"
+      },
+      {
+        "item": "A3: 所有in_scope项已实现",
+        "pass": true,
+        "evidence": "test-get-framework-config.ts(node-test简化), unit-test-executor.md(step 4 regex), 脚本删除, test文件更新——全部完成"
+      },
+      {
+        "item": "A4: out_of_scope项未实现",
+        "pass": true,
+        "evidence": "其他框架条目/schema文件/config.schema.ts/plugin.json/test-resolve-paths.ts均未修改"
+      },
+      {
+        "item": "A5: 风险缓解措施到位",
+        "pass": true,
+        "evidence": "regex失败→0的异常处理; 测试验证无旧命令残留(notToContain pipe/tee/mjs); agent文档含具体regex示例"
+      }
+    ],
+    "backtrack_to": null
+  }
+]

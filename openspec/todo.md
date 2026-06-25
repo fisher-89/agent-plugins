@@ -26,4 +26,4 @@
 - [ ] 禁止test-gen修改非.test文件
 - [x] phase-next返回allowed_backtracks
 - [x] fix: code-review未指定backtrack_to
-- [ ] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli
+- [x] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli

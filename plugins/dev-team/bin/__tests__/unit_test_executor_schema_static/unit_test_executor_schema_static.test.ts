@@ -148,3 +148,42 @@ describe('unit-test-executor.md — integration_test 子报告 schema (AC-4)', (
     expect(reportSection).not.toMatch(/"integration_test"[\s\S]*"failures"\s*:/);
   });
 });
+
+// ===========================================================================
+// AC-5: node-test 覆盖率解析方式变更（移除 parse-node-test-coverage.mjs）
+// @see openspec/changes/remove-parse-node-test-coverage-script/test-design.md
+// ===========================================================================
+
+describe('unit-test-executor.md — node-test 覆盖率解析 (AC-5)', () => {
+  it('步骤 4 中 node-test 描述应说明 "regex match `all files` row"，而非 "Read parser-produced coverage-summary.json"', () => {
+    const content = readAgent(executorPath);
+    const coverageSection = extractSection(content, '### 4. Coverage parsing', '### 5.');
+    expect(coverageSection).not.toContain('parse-node-test-coverage');
+    expect(coverageSection).not.toContain('parser-produced');
+    expect(coverageSection).toMatch(/regex\s+to\s+match/i);
+    expect(coverageSection).toContain('all files');
+  });
+
+  it('node-test 的 regex 提取描述应覆盖 `all files` 行三列（Lines、Branch、Funcs）的百分比值解析', () => {
+    const content = readAgent(executorPath);
+    const coverageSection = extractSection(content, '### 4. Coverage parsing', '### 5.');
+    const nodeTestSection = coverageSection.split('node-test').slice(1).join('node-test');
+    expect(nodeTestSection).toMatch(/% (Lines|Branch|Funcs)/);
+    expect(nodeTestSection).toContain('lines');
+    expect(nodeTestSection).toContain('branches');
+    expect(nodeTestSection).toContain('functions');
+  });
+
+  it('正则表达式应可匹配 0.00%（最小值边界）和 100.00%（最大值边界）', () => {
+    const regex = /all\s+files\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)\s*\|\s*([\d.]+)/i;
+    const minLine = 'All files |    0.00 |    0.00 |   0.00 |   0.00 |';
+    const maxLine = 'All files |  100.00 |  100.00 | 100.00 | 100.00 |';
+    expect(minLine).toMatch(regex);
+    expect(maxLine).toMatch(regex);
+
+    const content = readAgent(executorPath);
+    const coverageSection = extractSection(content, '### 4. Coverage parsing', '### 5.');
+    // Verify the regex pattern appears in the agent file
+    expect(coverageSection).toMatch(regex);
+  });
+});

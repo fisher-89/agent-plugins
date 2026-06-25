@@ -10,7 +10,7 @@
       },
       {
         "file": "plugins/dev-team/hooks/scripts",
-        "framework": "vite-plus"
+        "framework": "node-test"
       }
     ]
   }

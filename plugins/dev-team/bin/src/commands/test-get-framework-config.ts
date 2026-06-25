@@ -73,11 +73,10 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   'node-test': {
     framework: 'node-test',
     test_cmd: 'node --test',
-    coverage_cmd:
-      'node --test --experimental-test-coverage 2>&1 | tee coverage/node-test-output.txt && node plugins/dev-team/scripts/parse-node-test-coverage.mjs coverage/node-test-output.txt coverage/coverage-summary.json',
+    coverage_cmd: 'node --test --experimental-test-coverage',
     coverage_format: 'node-test',
-    coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
+    coverage_output: 'coverage/node-test-output.txt',
+    coverage_artifacts: ['coverage/node-test-output.txt'],
     coverage_cleanup: ['coverage'],
     default_glob: '**/*.test.{mjs,js,cjs}',
   },

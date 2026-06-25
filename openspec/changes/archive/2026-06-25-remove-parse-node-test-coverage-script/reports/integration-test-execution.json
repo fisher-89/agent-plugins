@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "",
+  "timestamp": "2026-06-25T00:00:00.000Z",
+  "total": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 0,
+  "failures": [],
+  "findings": "No integration test files found. The test-design.md (remove-parse-node-test-coverage-script) explicitly states this change does not involve new integration test scenarios. All behavior changes (FRAMEWORK_REGISTRY field updates, unit-test-executor.md text update, file deletions) are fully covered by unit tests. No integration test files exist for this change."
+}
