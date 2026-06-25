@@ -35,7 +35,7 @@ vi.mock('../../src/lib/change', () => ({
 import { runPhaseLog } from '../../src/commands/phase-log';
 import { appendEntry } from '../../src/lib/eval-json';
 
-const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
+const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'none' }];
 
 function mockWorkflowType(workflowType: string): void {
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
@@ -66,9 +66,8 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
       runPhaseLog({
         change: 'test-change',
         phase: '06-unit-test',
-        verdict: 'fail',
         report: 'bugs found',
-        items: VALID_ITEMS,
+        items: FAILED_ITEMS,
         backtrack_to: '05-implement',
       }),
     ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
@@ -79,9 +78,8 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
     runPhaseLog({
       change: 'test-change',
       phase: '06-unit-test',
-      verdict: 'fail',
       report: 'bugs found, adaptive retry',
-      items: VALID_ITEMS,
+      items: FAILED_ITEMS,
       backtrack_to: null,
     });
 

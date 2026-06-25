@@ -11,7 +11,7 @@ metadata:
   version: "1.0"
 ---
 
-**Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build.
+**Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build. If omitted, check if it can be inferred from conversation context.
 
 ## Steps
 
@@ -22,7 +22,7 @@ Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
 **Decision tree based on user input and change list:**
 
 1. **User provided a parameter that exactly matches an existing change name** → use that change, skip to Step 2.
-2. **User provided a description (not an exact change name match)**:
+2. **User or context provided a description (not an exact change name match)**:
    - If **no active changes exist** → treat as a new change. Derive a kebab-case name and proceed to Step 1.
    - If **active changes exist**, judge whether the description semantically relates to an existing change (e.g., the description refines, extends, or refers to the same topic as an existing change name).
      - **Confident it matches an existing change** → use that change, skip to Step 2.

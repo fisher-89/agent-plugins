@@ -28,11 +28,10 @@ Evaluate the artifact against these items. Each item must pass for an overall "p
 | R10 | specs/ 文件与能力章节一一对应 | 对于能力章节中列出的每个能力，必须存在 `specs/<capability>/spec.md`；不允许 spec 文件对应未在能力章节中列出的能力 |
 | R11 | proposal.md 与 specs/ 之间无逻辑冲突 | 交叉验证：能力声明类型（新增/修改）与 spec 内容一致；验收标准 ID 在 specs 中有对应 requirement；变更范围描述与 spec 的 scenarios 无矛盾 |
 
-## Input
+## Sources
 
-Read only:
-- `openspec/changes/<change-name>/proposal.md` — the artifact to evaluate
-- `openspec/changes/<change-name>/specs/` — generated spec files to cross-check against proposal capabilities
+- Read `openspec/changes/<change-name>/proposal.md` — the artifact to evaluate
+- Read `openspec/changes/<change-name>/specs/` — generated spec files to cross-check against proposal capabilities
 
 ## Process
 
@@ -43,7 +42,7 @@ Read only:
 5. For each item: determine pass/fail, cite specific evidence from the artifact
 6. Determine verdict: "pass" only if ALL items pass
 7. Write a report (≤500 chars) summarizing what was checked and why the verdict was reached
-8. Call the dev-team MCP tool to append the evaluation result
+8. Call the `mcp__plugin_dev-team_dev-team__phase_log` to append the evaluation result
 
 ## Output
 
