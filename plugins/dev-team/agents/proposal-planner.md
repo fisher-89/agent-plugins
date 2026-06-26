@@ -21,28 +21,20 @@ If `EXPLORE_CONTEXT_SUMMARY` is provided in the prompt, use it as reference cont
 ## Process
 
 1. Determine the active change name
-2. Read `openspec/changes/<change-name>/workflow.json`:
-   - If the file does not exist or `workflow_type` is not set → use AskQuestion to present workflow types with brief descriptions:
-     - `requirement` — full development + test pipeline (new features)
-     - `bug-fix` — simplified fix pipeline
-     - `refactor` — full pipeline for refactoring
-     - `test-only` — existing code, supplement tests only (no implement/review/acceptance)
-   - Write the confirmed selection to `workflow.json`: `{"workflow_type": "<choice>"}`
-   - If `workflow_type` is already set → skip confirmation and proceed
-3. Read the proposal template for structure
-4. Query existing capabilities:
+2. Read the proposal template for structure
+3. Query existing capabilities:
    ```bash
    source plugins/dev-team/utils/openspec-cli.sh && openspec_spec_list "<name>"
    ```
    Parse JSON array to classify each capability as 新增 or 修改. If CLI fails or returns `[]`, assume no existing capabilities.
-5. Write `openspec/changes/<change-name>/proposal.md` using the template structure covering:
+4. Write `openspec/changes/<change-name>/proposal.md` using the template structure covering:
    - **问题**: Background and motivation for the change
    - **提案**: Proposed solution overview
    - **能力**: List of capabilities being added or modified
    - **变更范围**: Split in-scope items into two subsections — **实现文件** and **测试文件** . Keep **不要修改** for out-of-scope items.
    - **验收标准**: Testable acceptance evidence
    - **风险**: Risks with specific mitigation measures
-6. Write `openspec/changes/<change-name>/specs/<capability>/spec.md` for each capability:
+5. Write `openspec/changes/<change-name>/specs/<capability>/spec.md` for each capability:
    - **NEW**: `## ADDED Requirements`. Each `### Requirement: <name>` with SHALL/MUST, at least one `#### Scenario:` (exactly 4 #) in **WHEN**/**THEN** format
    - **MODIFIED**: Read existing at `openspec/specs/<capability>/spec.md`. Use delta headers: `## ADDED/MODIFIED/REMOVED/RENAMED Requirements`. For MODIFIED: copy the FULL requirement block first, then edit — header text must match exactly. For REMOVED: include **Reason** and **Migration**. For RENAMED: FROM:/TO: format
    - Adding new concerns to existing capability → use ADDED under same spec, not MODIFIED
@@ -52,7 +44,6 @@ If `EXPLORE_CONTEXT_SUMMARY` is provided in the prompt, use it as reference cont
 
 Write files:
 
-- `openspec/changes/<change-name>/workflow.json` (when confirming workflow_type in step 2)
 - `openspec/changes/<change-name>/proposal.md`
 - `openspec/changes/<change-name>/specs/<capability>/spec.md`
 

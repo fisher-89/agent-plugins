@@ -27,10 +27,10 @@ Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
    - If **active changes exist**, judge whether the description semantically relates to an existing change (e.g., the description refines, extends, or refers to the same topic as an existing change name).
      - **Confident it matches an existing change** → use that change, skip to Step 2.
      - **Confident it is unrelated to any existing change** → treat as a new change. Derive a kebab-case name and proceed to Step 1.
-     - **Uncertain** → use AskQuestion to present the potentially matching change(s) plus a "Create a new change" option. Let the user decide.
+     - **Uncertain** → use `AskUserQuestion` to present the potentially matching change(s) plus a "Create a new change" option. Let the user decide.
 3. **No parameter provided AND exactly one active change exists** → auto-select that change, skip to Step 2.
-4. **No parameter provided AND multiple active changes exist** → use AskQuestion to present the list of active changes (plus an "Other — describe a new change" option). If the user picks an existing change, skip to Step 2. If the user describes a new change, derive a kebab-case name and proceed to Step 1.
-5. **No parameter provided AND zero active changes exist** → use AskQuestion (open-ended, no preset options) to ask: "What change do you want to work on? Describe the test coverage you want to add or fix." Derive a kebab-case name from the response and proceed to Step 1.
+4. **No parameter provided AND multiple active changes exist** → use `AskUserQuestion` to present the list of active changes (plus an "Other — describe a new change" option). If the user picks an existing change, skip to Step 2. If the user describes a new change, derive a kebab-case name and proceed to Step 1.
+5. **No parameter provided AND zero active changes exist** → use `AskUserQuestion` (open-ended, no preset options) to ask: "What change do you want to work on? Describe the test coverage you want to add or fix." Derive a kebab-case name from the response and proceed to Step 1.
 
 **IMPORTANT**: Do NOT proceed without a resolved change name.
 
@@ -84,7 +84,7 @@ LOOP:
     if eval_result indicates code bugs found (verdict fail, backtrack_to null, report mentions code bugs):
       Write openspec/changes/<name>/reports/code-bugs-found.md summarizing bugs from eval report
       Notify user: tests discovered production code bugs
-      AskQuestion: continue workflow (e.g. proceed to integration-test) or terminate
+      `AskUserQuestion`: continue workflow (e.g. proceed to integration-test) or terminate
       if user chooses terminate:
         STOP
       else:

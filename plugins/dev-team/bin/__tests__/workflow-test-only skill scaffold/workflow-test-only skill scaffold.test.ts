@@ -56,7 +56,7 @@ describe('workflow-test-only/SKILL.md — bug 报告流程 (AC-15)', () => {
     const content = readSkill(skillPath);
     expect(content).toMatch(/code-bugs-found\.md/);
     expect(content).toMatch(/code bugs found/i);
-    expect(content).toMatch(/AskQuestion.*continue|terminate/is);
+    expect(content).toMatch(/`AskUserQuestion`.*continue|terminate/is);
   });
 });
 
