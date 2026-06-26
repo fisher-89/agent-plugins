@@ -7,63 +7,63 @@ The prerequisite table for the `requirement` workflow_type SHALL be:
 
 | Phase | Prerequisites | Notes |
 |-------|---------------|-------|
-| 01-proposal | [] | Root phase, no dependencies |
-| 02-dev-design | [01-proposal] | Only depends on proposal |
-| 03-test-design | [01-proposal, 02-dev-design] | Depends on proposal and dev-design |
-| 05-implement | [02-dev-design] | Only depends on dev-design; may run in parallel with 03-test-design after 02 passes |
-| 04-test-gen | [03-test-design, 05-implement] | Requires both test design AND completed implementation |
-| 06-unit-test | [04-test-gen, 05-implement] | Needs both tracks |
-| 07-code-review | [04-test-gen, 05-implement] | Same prerequisites as unit-test — can run in parallel |
-| 08-integration-test | [04-test-gen, 05-implement] | Same prerequisites — parallel leaf node |
-| 09-acceptance | [01-proposal, 02-dev-design, 05-implement] | Pure dev track, no test track dependency |
+| proposal | [] | Root phase, no dependencies |
+| dev-design | [proposal] | Only depends on proposal |
+| test-design | [proposal, dev-design] | Depends on proposal and dev-design |
+| implement | [dev-design] | Only depends on dev-design; may run in parallel with test-design after dev-design passes |
+| test-gen | [test-design, implement] | Requires both test design AND completed implementation |
+| unit-test | [test-gen, implement] | Needs both tracks |
+| code-review | [test-gen, implement] | Same prerequisites as unit-test — can run in parallel |
+| integration-test | [test-gen, implement] | Same prerequisites — parallel leaf node |
+| acceptance | [proposal, dev-design, implement] | Pure dev track, no test track dependency |
 
 For the `bug-fix` workflow_type:
 
 | Phase | Prerequisites |
 |-------|--------------|
-| 01-proposal | [] |
-| 02-dev-design | [01-proposal] |
-| 05-implement | [02-dev-design] |
-| 06-unit-test | [05-implement] |
-| 07-code-review | [05-implement] |
-| 09-acceptance | [07-code-review] |
+| proposal | [] |
+| dev-design | [proposal] |
+| implement | [dev-design] |
+| unit-test | [implement] |
+| code-review | [implement] |
+| acceptance | [code-review] |
 
 For the `refactor` workflow_type, the prerequisite table SHALL match `requirement`.
 
 #### Scenario: getPrerequisites returns correct dependencies for requirement workflow
-- **WHEN** `getPrerequisites("01-proposal", "requirement")` is called
+- **WHEN** `getPrerequisites("proposal", "requirement")` is called
 - **THEN** it returns `[]`
 
-- **WHEN** `getPrerequisites("02-dev-design", "requirement")` is called
-- **THEN** it returns `["01-proposal"]`
+- **WHEN** `getPrerequisites("dev-design", "requirement")` is called
+- **THEN** it returns `["proposal"]`
 
-- **WHEN** `getPrerequisites("03-test-design", "requirement")` is called
-- **THEN** it returns `["01-proposal", "02-dev-design"]`
+- **WHEN** `getPrerequisites("test-design", "requirement")` is called
+- **THEN** it returns `["proposal", "dev-design"]`
 
-- **WHEN** `getPrerequisites("05-implement", "requirement")` is called
-- **THEN** it returns `["02-dev-design"]`
+- **WHEN** `getPrerequisites("implement", "requirement")` is called
+- **THEN** it returns `["dev-design"]`
 
-- **WHEN** `getPrerequisites("04-test-gen", "requirement")` is called
-- **THEN** it returns `["03-test-design", "05-implement"]`
+- **WHEN** `getPrerequisites("test-gen", "requirement")` is called
+- **THEN** it returns `["test-design", "implement"]`
 
-- **WHEN** `getPrerequisites("06-unit-test", "requirement")` is called
-- **THEN** it returns `["04-test-gen", "05-implement"]`
+- **WHEN** `getPrerequisites("unit-test", "requirement")` is called
+- **THEN** it returns `["test-gen", "implement"]`
 
-- **WHEN** `getPrerequisites("07-code-review", "requirement")` is called
-- **THEN** it returns `["04-test-gen", "05-implement"]`
+- **WHEN** `getPrerequisites("code-review", "requirement")` is called
+- **THEN** it returns `["test-gen", "implement"]`
 
-- **WHEN** `getPrerequisites("08-integration-test", "requirement")` is called
-- **THEN** it returns `["04-test-gen", "05-implement"]`
+- **WHEN** `getPrerequisites("integration-test", "requirement")` is called
+- **THEN** it returns `["test-gen", "implement"]`
 
-- **WHEN** `getPrerequisites("09-acceptance", "requirement")` is called
-- **THEN** it returns `["01-proposal", "02-dev-design", "05-implement"]`
+- **WHEN** `getPrerequisites("acceptance", "requirement")` is called
+- **THEN** it returns `["proposal", "dev-design", "implement"]`
 
 #### Scenario: getPrerequisites returns correct dependencies for bug-fix workflow
-- **WHEN** `getPrerequisites("05-implement", "bug-fix")` is called
-- **THEN** it returns `["02-dev-design"]`
+- **WHEN** `getPrerequisites("implement", "bug-fix")` is called
+- **THEN** it returns `["dev-design"]`
 
-- **WHEN** `getPrerequisites("09-acceptance", "bug-fix")` is called
-- **THEN** it returns `["07-code-review"]`
+- **WHEN** `getPrerequisites("acceptance", "bug-fix")` is called
+- **THEN** it returns `["code-review"]`
 
 #### Scenario: getPrerequisites is fault-tolerant
 - **WHEN** `getPrerequisites("99-unknown")` is called
@@ -76,15 +76,15 @@ For the `requirement` workflow_type, the dependents graph SHALL be:
 
 | Phase | Dependents |
 |-------|-----------|
-| 01-proposal | [02-dev-design, 03-test-design, 09-acceptance] |
-| 02-dev-design | [03-test-design, 05-implement, 09-acceptance] |
-| 03-test-design | [04-test-gen] |
-| 05-implement | [04-test-gen, 06-unit-test, 07-code-review, 08-integration-test, 09-acceptance] |
-| 04-test-gen | [06-unit-test, 07-code-review, 08-integration-test] |
-| 06-unit-test | [] |
-| 07-code-review | [] |
-| 08-integration-test | [] |
-| 09-acceptance | [] |
+| proposal | [dev-design, test-design, acceptance] |
+| dev-design | [test-design, implement, acceptance] |
+| test-design | [test-gen] |
+| implement | [test-gen, unit-test, code-review, integration-test, acceptance] |
+| test-gen | [unit-test, code-review, integration-test] |
+| unit-test | [] |
+| code-review | [] |
+| integration-test | [] |
+| acceptance | [] |
 
 The function SHALL:
 1. Accept a `workflowType` parameter (defaults to `"requirement"`)
@@ -93,22 +93,22 @@ The function SHALL:
 4. Be derived from `getPrerequisites()` (single source of truth)
 
 #### Scenario: getDependents returns correct dependents
-- **WHEN** `getDependents("01-proposal")` is called
-- **THEN** it returns `["02-dev-design", "03-test-design", "09-acceptance"]`
+- **WHEN** `getDependents("proposal")` is called
+- **THEN** it returns `["dev-design", "test-design", "acceptance"]`
 
-- **WHEN** `getDependents("02-dev-design")` is called
-- **THEN** it returns `["03-test-design", "05-implement", "09-acceptance"]`
+- **WHEN** `getDependents("dev-design")` is called
+- **THEN** it returns `["test-design", "implement", "acceptance"]`
 
-- **WHEN** `getDependents("05-implement")` is called
-- **THEN** it returns `["04-test-gen", "06-unit-test", "07-code-review", "08-integration-test", "09-acceptance"]`
+- **WHEN** `getDependents("implement")` is called
+- **THEN** it returns `["test-gen", "unit-test", "code-review", "integration-test", "acceptance"]`
 
-- **WHEN** `getDependents("04-test-gen")` is called
-- **THEN** it returns `["06-unit-test", "07-code-review", "08-integration-test"]`
+- **WHEN** `getDependents("test-gen")` is called
+- **THEN** it returns `["unit-test", "code-review", "integration-test"]`
 
-- **WHEN** `getDependents("06-unit-test")` is called
+- **WHEN** `getDependents("unit-test")` is called
 - **THEN** it returns `[]`
 
-- **WHEN** `getDependents("09-acceptance")` is called
+- **WHEN** `getDependents("acceptance")` is called
 - **THEN** it returns `[]`
 
 #### Scenario: getDependents is fault-tolerant
@@ -127,32 +127,32 @@ The `markPhaseStale(entries, phaseId)` function in `eval-json.ts` SHALL:
 This ensures downstream invalidation happens atomically at the moment of marking, not deferred to when the phase is redone.
 
 #### Scenario: markPhaseStale propagates along dev track
-- **GIVEN** eval.json has pass entries for all phases 01-09
-- **WHEN** `markPhaseStale(entries, "02-dev-design")` is called
-- **THEN** the latest `02-dev-design` pass entry is marked `stale: true`
-- **AND** entries for `03-test-design`, `05-implement`, `09-acceptance` are marked stale (direct dependents)
-- **AND** entries for `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test` are marked stale (transitive)
+- **GIVEN** eval.json has pass entries for all phases proposal through acceptance
+- **WHEN** `markPhaseStale(entries, "dev-design")` is called
+- **THEN** the latest `dev-design` pass entry is marked `stale: true`
+- **AND** entries for `test-design`, `implement`, `acceptance` are marked stale (direct dependents)
+- **AND** entries for `test-gen`, `unit-test`, `code-review`, `integration-test` are marked stale (transitive)
 
 #### Scenario: markPhaseStale propagates along test track only
-- **GIVEN** eval.json has pass entries for all phases 01-09
-- **WHEN** `markPhaseStale(entries, "03-test-design")` is called
-- **THEN** entries for `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test` are marked stale
-- **AND** entries for `01-proposal`, `02-dev-design`, `05-implement`, `09-acceptance` remain non-stale
+- **GIVEN** eval.json has pass entries for all phases proposal through acceptance
+- **WHEN** `markPhaseStale(entries, "test-design")` is called
+- **THEN** entries for `test-gen`, `unit-test`, `code-review`, `integration-test` are marked stale
+- **AND** entries for `proposal`, `dev-design`, `implement`, `acceptance` remain non-stale
 
 #### Scenario: markPhaseStale full transitive closure
-- **GIVEN** eval.json has pass entries for all phases 01-09
-- **WHEN** `markPhaseStale(entries, "01-proposal")` is called
-- **THEN** all entries for phases 01-09 are marked stale (root phase change affects everything)
+- **GIVEN** eval.json has pass entries for all phases proposal through acceptance
+- **WHEN** `markPhaseStale(entries, "proposal")` is called
+- **THEN** all entries for phases proposal through acceptance are marked stale (root phase change affects everything)
 
 #### Scenario: markPhaseStale when no downstream entries exist
-- **GIVEN** eval.json only has entries for phases 01-02
-- **WHEN** `markPhaseStale(entries, "02-dev-design")` is called
+- **GIVEN** eval.json only has entries for phases proposal and dev-design
+- **WHEN** `markPhaseStale(entries, "dev-design")` is called
 - **THEN** `propagateStale` completes without error (no downstream entries to mark)
 - **AND** eval.json is not corrupted
 
 #### Scenario: markPhaseStale does not affect same-phase new entry
-- **GIVEN** eval.json has a previous pass entry for `02-dev-design` (attempt 1)
-- **WHEN** a NEW pass entry for `02-dev-design` (attempt 2) is written AFTER markPhaseStale was called
+- **GIVEN** eval.json has a previous pass entry for `dev-design` (attempt 1)
+- **WHEN** a NEW pass entry for `dev-design` (attempt 2) is written AFTER markPhaseStale was called
 - **THEN** the new entry is NOT stale (only old entries were marked)
 - **AND** `hasPhasePassed` finds the new non-stale entry and returns true
 
@@ -162,21 +162,21 @@ When `phase_log` writes an entry that contains `backtrack_to`, it SHALL call `ma
 This replaces the previous behavior of deleting entries via `clearEntriesFromPhase()`.
 
 #### Scenario: single backtrack_to marks target + propagates
-- **GIVEN** eval.json has pass entries for 01-proposal through 05-implement
-- **WHEN** `phase_log` writes a fail entry for `05-implement` with `backtrack_to: "02-dev-design"`
-- **THEN** `markPhaseStale("02-dev-design")` is called
-- **AND** 02 latest pass is marked stale, and downstream 03,04,05,06,07,08,09 are all stale (propagated)
-- **AND** only 01 remains non-stale
+- **GIVEN** eval.json has pass entries for proposal through implement
+- **WHEN** `phase_log` writes a fail entry for `implement` with `backtrack_to: "dev-design"`
+- **THEN** `markPhaseStale("dev-design")` is called
+- **AND** dev-design latest pass is marked stale, and downstream test-design, implement, test-gen, unit-test, code-review, integration-test, acceptance are all stale (propagated)
+- **AND** only proposal remains non-stale
 
 #### Scenario: array backtrack_to calls markPhaseStale for each target
-- **GIVEN** eval.json has pass entries for 01-09
-- **WHEN** `phase_log` writes a fail entry with `backtrack_to: ["02-dev-design", "03-test-design"]`
-- **THEN** `markPhaseStale` is called for "02-dev-design" (propagates to 03,05,09 and beyond)
-- **AND** `markPhaseStale` is called for "03-test-design" (propagates to 04,06,07,08)
+- **GIVEN** eval.json has pass entries for proposal through acceptance
+- **WHEN** `phase_log` writes a fail entry with `backtrack_to: ["dev-design", "test-design"]`
+- **THEN** `markPhaseStale` is called for "dev-design" (propagates to test-design, implement, acceptance and beyond)
+- **AND** `markPhaseStale` is called for "test-design" (propagates to test-gen, unit-test, code-review, integration-test)
 
 #### Scenario: backtrack_to target has no pass entry
-- **GIVEN** eval.json has no entry for 02-dev-design
-- **WHEN** `phase_log` writes a fail entry with `backtrack_to: "02-dev-design"`
+- **GIVEN** eval.json has no entry for dev-design
+- **WHEN** `phase_log` writes a fail entry with `backtrack_to: "dev-design"`
 - **THEN** `markPhaseStale` completes without error (nothing to mark)
 - **AND** the fail entry is written normally
 
@@ -186,18 +186,18 @@ The `hasPhasePassed()` function in `phase-next.ts` SHALL ignore entries where `s
 Entries without an `stale` field SHALL be treated as `stale: false` (backward compatibility).
 
 #### Scenario: hasPhasePassed returns false for stale entries
-- **GIVEN** eval.json has `[{phase: "02-dev-design", verdict: "pass", stale: true}]`
-- **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
+- **GIVEN** eval.json has `[{phase: "dev-design", verdict: "pass", stale: true}]`
+- **WHEN** `hasPhasePassed(entries, "dev-design")` is called
 - **THEN** it returns `false`
 
 #### Scenario: hasPhasePassed returns true for non-stale pass
-- **GIVEN** eval.json has `[{phase: "02-dev-design", verdict: "pass", stale: false}]` and `[{phase: "02-dev-design", verdict: "pass", stale: true}]`
-- **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
+- **GIVEN** eval.json has `[{phase: "dev-design", verdict: "pass", stale: false}]` and `[{phase: "dev-design", verdict: "pass", stale: true}]`
+- **WHEN** `hasPhasePassed(entries, "dev-design")` is called
 - **THEN** it returns `true` (finds the non-stale entry)
 
 #### Scenario: hasPhasePassed backward compatible with no stale field
-- **GIVEN** eval.json has `[{phase: "02-dev-design", verdict: "pass"}]` (no stale field)
-- **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
+- **GIVEN** eval.json has `[{phase: "dev-design", verdict: "pass"}]` (no stale field)
+- **WHEN** `hasPhasePassed(entries, "dev-design")` is called
 - **THEN** it returns `true` (missing stale treated as false)
 
 ### Requirement: phase_next MCP tool
@@ -215,7 +215,7 @@ The system SHALL provide `mcp__plugin_dev-team_dev-team__phase_next` MCP tool th
 {
   "done": false,
   "error": null,
-  "next_phase": "01-proposal",
+  "next_phase": "proposal",
   "phase_pattern": "DESIGN",
   "planner": {
     "agent_type": "dev-team:proposal-planner",
@@ -273,72 +273,72 @@ The system SHALL provide `mcp__plugin_dev-team_dev-team__phase_next` MCP tool th
 
 | workflow_type | Phases |
 |---------------|--------|
-| `requirement` | 01-proposal, 02-dev-design, 03-test-design, 05-implement, 04-test-gen, 06-unit-test, 07-code-review, 08-integration-test, 09-acceptance |
-| `bug-fix` | 01-proposal, 02-dev-design, 05-implement, 06-unit-test, 07-code-review, 09-acceptance |
-| `refactor` | 01-proposal, 02-dev-design, 03-test-design, 05-implement, 04-test-gen, 06-unit-test, 07-code-review, 08-integration-test, 09-acceptance |
+| `requirement` | proposal, dev-design, test-design, implement, test-gen, unit-test, code-review, integration-test, acceptance |
+| `bug-fix` | proposal, dev-design, implement, unit-test, code-review, acceptance |
+| `refactor` | proposal, dev-design, test-design, implement, test-gen, unit-test, code-review, integration-test, acceptance |
 
 **Key change from previous version:** Entry deletion via `clearEntriesFromPhase()` is REMOVED. Stale marking and propagation are handled by `markPhaseStale()`, called by `phase_log` when writing entries with `backtrack_to`. `phase_next` only reads and filters — it never modifies eval.json. `phase_check` is no longer called in the workflow loop.
 
 #### Scenario: phase_next returns first phase on initial call
 - **WHEN** `phase_next` is called with a change that has no eval.json entries
-- **THEN** it returns `next_phase: "01-proposal"` with `planner.agent_type: "dev-team:proposal-planner"` and `evaluator.agent_type: "dev-team:proposal-evaluator"`
+- **THEN** it returns `next_phase: "proposal"` with `planner.agent_type: "dev-team:proposal-planner"` and `evaluator.agent_type: "dev-team:proposal-evaluator"`
 - **AND** `done: false`
 
 #### Scenario: phase_next returns next phase after pass
-- **WHEN** `phase_next` is called after phase 01-proposal has a non-stale pass entry in eval.json
-- **THEN** it returns `next_phase: "02-dev-design"` with `planner.agent_type: "dev-team:dev-design-planner"`
+- **WHEN** `phase_next` is called after phase proposal has a non-stale pass entry in eval.json
+- **THEN** it returns `next_phase: "dev-design"` with `planner.agent_type: "dev-team:dev-design-planner"`
 
 #### Scenario: phase_next returns same phase for retry after fail
-- **WHEN** `phase_next` is called after phase 01-proposal has a fail entry with attempt < 5
-- **THEN** it returns `next_phase: "01-proposal"` (same phase for retry)
+- **WHEN** `phase_next` is called after phase proposal has a fail entry with attempt < 5
+- **THEN** it returns `next_phase: "proposal"` (same phase for retry)
 - **AND** increments `round`
 
 #### Scenario: phase_next returns error on max retries
-- **WHEN** `phase_next` is called after phase 01-proposal has 5 consecutive fail entries
+- **WHEN** `phase_next` is called after phase proposal has 5 consecutive fail entries
 - **THEN** it returns `error: "max_retries_exceeded"` with descriptive message
 
 #### Scenario: phase_next handles backtrack (target marked stale by phase_log)
-- **WHEN** `phase_next` is called after phase_log wrote a fail entry with `backtrack_to: "05-implement"`, and the latest pass entry for 05-implement was marked stale
-- **THEN** it returns `next_phase: "05-implement"` (the earliest backtrack target)
+- **WHEN** `phase_next` is called after phase_log wrote a fail entry with `backtrack_to: "implement"`, and the latest pass entry for implement was marked stale
+- **THEN** it returns `next_phase: "implement"` (the earliest backtrack target)
 - **AND** does NOT delete any eval.json entries
 - **AND** increments `round`
 
 #### Scenario: phase_next handles array backtrack_to (targets marked stale by phase_log)
-- **WHEN** `phase_next` is called after phase_log wrote a fail entry with `backtrack_to: ["02-dev-design", "03-test-design"]`, and both 02 and 03 latest pass entries were marked stale
-- **THEN** it returns `next_phase: "02-dev-design"` (the earliest target in phase table order)
+- **WHEN** `phase_next` is called after phase_log wrote a fail entry with `backtrack_to: ["dev-design", "test-design"]`, and both dev-design and test-design latest pass entries were marked stale
+- **THEN** it returns `next_phase: "dev-design"` (the earliest target in phase table order)
 - **AND** does NOT delete any eval.json entries
 
 #### Scenario: phase_next skips stale entries to find next valid phase
-- **WHEN** `phase_next` is called, and eval.json has: 01✓(not stale), 02✓(stale:true, after backtrack and redo), 03✓(not stale), 04✓(not stale), 05✓(stale:true)
-- **THEN** it returns `next_phase: "02-dev-design"` (first phase without valid pass entry)
-- **AND** 03 and 04 are NOT returned (they still have valid pass entries)
+- **WHEN** `phase_next` is called, and eval.json has: proposal✓(not stale), dev-design✓(stale:true, after backtrack and redo), test-design✓(not stale), test-gen✓(not stale), implement✓(stale:true)
+- **THEN** it returns `next_phase: "dev-design"` (first phase without valid pass entry)
+- **AND** test-design and test-gen are NOT returned (they still have valid pass entries)
 
 #### Scenario: phase_next returns done when all phases pass
 - **WHEN** `phase_next` is called after all 9 phases have valid (non-stale) pass entries in eval.json
 - **THEN** it returns `done: true`
 
 #### Scenario: phase_next resumes from partial completion after test-design
-- **WHEN** `phase_next` is called for a change that has pass entries for phases 01-03 but no entries for phase 05 onward
-- **THEN** it returns `next_phase: "05-implement"` (implement before test-gen)
-- **AND** phases 01-03 are NOT re-executed
+- **WHEN** `phase_next` is called for a change that has pass entries for phases proposal through test-design but no entries for phase implement onward
+- **THEN** it returns `next_phase: "implement"` (implement before test-gen)
+- **AND** phases proposal through test-design are NOT re-executed
 
 #### Scenario: phase_next returns test-gen after implement pass
-- **WHEN** `phase_next` is called for a change that has pass entries for phases 01-03 and 05-implement but no valid pass for 04-test-gen
-- **THEN** it returns `next_phase: "04-test-gen"`
-- **AND** phases 01-03 and 05 are NOT re-executed
+- **WHEN** `phase_next` is called for a change that has pass entries for phases proposal through test-design and implement but no valid pass for test-gen
+- **THEN** it returns `next_phase: "test-gen"`
+- **AND** phases proposal through test-design and implement are NOT re-executed
 
 #### Scenario: phase_next prefers implement when test-gen prerequisite missing
-- **WHEN** `phase_next` is called, 04-test-gen has valid pass but 05-implement has only stale pass
-- **THEN** it returns `next_phase: "05-implement"` (04 requires 05; stale 05 blocks downstream 04 validity for 06-unit-test)
+- **WHEN** `phase_next` is called, test-gen has valid pass but implement has only stale pass
+- **THEN** it returns `next_phase: "implement"` (test-gen requires implement; stale implement blocks downstream test-gen validity for unit-test)
 
 #### Scenario: phase_next returns implement when dev-design passes (parallel with test-design)
-- **WHEN** `phase_next` is called, 01-proposal and 02-dev-design have valid pass, and neither 03-test-design nor 05-implement has passed
-- **THEN** it returns `next_phase: "03-test-design"` (earlier in phase table)
-- **AND** after 03 passes, if 05 has not passed, it returns `05-implement` before `04-test-gen`
+- **WHEN** `phase_next` is called, proposal and dev-design have valid pass, and neither test-design nor implement has passed
+- **THEN** it returns `next_phase: "test-design"` (earlier in phase table)
+- **AND** after test-design passes, if implement has not passed, it returns `implement` before `test-gen`
 
 #### Scenario: phase_next handles mid-phase interruption
-- **WHEN** `phase_next` is called for a change where phase 03 has a planner-run entry but no evaluator verdict
-- **THEN** it returns `next_phase: "03-test-design"` (re-execute from planner)
+- **WHEN** `phase_next` is called for a change where phase test-design has a planner-run entry but no evaluator verdict
+- **THEN** it returns `next_phase: "test-design"` (re-execute from planner)
 - **AND** the incomplete entry is treated as if the phase hasn't been evaluated yet
 
 #### Scenario: phase_next returns error on round limit
@@ -346,18 +346,18 @@ The system SHALL provide `mcp__plugin_dev-team_dev-team__phase_next` MCP tool th
 - **THEN** it returns `error: "round_limit_exceeded"`
 
 #### Scenario: phase_next returns evaluator-only phase
-- **WHEN** `phase_next` returns phase 07-code-review or 09-acceptance
+- **WHEN** `phase_next` returns phase code-review or acceptance
 - **THEN** `planner` is `null`
 - **AND** `evaluator` contains the agent_type and prompt
 
 #### Scenario: phase_next respects workflow_type
 - **WHEN** `phase_next` is called with `workflow_type: "bug-fix"`
-- **THEN** the phase sequence is: 01-proposal, 02-dev-design, 05-implement, 06-unit-test, 07-code-review, 09-acceptance
-- **AND** phases 03-test-design, 04-test-gen, 08-integration-test are omitted
+- **THEN** the phase sequence is: proposal, dev-design, implement, unit-test, code-review, acceptance
+- **AND** phases test-design, test-gen, integration-test are omitted
 
 #### Scenario: phase_next handles string backtrack_to for backward compatibility
-- **WHEN** `phase_next` detects `backtrack_to: "02-dev-design"` (string, not array) in the latest eval entry
-- **THEN** it processes it identically to `["02-dev-design"]` (single-element array)
+- **WHEN** `phase_next` detects `backtrack_to: "dev-design"` (string, not array) in the latest eval entry
+- **THEN** it processes it identically to `["dev-design"]` (single-element array)
 - **AND** returns the target phase as `next_phase`
 
 ### Requirement: Workflow skill thin loop
@@ -476,8 +476,8 @@ Reserved workflow variants:
 |--------|------|---------|
 | `getPrerequisites(phaseId, workflowType?)` | `string[]` | Return explicit prerequisite phase list for a given phase |
 | `getDependents(phaseId, workflowType?)` | `string[]` | Return phases that list the given phase as a prerequisite (derived from prerequisites) |
-| `PHASE_PREREQUISITES` | `Record<string, string[]>` | Prerequisite table keyed by phase ID; `04-test-gen` adds `05-implement` |
-| `PHASE_REQUIREMENT` | `string[]` | MODIFIED: `05-implement` entry before `04-test-gen` |
+| `PHASE_PREREQUISITES` | `Record<string, string[]>` | Prerequisite table keyed by prefix-free phase ID; `test-gen` adds `implement` |
+| `PHASE_REQUIREMENT` | `string[]` | MODIFIED: `implement` entry before `test-gen` |
 | `getPriorPhases(phaseId)` | `string[]` | Retained for backward compatibility — returns all prior phases |
 
 ### eval-json.ts (lib/)

@@ -65,12 +65,12 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: '06-unit-test',
+        phase: 'unit-test',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
-        backtrack_to: '05-implement',
+        backtrack_to: 'implement',
       }),
-    ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
+    ).toThrow(/工作流 test-only 不包含 phase 'implement'/);
 
     expect(markPhaseStale).not.toHaveBeenCalled();
     expect(appendEntry).not.toHaveBeenCalled();
@@ -83,12 +83,12 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: '06-unit-test',
+        phase: 'unit-test',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
-        backtrack_to: '05-implement',
+        backtrack_to: 'implement',
       }),
-    ).toThrow(/工作流 test-only 不包含 phase '05-implement'/);
+    ).toThrow(/工作流 test-only 不包含 phase 'implement'/);
   });
 
   it('uses requirement table when workflow.json absent (AC-13)', () => {
@@ -96,42 +96,42 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: '06-unit-test',
+      phase: 'unit-test',
       report: 'test issue',
       checklist: FAILED_ITEMS,
-      backtrack_to: '02-dev-design',
+      backtrack_to: 'dev-design',
     });
 
     expect(markPhaseStale).toHaveBeenCalled();
-    expect(vi.mocked(markPhaseStale).mock.calls[0][1]).toBe('02-dev-design');
+    expect(vi.mocked(markPhaseStale).mock.calls[0][1]).toBe('dev-design');
   });
 
-  it('rejects backtrack_to 02-dev-design for test-only workflow (AC-11)', () => {
+  it('rejects backtrack_to dev-design for test-only workflow (AC-11)', () => {
     mockWorkflowType('test-only');
 
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: '06-unit-test',
+        phase: 'unit-test',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
-        backtrack_to: '02-dev-design',
+        backtrack_to: 'dev-design',
       }),
-    ).toThrow(/工作流 test-only 不包含 phase '02-dev-design'/);
+    ).toThrow(/工作流 test-only 不包含 phase 'dev-design'/);
 
     expect(appendEntry).not.toHaveBeenCalled();
     expect(writeEvalJson).not.toHaveBeenCalled();
   });
 
-  it('allows backtrack_to 05-implement when workflow.json missing — requirement default (AC-13)', () => {
+  it('allows backtrack_to implement when workflow.json missing — requirement default (AC-13)', () => {
     mockWorkflowType(undefined);
 
     runPhaseLog({
       change: 'test-change',
-      phase: '06-unit-test',
+      phase: 'unit-test',
       report: 'test issue',
       checklist: FAILED_ITEMS,
-      backtrack_to: '05-implement',
+      backtrack_to: 'implement',
     });
 
     expect(markPhaseStale).toHaveBeenCalled();
@@ -145,16 +145,16 @@ describe('runPhaseLog — adaptive fail after invalid backtrack', () => {
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: '06-unit-test',
+        phase: 'unit-test',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
-        backtrack_to: '05-implement',
+        backtrack_to: 'implement',
       }),
     ).toThrow();
 
     runPhaseLog({
       change: 'test-change',
-      phase: '06-unit-test',
+      phase: 'unit-test',
       report: 'bugs found, no backtrack',
       checklist: FAILED_ITEMS,
       backtrack_to: null,
@@ -170,7 +170,7 @@ describe('runPhaseLog — pass entry no propagation', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: '01-proposal',
+      phase: 'proposal',
       report: 'ok',
       checklist: VALID_ITEMS,
       backtrack_to: null,
@@ -182,18 +182,18 @@ describe('runPhaseLog — pass entry no propagation', () => {
 });
 
 describe('runPhaseLog — backtrack_to triggers markPhaseStale', () => {
-  it('test-only valid backtrack 03-test-design → 01-proposal triggers markPhaseStale', () => {
+  it('test-only valid backtrack test-design → proposal triggers markPhaseStale', () => {
     mockWorkflowType('test-only');
 
     runPhaseLog({
       change: 'test-change',
-      phase: '03-test-design',
+      phase: 'test-design',
       report: 'needs redo',
       checklist: FAILED_ITEMS,
-      backtrack_to: '01-proposal',
+      backtrack_to: 'proposal',
     });
 
-    expect(markPhaseStale).toHaveBeenCalledWith(expect.anything(), '01-proposal');
+    expect(markPhaseStale).toHaveBeenCalledWith(expect.anything(), 'proposal');
     expect(writeEvalJson).toHaveBeenCalled();
   });
 });
@@ -204,7 +204,7 @@ describe('runPhaseLog — input validation', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: '06-unit-test',
+      phase: 'unit-test',
       report: 'fail no backtrack',
       checklist: FAILED_ITEMS,
       backtrack_to: null,
@@ -223,7 +223,7 @@ describe('runPhaseLog — idempotency', () => {
       mockWorkflowType('test-only');
       const opts = {
         change: 'test-change',
-        phase: '01-proposal',
+        phase: 'proposal' as const,
         verdict: 'pass' as const,
         report: 'ok',
         checklist: VALID_ITEMS,
@@ -244,7 +244,7 @@ describe('runPhaseLog — idempotency', () => {
     mockWorkflowType('test-only');
     const opts = {
       change: 'test-change',
-      phase: '06-unit-test',
+      phase: 'unit-test' as const,
       verdict: 'fail' as const,
       report: 'bugs',
       checklist: VALID_ITEMS,
@@ -261,11 +261,11 @@ describe('runPhaseLog — idempotency', () => {
     mockWorkflowType('test-only');
     const opts = {
       change: 'test-change',
-      phase: '06-unit-test',
+      phase: 'unit-test' as const,
       verdict: 'fail' as const,
       report: 'bugs',
       checklist: VALID_ITEMS,
-      backtrack_to: '05-implement',
+      backtrack_to: 'implement',
     };
 
     expect(() => runPhaseLog(opts)).toThrow();
@@ -280,7 +280,7 @@ describe('runPhaseLog — auto-calculated verdict from checklist', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: '01-proposal',
+      phase: 'proposal',
       report: 'all good',
       checklist: [
         { item: 'check 1', pass: true, evidence: 'ok' },
@@ -299,7 +299,7 @@ describe('runPhaseLog — auto-calculated verdict from checklist', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: '01-proposal',
+      phase: 'proposal',
       report: 'has issues',
       checklist: [
         { item: 'check 1', pass: true, evidence: 'ok' },

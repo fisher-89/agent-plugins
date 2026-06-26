@@ -46,7 +46,7 @@ Evaluate the artifact against these items. Each item must pass for an overall "p
 
 ## Output
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "01-proposal"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `mcp__plugin_dev-team_dev-team__phase_log` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

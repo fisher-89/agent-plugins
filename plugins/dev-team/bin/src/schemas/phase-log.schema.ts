@@ -1,7 +1,22 @@
 import { z } from 'zod/v4';
 
+export const phaseIdSchema = z
+  .enum([
+    'proposal',
+    'dev-design',
+    'test-design',
+    'implement',
+    'test-gen',
+    'unit-test',
+    'code-review',
+    'integration-test',
+    'acceptance',
+    'code-analyze',
+  ])
+  .describe('Phase identifier');
+
 export const phaseLogSchema = z.object({
-  phase: z.string().describe('Phase identifier (e.g. 01-proposal)'),
+  phase: phaseIdSchema,
   attempt: z.number().int().optional().describe('Attempt number (auto-calculated if omitted)'),
   verdict: z.enum(['pass', 'fail']).describe('Evaluation verdict'),
   report: z.string().max(500).describe('Evaluation report text (max 500 chars)'),

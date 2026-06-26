@@ -45,7 +45,7 @@ This creates a scaffolded change in the planning home resolved by the CLI with `
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `01-proposal`, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `proposal`, stop — prior phase gates have not passed.
 
 ### 3. P→E Loop
 
@@ -71,7 +71,7 @@ Agent({
 })
 ```
 
-**3c. Verdict:** Read latest phase "01-proposal" entry from eval.json. If "fail", redo Steps 3a-3b with failed items. Loop max 5x.
+**3c. Verdict:** Read latest phase "proposal" entry from eval.json. If "fail", redo Steps 3a-3b with failed items. Loop max 5x.
 
 ### 4. Report
 

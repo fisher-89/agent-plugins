@@ -1,0 +1,13 @@
+{
+  "phase": "08-integration-test",
+  "command": "cd plugins/dev-team/bin && pnpm exec vp test --reporter=verbose 2>&1",
+  "timestamp": "2026-06-25T17:41:00.000Z",
+  "total": 77,
+  "passed": 77,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 88.74,
+  "duration_ms": 12960,
+  "findings": "该变更为纯标识符重命名（phase ID 去前缀），test-design.md 明确声明不涉及新增集成测试场景。项目中现有的 __tests__/ 目录集成测试（77 条用例）全部通过，未发现回归问题。vite-plus 测试框架同时执行了 src/*.test.ts 单元测试和 __tests__/**/*.test.ts 集成测试（共计 603 条用例，其中 594 passed、9 skipped、0 failed）。lint 检查结果为 fail（独立于测试结果，不影响测试通过率）。",
+  "failures": []
+}

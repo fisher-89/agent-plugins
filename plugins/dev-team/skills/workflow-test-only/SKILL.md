@@ -98,11 +98,11 @@ LOOP:
 
 ### Step 3: Completion
 
-All six test-only phases have passed evaluation.
+All {total_phases} test-only phases have passed evaluation.
 
 1. 显示完成摘要:
    - Done: all test-only phases passed
-   - Total phases: 6
+   - Total phases: {total_phases}
    - Total rounds: {round}
    - Note: discovering implementation bugs via tests also fulfills the test-only workflow purpose
 

@@ -215,7 +215,7 @@ MCP 工具 `mcp__plugin_dev-team_dev-team__phase_log` 不应受 PreToolUse hook 
 
 #### Scenario: Hook 激活后 phase_log 仍可写入 eval.json
 
-- **WHEN** agent 调用 `mcp__plugin_dev-team_dev-team__phase_log`，参数为 `{change: "test", phase: "01-requirements", verdict: "pass", report: "所有检查通过", items: [...]}`
+- **WHEN** agent 调用 `mcp__plugin_dev-team_dev-team__phase_log`，参数为 `{change: "test", phase: "proposal", verdict: "pass", report: "所有检查通过", items: [...]}`
 - **THEN** 调用成功
 - **AND** eval.json 包含新条目
 - **AND** hook 未干扰 MCP 工具
@@ -237,6 +237,30 @@ Claude Code 应按照插件 hook 发现机制，自动发现 `plugins/dev-team/h
 - **WHEN** 新 Claude Code 项目启用了 dev-team 插件时
 - **THEN** `plugins/dev-team/hooks/hooks.json` 中的 hook 自动注册
 - **AND** 无需额外配置即可拒绝 Write/Edit 对 eval.json 的写入
+
+## MODIFIED Requirements
+
+### Requirement: phase_log backtrack validation uses prefix-free phase IDs
+When `runPhaseLog()` validates backtrack targets against the workflow phase table, both the `phase` parameter and `backtrack_to` targets SHALL use prefix-free phase IDs.
+
+The `handleBacktrackMarking()` function SHALL use the new phase table (with prefix-free IDs) to validate:
+1. `options.phase` exists in the phase table
+2. Each backtrack target exists in the phase table
+3. Each backtrack target precedes `options.phase` in array order
+
+When a backtrack target is not found in the prefix-free phase table, the error message SHALL list available phases using the new IDs.
+
+#### Scenario: phase_log validates backtrack with prefix-free IDs
+- **WHEN** `phase_log` is called with `phase: "unit-test"`, `backtrack_to: "test-gen"`
+- **AND** workflow phase table uses prefix-free IDs
+- **THEN** `handleBacktrackMarking()` validates `"test-gen"` exists in the table
+- **AND** the call succeeds (phase exists and precedes current)
+
+#### Scenario: phase_log rejects invalid backtrack with prefix-free ID in error
+- **WHEN** `phase_log` is called with `phase: "unit-test"`, `backtrack_to: "old-05-implement"`
+- **AND** the old ID `"old-05-implement"` is not in the prefix-free phase table
+- **THEN** the call is rejected with an error
+- **AND** the error message lists available phases using prefix-free IDs (e.g., `proposal`, `dev-design`, `implement`, etc.)
 
 ## Module Contract
 
@@ -265,6 +289,14 @@ Claude Code 应按照插件 hook 发现机制，自动发现 `plugins/dev-team/h
 | **命中动作** | 输出 JSON `hookSpecificOutput.permissionDecision: "deny"` + 中文拒绝原因 + `phase_log` 建议 |
 | **未命中动作** | 输出 JSON `hookSpecificOutput.permissionDecision: "allow"` |
 | **错误处理** | 空 stdin、缺少 `file_path`/`command`/`tool_name` 或 JSON 解析失败 → 默认 `allow` |
+
+### phase-log.ts (commands/)
+
+| Export | Change | Purpose |
+|--------|--------|---------|
+| `runPhaseLog()` | UNCHANGED | No API change; references phase table from `workflow.ts` which now has prefix-free IDs |
+| `handleBacktrackMarking()` | UNCHANGED | No logic change; validates against whatever phase table `getPhaseTable()` returns |
+| `resolveVerdict()` | UNCHANGED | No phase ID dependency |
 
 ### MCP 工具（不受此变更影响）
 

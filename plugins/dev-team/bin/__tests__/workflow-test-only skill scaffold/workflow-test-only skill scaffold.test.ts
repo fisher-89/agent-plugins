@@ -44,10 +44,10 @@ describe('workflow-test-only/SKILL.md — 编排结构 (AC-8)', () => {
     expect(loopSection).not.toMatch(/workflow_type/);
   });
 
-  it('六阶段 test-only 完成摘要 total phases: 6', () => {
+  it('六阶段 test-only 完成摘要 total phases 占位符 (AC-9)', () => {
     const content = readSkill(skillPath);
-    expect(content).toMatch(/Total phases: 6/);
-    expect(content).toMatch(/six test-only phases/);
+    expect(content).toMatch(/- Total phases: \{total_phases\}/);
+    expect(content).toMatch(/\{total_phases\} test-only phases/);
   });
 });
 

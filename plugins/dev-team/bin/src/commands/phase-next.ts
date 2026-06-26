@@ -26,10 +26,15 @@ export type PhaseNextOptions = z.input<typeof phaseNextInputSchema>;
 export type PhaseNextResult = z.output<typeof phaseNextOutputSchema>;
 
 /**
- * Replace '<change>' placeholder in a prompt string with the actual change name.
+ * Replace '<change>' and '<phase>' placeholders in a prompt string with
+ * the actual change name and phase ID.
  */
-function interpolatePrompt(template: string, change: string): string {
-  return template.replace(/<change>/g, change);
+function interpolatePrompt(template: string, change: string, phase?: string): string {
+  let result = template.replace(/<change>/g, change);
+  if (phase) {
+    result = result.replace(/<phase>/g, phase);
+  }
+  return result;
 }
 
 /**
@@ -71,13 +76,13 @@ function buildPhaseDef(
     planner: def.planner
       ? {
           agent_type: def.planner.agent_type,
-          prompt: interpolatePrompt(def.planner.prompt, change),
+          prompt: interpolatePrompt(def.planner.prompt, change, def.id),
         }
       : null,
     evaluator: def.evaluator
       ? {
           agent_type: def.evaluator.agent_type,
-          prompt: interpolatePrompt(def.evaluator.prompt, change) + backtrackHint,
+          prompt: interpolatePrompt(def.evaluator.prompt, change, def.id) + backtrackHint,
         }
       : null,
   };

@@ -24,7 +24,7 @@ If a name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__ch
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `05-implement`, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `implement`, stop — prior phase gates have not passed.
 
 ### 3. G→E Loop
 
@@ -46,7 +46,7 @@ Agent({
 })
 ```
 
-**3c. Verdict:** Read latest phase "05-implement" entry from eval.json. If "fail", redo Generator with failed items, then Evaluator. Loop max 5x.
+**3c. Verdict:** Read latest phase "implement" entry from eval.json. If "fail", redo Generator with failed items, then Evaluator. Loop max 5x.
 
 ### 4. Report
 Show verdict, pass/total, and notes.

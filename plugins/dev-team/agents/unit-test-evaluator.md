@@ -72,25 +72,25 @@ If `failed > 0`, analyze each failure from `test_cases.filter(c => c.status === 
 1. **语法错误 (SyntaxError / TypeError / ReferenceError in test file)**
    - IF `error_type` is `SyntaxError`, `TypeError`, or `ReferenceError`
    - AND the error `file` is a test file (ends in `.test.*`, `_test.*`, or inside `tests/` or `__tests__/`)
-   - THEN backtrack_to: `"04-test-gen"`
+   - THEN backtrack_to: `"test-gen"`
    - Finding reason: "语法错误: test-gen 生成的测试文件存在语法问题"
 
 2. **逻辑错误 (AssertionError in implementation file)**
    - IF `error_type` is `AssertionError` or the error `file` is a source file (not a test file)
    - AND the assertion expectation seems reasonable
-   - THEN backtrack_to: `"05-implement"`
+   - THEN backtrack_to: `"implement"`
    - Finding reason: "逻辑错误: 实现代码的逻辑与测试期望不一致"
 
 3. **设计冲突 (expected/actual vs test-design.md mismatch)**
    - IF failure has `design_ref` field
    - OR the expected behavior contradicts test-design.md requirements
-   - THEN backtrack_to: `"03-test-design"`
+   - THEN backtrack_to: `"test-design"`
    - Finding reason: "设计冲突: 测试期望与 test-design.md 不一致"
 
 4. **接口签名不匹配 (双方签名一致但实现行为异常)**
    - IF test and implementation agree on interface signatures
    - BUT the implementation behavior does not match spec
-   - THEN backtrack_to: `"02-dev-design"`
+   - THEN backtrack_to: `"dev-design"`
    - Finding reason: "接口签名双方一致但实现行为不符合设计提案"
 
 5. **无法判断 (multiple ambiguous errors or no clear pattern)**
@@ -128,7 +128,7 @@ ${failure_details_summary}
 
 ### Step 6: Append to eval.json
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "06-unit-test"` to write the evaluation result. Map each checklist item (U1-U4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "unit-test"` to write the evaluation result. Map each checklist item (U1-U4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
 
 If the phase was skipped (total=0), pass `skipped: true` with an empty checklist.
 

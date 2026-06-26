@@ -40,7 +40,7 @@ echo "Unit test files found: $total"
 If total is 0 (no unit test files found):
 - Skip the phase: append a skipped entry to eval.json via MCP:
   ```
-  mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "06-unit-test", report: "No unit tests found, phase skipped (no-op)", checklist: '[]', backtrack_to: null, skipped: true, findings: "未发现单元测试文件，阶段跳过"})
+  mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "unit-test", report: "No unit tests found, phase skipped (no-op)", checklist: '[]', backtrack_to: null, skipped: true, findings: "未发现单元测试文件，阶段跳过"})
   ```
 - Phase complete.
 
@@ -79,7 +79,7 @@ Agent({
 ```
 
 **3c. Check verdict:**
-- Read the latest entry for phase "06-unit-test" from eval.json
+- Read the latest entry for phase "unit-test" from eval.json
 - If verdict is "pass": phase complete
 - If verdict is "fail": re-invoke Executor with failed items and evaluator notes, re-run Evaluator
 - If backtrack_to is set: inform the user to run the target phase (`/dev-team:phase-<backtrack_target>`)

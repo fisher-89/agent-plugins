@@ -205,7 +205,7 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/unit-t
 
 ```json
 {
-  "phase": "06-unit-test",
+  "phase": "unit-test",
   "command": "npx vitest run --reporter=verbose 2>&1",
   "timestamp": "2026-05-25T10:30:00.000Z",
   "total": 42,

@@ -1,5 +1,43 @@
 ## ADDED Requirements
 
+### Requirement: Backtrack phase targets use prefix-free phase IDs
+Backtrack targets in the `backtrack_to` field of eval.json entries SHALL use prefix-free phase IDs. The `phase-next.ts` module SHALL perform phase table lookups and comparisons using these new IDs.
+
+The following backtrack flows are affected (all references updated):
+
+| Scenario | Old Backtrack Target | New Backtrack Target |
+|----------|---------------------|----------------------|
+| acceptance finds unmet requirements | `01-proposal` | `proposal` |
+| code-review finds design deviation | `02-dev-design` | `dev-design` |
+| unit-test finds syntax errors | `04-test-gen` | `test-gen` |
+| unit-test finds logic errors | `05-implement` | `implement` |
+| unit-test finds design issues | `03-test-design` | `test-design` |
+| integration-test finds contract mismatch | `02-dev-design` | `dev-design` |
+| integration-test finds both issues | `["04-test-gen", "05-implement"]` | `["test-gen", "implement"]` |
+
+#### Scenario: Backtrack to proposal uses new ID
+- **WHEN** acceptance-evaluator sets `backtrack_to: "proposal"` in eval.json
+- **THEN** `phase_next` detects the backtrack and returns `next_phase: "proposal"`
+
+#### Scenario: Backtrack to dev-design uses new ID
+- **WHEN** code-review-evaluator sets `backtrack_to: "dev-design"` in eval.json
+- **THEN** `phase_next` detects the backtrack and returns `next_phase: "dev-design"`
+
+#### Scenario: Array backtrack uses prefix-free IDs
+- **WHEN** evaluator sets `backtrack_to: ["test-gen", "implement"]` in eval.json
+- **THEN** `phase_next` returns `next_phase: "test-gen"` (earliest in phase table)
+
+### Requirement: backtrack hint builder uses prefix-free phase IDs in evaluator prompts
+The `buildBacktrackHint()` function SHALL use the phase table values as-is to construct the backtrack hint appended to evaluator prompts. Since the phase IDs in the table are now prefix-free, the backtrack hint SHALL display prefix-free IDs.
+
+#### Scenario: Backtrack hint shows prefix-free IDs
+- **WHEN** evaluator is returned for phase `implement` in requirement workflow
+- **THEN** the backtrack hint lists available backtrack phases as `proposal`, `dev-design`, `test-design`, `test-gen` (no numeric prefixes)
+
+#### Scenario: Backtrack hint shows test-only phases prefix-free
+- **WHEN** evaluator is returned for phase `unit-test` in test-only workflow
+- **THEN** the backtrack hint lists available backtrack phases as `proposal`, `code-analyze`, `test-design`, `test-gen` (no numeric prefixes)
+
 ### Requirement: Stale field on eval entries
 Each entry in eval.json SHALL support an optional `stale` field of type `boolean`. When `stale` is `true`, the entry SHALL be ignored by `hasPhasePassed()`, `checkGate()`, and any other logic that checks for "completed" phases.
 
@@ -13,8 +51,8 @@ The `stale` field SHALL NEVER be set to `true` on the entry being written — it
 - **AND** the entry is counted as a valid pass
 
 #### Scenario: existing entries without stale field are treated as valid
-- **GIVEN** eval.json has `[{phase:"02-dev-design", verdict:"pass"}]` (no stale field)
-- **WHEN** `hasPhasePassed(entries, "02-dev-design")` is called
+- **GIVEN** eval.json has `[{phase:"dev-design", verdict:"pass"}]` (no stale field)
+- **WHEN** `hasPhasePassed(entries, "dev-design")` is called
 - **THEN** it returns `true`
 
 ### Requirement: markPhaseStale — mark latest pass + immediately propagate downstream
@@ -29,15 +67,15 @@ The `eval-json.ts` module SHALL export a `markPhaseStale(entries: any[], phaseId
 This function SHALL NOT delete entries.
 
 #### Scenario: markPhaseStale marks latest pass entry + propagates
-- **GIVEN** eval.json has `[{phase:"02-dev-design", verdict:"pass", attempt:1}, {phase:"02-dev-design", verdict:"pass", attempt:2}]` and downstream entries for 03,05
-- **WHEN** `markPhaseStale(entries, "02-dev-design")` is called
+- **GIVEN** eval.json has `[{phase:"dev-design", verdict:"pass", attempt:1}, {phase:"dev-design", verdict:"pass", attempt:2}]` and downstream entries for test-design, implement
+- **WHEN** `markPhaseStale(entries, "dev-design")` is called
 - **THEN** the attempt 2 entry is marked `stale: true`
-- **AND** `propagateStale` is called for "02-dev-design"
-- **AND** downstream entries (03,05 and beyond) are marked stale
+- **AND** `propagateStale` is called for "dev-design"
+- **AND** downstream entries (test-design, implement and beyond) are marked stale
 
 #### Scenario: markPhaseStale with no pass entry is no-op
-- **GIVEN** eval.json has `[{phase:"02-dev-design", verdict:"fail"}]` (no pass entries)
-- **WHEN** `markPhaseStale(entries, "02-dev-design")` is called
+- **GIVEN** eval.json has `[{phase:"dev-design", verdict:"fail"}]` (no pass entries)
+- **WHEN** `markPhaseStale(entries, "dev-design")` is called
 - **THEN** no entries are modified
 - **AND** `propagateStale` is NOT called
 - **AND** the function does not throw
@@ -55,59 +93,59 @@ The propagation SHALL NOT throw if some dependents have no entries in eval.json 
 
 #### Scenario: propagateStale from dev-design
 - **GIVEN** eval.json has entries for all phases
-- **WHEN** `propagateStale(entries, "02-dev-design")` is called
-- **THEN** `03-test-design`, `05-implement`, `09-acceptance` entries are marked stale (direct dependents)
-- **AND** `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test` entries are marked stale (transitive)
+- **WHEN** `propagateStale(entries, "dev-design")` is called
+- **THEN** `test-design`, `implement`, `acceptance` entries are marked stale (direct dependents)
+- **AND** `test-gen`, `unit-test`, `code-review`, `integration-test` entries are marked stale (transitive)
 
 #### Scenario: propagateStale from test-design
 - **GIVEN** eval.json has entries for all phases
-- **WHEN** `propagateStale(entries, "03-test-design")` is called
-- **THEN** `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test` entries are marked stale
-- **AND** `01-proposal`, `02-dev-design`, `05-implement`, `09-acceptance` entries are NOT stale
+- **WHEN** `propagateStale(entries, "test-design")` is called
+- **THEN** `test-gen`, `unit-test`, `code-review`, `integration-test` entries are marked stale
+- **AND** `proposal`, `dev-design`, `implement`, `acceptance` entries are NOT stale
 
 #### Scenario: propagateStale from implement
 - **GIVEN** eval.json has entries for all phases
-- **WHEN** `propagateStale(entries, "05-implement")` is called
-- **THEN** `04-test-gen`, `06-unit-test`, `07-code-review`, `08-integration-test`, `09-acceptance` entries are marked stale (direct dependents of 05)
-- **AND** `01-proposal`, `02-dev-design`, `03-test-design` entries are NOT stale
+- **WHEN** `propagateStale(entries, "implement")` is called
+- **THEN** `test-gen`, `unit-test`, `code-review`, `integration-test`, `acceptance` entries are marked stale (direct dependents of implement)
+- **AND** `proposal`, `dev-design`, `test-design` entries are NOT stale
 
 #### Scenario: propagateStale from leaf phase is no-op
 - **GIVEN** eval.json has entries for all phases
-- **WHEN** `propagateStale(entries, "06-unit-test")` is called
-- **THEN** no entries are marked stale (06 has no dependents)
+- **WHEN** `propagateStale(entries, "unit-test")` is called
+- **THEN** no entries are marked stale (unit-test has no dependents)
 
 #### Scenario: propagateStale with no downstream entries
-- **GIVEN** eval.json only has entries for phases 01-03
-- **WHEN** `propagateStale(entries, "02-dev-design")` is called
+- **GIVEN** eval.json only has entries for phases proposal through test-design
+- **WHEN** `propagateStale(entries, "dev-design")` is called
 - **THEN** the function completes without error
 - **AND** existing entries are NOT modified (no matching dependents)
 
-#### Scenario: propagateStale from 09-acceptance is no-op
+#### Scenario: propagateStale from acceptance is no-op
 - **GIVEN** eval.json has entries for all phases
-- **WHEN** `propagateStale(entries, "09-acceptance")` is called
-- **THEN** no entries are marked stale (09 has no dependents)
+- **WHEN** `propagateStale(entries, "acceptance")` is called
+- **THEN** no entries are marked stale (acceptance has no dependents)
 
 #### Scenario: propagateStale preserves stale:false entries of skipped dependents
-- **GIVEN** eval.json has `04-test-gen` entry with NO entries (phase not yet executed)
-- **WHEN** `propagateStale(entries, "03-test-design")` is called
-- **THEN** the function skips 04-test-gen (no entries to mark) and continues to 06-unit-test
-- **AND** 06-unit-test entries are marked stale
+- **GIVEN** eval.json has `test-gen` entry with NO entries (phase not yet executed)
+- **WHEN** `propagateStale(entries, "test-design")` is called
+- **THEN** the function skips test-gen (no entries to mark) and continues to unit-test
+- **AND** unit-test entries are marked stale
 
 ### Requirement: Implement backtrack invalidates test-gen directly
-Because `04-test-gen` lists `05-implement` as a prerequisite, any stale propagation from `05-implement` SHALL mark `04-test-gen` as a **direct** dependent (not only via transitive chain through other phases).
+Because `test-gen` lists `implement` as a prerequisite, any stale propagation from `implement` SHALL mark `test-gen` as a **direct** dependent (not only via transitive chain through other phases).
 
 #### Scenario: markPhaseStale on implement propagates to test-gen
-- **GIVEN** eval.json has valid pass entries for phases 01-05 and 04-test-gen
-- **WHEN** `markPhaseStale(entries, "05-implement")` is called
-- **THEN** the latest pass entry for `05-implement` is marked stale
-- **AND** all entries for `04-test-gen` are marked stale (direct dependent)
-- **AND** entries for `06-unit-test`, `07-code-review`, `08-integration-test`, `09-acceptance` are marked stale (transitive)
+- **GIVEN** eval.json has valid pass entries for phases proposal through implement and test-gen
+- **WHEN** `markPhaseStale(entries, "implement")` is called
+- **THEN** the latest pass entry for `implement` is marked stale
+- **AND** all entries for `test-gen` are marked stale (direct dependent)
+- **AND** entries for `unit-test`, `code-review`, `integration-test`, `acceptance` are marked stale (transitive)
 
 #### Scenario: test-gen pass without implement pass is invalid after reorder
-- **GIVEN** eval.json has a non-stale pass for `04-test-gen` but no valid pass for `05-implement`
-- **WHEN** `phase/next` evaluates whether `04-test-gen` has passed
-- **THEN** `04-test-gen` SHALL NOT be considered complete for scheduling `06-unit-test`
-- **AND** `phase/next` SHALL return `05-implement` if its prerequisites are met, or block until prerequisites are satisfied
+- **GIVEN** eval.json has a non-stale pass for `test-gen` but no valid pass for `implement`
+- **WHEN** `phase/next` evaluates whether `test-gen` has passed
+- **THEN** `test-gen` SHALL NOT be considered complete for scheduling `unit-test`
+- **AND** `phase/next` SHALL return `implement` if its prerequisites are met, or block until prerequisites are satisfied
 
 ### Requirement: phase/log triggers markPhaseStale on backtrack_to (with immediate propagation)
 When `runPhaseLog()` writes an entry that has a non-null `backtrack_to` field, it SHALL call `markPhaseStale()` for each target phase BEFORE writing the new entry. `markPhaseStale` handles both marking the target stale and propagating downstream.
@@ -116,15 +154,15 @@ When `runPhaseLog()` writes an entry that has a non-null `backtrack_to` field, i
 - If `backtrack_to` is an array: `markPhaseStale(entries, target)` for each target in the array
 
 #### Scenario: phase/log marks backtrack target + propagates
-- **GIVEN** eval.json has pass entries for 01-05
-- **WHEN** `runPhaseLog` is called with `phase: "05-implement", verdict: "fail", backtrack_to: "02-dev-design"`
-- **THEN** `markPhaseStale(entries, "02-dev-design")` is called
-- **AND** 02 is marked stale, and downstream 03,04,05,06,07,08,09 are all stale (immediate propagation)
-- **AND** the new fail entry for 05-implement is written
+- **GIVEN** eval.json has pass entries for proposal through implement
+- **WHEN** `runPhaseLog` is called with `phase: "implement", verdict: "fail", backtrack_to: "dev-design"`
+- **THEN** `markPhaseStale(entries, "dev-design")` is called
+- **AND** dev-design is marked stale, and downstream test-design, test-gen, implement, unit-test, code-review, integration-test, acceptance are all stale (immediate propagation)
+- **AND** the new fail entry for implement is written
 
 #### Scenario: phase/log handles array backtrack targets with propagation
-- **GIVEN** eval.json has pass entries for 01-09
-- **WHEN** `runPhaseLog` is called with `backtrack_to: ["02-dev-design", "03-test-design"]`
+- **GIVEN** eval.json has pass entries for all phases
+- **WHEN** `runPhaseLog` is called with `backtrack_to: ["dev-design", "test-design"]`
 - **THEN** `markPhaseStale` is called for each target
 - **AND** each call independently propagates downstream
 
@@ -133,14 +171,14 @@ When `runPhaseLog()` writes a pass entry (verdict === 'pass' or skipped === true
 
 #### Scenario: phase/log on pass writes entry only
 - **GIVEN** eval.json has entries for all phases, some stale
-- **WHEN** `runPhaseLog` writes a new pass entry for 02-dev-design
+- **WHEN** `runPhaseLog` writes a new pass entry for dev-design
 - **THEN** the entry is written with `stale: false`
 - **AND** `propagateStale` is NOT called
 - **AND** no other entries are modified
 
 #### Scenario: phase/log on first-time pass
-- **GIVEN** eval.json only has entries for 01-proposal
-- **WHEN** `runPhaseLog` writes a pass entry for 02-dev-design (first time)
+- **GIVEN** eval.json only has entries for proposal
+- **WHEN** `runPhaseLog` writes a pass entry for dev-design (first time)
 - **THEN** the entry is written successfully
 - **AND** no propagation occurs
 
@@ -165,8 +203,8 @@ This separation of concerns means `phase/next` is a pure read operation, while `
 - **AND** the response only contains the next phase to execute
 
 #### Scenario: phase/next handles backtrack without clearing entries
-- **WHEN** `phase/next` is called and the latest entry has `backtrack_to: "02-dev-design"`
-- **THEN** it returns `next_phase: "02-dev-design"`
+- **WHEN** `phase/next` is called and the latest entry has `backtrack_to: "dev-design"`
+- **THEN** it returns `next_phase: "dev-design"`
 - **AND** does NOT delete or mark stale any entries in eval.json (phase/log already handled that)
 
 #### Scenario: clearEntriesFromPhase is removed
@@ -183,17 +221,17 @@ In `phase/next`, when `backtrack_to` is an array, the SHALL return the earliest 
 String format SHALL be fully backward compatible.
 
 #### Scenario: Array backtrack_to marks all targets stale
-- **GIVEN** eval.json has pass entries for 02-dev-design and 03-test-design
-- **WHEN** evaluator writes entry with `backtrack_to: ["02-dev-design", "03-test-design"]`
-- **THEN** both 02 and 03 are marked stale by phase/log
-- **AND** phase/next returns `next_phase: "02-dev-design"` (earliest in phase table)
+- **GIVEN** eval.json has pass entries for dev-design and test-design
+- **WHEN** evaluator writes entry with `backtrack_to: ["dev-design", "test-design"]`
+- **THEN** both dev-design and test-design are marked stale by phase/log
+- **AND** phase/next returns `next_phase: "dev-design"` (earliest in phase table)
 
 #### Scenario: String backtrack_to is backward compatible
-- **WHEN** `backtrack_to` is `"02-dev-design"` (string)
-- **THEN** it behaves identically to `["02-dev-design"]`
+- **WHEN** `backtrack_to` is `"dev-design"` (string)
+- **THEN** it behaves identically to `["dev-design"]`
 
 #### Scenario: Invalid target in array is rejected
-- **WHEN** phase/log receives `backtrack_to: ["02-dev-design", "99-invalid"]`
+- **WHEN** phase/log receives `backtrack_to: ["dev-design", "99-invalid"]`
 - **THEN** it SHALL reject with `error: "invalid_backtrack_target"` before modifying any entries
 - **AND** no entries are marked stale
 
@@ -205,94 +243,94 @@ The system SHALL allow Evaluators to set a `backtrack_to` field in their eval JS
 The `backtrack_to` field SHALL accept both a single string and an array of strings. When set as an array, `phase/log` SHALL mark ALL target phases as stale and `phase/next` SHALL return the earliest target.
 
 The system SHALL permit backtrack from the following evaluators to the following targets:
-- acceptance (09-acceptance, acceptance-evaluator) -> requirements (01-requirements)
-- code-review (07-code-review, code-review-evaluator) -> dev-design (02-dev-design)
-- unit-test (06-unit-test, unit-test-evaluator) -> test-gen (04-test-gen), implement (05-implement), test-design (03-test-design), dev-design (02-dev-design)
-- integration-test (08-integration-test, integration-test-evaluator) -> test-gen (04-test-gen), implement (05-implement), test-design (03-test-design), dev-design (02-dev-design)
-The test-execution evaluators SHALL NOT backtrack to requirements (01-requirements) or acceptance (09-acceptance).
+- acceptance (acceptance-evaluator) -> proposal
+- code-review (code-review-evaluator) -> dev-design
+- unit-test (unit-test-evaluator) -> test-gen, implement, test-design, dev-design
+- integration-test (integration-test-evaluator) -> test-gen, implement, test-design, dev-design
+The test-execution evaluators SHALL NOT backtrack to proposal or acceptance.
 
-All references to `03-dev-proposal` are UPDATED to `02-dev-design`. All references to `02-test-design` are UPDATED to `03-test-design`.
+All references to `03-dev-proposal` are UPDATED to `dev-design`. All references to `02-test-design` are UPDATED to `test-design`.
 
 #### Scenario: Acceptance evaluator finds unmet requirement
 - **WHEN** acceptance-evaluator finds acceptance_criteria from proposal.md without corresponding test or implementation evidence
-- **THEN** eval report has verdict "fail" with backtrack_to set to "01-requirements"
+- **THEN** eval report has verdict "fail" with backtrack_to set to "proposal"
 
 #### Scenario: Code review evaluator finds design deviation
 - **WHEN** code-review-evaluator finds implementation that contradicts design.md
-- **THEN** eval report has verdict "fail" with backtrack_to set to "02-dev-design"
+- **THEN** eval report has verdict "fail" with backtrack_to set to "dev-design"
 
 #### Scenario: Unit-test evaluator finds syntax error in test files
-- **WHEN** unit-test-evaluator (in 06-unit-test phase) detects a syntax/import error in test files from the executor's report
-- **THEN** eval report has verdict "fail" with backtrack_to set to "04-test-gen"
+- **WHEN** unit-test-evaluator (in unit-test phase) detects a syntax/import error in test files from the executor's report
+- **THEN** eval report has verdict "fail" with backtrack_to set to "test-gen"
 
 #### Scenario: Unit-test evaluator finds logic error in implementation
-- **WHEN** unit-test-evaluator (in 06-unit-test phase) finds assertion failures pointing to implementation code
-- **THEN** eval report has verdict "fail" with backtrack_to set to "05-implement"
+- **WHEN** unit-test-evaluator (in unit-test phase) finds assertion failures pointing to implementation code
+- **THEN** eval report has verdict "fail" with backtrack_to set to "implement"
 
 #### Scenario: Integration-test evaluator finds contract mismatch
-- **WHEN** integration-test-evaluator (in 08-integration-test phase) finds interface signature mismatch between test and implementation
-- **THEN** eval report has verdict "fail" with backtrack_to set to "02-dev-design"
+- **WHEN** integration-test-evaluator (in integration-test phase) finds interface signature mismatch between test and implementation
+- **THEN** eval report has verdict "fail" with backtrack_to set to "dev-design"
 
 #### Scenario: Integration-test evaluator backtracks to unit-test
 - **WHEN** integration-test-evaluator finds that unit-test phase report was incomplete (missing coverage data or key test scenarios)
-- **THEN** eval report has verdict "fail" with backtrack_to set to "06-unit-test"
+- **THEN** eval report has verdict "fail" with backtrack_to set to "unit-test"
 
 #### Scenario: Integration-test evaluator backtracks to code-review
 - **WHEN** integration-test-evaluator identifies a structural issue that should have been caught by code-review
-- **THEN** eval report has verdict "fail" with backtrack_to set to "07-code-review"
+- **THEN** eval report has verdict "fail" with backtrack_to set to "code-review"
 
 #### Scenario: Evaluator can backtrack to both tracks (array format)
 - **WHEN** integration-test-evaluator finds both test syntax errors AND implementation logic errors
-- **THEN** eval report has verdict "fail" with backtrack_to set to `["04-test-gen", "05-implement"]`
-- **AND** phase/log marks both 04-test-gen and 05-implement latest pass entries as stale
+- **THEN** eval report has verdict "fail" with backtrack_to set to `["test-gen", "implement"]`
+- **AND** phase/log marks both test-gen and implement latest pass entries as stale
 
 ### Requirement: Backtrack target validation for test-execution evaluators
 When a test-execution evaluator (unit-test-evaluator or integration-test-evaluator) sets a `backtrack_to` field, the system SHALL validate that each target phase is within the permitted set.
 
-Permitted targets for unit-test-evaluator: test-design (03-test-design), dev-design (02-dev-design), test-gen (04-test-gen), implement (05-implement).
-Permitted targets for integration-test-evaluator: test-design (03-test-design), dev-design (02-dev-design), test-gen (04-test-gen), implement (05-implement).
+Permitted targets for unit-test-evaluator: test-design, dev-design, test-gen, implement.
+Permitted targets for integration-test-evaluator: test-design, dev-design, test-gen, implement.
 
-If the test-execution evaluator attempts to backtrack to an invalid target (e.g., requirements or acceptance), the skill SHALL override the backtrack_to to dev-design (02-dev-design) (safe default) and log a warning in eval.json.
+If the test-execution evaluator attempts to backtrack to an invalid target (e.g., requirements or acceptance), the skill SHALL override the backtrack_to to dev-design (safe default) and log a warning in eval.json.
 
-If ANY element in the array is outside the permitted set, the entire backtrack SHALL be overridden to dev-design (02-dev-design) and a warning logged.
+If ANY element in the array is outside the permitted set, the entire backtrack SHALL be overridden to dev-design (dev-design) and a warning logged.
 
 #### Scenario: Unit-test evaluator tries invalid backtrack
-- **WHEN** unit-test-evaluator sets backtrack_to to "01-requirements"
+- **WHEN** unit-test-evaluator sets backtrack_to to "proposal"
 - **THEN** the skill detects this is outside the permitted set for unit-test-evaluator
-- **AND** overrides backtrack_to to "02-dev-design"
+- **AND** overrides backtrack_to to "dev-design"
 - **AND** logs "单元测试 Evaluator 试图回溯到 requirements 阶段，已自动修正为 dev-design（安全默认）" in the eval entry
 
 #### Scenario: Integration-test evaluator tries invalid backtrack
-- **WHEN** integration-test-evaluator sets backtrack_to to "09-acceptance"
-- **THEN** the skill overrides backtrack_to to "02-dev-design"
+- **WHEN** integration-test-evaluator sets backtrack_to to "acceptance"
+- **THEN** the skill overrides backtrack_to to "dev-design"
 - **AND** logs diagnostic warning in the eval entry
 
 #### Scenario: Unit-test evaluator tries invalid backtrack (array with one invalid)
-- **WHEN** unit-test-evaluator sets backtrack_to to `["04-test-gen", "09-acceptance"]` (09 is outside permitted set)
-- **THEN** the skill overrides the ENTIRE backtrack_to to "02-dev-design"
+- **WHEN** unit-test-evaluator sets backtrack_to to `["test-gen", "acceptance"]` (09 is outside permitted set)
+- **THEN** the skill overrides the ENTIRE backtrack_to to "dev-design"
 - **AND** logs diagnostic warning in the eval entry
 
 #### Scenario: Unit-test evaluator tries valid array backtrack
-- **WHEN** unit-test-evaluator sets backtrack_to to `["04-test-gen", "05-implement"]` (both within permitted set)
+- **WHEN** unit-test-evaluator sets backtrack_to to `["test-gen", "implement"]` (both within permitted set)
 - **THEN** the skill accepts the array as-is
 - **AND** does NOT override
 
 ### Requirement: Backtrack chain integrity
 When the diagnostic decision tree produces a backtrack_to target, the system SHALL verify that the target phase precedes the current phase in the workflow sequence: dev-design < test-design < test-gen < implement < unit-test < code-review < integration-test < acceptance.
 
-If the backtrack target is a phase that has no entries in eval.json, the skill SHALL override backtrack_to to dev-design (02-dev-design) as a safe default.
+If the backtrack target is a phase that has no entries in eval.json, the skill SHALL override backtrack_to to dev-design (dev-design) as a safe default.
 
 If backtrack would create a cycle (e.g., unit-test -> implement -> unit-test), the system SHALL detect the cycle and require manual resolution by outputting the cycle path. For diagnostic test-execution evaluators, a cycle is defined as: backtrack_to targeting a phase that already has a non-null backtrack_to pointing back to the current evaluator's phase.
 
 For array backtrack_to, cycle detection SHALL check each target independently. A cycle with ANY target SHALL trigger the cycle resolution workflow.
 
 #### Scenario: Backtrack target phase has no entries
-- **WHEN** integration-test-evaluator sets backtrack_to to "04-test-gen" but test-gen phase has no entries in eval.json
-- **THEN** the skill overrides backtrack_to to "02-dev-design"
+- **WHEN** integration-test-evaluator sets backtrack_to to "test-gen" but test-gen phase has no entries in eval.json
+- **THEN** the skill overrides backtrack_to to "dev-design"
 - **AND** logs "回溯目标 test-gen 阶段未执行，自动修正为 dev-design（安全默认）"
 
 #### Scenario: Cycle detected between unit-test and implement
-- **WHEN** unit-test-evaluator sets backtrack_to to "05-implement", and implement phase's latest entry has backtrack_to set to "06-unit-test"
+- **WHEN** unit-test-evaluator sets backtrack_to to "implement", and implement phase's latest entry has backtrack_to set to "unit-test"
 - **THEN** the eval report includes a warning and the skill pauses for user intervention with the cycle path
 
 ## Module Contract
@@ -301,14 +339,14 @@ For array backtrack_to, cycle detection SHALL check each target independently. A
 
 | Export | Change | Purpose |
 |--------|--------|---------|
-| `markPhaseStale(entries, phaseId)` | MODIFIED (behavior) | Backtrack to 05-implement immediately stale-marks 04-test-gen |
+| `markPhaseStale(entries, phaseId)` | MODIFIED (behavior) | Backtrack to implement immediately stale-marks test-gen |
 | `propagateStale(entries, phaseId, workflowType?)` | MODIFIED (behavior) | Uses updated `getDependents()` where 05→04 is direct edge |
 
 ### workflow.ts (lib/)
 
 | Export | Change | Purpose |
 |--------|--------|---------|
-| `getDependents("05-implement")` | MODIFIED | Now includes `04-test-gen` as direct dependent |
+| `getDependents("implement")` | MODIFIED | Now includes `test-gen` as direct dependent |
 
 ### phase-next.ts (commands/)
 

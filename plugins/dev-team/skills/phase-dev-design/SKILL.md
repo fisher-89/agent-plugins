@@ -25,10 +25,10 @@ If a name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__ch
 
 ### 2. Gate check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `02-dev-design`, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `dev-design`, stop — prior phase gates have not passed.
 
 ### 3. Check backtrack
-Read eval.json for `backtrack_to` = "02-dev-design". If found, run Evaluator first.
+Read eval.json for `backtrack_to` = "dev-design". If found, run Evaluator first.
 
 ### 4. P→E Loop
 
@@ -50,7 +50,7 @@ Agent({
 })
 ```
 
-**4c. Verdict:** Read latest phase "02-dev-design" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
+**4c. Verdict:** Read latest phase "dev-design" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
 
 ### 5. Report
 Show verdict, pass/total, and notes.

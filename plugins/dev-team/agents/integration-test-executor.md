@@ -44,7 +44,7 @@ Write a structured JSON report to `openspec/changes/<change-name>/reports/integr
 
 ```json
 {
-  "phase": "08-integration-test",
+  "phase": "integration-test",
   "command": "python -m pytest tests/integration/ -v 2>&1",
   "timestamp": "2026-05-25T10:30:00.000Z",
   "total": 15,

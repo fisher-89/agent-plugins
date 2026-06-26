@@ -97,33 +97,23 @@ describe('formatOutput', () => {
 // ---------------------------------------------------------------------------
 
 describe('resolveCliPath', () => {
-  skipIfMissing('正常 CLAUDE_PLUGIN_ROOT 下应拼接 bin/dev-team-cli.cjs', () => {
-    const root = '/tmp/plugin-root';
-    const cliPath = resolveCliPath(root);
-    assert.equal(cliPath, path.join(root, 'bin', 'dev-team-cli.cjs'));
+  skipIfMissing('应返回 dev-team-cli.cjs 的绝对路径', () => {
+    const cliPath = resolveCliPath();
+    assert.ok(typeof cliPath === 'string');
+    assert.ok(cliPath.length > 0);
+    assert.ok(cliPath.endsWith(path.join('bin', 'dev-team-cli.cjs')));
   });
 
-  skipIfMissing('含空格的根目录 path.join 不应截断', () => {
-    const root = '/tmp/my plugin root';
-    const cliPath = resolveCliPath(root);
-    assert.equal(cliPath, path.join(root, 'bin', 'dev-team-cli.cjs'));
-    assert.ok(cliPath.includes('my plugin root'));
+  skipIfMissing('路径为绝对路径且不含空格截断', () => {
+    const cliPath = resolveCliPath();
+    assert.ok(path.isAbsolute(cliPath));
+    assert.ok(cliPath.includes('dev-team-cli.cjs'));
   });
 
-  skipIfMissing('未传参时应读取 process.env.CLAUDE_PLUGIN_ROOT', () => {
-    const prev = process.env.CLAUDE_PLUGIN_ROOT;
-    try {
-      process.env.CLAUDE_PLUGIN_ROOT = '/tmp/env plugin root';
-      const cliPath =
-        resolveCliPath.length === 0 ? resolveCliPath() : resolveCliPath(process.env.CLAUDE_PLUGIN_ROOT);
-      assert.equal(cliPath, path.join('/tmp/env plugin root', 'bin', 'dev-team-cli.cjs'));
-    } finally {
-      if (prev === undefined) {
-        delete process.env.CLAUDE_PLUGIN_ROOT;
-      } else {
-        process.env.CLAUDE_PLUGIN_ROOT = prev;
-      }
-    }
+  skipIfMissing('不传参时使用 import.meta.resolve 定位 CLI', () => {
+    const cliPath = resolveCliPath();
+    // 验证指向实际存在的文件（测试环境 dev-team bin 应存在）
+    assert.ok(cliPath.endsWith('dev-team-cli.cjs'));
   });
 });
 

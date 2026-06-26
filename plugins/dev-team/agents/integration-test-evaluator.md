@@ -37,7 +37,7 @@ Check that the report contains all required fields:
 If any required field is missing or has wrong type, set:
 - `verdict`: `"fail"`
 - `report`: `"报告不完整: [缺失字段列表]"`
-- `backtrack_to`: `"08-integration-test"` (re-run the test executor)
+- `backtrack_to`: `"integration-test"` (re-run the test executor)
 
 ### Step 2: No-op / empty check
 
@@ -63,31 +63,31 @@ If `failed > 0`, analyze each failure and apply the following decision tree:
 1. **语法错误 (SyntaxError / TypeError / ReferenceError in test file)**
    - IF `error_type` is `SyntaxError`, `TypeError`, or `ReferenceError`
    - AND the error `file` is a test file (ends in `.integration.test.*` or inside `tests/integration/`)
-   - THEN backtrack_to: `"04-test-gen"`
+   - THEN backtrack_to: `"test-gen"`
    - Finding reason: "语法错误: test-gen 生成的集成测试文件存在语法问题"
 
 2. **逻辑错误 (AssertionError in implementation file)**
    - IF `error_type` is `AssertionError` or the error `file` is a source file (not a test file)
    - AND the assertion expectation seems reasonable
-   - THEN backtrack_to: `"05-implement"`
+   - THEN backtrack_to: `"implement"`
    - Finding reason: "逻辑错误: 实现代码与集成测试期望不一致"
 
 3. **设计冲突 (expected/actual vs test-design.md mismatch)**
    - IF failure has `design_ref` field
    - OR the expected behavior contradicts test-design.md requirements
    - OR the integration test expects behavior that was not designed
-   - THEN backtrack_to: `"03-test-design"`
+   - THEN backtrack_to: `"test-design"`
    - Finding reason: "设计冲突: 集成测试期望与 test-design.md 不一致"
 
 4. **接口签名不匹配 (双方签名一致但实现行为异常)**
    - IF test and implementation agree on interface signatures
    - BUT the implementation behavior does not match spec
-   - THEN backtrack_to: `"02-dev-design"`
+   - THEN backtrack_to: `"dev-design"`
    - Finding reason: "接口签名双方一致但实现行为不符合设计提案"
 
 5. **环境/配置问题 (connection refused, timeout, missing env var)**
    - IF `error_type` includes `ConnectionRefused`, `Timeout`, or error message references missing environment variables or configuration
-   - THEN backtrack_to: `"05-implement"`
+   - THEN backtrack_to: `"implement"`
    - Finding reason: "环境/配置问题: 集成测试依赖的外部服务或配置未就绪"
    - Note: Do NOT backtrack to test-gen or test-design for environment issues
 
@@ -121,7 +121,7 @@ ${failure_details_summary}
 
 ### Step 6: Append to eval.json
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "08-integration-test"` to write the evaluation result. Map each checklist item (N1-N4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
+Call `mcp__plugin_dev-team_dev-team__phase_log` to write the evaluation result. Map each checklist item (N1-N4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
 
 If the phase was skipped (total=0), pass `skipped: true` with an empty checklist.
 

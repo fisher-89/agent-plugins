@@ -39,7 +39,7 @@ Archive a completed change in the experimental workflow.
 
 3. **Check phase evaluation status**
 
-   Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="09-acceptance" to validate the PGE eval chain.
+   Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="acceptance" to validate the PGE eval chain.
 
    Parse the result to check:
    - `passed`: Overall evaluation status

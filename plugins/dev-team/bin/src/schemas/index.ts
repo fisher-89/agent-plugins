@@ -1,4 +1,9 @@
-export { phaseLogSchema, phaseLogInputSchema, phaseLogOutputSchema } from './phase-log.schema';
+export {
+  phaseIdSchema,
+  phaseLogSchema,
+  phaseLogInputSchema,
+  phaseLogOutputSchema,
+} from './phase-log.schema';
 export { archiQueryInputSchema, archiQueryOutputSchema } from './archi-query.schema';
 export { archiValidateInputSchema, archiValidateOutputSchema } from './archi-validate.schema';
 export { archiWriteInputSchema, archiWriteOutputSchema } from './archi-write.schema';

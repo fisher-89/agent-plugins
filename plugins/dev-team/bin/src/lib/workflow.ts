@@ -6,9 +6,15 @@
  * All other modules (eval-next, eval-check, eval-log) import from here.
  */
 
+import { type z } from 'zod/v4';
+
+import { type phaseIdSchema } from '../schemas';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
+
+export type PhaseId = z.infer<typeof phaseIdSchema>;
 
 interface PhaseAgentDef {
   agent_type: string;
@@ -16,7 +22,7 @@ interface PhaseAgentDef {
 }
 
 export interface PhaseDefinition {
-  id: string;
+  id: PhaseId;
   description: string;
   planner: PhaseAgentDef | null;
   evaluator: PhaseAgentDef | null;
@@ -30,7 +36,7 @@ const DEFAULT_WORKFLOW: string = 'requirement';
 
 const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
-    id: '01-proposal',
+    id: 'proposal',
     description: '需求提案与规格说明',
     planner: {
       agent_type: 'dev-team:proposal-planner',
@@ -42,7 +48,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '02-dev-design',
+    id: 'dev-design',
     description: '详细设计与任务拆解',
     planner: {
       agent_type: 'dev-team:dev-design-planner',
@@ -55,7 +61,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '03-test-design',
+    id: 'test-design',
     description: '测试设计',
     planner: {
       agent_type: 'dev-team:test-design-planner',
@@ -68,7 +74,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '05-implement',
+    id: 'implement',
     description: '代码实现',
     planner: {
       agent_type: 'dev-team:implementation-generator',
@@ -81,7 +87,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '04-test-gen',
+    id: 'test-gen',
     description: '测试代码生成',
     planner: {
       agent_type: 'dev-team:test-gen-generator',
@@ -93,7 +99,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '06-unit-test',
+    id: 'unit-test',
     description: '单元测试执行与诊断',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
@@ -105,7 +111,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '07-code-review',
+    id: 'code-review',
     description: '代码审查',
     planner: null,
     evaluator: {
@@ -114,7 +120,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '08-integration-test',
+    id: 'integration-test',
     description: '集成测试执行与诊断',
     planner: {
       agent_type: 'dev-team:integration-test-executor',
@@ -127,7 +133,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: '09-acceptance',
+    id: 'acceptance',
     description: '验收评估',
     planner: null,
     evaluator: {
@@ -139,7 +145,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
 
 const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
-    id: '01-proposal',
+    id: 'proposal',
     description: '需求提案与规格说明',
     planner: {
       agent_type: 'dev-team:proposal-planner',
@@ -151,7 +157,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     },
   },
   {
-    id: '02-dev-design',
+    id: 'dev-design',
     description: '详细设计与任务拆解',
     planner: {
       agent_type: 'dev-team:dev-design-planner',
@@ -164,7 +170,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     },
   },
   {
-    id: '05-implement',
+    id: 'implement',
     description: '代码实现',
     planner: {
       agent_type: 'dev-team:implementation-generator',
@@ -177,7 +183,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     },
   },
   {
-    id: '06-unit-test',
+    id: 'unit-test',
     description: '单元测试执行与诊断',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
@@ -189,7 +195,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     },
   },
   {
-    id: '07-code-review',
+    id: 'code-review',
     description: '代码审查',
     planner: null,
     evaluator: {
@@ -198,7 +204,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     },
   },
   {
-    id: '09-acceptance',
+    id: 'acceptance',
     description: '验收评估',
     planner: null,
     evaluator: {
@@ -215,7 +221,7 @@ const WORKFLOW_CONTEXT_TEST_ONLY =
 
 const PHASE_TEST_ONLY: PhaseDefinition[] = [
   {
-    id: '01-proposal',
+    id: 'proposal',
     description: '测试需求提案与规格说明',
     planner: {
       agent_type: 'dev-team:proposal-planner',
@@ -228,7 +234,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
   },
   {
-    id: '02-code-analyze',
+    id: 'code-analyze',
     description: '逆向分析现有代码架构',
     planner: {
       agent_type: 'dev-team:code-analyze-planner',
@@ -242,7 +248,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
   },
   {
-    id: '03-test-design',
+    id: 'test-design',
     description: '测试设计',
     planner: {
       agent_type: 'dev-team:test-design-planner',
@@ -255,7 +261,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
   },
   {
-    id: '04-test-gen',
+    id: 'test-gen',
     description: '测试代码生成',
     planner: {
       agent_type: 'dev-team:test-gen-generator',
@@ -267,7 +273,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
   },
   {
-    id: '06-unit-test',
+    id: 'unit-test',
     description: '单元测试执行与诊断',
     planner: {
       agent_type: 'dev-team:unit-test-executor',
@@ -279,7 +285,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
   },
   {
-    id: '08-integration-test',
+    id: 'integration-test',
     description: '集成测试执行与诊断',
     planner: {
       agent_type: 'dev-team:integration-test-executor',
@@ -312,15 +318,15 @@ const PHASE_TABLES: Record<string, PhaseDefinition[]> = {
  * `getDependents()` derives the reverse mapping from this table.
  */
 const PHASE_PREREQUISITES: Record<string, string[]> = {
-  '01-proposal': [],
-  '02-dev-design': ['01-proposal'],
-  '03-test-design': ['01-proposal', '02-dev-design'],
-  '04-test-gen': ['03-test-design', '05-implement'],
-  '05-implement': ['02-dev-design'],
-  '06-unit-test': ['04-test-gen', '05-implement'],
-  '07-code-review': ['04-test-gen', '05-implement'],
-  '08-integration-test': ['04-test-gen', '05-implement'],
-  '09-acceptance': ['01-proposal', '02-dev-design', '05-implement'],
+  proposal: [],
+  'dev-design': ['proposal'],
+  'test-design': ['proposal', 'dev-design'],
+  'test-gen': ['test-design', 'implement'],
+  implement: ['dev-design'],
+  'unit-test': ['test-gen', 'implement'],
+  'code-review': ['test-gen', 'implement'],
+  'integration-test': ['test-gen', 'implement'],
+  acceptance: ['proposal', 'dev-design', 'implement'],
 };
 
 /**
@@ -328,12 +334,12 @@ const PHASE_PREREQUISITES: Record<string, string[]> = {
  * Simplified pipeline — only core development phases.
  */
 const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
-  '01-proposal': [],
-  '02-dev-design': ['01-proposal'],
-  '05-implement': ['02-dev-design'],
-  '06-unit-test': ['05-implement'],
-  '07-code-review': ['05-implement'],
-  '09-acceptance': ['07-code-review'],
+  proposal: [],
+  'dev-design': ['proposal'],
+  implement: ['dev-design'],
+  'unit-test': ['implement'],
+  'code-review': ['implement'],
+  acceptance: ['code-review'],
 };
 
 /**
@@ -343,12 +349,12 @@ const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
 const PHASE_REFACTOR_PREREQUISITES: Record<string, string[]> = PHASE_PREREQUISITES;
 
 const PHASE_TEST_ONLY_PREREQUISITES: Record<string, string[]> = {
-  '01-proposal': [],
-  '02-code-analyze': ['01-proposal'],
-  '03-test-design': ['01-proposal', '02-code-analyze'],
-  '04-test-gen': ['03-test-design'],
-  '06-unit-test': ['04-test-gen'],
-  '08-integration-test': ['04-test-gen'],
+  proposal: [],
+  'code-analyze': ['proposal'],
+  'test-design': ['proposal', 'code-analyze'],
+  'test-gen': ['test-design'],
+  'unit-test': ['test-gen'],
+  'integration-test': ['test-gen'],
 };
 
 const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>> = {

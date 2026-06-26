@@ -44,7 +44,7 @@ describe('implementation-generator.md — 静态检查移除 (AC-8)', () => {
     const content = readAgent(generatorPath);
     const outputSection = content.split('## Output')[1]?.split('## Constraints')[0] ?? '';
     expect(outputSection).not.toContain('reports/static_analysis.json');
-    expect(outputSection).not.toMatch(/"phase":\s*"05-implement"/);
+    expect(outputSection).not.toMatch(/"phase":\s*"implement"/);
   });
 
   it('frontmatter description 不应含 static-check / static_analysis 引用', () => {

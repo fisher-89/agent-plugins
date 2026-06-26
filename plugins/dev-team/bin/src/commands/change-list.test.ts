@@ -1,5 +1,5 @@
 /**
- * Tests for change_list filtering — archive registration and 09-acceptance completion.
+ * Tests for change_list filtering — archive registration and acceptance completion.
  *
  * Covers AC-1~AC-5 from openspec/changes/fix-change-list-archived-filter/test-design.md
  *
@@ -120,7 +120,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
         tasksMd: '- [ ] task one\n- [x] task two\n',
         evalEntries: [
           makeEvalEntry({
-            phase: '02-dev-design',
+            phase: 'dev-design',
             verdict: 'pass',
             timestamp: '2026-06-18T09:00:00.000Z',
           }),
@@ -136,7 +136,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
       expect(entry.artifacts).toContain('design.md');
       expect(entry.tasks).toEqual({ total: 2, done: 1 });
       expect(entry.latest_phase).toEqual({
-        phase: '02-dev-design',
+        phase: 'dev-design',
         verdict: 'pass',
       });
     } finally {
@@ -166,17 +166,17 @@ describe('runChangeList -- 活跃 change 聚合', () => {
       writeChange(project.changesDir, 'latest-phase', {
         evalEntries: [
           makeEvalEntry({
-            phase: '01-proposal',
+            phase: 'proposal',
             verdict: 'pass',
             timestamp: '2026-06-17T10:00:00.000Z',
           }),
           makeEvalEntry({
-            phase: '06-unit-test',
+            phase: 'unit-test',
             verdict: 'fail',
             timestamp: '2026-06-18T11:00:00.000Z',
           }),
           makeEvalEntry({
-            phase: '09-acceptance',
+            phase: 'acceptance',
             verdict: 'fail',
             timestamp: '2026-06-18T10:00:00.000Z',
           }),
@@ -187,7 +187,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
       const entry = result.changes.find((c) => c.name === 'latest-phase');
 
       expect(entry?.latest_phase).toEqual({
-        phase: '06-unit-test',
+        phase: 'unit-test',
         verdict: 'fail',
       });
     } finally {
@@ -214,13 +214,13 @@ describe('runChangeList -- 缺失 eval / 无 acceptance 条目', () => {
     }
   });
 
-  it('有 eval.json 但无 09-acceptance 条目的 change 仍应出现在结果中 (AC-4)', () => {
+  it('有 eval.json 但无 acceptance 条目的 change 仍应出现在结果中 (AC-4)', () => {
     const project = createTempProject();
     try {
       writeChange(project.changesDir, 'no-acceptance', {
         evalEntries: [
           makeEvalEntry({
-            phase: '05-implement',
+            phase: 'implement',
             verdict: 'pass',
             timestamp: '2026-06-18T10:00:00.000Z',
           }),
@@ -343,7 +343,7 @@ describe('runChangeList -- 组合过滤', () => {
       writeChange(project.changesDir, 'passed-filtered', {
         evalEntries: [
           makeEvalEntry({
-            phase: '09-acceptance',
+            phase: 'acceptance',
             verdict: 'pass',
             timestamp: '2026-06-18T12:00:00.000Z',
           }),
@@ -352,7 +352,7 @@ describe('runChangeList -- 组合过滤', () => {
       writeChange(project.changesDir, 'fail-acceptance-active', {
         evalEntries: [
           makeEvalEntry({
-            phase: '09-acceptance',
+            phase: 'acceptance',
             verdict: 'fail',
             timestamp: '2026-06-18T12:00:00.000Z',
           }),

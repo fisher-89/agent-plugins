@@ -27,3 +27,6 @@
 - [x] phase-next返回allowed_backtracks
 - [x] fix: code-review未指定backtrack_to
 - [x] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli
+- [ ] 修成evaluator agent的output
+- [ ] 根据test配置决定哪些目录可以单测
+- [ ] 根据test配置提供mcp，自动执行测试，生成统一格式报告

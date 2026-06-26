@@ -1,5 +1,7 @@
 import { z } from 'zod/v4';
 
+import { phaseIdSchema } from './phase-log.schema';
+
 /**
  * Input schema for phase_next MCP tool.
  * `change` is required; workflow_type is read from change `workflow.json`.
@@ -20,7 +22,7 @@ const phaseAgentSchema = z.object({
  * Backtrack target phase info — a phase that can be set as backtrack_to.
  */
 const backtrackPhaseSchema = z.object({
-  id: z.string().describe('Phase identifier (e.g. 01-proposal)'),
+  id: z.string().describe('Phase identifier (e.g. proposal)'),
   description: z.string().describe('Human-readable phase description'),
 });
 
@@ -31,7 +33,7 @@ export const phaseNextOutputSchema = z.object({
   done: z.boolean().describe('Whether the workflow is complete'),
   error: z.string().nullable().describe('Error code if something went wrong (null on success)'),
   message: z.string().nullable().describe('Human-readable message (error details or info)'),
-  next_phase: z.string().nullable().describe('Next phase identifier (null if done or error)'),
+  next_phase: phaseIdSchema.nullable().describe('Next phase identifier (null if done or error)'),
   planner: phaseAgentSchema
     .nullable()
     .describe('Planner agent config (null for EVAL-ONLY or done/error)'),
