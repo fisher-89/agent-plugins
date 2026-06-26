@@ -25,7 +25,7 @@ function preprocessForLikeC4(dsl: string): string {
 // File management
 // ---------------------------------------------------------------------------
 
-const ARCHITECTURE_DIR = 'openspec/specs/architecture';
+const ARCHITECTURE_DIR = 'openspec/architecture';
 const MODELS_DIR = path.join(ARCHITECTURE_DIR, 'models');
 
 function getModelFiles(projectRoot: string): { filename: string; filepath: string }[] {

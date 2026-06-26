@@ -22,13 +22,13 @@ The model uses four element kinds in a strict hierarchy:
 
 ## CRITICAL: No autonomous modifications
 
-**You MUST NEVER write to model files (`openspec/specs/architecture/models/*.c4`) without explicit user confirmation.** Always present proposed changes as a diff and wait for the user to say "yes", "write", "do it", or similar confirmation before writing. This is a hard rule — architecture changes are sensitive and must be reviewed by the user.
+**You MUST NEVER write to model files (`openspec/architecture/models/*.c4`) without explicit user confirmation.** Always present proposed changes as a diff and wait for the user to say "yes", "write", "do it", or similar confirmation before writing. This is a hard rule — architecture changes are sensitive and must be reviewed by the user.
 
 ## Architecture overview
 
-- **Model files**: `openspec/specs/architecture/models/*.c4` — DSL files loaded in alphabetical order
-- **ADRs**: `openspec/specs/architecture/decisions/*.md` — Architecture Decision Records
-- **Reports**: `openspec/changes/<name>/reports/architecture-validate-*.json` — validation reports (per-change); `openspec/specs/architecture/reports/` as global fallback
+- **Model files**: `openspec/architecture/models/*.c4` — DSL files loaded in alphabetical order
+- **ADRs**: `openspec/architecture/decisions/*.md` — Architecture Decision Records
+- **Reports**: `openspec/changes/<name>/reports/architecture-validate-*.json` — validation reports (per-change); `openspec/architecture/reports/` as global fallback
 - **Python utilities**:
   - `plugins/dev-team/utils/archi-decide.py` — create, list, update ADRs
 - **MCP tools** (under `mcp__plugin_dev-team_dev-team__`):
@@ -155,7 +155,7 @@ Ambiguous requests: "check the architecture" → VALIDATE (not REVIEW, because c
 
 When the user asks to add, modify, or update architecture elements:
 
-1. **Read current state**: Read all `openspec/specs/architecture/models/*.c4` files to understand the existing model.
+1. **Read current state**: Read all `openspec/architecture/models/*.c4` files to understand the existing model.
 2. **Explore the code**: Use Grep/Glob to find relevant code files that the model changes should reference (e.g., `metadata.path` targets).
 3. **Draft the DSL**: Prepare the proposed DSL change — either a new file in `models/` or edits to an existing one. Use the domain/module/component hierarchy.
 4. **Validate**: Call `mcp__plugin_dev-team_dev-team__archi_validate` with `source`="<dsl>" — or validate the aggregated model if changes span files.
@@ -211,7 +211,7 @@ When the user asks to create, list, or update an ADR:
 
 When the user asks to review the architecture model quality:
 
-1. Read all `openspec/specs/architecture/models/*.c4` files.
+1. Read all `openspec/architecture/models/*.c4` files.
 2. Critically evaluate:
    - **Completeness**: Are there obvious packages, domains, modules, or components missing? Are all important code directories mapped via `metadata.path`?
    - **Hierarchy**: Does every domain belong to a package? Does every module belong to a domain? Does every component belong to a module? Are the package/domain/module/component relationships properly nested?

@@ -16,7 +16,7 @@ The system SHALL intercept all `git commit` commands via a PreToolUse(Bash) hook
 
 #### Scenario: Commit with only architecture files
 
-- **WHEN** `git diff --cached` contains only files under `openspec/specs/architecture/`
+- **WHEN** `git diff --cached` contains only files under `openspec/architecture/`
 - **THEN** the hook SHALL allow the commit without requiring a validation report
 
 #### Scenario: Commit with no code changes
@@ -26,16 +26,16 @@ The system SHALL intercept all `git commit` commands via a PreToolUse(Bash) hook
 
 ### Requirement: Model existence check uses models directory
 
-The hook SHALL check for the existence of architecture model by looking for `openspec/specs/architecture/models/` directory containing at least one `*.c4` file. For backward compatibility, it SHALL also check the legacy `openspec/specs/architecture/model.c4` file.
+The hook SHALL check for the existence of architecture model by looking for `openspec/architecture/models/` directory containing at least one `*.c4` file. For backward compatibility, it SHALL also check the legacy `openspec/architecture/model.c4` file.
 
 #### Scenario: Models directory exists
 
-- **WHEN** `openspec/specs/architecture/models/` contains at least one `*.c4` file
+- **WHEN** `openspec/architecture/models/` contains at least one `*.c4` file
 - **THEN** the hook SHALL treat the model as existing
 
 #### Scenario: Only legacy model.c4 exists
 
-- **WHEN** `openspec/specs/architecture/models/` does not exist but `openspec/specs/architecture/model.c4` exists
+- **WHEN** `openspec/architecture/models/` does not exist but `openspec/architecture/model.c4` exists
 - **THEN** the hook SHALL treat the model as existing (backward compatible)
 
 #### Scenario: No model in either location

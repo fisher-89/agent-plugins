@@ -1,7 +1,7 @@
 ## MODIFIED Requirements
 
 ### Requirement: Query model structure via TypeScript CLI
-The system SHALL provide a `dev-team archi query` CLI command that parses all `*.c4` files in `openspec/specs/architecture/models/` using `@likec4/core`'s `LikeC4.fromSource()` API to extract elements, their metadata (including `path`), hierarchy, and relationships.
+The system SHALL provide a `dev-team archi query` CLI command that parses all `*.c4` files in `openspec/architecture/models/` using `@likec4/core`'s `LikeC4.fromSource()` API to extract elements, their metadata (including `path`), hierarchy, and relationships.
 This SHALL replace the Python `archi-model.py --command query` utility.
 Files SHALL be loaded in alphabetical order and aggregated into a single DSL text before parsing.
 

@@ -9,7 +9,7 @@ import * as path from 'path';
 import { validateDsl } from './archi-validate';
 import type { ArchiWriteResult } from './c4-types';
 
-const ARCHITECTURE_DIR = 'openspec/specs/architecture';
+const ARCHITECTURE_DIR = 'openspec/architecture';
 const MODELS_DIR = path.join(ARCHITECTURE_DIR, 'models');
 
 /**

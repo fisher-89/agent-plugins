@@ -9,7 +9,7 @@ dev-team CLI SHALL 提供 `archi` 子命令，包含 4 个 action：`query`、`v
 - **THEN** 输出包含 `archi <action>` 子命令及其 action 列表（query / validate / write / check）
 
 ### Requirement: archi query 查询模型元素和关系
-`dev-team archi query` SHALL 读取 `openspec/specs/architecture/models/*.c4` 聚合为 DSL 文本，通过 `LikeC4.fromSource()` 解析为 `LikeC4Model.Computed`，输出元素和关系 JSON。
+`dev-team archi query` SHALL 读取 `openspec/architecture/models/*.c4` 聚合为 DSL 文本，通过 `LikeC4.fromSource()` 解析为 `LikeC4Model.Computed`，输出元素和关系 JSON。
 未指定 `--element` 时 SHALL 输出所有元素和所有关系。
 指定 `--element <fqn>` 时 SHALL 输出单个元素及其入/出关系。
 若 `models/` 目录为空或无 .c4 文件，SHALL 输出 `{"error": "No model files found"}` 并退出码 1。
@@ -48,13 +48,13 @@ dev-team CLI SHALL 提供 `archi` 子命令，包含 4 个 action：`query`、`v
 - **THEN** 读取 `models/*.c4` 聚合 DSL，校验并输出结果
 
 ### Requirement: archi write 校验并写入模型文件
-`dev-team archi write --path <file> --source <dsl>` SHALL 先通过 `dev-team archi validate --source "<dsl>"` 校验 DSL，校验通过后再写入到 `openspec/specs/architecture/models/<file>`。
+`dev-team archi write --path <file> --source <dsl>` SHALL 先通过 `dev-team archi validate --source "<dsl>"` 校验 DSL，校验通过后再写入到 `openspec/architecture/models/<file>`。
 校验失败 SHALL NOT 写入，并输出错误信息。
 `--path` 目标必须在 `models/` 目录内，写入路径超出 models/ 时 SHALL 拒绝。
 
 #### Scenario: 校验通过后写入
 - **WHEN** 用户运行 `dev-team archi write --path "models/03-payments.c4" --source "<valid DSL>"`
-- **THEN** DSL 通过校验后写入 `openspec/specs/architecture/models/03-payments.c4`
+- **THEN** DSL 通过校验后写入 `openspec/architecture/models/03-payments.c4`
 - **AND** 输出 `{"success": true, "path": "<full_path>"}`
 
 #### Scenario: 校验失败不写入

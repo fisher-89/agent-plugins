@@ -2,7 +2,7 @@
  * Integration tests for C4 architecture CLI modules.
  *
  * Tests module interaction scenarios based on module boundary contracts
- * defined in specs/c4-cli-integration/spec.md and specs/architecture-model/spec.md.
+ * defined in specs/c4-cli-integration/spec.md and architecture-model/spec.md.
  *
  * Module dependency graph:
  *   c4-parser (foundation) → archi-query, archi-validate, c4-cross-ref
