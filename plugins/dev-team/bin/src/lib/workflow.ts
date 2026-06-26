@@ -14,7 +14,7 @@ import { type phaseIdSchema } from '../schemas';
 // Types
 // ---------------------------------------------------------------------------
 
-export type PhaseId = z.infer<typeof phaseIdSchema>;
+type PhaseId = z.infer<typeof phaseIdSchema>;
 
 interface PhaseAgentDef {
   agent_type: string;
@@ -396,7 +396,7 @@ function getPrerequisites(phaseId: string, workflowType?: string): string[] {
  * - Returns an empty array for unknown phase IDs (fault-tolerant).
  * - Defaults to "requirement" workflow_type.
  */
-export function getDependents(phaseId: string, workflowType?: string): string[] {
+export function getDependents(phaseId: string, workflowType: string): string[] {
   const table = getPhaseTable(workflowType);
   return table
     .filter((p) => {
@@ -412,9 +412,11 @@ export function getDependents(phaseId: string, workflowType?: string): string[] 
 
 /**
  * Return the phase table for the given workflow_type.
- * Defaults to "requirement" if unknown.
  */
-export function getPhaseTable(workflowType?: string): PhaseDefinition[] {
-  const key = (workflowType || DEFAULT_WORKFLOW).toLowerCase();
-  return PHASE_TABLES[key] || PHASE_TABLES[DEFAULT_WORKFLOW];
+export function getPhaseTable(workflowType: string): PhaseDefinition[] {
+  if (Reflect.has(PHASE_TABLES, workflowType.toLowerCase())) {
+    return PHASE_TABLES[workflowType.toLowerCase()];
+  } else {
+    throw new Error('workflowType 不存在');
+  }
 }

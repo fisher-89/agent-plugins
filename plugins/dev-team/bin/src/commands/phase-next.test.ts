@@ -21,7 +21,7 @@ vi.mock('fs', async (importOriginal) => {
 
 import { runPhaseNext } from '../commands/phase-next';
 import { type EvalEntry } from '../lib/eval-json';
-import { getPhaseTable, type PhaseId } from '../lib/workflow';
+import { getPhaseTable } from '../lib/workflow';
 
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios
@@ -36,7 +36,7 @@ function nextTs(): string {
 }
 
 function passEntry(
-  phase: PhaseId,
+  phase: EvalEntry['phase'],
   attempt: number = 1,
   overrides: Partial<MockEntry> = {},
 ): MockEntry {
@@ -53,7 +53,7 @@ function passEntry(
 }
 
 function failEntry(
-  phase: PhaseId,
+  phase: EvalEntry['phase'],
   attempt: number = 1,
   overrides: Partial<MockEntry> = {},
 ): MockEntry {
@@ -70,7 +70,7 @@ function failEntry(
 }
 
 function backtrackEntry(
-  phase: PhaseId,
+  phase: EvalEntry['phase'],
   backtrack_to: string | string[],
   attempt: number = 1,
 ): MockEntry {
@@ -85,7 +85,7 @@ function backtrackEntry(
   };
 }
 
-function skippedEntry(phase: PhaseId, attempt: number = 1): MockEntry {
+function skippedEntry(phase: EvalEntry['phase'], attempt: number = 1): MockEntry {
   return {
     phase,
     verdict: 'pass',
@@ -99,7 +99,7 @@ function skippedEntry(phase: PhaseId, attempt: number = 1): MockEntry {
 }
 
 function staleEntry(
-  phase: PhaseId,
+  phase: EvalEntry['phase'],
   attempt: number = 1,
   overrides: Partial<MockEntry> = {},
 ): MockEntry {
@@ -189,12 +189,6 @@ describe('PHASE_TABLES', () => {
     const req = getPhaseTable('requirement').map((p) => p.id);
     const ref = getPhaseTable('refactor').map((p) => p.id);
     expect(ref).toEqual(req);
-  });
-
-  it('should default to requirement table for unknown workflow_type', () => {
-    const def = getPhaseTable('unknown').map((p) => p.id);
-    const req = getPhaseTable('requirement').map((p) => p.id);
-    expect(def).toEqual(req);
   });
 
   it('should have 6 phases for test-only workflow_type', () => {
@@ -337,12 +331,12 @@ describe('runPhaseNext — Normal Progression', () => {
 // ---------------------------------------------------------------------------
 
 describe('runPhaseNext — Skip Passed Phases (AC-6)', () => {
-  it('should skip to implement when 01-03 pass — 非 04-test-gen（AC-5）', () => {
+  it('should skip to implement when 01-03 pass — 非 test-gen（AC-5）', () => {
     const result = next([passEntry('proposal'), passEntry('dev-design'), passEntry('test-design')]);
     expect(result.next_phase).toBe('implement');
   });
 
-  it('should skip to 06-unit-test when phases 01-05 and 04 pass', () => {
+  it('should skip to unit-test when phases 01-05 and 04 pass', () => {
     const entries = [
       passEntry('proposal'),
       passEntry('dev-design'),
@@ -515,7 +509,7 @@ describe('runPhaseNext — Backtrack', () => {
   it('should throw invalid_backtrack_target for unknown target', () => {
     const entries = [
       passEntry('proposal'),
-      failEntry('dev-design', 1, { backtrack_to: '99-unknown' } as Partial<EvalEntry>),
+      failEntry('dev-design', 1, { backtrack_to: 'unknown' } as Partial<EvalEntry>),
     ];
     const result = next(entries);
     expect(result.error).toBe('invalid_backtrack_target');
@@ -651,7 +645,7 @@ describe('runPhaseNext — Round Limit (AC-10)', () => {
     // 20 entries = round 21, which exceeds limit
     // Actually round = entries.length + 1, so round === 20 when entries.length === 19
     const entries = [];
-    const testPhases: PhaseId[] = ['proposal', 'dev-design', 'test-design'];
+    const testPhases: EvalEntry['phase'][] = ['proposal', 'dev-design', 'test-design'];
     for (let i = 0; i < 19; i++) {
       entries.push(passEntry(testPhases[i % 3], i + 1));
     }
@@ -791,7 +785,7 @@ describe('runPhaseNext — workflow_type', () => {
     expect(phases).not.toContain('integration-test');
   });
 
-  it('should return acceptance from bug-fix after 07-code-review passes', () => {
+  it('should return acceptance from bug-fix after code-review passes', () => {
     const entries = [
       passEntry('proposal'),
       passEntry('dev-design'),
@@ -845,7 +839,7 @@ describe('runPhaseNext — test-only Normal Progression', () => {
     expect(result.next_phase).toBe('test-gen');
   });
 
-  it('should return 06-unit-test after 01-04 pass (AC-2)', () => {
+  it('should return unit-test after 01-04 pass (AC-2)', () => {
     const result = next(
       [
         passEntry('proposal'),
@@ -859,7 +853,7 @@ describe('runPhaseNext — test-only Normal Progression', () => {
     expect(result.next_phase).toBe('unit-test');
   });
 
-  it('should return 08-integration-test when 06 pass and 08 not passed (AC-2 parallel leaf)', () => {
+  it('should return integration-test when 06 pass and 08 not passed (AC-2 parallel leaf)', () => {
     const result = next(
       [
         passEntry('proposal'),
@@ -997,7 +991,7 @@ describe('Boundary Scenarios', () => {
     // by that point, we should get done=true, not round limit error.
     const entries: MockEntry[] = [];
     // Add 9 phases pass in sequence
-    const phaseIds: PhaseId[] = [
+    const phaseIds: EvalEntry['phase'][] = [
       'proposal',
       'dev-design',
       'test-design',

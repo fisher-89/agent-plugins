@@ -57,7 +57,7 @@ function handleBacktrackMarking(entries: EvalEntry[], options: PhaseLogOptions):
 
   // Mark stale for each target (handles propagation internally)
   for (const target of targets) {
-    markPhaseStale(entries, target);
+    markPhaseStale(entries, target, workflowType);
   }
   return true;
 }

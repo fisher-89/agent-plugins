@@ -322,7 +322,7 @@ function checkRetryLimit(
 interface ResolvePhaseNextOptions {
   change: string;
   entries: EvalEntry[];
-  workflowType?: string;
+  workflowType: string;
 }
 
 interface ResolvePhaseNextResult {

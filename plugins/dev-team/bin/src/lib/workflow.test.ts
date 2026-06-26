@@ -80,11 +80,11 @@ describe('getDependents', () => {
   });
 
   it('should return [] for unknown phase (fault-tolerant)', () => {
-    expect(getDependents('99-unknown')).toEqual([]);
+    expect(getDependents('99-unknown', 'requirement')).toEqual([]);
   });
 
   it('should default to requirement workflow_type', () => {
-    const deps = getDependents('dev-design');
+    const deps = getDependents('dev-design', 'requirement');
     expect(deps).toEqual(['test-design', 'implement', 'acceptance']);
   });
 
@@ -185,7 +185,7 @@ describe('getDependents — test-only extended', () => {
 // getPrerequisites — test-only (derived from getDependents inverse)
 // ---------------------------------------------------------------------------
 
-function inferPrerequisites(phaseId: string, workflowType?: string): string[] {
+function inferPrerequisites(phaseId: string, workflowType: string): string[] {
   const table = getPhaseTable(workflowType);
   return table.map((p) => p.id).filter((id) => getDependents(id, workflowType).includes(phaseId));
 }

@@ -116,7 +116,7 @@ export function computeAttempt(
  *
  * Dependent phases with no entries in the array are silently skipped.
  */
-function propagateStale(entries: EvalEntry[], phaseId: string, workflowType?: string): void {
+function propagateStale(entries: EvalEntry[], phaseId: string, workflowType: string): void {
   const visited = new Set<string>();
 
   function propagate(pid: string): void {
@@ -149,7 +149,7 @@ function propagateStale(entries: EvalEntry[], phaseId: string, workflowType?: st
  *
  * If no pass entry exists, the function is a no-op (no propagation occurs).
  */
-export function markPhaseStale(entries: EvalEntry[], phaseId: string): void {
+export function markPhaseStale(entries: EvalEntry[], phaseId: string, workflowType: string): void {
   const phaseEntries = entries
     .filter((e) => e.phase === phaseId)
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
@@ -171,7 +171,7 @@ export function markPhaseStale(entries: EvalEntry[], phaseId: string): void {
   }
 
   // Immediately propagate downstream
-  propagateStale(entries, phaseId);
+  propagateStale(entries, phaseId, workflowType);
 }
 
 /**

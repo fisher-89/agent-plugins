@@ -7,7 +7,6 @@ import {
   type BuildEntryParams,
   type EvalEntry,
 } from './eval-json';
-import { type PhaseId } from './workflow';
 
 describe('validateVerdict', () => {
   it("should accept 'pass'", () => {
@@ -96,7 +95,7 @@ describe('buildEntry', () => {
 // markPhaseStale — AC-8, AC-14
 // ---------------------------------------------------------------------------
 
-function makePassEntry(phase: PhaseId, attempt: number = 1, ts?: string): EvalEntry {
+function makePassEntry(phase: EvalEntry['phase'], attempt: number = 1, ts?: string): EvalEntry {
   return {
     phase,
     verdict: 'pass',
@@ -108,7 +107,7 @@ function makePassEntry(phase: PhaseId, attempt: number = 1, ts?: string): EvalEn
   };
 }
 
-function makeFailEntry(phase: PhaseId, attempt: number = 1): EvalEntry {
+function makeFailEntry(phase: EvalEntry['phase'], attempt: number = 1): EvalEntry {
   return {
     phase,
     verdict: 'fail',
@@ -129,7 +128,7 @@ describe('markPhaseStale', () => {
       makePassEntry('test-gen', 1),
       makePassEntry('implement', 1),
     ];
-    markPhaseStale(entries, 'dev-design');
+    markPhaseStale(entries, 'dev-design', 'requirement');
 
     // 02 should be stale
     const e2 = entries.find((e) => e.phase === 'dev-design')!;
@@ -151,7 +150,7 @@ describe('markPhaseStale', () => {
       makePassEntry('dev-design', 1, '2026-01-01T00:00:00.000Z'),
       makePassEntry('dev-design', 2, '2026-01-02T00:00:00.000Z'),
     ];
-    markPhaseStale(entries, 'dev-design');
+    markPhaseStale(entries, 'dev-design', 'requirement');
 
     const attempt2 = entries.find((e) => e.phase === 'dev-design' && e.attempt === 2)!;
     expect(attempt2.stale).toBe(true);
@@ -159,13 +158,13 @@ describe('markPhaseStale', () => {
 
   it('should be no-op when no pass entry exists', () => {
     const entries = [makeFailEntry('dev-design', 1)];
-    expect(() => markPhaseStale(entries, 'dev-design')).not.toThrow();
+    expect(() => markPhaseStale(entries, 'dev-design', 'requirement')).not.toThrow();
     expect(entries[0].stale).toBeUndefined();
   });
 
   it('should propagate to full transitive closure (AC-14)', () => {
     const entries = [];
-    const phases: PhaseId[] = [
+    const phases: EvalEntry['phase'][] = [
       'proposal',
       'dev-design',
       'test-design',
@@ -179,7 +178,7 @@ describe('markPhaseStale', () => {
     for (const phase of phases) {
       entries.push(makePassEntry(phase, 1));
     }
-    markPhaseStale(entries, 'dev-design');
+    markPhaseStale(entries, 'dev-design', 'requirement');
 
     // 02 stale
     expect(entries.find((e) => e.phase === 'dev-design')!.stale).toBe(true);
@@ -204,7 +203,7 @@ describe('markPhaseStale', () => {
   it('should not mark same-phase new entry as stale', () => {
     // This simulates: old entry marked stale, new entry written after markPhaseStale
     const entries = [makePassEntry('dev-design', 1)];
-    markPhaseStale(entries, 'dev-design');
+    markPhaseStale(entries, 'dev-design', 'requirement');
     // Old entry stale
     expect(entries[0].stale).toBe(true);
 
@@ -222,7 +221,7 @@ describe('markPhaseStale', () => {
       makePassEntry('test-gen', 1),
       makePassEntry('implement', 1),
     ];
-    markPhaseStale(entries, 'implement');
+    markPhaseStale(entries, 'implement', 'requirement');
 
     expect(entries.find((e) => e.phase === 'implement')!.stale).toBe(true);
     expect(entries.find((e) => e.phase === 'test-gen')!.stale).toBe(true);
@@ -231,7 +230,7 @@ describe('markPhaseStale', () => {
 
   it('should propagate from implement to unit-test/code-review/integration-test/acceptance（AC-8）', () => {
     const entries = [];
-    const phases: PhaseId[] = [
+    const phases: EvalEntry['phase'][] = [
       'proposal',
       'dev-design',
       'test-design',
@@ -245,7 +244,7 @@ describe('markPhaseStale', () => {
     for (const phase of phases) {
       entries.push(makePassEntry(phase, 1));
     }
-    markPhaseStale(entries, 'implement');
+    markPhaseStale(entries, 'implement', 'requirement');
 
     for (const phase of [
       'implement',
@@ -269,7 +268,7 @@ describe('markPhaseStale', () => {
       makePassEntry('implement', 1),
       makePassEntry('unit-test', 1),
     ];
-    markPhaseStale(entries, 'test-design');
+    markPhaseStale(entries, 'test-design', 'requirement');
 
     for (const phase of ['test-design', 'test-gen', 'unit-test']) {
       expect(entries.find((e) => e.phase === phase)!.stale).toBe(true);
@@ -284,7 +283,7 @@ describe('markPhaseStale', () => {
       makePassEntry('test-gen', 1),
       makePassEntry('implement', 1),
     ];
-    markPhaseStale(entries, 'test-design');
+    markPhaseStale(entries, 'test-design', 'requirement');
 
     expect(entries.find((e) => e.phase === 'implement')!.stale).toBeUndefined();
     expect(entries.find((e) => e.phase === 'test-gen')!.stale).toBe(true);
