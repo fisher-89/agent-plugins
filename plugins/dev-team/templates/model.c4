@@ -1,30 +1,48 @@
 specification {
-  element package
-  element domain
-  element module
-  element component
+  element outer {
+    description '[系统外实体（例：用户、其他服务）]'
+    style {
+      color muted
+      size small
+    }
+  }
+  element project {
+    description '[系统工程根目录]'
+    style {
+      shape browser
+    }
+  }
+  element package {
+    description '[包（可独立构建）]'
+  }
+  element module {
+    description '[模块/组件]'
+  }
+
+  relationship dependency { // 依赖
+    line solid
+  }
+}
+model {
+  ROOT = project {
+    link ../../
+    // 此处拆分packages 或 module, 代码量较大时使用多个文件
+    cli = package 'cli' '命令行终端' {
+      link ../../packages/cli // 模块路径
+    }
+  }
+  USER = outer {
+    -> ROOT 'use'
+  }
 }
 
-model {
-  package ExamplePackage {
-    metadata { path ['./src/'] }
+views {
+  view all of ROOT {
+    title 'all'
+    include *, ROOT.**
   }
-
-  extend ExamplePackage {
-    domain ExampleDomain {
-      metadata { path ['./src/example/'] }
-    }
+  view top {
+    title 'top-only'
+    include ROOT.*
   }
-
-  extend ExamplePackage.ExampleDomain {
-    module ExampleModule {
-      metadata { path ['./src/example/module/'] }
-    }
-
-    component ExampleComponent {
-      metadata { path ['./src/example/module/component.ts'] }
-    }
-  }
-
-  ExamplePackage.ExampleDomain.ExampleComponent -> ExamplePackage.ExampleDomain.ExampleModule 'depends on'
 }
