@@ -144,7 +144,7 @@ model {
   it('should detect duplicate specification blocks across multiple files', async () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c4-test-dup-'));
     try {
-      const modelsDir = path.join(tmpDir, 'openspec', 'specs', 'architecture', 'models');
+      const modelsDir = path.join(tmpDir, 'openspec', 'architecture', 'models');
       fs.mkdirSync(modelsDir, { recursive: true });
       fs.writeFileSync(path.join(modelsDir, '01-a.c4'), 'specification { element package }');
       fs.writeFileSync(path.join(modelsDir, '02-b.c4'), 'specification { element domain }');
@@ -167,7 +167,7 @@ describe('readAllModels', () => {
   it('should concatenate content from all model files', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c4-test-ram-'));
     try {
-      const modelsDir = path.join(tmpDir, 'openspec', 'specs', 'architecture', 'models');
+      const modelsDir = path.join(tmpDir, 'openspec', 'architecture', 'models');
       fs.mkdirSync(modelsDir, { recursive: true });
       fs.writeFileSync(path.join(modelsDir, '01-a.c4'), 'specification { element package }');
       fs.writeFileSync(path.join(modelsDir, '02-b.c4'), 'package B { }');
@@ -200,7 +200,7 @@ describe('findSpecificationBlock', () => {
   it('should find and return the specification block', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c4-test-fsb-'));
     try {
-      const modelsDir = path.join(tmpDir, 'openspec', 'specs', 'architecture', 'models');
+      const modelsDir = path.join(tmpDir, 'openspec', 'architecture', 'models');
       fs.mkdirSync(modelsDir, { recursive: true });
       fs.writeFileSync(
         path.join(modelsDir, '01-core.c4'),
@@ -219,7 +219,7 @@ describe('findSpecificationBlock', () => {
   it('should return null when no specification block exists', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'c4-test-fsb-null-'));
     try {
-      const modelsDir = path.join(tmpDir, 'openspec', 'specs', 'architecture', 'models');
+      const modelsDir = path.join(tmpDir, 'openspec', 'architecture', 'models');
       fs.mkdirSync(modelsDir, { recursive: true });
       fs.writeFileSync(path.join(modelsDir, '01-core.c4'), 'package P { }');
 

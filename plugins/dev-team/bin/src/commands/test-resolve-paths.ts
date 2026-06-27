@@ -1,6 +1,9 @@
+import { execSync } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 
 import { getProjectDir } from '../utils';
+import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -23,7 +26,7 @@ interface ResolveError {
 
 interface ResolveTestPathsParams {
   projectRoot: string;
-  modules: string[];
+  modules: string[] | 'git-change';
   integrationScenarios?: string[];
   extension?: string;
   integrationRoot?: string;
@@ -36,7 +39,7 @@ export interface ResolveTestPathsResult {
 }
 
 export interface TestResolvePathsInput {
-  modules: string[];
+  modules: string[] | 'git-change';
   integration_scenarios?: string[];
   extension?: string;
   integration_root?: string;
@@ -195,6 +198,52 @@ function inferExtension(sourceFiles: string[], explicitExtension?: string): stri
 }
 
 // ---------------------------------------------------------------------------
+// collectFiles — recursive file discovery (local implementation, per D5)
+// ---------------------------------------------------------------------------
+
+/** Recursively collect all file paths under a root directory, excluding
+ * common non-source directories (node_modules, .git, .claude, dist, build,
+ * target, .vp, coverage, .nyc_output). */
+function collectFiles(rootDir: string): string[] {
+  const results: string[] = [];
+  const excludedDirs = new Set([
+    'node_modules',
+    '.git',
+    '.claude',
+    'dist',
+    'build',
+    'target',
+    '.vp',
+    'coverage',
+    '.nyc_output',
+  ]);
+
+  function walk(dir: string): void {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(dir, { withFileTypes: true });
+    } catch {
+      return;
+    }
+
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+
+      if (entry.isDirectory()) {
+        if (!excludedDirs.has(entry.name)) {
+          walk(fullPath);
+        }
+      } else if (entry.isFile()) {
+        results.push(fullPath);
+      }
+    }
+  }
+
+  walk(rootDir);
+  return results;
+}
+
+// ---------------------------------------------------------------------------
 // Core resolver
 // ---------------------------------------------------------------------------
 
@@ -239,6 +288,12 @@ function resolveIntegrationTests(
 
 /**
  * Resolve unit and integration test paths from a module list.
+ *
+ * Three modes:
+ * 1. modules === "git-change" → run git diff HEAD --name-only to discover files
+ * 2. modules is non-empty array → filter through test config via runTestDetectFrameworks
+ * 3. modules is empty array → config-driven directory scan via runTestDetectFrameworks plan
+ *
  * Errors are collected per module; processing continues for remaining entries.
  */
 function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResult {
@@ -247,28 +302,120 @@ function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResul
   const errors: ResolveError[] = [];
   const collectedSources: string[] = [];
 
-  for (const moduleEntry of params.modules) {
-    const posix = moduleEntry.replace(/\\/g, '/');
+  // -----------------------------------------------------------------------
+  // Step 1: Determine effective modules
+  // -----------------------------------------------------------------------
+  let effectiveModules: string[];
 
-    if (!isWithinProjectRoot(projectRoot, moduleEntry)) {
-      errors.push({ path: posix, message: 'Path is outside project root' });
-      continue;
+  if (params.modules === 'git-change') {
+    try {
+      const stdout = execSync('git diff HEAD --name-only', {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: 10000,
+      });
+      effectiveModules = stdout
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      // No changed files — return empty result without scanning
+      if (effectiveModules.length === 0) {
+        return { unit_tests: [], integration_tests: [], errors };
+      }
+    } catch (e: unknown) {
+      const msg =
+        (e as { stderr?: { toString(): string } }).stderr?.toString()?.trim() ||
+        (e as Error).message ||
+        'git diff HEAD --name-only failed';
+      errors.push({ path: 'git', message: msg });
+      return { unit_tests: [], integration_tests: [], errors };
     }
-
-    if (isTestFile(posix)) {
-      errors.push({ path: posix, message: 'Path is already a test file' });
-      continue;
-    }
-
-    if (!isSourceFile(posix)) {
-      errors.push({ path: posix, message: 'Not a testable source file' });
-      continue;
-    }
-
-    collectedSources.push(posix);
-    addUnitTest(unitTestMap, posix);
+  } else {
+    // Already a string[] (could be empty)
+    effectiveModules = params.modules;
   }
 
+  // -----------------------------------------------------------------------
+  // Step 2: Process by mode
+  // -----------------------------------------------------------------------
+  if (effectiveModules.length > 0) {
+    // ---- Mode A / C: Non-empty modules — filter through test config ----
+    const detectedResult = runTestDetectFrameworks({
+      files: effectiveModules,
+      projectRoot,
+    });
+
+    // Build set of detected absolute paths for O(1) lookup
+    const detectedSet = new Set(detectedResult.detected.map((d) => d.file));
+
+    for (const moduleEntry of effectiveModules) {
+      const posix = moduleEntry.replace(/\\/g, '/');
+
+      if (!isWithinProjectRoot(projectRoot, moduleEntry)) {
+        errors.push({ path: posix, message: 'Path is outside project root' });
+        continue;
+      }
+
+      const absPath = path.isAbsolute(moduleEntry)
+        ? path.resolve(moduleEntry)
+        : path.resolve(projectRoot, moduleEntry);
+
+      if (!detectedSet.has(absPath)) {
+        errors.push({ path: posix, message: 'Not in test config scope' });
+        continue;
+      }
+
+      if (isTestFile(posix)) {
+        errors.push({ path: posix, message: 'Path is already a test file' });
+        continue;
+      }
+
+      if (!isSourceFile(posix)) {
+        errors.push({ path: posix, message: 'Not a testable source file' });
+        continue;
+      }
+
+      collectedSources.push(posix);
+      addUnitTest(unitTestMap, posix);
+    }
+  } else {
+    // ---- Mode B: Empty modules — config-driven directory scan ----
+    const detectedResult = runTestDetectFrameworks({ projectRoot });
+    const plan = detectedResult.plan;
+
+    if (plan.length === 0) {
+      errors.push({
+        path: 'config',
+        message:
+          "No test configuration found. Please configure 'test.framework' or 'test.overrides' in openspec/config.json",
+      });
+    } else {
+      // Extract unique directories from the execution plan
+      const directories = [...new Set(plan.map((p) => p.directory))] as string[];
+      const sourceFiles = new Set<string>();
+
+      for (const dir of directories) {
+        const absDir = path.resolve(projectRoot, dir);
+        const allFiles = collectFiles(absDir);
+        for (const file of allFiles) {
+          const relPath = path.relative(projectRoot, file);
+          const posix = relPath.replace(/\\/g, '/');
+          if (isSourceFile(posix)) {
+            sourceFiles.add(posix);
+          }
+        }
+      }
+
+      for (const sourceFile of sourceFiles) {
+        addUnitTest(unitTestMap, sourceFile);
+        collectedSources.push(sourceFile);
+      }
+    }
+  }
+
+  // -----------------------------------------------------------------------
+  // Step 3: Build and return result
+  // -----------------------------------------------------------------------
   const unit_tests = Array.from(unitTestMap.values()).sort((a, b) =>
     a.source.localeCompare(b.source),
   );

@@ -1,0 +1,81 @@
+{
+  "phase": "integration-test",
+  "command": "npx vp test --reporter=verbose __tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts __tests__/no-test-config/no-test-config.test.ts __tests__/config-driven-filter/config-driven-filter.test.ts __tests__/git-change/git-change.test.ts __tests__/dedup/dedup.test.ts 2>&1",
+  "timestamp": "2026-06-26T11:01:19.000Z",
+  "total": 11,
+  "passed": 11,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 2280,
+  "failures": [],
+  "test_cases": [
+    {
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 > modules: [] 且 config.json 含 test.overrides 时，unit_tests 包含 src/ 下源文件的推导结果 (AC-1)",
+      "file": "__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+      "duration_ms": 22,
+      "status": "passed"
+    },
+    {
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 > modules: [] 时 runTestDetectFrameworks 被真实调用且 plan[].directory 被用作扫描根目录 (AC-1)",
+      "file": "__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+      "duration_ms": 15,
+      "status": "passed"
+    },
+    {
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 > modules: [] 且计划目录下含非源文件（.md, .json）时应被过滤，不进入 unit_tests",
+      "file": "__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+      "duration_ms": 12,
+      "status": "passed"
+    },
+    {
+      "name": "无 test 配置 — modules: [] 时 errors 包含指导性消息 > config.json 仅有 schema 字段时，errors 应包含配置提示且 unit_tests 为空 (AC-2)",
+      "file": "__tests__/no-test-config/no-test-config.test.ts",
+      "duration_ms": 10,
+      "status": "passed"
+    },
+    {
+      "name": "无 test 配置 — modules: [] 时 errors 包含指导性消息 > config.json 存在但 test.overrides 为空数组时 errors 应包含配置提示",
+      "file": "__tests__/no-test-config/no-test-config.test.ts",
+      "duration_ms": 5,
+      "status": "passed"
+    },
+    {
+      "name": "config-driven 过滤 — 非空 modules 经 test_detect_frameworks 过滤后推导 > modules: [\"src/commands/test-resolve-paths.ts\", \"node_modules/some-dep/index.ts\"] 时仅前者进入 unit_tests (AC-3)",
+      "file": "__tests__/config-driven-filter/config-driven-filter.test.ts",
+      "duration_ms": 17,
+      "status": "passed"
+    },
+    {
+      "name": "git-change 模式 — git diff 变更文件推导 > 在工作树中有未暂存变更时调用 modules: \"git-change\"，unit_tests 包含变更文件的推导结果 (AC-5)",
+      "file": "__tests__/git-change/git-change.test.ts",
+      "duration_ms": 745,
+      "status": "passed"
+    },
+    {
+      "name": "git-change 模式 — git diff 变更文件推导 > 干净的工作树中调用 modules: \"git-change\"，unit_tests 为空 (AC-5)",
+      "file": "__tests__/git-change/git-change.test.ts",
+      "duration_ms": 697,
+      "status": "passed"
+    },
+    {
+      "name": "git-change 模式 — git diff 变更文件推导 > 非 git 目录中调用 modules: \"git-change\"，errors 包含 git 错误 (AC-5)",
+      "file": "__tests__/git-change/git-change.test.ts",
+      "duration_ms": 67,
+      "status": "passed"
+    },
+    {
+      "name": "跨目录/跨 source 的扫描结果去重 > 当 test.overrides 中多个条目指向同一目录时，unit_tests 不包含重复条目 (AC-6)",
+      "file": "__tests__/dedup/dedup.test.ts",
+      "duration_ms": 12,
+      "status": "passed"
+    },
+    {
+      "name": "跨目录/跨 source 的扫描结果去重 > config-driven 扫描的目录下文件重复出现同一条目时 unit_tests 应去重",
+      "file": "__tests__/dedup/dedup.test.ts",
+      "duration_ms": 7,
+      "status": "passed"
+    }
+  ],
+  "findings": "All 11 integration tests passed across 5 test files covering AC-1 (config-driven auto-scan), AC-2 (no-test-config), AC-3 (config-driven filter), AC-5 (git-change mode), and AC-6 (dedup). No failures detected."
+}

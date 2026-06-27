@@ -3,18 +3,44 @@
  * file paths from module lists (files or directories).
  *
  * Covers AC-1~AC-9 from openspec/changes/add-test-path-resolver-api/test-design.md
+ * AND AC-1~AC-6 from openspec/changes/test-resolve-paths-config-dirs/test-design.md
  *
+ * @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
  * @see openspec/changes/add-test-path-resolver-api/test-design.md
  * @see openspec/changes/add-test-path-resolver-api/specs/test-path-resolver/spec.md
  */
 
+import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, it, expect, vi } from 'vite-plus/test';
 
+import { runTestDetectFrameworks } from './test-detect-frameworks';
 import { runTestResolvePaths } from './test-resolve-paths';
+
+// ---------------------------------------------------------------------------
+// Mocks: wrap runTestDetectFrameworks + execSync in vi.fn() so new tests can
+// override return values without breaking existing tests (pass-through by
+// default).  vi.mock is hoisted by vitest and runs before module evaluation.
+// ---------------------------------------------------------------------------
+
+vi.mock('./test-detect-frameworks', async () => {
+  const actual = await vi.importActual('./test-detect-frameworks');
+  return {
+    ...actual,
+    runTestDetectFrameworks: vi.fn(actual.runTestDetectFrameworks),
+  };
+});
+
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  return {
+    ...actual,
+    execSync: vi.fn(actual.execSync),
+  };
+});
 
 // ---------------------------------------------------------------------------
 // Helpers: create temp project directories with source files
@@ -682,6 +708,489 @@ describe('runTestResolvePaths -- integration_root snake_case 映射', () => {
         scenario: 'api-flow',
         test_file: '__tests__/api-flow/api-flow.test.ts',
       });
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths -- config-driven 自动扫描 (AC-1, AC-2)
+// @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+// ===========================================================================
+
+describe('runTestResolvePaths -- config-driven 自动扫描', () => {
+  beforeEach(() => {
+    vi.mocked(runTestDetectFrameworks).mockReset();
+    vi.mocked(execSync).mockReset();
+  });
+
+  it('modules: [] 且 test.overrides 配置有效时，unit_tests 包含扫描到的源文件推导结果 (AC-1)', () => {
+    const project = createTempProject();
+    try {
+      // Mock auto-scan → return plan with src/ directory
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        if (opts.files === undefined) {
+          return {
+            detected: [],
+            frameworks: ['vite-plus'],
+            plan: [
+              {
+                directory: 'src',
+                framework: 'vite-plus' as const,
+                coverage_cmd: 'vp test --coverage --coverage.reporter=json-summary',
+                coverage_format: 'istanbul' as const,
+                coverage_output: 'coverage/coverage-summary.json',
+                coverage_artifacts: ['coverage/coverage-summary.json'],
+                coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
+                script:
+                  '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nrm -rf .nyc_output\nrm -rf test-stderr.txt\nvp test --coverage --coverage.reporter=json-summary\n',
+              },
+            ],
+          };
+        }
+        return { detected: [], frameworks: [], plan: [] };
+      });
+
+      writeFile(project.root, 'src/foo.ts', '');
+      writeFile(project.root, 'src/bar.ts', '');
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: [],
+      });
+
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/foo.ts',
+        test_file: 'src/foo.test.ts',
+      });
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/bar.ts',
+        test_file: 'src/bar.test.ts',
+      });
+      expect(result.errors).toHaveLength(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: [] 时 runTestDetectFrameworks 被调用（通过 spy 验证）(AC-1)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(runTestDetectFrameworks).mockReturnValue({
+        detected: [],
+        frameworks: [],
+        plan: [],
+      });
+
+      runTestResolvePaths({
+        project_root: project.root,
+        modules: [],
+      });
+
+      expect(runTestDetectFrameworks).toHaveBeenCalledWith(
+        expect.objectContaining({ projectRoot: project.root }),
+      );
+      // files 参数应被省略（触发 auto-scan）
+      expect(runTestDetectFrameworks).toHaveBeenCalledWith(
+        expect.not.objectContaining({ files: expect.anything() }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: [] 且 plan 为空时 errors 包含 "No test configuration" 提示，unit_tests 为空 (AC-2)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(runTestDetectFrameworks).mockReturnValue({
+        detected: [],
+        frameworks: [],
+        plan: [],
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: [],
+      });
+
+      expect(result.errors.some((e) => e.path === 'config')).toBe(true);
+      expect(result.errors[0].message).toContain('No test configuration');
+      expect(result.unit_tests).toEqual([]);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths -- config-driven 过滤 (AC-3)
+// @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+// ===========================================================================
+
+describe('runTestResolvePaths -- config-driven 过滤', () => {
+  beforeEach(() => {
+    vi.mocked(runTestDetectFrameworks).mockReset();
+  });
+
+  it('modules: ["src/config.ts"] 在 test config 覆盖范围内时正常返回 unit_tests (AC-3)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const absFiles = opts.files!.map((f) =>
+          path.isAbsolute(f) ? path.resolve(f) : path.resolve(opts.projectRoot!, f),
+        );
+        return {
+          detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
+          frameworks: ['vitest'],
+          plan: [],
+        };
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: ['src/config.ts'],
+      });
+
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/config.ts',
+        test_file: 'src/config.test.ts',
+      });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: ["scripts/not-covered.ts"] 不在 test config 范围内时该文件不出现在 unit_tests 中，errors 包含跳过的提示 (AC-3)', () => {
+    const project = createTempProject();
+    try {
+      // 模拟仅 "src/" 范围内的文件被 detected
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const detected = opts
+          .files!.map((f) => ({
+            file: path.isAbsolute(f) ? path.resolve(f) : path.resolve(opts.projectRoot!, f),
+            f,
+          }))
+          .filter(({ f }) => {
+            const rel = f.replace(/\\/g, '/');
+            return rel.startsWith('src/');
+          })
+          .map(({ file }) => ({ file, framework: 'vitest' as const }));
+        return { detected, frameworks: ['vitest'], plan: [] };
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: ['scripts/not-covered.ts'],
+      });
+
+      expect(result.unit_tests).toEqual([]);
+      expect(result.errors.some((e) => e.path === 'scripts/not-covered.ts')).toBe(true);
+      expect(result.errors.some((e) => e.message === 'Not in test config scope')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules 混合范围内外文件，仅范围内的文件进入 unit_tests (AC-3)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const detected = opts
+          .files!.map((f) => ({
+            file: path.isAbsolute(f) ? path.resolve(f) : path.resolve(opts.projectRoot!, f),
+            f,
+          }))
+          .filter(({ f }) => {
+            const rel = f.replace(/\\/g, '/');
+            return rel.startsWith('src/');
+          })
+          .map(({ file }) => ({ file, framework: 'vitest' as const }));
+        return { detected, frameworks: ['vitest'], plan: [] };
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: ['src/in.ts', 'out/not-covered.ts'],
+      });
+
+      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests[0].source).toBe('src/in.ts');
+      expect(result.errors.some((e) => e.path === 'out/not-covered.ts')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths -- git-change 模式 (AC-5)
+// @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+// ===========================================================================
+
+describe('runTestResolvePaths -- git-change 模式', () => {
+  beforeEach(() => {
+    vi.mocked(execSync).mockReset();
+    vi.mocked(runTestDetectFrameworks).mockReset();
+  });
+
+  it('modules: "git-change" 且 git diff 返回变更文件时，返回对应 unit_tests (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(execSync).mockReturnValue('src/foo.ts\nsrc/bar.ts\n');
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const detected = opts.files!.map((f) => ({
+          file: path.resolve(opts.projectRoot!, f),
+          framework: 'vitest' as const,
+        }));
+        return { detected, frameworks: ['vitest'], plan: [] };
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'git-change',
+      });
+
+      expect(execSync).toHaveBeenCalledWith(
+        'git diff HEAD --name-only',
+        expect.objectContaining({ cwd: project.root }),
+      );
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/foo.ts',
+        test_file: 'src/foo.test.ts',
+      });
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/bar.ts',
+        test_file: 'src/bar.test.ts',
+      });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: "git-change" 且 git 命令失败时（非 git 仓库），errors 包含错误消息 (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(execSync).mockImplementation(() => {
+        throw new Error('Not a git repository');
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'git-change',
+      });
+
+      expect(result.errors.some((e) => e.path === 'git')).toBe(true);
+      expect(result.unit_tests).toEqual([]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: "git-change" 返回的变更文件均不在 test config 范围内时 unit_tests 为空 (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(execSync).mockReturnValue('outside/foo.ts\n');
+      vi.mocked(runTestDetectFrameworks).mockReturnValue({
+        detected: [],
+        frameworks: [],
+        plan: [],
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'git-change',
+      });
+
+      expect(result.unit_tests).toEqual([]);
+      expect(result.errors.some((e) => e.message === 'Not in test config scope')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: "git-change" 且 git diff 返回空（无变更）时 unit_tests 为空 (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(execSync).mockReturnValue('');
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'git-change',
+      });
+
+      expect(result.unit_tests).toEqual([]);
+      expect(result.errors).toHaveLength(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: "git-change" 且 git diff 返回大量文件（100+）时不应抛错 (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      const files = Array.from({ length: 150 }, (_, i) => `src/file${i}.ts`);
+      vi.mocked(execSync).mockReturnValue(files.join('\n') + '\n');
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const detected = opts.files!.map((f) => ({
+          file: path.resolve(opts.projectRoot!, f),
+          framework: 'vitest' as const,
+        }));
+        return { detected, frameworks: ['vitest'], plan: [] };
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'git-change',
+      });
+
+      expect(result.unit_tests).toHaveLength(150);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths -- 去重 (AC-6)
+// @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+// ===========================================================================
+
+describe('runTestResolvePaths -- 去重', () => {
+  beforeEach(() => {
+    vi.mocked(runTestDetectFrameworks).mockReset();
+  });
+
+  it('多个 override 指向同一目录时扫描结果去重 (AC-6)', () => {
+    const project = createTempProject();
+    try {
+      // 模拟两个 override 都指向 src/ 目录 → plan 有两个相同 directory
+      vi.mocked(runTestDetectFrameworks).mockReturnValue({
+        detected: [],
+        frameworks: ['vitest', 'jest'],
+        plan: [
+          {
+            directory: 'src',
+            framework: 'vitest' as const,
+            coverage_cmd: 'npx vitest run --coverage',
+            coverage_format: 'istanbul' as const,
+            coverage_output: 'coverage/coverage-summary.json',
+            coverage_artifacts: ['coverage/coverage-summary.json'],
+            coverage_cleanup: ['coverage', '.nyc_output'],
+            script: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx vitest run --coverage\n',
+          },
+          {
+            directory: 'src',
+            framework: 'jest' as const,
+            coverage_cmd: 'npx jest --coverage',
+            coverage_format: 'istanbul' as const,
+            coverage_output: 'coverage/coverage-summary.json',
+            coverage_artifacts: ['coverage/coverage-summary.json'],
+            coverage_cleanup: ['coverage', '.nyc_output'],
+            script: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx jest --coverage\n',
+          },
+        ],
+      });
+
+      writeFile(project.root, 'src/foo.ts', '');
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: [],
+      });
+
+      // 尽管两个 override 都指向 src/，但 src/foo.ts 只出现一次
+      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests[0].source).toBe('src/foo.ts');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules 包含重复文件路径时 unit_tests 去重 (AC-6)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const detected = opts.files!.map((f) => ({
+          file: path.resolve(opts.projectRoot!, f),
+          framework: 'vitest' as const,
+        }));
+        return { detected, frameworks: ['vitest'], plan: [] };
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: ['src/a.ts', 'src/a.ts', 'src/a.ts'],
+      });
+
+      const sources = result.unit_tests.map((e) => e.source);
+      expect(new Set(sources).size).toBe(sources.length);
+      expect(result.unit_tests).toHaveLength(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('config-driven 扫描与 modules 显式传入产生重叠时去重 (AC-6)', () => {
+    const project = createTempProject();
+    try {
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        if (opts.files === undefined) {
+          // auto-scan mode — plan for src/ directory
+          return {
+            detected: [],
+            frameworks: ['vitest'],
+            plan: [
+              {
+                directory: 'src',
+                framework: 'vitest' as const,
+                coverage_cmd: 'vp test',
+                coverage_format: 'istanbul' as const,
+                coverage_output: 'coverage/coverage-summary.json',
+                coverage_artifacts: ['coverage/coverage-summary.json'],
+                coverage_cleanup: ['coverage'],
+                script: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nvp test\n',
+              },
+            ],
+          };
+        }
+        return { detected: [], frameworks: [], plan: [] };
+      });
+
+      // 既有 src/ 目录下的文件，又显式传入 src/shared.ts
+      writeFile(project.root, 'src/shared.ts', '');
+      writeFile(project.root, 'src/unique.ts', '');
+
+      // 先用 empty modules 做一次扫描 (config-driven)
+      const first = runTestResolvePaths({
+        project_root: project.root,
+        modules: [],
+      });
+
+      // 再换 mock 为显式传入模式
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        if (opts.files && opts.files.length > 0) {
+          const detected = opts.files.map((f) => ({
+            file: path.resolve(opts.projectRoot!, f),
+            framework: 'vitest' as const,
+          }));
+          return { detected, frameworks: ['vitest'], plan: [] };
+        }
+        return { detected: [], frameworks: [], plan: [] };
+      });
+
+      // 模拟第二次调用时传入的 modules 包含 src/shared.ts（与扫描重叠）
+      const second = runTestResolvePaths({
+        project_root: project.root,
+        modules: ['src/shared.ts'],
+      });
+
+      // config-driven 扫描结果包含 src/shared.ts
+      expect(first.unit_tests.some((e) => e.source === 'src/shared.ts')).toBe(true);
+
+      // 各自调用去重逻辑正常
+      expect(first.unit_tests).toHaveLength(2);
+      expect(second.unit_tests).toHaveLength(1);
     } finally {
       project.cleanup();
     }

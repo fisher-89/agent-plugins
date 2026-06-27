@@ -72,18 +72,18 @@ export function validateReportLength(report: string): void {
 export function buildEntry(params: BuildEntryParams): EvalEntry {
   const entry: EvalEntry = {
     phase: params.phase,
-    timestamp: new Date().toISOString(),
     attempt: params.attempt,
     verdict: params.verdict,
     report: params.report,
     checklist: params.checklist,
     backtrack_to: params.backtrack_to !== undefined ? params.backtrack_to : null,
+    timestamp: new Date().toISOString(),
   };
   // Extended fields: only include when explicitly set
   if (params.skipped !== undefined) {
     entry.skipped = params.skipped;
   }
-  return entry;
+  return phaseLogSchema.parse(entry);
 }
 
 /**

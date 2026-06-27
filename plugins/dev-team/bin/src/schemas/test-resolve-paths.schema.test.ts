@@ -2,11 +2,12 @@
  * 测试 testResolvePathsInputSchema / testResolvePathsOutputSchema -- Zod 契约验证。
  *
  * 覆盖范围:
- * - AC-10: modules 空数组被 input schema 拒绝
+ * - AC-1: modules: [] 空数组通过 schema（原 .min(1) 拒绝 → 现 union 类型允许）
+ * - AC-4: modules 非法类型（数字/布尔/对象）被拒绝
  * - AC-11: input/output schema 与 MCP 注册一致
  *
+ * @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
  * @see openspec/changes/add-test-path-resolver-api/test-design.md
- * @see openspec/changes/add-test-path-resolver-api/specs/test-path-resolver/spec.md
  */
 
 import { describe, it, expect } from 'vite-plus/test';
@@ -60,30 +61,68 @@ describe('testResolvePathsInputSchema -- 正向', () => {
 });
 
 // ===========================================================================
+// testResolvePathsInputSchema -- union 类型 (AC-1, AC-3, AC-4)
+// @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+// ===========================================================================
+
+describe('testResolvePathsInputSchema -- union 类型', () => {
+  it('modules: [] 空数组应通过 schema 验证（原 .min(1) 拒绝 → 现允许）(AC-1)', () => {
+    const input = { modules: [] };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it('modules: "git-change" 字符串字面量应通过验证 (AC-1)', () => {
+    const input = { modules: 'git-change' };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it('modules: ["src/a.ts"] 常规数组仍应通过验证（向后兼容）(AC-3)', () => {
+    const input = { modules: ['src/a.ts'] };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+});
+
+// ===========================================================================
+// testResolvePathsInputSchema -- 边界
+// @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+// ===========================================================================
+
+describe('testResolvePathsInputSchema -- 边界', () => {
+  it('modules: [""] 空字符串数组应通过 schema（路径校验在 command 层）', () => {
+    const input = { modules: [''] };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it('modules: "GIT-CHANGE" 大小写不匹配的字面量应被拒绝', () => {
+    const input = { modules: 'GIT-CHANGE' };
+    const result = testResolvePathsInputSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+});
+
+// ===========================================================================
 // testResolvePathsInputSchema -- 异常 (AC-10)
 // ===========================================================================
 
 describe('testResolvePathsInputSchema -- 异常', () => {
-  it('modules: [] 应被 input schema 拒绝 (AC-10)', () => {
-    const input = {
-      modules: [],
-    };
+  it('modules: 123 非法数字类型应被拒绝 (AC-4)', () => {
+    const input = { modules: 123 };
     const result = testResolvePathsInputSchema.safeParse(input);
     expect(result.success).toBe(false);
   });
 
-  it('缺少 modules 字段时应拒绝', () => {
-    const input = {
-      integration_scenarios: ['api-flow'],
-    };
+  it('modules: true 布尔类型应被拒绝 (AC-4)', () => {
+    const input = { modules: true };
     const result = testResolvePathsInputSchema.safeParse(input);
     expect(result.success).toBe(false);
   });
 
-  it('modules 为非数组类型时应拒绝', () => {
-    const input = {
-      modules: 'src/a.ts',
-    };
+  it('modules: { key: "val" } 对象类型应被拒绝 (AC-4)', () => {
+    const input = { modules: { key: 'val' } };
     const result = testResolvePathsInputSchema.safeParse(input);
     expect(result.success).toBe(false);
   });

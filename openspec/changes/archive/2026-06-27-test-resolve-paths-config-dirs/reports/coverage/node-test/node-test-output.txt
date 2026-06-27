@@ -1,0 +1,98 @@
+▶ isEvalJsonPath — 路径匹配
+  ✔ 相对路径 openspec/changes/test-change/eval.json 应返回 true (0.7072ms)
+  ✔ 绝对路径 D:/Projects/.../eval.json 应返回 true (0.1226ms)
+  ✔ 非 eval 文件 openspec/changes/test/design.md 应返回 false (0.069ms)
+  ✔ changes 目录外路径应返回 false (0.6974ms)
+  ✔ 反斜杠归一化 openspec\changes\test\eval.json 应返回 true (0.0785ms)
+  ✔ 空字符串应返回 false (0.0544ms)
+  ✔ 超长路径仍含 eval.json 后缀时应返回 true (0.0848ms)
+✔ isEvalJsonPath — 路径匹配 (2.6668ms)
+▶ detectBashWrite — 写入模式
+  ✔ > 重定向到 eval.json 应返回 true (0.2336ms)
+  ✔ >> 追加到 eval.json 应返回 true (0.1311ms)
+  ✔ tee 写入 eval.json 应返回 true (0.1071ms)
+  ✔ tee -a 追加 eval.json 应返回 true (0.0858ms)
+  ✔ heredoc 写入 eval.json 应返回 true (0.0518ms)
+  ✔ >& 重定向到 eval.json 应返回 true (0.087ms)
+  ✔ 含 -> 但无 eval.json 写入时应返回 false (0.0589ms)
+✔ detectBashWrite — 写入模式 (0.905ms)
+▶ detectBashWrite — 豁免与只读
+  ✔ python 命令应豁免并返回 false (0.0782ms)
+  ✔ python3 命令应豁免并返回 false (0.0395ms)
+  ✔ node 命令应豁免并返回 false (0.035ms)
+  ✔ 只读 cat eval.json 应返回 false (0.0841ms)
+  ✔ 无 eval.json 的命令 ls -la 应返回 false (0.0525ms)
+  ✔ 空命令应返回 false (0.0336ms)
+✔ detectBashWrite — 豁免与只读 (0.4321ms)
+▶ extractChangeName
+  ✔ 应从 eval.json 路径提取变更名 my-feature (0.1002ms)
+  ✔ 无匹配路径应返回空字符串 (0.0661ms)
+✔ extractChangeName (0.2351ms)
+▶ buildDenyReason
+  ✔ 拒绝原因应含 phase_log、eval.json 及变更名 (0.1349ms)
+✔ buildDenyReason (0.1711ms)
+▶ parseInput — fail-open
+  ✔ 空 stdin 应触发 allow (0.1197ms)
+  ✔ 无效 JSON 应触发 allow (0.0987ms)
+  ✔ 缺失 tool_name 应触发 allow (0.058ms)
+  ✔ Write 缺失 tool_input.file_path 应触发 allow (0.0592ms)
+  ✔ 未知工具 Read 应触发 allow (0.0484ms)
+✔ parseInput — fail-open (0.4633ms)
+▶ outputDeny — JSON 特殊字符
+  ✔ reason 含换行、引号、反斜杠时 stdout 可 JSON.parse (0.1803ms)
+✔ outputDeny — JSON 特殊字符 (0.2147ms)
+▶ protect-eval.mjs — 黑盒 fail-open (AC-9)
+  ✔ 空 stdin 应输出 allow (116.2239ms)
+  ✔ 无效 JSON stdin 应输出 allow (120.7764ms)
+  ✔ 未知工具 Read 应输出 allow (114.8165ms)
+✔ protect-eval.mjs — 黑盒 fail-open (AC-9) (351.9422ms)
+▶ buildFollowupMessage
+  ✔ 应含中文修复前缀 (0.8317ms)
+  ✔ 合并后的 CLI 输出应出现在 followup_message 中 (0.1325ms)
+✔ buildFollowupMessage (1.7779ms)
+▶ formatOutput
+  ✔ CLI exit 0 时应返回 {} (0.6859ms)
+  ✔ CLI exit 非 0 时应返回含 followup_message 的对象 (0.1288ms)
+  ✔ CLI 输出含特殊字符时 JSON.stringify 可解析 (0.1665ms)
+  ✔ 应将 stdout 与 stderr 合并进 followup_message (0.0836ms)
+✔ formatOutput (1.2333ms)
+▶ resolveCliPath
+  ✔ 应返回 dev-team-cli.cjs 的绝对路径 (1.6706ms)
+  ✔ 路径为绝对路径且不含空格截断 (0.1062ms)
+  ✔ 不传参时使用 import.meta.resolve 定位 CLI (0.0758ms)
+✔ resolveCliPath (1.9602ms)
+▶ handleMissingCli
+  ✔ CLI 文件不存在时应返回 followup_message 且不抛异常 (1.1558ms)
+  ✔ 空 CLAUDE_PLUGIN_ROOT 时输出应含路径说明 (0.1448ms)
+✔ handleMissingCli (1.3652ms)
+▶ parseWorkspaceRoot
+  ✔ 应从合法 event JSON 提取 workspace_roots[0] (0.1934ms)
+  ✔ workspace_roots 为空数组时返回 null (0.09ms)
+  ✔ 无 workspace_roots 字段时返回 null (0.0549ms)
+  ✔ 非法 JSON 时返回 null 且不抛异常 (0.0714ms)
+✔ parseWorkspaceRoot (0.4876ms)
+▶ static-check.mjs — 黑盒 CLI 缺失 (AC-10)
+  ✔ 无 dev-team-cli.cjs 时不应抛未捕获异常 (263.1994ms)
+✔ static-check.mjs — 黑盒 CLI 缺失 (AC-10) (263.259ms)
+ℹ tests 48
+ℹ suites 14
+ℹ pass 48
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 0
+ℹ todo 0
+ℹ duration_ms 505.4269
+ℹ start of coverage report
+ℹ --------------------------------------------------------------------
+ℹ file                | line % | branch % | funcs % | uncovered lines
+ℹ --------------------------------------------------------------------
+ℹ ..                  |        |          |         | 
+ℹ  ..                 |        |          |         | 
+ℹ   bin               |        |          |         | 
+ℹ    dev-team-cli.cjs |  10.96 |    72.32 |   29.67 | 2-7 11-68 70
+ℹ protect-eval.mjs    |  91.06 |    89.74 |  100.00 | 97-104 114-116
+ℹ static-check.mjs    |  96.47 |    77.27 |  100.00 | 61-63
+ℹ --------------------------------------------------------------------
+ℹ all files           |  71.89 |    74.31 |   31.47 | 
+ℹ --------------------------------------------------------------------
+ℹ end of coverage report

@@ -8,9 +8,19 @@ import { z } from 'zod/v4';
  */
 export const testResolvePathsInputSchema = z.object({
   modules: z
-    .array(z.string())
-    .min(1)
-    .describe('Module paths (files or directories, relative to project_root)'),
+    .union([
+      z
+        .array(z.string())
+        .describe(
+          'Module paths (files or directories, relative to project_root). When empty, directories are auto-detected from config.json test configuration.',
+        ),
+      z
+        .literal('git-change')
+        .describe(
+          'Read git diff HEAD --name-only to get changed files, then resolve test paths filtered by test config.',
+        ),
+    ])
+    .describe('Module paths or "git-change" to auto-detect from git diff'),
   integration_scenarios: z.array(z.string()).optional().describe('Integration test scenario names'),
   extension: z
     .string()

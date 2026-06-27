@@ -193,7 +193,9 @@ describe('runPhaseLog — backtrack_to triggers markPhaseStale', () => {
       backtrack_to: 'proposal',
     });
 
-    expect(markPhaseStale).toHaveBeenCalledWith(expect.anything(), 'proposal');
+    expect(markPhaseStale).toHaveBeenCalled();
+    expect(vi.mocked(markPhaseStale).mock.calls[0][1]).toBe('proposal');
+    expect(vi.mocked(markPhaseStale).mock.calls[0][2]).toBe('test-only');
     expect(writeEvalJson).toHaveBeenCalled();
   });
 });

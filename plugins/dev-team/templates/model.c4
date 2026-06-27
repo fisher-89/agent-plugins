@@ -27,7 +27,8 @@ model {
   ROOT = project {
     link ../../
     // 此处拆分packages 或 module, 代码量较大时使用多个文件
-    cli = package 'cli' '命令行终端' {
+    cli = package 'cli' {
+      description  '命令行终端'
       link ../../packages/cli // 模块路径
     }
   }

@@ -312,7 +312,12 @@ function registerTestResolvePathsTool(server: McpServer): void {
     {
       description:
         'Derive unit and integration test file paths from a module list ' +
-        '(files or directories). Returns colocated unit test paths per source ' +
+        '(files or directories). Three modes: (1) modules is an empty array — ' +
+        'directories are auto-detected from config.json test configuration; ' +
+        '(2) modules is a non-empty array — paths are filtered by test config ' +
+        'scope before resolving; (3) modules is "git-change" — reads git diff ' +
+        'HEAD --name-only to discover changed files, then resolves test paths ' +
+        'filtered by test config. Returns colocated unit test paths per source ' +
         'file and __tests__/<scenario>/ integration test paths.',
       inputSchema: testResolvePathsInputSchema,
       outputSchema: testResolvePathsOutputSchema,
