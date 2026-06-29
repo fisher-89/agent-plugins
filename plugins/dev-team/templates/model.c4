@@ -27,9 +27,14 @@ model {
   ROOT = project {
     link ../../
     // 此处拆分packages 或 module, 代码量较大时使用多个文件
-    cli = package 'cli' {
-      description  '命令行终端'
-      link ../../packages/cli // 模块路径
+    cli = package {
+      description '命令行终端' // 描述，不超过100字
+      link ../../packages/cli // 路径
+
+      help = module {
+        description '帮助信息'
+        link ../../packages/cli/help
+      }
     }
   }
   USER = outer {

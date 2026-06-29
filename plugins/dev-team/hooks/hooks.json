@@ -1,5 +1,5 @@
 {
-  "description": "dev-team 插件 hooks：PreToolUse 保护 eval.json 不被 agent 直接写入；subagentStop 在 implementation-generator 结束时自动执行 static_analysis 静态检查，未通过则返回 followup_message 要求修复（最多 5 次循环）。",
+  "description": "dev-team 插件 hooks：PreToolUse 保护 eval.json 不被 agent 直接写入；subagentStop 在 implementation-generator 结束时自动执行 static_analysis 静态检查。",
   "hooks": {
     "PreToolUse": [
       {
@@ -13,6 +13,15 @@
       },
       {
         "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.mjs\""
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
         "hooks": [
           {
             "type": "command",

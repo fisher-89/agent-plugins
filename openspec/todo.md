@@ -27,9 +27,9 @@
 - [x] phase-next返回allowed_backtracks
 - [x] fix: code-review未指定backtrack_to
 - [x] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli
-- [ ] 修成evaluator agent的output
+- [ ] 分离evaluator agent的eval_log和output，允许通知主agent
 - [x] 根据test配置决定哪些目录可以单测
 - [ ] 根据test配置提供mcp，自动执行测试，生成统一格式报告
-- [ ] PowerShell Set-Content可以绕过不让编辑eval.json的禁令
+- [x] PowerShell Set-Content可以绕过不让编辑eval.json的禁令
 - [ ] 禁止修改config.json
-- [ ] hooks响应格式没有实现拦截，应该返回decision
+- [x] hooks响应格式没有实现拦截，应该返回decision

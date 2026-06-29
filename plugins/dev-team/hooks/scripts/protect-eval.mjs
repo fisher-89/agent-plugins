@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 // protect-eval.mjs — PreToolUse hook: protect eval.json from direct writes
 //
-// Intercepts Write, Edit, and Bash tool calls that try to modify
+// Intercepts Write, Edit, Bash, and PowerShell tool calls that try to modify
 // openspec/changes/<name>/eval.json. Allowed writing method:
 // mcp__plugin_dev-team_dev-team__phase_log MCP tool.
 //
@@ -36,6 +36,32 @@ export function detectBashWrite(cmd) {
   if (/<<[^<]/.test(normalized)) return true;
   // >& redirect
   if (/>&\s*[^\s;|`$&()]*eval\.json/.test(normalized)) return true;
+
+  return false;
+}
+
+export function detectPowerShellWrite(cmd) {
+  if (!cmd) return false;
+  const normalized = cmd.replace(/\\/g, '/');
+
+  // Exempt script runners that may reference eval.json in arguments
+  if (/^(python|python3|node)\s/.test(normalized)) return false;
+  if (!/eval\.json/.test(normalized)) return false;
+
+  // PowerShell file-writing cmdlets
+  if (/\bSet-Content\b/i.test(normalized)) return true;
+  if (/\bOut-File\b/i.test(normalized)) return true;
+  if (/\bAdd-Content\b/i.test(normalized)) return true;
+  if (/\bExport-Csv\b/i.test(normalized)) return true;
+  if (/\bExport-CliXml\b/i.test(normalized)) return true;
+  if (/\bTee-Object\b/i.test(normalized)) return true;
+
+  // PowerShell redirect operators (>, >>, *>, 1>, 2>, etc.)
+  if (/(^|[^-])>{1,2}\s/.test(normalized)) return true;
+  if (/\*>\s/.test(normalized)) return true;
+
+  // .NET file writing methods
+  if (/\[System\.IO\.File\]::(WriteAllText|WriteAllLines|WriteAllBytes|AppendAllText)/i.test(normalized)) return true;
 
   return false;
 }
@@ -97,6 +123,16 @@ export function parseInput(raw) {
     const command = parsed.tool_input?.command;
     if (!command) return { decision: 'allow' };
     if (detectBashWrite(command)) {
+      const changeName = extractChangeName(command) || '未知';
+      return { decision: 'deny', reason: buildDenyReason(changeName, toolName) };
+    }
+    return { decision: 'allow' };
+  }
+
+  if (toolName === 'PowerShell') {
+    const command = parsed.tool_input?.command;
+    if (!command) return { decision: 'allow' };
+    if (detectPowerShellWrite(command)) {
       const changeName = extractChangeName(command) || '未知';
       return { decision: 'deny', reason: buildDenyReason(changeName, toolName) };
     }

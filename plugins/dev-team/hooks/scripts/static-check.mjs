@@ -1,41 +1,36 @@
 #!/usr/bin/env node
 // static-check.mjs — SubagentStop hook: run static analysis before generator ends
-//
-// Calls dev-team-cli.cjs run_static_analysis and returns {} on success or
-// followup_message on failure so the agent can fix lint/type errors.
-//
-// Input:  stdin  — subagentStop event JSON (workspace_roots[0] → --project-root)
-// Output: stdout — {} or { "followup_message": "..." }
 
-import { existsSync, readFileSync } from 'node:fs';
-import path from 'node:path';
-import { fileURLToPath } from 'node:url';
-import { spawnSync } from 'node:child_process';
+import { existsSync, readFileSync } from "node:fs";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
+import { spawnSync } from "node:child_process";
 
-const FOLLOWUP_PREFIX = '静态检查未通过，请修复以下错误后重新提交：\n\n';
+const FOLLOWUP_PREFIX = "静态检查未通过，请修复以下错误后重新提交：\n\n";
 
 export function resolveCliPath() {
-  return fileURLToPath(import.meta.resolve('../../bin/dev-team-cli.cjs'));
+  return fileURLToPath(import.meta.resolve("../../bin/dev-team-cli.cjs"));
 }
 
-export function mergeCliOutput(stdout, stderr) {
-  const parts = [stdout, stderr].filter((s) => s != null && s !== '');
-  return parts.join('\n');
+function mergeCliOutput(stdout, stderr) {
+  const parts = [stdout, stderr].filter((s) => s != null && s !== "");
+  return parts.join("\n");
 }
 
-export function buildFollowupMessage(cliOutput) {
-  return FOLLOWUP_PREFIX + (cliOutput ?? '');
+function buildFollowupMessage(cliOutput) {
+  return FOLLOWUP_PREFIX + (cliOutput ?? "");
 }
 
-export function formatOutput({ status, stdout = '', stderr = '' }) {
+export function formatOutput({ status, stdout = "", stderr = "" }) {
   if (status === 0) return {};
   const combined = mergeCliOutput(stdout, stderr);
-  return { followup_message: buildFollowupMessage(combined) };
+  return { decision: "block", reason: buildFollowupMessage(combined) };
 }
 
 export function handleMissingCli(cliPath) {
   return {
-    followup_message: buildFollowupMessage(`dev-team CLI not found at ${cliPath ?? ''}`),
+    decision: "block",
+    reason: `dev-team CLI not found at ${cliPath ?? ""}`,
   };
 }
 
@@ -43,7 +38,7 @@ export function parseWorkspaceRoot(stdinRaw) {
   try {
     const event = JSON.parse(stdinRaw);
     const roots = event?.workspace_roots;
-    if (Array.isArray(roots) && roots.length > 0 && typeof roots[0] === 'string') {
+    if (Array.isArray(roots) && roots.length > 0 && typeof roots[0] === "string") {
       return path.posix.resolve(roots[0]);
     }
   } catch {
@@ -53,7 +48,7 @@ export function parseWorkspaceRoot(stdinRaw) {
 }
 
 function main() {
-  const stdinRaw = readFileSync(0, 'utf-8');
+  const stdinRaw = readFileSync(0, "utf-8");
   const workspaceRoot = parseWorkspaceRoot(stdinRaw);
   const cliPath = resolveCliPath();
 
@@ -62,15 +57,15 @@ function main() {
     return;
   }
 
-  const args = [cliPath, 'run_static_analysis'];
+  const args = [cliPath, "run_static_analysis"];
   if (workspaceRoot) {
-    args.push('--project-root', workspaceRoot);
+    args.push("--project-root", workspaceRoot);
   }
 
-  const result = spawnSync(process.execPath, args, { encoding: 'utf-8' });
+  const result = spawnSync(process.execPath, args, { encoding: "utf-8" });
 
-  const stdout = (result.stdout || '').trim();
-  const stderr = (result.stderr || '').trim();
+  const stdout = (result.stdout || "").trim();
+  const stderr = (result.stderr || "").trim();
   const output = formatOutput({
     status: result.status ?? 1,
     stdout,

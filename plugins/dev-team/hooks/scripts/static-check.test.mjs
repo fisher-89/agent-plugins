@@ -19,14 +19,7 @@ const scriptExists = fs.existsSync(scriptPath);
 
 const mod = scriptExists ? await import('./static-check.mjs') : null;
 
-const {
-  buildFollowupMessage,
-  formatOutput,
-  resolveCliPath,
-  handleMissingCli,
-  mergeCliOutput,
-  parseWorkspaceRoot,
-} = mod ?? {};
+const {formatOutput, resolveCliPath, handleMissingCli, parseWorkspaceRoot} = mod ?? {};
 
 function skipIfMissing(name, fn) {
   return mod ? it(name, fn) : it.skip(name, fn);
@@ -35,26 +28,6 @@ function skipIfMissing(name, fn) {
 function skipIfNoScript(name, fn) {
   return scriptExists ? it(name, fn) : it.skip(name, fn);
 }
-
-// ---------------------------------------------------------------------------
-// buildFollowupMessage (AC-6)
-// ---------------------------------------------------------------------------
-
-describe('buildFollowupMessage', () => {
-  skipIfMissing('应含中文修复前缀', () => {
-    const msg = buildFollowupMessage('stderr output');
-    assert.match(msg, /静态检查未通过，请修复以下错误后重新提交：/);
-  });
-
-  skipIfMissing('合并后的 CLI 输出应出现在 followup_message 中', () => {
-    const merged = mergeCliOutput
-      ? mergeCliOutput('stdout line', 'stderr line')
-      : 'stdout line\nstderr line';
-    const msg = buildFollowupMessage(merged);
-    assert.match(msg, /stdout line/);
-    assert.match(msg, /stderr line/);
-  });
-});
 
 // ---------------------------------------------------------------------------
 // formatOutput (AC-5, AC-6)
