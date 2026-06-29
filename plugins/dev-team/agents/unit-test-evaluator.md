@@ -58,10 +58,14 @@ If `failed === 0` and `total > 0`:
 
 **Coverage sub-check (within all-pass):** If the report contains `coverage`, also verify:
 - If `coverage.pass` is `true` and `coverage` is not null, add to findings: "覆盖率达标: lines=X%, branches=X%, functions=X%" (read from `coverage.measured`; for null dimensions write `"N/A (框架不支持)"` instead of a percentage)
-- If `coverage.pass` is `false` and `coverage` is not null, mark the coverage checklist item as `fail`, with evidence listing each failing **non-null** dimension against `coverage.thresholds`: "lines=X% (阈值 coverage.thresholds.lines%), branches=X% (阈值 coverage.thresholds.branches%), functions=X% (阈值 coverage.thresholds.functions%)" — skip null dimensions in the comparison list; for null dimensions note "N/A (框架不支持)"; include any failing entries from `coverage.overrides`: "${glob}: ${dimension}=X% 低于 override 阈值 Y%"
+- If `coverage.pass` is `false` and `coverage` is not null:
+  - Set `verdict`: `"fail"`
+  - Set `backtrack_to`: `"test-design"`
+  - Build evidence listing each failing **non-null** dimension against `coverage.thresholds`: "lines=X% (阈值 coverage.thresholds.lines%), branches=X% (阈值 coverage.thresholds.branches%), functions=X% (阈值 coverage.thresholds.functions%)" — skip null dimensions in the comparison list; for null dimensions note "N/A (框架不支持)"; include any failing entries from `coverage.overrides`: "${glob}: ${dimension}=X% 低于 override 阈值 Y%"
+  - Set `report` to the coverage failure evidence, followed by: "覆盖率不达标，需返回 test-design 阶段分析报告、扩展测试场景或补充存量用例"
+  - Mark the coverage checklist item (U3) as `fail` with the same evidence
+  - Skip remaining steps (Step 4–6) — proceed directly to phase_log
 - If `coverage === null`, mark the coverage checklist item as `pass` with evidence "覆盖率检查未配置或生成失败，跳过"
-
-If the verdict is pass but coverage fails, still set verdict pass (test execution results are the main gate), but include coverage findings for visibility.
 
 ### Step 4: Apply diagnostic decision tree
 
@@ -93,7 +97,13 @@ If `failed > 0`, analyze each failure from `test_cases.filter(c => c.status === 
    - THEN backtrack_to: `"dev-design"`
    - Finding reason: "接口签名双方一致但实现行为不符合设计提案"
 
-5. **无法判断 (multiple ambiguous errors or no clear pattern)**
+5. **覆盖率不达标 (Coverage below threshold alongside test failures)**
+   - IF `coverage` is not null AND `coverage.pass` is `false`
+   - AND the test failures do not clearly match categories 1–4 above
+   - THEN backtrack_to: `"test-design"`
+   - Finding reason: "覆盖率不达标: 当前测试未覆盖足够代码路径，需返回 test-design 阶段分析报告、扩展测试场景或补充存量用例"
+
+6. **无法判断 (multiple ambiguous errors or no clear pattern)**
    - IF no single root cause dominates (mixed error types across multiple files)
    - OR the error pattern doesn't clearly match any of the above categories
    - THEN do NOT call phase_log. Return to the main agent with:
@@ -103,7 +113,7 @@ If `failed > 0`, analyze each failure from `test_cases.filter(c => c.status === 
    - Finding reason: "无法自动判断根因，需用户确认回溯目标"
 
 **Priority (when multiple error types exist):**
-- Design conflict (4) > Syntax error (1) > Logic error (2) > Interface mismatch (3) > Unknown (5)
+- Design conflict (4) > Syntax error (1) > Logic error (2) > Interface mismatch (3) > Coverage failure (5) > Unknown (6)
 
 ### Step 5: Build findings
 
