@@ -80,16 +80,14 @@ export function getValue(
   const keys = keyPath.split('.');
   let current: unknown = config;
 
-  for (let i = 0; i < keys.length; i++) {
+  for (const key of keys) {
     if (current == null || typeof current !== 'object') {
       return { value: undefined, exists: false };
     }
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion -- narrowing from object to record
-    const obj = current as Record<string, unknown>;
-    if (!(keys[i] in obj)) {
+    if (!(key in current)) {
       return { value: undefined, exists: false };
     }
-    current = obj[keys[i]];
+    current = Reflect.get(current, key);
   }
 
   return { value: current, exists: true };
@@ -106,19 +104,24 @@ export function setValue(
   value: unknown,
 ): Record<string, unknown> {
   const keys = keyPath.split('.');
-  let current = config;
+  let current: object = config;
 
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (!(key in current) || current[key] == null || typeof current[key] !== 'object') {
-      current[key] = {};
+    if (!(key in current)) {
+      Reflect.set(current, key, {});
     }
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion -- value is known to be an object
-    current = current[key] as Record<string, unknown>;
+    const child = Reflect.get(current, key);
+    if (child == null || typeof child !== 'object') {
+      throw new Error(
+        `Set-config failed: ${['config', ...keys.slice(0, i)].join('.')} is not an object`,
+      );
+    }
+    current = child;
   }
 
   const lastKey = keys[keys.length - 1];
-  current[lastKey] = value;
+  Reflect.set(current, lastKey, value);
 
   return config;
 }
@@ -132,20 +135,25 @@ export function unsetValue(
   keyPath: string,
 ): { config: Record<string, unknown>; removed: boolean } {
   const keys = keyPath.split('.');
-  let current: Record<string, unknown> = config;
+  let current: object = config;
 
   for (let i = 0; i < keys.length - 1; i++) {
     const key = keys[i];
-    if (!(key in current) || current[key] == null || typeof current[key] !== 'object') {
-      return { config, removed: false };
+    if (!(key in current)) {
+      Reflect.set(current, key, {});
     }
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion -- value is known to be an object
-    current = current[key] as Record<string, unknown>;
+    const child = Reflect.get(current, key);
+    if (child == null || typeof child !== 'object') {
+      throw new Error(
+        `Unset-config failed: ${['config', ...keys.slice(0, i)].join('.')} is not an object`,
+      );
+    }
+    current = child;
   }
 
   const lastKey = keys[keys.length - 1];
   if (lastKey in current) {
-    delete current[lastKey];
+    Reflect.deleteProperty(current, lastKey);
     return { config, removed: true };
   }
 

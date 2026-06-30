@@ -15,7 +15,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { describe, it, expect, vi } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 import { runTestResolvePaths } from './test-resolve-paths';
@@ -27,7 +27,9 @@ import { runTestResolvePaths } from './test-resolve-paths';
 // ---------------------------------------------------------------------------
 
 vi.mock('./test-detect-frameworks', async () => {
-  const actual = await vi.importActual('./test-detect-frameworks');
+  const actual = await vi.importActual<{
+    runTestDetectFrameworks: typeof runTestDetectFrameworks;
+  }>('./test-detect-frameworks');
   return {
     ...actual,
     runTestDetectFrameworks: vi.fn(actual.runTestDetectFrameworks),
@@ -35,7 +37,9 @@ vi.mock('./test-detect-frameworks', async () => {
 });
 
 vi.mock('child_process', async () => {
-  const actual = await vi.importActual<typeof import('child_process')>('child_process');
+  const actual = await vi.importActual<{
+    execSync: typeof execSync;
+  }>('child_process');
   return {
     ...actual,
     execSync: vi.fn(actual.execSync),

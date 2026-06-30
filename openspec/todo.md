@@ -33,6 +33,6 @@
 - [x] PowerShell Set-Content可以绕过不让编辑eval.json的禁令
 - [ ] 禁止修改config.json
 - [x] hooks响应格式没有实现拦截，应该返回decision
-- [ ] fix:主Agent执行了流程外行为，改代码、运行测试、调用phase_log
+- [x] fix:主Agent执行了流程外行为，改代码、运行测试、调用phase_log
 - [ ] fix:unit-test概率没有生成报告
 - [ ] 流程开始前运行static_check检查，若未通过，通知用户修复并提交后再继续

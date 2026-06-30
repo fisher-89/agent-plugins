@@ -13,6 +13,13 @@ metadata:
 
 **Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build. If omitted, check if it can be inferred from conversation context.
 
+## Constraint
+
+**除下文Steps指定步骤外，禁止直接执行以下操作：**
+- **禁止**改代码（Write / Edit）
+- **禁止**执行测试或运行 shell 命令（Bash）
+- **禁止**调用 phase_log（应由 evaluator subagent 负责）
+
 ## Steps
 
 ### Step 0: Resolve the target change

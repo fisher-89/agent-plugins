@@ -68,6 +68,36 @@ const JS_TS_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs'])
 // Pure helpers
 // ---------------------------------------------------------------------------
 
+/**
+ * Type predicate: narrow an unknown value to an object with a `stderr` property.
+ * Safe alternative to `as` type assertions when handling ExecSyncError.
+ */
+function isObjectWithStderr(e: unknown): e is { stderr: unknown; message?: unknown } {
+  return e !== null && typeof e === 'object' && 'stderr' in e;
+}
+
+/**
+ * Extract a human-readable message from a caught error, with specific handling
+ * for Node.js ExecSyncError (which carries a `stderr` property on the thrown object).
+ */
+function extractErrorMessage(e: unknown, fallback: string): string {
+  if (e instanceof Error) {
+    return e.message;
+  }
+  if (isObjectWithStderr(e)) {
+    const { stderr } = e;
+    if (typeof stderr === 'string') {
+      return stderr.trim() || fallback;
+    }
+    try {
+      return String(stderr).trim() || fallback;
+    } catch {
+      // fall through
+    }
+  }
+  return fallback;
+}
+
 /** Return true when resolved inputPath stays within projectRoot (path-traversal guard). */
 function isWithinProjectRoot(projectRoot: string, inputPath: string): boolean {
   const resolvedRoot = path.resolve(projectRoot);
@@ -286,6 +316,148 @@ function resolveIntegrationTests(
   return integration_tests;
 }
 
+// ---------------------------------------------------------------------------
+// resolveTestPaths — Step helpers
+// ---------------------------------------------------------------------------
+
+/**
+ * Step 1 of resolveTestPaths: determine effective modules list.
+ *
+ * Returns either the resolved module list or an early-return result (when
+ * git-change mode produces no changes or encounters an error).
+ */
+function resolveEffectiveModules(
+  params: ResolveTestPathsParams,
+  projectRoot: string,
+  errors: ResolveError[],
+): { modules: string[] } | { earlyReturn: ResolveTestPathsResult } {
+  let effectiveModules: string[];
+
+  if (params.modules === 'git-change') {
+    try {
+      const stdout = execSync('git diff HEAD --name-only', {
+        cwd: projectRoot,
+        encoding: 'utf-8',
+        timeout: 10000,
+      });
+      effectiveModules = stdout
+        .split('\n')
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (effectiveModules.length === 0) {
+        return {
+          earlyReturn: { unit_tests: [], integration_tests: [], errors },
+        };
+      }
+    } catch (e: unknown) {
+      const msg = extractErrorMessage(e, 'git diff HEAD --name-only failed');
+      errors.push({ path: 'git', message: msg });
+      return {
+        earlyReturn: { unit_tests: [], integration_tests: [], errors },
+      };
+    }
+  } else {
+    effectiveModules = params.modules;
+  }
+
+  return { modules: effectiveModules };
+}
+
+/**
+ * Step 2a of resolveTestPaths: process non-empty modules through test config.
+ * Each module is validated (within project root, in test scope, not a test
+ * file, is a source file) before adding a unit-test entry.
+ */
+function processNonEmptyModules(
+  effectiveModules: string[],
+  projectRoot: string,
+  unitTestMap: Map<string, UnitTestEntry>,
+  errors: ResolveError[],
+  collectedSources: string[],
+): void {
+  const detectedResult = runTestDetectFrameworks({
+    files: effectiveModules,
+    projectRoot,
+  });
+
+  const detectedSet = new Set(detectedResult.detected.map((d) => d.file));
+
+  for (const moduleEntry of effectiveModules) {
+    const posix = moduleEntry.replace(/\\/g, '/');
+
+    if (!isWithinProjectRoot(projectRoot, moduleEntry)) {
+      errors.push({ path: posix, message: 'Path is outside project root' });
+      continue;
+    }
+
+    const absPath = path.isAbsolute(moduleEntry)
+      ? path.resolve(moduleEntry)
+      : path.resolve(projectRoot, moduleEntry);
+
+    if (!detectedSet.has(absPath)) {
+      errors.push({ path: posix, message: 'Not in test config scope' });
+      continue;
+    }
+
+    if (isTestFile(posix)) {
+      errors.push({ path: posix, message: 'Path is already a test file' });
+      continue;
+    }
+
+    if (!isSourceFile(posix)) {
+      errors.push({ path: posix, message: 'Not a testable source file' });
+      continue;
+    }
+
+    collectedSources.push(posix);
+    addUnitTest(unitTestMap, posix);
+  }
+}
+
+/**
+ * Step 2b of resolveTestPaths: config-driven directory scan when no modules
+ * are specified. Uses runTestDetectFrameworks to discover source directories
+ * and scans each for source files.
+ */
+function processEmptyModules(
+  projectRoot: string,
+  unitTestMap: Map<string, UnitTestEntry>,
+  errors: ResolveError[],
+  collectedSources: string[],
+): void {
+  const detectedResult = runTestDetectFrameworks({ projectRoot });
+  const plan = detectedResult.plan;
+
+  if (plan.length === 0) {
+    errors.push({
+      path: 'config',
+      message:
+        "No test configuration found. Please configure 'test.framework' or 'test.overrides' in openspec/config.json",
+    });
+    return;
+  }
+
+  const directories = [...new Set(plan.map((p) => p.directory))] as string[];
+  const sourceFiles = new Set<string>();
+
+  for (const dir of directories) {
+    const absDir = path.resolve(projectRoot, dir);
+    const allFiles = collectFiles(absDir);
+    for (const file of allFiles) {
+      const relPath = path.relative(projectRoot, file);
+      const posix = relPath.replace(/\\/g, '/');
+      if (isSourceFile(posix)) {
+        sourceFiles.add(posix);
+      }
+    }
+  }
+
+  for (const sourceFile of sourceFiles) {
+    addUnitTest(unitTestMap, sourceFile);
+    collectedSources.push(sourceFile);
+  }
+}
+
 /**
  * Resolve unit and integration test paths from a module list.
  *
@@ -302,120 +474,20 @@ function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResul
   const errors: ResolveError[] = [];
   const collectedSources: string[] = [];
 
-  // -----------------------------------------------------------------------
   // Step 1: Determine effective modules
-  // -----------------------------------------------------------------------
-  let effectiveModules: string[];
-
-  if (params.modules === 'git-change') {
-    try {
-      const stdout = execSync('git diff HEAD --name-only', {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        timeout: 10000,
-      });
-      effectiveModules = stdout
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      // No changed files — return empty result without scanning
-      if (effectiveModules.length === 0) {
-        return { unit_tests: [], integration_tests: [], errors };
-      }
-    } catch (e: unknown) {
-      const msg =
-        (e as { stderr?: { toString(): string } }).stderr?.toString()?.trim() ||
-        (e as Error).message ||
-        'git diff HEAD --name-only failed';
-      errors.push({ path: 'git', message: msg });
-      return { unit_tests: [], integration_tests: [], errors };
-    }
-  } else {
-    // Already a string[] (could be empty)
-    effectiveModules = params.modules;
+  const step1 = resolveEffectiveModules(params, projectRoot, errors);
+  if ('earlyReturn' in step1) {
+    return step1.earlyReturn;
   }
 
-  // -----------------------------------------------------------------------
   // Step 2: Process by mode
-  // -----------------------------------------------------------------------
-  if (effectiveModules.length > 0) {
-    // ---- Mode A / C: Non-empty modules — filter through test config ----
-    const detectedResult = runTestDetectFrameworks({
-      files: effectiveModules,
-      projectRoot,
-    });
-
-    // Build set of detected absolute paths for O(1) lookup
-    const detectedSet = new Set(detectedResult.detected.map((d) => d.file));
-
-    for (const moduleEntry of effectiveModules) {
-      const posix = moduleEntry.replace(/\\/g, '/');
-
-      if (!isWithinProjectRoot(projectRoot, moduleEntry)) {
-        errors.push({ path: posix, message: 'Path is outside project root' });
-        continue;
-      }
-
-      const absPath = path.isAbsolute(moduleEntry)
-        ? path.resolve(moduleEntry)
-        : path.resolve(projectRoot, moduleEntry);
-
-      if (!detectedSet.has(absPath)) {
-        errors.push({ path: posix, message: 'Not in test config scope' });
-        continue;
-      }
-
-      if (isTestFile(posix)) {
-        errors.push({ path: posix, message: 'Path is already a test file' });
-        continue;
-      }
-
-      if (!isSourceFile(posix)) {
-        errors.push({ path: posix, message: 'Not a testable source file' });
-        continue;
-      }
-
-      collectedSources.push(posix);
-      addUnitTest(unitTestMap, posix);
-    }
+  if (step1.modules.length > 0) {
+    processNonEmptyModules(step1.modules, projectRoot, unitTestMap, errors, collectedSources);
   } else {
-    // ---- Mode B: Empty modules — config-driven directory scan ----
-    const detectedResult = runTestDetectFrameworks({ projectRoot });
-    const plan = detectedResult.plan;
-
-    if (plan.length === 0) {
-      errors.push({
-        path: 'config',
-        message:
-          "No test configuration found. Please configure 'test.framework' or 'test.overrides' in openspec/config.json",
-      });
-    } else {
-      // Extract unique directories from the execution plan
-      const directories = [...new Set(plan.map((p) => p.directory))] as string[];
-      const sourceFiles = new Set<string>();
-
-      for (const dir of directories) {
-        const absDir = path.resolve(projectRoot, dir);
-        const allFiles = collectFiles(absDir);
-        for (const file of allFiles) {
-          const relPath = path.relative(projectRoot, file);
-          const posix = relPath.replace(/\\/g, '/');
-          if (isSourceFile(posix)) {
-            sourceFiles.add(posix);
-          }
-        }
-      }
-
-      for (const sourceFile of sourceFiles) {
-        addUnitTest(unitTestMap, sourceFile);
-        collectedSources.push(sourceFile);
-      }
-    }
+    processEmptyModules(projectRoot, unitTestMap, errors, collectedSources);
   }
 
-  // -----------------------------------------------------------------------
   // Step 3: Build and return result
-  // -----------------------------------------------------------------------
   const unit_tests = Array.from(unitTestMap.values()).sort((a, b) =>
     a.source.localeCompare(b.source),
   );
