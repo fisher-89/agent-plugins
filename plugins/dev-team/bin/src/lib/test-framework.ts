@@ -1,5 +1,5 @@
 // ---------------------------------------------------------------------------
-// Framework Command Registry
+// Test Framework Registry
 //
 // Hardcoded mapping of known test frameworks to their test and coverage
 // commands.  Framework commands are implementation details managed by the
@@ -8,7 +8,7 @@
 
 import { type TestFrameworks } from '../schemas';
 
-interface FrameworkConfig {
+export interface FrameworkConfig {
   framework: TestFrameworks;
   test_cmd: string;
   coverage_cmd: string;
@@ -111,20 +111,15 @@ function isTestFramework(framework: string): framework is TestFrameworks {
 // Public interface
 // ---------------------------------------------------------------------------
 
-export interface TestGetFrameworkConfigOptions {
-  framework: string;
-}
-
 /**
  * Look up a framework's test and coverage command configuration from the
  * hardcoded registry.
  *
+ * @param framework - The framework name to look up.
  * @returns The framework configuration object.
  * @throws {Error} If the framework name is not in the registry.
  */
-export function runTestGetFrameworkConfig(options: TestGetFrameworkConfigOptions): FrameworkConfig {
-  const { framework } = options;
-
+export function getFrameworkConfig(framework: string): FrameworkConfig {
   if (!isTestFramework(framework)) {
     throw new Error(
       `Unknown framework "${framework}". Supported frameworks: ${Object.keys(FRAMEWORK_REGISTRY).join(', ')}`,
@@ -140,6 +135,10 @@ export function runTestGetFrameworkConfig(options: TestGetFrameworkConfigOptions
  *
  * Used to expand a `test.framework` enum value into a `{glob, framework}` mapping
  * for the detection engine.
+ *
+ * @param framework - The framework name.
+ * @returns The default glob pattern.
+ * @throws {Error} If the framework name is not in the registry.
  */
 export function getDefaultGlobForFramework(framework: string): string {
   if (!isTestFramework(framework)) {

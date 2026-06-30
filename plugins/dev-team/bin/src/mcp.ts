@@ -11,7 +11,6 @@ import { runConfigUnset } from './commands/config-unset';
 import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
 import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
-import { runTestGetFrameworkConfig } from './commands/test-get-framework-config';
 import { runTestResolvePaths } from './commands/test-resolve-paths';
 import { queryModel } from './lib/archi-query';
 import { validateDsl } from './lib/archi-validate';
@@ -41,8 +40,6 @@ import {
   configContextOutputSchema,
   testDetectFrameworksInputSchema,
   testDetectFrameworksOutputSchema,
-  testGetFrameworkConfigInputSchema,
-  testGetFrameworkConfigOutputSchema,
   testResolvePathsInputSchema,
   testResolvePathsOutputSchema,
   changeListInputSchema,
@@ -286,26 +283,6 @@ function registerTestDetectFrameworksTool(server: McpServer): void {
   );
 }
 
-function registerTestGetFrameworkConfigTool(server: McpServer): void {
-  server.registerTool(
-    'test_get_framework_config',
-    {
-      description:
-        'Get the test and coverage command configuration for a known ' +
-        'test framework (jest, vitest, vite-plus, bun, rust). Returns ' +
-        'test_cmd, coverage_cmd, coverage_format, and coverage_output.',
-      inputSchema: testGetFrameworkConfigInputSchema,
-      outputSchema: testGetFrameworkConfigOutputSchema,
-    },
-    async (args) => {
-      const result = runTestGetFrameworkConfig({
-        framework: args.framework,
-      });
-      return jsonContent(testGetFrameworkConfigOutputSchema, result);
-    },
-  );
-}
-
 function registerTestResolvePathsTool(server: McpServer): void {
   server.registerTool(
     'test_resolve_paths',
@@ -365,7 +342,6 @@ async function main(): Promise<void> {
   registerConfigUnsetTool(server);
   registerConfigContextTool(server);
   registerTestDetectFrameworksTool(server);
-  registerTestGetFrameworkConfigTool(server);
   registerTestResolvePathsTool(server);
   registerChangeListTool(server);
 

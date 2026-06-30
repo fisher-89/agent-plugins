@@ -1,0 +1,3557 @@
+{
+  "command": "npx vp test --coverage --coverage.reporter=json-summary",
+  "test_cases": [
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 47.93,
+      "name": "runChangeList -- 活跃 change 聚合 > 进行中 change 应出现在结果中且 artifacts、tasks、latest_phase 字段正确 (AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 13.41,
+      "name": "runChangeList -- 活跃 change 聚合 > tasks.md 含 - [ ] / - [x] 时 tasks.total / tasks.done 计数应正确"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 11.87,
+      "name": "runChangeList -- 活跃 change 聚合 > latest_phase 应取全部 eval 条目（不限 phase）按 timestamp 降序最新一条"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 8.48,
+      "name": "runChangeList -- 缺失 eval / 无 acceptance 条目 > 无 eval.json 的 change 仍应出现在结果中 (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 16.9,
+      "name": "runChangeList -- 缺失 eval / 无 acceptance 条目 > 有 eval.json 但无 acceptance 条目的 change 仍应出现在结果中 (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 11.35,
+      "name": "runChangeList -- 缺失 eval / 无 acceptance 条目 > eval.json 解析失败时 change 仍视为活跃且 latest_phase 为 null"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 1.35,
+      "name": "runChangeList -- 目录扫描与排序 > openspec/changes/ 不存在时应返回 { changes: [], count: 0 }"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 6.54,
+      "name": "runChangeList -- 目录扫描与排序 > 无活跃 change 时应返回 { changes: [], count: 0 }"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 9.17,
+      "name": "runChangeList -- 目录扫描与排序 > 永不将 name === \"archive\" 的目录列入 changes"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 20.19,
+      "name": "runChangeList -- 目录扫描与排序 > 多个活跃 change 应按 name 字典序排序"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 10.42,
+      "name": "runChangeList -- 目录扫描与排序 > openspec/changes/ 下非目录条目（文件）应被跳过"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 25.8,
+      "name": "runChangeList -- 组合过滤 > 除archive 已登记外，其他都返回"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 6.77,
+      "name": "runChangeList -- project_root > 显式传入 project_root 指向 fixture 根目录时应正确解析路径"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+      "status": "passed",
+      "duration_ms": 0.39,
+      "name": "runChangeList -- project_root > project_root: null 时行为应与省略 project_root 一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 3.55,
+      "name": "runPhaseLog — workflow-aware backtrack rejection > rejects invalid backtrack for test-only workflow (AC-11)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.57,
+      "name": "runPhaseLog — workflow-aware backtrack rejection > rejection error lists available phases (AC-12)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 5.96,
+      "name": "runPhaseLog — workflow-aware backtrack rejection > uses requirement table when workflow.json absent (AC-13)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.52,
+      "name": "runPhaseLog — workflow-aware backtrack rejection > rejects backtrack_to dev-design for test-only workflow (AC-11)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.54,
+      "name": "runPhaseLog — workflow-aware backtrack rejection > allows backtrack_to implement when workflow.json missing — requirement default (AC-13)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.6,
+      "name": "runPhaseLog — adaptive fail after invalid backtrack > invalid backtrack then fail+null succeeds (AC-16)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.4,
+      "name": "runPhaseLog — pass entry no propagation > pass entry does not trigger markPhaseStale"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.39,
+      "name": "runPhaseLog — backtrack_to triggers markPhaseStale > test-only valid backtrack test-design → proposal triggers markPhaseStale"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.28,
+      "name": "runPhaseLog — input validation > null backtrack_to writes fail entry normally"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 2.47,
+      "name": "runPhaseLog — idempotency > identical pass calls invoke appendEntry twice with consistent args (AC-16)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.41,
+      "name": "runPhaseLog — idempotency > identical fail+null calls behave consistently"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.41,
+      "name": "runPhaseLog — idempotency > repeated invalid backtrack throws twice with zero appendEntry calls"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "runPhaseLog — auto-calculated verdict from checklist > auto-calculates pass when all checklist items pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "runPhaseLog — auto-calculated verdict from checklist > auto-calculates fail when any item fails"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 1.5,
+      "name": "PHASE_TABLES > should have exactly 9 phases for requirement workflow_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "PHASE_TABLES > should start with proposal (not requirements)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.7,
+      "name": "PHASE_TABLES > phase 表 id 顺序与 AC-1 一致 — implement 在 test-gen 之前（AC-1）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 1.0,
+      "name": "PHASE_TABLES > should have 6 phases for bug-fix workflow_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "PHASE_TABLES > should have same 9 phases for refactor workflow_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.42,
+      "name": "PHASE_TABLES > should have 6 phases for test-only workflow_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 1.09,
+      "name": "runPhaseNext — First Run (empty eval.json) > should return proposal as next_phase when entries is empty"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "runPhaseNext — First Run (empty eval.json) > should return proposal-planner as planner agent_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "runPhaseNext — First Run (empty eval.json) > should return proposal-evaluator as evaluator agent_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.25,
+      "name": "runPhaseNext — First Run (empty eval.json) > should set round to 1 on first call"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "runPhaseNext — First Run (empty eval.json) > should set phase_index to 1 and total_phases to 9"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "runPhaseNext — First Run (empty eval.json) > should include change name in planner prompt"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 4.17,
+      "name": "runPhaseNext — Normal Progression > should return dev-design after proposal passes"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.5,
+      "name": "runPhaseNext — Normal Progression > should return test-design after phases 01-02 pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "runPhaseNext — Normal Progression > should return implement after phases 01-03 pass（AC-5）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "runPhaseNext — Normal Progression > should return test-gen after phases 01-03 and 05 pass（AC-6）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.25,
+      "name": "runPhaseNext — Normal Progression > should return unit-test after phases 01-05 and 04 pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "runPhaseNext — Normal Progression > should return code-review with planner: null (EVAL-ONLY)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "runPhaseNext — Normal Progression > should return acceptance with planner: null (EVAL-ONLY)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.29,
+      "name": "runPhaseNext — Normal Progression > should return done=true when all 9 phases pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should skip to implement when 01-03 pass — 非 test-gen（AC-5）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should skip to unit-test when phases 01-05 and 04 pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.23,
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) > should return done=true when all phases have pass records"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return same phase for first retry after fail"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return same phase on 4th consecutive fail (attempt 5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return max_retries_exceeded error on 5th consecutive fail"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "runPhaseNext — Retry Logic (AC-7) > should return error message in Chinese for max retries"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "runPhaseNext — Retry Logic (AC-7) > should reset retry count after a pass (then fail, then pass, then fail)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.84,
+      "name": "runPhaseNext — Backtrack > should return target phase on backtrack without clearing entries"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.23,
+      "name": "runPhaseNext — Backtrack > should re-execute planner + evaluator after backtrack to proposal"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "runPhaseNext — Backtrack > should handle backtrack from a later phase to mid-chain"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "runPhaseNext — Backtrack > should handle backtrack set in latest entry only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.33,
+      "name": "runPhaseNext — Backtrack > should not modify entries when backtrack is detected (read-only)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "runPhaseNext — Backtrack > should return earliest target for array backtrack_to (AC-16)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "runPhaseNext — Backtrack > should throw invalid_backtrack_target for unknown target"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.28,
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should skip stale pass entries when determining next phase (AC-11)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should return done=true when all phases have non-stale pass (mix of stale and fresh)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should treat missing stale field as stale:false (AC-12 backward compat)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should resume correctly when stale entries are in middle phases"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) > should return test-gen when 05 pass but 04 is stale（AC-7）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return dev-design when test-design missing pass but 02 not passed (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return implement when dev-design is pass but 05 not passed (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) > should return implement when 04 pass but 05 not passed — 线性扫描优先 05（AC-11 子场景）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "runPhaseNext — Round Limit (AC-10) > should return round_limit_exceeded error when round > 20"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "runPhaseNext — Round Limit (AC-10) > should return Chinese error message for round limit"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "runPhaseNext — Round Limit (AC-10) > should NOT error at exactly round 20 with all pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.34,
+      "name": "runPhaseNext — Round Limit (AC-10) > should detect round limit via backtrack cycles"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "runPhaseNext — Mid-Phase Interruption > should re-return the phase when evaluator has not logged (no entries for phase)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "runPhaseNext — Mid-Phase Interruption > should return the incomplete phase if evaluator never logged"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "runPhaseNext — Skipped Phases > should treat skipped entries as pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "runPhaseNext — Skipped Phases > should advance past a mix of skipped and passed phases"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "runPhaseNext — workflow_type > should default to requirement when workflow_type is omitted"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "runPhaseNext — workflow_type > should follow bug-fix phase table when workflow_type is bug-fix"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.1,
+      "name": "runPhaseNext — workflow_type > should follow refactor phase table when workflow_type is refactor"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.1,
+      "name": "runPhaseNext — workflow_type > should follow test-only phase table when workflow.json has test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.25,
+      "name": "runPhaseNext — workflow_type > test-only proposal prompt differs from requirement (AC-9)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "runPhaseNext — workflow_type > test-only returns code-analyze after proposal passes (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "runPhaseNext — workflow_type > test-only returns test-design after 01 and 02 pass (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "runPhaseNext — workflow_type > test-only returns done after all six phases pass (AC-7)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "runPhaseNext — workflow_type > bug-fix phase table 仍为 6 个 phase，不含 03/04/08（AC-10）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "runPhaseNext — workflow_type > should return acceptance from bug-fix after code-review passes"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "runPhaseNext — test-only First Run > should return proposal when workflow.json is test-only and eval.json empty (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.09,
+      "name": "runPhaseNext — test-only First Run > should set total_phases to 6 for test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "runPhaseNext — test-only Normal Progression > should return code-analyze after proposal passes (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "runPhaseNext — test-only Normal Progression > should return test-design after proposal and code-analyze pass (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "runPhaseNext — test-only Normal Progression > should return test-gen after 01-03 pass (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "runPhaseNext — test-only Normal Progression > should return unit-test after 01-04 pass (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "runPhaseNext — test-only Normal Progression > should return integration-test when 06 pass and 08 not passed (AC-2 parallel leaf)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "runPhaseNext — test-only Gate (code-analyze) > should return code-analyze when 01 pass but 02 not passed — 03 cannot run early (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "runPhaseNext — test-only Gate (code-analyze) > should return test-design when 01-02 pass — gate satisfied (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "runPhaseNext — test-only Completion > should return done=true when 01-04, 06, 08 all pass (AC-7)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "runPhaseNext — test-only Completion > should never return implement or acceptance for test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "runPhaseNext — workflow.json default > should use requirement table when workflow.json missing (AC-13)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "runPhaseNext — workflow.json default > should use requirement table when workflow.json lacks workflow_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "runPhaseNext — Backtrack (test-only) > test-only backtrack_to proposal still returns target phase"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.82,
+      "name": "runPhaseNext — Input Validation > should not throw for empty entries array"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "Boundary Scenarios > should handle empty eval.json (first run)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "Boundary Scenarios > should handle all phases as first_run (empty entries)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.29,
+      "name": "Boundary Scenarios > should handle exactly 20 rounds with all pass (no limit error)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "Boundary Scenarios > 01-03 pass + skip 04 时仍返回 implement（05 未 pass）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "Boundary Scenarios > should handle change name with special characters"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "Boundary Scenarios > test-only change name with special characters still appears in planner prompt"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.25,
+      "name": "Boundary Scenarios > should return done=true after acceptance passes"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.3,
+      "name": "phase_next Output Schema > should return valid JSON when next phase is ready"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.33,
+      "name": "phase_next Output Schema > should return valid JSON when all phases are done"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.34,
+      "name": "phase_next Output Schema > should return valid JSON on error"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "phase_next Output Schema > should return same prompt on retry (skill handles retry context)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "phase_next — allowed_backtrack_phases > should return empty allowed_backtrack_phases for first phase"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "phase_next — allowed_backtrack_phases > should return preceding phases for second phase"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.38,
+      "name": "phase_next — allowed_backtrack_phases > should return all preceding phases with id and description"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "phase_next — allowed_backtrack_phases > should have empty allowed_backtrack_phases on done"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "phase_next — allowed_backtrack_phases > should have empty allowed_backtrack_phases on error"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "phase_next — allowed_backtrack_phases > should append backtrack hint to evaluator prompt"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "phase_next — allowed_backtrack_phases > should NOT append backtrack hint when no preceding phases"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "phase_next — allowed_backtrack_phases > should include backtrack hint on retry"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "phase_next — allowed_backtrack_phases > should include backtrack hint after backtrack detection"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) > 应将 <phase> 替换为当前 phase 的 ID（如 \"proposal\"）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) > 应将 <phase> 替换为 dev-design / implement 等中间 phase 的 ID"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) > 模板中不含 <phase> 时应原样返回"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) > 模板含多个 <phase> 时应全部替换"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) > 模板仅含 <phase> 时应替换为纯 phase ID"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) > 空白模板应返回空白字符串"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) > change name 含特殊字符时 <phase> 替换应不受影响"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "buildPhaseDef — <phase> 动态注入 (AC-3) > evaluator prompt 中 <phase> 应被替换为对应 phase 的 ID"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+      "status": "skipped",
+      "duration_ms": 0.0,
+      "name": "buildPhaseDef — <phase> 动态注入 (AC-3) > planner prompt 中 <phase> 应被替换为对应 phase 的 ID"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 812.97,
+      "name": "runStaticAnalysis — 未配置放行 (AC-4, AC-7) > openspec/config.json 不存在时应 exit 0 且不执行外部命令"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 5.81,
+      "name": "runStaticAnalysis — 未配置放行 (AC-4, AC-7) > config 存在但无 static_analysis 字段时应 exit 0"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 5.76,
+      "name": "runStaticAnalysis — 空配置放行 (边界) > static_analysis 为空字符串时应 exit 0 且不执行外部命令"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 6.18,
+      "name": "runStaticAnalysis — 空配置放行 (边界) > static_analysis 为仅空白字符串时应 exit 0（trim 后视为空）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 6.52,
+      "name": "runStaticAnalysis — 命令成功 (AC-3, AC-7) > 已配置且 mock 命令 exit 0 时 CLI 应 exit 0"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 7.78,
+      "name": "runStaticAnalysis — 命令成功 (AC-3, AC-7) > 命令 exit 0 时 CLI stdout 应无多余输出"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 5.87,
+      "name": "runStaticAnalysis — 命令失败 (AC-5, AC-7) > 已配置且 mock 命令 exit 非 0 时 CLI 应返回相同 exit code"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 6.1,
+      "name": "runStaticAnalysis — 命令失败 (AC-5, AC-7) > 命令失败时 CLI stderr 应含 stdout/stderr 合并输出"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 5.81,
+      "name": "runStaticAnalysis — exit code 传播 (边界) > mock 命令 exit 1 时 CLI 应返回相同 exit code"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 6.38,
+      "name": "runStaticAnalysis — exit code 传播 (边界) > mock 命令 exit 2 时 CLI 应返回相同 exit code"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 5.17,
+      "name": "runStaticAnalysis — exit code 传播 (边界) > mock 命令 exit 127 时 CLI 应返回相同 exit code"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 7.76,
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) > 应优先使用 CLAUDE_PROJECT_DIR 环境变量定位 config"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 6.92,
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) > 未设置 CLAUDE_PROJECT_DIR 时应使用 process.cwd()"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 9.67,
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) > options.projectRoot 应优先于 CLAUDE_PROJECT_DIR"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 5.89,
+      "name": "runStaticAnalysis — config 容错 (边界) > openspec/config.json JSON 解析失败时应等同未配置并 exit 0"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 5.26,
+      "name": "runStaticAnalysis — 工作目录与参数 (AC-7) > 已配置时应在项目根目录执行命令（cwd 为 projectRoot）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 6.34,
+      "name": "runStaticAnalysis — 工作目录与参数 (AC-7) > 执行 static_analysis 命令时不应传入 change name 或其他 CLI 参数"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 14.22,
+      "name": "detectFrameworks -- glob first-match (AC-4) > should map each file to its matching framework via default + overrides"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.28,
+      "name": "detectFrameworks -- glob first-match (AC-4) > should use first-match rule when a file matches both default and override globs"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.53,
+      "name": "detectFrameworks -- glob first-match (AC-4) > should return \"unknown\" for files not matching any glob (reverse AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.98,
+      "name": "detectFrameworks -- glob first-match (AC-4) > should return empty detected for empty file list (reverse AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.48,
+      "name": "detectFrameworks -- glob first-match (AC-4) > override 使用无通配符路径 plugins/dev-team/bin 时应检测子目录测试文件为对应框架"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.12,
+      "name": "detectFrameworks -- single framework > should detect framework from default config and match files"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.84,
+      "name": "detectFrameworks -- single framework > should apply framework default glob for matching"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.44,
+      "name": "detectFrameworks -- single framework > should match no files when framework config has no matching files"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 9.95,
+      "name": "detectFrameworks -- edge cases > should handle files parameter as undefined (auto-scan) gracefully"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.38,
+      "name": "detectFrameworks -- edge cases > should handle config with no framework gracefully"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 24.17,
+      "name": "detectFrameworks -- edge cases > should handle a very large file list without error"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.81,
+      "name": "detectFrameworks -- edge cases > should handle files with special characters in paths"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.25,
+      "name": "detectFrameworks -- edge cases > should handle missing config gracefully"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.12,
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) > 应为单框架配置生成正确的 plan 条目"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.71,
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) > 应为多框架多目录配置生成正确的 plan 数组（default first, then overrides）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 8.48,
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"vitest\" 生成 plan，directory 为 \".\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.91,
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"jest\" 生成 plan，directory 为 \".\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.69,
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) > 应为 \"rust\" 生成 plan，directory 为 \".\"，coverage_format 为 \"llvm-cov\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.55,
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) > 应在无 framework 配置时返回空 plan"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.99,
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) > 应在无 test 配置时返回空 plan"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.51,
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后 detected 字段结构和内容不变"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.51,
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后 frameworks 字段结构和内容不变"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.38,
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后首匹配规则不变"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.93,
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) > 添加 plan 后无匹配文件仍返回 \"unknown\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 4.94,
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 配置 vitest 框架时，plan 条目包含 coverage_artifacts 和 coverage_cleanup"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.11,
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > vitest plan 条目的 coverage_artifacts 为 [\"coverage/coverage-summary.json\"]，coverage_cleanup 为 [\"coverage\", \".nyc_output\", \"test-stderr.txt\"]"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.06,
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 多框架 [vitest, rust] 时每个 plan 条目包含对应 coverage_artifacts 和 coverage_cleanup"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.67,
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > rust plan 条目 coverage_artifacts 为 [\"coverage/coverage-summary.json\"]"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.62,
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) > 单框架 \"vitest\" 时 plan 条目也包含 coverage_artifacts 和 coverage_cleanup"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.52,
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > vitest 框架配置时 plan 条目包含非空 script 字段 (AC-7)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.7,
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > 多框架 [vitest, rust] 配置时每个 plan 条目都包含非空 script"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.92,
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > plan 条目 script 内容应由 directory、coverage_cmd、coverage_cleanup 组装"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.6,
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > vite-plus 框架（directory 非 \".\"）时 script 含 cd 行"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.88,
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) > 空 framework 配置时 plan 为空数组"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.45,
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"vitest\" 时 plan 条目 script 字段为非空字符串"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.69,
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"jest\" 时 plan 条目 script 字段为非空字符串"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.5,
+      "name": "runTestDetectFrameworks -- 单框架 plan script > \"rust\" 时 plan 条目 script 字段为非空字符串"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 7.12,
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > vitest plan 条目 coverage_cmd 应等于注册表 JSON-only 命令"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.9,
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > vitest plan 条目 coverage_artifacts 应为 [\"coverage/coverage-summary.json\"]"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.3,
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > rust plan 条目 coverage_cmd 应为 cargo llvm-cov --json"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.55,
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > 多框架 [vitest, rust] 时每个 plan 条目 coverage_cmd/coverage_artifacts 与对应注册表一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.8,
+      "name": "runTestDetectFrameworks — plan JSON-only 传播 (AC-9) > vitest plan 生成的 script 最后一行应等于含 json-summary 的 coverage_cmd"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.99,
+      "name": "runTestDetectFrameworks — go plan (AC-5) > config framework: \"go\" 时 plan 含 coverage_format: \"go-cover\" 及注册表 artifacts/cleanup"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.99,
+      "name": "runTestDetectFrameworks — node-test plan (AC-5) > config framework: \"node-test\" 时 plan 的 coverage_cmd 为 \"node --test --experimental-test-coverage\" 且 script 含 bash shebang"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.25,
+      "name": "runTestDetectFrameworks — node-test plan (AC-5) > node-test plan 的 script 最后一行为简化后的覆盖命令，不含管道符 (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.48,
+      "name": "runTestDetectFrameworks — pytest plan (AC-5) > config framework: \"pytest\" 时 plan 含 coverage_format: \"coverage-py\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 6.52,
+      "name": "runTestDetectFrameworks — 多框架 (AC-5) > 配置 [vitest, go] 时 plan 两条目各自携带正确 coverage_format"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+      "status": "passed",
+      "duration_ms": 5.39,
+      "name": "runTestDetectFrameworks — glob 检测 (AC-5) > *_test.go 文件在 go 配置下映射为 go 框架"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 16.13,
+      "name": "runTestResolvePaths -- 文件路径解析 > 多个源文件路径应各自返回同级测试文件 (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 2.63,
+      "name": "runTestResolvePaths -- 文件路径解析 > unit_tests 应按 source 字典序排序且去重"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 2.19,
+      "name": "runTestResolvePaths -- 文件路径解析 > 已是测试文件的路径应写入 errors 而非 unit_tests"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 2.4,
+      "name": "runTestResolvePaths -- 文件路径解析 > 非源文件（.md、.json、.yaml 等）路径应写入 errors"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.8,
+      "name": "runTestResolvePaths -- 集成测试路径 > integration_scenarios: [\"api-flow\"] + extension: \"ts\" (AC-7)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.67,
+      "name": "runTestResolvePaths -- 集成测试路径 > modules: [\"src/auth.py\"] + integration_scenarios: [\"db-roundtrip\"] 无 extension (AC-8)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 5.91,
+      "name": "runTestResolvePaths -- 集成测试路径 > 无有效源文件时集成测试应默认 .test.ts 扩展名"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.39,
+      "name": "runTestResolvePaths -- 集成测试路径 > 多个 integration_scenarios 应按 scenario 字典序排序"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 5.62,
+      "name": "runTestResolvePaths -- 集成测试路径 > integration_scenarios 未传或为空数组时 integration_tests 应为空"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 2.12,
+      "name": "runTestResolvePaths -- 错误收集 > 不存在的源文件路径仍应推导出测试路径（无需判断文件是否存在）(AC-9)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 3.82,
+      "name": "runTestResolvePaths -- 错误收集 > README.md 应写入 errors，unit_tests 应为空"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.41,
+      "name": "runTestResolvePaths -- 错误收集 > 传入已是测试文件的路径应写入 errors"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.6,
+      "name": "runTestResolvePaths -- 错误收集 > 路径穿越 ../../../outside.ts 应写入 errors"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.47,
+      "name": "runTestResolvePaths -- 错误收集 > errors 应按 path 字典序排序"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.85,
+      "name": "runTestResolvePaths -- 错误收集 > 单条失败不应中断其余 modules 条目的处理"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.69,
+      "name": "runTestResolvePaths -- modules 边界 > modules 含单元素文件路径时应返回单条 unit_tests"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 125.82,
+      "name": "runTestResolvePaths -- modules 边界 > modules 含大量文件路径（100+ 条）时不应抛错且全部解析"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.64,
+      "name": "runTestResolvePaths -- modules 边界 > modules 含多个不同目录的文件路径时应各自返回同级测试文件"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 5.01,
+      "name": "runTestResolvePaths -- 端到端编排 > 传入 modules、integration_scenarios、extension 应返回完整解析结构"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 3.22,
+      "name": "runTestResolvePaths -- 端到端编排 > project_root 指向绝对路径且源文件存在时相对路径解析应正确"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 2.98,
+      "name": "runTestResolvePaths -- integration_root 向后兼容 > 未传 integration_root + integration_scenarios: [\"api-flow\"] + extension: \"ts\" → __tests__/api-flow/api-flow.test.ts (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.2,
+      "name": "runTestResolvePaths -- integration_root 为点号 > integration_root: \".\" + 同上场景 → 与 AC-1 相同 (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 3.17,
+      "name": "runTestResolvePaths -- integration_root 子目录前缀 > integration_root: \"plugins/dev-team/bin\" + integration_scenarios: [\"api-flow\"] → 带子目录前缀路径 (AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 3.88,
+      "name": "runTestResolvePaths -- integration_root 子目录前缀 > integration_root: \"plugins/dev-team/bin/\" 经 runTestResolvePaths 映射后路径与 AC-3 一致 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 3.96,
+      "name": "runTestResolvePaths -- integration_root 与 unit_tests 隔离 > modules: [\"src/config.ts\"] + integration_root: \"plugins/dev-team/bin\" 时 unit_tests[0].test_file 仍为 src/config.test.ts (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.41,
+      "name": "runTestResolvePaths -- integration_root 与 unit_tests 隔离 > 多个 modules 含不同语言源文件时 integration_root 仅改变 integration_tests (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.01,
+      "name": "runTestResolvePaths -- integration_root 路径穿越 > integration_root: \"../outside\" 含 .. 段时写入 errors 且 integration_tests 为空 (D7)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.58,
+      "name": "runTestResolvePaths -- integration_root snake_case 映射 > runTestResolvePaths({ integration_root: \"plugins/dev-team/bin\" }) 应生成带子目录前缀的集成测试路径"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.47,
+      "name": "runTestResolvePaths -- integration_root snake_case 映射 > 未传 integration_root 时 runTestResolvePaths 应使用默认 __tests__ 前缀（回归）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 8.66,
+      "name": "runTestResolvePaths -- config-driven 自动扫描 > modules: [] 且 test.overrides 配置有效时，unit_tests 包含扫描到的源文件推导结果 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 3.98,
+      "name": "runTestResolvePaths -- config-driven 自动扫描 > modules: [] 时 runTestDetectFrameworks 被调用（通过 spy 验证）(AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.42,
+      "name": "runTestResolvePaths -- config-driven 自动扫描 > modules: [] 且 plan 为空时 errors 包含 \"No test configuration\" 提示，unit_tests 为空 (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.64,
+      "name": "runTestResolvePaths -- config-driven 过滤 > modules: [\"src/config.ts\"] 在 test config 覆盖范围内时正常返回 unit_tests (AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.51,
+      "name": "runTestResolvePaths -- config-driven 过滤 > modules: [\"scripts/not-covered.ts\"] 不在 test config 范围内时该文件不出现在 unit_tests 中，errors 包含跳过的提示 (AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.4,
+      "name": "runTestResolvePaths -- config-driven 过滤 > modules 混合范围内外文件，仅范围内的文件进入 unit_tests (AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.5,
+      "name": "runTestResolvePaths -- git-change 模式 > modules: \"git-change\" 且 git diff 返回变更文件时，返回对应 unit_tests (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.0,
+      "name": "runTestResolvePaths -- git-change 模式 > modules: \"git-change\" 且 git 命令失败时（非 git 仓库），errors 包含错误消息 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.3,
+      "name": "runTestResolvePaths -- git-change 模式 > modules: \"git-change\" 返回的变更文件均不在 test config 范围内时 unit_tests 为空 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.39,
+      "name": "runTestResolvePaths -- git-change 模式 > modules: \"git-change\" 且 git diff 返回空（无变更）时 unit_tests 为空 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.07,
+      "name": "runTestResolvePaths -- git-change 模式 > modules: \"git-change\" 且 git diff 返回大量文件（100+）时不应抛错 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 4.36,
+      "name": "runTestResolvePaths -- 去重 > 多个 override 指向同一目录时扫描结果去重 (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 1.62,
+      "name": "runTestResolvePaths -- 去重 > modules 包含重复文件路径时 unit_tests 去重 (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "status": "passed",
+      "duration_ms": 6.11,
+      "name": "runTestResolvePaths -- 去重 > config-driven 扫描与 modules 显式传入产生重叠时去重 (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/agent-definitions-static/agent-definitions-static.test.ts",
+      "status": "passed",
+      "duration_ms": 1.97,
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) > Process 不应含 config_get、static_analysis、步骤 7/8"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/agent-definitions-static/agent-definitions-static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.73,
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) > Output 不应含 reports/static_analysis.json 及 JSON 报告模板"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/agent-definitions-static/agent-definitions-static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.58,
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) > frontmatter description 不应含 static-check / static_analysis 引用"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/agent-definitions-static/agent-definitions-static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.74,
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) > Process 最后一步应为标记 tasks.md 完成（原步骤 6）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 270.22,
+      "name": "parseC4Dsl > should parse a simple model with specification block"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 0.67,
+      "name": "parseC4Dsl > should return empty elements for empty DSL"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 173.29,
+      "name": "parseC4Dsl > should parse extend relationships correctly"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 157.37,
+      "name": "parseC4Dsl > should extract path_to_element mappings"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 183.82,
+      "name": "parseC4Dsl > should parse metadata with array values"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 152.7,
+      "name": "parseC4Dsl > should handle elements with no metadata"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 146.01,
+      "name": "parseC4Dsl > should handle comments"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 289.35,
+      "name": "validateC4Dsl > should validate a correct DSL"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 220.79,
+      "name": "validateC4Dsl > should detect missing specification block"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 240.06,
+      "name": "validateC4Dsl > should detect missing model content"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 224.45,
+      "name": "validateC4Dsl > should detect duplicate specification blocks across multiple files"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 8.35,
+      "name": "readAllModels > should concatenate content from all model files"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 0.93,
+      "name": "readAllModels > should return null when no model files exist"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 5.7,
+      "name": "findSpecificationBlock > should find and return the specification block"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+      "status": "passed",
+      "duration_ms": 5.77,
+      "name": "findSpecificationBlock > should return null when no specification block exists"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+      "status": "passed",
+      "duration_ms": 1.33,
+      "name": "readWorkflowConfig — via getWorkflowType > should parse workflow.json with workflow_type test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "getWorkflowType > should return test-only when workflow.json contains test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "getWorkflowType > should return requirement when workflow.json contains requirement"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "getWorkflowType > should return requirement when workflow.json file does not exist (AC-13)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "getWorkflowType > should return requirement when workflow.json exists but workflow_type key is missing"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "getWorkflowType > should return requirement when workflow_type is empty string"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+      "status": "passed",
+      "duration_ms": 0.58,
+      "name": "getWorkflowType > should throw when workflow.json contains invalid JSON"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.test.ts",
+      "status": "passed",
+      "duration_ms": 9.34,
+      "name": "getChangeDir — MCP 缓存已设置时路径拼接 > MCP 缓存为 /workspace/project 时 getChangeDir 应拼接 openspec/changes/<name> (AC-1~AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.test.ts",
+      "status": "passed",
+      "duration_ms": 1.57,
+      "name": "getChangeDir — 无 MCP 缓存时回退 > 无 MCP 缓存、设置 CLAUDE_PROJECT_DIR 时 getChangeDir 基于 env 根目录拼接"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 2.8,
+      "name": "validateVerdict > should accept 'pass'"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.28,
+      "name": "validateVerdict > should accept 'fail'"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "validateVerdict > should reject invalid verdict"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "validateVerdict > should reject empty string"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "validateVerdict > should accept 'pass' when skipped is true"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.26,
+      "name": "validateVerdict > should reject 'fail' when skipped is true"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "validateVerdict > should reject 'pass' when skipped is false (same behavior as undefined)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 6.16,
+      "name": "buildEntry > should build a basic entry with required fields"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.46,
+      "name": "buildEntry > should include skipped field when set"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.29,
+      "name": "buildEntry > should include all extended fields simultaneously"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.39,
+      "name": "buildEntry > should include backtrack_to when set"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "buildEntry > should set backtrack_to null when undefined"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.49,
+      "name": "buildEntry > should accept backtrack_to as array"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.5,
+      "name": "markPhaseStale > should mark latest pass entry stale and propagate downstream (AC-8)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "markPhaseStale > should mark latest of multiple pass entries"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "markPhaseStale > should be no-op when no pass entry exists"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.34,
+      "name": "markPhaseStale > should propagate to full transitive closure (AC-14)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "markPhaseStale > should not mark same-phase new entry as stale"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "markPhaseStale > should mark test-gen stale when marking implement — test-gen 为直接 downstream（AC-8）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.29,
+      "name": "markPhaseStale > should propagate from implement to unit-test/code-review/integration-test/acceptance（AC-8）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "markPhaseStale > should mark test-gen and downstream stale when marking test-design（AC-9）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "markPhaseStale > should NOT mark implement stale when marking test-design（AC-9）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 1.77,
+      "name": "glob.ts 模块导出 > 应从 lib/glob.ts 可导入 matchGlob 且为函数类型"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 2.76,
+      "name": "glob.ts 模块导出 > matchGlob 对相同输入多次调用结果应一致（纯函数确定性）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.32,
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 vitest 默认 glob: src/utils/helper.test.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.25,
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 .spec.js 文件: src/util.spec.js"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.34,
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 rust 测试 glob: tests/integration/test_auth.rs"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配无通配符目录前缀: plugins/dev-team/bin/src/foo.test.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "matchGlob — 项目 glob 模式正向匹配 > 应匹配 e2e 目录 glob: tests/e2e/test_app.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.39,
+      "name": "matchGlob — 路径分隔符归一化 > Windows 反斜杠与 POSIX 正斜杠路径应对 **/*.test.ts 均返回 true"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "matchGlob — 路径分隔符归一化 > Windows 反斜杠路径应对无通配符目录前缀返回 true"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.26,
+      "name": "matchGlob — 路径分隔符归一化 > pattern 含反斜杠与正斜杠时对同一路径应产生相同结果"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "matchGlob — 不匹配路径 > 非测试文件 helper.ts 不应匹配 **/*.test.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "matchGlob — 不匹配路径 > readme.md 不应匹配 vitest 默认 glob"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "matchGlob — glob 语法边界 > ** 零段路径: foo.test.ts 应匹配 **/*.test.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "matchGlob — glob 语法边界 > ? 单字符通配: tests/unit/foo.test.ts 应匹配 tests/?nit/*.test.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "matchGlob — glob 语法边界 > 花括号备选: lib/utils.test.ts 应匹配 {src,lib}/*.test.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "matchGlob — glob 语法边界 > 无通配符精确路径不匹配: other/foo.test.ts 不应匹配 plugins/dev-team/bin"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "matchGlob — glob 语法边界 > 无通配符目录自身应匹配: plugins/dev-team/bin"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "matchGlob — 输入边界 > filePath 为空字符串时应返回确定性布尔值"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "matchGlob — 输入边界 > pattern 为空字符串时应返回确定性结果"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.78,
+      "name": "matchGlob — 输入边界 > 超长路径（>1000 字符）+ 标准 glob 模式不应抛出异常"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "matchGlob — 输入边界 > 路径含空格与 Unicode 时应匹配 **/*.test.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 26.16,
+      "name": "initProjectRootFromMcp — roots 可用时缓存首个 root > listRoots 返回单条 Windows file:// root 后 getProjectDir 应为本地绝对路径 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 1.04,
+      "name": "initProjectRootFromMcp — roots 可用时缓存首个 root > 多条 root 时仅使用 roots[0].uri（D3 多 root 策略）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 0.89,
+      "name": "initProjectRootFromMcp — roots 可用时缓存首个 root > URI 含 URL 编码字符（如 %20）应解码为正确本地路径 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 0.77,
+      "name": "initProjectRootFromMcp — 无 roots capability > getClientCapabilities()?.roots 为 undefined 时不调用 listRoots，缓存保持 null (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 2.79,
+      "name": "initProjectRootFromMcp — listRoots 抛错 > listRoots reject/throw 时缓存保持 null，不阻断初始化 (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 1.44,
+      "name": "initProjectRootFromMcp — 空 roots 数组 > listRoots 返回 { roots: [] } 时缓存保持 null (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 1.13,
+      "name": "initProjectRootFromMcp — 缓存更新 > 二次 init 返回新 URI 时 getProjectDir 应返回新路径 (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+      "status": "passed",
+      "duration_ms": 0.94,
+      "name": "initProjectRootFromMcp — 缓存更新 > init 失败时保留旧缓存 (AC-6 / D6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 2.0,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"jest\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.29,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"vitest\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"vite-plus\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"bun\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"rust\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"node-test\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"go\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "getFrameworkConfig -- known frameworks > should return correct config for \"pytest\" framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.35,
+      "name": "getFrameworkConfig -- known frameworks > should return correct coverage_format for istanbul frameworks"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "getFrameworkConfig -- known frameworks > should return correct coverage_format for llvm-cov (rust)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.28,
+      "name": "getFrameworkConfig -- known frameworks > should return coverage_output path for all frameworks"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.82,
+      "name": "getFrameworkConfig -- unknown framework > should throw for unknown framework name \"unknown-framework\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.23,
+      "name": "getFrameworkConfig -- unknown framework > should throw for empty framework name"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.3,
+      "name": "getFrameworkConfig -- unknown framework > should throw for nullish framework name"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.23,
+      "name": "getFrameworkConfig -- coverage tool availability > should return coverage_cmd for all known frameworks"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "getFrameworkConfig -- edge cases > should reject framework name with leading/trailing whitespace"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "getFrameworkConfig -- edge cases > should be case-sensitive and reject uppercase \"Vitest\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "getFrameworkConfig -- edge cases > should handle framework names with special regex characters (e.g. \"jest?\")"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "getFrameworkConfig -- edge cases > should handle a very long framework name string (>1000 chars)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.31,
+      "name": "getFrameworkConfig -- edge cases > 未知框架名抛出错误，错误信息列出全部八个框架名"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup > vitest should return coverage_artifacts and coverage_cleanup correctly"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.99,
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup > rust should return single-element JSON summary path for coverage_artifacts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.38,
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup > rust should return coverage_cleanup containing coverage and target/llvm-cov"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.25,
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup > jest should return coverage_artifacts and coverage_cleanup fields"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup > vite-plus should return coverage_artifacts and coverage_cleanup fields"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup > bun should return coverage_cleanup without .nyc_output (only coverage)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.44,
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty > each framework should have non-empty coverage_artifacts array"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.32,
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty > each framework should have non-empty coverage_cleanup array"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 1.06,
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty > each framework should return all 8 fields"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.4,
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty > coverage_artifacts should contain only non-empty strings"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "getDefaultGlobForFramework > should return the correct default glob for JS/TS frameworks"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "getDefaultGlobForFramework > should return the correct default glob for rust"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.07,
+      "name": "getDefaultGlobForFramework > should return the correct default glob for node-test"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.07,
+      "name": "getDefaultGlobForFramework > should return the correct default glob for go"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.07,
+      "name": "getDefaultGlobForFramework > should return the correct default glob for pytest"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "getDefaultGlobForFramework > should throw for unknown framework"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "getFrameworkConfig -- JSON-only coverage config > jest should return JSON-only coverage_cmd with single-element coverage_artifacts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "getFrameworkConfig -- JSON-only coverage config > vitest should return coverage_cmd with --coverage.reporter=json-summary"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "getFrameworkConfig -- JSON-only coverage config > vite-plus should return coverage_cmd with --coverage.reporter=json-summary"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "getFrameworkConfig -- JSON-only coverage config > bun should return coverage_cmd with --coverageReporters=json-summary"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "getFrameworkConfig -- JSON-only coverage config > rust should return cargo llvm-cov --json with coverage_artifacts not containing target/llvm-cov/**"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.64,
+      "name": "getFrameworkConfig -- JSON-only coverage config > five JS/TS frameworks should have JSON reporter in coverage_cmd and single-element JSON artifacts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "getFrameworkConfig -- JSON-only coverage config > each framework coverage_cleanup should match expected"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.3,
+      "name": "getFrameworkConfig -- JSON-only coverage config > updated EXPECTED_CONFIGS should match getFrameworkConfig output for all five frameworks"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.54,
+      "name": "getFrameworkConfig -- JSON-only boundary and exception > five frameworks should have coverage_artifacts.length === 1 with value coverage/coverage-summary.json"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.38,
+      "name": "getFrameworkConfig -- JSON-only boundary and exception > five frameworks should have non-empty coverage_cmd containing coverage or JSON keyword"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "getFrameworkConfig -- go > should return coverage_format: \"go-cover\" with complete artifacts/cleanup/default_glob"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "getFrameworkConfig -- node-test (coverage_cmd) > coverage_cmd should be \"node --test --experimental-test-coverage\" (no tee/pipe)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.31,
+      "name": "getFrameworkConfig -- node-test (coverage_cmd) > coverage_cmd should only contain --test and --experimental-test-coverage flags, no pipe/chain/tee/mjs"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.26,
+      "name": "getFrameworkConfig -- node-test (coverage_cmd) > other frameworks (jest/vitest/vite-plus/bun) coverage_cmd should still contain their reporter params"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.26,
+      "name": "getFrameworkConfig -- node-test (coverage_output) > node-test coverage_output should be \"coverage/node-test-output.txt\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.32,
+      "name": "getFrameworkConfig -- node-test (coverage_output) > node-test coverage_output should end with .txt, unlike other frameworks .json output"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "getFrameworkConfig -- node-test (coverage_output) > other frameworks coverage_output should remain unchanged (jest/vitest/vite-plus/bun still coverage/coverage-summary.json)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "getFrameworkConfig -- node-test (coverage_artifacts) > coverage_artifacts should be [\"coverage/node-test-output.txt\"]"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.09,
+      "name": "getFrameworkConfig -- node-test (coverage_artifacts) > coverage_cleanup should still be [\"coverage\"]"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.09,
+      "name": "getFrameworkConfig -- node-test (coverage_format) > coverage_format should still be \"node-test\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "getFrameworkConfig -- node-test (coverage_output text file) > coverage_output should point to a .txt file, not .json"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.37,
+      "name": "EXPECTED_CONFIGS -- node-test entry > EXPECTED_CONFIGS should contain node-test entry with all 8 fields matching registry"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "getFrameworkConfig -- pytest > should return coverage_format: \"coverage-py\" and coverage_output: \"coverage.json\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+      "status": "passed",
+      "duration_ms": 0.54,
+      "name": "getFrameworkConfig -- eight-framework completeness > each of the eight frameworks should return non-empty test_cmd, coverage_cmd, coverage_artifacts, coverage_cleanup"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 1.35,
+      "name": "requirement phase index > should return 0 for first phase"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "requirement phase index > should return 3 for implement（AC-1）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "requirement phase index > should return 4 for test-gen（AC-1）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "requirement phase index > should return 5 for unit-test（索引随 04/05 对调后仍正确）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "requirement phase index > should return correct index for new integration-test"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "requirement phase index > should return -1 for unknown phase"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "requirement phase index > should return -1 for old phase name"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.63,
+      "name": "getDependents > should return [dev-design, test-design, acceptance] for proposal (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "getDependents > should return [test-design, implement, acceptance] for dev-design (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "getDependents > should return [test-gen] for test-design — 03 不依赖 05，05 非其 downstream（AC-4）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "getDependents > should return [unit-test, code-review, integration-test] for test-gen（不变）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "getDependents > should return [test-gen, 06, 07, 08, 09] for implement — 04 为直接 downstream（AC-4）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "getDependents > should return [] for leaf phases (06, 07, 08, 09)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.09,
+      "name": "getDependents > should return [] for unknown phase (fault-tolerant)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.07,
+      "name": "getDependents > should default to requirement workflow_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.06,
+      "name": "getDependents > should return [code-analyze, test-design] for proposal in test-only (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.05,
+      "name": "getDependents > should return [test-design] for code-analyze in test-only (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.66,
+      "name": "getPhaseTable — test-only > should have exactly 6 phases for test-only workflow_type"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "getPhaseTable — test-only > should list test-only phases in expected order"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.65,
+      "name": "getPhaseTable — test-only > should not include dev-design, implement, review, or acceptance phases"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "getPhaseTable — test-only > should use code-analyze agents for code-analyze (AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.22,
+      "name": "PHASE_TEST_ONLY — prompt customization > proposal planner prompt differs from requirement (AC-9)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "PHASE_TEST_ONLY — WORKFLOW_CONTEXT prompts > unit-test evaluator prompt includes WORKFLOW_CONTEXT (AC-14)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.06,
+      "name": "PHASE_TEST_ONLY — WORKFLOW_CONTEXT prompts > integration-test evaluator prompt includes WORKFLOW_CONTEXT (AC-14)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.07,
+      "name": "getDependents — test-only extended > should return [test-gen] for test-design test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.05,
+      "name": "getDependents — test-only extended > should return [unit-test, integration-test] for test-gen test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.06,
+      "name": "getDependents — test-only extended > should return [] for leaf phases unit-test and integration-test test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.04,
+      "name": "getDependents — test-only extended > should return [] for unknown phase 99-unknown test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "getPrerequisites — test-only > should return [proposal, code-analyze] for test-design test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.06,
+      "name": "getPrerequisites — test-only > should return [test-design] for test-gen test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.09,
+      "name": "getPrerequisites — test-only > should return [test-gen] for unit-test and integration-test test-only"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "getPhaseTable — regression (AC-10) > bug-fix phase table length and ids unchanged"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+      "status": "passed",
+      "duration_ms": 0.06,
+      "name": "getPhaseTable — regression (AC-10) > refactor phase table matches requirement"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.test.ts",
+      "status": "passed",
+      "duration_ms": 7.95,
+      "name": "getProjectDir — 无 MCP 缓存时 env/cwd 回退链 > 缓存为 null 且 CLAUDE_PROJECT_DIR 已设置时返回该 env 值 (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.test.ts",
+      "status": "passed",
+      "duration_ms": 1.21,
+      "name": "getProjectDir — 无 MCP 缓存时 env/cwd 回退链 > 无 MCP 缓存且两 env 均未设置时返回 process.cwd() (AC-4 / AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.test.ts",
+      "status": "passed",
+      "duration_ms": 1.0,
+      "name": "getProjectDir — env 空字符串 > CLAUDE_PROJECT_DIR=\"\" 视为未设置，继续检查 process.cwd()"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 145.24,
+      "name": "dev-team-cli.cjs — help 与打包 (AC-7) > node dev-team-cli.cjs --help 输出应含 run_static_analysis 子命令"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 0.73,
+      "name": "dev-team-cli.cjs — help 与打包 (AC-7) > pnpm run build 后 dev-team-cli.cjs 应存在且可执行"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 320.63,
+      "name": "dev-team-cli.cjs run_static_analysis — 端到端 (AC-7) > 配置 node -e process.exit(0) 时 CLI 应 exit 0"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 383.61,
+      "name": "dev-team-cli.cjs run_static_analysis — 端到端 (AC-7) > 配置 node -e process.exit(1) 时 CLI 应 exit 1 且 stderr 非空"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts",
+      "status": "passed",
+      "duration_ms": 0.94,
+      "name": "dev-team-mcp.cjs — 打包回归 (AC-7) > build 后 dev-team-mcp.cjs 仍应正常生成"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 3.21,
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证包含完整 plan 数组的输出对象通过 schema 验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.45,
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证包含多个 plan 条目的数组通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.69,
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证空 plan 数组 [] 通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.28,
+      "name": "testDetectFrameworksOutputSchema -- plan 正向测试 (AC-1) > 应验证包含多余未知字段的 plan 条目通过 passthrough 验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.79,
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目缺少 directory 字段时拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.34,
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目缺少 framework 字段时拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.3,
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目缺少 coverage_cmd 字段时拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 条目的 directory 为 null 时拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.4,
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 coverage_format 为非法枚举值（非 istanbul/llvm-cov）时拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.25,
+      "name": "testDetectFrameworksOutputSchema -- plan 异常测试 > 应在 plan 为非数组类型（如字符串）时拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.31,
+      "name": "testDetectFrameworksOutputSchema -- plan 边界测试 > 应区分 coverage_format 大小写：istanbul 通过，Istanbul 拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "testDetectFrameworksOutputSchema -- plan 边界测试 > 应验证完整输出对象（detected + frameworks + plan）通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.1,
+      "name": "testDetectFrameworksOutputSchema -- plan 边界测试 > 应在 plan 条目 directory 为空字符串时通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > 包含 coverage_artifacts 和 coverage_cleanup 的 plan 条目通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.81,
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > 新字段值为非空字符串数组时通过 schema 验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > coverage_artifacts 和 coverage_cleanup 均为空数组时通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "testDetectFrameworksOutputSchema -- plan 新增字段正向测试 (AC-4) > 多个 plan 条目各自包含新的字段时通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > plan 条目中无 coverage_artifacts 和 coverage_cleanup 时 schema 验证通过"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > plan 条目包含新旧全部字段通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > 完整输出（detected + frameworks + plan 含新字段）通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "testDetectFrameworksOutputSchema -- 向后兼容 (AC-5) > plan 条目含多余未知字段 + 新字段仍通过 passthrough 验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_artifacts 为 null 时 schema 拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.23,
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_cleanup 为字符串（非数组）时 schema 拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_artifacts 含数字元素时 schema 拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "testDetectFrameworksOutputSchema -- 新字段异常测试 > coverage_cleanup 含 null 元素时 schema 拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "testDetectFrameworksOutputSchema -- plan script 正向测试 (AC-7) > plan 条目包含 script 字符串字段时通过 schema 验证 (AC-7)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "testDetectFrameworksOutputSchema -- plan script 正向测试 (AC-7) > script 为多行 bash 脚本（含 \\n）时通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.09,
+      "name": "testDetectFrameworksOutputSchema -- plan script 正向测试 (AC-7) > 多个 plan 条目各自包含 script 字段时通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目缺少 script 字段时 schema 拒绝 (AC-8)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.16,
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目 script 为 null 时 schema 拒绝 (AC-8)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目 script 为数字时 schema 拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "testDetectFrameworksOutputSchema -- plan script 异常测试 (AC-8) > plan 条目 script 为数组时 schema 拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testDetectFrameworksOutputSchema -- plan script 边界测试 > script 为空字符串 \"\" 时通过 schema 验证（string 类型允许空值）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testDetectFrameworksOutputSchema -- plan script 边界测试 > script 为超长字符串（10000 字符）时通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testDetectFrameworksOutputSchema -- plan script 边界测试 > plan 条目含多余未知字段 + script 时通过 passthrough 验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "testDetectFrameworksOutputSchema — plan coverage_format (AC-5) > plan 条目 coverage_format 为 node-test / go-cover / coverage-py 时通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-detect-frameworks.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.17,
+      "name": "testDetectFrameworksOutputSchema — plan coverage_format (AC-5) > 空字符串 coverage_format 被拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 1.71,
+      "name": "testResolvePathsInputSchema -- 正向 > 完整有效输入（含 modules、integration_scenarios、extension、project_root）应通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.15,
+      "name": "testResolvePathsInputSchema -- 正向 > 仅 modules 最小必填输入应通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "testResolvePathsInputSchema -- 正向 > extension 带前导 \".\" 的输入应通过 schema（规范化在 command 层）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.1,
+      "name": "testResolvePathsInputSchema -- 正向 > project_root 为 null 时应通过验证（nullable）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "testResolvePathsInputSchema -- union 类型 > modules: [] 空数组应通过 schema 验证（原 .min(1) 拒绝 → 现允许）(AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "testResolvePathsInputSchema -- union 类型 > modules: \"git-change\" 字符串字面量应通过验证 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.1,
+      "name": "testResolvePathsInputSchema -- union 类型 > modules: [\"src/a.ts\"] 常规数组仍应通过验证（向后兼容）(AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.1,
+      "name": "testResolvePathsInputSchema -- 边界 > modules: [\"\"] 空字符串数组应通过 schema（路径校验在 command 层）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.52,
+      "name": "testResolvePathsInputSchema -- 边界 > modules: \"GIT-CHANGE\" 大小写不匹配的字面量应被拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "testResolvePathsInputSchema -- 异常 > modules: 123 非法数字类型应被拒绝 (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testResolvePathsInputSchema -- 异常 > modules: true 布尔类型应被拒绝 (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "testResolvePathsInputSchema -- 异常 > modules: { key: \"val\" } 对象类型应被拒绝 (AC-4)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.56,
+      "name": "testResolvePathsOutputSchema -- 正向 > 完整输出对象（含 unit_tests、integration_tests、errors）应通过验证 (AC-11)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "testResolvePathsOutputSchema -- 正向 > 三个数组均为空 [] 时应通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.12,
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 unit_tests 字段时应拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.1,
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 integration_tests 字段时应拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.11,
+      "name": "testResolvePathsOutputSchema -- 异常 > 缺少 errors 字段时应拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "testResolvePathsOutputSchema -- 异常 > unit_tests 条目缺少 source 时应拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testResolvePathsOutputSchema -- 异常 > unit_tests 条目缺少 test_file 时应拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "testResolvePathsOutputSchema -- 异常 > errors 条目 message 为 null 时应拒绝"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.57,
+      "name": "testResolvePathsOutputSchema -- 边界 > integration_tests 含多条 scenario 条目时应通过验证"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.34,
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > 含 integration_root: \"plugins/dev-team/bin\" 的完整有效输入应通过验证 (AC-7)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.08,
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > 不含 integration_root 的最小必填输入仍应通过（向后兼容）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.07,
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > integration_root: \"\" 空字符串应通过 schema（规范化在 command 层）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-resolve-paths.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.05,
+      "name": "testResolvePathsInputSchema -- integration_root 可选字段 > integration_root: \".\" 应通过 schema"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+      "status": "passed",
+      "duration_ms": 25.76,
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 > modules: [] 且 config.json 含 test.overrides 时，unit_tests 包含 src/ 下源文件的推导结果 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+      "status": "passed",
+      "duration_ms": 18.65,
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 > modules: [] 时 runTestDetectFrameworks 被真实调用且 plan[].directory 被用作扫描根目录 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+      "status": "passed",
+      "duration_ms": 13.96,
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 > modules: [] 且计划目录下含非源文件（.md, .json）时应被过滤，不进入 unit_tests"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-filter/config-driven-filter.test.ts",
+      "status": "passed",
+      "duration_ms": 23.0,
+      "name": "config-driven 过滤 — 非空 modules 经 test_detect_frameworks 过滤后推导 > modules: [\"src/commands/test-resolve-paths.ts\", \"node_modules/some-dep/index.ts\"] 时仅前者进入 unit_tests (AC-3)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/git-change/git-change.test.ts",
+      "status": "passed",
+      "duration_ms": 954.17,
+      "name": "git-change 模式 — git diff 变更文件推导 > 在工作树中有未暂存变更时调用 modules: \"git-change\"，unit_tests 包含变更文件的推导结果 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/git-change/git-change.test.ts",
+      "status": "passed",
+      "duration_ms": 935.32,
+      "name": "git-change 模式 — git diff 变更文件推导 > 干净的工作树中调用 modules: \"git-change\"，unit_tests 为空 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/git-change/git-change.test.ts",
+      "status": "passed",
+      "duration_ms": 118.64,
+      "name": "git-change 模式 — git diff 变更文件推导 > 非 git 目录中调用 modules: \"git-change\"，errors 包含 git 错误 (AC-5)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/dedup/dedup.test.ts",
+      "status": "passed",
+      "duration_ms": 13.65,
+      "name": "跨目录/跨 source 的扫描结果去重 > 当 test.overrides 中多个条目指向同一目录时，unit_tests 不包含重复条目 (AC-6)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/dedup/dedup.test.ts",
+      "status": "passed",
+      "duration_ms": 7.42,
+      "name": "跨目录/跨 source 的扫描结果去重 > config-driven 扫描的目录下文件重复出现同一条目时 unit_tests 应去重"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/no-test-config/no-test-config.test.ts",
+      "status": "passed",
+      "duration_ms": 17.92,
+      "name": "无 test 配置 — modules: [] 时 errors 包含指导性消息 > config.json 仅有 schema 字段时，errors 应包含配置提示且 unit_tests 为空 (AC-2)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/no-test-config/no-test-config.test.ts",
+      "status": "passed",
+      "duration_ms": 6.79,
+      "name": "无 test 配置 — modules: [] 时 errors 包含指导性消息 > config.json 存在但 test.overrides 为空数组时 errors 应包含配置提示"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/phase_log workflow-aware backtrack rejection/phase_log workflow-aware backtrack rejection.test.ts",
+      "status": "passed",
+      "duration_ms": 6.72,
+      "name": "phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (AC-16) > 第一次 invalid backtrack 抛错且 eval 未变；第二次 fail+null 成功 append"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 129.58,
+      "name": "protect-eval.mjs — Bash tee (AC-4) > echo '[]' | tee openspec/changes/test/eval.json 应返回 deny"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 107.27,
+      "name": "protect-eval.mjs — Bash heredoc (AC-4) > heredoc 写 eval.json 应返回 deny"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 115.9,
+      "name": "protect-eval.mjs — python 豁免 (AC-4) > python 命令应返回 allow"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 156.67,
+      "name": "protect-eval.mjs — node 豁免 (AC-4) > node scripts/write-eval.mjs 应返回 allow"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 157.18,
+      "name": "protect-eval.mjs — 只读 Bash (AC-4) > cat openspec/changes/test/eval.json 应返回 allow"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 157.38,
+      "name": "protect-eval.mjs — fail-open (AC-9) > 空 stdin 应返回 allow"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 113.76,
+      "name": "protect-eval.mjs — fail-open (AC-9) > 无效 JSON stdin 应返回 allow"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 102.64,
+      "name": "protect-eval.mjs — fail-open (AC-9) > Write 缺失 tool_input.file_path 应返回 allow"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 0.79,
+      "name": "protect-eval.mjs — 脚本可用性 (AC-7) > protect-eval.mjs 应存在且非空"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "protect-eval.mjs — 脚本可用性 (AC-7) > protect-eval.sh 不应再存在"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts",
+      "status": "passed",
+      "duration_ms": 256.19,
+      "name": "static-check.mjs — CLI 缺失 (AC-10) > 无 bin/dev-team-cli.cjs 时应输出 reason 且不抛异常"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts",
+      "status": "passed",
+      "duration_ms": 282.76,
+      "name": "static-check.mjs — 脚本质量 (AC-7) > node static-check.mjs 执行时不应抛出未捕获异常"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts",
+      "status": "passed",
+      "duration_ms": 339.75,
+      "name": "static-check.mjs — 脚本质量 (AC-7) > 执行后不应生成 reports/static_analysis.json"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts",
+      "status": "passed",
+      "duration_ms": 0.81,
+      "name": "static-check.mjs — 脚本可用性 (AC-7) > static-check.mjs 应存在且非空"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "static-check.mjs — 脚本可用性 (AC-7) > static-check.sh 不应再存在"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+      "status": "passed",
+      "duration_ms": 19.31,
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 省略 files 参数时应检测 src/app.test.ts 与 tests/auth.rs 并归属正确框架"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+      "status": "passed",
+      "duration_ms": 10.39,
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 仅含 readme.md 非测试文件时 detected 应为空"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+      "status": "passed",
+      "duration_ms": 13.13,
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 > node_modules/pkg/index.test.ts 不应被自动扫描纳入 detected"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+      "status": "passed",
+      "duration_ms": 11.43,
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 > 自动扫描结果不应含 unknown 非测试文件（D5 语义变更）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+      "status": "passed",
+      "duration_ms": 16.7,
+      "name": "test_detect_frameworks — 首匹配规则 > tests/e2e/test_app.ts 同时匹配 **/*.ts 与 **/e2e/** 时应归属数组首项 vitest"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+      "status": "passed",
+      "duration_ms": 7.8,
+      "name": "test_detect_frameworks — 首匹配规则 > 交换 override 顺序后框架归属应随之改变"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+      "status": "passed",
+      "duration_ms": 20.19,
+      "name": "test_detect_frameworks — glob 模式匹配 > 应正确检测 {} 花括号、** 跨目录与无通配符目录前缀三类 pattern"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+      "status": "passed",
+      "duration_ms": 7.92,
+      "name": "test_detect_frameworks — Windows 路径 > 以反斜杠形式传入 files 参数时检测结果应与正斜杠形式一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 13.61,
+      "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 getFrameworkConfig(\"jest\") 一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 7.52,
+      "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 getFrameworkConfig(\"vitest\") 一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 6.48,
+      "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 getFrameworkConfig(\"vite-plus\") 一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 6.86,
+      "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 getFrameworkConfig(\"bun\") 一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 6.67,
+      "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > plan[0] 的 coverage_cmd/coverage_artifacts 应与 getFrameworkConfig(\"rust\") 一致"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 6.24,
+      "name": "test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9) > rust plan 仍含 coverage_cleanup: [\"coverage\", \"target/llvm-cov\"]（未变）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 7.32,
+      "name": "test_detect_frameworks — generateScript 末行 JSON-only coverage_cmd (AC-9) > vitest plan 生成的 script 最后一行应含 --coverage.reporter=json-summary"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 6.0,
+      "name": "test_detect_frameworks — generateScript 末行 JSON-only coverage_cmd (AC-9) > jest plan 生成的 script 最后一行应含 --coverageReporters=json-summary"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_json_only_coverage/test_detect_frameworks_plan_json_only_coverage.test.ts",
+      "status": "passed",
+      "duration_ms": 7.28,
+      "name": "test_detect_frameworks — generateScript 末行 JSON-only coverage_cmd (AC-9) > plan script 末行应等于 JSON-only coverage_cmd（vitest via runTestDetectFrameworks）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts",
+      "status": "passed",
+      "duration_ms": 15.62,
+      "name": "test_detect_frameworks — plan 输出结构 > 字符串简写 \"vitest\" 配置时 plan 应含完整字段且通过 schema 校验"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts",
+      "status": "passed",
+      "duration_ms": 8.53,
+      "name": "test_detect_frameworks — plan 输出结构 > 无 test.framework 配置时 plan 应为空数组且 detected 均为 unknown"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 2.47,
+      "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > Static Checklist U1 必需字段应含 coverage（object 或 null）、test_cases"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.79,
+      "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > U3 判定依据应引用 coverage.pass === true 或 coverage === null"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.71,
+      "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > Step 1 应要求 coverage 为嵌套对象（含 pass, measured, thresholds, by_framework, overrides）或 null"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.72,
+      "name": "unit-test-evaluator.md — U1/U3/Step 1 新 schema (AC-5) > Step 3 覆盖率子检查应引用 coverage.pass、coverage.measured、coverage.thresholds、coverage.overrides"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.57,
+      "name": "unit-test-evaluator.md — Step 4 决策树输入 (AC-6) > Step 4 应明确从 test_cases.filter(c => c.status === \"failed\") 读取 error_type、file、line"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.62,
+      "name": "unit-test-evaluator.md — Step 4 决策树输入 (AC-6) > 决策树 5 类分类与优先级文本应保持（设计冲突 > 语法 > 逻辑 > 接口 > 无法判断）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.7,
+      "name": "unit-test-evaluator.md — coverage null 跳过 (AC-7) > Step 3 含 coverage === null 时 evidence「覆盖率检查未配置或生成失败，跳过」"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.52,
+      "name": "unit-test-evaluator.md — coverage null 跳过 (AC-7) > Constraints 含 coverage === null 时覆盖率检查始终 pass"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.76,
+      "name": "unit-test-evaluator.md — Step 5 findings 无 HTML (AC-8) > Step 5 findings 模板应引用 coverage.measured、coverage.pass、coverage.by_framework[].measured"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_evaluator_schema_static/unit_test_evaluator_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.65,
+      "name": "unit-test-evaluator.md — Step 5 findings 无 HTML (AC-8) > 全文不应含 coverage_pass、coverage_thresholds、html_reports（grep 断言）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 3.25,
+      "name": "test.framework enum validation > should accept all valid framework enum values"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.75,
+      "name": "test.framework enum validation > should reject invalid framework name \"mocha\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.29,
+      "name": "test.framework enum validation > should reject empty string as framework name"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "test.framework enum validation > should reject non-string framework value"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.26,
+      "name": "test.framework enum validation > should pass when framework is not set"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "test.framework enum validation > 应接受 node-test、go、pytest 三个新枚举值 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.75,
+      "name": "test.coverage defaults > should fill all coverage dimensions with defaults when coverage not configured"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.24,
+      "name": "test.coverage defaults > should fill all dimensions with defaults when coverage is empty object"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "test.coverage defaults > should fill missing dimensions with defaults when coverage is partial"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.39,
+      "name": "test.coverage defaults > should reject coverage dimensions with non-numeric values"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.19,
+      "name": "test.coverage defaults > should accept empty test node and fill coverage defaults"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.28,
+      "name": "test.coverage defaults > should fill defaults even when test node is missing entirely"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 1.46,
+      "name": "test.overrides > should accept overrides with framework and coverage"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "test.overrides > should accept override with only file (no framework or coverage)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "test.overrides > should accept override with file and partial coverage"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.29,
+      "name": "test.overrides > should reject override missing file field"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.27,
+      "name": "test.overrides > should reject override with empty file string"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.21,
+      "name": "test.overrides > should reject override framework with invalid enum value"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.2,
+      "name": "test.overrides > should reject override coverage with non-numeric value"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.26,
+      "name": "test.overrides > should accept multiple overrides"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.26,
+      "name": "test.overrides > overrides 条目中 framework 为 go / node-test / pytest 时通过验证 (AC-1)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "configSchema.parse general behaviour > should pass through known top-level fields"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.53,
+      "name": "configSchema.parse general behaviour > should not preserve unknown passthrough fields"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.79,
+      "name": "configSchema.parse general behaviour > should throw on invalid data"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.13,
+      "name": "configSchema.parse general behaviour > should return success: true from safeParse for valid data"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.18,
+      "name": "configSchema.parse general behaviour > should return success: false from safeParse for invalid data"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+      "status": "passed",
+      "duration_ms": 0.14,
+      "name": "default value cascade > should fill all nested defaults from empty object"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 2.62,
+      "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > Step 7 JSON 示例应含嵌套 coverage 对象（pass、measured、thresholds、by_framework、overrides）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.8,
+      "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > 报告 JSON 示例不应含扁平 coverage 字段（coverage_thresholds、coverage_pass 等）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.57,
+      "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > by_framework 条目不应含 html_report 字段"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.66,
+      "name": "unit-test-executor.md — 嵌套 coverage 报告模板 (AC-1) > Process 步骤 2/3/5 不应引用 html_reports、html_report、index.html"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.64,
+      "name": "unit-test-executor.md — no-coverage 示例 (AC-2) > no-coverage JSON 块应仅含 \"coverage\": null，不含其他 coverage 相关顶层字段"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.72,
+      "name": "unit-test-executor.md — 失败详情合并到 test_cases (AC-3) > 主报告 test_cases[] 中 status: \"failed\" 条目应含 line、error_type、error_message、stack_trace"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.56,
+      "name": "unit-test-executor.md — 失败详情合并到 test_cases (AC-3) > 报告 JSON 示例与 Step 6/7 说明不应含顶层 failures 数组"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.51,
+      "name": "unit-test-executor.md — 失败详情合并到 test_cases (AC-3) > Step 6 提取说明不应含 failures[]，失败详情应写入 test_cases"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.69,
+      "name": "unit-test-executor.md — integration_test 子报告 schema (AC-4) > integration_test 示例应含 test_cases[] 失败条目 error 字段，不含 failures[]"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.65,
+      "name": "unit-test-executor.md — node-test 覆盖率解析 (AC-5) > 步骤 4 中 node-test 描述应说明 \"regex match `all files` row\"，而非 \"Read parser-produced coverage-summary.json\""
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.57,
+      "name": "unit-test-executor.md — node-test 覆盖率解析 (AC-5) > node-test 的 regex 提取描述应覆盖 `all files` 行三列（Lines、Branch、Funcs）的百分比值解析"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/unit_test_executor_schema_static/unit_test_executor_schema_static.test.ts",
+      "status": "passed",
+      "duration_ms": 0.72,
+      "name": "unit-test-executor.md — node-test 覆盖率解析 (AC-5) > 正则表达式应可匹配 0.00%（最小值边界）和 100.00%（最大值边界）"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.test.ts",
+      "status": "passed",
+      "duration_ms": 2.01,
+      "name": "workflow-test-only/SKILL.md — Step 1 workflow.json (AC-19) > Step 1 明确写入 {\"workflow_type\": \"test-only\"}"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.test.ts",
+      "status": "passed",
+      "duration_ms": 0.83,
+      "name": "workflow-test-only/SKILL.md — 编排结构 (AC-8) > Step 1 scaffold 后写入 workflow.json"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.test.ts",
+      "status": "passed",
+      "duration_ms": 0.86,
+      "name": "workflow-test-only/SKILL.md — 编排结构 (AC-8) > Step 2 循环仅传 change 给 phase_next"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.test.ts",
+      "status": "passed",
+      "duration_ms": 1.05,
+      "name": "workflow-test-only/SKILL.md — 编排结构 (AC-8) > 六阶段 test-only 完成摘要 total phases 占位符 (AC-9)"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.test.ts",
+      "status": "passed",
+      "duration_ms": 1.22,
+      "name": "workflow-test-only/SKILL.md — bug 报告流程 (AC-15) > 06/08 fail 且发现代码 bug 时写入 reports/code-bugs-found.md 并通知用户"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.test.ts",
+      "status": "passed",
+      "duration_ms": 0.64,
+      "name": "workflow-test-only vs workflow-requirement — Step 1 差异 > requirement skill Step 1 不写 test-only workflow.json"
+    }
+  ],
+  "skipped": 9,
+  "duration_seconds": 7.6,
+  "phase": "unit-test",
+  "coverage": {
+    "overrides": [
+      {
+        "measured": {
+          "functions": 95.65,
+          "branches": 75.35,
+          "lines": 89.21
+        },
+        "pass": true,
+        "thresholds": {
+          "functions": 75,
+          "branches": 70,
+          "lines": 80
+        },
+        "glob": "plugins/dev-team/bin"
+      }
+    ],
+    "thresholds": {
+      "functions": 75,
+      "branches": 70,
+      "lines": 80
+    },
+    "pass": true,
+    "measured": {
+      "functions": 95.65,
+      "branches": 75.35,
+      "lines": 89.21
+    },
+    "by_framework": [
+      {
+        "measured": {
+          "functions": 95.65,
+          "branches": 75.35,
+          "lines": 89.21
+        },
+        "framework": "vite-plus"
+      }
+    ]
+  },
+  "passed": 575,
+  "total": 584,
+  "failed": 0,
+  "integration_test": null,
+  "findings": "36 test files, 575 passed, 9 skipped, 0 failed. Coverage: lines 89.21%, branches 75.35%, functions 95.65% - all above thresholds (80/70/75). Integration tests in test-design.md are all marked as '废弃' (import-only changes, no new integration tests needed). Two pre-existing e2e test failures in unit_test_evaluator_schema_static.test.ts (decision tree priority regex outdated) and static-check-hook-e2e.test.ts (followup_message field name mismatch) were fixed.",
+  "timestamp": "2026-06-29T19:26:41.660Z"
+}

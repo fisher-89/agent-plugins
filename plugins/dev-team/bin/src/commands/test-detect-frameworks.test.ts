@@ -18,8 +18,8 @@ import * as path from 'path';
 
 import { describe, it, expect } from 'vite-plus/test';
 
+import { getFrameworkConfig } from '../lib/test-framework';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
-import { runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
 // Helpers: create temp project directories with config.json
@@ -873,7 +873,7 @@ describe('runTestDetectFrameworks — plan JSON-only 传播 (AC-9)', () => {
       test: { framework: 'vitest' },
     });
     try {
-      const expected = runTestGetFrameworkConfig({ framework: 'vitest' });
+      const expected = getFrameworkConfig('vitest');
       const result = runTestDetectFrameworks({
         files: ['src/test.test.ts'],
         projectRoot: project.root,
@@ -932,7 +932,7 @@ describe('runTestDetectFrameworks — plan JSON-only 传播 (AC-9)', () => {
       });
       expect(result.plan).toHaveLength(2);
       for (const entry of result.plan) {
-        const expected = runTestGetFrameworkConfig({ framework: entry.framework });
+        const expected = getFrameworkConfig(entry.framework);
         expect(entry.coverage_cmd).toBe(expected.coverage_cmd);
         expect(entry.coverage_artifacts).toEqual(expected.coverage_artifacts);
       }
@@ -973,7 +973,7 @@ describe('runTestDetectFrameworks — go plan (AC-5)', () => {
       test: { framework: 'go' },
     });
     try {
-      const expected = runTestGetFrameworkConfig({ framework: 'go' });
+      const expected = getFrameworkConfig('go');
       const result = runTestDetectFrameworks({
         files: ['pkg/foo/foo_test.go'],
         projectRoot: project.root,

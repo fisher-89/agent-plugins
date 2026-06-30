@@ -6,7 +6,12 @@
     "overrides": [
       {
         "file": "plugins/dev-team/bin",
-        "framework": "vite-plus"
+        "framework": "vite-plus",
+        "coverage": {
+          "lines": 85,
+          "branches": 75,
+          "functions": 90
+        }
       },
       {
         "file": "plugins/dev-team/hooks/scripts",

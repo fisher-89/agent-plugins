@@ -23,7 +23,7 @@ export const phaseLogSchema = z.object({
   checklist: z
     .array(
       z.object({
-        item: z.string().describe('检查项'),
+        item: z.string().describe('检查项名称，不是ID'),
         pass: z.boolean().describe('是否通过'),
         evidence: z.string().describe('检查通过/不通过的依据'),
       }),

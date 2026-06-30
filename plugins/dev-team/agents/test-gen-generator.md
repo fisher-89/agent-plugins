@@ -31,13 +31,9 @@ Collect the `frameworks` list from the result. If config.json has `test.framewor
 - `.py` => pytest (def test_*)
 - `.rs` => rust (#[cfg(test)] mod tests)
 
-### 2. Framework config resolution
+### 2. Framework syntax selection
 
-For each detected framework, call `test_get_framework_config` to get framework information:
-```
-mcp__plugin_dev-team_dev-team__test_get_framework_config({framework: "<framework_name>"})
-```
-Use the returned framework name to select the correct test syntax for skeleton generation.
+Use each detected framework name from `test_detect_frameworks` result (the `frameworks[]` list) directly to select the correct test syntax for skeleton generation. Framework-specific config commands like `coverage_cmd` are available in the `plan[]` entries if needed.
 
 ### 3. Read test-design.md (对照 template 理解各表格列定义)
 
@@ -126,4 +122,3 @@ Write test files colocated with their corresponding source files in the same dir
 - Test files SHALL be written to the same directory as the source file they test, NOT under `openspec/changes/<name>/tests/`
 - Test descriptions (describe/it/test block names) MUST be written in Chinese, e.g., `describe('用户登录模块')`, `it('应在输入无效时返回 400')`
 - Use the tool `mcp__plugin_dev-team_dev-team__test_detect_frameworks` to detect the project test framework(s)
-- Use the tool `mcp__plugin_dev-team_dev-team__test_get_framework_config` to get framework configuration and conventions

@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { runTestDetectFrameworks } from '../../src/commands/test-detect-frameworks';
-import { runTestGetFrameworkConfig } from '../../src/commands/test-get-framework-config';
+import { getFrameworkConfig } from '../../src/lib/test-framework';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -56,13 +56,13 @@ const FRAMEWORK_TEST_FILES: Record<(typeof ALL_FRAMEWORKS)[number], string> = {
 
 describe('test_detect_frameworks — plan JSON-only 与注册表一致 (AC-9)', () => {
   for (const framework of ALL_FRAMEWORKS) {
-    it(`plan[0] 的 coverage_cmd/coverage_artifacts 应与 runTestGetFrameworkConfig("${framework}") 一致`, () => {
+    it(`plan[0] 的 coverage_cmd/coverage_artifacts 应与 getFrameworkConfig("${framework}") 一致`, () => {
       const project = createTempProject({
         schema: 'spec-driven',
         test: { framework },
       });
       try {
-        const expected = runTestGetFrameworkConfig({ framework });
+        const expected = getFrameworkConfig(framework);
         const result = runTestDetectFrameworks({
           files: [FRAMEWORK_TEST_FILES[framework]],
           projectRoot: project.root,
@@ -137,7 +137,7 @@ describe('test_detect_frameworks — generateScript 末行 JSON-only coverage_cm
   });
 
   it('plan script 末行应等于 JSON-only coverage_cmd（vitest via runTestDetectFrameworks）', () => {
-    const expected = runTestGetFrameworkConfig({ framework: 'vitest' });
+    const expected = getFrameworkConfig('vitest');
     const project = createTempProject({
       schema: 'spec-driven',
       test: { framework: 'vitest' },

@@ -3,9 +3,9 @@ import * as path from 'path';
 
 import { readConfig } from '../lib/config';
 import { matchGlob } from '../lib/glob';
+import { getDefaultGlobForFramework, getFrameworkConfig } from '../lib/test-framework';
 import { type OpenSpecConfig, type TestFrameworks } from '../schemas';
 import { getProjectDir } from '../utils';
-import { getDefaultGlobForFramework, runTestGetFrameworkConfig } from './test-get-framework-config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -232,7 +232,7 @@ function buildPlanFromMappings(mappings: FrameworkMapping[]): PlanEntry[] {
   for (const mapping of mappings) {
     try {
       const directory = deriveWorkingDirectory(mapping.glob);
-      const config = runTestGetFrameworkConfig({ framework: mapping.framework });
+      const config = getFrameworkConfig(mapping.framework);
       plan.push({
         directory,
         framework: config.framework,

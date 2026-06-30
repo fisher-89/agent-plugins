@@ -1,0 +1,684 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "Evaluated proposal.md against 11-item static checklist. 10 items pass, 1 fails: R10 (specs/ missing for test-detect-frameworks modified capability). Verdict: fail. Cross-verified with specs/test-get-framework-config/spec.md — content consistent with proposal but only 1 spec for 2 capabilities.",
+    "checklist": [
+      {
+        "item": "R1",
+        "pass": true,
+        "evidence": "L10-18: Problem section clearly describes background (standalone MCP tool), current state (detect already calls registry internally), and 3 specific issues (MCP tool bloat, redundant consumer calls, maintenance burden)."
+      },
+      {
+        "item": "R2",
+        "pass": true,
+        "evidence": "L49-70: Has all 3 sections (### 实现文件, ### 测试文件, ### 不要修改). 实现文件 (7 items) and 测试文件 (4 items) both non-empty."
+      },
+      {
+        "item": "R3",
+        "pass": true,
+        "evidence": "L92-96: 3 risks each with specific non-generic mitigations: global grep .md for references + run generator verify; minor semver + plugin.json bump; verified path + TS compilation check."
+      },
+      {
+        "item": "R4",
+        "pass": true,
+        "evidence": "L77-86: 8 ACs each with specific object+condition: file existence (AC-1), import line content (AC-2), absence of call/export (AC-3, AC-4), file deletion (AC-5), agent content (AC-6), test pass (AC-7), coverage assertion (AC-8)."
+      },
+      {
+        "item": "R5",
+        "pass": true,
+        "evidence": "No explicit 关键决策 section, but rejected alternative (keep current architecture) is contextually obvious from L10-18 problem section (tool bloat, redundant calls, maintenance burden). Per memory precedent, implied alternatives from context pass R5."
+      },
+      {
+        "item": "R6",
+        "pass": true,
+        "evidence": "L96: risk mitigation mentions plugin.json version bump per CLAUDE.md rule. No contradiction with project coding guidelines or architecture."
+      },
+      {
+        "item": "R7",
+        "pass": true,
+        "evidence": "Grep for TODO, TBD, placeholder, {{...}} across proposal.md returned 0 matches. No placeholder content found."
+      },
+      {
+        "item": "R8",
+        "pass": true,
+        "evidence": "All non-capability sections (L9-19 问题, L22-31 提案, L35-44 能力, L48-70 变更范围, L76-86 验收标准, L90-96 风险) have substantive content with no placeholders."
+      },
+      {
+        "item": "R9",
+        "pass": true,
+        "evidence": "L35-37: ## 能力 section exists, L37-39: ### 移除的能力 non-empty (test-get-framework-config), L41-43: ### 修改的能力 non-empty (test-detect-frameworks)."
+      },
+      {
+        "item": "R10",
+        "pass": false,
+        "evidence": "Capabilities list: test-get-framework-config (removed) + test-detect-frameworks (modified). Only 1 spec file found: specs/test-get-framework-config/spec.md. No specs/test-detect-frameworks/spec.md for the modified capability."
+      },
+      {
+        "item": "R11",
+        "pass": true,
+        "evidence": "Cross-verified: capability types match spec content (removed → 'REMOVED Requirements' section in spec; modified → REQ-TF-2). AC IDs (1-8) all map to REQ-TF-1 to REQ-TF-4 in spec. Change scope descriptions consistent with spec scenarios."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T10:33:07.592Z"
+  },
+  {
+    "phase": "proposal",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 11 items pass. Problem clear with 3 specific consequences. Scope split correctly. Risks have concrete mitigations. ACs testable with object+condition. Rejected alternatives contextually clear (per memory rule). Consistent with CLAUDE.md. No TODOs/placeholders. Capabilities section has removed+modified entries. Specs exactly match capability list. No logical conflicts between proposal and specs.",
+    "checklist": [
+      {
+        "item": "R1",
+        "pass": true,
+        "evidence": "问题部分 (L9-18) 明确描述了 test_get_framework_config 与 test_detect_frameworks 的功能重叠，列出3个具体后果：MCP工具膨胀、消费者冗余调用、维护负担。"
+      },
+      {
+        "item": "R2",
+        "pass": true,
+        "evidence": "包含 ### 实现文件 (L49-57, 7项)、### 测试文件 (L60-63, 4项)、### 不要修改 (L67-71, 4项)，实现文件和测试文件均非空。"
+      },
+      {
+        "item": "R3",
+        "pass": true,
+        "evidence": "3个风险均有具体缓解措施：全局grep并运行测试验证引用更新、semver+plugin.json版本号、路径验证+TS编译检查。"
+      },
+      {
+        "item": "R4",
+        "pass": true,
+        "evidence": "8个AC均指定对象和条件，如 AC-1 (L79): 对象=lib/test-framework.ts, 条件=包含8框架且字段正确；AC-6 (L85): 对象=test-gen-generator.md, 条件=不再调用test_get_framework_config。"
+      },
+      {
+        "item": "R5",
+        "pass": true,
+        "evidence": "提案无显式备选方案表，但根据记忆规则（feedback_checklist_interpretation.md），问题部分(L15-18)隐式拒绝了'维持现状'。"
+      },
+      {
+        "item": "R6",
+        "pass": true,
+        "evidence": "与CLAUDE.md一致：手术式修改、无投机功能、版本号升级在风险缓解措施中提及(L96)。不违背任一项目规则。"
+      },
+      {
+        "item": "R7",
+        "pass": true,
+        "evidence": "全文搜索 TODO/TBD/placeholder/{{ 在 proposal.md 和 specs/ 目录中均无匹配。"
+      },
+      {
+        "item": "R8",
+        "pass": true,
+        "evidence": "问题(L9-18)、提案(L22-31)、变更范围(L47-71)、验收标准(L75-87)、风险(L89-97)均有实质性内容，无占位符。"
+      },
+      {
+        "item": "R9",
+        "pass": true,
+        "evidence": "## 能力 (L35) 包含 ### 移除的能力 (1项: test-get-framework-config) 和 ### 修改的能力 (1项: test-detect-frameworks)，修改条目非空。"
+      },
+      {
+        "item": "R10",
+        "pass": true,
+        "evidence": "specs/ 目录包含 specs/test-detect-frameworks/spec.md 和 specs/test-get-framework-config/spec.md，与能力章节的2个能力一一对应。"
+      },
+      {
+        "item": "R11",
+        "pass": true,
+        "evidence": "交叉验证一致：test-get-framework-config spec 使用 REMOVED Requirements，test-detect-frameworks spec 标明 Modified - Import Path。AC-1~AC-8 在 specs 中有对应 requirement，变更范围与 spec scenarios 无矛盾。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T10:35:46.902Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 10 static checklist items pass. Design completely covers all 8 ACs from proposal. Tasks follow dependency order and are specific. Change inventory is complete and consistent with tasks.",
+    "checklist": [
+      {
+        "item": "D1: 架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "5个组件每列均已填写；技术栈不含TBD；文件路径均为具体路径（如lib/test-framework.ts）"
+      },
+      {
+        "item": "D2: 数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "FrameworkConfig模型列出8字段；关系说明为无外部关系；持久化说明为'无（硬编码常量）'"
+      },
+      {
+        "item": "D3: 设计覆盖proposal.md中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1至AC-8共8项验收标准均在设计的新增/修改/删除文件及对应说明中覆盖"
+      },
+      {
+        "item": "D4: tasks.md存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "14个任务按5阶段分组：Phase1->Phase2->Phase3->Phase4->Phase5；前置任务不依赖后续；均为- [ ]格式"
+      },
+      {
+        "item": "D5: 任务具体且可执行",
+        "pass": true,
+        "evidence": "每个任务描述具体操作（创建文件含导出列表、修改文件指明import/函数变更、删除指定文件），无模糊任务"
+      },
+      {
+        "item": "D6: 依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节明确说明无新增运行时/构建依赖，并注释已有zod/v4依赖"
+      },
+      {
+        "item": "D7: 设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "lib/目录在项目中有21个现有文件，lib/test-framework.ts遵循已有colocated模式；与Slim Plugin架构无矛盾"
+      },
+      {
+        "item": "D8: 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件、变更清单（含新增+修改+删除+公共函数+类型+配置）、数据模型、依赖、待决问题均填写；路由/API因不适用省略"
+      },
+      {
+        "item": "D9: 不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md无测试策略章节；tasks.md任务为文件创建/修改/删除及编译检查，非测试执行"
+      },
+      {
+        "item": "D10: 变更清单完整且与tasks一致",
+        "pass": true,
+        "evidence": "变更清单覆盖proposal全部7个实现文件+4个测试文件；tasks文件引用均在变更清单中存在；公共函数子表无矛盾"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T10:38:16.779Z",
+    "stale": true
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. T1: all 8 ACs mapped. T2: 验收范围-用例 bidirectional. T3: extensive 异常/边界 coverage. T4: Mock strategy for filesystem dep. T5: all sections filled. T6: scope alignment. T7: N/A (no write API/DB ops). T8: template format exact match.",
+    "checklist": [
+      {
+        "item": "T1",
+        "pass": true,
+        "evidence": "All 8 ACs (AC-1..AC-8 from proposal.md lines 79-86) appear in 验收范围 table (test-design.md lines 11-20)."
+      },
+      {
+        "item": "T2",
+        "pass": true,
+        "evidence": "用例 entries for lib/test-framework.test.ts (lines 41-73) and test-detect-frameworks.test.ts (lines 84-125) map to 验收范围; integration test cases (lines 145-149) map to AC-8. No orphan or missing entries."
+      },
+      {
+        "item": "T3",
+        "pass": true,
+        "evidence": "lib/test-framework.test.ts has 异常 (unknown-framework/mocha, lines 58-59) and 边界 (null/undefined/empty/whitespace/case/regex/1001-char, lines 60-66). test-detect-frameworks.test.ts has 异常 (no match, line 86) and 边界 (empty/undefined/large/special-char, lines 87-95)."
+      },
+      {
+        "item": "T4",
+        "pass": true,
+        "evidence": "Mock strategies defined for filesystem (temp dirs via createTempProject) in lines 128-133 (unit) and 153-155 (integration). lib/test-framework.ts noted as pure-data no-mock (line 133)."
+      },
+      {
+        "item": "T5",
+        "pass": true,
+        "evidence": "验收范围 (lines 7-20), 单元测试 用例 (24-125) + Mock (127-133), 集成测试 (137-155), 不可测试项 (159-166) all filled with substantive content."
+      },
+      {
+        "item": "T6",
+        "pass": true,
+        "evidence": "All in-scope items (new lib, updated imports, deleted files, removed MCP reg, agent update) covered by tests or 不可测试项. No out-of-scope items have test coverage."
+      },
+      {
+        "item": "T7",
+        "pass": true,
+        "evidence": "No write operations (API create/update/delete or DB mutations) in scope — pure refactoring of static data and imports. Idempotency verification N/A."
+      },
+      {
+        "item": "T8",
+        "pass": true,
+        "evidence": "All table column names match template exactly. All 4 required sections present. No placeholder text remaining (test-design.md lines 1-167)."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T10:42:10.081Z",
+    "stale": true
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "实现评估 FAIL: I5/I6 未通过。I5: tasks.md 全部 15 个任务为 - [ ] 未勾选，与实际完成状态不符。I6: test-resolve-paths.ts 和 test-resolve-paths.test.ts 包含了设计清单中未列出的无关重构变更（extractExecError/resolveGitModules/processModulesMode 等函数抽取）。config/config.schema.ts 的 export 移除也未在设计清单中列明。",
+    "checklist": [
+      {
+        "item": "I1: 架构组件均有实现代码",
+        "pass": true,
+        "evidence": "全部5个架构组件在对应文件中实现: lib/test-framework.ts (注册表), test-detect-frameworks.ts (检测), mcp.ts (MCP), schemas/ (schema), test-gen-generator.md (agent)"
+      },
+      {
+        "item": "I2: 数据流遵循设计",
+        "pass": true,
+        "evidence": "import 从 ./test-get-framework-config 改为 ../lib/test-framework; runTestGetFrameworkConfig({framework:x}) 改为 getFrameworkConfig(x); 所有消费者(test-detect-frameworks.ts、test-detect-frameworks.test.ts、集成测试文件)均已更新"
+      },
+      {
+        "item": "I3: 代码遵循项目规范",
+        "pass": true,
+        "evidence": "命名风格(camelCase/PascalCase)、文件组织(lib/ vs commands/)、import 模式与代码库一致"
+      },
+      {
+        "item": "I4: 路由/API 已实现",
+        "pass": true,
+        "evidence": "设计说明无 HTTP API 变更; test_get_framework_config MCP工具已从 mcp.ts 和 schemas 中完全移除; schema.test.ts 已删除"
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均已标记 [x]",
+        "pass": false,
+        "evidence": "tasks.md 中全部 15 个任务均为 - [ ] (未勾选)，与实际已完成的状态不符"
+      },
+      {
+        "item": "I6: 无与当前变更无关的代码",
+        "pass": false,
+        "evidence": "test-resolve-paths.ts 和 test-resolve-paths.test.ts 包含无关的重构变更(extractExecError/resolveGitModules/processModulesMode/processAutoScanMode函数抽取)共约100行增量，不在设计变更清单中"
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "getFrameworkConfig 使用简化字符串签名; test_cmd 保留; FRAMEWORK_REGISTRY 为纯静态模块; MCP工具/导出均已移除; version 2.7.14 -> 2.8.0"
+      }
+    ],
+    "backtrack_to": "dev-design",
+    "timestamp": "2026-06-29T10:54:29.992Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 10 static checklist items pass: D1 (5 components in table), D2 (FrameworkConfig with fields/relations/persistence), D3 (all 8 ACs covered), D4 (5 phases ordered correctly), D5 (all tasks specific), D6 (runtime/build deps listed), D7 (consistent with CLAUDE.md slim architecture), D8 (all template sections filled), D9 (no test execution in tasks.md), D10 (change inventory matches proposal and tasks).",
+    "checklist": [
+      {
+        "item": "D1",
+        "pass": true,
+        "evidence": "5 architecture components in table, each with 职责/依赖/技术栈/文件路径 columns. No TBD. All file paths point to specific files."
+      },
+      {
+        "item": "D2",
+        "pass": true,
+        "evidence": "FrameworkConfig model has 字段 (8 listed), 关系 (described), 持久化 (无) — all columns filled."
+      },
+      {
+        "item": "D3",
+        "pass": true,
+        "evidence": "AC-1 through AC-8 all covered: lib creation, import updates, MCP removal, schema removal, file deletion, agent update, test modifications, new lib tests."
+      },
+      {
+        "item": "D4",
+        "pass": true,
+        "evidence": "tasks.md exists with 5 phases. Phase 1→2→3→4→5 follows logical dependency order. No later task is a dependency of an earlier task."
+      },
+      {
+        "item": "D5",
+        "pass": true,
+        "evidence": "Each task describes specific operations (e.g., '修改 mcp.ts: 移除 import, 移除 registerTestGetFrameworkConfigTool, 移除 main() 调用'). No '实现功能' style tasks."
+      },
+      {
+        "item": "D6",
+        "pass": true,
+        "evidence": "运行时依赖 section states no new deps; zod/v4 mentioned as existing. 构建/测试依赖 section states no new deps; vite-plus/test mentioned as existing."
+      },
+      {
+        "item": "D7",
+        "pass": true,
+        "evidence": "Design removes unused MCP tool and extracts internal lib — consistent with CLAUDE.md's 'Slim Plugin' architecture of lean MCP surfaces."
+      },
+      {
+        "item": "D8",
+        "pass": true,
+        "evidence": "All required sections filled: 架构组件 (5), 变更清单 (7 sub-tables), 数据模型, 依赖, 待决问题 (2). 路由/API omitted with '如不适用可省略' note."
+      },
+      {
+        "item": "D9",
+        "pass": true,
+        "evidence": "No 测试策略/测试架构 in design.md. No unit/integration test execution tasks in tasks.md; only test code creation/migration and a compilation check."
+      },
+      {
+        "item": "D10",
+        "pass": true,
+        "evidence": "All proposal 变更范围 files appear in 变更清单. All 变更清单 files have corresponding tasks. 公共函数 sub-table consistent with new/deleted functions. No contradictions between sub-tables."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T10:56:04.230Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 8 items pass. T1: 8/8 ACs mapped. T2: bidirectional coverage. T3: 异常/边界 coverage per object. T4: Mock strategy defined. T5: all sections filled. T6: scope aligned. T7: no write ops, N/A. T8: template format matched.",
+    "checklist": [
+      {
+        "item": "T1",
+        "pass": true,
+        "evidence": "8 ACs from proposal L79-86 mapped in 验收范围 L11-20"
+      },
+      {
+        "item": "T2",
+        "pass": true,
+        "evidence": "验收范围 bidirectional with 用例 tables, no orphans"
+      },
+      {
+        "item": "T3",
+        "pass": true,
+        "evidence": "异常/边界 per test object: unknown/null/empty/1001-char/regex"
+      },
+      {
+        "item": "T4",
+        "pass": true,
+        "evidence": "Mock strategy for filesystem (createTempProject) in unit L127-133 and integration L153-155"
+      },
+      {
+        "item": "T5",
+        "pass": true,
+        "evidence": "验收范围, 单元测试/用例/Mock, 集成测试/用例/Mock, 不可测试项 all filled"
+      },
+      {
+        "item": "T6",
+        "pass": true,
+        "evidence": "In-scope covered, out-of-scope not tested"
+      },
+      {
+        "item": "T7",
+        "pass": true,
+        "evidence": "No write ops in scope, idempotency N/A"
+      },
+      {
+        "item": "T8",
+        "pass": true,
+        "evidence": "Table columns match template, no placeholders"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T10:59:06.494Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "I6 FAIL: 3 files changed outside design scope. test-resolve-paths.ts/.test.ts explicitly marked \"不要修改\" but have refactoring/type changes. config.schema.ts export removal not in design. Other items pass: all components implemented, data flow correct, coding standards followed, all tasks [x], no routes to implement.",
+    "checklist": [
+      {
+        "item": "I1: design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "5 components (Test Framework Registry, Framework Detection, MCP Server, Schemas, test-gen-generator Agent) all verified in corresponding files"
+      },
+      {
+        "item": "I2: 实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "test-detect-frameworks imports from '../lib/test-framework' and uses getFrameworkConfig(x) directly; plan entries propagate FrameworkConfig fields correctly"
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "New lib/test-framework.ts follows same pattern as other lib/ files; camelCase naming; colocated .test.ts convention"
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md explicitly states no routes/HTTP APIs in scope (N/A)"
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 14 tasks across 5 phases marked [x]; all corresponding code changes verified"
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": false,
+        "evidence": "3 files changed outside design scope: (1) test-resolve-paths.ts — refactoring (extractExecError, resolveGitModules, processModulesMode, processAutoScanMode); (2) test-resolve-paths.test.ts — type import additions; (3) config.schema.ts — export removal. Files 1-2 explicitly listed as '不要修改' in design.md"
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "All explicit design decisions followed: module relocation to lib/, simplified function signature getFrameworkConfig(x), MCP tool removal, schema cleanup, agent markdown update, minor version bump"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T11:02:46.994Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "ALL PASS: I1 (5/5 components), I2 (data flow matches design), I3 (code conventions followed), I4 (N/A-no routes), I5 (all 12 tasks [x]), I6 (all changes traceable, no unrelated code), I7 (design decisions respected-simplified signature, MCP removal, 8-field interface, agent update).",
+    "checklist": [
+      {
+        "item": "I1: design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "5 components: lib/test-framework.ts (Registry), commands/test-detect-frameworks.ts (Detection), mcp.ts (MCP Server), schemas/ (Schemas), agents/test-gen-generator.md (Agent) all created/modified per design."
+      },
+      {
+        "item": "I2: 实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "test-detect-frameworks.ts imports from ../lib/test-framework, uses getFrameworkConfig(x) directly; mcp.ts removed registerTestGetFrameworkConfigTool; agent no longer calls test_get_framework_config."
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "camelCase functions, PascalCase interfaces, lib/ directory structure, colocated test file (*.test.ts), named imports all consistent with project patterns."
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "Design.md explicitly states '本变更不涉及 HTTP API，省略路由/API 设计节' — N/A."
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 12 tasks across 5 phases have [x] checked, including Phase 5 version bump (2.7.14→2.9.0)."
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "All changes (new lib files, import/function updates, MCP removal, schema deletions, agent edits, version bump) are traceable to tasks. config.schema.ts diff is whitespace-only no-op. 'Do not modify' files untouched."
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "getFrameworkConfig uses simplified string signature; FrameworkConfig has all 8 fields; 8 frameworks in registry; MCP tool removed; test_cmd retained; agent no longer references test_get_framework_config."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T11:12:34.995Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Generator passed all 9 checklist items. New lib/test-framework.test.ts (663 lines, untracked) covers all 32 新增 rows from unit test table including 七边界 cases. Updated test-detect-frameworks.test.ts and integration test with correct getFrameworkConfig() imports. describe/it blocks match test-design. Mock strategy (createTempProject + try/finally cleanup) implemented. No new tests generated for 废弃 rows.",
+    "checklist": [
+      {
+        "item": "G1",
+        "pass": true,
+        "evidence": "lib/test-framework.ts 的 getFrameworkConfig/getDefaultGlobForFramework 有 lib/test-framework.test.ts; test-detect-frameworks.ts 的 runTestDetectFrameworks 有 test-detect-frameworks.test.ts"
+      },
+      {
+        "item": "G2",
+        "pass": true,
+        "evidence": "lib/test-framework.test.ts 和 test-detect-frameworks.test.ts 均使用 .test.ts 命名，与源码同目录共存"
+      },
+      {
+        "item": "G3",
+        "pass": true,
+        "evidence": "lib/test-framework.test.ts 包含 7 个 describe 块覆盖 八框架完整性/已知框架/未知框架/边界值/JSON-only配置/getDefaultGlobForFramework，对应所有 32 条 新增 行的测试条件"
+      },
+      {
+        "item": "G4",
+        "pass": true,
+        "evidence": "集成测试 5 行均为 废弃，无新测试生成；import 路径已从 runTestGetFrameworkConfig 更新为 getFrameworkConfig"
+      },
+      {
+        "item": "G5",
+        "pass": true,
+        "evidence": "test-detect-frameworks.test.ts 的 createTempProject 函数在临时目录创建 config.json；try/finally 确保 cleanup 调用；集成测试使用相同模式"
+      },
+      {
+        "item": "G6",
+        "pass": true,
+        "evidence": "所有测试文件使用 'vite-plus/test' 框架，导入路径正确（../lib/test-framework 和 ./test-detect-frameworks）"
+      },
+      {
+        "item": "G7",
+        "pass": true,
+        "evidence": "边界覆盖: 空串/null/undefined/whitespace/大小写敏感/特殊正则字符/超长字符串/未知框架，覆盖 string 类型 7 个边界值（>2要求）"
+      },
+      {
+        "item": "G8",
+        "pass": true,
+        "evidence": "test-detect-frameworks.test.ts 和集成测试每个 it 均使用 try/finally + project.cleanup()；lib/test-framework.test.ts 纯函数无需清理"
+      },
+      {
+        "item": "G9",
+        "pass": true,
+        "evidence": "test-detect-frameworks.test.ts 的 24 行 废弃 和集成测试 5 行 废弃 均未生成新测试，仅更新 import 路径和函数签名"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T11:19:46.966Z"
+  },
+  {
+    "phase": "unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 584 个单元测试通过（575 passed, 9 skipped），覆盖率达标: lines=89.21%, branches=75.35%, functions=95.65% — 全部高于阈值 (80/70/75)",
+    "checklist": [
+      {
+        "item": "U1",
+        "pass": true,
+        "evidence": "执行报告结构完整 — phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds/test_cases 均存在且类型正确"
+      },
+      {
+        "item": "U2",
+        "pass": true,
+        "evidence": "所有单元测试通过 — failed=0, total=584, skipped=9"
+      },
+      {
+        "item": "U3",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=89.21% (阈值 80%), branches=75.35% (阈值 70%), functions=95.65% (阈值 75%), coverage.pass=true; override plugins/dev-team/bin 同样通过"
+      },
+      {
+        "item": "U4",
+        "pass": true,
+        "evidence": "failed=0，无需诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T11:27:28.164Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "C1-C8 全部通过。注册表迁移正确，MCP 工具移除 clean，test-gen-generator 引用已更新，测试完整覆盖 8 框架字段。未发现安全漏洞或数据校验遗漏。",
+    "checklist": [
+      {
+        "item": "C1",
+        "pass": true,
+        "evidence": "无安全漏洞：grep 检查 password/secret/api_key/eval/exec/system 在变更代码中无匹配。仅有的 exec() 调用是正则 regex.exec() 在 c4-cross-ref.ts（非变更范围）。"
+      },
+      {
+        "item": "C2",
+        "pass": true,
+        "evidence": "所有外部输入有格式检查：getFrameworkConfig() 通过 isTestFramework() 验证框架名；generateScript() 有完整 null/type 守卫检查；normalizeFrameworks() 处理 null/undefined/非数组；resolveFilesToCheck() 处理空数组和 undefined。"
+      },
+      {
+        "item": "C3",
+        "pass": true,
+        "evidence": "实现与 design.md 一致：lib/test-framework.ts 含完整注册表和导出函数；test-detect-frameworks.ts 改用新的 import 路径和简化签名 getFrameworkConfig(x)；mcp.ts 移除工具注册；schemas/index.ts 移除 schema export；test-get-framework-config.ts 及其 schema 已删除；test-gen-generator.md 已替换 Framework config resolution 步骤。version 从 2.7.14 升至 2.9.0。"
+      },
+      {
+        "item": "C4",
+        "pass": true,
+        "evidence": "空值/边界处理完整：getFrameworkConfig 处理 null/undefined/空字符串/超长输入均 throw；generateScript 有显式 null 和各字段 type 检查；buildPlanFromMappings 对未知框架使用 try-catch 跳过；collectFiles 用 try-catch 包装 readdirSync；detectFrameworksForFiles 处理 unmatched files 返回 'unknown'。"
+      },
+      {
+        "item": "C5",
+        "pass": true,
+        "evidence": "无冗余/死代码：runTestGetFrameworkConfig 导入和调用已全部替换为 getFrameworkConfig；旧文件 test-get-framework-config.ts、schema 文件、对应测试文件均已删除；lib/test-framework.ts 中所有导出函数均被 test-detect-frameworks.ts 使用。"
+      },
+      {
+        "item": "C6",
+        "pass": true,
+        "evidence": "代码可读性良好且遵循项目规范：lib/test-framework.ts 有清晰的注释和 public/private 划分；generateScript 有详细的 JSDoc 规则说明；测试文件遵循项目建立的 createTempProject/describe/it/expect 模式；命名一致。"
+      },
+      {
+        "item": "C7",
+        "pass": true,
+        "evidence": "外部数据同源类型：FrameworkConfig 类型在 lib/test-framework.ts 中定义，test-detect-frameworks.ts 通过 getFrameworkConfig 返回值复用该类型；TestFrameworks 枚举从 schemas 导入保持同源；Pl anEntry 因有额外字段（script/directory）独立定义是合理的。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T11:29:09.541Z"
+  },
+  {
+    "phase": "integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 9 个集成测试通过",
+    "checklist": [
+      {
+        "item": "N1: 执行报告结构完整",
+        "pass": true,
+        "evidence": "所有必需字段(phase, command, timestamp, total, passed, failed, skipped, coverage, duration_ms, failures)均存在且类型正确"
+      },
+      {
+        "item": "N2: 所有集成测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=9 (>0), 全部通过"
+      },
+      {
+        "item": "N3: 无环境/配置阻断",
+        "pass": true,
+        "evidence": "无 ConnectionRefused/Timeout/环境变量缺失等基础设施错误，failures 数组为空"
+      },
+      {
+        "item": "N4: 失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0, 无需诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-29T11:31:34.388Z"
+  },
+  {
+    "phase": "acceptance",
+    "timestamp": "2026-06-29T11:33:12.123Z",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 5/5 pass. A1: 8/8 ACs traced (lib/test-framework.ts L22-104, test-detect-frameworks.ts L6, mcp.ts absent, schemas/index.ts L1-27, files deleted, test-gen-generator.md L35-36, 584 tests passed, test-framework.test.ts L125-661). A2: No creep. A3: All 11 in_scope files done. A4: out_of_scope untouched. A5: All 3 risks mitigated (agent clean, version 2.9.0, TS check passed).",
+    "checklist": [
+      {
+        "item": "A1: proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1 lib/test-framework.ts L22-104, AC-2 test-detect-frameworks.ts L6, AC-3 mcp.ts 无残留, AC-4 schemas/index.ts L1-27, AC-5 文件已删除, AC-6 test-gen-generator.md L35-36, AC-7 584测试通过, AC-8 test-framework.test.ts L125-661"
+      },
+      {
+        "item": "A2: 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "所有变更可追踪至proposal scope; 不要修改文件未改动; 无新增MCP工具或schema"
+      },
+      {
+        "item": "A3: proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "7个实现文件+4个测试文件+集成测试+version bump 2.9.0均确认就位"
+      },
+      {
+        "item": "A4: proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "test_detect_frameworks schema未变; unit-test-executor.md仅保留DO NOT CALL; test-resolve-paths.ts/.test.ts未改"
+      },
+      {
+        "item": "A5: proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "风险1(grep确认agent无残留), 风险2(version 2.9.0 minor升级), 风险3(TS编译+584单元+9集成全部通过)"
+      }
+    ],
+    "backtrack_to": null
+  }
+]

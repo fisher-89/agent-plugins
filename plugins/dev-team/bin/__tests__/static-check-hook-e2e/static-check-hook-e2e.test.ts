@@ -89,13 +89,14 @@ describe('static-check.mjs — CLI 缺失 (AC-10)', () => {
     stub = undefined;
   });
 
-  it('无 bin/dev-team-cli.cjs 时应输出 followup_message 且不抛异常', () => {
+  it('无 bin/dev-team-cli.cjs 时应输出 reason 且不抛异常', () => {
     stub = createStubPluginRoot({ cliBehavior: 'missing' });
     expect(() => runStaticCheckHook(stub!.root)).not.toThrow();
     const { stdout } = runStaticCheckHook(stub.root);
-    const parsed: { followup_message?: string } = JSON.parse(stdout);
-    expect(parsed.followup_message).toBeDefined();
-    expect(typeof parsed.followup_message).toBe('string');
+    const parsed: { decision?: string; reason?: string } = JSON.parse(stdout);
+    expect(parsed.reason).toBeDefined();
+    expect(typeof parsed.reason).toBe('string');
+    expect(parsed.decision).toBe('block');
   });
 });
 

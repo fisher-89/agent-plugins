@@ -105,7 +105,7 @@ describe('unit-test-evaluator.md — Step 4 决策树输入 (AC-6)', () => {
     expect(step4).toMatch(/接口签名不匹配/);
     expect(step4).toMatch(/无法判断/);
     expect(step4).toMatch(
-      /Design conflict \(4\) > Syntax error \(1\) > Logic error \(2\) > Interface mismatch \(3\) > Unknown \(5\)/,
+      /Design conflict \(4\) > Syntax error \(1\) > Logic error \(2\) > Interface mismatch \(3\) > Coverage failure \(5\) > Unknown \(6\)/,
     );
   });
 });

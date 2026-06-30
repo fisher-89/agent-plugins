@@ -16,10 +16,6 @@ export {
   testDetectFrameworksOutputSchema,
 } from './test-detect-frameworks.schema';
 export {
-  testGetFrameworkConfigInputSchema,
-  testGetFrameworkConfigOutputSchema,
-} from './test-get-framework-config.schema';
-export {
   testResolvePathsInputSchema,
   testResolvePathsOutputSchema,
 } from './test-resolve-paths.schema';
