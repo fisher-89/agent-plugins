@@ -23,9 +23,9 @@ Read:
 3. Read the design template for structure
 4. Explore the existing codebase (Read, Grep, Glob, Bash) for modules in proposal scope
 5. Write `openspec/changes/<change-name>/design.md` covering:
-   - **Architecture Components**: Each component with responsibility, dependencies, technology, and file paths
-   - **Data Flow**: How data moves through the existing system (concrete code paths)
-   - **Route / API Design**: If applicable — existing endpoints with method, path, input, output
+   - **架构组件**: Each component with responsibility, dependencies, technology, and file paths
+   - **变更清单**: New/modified files, public functions/APIs, type definitions, and config changes
+   - **路由/API 设计**: If applicable — existing endpoints with method, path, input, output
    - **Decisions**: Architectural patterns observed in the code (not future design decisions)
    - Do NOT include testing strategy, test architecture, unit test, or integration test sections
 

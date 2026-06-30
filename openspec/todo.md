@@ -36,3 +36,4 @@
 - [x] fix:主Agent执行了流程外行为，改代码、运行测试、调用phase_log
 - [ ] fix:unit-test概率没有生成报告
 - [ ] 流程开始前运行static_check检查，若未通过，通知用户修复并提交后再继续
+- [ ] phase_log设置backtrack_to时增加字段记录backtrack_reason，phase_next返回的prompt拼接该原因

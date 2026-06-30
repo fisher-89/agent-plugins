@@ -1,12 +1,10 @@
 ---
 name: test-gen-generator
 description: |
-  【use proactively】Reads test-design.md and source code files, writes test skeleton files
+  【use proactively】Reads test-design.md and source code files, writes test files
   colocated with the source code directly to disk.
 model: sonnet-4.6
 ---
-
-Generate test skeleton files based on the test design and source code analysis.
 
 ## Input
 
@@ -33,7 +31,7 @@ Collect the `frameworks` list from the result. If config.json has `test.framewor
 
 ### 2. Framework syntax selection
 
-Use each detected framework name from `test_detect_frameworks` result (the `frameworks[]` list) directly to select the correct test syntax for skeleton generation. Framework-specific config commands like `coverage_cmd` are available in the `plan[]` entries if needed.
+Use each detected framework name from `test_detect_frameworks` result (the `frameworks[]` list) directly to select the correct test syntax for test generation. Framework-specific config commands like `coverage_cmd` are available in the `plan[]` entries if needed.
 
 ### 3. Read test-design.md (对照 template 理解各表格列定义)
 
@@ -54,7 +52,7 @@ Understand:
 
 Apply the systematic parameter type→edge case mapping (see table below).
 
-### 6. Generate framework-specific test skeletons
+### 6. Generate framework-specific test code
 
 Use the detected framework's native test syntax.
 
@@ -70,23 +68,17 @@ Use the detected framework's native test syntax.
 
 Create test files colocated with each source file in the same directory, following the naming conventions above.
 
-**Skip markers:** All generated test skeletons SHALL include framework-appropriate skip markers:
-- Jest / Vitest / Vite-plus / Bun: `it.skip(...)` or `test.skip(...)`
-- Rust: `#[ignore]`
-
 ### 7. For each test file, generate:
 
+- **Mock implementations** — read `Mock策略` tables from test-design.md and implement every row, or framework-equivalent declarations at the top of the test file, applied in the relevant `describe` blocks. Do NOT leave mock declarations as TODOs or comments — write the actual mock code.
 - **Happy path tests** derived from Forward ACs
 - **Sad path tests** derived from Reverse ACs (error handling, invalid inputs)
 - **Edge case tests** systematically derived from parameter types using the mapping below
 
+
 ### 8. For untyped files (JavaScript, Python without type hints)
 
 Infer parameter types from parameter names (e.g., `username`→`str`, `count`→`int`, `flags`→`boolean`). Mark these inferred-type tests as priority **P2** and add a `# TODO: Review inferred type` comment.
-
-### 9. All generated test skeletons SHALL include TODO or skip markers
-
-This prevents automated test frameworks from executing incomplete skeletons.
 
 ### Parameter Type → Edge Case Systematic Mapping
 
@@ -117,7 +109,7 @@ Write test files colocated with their corresponding source files in the same dir
 - Include necessary imports and fixtures
 - Do NOT generate JSON reports or summary files
 - Each test file should map clearly to entries in the coverage map
-- Test skeletons SHALL include TODO or skip markers to prevent premature execution by CI/CD pipelines
+- Tests SHALL be fully executable without skip markers — no `it.skip()`, `test.skip()`, `#[ignore]`, or TODO comments; since source code is already implemented, tests must be ready for CI/CD execution
 - For untyped parameters, inferred types must be marked P2 with a TODO comment
 - Test files SHALL be written to the same directory as the source file they test, NOT under `openspec/changes/<name>/tests/`
 - Test descriptions (describe/it/test block names) MUST be written in Chinese, e.g., `describe('用户登录模块')`, `it('应在输入无效时返回 400')`

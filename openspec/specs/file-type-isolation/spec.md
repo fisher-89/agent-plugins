@@ -1,15 +1,21 @@
 ## ADDED Requirements
 
-### Requirement: test-gen-generator 被约束仅读取设计文档文件
-test-gen-generator 的 agent prompt SHALL 包含硬编码的文件类型黑名单，禁止读取项目源码文件。
-黑名单 SHALL 至少包含以下文件扩展名：`.ts`、`.tsx`、`.js`、`.jsx`、`.py`、`.rs`、`.go`、`.java`、`.c`、`.cpp`、`.h`、`.hpp`、`.cs`、`.rb`、`.php`。
-test-gen-generator SHALL 仅被允许读取：`.md`、`.template`、`.yaml`、`.yml`、`.json` 文件。
-test-gen-generator 的 prompt SHALL 包含明确指示："你不得 Read、Grep、Glob 任何源码文件（.ts、.py、.js 等），你只能读取设计文档（.md、.template、.yaml、.json）"。
+### Requirement: test-gen-generator 允许读取源码文件（implement 之后执行）
 
-#### Scenario: test-gen-generator 拒绝读取源码文件
-- **WHEN** test-gen-generator agent 被调用
-- **THEN** 其 system prompt 中包含文件类型黑名单约束
-- **AND** 如果 Agent 尝试读取 `.ts` 或 `.py` 文件，skill 层在校验时检测到违规并输出警告
+Since test-gen now runs AFTER implement (see `reorder-test-gen-after-implement`), source code is complete and stable. test-gen-generator SHALL be permitted to read source code files to:
+
+- Extract real function/method signatures, parameter types, and return types
+- Understand implementation logic for accurate test assertions
+- Read Mock strategies from test-design.md and implement actual `vi.mock()`/`spyOn()`/`stubGlobal()` declarations (not skip/TODO markers)
+
+test-gen-generator 的 agent prompt SHALL NOT contain a file-type blacklist for source code. The agent SHALL be allowed to Read, Grep, and Glob `.ts`, `.tsx`, `.js`, `.jsx`, `.py`, `.rs`, `.go` files in source directories.
+
+test-gen-generator SHALL still NOT read files in `tests/`, `__tests__/`, `test/`, or `spec/` directories (existing test code isolation is preserved).
+
+#### Scenario: test-gen-generator 读取源码文件生成完整测试
+- **WHEN** test-gen-generator agent 被调用，且 implement 阶段已通过
+- **THEN** agent 读取源码文件（.ts, .py 等）以获取真实函数签名和实现逻辑
+- **AND** 生成的测试包含真实的 mock 声明（vi.mock/spyOn/stubGlobal）和 expect() 断言，而不是 it.skip() 骨架
 
 ### Requirement: implementation-generator 被约束禁止读取测试文件
 implementation-generator 的 agent prompt SHALL 包含硬编码的目录黑名单，禁止读取测试目录下的文件。
@@ -25,16 +31,20 @@ implementation-generator 的 prompt SHALL 包含明确指示："你不得 Read�
 ### Requirement: Generator 执行后的文件访问审计
 skill 层在 Generator agent 执行完毕后 SHALL 执行文件访问审计。
 审计 SHALL 检查 Generator 在本次执行中所有 Read、Grep、Glob 工具调用的路径参数。
-如果发现任何路径匹配黑名单（文件类型或目录），skill SHALL 将该次 Generator 输出标记为违规，并在 eval.json 对应条目中添加违规记录。
+
+**For implementation-generator**: 审计检查路径是否匹配 `tests/`、`__tests__/`、`test/`、`spec/` 等测试目录黑名单。
+**For test-gen-generator**: 审计检查路径是否匹配 `tests/`、`__tests__/`、`test/`、`spec/` 等测试目录黑名单（允许读取源码文件，禁止读取已有测试文件以防抄袭）。
+
+如果发现任何路径匹配黑名单，skill SHALL 将该次 Generator 输出标记为违规，并在 eval.json 对应条目中添加违规记录。
 如果违规次数达到阈值（默认 3 次），skill SHALL 阻止该次 Generator 输出被使用，并提示用户检查 Generator prompt。
 
 #### Scenario: 文件访问审计无违规
-- **WHEN** implementation-generator 执行完毕，skill 检查其所有文件读取路径
+- **WHEN** implementation-generator 或 test-gen-generator 执行完毕，skill 检查其所有文件读取路径
 - **THEN** 如果所有读取路径均不在黑名单中，审计通过，Generator 输出正常进入后续流程
 
 #### Scenario: 文件访问审计发现违规
-- **WHEN** implementation-generator 执行了 Read 操作，路径为 `tests/unit/user.test.ts`
-- **THEN** skill 检测到路径匹配 `tests/` 黑名单
+- **WHEN** implementation-generator 或 test-gen-generator 执行了 Read 操作，路径为 `tests/unit/user.test.ts`
+- **THEN** skill 检测到路径匹配测试目录黑名单
 - **AND** 在 eval.json 当前条目中添加违规记录 `{violation_type: "blacklisted_directory", path: "tests/unit/user.test.ts", count: 1}`
 - **AND** 如果累计违规达到 3 次，输出提示 "Generator 连续违规 3 次，请检查 agent prompt 约束是否足够"
 
@@ -46,7 +56,7 @@ skill 层在 Generator agent 执行完毕后 SHALL 执行文件访问审计。
 
 #### Scenario: 隔离启用
 - **WHEN** `features.fileTypeIsolation.enabled` 为 true
-- **THEN** test-gen/implement 阶段的 Generator prompt 包含文件类型黑名单，skill 层执行文件访问审计
+- **THEN** implementation-generator prompt 包含测试目录黑名单（禁止读取 tests/）；test-gen-generator prompt 仅包含测试目录黑名单（允许读取源码文件，禁止读取已有测试文件）；skill 层执行文件访问审计
 
 #### Scenario: 隔离关闭
 - **WHEN** `features.fileTypeIsolation.enabled` 为 false

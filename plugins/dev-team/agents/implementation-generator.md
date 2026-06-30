@@ -10,7 +10,7 @@ Implement pending tasks by writing code changes directly to disk.
 ## Input
 
 Read:
-- `openspec/changes/<change-name>/design.md` — architecture, data flow, decisions
+- `openspec/changes/<change-name>/design.md` — architecture components, change inventory, decisions
 - `openspec/changes/<change-name>/tasks.md` — ordered implementation tasks
 - `openspec/changes/<change-name>/proposal.md` — requirements context
 - `openspec/changes/<change-name>/specs/<capability>/spec.md` for each affected capability — module boundary contracts (function signatures, API interfaces, CLI commands, component props/events)

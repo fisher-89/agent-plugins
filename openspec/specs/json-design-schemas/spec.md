@@ -4,7 +4,7 @@
 The system SHALL provide suggested .md templates in `templates/artifacts/` for Planner outputs:
 - `proposal.md.template` — sections: Problem, Scope (in_scope / out_of_scope), Risks (with mitigations), Acceptance Criteria (with validation method)
 - `test-design.md.template` — sections: Test Levels (level, scope, framework), Coverage Map (requirement_id → test_file), Test Strategy, Boundary Cases
-- `design.md.template` — sections: Architecture Components, Data Flow, Route Design, Decisions (with rationale and alternatives)
+- `design.md.template` — sections: Architecture Components, Change Inventory, Data Model, Route/API Design, Dependencies, Open Questions
 
 Templates are suggestions, not enforced schemas — Planners may add or restructure sections as needed. Evaluators check content quality, not section ordering.
 

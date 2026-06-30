@@ -14,7 +14,7 @@ Evaluate the Generator's implementation code against design.md using this static
 | ID | 检查项 | 判断依据 |
 |----|------|---------|
 | I1 | design.md 中每个架构组件都有实现代码 | 逐项交叉验证每个组件与 git diff 中的文件 |
-| I2 | 实现遵循 design.md 描述的数据流 | 在变更代码中追踪数据流路径 |
+| I2 | 变更清单中的所有条目均有对应实现 | 逐项交叉验证变更清单（新增/修改文件、公共函数、类型定义、配置）与 git diff |
 | I3 | 代码遵循项目现有规范 | 检查命名、文件组织、导入模式与代码库一致 |
 | I4 | design.md 中所有路由/API 均已实现 | 仅当 design.md 指定了路由时 — 逐项交叉验证每个路由与实现 |
 | I5 | tasks.md 中所有任务均标记 [x]（已完成） | 验证 tasks.md 中每个任务复选框均已勾选 |
