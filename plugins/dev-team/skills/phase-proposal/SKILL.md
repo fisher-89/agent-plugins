@@ -64,7 +64,7 @@ Check if `openspec/changes/<name>/workflow.json` exists:
 
 ### Step 3. Gate check
 
-Read `workflow_type` from `openspec/changes/<name>/workflow.json`. Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`. If `result.next_phase` is not `proposal`, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`. If `result.next_phase` is not `proposal`, stop — prior phase gates have not passed.
 
 ### Step 4. P→E Loop
 
