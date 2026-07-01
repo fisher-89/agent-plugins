@@ -13,8 +13,13 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { execCommand } from '../lib/exec-command';
+import { getProjectDir } from '../utils';
 
 vi.mock('../lib/exec-command');
+
+// getProjectDir 已有独立的单元测试（constant.test.ts），此处 mock 以支持
+// Stryker worker 线程环境（worker 中不支持 process.chdir）。
+vi.mock('../utils');
 
 // 实现文件尚未创建时使用动态 import，避免模块加载失败阻塞测试收集
 async function loadRunStaticAnalysis(): Promise<(options?: { projectRoot?: string }) => number> {
@@ -276,7 +281,6 @@ describe('runStaticAnalysis — exit code 传播 (边界)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
-  const originalCwd = process.cwd();
   let project: TempProject;
 
   beforeEach(() => {
@@ -284,14 +288,13 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
   });
 
   afterEach(() => {
-    vi.unstubAllEnvs();
-    process.chdir(originalCwd);
+    vi.restoreAllMocks();
     project.cleanup();
   });
 
-  it('应优先使用 CLAUDE_PROJECT_DIR 环境变量定位 config', async () => {
+  it('未传 options.projectRoot 时应使用 getProjectDir() 返回值定位 config', async () => {
     const runStaticAnalysis = await loadRunStaticAnalysis();
-    vi.stubEnv('CLAUDE_PROJECT_DIR', project.root);
+    vi.mocked(getProjectDir).mockReturnValue(project.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
       status: 0,
       stdout: '',
@@ -312,34 +315,10 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
     }
   });
 
-  it('未设置 CLAUDE_PROJECT_DIR 时应使用 process.cwd()', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
-    delete process.env.CLAUDE_PROJECT_DIR;
-    process.chdir(project.root);
-    const execSpy = vi.mocked(execCommand).mockReturnValue({
-      status: 0,
-      stdout: '',
-      stderr: '',
-      pid: 1,
-      output: [null, '', ''],
-      signal: null,
-      error: undefined,
-    });
-    try {
-      runStaticAnalysis();
-      expect(execSpy).toHaveBeenCalledWith(
-        expect.any(String),
-        expect.objectContaining({ cwd: project.root }),
-      );
-    } finally {
-      execSpy.mockRestore();
-    }
-  });
-
-  it('options.projectRoot 应优先于 CLAUDE_PROJECT_DIR', async () => {
+  it('options.projectRoot 应优先于 getProjectDir()', async () => {
     const runStaticAnalysis = await loadRunStaticAnalysis();
     const other = createTempProject({ schema: 'spec-driven', static_analysis: 'echo ok' });
-    vi.stubEnv('CLAUDE_PROJECT_DIR', other.root);
+    vi.mocked(getProjectDir).mockReturnValue(other.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
       status: 0,
       stdout: '',
