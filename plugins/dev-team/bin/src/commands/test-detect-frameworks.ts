@@ -27,9 +27,10 @@ export interface TestDetectFrameworksResult {
   plan: PlanEntry[];
 }
 
-interface PlanEntry {
+export interface PlanEntry {
   directory: string;
   framework: string;
+  test_cmd: string;
   coverage_cmd: string;
   coverage_format: 'istanbul' | 'llvm-cov' | 'node-test' | 'go-cover' | 'coverage-py';
   coverage_output: string;
@@ -236,6 +237,7 @@ function buildPlanFromMappings(mappings: FrameworkMapping[]): PlanEntry[] {
       plan.push({
         directory,
         framework: config.framework,
+        test_cmd: config.test_cmd,
         coverage_cmd: config.coverage_cmd,
         coverage_format: config.coverage_format,
         coverage_output: config.coverage_output,

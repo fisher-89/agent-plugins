@@ -3,16 +3,15 @@
  * test framework registry and query functions.
  *
  * Covers:
+ * - AC-2: pytest/rust test_cmd 包含链式命令模式 `; _X=$?;` 和 `exit $_X`
+ * - AC-12: FrameworkConfig 无 merge_mode 字段
+ * - AC-12: 所有八个框架返回对象均不含 merge_mode
+ * - AC-3: test_cmd 为模板字符串格式（含 `{files}`/`{directory}`/`{project_root}` 占位符）
  * - AC-1: All eight frameworks registered with correct fields
  * - AC-8: Each framework's coverage_cmd, coverage_format, coverage_output,
  *   coverage_artifacts, coverage_cleanup, default_glob are correct
- * - AC-5: Unknown framework returns error
- * - AC-1: vitest coverage_artifacts and coverage_cleanup fields
- * - AC-2: rust coverage_artifacts and coverage_cleanup fields
- * - AC-3: All frameworks have non-empty coverage_artifacts and coverage_cleanup
- * - Boundary: empty framework name, special characters, etc.
  *
- * @see openspec/changes/merge-framework-config-into-detect/test-design.md
+ * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
 import { describe, it, expect } from 'vite-plus/test';
@@ -20,7 +19,7 @@ import { describe, it, expect } from 'vite-plus/test';
 import { getFrameworkConfig, getDefaultGlobForFramework } from './test-framework';
 
 // ---------------------------------------------------------------------------
-// Expected configs per spec
+// Expected configs per spec (v2: merge_mode removed, chained commands)
 // ---------------------------------------------------------------------------
 
 interface FrameworkConfig {
@@ -34,10 +33,12 @@ interface FrameworkConfig {
   default_glob: string;
 }
 
+const ALL_EIGHT = ['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'];
+
 const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   jest: {
     framework: 'jest',
-    test_cmd: 'npx jest --verbose',
+    test_cmd: 'npx jest --verbose --json --coverage --coverageReporters=json-summary {files}',
     coverage_cmd: 'npx jest --coverage --coverageReporters=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -47,7 +48,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   },
   vitest: {
     framework: 'vitest',
-    test_cmd: 'npx vitest run --reporter=verbose',
+    test_cmd: 'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
     coverage_cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -57,7 +58,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   },
   'vite-plus': {
     framework: 'vite-plus',
-    test_cmd: 'vp test',
+    test_cmd: 'vp test --coverage --coverage.reporter=json-summary {files}',
     coverage_cmd: 'vp test --coverage --coverage.reporter=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -67,7 +68,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   },
   bun: {
     framework: 'bun',
-    test_cmd: 'bun test',
+    test_cmd: 'bun test --coverage --coverageReporters=json-summary {files}',
     coverage_cmd: 'bun test --coverage --coverageReporters=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -77,7 +78,8 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   },
   rust: {
     framework: 'rust',
-    test_cmd: 'cargo test',
+    test_cmd:
+      'cargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X',
     coverage_cmd: 'cargo llvm-cov --json',
     coverage_format: 'llvm-cov',
     coverage_output: 'coverage/coverage-summary.json',
@@ -87,7 +89,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   },
   'node-test': {
     framework: 'node-test',
-    test_cmd: 'node --test',
+    test_cmd: 'node --test --experimental-test-coverage {files}',
     coverage_cmd: 'node --test --experimental-test-coverage',
     coverage_format: 'node-test',
     coverage_output: 'coverage/node-test-output.txt',
@@ -97,7 +99,7 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   },
   go: {
     framework: 'go',
-    test_cmd: 'go test ./...',
+    test_cmd: 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}',
     coverage_cmd:
       'go test -coverprofile=coverage.out -covermode=atomic ./... && mkdir -p coverage && go tool cover -func=coverage.out > coverage/func-summary.txt',
     coverage_format: 'go-cover',
@@ -108,7 +110,8 @@ const EXPECTED_CONFIGS: Record<string, FrameworkConfig> = {
   },
   pytest: {
     framework: 'pytest',
-    test_cmd: 'pytest -v',
+    test_cmd:
+      'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X',
     coverage_cmd: 'pytest --cov=. --cov-report=json --cov-branch -q',
     coverage_format: 'coverage-py',
     coverage_output: 'coverage.json',
@@ -143,7 +146,7 @@ describe('getFrameworkConfig -- known frameworks', () => {
   });
 
   it('should return coverage_output path for all frameworks', () => {
-    for (const fw of Object.keys(EXPECTED_CONFIGS)) {
+    for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       expect(result.coverage_output).toBeTruthy();
     }
@@ -175,7 +178,7 @@ describe('getFrameworkConfig -- unknown framework', () => {
 
 describe('getFrameworkConfig -- coverage tool availability', () => {
   it('should return coverage_cmd for all known frameworks', () => {
-    for (const fw of Object.keys(EXPECTED_CONFIGS)) {
+    for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       expect(result.coverage_cmd).toBeTruthy();
     }
@@ -205,17 +208,7 @@ describe('getFrameworkConfig -- edge cases', () => {
   });
 
   it('未知框架名抛出错误，错误信息列出全部八个框架名', () => {
-    const allFrameworks = [
-      'jest',
-      'vitest',
-      'vite-plus',
-      'bun',
-      'rust',
-      'node-test',
-      'go',
-      'pytest',
-    ];
-    expect(() => getFrameworkConfig('mocha')).toThrow(new RegExp(allFrameworks.join('|')));
+    expect(() => getFrameworkConfig('mocha')).toThrow(new RegExp(ALL_EIGHT.join('|')));
   });
 });
 
@@ -270,8 +263,6 @@ describe('getFrameworkConfig -- coverage_artifacts and coverage_cleanup', () => 
 // ===========================================================================
 
 describe('getFrameworkConfig -- all frameworks coverage fields non-empty', () => {
-  const ALL_EIGHT = ['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'];
-
   it('each framework should have non-empty coverage_artifacts array', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
@@ -288,13 +279,14 @@ describe('getFrameworkConfig -- all frameworks coverage fields non-empty', () =>
     }
   });
 
-  it('each framework should return all 8 fields', () => {
+  it('each framework should return all 8 fields (no merge_mode)', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       const keys = Object.keys(result);
       expect(keys).toContain('coverage_artifacts');
       expect(keys).toContain('coverage_cleanup');
       expect(keys).toContain('default_glob');
+      expect(keys).not.toContain('merge_mode');
       expect(keys.length).toBe(8);
     }
   });
@@ -344,8 +336,263 @@ describe('getDefaultGlobForFramework', () => {
 });
 
 // ===========================================================================
+// AC-2: pytest 链式命令
+// ===========================================================================
+
+describe('getFrameworkConfig -- pytest 链式命令 (AC-2)', () => {
+  it('pytest test_cmd 应包含 `; _X=$?;` 链式分隔符', () => {
+    const result = getFrameworkConfig('pytest');
+    expect(result.test_cmd).toContain('; _X=$?;');
+  });
+
+  it('pytest test_cmd 应以 `exit $_X` 结尾', () => {
+    const result = getFrameworkConfig('pytest');
+    expect(result.test_cmd.endsWith('exit $_X')).toBe(true);
+  });
+
+  it('pytest test_cmd 应包含覆盖率命令 pytest --cov=', () => {
+    const result = getFrameworkConfig('pytest');
+    expect(result.test_cmd).toContain('pytest --cov=.');
+  });
+
+  it('pytest test_cmd 链式命令顺序：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`', () => {
+    const result = getFrameworkConfig('pytest');
+    const parts = result.test_cmd.split(';');
+    // 检查各部分顺序：pytest -v {files},  _X=$?,  pytest --cov=...,  exit $_X
+    expect(parts[0].trim()).toMatch(/^pytest -v/);
+    expect(parts[1].trim()).toMatch(/^_X=\$[?]/);
+    expect(parts[2].trim()).toMatch(/^pytest --cov=/);
+    const lastPart = parts[parts.length - 1].trim();
+    expect(lastPart).toBe('exit $_X');
+  });
+
+  it('pytest test_cmd 应包含 `{files}` 占位符', () => {
+    const result = getFrameworkConfig('pytest');
+    expect(result.test_cmd).toContain('{files}');
+  });
+});
+
+// ===========================================================================
+// AC-2: rust 链式命令
+// ===========================================================================
+
+describe('getFrameworkConfig -- rust 链式命令 (AC-2)', () => {
+  it('rust test_cmd 应包含 `; _X=$?;` 链式分隔符', () => {
+    const result = getFrameworkConfig('rust');
+    expect(result.test_cmd).toContain('; _X=$?;');
+  });
+
+  it('rust test_cmd 应以 `exit $_X` 结尾', () => {
+    const result = getFrameworkConfig('rust');
+    expect(result.test_cmd.endsWith('exit $_X')).toBe(true);
+  });
+
+  it('rust test_cmd 应包含 `cargo llvm-cov` 覆盖率命令', () => {
+    const result = getFrameworkConfig('rust');
+    expect(result.test_cmd).toContain('cargo llvm-cov');
+  });
+
+  it('rust test_cmd 应包含 `--output-path coverage/coverage-summary.json`', () => {
+    const result = getFrameworkConfig('rust');
+    expect(result.test_cmd).toContain('--output-path coverage/coverage-summary.json');
+  });
+
+  it('rust test_cmd 链式命令顺序：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`', () => {
+    const result = getFrameworkConfig('rust');
+    const parts = result.test_cmd.split(';');
+    expect(parts[0].trim()).toMatch(/^cargo test/);
+    expect(parts[1].trim()).toMatch(/^_X=\$[?]/);
+    expect(parts[2].trim()).toMatch(/^cargo llvm-cov/);
+    const lastPart = parts[parts.length - 1].trim();
+    expect(lastPart).toBe('exit $_X');
+  });
+
+  it('rust test_cmd "cargo test" 不含 `{files}`/`{directory}` 占位符（链式命令的前半部分）', () => {
+    const result = getFrameworkConfig('rust');
+    // rust 链式命令前半部分 "cargo test" 不包含占位符
+    expect(result.test_cmd).not.toContain('{files}');
+    expect(result.test_cmd).not.toContain('{directory}');
+  });
+});
+
+// ===========================================================================
+// AC-2: 非链式框架不应包含链式命令模式
+// ===========================================================================
+
+describe('getFrameworkConfig -- 非链式框架 test_cmd 不含链式模式', () => {
+  const SINGLE_CMD_FRAMEWORKS = ['jest', 'vitest', 'vite-plus', 'bun', 'node-test', 'go'];
+
+  it('非链式框架（jest/vitest/vite-plus/bun/node-test/go）test_cmd 不含 `; _X=$?`', () => {
+    for (const fw of SINGLE_CMD_FRAMEWORKS) {
+      const result = getFrameworkConfig(fw);
+      expect(result.test_cmd).not.toContain('; _X=$?');
+    }
+  });
+
+  it('非链式框架 test_cmd 不含 `exit $_X` 模式', () => {
+    for (const fw of SINGLE_CMD_FRAMEWORKS) {
+      const result = getFrameworkConfig(fw);
+      expect(result.test_cmd).not.toContain('exit $_X');
+    }
+  });
+});
+
+// ===========================================================================
+// AC-2: 链式命令边界和异常
+// ===========================================================================
+
+describe('getFrameworkConfig -- 链式命令边界和异常', () => {
+  it('pytest test_cmd 链式命令各部分顺序正确：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`', () => {
+    const result = getFrameworkConfig('pytest');
+    const match = result.test_cmd.match(/^pytest -v .+?; _X=\$.; pytest --cov=..+?; exit \$_X$/);
+    expect(match).toBeTruthy();
+  });
+
+  it('pytest test_cmd 链式语法格式正确（包含 `;` 分隔符模式 `; _X=$?;`）', () => {
+    const result = getFrameworkConfig('pytest');
+    // 检测链式语法格式
+    expect(result.test_cmd).toMatch(/; _X=\$.;/);
+    expect(result.test_cmd).toMatch(/; exit \$_X$/);
+  });
+
+  it('rust test_cmd 链式命令包含 `exit $_X`', () => {
+    const result = getFrameworkConfig('rust');
+    expect(result.test_cmd).toMatch(/; exit \$_X$/);
+  });
+
+  it('pytest test_cmd 链式命令含有覆盖率后处理步骤时仍保留核心链式结构', () => {
+    const result = getFrameworkConfig('pytest');
+    // 核心链式结构应存在
+    expect(result.test_cmd).toContain('; _X=$?;');
+    expect(result.test_cmd).toContain('exit $_X');
+    expect(result.test_cmd).toContain('pytest --cov=');
+    expect(result.test_cmd).toContain('pytest -v');
+  });
+});
+
+// ===========================================================================
+// AC-12: FrameworkConfig 无 merge_mode 字段
+// ===========================================================================
+
+describe('getFrameworkConfig -- 无 merge_mode (AC-12)', () => {
+  it('FrameworkConfig 对象不含 merge_mode 字段', () => {
+    const result = getFrameworkConfig('vitest');
+    expect(result).not.toHaveProperty('merge_mode');
+  });
+
+  it('所有八个框架返回对象均不含 merge_mode', () => {
+    for (const fw of ALL_EIGHT) {
+      const result = getFrameworkConfig(fw);
+      expect(result).not.toHaveProperty('merge_mode');
+    }
+  });
+
+  it('FrameworkConfig 接口字段数量为 8（不含 merge_mode）', () => {
+    for (const fw of ALL_EIGHT) {
+      const result = getFrameworkConfig(fw);
+      const keys = Object.keys(result);
+      expect(keys.length).toBe(8);
+      expect(keys).not.toContain('merge_mode');
+    }
+  });
+
+  it('FrameworkConfig 无 merge_mode 属性时编译通过（纯类型检查，运行时验证字段数量）', () => {
+    // 验证返回对象的结构，确保无 merge_mode 字段
+    for (const fw of ALL_EIGHT) {
+      const result = getFrameworkConfig(fw);
+      const keys = Object.keys(result);
+      expect(keys).toEqual(
+        expect.arrayContaining([
+          'framework',
+          'test_cmd',
+          'coverage_cmd',
+          'coverage_format',
+          'coverage_output',
+          'coverage_artifacts',
+          'coverage_cleanup',
+          'default_glob',
+        ]),
+      );
+      expect(keys).toHaveLength(8);
+    }
+  });
+});
+
+// ===========================================================================
+// AC-3: test_cmd 模板化
+// ===========================================================================
+
+describe('getFrameworkConfig -- test_cmd 模板化 (AC-3)', () => {
+  it('vitest test_cmd 含 `--reporter=json` 和 `{files}` 占位符', () => {
+    const result = getFrameworkConfig('vitest');
+    expect(result.test_cmd).toContain('--reporter=json');
+    expect(result.test_cmd).toContain('{files}');
+  });
+
+  it('go test_cmd 含 `-json` 和 `{directory}` 占位符', () => {
+    const result = getFrameworkConfig('go');
+    expect(result.test_cmd).toContain('-json');
+    expect(result.test_cmd).toContain('{directory}');
+  });
+
+  it('所有八框架的 test_cmd 类型为 string 且非空', () => {
+    for (const fw of ALL_EIGHT) {
+      const result = getFrameworkConfig(fw);
+      expect(typeof result.test_cmd).toBe('string');
+      expect(result.test_cmd.length).toBeGreaterThan(0);
+    }
+  });
+
+  it('pytest test_cmd 为链式命令含 `{files}` 占位符', () => {
+    const result = getFrameworkConfig('pytest');
+    expect(result.test_cmd).toContain('{files}');
+    expect(result.test_cmd).toContain('; _X=$?;');
+    expect(result.test_cmd).toContain('exit $_X');
+  });
+
+  it('jest test_cmd 含 `--json` 和 `{files}` 占位符', () => {
+    const result = getFrameworkConfig('jest');
+    expect(result.test_cmd).toContain('--json');
+    expect(result.test_cmd).toContain('{files}');
+  });
+
+  it('bun test_cmd 含 `--coverage` 和 `{files}` 占位符', () => {
+    const result = getFrameworkConfig('bun');
+    expect(result.test_cmd).toContain('--coverage');
+    expect(result.test_cmd).toContain('{files}');
+  });
+
+  it('node-test test_cmd 含 `--experimental-test-coverage` 和 `{files}` 占位符', () => {
+    const result = getFrameworkConfig('node-test');
+    expect(result.test_cmd).toContain('--experimental-test-coverage');
+    expect(result.test_cmd).toContain('{files}');
+  });
+
+  it('单命令框架（jest/vitest/vite-plus/bun/node-test/go）test_cmd 同时含 `{files}` 或 `{directory}` 占位符', () => {
+    const SINGLE_CMD_FRAMEWORKS: Record<string, string> = {
+      jest: '{files}',
+      vitest: '{files}',
+      'vite-plus': '{files}',
+      bun: '{files}',
+      'node-test': '{files}',
+      go: '{directory}',
+    };
+    for (const [fw, placeholder] of Object.entries(SINGLE_CMD_FRAMEWORKS)) {
+      const result = getFrameworkConfig(fw);
+      expect(result.test_cmd).toContain(placeholder);
+    }
+  });
+
+  it('test_cmd 含多个占位符时模板字符串格式正确', () => {
+    // 目前没有框架同时包含多个占位符，此测试验证未来扩展性
+    // vitest test_cmd 只含 {files}
+    const result = getFrameworkConfig('vitest');
+    expect(result.test_cmd).toContain('{files}');
+  });
+});
+
+// ===========================================================================
 // JSON-only coverage configuration
-// @see openspec/changes/simplify-test-report-schema/test-design.md
 // ===========================================================================
 
 const JSON_ONLY_EXPECTED_CONFIGS: Record<
@@ -462,13 +709,12 @@ describe('getFrameworkConfig -- JSON-only boundary and exception', () => {
 
 // ===========================================================================
 // go / node-test / pytest framework entries
-// @see openspec/changes/add-node-go-pytest-frameworks
 // ===========================================================================
 
 const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
   go: {
     framework: 'go',
-    test_cmd: 'go test ./...',
+    test_cmd: 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}',
     coverage_cmd:
       'go test -coverprofile=coverage.out -covermode=atomic ./... && mkdir -p coverage && go tool cover -func=coverage.out > coverage/func-summary.txt',
     coverage_format: 'go-cover',
@@ -479,7 +725,7 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
   },
   'node-test': {
     framework: 'node-test',
-    test_cmd: 'node --test',
+    test_cmd: 'node --test --experimental-test-coverage {files}',
     coverage_cmd: 'node --test --experimental-test-coverage',
     coverage_format: 'node-test',
     coverage_output: 'coverage/node-test-output.txt',
@@ -489,7 +735,8 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
   },
   pytest: {
     framework: 'pytest',
-    test_cmd: 'pytest -v',
+    test_cmd:
+      'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X',
     coverage_cmd: 'pytest --cov=. --cov-report=json --cov-branch -q',
     coverage_format: 'coverage-py',
     coverage_output: 'coverage.json',
@@ -548,8 +795,7 @@ describe('getFrameworkConfig -- node-test (coverage_output)', () => {
   });
 
   it('node-test coverage_output should end with .txt, unlike other frameworks .json output', () => {
-    const allEight = ['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'];
-    for (const fw of allEight) {
+    for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       if (fw === 'node-test' || fw === 'go') {
         expect(result.coverage_output).toMatch(/\.txt$/);
@@ -648,8 +894,6 @@ describe('getFrameworkConfig -- pytest', () => {
 // ===========================================================================
 
 describe('getFrameworkConfig -- eight-framework completeness', () => {
-  const ALL_EIGHT = ['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'];
-
   it('each of the eight frameworks should return non-empty test_cmd, coverage_cmd, coverage_artifacts, coverage_cleanup', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);

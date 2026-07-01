@@ -1,0 +1,289 @@
+{
+  "framework": "vite-plus",
+  "timestamp": "2026-07-01T06:38:08.681Z",
+  "exit_code": 0,
+  "duration_ms": 12204,
+  "summary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0
+  },
+  "test_cases": [],
+  "test_files": [],
+  "source_files": [],
+  "file_coverage": [
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\change-list.ts",
+      "lines": 97.43,
+      "branches": 95,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\phase-log.ts",
+      "lines": 85.71,
+      "branches": 70.83,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\phase-next.ts",
+      "lines": 95.45,
+      "branches": 88.88,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\run-static-analysis.ts",
+      "lines": 84.21,
+      "branches": 73.68,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-detect-frameworks.ts",
+      "lines": 94.62,
+      "branches": 83.33,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-resolve-paths.ts",
+      "lines": 92.26,
+      "branches": 71.69,
+      "functions": 96.29
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\unit-test.ts",
+      "lines": 89.74,
+      "branches": 78.57,
+      "functions": 87.5
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\c4-parser.ts",
+      "lines": 90.21,
+      "branches": 57.14,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\change-config.ts",
+      "lines": 90,
+      "branches": 84.61,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\change.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\config.ts",
+      "lines": 40,
+      "branches": 42.3,
+      "functions": 50
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\eval-json.ts",
+      "lines": 79.03,
+      "branches": 68.42,
+      "functions": 85.71
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\exec-command.ts",
+      "lines": 0,
+      "branches": 100,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\glob.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\project-root.ts",
+      "lines": 86.36,
+      "branches": 70,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-framework.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-report.ts",
+      "lines": 70.14,
+      "branches": 61.16,
+      "functions": 73.07
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-runner.ts",
+      "lines": 84.31,
+      "branches": 66.03,
+      "functions": 91.66
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\workflow.ts",
+      "lines": 95.83,
+      "branches": 50,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\coverage-parser.ts",
+      "lines": 100,
+      "branches": 79.43,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\go-parser.ts",
+      "lines": 88.37,
+      "branches": 64.86,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\index.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\json-parser.ts",
+      "lines": 94.11,
+      "branches": 82.85,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\text-parser.ts",
+      "lines": 98.33,
+      "branches": 96,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-check.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-query.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-validate.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-write.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\change-list.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config-context.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config-get.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config-set.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config-unset.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\index.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\phase-log.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\phase-next.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\test-detect-frameworks.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\test-resolve-paths.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config\\config.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\utils\\constant.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\utils\\index.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 87.86,
+      "branches": 74.45,
+      "functions": 93.16
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": {
+      "vite-plus": {
+        "measured": {
+          "lines": 87.86,
+          "branches": 74.45,
+          "functions": 93.16
+        },
+        "source_files": []
+      }
+    }
+  },
+  "findings": [
+    "Failed to parse JSON output"
+  ]
+}

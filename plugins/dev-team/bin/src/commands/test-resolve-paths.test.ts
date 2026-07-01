@@ -742,6 +742,7 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
               {
                 directory: 'src',
                 framework: 'vite-plus' as const,
+                test_cmd: 'vp test --coverage --coverage.reporter=json-summary {files}',
                 coverage_cmd: 'vp test --coverage --coverage.reporter=json-summary',
                 coverage_format: 'istanbul' as const,
                 coverage_output: 'coverage/coverage-summary.json',
@@ -1076,6 +1077,8 @@ describe('runTestResolvePaths -- 去重', () => {
           {
             directory: 'src',
             framework: 'vitest' as const,
+            test_cmd:
+              'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
             coverage_cmd: 'npx vitest run --coverage',
             coverage_format: 'istanbul' as const,
             coverage_output: 'coverage/coverage-summary.json',
@@ -1086,6 +1089,8 @@ describe('runTestResolvePaths -- 去重', () => {
           {
             directory: 'src',
             framework: 'jest' as const,
+            test_cmd:
+              'npx jest --verbose --json --coverage --coverageReporters=json-summary {files}',
             coverage_cmd: 'npx jest --coverage',
             coverage_format: 'istanbul' as const,
             coverage_output: 'coverage/coverage-summary.json',
@@ -1148,6 +1153,8 @@ describe('runTestResolvePaths -- 去重', () => {
               {
                 directory: 'src',
                 framework: 'vitest' as const,
+                test_cmd:
+                  'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
                 coverage_cmd: 'vp test',
                 coverage_format: 'istanbul' as const,
                 coverage_output: 'coverage/coverage-summary.json',

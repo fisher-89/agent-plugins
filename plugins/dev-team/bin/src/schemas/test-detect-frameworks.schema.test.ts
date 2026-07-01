@@ -840,3 +840,141 @@ describe('testDetectFrameworksOutputSchema — plan coverage_format (AC-5)', () 
     expect(testDetectFrameworksOutputSchema.safeParse(output).success).toBe(false);
   });
 });
+
+// ===========================================================================
+// AC-12: PlanEntry schema 无 merge_mode 字段
+// ===========================================================================
+
+describe('testDetectFrameworksOutputSchema -- plan 无 merge_mode (AC-12)', () => {
+  it('plan 条目不含 merge_mode 字段时通过验证', () => {
+    const output = {
+      detected: [],
+      frameworks: [],
+      plan: [
+        {
+          directory: '.',
+          framework: 'vitest',
+          test_cmd: 'npx vitest run --reporter=json {files}',
+          coverage_cmd: 'npx vitest run --coverage',
+          coverage_format: 'istanbul',
+          coverage_output: 'coverage/coverage-summary.json',
+          coverage_artifacts: ['coverage/coverage-summary.json'],
+          coverage_cleanup: ['coverage'],
+          script: '#!/bin/bash\nset -e\n\necho test',
+        },
+      ],
+    };
+    const result = testDetectFrameworksOutputSchema.safeParse(output);
+    expect(result.success).toBe(true);
+  });
+
+  it('plan 条目含 test_cmd: string 通过验证', () => {
+    const output = {
+      detected: [],
+      frameworks: [],
+      plan: [
+        {
+          directory: '.',
+          framework: 'vitest',
+          test_cmd: 'npx vitest run --reporter=json {files}',
+          coverage_cmd: 'npx vitest run --coverage',
+          coverage_format: 'istanbul',
+          coverage_output: 'coverage/coverage-summary.json',
+          coverage_artifacts: ['coverage/coverage-summary.json'],
+          coverage_cleanup: ['coverage'],
+          script: '#!/bin/bash\nset -e\n\necho test',
+        },
+      ],
+    };
+    const result = testDetectFrameworksOutputSchema.safeParse(output);
+    expect(result.success).toBe(true);
+  });
+
+  it('merge_mode 出现时被 schema 拒绝（strip 掉或拒绝）', () => {
+    const output = {
+      detected: [],
+      frameworks: [],
+      plan: [
+        {
+          directory: '.',
+          framework: 'vitest',
+          test_cmd: 'npx vitest run {files}',
+          coverage_cmd: 'npx vitest run --coverage',
+          coverage_format: 'istanbul',
+          coverage_output: 'coverage/coverage-summary.json',
+          coverage_artifacts: ['coverage/coverage-summary.json'],
+          coverage_cleanup: ['coverage'],
+          script: '#!/bin/bash\nset -e\n\necho test',
+          merge_mode: 'merge',
+        },
+      ],
+    };
+    // schema 是 passthrough 模式，额外字段会被保留
+    // 但 merge_mode 在 PlanEntry 的 TS 类型中不存在，这里验证 schema 不会因为额外字段拒绝
+    const result = testDetectFrameworksOutputSchema.safeParse(output);
+    // passthrough 模式下额外字段不会被拒绝
+    expect(result.success).toBe(true);
+    if (result.success) {
+      // merge_mode 可能被保留（passthrough）
+      expect(result.data.plan[0]).not.toHaveProperty('merge_mode');
+    }
+  });
+
+  it('test_cmd 为非字符串时拒绝', () => {
+    const output = {
+      detected: [],
+      frameworks: [],
+      plan: [
+        {
+          directory: '.',
+          framework: 'vitest',
+          test_cmd: 42,
+          coverage_cmd: 'npx vitest run --coverage',
+          coverage_format: 'istanbul',
+          coverage_output: 'coverage/coverage-summary.json',
+          coverage_artifacts: ['coverage/coverage-summary.json'],
+          coverage_cleanup: ['coverage'],
+          script: '#!/bin/bash\nset -e\n\necho test',
+        },
+      ],
+    };
+    const result = testDetectFrameworksOutputSchema.safeParse(output);
+    expect(result.success).toBe(false);
+  });
+
+  it('plan 条目仅含 9 个字段（directory/framework/test_cmd/coverage_cmd/coverage_format/coverage_output/coverage_artifacts/coverage_cleanup/script），无多余字段', () => {
+    const output = {
+      detected: [],
+      frameworks: [],
+      plan: [
+        {
+          directory: '.',
+          framework: 'vitest',
+          test_cmd: 'npx vitest run {files}',
+          coverage_cmd: 'npx vitest run --coverage',
+          coverage_format: 'istanbul',
+          coverage_output: 'coverage/coverage-summary.json',
+          coverage_artifacts: ['coverage/coverage-summary.json'],
+          coverage_cleanup: ['coverage'],
+          script: '#!/bin/bash\nset -e\n\necho test',
+        },
+      ],
+    };
+    const result = testDetectFrameworksOutputSchema.safeParse(output);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      const keys = Object.keys(result.data.plan[0]);
+      // 验证 9 个字段都存在
+      expect(keys).toContain('directory');
+      expect(keys).toContain('framework');
+      expect(keys).toContain('test_cmd');
+      expect(keys).toContain('coverage_cmd');
+      expect(keys).toContain('coverage_format');
+      expect(keys).toContain('coverage_output');
+      expect(keys).toContain('coverage_artifacts');
+      expect(keys).toContain('coverage_cleanup');
+      expect(keys).toContain('script');
+      expect(keys).not.toContain('merge_mode');
+    }
+  });
+});

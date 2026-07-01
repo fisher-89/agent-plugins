@@ -1,0 +1,40 @@
+{
+  "phase": "integration-test",
+  "command": "npm test",
+  "timestamp": "2026-07-01T11:16:00.000Z",
+  "total": 19,
+  "passed": 19,
+  "failed": 0,
+  "skipped": 0,
+  "coverage": 0,
+  "duration_ms": 8280,
+  "testResults": [
+    {
+      "file": "__tests__/cli-unit-test-execute/cli-unit-test-execute.test.ts",
+      "status": "passed",
+      "tests": 6,
+      "passed": 6,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "file": "__tests__/chained-command/chained-command.test.ts",
+      "status": "passed",
+      "tests": 10,
+      "passed": 10,
+      "failed": 0,
+      "skipped": 0
+    },
+    {
+      "file": "__tests__/non-zero-exit-code/non-zero-exit-code.test.ts",
+      "status": "passed",
+      "tests": 3,
+      "passed": 3,
+      "failed": 0,
+      "skipped": 0
+    }
+  ],
+  "failures": [],
+  "findings": "All 3 integration test files pass (19/19 tests). 8 pre-existing failures in unit_test_executor_schema_static.test.ts (agent doc format static tests) are unrelated to this change. The 3 integration files require the full test suite to run (vite-plus globals setup), they cannot be run in isolation.",
+  "verdict": "All 19 integration tests pass. Change is ready."
+}

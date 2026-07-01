@@ -22,7 +22,7 @@ export interface FrameworkConfig {
 const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   jest: {
     framework: 'jest',
-    test_cmd: 'npx jest --verbose',
+    test_cmd: 'npx jest --verbose --json --coverage --coverageReporters=json-summary {files}',
     coverage_cmd: 'npx jest --coverage --coverageReporters=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -32,7 +32,7 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   vitest: {
     framework: 'vitest',
-    test_cmd: 'npx vitest run --reporter=verbose',
+    test_cmd: 'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
     coverage_cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -42,7 +42,7 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   'vite-plus': {
     framework: 'vite-plus',
-    test_cmd: 'vp test',
+    test_cmd: 'vp test --coverage --coverage.reporter=json-summary {files}',
     coverage_cmd: 'vp test --coverage --coverage.reporter=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -52,7 +52,7 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   bun: {
     framework: 'bun',
-    test_cmd: 'bun test',
+    test_cmd: 'bun test --coverage --coverageReporters=json-summary {files}',
     coverage_cmd: 'bun test --coverage --coverageReporters=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
@@ -62,7 +62,8 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   rust: {
     framework: 'rust',
-    test_cmd: 'cargo test',
+    test_cmd:
+      'cargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X',
     coverage_cmd: 'cargo llvm-cov --json',
     coverage_format: 'llvm-cov',
     coverage_output: 'coverage/coverage-summary.json',
@@ -72,7 +73,7 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   'node-test': {
     framework: 'node-test',
-    test_cmd: 'node --test',
+    test_cmd: 'node --test --experimental-test-coverage {files}',
     coverage_cmd: 'node --test --experimental-test-coverage',
     coverage_format: 'node-test',
     coverage_output: 'coverage/node-test-output.txt',
@@ -82,7 +83,7 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   go: {
     framework: 'go',
-    test_cmd: 'go test ./...',
+    test_cmd: 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}',
     coverage_cmd:
       'go test -coverprofile=coverage.out -covermode=atomic ./... && mkdir -p coverage && go tool cover -func=coverage.out > coverage/func-summary.txt',
     coverage_format: 'go-cover',
@@ -93,7 +94,8 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   pytest: {
     framework: 'pytest',
-    test_cmd: 'pytest -v',
+    test_cmd:
+      'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X',
     coverage_cmd: 'pytest --cov=. --cov-report=json --cov-branch -q',
     coverage_format: 'coverage-py',
     coverage_output: 'coverage.json',

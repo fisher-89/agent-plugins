@@ -37,3 +37,6 @@
 - [ ] fix:unit-test概率没有生成报告
 - [ ] 流程开始前运行static_check检查，若未通过，通知用户修复并提交后再继续
 - [ ] phase_log设置backtrack_to时增加字段记录backtrack_reason，phase_next返回的prompt拼接该原因
+- [ ] phase_log设置backtrack_to时, 当前记录也应该标记stale
+- [ ] code-review-evaluator.md 描述"Evaluate design.md"，容易误触发"design-review skill"
+- [ ] config.json指定保护文件，禁止agent修改

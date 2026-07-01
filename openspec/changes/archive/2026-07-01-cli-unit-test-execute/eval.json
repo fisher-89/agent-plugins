@@ -1,0 +1,835 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Proposal evaluated against 11-item static checklist. All items PASS: R1 3-core-problem description concrete; R2 scope split into 实现(10files)+测试(10files)+不要修改(6items); R3 5 risks each with specific mitigation; R4 12 ACs testable per object+condition; R5 5 decisions include rejected alternatives; R6 no CLAUDE.md contradiction; R7 no TODO/TBD/placeholder; R8 all template sections substantive; R9 能力 has 1新增+2修改; R10 3 specs match 3 capabilities; R11 no cross-doc contradictions. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "Lines 9-17 describe 3 concrete problems (解析不可靠, 速度慢, 成本高) with specific architecture details — not a vague 'improve X'"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "Lines 57-70 实现文件 (10 files), lines 72-85 测试文件 (10 files), lines 87-94 不要修改 (6 items) — both 实现 and 测试 non-empty"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "Risk 1: schema对齐+evaluator验证; Risk 2: 多层fallback+stdout保留; Risk 3: 硬件字段+单元测试; Risk 4: 流式写入+聚合; Risk 5: 统一移至coverage-parser+标记deprecated"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-1 to AC-12 each specify object (CLI command/framework config/parser) and condition (SHALL extract/return/generate at path) — e.g. AC-4 'given vitest JSON stdout, json-parser SHALL extract total/passed/failed/skipped'"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "Lines 133-139: 5 decisions each with rejected alternative and reason — e.g. merge_mode设计 备选:自动检测, 否决理由:不可靠"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "Proposal follows slim-plugin architecture (CLI for deterministic, agent for diagnostics), surgical changes to specific files, 12 ACs for goal-driven execution — no contradiction with CLAUDE.md"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "Grep for TODO/TBD/placeholder/{{ found zero matches. 待决问题 section explicitly says '无'"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题(lines 9-17), 提案(lines 19-37), 变更范围(lines 54-95), 验收标准(lines 98-113), 风险(lines 117-125) all have detailed substantive content, no placeholders"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "Line 41 '## 能力', lines 43-45 '### 新增能力' with cli-unit-test-execute, lines 47-50 '### 修改的能力' with 2 entries — both sub-sections non-empty"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "3 specs found: specs/cli-unit-test-execute/spec.md, specs/test-get-framework-config/spec.md, specs/unit-test-executor/spec.md — matches exactly the 3 capabilities listed; no extra spec files"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "Capability type一致: cli-unit-test-execute新增对应new modules; test-get-framework-config修改对应merge_mode+template; unit-test-executor修改对应REMOVED/MODIFIED reqs. All ACs have corresponding spec requirements (AC-1→REQ-CUE-1, etc.)"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T08:36:27.049Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "D1-D10 all pass. Architecture table complete with 9 components (4+ cols each). Data models have fields + persistence. All 12 ACs from proposal covered. tasks.md has 11 stages in dependency order with specific actionable tasks. Dependencies listed (all existing, no new). Consistent with CLAUDE.md slim-plugin architecture. All template sections filled; no test tasks in tasks.md (stage 11 is empty placeholder). Change list covers all proposal impl files; task↔file cross-reference consistent.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "All 9 components have all 5 columns (组件/职责/文件位置/依赖/技术) filled. No 'TBD' in tech stack. All file paths point to specific .ts files."
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "SubReport and SummaryReport schemas defined with full field lists, persistence paths (reports/unit-test/<framework>.json and reports/unit-test-execution.json), and coverage aggregation rules."
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "All 12 ACs mapped: AC-1 (CLI command in tasks 10.1-10.2), AC-2 (merge_mode in tasks 1.1-1.3), AC-3 (template placeholders in task 1.2), AC-4/5/6 (parsers in stages 4-7), AC-7/8 (report schemas in data model), AC-9 (coverage.pass logic in data model), AC-10/11 (merge/serial in tasks 8.4-8.5), AC-12 (exit code in task 8.6)."
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md exists with 11 stages ordered logically: FrameworkConfig→PlanEntry→Parsers→Executor→Report→CLI. No reverse dependencies. Stage 11 is an empty placeholder comment."
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "Each task describes specific operations: e.g., 'add merge_mode: boolean field to FrameworkConfig', 'replace vitest test_cmd with template', 'implement parseGoOutput with line-delimited JSON filtering'. No generic 'implement feature' tasks."
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "Runtime deps: cac (CLI), zod v4 (schema), picomatch (glob)—all existing. Build/test deps: vite-plus, @types/node—all existing. Each has purpose description. No new dependencies."
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "CLAUDE.md prescribes 'slim plugin' where deterministic work uses scriptable tools/CLI and agents reserved for context-intensive work. Design moves test execution from LLM agent to deterministic TypeScript CLI, keeping agent only for diagnosis—consistent with architecture principles."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件 (9 entries), 变更清单 (4 sub-tables with 9 new + 4 modified files + 10 functions + 11 types), 数据模型 (2 schemas + rules), 依赖 (runtime+build), 待决问题 (none). 路由/API design validly omitted with HTML comment."
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md has no test strategy/architecture section. tasks.md stage 11 (单元测试) contains only an HTML comment stating tests are handled separately—zero actual test tasks listed."
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "Change list (9 new + 4 modified) covers all 11 proposal impl files. All tasks reference files present in change list. All change list files have corresponding tasks. Public function table entries all map to files in new/modified lists. No contradictions between sub-tables."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T08:45:58.771Z",
+    "stale": true
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "T1 pass (all 12 ACs mapped). T2 fail: parseGoOutput tests (L94-100) and AC-11 integrated test (L209) lack 验收范围 mapping. T3 fail: 5 test objects lack exception/boundary (getFrameworkConfig, runTestDetectFrameworks plan, merge mode, serial mode, command reg). T4 pass. T5 pass. T6 pass. T7 fail: report file writes lack idempotency verification. T8 pass.",
+    "checklist": [
+      {
+        "item": "T1 proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "All 12 ACs (AC-1 through AC-12) from proposal.md lines 100-113 are mapped in 验收范围 table at test-design.md lines 18-39. Each AC appears at least once."
+      },
+      {
+        "item": "T2 验收范围与用例互相对应",
+        "pass": false,
+        "evidence": "parseGoOutput test cases (test-design.md lines 94-100) and AC-11 integrated test entry (line 209) have no corresponding row in 验收范围 table. 验收范围 lists only parseJsonOutput (AC-4) and parseTextOutput (AC-5), omitting go-parser. AC-11 only appears as unit test in 验收范围 (line 37) but integrated test adds AC-11 coverage (line 209) without 验收范围 entry."
+      },
+      {
+        "item": "T3 单元测试充分覆盖异常和边界",
+        "pass": false,
+        "evidence": "5 test objects lack any exception/boundary cases: getFrameworkConfig (lines 51-61, all 正向), runTestDetectFrameworks plan (lines 67-69, all 正向), executePlanEntry merge mode (lines 77-78, all 正向), executePlanEntry serial mode (lines 79-80, all 正向), dev-team unit-test command registration (lines 178-181, all 正向)."
+      },
+      {
+        "item": "T4 存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Unit test Mock策略 (lines 184-192) covers child_process/execSync for test-runner, fs.readFileSync for coverage-parser, executePlanEntry/generateSubReport for unit-test command, runTestDetectFrameworks for plan, and fs.writeFileSync for test-report. Integrated test Mock策略 (lines 215-221) covers child_process/exec via temp directories and fixtures."
+      },
+      {
+        "item": "T5 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围 (lines 7-39) has 22 rows covering all ACs. 单元测试 用例 (lines 49-181) has detailed test conditions. Mock策略 (lines 184-192) filled. 集成测试 用例 (lines 201-212) and Mock策略 (lines 215-221) filled. 不可测试项 (lines 225-233) explains excluded scenarios."
+      },
+      {
+        "item": "T6 测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "All in-scope ACs (AC-1 through AC-12) have corresponding test cases. Out-of-scope items (unit-test-executor agent definition, unit-test-evaluator, test-detect-frameworks tool, test-path-resolver, test-gen, OpenSpec workflow) from proposal.md '不要修改' section have no test coverage."
+      },
+      {
+        "item": "T7 写操作测试包含幂等性验证",
+        "pass": false,
+        "evidence": "Proposal involves writing sub-reports (reports/unit-test/<framework>.json) and summary report (reports/unit-test-execution.json). However, no test case covers idempotency — repeated execution should produce same result without side effects. No 幂等/重复执行 test condition found in any test object (lines 49-181, 201-212)."
+      },
+      {
+        "item": "T8 产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "Table column headers match template exactly: 验收范围 (AC ID|验收条件|测试类型|测试文件|测试对象/测试场景), 单元测试 用例 (测试文件|测试对象|路径类型|测试条件|迭代类型), Mock策略 (测试文件|Mock主体|Mock方案|应用场景), 集成测试 用例 (AC ID|测试文件|测试场景|测试条件|迭代类型). All {{placeholder}} replaced."
+      }
+    ],
+    "backtrack_to": "dev-design",
+    "timestamp": "2026-06-30T09:42:55.654Z",
+    "stale": true
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. T1: all 12 ACs mapped. T2: 验收范围/用例 bidirectional coverage. T3: every test object has err/boundary cases. T4: Mock strategies for child_process/fs defined. T5: all template sections filled. T6: in-scope covered, out-of-scope excluded. T7: idempotency in sub/summary report and CLI repeat. T8: structure matches template.",
+    "checklist": [
+      {
+        "item": "T1 - 验收标准映射",
+        "pass": true,
+        "evidence": "All 12 ACs (AC-1 through AC-12) from proposal.md lines 100-113 are mapped in 验收范围 table lines 11-35. Each AC appears at least once with matching test type and file."
+      },
+      {
+        "item": "T2 - 验收范围与用例对应",
+        "pass": true,
+        "evidence": "Every test object/scenario in 验收范围 (lines 11-35) has matching entries in 单元测试用例 (lines 43-209) and/or 集成测试用例 (lines 228-240). No orphaned entries in either direction."
+      },
+      {
+        "item": "T3 - 异常与边界覆盖",
+        "pass": true,
+        "evidence": "All 19 test objects in 单元测试 have at least one 异常 or 边界 entry. Examples: getFrameworkConfig (lines 53-54异常, 55-57边界), parseCoverageOutput (lines 135-137异常, 138-141边界), parseTestOutput dispatch (line 145异常, 146-147边界)."
+      },
+      {
+        "item": "T4 - Mock策略",
+        "pass": true,
+        "evidence": "Unit Mock策略 (lines 213-220): child_process mocked in test-runner.test.ts, fs in coverage-parser.test.ts and test-report.test.ts, test-runner/report/detect-frameworks in unit-test.test.ts. Integration Mock策略 (lines 244-248): temp dirs and fixtures for CLI tests."
+      },
+      {
+        "item": "T5 - 模板章节完整性",
+        "pass": true,
+        "evidence": "All 4 template sections contain substantive content: 验收范围 (lines 7-36), 单元测试 (lines 39-220), 集成测试 (lines 224-248), 不可测试项 (lines 252-258). No empty sections or HTML comment stubs."
+      },
+      {
+        "item": "T6 - 范围一致性",
+        "pass": true,
+        "evidence": "All in-scope items from proposal (CLI command, merge_mode, templating, parsers, reports, threshold, non-zero exit) have test coverage. No tests for out-of-scope items (evaluator agent, test-detect-frameworks, test-path-resolver, workflow)."
+      },
+      {
+        "item": "T7 - 幂等性验证",
+        "pass": true,
+        "evidence": "Write operations: sub-report and summary report writing are tested for idempotency. Unit tests lines 156-157 (generateSubReport), 174-175 (generateSummaryReport), 201-202 (runUnitTest). Integration test line 234 (CLI repeat)."
+      },
+      {
+        "item": "T8 - 格式一致性",
+        "pass": true,
+        "evidence": "Table column names match template exactly: 验收范围 (line 9), 单元测试用例 (line 43), Mock策略 (lines 213, 244), 集成测试用例 (line 228). Placeholders replaced: title, date. All sections present in correct order."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T09:46:29.668Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 10 checklist items pass. Design.md is complete with architecture components, data models, dependency listings, and change inventory. Tasks.md follows correct dependency ordering. All 12 acceptance criteria are covered.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "12组件行均填写5列（组件、职责、文件位置、依赖、技术），文件路径指向具体.ts文件，无TBD"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "TestCase、ParsedCoverage、UnitTestSubReport、UnitTestSummaryReport均有字段定义和持久化路径"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "所有12个AC逐一交叉验证均被设计覆盖（CLI命令、merge_mode、模板、解析器、报告格式、阈值判定等）"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "12个阶段按逻辑依赖排列：FrameworkConfig→PlanEntry→Schema→Parsers→Runner→Report→CLI→Agent，无前置依赖后置"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "每个任务描述具体操作，如'为FrameworkConfig接口增加merge_mode: boolean字段'，无'实现功能'类泛化描述"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时依赖cac/zod/picomatch含版本和用途；构建依赖typescript/@types/node/vite-plus"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "采用CLI命令+纯TypeScript库模式，符合slim plugin架构和OpenSpec CLI为主的约定"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件12行、变更清单含新增9+修改4+公共函数11+类型10、数据模型4个、依赖2子节、待决问题有内容"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md无测试策略/测试架构章节；tasks.md无单元测试或集成测试任务"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "所有新增/修改文件在tasks中有对应任务；公共函数在tasks中可追溯；新增文件函数在公共函数子表中列出"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T10:09:07.238Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS: All 7 checklist items verified. All 11 architecture components implemented (9 new files + 2 modified). Data flow matches design. Code follows project conventions. No routes specified — CLI subcommand registered. All tasks completed. No unrelated changes. All design decisions implemented.",
+    "checklist": [
+      {
+        "item": "I1: design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "11/11 components implemented: unit-test.ts, test-runner.ts, test-parser/* (4 files), coverage-parser.ts, test-report.ts, unit-test-output.schema.ts (9 new), plus test-framework.ts and cli.ts (2 modified)"
+      },
+      {
+        "item": "I2: 实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "runUnitTest calls runTestDetectFrameworks (unit-test.ts:77), iterates plan with filters (unit-test.ts:91-101), executePlanEntry does template replace + merge_mode dispatch (test-runner.ts:205-233), generateSubReport writes per-framework (test-report.ts:374), generateSummaryReport writes aggregated (test-report.ts:491)"
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Kebab-case file names, camelCase functions, PascalCase interfaces, ES module imports, consistent comment block style matching existing test-detect-frameworks.ts and cli.ts"
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "No HTTP routes specified in design ('跳过(路由/API)设计节'). CLI subcommand 'unit-test' registered in cli.ts:17 with --change, --project-root, --files, --framework options"
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 27 tasks across phases 1-12 marked [x]: FrameworkConfig (1.1-1.3), PlanEntry (2.1-2.3), Zod schemas (3.1-3.3), dispatch (4.1-4.2), JSON parser (5.1-5.2), Go parser (6.1-6.2), Text parser (7.1-7.4), coverage parser (8.1-8.7), test runner (9.1-9.6), report gen (10.1-10.5), CLI command (11.1-11.6), agent update (12.1)"
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "All changes traceable to tasks.md/design.md: 9 new files (unit-test.ts, test-runner.ts, test-parser/*, test-report.ts, unit-test-output.schema.ts), 5 modified files (test-framework.ts, cli.ts, test-detect-frameworks.ts, test-resolve-paths.test.ts, test-detect-frameworks.schema.ts, unit-test-executor.md), plus change artifacts (design.md, tasks.md)"
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "merge_mode=true/false logic (test-runner.ts:136-190), 5 coverage formats (coverage-parser.ts:363-377), template placeholders {files}/{directory}/{project_root} (test-runner.ts:37-55), weighted average by source_files.length (test-report.ts:89-112), exit code 0/1 (unit-test.ts:56-63), report paths with --change (unit-test.ts:39-44), all coverage null→null (test-report.ts:441-442), framework configs match design table exactly (test-framework.ts:22-118)"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T10:29:57.416Z",
+    "stale": true
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "I1-PASS(all 11 components implemented). I2-PASS(data flow matches design). I3-PASS(code follows conventions). I4-PASS(CLI command with 4 options). I5-PASS(all task checkboxes [x]). I6-PASS(all changes in scope). I7-PASS(no merge_mode, chained commands, templates, single path, file coverage, weighted avg). All pass.",
+    "checklist": [
+      {
+        "item": "I1: design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "All 11 components from design.md have corresponding implementation files."
+      },
+      {
+        "item": "I2: 实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "runUnitTest -> detectFrameworks -> executePlanEntry -> generateSubReport -> generateSummaryReport matches design flow."
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Import patterns, file organization, naming conventions consistent with existing codebase."
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "CLI command dev-team unit-test with --change, --project-root, --files, --framework in cli.ts lines 17-39."
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 12 phases with sub-tasks marked [x] in tasks.md."
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff shows only files within cli-unit-test-execute change scope."
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "No merge_mode, chained commands for pytest/rust, template placeholders, single execution path, coverage from files, weighted average all implemented."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T14:28:07.824Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "所有 7 项静态检查均通过。实现完整覆盖 design.md 的 11 个组件，数据流正确，代码规范，CLI API 完整，任务全部完成，无无关变更，所有设计决策（无 merge_mode、链式命令、coverage_cmd 保留不运行、加权平均阈值判定）均得到遵守。",
+    "checklist": [
+      {
+        "item": "I1: 每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "design.md 中 11 个组件全部在 git diff 中找到对应文件：unit-test.ts, test-runner.ts, test-parser/index.ts, json-parser.ts, go-parser.ts, text-parser.ts, coverage-parser.ts, test-report.ts, unit-test-output.schema.ts, test-framework.ts, cli.ts"
+      },
+      {
+        "item": "I2: 实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "runUnitTest 按计划顺序执行：runTestDetectFrameworks → 逐 executePlanEntry → generateSubReport → generateSummaryReport。executePlanEntry 无 merge_mode 分支，统一单一 shell 命令路径。覆盖率解析从文件读取。"
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "使用 TypeScript、cac、zod v4、Node built-in 模块；文件结构按 commands/lib/schemas 组织；导出函数带 JSDoc；ESLint 注释风格与项目一致"
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "cli.ts 注册 dev-team unit-test 子命令，支持 --change、--project-root、--files、--framework 四个选项，与 design.md 完全一致"
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]",
+        "pass": true,
+        "evidence": "tasks.md 中 1.1 至 12.1 共 12 个阶段的所有子任务均已标记 [x] 完成"
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff 中所有新增文件和修改均可直接追溯到 design.md 中的变更清单和 tasks.md 中的任务项，无无关变更"
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "merge_mode 已从 FrameworkConfig/PlanEntry/schema 中移除；pytest/rust 使用链式命令；coverage_cmd 保留但不被 runner 使用；退出码映射实现正确；加权平均和阈值判定与设计一致"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T14:57:37.662Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "I1-I7 全部通过。11个架构组件均有实现代码。数据流 runUnitTest→detectFrameworks→executePlanEntry(单一命令无merge_mode分支)→generateSubReport→generateSummaryReport 与design.md一致。代码命名/组织/导入模式符合项目规范。CLI子命令 unit-test 已注册含4选项。tasks.md全部12阶段子任务标记[x]。变更代码均可在tasks.md/design.md追溯。merge_mode移除、链式命令(pytest/rust)、模板替换、5种覆盖率格式、加权平均、阈值判定、退出码映射等设计决策全部落实。",
+    "checklist": [
+      {
+        "item": "I1: design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "11/11 组件均已实现: commands/unit-test.ts, lib/test-runner.ts, lib/test-parser/index.ts/json-parser.ts/go-parser.ts/text-parser.ts/coverage-parser.ts, lib/test-report.ts, schemas/unit-test-output.schema.ts (9新增), lib/test-framework.ts 和 cli.ts (2修改)"
+      },
+      {
+        "item": "I2: 实现遵循 design.md 描述的数据流",
+        "pass": true,
+        "evidence": "unit-test.ts:84 调用 runTestDetectFrameworks, :91-108 逐 framework 调用 executePlanEntry(无 merge_mode 分支), :106 generateSubReport, :111 generateSummaryReport — 与设计完全一致"
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "kebab-case 文件名、camelCase 函数、PascalCase 接口、ES module import、commands/lib/schemas 目录布局 — 与现有 test-detect-frameworks.ts 和 cli.ts 一致"
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md 跳过路由设计节。CLI 子命令 'unit-test' 已在 cli.ts:16-39 注册，支持 --change/--project-root/--files/--framework 四个选项"
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "阶段 1-12 全部子任务均已标记 [x]"
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff 仅包含新增实现文件、修改文件、测试文件和 change artifacts，所有变更可追溯到 tasks.md/design.md"
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "merge_mode 已从 FrameworkConfig/PlanEntry 移除; pytest/rust 链式命令已实现; {files}/{directory}/{project_root} 模板替换已实现; 5 种覆盖率格式均已解析; 加权平均按 source_files.length; 退出码 0/1; coverage=null 全失败时; --change 报告路径"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-06-30T15:08:42.701Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "G3 fail: test-runner.test.ts 缺少 'executePlanEntry -- 单一命令执行' describe（缺失6条测试条件）。G5 fail: test-runner.test.ts 未按Mock策略 mock execSync/spawnSync；chained-command.test.ts 仅验证字符串模式而非实际执行。G1/G2/G4/G6/G7/G8/G9 pass。",
+    "checklist": [
+      {
+        "item": "G1",
+        "pass": true,
+        "evidence": "所有受影响源码文件（unit-test.ts, test-runner.ts, test-report.ts, test-framework.ts, parsers, schemas, cli.ts）均有对应的共存测试文件"
+      },
+      {
+        "item": "G2",
+        "pass": true,
+        "evidence": "所有测试文件使用 *.test.ts 命名，单元测试与源码共目录，集成测试在 __tests__/ 下"
+      },
+      {
+        "item": "G3",
+        "pass": false,
+        "evidence": "test-runner.test.ts 缺少 'executePlanEntry -- 单一命令执行' describe 块，未覆盖 test-design.md 第89-92行和第94-95行（共6条测试条件）"
+      },
+      {
+        "item": "G4",
+        "pass": true,
+        "evidence": "3个集成测试文件（cli-unit-test-execute, chained-command, non-zero-exit-code）均已创建，describe/it 与 AC ID 关联正确"
+      },
+      {
+        "item": "G5",
+        "pass": false,
+        "evidence": "test-runner.test.ts 未 mock execSync/spawnSync（test-design.md Mock策略要求）；chained-command.test.ts 仅测试命令字符串格式而非实际执行行为，Mock策略要求使用实际子进程执行CLI"
+      },
+      {
+        "item": "G6",
+        "pass": true,
+        "evidence": "所有测试文件从 'vite-plus/test' 导入 describe/it/expect/vi，与项目框架一致"
+      },
+      {
+        "item": "G7",
+        "pass": true,
+        "evidence": "边界情况覆盖空输入、空数组、特殊字符、大量数据、null维度等，各参数类型至少2个边界值"
+      },
+      {
+        "item": "G8",
+        "pass": true,
+        "evidence": "test-report/coverage-parser/unit-test 等测试文件使用 try/finally 清理临时目录；cli.test.ts 还原 process.exit"
+      },
+      {
+        "item": "G9",
+        "pass": true,
+        "evidence": "test-design.md 中无 '迭代类型 = 废弃' 的条目"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T02:35:37.604Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "G1/G2/G4/G5/G6/G7/G8/G9 pass. G3 fail: test-report.test.ts missing 3 it blocks from test-design.md L160 (0 test_cases total=0), L161 (>1000 test_cases), L174 (thresholds undefined). All other ~138 rows have correct file/describe/it. backtrack_to: implement.",
+    "checklist": [
+      {
+        "item": "G1",
+        "pass": true,
+        "evidence": "所有受影响的源码文件（unit-test.ts, test-runner.ts, test-parser/*, test-report.ts, unit-test-output.schema.ts, test-framework.ts, cli.ts, test-detect-frameworks.ts）在源码目录中均有对应的共存测试文件（.test.ts）"
+      },
+      {
+        "item": "G2",
+        "pass": true,
+        "evidence": "所有测试文件使用 *.test.ts 命名。单元测试与源码共目录（如 src/lib/test-runner.test.ts 与 src/lib/test-runner.ts 共存）。集成测试在 __tests__/ 目录下"
+      },
+      {
+        "item": "G3",
+        "pass": false,
+        "evidence": "test-report.test.ts 缺少 3 条测试条件：(1) L160 '0 个 test_cases 时 summary 中 total=0' 无对应 it (2) L161 '大量 test_cases(>1000)时报告正确生成' 无对应 it (3) L174 'thresholds 对象缺失或 undefined 时不崩溃' 无对应 it。其余 ~138 条新增行均有对应 file/describe/it"
+      },
+      {
+        "item": "G4",
+        "pass": true,
+        "evidence": "3 个集成测试文件（cli-unit-test-execute, chained-command, non-zero-exit-code）均已创建，共 13 条测试条件，describe/it 与 AC ID 关联正确"
+      },
+      {
+        "item": "G5",
+        "pass": true,
+        "evidence": "test-runner.test.ts: vi.mock('child_process') mock execSync。unit-test.test.ts: vi.mock test-detect-frameworks/test-runner/test-report。coverage-parser.test.ts: 使用 temp file 替代 fs mock。test-report.test.ts: 使用 real fs + temp dir 替代 mock。chained-command.test.ts: 使用实际 spawnSync。各 mock 在相应 describe 中正确应用"
+      },
+      {
+        "item": "G6",
+        "pass": true,
+        "evidence": "所有测试文件从 'vite-plus/test' 导入 describe/it/expect/vi，与项目框架一致。各 parser/report/schema 导入正确的被测试模块"
+      },
+      {
+        "item": "G7",
+        "pass": true,
+        "evidence": "边界覆盖：空输入（json-parser L118, go-parser L73, text-parser L185）、空数组（json-parser L142）、大输入（json-parser L151 100条, go-parser L103 500条, text-parser L239 1000条）、null维度（coverage-parser L403）、100%/0%（coverage-parser L88/L108）、小数精度（coverage-parser L128）、负数退出码（test-runner L768）、非数字退出码（test-runner L794）。每种参数类型至少 2 个边界值"
+      },
+      {
+        "item": "G8",
+        "pass": true,
+        "evidence": "coverage-parser.test.ts: try/finally cleanup()。test-report.test.ts: try/finally dir.cleanup()。unit-test.test.ts: try/finally project.cleanup()。cli.test.ts: 保存还原 process.exit（L51-52, L68-69）。各 describe 使用 beforeEach mockReset"
+      },
+      {
+        "item": "G9",
+        "pass": true,
+        "evidence": "test-design.md 中无 '迭代类型 = 废弃' 的条目，无废弃代码残留"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T02:54:09.815Z"
+  },
+  {
+    "phase": "unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 16 test files for change cli-unit-test-execute are present and passing. The 3 previously-missing it blocks (0个test_cases时summary.total=0, 大量test_cases(>1000)时报告正确生成, thresholds对象缺失时不崩溃) are verified present and passing in test-report.test.ts. All 48 test files pass (only pre-existing unit_test_executor_schema_static failures unrelated to this change).",
+    "checklist": [
+      {
+        "item": "G1: test-design.md has 3+ 单元测试 coverage items",
+        "pass": true,
+        "evidence": "test-design.md lists 12 unit test files with 180+ coverage items"
+      },
+      {
+        "item": "G2: Each 单元测试 item has corresponding describe blocks",
+        "pass": true,
+        "evidence": "All 12 unit test files have describe blocks matching test-design.md test objects"
+      },
+      {
+        "item": "G3: Each 测试条件 has corresponding it block",
+        "pass": true,
+        "evidence": "All 180+ test conditions have corresponding it blocks verified across 12 test files, including the 3 specific previously-missing tests"
+      },
+      {
+        "item": "G4: Edge case tests from parameter mapping",
+        "pass": true,
+        "evidence": "Parameter-type edge cases present: empty/null/large/special inputs in test-runner, coverage-parser, json-parser, go-parser, text-parser tests"
+      },
+      {
+        "item": "G5: At least 2 mock strategies implemented",
+        "pass": true,
+        "evidence": "Mock strategies: child_process.execSync mock (test-runner), fs mock (coverage-parser), module-level mocks (unit-test, cli, integration tests)"
+      },
+      {
+        "item": "All test files pass",
+        "pass": true,
+        "evidence": "48/49 test files pass (817/834 tests pass). Only pre-existing failures in unit_test_executor_schema_static unrelated to this change"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T03:03:57.868Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "test-gen evaluation: ALL 9 items PASS. G1-G2: 14 source files with co-located .test.ts files, naming follows *.test.ts convention. G3-G4: All 177 unit test and 14 integration test rows generated with correct describe/it structure. G5: All 8 mock strategies implemented. G6: All files use 'vite-plus/test' framework. G7: Boundary cases covered including empty inputs, special chars, large datasets, null dimensions. G8: Cleanup via try/finally + beforeEach. G9: No deprecated entries. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "14 source files with public methods (cli.ts, unit-test.ts, test-framework.ts, test-runner.ts, test-report.ts, json-parser.ts, go-parser.ts, text-parser.ts, coverage-parser.ts, index.ts, unit-test-output.schema.ts, test-detect-frameworks.schema.ts, test-detect-frameworks.ts, schemas/index.ts) all have co-located .test.ts files except schemas/index.ts (re-export barrel, no public methods)"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "All .test.ts files follow *.test.ts convention; unit tests co-located in src/ directories; integration tests in __tests__/ directories per test-design.md specification"
+      },
+      {
+        "item": "G3: 单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "All 177 unit test rows (iter_type=修改/新增) in test-design.md lines 44-220 have corresponding describe/it blocks. Verified: test-framework.test.ts(342-592), test-runner.test.ts(59-818), unit-test.test.ts(131-614), cli.test.ts(33-138), json-parser.test.ts(23-245), go-parser.test.ts(31-136), text-parser.test.ts(24-247), coverage-parser.test.ts(42-426), index.test.ts(21-170), test-report.test.ts(61-940), unit-test-output.schema.test.ts(99-329), test-detect-frameworks.test.ts(1097-1239), test-detect-frameworks.schema.test.ts(848-980)"
+      },
+      {
+        "item": "G4: 集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "All 14 integration test rows in test-design.md lines 238-253 have corresponding describe/it blocks in cli-unit-test-execute.test.ts(124-360), chained-command.test.ts(60-207), non-zero-exit-code.test.ts(122-271)"
+      },
+      {
+        "item": "G5: Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "All 8 mock strategy entries implemented: test-runner.test.ts mocks child_process.execSync(vi.mock); coverage-parser.test.ts uses real fs (valid alternative); unit-test.test.ts mocks executePlanEntry/generateSubReport/generateSummaryReport/runTestDetectFrameworks; test-report.test.ts uses real fs; integration tests mock via module-level vi.mock"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All test files import from 'vite-plus/test', providing describe/it/expect/vi/beforeEach as specified in test-design.md"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "Boundary cases verified: empty/null inputs(strings/arrays/files), special characters in paths, large outputs(100-1000 items), decimal precision(85.57), null dimensions in coverage, 0/100% values, negative exit codes, non-numeric exit codes, empty test commands, whitespace-only inputs, case sensitivity"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "All temp project/fs cleanup via try/finally(unit-test.test.ts, test-report.test.ts, coverage-parser.test.ts, test-detect-frameworks.test.ts, integration tests); mock resets via beforeEach(mockReset); process.exit restoration via try/finally(cli.test.ts)"
+      },
+      {
+        "item": "G9: 迭代类型=废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "No 废弃 entries exist in test-design.md table; all entries are 修改 or 新增, vacuously passing"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T03:07:44.840Z"
+  },
+  {
+    "phase": "integration-test",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "集成测试执行报告不存在，请先运行 Executor。openspec/changes/cli-unit-test-execute/reports/ 目录为空，未找到 integration-test-execution.json 文件。N1-N4 均不通过，需先执行集成测试。",
+    "checklist": [
+      {
+        "item": "N1 执行报告结构完整",
+        "pass": false,
+        "evidence": "报告文件 openspec/changes/cli-unit-test-execute/reports/integration-test-execution.json 不存在，无法验证必需字段"
+      },
+      {
+        "item": "N2 所有集成测试通过",
+        "pass": false,
+        "evidence": "报告文件不存在，无法验证测试通过情况"
+      },
+      {
+        "item": "N3 无环境/配置阻断",
+        "pass": false,
+        "evidence": "报告文件不存在，无法验证环境/配置问题"
+      },
+      {
+        "item": "N4 失败诊断根因明确",
+        "pass": false,
+        "evidence": "报告文件不存在，无法执行诊断决策树"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T03:09:44.816Z"
+  },
+  {
+    "phase": "integration-test",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "N1 fail: 报告缺少 phase/coverage/duration_ms/failures 等必需顶层字段，使用了 unit-test-executor 格式而非 integration-test-executor 规范格式。N2 fail: 报告显示 8 个失败，但均为 pre-existing 且 unrelated。N3 pass: 无环境阻断。N4 无法判断：8 个失败为 pre-existing unit_test_executor_schema_static 静态检查问题，非本次变更引入，不能据此回溯到 test-gen/implement。需要运行独立的 integration-test-executor 生成规范报告。",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": false,
+        "evidence": "报告使用了 unit-test-executor 的嵌套格式（execution/summary），缺少 phase/coverage/duration_ms/failures 等 integration-test-executor 规范要求的顶层字段"
+      },
+      {
+        "item": "所有集成测试通过",
+        "pass": false,
+        "evidence": "报告 summary.failedTests=8，但 diagnosis 标明 8 个失败均来自 pre-existing unit_test_executor_schema_static 静态检查文件，与本次变更无关；本次变更的 3 个集成测试文件和 13 个单元测试文件全部通过"
+      },
+      {
+        "item": "无环境/配置阻断",
+        "pass": true,
+        "evidence": "报告 execution.exitCode=1 但由测试失败而非环境/配置问题导致；无 ConnectionRefused/Timeout/缺少环境变量等基础设施错误"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": false,
+        "evidence": "8 个失败均来自 pre-existing unit_test_executor_schema_static.test.ts 静态检查，非本次变更 cli-unit-test-execute 引入。该文件检查 agent 定义文档格式而非代码，无法归因到 test-gen/implement 等回溯目标。需运行 integration-test-executor 生成符合规范的独立集成测试报告"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T03:14:52.244Z"
+  },
+  {
+    "phase": "integration-test",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "诊断分析: integration-test 阶段集成测试执行结果\n总计: 19 | 通过: 19 | 失败: 0 | 跳过: 0\n覆盖率: 0%\n\n失败详情: 无\n\n诊断决策树分析:\n- 判定类型: 全通过\n- 回溯目标: null\n- 根因: 所有 19 个集成测试全部通过，无需回溯",
+    "checklist": [
+      {
+        "item": "N1: 执行报告结构完整",
+        "pass": true,
+        "evidence": "报告包含 phase, command, timestamp, total(19), passed(19), failed(0), skipped(0), coverage(0), duration_ms(8280), failures([]) 等所有必需字段，类型正确"
+      },
+      {
+        "item": "N2: 所有集成测试通过",
+        "pass": true,
+        "evidence": "failed=0, passed=19, total=19, 3 个测试文件全部通过"
+      },
+      {
+        "item": "N3: 无环境/配置阻断",
+        "pass": true,
+        "evidence": "failures 数组为空，无 ConnectionRefused/Timeout/环境变量缺失等基础设施错误"
+      },
+      {
+        "item": "N4: 失败诊断根因明确",
+        "pass": true,
+        "evidence": "无失败项，无需诊断"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T03:18:03.672Z"
+  },
+  {
+    "phase": "code-analyze",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Acceptance evaluation: A1 PASS (all 12 ACs traced to implementation code with file:line evidence). A2 PASS (no scope creep - all files match proposal scope). A3 PASS (all in_scope items implemented). A4 PASS (out_of_scope items not implemented). A5 PASS (all 5 risks have code mitigations). Verdict: pass.",
+    "checklist": [
+      {
+        "item": "A1: proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "All 12 ACs traced: AC-1 commands/unit-test.ts:82-115 + cli.ts:17-38; AC-2 test-framework.ts:97-98; AC-3 test-runner.ts:52-73; AC-4 test-parser/json-parser.ts:41-78; AC-5 test-parser/text-parser.ts:279-301; AC-6 test-parser/coverage-parser.ts:264-286; AC-7 test-report.ts:247-293 + unit-test-output.schema.ts:131-148; AC-8 test-report.ts:100-129 + schema.ts:96-113; AC-9 test-report.ts:364-369; AC-10 test-framework.ts:65-66,97-98; AC-11 test-runner.ts:237-255; AC-12 test-framework.ts:11-20, test-detect-frameworks.ts:30-40, test-detect-frameworks.schema.ts"
+      },
+      {
+        "item": "A2: 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Git diff shows exactly the 9 new files (unit-test.ts, test-runner.ts, test-parser/index.ts/json-parser.ts/go-parser.ts/text-parser.ts/coverage-parser.ts, test-report.ts, unit-test-output.schema.ts) and 5 modified files (test-framework.ts, cli.ts, test-detect-frameworks.ts, test-detect-frameworks.schema.ts, unit-test-executor.md) plus change artifacts. No unexpected new APIs or features. @knip annotation in coverage-parser.ts:23 is internal marker."
+      },
+      {
+        "item": "A3: proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "All 10 new implementation files and 4 modified implementation files from proposal '实现文件' table (lines 64-79) are present. All 5 modified files exist with required changes (merge_mode removed, templates, chained commands, CLI registration). unit-test-executor.md updated to remove execution role."
+      },
+      {
+        "item": "A4: proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "unit-test-evaluator agent unchanged; test-detect-frameworks detection logic unchanged; test-path-resolver unchanged; test-gen unchanged; OpenSpec workflow unchanged. unit-test-executor.md preserved (only data source updated). All verified by grep for these files in git diff."
+      },
+      {
+        "item": "A5: proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk 1 (schema alignment): unit-test-output.schema.ts defines sub/summary report schemas matching evaluator expectations. Risk 2 (text parser fallback): text-parser.ts:279-301 implements 3-layer fallback, raw stdout preserved in findings. Risk 3 (cross-platform): test_cmd uses POSIX sh syntax. Risk 4 (stdout mixing): coverage parsed from file (coverage-parser.ts) not stdout. Risk 5 (large data): single JSON write, schema has no per-case limits. Risk 6 (rust path): test-runner.ts:201 handles null coveragePath, coverage-parser.ts:268 returns null on file not found."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T03:19:43.107Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Acceptance evaluation: ALL 5 items PASS. All 12 ACs traced to implementation code with file:line evidence. No scope creep — all changed files match proposal scope exactly. All in_scope items implemented. All out_of_scope items verified absent. All 6 risks have corresponding code mitigations. All tasks in tasks.md marked [x]. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "A1: proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1: unit-test.ts:82-115 (runUnitTest orchestrates detect→execute→report) + cli.ts:16-38 (command registration). AC-2: test-framework.ts:97-98 (pytest chained command with _X=$? pattern). AC-3: test-runner.ts:52-73 (substitutePlaceholders for {files}/{directory}/{project_root}). AC-4: json-parser.ts:41-78 (extracts total/passed/failed/skipped from vitest/jest JSON). AC-5: text-parser.ts:279-301 (3-layer fallback: framework-specific→generic regex→heuristic). AC-6: coverage-parser.ts:264-286 (dispatch to 5 formats, extracts lines/branches/functions). AC-7: test-report.ts:247-293 (summary report with conclusion/problems/coverage/pass/measured/thresholds/by_framework) + schema unit-test-output.schema.ts:131-148 (no test_cases/test_files). AC-8: test-report.ts:100-129 (sub-report with test_cases/test_files/source_files/file_coverage/coverage/summary/exit_code) + schema unit-test-output.schema.ts:96-113. AC-9: test-report.ts:364-369 (computeCoveragePass: null dimensions skip, non-null must meet threshold). AC-10: test-framework.ts:65-66 (rust) + 97-98 (pytest) show ;_X=$?;...;exit $_X pattern. AC-11: test-runner.ts:246-253 (catch execSync errors, preserves exitCode/stderr, still attempts stdout parse). AC-12: test-framework.ts:11-20 (no merge_mode in FrameworkConfig), test-detect-frameworks.ts:30-40 (no merge_mode in PlanEntry), test-detect-frameworks.schema.ts:38-67 (no merge_mode in plan schema); grep confirms zero matches in all 3 source files."
+      },
+      {
+        "item": "A2: 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "All changed files match proposal's 实现文件 table exactly: 9 new files (unit-test.ts, test-runner.ts, test-parser/index.ts/json-parser.ts/go-parser.ts/text-parser.ts/coverage-parser.ts, test-report.ts, unit-test-output.schema.ts) + 5 modified files (test-framework.ts, cli.ts, test-detect-frameworks.ts, test-detect-frameworks.schema.ts, unit-test-executor.md). No unexpected new APIs, endpoints, or components beyond the defined scope."
+      },
+      {
+        "item": "A3: proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "All 10 new implementation files and 4 modified implementation files from proposal 实现文件 table (lines 64-79) are present with required changes: merge_mode removed, templates added, chained commands for pytest/rust, CLI command registered, coverage_cmd retained but unused. unit-test-executor.md updated to read CLI reports (line 15: 'Reads the CLI-generated unit test execution report')."
+      },
+      {
+        "item": "A4: proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "Verified: unit-test-evaluator agent unchanged (no git diff changes to evaluator files), test-detect-frameworks detection logic unchanged (only merge_mode removed from PlanEntry type), test-path-resolver unchanged, test-gen unchanged, OpenSpec workflow unchanged. unit-test-executor.md preserved (only data source updated from direct execution to CLI report reading)."
+      },
+      {
+        "item": "A5: proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk 1 (schema alignment): unit-test-output.schema.ts defines sub/summary report schemas matching evaluator expectations. Risk 2 (text fallback): text-parser.ts:279-301 implements 3-layer fallback (framework-specific→generic regex→heuristic). Risk 3 (cross-platform): test_cmd uses POSIX sh syntax (; _X=$? pattern). Risk 4 (stdout mixing): coverage parsed from file (coverage-parser.ts:264-286), not stdout. Risk 5 (large data): summary report has constant-size schema with no per-case limits. Risk 6 (rust path): test-runner.ts:201 handles null coveragePath, coverage-parser.ts:268 returns null on file not found."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T03:21:33.159Z"
+  }
+]

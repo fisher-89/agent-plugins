@@ -2,7 +2,7 @@ import picomatch from 'picomatch';
 
 const WILDCARD_CHARS = /[*?{[]/;
 
-function toForwardSlash(p: string): string {
+export function toForwardSlash(p: string): string {
   return p.replace(/\\/g, '/');
 }
 

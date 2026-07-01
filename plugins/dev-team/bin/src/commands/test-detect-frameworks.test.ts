@@ -1089,3 +1089,152 @@ describe('runTestDetectFrameworks — glob 检测 (AC-5)', () => {
     }
   });
 });
+
+// ===========================================================================
+// AC-12: plan 无 merge_mode
+// ===========================================================================
+
+describe('runTestDetectFrameworks -- plan 无 merge_mode (AC-12)', () => {
+  it('vitest plan 条目包含 test_cmd 但不包含 merge_mode', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0]).toHaveProperty('test_cmd');
+      expect(result.plan[0]).not.toHaveProperty('merge_mode');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('pytest plan 条目包含 test_cmd 但不包含 merge_mode', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'pytest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['tests/test_foo.py'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0]).toHaveProperty('test_cmd');
+      expect(result.plan[0]).not.toHaveProperty('merge_mode');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('多框架每个 plan 条目均包含 test_cmd 但不含 merge_mode', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [{ file: 'tests/**/*.rs', framework: 'rust' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts', 'tests/test_auth.rs'],
+        projectRoot: project.root,
+      });
+      expect(result.plan.length).toBeGreaterThanOrEqual(2);
+      for (const entry of result.plan) {
+        expect(entry).toHaveProperty('test_cmd');
+        expect(entry).not.toHaveProperty('merge_mode');
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('plan 条目中 test_cmd 与 getFrameworkConfig 返回值一致', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const expected = getFrameworkConfig('vitest');
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan[0].test_cmd).toBe(expected.test_cmd);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('plan 条目的 test_cmd 为模板字符串格式（含 {files}/{directory}/{project_root} 占位符），未被替换', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      // plan 中的 test_cmd 应保留占位符，未被替换
+      expect(result.plan[0].test_cmd).toContain('{files}');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('大量框架配置（如 8 框架全配置）时 plan 每条目均正确携带 test_cmd', () => {
+    // 使用多个 override 模拟多个框架
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [
+          { file: '**/*.test.{js,ts}', framework: 'jest' },
+          { file: '**/tests/**/*.rs', framework: 'rust' },
+        ],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/vitest.test.ts', 'src/jest.test.js', 'tests/test_auth.rs'],
+        projectRoot: project.root,
+      });
+      expect(result.plan.length).toBeGreaterThanOrEqual(2);
+      for (const entry of result.plan) {
+        expect(entry).toHaveProperty('test_cmd');
+        expect(entry).not.toHaveProperty('merge_mode');
+        expect(typeof entry.test_cmd).toBe('string');
+        expect(entry.test_cmd.length).toBeGreaterThan(0);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('每个 plan 条目的字段数量为 9（不含 merge_mode）', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      const keys = Object.keys(result.plan[0]);
+      // 9个字段: directory, framework, test_cmd, coverage_cmd, coverage_format, coverage_output,
+      // coverage_artifacts, coverage_cleanup, script
+      expect(keys.length).toBe(9);
+      expect(keys).not.toContain('merge_mode');
+    } finally {
+      project.cleanup();
+    }
+  });
+});

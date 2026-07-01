@@ -24,3 +24,13 @@ export { configContextInputSchema, configContextOutputSchema } from './config-co
 export { changeListInputSchema, changeListOutputSchema } from './change-list.schema';
 export { configSchema } from './config/config.schema';
 export type { OpenSpecConfig, OpenSpecConfigInput, TestFrameworks } from './config/config.schema';
+export type {
+  TestCaseResult,
+  UnitTestSubReport,
+  UnitTestSummaryReport,
+  CoverageBlock,
+  CoverageMeasured,
+  CoverageThresholds,
+  CoverageOverride,
+  FileCoverageEntry,
+} from './unit-test-output.schema';
