@@ -24,6 +24,7 @@ export interface UnitTestOptions {
   projectRoot?: string;
   files?: string[];
   framework?: string;
+  noMutation?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -102,7 +103,10 @@ export function runUnitTest(options: UnitTestOptions): number {
 
   for (const entry of planEntries) {
     console.log(`Running ${entry.framework} tests in ${entry.directory}...`);
-    const result = executePlanEntry(entry, projectRoot, { files: options.files });
+    const result = executePlanEntry(entry, projectRoot, {
+      files: options.files,
+      noMutation: options.noMutation,
+    });
     const subReport = generateSubReport(entry.framework, result, projectRoot, reportsDir);
     logResult(entry.framework, result);
     subReports.push(subReport);

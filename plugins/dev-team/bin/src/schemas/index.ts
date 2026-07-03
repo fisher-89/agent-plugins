@@ -14,6 +14,8 @@ export { configSetInputSchema, configSetOutputSchema } from './config-set.schema
 export {
   testDetectFrameworksInputSchema,
   testDetectFrameworksOutputSchema,
+  type TestDetectFrameworksResult,
+  type TestPlan,
 } from './test-detect-frameworks.schema';
 export {
   testResolvePathsInputSchema,
@@ -33,4 +35,7 @@ export type {
   CoverageThresholds,
   CoverageOverride,
   FileCoverageEntry,
+  MutationMeasured,
+  MutationBlock,
+  MutationOverride,
 } from './unit-test-output.schema';

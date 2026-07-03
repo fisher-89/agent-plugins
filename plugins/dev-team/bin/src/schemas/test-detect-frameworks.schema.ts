@@ -1,5 +1,48 @@
 import { z } from 'zod/v4';
 
+const testPlanSchema = z.object({
+  directory: z
+    .string()
+    .describe('Working directory for command execution (relative to project root)'),
+  framework: z.string().describe('Framework name'),
+  test_cmd: z
+    .string()
+    .optional()
+    .describe(
+      'Test command (template string with {files}, {directory}, {project_root} placeholders)',
+    ),
+  coverage_format: z
+    .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
+    .describe('Coverage output format'),
+  coverage_output: z.string().describe('Coverage output file path (relative to directory)'),
+  coverage_artifacts: z
+    .array(z.string())
+    .optional()
+    .describe('Glob patterns for coverage artifacts to move to unified location'),
+  coverage_cleanup: z
+    .array(z.string())
+    .optional()
+    .describe('Directory/file names to clean up after successful move'),
+  mutation_framework: z
+    .string()
+    .nullable()
+    .optional()
+    .describe('Mutation testing framework (e.g. "stryker-js") or null if not supported'),
+  mutation_config: z
+    .object({
+      score: z.number().describe('Mutation score threshold for this plan entry'),
+    })
+    .nullable()
+    .optional()
+    .describe('Mutation override configuration, null when no override applies'),
+  mutation_score: z
+    .number()
+    .nullable()
+    .optional()
+    .describe('Global mutation score threshold from config'),
+  script: z.string().describe('Bash execution script generated from test_cmd'),
+});
+
 /**
  * Input schema for `test_detect_frameworks` MCP tool.
  *
@@ -35,35 +78,9 @@ export const testDetectFrameworksOutputSchema = z.object({
   ),
   frameworks: z.array(z.string()).describe('Unique framework names detected across all files'),
   plan: z
-    .array(
-      z.object({
-        directory: z
-          .string()
-          .describe('Working directory for command execution (relative to project root)'),
-        framework: z.string().describe('Framework name'),
-        test_cmd: z
-          .string()
-          .optional()
-          .describe(
-            'Test command (template string with {files}, {directory}, {project_root} placeholders)',
-          ),
-        coverage_cmd: z.string().describe('Coverage command (includes test execution)'),
-        coverage_format: z
-          .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
-          .describe('Coverage output format'),
-        coverage_output: z.string().describe('Coverage output file path (relative to directory)'),
-        coverage_artifacts: z
-          .array(z.string())
-          .optional()
-          .describe('Glob patterns for coverage artifacts to move to unified location'),
-        coverage_cleanup: z
-          .array(z.string())
-          .optional()
-          .describe('Directory/file names to clean up after successful move'),
-        script: z
-          .string()
-          .describe('Bash execution script with shebang, set -e, cd, rm -rf, and coverage command'),
-      }),
-    )
+    .array(testPlanSchema)
     .describe('Execution plan: one entry per configured framework mapping'),
 });
+
+export type TestDetectFrameworksResult = z.infer<typeof testDetectFrameworksOutputSchema>;
+export type TestPlan = z.infer<typeof testPlanSchema>;

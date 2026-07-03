@@ -3,8 +3,13 @@ import * as path from 'path';
 
 import { readConfig } from '../lib/config';
 import { matchGlob } from '../lib/glob';
-import { getDefaultGlobForFramework, getFrameworkConfig } from '../lib/test-framework';
-import { type OpenSpecConfig, type TestFrameworks } from '../schemas';
+import { type FrameworkConfig, getFrameworkConfig } from '../lib/test-framework';
+import {
+  type TestDetectFrameworksResult,
+  type TestPlan,
+  type OpenSpecConfig,
+  type TestFrameworks,
+} from '../schemas';
 import { getProjectDir } from '../utils';
 
 // ---------------------------------------------------------------------------
@@ -19,24 +24,6 @@ interface FrameworkMapping {
 interface DetectedFile {
   file: string;
   framework: string;
-}
-
-export interface TestDetectFrameworksResult {
-  detected: DetectedFile[];
-  frameworks: string[];
-  plan: PlanEntry[];
-}
-
-export interface PlanEntry {
-  directory: string;
-  framework: string;
-  test_cmd: string;
-  coverage_cmd: string;
-  coverage_format: 'istanbul' | 'llvm-cov' | 'node-test' | 'go-cover' | 'coverage-py';
-  coverage_output: string;
-  coverage_artifacts: string[];
-  coverage_cleanup: string[];
-  script: string;
 }
 
 export interface TestDetectFrameworksOptions {
@@ -109,7 +96,7 @@ function normalizeFrameworks(
 ): FrameworkMapping[] {
   const frameworkMapping: FrameworkMapping[] = [];
   if (framework) {
-    const glob = getDefaultGlobForFramework(framework);
+    const glob = getFrameworkConfig(framework).default_glob;
     frameworkMapping.push({ glob, framework });
   }
 
@@ -171,45 +158,27 @@ function deriveWorkingDirectory(glob: string): string {
 // generateScript
 // ---------------------------------------------------------------------------
 
-interface GenerateScriptInput {
-  directory: string;
-  coverage_cmd: string;
-  coverage_cleanup: string[];
-}
-
 /**
  * Generate a bash execution script from plan entry fields.
- *
- * Rules:
- * 1. First line is always `#!/bin/bash`
- * 2. Second line is always `set -e`
- * 3. When `directory !== "."`, insert `cd <directory>` line
- * 4. For each entry in `coverage_cleanup`, insert `rm -rf <item>` line
- * 5. When `coverage_cleanup` is empty, skip all `rm -rf` lines
- * 6. Last line is `<coverage_cmd>`
- * 7. Lines are separated by `\n`, trailing newline included
  */
-function generateScript(input: GenerateScriptInput): string {
-  if (input === null || input === undefined) {
+function generateScript(directory: string, frameworkConfig: FrameworkConfig): string {
+  if (frameworkConfig === null || frameworkConfig === undefined) {
     throw new TypeError('generateScript input must not be null or undefined');
   }
 
-  const { directory, coverage_cmd, coverage_cleanup } = input;
+  const { test_cmd, coverage_cleanup } = frameworkConfig;
 
   if (typeof directory !== 'string') {
     throw new TypeError('generateScript: directory must be a string');
   }
-  if (typeof coverage_cmd !== 'string') {
-    throw new TypeError('generateScript: coverage_cmd must be a string');
+  if (typeof test_cmd !== 'string') {
+    throw new TypeError('generateScript: test_cmd must be a string');
   }
   if (!Array.isArray(coverage_cleanup)) {
     throw new TypeError('generateScript: coverage_cleanup must be an array');
   }
 
   const lines: string[] = [];
-
-  lines.push('#!/bin/bash');
-  lines.push('set -e');
 
   if (directory !== '.') {
     lines.push(`cd ${directory}`);
@@ -219,7 +188,7 @@ function generateScript(input: GenerateScriptInput): string {
     lines.push(`rm -rf ${item}`);
   }
 
-  lines.push(coverage_cmd);
+  lines.push(test_cmd);
 
   return lines.join('\n') + '\n';
 }
@@ -228,8 +197,8 @@ function generateScript(input: GenerateScriptInput): string {
 // Plan and detection helpers
 // ---------------------------------------------------------------------------
 
-function buildPlanFromMappings(mappings: FrameworkMapping[]): PlanEntry[] {
-  const plan: PlanEntry[] = [];
+function buildPlanFromMappings(mappings: FrameworkMapping[], projectRoot?: string): TestPlan[] {
+  const plan: TestPlan[] = [];
   for (const mapping of mappings) {
     try {
       const directory = deriveWorkingDirectory(mapping.glob);
@@ -238,22 +207,52 @@ function buildPlanFromMappings(mappings: FrameworkMapping[]): PlanEntry[] {
         directory,
         framework: config.framework,
         test_cmd: config.test_cmd,
-        coverage_cmd: config.coverage_cmd,
         coverage_format: config.coverage_format,
         coverage_output: config.coverage_output,
         coverage_artifacts: config.coverage_artifacts,
         coverage_cleanup: config.coverage_cleanup,
-        script: generateScript({
-          directory,
-          coverage_cleanup: config.coverage_cleanup,
-          coverage_cmd: config.coverage_cmd,
-        }),
+        mutation_framework: config.mutation_framework,
+        mutation_config: null,
+        mutation_score: null,
+        script: generateScript(directory, config),
       });
     } catch {
       // Skip entries for frameworks not in the registry
     }
   }
+
+  populateMutationConfig(plan, projectRoot);
   return plan;
+}
+
+/**
+ * Populate mutation_config and mutation_score for each plan entry
+ * from the project's config.json.
+ */
+function populateMutationConfig(plan: TestPlan[], projectRoot?: string): void {
+  if (plan.length === 0) return;
+
+  try {
+    const root = projectRoot || getProjectDir();
+    const config = readConfig(root);
+    const mutationScore = config.test?.mutation?.score ?? null;
+    const overrideConfigs = config.test?.overrides ?? [];
+
+    for (const entry of plan) {
+      if (entry.mutation_framework) {
+        let matchedScore: number | null = null;
+        for (const override of overrideConfigs) {
+          if (override.mutation?.score !== undefined) {
+            matchedScore = override.mutation.score;
+          }
+        }
+        entry.mutation_score = mutationScore;
+        entry.mutation_config = matchedScore !== null ? { score: matchedScore } : null;
+      }
+    }
+  } catch {
+    // Config read failure — mutation fields remain null
+  }
 }
 
 function detectFrameworksForFiles(
@@ -337,7 +336,7 @@ export function runTestDetectFrameworks(
   const config = readConfig(projectRoot);
   const { framework, overrides } = config.test;
   const mappings = normalizeFrameworks(framework, overrides);
-  const plan = buildPlanFromMappings(mappings);
+  const plan = buildPlanFromMappings(mappings, projectRoot);
 
   const filesResult = resolveFilesToCheck(options, projectRoot);
   if (filesResult === 'empty') {

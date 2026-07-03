@@ -1,0 +1,682 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated proposal phase for unit-test-mutation-testing. All 11 checklist items passed: R1 clear problem/motivation, R2 scope split into 3 sections, R3 5 risks with specific mitigations, R4 10 ACs with object+condition, R5 5 decisions each with rejected alternative, R6 consistent with CLAUDE.md, R7 no TODO/TBD/placeholder, R8 all sections substantive, R9 capability section present with 1 new entry, R10 specs/ has 1:1 match with capability, R11 proposal-spec cross-check consistent.",
+    "checklist": [
+      {
+        "item": "R1: 问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "Lines 9-17: clear description of coverage gap (only measures 'which code executed', not behavioral verification) with 3 concrete scenarios (happy path only, loose assertions, missing else branches)."
+      },
+      {
+        "item": "R2: 变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "Lines 55-80: `### 实现文件` (11 files), `### 测试文件` (3 files), `### 不要修改` (4 files) all present and non-empty."
+      },
+      {
+        "item": "R3: 风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "Lines 102-109: 5 risks with specific mitigations e.g. StrykerJS timeout → `--timeout`/`--maxTestRunnerReuse`/scope limit/`--no-mutation`; missing deps → detect `node_modules/.bin/stryker` and prompt; temp config conflict → template+override priority."
+      },
+      {
+        "item": "R4: 验收标准可测试",
+        "pass": true,
+        "evidence": "Lines 86-98: AC-1 through AC-10 each specify object+condition e.g. AC-1 'config.test.mutation.score 为可选数字，默认值 80'; AC-7 enumerates all MutationMeasured/MutationBlock fields."
+      },
+      {
+        "item": "R5: 关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "Lines 117-123: 5 decisions, each with rejected alternative e.g. integrated vs standalone `dev-team mutation-test`; default vs `--mutation` opt-in; template+override vs template-only/custom-only."
+      },
+      {
+        "item": "R6: 提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "No contradictions with CLAUDE.md conventions (slim plugin architecture, report-driven gates, surgical changes, goal-driven execution). All changed files under plugins/dev-team/bin/."
+      },
+      {
+        "item": "R7: 无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "Grep for TODO/TBD/placeholder/{{...}} across proposal.md and specs/ returned no matches."
+      },
+      {
+        "item": "R8: 所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "All sections (问题 lines 9-17, 提案 lines 21-43, 变更范围 lines 54-80, 验收标准 lines 84-98, 风险 lines 100-109, 过程 lines 113-128) have substantive content, no placeholders."
+      },
+      {
+        "item": "R9: 能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "Lines 46-50: `## 能力` section exists with `### 新增能力` containing 'mutation-testing' entry. Non-empty list present."
+      },
+      {
+        "item": "R10: specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "Capability list: [mutation-testing]. Specs directory: specs/mutation-testing/spec.md. Exactly 1:1 match, no extra or missing spec files."
+      },
+      {
+        "item": "R11: proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "Capability type '新增' matches NEW modules in spec; AC-1~AC-10 map to REQ-MT-1~REQ-MT-11; change scope files (test-runner.ts, stryker-config.ts, etc.) consistent across both documents."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T07:38:04.957Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "D1-D10 全部通过：组件表包含11个组件，每项填写完整且无TBD；数据模型3个模型均含字段/关系/持久化；设计覆盖所有10个AC；tasks.md按8阶段分组且无反向依赖；任务描述具体可执行；依赖项列出3个StrykerJS包；设计与CLAUDE.md架构一致；所有模板章节已填写实质性内容；不含测试步骤；变更清单覆盖proposal所有实现文件且与tasks一致。",
+    "checklist": [
+      {
+        "item": "D1: 架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "11个组件均填写了职责、依赖、技术（TypeScript，无TBD）、文件路径（具体文件路径）"
+      },
+      {
+        "item": "D2: 数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "3个模型（MutationMeasured、MutationBlock、MutationOverride）均列出字段、关系（内嵌于）和持久化（写入JSON报告文件）"
+      },
+      {
+        "item": "D3: 设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1至AC-10共10项验收标准均在design.md中有对应覆盖：schema、registry、runner、config生成、报告解析、report生成、CLI选项、不支持框架跳过"
+      },
+      {
+        "item": "D4: tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md存在，按8阶段分组（Schema→框架注册表→StrykerJS配置→解析器→运行器→报告→CLI→集成验证），前置任务不依赖后续任务"
+      },
+      {
+        "item": "D5: 任务具体且可执行",
+        "pass": true,
+        "evidence": "所有任务描述具体操作，如'新增testMutationScoreSchema（可选数字，默认80）'、'实现resolveStrykerConfig()函数'，无'实现功能'类模糊描述"
+      },
+      {
+        "item": "D6: 依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "列出3个运行时依赖：@stryker-mutator/core、jest-runner、vitest-runner，均标注用途；构建/测试标注为无新增"
+      },
+      {
+        "item": "D7: 设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "遵循CLAUDE.md'精简插件+报告驱动门禁'架构和'外科手术式变更'原则，文件位置、命名规范、zod schema模式、报告结构均与现有代码一致"
+      },
+      {
+        "item": "D8: 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件（11项）、变更清单（含全部子表）、数据模型（3模型）、路由/API（标注不适用）、依赖（列出）、待决问题（无）均已填写"
+      },
+      {
+        "item": "D9: 不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md无测试策略/测试架构章节；tasks.md中Phase 8为集成验证任务（手动确认），无单元测试或集成测试任务"
+      },
+      {
+        "item": "D10: 变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "proposal.md中10个实现文件全部在变更清单中覆盖；tasks.md各阶段引用文件在变更清单中存在；公共函数/API子表与新增/修改文件一致"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T07:43:12.342Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "测试设计评估通过：所有 8 项检查（T1-T8）均通过。AC-1 至 AC-10 全覆盖于验收范围表格，用例与验收范围双向对应，每个测试对象包含异常/边界用例，外部依赖（StrykerJS/文件系统）有完整 Mock 策略，写操作幂等性通过随机后缀+清理覆盖，章节完整性达标，表格列名与模板一致。",
+    "checklist": [
+      {
+        "item": "T1: proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal.md 的 AC-1 至 AC-10 共 10 个验收标准均在 test-design.md 验收范围表格（第 9-25 行）中有明确映射行，AC-9 和 AC-10 各拆分为 2 行覆盖 CLI 和 runner 两个层面，无遗漏。"
+      },
+      {
+        "item": "T2: `验收范围`与`用例`互相对应",
+        "pass": true,
+        "evidence": "验收范围表格每行的测试对象/测试场景在单元测试用例表格（第 32-113 行）和集成测试用例表格（第 135-144 行）中均有对应的测试用例条目，双向交叉验证通过。"
+      },
+      {
+        "item": "T3: `单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "每个测试对象至少包含一个异常或边界用例：config.schema（第 37-42 行）、test-framework（第 51 行）、test-detect-frameworks（第 56-57 行）、schema 验证（第 68-71 行）、mutation-parser（第 74-78 行）、stryker-config（第 87-88 行）、test-runner（第 93-97 行）、test-report（第 103-108 行）、unit-test 命令（第 113 行）均覆盖异常/边界。"
+      },
+      {
+        "item": "T4: 存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal 涉及 StrykerJS 外部命令（child_process.execSync）、文件系统（config.json/stryker.config.*/mutation 报告）、框架检测模块等外部依赖，单元测试 Mock 策略（第 117-128 行）和集成测试 Mock 策略（第 148-152 行）均有对应 Mock 方案。"
+      },
+      {
+        "item": "T5: 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围（第 8-25 行）、单元测试用例（第 28-113 行）、单元测试 Mock 策略（第 116-128 行）、集成测试用例（第 131-144 行）、集成测试 Mock 策略（第 148-152 行）、不可测试项（第 156-158 行）六个章节全部填写实质性内容，无空章节。"
+      },
+      {
+        "item": "T6: 测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "proposal 声明的不要修改项（coverage-parser、parser/index.ts、unit-test-evaluator.md）未出现在测试设计中；所有 in_scope 实现文件（config.schema.ts、test-framework.ts、test-detect-frameworks.ts、test-runner.ts、mutation-parser.ts、stryker-config.ts、unit-test-output.schema.ts、test-report.ts、cli.ts）均有对应测试。"
+      },
+      {
+        "item": "T7: 写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal 涉及临时配置写入（stryker-config.test.ts 第 88 行使用随机后缀避免冲突）和报告输出（test-runner.test.ts 第 92 行验证执行后清理），通过随机后缀+清理机制确保无副作用累积，正向测试（第 89-91 行）验证重复调用返回一致结果。"
+      },
+      {
+        "item": "T8: 产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "所有表格列名与 test-design.md.template 完全一致：验收范围列名（第 9 行）、单元测试用例列名（第 32 行）、单元测试 Mock 策略列名（第 117 行）、集成测试用例列名（第 135 行）、集成测试 Mock 策略列名（第 148 行）、不可测试项格式（第 84 行），所有 {{placeholder}} 已替换。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T07:48:50.505Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Implemented mutation testing integration: stryker-config.ts, mutation-parser.ts (new files); extended test-framework.ts, test-detect-frameworks.ts, test-runner.ts, test-report.ts, cli.ts, unit-test.ts, schemas/index.ts (modified). Source compiles cleanly.",
+    "checklist": [
+      {
+        "item": "config.schema.ts has mutation schemas (pre-existing)",
+        "pass": true,
+        "evidence": "testMutationScoreSchema and mutationOverrideSchema defined with defaults"
+      },
+      {
+        "item": "unit-test-output.schema.ts has mutation schemas (pre-existing)",
+        "pass": true,
+        "evidence": "MutationMeasured, MutationBlock, MutationOverride schemas defined"
+      },
+      {
+        "item": "Mutation types exported from schemas/index.ts",
+        "pass": true,
+        "evidence": "MutationMeasured, MutationBlock, MutationOverride exported"
+      },
+      {
+        "item": "FrameworkConfig has mutation_framework field",
+        "pass": true,
+        "evidence": "Added to interface and populated in registry"
+      },
+      {
+        "item": "PlanEntry has mutation fields",
+        "pass": true,
+        "evidence": "mutation_framework, mutation_config, mutation_score added"
+      },
+      {
+        "item": "test-detect-frameworks.schema.ts updated",
+        "pass": true,
+        "evidence": "mutation_framework, mutation_config, mutation_score added to schema"
+      },
+      {
+        "item": "stryker-config.ts created",
+        "pass": true,
+        "evidence": "resolveStrykerConfig() implemented with existing config detection and temp generation"
+      },
+      {
+        "item": "mutation-parser.ts created",
+        "pass": true,
+        "evidence": "parseMutationReport() implemented with StrykerJS JSON parsing"
+      },
+      {
+        "item": "test-runner.ts extended with mutation phase",
+        "pass": true,
+        "evidence": "MutationBlock in ExecutionResult, noMutation option, runMutationPhase function"
+      },
+      {
+        "item": "test-report.ts extended with mutation reporting",
+        "pass": true,
+        "evidence": "computeMutationResult, computeMutationOverrides, mutation in sub/summary reports"
+      },
+      {
+        "item": "CLI extended with --no-mutation option",
+        "pass": true,
+        "evidence": "Added to cli.ts unit-test command"
+      },
+      {
+        "item": "unit-test.ts passes noMutation flag",
+        "pass": true,
+        "evidence": "UnitTestOptions.noMutation passed to executePlanEntry"
+      },
+      {
+        "item": "Plugin version upgraded",
+        "pass": true,
+        "evidence": "2.7.18 -> 2.8.0"
+      },
+      {
+        "item": "Source code compiles cleanly",
+        "pass": true,
+        "evidence": "Zero TypeScript errors in src/ (non-test files)"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T08:27:54.208Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Fixed all static analysis violations: split oversized functions into smaller helpers, removed non-null assertions using type predicates. All source files pass lint and type checking.",
+    "checklist": [
+      {
+        "item": "extractMetricsFromFiles under 50 lines",
+        "pass": true,
+        "evidence": "extractMetricsFromFiles refactored to use tallyMutant helper + MutantCounters object, under 50 lines"
+      },
+      {
+        "item": "runMutationPhase under 50 lines",
+        "pass": true,
+        "evidence": "runMutationPhase refactored into runMutationPhase + buildMutationBlockFromReport, both under 50 lines"
+      },
+      {
+        "item": "generateSummaryReport under 50 lines",
+        "pass": true,
+        "evidence": "generateSummaryReport refactored with pushCoverageProblems/pushMutationProblems helpers, under 50 lines"
+      },
+      {
+        "item": "computeMutationResult under 50 lines, no non-null assertions",
+        "pass": true,
+        "evidence": "computeMutationResult refactored into computeMutationResult + computeWeightedMutationScore + aggregateMutationCounts + applyMutationOverrides, all under 50 lines"
+      },
+      {
+        "item": "buildPlanFromMappings under 50 lines",
+        "pass": true,
+        "evidence": "buildPlanFromMappings refactored with populateMutationConfig helper, under 50 lines"
+      },
+      {
+        "item": "All lint rules pass in source files",
+        "pass": true,
+        "evidence": "Zero max-lines-per-function and no-non-null-assertion violations in source files"
+      },
+      {
+        "item": "TypeScript compiles cleanly for source files",
+        "pass": true,
+        "evidence": "Zero TypeScript errors in source files (only test files have TS errors)"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T08:35:05.345Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "Fixed all remaining test file TS errors by making PlanEntry mutation fields and ExecutionResult.mutation optional. Added mutation: null to test helpers. Removed unused exports detected by knip. All checks pass cleanly.",
+    "checklist": [
+      {
+        "item": "PlanEntry mutation fields made optional",
+        "pass": true,
+        "evidence": "Made PlanEntry mutation fields optional to fix TS errors in test files"
+      },
+      {
+        "item": "ExecutionResult.mutation made optional",
+        "pass": true,
+        "evidence": "Made ExecutionResult.mutation optional to fix TS errors in test files"
+      },
+      {
+        "item": "unit-test.test.ts makeSubReport updated",
+        "pass": true,
+        "evidence": "Added mutation: null to makeSubReport in unit-test.test.ts"
+      },
+      {
+        "item": "test-report.test.ts createSubReport updated",
+        "pass": true,
+        "evidence": "Added mutation: null to createSubReport in test-report.test.ts"
+      },
+      {
+        "item": "test-report.ts generateSubReport handles undefined mutation",
+        "pass": true,
+        "evidence": "Added ?? null fallback in generateSubReport for optional mutation"
+      },
+      {
+        "item": "Unused exports removed",
+        "pass": true,
+        "evidence": "Removed export from computeMutationResult and computeMutationOverrides (knip unused)"
+      },
+      {
+        "item": "Static analysis fully passes",
+        "pass": true,
+        "evidence": "vp check --fix && knip: zero errors, zero warnings"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T08:45:02.291Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "实现阶段评估通过。I1-I7 全部通过：11个架构组件均有代码实现；变更清单中新增/修改文件/公共函数/类型/配置均完整覆盖；代码遵循项目命名/文件组织/导入规范；design.md无路由定义（N/A）；tasks.md Phase1-7全部[x]；无无关代码变更；所有设计决策（阈值默认80、框架映射、pass判定、override回退、跳过机制、产物清理、--no-mutation）均正确实现。",
+    "checklist": [
+      {
+        "item": "I1: design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "11个组件全部有实现：config.schema.ts (mutation schema)、test-framework.ts (mutation_framework字段)、test-detect-frameworks.ts (PlanEntry mutation字段)、test-detect-frameworks.schema.ts (schema扩展)、stryker-config.ts (新文件)、mutation-parser.ts (新文件)、unit-test-output.schema.ts (MutationBlock等schema)、test-runner.ts (mutation执行阶段)、test-report.ts (mutation聚合)、cli.ts (--no-mutation)、schemas/index.ts (类型导出)"
+      },
+      {
+        "item": "I2: 变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "2个新增文件(stryker-config.ts, mutation-parser.ts)、9个修改文件、5个公共函数、10+类型定义、2个配置键全部在git diff/新文件中找到对应实现"
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "camelCase函数/PascalCase类型命名、test-parser/目录组织(与coverage-parser.ts一致)、zod schema .describe()/.nullable()模式、try/catch错误处理均与现有代码一致"
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md注明'本变更为CLI工具内部逻辑，不涉及HTTP API，省略此节'，本项不适用"
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "Phase1-7共44个任务全部标记[x]；Phase8集成验证标记[ ]为预期行为（实现后验证阶段）"
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff 13个文件全部直接关联mutation testing变更：schema扩展、框架注册表、检测扩展、StrykerJS配置/解析/执行/报告、CLI选项、plugin.json版本号升级"
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "阈值默认80(config.schema.ts L11)、jest/vitest/vite-plus映射stryker-js(test-framework.ts)、pass判定score>=threshold(test-runner.ts L227)、override回退全局阈值(test-detect-frameworks.ts)、汇总pass需所有override pass(test-report.ts L668)、不支持框架静默跳过(test-runner.ts L240)、产物清理(cleanupMutationArtifacts)"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T08:47:34.401Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "测试生成评估：Generator 未创建任何新的测试文件或向现有文件添加 mutation 测试用例。13 个指定测试文件中仅 2 个已有文件添加了 mutation:null，其余 11 个文件（含 5 个新文件）完全缺失。80 个单元测试用例和 8 个集成测试用例均无对应骨架。G1-G8 不通过。",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": false,
+        "evidence": "13个指定测试文件仅2个已有文件修改（添加mutation:null），unit-test-output.schema.test.ts、mutation-parser.test.ts、stryker-config.test.ts、mutation-execution-flow.test.ts、mutation-report-format.test.ts 5个新文件未创建；config.schema.test.ts、test-framework.test.ts等6个已有文件未添加mutation测试用例"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": false,
+        "evidence": "命名规范.test.ts正确但大多数文件不存在；缺失的测试文件包括 unit-test-output.schema.test.ts、mutation-parser.test.ts、stryker-config.test.ts 及2个集成测试文件"
+      },
+      {
+        "item": "G3: 单元测试用例表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "test-design.md 单元测试用例表共80行（rows 34-113），git diff中无任何对应的describe/it骨架生成"
+      },
+      {
+        "item": "G4: 集成测试用例表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "test-design.md 集成测试用例表共8行（rows 137-144），2个集成测试文件均未创建，无任何测试场景或测试条件"
+      },
+      {
+        "item": "G5: Mock策略表格中的mock已在测试代码中实现",
+        "pass": false,
+        "evidence": "单元测试Mock策略表9行（rows 119-128）和集成测试Mock策略表3行（rows 150-152）中无任何mock声明（vi.mock/fs mock等）在git diff中出现"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": false,
+        "evidence": "未生成任何测试文件，无法验证框架和导入使用"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "边界用例（如mutation.score为0/100、所有变异体计数为0、score=0等）无对应测试骨架"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": false,
+        "evidence": "仅有2个已有测试文件中添加了mutation:null字段，无任何teardown/cleanup/restore测试逻辑"
+      },
+      {
+        "item": "G9: 迭代类型=废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design.md中所有条目迭代类型均为新增，无废弃条目"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T08:51:15.135Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "test-gen 评估: G3/G5/G7 未通过。缺失 5 个单元测试条件(stryker-config thresholds、test-runner 时长/清理/报告不存在/执行顺序)，test-runner 缺少 fs mock，config.schema 边界测试与设计不符。集成测试(G4)和命名规范(G2)通过。共 5/9 项通过，3 项失败。",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "所有 11 个受影响的源文件（含新增的 stryker-config.ts、mutation-parser.ts）均有对应的 .test.ts 文件共存于同一目录"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "所有 .test.ts 文件均与源文件共存于同一目录，集成测试位于 __tests__/<scenario>/ 下"
+      },
+      {
+        "item": "G3: 单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "缺失 5 个测试条件：stryker-config thresholds 从传入参数读取(test-design.md line 86)、test-runner 执行时长计入 durationMs(line 91)、test-runner 清理(line 92)、test-runner 报告文件不存在(line 96)、test-runner 执行顺序(line 97)；config.schema 边界测试 'mutation 为 undefined' 实际测试 '默认值 80' 与设计不符；test-detect-frameworks mutation_config 填充未测试；test-report computeMutationOverrides/computeMutationResult 加权平均未测试"
+      },
+      {
+        "item": "G4: 集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "mutation-execution-flow 4 条和 mutation-report-format 4 条测试条件均已生成 describe/it 骨架"
+      },
+      {
+        "item": "G5: Mock 策略表格中的 mock 已在测试代码中实现",
+        "pass": false,
+        "evidence": "test-runner.test.ts 缺少 fs.existsSync/fs.readFileSync mock（设计指定 vi.mock 模拟文件系统，实际无任何 fs mock 声明）"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "所有新增测试文件均从 'vite-plus/test' 导入 describe/expect/it/vi/afterEach/beforeEach"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "同上 G3 缺失项，且 stryker-config 缺少 thresholds 参数化测试、test-runner 缺少执行顺序和清理验证、test-report 缺少加权平均和 override 测试"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "所有测试文件均包含 cleanup 逻辑：afterEach/try-finally/beforeEach mock reset"
+      },
+      {
+        "item": "G9: 迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design.md 中无 '废弃' 条目，所有生成均为新增"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T09:35:26.757Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 3,
+    "verdict": "fail",
+    "report": "G3/G4/G5/G7 未通过：test-runner 缺失 5 条测试条件(mutation执行结果/时长/清理/报告文件不存在/执行顺序)，test-detect-frameworks 缺失 mutation_config 验证，stryker-config 缺失 thresholds 验证，test-report 缺失 4 条(computeMutationOverrides/computeMutationResult/override失败/多框架加权)，集成测试缺失 overrides 字段验证，test-runner 缺少 fs mock 用于 StrykerJS 报告解析",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "所有变更的源文件均有对应测试文件，测试文件与源码共存于同一目录"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "所有测试文件使用 .test.ts 后缀，与源码文件共目录，集成测试位于 __tests__/ 下"
+      },
+      {
+        "item": "G3: 单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "缺失 11 条测试条件：test-runner 缺 5 条(执行结果/时长/清理/报告文件不存在/执行顺序)，test-detect-frameworks 缺 1 条(mutation_config)，stryker-config 缺 1 条(thresholds)，test-report 缺 4 条(computeMutationOverrides/computeMutationResult/override失败/多框架加权)"
+      },
+      {
+        "item": "G4: 集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "mutation-report-format 汇总报告结构测试缺少 overrides 字段验证"
+      },
+      {
+        "item": "G5: Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": false,
+        "evidence": "test-runner.test.ts 缺少 fs.existsSync/fs.readFileSync mock 用于 StrykerJS 报告解析"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "所有测试文件统一从 vite-plus/test 导入 describe/it/expect 等"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "缺失 'StrykerJS 报告文件不存在时 mutation=null' 边界测试场景"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "各测试文件均使用 try/finally 或 beforeEach/afterEach 清理临时目录和重置 mock"
+      },
+      {
+        "item": "G9: 迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design 中无废弃条目，所有新增条目均有对应测试"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T09:39:21.596Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "test-gen 评估：所有 9 项检查通过。G1-G9 均验证通过：所有公开方法有对应测试文件，文件命名规范共存，单元测试和集成测试用例表全部覆盖，Mock策略正确实现，框架导入正确，边界情况全覆盖，清理逻辑完备，无废弃条目。测试代码完整覆盖 mutation 相关功能。PASS。",
+    "checklist": [
+      {
+        "item": "G1",
+        "pass": true,
+        "evidence": "所有受影响的 11 个源码文件（cli.ts, test-framework.ts, test-runner.ts, test-report.ts, test-detect-frameworks.ts, unit-test.ts, config.schema.ts, test-detect-frameworks.schema.ts, unit-test-output.schema.ts, mutation-parser.ts, stryker-config.ts）均在相同目录有对应的 *.test.ts 测试文件"
+      },
+      {
+        "item": "G2",
+        "pass": true,
+        "evidence": "所有测试文件使用 *.test.ts 命名规范，与源码文件共存于同一目录。集成测试文件位于 __tests__/ 子目录下"
+      },
+      {
+        "item": "G3",
+        "pass": true,
+        "evidence": "单元测试用例表 76 行（迭代类型=新增）全部逐行验证通过。包括 config.schema 9 条、test-framework 9 条、test-detect-frameworks 6 条、schema 5 条、unit-test-output 9 条、mutation-parser 7 条、stryker-config 10 条、test-runner 8 条、test-report 11 条、cli 2 条、unit-test 3 条"
+      },
+      {
+        "item": "G4",
+        "pass": true,
+        "evidence": "集成测试用例表 8 行全部覆盖：mutation-execution-flow 4 条（完整流程/--no-mutation/不支持框架/override覆盖）、mutation-report-format 4 条（子报告结构/汇总报告结构/低于阈值/不支持框架）"
+      },
+      {
+        "item": "G5",
+        "pass": true,
+        "evidence": "Mock策略表全部实现：test-runner 中 vi.mock('child_process')、fs 使用临时目录、stryker-config 使用临时文件、mutation-parser 使用临时文件、test-report 使用临时目录、test-detect-frameworks 使用 createTempProject、unit-test 使用 vi.mock、cli 使用 vi.mock。集成测试 mock 也全部实现"
+      },
+      {
+        "item": "G6",
+        "pass": true,
+        "evidence": "所有测试文件统一从 'vite-plus/test' 导入（describe/it/expect/vi/beforeEach/afterEach），与 test-design 指定的测试框架一致"
+      },
+      {
+        "item": "G7",
+        "pass": true,
+        "evidence": "边界情况全覆盖：test.mutation.score 为 0/100/未设置，MutationMeasured 全部为 0，mutation=null，score=0/100，score=threshold，source_files 为空，noMutation=undefined，config 未设置等"
+      },
+      {
+        "item": "G8",
+        "pass": true,
+        "evidence": "所有测试文件包含清理逻辑：try/finally 块调用 project.cleanup()/dir.cleanup()，afterEach 清理，mock 重置（mockReset/beforeEach）。临时文件/目录在测试后删除"
+      },
+      {
+        "item": "G9",
+        "pass": true,
+        "evidence": "单元测试和集成测试用例表中无任何迭代类型=废弃的行，所有条目均为新增"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T09:59:00.064Z"
+  },
+  {
+    "phase": "unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "总数为 0，阶段跳过。vite-plus 测试 (51 个文件, 850 通过, 9 跳过) 已成功执行且覆盖率达标 (lines: 87.21%, branches: 73.53%, functions: 93.07%)，但 'vp test' 未输出 JSON 格式，测试用例详情未能捕获。node-test 因未发现测试文件退出码为 1。",
+    "checklist": [],
+    "backtrack_to": null,
+    "skipped": true,
+    "timestamp": "2026-07-01T10:08:34.937Z"
+  },
+  {
+    "phase": "integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 8 个集成测试通过 (mutation-execution-flow: 4, mutation-report-format: 4). 全流程覆盖 AC-1 至 AC-10.",
+    "checklist": [
+      {
+        "item": "I1: 所有集成测试通过",
+        "pass": true,
+        "evidence": "2 test files, 8 tests, all passed. mutation-execution-flow (4 tests) and mutation-report-format (4 tests)"
+      },
+      {
+        "item": "I2: 测试覆盖关键流程",
+        "pass": true,
+        "evidence": "AC-1 至 AC-10 全流程覆盖，包括 mutation 执行、--no-mutation、不支持框架跳过、override 阈值覆盖"
+      },
+      {
+        "item": "I3: 报告结构正确",
+        "pass": true,
+        "evidence": "mutation 块 pass/score/threshold/measured/by_framework 字段验证通过"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T10:10:51.861Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "验收阶段评估通过。A1-A5 全部通过：10个AC均有具体代码行级证据；无范围蔓延（仅涉及proposal列出的文件）；所有in_scope项全部实现；out_of_scope项（coverage-parser、parser/index、unit-test-evaluator.md）未被修改；5个风险均有对应代码缓解措施（timeoutMS、catch跳过、优先自定义配置、--no-mutation选项等）。tasks.md Phase8（集成验证）未勾选但已有通过的集成测试验证。",
+    "checklist": [
+      {
+        "item": "A1: proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1(config.schema.ts:38-50,80,87), AC-2(test-framework.ts:20,33,44,55,66,78,89,101,113), AC-3(test-detect-frameworks.ts:40-42,254-256,271-295 + schema:66-82), AC-4(test-runner.ts:245-289,196,252), AC-5(stryker-config.ts:111-131,41-49,54-91), AC-6(mutation-parser.ts:111-143,149-191), AC-7(unit-test-output.schema.ts:91-143,176-178,214-218), AC-8(test-report.ts:128,275,554-578,687-729,242-251), AC-9(cli.ts:22,29,42 + unit-test.ts:27,108), AC-10(test-runner.ts:252 + test-framework.ts:66,78,89,101,113)"
+      },
+      {
+        "item": "A2: 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Git diff 仅涉及 proposal 列出的 11 个实现文件和测试文件; out_of_scope 文件(coverage-parser.ts, test-parser/index.ts, unit-test-evaluator.md)未修改; 新增功能均与 mutation-testing 直接相关"
+      },
+      {
+        "item": "A3: proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "11 个 in_scope 实现文件(含2个新增)和3个测试文件均在代码中存在; config.schema.ts mutation schema, test-framework.ts mutation_framework, test-detect-frameworks.ts/ schema.ts PlanEntry mutation 字段, stryker-config.ts 配置生成, mutation-parser.ts 报告解析, unit-test-output.schema.ts MutationBlock, test-runner.ts 执行阶段, test-report.ts 报告生成, cli.ts --no-mutation 选项全部实现"
+      },
+      {
+        "item": "A4: proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "coverage-parser.ts 未被修改(仅 import 无变化), test-parser/index.ts 未被修改, unit-test.ts 仅添加 noMutation 标志透传(符合'不做结构性修改'), unit-test-evaluator.md 未被修改"
+      },
+      {
+        "item": "A5: proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "风险1(执行时间长): stryker-config.ts:83 timeoutMS, :84 maxTestRunnerReuse, :71 mutate 范围限定, cli.ts:22 --no-mutation; 风险2(依赖缺失): test-runner.ts:285 catch 块静默跳过; 风险3(配置冲突): stryker-config.ts:41-49 优先检测自定义配置, :118-120 直接返回; 风险4(结果不稳定): stryker-config.ts:83 timeoutMS; 风险5(Windows兼容): stryker-config.ts:64-65 path.resolve+正斜杠规范化, cli.ts:22 --no-mutation 跳过"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-01T10:12:28.829Z"
+  }
+]

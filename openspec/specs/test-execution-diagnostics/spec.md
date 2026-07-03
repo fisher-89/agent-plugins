@@ -139,9 +139,9 @@ Executor SHALL 将提取的数据写入结构化报告文件（`reports/unit-tes
 ### Requirement: Executor 使用框架检测工具确定覆盖率命令
 
 unit-test-executor SHALL 调用 `test_detect_frameworks` MCP 工具检测项目中使用的测试框架。
-检测到框架后，Executor SHALL 直接从 `test_detect_frameworks` 返回的 `plan` 数组中读取每个框架的执行计划，包括工作目录（`directory`）、覆盖率命令（`coverage_cmd`）、覆盖率格式（`coverage_format`）、覆盖率输出路径（`coverage_output`）、覆盖率产物列表（`coverage_artifacts`）和清理列表（`coverage_cleanup`）。
+检测到框架后，Executor SHALL 直接从 `test_detect_frameworks` 返回的 `plan` 数组中读取每个框架的执行计划，包括工作目录（`directory`）、覆盖率格式（`coverage_format`）、覆盖率输出路径（`coverage_output`）、覆盖率产物列表（`coverage_artifacts`）和清理列表（`coverage_cleanup`）。
 Executor 不再单独调用 `test_get_framework_config` 工具，也不单独执行 `test_cmd`。
-Executor SHALL 为 `plan` 中的每个条目，在其对应的 `directory` 工作目录下运行 `coverage_cmd`（覆盖率命令已包含测试运行），捕获 stdout/stderr 和退出码。
+Executor SHALL 为 `plan` 中的每个条目执行其 `script`（由框架配置生成的 bash 脚本），捕获 stdout/stderr 和退出码。
 
 覆盖率命令执行成功后，Executor SHALL 执行产物移动步骤：根据 `coverage_artifacts` 中的文件路径（JSON 摘要文件）将产物从工作目录移动到统一位置 `openspec/changes/<change>/reports/coverage/<framework>/`。移动成功后，Executor SHALL 根据 `coverage_cleanup` 中的目录列表清理原始临时文件。移动失败时（如源路径不存在），Executor SHALL 记录错误到 findings 但不阻断流程。
 
@@ -163,7 +163,7 @@ Executor SHALL 根据 `plan` 中的 `coverage_format` 字段选择对应的解�
 #### Scenario: Executor 检测 node-test 框架并运行两步覆盖率命令
 
 - **WHEN** unit-test-executor 检测到 `node-test` 框架
-- **THEN** 从 `plan` 读取 `coverage_cmd` 包含 `node --test --experimental-test-coverage` 和 `parse-node-test-coverage.mjs`
+- **THEN** 从 `plan` 读取 `test_cmd` 包含 `node --test --experimental-test-coverage` 和 `parse-node-test-coverage.mjs`
 - **AND** 运行 script 后从 `reports/coverage/node-test/coverage-summary.json` 解析三维度覆盖率
 
 #### Scenario: Executor 检测 go 框架并解析 func-summary.txt
@@ -182,7 +182,7 @@ Executor SHALL 根据 `plan` 中的 `coverage_format` 字段选择对应的解�
 
 - **WHEN** unit-test-executor 发现项目中存在 `*.test.ts` 文件
 - **THEN** 它调用 `test_detect_frameworks` 工具检测到 `vitest` 框架
-- **AND** 从 `plan` 中读取 `coverage_cmd`、`directory`、`coverage_artifacts`、`coverage_cleanup`
+- **AND** 从 `plan` 中读取 `directory`、`script`、`coverage_artifacts`、`coverage_cleanup`
 - **AND** 在项目根目录运行覆盖率命令
 - **AND** 将 JSON 摘要移动到 `reports/coverage/vitest/coverage-summary.json`
 - **AND** 从统一位置提取三个维度的覆盖率百分比
@@ -244,7 +244,7 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 - `plan`: 对象数组，每项包含：
   - `directory`: 字符串，该框架的执行工作目录（相对于项目根目录），由 glob 模式推导
   - `framework`: 字符串，框架名称
-  - `coverage_cmd`: 字符串，覆盖率命令（包含测试执行）
+  - `test_cmd`: 字符串，测试命令模板（含覆盖率），支持占位符
   - `coverage_format`: 字符串，覆盖率输出格式（`"istanbul"`、`"llvm-cov"`、`"node-test"`、`"go-cover"` 或 `"coverage-py"`）
   - `coverage_output`: 字符串，覆盖率输出文件路径（相对于工作目录）
   - `coverage_artifacts`: 字符串数组，需要移动到统一位置的产物路径列表（相对于工作目录）
@@ -266,8 +266,8 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 1. 对 `test.frameworks` 配置（归一化后）中的每个 `{glob, framework}` 条目：
    - 调用 `deriveWorkingDirectory(glob)` 推导工作目录
    - 调用 `test_get_framework_config` 内部函数获取该框架的命令配置（包括 `coverage_artifacts` 和 `coverage_cleanup`）
-   - 生成一条计划记录 `{directory, framework, coverage_cmd, coverage_format, coverage_output, coverage_artifacts, coverage_cleanup}`
-   - 调用 `generateScript()` 根据该条目的 `directory`、`coverage_cleanup`、`coverage_cmd` 生成 `script` 字段
+   - 生成一条计划记录 `{directory, framework, coverage_format, coverage_output, coverage_artifacts, coverage_cleanup}`
+   - 调用 `generateScript()` 根据该条目的 `directory`、`coverage_cleanup`、`test_cmd` 生成 `script` 字段
 2. 如果 `test.frameworks` 未配置或为空，`plan` 为空数组
 3. `plan` 数组的顺序与 `test.frameworks` 配置顺序一致
 
@@ -297,7 +297,7 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 
 - **WHEN** config.json 中 `test.frameworks` 为 `"node-test"`
 - **THEN** 返回的 `plan` 包含 `{framework: "node-test", coverage_format: "node-test", coverage_output: "coverage/coverage-summary.json", ...}`
-- **AND** `coverage_cmd` 包含两步脚本（native coverage + parser）
+- **AND** `test_cmd` 包含两步脚本（native coverage + parser）
 
 #### Scenario: test_detect_frameworks 返回包含 coverage_artifacts 和 coverage_cleanup 的 plan
 
@@ -319,8 +319,7 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 
 该工具的输出 SHALL 包含：
 - `framework`: 框架名称
-- `test_cmd`: 测试命令字符串
-- `coverage_cmd`: 覆盖率命令字符串
+- `test_cmd`: 测试命令字符串（已含覆盖率）
 - `coverage_format`: 覆盖率输出格式标识（`"istanbul"`、`"llvm-cov"`、`"node-test"`、`"go-cover"` 或 `"coverage-py"`）
 - `coverage_output`: 覆盖率输出文件路径（相对于框架工作目录）
 - `coverage_artifacts`: 字符串数组，覆盖率摘要文件路径列表（SHALL NOT 使用 `coverage/**` glob）
@@ -328,16 +327,16 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 
 框架命令注册表 SHALL 为硬编码实现（不在 config.json 中配置）。支持的框架名及其命令配置：
 
-| 框架名 | test_cmd | coverage_cmd | coverage_format | coverage_output | coverage_artifacts | coverage_cleanup |
-|--------|----------|--------------|-----------------|-----------------|-------------------|-----------------|
-| jest | `npx jest --verbose` | `npx jest --coverage --coverageReporters=json-summary` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", ".nyc_output"]` |
-| vitest | `npx vitest run --reporter=verbose` | `npx vitest run --coverage --coverage.reporter=json-summary` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", ".nyc_output"]` |
-| vite-plus | `vp test` | `vp test --coverage --coverage.reporter=json-summary` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", ".nyc_output"]` |
-| bun | `bun test` | `bun test --coverage --coverageReporters=json-summary` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage"]` |
-| rust | `cargo test` | `cargo llvm-cov --json` | llvm-cov | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", "target/llvm-cov"]` |
-| node-test | `node --test` | `node --test --experimental-test-coverage 2>&1 \| tee coverage/node-test-output.txt && node plugins/dev-team/scripts/parse-node-test-coverage.mjs coverage/node-test-output.txt coverage/coverage-summary.json` | node-test | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage"]` |
-| go | `go test ./...` | `go test -coverprofile=coverage.out -covermode=atomic ./... && mkdir -p coverage && go tool cover -func=coverage.out > coverage/func-summary.txt` | go-cover | `coverage/func-summary.txt` | `["coverage/func-summary.txt"]` | `["coverage", "coverage.out"]` |
-| pytest | `pytest -v` | `pytest --cov=. --cov-report=json --cov-branch -q` | coverage-py | `coverage.json` | `["coverage.json"]` | `[".coverage", "htmlcov"]` |
+| 框架名 | test_cmd | coverage_format | coverage_output | coverage_artifacts | coverage_cleanup |
+|--------|----------|-----------------|-----------------|-------------------|-----------------|
+| jest | `npx jest --verbose --json --coverage --coverageReporters=json-summary {files}` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", ".nyc_output"]` |
+| vitest | `npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", ".nyc_output"]` |
+| vite-plus | `vp test --coverage --coverage.reporter=json-summary {files}` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", ".nyc_output"]` |
+| bun | `bun test --coverage --coverageReporters=json-summary {files}` | istanbul | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage"]` |
+| rust | `cargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X` | llvm-cov | `coverage/coverage-summary.json` | `["coverage/coverage-summary.json"]` | `["coverage", "target/llvm-cov"]` |
+| node-test | `node --test --experimental-test-coverage {files}` | node-test | `coverage/node-test-output.txt` | `["coverage/node-test-output.txt"]` | `["coverage"]` |
+| go | `go test -json -coverprofile=coverage.out -covermode=atomic {directory}` | go-cover | `coverage/func-summary.txt` | `["coverage/func-summary.txt"]` | `["coverage", "coverage.out"]` |
+| pytest | `pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X` | coverage-py | `coverage.json` | `["coverage.json"]` | `[".coverage", "htmlcov"]` |
 
 未知框架名称 SHALL 返回错误。
 
@@ -346,7 +345,7 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 - **WHEN** `test_get_framework_config` 收到参数 `{"framework": "node-test"}`
 - **THEN** 返回 `test_cmd: "node --test"`
 - **AND** 返回 `coverage_format: "node-test"`
-- **AND** 返回 `coverage_cmd` 包含 `--experimental-test-coverage` 和 `parse-node-test-coverage.mjs`
+- **AND** 返回 `test_cmd` 包含 `--experimental-test-coverage` 和 `parse-node-test-coverage.mjs`
 
 #### Scenario: test_get_framework_config 返回 go 配置
 
@@ -363,7 +362,7 @@ Executor SHALL 从 openspec/config.json 读取 `test.coverage.thresholds` 和 `t
 #### Scenario: test_get_framework_config 返回 vitest 配置（JSON-only）
 
 - **WHEN** `test_get_framework_config` 收到参数 `{"framework": "vitest"}`
-- **THEN** 返回 `coverage_cmd: "npx vitest run --coverage --coverage.reporter=json-summary"`
+- **THEN** 返回 `test_cmd: "npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}"`
 - **AND** 返回 `coverage_artifacts: ["coverage/coverage-summary.json"]`
 
 #### Scenario: test_get_framework_config 返回未知框架错误

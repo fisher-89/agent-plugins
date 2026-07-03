@@ -5,14 +5,21 @@
 // substitution ({files}, {directory}, {project_root}), executes the command
 // via child_process, parses output through the test parser dispatch, and
 // reads coverage from the coverage file if available.
+//
+// When mutation testing is configured and not disabled, runs StrykerJS after
+// coverage collection and includes the mutation results in the execution
+// result.
 // ---------------------------------------------------------------------------
 
 import { execSync } from 'child_process';
+import * as fs from 'fs';
 import * as path from 'path';
 
-import type { PlanEntry } from '../commands/test-detect-frameworks';
+import type { MutationBlock, MutationMeasured, TestPlan } from '../schemas';
 import { parseCoverageFromFile, type ParsedCoverage } from './test-parser/coverage-parser';
 import { parseTestOutput, type TestCase } from './test-parser/index';
+import { type MutationReport, parseMutationReport } from './test-parser/mutation-parser';
+import { resolveStrykerConfig } from './test-parser/stryker-config';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -25,6 +32,7 @@ export interface ExecutionResult {
   stderr: string;
   testCases: TestCase[];
   coverage: ParsedCoverage | null;
+  mutation?: MutationBlock | null;
   durationMs: number;
   testFiles: string[];
   sourceFiles: string[];
@@ -82,7 +90,7 @@ function substitutePlaceholders(
  *
  * The file is expected to be relative to the working directory (entry.directory).
  */
-function resolveCoveragePath(entry: PlanEntry, projectRoot: string): string | null {
+function resolveCoveragePath(entry: TestPlan, projectRoot: string): string | null {
   const coverageOutput = entry.coverage_output;
   if (!coverageOutput) return null;
 
@@ -182,9 +190,9 @@ function extractBuffer(buf: string | Buffer | undefined): string {
  * @returns ExecutionResult
  */
 export function executePlanEntry(
-  entry: PlanEntry,
+  entry: TestPlan,
   projectRoot: string,
-  options: { files?: string[]; timeout?: number } = {},
+  options: { files?: string[]; timeout?: number; noMutation?: boolean } = {},
 ): ExecutionResult {
   const startTime = Date.now();
   const testCmd = buildTestCommand(entry, projectRoot, options.files);
@@ -201,6 +209,13 @@ export function executePlanEntry(
   const coveragePath = resolveCoveragePath(entry, projectRoot);
   const coverage = coveragePath ? parseCoverageFromFile(coveragePath, entry.coverage_format) : null;
 
+  // Derive source files from test files
+  const sourceFiles =
+    parsed.sourceFiles.length > 0 ? parsed.sourceFiles : deriveSourceFiles(parsed.testFiles);
+
+  // Mutation testing phase
+  const mutation = runMutationPhase(entry, projectRoot, options, sourceFiles);
+
   return {
     framework: entry.framework,
     exitCode,
@@ -208,24 +223,154 @@ export function executePlanEntry(
     stderr,
     testCases: parsed.testCases,
     coverage,
+    mutation,
     durationMs,
     testFiles: parsed.testFiles,
-    sourceFiles:
-      parsed.sourceFiles.length > 0 ? parsed.sourceFiles : deriveSourceFiles(parsed.testFiles),
+    sourceFiles,
     error: execError || parsed.error,
   };
 }
 
-function buildTestCommand(entry: PlanEntry, projectRoot: string, files?: string[]): string {
-  return substitutePlaceholders(
-    entry.framework === 'go' ? getGoTestCmd(entry, projectRoot) : (entry.test_cmd ?? ''),
-    files ?? [],
-    entry.directory,
-    projectRoot,
-  );
+/**
+ * Run the mutation testing phase using StrykerJS.
+ *
+ * Checks whether mutation testing is applicable (mutation_framework is set
+ * and noMutation is not true), resolves the StrykerJS configuration, executes
+ * StrykerJS, parses the report, and cleans up temporary files.
+ *
+ * Returns a MutationBlock on success, or null if mutation testing is skipped
+ * or fails (errors are silently caught to avoid breaking the test flow).
+ */
+function runMutationPhase(
+  entry: TestPlan,
+  projectRoot: string,
+  options: { noMutation?: boolean },
+  sourceFiles: string[],
+): MutationBlock | null {
+  // Skip mutation if not supported or explicitly disabled
+  if (!entry.mutation_framework || options.noMutation) {
+    return null;
+  }
+
+  const execCwd = resolveExecCwd(entry, projectRoot);
+
+  try {
+    const { configPath, cleanup } = resolveStrykerConfig(
+      projectRoot,
+      sourceFiles,
+      [],
+      entry.framework,
+    );
+
+    console.log(`Running StrykerJS mutation testing (config: ${configPath})...`);
+
+    const strykerCmd = `npx stryker run --config ${configPath}`;
+    runCommand(strykerCmd, execCwd, 300000);
+
+    const mutationBlock = buildMutationBlockFromReport(entry, projectRoot, sourceFiles);
+
+    if (!mutationBlock) {
+      console.log('  Mutation report not found or invalid — skipping mutation result');
+      return null;
+    }
+
+    console.log(
+      `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%)`,
+    );
+
+    cleanupMutationArtifacts(projectRoot, configPath, cleanup);
+
+    return mutationBlock;
+  } catch (e) {
+    console.log(`  Mutation testing skipped: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    return null;
+  }
 }
 
-function resolveExecCwd(entry: PlanEntry, projectRoot: string): string {
+/**
+ * Parse the StrykerJS mutation report and build a MutationBlock.
+ * Returns null if the report cannot be parsed.
+ */
+function buildMutationBlockFromReport(
+  entry: TestPlan,
+  projectRoot: string,
+  sourceFiles: string[],
+): MutationBlock | null {
+  const reportPath = path.resolve(projectRoot, 'reports', 'mutation', 'mutation.json');
+  const mutationReport = parseMutationReport(reportPath);
+  if (!mutationReport) return null;
+
+  const threshold = entry.mutation_score ?? 80;
+  const pass = mutationReport.score >= threshold;
+
+  return {
+    pass,
+    score: mutationReport.score,
+    threshold,
+    measured: extractMutationMeasured(mutationReport),
+    by_framework: {
+      [entry.framework]: {
+        score: mutationReport.score,
+        measured: extractMutationMeasured(mutationReport),
+        source_files: sourceFiles,
+      },
+    },
+  };
+}
+
+/**
+ * Clean up temporary StrykerJS artifacts.
+ *
+ * Removes the reports/mutation/ directory and the temporary config file
+ * if it was generated (cleanup === true).
+ */
+function cleanupMutationArtifacts(projectRoot: string, configPath: string, cleanup: boolean): void {
+  // Remove reports/mutation/ directory
+  const mutationReportDir = path.resolve(projectRoot, 'reports', 'mutation');
+  try {
+    if (fs.existsSync(mutationReportDir)) {
+      fs.rmSync(mutationReportDir, { recursive: true, force: true });
+    }
+  } catch {
+    // Best-effort cleanup
+  }
+
+  // Remove temporary config file
+  if (cleanup) {
+    try {
+      if (fs.existsSync(configPath)) {
+        fs.unlinkSync(configPath);
+      }
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+}
+
+/**
+ * Extract MutationMeasured fields from a MutationReport.
+ * Shared helper to avoid duplicating the field mapping.
+ */
+function extractMutationMeasured(report: MutationReport): MutationMeasured {
+  return {
+    killed: report.killed,
+    survived: report.survived,
+    timeout: report.timeout,
+    noCoverage: report.noCoverage,
+    compileError: report.compileError,
+    runtimeError: report.runtimeError,
+    ignored: report.ignored,
+    total: report.total,
+    detected: report.detected,
+    undetected: report.undetected,
+  };
+}
+
+function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]): string {
+  return substitutePlaceholders(entry.script, files ?? [], entry.directory, projectRoot);
+}
+
+function resolveExecCwd(entry: TestPlan, projectRoot: string): string {
   return entry.directory && entry.directory !== '.'
     ? path.resolve(projectRoot, entry.directory)
     : projectRoot;
@@ -263,24 +408,10 @@ function emptyResult(framework: string, startTime: number, error: string): Execu
     stderr: '',
     testCases: [],
     coverage: null,
+    mutation: null,
     durationMs: Date.now() - startTime,
     testFiles: [],
     sourceFiles: [],
     error,
   };
-}
-
-/**
- * Build the go test command with the correct directory parameter.
- * For go, {directory} should be the relative path from the working directory
- * to the package under test, or "." if testing the current directory.
- */
-function getGoTestCmd(entry: PlanEntry, _projectRoot: string): string {
-  const baseCmd =
-    entry.test_cmd ?? 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}';
-
-  // For go, if files are specified, derive directory from the first file
-  // Otherwise use "." for the current directory
-  const dir = entry.directory && entry.directory !== '.' ? entry.directory : '.';
-  return baseCmd.replace(/\{directory\}/g, dir);
 }

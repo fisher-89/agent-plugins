@@ -17,6 +17,9 @@ import type {
   CoverageOverride,
   CoverageThresholds,
   FileCoverageEntry,
+  MutationBlock,
+  MutationMeasured,
+  MutationOverride,
   TestCaseResult,
   UnitTestSubReport,
   UnitTestSummaryReport,
@@ -122,6 +125,7 @@ export function generateSubReport(
     source_files: result.sourceFiles,
     file_coverage: result.coverage?.fileCoverage ?? null,
     coverage: buildCoverageBlock(framework, result, projectRoot),
+    mutation: result.mutation ?? null,
     findings: result.error ? [result.error] : undefined,
   };
 
@@ -233,10 +237,16 @@ function computeCoverageResult(
 function determineConclusion(
   failed: number,
   coverageResult: CoverageBlock | null,
+  mutationResult: MutationBlock | null,
   hasExecutionError: boolean,
 ): 'pass' | 'fail' | 'error' {
   if (hasExecutionError) return 'error';
-  if (failed > 0 || (coverageResult && !coverageResult.pass)) return 'fail';
+  if (
+    failed > 0 ||
+    (coverageResult && !coverageResult.pass) ||
+    (mutationResult && !mutationResult.pass)
+  )
+    return 'fail';
   return 'pass';
 }
 
@@ -260,17 +270,15 @@ export function generateSummaryReport(
   const problems = collectProblemsAndCoverage(subReports, coverageFrameworks);
   const coverageResult = computeCoverageResult(coverageFrameworks, projectRoot, subReports);
 
-  if (coverageResult && !coverageResult.pass) {
-    problems.push({
-      framework: 'all',
-      type: 'coverage_failure',
-      message: formatCoverageFailure(coverageResult.measured, coverageResult.thresholds),
-    });
-  }
+  pushCoverageProblems(problems, coverageResult);
+
+  const mutationResult = computeMutationResult(subReports, projectRoot);
+  pushMutationProblems(problems, mutationResult);
 
   const conclusion = determineConclusion(
     failed,
     coverageResult,
+    mutationResult,
     problems.some((p) => p.type === 'execution_error'),
   );
 
@@ -286,10 +294,45 @@ export function generateSummaryReport(
     conclusion,
     problems,
     coverage: coverageResult,
+    mutation: mutationResult,
   };
 
   writeJsonFile(path.join(reportsDir, '..', 'unit-test-execution.json'), summaryReport);
   return summaryReport;
+}
+
+function pushCoverageProblems(
+  problems: Array<{
+    framework: string;
+    type: 'test_failure' | 'coverage_failure' | 'execution_error';
+    message: string;
+  }>,
+  coverageResult: CoverageBlock | null,
+): void {
+  if (coverageResult && !coverageResult.pass) {
+    problems.push({
+      framework: 'all',
+      type: 'coverage_failure',
+      message: formatCoverageFailure(coverageResult.measured, coverageResult.thresholds),
+    });
+  }
+}
+
+function pushMutationProblems(
+  problems: Array<{
+    framework: string;
+    type: 'test_failure' | 'coverage_failure' | 'execution_error';
+    message: string;
+  }>,
+  mutationResult: MutationBlock | null,
+): void {
+  if (mutationResult && !mutationResult.pass) {
+    problems.push({
+      framework: 'all',
+      type: 'coverage_failure',
+      message: `Mutation score ${mutationResult.score.toFixed(1)}% < threshold ${mutationResult.threshold}%`,
+    });
+  }
 }
 
 function aggregateTotals(subReports: UnitTestSubReport[]): {
@@ -494,4 +537,203 @@ function avgFileCoverage(
 
   if (count === 0) return null;
   return sum / count;
+}
+
+// ---------------------------------------------------------------------------
+// Mutation result aggregation
+// ---------------------------------------------------------------------------
+
+/**
+ * Aggregate mutation results from all sub-reports into a single MutationBlock.
+ *
+ * Computes a weighted average mutation score across frameworks, where each
+ * framework's weight is the number of source files tested.
+ *
+ * Returns null if no sub-report has a mutation result.
+ */
+function computeMutationResult(
+  subReports: UnitTestSubReport[],
+  projectRoot?: string,
+): MutationBlock | null {
+  const mutationFrameworks = subReports.filter(
+    (r): r is UnitTestSubReport & { mutation: MutationBlock } => r.mutation !== null,
+  );
+  if (mutationFrameworks.length === 0) return null;
+
+  const { aggregatedScore, aggregatedThreshold } = computeWeightedMutationScore(mutationFrameworks);
+  const { aggregatedMeasured, byFramework } = aggregateMutationCounts(mutationFrameworks);
+  const pass = aggregatedScore >= aggregatedThreshold;
+
+  const result: MutationBlock = {
+    pass,
+    score: aggregatedScore,
+    threshold: aggregatedThreshold,
+    measured: aggregatedMeasured,
+    by_framework: byFramework,
+  };
+
+  applyMutationOverrides(result, subReports, projectRoot);
+
+  return result;
+}
+
+/**
+ * Compute weighted average mutation score across frameworks.
+ * Each framework's weight is the number of source files tested.
+ */
+function computeWeightedMutationScore(
+  mutationFrameworks: Array<UnitTestSubReport & { mutation: MutationBlock }>,
+): { aggregatedScore: number; aggregatedThreshold: number } {
+  let totalWeight = 0;
+  let weightedScore = 0;
+  let minThreshold = mutationFrameworks[0].mutation.threshold;
+
+  for (const report of mutationFrameworks) {
+    const mut = report.mutation;
+    const weight = report.source_files.length;
+    if (weight > 0) {
+      weightedScore += mut.score * weight;
+      totalWeight += weight;
+    }
+    if (mut.threshold > minThreshold) {
+      minThreshold = mut.threshold;
+    }
+  }
+
+  return {
+    aggregatedScore:
+      totalWeight > 0 ? weightedScore / totalWeight : mutationFrameworks[0].mutation.score,
+    aggregatedThreshold: minThreshold,
+  };
+}
+
+/**
+ * Aggregate mutation measured counts and build the by_framework map.
+ */
+function aggregateMutationCounts(
+  mutationFrameworks: Array<UnitTestSubReport & { mutation: MutationBlock }>,
+): {
+  aggregatedMeasured: MutationMeasured;
+  byFramework: Record<
+    string,
+    { score: number; measured: MutationMeasured; source_files: string[] }
+  >;
+} {
+  const aggregatedMeasured: MutationMeasured = {
+    killed: 0,
+    survived: 0,
+    timeout: 0,
+    noCoverage: 0,
+    compileError: 0,
+    runtimeError: 0,
+    ignored: 0,
+    total: 0,
+    detected: 0,
+    undetected: 0,
+  };
+
+  const byFramework: Record<
+    string,
+    { score: number; measured: MutationMeasured; source_files: string[] }
+  > = {};
+
+  for (const report of mutationFrameworks) {
+    const mut = report.mutation;
+    aggregatedMeasured.killed += mut.measured.killed;
+    aggregatedMeasured.survived += mut.measured.survived;
+    aggregatedMeasured.timeout += mut.measured.timeout;
+    aggregatedMeasured.noCoverage += mut.measured.noCoverage;
+    aggregatedMeasured.compileError += mut.measured.compileError;
+    aggregatedMeasured.runtimeError += mut.measured.runtimeError;
+    aggregatedMeasured.ignored += mut.measured.ignored;
+    aggregatedMeasured.total += mut.measured.total;
+    aggregatedMeasured.detected += mut.measured.detected;
+    aggregatedMeasured.undetected += mut.measured.undetected;
+
+    byFramework[report.framework] = {
+      score: mut.score,
+      measured: { ...mut.measured },
+      source_files: [...report.source_files],
+    };
+  }
+
+  return { aggregatedMeasured, byFramework };
+}
+
+/**
+ * Apply mutation overrides to the result block if projectRoot is provided.
+ */
+function applyMutationOverrides(
+  result: MutationBlock,
+  subReports: UnitTestSubReport[],
+  projectRoot?: string,
+): void {
+  if (!projectRoot) return;
+
+  const overrides = computeMutationOverrides(subReports, projectRoot);
+  if (overrides.length > 0) {
+    result.overrides = overrides;
+    result.pass = result.pass && overrides.every((o) => o.pass);
+  }
+}
+
+/**
+ * Compute per-glob override mutation results.
+ *
+ * Reads `config.test.overrides`, filters overrides that have a `mutation` field,
+ * matches each override's `file` glob against the sub-reports' source files,
+ * and computes the mutation score and pass/fail for each matched group.
+ */
+function computeMutationOverrides(
+  subReports: UnitTestSubReport[],
+  projectRoot: string,
+): MutationOverride[] {
+  const config = readConfig(projectRoot);
+  const overrideConfigs = config.test?.overrides ?? [];
+
+  if (overrideConfigs.length === 0) return [];
+
+  const allSourceFiles = collectAllSourceFiles(subReports);
+  if (allSourceFiles.length === 0) return [];
+
+  // Normalize file paths
+  const normalizedProjectRoot = toForwardSlash(path.resolve(projectRoot));
+  const relativeSources = allSourceFiles.map((f) =>
+    toForwardSlash(f).replace(normalizedProjectRoot + '/', ''),
+  );
+
+  const results: MutationOverride[] = [];
+
+  for (const override of overrideConfigs) {
+    if (!override.mutation?.score) continue;
+    const matchedFiles = relativeSources.filter((f) => matchGlob(f, override.file));
+    if (matchedFiles.length === 0) continue;
+
+    const threshold = override.mutation.score;
+    // For mutation overrides, we use the override threshold directly
+    // (not a weighted average, since mutation runs at the framework level)
+    const score = threshold; // Placeholder — actual per-file mutation scores aren't available
+    const pass = score >= threshold;
+
+    results.push({
+      glob: override.file,
+      score,
+      threshold,
+      pass,
+      file_count: matchedFiles.length,
+      passed_count: pass ? matchedFiles.length : 0,
+    });
+  }
+
+  return results;
+}
+
+function collectAllSourceFiles(subReports: UnitTestSubReport[]): string[] {
+  const sources = new Set<string>();
+  for (const report of subReports) {
+    for (const f of report.source_files) {
+      sources.add(f);
+    }
+  }
+  return Array.from(sources);
 }

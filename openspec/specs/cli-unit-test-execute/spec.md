@@ -508,7 +508,7 @@ interface UnitTestSummaryReport {
 #### Scenario: 执行 pytest 链式命令
 
 **WHEN** `executePlanEntry` 处理 pytest 框架
-**THEN** SHALL 执行 `test_cmd` 一次（而非先 test_cmd 再 coverage_cmd 两次）
+**THEN** SHALL 执行 `test_cmd` 一次（因覆盖面命令已内嵌在 test_cmd 或链式命令中）
 **AND** 链式命令 SHALL 按顺序执行：测试命令 → 保存退出码 → 覆盖率命令 → 恢复退出码
 **AND** shell 最终退出码 SHALL 等于测试命令的退出码
 
@@ -516,7 +516,7 @@ interface UnitTestSummaryReport {
 
 **WHEN** `getFrameworkConfig("vitest")` 被调用
 **THEN** 返回的对象 SHALL NOT 包含 `merge_mode` 属性
-**AND** 返回的对象 SHALL 包含 `test_cmd`、`coverage_cmd`、`coverage_format` 等字段
+**AND** 返回的对象 SHALL 包含 `test_cmd`、`coverage_format` 等字段
 
 ## REMOVED Requirements
 
@@ -534,7 +534,7 @@ interface UnitTestSummaryReport {
 
 **ID**: (原 AC-10)
 **Priority**: MUST
-**Description**: 原设计：当 `merge_mode=false` 时，test-runner SHALL 先执行 `test_cmd` 解析用例，再执行 `coverage_cmd` 解析覆盖率。
+**Description**: 原设计：当 `merge_mode=false` 时，test-runner SHALL 先执行 test_cmd 解析用例，再执行独立的 coverage_cmd 解析覆盖率。现已移除 coverage_cmd 字段和两阶段执行，改为统一 test_cmd（含覆盖率）。
 
 **Reason**: merge_mode 字段已整体移除。所有框架统一使用单一 `test_cmd`，pytest 和 rust 使用链式命令模式。
 

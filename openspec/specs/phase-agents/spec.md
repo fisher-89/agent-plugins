@@ -80,7 +80,7 @@ Executor agent `.md` files SHALL use prefix-free phase IDs when calling `mcp__pl
 ### Requirement: unit-test-executor agent calls test_detect_frameworks and test_get_framework_config MCP tools
 
 `plugins/dev-team/agents/unit-test-executor.md` SHALL be updated to call the `test_detect_frameworks` MCP tool at the start of its Process section to determine which test frameworks are present in the project.
-After determining the framework(s), the Executor SHALL use the `plan` array returned by `test_detect_frameworks` (including `script`, `coverage_cmd`, `coverage_artifacts`, `coverage_cleanup`) to run coverage commands — it SHALL NOT call `test_get_framework_config` separately.
+After determining the framework(s), the Executor SHALL use the `plan` array returned by `test_detect_frameworks` (including `script`, `coverage_format`, `coverage_artifacts`, `coverage_cleanup`) to run coverage commands — it SHALL NOT call `test_get_framework_config` separately.
 
 The Process section SHALL be updated as follows:
 

@@ -15,8 +15,8 @@ import * as path from 'path';
 
 import { beforeEach, describe, it, expect, vi } from 'vite-plus/test';
 
-import type { PlanEntry } from '../../src/commands/test-detect-frameworks';
 import type { ExecutionResult } from '../../src/lib/test-runner';
+import type { TestPlan } from '../../src/schemas';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -61,12 +61,11 @@ function createTempProject(): TempProject {
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-function makePlanEntry(overrides: Partial<PlanEntry> = {}): PlanEntry {
+function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
   return {
     directory: '.',
     framework: 'vitest',
     test_cmd: 'npx vitest run --reporter=json {files}',
-    coverage_cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/coverage-summary.json'],

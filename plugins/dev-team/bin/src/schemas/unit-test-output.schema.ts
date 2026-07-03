@@ -85,6 +85,64 @@ const coverageBlockSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// Mutation schemas
+// ---------------------------------------------------------------------------
+
+const mutationMeasuredSchema = z.object({
+  killed: z.number().int().min(0).describe('Number of killed mutants'),
+  survived: z.number().int().min(0).describe('Number of survived mutants'),
+  timeout: z.number().int().min(0).describe('Number of timed out mutants'),
+  noCoverage: z.number().int().min(0).describe('Number of mutants not covered by tests'),
+  compileError: z.number().int().min(0).describe('Number of mutants that caused compile errors'),
+  runtimeError: z.number().int().min(0).describe('Number of mutants that caused runtime errors'),
+  ignored: z.number().int().min(0).describe('Number of ignored mutants'),
+  total: z.number().int().min(0).describe('Total number of mutants'),
+  detected: z.number().int().min(0).describe('Number of detected mutants (killed + timeout)'),
+  undetected: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Number of undetected mutants (survived + noCoverage)'),
+});
+
+const mutationFrameworkBlockSchema = z.object({
+  score: z.number().min(0).max(100).describe('Mutation score for this framework'),
+  measured: mutationMeasuredSchema.describe('Mutation measurements for this framework'),
+  source_files: z.array(z.string()).describe('Source files tested by this framework'),
+});
+
+const mutationOverrideSchema = z.object({
+  glob: z.string().describe('Glob pattern for files this override applies to'),
+  score: z.number().min(0).max(100).describe('Mutation score for this override group'),
+  threshold: z
+    .number()
+    .min(0)
+    .max(100)
+    .describe('Mutation score threshold for this override group'),
+  pass: z.boolean().describe('Whether this override group meets its mutation threshold'),
+  file_count: z.number().int().min(0).describe('Number of files matching this override glob'),
+  passed_count: z
+    .number()
+    .int()
+    .min(0)
+    .describe('Number of matching files that meet the mutation threshold'),
+});
+
+const mutationBlockSchema = z.object({
+  pass: z.boolean().describe('Whether mutation score meets threshold'),
+  score: z.number().min(0).max(100).describe('Aggregated mutation score'),
+  threshold: z.number().min(0).max(100).describe('Mutation score threshold'),
+  measured: mutationMeasuredSchema.describe('Aggregated mutation measurements'),
+  by_framework: z
+    .record(z.string(), mutationFrameworkBlockSchema)
+    .describe('Per-framework mutation breakdown'),
+  overrides: z
+    .array(mutationOverrideSchema)
+    .optional()
+    .describe('Per-glob override mutation results'),
+});
+
+// ---------------------------------------------------------------------------
 // FileCoverageEntrySchema
 // ---------------------------------------------------------------------------
 
@@ -115,6 +173,9 @@ const unitTestSubReportSchema = z.object({
   coverage: coverageBlockSchema
     .nullable()
     .describe('Coverage conclusion (null when coverage collection failed)'),
+  mutation: mutationBlockSchema
+    .nullable()
+    .describe('Mutation test conclusion (null when mutation testing is skipped or not supported)'),
   findings: z.array(z.string()).optional().describe('Diagnostic findings from agent analysis'),
 });
 
@@ -150,6 +211,11 @@ const unitTestSummaryReportSchema = z.object({
   coverage: coverageBlockSchema
     .nullable()
     .describe('Overall coverage (null when all frameworks failed to collect coverage)'),
+  mutation: mutationBlockSchema
+    .nullable()
+    .describe(
+      'Overall mutation test conclusion (null when mutation testing is skipped or not supported)',
+    ),
   findings: z.array(z.string()).optional().describe('Diagnostic findings from agent analysis'),
 });
 
@@ -165,3 +231,6 @@ export type CoverageMeasured = z.infer<typeof coverageMeasuredSchema>;
 export type CoverageThresholds = z.infer<typeof coverageThresholdsSchema>;
 export type CoverageOverride = z.infer<typeof coverageOverrideSchema>;
 export type FileCoverageEntry = z.infer<typeof fileCoverageEntrySchema>;
+export type MutationMeasured = z.infer<typeof mutationMeasuredSchema>;
+export type MutationBlock = z.infer<typeof mutationBlockSchema>;
+export type MutationOverride = z.infer<typeof mutationOverrideSchema>;

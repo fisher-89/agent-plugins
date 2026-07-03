@@ -19,8 +19,15 @@ cli
   .option('--project-root <path>', 'Override project root directory')
   .option('--files <files>', 'Comma-separated list of test files to run')
   .option('--framework <name>', 'Only run tests for the specified framework')
+  .option('--no-mutation', 'Skip mutation testing phase')
   .action(
-    (options: { change?: string; projectRoot?: string; files?: string; framework?: string }) => {
+    (options: {
+      change?: string;
+      projectRoot?: string;
+      files?: string;
+      framework?: string;
+      noMutation?: boolean;
+    }) => {
       const files = options.files
         ? options.files
             .split(',')
@@ -32,6 +39,7 @@ cli
         projectRoot: options.projectRoot,
         files,
         framework: options.framework,
+        noMutation: options.noMutation,
       });
       process.exit(exitCode);
     },

@@ -46,7 +46,6 @@ Read `reports/unit-test-execution.json`. The report has the following structure:
 
 ```json
 {
-  "phase": "06-unit-test",
   "command": "CLI command description",
   "timestamp": "ISO 8601 timestamp",
   "duration_seconds": 3.45,
@@ -88,7 +87,6 @@ Check the following aspects of the report:
 2. **Count consistency**: `passed + failed + skipped` SHOULD equal `total`; if not, record a finding
 3. **conclusion consistency**: If `failed > 0`, `conclusion` SHOULD be `"fail"`; if `failed === 0`, `conclusion` SHOULD be `"pass"` or `"error"`
 4. **Coverage consistency**: If `coverage` is non-null, verify `by_framework` entries sum to the measured values (approximate check due to weighted averaging)
-5. **Phase value**: `phase` SHOULD be `"06-unit-test"` (informational, do not fail on mismatch)
 
 If any validation check fails, record a finding but do NOT modify `conclusion` or other fields.
 

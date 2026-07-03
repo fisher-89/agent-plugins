@@ -44,8 +44,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
-      prompt:
-        'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+      prompt: 'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -58,7 +57,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:dev-design-evaluator',
       prompt:
-        'Evaluate <phase> phase: design.md and tasks.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: design.md and tasks.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -71,7 +70,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:test-design-evaluator',
       prompt:
-        'Evaluate <phase> phase: test design for change "<change>" against design.md. Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: test design for change "<change>" against design.md. Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -84,7 +83,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:implementation-evaluator',
       prompt:
-        'Evaluate <phase> phase: implementation for change "<change>" against design. Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: implementation for change "<change>" against design. Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -97,7 +96,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:test-gen-evaluator',
       prompt:
-        'Evaluate <phase> phase: generated tests for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: generated tests for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -110,7 +109,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:unit-test-evaluator',
       prompt:
-        'Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -120,7 +119,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
       prompt:
-        'Evaluate <phase> phase: code review for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: code review for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -133,7 +132,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:integration-test-evaluator',
       prompt:
-        'Evaluate <phase> phase: integration test results for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: integration test results for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -143,7 +142,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
       prompt:
-        'Evaluate <phase> phase: acceptance for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: acceptance for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
 ];
@@ -158,8 +157,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
-      prompt:
-        'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+      prompt: 'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -172,7 +170,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:dev-design-evaluator',
       prompt:
-        'Evaluate <phase> phase: design.md and tasks.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: design.md and tasks.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -185,7 +183,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:implementation-evaluator',
       prompt:
-        'Evaluate <phase> phase: implementation for change "<change>" against design. Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: implementation for change "<change>" against design. Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -198,7 +196,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:unit-test-evaluator',
       prompt:
-        'Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -208,7 +206,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
       prompt:
-        'Evaluate <phase> phase: code review for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: code review for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -218,7 +216,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
       prompt:
-        'Evaluate <phase> phase: acceptance for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: acceptance for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
 ];
@@ -239,8 +237,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
-      prompt:
-        'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+      prompt: 'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -254,7 +251,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:code-analyze-evaluator',
       prompt:
-        'Evaluate <phase> phase: design.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: design.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -267,7 +264,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:test-design-evaluator',
       prompt:
-        'Evaluate <phase> phase: test design for change "<change>" against design.md. Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: test design for change "<change>" against design.md. Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -280,7 +277,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     evaluator: {
       agent_type: 'dev-team:test-gen-evaluator',
       prompt:
-        'Evaluate <phase> phase: generated tests for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json.',
+        'Evaluate <phase> phase: generated tests for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -292,7 +289,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
     evaluator: {
       agent_type: 'dev-team:unit-test-evaluator',
-      prompt: `Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json. ${WORKFLOW_CONTEXT_TEST_ONLY}`,
+      prompt: `Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>". ${WORKFLOW_CONTEXT_TEST_ONLY}`,
     },
   },
   {
@@ -304,7 +301,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
     evaluator: {
       agent_type: 'dev-team:integration-test-evaluator',
-      prompt: `Evaluate <phase> phase: integration test results for change "<change>". Call phase_log with phase="<phase>". Append result to eval.json. ${WORKFLOW_CONTEXT_TEST_ONLY}`,
+      prompt: `Evaluate <phase> phase: integration test results for change "<change>". Call phase_log with phase="<phase>". ${WORKFLOW_CONTEXT_TEST_ONLY}`,
     },
   },
 ];

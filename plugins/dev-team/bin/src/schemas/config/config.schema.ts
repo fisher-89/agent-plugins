@@ -7,6 +7,9 @@ const TEST_COVERAGE_BRANCH_DEFAULT = 70;
 /** 函数覆盖率阈值 */
 const TEST_COVERAGE_FUNCTION_DEFAULT = 75;
 
+/** 变异测试得分阈值 */
+const TEST_MUTATION_SCORE_DEFAULT = 80;
+
 const testFrameworkSchema = z
   .enum(['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'])
   .describe('测试框架');
@@ -31,6 +34,26 @@ const testCoverageSchema = z
   })
   .prefault({})
   .describe('测试覆盖率');
+
+const mutationScoreSchema = z
+  .number()
+  .min(0)
+  .max(100)
+  .optional()
+  .describe('变异测试得分阈值（百分比）');
+
+const mutationConfigSchema = z
+  .object({
+    score: mutationScoreSchema
+      .prefault(TEST_MUTATION_SCORE_DEFAULT)
+      .describe(`变异测试得分阈值（百分比，默认 ${TEST_MUTATION_SCORE_DEFAULT}）`),
+  })
+  .prefault({})
+  .describe('变异测试配置');
+
+const mutationOverrideSchema = z
+  .object({ score: mutationScoreSchema })
+  .describe('变异测试覆盖配置');
 
 /**
  * Zod schema for openspec/config.json.
@@ -60,12 +83,14 @@ export const configSchema = z.object({
     .object({
       framework: testFrameworkSchema.optional(),
       coverage: testCoverageSchema.optional(),
+      mutation: mutationConfigSchema.optional(),
       overrides: z
         .array(
           z.object({
             file: z.string().nonempty().describe('文件路径，支持glob规则（如 "src/**/*.test.ts"）'),
             framework: testFrameworkSchema.optional(),
             coverage: testCoverageSchema.optional(),
+            mutation: mutationOverrideSchema.optional(),
           }),
         )
         .optional(),

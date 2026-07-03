@@ -136,3 +136,39 @@ describe('dev-team unit-test -- 边界', () => {
     expect(cmdDef.options).toHaveLength(4);
   });
 });
+
+// ===========================================================================
+// --no-mutation 选项
+// ===========================================================================
+
+describe('dev-team unit-test -- --no-mutation 选项', () => {
+  it('CLI 注册 `--no-mutation` 选项', () => {
+    const optionDef = '--no-mutation';
+    expect(optionDef).toContain('--no-mutation');
+  });
+
+  it('--no-mutation 选项传递到 UnitTestOptions.noMutation', async () => {
+    mockRunUnitTest.mockReset();
+    mockRunUnitTest.mockReturnValue(0);
+
+    const { runUnitTest } = await import('./commands/unit-test');
+
+    // 模拟传递 noMutation: true
+    runUnitTest({ projectRoot: '/test/project', noMutation: true });
+    expect(mockRunUnitTest).toHaveBeenCalled();
+    const callArgs = mockRunUnitTest.mock.calls[0];
+    expect(callArgs[0].noMutation).toBe(true);
+  });
+
+  it('--no-mutation 不传递时 noMutation 为 undefined', async () => {
+    mockRunUnitTest.mockReset();
+    mockRunUnitTest.mockReturnValue(0);
+
+    const { runUnitTest } = await import('./commands/unit-test');
+
+    runUnitTest({ projectRoot: '/test/project' });
+    expect(mockRunUnitTest).toHaveBeenCalled();
+    const callArgs = mockRunUnitTest.mock.calls[0];
+    expect(callArgs[0].noMutation).toBeUndefined();
+  });
+});

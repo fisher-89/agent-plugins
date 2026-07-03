@@ -61,7 +61,6 @@ describe('test_detect_frameworks — plan 输出结构', () => {
         framework: 'vitest',
         coverage_format: 'istanbul',
       });
-      expect(result.plan[0]).toHaveProperty('coverage_cmd');
       expect(result.plan[0]).toHaveProperty('coverage_output');
       expect(result.plan[0]).toHaveProperty('coverage_artifacts');
       expect(result.plan[0]).toHaveProperty('coverage_cleanup');

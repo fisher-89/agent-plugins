@@ -82,6 +82,22 @@
           ],
           "additionalProperties": false
         },
+        "mutation": {
+          "description": "变异测试配置",
+          "type": "object",
+          "properties": {
+            "score": {
+              "description": "变异测试得分阈值（百分比，默认 80）",
+              "type": "number",
+              "minimum": 0,
+              "maximum": 100
+            }
+          },
+          "required": [
+            "score"
+          ],
+          "additionalProperties": false
+        },
         "overrides": {
           "type": "array",
           "items": {
@@ -129,6 +145,19 @@
                   "functions"
                 ],
                 "additionalProperties": false
+              },
+              "mutation": {
+                "type": "object",
+                "properties": {
+                  "score": {
+                    "description": "变异测试得分阈值（百分比）",
+                    "type": "number",
+                    "minimum": 0,
+                    "maximum": 100
+                  }
+                },
+                "additionalProperties": false,
+                "description": "变异测试覆盖配置"
               }
             },
             "required": [

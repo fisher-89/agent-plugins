@@ -28,12 +28,5 @@
     "knip": "^6.17.1",
     "typescript": "^6.0.3",
     "vite-plus": "^0.2.1"
-  },
-  "devEngines": {
-    "packageManager": {
-      "name": "pnpm",
-      "version": "11.9.0",
-      "onFail": "download"
-    }
   }
 }

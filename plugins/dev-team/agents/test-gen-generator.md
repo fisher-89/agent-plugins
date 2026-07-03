@@ -31,7 +31,7 @@ Collect the `frameworks` list from the result. If config.json has `test.framewor
 
 ### 2. Framework syntax selection
 
-Use each detected framework name from `test_detect_frameworks` result (the `frameworks[]` list) directly to select the correct test syntax for test generation. Framework-specific config commands like `coverage_cmd` are available in the `plan[]` entries if needed.
+Use each detected framework name from `test_detect_frameworks` result (the `frameworks[]` list) directly to select the correct test syntax for test generation. Use `plan[].framework` for per-directory framework identification when needed.
 
 ### 3. Read test-design.md (对照 template 理解各表格列定义)
 

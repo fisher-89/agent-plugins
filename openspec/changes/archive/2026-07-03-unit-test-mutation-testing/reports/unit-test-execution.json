@@ -1,0 +1,60 @@
+{
+  "phase": "06-unit-test",
+  "command": "dev-team unit-test",
+  "timestamp": "2026-07-02T00:57:58.520Z",
+  "duration_seconds": 33,
+  "total": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "error",
+  "problems": [
+    {
+      "framework": "node-test",
+      "type": "execution_error",
+      "message": "Exit code 1"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": {
+      "vite-plus": {
+        "measured": {
+          "lines": 87.21,
+          "branches": 73.53,
+          "functions": 93.07
+        },
+        "source_files": []
+      }
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 85,
+          "branches": 75,
+          "functions": 90
+        },
+        "measured": {
+          "lines": 90.5331818181818,
+          "branches": 86.64181818181818,
+          "functions": 93.8215909090909
+        },
+        "pass": true,
+        "file_count": 44,
+        "passed_count": 30
+      }
+    ]
+  },
+  "mutation": null
+}

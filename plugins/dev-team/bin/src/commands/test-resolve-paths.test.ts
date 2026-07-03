@@ -46,6 +46,29 @@ vi.mock('child_process', async () => {
   };
 });
 
+// Capture the original pass-through implementations at module-init time
+// (before any test's mockImplementation can replace them).
+// These are used by the top-level beforeEach to restore clean state for
+// every test, regardless of shuffle order.
+const _detectFrameworksPassthrough = vi
+  .mocked(runTestDetectFrameworks)
+  .getMockImplementation();
+const _execSyncPassthrough = vi.mocked(execSync).getMockImplementation();
+
+// Restore pass-through implementations before every test so that mock
+// state from one group never leaks into another when --sequence.shuffle
+// reorders tests.
+beforeEach(() => {
+  vi.mocked(runTestDetectFrameworks).mockClear();
+  vi.mocked(execSync).mockClear();
+  if (_detectFrameworksPassthrough) {
+    vi.mocked(runTestDetectFrameworks).mockImplementation(_detectFrameworksPassthrough);
+  }
+  if (_execSyncPassthrough) {
+    vi.mocked(execSync).mockImplementation(_execSyncPassthrough);
+  }
+});
+
 // ---------------------------------------------------------------------------
 // Helpers: create temp project directories with source files
 // ---------------------------------------------------------------------------
@@ -725,8 +748,8 @@ describe('runTestResolvePaths -- integration_root snake_case 映射', () => {
 
 describe('runTestResolvePaths -- config-driven 自动扫描', () => {
   beforeEach(() => {
-    vi.mocked(runTestDetectFrameworks).mockReset();
-    vi.mocked(execSync).mockReset();
+    vi.mocked(runTestDetectFrameworks).mockClear();
+    vi.mocked(execSync).mockClear();
   });
 
   it('modules: [] 且 test.overrides 配置有效时，unit_tests 包含扫描到的源文件推导结果 (AC-1)', () => {
@@ -743,7 +766,6 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
                 directory: 'src',
                 framework: 'vite-plus' as const,
                 test_cmd: 'vp test --coverage --coverage.reporter=json-summary {files}',
-                coverage_cmd: 'vp test --coverage --coverage.reporter=json-summary',
                 coverage_format: 'istanbul' as const,
                 coverage_output: 'coverage/coverage-summary.json',
                 coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -835,7 +857,7 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
 
 describe('runTestResolvePaths -- config-driven 过滤', () => {
   beforeEach(() => {
-    vi.mocked(runTestDetectFrameworks).mockReset();
+    vi.mocked(runTestDetectFrameworks).mockClear();
   });
 
   it('modules: ["src/config.ts"] 在 test config 覆盖范围内时正常返回 unit_tests (AC-3)', () => {
@@ -935,8 +957,8 @@ describe('runTestResolvePaths -- config-driven 过滤', () => {
 
 describe('runTestResolvePaths -- git-change 模式', () => {
   beforeEach(() => {
-    vi.mocked(execSync).mockReset();
-    vi.mocked(runTestDetectFrameworks).mockReset();
+    vi.mocked(execSync).mockClear();
+    vi.mocked(runTestDetectFrameworks).mockClear();
   });
 
   it('modules: "git-change" 且 git diff 返回变更文件时，返回对应 unit_tests (AC-5)', () => {
@@ -1063,7 +1085,7 @@ describe('runTestResolvePaths -- git-change 模式', () => {
 
 describe('runTestResolvePaths -- 去重', () => {
   beforeEach(() => {
-    vi.mocked(runTestDetectFrameworks).mockReset();
+    vi.mocked(runTestDetectFrameworks).mockClear();
   });
 
   it('多个 override 指向同一目录时扫描结果去重 (AC-6)', () => {
@@ -1079,7 +1101,6 @@ describe('runTestResolvePaths -- 去重', () => {
             framework: 'vitest' as const,
             test_cmd:
               'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
-            coverage_cmd: 'npx vitest run --coverage',
             coverage_format: 'istanbul' as const,
             coverage_output: 'coverage/coverage-summary.json',
             coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1091,7 +1112,6 @@ describe('runTestResolvePaths -- 去重', () => {
             framework: 'jest' as const,
             test_cmd:
               'npx jest --verbose --json --coverage --coverageReporters=json-summary {files}',
-            coverage_cmd: 'npx jest --coverage',
             coverage_format: 'istanbul' as const,
             coverage_output: 'coverage/coverage-summary.json',
             coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1155,7 +1175,6 @@ describe('runTestResolvePaths -- 去重', () => {
                 framework: 'vitest' as const,
                 test_cmd:
                   'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
-                coverage_cmd: 'vp test',
                 coverage_format: 'istanbul' as const,
                 coverage_output: 'coverage/coverage-summary.json',
                 coverage_artifacts: ['coverage/coverage-summary.json'],

@@ -8,7 +8,6 @@
  * - AC-1: 所有 framework 执行后调用 generateSummaryReport 写入汇总报告
  * - AC-1: 子报告写入 reports/unit-test/<framework>.json
  * - AC-1: 汇总报告写入 reports/unit-test-execution.json
- * - AC-12: FrameworkConfig 和 PlanEntry 不含 merge_mode 字段
  * - 异常: plan 为空、framework 执行失败不阻塞
  * - 边界: projectRoot 为 undefined、幂等性
  *
@@ -22,8 +21,8 @@ import * as path from 'path';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ExecutionResult } from '../lib/test-runner';
+import { type TestPlan } from '../schemas';
 import type { UnitTestSubReport } from '../schemas/unit-test-output.schema';
-import type { PlanEntry } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -78,12 +77,11 @@ function createTempProject(): TempProject {
   };
 }
 
-function makePlanEntry(overrides: Partial<PlanEntry> = {}): PlanEntry {
+function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
   return {
     directory: '.',
     framework: 'vitest',
     test_cmd: 'npx vitest run --reporter=json {files}',
-    coverage_cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -120,6 +118,7 @@ function makeSubReport(overrides: Partial<UnitTestSubReport> = {}): UnitTestSubR
     source_files: ['src/foo.ts'],
     file_coverage: null,
     coverage: null,
+    mutation: null,
     ...overrides,
   };
 }
@@ -607,6 +606,130 @@ describe('runUnitTest -- 幂等性', () => {
 
       // 验证 generateSummaryReport 被正确调用
       expect(mockGenerateSummaryReport).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// noMutation 透传
+// ===========================================================================
+
+describe('runUnitTest -- noMutation 透传', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+  });
+
+  it('UnitTestOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: '06-unit-test',
+        command: 'dev-team unit-test',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      const { runUnitTest } = await import('./unit-test');
+      runUnitTest({ projectRoot: project.root, noMutation: true });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ noMutation: true }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('UnitTestOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: '06-unit-test',
+        command: 'dev-team unit-test',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      const { runUnitTest } = await import('./unit-test');
+      runUnitTest({ projectRoot: project.root, noMutation: false });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ noMutation: false }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('UnitTestOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: '06-unit-test',
+        command: 'dev-team unit-test',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      const { runUnitTest } = await import('./unit-test');
+      runUnitTest({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ noMutation: undefined }),
+      );
     } finally {
       project.cleanup();
     }

@@ -68,6 +68,7 @@ function runCli(
       encoding: 'utf-8',
       cwd: projectRoot,
       env: { ...process.env, ...env },
+      stdio: 'pipe',
     });
     return { stdout: stdout.trim(), stderr: '', status: 0 };
   } catch (err: unknown) {

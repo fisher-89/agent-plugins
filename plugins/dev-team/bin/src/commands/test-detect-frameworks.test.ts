@@ -19,6 +19,7 @@ import * as path from 'path';
 import { describe, it, expect } from 'vite-plus/test';
 
 import { getFrameworkConfig } from '../lib/test-framework';
+import { type OpenSpecConfigInput } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------
@@ -30,7 +31,7 @@ interface TempProject {
   cleanup: () => void;
 }
 
-function createTempProject(configData: unknown): TempProject {
+function createTempProject(configData: OpenSpecConfigInput): TempProject {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'detect-fw-test-'));
   const openspecDir = path.join(tmpDir, 'openspec');
   fs.mkdirSync(openspecDir, { recursive: true });
@@ -342,7 +343,6 @@ describe('runTestDetectFrameworks -- plan 内容正确性 (AC-6)', () => {
       expect(result.plan[0]).toMatchObject({
         directory: '.',
         framework: 'vite-plus',
-        coverage_cmd: 'vp test --coverage --coverage.reporter=json-summary',
         coverage_format: 'istanbul',
         coverage_output: 'coverage/coverage-summary.json',
       });
@@ -394,7 +394,6 @@ describe('runTestDetectFrameworks -- 单框架 plan (AC-9)', () => {
       expect(result.plan[0]).toMatchObject({
         directory: '.',
         framework: 'vitest',
-        coverage_cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
         coverage_format: 'istanbul',
         coverage_output: 'coverage/coverage-summary.json',
       });
@@ -419,7 +418,6 @@ describe('runTestDetectFrameworks -- 单框架 plan (AC-9)', () => {
       expect(result.plan[0]).toMatchObject({
         directory: '.',
         framework: 'jest',
-        coverage_cmd: 'npx jest --coverage --coverageReporters=json-summary',
         coverage_format: 'istanbul',
       });
     } finally {
@@ -732,7 +730,7 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
     }
   });
 
-  it('plan 条目 script 内容应由 directory、coverage_cmd、coverage_cleanup 组装', () => {
+  it('plan 条目 script 内容应由 directory、coverage_cleanup、test_cmd 组装', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -746,11 +744,10 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
       });
       expect(result.plan).toHaveLength(1);
       const entry = result.plan[0];
-      expect(entry.script.startsWith('#!/bin/bash\nset -e\n')).toBe(true);
       for (const item of entry.coverage_cleanup ?? []) {
         expect(entry.script).toContain(`rm -rf ${item}`);
       }
-      expect(entry.script.trimEnd().endsWith(entry.coverage_cmd)).toBe(true);
+      expect(entry.script).toContain(entry.test_cmd);
     } finally {
       project.cleanup();
     }
@@ -862,106 +859,6 @@ describe('runTestDetectFrameworks -- 单框架 plan script', () => {
 });
 
 // ===========================================================================
-// AC-9: plan 传播 JSON-only 覆盖率配置 (simplify-test-report-schema)
-// @see openspec/changes/simplify-test-report-schema/test-design.md
-// ===========================================================================
-
-describe('runTestDetectFrameworks — plan JSON-only 传播 (AC-9)', () => {
-  it('vitest plan 条目 coverage_cmd 应等于注册表 JSON-only 命令', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: { framework: 'vitest' },
-    });
-    try {
-      const expected = getFrameworkConfig('vitest');
-      const result = runTestDetectFrameworks({
-        files: ['src/test.test.ts'],
-        projectRoot: project.root,
-      });
-      expect(result.plan[0].coverage_cmd).toBe(expected.coverage_cmd);
-      expect(expected.coverage_cmd).toContain('json-summary');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('vitest plan 条目 coverage_artifacts 应为 ["coverage/coverage-summary.json"]', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: { framework: 'vitest' },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/test.test.ts'],
-        projectRoot: project.root,
-      });
-      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('rust plan 条目 coverage_cmd 应为 cargo llvm-cov --json', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: { framework: 'rust' },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['tests/test_auth.rs'],
-        projectRoot: project.root,
-      });
-      expect(result.plan[0].coverage_cmd).toBe('cargo llvm-cov --json');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('多框架 [vitest, rust] 时每个 plan 条目 coverage_cmd/coverage_artifacts 与对应注册表一致', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: {
-        framework: 'vitest',
-        overrides: [{ file: 'tests/**/*.rs', framework: 'rust' }],
-      },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/test.test.ts', 'tests/test_auth.rs'],
-        projectRoot: project.root,
-      });
-      expect(result.plan).toHaveLength(2);
-      for (const entry of result.plan) {
-        const expected = getFrameworkConfig(entry.framework);
-        expect(entry.coverage_cmd).toBe(expected.coverage_cmd);
-        expect(entry.coverage_artifacts).toEqual(expected.coverage_artifacts);
-      }
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('vitest plan 生成的 script 最后一行应等于含 json-summary 的 coverage_cmd', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: { framework: 'vitest' },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/test.test.ts'],
-        projectRoot: project.root,
-      });
-      const script = result.plan[0].script;
-      const lastLine = script.trimEnd().split('\n').pop() ?? '';
-      expect(lastLine).toBe(result.plan[0].coverage_cmd);
-      expect(lastLine).toContain('json-summary');
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-// ===========================================================================
 // add-node-go-pytest-frameworks: 新框架 plan 生成 (AC-5)
 // @see openspec/changes/add-node-go-pytest-frameworks/test-design.md
 // ===========================================================================
@@ -989,7 +886,7 @@ describe('runTestDetectFrameworks — go plan (AC-5)', () => {
 });
 
 describe('runTestDetectFrameworks — node-test plan (AC-5)', () => {
-  it('config framework: "node-test" 时 plan 的 coverage_cmd 为 "node --test --experimental-test-coverage" 且 script 含 bash shebang', () => {
+  it('config framework: "node-test" 时 plan 含 coverage_format "node-test" 及 coverage_output .txt', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: { framework: 'node-test' },
@@ -1000,9 +897,9 @@ describe('runTestDetectFrameworks — node-test plan (AC-5)', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      expect(result.plan[0].coverage_cmd).toBe('node --test --experimental-test-coverage');
-      expect(result.plan[0].script.startsWith('#!/bin/bash\nset -e\n')).toBe(true);
-      expect(result.plan[0].script.trimEnd().endsWith(result.plan[0].coverage_cmd)).toBe(true);
+      expect(result.plan[0].coverage_format).toBe('node-test');
+      expect(result.plan[0].coverage_output).toBe('coverage/node-test-output.txt');
+      expect(result.plan[0].coverage_artifacts).toEqual(['coverage/node-test-output.txt']);
     } finally {
       project.cleanup();
     }
@@ -1020,7 +917,7 @@ describe('runTestDetectFrameworks — node-test plan (AC-5)', () => {
       });
       const script = result.plan[0].script;
       const lastLine = script.trimEnd().split('\n').pop() ?? '';
-      expect(lastLine).toBe('node --test --experimental-test-coverage');
+      expect(lastLine).toBe(result.plan[0].test_cmd);
       expect(lastLine).not.toContain('|');
       expect(lastLine).not.toContain('parse-node-test-coverage.mjs');
       expect(lastLine).not.toContain('tee');
@@ -1210,14 +1107,93 @@ describe('runTestDetectFrameworks -- plan 无 merge_mode (AC-12)', () => {
         expect(entry).toHaveProperty('test_cmd');
         expect(entry).not.toHaveProperty('merge_mode');
         expect(typeof entry.test_cmd).toBe('string');
-        expect(entry.test_cmd.length).toBeGreaterThan(0);
+        expect(entry.test_cmd?.length).toBeGreaterThan(0);
       }
     } finally {
       project.cleanup();
     }
   });
+});
 
-  it('每个 plan 条目的字段数量为 9（不含 merge_mode）', () => {
+// ===========================================================================
+// runTestDetectFrameworks -- plan mutation 字段
+// ===========================================================================
+
+describe('runTestDetectFrameworks -- plan mutation 字段', () => {
+  it('vitest 框架时 PlanEntry.mutation_framework 为 "stryker-js"', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest', mutation: { score: 80 } },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].mutation_framework).toBe('stryker-js');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('vitest 框架时 PlanEntry.mutation_score 为 config 中的 score 值', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest', mutation: { score: 85 } },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].mutation_score).toBe(85);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('vitest 框架时 PlanEntry.mutation_config 从 config 正确填充', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        mutation: { score: 80 },
+        overrides: [{ file: 'src/**', mutation: { score: 85 } }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      // mutation_config 应为 override 中的 mutation.score 值
+      expect(result.plan[0].mutation_config).toEqual({ score: 85 });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('bun 框架时 PlanEntry.mutation_framework 为 null', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'bun' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].mutation_framework).toBeNull();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('config 未设置 test.mutation 时 mutation_score 为 null', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: { framework: 'vitest' },
@@ -1228,11 +1204,36 @@ describe('runTestDetectFrameworks -- plan 无 merge_mode (AC-12)', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      const keys = Object.keys(result.plan[0]);
-      // 9个字段: directory, framework, test_cmd, coverage_cmd, coverage_format, coverage_output,
-      // coverage_artifacts, coverage_cleanup, script
-      expect(keys.length).toBe(9);
-      expect(keys).not.toContain('merge_mode');
+      // 由于 schema 中 mutation 有 prefault 默认值 80，mutation_score 应为 80
+      expect(result.plan[0].mutation_score).toBe(80);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('多框架（vitest + go）时每个 plan 条目正确携带各自的 mutation 字段', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        mutation: { score: 80 },
+        overrides: [{ file: 'src/go/**/*_test.go', framework: 'go' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/test.test.ts', 'src/go/foo_test.go'],
+        projectRoot: project.root,
+      });
+      expect(result.plan.length).toBeGreaterThanOrEqual(2);
+      const vitestEntry = result.plan.find((e) => e.framework === 'vitest');
+      const goEntry = result.plan.find((e) => e.framework === 'go');
+      expect(vitestEntry).toBeDefined();
+      expect(goEntry).toBeDefined();
+      expect(vitestEntry!.mutation_framework).toBe('stryker-js');
+      expect(vitestEntry!.mutation_score).toBe(80);
+      expect(goEntry!.mutation_framework).toBeNull();
+      expect(goEntry!.mutation_score).toBeNull();
     } finally {
       project.cleanup();
     }

@@ -36,7 +36,7 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 | Tool name | `test_detect_frameworks` |
 | Input | `{files?: string[], projectRoot?: string}` |
 | Output | `TestDetectFrameworksResult` (`{ detected: DetectedFile[], frameworks: string[], plan: PlanEntry[] }`) |
-| Plan entry fields | `directory`, `framework`, `coverage_cmd`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`, `script` |
+| Plan entry fields | `directory`, `framework`, `test_cmd`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`, `mutation_framework`, `mutation_config`, `mutation_score`, `script` |
 | Registration | `registerTestDetectFrameworksTool` in `mcp.ts` — unchanged |
 | Consumers | `test-gen-generator.md`, `unit-test-executor.md` — unchanged |
 
@@ -78,19 +78,18 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 
 **WHEN** `test_detect_frameworks` is invoked with `{files: ["src/example.test.ts"], projectRoot: "/tmp/test-project"}`
 **THEN** the result SHALL contain the `detected`, `frameworks`, and `plan` arrays
-**AND** each entry in `plan` SHALL contain the fields `directory`, `framework`, `coverage_cmd`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`, and `script`
+**AND** each entry in `plan` SHALL contain the fields `directory`, `framework`, `test_cmd`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`, and `script`
 
 ### Requirement: plan[] output carries all framework config fields
 
 **ID**: REQ-TDF-3
 **Priority**: MUST
-**Description**: The `plan[]` array in `test_detect_frameworks` output SHALL continue to include all framework config fields (`coverage_cmd`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`) sourced from the internal `lib/test-framework.ts` FRAMEWORK_REGISTRY. Every field that was previously populated via `runTestGetFrameworkConfig()` SHALL be present after the import path change.
+**Description**: The `plan[]` array in `test_detect_frameworks` output SHALL continue to include all framework config fields (`coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`) sourced from the internal `lib/test-framework.ts` FRAMEWORK_REGISTRY. The `coverage_cmd` field has been removed — all coverage commands are now embedded within `test_cmd`.
 
 #### Scenario: plan entry coverage fields match framework registry
 
 **WHEN** `test_detect_frameworks` is called on a project configured with framework `"vitest"`
-**THEN** the returned `plan[0].coverage_cmd` SHALL match the `coverage_cmd` value in the FRAMEWORK_REGISTRY for `vitest`
-**AND** `plan[0].coverage_format` SHALL be `"istanbul"`
+**THEN** `plan[0].coverage_format` SHALL be `"istanbul"`
 **AND** `plan[0].coverage_output` SHALL be `"coverage/coverage-summary.json"`
 **AND** `plan[0].coverage_artifacts` SHALL contain `"coverage/coverage-summary.json"`
 **AND** `plan[0].coverage_cleanup` SHALL be a non-empty array
@@ -98,8 +97,7 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 #### Scenario: node-test framework plan entry carries simplified fields
 
 **WHEN** `test_detect_frameworks` is called on a project configured with framework `"node-test"`
-**THEN** the returned `plan[0].coverage_cmd` SHALL be exactly `"node --test --experimental-test-coverage"`
-**AND** `plan[0].coverage_output` SHALL be `"coverage/node-test-output.txt"`
+**THEN** `plan[0].coverage_output` SHALL be `"coverage/node-test-output.txt"`
 **AND** `plan[0].coverage_artifacts` SHALL contain `"coverage/node-test-output.txt"`
 
 ### Requirement: FRAMEWORK_REGISTRY extracted to shared lib module

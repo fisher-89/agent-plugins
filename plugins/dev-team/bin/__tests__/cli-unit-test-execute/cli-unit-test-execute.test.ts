@@ -1,14 +1,5 @@
 /**
  * 集成测试: cli-unit-test-execute
- *
- * 覆盖范围:
- * - AC-1: 运行 `dev-team unit-test` 时调用 runTestDetectFrameworks 获取 plan
- * - AC-1: 对每个 framework plan entry 执行测试命令
- * - AC-1: 在 reports/unit-test/<framework>.json 生成子报告
- * - AC-1: 在 reports/unit-test-execution.json 生成汇总报告
- * - AC-1: 重复执行 CLI 命令时报告文件内容一致（幂等性）
- * - AC-12: FrameworkConfig 和 PlanEntry 不含 merge_mode 字段
- *
  * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
@@ -18,8 +9,8 @@ import * as path from 'path';
 
 import { beforeEach, describe, it, expect, vi } from 'vite-plus/test';
 
-import type { PlanEntry } from '../../src/commands/test-detect-frameworks';
 import type { ExecutionResult } from '../../src/lib/test-runner';
+import { type TestPlan } from '../../src/schemas';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -64,12 +55,11 @@ function createTempProject(): TempProject {
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-function makePlanEntry(overrides: Partial<PlanEntry> = {}): PlanEntry {
+function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
   return {
     directory: '.',
     framework: 'vitest',
     test_cmd: 'npx vitest run --reporter=json {files}',
-    coverage_cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -318,7 +308,7 @@ describe('cli-unit-test-execute -- 无 merge_mode (AC-12)', () => {
     mockGenerateSummaryReport.mockReset();
   });
 
-  it('FrameworkConfig 和 PlanEntry 不含 merge_mode 字段', async () => {
+  it('FrameworkConfig 和 TestPlan 不含 merge_mode 字段', async () => {
     const project = createTempProject();
     try {
       const planEntry = makePlanEntry();
