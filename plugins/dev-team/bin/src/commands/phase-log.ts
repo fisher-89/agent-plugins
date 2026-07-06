@@ -63,6 +63,17 @@ function handleBacktrackMarking(entries: EvalEntry[], options: PhaseLogOptions):
 }
 
 /**
+ * Validate that backtrack_reason is provided when backtrack_to is set.
+ * Throws an error if backtrack_to is non-empty but backtrack_reason is missing or empty.
+ */
+function validateBacktrackReason(backtrack_to: unknown, backtrack_reason: unknown): void {
+  const hasBacktrackTo = backtrack_to != null && backtrack_to !== '';
+  if (hasBacktrackTo && (backtrack_reason == null || backtrack_reason === '')) {
+    throw new Error('backtrack_to 非空时，backtrack_reason 必须填写回溯原因（不能为空字符串）。');
+  }
+}
+
+/**
  * Core logic for phase-log: validate, handle backtrack stale marking,
  * build entry, and persist to eval.json.
  *
@@ -76,6 +87,8 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   const verdict = resolveVerdict(options.checklist);
   validateVerdict(verdict, options.skipped === true);
   validateReportLength(options.report);
+
+  validateBacktrackReason(options.backtrack_to, options.backtrack_reason);
 
   const changeDir = getChangeDir(options.change);
 
@@ -98,6 +111,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     checklist: options.checklist,
     attempt,
     backtrack_to: options.backtrack_to ?? null,
+    backtrack_reason: options.backtrack_reason ?? null,
     skipped: options.skipped === true ? true : undefined,
   });
 

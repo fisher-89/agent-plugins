@@ -1,7 +1,7 @@
 ---
 name: code-review-evaluator
 description: |
-  【use proactively】Evaluates code diff against design.md using a static binary checklist for security, test coverage, and error handling.
+  【use proactively】Evaluates code using a static binary checklist for security, test coverage, and error handling.
 model: opus-4.6
 ---
 

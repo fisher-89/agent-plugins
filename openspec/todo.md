@@ -34,10 +34,11 @@
 - [ ] 禁止修改config.json
 - [x] hooks响应格式没有实现拦截，应该返回decision
 - [x] fix:主Agent执行了流程外行为，改代码、运行测试、调用phase_log
-- [ ] fix:unit-test概率没有生成报告
+- ~~[ ] fix:unit-test概率没有生成报告~~
 - [ ] 流程开始前运行static_check检查，若未通过，通知用户修复并提交后再继续
-- [ ] phase_log设置backtrack_to时增加字段记录backtrack_reason，phase_next返回的prompt拼接该原因
-- [ ] phase_log设置backtrack_to时, 当前记录也应该标记stale
+- [x] phase_log设置backtrack_to时增加字段记录backtrack_reason，phase_next返回的prompt拼接该原因
+- [x] phase_log设置backtrack_to时, 当前记录也应该标记stale
 - [ ] code-review-evaluator.md 描述"Evaluate design.md"，容易误触发"design-review skill"
 - [ ] config.json指定保护文件，禁止agent修改
 - [ ] fix:突变测试结果未写入报告
+- [ ] test-execution使用cli 命令执行测试

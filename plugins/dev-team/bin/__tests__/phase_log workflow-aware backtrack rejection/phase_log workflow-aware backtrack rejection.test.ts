@@ -69,6 +69,7 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'implement',
+        backtrack_reason: 'test reason',
       }),
     ).toThrow(/工作流 test-only 不包含 phase 'implement'/);
 

@@ -62,27 +62,34 @@ function buildBacktrackHint(allowedPhases: { id: string; description: string }[]
 /**
  * Build a phase definition with prompts interpolated for the given change name.
  * Dynamically appends allowed backtrack phases to the evaluator prompt.
+ * When backtrackReason is provided, appends a reason suffix to both planners
+ * and evaluator prompts.
  */
 function buildPhaseDef(
   def: PhaseDefinition,
   change: string,
   phaseTable: PhaseDefinition[],
+  backtrackReason?: string | null,
 ): PhaseDefinition {
   const allowedBacktrack = computeAllowedBacktrackPhases(def.id, phaseTable);
   const backtrackHint = buildBacktrackHint(allowedBacktrack);
+
+  // Build reason suffix when backtrack reason is provided
+  const reasonSuffix = backtrackReason ? `\n\n⚠️ 回溯原因: ${backtrackReason}` : '';
 
   return {
     ...def,
     planner: def.planner
       ? {
           agent_type: def.planner.agent_type,
-          prompt: interpolatePrompt(def.planner.prompt, change, def.id),
+          prompt: interpolatePrompt(def.planner.prompt, change, def.id) + reasonSuffix,
         }
       : null,
     evaluator: def.evaluator
       ? {
           agent_type: def.evaluator.agent_type,
-          prompt: interpolatePrompt(def.evaluator.prompt, change, def.id) + backtrackHint,
+          prompt:
+            interpolatePrompt(def.evaluator.prompt, change, def.id) + backtrackHint + reasonSuffix,
         }
       : null,
   };
@@ -97,8 +104,9 @@ function buildPhaseResponse(
   totalPhases: number,
   change: string,
   phaseTable: PhaseDefinition[],
+  backtrackReason?: string | null,
 ): PhaseNextResult {
-  const resolved = buildPhaseDef(phase, change, phaseTable);
+  const resolved = buildPhaseDef(phase, change, phaseTable, backtrackReason);
   const allowedBacktrack = computeAllowedBacktrackPhases(phase.id, phaseTable);
   const phaseIndex = phaseTable.findIndex((p) => p.id === phase.id) + 1;
   return {
@@ -182,15 +190,24 @@ function hasPhasePassed(entries: EvalEntry[], phaseId: string): boolean {
 
 /**
  * Check if the latest entry has a non-null backtrack_to.
- * Returns the raw value (string, string[], or null).
+ * Also returns the backtrack_reason if present.
+ * Returns { target, reason } where reason is null if the field is missing.
  */
-function getLatestBacktrackTarget(entries: EvalEntry[]): string | string[] | null {
-  if (entries.length === 0) return null;
+function getLatestBacktrackInfo(entries: EvalEntry[]): {
+  target: string | string[] | null;
+  reason: string | null;
+} {
+  if (entries.length === 0) return { target: null, reason: null };
   const sorted = [...entries].sort(
     (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
   );
   const latest = sorted[0];
-  return latest.backtrack_to && latest.backtrack_to !== '' ? latest.backtrack_to : null;
+  const target = latest.backtrack_to && latest.backtrack_to !== '' ? latest.backtrack_to : null;
+  const reason =
+    latest.backtrack_reason !== undefined && latest.backtrack_reason !== null
+      ? latest.backtrack_reason
+      : null;
+  return { target, reason };
 }
 
 /**
@@ -228,7 +245,7 @@ function handleBacktrack(
   round: number,
   totalPhases: number,
 ): ResolvePhaseNextResult | null {
-  const backtrackTarget = getLatestBacktrackTarget(entries);
+  const { target: backtrackTarget, reason: backtrackReason } = getLatestBacktrackInfo(entries);
   if (!backtrackTarget) {
     return null;
   }
@@ -259,7 +276,14 @@ function handleBacktrack(
   const targetPhase = phaseTable[earliestIdx];
 
   return {
-    result: buildPhaseResponse(targetPhase, round, totalPhases, change, phaseTable),
+    result: buildPhaseResponse(
+      targetPhase,
+      round,
+      totalPhases,
+      change,
+      phaseTable,
+      backtrackReason,
+    ),
   };
 }
 

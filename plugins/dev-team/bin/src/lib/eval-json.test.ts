@@ -125,6 +125,40 @@ describe('buildEntry', () => {
     const entry = buildEntry({ ...baseParams, checklist: [] });
     expect(entry.checklist).toEqual([]);
   });
+
+  // =====================================================================
+  // backtrack_reason field (AC-3)
+  // =====================================================================
+
+  it('backtrack_reason 被正确写入 EvalEntry（AC-3）', () => {
+    const entry = buildEntry({
+      ...baseParams,
+      backtrack_reason: '设计文档缺少API签名部分',
+    });
+    expect(entry.backtrack_reason).toBe('设计文档缺少API签名部分');
+  });
+
+  it('backtrack_reason 为 undefined 时 entry 中该字段为 null（AC-3）', () => {
+    const entry = buildEntry(baseParams);
+    expect(entry.backtrack_reason).toBeNull();
+  });
+
+  it('backtrack_reason 为 null 时 entry 中该字段为 null（AC-3）', () => {
+    const entry = buildEntry({ ...baseParams, backtrack_reason: null });
+    expect(entry.backtrack_reason).toBeNull();
+  });
+
+  it('backtrack_reason 长度为 500 字符时被正确写入（边界）', () => {
+    const reason500 = 'a'.repeat(500);
+    const entry = buildEntry({ ...baseParams, backtrack_reason: reason500 });
+    expect(entry.backtrack_reason).toBe(reason500);
+  });
+
+  it('backtrack_reason 含有特殊字符时被正确序列化（边界）', () => {
+    const reason = '原因: 包含emoji 😊 和换行\n以及制表符\t';
+    const entry = buildEntry({ ...baseParams, backtrack_reason: reason });
+    expect(entry.backtrack_reason).toBe(reason);
+  });
 });
 
 // ---------------------------------------------------------------------------

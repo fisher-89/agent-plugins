@@ -69,6 +69,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'implement',
+        backtrack_reason: 'test reason',
       }),
     ).toThrow(/工作流 test-only 不包含 phase 'implement'/);
 
@@ -87,6 +88,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'implement',
+        backtrack_reason: 'test reason',
       }),
     ).toThrow(/工作流 test-only 不包含 phase 'implement'/);
   });
@@ -100,6 +102,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
       report: 'test issue',
       checklist: FAILED_ITEMS,
       backtrack_to: 'dev-design',
+      backtrack_reason: 'test reason',
     });
 
     expect(markPhaseStale).toHaveBeenCalled();
@@ -116,6 +119,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'dev-design',
+        backtrack_reason: 'test reason',
       }),
     ).toThrow(/工作流 test-only 不包含 phase 'dev-design'/);
 
@@ -132,6 +136,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
       report: 'test issue',
       checklist: FAILED_ITEMS,
       backtrack_to: 'implement',
+      backtrack_reason: 'test reason',
     });
 
     expect(markPhaseStale).toHaveBeenCalled();
@@ -191,6 +196,7 @@ describe('runPhaseLog — backtrack_to triggers markPhaseStale', () => {
       report: 'needs redo',
       checklist: FAILED_ITEMS,
       backtrack_to: 'proposal',
+      backtrack_reason: 'test reason',
     });
 
     expect(markPhaseStale).toHaveBeenCalled();
@@ -214,6 +220,109 @@ describe('runPhaseLog — input validation', () => {
 
     expect(markPhaseStale).not.toHaveBeenCalled();
     expect(appendEntry).toHaveBeenCalled();
+  });
+});
+
+describe('runPhaseLog — backtrack_reason validation (AC-2)', () => {
+  it('backtrack_to 非空且 backtrack_reason 为有效字符串时通过', () => {
+    mockWorkflowType('test-only');
+    runPhaseLog({
+      change: 'test-change',
+      phase: 'test-execution',
+      report: 'bugs found',
+      checklist: FAILED_ITEMS,
+      backtrack_to: 'proposal',
+      backtrack_reason: '设计文档缺少API签名部分',
+    });
+    // backtrack 触发时使用 writeEvalJson 而非 appendEntry
+    expect(writeEvalJson).toHaveBeenCalled();
+    expect(appendEntry).not.toHaveBeenCalled();
+  });
+
+  it('backtrack_to 非空但 backtrack_reason 缺失时抛错', () => {
+    mockWorkflowType('test-only');
+    expect(() =>
+      runPhaseLog({
+        change: 'test-change',
+        phase: 'test-execution',
+        report: 'bugs found',
+        checklist: FAILED_ITEMS,
+        backtrack_to: 'proposal',
+      }),
+    ).toThrow(/backtrack_to 非空时，backtrack_reason 必须填写回溯原因/);
+    expect(appendEntry).not.toHaveBeenCalled();
+    expect(writeEvalJson).not.toHaveBeenCalled();
+  });
+
+  it('backtrack_to 非空但 backtrack_reason 为空字符串时抛错', () => {
+    mockWorkflowType('test-only');
+    expect(() =>
+      runPhaseLog({
+        change: 'test-change',
+        phase: 'test-execution',
+        report: 'bugs found',
+        checklist: FAILED_ITEMS,
+        backtrack_to: 'proposal',
+        backtrack_reason: '',
+      }),
+    ).toThrow(/backtrack_to 非空时，backtrack_reason 必须填写回溯原因/);
+    expect(appendEntry).not.toHaveBeenCalled();
+    expect(writeEvalJson).not.toHaveBeenCalled();
+  });
+
+  it('backtrack_to 为 null 时不校验 backtrack_reason，不抛错', () => {
+    mockWorkflowType('test-only');
+    runPhaseLog({
+      change: 'test-change',
+      phase: 'test-execution',
+      report: 'no backtrack',
+      checklist: VALID_ITEMS,
+      backtrack_to: null,
+    });
+    expect(appendEntry).toHaveBeenCalled();
+  });
+
+  it('backtrack_reason 长度为 500 字符时通过校验（边界）', () => {
+    mockWorkflowType('test-only');
+    runPhaseLog({
+      change: 'test-change',
+      phase: 'test-execution',
+      report: 'long reason',
+      checklist: FAILED_ITEMS,
+      backtrack_to: 'proposal',
+      backtrack_reason: 'a'.repeat(500),
+    });
+    expect(writeEvalJson).toHaveBeenCalled();
+    expect(appendEntry).not.toHaveBeenCalled();
+  });
+
+  it('backtrack_to 为数组且 backtrack_reason 提供时通过', () => {
+    mockWorkflowType('test-only');
+    runPhaseLog({
+      change: 'test-change',
+      phase: 'test-execution',
+      report: 'multiple targets',
+      checklist: FAILED_ITEMS,
+      backtrack_to: ['proposal', 'code-analyze'],
+      backtrack_reason: '需要重新审视多个阶段',
+    });
+    expect(markPhaseStale).toHaveBeenCalledTimes(2);
+    expect(writeEvalJson).toHaveBeenCalled();
+  });
+
+  it('backtrack_to 非空且 backtrack_reason 为 null 时抛错', () => {
+    mockWorkflowType('test-only');
+    expect(() =>
+      runPhaseLog({
+        change: 'test-change',
+        phase: 'test-execution',
+        report: 'null reason',
+        checklist: FAILED_ITEMS,
+        backtrack_to: 'proposal',
+        backtrack_reason: null,
+      }),
+    ).toThrow(/backtrack_to 非空时，backtrack_reason 必须填写回溯原因/);
+    expect(appendEntry).not.toHaveBeenCalled();
   });
 });
 

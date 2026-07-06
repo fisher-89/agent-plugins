@@ -42,6 +42,12 @@ export const phaseLogSchema = z.object({
     .optional()
     .nullable()
     .describe('Backtrack target phase identifier (string, array of strings, or null)'),
+  backtrack_reason: z
+    .string()
+    .max(500)
+    .optional()
+    .nullable()
+    .describe('回溯原因（backtrack_to 非空时必填，最长 500 字符）'),
   skipped: z
     .boolean()
     .optional()
@@ -57,6 +63,7 @@ export const phaseLogInputSchema = phaseLogSchema
     report: true,
     checklist: true,
     backtrack_to: true,
+    backtrack_reason: true,
     skipped: true,
   })
   .extend({

@@ -370,7 +370,7 @@ function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]
   return substitutePlaceholders(entry.script, files ?? [], entry.directory, projectRoot);
 }
 
-function resolveExecCwd(entry: TestPlan, projectRoot: string): string {
+function resolveExecCwd(_entry: TestPlan, projectRoot: string): string {
   // The script already contains a `cd` command when directory !== '.'.
   // Always use projectRoot as CWD so that the relative `cd` in the script
   // resolves correctly.  (On Windows, execSync defaults to cmd.exe, which

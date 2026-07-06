@@ -73,6 +73,7 @@ function backtrackEntry(
   phase: EvalEntry['phase'],
   backtrack_to: string | string[],
   attempt: number = 1,
+  overrides: Partial<MockEntry> = {},
 ): MockEntry {
   return {
     phase,
@@ -82,6 +83,7 @@ function backtrackEntry(
     backtrack_to,
     report: '',
     checklist: [],
+    ...overrides,
   };
 }
 
@@ -529,6 +531,216 @@ describe('runPhaseNext — Backtrack', () => {
     ];
     const result = next(entries);
     expect(result.error).toBe('invalid_backtrack_target');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getLatestBacktrackInfo — Backtrack reason propagation (AC-4)
+// ---------------------------------------------------------------------------
+
+describe('getLatestBacktrackInfo', () => {
+  it('返回对象包含 target 和 reason 两个字段（AC-4）', () => {
+    const result = next([
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      backtrackEntry('test-design', 'proposal', 1, { backtrack_reason: '测试原因' }),
+    ]);
+    expect(result.next_phase).toBe('proposal');
+    // reason propagated to prompt indirectly verifies getLatestBacktrackInfo return
+    expect(result.planner!.prompt).toContain('⚠️ 回溯原因: 测试原因');
+  });
+
+  it('最新的 backtrack 条目包含 reason 时正确返回（AC-4）', () => {
+    const result = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: '设计文档缺少API签名部分' }),
+    ]);
+    expect(result.planner!.prompt).toContain('⚠️ 回溯原因: 设计文档缺少API签名部分');
+    expect(result.evaluator!.prompt).toContain('⚠️ 回溯原因: 设计文档缺少API签名部分');
+  });
+
+  it('回溯条目无 backtrack_reason 字段时 reason 返回 null（AC-4）', () => {
+    const result = next([
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      backtrackEntry('test-design', 'proposal'),
+    ]);
+    expect(result.next_phase).toBe('proposal');
+    expect(result.planner!.prompt).not.toContain('⚠️ 回溯原因');
+    expect(result.evaluator!.prompt).not.toContain('⚠️ 回溯原因');
+  });
+
+  it('无任何回溯条目时 target 和 reason 均为 null（AC-4）', () => {
+    const result = next([passEntry('proposal'), passEntry('dev-design'), passEntry('test-design')]);
+    expect(result.next_phase).toBe('implement');
+    expect(result.planner!.prompt).not.toContain('⚠️ 回溯原因');
+  });
+
+  it('多个回溯条目中只返回最新的 backtrack_reason（边界）', () => {
+    const result = next([
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      backtrackEntry('dev-design', 'proposal', 2, { backtrack_reason: '第一次回溯原因' }),
+      backtrackEntry('test-design', 'proposal', 1, { backtrack_reason: '第二次回溯原因' }),
+    ]);
+    expect(result.next_phase).toBe('proposal');
+    expect(result.planner!.prompt).toContain('第二次回溯原因');
+    expect(result.planner!.prompt).not.toContain('第一次回溯原因');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// Backtrack Prompt — reason propagation (AC-5)
+// ---------------------------------------------------------------------------
+
+describe('Backtrack Prompt — reason propagation', () => {
+  it('planner prompt 末尾包含 ⚠️ 回溯原因: <reason>（AC-5）', () => {
+    const result = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: '测试原因' }),
+    ]);
+    expect(result.planner!.prompt).toMatch(/⚠️ 回溯原因: 测试原因$/);
+  });
+
+  it('evaluator prompt 末尾包含 ⚠️ 回溯原因: <reason>（AC-5）', () => {
+    const result = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: '测试原因' }),
+    ]);
+    expect(result.evaluator!.prompt).toMatch(/⚠️ 回溯原因: 测试原因$/);
+  });
+
+  it('无 backtrack_reason 时 prompt 不拼接回溯原因（AC-5 异常）', () => {
+    const result = next([
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      backtrackEntry('test-design', 'proposal'),
+    ]);
+    expect(result.planner!.prompt).not.toContain('⚠️ 回溯原因');
+    expect(result.evaluator!.prompt).not.toContain('⚠️ 回溯原因');
+  });
+
+  it('backtrack_reason 长度为 500 字符时 prompt 包含完整内容（AC-5 边界）', () => {
+    const longReason = 'a'.repeat(500);
+    const result = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: longReason }),
+    ]);
+    expect(result.planner!.prompt).toContain(`⚠️ 回溯原因: ${longReason}`);
+  });
+
+  it('backtrack_to 为数组时 prompt 拼接原因（AC-5）', () => {
+    const result = next([
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      passEntry('test-design'),
+      backtrackEntry('test-design', ['proposal', 'dev-design'], 1, {
+        backtrack_reason: '多个回溯目标',
+      }),
+    ]);
+    expect(result.next_phase).toBe('proposal');
+    expect(result.planner!.prompt).toContain('⚠️ 回溯原因: 多个回溯目标');
+  });
+
+  it('正常前进（非回溯）时 prompt 不含回溯原因（AC-5 异常）', () => {
+    const result = next([passEntry('proposal')]);
+    expect(result.next_phase).toBe('dev-design');
+    expect(result.planner!.prompt).not.toContain('⚠️ 回溯原因');
+  });
+
+  it('回溯原因是空格字符串时 prompt 包含空格（当前行为：空格为 truthy 值）', () => {
+    const result = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: '   ' }),
+    ]);
+    // '   '（纯空格）在 Zod 中为有效字符串，在 JS 中为 truthy 值
+    // 当前 buildPhaseDef 在 backtrackReason truthy 时拼接，因此 prompt 包含空格原因
+    expect(result.planner!.prompt).toContain('⚠️ 回溯原因: ');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getLatestBacktrackInfo — backward compatibility (AC-6)
+// ---------------------------------------------------------------------------
+
+describe('getLatestBacktrackInfo — backward compatibility (AC-6)', () => {
+  it('旧 eval.json 条目（无 backtrack_reason）解析不抛错（AC-6）', () => {
+    const entries: MockEntry[] = [
+      {
+        phase: 'proposal',
+        verdict: 'pass',
+        attempt: 1,
+        timestamp: new Date().toISOString(),
+        backtrack_to: null,
+        report: '',
+        checklist: [],
+      },
+      {
+        phase: 'dev-design',
+        verdict: 'fail',
+        attempt: 1,
+        timestamp: new Date(Date.now() + 1).toISOString(),
+        backtrack_to: 'proposal',
+        report: '',
+        checklist: [],
+      },
+    ];
+    expect(() => next(entries)).not.toThrow();
+  });
+
+  it('混合新旧格式条目时，旧条目的 reason 为 null（AC-6）', () => {
+    // Old entry without backtrack_reason, new entry with but different phase
+    const entries: MockEntry[] = [
+      {
+        phase: 'proposal',
+        verdict: 'pass',
+        attempt: 1,
+        timestamp: new Date().toISOString(),
+        backtrack_to: null,
+        report: '',
+        checklist: [],
+      },
+      {
+        phase: 'dev-design',
+        verdict: 'fail',
+        attempt: 1,
+        timestamp: new Date(Date.now() + 1).toISOString(),
+        backtrack_to: 'proposal',
+        // No backtrack_reason — old format
+        report: '',
+        checklist: [],
+      },
+    ];
+    const result = next(entries);
+    expect(result.next_phase).toBe('proposal');
+    // No backtrack_reason → reason is null → prompt has no reason suffix
+    expect(result.planner!.prompt).not.toContain('⚠️ 回溯原因');
+  });
+
+  it('getLatestBacktrackInfo() 在旧格式条目上正确返回 target 和 reason: null（AC-6）', () => {
+    // Mix of old and new format entries — use nextTs() for timestamp ordering
+    const entries: MockEntry[] = [
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      {
+        phase: 'test-design',
+        verdict: 'fail',
+        attempt: 1,
+        timestamp: nextTs(),
+        backtrack_to: 'proposal',
+        // No backtrack_reason — old format without the field
+        report: '',
+        checklist: [],
+      },
+    ];
+    const result = next(entries);
+    // Backtrack target is correctly identified
+    expect(result.next_phase).toBe('proposal');
+    // Reason should be null (no backtrack_reason in entries)
+    expect(result.planner!.prompt).not.toContain('⚠️ 回溯原因');
+    // Should still be a valid phase response with planner + evaluator
+    expect(result.planner).not.toBeNull();
+    expect(result.evaluator).not.toBeNull();
   });
 });
 

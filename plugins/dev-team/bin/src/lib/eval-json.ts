@@ -12,7 +12,14 @@ export type EvalEntry = z.infer<typeof phaseLogSchema>;
 
 export type BuildEntryParams = Pick<
   EvalEntry,
-  'phase' | 'attempt' | 'verdict' | 'report' | 'checklist' | 'backtrack_to' | 'skipped'
+  | 'phase'
+  | 'attempt'
+  | 'verdict'
+  | 'report'
+  | 'checklist'
+  | 'backtrack_to'
+  | 'backtrack_reason'
+  | 'skipped'
 >;
 
 /**
@@ -77,6 +84,7 @@ export function buildEntry(params: BuildEntryParams): EvalEntry {
     report: params.report,
     checklist: params.checklist,
     backtrack_to: params.backtrack_to !== undefined ? params.backtrack_to : null,
+    backtrack_reason: params.backtrack_reason !== undefined ? params.backtrack_reason : null,
     timestamp: new Date().toISOString(),
   };
   // Extended fields: only include when explicitly set
