@@ -11,9 +11,9 @@
 - [x] 使用 `path.join(process.env.CLAUDE_PLUGIN_ROOT, 'bin', 'dev-team-cli.cjs')` 解析 CLI 路径
 - [x] 实现 CLI 文件不存在时的 followup 分支（消息含完整路径，脚本 exit 0）
 - [x] 使用 `spawnSync(process.execPath, [cliPath, 'run_static_analysis'], { encoding: 'utf-8' })` 调用 CLI
-- [x] 合并 stdout + stderr 作为 CLI 输出；exit 0 时输出 `{}`，非 0 时输出 `{ followup_message }`
-- [x] followup_message 前缀使用「静态检查未通过，请修复以下错误后重新提交：\n\n」（与 bash 版一致）
-- [x] 使用 `JSON.stringify({ followup_message })` 生成输出，确保特殊字符正确转义
+- [x] 合并 stdout + stderr 作为 CLI 输出；exit 0 时输出 `{}`，非 0 时输出 `{ decision: "block", reason: "..." }`
+- [x] reason 前缀使用「静态检查未通过，请修复以下错误后重新提交：\n\n」（与 bash 版一致）
+- [x] 使用 `JSON.stringify({ decision: "block", reason })` 生成输出，确保特殊字符正确转义
 - [x] 脚本在所有路径下均以 exit code 0 结束（followup 通过 JSON 字段传递，非 exit code）
 
 ## Phase 2: protect-eval.mjs
@@ -67,5 +67,5 @@
 ## Phase 6: 验收
 
 - [x] 在 Windows PowerShell 手动执行 `node plugins/dev-team/hooks/scripts/protect-eval.mjs`（传入合法 stdin JSON），确认 exit 0 且 stdout 为合法 JSON
-- [x] 在 Windows PowerShell 手动执行 `node plugins/dev-team/hooks/scripts/static-check.mjs`（设置 `CLAUDE_PLUGIN_ROOT`），确认 exit 0 且 stdout 为 `{}` 或含 `followup_message`
+- [x] 在 Windows PowerShell 手动执行 `node plugins/dev-team/hooks/scripts/static-check.mjs`（设置 `CLAUDE_PLUGIN_ROOT`），确认 exit 0 且 stdout 为 `{}` 或含 `decision: "block"`
 - [x] 运行 `plugins/dev-team/bin` 下集成测试，确认全部通过（AC-1 至 AC-10）

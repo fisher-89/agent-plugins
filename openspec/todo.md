@@ -38,7 +38,7 @@
 - [ ] 流程开始前运行static_check检查，若未通过，通知用户修复并提交后再继续
 - [x] phase_log设置backtrack_to时增加字段记录backtrack_reason，phase_next返回的prompt拼接该原因
 - [x] phase_log设置backtrack_to时, 当前记录也应该标记stale
-- [ ] code-review-evaluator.md 描述"Evaluate design.md"，容易误触发"design-review skill"
+- [x] code-review-evaluator.md 描述"Evaluate design.md"，容易误触发"design-review skill"
 - [ ] config.json指定保护文件，禁止agent修改
 - [ ] fix:突变测试结果未写入报告
 - [x] test-execution使用cli 命令执行测试

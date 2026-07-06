@@ -39,10 +39,11 @@ describe('formatOutput', () => {
     assert.deepEqual(result, {});
   });
 
-  skipIfMissing('CLI exit 非 0 时应返回含 followup_message 的对象', () => {
+  skipIfMissing('CLI exit 非 0 时应返回 decision: "block" 且 reason 含错误信息', () => {
     const result = formatOutput({ status: 1, stdout: '', stderr: 'type error' });
-    assert.ok(typeof result.followup_message === 'string');
-    assert.match(result.followup_message, /type error/);
+    assert.equal(result.decision, 'block');
+    assert.ok(typeof result.reason === 'string');
+    assert.match(result.reason, /type error/);
   });
 
   skipIfMissing('CLI 输出含特殊字符时 JSON.stringify 可解析', () => {
@@ -51,17 +52,19 @@ describe('formatOutput', () => {
     const serialized = JSON.stringify(result);
     assert.doesNotThrow(() => JSON.parse(serialized));
     const reparsed = JSON.parse(serialized);
-    assert.ok(reparsed.followup_message.includes('line1'));
+    assert.equal(reparsed.decision, 'block');
+    assert.ok(reparsed.reason.includes('line1'));
   });
 
-  skipIfMissing('应将 stdout 与 stderr 合并进 followup_message', () => {
+  skipIfMissing('应将 stdout 与 stderr 合并进 reason', () => {
     const result = formatOutput({
       status: 1,
       stdout: 'stdout line',
       stderr: 'stderr line',
     });
-    assert.match(result.followup_message, /stdout line/);
-    assert.match(result.followup_message, /stderr line/);
+    assert.equal(result.decision, 'block');
+    assert.match(result.reason, /stdout line/);
+    assert.match(result.reason, /stderr line/);
   });
 });
 
@@ -95,19 +98,20 @@ describe('resolveCliPath', () => {
 // ---------------------------------------------------------------------------
 
 describe('handleMissingCli', () => {
-  skipIfMissing('CLI 文件不存在时应返回 followup_message 且不抛异常', () => {
+  skipIfMissing('CLI 文件不存在时应返回 decision: "block" 且 reason 含路径', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'static-check-missing-'));
     try {
       const cliPath = path.join(tmpRoot, 'bin', 'dev-team-cli.cjs');
       const result = handleMissingCli(cliPath);
-      assert.ok(typeof result.followup_message === 'string');
-      assert.match(result.followup_message, /not found|CLI|dev-team/i);
+      assert.equal(result.decision, 'block');
+      assert.ok(typeof result.reason === 'string');
+      assert.match(result.reason, /not found|CLI|dev-team/i);
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }
   });
 
-  skipIfMissing('空 CLAUDE_PLUGIN_ROOT 时输出应含路径说明', () => {
+  skipIfMissing('空 CLAUDE_PLUGIN_ROOT 时输出应含 decision: "block"', () => {
     const prev = process.env.CLAUDE_PLUGIN_ROOT;
     try {
       delete process.env.CLAUDE_PLUGIN_ROOT;
@@ -115,8 +119,9 @@ describe('handleMissingCli', () => {
         handleMissingCli.length <= 1
           ? handleMissingCli('')
           : handleMissingCli(undefined);
-      assert.ok(typeof result.followup_message === 'string');
-      assert.ok(result.followup_message.length > 0);
+      assert.equal(result.decision, 'block');
+      assert.ok(typeof result.reason === 'string');
+      assert.ok(result.reason.length > 0);
     } finally {
       if (prev === undefined) {
         delete process.env.CLAUDE_PLUGIN_ROOT;
@@ -161,7 +166,7 @@ describe('parseWorkspaceRoot', () => {
 // ---------------------------------------------------------------------------
 
 describe('static-check.mjs — 黑盒 CLI 缺失 (AC-10)', () => {
-  skipIfNoScript('无 dev-team-cli.cjs 时不应抛未捕获异常', () => {
+  skipIfNoScript('无 dev-team-cli.cjs 时不应抛未捕获异常, 返回 decision: "block"', () => {
     const tmpRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'static-check-e2e-'));
     try {
       const stdinJson = JSON.stringify({ workspace_roots: [tmpRoot] });
@@ -172,7 +177,8 @@ describe('static-check.mjs — 黑盒 CLI 缺失 (AC-10)', () => {
       });
       assert.equal(status, 0);
       const parsed = JSON.parse(stdout.trim());
-      assert.ok(typeof parsed.followup_message === 'string');
+      assert.equal(parsed.decision, 'block');
+      assert.ok(typeof parsed.reason === 'string');
     } finally {
       fs.rmSync(tmpRoot, { recursive: true, force: true });
     }

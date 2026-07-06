@@ -24,7 +24,7 @@
 
 ## 提案
 
-利用 Cursor 的 `subagentStop` hook 事件，在 `implementation-generator` 结束时**自动、确定性地**执行静态检查。若检查未通过，hook 返回 `followup_message` 阻止 agent 结束并要求其修复问题。
+利用 Cursor 的 `subagentStop` hook 事件，在 `implementation-generator` 结束时**自动、确定性地**执行静态检查。若检查未通过，hook 返回 `decision: "block"` + `reason` 阻止 agent 结束并要求其修复问题。
 
 ### 核心设计
 
@@ -36,7 +36,7 @@
 2. **`plugins/dev-team/hooks/scripts/static-check.sh`** — 检查门禁脚本：
    - 调用 `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis`
    - CLI exit code 为 0：返回空 JSON `{}`，允许 agent 结束
-   - CLI exit code 非 0：返回 `followup_message`，携带 CLI 的错误输出，要求 agent 修复
+   - CLI exit code 非 0：返回 `decision: "block"` + `reason`，携带 CLI 的错误输出，要求 agent 修复
 
 3. **`plugins/dev-team/bin/dev-team-cli.cjs`** — 新增 CLI 打包产物（入口 `src/cli.ts`）：
    - 子命令 `run_static_analysis` 复用 `lib/config.ts` 的 `ensureConfigFile()`、`getValue()` 读取 `openspec/config.json` 的 `static_analysis` 字段
@@ -83,7 +83,7 @@
   - `loop_limit`: 5
 - `plugins/dev-team/hooks/scripts/static-check.sh` — 新增 hook 脚本：
   - 调用 `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis`
-  - 根据 CLI exit code 返回 `{}` 或 `followup_message`
+  - 根据 CLI exit code 返回 `{}` 或 `{ decision: "block", reason: "..." }`
   - 脚本 SHALL 具有可执行权限（`chmod +x`）
 - `plugins/dev-team/bin/src/cli.ts` — 新增 CLI 入口（使用 `cac` 注册子命令）
 - `plugins/dev-team/bin/src/commands/run-static-analysis.ts` — 实现 `run_static_analysis` 逻辑
@@ -108,10 +108,10 @@
 | ID | 验收条件 | 验证方法 |
 |----|---------|----------|
 | AC-1 | `implementation-generator` 结束时自动触发静态检查 | 运行 generator，观察 subagentStop hook 触发并执行 `static_analysis` 命令 |
-| AC-2 | 静态检查失败时 generator 不结束，收到 `followup_message` 后继续修复 | 故意引入 lint 错误，确认 generator 被要求继续修复而非直接结束 |
+| AC-2 | 静态检查失败时 generator 不结束，收到 `decision: "block"` + `reason` 后继续修复 | 故意引入 lint 错误，确认 generator 被要求继续修复而非直接结束 |
 | AC-3 | 静态检查通过时 generator 正常结束 | 代码无 lint 错误时，确认 generator 正常完成 |
 | AC-4 | 未配置 `static_analysis` 时 generator 直接结束，hook 不阻塞 | 移除 `openspec/config.json` 中的 `static_analysis` 字段，确认 generator 正常完成 |
-| AC-5 | `followup_message` 包含具体的错误输出内容 | 检查 hook 返回的 followup_message 中包含 CLI 的 stderr/stdout 错误信息 |
+| AC-5 | `reason` 包含具体的错误输出内容 | 检查 hook 返回的 reason 中包含 CLI 的 stderr/stdout 错误信息 |
 | AC-6 | 重试次数不超过 `loop_limit`（5 次） | 引入无法自动修复的错误，确认 5 次后 generator 被允许结束 |
 | AC-7 | `dev-team-cli.cjs run_static_analysis` 正确读取并执行配置 | 手动运行 CLI，验证未配置时 exit 0、已配置时执行命令并返回对应 exit code |
 | AC-8 | `implementation-generator.md` 不再包含静态检查步骤 | 读取 agent 文件，确认步骤 7-8 和报告生成部分已移除 |

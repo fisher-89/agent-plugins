@@ -32,7 +32,7 @@ The term 'bash' is not recognized as the name of a cmdlet, function, script file
 
 1. **`plugins/dev-team/hooks/scripts/static-check.mjs`** — 替代 `static-check.sh`：
    - 使用 `child_process.spawnSync` 调用 `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis`
-   - 使用 `JSON.stringify` 输出 `{}` 或 `{ "followup_message": "..." }`
+   - 使用 `JSON.stringify` 输出 `{}` 或 `{ "decision": "block", "reason": "..." }`
    - 行为与现有 bash 脚本完全一致（exit code 判断、中文 followup 前缀、stdout/stderr 合并）
 
 2. **`plugins/dev-team/hooks/scripts/protect-eval.mjs`** — 替代 `protect-eval.sh`：
@@ -104,11 +104,11 @@ The term 'bash' is not recognized as the name of a cmdlet, function, script file
 | AC-3 | eval.json Write/Edit 拦截行为与迁移前一致 | 运行 `protect-eval-regression.test.ts` 全部通过 |
 | AC-4 | eval.json Bash 重定向/tee/heredoc 拦截与 python/node 豁免与迁移前一致 | 运行 `protect-eval-regression.test.ts` 全部通过 |
 | AC-5 | 静态检查通过时 hook 输出 `{}` | 运行 `static-check-hook-e2e.test.ts` 对应场景通过 |
-| AC-6 | 静态检查失败时 hook 输出含 `followup_message` 的 JSON | 运行 `static-check-hook-e2e.test.ts` 对应场景通过 |
+| AC-6 | 静态检查失败时 hook 输出含 `decision: "block"` 的 JSON | 运行 `static-check-hook-e2e.test.ts` 对应场景通过 |
 | AC-7 | 旧 `.sh` 文件已删除，仓库中无残留引用 | `grep -r "static-check.sh\|protect-eval.sh" plugins/dev-team/` 无匹配（测试文件除外已更新） |
 | AC-8 | `plugin.json` 版本号已递增 | 读取 plugin.json，确认 version > `"2.6.22"` |
 | AC-9 | 空 stdin 或缺少字段时 protect-eval 默认放行（fail-open） | 集成测试覆盖空输入场景 |
-| AC-10 | CLI 不存在时 static-check 返回 followup_message 而非崩溃 | 集成测试或手动验证 `CLAUDE_PLUGIN_ROOT` 指向无 CLI 的目录 |
+| AC-10 | CLI 不存在时 static-check 返回 `decision: "block"` 而非崩溃 | 集成测试或手动验证 `CLAUDE_PLUGIN_ROOT` 指向无 CLI 的目录 |
 
 ---
 

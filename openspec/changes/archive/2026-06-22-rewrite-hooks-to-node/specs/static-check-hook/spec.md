@@ -32,7 +32,7 @@
 
 #### Scenario: loop_limit 耗尽后允许 subagent 结束
 
-- **WHEN** `implementation-generator` 连续 5 次尝试结束且静态检查均失败（hook 每次返回 `followup_message`）
+- **WHEN** `implementation-generator` 连续 5 次尝试结束且静态检查均失败（hook 每次返回 `decision: "block"`）
 - **THEN** 第 5 次 followup 循环后，hook 框架不再阻止 subagent 结束
 - **AND** `implementation-generator` 被允许结束，即使静态检查仍未通过
 
@@ -40,7 +40,7 @@
 
 - **WHEN** 在 Windows 上执行 `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"`（无需 bash）
 - **THEN** 命令 exit code 为 `0`
-- **AND** stdout 输出合法 JSON（`{}` 或含 `followup_message` 的对象）
+- **AND** stdout 输出合法 JSON（`{}` 或含 `decision` / `reason` 的对象）
 
 ### Requirement: static-check.mjs 通过 CLI 执行静态检查并根据 exit code 决定放行或 followup
 
@@ -55,9 +55,9 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 行为规则：
 
 - CLI exit code 为 `0`：向 stdout 输出空 JSON `{}`，脚本 exit `0`，允许 subagent 结束
-- CLI exit code 非 `0`：向 stdout 输出包含 `followup_message` 的 JSON，脚本 exit `0`（hook 协议要求通过 JSON 字段传递 followup，而非脚本 exit code）
-- `followup_message` SHALL 包含 CLI 的完整 stderr/stdout 输出及中文修复指令前缀「静态检查未通过，请修复以下错误后重新提交：」，要求 agent 修复静态检查错误后重新提交
-- CLI 文件不存在时：向 stdout 输出含 `followup_message` 的 JSON（说明 CLI 路径），脚本 exit `0`
+- CLI exit code 非 `0`：向 stdout 输出包含 `decision: "block"` + `reason` 的 JSON，脚本 exit `0`（hook 协议要求通过 JSON 字段传递 followup，而非脚本 exit code）
+- `reason` SHALL 包含 CLI 的完整 stderr/stdout 输出及中文修复指令前缀「静态检查未通过，请修复以下错误后重新提交：」，要求 agent 修复静态检查错误后重新提交
+- CLI 文件不存在时：向 stdout 输出含 `decision: "block"` + `reason` 的 JSON（说明 CLI 路径），脚本 exit `0`
 
 脚本 SHALL NOT 生成 `reports/static_analysis.json` 或任何其他报告文件。
 
@@ -69,11 +69,11 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 - **THEN** `static-check.mjs` 向 stdout 输出 `{}`
 - **AND** subagent 正常结束
 
-#### Scenario: 静态检查失败时 hook 返回 followup_message
+#### Scenario: 静态检查失败时 hook 返回 decision: "block"
 
 - **WHEN** `dev-team-cli.cjs run_static_analysis` 以 exit code 非 `0` 结束，且 stderr 包含 lint 错误信息
-- **THEN** `static-check.mjs` 向 stdout 输出 JSON，包含 `followup_message` 字段
-- **AND** `followup_message` 包含 CLI 的错误输出内容
+- **THEN** `static-check.mjs` 向 stdout 输出 JSON，包含 `decision: "block"` 和 `reason` 字段
+- **AND** `reason` 包含 CLI 的错误输出内容
 - **AND** subagent 不被允许结束，继续修复
 
 #### Scenario: 未配置 static_analysis 时 hook 放行
@@ -88,10 +88,10 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 - **THEN** 命令 exit code 为 `0` 且无未捕获异常
 - **AND** stdout 输出合法 JSON
 
-#### Scenario: CLI 不存在时返回 followup_message
+#### Scenario: CLI 不存在时返回 decision: "block"
 
 - **WHEN** `${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs` 文件不存在
-- **THEN** `static-check.mjs` 向 stdout 输出含 `followup_message` 的 JSON
+- **THEN** `static-check.mjs` 向 stdout 输出含 `decision: "block"` + `reason` 的 JSON
 - **AND** 脚本 exit `0`（不抛出未捕获异常）
 
 ### Requirement: static-check hook 不影响现有 PreToolUse hook
@@ -144,7 +144,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 | **输入** | stdin JSON（subagentStop 事件，可选读取） |
 | **执行** | `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis` |
 | **通过** | stdout `{}`，exit `0` |
-| **失败** | stdout `{"followup_message": "<错误输出 + 修复指令>"}`，exit `0` |
+| **失败** | stdout `{"decision": "block", "reason": "<错误输出 + 修复指令>"}`，exit `0` |
 | **报告** | 不生成任何 report 文件 |
 
 ### 插件配置：`plugins/dev-team/.claude-plugin/plugin.json`

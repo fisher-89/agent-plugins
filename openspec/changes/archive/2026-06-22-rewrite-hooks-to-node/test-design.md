@@ -16,26 +16,26 @@
 | AC-4 | eval.json Bash 重定向/tee/heredoc 拦截与 python/node 豁免与迁移前一致 | 单元测试 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `detectBashWrite — 写入模式与豁免边界` |
 | AC-5 | 静态检查通过时 hook 输出 `{}` | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — CLI exit 0 时 stdout 为 {}` |
 | AC-5 | 静态检查通过时 hook 输出 `{}` | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `formatOutput — CLI exit 0 返回 {}` |
-| AC-6 | 静态检查失败时 hook 输出含 `followup_message` 的 JSON | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — followup 输出与 JSON 转义` |
-| AC-6 | 静态检查失败时 hook 输出含 `followup_message` 的 JSON | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `buildFollowupMessage / formatOutput — 前缀与转义` |
+| AC-6 | 静态检查失败时 hook 输出含 `decision / reason` 的 JSON | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — followup 输出与 JSON 转义` |
+| AC-6 | 静态检查失败时 hook 输出含 `decision / reason` 的 JSON | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `buildFollowupMessage / formatOutput — 前缀与转义` |
 | AC-7 | 旧 `.sh` 文件已删除，仓库中无残留引用 | 集成测试 | `plugins/dev-team/bin/__tests__/hooks-json-structure/hooks-json-structure.test.ts` | `hooks.json — command 不含 .sh` |
 | AC-7 | 旧 `.sh` 文件已删除，仓库中无残留引用 | 集成测试 | `plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts` | `protect-eval.mjs — 脚本存在性（.sh 不存在）` |
 | AC-7 | 旧 `.sh` 文件已删除，仓库中无残留引用 | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 脚本存在性（.sh 不存在）` |
 | AC-8 | `plugin.json` 版本号已递增 | 集成测试 | `plugins/dev-team/bin/__tests__/hooks-json-structure/hooks-json-structure.test.ts` | `plugin.json — version 大于 "2.6.22"` |
 | AC-9 | 空 stdin 或缺少字段时 protect-eval 默认放行（fail-open） | 集成测试 | `plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts` | `protect-eval.mjs — fail-open 回归` |
 | AC-9 | 空 stdin 或缺少字段时 protect-eval 默认放行（fail-open） | 单元测试 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `parseInput / main — 空 stdin、无效 JSON、缺失字段` |
-| AC-10 | CLI 不存在时 static-check 返回 followup_message 而非崩溃 | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — CLI 缺失时 followup_message` |
-| AC-10 | CLI 不存在时 static-check 返回 followup_message 而非崩溃 | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `handleMissingCli — CLI 路径不存在分支` |
+| AC-10 | CLI 不存在时 static-check 返回 decision / reason 而非崩溃 | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — CLI 缺失时 decision / reason` |
+| AC-10 | CLI 不存在时 static-check 返回 decision / reason 而非崩溃 | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `handleMissingCli — CLI 路径不存在分支` |
 | AC-3 | eval.json Write/Edit 拦截行为与迁移前一致 | 单元测试 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `extractChangeName — 正常变更名 / 无匹配` |
 | AC-3 | eval.json Write/Edit 拦截行为与迁移前一致 | 单元测试 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `buildDenyReason — 拒绝原因格式` |
 | AC-3 | eval.json Write/Edit 拦截行为与迁移前一致 | 单元测试 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `outputDeny — JSON 特殊字符` |
 | AC-3 | eval.json Write/Edit 拦截行为与迁移前一致 | 集成测试 | `plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.test.ts` | `protect-eval.mjs — 无关文件放行` |
 | AC-1 | `hooks.json` 中三处 hook command 均使用 `node` 调用 `.mjs` 脚本 | 集成测试 | `plugins/dev-team/bin/__tests__/hooks-json-structure/hooks-json-structure.test.ts` | `hooks.json — PreToolUse 结构不变` |
-| AC-6 | 静态检查失败时 hook 输出含 `followup_message` 的 JSON | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `buildFollowupMessage — CLI 输出合并` |
+| AC-6 | 静态检查失败时 hook 输出含 `decision / reason` 的 JSON | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `buildFollowupMessage — CLI 输出合并` |
 | AC-5, AC-6 | 静态检查通过/失败时 CLI 路径正确解析 | 单元测试 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `resolveCliPath — 正常路径 / 含空格根目录` |
 | AC-9 | 空 stdin 或缺少字段时 protect-eval 默认放行（fail-open） | 单元测试 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `parseInput — 未知工具` |
 | AC-5 | 静态检查通过时 hook 输出 `{}` | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 未配置放行` |
-| AC-6 | 静态检查失败时 hook 输出含 `followup_message` 的 JSON | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 脚本 exit 0` |
+| AC-6 | 静态检查失败时 hook 输出含 `decision / reason` 的 JSON | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 脚本 exit 0` |
 | AC-7 | 旧 `.sh` 文件已删除，仓库中无残留引用 | 集成测试 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 脚本质量` |
 
 ---
@@ -78,14 +78,14 @@
 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `parseInput — 未知工具` | 边界 | `tool_name: "Read"` 返回 allow | 新增 |
 | `plugins/dev-team/hooks/scripts/protect-eval.test.mjs` | `outputDeny — JSON 特殊字符` | 边界 | reason 含换行、引号、反斜杠时 stdout 可 `JSON.parse` | 新增 |
 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `buildFollowupMessage — 前缀` | 正向 | 含「静态检查未通过，请修复以下错误后重新提交：」中文前缀 (AC-6) | 新增 |
-| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `buildFollowupMessage — CLI 输出合并` | 正向 | stdout 与 stderr 合并进 followup_message | 新增 |
+| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `buildFollowupMessage — CLI 输出合并` | 正向 | stdout 与 stderr 合并进 decision / reason | 新增 |
 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `formatOutput — 通过` | 正向 | CLI exit 0 时返回 `{}` (AC-5) | 新增 |
-| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `formatOutput — 失败` | 正向 | CLI exit 非 0 时返回含 `followup_message` 的对象 (AC-6) | 新增 |
+| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `formatOutput — 失败` | 正向 | CLI exit 非 0 时返回含 `decision / reason` 的对象 (AC-6) | 新增 |
 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `formatOutput — JSON 转义` | 边界 | CLI 输出含 `\n`、`"`、`\t`、`\` 时 `JSON.stringify` 可解析 (AC-6) | 新增 |
 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `resolveCliPath — 正常路径` | 正向 | `CLAUDE_PLUGIN_ROOT` 下 `bin/dev-team-cli.cjs` 路径拼接正确 | 新增 |
 | `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `resolveCliPath — 含空格根目录` | 边界 | `CLAUDE_PLUGIN_ROOT` 含空格时 `path.join` 不截断 | 新增 |
-| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `handleMissingCli — CLI 不存在` | 异常 | 文件不存在时返回 followup_message 且不含未捕获异常 (AC-10) | 新增 |
-| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `handleMissingCli — 空 CLAUDE_PLUGIN_ROOT` | 边界 | 环境变量未设置时输出含路径说明的 followup_message | 新增 |
+| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `handleMissingCli — CLI 不存在` | 异常 | 文件不存在时返回 decision / reason 且不含未捕获异常 (AC-10) | 新增 |
+| `plugins/dev-team/hooks/scripts/static-check.test.mjs` | `handleMissingCli — 空 CLAUDE_PLUGIN_ROOT` | 边界 | 环境变量未设置时输出含路径说明的 decision / reason | 新增 |
 
 ### Mock策略
 
@@ -127,11 +127,11 @@
 | AC-5 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — CLI 调用` | 设置 `CLAUDE_PLUGIN_ROOT` 后 stub CLI exit 0 时 stdout 为 `{}` | 废弃 |
 | AC-5 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 放行输出` | CLI exit 0 时 stdout 精确为 `{}` | 废弃 |
 | AC-5 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 未配置放行` | 无 `static_analysis` 配置时输出 `{}` | 废弃 |
-| AC-6 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — followup 输出` | stub CLI exit 非 0 时 stdout 含合法 `followup_message` | 废弃 |
+| AC-6 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — followup 输出` | stub CLI exit 非 0 时 stdout 含合法 `decision / reason` | 废弃 |
 | AC-6 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 脚本 exit 0` | 检查失败时脚本自身 exit 0 | 废弃 |
-| AC-6 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — followup 内容` | `followup_message` 含 CLI 错误输出及中文修复前缀 | 废弃 |
+| AC-6 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — followup 内容` | `decision / reason` 含 CLI 错误输出及中文修复前缀 | 废弃 |
 | AC-6 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — JSON 转义` | followup 含换行、引号等特殊字符时 stdout 可 `JSON.parse` | 废弃 |
-| AC-10 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — CLI 缺失` | 临时 plugin root 无 `bin/dev-team-cli.cjs` 时输出含 `followup_message` 且不抛异常 | 新增 |
+| AC-10 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — CLI 缺失` | 临时 plugin root 无 `bin/dev-team-cli.cjs` 时输出含 `decision / reason` 且不抛异常 | 新增 |
 | AC-7 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 脚本质量` | 替换 `bash -n`：执行 `node static-check.mjs` 无未捕获异常；不生成 `reports/static_analysis.json` | 新增 |
 | AC-7 | `plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.mjs — 脚本可用性` | `static-check.mjs` 存在；`static-check.sh` 不存在 | 新增 |
 | AC-8 | `plugins/dev-team/bin/__tests__/hooks-json-structure/hooks-json-structure.test.ts` | `plugin.json — 版本号` | `version` 大于 `"2.6.22"` 且符合 semver | 新增 |

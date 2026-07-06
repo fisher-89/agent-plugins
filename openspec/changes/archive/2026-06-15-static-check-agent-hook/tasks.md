@@ -34,9 +34,9 @@
 - [x] 创建 `plugins/dev-team/hooks/scripts/static-check.sh`，设置 shebang 为 `#!/usr/bin/env bash`
 - [x] 实现 CLI 调用：`node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis`，捕获 stdout/stderr 和 exit code
 - [x] CLI exit `0` 时：向 stdout 输出 `{}`，脚本 exit `0`
-- [x] CLI exit 非 `0` 时：向 stdout 输出包含 `followup_message` 的 JSON（含 CLI 完整输出 + 中文修复指令），脚本 exit `0`
+- [x] CLI exit 非 `0` 时：向 stdout 输出 `{ decision: "block", reason: "..." }`（含 CLI 完整输出 + 中文修复指令），脚本 exit `0`
 - [x] 确保脚本不生成 `reports/static_analysis.json` 或任何其他报告文件
-- [x] 实现 JSON 字符串转义（followup_message 中的引号、换行等）
+- [x] 实现 JSON 字符串转义（reason 中的引号、换行等）
 - [x] 设置脚本可执行权限（`chmod +x`）
 - [x] 使用 `bash -n plugins/dev-team/hooks/scripts/static-check.sh` 验证语法
 
@@ -68,10 +68,10 @@
 ## 阶段 7: 验收验证
 
 - [x] 验证 AC-1: `implementation-generator` 结束时 subagentStop hook 触发并执行 `static_analysis` 命令
-- [x] 验证 AC-2: 故意引入 lint 错误，确认 generator 收到 `followup_message` 并继续修复（**设计验证**：`static-check.sh` 在 CLI exit 非 0 时输出 `{"followup_message":...}` 且脚本 exit 0，符合 subagentStop 协议；需在实际 Claude Code 中运行 generator 做完整 E2E）
+- [x] 验证 AC-2: 故意引入 lint 错误，确认 generator 收到 `decision: "block"` 并继续修复（**设计验证**：`static-check.sh` 在 CLI exit 非 0 时输出 `{"decision":"block",...}` 且脚本 exit 0，符合 subagentStop 协议；需在实际 Claude Code 中运行 generator 做完整 E2E）
 - [x] 验证 AC-3: 代码无 lint 错误时 generator 正常结束
 - [x] 验证 AC-4: 移除 `openspec/config.json` 中 `static_analysis` 字段后 generator 直接结束
-- [x] 验证 AC-5: `followup_message` 包含 CLI 的具体 stderr/stdout 错误输出
+- [x] 验证 AC-5: `reason` 包含 CLI 的具体 stderr/stdout 错误输出
 - [x] 验证 AC-6: 引入无法自动修复的错误，确认 5 次 followup 后 generator 被允许结束（**设计验证**：`hooks.json` 中 `loop_limit: 5` 由 Claude Code hook 框架强制执行；需在实际 Claude Code 中运行 generator 做完整 E2E）
 - [x] 验证 AC-7: 手动运行 `node dev-team-cli.cjs run_static_analysis`，确认未配置 exit 0、已配置时透传 exit code
 - [x] 验证 AC-8: `implementation-generator.md` 不含步骤 7–8 和报告生成部分

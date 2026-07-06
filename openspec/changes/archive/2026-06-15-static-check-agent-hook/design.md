@@ -11,7 +11,7 @@
 | 组件 | 职责 | 文件位置 | 依赖 | 技术 |
 |------|------|----------|------|------|
 | Hook 声明文件 | 注册 `subagentStop` hook，matcher 限定 `implementation-generator`，配置 `loop_limit` 与可选 `timeout` | `plugins/dev-team/hooks/hooks.json` | 无 | JSON (Claude Code hooks 协议) |
-| 静态检查门禁脚本 | 调用 CLI 执行静态分析，根据 exit code 返回 `{}` 或 `followup_message` | `plugins/dev-team/hooks/scripts/static-check.sh` | Node.js, `dev-team-cli.cjs` | POSIX shell (bash) |
+| 静态检查门禁脚本 | 调用 CLI 执行静态分析，根据 exit code 返回 `{}` 或 `{ decision: "block", reason: "..." }` | `plugins/dev-team/hooks/scripts/static-check.mjs` | Node.js, `dev-team-cli.cjs` | Node.js ESM (`.mjs`) |
 | CLI 打包入口 | 使用 `cac` 注册子命令，`cli.parse()` 路由到命令实现 | `plugins/dev-team/bin/src/cli.ts` | `cac`, `run-static-analysis.ts` | TypeScript |
 | run_static_analysis 命令 | 读取 `openspec/config.json` 的 `static_analysis` 字段，在项目根目录执行配置命令 | `plugins/dev-team/bin/src/commands/run-static-analysis.ts` | `lib/config.ts`, `child_process` | TypeScript |
 | 配置读取库 | `ensureConfigFile()` / `getValue()` 读取 `static_analysis` 配置 | `plugins/dev-team/bin/src/lib/config.ts` | Zod schema | TypeScript（已有，复用） |
@@ -42,7 +42,7 @@ implementation-generator 尝试结束
               |                         exit 0               exit != 0
               |                              |                     |
               v                              v                     v
-       允许 subagent 结束              stdout: {}          stdout: { followup_message }
+       允许 subagent 结束              stdout: {}          stdout: { decision: "block", reason: "..." }
                                               |                     |
                                               v                     v
                                        generator 正常结束     generator 继续修复
@@ -74,7 +74,7 @@ implementation-generator 尝试结束
 
 4. **Hook 决策阶段**：
    - CLI exit `0`：`static-check.sh` 向 stdout 输出 `{}`，脚本 exit `0` → subagent 允许结束
-   - CLI exit 非 `0`：`static-check.sh` 向 stdout 输出 `{"followup_message": "<错误输出 + 中文修复指令>"}`，脚本 exit `0` → subagent 被阻止结束，agent 收到 followup 继续修复
+   - CLI exit 非 `0`：`static-check.mjs` 向 stdout 输出 `{"decision": "block", "reason": "<错误输出 + 中文修复指令>"}`，脚本 exit `0` → subagent 被阻止结束，agent 收到 reason 继续修复
    - 连续 5 次 followup 后，hook 框架不再阻止结束（有意的降级策略）
 
 5. **Agent 职责变更**：
@@ -87,7 +87,7 @@ implementation-generator 尝试结束
 |------|------|------|--------|
 | Hook 声明 | `description`: string, `hooks.subagentStop[]`: array | 每项引用 `static-check.sh`，含 `matcher`、`loop_limit` | `hooks.json` |
 | Hook 输入 (stdin JSON) | subagentStop 事件字段（subagent 类型、会话上下文等） | 由 Claude Code 运行时生成；脚本可忽略 | 不持久化 |
-| Hook 输出 (stdout JSON) | `{}` 或 `{ "followup_message": string }` | followup 携带 CLI 错误输出 | 不持久化 |
+| Hook 输出 (stdout JSON) | `{}` 或 `{ "decision": "block", "reason": string }` | reason 携带 CLI 错误输出 | 不持久化 |
 | OpenSpec 配置 | `static_analysis?`: string（shell 命令，0 参数） | 由 `openspec/config.json` schema 定义，格式不变 | `openspec/config.json` |
 | CLI 命令结果 | exit code: number, stderr: string | 由外部 lint/typecheck 命令产生 | 不持久化，不写入 report 文件 |
 
@@ -131,7 +131,8 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 
 ```json
 {
-  "followup_message": "静态检查未通过，请修复以下错误后重新提交：\n\n<CLI stdout/stderr 完整输出>"
+  "decision": "block",
+  "reason": "静态检查未通过，请修复以下错误后重新提交：\n\n<CLI stdout/stderr 完整输出>"
 }
 ```
 
@@ -160,7 +161,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 
 | 方法 | 路径 | 描述 | 输入 | 输出 | 认证 |
 |------|------|------|------|------|------|
-| subagentStop | `implementation-generator` | generator 结束时自动执行静态检查 | subagentStop 事件 JSON (stdin) | `{}` 或 `{ followup_message }` | 插件 hook 自动注册 |
+| subagentStop | `implementation-generator` | generator 结束时自动执行静态检查 | subagentStop 事件 JSON (stdin) | `{}` 或 `{ decision: "block", reason: "..." }` | 插件 hook 自动注册 |
 
 ---
 
@@ -174,7 +175,7 @@ node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
 | D4 | 未配置 `static_analysis` 时 exit 0 放行 | 与现有 generator 行为一致（无配置则跳过检查）；`ensureConfigFile()` 容错等同于未配置 | **未配置时 exit 非 0**：会阻塞所有未配置项目，破坏向后兼容 |
 | D5 | `loop_limit: 5` 后允许 generator 结束 | 避免无法自动修复的错误导致无限循环；evaluator 仍可在 review 中发现代码质量问题 | **无 loop_limit**：可能无限循环消耗 token；**loop_limit 后 fail 整个 phase**：需要额外 workflow 变更，超出本变更范围 |
 | D6 | matcher 仅匹配 `implementation-generator` | 本变更范围明确；`test-gen-generator` 留待未来扩展 matcher | **同时匹配 test-gen-generator**：proposal 明确不在本变更范围 |
-| D7 | hook 脚本 exit 0，通过 JSON `followup_message` 传递 followup | 符合 subagentStop hook 协议：followup 由 stdout JSON 字段传递，非脚本 exit code | **脚本 exit 非 0**：hook 框架可能将其视为脚本崩溃而非 followup |
+| D7 | hook 脚本 exit 0，通过 JSON `decision: "block"` + `reason` 传递 followup | 符合 subagentStop hook 协议：followup 由 stdout JSON 字段传递，非脚本 exit code | **脚本 exit 非 0**：hook 框架可能将其视为脚本崩溃而非 followup |
 
 ---
 

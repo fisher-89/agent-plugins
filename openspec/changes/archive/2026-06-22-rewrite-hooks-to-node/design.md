@@ -12,7 +12,7 @@
 |------|------|----------|------|------|
 | Hook 声明 | 注册 PreToolUse / SubagentStop 命令 hook，将 `${CLAUDE_PLUGIN_ROOT}` 解析为插件根目录 | `plugins/dev-team/hooks/hooks.json` | Cursor Hook 框架 | JSON |
 | protect-eval.mjs | PreToolUse hook：拦截 agent 对 `openspec/changes/**/eval.json` 的直接 Write/Edit/Bash 写入 | `plugins/dev-team/hooks/scripts/protect-eval.mjs` | Node.js 内置模块 | Node.js ESM (`.mjs`) |
-| static-check.mjs | SubagentStop hook：`implementation-generator` 结束时调用静态分析 CLI，按结果输出 `{}` 或 `followup_message` | `plugins/dev-team/hooks/scripts/static-check.mjs` | `dev-team-cli.cjs`、`child_process` | Node.js ESM (`.mjs`) |
+| static-check.mjs | SubagentStop hook：`implementation-generator` / `test-gen-generator` 结束时调用静态分析 CLI，按结果输出 `{}` 或 `{ decision: "block", reason: "..." }` | `plugins/dev-team/hooks/scripts/static-check.mjs` | `dev-team-cli.cjs`、`child_process` | Node.js ESM (`.mjs`) |
 | dev-team-cli.cjs | 执行 `run_static_analysis` 子命令（读取 `openspec/config.json`，运行 lint/类型检查） | `plugins/dev-team/bin/dev-team-cli.cjs` | `openspec/config.json` | Node.js CJS（不变） |
 | 插件元数据 | 版本号标识 hook 运行时迁移 | `plugins/dev-team/.claude-plugin/plugin.json` | — | JSON |
 
@@ -34,7 +34,7 @@
          │                              run_static_analysis
          │                                    │
          │                                    │ exit 0 → stdout: {}
-         │                                    │ exit ≠0 → stdout: { followup_message }
+         │                                    │ exit ≠0 → stdout: { decision: "block", reason: "..." }
          ▼                                    ▼
   allow / deny                         允许或阻止 subagent 结束
 ```
@@ -63,10 +63,10 @@
 1. `implementation-generator` 尝试结束时，Cursor 执行 `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"`。
 2. 脚本忽略 stdin（可读取但不依赖）。
 3. 拼接 CLI 路径：`path.join(process.env.CLAUDE_PLUGIN_ROOT, 'bin', 'dev-team-cli.cjs')`。
-4. CLI 不存在 → 输出 `{ followup_message: "dev-team CLI not found at ..." }`，exit 0。
+4. CLI 不存在 → 输出 `{ decision: "block", reason: "dev-team CLI not found at ..." }`，exit 0。
 5. `spawnSync(process.execPath, [cliPath, 'run_static_analysis'], { encoding: 'utf-8' })` 执行静态分析。
 6. 合并 stdout + stderr 作为 CLI 输出。
-7. CLI exit 0 → stdout `{}`；非 0 → stdout `{ followup_message: "<前缀><CLI输出>" }`；脚本始终 exit 0。
+7. CLI exit 0 → stdout `{}`；非 0 → stdout `{ decision: "block", reason: "<前缀><CLI输出>" }`；脚本始终 exit 0。
 
 ### 数据模型
 
@@ -75,7 +75,7 @@
 | PreToolUse 输入 | `tool_name: string`；`tool_input.file_path?: string`；`tool_input.command?: string` | 由 Cursor 注入 stdin | 无（瞬态） |
 | PreToolUse 输出 | `hookSpecificOutput.hookEventName`；`permissionDecision: "allow"\|"deny"`；`permissionDecisionReason?: string` | deny 时 reason 含变更名与 phase_log 指引 | 无 |
 | SubagentStop 输出（通过） | `{}` | — | 无 |
-| SubagentStop 输出（失败） | `followup_message: string` | 含中文前缀 + CLI 完整输出 | 无 |
+| SubagentStop 输出（失败） | `decision: "block"`, `reason: string` | 含中文前缀 + CLI 完整输出 | 无 |
 | hooks.json | `hooks.PreToolUse[]`、`hooks.SubagentStop[]`；每项含 `matcher`、`command`、`loop_limit?` | command 引用 `.mjs` 脚本 | `plugins/dev-team/hooks/hooks.json` |
 
 ---
@@ -88,7 +88,7 @@
 |------|---------|---------|--------------|---------------|----------------|
 | PreToolUse | `Write\|Edit` | `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-eval.mjs"` | 工具调用 JSON | `{ hookSpecificOutput: { permissionDecision, ... } }` | 始终 `0` |
 | PreToolUse | `Bash` | 同上 | 工具调用 JSON | 同上 | 始终 `0` |
-| SubagentStop | `implementation-generator`（`loop_limit: 5`） | `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"` | subagentStop 事件 JSON（可忽略） | `{}` 或 `{ followup_message }` | 始终 `0` |
+| SubagentStop | `implementation-generator` / `test-gen-generator`（`loop_limit: 5`） | `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"` | subagentStop 事件 JSON（可忽略） | `{}` 或 `{ decision: "block", reason: "..." }` | 始终 `0` |
 
 **认证**：无；hook 由 Cursor 本地进程启动，依赖 `${CLAUDE_PLUGIN_ROOT}` 环境变量定位插件文件。
 

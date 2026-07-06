@@ -9,12 +9,12 @@
 | AC ID | 验收条件 | 测试类型 | 测试文件 | 测试对象/测试场景 |
 |--------|---------|---------|----------|----------|
 | AC-1 | `implementation-generator` 结束时自动触发静态检查 | 集成测试 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- subagentStop 触发时调用 CLI |
-| AC-2 | 静态检查失败时 generator 不结束，收到 `followup_message` 后继续修复 | 集成测试 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- CLI 非零 exit 返回 followup_message |
+| AC-2 | 静态检查失败时 generator 不结束，收到 `decision / reason` 后继续修复 | 集成测试 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- CLI 非零 exit 返回 decision / reason |
 | AC-3 | 静态检查通过时 generator 正常结束 | 单元测试 | `plugins/dev-team/bin/src/commands/run-static-analysis.test.ts` | `runStaticAnalysis` -- 已配置且命令成功时 exit 0 |
 | AC-3 | 静态检查通过时 generator 正常结束 | 集成测试 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- CLI exit 0 时 stdout 输出 `{}` |
 | AC-4 | 未配置 `static_analysis` 时 generator 直接结束，hook 不阻塞 | 单元测试 | `plugins/dev-team/bin/src/commands/run-static-analysis.test.ts` | `runStaticAnalysis` -- 未配置 static_analysis 时 exit 0 |
 | AC-4 | 未配置 `static_analysis` 时 generator 直接结束，hook 不阻塞 | 集成测试 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- 未配置时 CLI 放行并输出 `{}` |
-| AC-5 | `followup_message` 包含具体的错误输出内容 | 集成测试 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- followup_message 含 CLI stderr/stdout |
+| AC-5 | `decision / reason` 包含具体的错误输出内容 | 集成测试 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- decision / reason 含 CLI stderr/stdout |
 | AC-6 | 重试次数不超过 `loop_limit`（5 次） | — | — | 见不可测试项 |
 | AC-7 | `dev-team-cli.cjs run_static_analysis` 正确读取并执行配置 | 单元测试 | `plugins/dev-team/bin/src/commands/run-static-analysis.test.ts` | `runStaticAnalysis` -- 配置读取与命令执行 exit code 传播 |
 | AC-7 | `dev-team-cli.cjs run_static_analysis` 正确读取并执行配置 | 集成测试 | `__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts` | `dev-team-cli.cjs` -- 打包产物可执行且子命令行为正确 |
@@ -67,11 +67,11 @@
 | AC ID | 测试文件 | 测试场景 | 测试条件 | 迭代类型 |
 |--------|---------|---------|----------|----------|
 | AC-1 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- CLI 调用 | 设置 `CLAUDE_PLUGIN_ROOT` 后执行脚本，断言调用 `node .../dev-team-cli.cjs run_static_analysis` | 新增 |
-| AC-2 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- followup 输出 | mock CLI exit 非 0 时 stdout 为合法 JSON 且含 `followup_message` 字段 | 新增 |
+| AC-2 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- followup 输出 | mock CLI exit 非 0 时 stdout 为合法 JSON 且含 `decision / reason` 字段 | 新增 |
 | AC-2 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- 脚本 exit 0 | 检查失败时脚本自身 exit 0（followup 通过 JSON 传递，非脚本 exit code） | 新增 |
 | AC-3 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- 放行输出 | mock CLI exit 0 时 stdout 精确为 `{}` | 新增 |
 | AC-4 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- 未配置放行 | 临时项目无 `static_analysis` 配置时输出 `{}` | 新增 |
-| AC-5 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- followup 内容 | `followup_message` 含 CLI 错误输出及中文修复指令前缀 | 新增 |
+| AC-5 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- followup 内容 | `decision / reason` 含 CLI 错误输出及中文修复指令前缀 | 新增 |
 | AC-5 | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- JSON 转义 | followup 含换行、引号等特殊字符时 stdout JSON 仍可 `JSON.parse` | 新增 |
 | — | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- 语法检查 | `bash -n plugins/dev-team/hooks/scripts/static-check.sh` exit 0 | 新增 |
 | — | `__tests__/static-check-hook-e2e/static-check-hook-e2e.test.ts` | `static-check.sh` -- 不生成报告 | 执行后不存在 `reports/static_analysis.json` | 新增 |
