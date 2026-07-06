@@ -70,7 +70,7 @@ function generateTempConfig(
       'https://raw.githubusercontent.com/stryker-mutator/stryker-js/main/packages/core/schema/stryker-schema.json',
     mutate: normalizedSources,
     testRunner,
-    plugins: [`@stryker-mutator/${testRunner}`],
+    plugins: [resolvePluginPackage(testRunner)],
     reporters: ['json'],
     json: {
       file: 'reports/mutation/mutation.json',
@@ -143,12 +143,30 @@ function resolveTestRunner(framework: string): string {
       return 'jest-runner';
     case 'vitest':
     case 'vite-plus':
-      return 'vitest-runner';
+      return 'vitest';
     default:
       throw new Error(
         `Unsupported mutation testing framework "${framework}". Supported: jest, vitest, vite-plus`,
       );
   }
+}
+
+/**
+ * Resolve the npm plugin package name from the test runner name.
+ *
+ * StrykerJS v9 renamed the vitest runner plugin from "vitest-runner" to
+ * "vitest" at the config level, but the npm package remains
+ * `@stryker-mutator/vitest-runner`.  This function maps the simplified
+ * runner name back to the correct package name.
+ */
+function resolvePluginPackage(testRunner: string): string {
+  // In StrykerJS v9, the vitest runner registers as "vitest" but the
+  // npm package is still "@stryker-mutator/vitest-runner".
+  const pluginMap: Record<string, string> = {
+    'jest-runner': '@stryker-mutator/jest-runner',
+    vitest: '@stryker-mutator/vitest-runner',
+  };
+  return pluginMap[testRunner] ?? `@stryker-mutator/${testRunner}`;
 }
 
 /**

@@ -42,3 +42,4 @@
 - [ ] config.json指定保护文件，禁止agent修改
 - [ ] fix:突变测试结果未写入报告
 - [x] test-execution使用cli 命令执行测试
+- [ ] stryker运行后没有清理临时配置和副本

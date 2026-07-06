@@ -18,16 +18,22 @@ const testCoverageSchema = z
   .object({
     lines: z
       .number()
+      .min(0)
+      .max(100)
       .optional()
       .prefault(TEST_COVERAGE_LINE_DEFAULT)
       .describe(`行覆盖率阈值（百分比，默认 ${TEST_COVERAGE_LINE_DEFAULT}）`),
     branches: z
       .number()
+      .min(0)
+      .max(100)
       .optional()
       .prefault(TEST_COVERAGE_BRANCH_DEFAULT)
       .describe(`分支覆盖率阈值（百分比，默认 ${TEST_COVERAGE_BRANCH_DEFAULT}）`),
     functions: z
       .number()
+      .min(0)
+      .max(100)
       .optional()
       .prefault(TEST_COVERAGE_FUNCTION_DEFAULT)
       .describe(`函数覆盖率阈值（百分比，默认 ${TEST_COVERAGE_FUNCTION_DEFAULT}）`),
@@ -63,6 +69,25 @@ const mutationOverrideSchema = z
  *
  * @see design.md (D2 — zod/v4, D3 — .passthrough())
  */
+const writeProtectionFileSchema = z
+  .object({
+    glob: z
+      .string()
+      .nonempty()
+      .describe('文件路径 glob 模式（如 "openspec/changes/**/eval.json"）'),
+    reason: z
+      .string()
+      .optional()
+      .describe('自定义拒绝原因，支持 %s（文件路径）和 %t（工具名称）占位符'),
+  })
+  .describe('单条写入保护规则');
+
+const writeProtectionSchema = z
+  .object({
+    files: z.array(writeProtectionFileSchema).optional().describe('需要保护的文件 glob 模式列表'),
+  })
+  .describe('写入保护配置');
+
 export const configSchema = z.object({
   $schema: z.string().optional().describe('schema规则文件'),
   schema: z
@@ -98,6 +123,9 @@ export const configSchema = z.object({
     .optional()
     .prefault({})
     .describe('测试相关配置'),
+  write_protection: writeProtectionSchema
+    .optional()
+    .describe('写入保护配置，定义受保护的文件路径模式'),
 });
 
 /** TypeScript type inferred from configSchema — replaces `Record<string, unknown>`. */

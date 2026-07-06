@@ -44,27 +44,6 @@ export function readConfig(projectRoot: string): OpenSpecConfig {
   return result.success ? result.data : configSchema.decode({});
 }
 
-/**
- * Serialize a config object to `openspec/config.json`.
- *
- * **Validation**: the data is validated with `parseConfig()` **before** any
- * file I/O.  If validation fails the file on disk is never touched.
- *
- * The JSON is written with 2-space indentation (ecosystem convention shared
- * by `tsconfig.json`, `package.json`, etc.).
- */
-export function writeConfig(projectRoot: string, data: OpenSpecConfigInput): void {
-  // Validate before touching the file system (D6)
-  const validated = configSchema.parse(data);
-
-  const dirPath = path.join(projectRoot, 'openspec');
-  fs.mkdirSync(dirPath, { recursive: true });
-
-  const filePath = path.join(projectRoot, CONFIG_FILE);
-  const jsonStr = JSON.stringify(validated, null, 2);
-  fs.writeFileSync(filePath, jsonStr, 'utf-8');
-}
-
 // ---------------------------------------------------------------------------
 // Dot-path object traversal (unchanged signatures)
 // ---------------------------------------------------------------------------
@@ -91,73 +70,6 @@ export function getValue(
   }
 
   return { value: current, exists: true };
-}
-
-/**
- * Set a value on a config object using a dot-separated key path.
- * Automatically creates intermediate objects for nested keys.
- * Returns the same config reference (mutates in place).
- */
-export function setValue(
-  config: Record<string, unknown>,
-  keyPath: string,
-  value: unknown,
-): Record<string, unknown> {
-  const keys = keyPath.split('.');
-  let current: object = config;
-
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!(key in current)) {
-      Reflect.set(current, key, {});
-    }
-    const child = Reflect.get(current, key);
-    if (child == null || typeof child !== 'object') {
-      throw new Error(
-        `Set-config failed: ${['config', ...keys.slice(0, i)].join('.')} is not an object`,
-      );
-    }
-    current = child;
-  }
-
-  const lastKey = keys[keys.length - 1];
-  Reflect.set(current, lastKey, value);
-
-  return config;
-}
-
-/**
- * Delete a key from a config object using a dot-separated key path.
- * Returns the updated config and whether a value was actually removed.
- */
-export function unsetValue(
-  config: Record<string, unknown>,
-  keyPath: string,
-): { config: Record<string, unknown>; removed: boolean } {
-  const keys = keyPath.split('.');
-  let current: object = config;
-
-  for (let i = 0; i < keys.length - 1; i++) {
-    const key = keys[i];
-    if (!(key in current)) {
-      Reflect.set(current, key, {});
-    }
-    const child = Reflect.get(current, key);
-    if (child == null || typeof child !== 'object') {
-      throw new Error(
-        `Unset-config failed: ${['config', ...keys.slice(0, i)].join('.')} is not an object`,
-      );
-    }
-    current = child;
-  }
-
-  const lastKey = keys[keys.length - 1];
-  if (lastKey in current) {
-    Reflect.deleteProperty(current, lastKey);
-    return { config, removed: true };
-  }
-
-  return { config, removed: false };
 }
 
 // ---------------------------------------------------------------------------

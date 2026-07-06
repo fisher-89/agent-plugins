@@ -98,9 +98,10 @@ function parseNodeOutput(lines: string[]): ParsedTestResult | null {
   const testCases: TestCase[] = [];
 
   for (const line of lines) {
-    const passMatch = line.match(/^#\s+pass\s+(\d+)/i);
-    const failMatch = line.match(/^#\s+fail\s+(\d+)/i);
-    const skipMatch = line.match(/^#\s+skip\s+(\d+)/i);
+    // Match both TAP (# pass N) and Node.js v24+ native reporter (ℹ pass N / ℹ fail N / ℹ skipped N)
+    const passMatch = line.match(/^\s*(?:#|ℹ)\s+pass(?:ed)?\s+(\d+)/i);
+    const failMatch = line.match(/^\s*(?:#|ℹ)\s+fail(?:ed)?\s+(\d+)/i);
+    const skipMatch = line.match(/^\s*(?:#|ℹ)\s+skip(?:ped)?\s+(\d+)/i);
 
     if (passMatch) {
       hasNodeMarker = true;

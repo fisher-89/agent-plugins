@@ -4,10 +4,7 @@ import { type z, type ZodType } from 'zod/v4';
 
 import pluginConfig from '../../.claude-plugin/plugin.json';
 import { runChangeList } from './commands/change-list';
-import { runConfigContext } from './commands/config-context';
 import { runConfigGet } from './commands/config-get';
-import { runConfigSet } from './commands/config-set';
-import { runConfigUnset } from './commands/config-unset';
 import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
 import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
@@ -32,12 +29,6 @@ import {
   phaseNextOutputSchema,
   configGetInputSchema,
   configGetOutputSchema,
-  configSetInputSchema,
-  configSetOutputSchema,
-  configUnsetInputSchema,
-  configUnsetOutputSchema,
-  configContextInputSchema,
-  configContextOutputSchema,
   testDetectFrameworksInputSchema,
   testDetectFrameworksOutputSchema,
   testResolvePathsInputSchema,
@@ -194,72 +185,6 @@ function registerConfigGetTool(server: McpServer): void {
   );
 }
 
-function registerConfigSetTool(server: McpServer): void {
-  server.registerTool(
-    'config_set',
-    {
-      description:
-        'Write a value to openspec/config.json by dot-separated key path. ' +
-        'Supports nested key paths (e.g. "test_scripts.unit"). ' +
-        'When the file does not exist, creates a skeleton file with schema: spec-driven.',
-      inputSchema: configSetInputSchema,
-      outputSchema: configSetOutputSchema,
-    },
-    async (args) => {
-      const projectRoot = resolveProjectRoot(args.project_root);
-      const result = runConfigSet({
-        key: args.key,
-        value: args.value,
-        projectRoot,
-      });
-      return jsonContent(configSetOutputSchema, result);
-    },
-  );
-}
-
-function registerConfigUnsetTool(server: McpServer): void {
-  server.registerTool(
-    'config_unset',
-    {
-      description:
-        'Delete a key from openspec/config.json by dot-separated key path. ' +
-        'Returns removed: false if the key did not exist.',
-      inputSchema: configUnsetInputSchema,
-      outputSchema: configUnsetOutputSchema,
-    },
-    async (args) => {
-      const projectRoot = resolveProjectRoot(args.project_root);
-      const result = runConfigUnset({
-        key: args.key,
-        projectRoot,
-      });
-      return jsonContent(configUnsetOutputSchema, result);
-    },
-  );
-}
-
-function registerConfigContextTool(server: McpServer): void {
-  server.registerTool(
-    'config_context',
-    {
-      description:
-        'Read or write the context field in openspec/config.json. ' +
-        'Without the context parameter, reads and returns the current context value. ' +
-        'With the context parameter, writes the new context value.',
-      inputSchema: configContextInputSchema,
-      outputSchema: configContextOutputSchema,
-    },
-    async (args) => {
-      const projectRoot = resolveProjectRoot(args.project_root);
-      const result = runConfigContext({
-        context: args.context,
-        projectRoot,
-      });
-      return jsonContent(configContextOutputSchema, result);
-    },
-  );
-}
-
 function registerTestDetectFrameworksTool(server: McpServer): void {
   server.registerTool(
     'test_detect_frameworks',
@@ -338,9 +263,6 @@ async function main(): Promise<void> {
   registerArchiCheckTool(server);
   registerPhaseNextTool(server);
   registerConfigGetTool(server);
-  registerConfigSetTool(server);
-  registerConfigUnsetTool(server);
-  registerConfigContextTool(server);
   registerTestDetectFrameworksTool(server);
   registerTestResolvePathsTool(server);
   registerChangeListTool(server);

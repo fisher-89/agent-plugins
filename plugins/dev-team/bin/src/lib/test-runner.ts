@@ -264,7 +264,9 @@ function runMutationPhase(
 
     console.log(`Running StrykerJS mutation testing (config: ${configPath})...`);
 
-    const strykerCmd = `npx stryker run ${configPath}`;
+    // Normalize configPath to forward slashes to avoid backslash escape issues in shell
+    const normalizedConfigPath = configPath.replace(/\\/g, '/');
+    const strykerCmd = `npx stryker run "${normalizedConfigPath}"`;
     runCommand(strykerCmd, execCwd, 300000);
 
     const mutationBlock = buildMutationBlockFromReport(entry, projectRoot, sourceFiles);
