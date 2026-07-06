@@ -104,6 +104,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   try {
     if (modifiedByBacktrack) {
       // If we modified entries (stale marking), push the new entry and write full array
+      entry.stale = true;
       entries.push(entry);
       writeEvalJson(changeDir, entries);
     } else {
