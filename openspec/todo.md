@@ -40,3 +40,4 @@
 - [ ] phase_log设置backtrack_to时, 当前记录也应该标记stale
 - [ ] code-review-evaluator.md 描述"Evaluate design.md"，容易误触发"design-review skill"
 - [ ] config.json指定保护文件，禁止agent修改
+- [ ] fix:突变测试结果未写入报告

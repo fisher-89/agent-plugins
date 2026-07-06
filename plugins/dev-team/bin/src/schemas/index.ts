@@ -28,8 +28,8 @@ export { configSchema } from './config/config.schema';
 export type { OpenSpecConfig, OpenSpecConfigInput, TestFrameworks } from './config/config.schema';
 export type {
   TestCaseResult,
-  UnitTestSubReport,
-  UnitTestSummaryReport,
+  TestExecutionSubReport,
+  TestExecutionSummaryReport,
   CoverageBlock,
   CoverageMeasured,
   CoverageThresholds,
@@ -38,4 +38,4 @@ export type {
   MutationMeasured,
   MutationBlock,
   MutationOverride,
-} from './unit-test-output.schema';
+} from './test-execution-output.schema';

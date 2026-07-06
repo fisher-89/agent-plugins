@@ -146,8 +146,8 @@ describe('non-zero-exit-code (AC-11)', () => {
         }),
       );
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -159,8 +159,8 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      const exitCode = runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      const exitCode = runTestExecution({ projectRoot: project.root });
 
       expect(exitCode).toBe(1);
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
@@ -204,8 +204,8 @@ describe('non-zero-exit-code (AC-11)', () => {
         )
         .mockReturnValueOnce(makeSubReport('vite-plus'));
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 2,
@@ -217,8 +217,8 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      const exitCode = runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      const exitCode = runTestExecution({ projectRoot: project.root });
 
       // 两个框架都应被执行
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
@@ -245,8 +245,8 @@ describe('non-zero-exit-code (AC-11)', () => {
       );
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -258,8 +258,8 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      const exitCode = runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      const exitCode = runTestExecution({ projectRoot: project.root });
 
       // 所有测试通过，退出码为 0
       expect(exitCode).toBe(0);

@@ -44,7 +44,8 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
   'vite-plus': {
     framework: 'vite-plus',
-    test_cmd: 'vp test --sequence.shuffle --coverage --coverage.reporter=json-summary {files}',
+    test_cmd:
+      'vp test --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {files}',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/coverage-summary.json'],

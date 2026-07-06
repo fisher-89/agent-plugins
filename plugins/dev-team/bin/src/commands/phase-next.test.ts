@@ -153,8 +153,8 @@ function next(entries: MockEntry[], change: string = 'test-change', workflowType
 // ---------------------------------------------------------------------------
 
 describe('PHASE_TABLES', () => {
-  it('should have exactly 9 phases for requirement workflow_type', () => {
-    expect(getPhaseTable('requirement').length).toBe(9);
+  it('should have exactly 8 phases for requirement workflow_type', () => {
+    expect(getPhaseTable('requirement').length).toBe(8);
   });
 
   it('should start with proposal (not requirements)', () => {
@@ -169,9 +169,8 @@ describe('PHASE_TABLES', () => {
       'test-design',
       'implement',
       'test-gen',
-      'unit-test',
+      'test-execution',
       'code-review',
-      'integration-test',
       'acceptance',
     ]);
   });
@@ -179,20 +178,40 @@ describe('PHASE_TABLES', () => {
   it('should have 6 phases for bug-fix workflow_type', () => {
     const phases = getPhaseTable('bug-fix').map((p) => p.id);
     expect(phases.length).toBe(6);
-    // bug-fix skips test-design, test-gen, integration-test
+    // bug-fix skips test-design, test-gen
     expect(phases).not.toContain('test-design');
     expect(phases).not.toContain('test-gen');
-    expect(phases).not.toContain('integration-test');
   });
 
-  it('should have same 9 phases for refactor workflow_type', () => {
+  it('should have same 8 phases for refactor workflow_type', () => {
     const req = getPhaseTable('requirement').map((p) => p.id);
     const ref = getPhaseTable('refactor').map((p) => p.id);
     expect(ref).toEqual(req);
   });
 
-  it('should have 6 phases for test-only workflow_type', () => {
-    expect(getPhaseTable('test-only')).toHaveLength(6);
+  it('should have 5 phases for test-only workflow_type', () => {
+    expect(getPhaseTable('test-only')).toHaveLength(5);
+  });
+
+  it('requirement 表应不包含 unit-test 和 integration-test', () => {
+    const phases = getPhaseTable('requirement').map((p) => p.id);
+    expect(phases).not.toContain('unit-test');
+    expect(phases).not.toContain('integration-test');
+  });
+
+  it('bug-fix 表应不包含 integration-test', () => {
+    const phases = getPhaseTable('bug-fix').map((p) => p.id);
+    expect(phases).not.toContain('integration-test');
+  });
+
+  it('getPhaseTable("UNKNOWN") 应降级到 requirement 表（容错）', () => {
+    const phases = getPhaseTable('UNKNOWN');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
+  });
+
+  it('getPhaseTable("") 应降级到 requirement 表（容错）', () => {
+    const phases = getPhaseTable('');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
   });
 });
 
@@ -223,10 +242,10 @@ describe('runPhaseNext — First Run (empty eval.json)', () => {
     expect(result.round).toBe(1);
   });
 
-  it('should set phase_index to 1 and total_phases to 9', () => {
+  it('should set phase_index to 1 and total_phases to 8', () => {
     const result = next([]);
     expect(result.phase_index).toBe(1);
-    expect(result.total_phases).toBe(9);
+    expect(result.total_phases).toBe(8);
   });
 
   it('should include change name in planner prompt', () => {
@@ -265,7 +284,7 @@ describe('runPhaseNext — Normal Progression', () => {
     expect(result.next_phase).toBe('test-gen');
   });
 
-  it('should return unit-test after phases 01-05 and 04 pass', () => {
+  it('should return test-execution after phases 01-05 and 04 pass', () => {
     const result = next([
       passEntry('proposal'),
       passEntry('dev-design'),
@@ -273,7 +292,7 @@ describe('runPhaseNext — Normal Progression', () => {
       passEntry('implement'),
       passEntry('test-gen'),
     ]);
-    expect(result.next_phase).toBe('unit-test');
+    expect(result.next_phase).toBe('test-execution');
   });
 
   it('should return code-review with planner: null (EVAL-ONLY)', () => {
@@ -283,7 +302,7 @@ describe('runPhaseNext — Normal Progression', () => {
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
     ]);
     expect(result.next_phase).toBe('code-review');
     expect(result.planner).toBeNull();
@@ -297,25 +316,23 @@ describe('runPhaseNext — Normal Progression', () => {
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
-      passEntry('integration-test'),
     ];
     const result = next(entries);
     expect(result.next_phase).toBe('acceptance');
     expect(result.planner).toBeNull();
   });
 
-  it('should return done=true when all 9 phases pass', () => {
+  it('should return done=true when all 8 phases pass', () => {
     const entries = [
       passEntry('proposal'),
       passEntry('dev-design'),
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
-      passEntry('integration-test'),
       passEntry('acceptance'),
     ];
     const result = next(entries);
@@ -336,7 +353,7 @@ describe('runPhaseNext — Skip Passed Phases (AC-6)', () => {
     expect(result.next_phase).toBe('implement');
   });
 
-  it('should skip to unit-test when phases 01-05 and 04 pass', () => {
+  it('should skip to test-execution when phases 01-05 and 04 pass', () => {
     const entries = [
       passEntry('proposal'),
       passEntry('dev-design'),
@@ -345,7 +362,7 @@ describe('runPhaseNext — Skip Passed Phases (AC-6)', () => {
       passEntry('test-gen'),
     ];
     const result = next(entries);
-    expect(result.next_phase).toBe('unit-test');
+    expect(result.next_phase).toBe('test-execution');
   });
 
   it('should return done=true when all phases have pass records', () => {
@@ -355,9 +372,8 @@ describe('runPhaseNext — Skip Passed Phases (AC-6)', () => {
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
-      passEntry('integration-test'),
       passEntry('acceptance'),
     ];
     const result = next(entries);
@@ -460,7 +476,7 @@ describe('runPhaseNext — Backtrack', () => {
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       backtrackEntry('code-review', 'test-gen'),
     ];
     const result = next(entries);
@@ -542,9 +558,8 @@ describe('runPhaseNext — Stale Entry Filtering (AC-11, AC-12)', () => {
       passEntry('test-gen'),
       staleEntry('implement'),
       passEntry('implement', 2),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
-      passEntry('integration-test'),
       staleEntry('acceptance'),
       passEntry('acceptance', 2),
     ];
@@ -725,7 +740,7 @@ describe('runPhaseNext — Skipped Phases', () => {
 describe('runPhaseNext — workflow_type', () => {
   it('should default to requirement when workflow_type is omitted', () => {
     const result = next([], 'test-change');
-    expect(result.total_phases).toBe(9);
+    expect(result.total_phases).toBe(8);
     expect(result.next_phase).toBe('proposal');
   });
 
@@ -736,12 +751,12 @@ describe('runPhaseNext — workflow_type', () => {
 
   it('should follow refactor phase table when workflow_type is refactor', () => {
     const result = next([], 'test-change', 'refactor');
-    expect(result.total_phases).toBe(9);
+    expect(result.total_phases).toBe(8);
   });
 
   it('should follow test-only phase table when workflow.json has test-only', () => {
     const result = next([], 'test-change', 'test-only');
-    expect(result.total_phases).toBe(6);
+    expect(result.total_phases).toBe(5);
     expect(result.next_phase).toBe('proposal');
   });
 
@@ -763,26 +778,24 @@ describe('runPhaseNext — workflow_type', () => {
     expect(result.next_phase).toBe('test-design');
   });
 
-  it('test-only returns done after all six phases pass (AC-7)', () => {
+  it('test-only returns done after all five phases pass', () => {
     const entries = [
       passEntry('proposal'),
       passEntry('code-analyze'),
       passEntry('test-design'),
       passEntry('test-gen'),
-      passEntry('unit-test'),
-      passEntry('integration-test'),
+      passEntry('test-execution'),
     ];
     const result = next(entries, 'test-change', 'test-only');
     expect(result.done).toBe(true);
-    expect(result.total_phases).toBe(6);
+    expect(result.total_phases).toBe(5);
   });
 
-  it('bug-fix phase table 仍为 6 个 phase，不含 03/04/08（AC-10）', () => {
+  it('bug-fix phase table 仍为 6 个 phase，不含 03/04（AC-10）', () => {
     const phases = getPhaseTable('bug-fix').map((p) => p.id);
     expect(phases.length).toBe(6);
     expect(phases).not.toContain('test-design');
     expect(phases).not.toContain('test-gen');
-    expect(phases).not.toContain('integration-test');
   });
 
   it('should return acceptance from bug-fix after code-review passes', () => {
@@ -790,7 +803,7 @@ describe('runPhaseNext — workflow_type', () => {
       passEntry('proposal'),
       passEntry('dev-design'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
     ];
     const result = next(entries, 'test-change', 'bug-fix');
@@ -809,9 +822,9 @@ describe('runPhaseNext — test-only First Run', () => {
     expect(result.done).toBe(false);
   });
 
-  it('should set total_phases to 6 for test-only', () => {
+  it('should set total_phases to 5 for test-only', () => {
     const result = next([], 'test-change', 'test-only');
-    expect(result.total_phases).toBe(6);
+    expect(result.total_phases).toBe(5);
   });
 });
 
@@ -839,7 +852,7 @@ describe('runPhaseNext — test-only Normal Progression', () => {
     expect(result.next_phase).toBe('test-gen');
   });
 
-  it('should return unit-test after 01-04 pass (AC-2)', () => {
+  it('should return test-execution after 01-04 pass (AC-2)', () => {
     const result = next(
       [
         passEntry('proposal'),
@@ -850,22 +863,7 @@ describe('runPhaseNext — test-only Normal Progression', () => {
       'test-change',
       'test-only',
     );
-    expect(result.next_phase).toBe('unit-test');
-  });
-
-  it('should return integration-test when 06 pass and 08 not passed (AC-2 parallel leaf)', () => {
-    const result = next(
-      [
-        passEntry('proposal'),
-        passEntry('code-analyze'),
-        passEntry('test-design'),
-        passEntry('test-gen'),
-        passEntry('unit-test'),
-      ],
-      'test-change',
-      'test-only',
-    );
-    expect(result.next_phase).toBe('integration-test');
+    expect(result.next_phase).toBe('test-execution');
   });
 });
 
@@ -886,15 +884,14 @@ describe('runPhaseNext — test-only Gate (code-analyze)', () => {
 });
 
 describe('runPhaseNext — test-only Completion', () => {
-  it('should return done=true when 01-04, 06, 08 all pass (AC-7)', () => {
+  it('should return done=true when 01-04, 05 all pass', () => {
     const result = next(
       [
         passEntry('proposal'),
         passEntry('code-analyze'),
         passEntry('test-design'),
         passEntry('test-gen'),
-        passEntry('unit-test'),
-        passEntry('integration-test'),
+        passEntry('test-execution'),
       ],
       'test-change',
       'test-only',
@@ -902,24 +899,38 @@ describe('runPhaseNext — test-only Completion', () => {
     expect(result.done).toBe(true);
   });
 
-  it('should never return implement or acceptance for test-only', () => {
+  it('test-only 不应返回 implement 或 acceptance（AC-2）', () => {
     const entries = [
       passEntry('proposal'),
       passEntry('code-analyze'),
       passEntry('test-design'),
       passEntry('test-gen'),
-      passEntry('unit-test'),
     ];
     const result = next(entries, 'test-change', 'test-only');
+    expect(result.next_phase).toBe('test-execution');
     expect(result.next_phase).not.toBe('implement');
     expect(result.next_phase).not.toBe('acceptance');
+  });
+
+  it('integration-test 不应出现在 test-only 的输出范围内', () => {
+    const entries = [
+      passEntry('proposal'),
+      passEntry('code-analyze'),
+      passEntry('test-design'),
+      passEntry('test-gen'),
+    ];
+    const result = next(entries, 'test-change', 'test-only');
+    expect(result.next_phase).toBe('test-execution');
+    expect(result.next_phase).not.toBe('integration-test');
+    // total_phases 应仍为 5
+    expect(result.total_phases).toBe(5);
   });
 });
 
 describe('runPhaseNext — workflow.json default', () => {
-  it('should use requirement table when workflow.json missing (AC-13)', () => {
+  it('should use requirement table when workflow.json missing', () => {
     const result = next([], 'test-change');
-    expect(result.total_phases).toBe(9);
+    expect(result.total_phases).toBe(8);
   });
 
   it('should use requirement table when workflow.json lacks workflow_type', () => {
@@ -942,7 +953,7 @@ describe('runPhaseNext — workflow.json default', () => {
       },
     );
     const result = runPhaseNext({ change: 'test-change' });
-    expect(result.total_phases).toBe(9);
+    expect(result.total_phases).toBe(8);
   });
 });
 
@@ -967,6 +978,11 @@ describe('runPhaseNext — Input Validation', () => {
   it('should not throw for empty entries array', () => {
     expect(() => next([], 'test-change')).not.toThrow();
   });
+
+  it('change 参数为空字符串时应抛出 Error', () => {
+    // 直接调用 runPhaseNext 验证空 change 抛错
+    expect(() => runPhaseNext({ change: '' })).toThrow('Missing required parameter: change');
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -990,23 +1006,22 @@ describe('Boundary Scenarios', () => {
     // To hit exactly round 20, we need 19 entries. If all phases are pass
     // by that point, we should get done=true, not round limit error.
     const entries: MockEntry[] = [];
-    // Add 9 phases pass in sequence
+    // Add 8 phases pass in sequence
     const phaseIds: EvalEntry['phase'][] = [
       'proposal',
       'dev-design',
       'test-design',
       'test-gen',
       'implement',
-      'unit-test',
+      'test-execution',
       'code-review',
-      'integration-test',
       'acceptance',
     ];
-    // Each phase has 2 pass entries (total 18), plus 1 extra = 19 entries = round 20
-    for (let i = 0; i < 18; i++) {
-      entries.push(passEntry(phaseIds[i % 9], Math.floor(i / 9) + 1));
+    // Each phase has 2 pass entries (total 16), plus 3 extra = 19 entries = round 20
+    for (let i = 0; i < 16; i++) {
+      entries.push(passEntry(phaseIds[i % 8], Math.floor(i / 8) + 1));
     }
-    // At this point all 9 phases have at least one pass
+    // At this point all 8 phases have at least one pass
     const result = next(entries);
     expect(result.done).toBe(true);
     expect(result.error).toBeNull();
@@ -1040,9 +1055,8 @@ describe('Boundary Scenarios', () => {
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
-      passEntry('integration-test'),
       passEntry('acceptance'),
     ];
     const result = next(entries);
@@ -1074,9 +1088,8 @@ describe('phase_next Output Schema', () => {
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
-      passEntry('integration-test'),
       passEntry('acceptance'),
     ];
     const result = next(entries, 'test');
@@ -1159,9 +1172,8 @@ describe('phase_next — allowed_backtrack_phases', () => {
       passEntry('test-design'),
       passEntry('test-gen'),
       passEntry('implement'),
-      passEntry('unit-test'),
+      passEntry('test-execution'),
       passEntry('code-review'),
-      passEntry('integration-test'),
       passEntry('acceptance'),
     ];
     const result = next(entries, 'test-change');
@@ -1203,6 +1215,22 @@ describe('phase_next — allowed_backtrack_phases', () => {
     expect(result.next_phase).toBe('dev-design');
     expect(result.evaluator!.prompt).toContain('可回退阶段 (backtrack_to)');
     expect(result.evaluator!.prompt).toContain('proposal');
+  });
+
+  it('test-execution 的 allowed_backtrack_phases 不应包含 unit-test 或 integration-test', () => {
+    // Pass 01-05 to reach test-execution
+    const entries = [
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      passEntry('test-design'),
+      passEntry('implement'),
+      passEntry('test-gen'),
+    ];
+    const result = next(entries, 'test-change');
+    expect(result.next_phase).toBe('test-execution');
+    const backtrackIds = result.allowed_backtrack_phases.map((p) => p.id);
+    expect(backtrackIds).not.toContain('unit-test');
+    expect(backtrackIds).not.toContain('integration-test');
   });
 
   it('should include backtrack hint after backtrack detection', () => {

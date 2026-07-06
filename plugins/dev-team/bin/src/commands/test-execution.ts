@@ -1,7 +1,7 @@
 // ---------------------------------------------------------------------------
-// Unit Test Command Handler
+// Test Execution Command Handler
 //
-// CLI entry point for `dev-team unit-test`.  Orchestrates the full flow:
+// CLI entry point for `dev-team test-execution`.  Orchestrates the full flow:
 //   1. Detect frameworks via runTestDetectFrameworks
 //   2. For each framework plan entry, execute via executePlanEntry
 //   3. Generate per-framework sub-reports via generateSubReport
@@ -19,7 +19,7 @@ import { runTestDetectFrameworks } from './test-detect-frameworks';
 // Types
 // ---------------------------------------------------------------------------
 
-export interface UnitTestOptions {
+export interface TestExecutionOptions {
   change?: string;
   projectRoot?: string;
   files?: string[];
@@ -33,9 +33,9 @@ export interface UnitTestOptions {
 
 function resolveReportsDir(projectRoot: string, change?: string): string {
   if (change) {
-    return path.resolve(projectRoot, 'openspec', 'changes', change, 'reports', 'unit-test');
+    return path.resolve(projectRoot, 'openspec', 'changes', change, 'reports', 'test-execution');
   }
-  return path.resolve(projectRoot, 'reports', 'unit-test');
+  return path.resolve(projectRoot, 'reports', 'test-execution');
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +80,7 @@ function logSummary(report: {
 // Main handler
 // ---------------------------------------------------------------------------
 
-export function runUnitTest(options: UnitTestOptions): number {
+export function runTestExecution(options: TestExecutionOptions): number {
   const projectRoot = options.projectRoot || getProjectDir();
   const detectResult = runTestDetectFrameworks({ files: options.files, projectRoot });
 

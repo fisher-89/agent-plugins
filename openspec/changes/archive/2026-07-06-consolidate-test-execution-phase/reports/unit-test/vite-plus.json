@@ -1,0 +1,21 @@
+{
+  "framework": "vite-plus",
+  "timestamp": "2026-07-06T02:10:27.234Z",
+  "exit_code": 1,
+  "duration_ms": 40,
+  "summary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0
+  },
+  "test_cases": [],
+  "test_files": [],
+  "source_files": [],
+  "file_coverage": null,
+  "coverage": null,
+  "mutation": null,
+  "findings": [
+    "Command failed: cd plugins/dev-team/bin\nrm -rf coverage\nrm -rf .nyc_output\nrm -rf test-stderr.txt\nvp test --sequence.shuffle --coverage --coverage.reporter=json-summary \n\nThe system cannot find the path specified.\r\n"
+  ]
+}

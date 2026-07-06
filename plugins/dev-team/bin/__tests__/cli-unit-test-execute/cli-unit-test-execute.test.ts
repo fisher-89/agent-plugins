@@ -122,8 +122,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -135,8 +135,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockDetectFrameworks).toHaveBeenCalledWith(
         expect.objectContaining({ projectRoot: project.root }),
@@ -164,8 +164,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
         .mockReturnValueOnce(makeSubReport('vitest'))
         .mockReturnValueOnce(makeSubReport('vite-plus'));
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 2,
@@ -177,8 +177,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
     } finally {
@@ -186,7 +186,7 @@ describe('cli-unit-test-execute (AC-1)', () => {
     }
   });
 
-  it('在 reports/unit-test/<framework>.json 生成子报告', async () => {
+  it('在 reports/test-execution/<framework>.json 生成子报告', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -197,8 +197,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -210,17 +210,17 @@ describe('cli-unit-test-execute (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       const reportsDir = mockGenerateSubReport.mock.calls[0][3];
-      expect(reportsDir.replace(/\\/g, '/')).toContain('reports/unit-test');
+      expect(reportsDir.replace(/\\/g, '/')).toContain('reports/test-execution');
     } finally {
       project.cleanup();
     }
   });
 
-  it('在 reports/unit-test-execution.json 生成汇总报告', async () => {
+  it('在 reports/test-execution-execution.json 生成汇总报告', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -231,8 +231,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -244,8 +244,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSummaryReport).toHaveBeenCalledTimes(1);
     } finally {
@@ -266,8 +266,8 @@ describe('cli-unit-test-execute (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(execResult);
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       const summaryReport = {
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -280,12 +280,12 @@ describe('cli-unit-test-execute (AC-1)', () => {
       };
       mockGenerateSummaryReport.mockReturnValue(summaryReport);
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
+      const { runTestExecution } = await import('../../src/commands/test-execution');
 
       // 第一次执行
-      const exit1 = runUnitTest({ projectRoot: project.root });
+      const exit1 = runTestExecution({ projectRoot: project.root });
       // 第二次执行
-      const exit2 = runUnitTest({ projectRoot: project.root });
+      const exit2 = runTestExecution({ projectRoot: project.root });
 
       expect(exit1).toBe(0);
       expect(exit2).toBe(0);
@@ -322,8 +322,8 @@ describe('cli-unit-test-execute -- 无 merge_mode (AC-12)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -335,8 +335,8 @@ describe('cli-unit-test-execute -- 无 merge_mode (AC-12)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('../../src/commands/unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('../../src/commands/test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       // 验证所有 plan 条目不含 merge_mode
       const plan = mockDetectFrameworks.mock.results[0].value.plan;

@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
 
+import { phaseLogSchema } from '../schemas';
 import {
   validateVerdict,
   buildEntry,
@@ -40,7 +41,7 @@ describe('validateVerdict', () => {
 
 describe('buildEntry', () => {
   const baseParams: BuildEntryParams = {
-    phase: 'unit-test',
+    phase: 'test-execution',
     verdict: 'pass',
     report: 'All tests passed',
     checklist: [{ item: '测试覆盖率达到80%', pass: true, evidence: 'ok' }],
@@ -50,7 +51,7 @@ describe('buildEntry', () => {
 
   it('should build a basic entry with required fields', () => {
     const entry = buildEntry(baseParams);
-    expect(entry.phase).toBe('unit-test');
+    expect(entry.phase).toBe('test-execution');
     expect(entry.verdict).toBe('pass');
     expect(entry.attempt).toBe(1);
     expect(entry.timestamp).toBeDefined();
@@ -88,6 +89,41 @@ describe('buildEntry', () => {
   it('should accept backtrack_to as array', () => {
     const entry = buildEntry({ ...baseParams, backtrack_to: ['dev-design', 'test-design'] });
     expect(entry.backtrack_to).toEqual(['dev-design', 'test-design']);
+  });
+
+  it('phase 为 "integration-test" 时 zod parse 应失败（不在枚举中）', () => {
+    const result = phaseLogSchema.safeParse({
+      phase: 'integration-test',
+      attempt: 1,
+      verdict: 'pass',
+      report: 'test',
+      checklist: [],
+      timestamp: new Date().toISOString(),
+      backtrack_to: null,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('phase 为 "unit-test" 时 zod parse 应失败', () => {
+    const result = phaseLogSchema.safeParse({
+      phase: 'unit-test',
+      attempt: 1,
+      verdict: 'pass',
+      report: 'test',
+      checklist: [],
+      timestamp: new Date().toISOString(),
+      backtrack_to: null,
+    });
+    expect(result.success).toBe(false);
+  });
+
+  it('report 长度 > 500 字符时 zod parse 应失败', () => {
+    expect(() => buildEntry({ ...baseParams, report: 'x'.repeat(501) })).toThrow();
+  });
+
+  it('checklist 为空数组时应通过', () => {
+    const entry = buildEntry({ ...baseParams, checklist: [] });
+    expect(entry.checklist).toEqual([]);
   });
 });
 
@@ -162,7 +198,7 @@ describe('markPhaseStale', () => {
     expect(entries[0].stale).toBeUndefined();
   });
 
-  it('should propagate to full transitive closure (AC-14)', () => {
+  it('should propagate to full transitive closure', () => {
     const entries = [];
     const phases: EvalEntry['phase'][] = [
       'proposal',
@@ -170,9 +206,8 @@ describe('markPhaseStale', () => {
       'test-design',
       'test-gen',
       'implement',
-      'unit-test',
+      'test-execution',
       'code-review',
-      'integration-test',
       'acceptance',
     ];
     for (const phase of phases) {
@@ -189,12 +224,10 @@ describe('markPhaseStale', () => {
     // 05 stale (dep on 02)
     expect(entries.find((e) => e.phase === 'implement')!.stale).toBe(true);
     // 06 stale (dep on 04+05, both in chain)
-    expect(entries.find((e) => e.phase === 'unit-test')!.stale).toBe(true);
+    expect(entries.find((e) => e.phase === 'test-execution')!.stale).toBe(true);
     // 07 stale
     expect(entries.find((e) => e.phase === 'code-review')!.stale).toBe(true);
-    // 08 stale
-    expect(entries.find((e) => e.phase === 'integration-test')!.stale).toBe(true);
-    // 09 stale (dep on 01+02+05)
+    // 08 stale (dep on 01+02+05)
     expect(entries.find((e) => e.phase === 'acceptance')!.stale).toBe(true);
     // 01 should NOT be stale
     expect(entries.find((e) => e.phase === 'proposal')!.stale).toBeUndefined();
@@ -228,7 +261,7 @@ describe('markPhaseStale', () => {
     expect(entries.find((e) => e.phase === 'test-design')!.stale).toBeUndefined();
   });
 
-  it('should propagate from implement to unit-test/code-review/integration-test/acceptance（AC-8）', () => {
+  it('should propagate from implement to test-execution/code-review/acceptance', () => {
     const entries = [];
     const phases: EvalEntry['phase'][] = [
       'proposal',
@@ -236,9 +269,8 @@ describe('markPhaseStale', () => {
       'test-design',
       'test-gen',
       'implement',
-      'unit-test',
+      'test-execution',
       'code-review',
-      'integration-test',
       'acceptance',
     ];
     for (const phase of phases) {
@@ -246,31 +278,24 @@ describe('markPhaseStale', () => {
     }
     markPhaseStale(entries, 'implement', 'requirement');
 
-    for (const phase of [
-      'implement',
-      'test-gen',
-      'unit-test',
-      'code-review',
-      'integration-test',
-      'acceptance',
-    ]) {
+    for (const phase of ['implement', 'test-gen', 'test-execution', 'code-review', 'acceptance']) {
       expect(entries.find((e) => e.phase === phase)!.stale).toBe(true);
     }
     expect(entries.find((e) => e.phase === 'test-design')!.stale).toBeUndefined();
   });
 
-  it('should mark test-gen and downstream stale when marking test-design（AC-9）', () => {
+  it('should mark test-gen and downstream stale when marking test-design', () => {
     const entries = [
       makePassEntry('proposal', 1),
       makePassEntry('dev-design', 1),
       makePassEntry('test-design', 1),
       makePassEntry('test-gen', 1),
       makePassEntry('implement', 1),
-      makePassEntry('unit-test', 1),
+      makePassEntry('test-execution', 1),
     ];
     markPhaseStale(entries, 'test-design', 'requirement');
 
-    for (const phase of ['test-design', 'test-gen', 'unit-test']) {
+    for (const phase of ['test-design', 'test-gen', 'test-execution']) {
       expect(entries.find((e) => e.phase === phase)!.stale).toBe(true);
     }
   });

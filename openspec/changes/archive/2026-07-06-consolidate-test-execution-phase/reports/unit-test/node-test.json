@@ -1,0 +1,21 @@
+{
+  "framework": "node-test",
+  "timestamp": "2026-07-06T02:10:27.283Z",
+  "exit_code": 1,
+  "duration_ms": 37,
+  "summary": {
+    "total": 0,
+    "passed": 0,
+    "failed": 0,
+    "skipped": 0
+  },
+  "test_cases": [],
+  "test_files": [],
+  "source_files": [],
+  "file_coverage": null,
+  "coverage": null,
+  "mutation": null,
+  "findings": [
+    "Command failed: cd plugins/dev-team/hooks/scripts\nrm -rf coverage\nnode --test --experimental-test-coverage \n\nThe system cannot find the path specified.\r\n"
+  ]
+}

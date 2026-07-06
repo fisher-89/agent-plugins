@@ -1,8 +1,8 @@
 // ---------------------------------------------------------------------------
-// Zod v4 schemas for unit-test sub-report and summary-report output
+// Zod v4 schemas for test-execution sub-report and summary-report output
 //
 // These schemas define the JSON structure written by test-report.ts and read
-// by the unit-test-executor agent.
+// by the test-execution-executor agent.
 // ---------------------------------------------------------------------------
 
 import { z } from 'zod/v4';
@@ -154,10 +154,10 @@ const fileCoverageEntrySchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// UnitTestSubReportSchema
+// TestExecutionSubReportSchema
 // ---------------------------------------------------------------------------
 
-const unitTestSubReportSchema = z.object({
+const testExecutionSubReportSchema = z.object({
   framework: z.string().describe('Test framework identifier'),
   timestamp: z.string().describe('ISO 8601 timestamp of report generation'),
   exit_code: z.number().int().describe('Command exit code'),
@@ -192,11 +192,11 @@ const problemSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// UnitTestSummaryReportSchema
+// TestExecutionSummaryReportSchema
 // ---------------------------------------------------------------------------
 
-const unitTestSummaryReportSchema = z.object({
-  phase: z.string().describe('Workflow phase, fixed to "06-unit-test"'),
+const testExecutionSummaryReportSchema = z.object({
+  phase: z.string().describe('Workflow phase, fixed to "test-execution"'),
   command: z.string().describe('CLI command description that generated the report'),
   timestamp: z.string().describe('ISO 8601 timestamp of report generation'),
   duration_seconds: z.number().min(0).describe('Total duration in seconds'),
@@ -224,8 +224,8 @@ const unitTestSummaryReportSchema = z.object({
 // ---------------------------------------------------------------------------
 
 export type TestCaseResult = z.infer<typeof testCaseResultSchema>;
-export type UnitTestSubReport = z.infer<typeof unitTestSubReportSchema>;
-export type UnitTestSummaryReport = z.infer<typeof unitTestSummaryReportSchema>;
+export type TestExecutionSubReport = z.infer<typeof testExecutionSubReportSchema>;
+export type TestExecutionSummaryReport = z.infer<typeof testExecutionSummaryReportSchema>;
 export type CoverageBlock = z.infer<typeof coverageBlockSchema>;
 export type CoverageMeasured = z.infer<typeof coverageMeasuredSchema>;
 export type CoverageThresholds = z.infer<typeof coverageThresholdsSchema>;

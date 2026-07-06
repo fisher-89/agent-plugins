@@ -136,7 +136,8 @@ describe('executePlanEntry -- 单一命令执行', () => {
         coverage_output: 'coverage.json',
         coverage_artifacts: ['coverage.json'],
         coverage_cleanup: ['.coverage'],
-        script: 'rm -rf .coverage\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        script:
+          'rm -rf .coverage\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
       },
       '/project',
     );
@@ -303,7 +304,8 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
       coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script:
+        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -329,7 +331,8 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
       coverage_cleanup: ['coverage', 'target/llvm-cov'],
-      script: 'rm -rf coverage\\nrm -rf target/llvm-cov\\ncargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X\\n',
+      script:
+        'rm -rf coverage\\nrm -rf target/llvm-cov\\ncargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X\\n',
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -361,7 +364,8 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
       coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script:
+        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -381,7 +385,8 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
       coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script:
+        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
     };
 
     // 覆盖率输出是 coverage.json 文件，不在 stdout 中
@@ -436,7 +441,8 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
       coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script:
+        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -455,7 +461,8 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
       coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script:
+        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -475,7 +482,8 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
       coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script:
+        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
     };
 
     const result = executePlanEntry(entry, '/project');

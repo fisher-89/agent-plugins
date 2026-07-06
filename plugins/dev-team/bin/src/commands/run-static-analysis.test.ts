@@ -17,6 +17,12 @@ import { getProjectDir } from '../utils';
 
 vi.mock('../lib/exec-command');
 
+// Clear execCommand call history before each test to prevent shared mock
+// state across shuffled test order.
+beforeEach(() => {
+  vi.mocked(execCommand).mockClear();
+});
+
 // getProjectDir 已有独立的单元测试（constant.test.ts），此处 mock 以支持
 // Stryker worker 线程环境（worker 中不支持 process.chdir）。
 vi.mock('../utils');

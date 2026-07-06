@@ -1,7 +1,7 @@
 ---
 name: workflow-requirement
 description: |
-  Full PGE workflow orchestrator — executes all 9 phases sequentially.
+  Full PGE workflow orchestrator.
   No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
   On completion, notifies user to archive manually.
 license: MIT

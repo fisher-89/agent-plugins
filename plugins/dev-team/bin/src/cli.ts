@@ -1,7 +1,7 @@
 import cac from 'cac';
 
 import { runStaticAnalysis } from './commands/run-static-analysis';
-import { runUnitTest } from './commands/unit-test';
+import { runTestExecution } from './commands/test-execution';
 
 const cli = cac('dev-team');
 
@@ -14,7 +14,10 @@ cli
   });
 
 cli
-  .command('unit-test', 'Run unit tests with coverage and generate execution report')
+  .command(
+    'test-execution',
+    'Run all automated tests (unit + integration) with coverage and generate execution report',
+  )
   .option('--change <name>', 'Change name (reports written to openspec/changes/<name>/reports/)')
   .option('--project-root <path>', 'Override project root directory')
   .option('--files <files>', 'Comma-separated list of test files to run')
@@ -34,7 +37,7 @@ cli
             .map((f: string) => f.trim())
             .filter(Boolean)
         : undefined;
-      const exitCode = runUnitTest({
+      const exitCode = runTestExecution({
         change: options.change,
         projectRoot: options.projectRoot,
         files,

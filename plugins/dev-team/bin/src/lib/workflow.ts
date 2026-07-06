@@ -100,16 +100,16 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     },
   },
   {
-    id: 'unit-test',
-    description: '单元测试执行与诊断',
+    id: 'test-execution',
+    description: '测试执行与诊断',
     planner: {
-      agent_type: 'dev-team:unit-test-executor',
-      prompt: 'Run and fix unit tests for change "<change>".',
+      agent_type: 'dev-team:test-execution-executor',
+      prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:unit-test-evaluator',
+      agent_type: 'dev-team:test-execution-evaluator',
       prompt:
-        'Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>".',
+        'Evaluate <phase> phase: test execution results for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -120,19 +120,6 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
       agent_type: 'dev-team:code-review-evaluator',
       prompt:
         'Evaluate <phase> phase: code review for change "<change>". Call phase_log with phase="<phase>".',
-    },
-  },
-  {
-    id: 'integration-test',
-    description: '集成测试执行与诊断',
-    planner: {
-      agent_type: 'dev-team:integration-test-executor',
-      prompt: 'Run and fix integration tests for change "<change>".',
-    },
-    evaluator: {
-      agent_type: 'dev-team:integration-test-evaluator',
-      prompt:
-        'Evaluate <phase> phase: integration test results for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -187,16 +174,16 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     },
   },
   {
-    id: 'unit-test',
-    description: '单元测试执行与诊断',
+    id: 'test-execution',
+    description: '测试执行与诊断',
     planner: {
-      agent_type: 'dev-team:unit-test-executor',
-      prompt: 'Run and fix unit tests for change "<change>".',
+      agent_type: 'dev-team:test-execution-executor',
+      prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:unit-test-evaluator',
+      agent_type: 'dev-team:test-execution-evaluator',
       prompt:
-        'Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>".',
+        'Evaluate <phase> phase: test execution results for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
   {
@@ -281,27 +268,15 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     },
   },
   {
-    id: 'unit-test',
-    description: '单元测试执行与诊断',
+    id: 'test-execution',
+    description: '测试执行与诊断',
     planner: {
-      agent_type: 'dev-team:unit-test-executor',
-      prompt: 'Run and fix unit tests for change "<change>".',
+      agent_type: 'dev-team:test-execution-executor',
+      prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:unit-test-evaluator',
-      prompt: `Evaluate <phase> phase: unit test results for change "<change>". Call phase_log with phase="<phase>". ${WORKFLOW_CONTEXT_TEST_ONLY}`,
-    },
-  },
-  {
-    id: 'integration-test',
-    description: '集成测试执行与诊断',
-    planner: {
-      agent_type: 'dev-team:integration-test-executor',
-      prompt: 'Run and fix integration tests for change "<change>".',
-    },
-    evaluator: {
-      agent_type: 'dev-team:integration-test-evaluator',
-      prompt: `Evaluate <phase> phase: integration test results for change "<change>". Call phase_log with phase="<phase>". ${WORKFLOW_CONTEXT_TEST_ONLY}`,
+      agent_type: 'dev-team:test-execution-evaluator',
+      prompt: `Evaluate <phase> phase: test execution results for change "<change>". Call phase_log with phase="<phase>". ${WORKFLOW_CONTEXT_TEST_ONLY}`,
     },
   },
 ];
@@ -331,9 +306,8 @@ const PHASE_PREREQUISITES: Record<string, string[]> = {
   'test-design': ['proposal', 'dev-design'],
   'test-gen': ['test-design', 'implement'],
   implement: ['dev-design'],
-  'unit-test': ['test-gen', 'implement'],
+  'test-execution': ['test-gen', 'implement'],
   'code-review': ['test-gen', 'implement'],
-  'integration-test': ['test-gen', 'implement'],
   acceptance: ['proposal', 'dev-design', 'implement'],
 };
 
@@ -345,7 +319,7 @@ const PHASE_BUG_FIX_PREREQUISITES: Record<string, string[]> = {
   proposal: [],
   'dev-design': ['proposal'],
   implement: ['dev-design'],
-  'unit-test': ['implement'],
+  'test-execution': ['implement'],
   'code-review': ['implement'],
   acceptance: ['code-review'],
 };
@@ -361,8 +335,7 @@ const PHASE_TEST_ONLY_PREREQUISITES: Record<string, string[]> = {
   'code-analyze': ['proposal'],
   'test-design': ['proposal', 'code-analyze'],
   'test-gen': ['test-design'],
-  'unit-test': ['test-gen'],
-  'integration-test': ['test-gen'],
+  'test-execution': ['test-gen'],
 };
 
 const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>> = {
@@ -422,9 +395,6 @@ export function getDependents(phaseId: string, workflowType: string): string[] {
  * Return the phase table for the given workflow_type.
  */
 export function getPhaseTable(workflowType: string): PhaseDefinition[] {
-  if (Reflect.has(PHASE_TABLES, workflowType.toLowerCase())) {
-    return PHASE_TABLES[workflowType.toLowerCase()];
-  } else {
-    throw new Error('workflowType 不存在');
-  }
+  const key = workflowType.toLowerCase();
+  return PHASE_TABLES[key] || PHASE_TABLES[DEFAULT_WORKFLOW];
 }

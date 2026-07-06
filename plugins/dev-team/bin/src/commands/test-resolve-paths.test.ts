@@ -50,9 +50,7 @@ vi.mock('child_process', async () => {
 // (before any test's mockImplementation can replace them).
 // These are used by the top-level beforeEach to restore clean state for
 // every test, regardless of shuffle order.
-const _detectFrameworksPassthrough = vi
-  .mocked(runTestDetectFrameworks)
-  .getMockImplementation();
+const _detectFrameworksPassthrough = vi.mocked(runTestDetectFrameworks).getMockImplementation();
 const _execSyncPassthrough = vi.mocked(execSync).getMockImplementation();
 
 // Restore pass-through implementations before every test so that mock

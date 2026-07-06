@@ -19,12 +19,8 @@ describe('requirement phase index', () => {
     expect(requirementPhaseIndex('test-gen')).toBe(4);
   });
 
-  it('should return 5 for unit-test（索引随 04/05 对调后仍正确）', () => {
-    expect(requirementPhaseIndex('unit-test')).toBe(5);
-  });
-
-  it('should return correct index for new integration-test', () => {
-    expect(requirementPhaseIndex('integration-test')).toBe(7);
+  it('should return 5 for test-execution（索引随 04/05 对调后仍正确）', () => {
+    expect(requirementPhaseIndex('test-execution')).toBe(5);
   });
 
   it('should return -1 for unknown phase', () => {
@@ -33,6 +29,10 @@ describe('requirement phase index', () => {
 
   it('should return -1 for old phase name', () => {
     expect(requirementPhaseIndex('05-implementation')).toBe(-1);
+  });
+
+  it('should return -1 for empty string phase', () => {
+    expect(requirementPhaseIndex('')).toBe(-1);
   });
 });
 
@@ -56,31 +56,39 @@ describe('getDependents', () => {
     expect(deps).toEqual(['test-gen']);
   });
 
-  it('should return [unit-test, code-review, integration-test] for test-gen（不变）', () => {
+  it('should return [test-execution, code-review] for test-gen', () => {
     const deps = getDependents('test-gen', 'requirement');
-    expect(deps).toEqual(['unit-test', 'code-review', 'integration-test']);
+    expect(deps).toEqual(['test-execution', 'code-review']);
   });
 
-  it('should return [test-gen, 06, 07, 08, 09] for implement — 04 为直接 downstream（AC-4）', () => {
+  it('should return [test-gen, test-execution, code-review, acceptance] for implement', () => {
     const deps = getDependents('implement', 'requirement');
-    expect(deps).toEqual([
-      'test-gen',
-      'unit-test',
-      'code-review',
-      'integration-test',
-      'acceptance',
-    ]);
+    expect(deps).toEqual(['test-gen', 'test-execution', 'code-review', 'acceptance']);
   });
 
-  it('should return [] for leaf phases (06, 07, 08, 09)', () => {
-    expect(getDependents('unit-test', 'requirement')).toEqual([]);
+  it('should return [] for leaf phases (06, 07, 08)', () => {
+    expect(getDependents('test-execution', 'requirement')).toEqual([]);
     expect(getDependents('code-review', 'requirement')).toEqual([]);
-    expect(getDependents('integration-test', 'requirement')).toEqual([]);
     expect(getDependents('acceptance', 'requirement')).toEqual([]);
   });
 
   it('should return [] for unknown phase (fault-tolerant)', () => {
     expect(getDependents('99-unknown', 'requirement')).toEqual([]);
+  });
+
+  it('should return [] for empty string phase', () => {
+    expect(getDependents('', 'requirement')).toEqual([]);
+  });
+
+  it('should fallback to requirement table for empty string workflowType', () => {
+    expect(getDependents('test-gen', '')).toEqual(['test-execution', 'code-review']);
+  });
+
+  it('should fallback to requirement table for unknown workflowType (case-insensitive tolerant)', () => {
+    expect(getDependents('test-gen', 'UNKNOWN_WORKFLOW')).toEqual([
+      'test-execution',
+      'code-review',
+    ]);
   });
 
   it('should default to requirement workflow_type', () => {
@@ -104,20 +112,13 @@ describe('getDependents', () => {
 // ---------------------------------------------------------------------------
 
 describe('getPhaseTable — test-only', () => {
-  it('should have exactly 6 phases for test-only workflow_type', () => {
-    expect(getPhaseTable('test-only')).toHaveLength(6);
+  it('should have exactly 5 phases for test-only workflow_type', () => {
+    expect(getPhaseTable('test-only')).toHaveLength(5);
   });
 
   it('should list test-only phases in expected order', () => {
     const ids = getPhaseTable('test-only').map((p) => p.id);
-    expect(ids).toEqual([
-      'proposal',
-      'code-analyze',
-      'test-design',
-      'test-gen',
-      'unit-test',
-      'integration-test',
-    ]);
+    expect(ids).toEqual(['proposal', 'code-analyze', 'test-design', 'test-gen', 'test-execution']);
   });
 
   it('should not include dev-design, implement, review, or acceptance phases', () => {
@@ -146,13 +147,8 @@ describe('PHASE_TEST_ONLY — prompt customization', () => {
 });
 
 describe('PHASE_TEST_ONLY — WORKFLOW_CONTEXT prompts', () => {
-  it('unit-test evaluator prompt includes WORKFLOW_CONTEXT (AC-14)', () => {
-    const prompt = getPhaseTable('test-only').find((p) => p.id === 'unit-test')!.evaluator!.prompt;
-    expect(prompt).toMatch(/WORKFLOW_CONTEXT/);
-  });
-
-  it('integration-test evaluator prompt includes WORKFLOW_CONTEXT (AC-14)', () => {
-    const prompt = getPhaseTable('test-only').find((p) => p.id === 'integration-test')!.evaluator!
+  it('test-execution evaluator prompt includes WORKFLOW_CONTEXT', () => {
+    const prompt = getPhaseTable('test-only').find((p) => p.id === 'test-execution')!.evaluator!
       .prompt;
     expect(prompt).toMatch(/WORKFLOW_CONTEXT/);
   });
@@ -167,13 +163,12 @@ describe('getDependents — test-only extended', () => {
     expect(getDependents('test-design', 'test-only')).toEqual(['test-gen']);
   });
 
-  it('should return [unit-test, integration-test] for test-gen test-only', () => {
-    expect(getDependents('test-gen', 'test-only')).toEqual(['unit-test', 'integration-test']);
+  it('should return [test-execution] for test-gen test-only', () => {
+    expect(getDependents('test-gen', 'test-only')).toEqual(['test-execution']);
   });
 
-  it('should return [] for leaf phases unit-test and integration-test test-only', () => {
-    expect(getDependents('unit-test', 'test-only')).toEqual([]);
-    expect(getDependents('integration-test', 'test-only')).toEqual([]);
+  it('should return [] for leaf phase test-execution test-only', () => {
+    expect(getDependents('test-execution', 'test-only')).toEqual([]);
   });
 
   it('should return [] for unknown phase 99-unknown test-only', () => {
@@ -199,9 +194,8 @@ describe('getPrerequisites — test-only', () => {
     expect(inferPrerequisites('test-gen', 'test-only')).toEqual(['test-design']);
   });
 
-  it('should return [test-gen] for unit-test and integration-test test-only', () => {
-    expect(inferPrerequisites('unit-test', 'test-only')).toEqual(['test-gen']);
-    expect(inferPrerequisites('integration-test', 'test-only')).toEqual(['test-gen']);
+  it('should return [test-gen] for test-execution test-only', () => {
+    expect(inferPrerequisites('test-execution', 'test-only')).toEqual(['test-gen']);
   });
 });
 
@@ -216,15 +210,87 @@ describe('getPhaseTable — regression (AC-10)', () => {
       'proposal',
       'dev-design',
       'implement',
-      'unit-test',
+      'test-execution',
       'code-review',
       'acceptance',
     ]);
+  });
+
+  it('bug-fix phase table 应不包含 integration-test', () => {
+    const phases = getPhaseTable('bug-fix').map((p) => p.id);
+    expect(phases).not.toContain('integration-test');
+    expect(phases.length).toBe(6);
   });
 
   it('refactor phase table matches requirement', () => {
     expect(getPhaseTable('refactor').map((p) => p.id)).toEqual(
       getPhaseTable('requirement').map((p) => p.id),
     );
+  });
+
+  it('getPhaseTable("INVALID") 应降级到 requirement 表（容错）', () => {
+    const phases = getPhaseTable('INVALID');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
+  });
+
+  it('getPhaseTable("") 应降级到 requirement 表（容错）', () => {
+    const phases = getPhaseTable('');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPhaseTable — error handling
+// ---------------------------------------------------------------------------
+
+describe('getPhaseTable — 降级容错', () => {
+  it('未知 workflowType 应降级到 requirement 表', () => {
+    const phases = getPhaseTable('NONEXISTENT');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
+  });
+
+  it('小写未知 workflowType 也应降级到 requirement 表', () => {
+    const phases = getPhaseTable('nonexistent');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// getPrerequisites — test-only extended (boundary)
+// ---------------------------------------------------------------------------
+
+describe('getPrerequisites — test-only 边界', () => {
+  it('空 phase 应返回 []', () => {
+    expect(inferPrerequisites('', 'test-only')).toEqual([]);
+  });
+
+  it('空 phase 在 requirement 表中也应返回 []', () => {
+    expect(inferPrerequisites('', 'requirement')).toEqual([]);
+  });
+
+  it('inferPrerequisites("test-execution", "") 使用 requirement 默认表返回 [implement, test-gen]', () => {
+    const result = inferPrerequisites('test-execution', '');
+    expect(result).toEqual(expect.arrayContaining(['test-gen', 'implement']));
+    expect(result).toHaveLength(2);
+  });
+
+  it('未知 phase 99-unknown 应返回 []（容错）', () => {
+    expect(inferPrerequisites('99-unknown', 'test-only')).toEqual([]);
+  });
+
+  it('未知 phase 在 test-only 表中应返回 []', () => {
+    expect(inferPrerequisites('99-unknown', 'test-only')).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// PHASE_TEST_ONLY — code-analyze 不含 WORKFLOW_CONTEXT
+// ---------------------------------------------------------------------------
+
+describe('PHASE_TEST_ONLY — code-analyze prompt 不含 WORKFLOW_CONTEXT', () => {
+  it('code-analyze evaluator prompt 不应包含 WORKFLOW_CONTEXT', () => {
+    const prompt = getPhaseTable('test-only').find((p) => p.id === 'code-analyze')!.evaluator!
+      .prompt;
+    expect(prompt).not.toMatch(/WORKFLOW_CONTEXT/);
   });
 });

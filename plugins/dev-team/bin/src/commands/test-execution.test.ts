@@ -1,13 +1,13 @@
 /**
- * 单元测试: commands/unit-test -- runUnitTest 编排逻辑
+ * 单元测试: commands/test-execution -- runTestExecution 编排逻辑
  *
  * 覆盖范围:
  * - AC-1: 调用 runTestDetectFrameworks 获取 plan
  * - AC-1: 对 plan 中每个 framework 调用 executePlanEntry
  * - AC-1: 在每个 framework 执行后调用 generateSubReport 写入子报告
  * - AC-1: 所有 framework 执行后调用 generateSummaryReport 写入汇总报告
- * - AC-1: 子报告写入 reports/unit-test/<framework>.json
- * - AC-1: 汇总报告写入 reports/unit-test-execution.json
+ * - AC-1: 子报告写入 reports/test-execution/<framework>.json
+ * - AC-1: 汇总报告写入 reports/test-execution.json
  * - 异常: plan 为空、framework 执行失败不阻塞
  * - 边界: projectRoot 为 undefined、幂等性
  *
@@ -22,7 +22,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ExecutionResult } from '../lib/test-runner';
 import { type TestPlan } from '../schemas';
-import type { UnitTestSubReport } from '../schemas/unit-test-output.schema';
+import type { TestExecutionSubReport } from '../schemas/test-execution-output.schema';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -56,7 +56,7 @@ interface TempProject {
 }
 
 function createTempProject(): TempProject {
-  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'unit-test-'));
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), 'test-execution-'));
   const openspecDir = path.join(root, 'openspec');
   fs.mkdirSync(openspecDir, { recursive: true });
   fs.writeFileSync(
@@ -106,7 +106,7 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
   };
 }
 
-function makeSubReport(overrides: Partial<UnitTestSubReport> = {}): UnitTestSubReport {
+function makeSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestExecutionSubReport {
   return {
     framework: 'vitest',
     timestamp: '2026-07-01T00:00:00.000Z',
@@ -127,7 +127,7 @@ function makeSubReport(overrides: Partial<UnitTestSubReport> = {}): UnitTestSubR
 // 正向测试
 // ===========================================================================
 
-describe('runUnitTest -- 正向 (AC-1)', () => {
+describe('runTestExecution -- 正向 (AC-1)', () => {
   beforeEach(() => {
     mockDetectFrameworks.mockReset();
     mockExecutePlanEntry.mockReset();
@@ -146,8 +146,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -159,8 +159,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      const exitCode = runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      const exitCode = runTestExecution({ projectRoot: project.root });
 
       expect(mockDetectFrameworks).toHaveBeenCalledWith(
         expect.objectContaining({ projectRoot: project.root }),
@@ -192,8 +192,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
         .mockReturnValueOnce(makeSubReport({ framework: 'vitest' }))
         .mockReturnValueOnce(makeSubReport({ framework: 'vite-plus' }));
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 2,
@@ -205,8 +205,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
@@ -235,8 +235,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -248,14 +248,14 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSubReport).toHaveBeenCalledTimes(1);
       const callArgs = mockGenerateSubReport.mock.calls[0];
       expect(callArgs[0]).toBe('vitest');
       expect(callArgs[2]).toBe(project.root);
-      expect(callArgs[3].replace(/\\/g, '/')).toContain('reports/unit-test');
+      expect(callArgs[3].replace(/\\/g, '/')).toContain('reports/test-execution');
     } finally {
       project.cleanup();
     }
@@ -272,8 +272,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -285,20 +285,20 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSummaryReport).toHaveBeenCalledTimes(1);
       const callArgs = mockGenerateSummaryReport.mock.calls[0];
       expect(Array.isArray(callArgs[0])).toBe(true);
       expect(callArgs[1]).toBe(project.root);
-      expect(callArgs[2].replace(/\\/g, '/')).toContain('reports/unit-test');
+      expect(callArgs[2].replace(/\\/g, '/')).toContain('reports/test-execution');
     } finally {
       project.cleanup();
     }
   });
 
-  it('子报告应写入 reports/unit-test/<framework>.json 路径', async () => {
+  it('子报告应写入 reports/test-execution/<framework>.json 路径', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -309,8 +309,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -322,17 +322,17 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       const reportsDir = mockGenerateSubReport.mock.calls[0][3];
-      expect(reportsDir.replace(/\\/g, '/')).toContain('reports/unit-test');
+      expect(reportsDir.replace(/\\/g, '/')).toContain('reports/test-execution');
     } finally {
       project.cleanup();
     }
   });
 
-  it('汇总报告应写入 reports/unit-test-execution.json', async () => {
+  it('汇总报告应写入 reports/test-execution.json', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -343,8 +343,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -356,8 +356,8 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSummaryReport).toHaveBeenCalled();
     } finally {
@@ -370,7 +370,7 @@ describe('runUnitTest -- 正向 (AC-1)', () => {
 // 异常测试
 // ===========================================================================
 
-describe('runUnitTest -- 异常', () => {
+describe('runTestExecution -- 异常', () => {
   beforeEach(() => {
     mockDetectFrameworks.mockReset();
     mockExecutePlanEntry.mockReset();
@@ -387,8 +387,8 @@ describe('runUnitTest -- 异常', () => {
         plan: [],
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      const exitCode = runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      const exitCode = runTestExecution({ projectRoot: project.root });
 
       expect(exitCode).toBe(0);
       expect(mockExecutePlanEntry).not.toHaveBeenCalled();
@@ -435,8 +435,8 @@ describe('runUnitTest -- 异常', () => {
           }),
         );
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 2,
@@ -448,8 +448,8 @@ describe('runUnitTest -- 异常', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      const exitCode = runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      const exitCode = runTestExecution({ projectRoot: project.root });
 
       // 两个框架都应执行
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
@@ -468,7 +468,7 @@ describe('runUnitTest -- 异常', () => {
 // 边界测试
 // ===========================================================================
 
-describe('runUnitTest -- 边界', () => {
+describe('runTestExecution -- 边界', () => {
   beforeEach(() => {
     mockDetectFrameworks.mockReset();
     mockExecutePlanEntry.mockReset();
@@ -477,7 +477,7 @@ describe('runUnitTest -- 边界', () => {
   });
 
   it('options.projectRoot 为 undefined 时使用默认 project dir', async () => {
-    // 当 projectRoot 为 undefined 时，runUnitTest 应使用 getProjectDir() 的返回值
+    // 当 projectRoot 为 undefined 时，runTestExecution 应使用 getProjectDir() 的返回值
     // 这里我们 mock detectFrameworks 返回空 plan，确保不会出错
     mockDetectFrameworks.mockReturnValue({
       detected: [],
@@ -485,9 +485,9 @@ describe('runUnitTest -- 边界', () => {
       plan: [],
     });
 
-    const { runUnitTest } = await import('./unit-test');
+    const { runTestExecution } = await import('./test-execution');
     // 不传 projectRoot，应该不会崩溃
-    expect(() => runUnitTest({})).not.toThrow();
+    expect(() => runTestExecution({})).not.toThrow();
   });
 
   it('所有框架均通过时 conclusion=pass 退出码 0', async () => {
@@ -505,8 +505,8 @@ describe('runUnitTest -- 边界', () => {
       );
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -518,8 +518,8 @@ describe('runUnitTest -- 边界', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      const exitCode = runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      const exitCode = runTestExecution({ projectRoot: project.root });
       expect(exitCode).toBe(0);
     } finally {
       project.cleanup();
@@ -531,7 +531,7 @@ describe('runUnitTest -- 边界', () => {
 // 幂等性测试
 // ===========================================================================
 
-describe('runUnitTest -- 幂等性', () => {
+describe('runTestExecution -- 幂等性', () => {
   beforeEach(() => {
     mockDetectFrameworks.mockReset();
     mockExecutePlanEntry.mockReset();
@@ -552,8 +552,8 @@ describe('runUnitTest -- 幂等性', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -565,8 +565,8 @@ describe('runUnitTest -- 幂等性', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       // 验证 generateSubReport 被调用
       expect(mockGenerateSubReport).toHaveBeenCalledTimes(1);
@@ -587,8 +587,8 @@ describe('runUnitTest -- 幂等性', () => {
       mockGenerateSubReport.mockReturnValue(makeSubReport());
 
       const summaryReport = {
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -601,8 +601,8 @@ describe('runUnitTest -- 幂等性', () => {
       };
       mockGenerateSummaryReport.mockReturnValue(summaryReport);
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       // 验证 generateSummaryReport 被正确调用
       expect(mockGenerateSummaryReport).toHaveBeenCalledTimes(1);
@@ -616,7 +616,7 @@ describe('runUnitTest -- 幂等性', () => {
 // noMutation 透传
 // ===========================================================================
 
-describe('runUnitTest -- noMutation 透传', () => {
+describe('runTestExecution -- noMutation 透传', () => {
   beforeEach(() => {
     mockDetectFrameworks.mockReset();
     mockExecutePlanEntry.mockReset();
@@ -624,7 +624,7 @@ describe('runUnitTest -- noMutation 透传', () => {
     mockGenerateSummaryReport.mockReset();
   });
 
-  it('UnitTestOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中', async () => {
+  it('TestExecutionOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -635,8 +635,8 @@ describe('runUnitTest -- noMutation 透传', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -648,8 +648,8 @@ describe('runUnitTest -- noMutation 透传', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root, noMutation: true });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root, noMutation: true });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
@@ -661,7 +661,7 @@ describe('runUnitTest -- noMutation 透传', () => {
     }
   });
 
-  it('UnitTestOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中', async () => {
+  it('TestExecutionOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -672,8 +672,8 @@ describe('runUnitTest -- noMutation 透传', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -685,8 +685,8 @@ describe('runUnitTest -- noMutation 透传', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root, noMutation: false });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root, noMutation: false });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
@@ -698,7 +698,7 @@ describe('runUnitTest -- noMutation 透传', () => {
     }
   });
 
-  it('UnitTestOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）', async () => {
+  it('TestExecutionOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -709,8 +709,8 @@ describe('runUnitTest -- noMutation 透传', () => {
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
       mockGenerateSubReport.mockReturnValue(makeSubReport());
       mockGenerateSummaryReport.mockReturnValue({
-        phase: '06-unit-test',
-        command: 'dev-team unit-test',
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
         timestamp: '2026-07-01T00:00:00.000Z',
         duration_seconds: 1,
         total: 1,
@@ -722,8 +722,8 @@ describe('runUnitTest -- noMutation 透传', () => {
         coverage: null,
       });
 
-      const { runUnitTest } = await import('./unit-test');
-      runUnitTest({ projectRoot: project.root });
+      const { runTestExecution } = await import('./test-execution');
+      runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),

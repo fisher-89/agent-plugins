@@ -264,7 +264,7 @@ function runMutationPhase(
 
     console.log(`Running StrykerJS mutation testing (config: ${configPath})...`);
 
-    const strykerCmd = `npx stryker run --config ${configPath}`;
+    const strykerCmd = `npx stryker run ${configPath}`;
     runCommand(strykerCmd, execCwd, 300000);
 
     const mutationBlock = buildMutationBlockFromReport(entry, projectRoot, sourceFiles);
@@ -371,9 +371,22 @@ function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]
 }
 
 function resolveExecCwd(entry: TestPlan, projectRoot: string): string {
-  return entry.directory && entry.directory !== '.'
-    ? path.resolve(projectRoot, entry.directory)
-    : projectRoot;
+  // The script already contains a `cd` command when directory !== '.'.
+  // Always use projectRoot as CWD so that the relative `cd` in the script
+  // resolves correctly.  (On Windows, execSync defaults to cmd.exe, which
+  // cannot handle a relative `cd` to a path that does not exist under the
+  // already-resolved CWD.)
+  return projectRoot;
+}
+
+function resolveShell(): string | undefined {
+  // On Windows, test scripts use Unix shell syntax (rm -rf, \n separation, etc.)
+  // which requires a POSIX shell (e.g. Git Bash) rather than cmd.exe.
+  // process.env.SHELL is set by Git Bash for Windows.
+  if (process.platform === 'win32') {
+    return process.env.SHELL || 'bash';
+  }
+  return undefined; // Use default shell on Unix
 }
 
 function runCommand(
@@ -387,6 +400,7 @@ function runCommand(
       encoding: 'utf-8',
       timeout: timeout ?? 60000,
       maxBuffer: 10 * 1024 * 1024,
+      shell: resolveShell(),
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (e: unknown) {

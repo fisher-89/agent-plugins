@@ -65,7 +65,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: 'unit-test',
+        phase: 'test-execution',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'implement',
@@ -83,7 +83,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: 'unit-test',
+        phase: 'test-execution',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'implement',
@@ -96,7 +96,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: 'unit-test',
+      phase: 'test-execution',
       report: 'test issue',
       checklist: FAILED_ITEMS,
       backtrack_to: 'dev-design',
@@ -112,7 +112,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: 'unit-test',
+        phase: 'test-execution',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'dev-design',
@@ -128,7 +128,7 @@ describe('runPhaseLog — workflow-aware backtrack rejection', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: 'unit-test',
+      phase: 'test-execution',
       report: 'test issue',
       checklist: FAILED_ITEMS,
       backtrack_to: 'implement',
@@ -145,7 +145,7 @@ describe('runPhaseLog — adaptive fail after invalid backtrack', () => {
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: 'unit-test',
+        phase: 'test-execution',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'implement',
@@ -154,7 +154,7 @@ describe('runPhaseLog — adaptive fail after invalid backtrack', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: 'unit-test',
+      phase: 'test-execution',
       report: 'bugs found, no backtrack',
       checklist: FAILED_ITEMS,
       backtrack_to: null,
@@ -206,7 +206,7 @@ describe('runPhaseLog — input validation', () => {
 
     runPhaseLog({
       change: 'test-change',
-      phase: 'unit-test',
+      phase: 'test-execution',
       report: 'fail no backtrack',
       checklist: FAILED_ITEMS,
       backtrack_to: null,
@@ -246,7 +246,7 @@ describe('runPhaseLog — idempotency', () => {
     mockWorkflowType('test-only');
     const opts = {
       change: 'test-change',
-      phase: 'unit-test' as const,
+      phase: 'test-execution' as const,
       verdict: 'fail' as const,
       report: 'bugs',
       checklist: VALID_ITEMS,
@@ -263,7 +263,7 @@ describe('runPhaseLog — idempotency', () => {
     mockWorkflowType('test-only');
     const opts = {
       change: 'test-change',
-      phase: 'unit-test' as const,
+      phase: 'test-execution' as const,
       verdict: 'fail' as const,
       report: 'bugs',
       checklist: VALID_ITEMS,

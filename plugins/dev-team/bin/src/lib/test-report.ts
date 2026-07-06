@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // Test Report Generator
 //
-// Generates per-framework sub-reports and a summary report for unit test
+// Generates per-framework sub-reports and a summary report for test
 // execution.  Reports are written as JSON files.
 //
-// Sub-report:  reports/unit-test/<framework>.json
-// Summary:     reports/unit-test-execution.json
+// Sub-report:  reports/test-execution/<framework>.json
+// Summary:     reports/test-execution.json
 // ---------------------------------------------------------------------------
 
 import * as fs from 'fs';
@@ -21,8 +21,8 @@ import type {
   MutationMeasured,
   MutationOverride,
   TestCaseResult,
-  UnitTestSubReport,
-  UnitTestSummaryReport,
+  TestExecutionSubReport,
+  TestExecutionSummaryReport,
 } from '../schemas';
 import { readConfig } from './config';
 import { matchGlob, toForwardSlash } from './glob';
@@ -105,11 +105,11 @@ export function generateSubReport(
   result: ExecutionResult,
   projectRoot: string,
   reportsDir: string,
-): UnitTestSubReport {
+): TestExecutionSubReport {
   const now = new Date().toISOString();
   const testCases = buildTestCases(result);
 
-  const subReport: UnitTestSubReport = {
+  const subReport: TestExecutionSubReport = {
     framework,
     timestamp: now,
     exit_code: result.exitCode,
@@ -138,7 +138,7 @@ export function generateSubReport(
 // ---------------------------------------------------------------------------
 
 function collectProblemsAndCoverage(
-  subReports: UnitTestSubReport[],
+  subReports: TestExecutionSubReport[],
   coverageFrameworks: Array<{
     measured: CoverageMeasured;
     sourceFiles: string[];
@@ -194,7 +194,7 @@ function computeCoverageResult(
     framework: string;
   }>,
   projectRoot: string,
-  subReports: UnitTestSubReport[],
+  subReports: TestExecutionSubReport[],
 ): CoverageBlock | null {
   if (coverageFrameworks.length === 0) return null;
 
@@ -255,10 +255,10 @@ function determineConclusion(
 // ---------------------------------------------------------------------------
 
 export function generateSummaryReport(
-  subReports: UnitTestSubReport[],
+  subReports: TestExecutionSubReport[],
   projectRoot: string,
   reportsDir: string,
-): UnitTestSummaryReport {
+): TestExecutionSummaryReport {
   const now = new Date().toISOString();
   const { total, passed, failed, skipped, totalDuration } = aggregateTotals(subReports);
 
@@ -282,9 +282,9 @@ export function generateSummaryReport(
     problems.some((p) => p.type === 'execution_error'),
   );
 
-  const summaryReport: UnitTestSummaryReport = {
-    phase: '06-unit-test',
-    command: 'dev-team unit-test',
+  const summaryReport: TestExecutionSummaryReport = {
+    phase: 'test-execution',
+    command: 'dev-team test-execution',
     timestamp: now,
     duration_seconds: Math.round(totalDuration / 1000),
     total,
@@ -297,7 +297,7 @@ export function generateSummaryReport(
     mutation: mutationResult,
   };
 
-  writeJsonFile(path.join(reportsDir, '..', 'unit-test-execution.json'), summaryReport);
+  writeJsonFile(path.join(reportsDir, '..', 'test-execution.json'), summaryReport);
   return summaryReport;
 }
 
@@ -335,7 +335,7 @@ function pushMutationProblems(
   }
 }
 
-function aggregateTotals(subReports: UnitTestSubReport[]): {
+function aggregateTotals(subReports: TestExecutionSubReport[]): {
   total: number;
   passed: number;
   failed: number;
@@ -437,7 +437,7 @@ function formatCoverageFailure(measured: CoverageMeasured, thresholds: CoverageT
  * thresholds.
  */
 function computeOverrides(
-  subReports: UnitTestSubReport[],
+  subReports: TestExecutionSubReport[],
   projectRoot: string,
 ): CoverageOverride[] {
   const config = readConfig(projectRoot);
@@ -467,7 +467,7 @@ function computeOverrides(
   return results;
 }
 
-function collectFileCoverage(subReports: UnitTestSubReport[]): FileCoverageEntry[] {
+function collectFileCoverage(subReports: TestExecutionSubReport[]): FileCoverageEntry[] {
   const allFileCoverage: FileCoverageEntry[] = [];
   for (const report of subReports) {
     if (report.file_coverage) {
@@ -552,11 +552,11 @@ function avgFileCoverage(
  * Returns null if no sub-report has a mutation result.
  */
 function computeMutationResult(
-  subReports: UnitTestSubReport[],
+  subReports: TestExecutionSubReport[],
   projectRoot?: string,
 ): MutationBlock | null {
   const mutationFrameworks = subReports.filter(
-    (r): r is UnitTestSubReport & { mutation: MutationBlock } => r.mutation !== null,
+    (r): r is TestExecutionSubReport & { mutation: MutationBlock } => r.mutation !== null,
   );
   if (mutationFrameworks.length === 0) return null;
 
@@ -582,7 +582,7 @@ function computeMutationResult(
  * Each framework's weight is the number of source files tested.
  */
 function computeWeightedMutationScore(
-  mutationFrameworks: Array<UnitTestSubReport & { mutation: MutationBlock }>,
+  mutationFrameworks: Array<TestExecutionSubReport & { mutation: MutationBlock }>,
 ): { aggregatedScore: number; aggregatedThreshold: number } {
   let totalWeight = 0;
   let weightedScore = 0;
@@ -611,7 +611,7 @@ function computeWeightedMutationScore(
  * Aggregate mutation measured counts and build the by_framework map.
  */
 function aggregateMutationCounts(
-  mutationFrameworks: Array<UnitTestSubReport & { mutation: MutationBlock }>,
+  mutationFrameworks: Array<TestExecutionSubReport & { mutation: MutationBlock }>,
 ): {
   aggregatedMeasured: MutationMeasured;
   byFramework: Record<
@@ -665,7 +665,7 @@ function aggregateMutationCounts(
  */
 function applyMutationOverrides(
   result: MutationBlock,
-  subReports: UnitTestSubReport[],
+  subReports: TestExecutionSubReport[],
   projectRoot?: string,
 ): void {
   if (!projectRoot) return;
@@ -685,7 +685,7 @@ function applyMutationOverrides(
  * and computes the mutation score and pass/fail for each matched group.
  */
 function computeMutationOverrides(
-  subReports: UnitTestSubReport[],
+  subReports: TestExecutionSubReport[],
   projectRoot: string,
 ): MutationOverride[] {
   const config = readConfig(projectRoot);
@@ -728,7 +728,7 @@ function computeMutationOverrides(
   return results;
 }
 
-function collectAllSourceFiles(subReports: UnitTestSubReport[]): string[] {
+function collectAllSourceFiles(subReports: TestExecutionSubReport[]): string[] {
   const sources = new Set<string>();
   for (const report of subReports) {
     for (const f of report.source_files) {

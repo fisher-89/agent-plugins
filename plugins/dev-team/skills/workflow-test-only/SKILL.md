@@ -1,7 +1,7 @@
 ---
 name: workflow-test-only
 description: |
-  Test-only PGE workflow orchestrator — executes 6 phases for supplementing test coverage on existing code.
+  Test-only PGE workflow orchestrator.
   No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
   On code bug discovery, writes a report and asks user to continue or terminate.
 license: MIT
@@ -91,7 +91,7 @@ LOOP:
     if eval_result indicates code bugs found (verdict fail, backtrack_to null, report mentions code bugs):
       Write openspec/changes/<name>/reports/code-bugs-found.md summarizing bugs from eval report
       Notify user: tests discovered production code bugs
-      `AskUserQuestion`: continue workflow (e.g. proceed to integration-test) or terminate
+      `AskUserQuestion`: continue workflow (e.g. proceed to next phase) or terminate
       if user chooses terminate:
         STOP
       else:

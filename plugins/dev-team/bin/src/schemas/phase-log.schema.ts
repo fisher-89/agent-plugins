@@ -7,9 +7,8 @@ export const phaseIdSchema = z
     'test-design',
     'implement',
     'test-gen',
-    'unit-test',
+    'test-execution',
     'code-review',
-    'integration-test',
     'acceptance',
     'code-analyze',
   ])

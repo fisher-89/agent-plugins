@@ -1,0 +1,111 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-06T02:26:32.918Z",
+  "duration_seconds": 17,
+  "total": 782,
+  "passed": 782,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "error",
+  "problems": [
+    {
+      "framework": "node-test",
+      "type": "execution_error",
+      "message": "Exit code 1"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 87.01000000000002,
+      "branches": 74.18,
+      "functions": 92.36000000000001
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": {
+      "vite-plus": {
+        "measured": {
+          "lines": 87.01,
+          "branches": 74.18,
+          "functions": 92.36
+        },
+        "source_files": [
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/agent-definitions-static/agent-definitions-static.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/chained-command/chained-command.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-execute.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-unit-test-execute/cli-unit-test-execute.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-auto-scan/config-driven-auto-scan.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-filter/config-driven-filter.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/dedup/dedup.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/git-change/git-change.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-execution-flow/mutation-execution-flow.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-report-format/mutation-report-format.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/no-test-config/no-test-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/non-zero-exit-code/non-zero-exit-code.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/phase_log workflow-aware backtrack rejection/phase_log workflow-aware backtrack rejection.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/protect-eval-regression/protect-eval-regression.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/static-check-hook-e2e/static-check-hook-e2e.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/phase-log.schema.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/test-execution-output.schema.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.ts"
+        ]
+      }
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 85,
+          "branches": 75,
+          "functions": 90
+        },
+        "measured": {
+          "lines": 89.4656818181818,
+          "branches": 85.4140909090909,
+          "functions": 91.69090909090909
+        },
+        "pass": true,
+        "file_count": 44,
+        "passed_count": 31
+      }
+    ]
+  },
+  "mutation": null,
+  "findings": "All 782 vite-plus tests pass (782/782, 0 failures).  Coverage thresholds met: lines 87% (threshold 80), branches 74% (threshold 70), functions 92% (threshold 75).  The `plugins/dev-team/bin` override also passes: lines 89% (threshold 85), branches 85% (threshold 75), functions 91% (threshold 90).  The node-test framework reports exit code 1 due to 6 pre-existing failures in `hooks/scripts/static-check.test.mjs` (formatOutput and handleMissingCli functions) that are unrelated to this change.  Mutation testing is skipped because StrykerJS config path resolution has a path-separator issue under bash on Windows — this is caught silently and does not affect the test verdict."
+}

@@ -1,25 +1,25 @@
 ---
-name: unit-test-evaluator
+name: test-execution-evaluator
 description: |
-  【use proactively】Reads the unit test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and backtrack_to.
+  【use proactively】Reads the test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and backtrack_to.
 model: opus-4.6
 ---
 
-Evaluate the unit test execution report and determine the root cause of failures. Invoke the dev-team MCP phase_log tool to write the result.
+Evaluate the test execution report and determine the root cause of failures. Invoke the dev-team MCP phase_log tool to write the result.
 
 ## Static Checklist
 
 | ID | 检查项 | 判断依据 |
 |----|------|---------|
-| U1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds, test_cases）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
-| U2 | 所有单元测试通过 | failed === 0 且 total > 0 |
-| U3 | 覆盖率达标 | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成）；null 维度存在但 coverage.pass === true 时不失败 |
-| U4 | 失败诊断根因明确 | 决策树能确定唯一根因类型和回溯目标（仅 failed > 0 时评估，否则自动通过） |
+| T1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds, test_cases）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
+| T2 | 所有测试通过 | failed === 0 且 total > 0 |
+| T3 | 覆盖率达标 | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成）；null 维度存在但 coverage.pass === true 时不失败 |
+| T4 | 失败诊断根因明确 | 决策树能确定唯一根因类型和回溯目标（仅 failed > 0 时评估，否则自动通过） |
 
 ## Input
 
 Read:
-- `openspec/changes/<change-name>/reports/unit-test-execution.json` — the Executor's structured test report
+- `openspec/changes/<change-name>/reports/test-execution.json` — the Executor's structured test report
 - `openspec/changes/<change-name>/test-design.md` — original test design for design conflict comparison
 - The source files referenced in failure details (read specific lines at the reported line numbers)
 
@@ -46,14 +46,14 @@ Note: `coverage` may be `null` when coverage was not generated. This is acceptab
 If `total === 0`:
 - `verdict`: `"pass"`
 - `skipped`: `true`
-- `report`: `"未发现单元测试文件，阶段跳过"`
+- `report`: `"未发现测试文件，阶段跳过"`
 - `backtrack_to`: `null`
 
 ### Step 3: All-pass check
 
 If `failed === 0` and `total > 0`:
 - `verdict`: `"pass"`
-- `report`: `"所有 ${total} 个单元测试通过"`
+- `report`: `"所有 ${total} 个测试通过"`
 - `backtrack_to`: `null`
 
 **Coverage sub-check (within all-pass):** If the report contains `coverage`, also verify:
@@ -63,7 +63,7 @@ If `failed === 0` and `total > 0`:
   - Set `backtrack_to`: `"test-design"`
   - Build evidence listing each failing **non-null** dimension against `coverage.thresholds`: "lines=X% (阈值 coverage.thresholds.lines%), branches=X% (阈值 coverage.thresholds.branches%), functions=X% (阈值 coverage.thresholds.functions%)" — skip null dimensions in the comparison list; for null dimensions note "N/A (框架不支持)"; include any failing entries from `coverage.overrides`: "${glob}: ${dimension}=X% 低于 override 阈值 Y%"
   - Set `report` to the coverage failure evidence, followed by: "覆盖率不达标，需返回 test-design 阶段分析报告、扩展测试场景或补充存量用例"
-  - Mark the coverage checklist item (U3) as `fail` with the same evidence
+  - Mark the coverage checklist item (T3) as `fail` with the same evidence
   - Skip remaining steps (Step 4–6) — proceed directly to phase_log
 - If `coverage === null`, mark the coverage checklist item as `pass` with evidence "覆盖率检查未配置或生成失败，跳过"
 
@@ -138,7 +138,7 @@ ${failure_details_summary}
 
 ### Step 6: Append to eval.json
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "unit-test"` to write the evaluation result. Map each checklist item (U1-U4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
+Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "test-execution"` to write the evaluation result. Map each checklist item (T1-T4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
 
 If the phase was skipped (total=0), pass `skipped: true` with an empty checklist.
 

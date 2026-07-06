@@ -171,7 +171,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
             timestamp: '2026-06-17T10:00:00.000Z',
           }),
           makeEvalEntry({
-            phase: 'unit-test',
+            phase: 'test-execution',
             verdict: 'fail',
             timestamp: '2026-06-18T11:00:00.000Z',
           }),
@@ -187,7 +187,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
       const entry = result.changes.find((c) => c.name === 'latest-phase');
 
       expect(entry?.latest_phase).toEqual({
-        phase: 'unit-test',
+        phase: 'test-execution',
         verdict: 'fail',
       });
     } finally {

@@ -20,7 +20,7 @@ import * as path from 'path';
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import type { UnitTestSubReport } from '../schemas/unit-test-output.schema';
+import type { TestExecutionSubReport } from '../schemas/test-execution-output.schema';
 import { generateSubReport, generateSummaryReport } from './test-report';
 import type { ExecutionResult } from './test-runner';
 
@@ -75,7 +75,7 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       const sub2 = generateSubReport(
@@ -87,13 +87,13 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/bar.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       expect(summary.total).toBe(3);
@@ -116,13 +116,13 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.conclusion).toBe('fail');
     } finally {
@@ -141,13 +141,13 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.conclusion).toBe('pass');
     } finally {
@@ -167,13 +167,13 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.problems.length).toBeGreaterThan(0);
       expect(summary.problems[0].type).toBe('test_failure');
@@ -188,7 +188,7 @@ describe('generateSummaryReport -- aggregation', () => {
       const summary = generateSummaryReport(
         [],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.total).toBe(0);
       expect(summary.conclusion).toBe('pass');
@@ -213,13 +213,13 @@ describe('generateSummaryReport -- coverage', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).toBeNull();
     } finally {
@@ -243,7 +243,7 @@ describe('generateSummaryReport -- coverage', () => {
           sourceFiles: ['src/foo.ts', 'src/bar.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
 
       // Need to write coverage report manually since generateSubReport
@@ -267,7 +267,7 @@ describe('generateSummaryReport -- coverage', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -296,7 +296,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(report.framework).toBe('vitest');
       expect(report.exit_code).toBe(0);
@@ -314,7 +314,7 @@ describe('generateSubReport', () => {
     const dir = createTempDir();
     try {
       const result = makeExecutionResult();
-      const reportsDir = path.join(dir.root, 'reports', 'unit-test');
+      const reportsDir = path.join(dir.root, 'reports', 'test-execution');
 
       generateSubReport('vitest', result, dir.root, reportsDir);
 
@@ -336,7 +336,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(report.coverage).toBeNull();
     } finally {
@@ -358,7 +358,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(report.exit_code).toBe(1);
       expect(report.summary.failed).toBe(1);
@@ -380,7 +380,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(report.summary.total).toBe(0);
       expect(report.summary.passed).toBe(0);
@@ -410,7 +410,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(report.summary.total).toBe(1001);
       expect(report.summary.passed).toBe(1001);
@@ -421,8 +421,8 @@ describe('generateSubReport', () => {
   });
 });
 
-// Helper to create a minimal valid UnitTestSubReport
-function createSubReport(overrides: Partial<UnitTestSubReport> = {}): UnitTestSubReport {
+// Helper to create a minimal valid TestExecutionSubReport
+function createSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestExecutionSubReport {
   return {
     framework: 'vitest',
     timestamp: '2026-07-01T00:00:00.000Z',
@@ -464,7 +464,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -493,7 +493,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(false);
@@ -522,7 +522,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -551,7 +551,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -580,7 +580,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -613,7 +613,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
         const summary = generateSummaryReport(
           [subReport],
           dir.root,
-          path.join(dir.root, 'reports', 'unit-test'),
+          path.join(dir.root, 'reports', 'test-execution'),
         );
         // 即使 thresholds 为 undefined，仍能正常生成报告
         expect(summary.coverage).not.toBeNull();
@@ -664,7 +664,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       // 加权平均: (90*1 + 80*1) / (1+1) = 85
@@ -695,7 +695,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.measured.branches).toBeNull();
@@ -725,7 +725,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.measured.lines).toBeNull();
@@ -769,7 +769,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
       // 等权平均: (90 + 80) / 2 = 85
@@ -801,7 +801,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       // source_files 为空时该框架不参与加权
       // coverage 仍存在但 measured 各维度为 null（因无有效权重）
@@ -832,7 +832,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.conclusion).toBe('fail');
       expect(summary.problems.length).toBeGreaterThan(0);
@@ -847,7 +847,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
       const summary = generateSummaryReport(
         [],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.conclusion).toBe('pass');
       expect(summary.total).toBe(0);
@@ -864,7 +864,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary).not.toHaveProperty('test_cases');
       expect(summary).not.toHaveProperty('test_files');
@@ -880,7 +880,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).toBeNull();
     } finally {
@@ -898,7 +898,7 @@ describe('generateSummaryReport -- 幂等性', () => {
     const dir = createTempDir();
     try {
       const subReport = createSubReport();
-      const reportsDir = path.join(dir.root, 'reports', 'unit-test');
+      const reportsDir = path.join(dir.root, 'reports', 'test-execution');
 
       const first = generateSummaryReport([subReport], dir.root, reportsDir);
       const second = generateSummaryReport([subReport], dir.root, reportsDir);
@@ -923,7 +923,7 @@ describe('generateSubReport -- 幂等性', () => {
         sourceFiles: ['src/foo.ts'],
         testFiles: ['src/foo.test.ts'],
       });
-      const reportsDir = path.join(dir.root, 'reports', 'unit-test');
+      const reportsDir = path.join(dir.root, 'reports', 'test-execution');
 
       const first = generateSubReport('vitest', result, dir.root, reportsDir);
       const second = generateSubReport('vitest', result, dir.root, reportsDir);
@@ -988,7 +988,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(sub.mutation).not.toBeNull();
       expect(sub.mutation!.score).toBe(85.5);
@@ -1044,7 +1044,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(sub.mutation!.pass).toBe(true);
       expect(sub.mutation!.score).toBe(80);
@@ -1097,7 +1097,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(sub.mutation!.pass).toBe(false);
     } finally {
@@ -1112,7 +1112,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         'vitest',
         makeExecutionResult({ mutation: null }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(sub.mutation).toBeNull();
     } finally {
@@ -1127,12 +1127,12 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         'vitest',
         makeExecutionResult({ mutation: null }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.mutation).toBeNull();
     } finally {
@@ -1183,12 +1183,12 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.conclusion).toBe('fail');
     } finally {
@@ -1241,7 +1241,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         'vitest',
         execResult,
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       // Verify mutation data is preserved in sub-report
       expect(sub.mutation).not.toBeNull();
@@ -1251,7 +1251,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       // Verify all test cases passed
       expect(summary.failed).toBe(0);
@@ -1331,7 +1331,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       // overrides 应存在
       expect(summary.mutation!.overrides).toBeDefined();
@@ -1435,7 +1435,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       // 加权平均: (90*2 + 60*1) / (2+1) = 240/3 = 80
       expect(summary.mutation!.score).toBeCloseTo(80, 5);
@@ -1511,7 +1511,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       // 当前 computeMutationOverrides 实现中 score = threshold（placeholder）
       // 所以 override pass=true，总体 pass 取决于聚合 pass
@@ -1610,7 +1610,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'unit-test'),
+        path.join(dir.root, 'reports', 'test-execution'),
       );
       // source_files 为空的框架不参与加权，因此只有 vitest 的 90 分
       // 加权平均 = 90

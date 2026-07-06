@@ -1,0 +1,25 @@
+{
+  "phase": "06-unit-test",
+  "command": "dev-team unit-test",
+  "timestamp": "2026-07-06T02:10:27.292Z",
+  "duration_seconds": 0,
+  "total": 0,
+  "passed": 0,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "error",
+  "problems": [
+    {
+      "framework": "vite-plus",
+      "type": "execution_error",
+      "message": "Exit code 1"
+    },
+    {
+      "framework": "node-test",
+      "type": "execution_error",
+      "message": "Exit code 1"
+    }
+  ],
+  "coverage": null,
+  "mutation": null
+}

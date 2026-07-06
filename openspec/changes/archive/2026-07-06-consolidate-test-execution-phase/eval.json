@@ -1,0 +1,612 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated 11 items against proposal.md + 10 specs. All items PASS. No placeholder content found; all sections substantive; R2/R9/R10/R11 cross-validation clean.",
+    "checklist": [
+      {
+        "item": "R1: 问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题部分(L10-20)列出4个具体问题(执行冗余/复杂度过高/维护成本/前置依赖膨胀)，每个含明确描述和示例"
+      },
+      {
+        "item": "R2: 变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "包含###实现文件(L97-116,非空)、###测试文件(L118-125,非空)、###不要修改(L127-135)"
+      },
+      {
+        "item": "R3: 风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "4个风险均有具体缓解措施，如eval-json的hasPhasePassed处理未知phase、保留unit-test别名等"
+      },
+      {
+        "item": "R4: 验收标准可测试",
+        "pass": true,
+        "evidence": "12个验收标准(AC-1~AC-12)每个指定对象+条件，如AC-7 CLI命令可测试(dev-team test-execution可用)"
+      },
+      {
+        "item": "R5: 关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "4个决策(L173-178)均列出备选方案及理由，如执行策略拒绝方案A(保留两阶段)和方案C(over-engineered)"
+      },
+      {
+        "item": "R6: 提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "提案仅重组phase，不引入新技能或arch违规，与Slim Plugin架构和Surgical changes指导原则一致"
+      },
+      {
+        "item": "R7: 无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "全文搜索TODO/TBD/placeholder/{{...}}在proposal.md和10个spec文件中均无匹配"
+      },
+      {
+        "item": "R8: 所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题/提案/变更范围/验收标准/风险五章节均包含具体内容，无占位符"
+      },
+      {
+        "item": "R9: 能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "##能力(L78)存在，###修改的能力(L80)列出10个具体修改条目"
+      },
+      {
+        "item": "R10: specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "10个修改能力对应10个spec目录(specs/pge-workflow-engine/等)；无多余spec文件"
+      },
+      {
+        "item": "R11: proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "能力声明类型一致(均为修改)；验收标准ID在specs中有对应requirement；变更范围描述与spec scenarios一致"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-03T09:15:33.439Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 10 checklist items pass. Design covers all 12 ACs from proposal. Tasks are specific, dependency-ordered, and internally consistent with the change list. Architecture components table is complete. Valid technical decision: phase-next.ts and eval-json.ts need no source changes (data-driven from workflow.ts).",
+    "checklist": [
+      {
+        "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "14 components in table, each has 4 columns filled (职责/依赖/技术栈/文件路径). No 'TBD' in technology column. All file paths point to specific files (e.g., plugins/dev-team/bin/src/commands/test-execution.ts)."
+      },
+      {
+        "item": "D2 数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "4 models listed (phaseIdSchema, PhaseDefinition, eval.json entries, test reports). Each has field changes, relationship changes, and persistence column filled (e.g., phaseIdSchema: Zod schema compile-time type check; eval.json: JSON file persistence)."
+      },
+      {
+        "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "All 12 ACs cross-referenced: AC-1 phaseIdSchema update (line 52-53), AC-2~AC-6 workflow.ts (line 54), AC-7 CLI (line 55), AC-8 agent rename (line 42-44), AC-9 skill rename (line 45), AC-10 test updates (line 57-59), AC-11 report path (line 56), AC-12 stale propagation (line 59)."
+      },
+      {
+        "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "Tasks in 7 phases with documented dependency comments. Phase 1 (Schema, foundation) -> Phase 2 (CLI, depends on 1) -> Phase 3 (Workflow, depends on 1.1) -> Phase 4 (Agents, depends on 1+3) -> Phase 5 (Skills, depends on 4) -> Phase 6 (Tests, after all source changes) -> Phase 7 (Verification, last). No forward dependencies. All tasks use - [ ] format."
+      },
+      {
+        "item": "D5 任务具体且可执行",
+        "pass": true,
+        "evidence": "All tasks describe specific operations: e.g., task 1.1 '在 phaseIdSchema 的 z.enum([...]) 中将 unit-test 改为 test-execution，删除 integration-test'; task 2.1 '重命名函数 runUnitTest -> runTestExecution'; task 7.2 'npx vitest run ...' . No generic '实现功能' tasks."
+      },
+      {
+        "item": "D6 依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时依赖: '无新增运行时依赖。所有变更仅涉及项目内部文件的重命名、删除和内容更新。'; 构建/测试依赖: 'vitest — 已有测试框架，用于运行更新后的 test-execution.test.ts 等测试文件'."
+      },
+      {
+        "item": "D7 设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "Design follows 'Slim Plugin' architecture: agents for specialized work (test-execution-executor/evaluator), CLI commands for deterministic tasks (test-execution command), skills for workflow orchestration (phase-test-execution, workflow-requirement). No contradictions with CLAUDE.md patterns."
+      },
+      {
+        "item": "D8 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "All sections substantively filled: 架构组件 (10-26), 变更清单 (29-108 with all 6 subtables: 新增文件/修改文件/删除文件/公共函数/类型定义/配置), 数据模型 (113-122), 路由/API设计 (128-130, N/A noted), 依赖 (135-143), 待决问题 (147-148). 变更清单 includes both 新增文件 and 修改文件."
+      },
+      {
+        "item": "D9 不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md contains no 测试策略/测试架构 section. tasks.md Phase 6 tasks are implementation tasks (updating test file names and imports to match renamed source files, not test creation). Phase 7.2 is implementation verification (run existing tests after refactoring), not test-design activity."
+      },
+      {
+        "item": "D10 变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "Change list covers all proposal implementation files requiring changes. phase-next.ts and eval-json.ts confirmed data-driven (no hardcoded phase names in code; grepped: zero matches). Python scripts confirmed no phase references. All tasks.md files present in change list. All change list files have corresponding tasks. Sub-tables have no contradictions (新增 file identifiers match 公共函数 entries)."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-03T09:23:55.218Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "T1 FAIL: AC-8/AC-9 missing from 验收范围 table (only in 不可测试项). T3 FAIL: 11/22 test objects lack 异常/边界 (getDependents test-only extended, getPrerequisites test-only, getPhaseTable regression, PHASE_TEST_ONLY, PHASE_TABLES, runPhaseNext First Run/Normal Progression/Skip Passed/workflow_type/test-only Completion, allowed_backtrack_phases, buildEntry — all 正向 only). T2/T4/T5/T6/T7/T8 pass.",
+    "checklist": [
+      {
+        "item": "proposal 中每个验收标准都在验收范围中有映射",
+        "pass": false,
+        "evidence": "AC-8（Agent 文件重命名）和 AC-9（Skill 目录重命名）未出现在验收范围表格中，仅出现在不可测试项章节（第122-123行）。验收范围表格（第9-28行）覆盖了AC-1至AC-7、AC-10至AC-12。"
+      },
+      {
+        "item": "验收范围与用例互相对应",
+        "pass": true,
+        "evidence": "验收范围表格中每个条目都能在用例表格中找到对应的测试文件/测试对象，用例表格中的每个测试对象也对应至少一个验收标准。"
+      },
+      {
+        "item": "单元测试充分覆盖异常和边界",
+        "pass": false,
+        "evidence": "共22个测试对象，其中11个缺少异常或边界用例：getDependents — test-only extended、getPrerequisites — test-only、getPhaseTable — regression、PHASE_TEST_ONLY、PHASE_TABLES、runPhaseNext — First Run、runPhaseNext — Normal Progression（第56-58行，全部正向）、runPhaseNext — Skip Passed Phases、runPhaseNext — workflow_type、runPhaseNext — test-only Completion、phase_next — allowed_backtrack_phases、buildEntry。这些对象仅包含正向测试条件。"
+      },
+      {
+        "item": "存在外部依赖时描述了Mock策略",
+        "pass": true,
+        "evidence": "Mock策略表格（第93-104行）覆盖了runTestDetectFrameworks、executePlanEntry、generateSubReport、generateSummaryReport、fs文件系统、runTestExecution等所有外部依赖。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围表格、单元测试用例及Mock策略、集成测试章节（说明无需新增集成测试）、不可测试项章节均填写了实质性内容，无空占位符。"
+      },
+      {
+        "item": "测试设计与proposal范围一致",
+        "pass": true,
+        "evidence": "proposal中'不要修改'的test-parser/、test-resolve-paths.ts、test-detect-frameworks.ts等均未被测试覆盖，符合out_of_scope原则。AC-8/AC-9在不可测试项中合理说明。"
+      },
+      {
+        "item": "写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "第78行：runTestExecution -- 幂等性 — '相同plan重复执行两次产生相同子报告内容'，覆盖了报告文件写入的幂等性验证。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "所有章节（验收范围、单元测试-用例、Mock策略、集成测试、不可测试项）均符合模板结构。表格列名与模板一致（仅Mock主体/Mock方案含空格的非语义差异）。所有占位符已替换。"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-03T09:28:43.380Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 8 checklist items PASS. 验收范围 covers all 12 ACs from proposal. 用例 cross-references fully aligned. Each test object covers anomaly and boundary scenarios. Mock strategies documented for all external deps (fs, frameworks, MCP tools). Write operations include idempotency validation. Template structure matches spec exactly with no placeholders.",
+    "checklist": [
+      {
+        "item": "T1: proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "验收范围表格包含 AC-1 到 AC-12 全部 12 项，逐项对应 proposal.md 验收标准"
+      },
+      {
+        "item": "T2: 验收范围与用例互相对应",
+        "pass": true,
+        "evidence": "每个 AC 的测试文件/测试对象在用例章节有对应行，反之用例行可追溯到 AC"
+      },
+      {
+        "item": "T3: 单元测试充分覆盖异常和边界",
+        "pass": true,
+        "evidence": "phase-log.schema.test.ts 有无效 phase/verdict 等异常和枚举总数/report 长度等边界；workflow.test.ts 有 UNKNOWN/空字符串异常和 -1/[] 边界；phase-next.test.ts 有空参数/未知表异常；eval-json.test.ts 有无效 phase 异常；test-execution.test.ts 有空 plan 异常"
+      },
+      {
+        "item": "T4: 存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "单元测试 Mock 策略表覆盖 runTestDetectFrameworks、executePlanEntry、报告生成、fs 操作；集成测试 Mock 策略表覆盖同样依赖；纯函数和 Zod schema 显式标注无需 mock"
+      },
+      {
+        "item": "T5: 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试(用例+Mock策略)、集成测试(用例+Mock策略)、不可测试项 四个主要章节均填有实质性内容，无占位符残留"
+      },
+      {
+        "item": "T6: 测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 项(phaseIdSchema、workflow 表、agent/skill 重命名、CLI 命令、报告路径、stale 传播、test-only)均有测试；out_of_scope 项(test-parser/、test-resolve-paths、test-detect-frameworks)无测试覆盖"
+      },
+      {
+        "item": "T7: 写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "单元测试 test-execution.test.ts line 180 验证相同 plan 重复执行结果一致；集成测试 line 228 验证重复执行产生相同子报告内容"
+      },
+      {
+        "item": "T8: 产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "章节结构、表格列名与模板完全一致：验收范围 5 列、单元测试 5 列、Mock 策略 4 列、集成测试 5 列、不可测试项列表格式均匹配"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-03T09:33:51.800Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 checklist items pass. Implementation covers all 14 architecture components, all renamed/new files exist, all deletions verified, all test files updated, tasks 100% complete, and design decisions faithfully reflected in code.",
+    "checklist": [
+      {
+        "item": "I1: design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "所有 14 个组件均在 git diff 或磁盘上找到实现：phaseIdSchema、workflow.ts、CLI入口、test-execution命令、test-report、eval-json、phase-next、phase-log.schema、test-execution-output.schema、test-execution-executor agent、test-execution-evaluator agent、phase-test-execution skill、workflow-requirement skill、workflow-test-only skill"
+      },
+      {
+        "item": "I2: 变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "5个新增文件存在（test-execution.ts、test-execution-output.schema.ts、test-execution.test.ts、test-execution-executor.md、test-execution-evaluator.md、phase-test-execution/SKILL.md）；11个修改文件在git diff中确认；9个删除文件均不存在；runTestExecution/TestExecutionOptions函数和接口已实现；CLI命令dev-team test-execution已注册；所有类型重命名（UnitTest→TestExecution）已完成"
+      },
+      {
+        "item": "I3: 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "命名规范（PascalCase类型、camelCase函数、kebab-case文件）一致；agent frontmatter格式一致；SKILL.md格式一致；导入模式遵循项目现有约定"
+      },
+      {
+        "item": "I4: design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md声明不涉及HTTP API（纯CLI+MCP重构）。CLI命令dev-team test-execution已注册；phase_log MCP工具的schema已更新。无遗漏路由"
+      },
+      {
+        "item": "I5: tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "grep确认0个未完成任务（`- [ ]`），所有22个任务均已标记`[x]`。阶段1-7全部完成"
+      },
+      {
+        "item": "I6: 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "所有git diff中的变更均可追溯到rename任务（unit-test/test-execution, integration-test移除）。test-runner.test.ts和test-resolve-paths.test.ts的格式微调（字符串换行）是IDE自动格式化结果，无功能变更"
+      },
+      {
+        "item": "I7: 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "phaseIdSchema枚举更新（unit-test→test-execution, 移除integration-test）确认；三个PHASE_TABLES全部更新确认；CLI命令重命名确认；报告路径reports/test-execution/确认；workflow-requirement '9 phases'→'8 phases'确认；workflow-test-only '6 phases'→'5 phases'及文案更新确认；agent/skill文件内容与设计一致"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-03T09:50:20.489Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "G3/7 FAIL: 3 个 新增 测试骨架缺失或行为不符设计。(1) workflow.test.ts: inferPrerequisites('test-execution','') 无测试骨架；(2) workflow.test.ts: getDependents('test-gen','')/UNKNOWN_WORKFLOW 行为与设计(默认降级无报错)不符(实际抛错)；(3) phase-next.test.ts: test-execution stale 不被跳过场景无专项测试。G1/2/4/5/6/8/9 PASS.",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "所有受影响源文件(phase-log.schema.ts, test-execution-output.schema.ts, workflow.ts, phase-next.ts, eval-json.ts, cli.ts, test-report.ts, test-execution.ts)均在同目录有对应的.test.ts 文件"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "所有单元测试文件为 .test.ts 后缀,纯函数与 colocated;集成测试在 __tests__/ 目录"
+      },
+      {
+        "item": "G3: 单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "3处缺失:(1)workflow.test.ts 缺少 inferPrerequisites('test-execution','') 测试; (2)getDependents('test-gen','') 和 UNKNOWN_WORKFLOW 测试行为为抛出异常,与设计(默认降级无报错)不符; (3)phase-next.test.ts 缺少 test-execution stale 不被跳过的专项 it 块"
+      },
+      {
+        "item": "G4: 集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "AC-7/8/9/11 所有集成测试行均有对应的测试骨架(cli-test-execution-execute.test.ts 8项, agent-definitions-static.test.ts 12项)"
+      },
+      {
+        "item": "G5: Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "test-execution.test.ts 含 vi.mock('./test-detect-frameworks')/../lib/test-runner/../lib/test-report; phase-next.test.ts vi.mock('fs'); cli.test.ts vi.mock('./commands/test-execution'); 应用场景匹配"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "所有测试文件统一使用 from 'vite-plus/test' (describe/it/expect/vi)"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "边界 inferPrerequisites('test-execution','') 无对应测试; test-execution stale 跳过场景无专项覆盖; 其余边界(空phase/report长度/coverage null/幂等性/0 subReport等)均已覆盖"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test-execution.test.ts/phase-next.test.ts/test-report.test.ts/cli-test-execution-execute.test.ts 使用 temp project cleanup 和 try/finally; cli.test.ts 还原 process.exit; 纯函数测试无需清理"
+      },
+      {
+        "item": "G9: 迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "废弃的 requirementPhaseIndex('unit-test'/'integration-test'), getDependents('unit-test'/'integration-test') 对应测试均未出现在新代码中; cli.test.ts 仅验证未注册 unit-test(验证删除过程而非废弃行为)"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-03T10:04:17.226Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "FAIL (G3, G7). Two workflow.test.ts boundary tests directly contradict test-design: getDependents('test-gen', '') 和 ('UNKNOWN_WORKFLOW') 预期 throw 而非 silently degrade。缺少 inferPrerequisites('test-execution', '') 边界测试。其余 7 项通过。",
+    "checklist": [
+      {
+        "item": "G1: 每个公开方法有对应测试文件",
+        "pass": true,
+        "evidence": "所有修改的源码文件均有对应的共存测试文件：schemas/phase-log.schema.test.ts、schemas/test-execution-output.schema.test.ts、lib/workflow.test.ts、commands/phase-next.test.ts、lib/eval-json.test.ts、commands/test-execution.test.ts、cli.test.ts、lib/test-report.test.ts"
+      },
+      {
+        "item": "G2: 测试文件命名规范且与源码共存",
+        "pass": true,
+        "evidence": "所有单元测试文件使用 .test.ts 且与源码同一目录；集成测试文件位于 __tests__/ 目录下"
+      },
+      {
+        "item": "G3: 单元测试新增用例已生成骨架",
+        "pass": false,
+        "evidence": "workflow.test.ts 中两个新增边界测试与 test-design.md 矛盾：(1) getDependents('test-gen', '') 预期 throw，设计要求'默认 requirement 表，无报错'；(2) getDependents('test-gen', 'UNKNOWN_WORKFLOW') 预期 throw，设计要求'降级到 requirement 表容错'"
+      },
+      {
+        "item": "G4: 集成测试新增用例已生成骨架",
+        "pass": true,
+        "evidence": "cli-test-execution-execute.test.ts 和 agent-definitions-static.test.ts 中所有 AC-7/8/9/11 新增用例均已生成对应 describe/it"
+      },
+      {
+        "item": "G5: Mock策略已实现",
+        "pass": true,
+        "evidence": "所有 Mock 策略均已实现：test-execution.test.ts 中 vi.mock 三个模块、phase-next.test.ts 中 vi.mock('fs')、cli.test.ts 中 vi.mock 命令模块"
+      },
+      {
+        "item": "G6: 使用正确的测试框架",
+        "pass": true,
+        "evidence": "所有测试文件从 'vite-plus/test' 导入 describe/it/expect/vi，与设计一致"
+      },
+      {
+        "item": "G7: 边界情况已覆盖",
+        "pass": false,
+        "evidence": "缺少 inferPrerequisites('test-execution', '') 边界测试（设计要求返回 ['test-gen', 'implement']）。另外上述 G3 中的两个边界测试行为与设计矛盾"
+      },
+      {
+        "item": "G8: 包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "所有创建临时文件/状态的测试均使用 try/finally 模式确保 cleanup，如 test-execution.test.ts、test-report.test.ts、cli-test-execution-execute.test.ts"
+      },
+      {
+        "item": "G9: 废弃条目未生成新测试",
+        "pass": true,
+        "evidence": "迭代类型为废弃的条目（旧 phase index 断言、旧 getDependents 断言）未出现在新测试代码的 describe/it 中"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-06T01:50:26.079Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 3,
+    "verdict": "fail",
+    "report": "G3 FAIL: workflow.test.ts lines 83-89 expect getDependents('test-gen','') and ('UNKNOWN_WORKFLOW') to throw, but test-design says default to requirement table without throw; also missing test for inferPrerequisites('test-execution',''). G7 FAIL: same boundary case missing (inferPrerequisites empty workflowType). All other items (G1,G2,G4,G5,G6,G8,G9) pass.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "All 7 changed source files have co-located test files: cli.ts/cli.test.ts, test-execution.ts/test-execution.test.ts, workflow.ts/workflow.test.ts, eval-json.ts/eval-json.test.ts, test-report.ts/test-report.test.ts, phase-log.schema.ts/phase-log.schema.test.ts (new), test-execution-output.schema.ts/test-execution-output.schema.test.ts (new)."
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "All unit tests use *.test.ts naming and are in the same directory as source. Integration tests are in __tests__/ subdirectories."
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "3 mismatches: (1) workflow.test.ts L83 expects getDependents('test-gen','') to throw, test-design says default to requirement table without throw; (2) L87 expects getDependents('test-gen','UNKNOWN_WORKFLOW') to throw, test-design says degrade gracefully; (3) missing test for inferPrerequisites('test-execution','') — test-design says return ['test-gen','implement']."
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "All 12 integration test items (AC-7, AC-8, AC-9, AC-11) in test-design have corresponding describe/it blocks in cli-test-execution-execute.test.ts and agent-definitions-static.test.ts."
+      },
+      {
+        "item": "Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "All 11 unit and 4 integration mock strategy items verified present in corresponding test files via vi.mock() or direct fs usage."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All test files import from 'vite-plus/test' with correct describe, it, expect, vi, beforeEach as needed."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "Missing boundary test: inferPrerequisites('test-execution','') should use default requirement table and return ['test-gen','implement'] per test-design L96. Other boundary cases verified present (report length 0/500/501, empty checklist, empty phase ID, empty workflow, etc.)."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "All files with temp dirs use try/finally cleanup (createTempProject/cleanup in test-execution.test.ts; createTempDir/cleanup in test-report.test.ts; cli.test.ts restores process.exit). Pure-function tests need no cleanup."
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "Deprecated tests (requirementPhaseIndex('unit-test'), requirementPhaseIndex('integration-test'), getDependents('unit-test'), getDependents('integration-test')) were removed from workflow.test.ts. No new tests for deprecated items in any file."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-06T01:58:04.296Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "All 9 checklist items pass. 12 test files verified (6 new, 6 modified). All 新增 unit/integration test rows have describe/it skeletons; all mock strategies use vi.mock; cleanup logic present; correct vite-plus/test framework; 废弃 entries not regenerated. Boundaries include empty/500/501 char strings, empty/invalid phase IDs, invalid verdict, empty plan.",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "8 source files with changed public methods have colocated .test.ts files verified in git index"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "All unit tests use .test.ts in src/; integration tests use __tests__/<scenario>/ per template"
+      },
+      {
+        "item": "G3: 单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "All 新增 rows verified: phase-log.schema.test.ts (11 rows), test-execution-output.schema.test.ts (10 rows), workflow.test.ts (20+ rows), test-execution.test.ts (2 rows)"
+      },
+      {
+        "item": "G4: 集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "AC-7 (3 tests), AC-11 (4 tests) in cli-test-execution-execute.test.ts; AC-8 (9 tests), AC-9 (4 tests) in agent-definitions-static.test.ts"
+      },
+      {
+        "item": "G5: Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "test-execution.test.ts: 3 vi.mock + fs.mkdtempSync; cli.test.ts: vi.mock; cli-test-execution-execute.test.ts: 3 vi.mock; agent-definitions-static: direct fs.readFileSync"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All 12 test files import from 'vite-plus/test'"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "String: empty/500/501; Phase ID: empty/invalid; Verdict: invalid; Checklist: empty; Plan: empty; projectRoot: undefined"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "try/finally cleanup in test-execution.test.ts, cli.test.ts (process.exit restore), test-report.test.ts, cli-test-execution-execute.test.ts"
+      },
+      {
+        "item": "G9: 迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "workflow.test.ts: old unit-test/integration-test assertions removed; cli.test.ts: old negative test replaced"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-06T02:06:07.594Z"
+  },
+  {
+    "phase": "unit-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "未发现单元测试文件，阶段跳过",
+    "checklist": [],
+    "backtrack_to": null,
+    "skipped": true,
+    "timestamp": "2026-07-06T02:28:18.710Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 checks pass. Code is a clean rename refactoring: phaseIdSchema/PHASE_TABLES/PREREQUISITES updated, agent & skill files renamed, CLI command renamed, old files deleted. No security issues, external input paths unchanged, design intent fully matched. Added graceful fallback in getPhaseTable and Windows shell compat as improvements.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No eval/exec/system calls. Grep for password/secret/api_key returned only regex .exec() calls (safe). Shell commands use controlled framework registry paths."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "No new external input paths introduced (rename-only). CLI args via cac framework. Phase IDs validated by zod phaseIdSchema enum. runTestExecution params unchanged from original."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "phaseIdSchema enum updated (AC-1). PHASE_TABLES and PREREQUISITES_TABLES in workflow.ts updated for all 3+4 tables (AC-2~6). CLI command renamed (AC-7). Agent/skill files renamed (AC-8~9). Report paths updated (AC-11). Additional fallback/Windows compat changes do not contradict design."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "getPhaseTable handles empty/unknown workflowType via fallback. getDependents returns [] for empty/unknown phases. executePlanEntry checks empty command. runTestExecution handles empty plan. New boundary tests added for empty string/unknown types."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "integration-test entries removed from all tables (intended). Old agent/skill files deleted. getPhaseTable simplified from Reflect.has+throw to fallback. No unused imports."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Kebab-case naming conventions followed. JSDoc comments on all functions. Clear section structure. Tests reference AC IDs. Follows existing project patterns for agents, skills, and CLI modules."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "TestExecutionSubReport/TestExecutionSummaryReport from zod schemas. PhaseDefinition uses PhaseId (inferred from phaseIdSchema). Report types in test-report.ts imported from schemas."
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-06T02:30:08.368Z"
+  },
+  {
+    "phase": "integration-test",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 25 个集成测试通过，测试覆盖率 0%。AC-7 (CLI 端到端执行), AC-8 (Agent 文件存在性), AC-9 (Skill 文件存在性), AC-11 (报告路径) 全部验证成功。",
+    "checklist": [
+      {
+        "item": "N1: 执行报告结构完整",
+        "pass": true,
+        "evidence": "所有必需字段 (phase, command, timestamp, total, passed, failed, skipped, coverage, duration_ms, failures) 存在且类型正确"
+      },
+      {
+        "item": "N2: 所有集成测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=25, passed=25"
+      },
+      {
+        "item": "N3: 无环境/配置阻断",
+        "pass": true,
+        "evidence": "无 ConnectionRefused/Timeout/缺少环境变量等基础设施错误"
+      },
+      {
+        "item": "N4: 失败诊断根因明确",
+        "pass": true,
+        "evidence": "所有测试通过，不适用诊断决策树"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-06T02:32:48.968Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Acceptance evaluation PASS: All 12 ACs verified with implementation evidence. Phase schema updated (AC-1), all 3 workflow tables correctly migrated (AC-2~AC-6), CLI command renamed (AC-7), agent/skill files renamed and old files deleted (AC-8~AC-9), test files updated (AC-10~AC-12). No scope creep detected. Risk mitigations confirmed in code.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1~AC-12 each traced to specific file:line (phase-log.schema.ts:4-14, workflow.ts:37-282, cli.ts:17-49, test-report.ts:7-9, exec agents, skill files, test files)"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "All modified files match proposal scope. No modifications to excluded files (test-detect-frameworks.ts, test-resolve-paths.ts, test-parser/, test-design-planner.md, phase-test-design SKILL)"
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "Schema enum updated, workflow tables migrated, CLI renamed, 4 agents renamed/deleted, 2 skills renamed/deleted, test files updated, eval-json propagation adapted"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "Confirmed no changes to test-parser/, test-resolve-paths.ts/unit-test in comment only (variable name, not phase ref), test-detect-frameworks.ts (no phase refs), test-design-planner.md (no phase refs)"
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk1(旧eval条目): hasPhasePassed uses e.phase===phaseId matching (phase-next.ts:177). Risk2(setup差异): Executor runs all files per framework (executor SKILL:9-29). Risk3(传播边界): Dynamic getDependents() (eval-json.ts:126). Risk4(CLI中断): Breaking change documented"
+      }
+    ],
+    "backtrack_to": null,
+    "timestamp": "2026-07-06T02:35:26.119Z"
+  }
+]

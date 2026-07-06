@@ -65,7 +65,7 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
     expect(() =>
       runPhaseLog({
         change: 'test-change',
-        phase: 'unit-test',
+        phase: 'test-execution',
         report: 'bugs found',
         checklist: FAILED_ITEMS,
         backtrack_to: 'implement',
@@ -77,7 +77,7 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
 
     runPhaseLog({
       change: 'test-change',
-      phase: 'unit-test',
+      phase: 'test-execution',
       report: 'bugs found, adaptive retry',
       checklist: FAILED_ITEMS,
       backtrack_to: null,
@@ -86,7 +86,7 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
     expect(mockEntries).toHaveLength(1);
     expect(appendEntry).toHaveBeenCalledTimes(1);
     expect(mockEntries[0]).toMatchObject({
-      phase: 'unit-test',
+      phase: 'test-execution',
       verdict: 'fail',
       backtrack_to: null,
     });
