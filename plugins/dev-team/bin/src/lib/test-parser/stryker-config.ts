@@ -22,47 +22,16 @@ export interface StrykerConfigResult {
 }
 
 // ---------------------------------------------------------------------------
-// Existing config detection
-// ---------------------------------------------------------------------------
-
-const STRYKER_CONFIG_FILES = [
-  'stryker.config.json',
-  'stryker.config.mjs',
-  'stryker.config.cjs',
-  'stryker.config.js',
-];
-
-/**
- * Check if a StrykerJS configuration file already exists in the project root.
- *
- * Searches for stryker.config.json, stryker.config.mjs, stryker.config.cjs,
- * and stryker.config.js. Returns the first match found, or null.
- */
-function findExistingConfig(projectRoot: string): string | null {
-  for (const configFile of STRYKER_CONFIG_FILES) {
-    const fullPath = path.resolve(projectRoot, configFile);
-    if (fs.existsSync(fullPath)) {
-      return fullPath;
-    }
-  }
-  return null;
-}
-
-// ---------------------------------------------------------------------------
 // Temporary config generation
 // ---------------------------------------------------------------------------
-function generateTempConfig(
-  projectRoot: string,
-  sourceFiles: string[],
-  testRunner: string,
-): string {
+function generateTempConfig(rootPath: string, sourceFiles: string[], testRunner: string): string {
   const randomSuffix = crypto.randomBytes(4).toString('hex');
   const configFileName = `stryker.config.${randomSuffix}.json`;
-  const configPath = path.resolve(projectRoot, configFileName);
+  const configPath = path.resolve(rootPath, configFileName);
 
   // Normalize source file paths to forward-slash, relative to project root
   const normalizedSources = sourceFiles.map((f) =>
-    f.replace(/\\/g, '/').replace(path.resolve(projectRoot).replace(/\\/g, '/') + '/', ''),
+    f.replace(/\\/g, '/').replace(path.resolve(rootPath).replace(/\\/g, '/') + '/', ''),
   );
 
   const config = {
@@ -111,22 +80,12 @@ function generateTempConfig(
 export function resolveStrykerConfig(
   rootPath: string,
   sourceFiles: string[],
-  testFiles: string[],
   framework: string,
 ): StrykerConfigResult {
-  // Check for existing config first
-  const existingConfig = findExistingConfig(rootPath);
-  if (existingConfig) {
-    return { configPath: existingConfig, cleanup: false };
-  }
-
   // Determine the test runner plugin
   const testRunner = resolveTestRunner(framework);
 
-  // Merge sourceFiles and derived source paths from testFiles
-  const allSources = [...new Set([...sourceFiles, ...deriveSourcesFromTestFiles(testFiles)])];
-
-  const configPath = generateTempConfig(rootPath, allSources, testRunner);
+  const configPath = generateTempConfig(rootPath, sourceFiles, testRunner);
   return { configPath, cleanup: true };
 }
 
@@ -167,24 +126,4 @@ function resolvePluginPackage(testRunner: string): string {
     vitest: '@stryker-mutator/vitest-runner',
   };
   return pluginMap[testRunner] ?? `@stryker-mutator/${testRunner}`;
-}
-
-/**
- * Derive source file paths from test file paths.
- *
- * Conventions:
- *   - .test.ts -> .ts
- *   - .spec.ts -> .ts
- *   - etc.
- */
-function deriveSourcesFromTestFiles(testFiles: string[]): string[] {
-  const sources = new Set<string>();
-  for (const tf of testFiles) {
-    const posix = tf.replace(/\\/g, '/');
-    const src = posix.replace(/\.test\./g, '.').replace(/\.spec\./g, '.');
-    if (src !== posix) {
-      sources.add(src);
-    }
-  }
-  return Array.from(sources);
 }

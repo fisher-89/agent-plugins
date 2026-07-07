@@ -252,13 +252,11 @@ function runMutationPhase(
     return null;
   }
 
-  const execCwd = resolveExecCwd(entry, projectRoot);
-
+  const absoluteDirectory = path.resolve(projectRoot, entry.directory);
   try {
     const { configPath, cleanup } = resolveStrykerConfig(
-      path.resolve(projectRoot, entry.directory),
+      absoluteDirectory,
       sourceFiles,
-      [],
       entry.framework,
     );
 
@@ -267,11 +265,11 @@ function runMutationPhase(
     // Normalize configPath to forward slashes to avoid backslash escape issues in shell
     const normalizedConfigPath = configPath.replace(/\\/g, '/');
     const strykerCmd = `npx stryker run "${normalizedConfigPath}"`;
-    runCommand(strykerCmd, execCwd, 300000);
+    runCommand(strykerCmd, absoluteDirectory, 300000);
 
-    const mutationBlock = buildMutationBlockFromReport(entry, projectRoot, sourceFiles);
+    const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory, sourceFiles);
 
-    cleanupMutationArtifacts(projectRoot, configPath, cleanup);
+    cleanupMutationArtifacts(absoluteDirectory, configPath, cleanup);
 
     if (!mutationBlock) {
       console.log('  Mutation report not found or invalid — skipping mutation result');

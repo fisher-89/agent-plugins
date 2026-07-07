@@ -60,7 +60,7 @@ describe('resolveStrykerConfig -- 自定义配置检测', () => {
     const configPath = path.join(project.root, 'stryker.config.json');
     fs.writeFileSync(configPath, JSON.stringify({}), 'utf-8');
 
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
+    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     expect(result.configPath).toBe(configPath);
     expect(result.cleanup).toBe(false);
   });
@@ -69,7 +69,7 @@ describe('resolveStrykerConfig -- 自定义配置检测', () => {
     const configPath = path.join(project.root, 'stryker.config.mjs');
     fs.writeFileSync(configPath, 'export default {}', 'utf-8');
 
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
+    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     expect(result.configPath).toBe(configPath);
     expect(result.cleanup).toBe(false);
   });
@@ -78,7 +78,7 @@ describe('resolveStrykerConfig -- 自定义配置检测', () => {
     const configPath = path.join(project.root, 'stryker.config.cjs');
     fs.writeFileSync(configPath, 'module.exports = {}', 'utf-8');
 
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
+    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     expect(result.configPath).toBe(configPath);
     expect(result.cleanup).toBe(false);
   });
@@ -100,7 +100,7 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
   });
 
   it('无自定义配置时生成临时配置文件，返回路径和 cleanup=true', () => {
-    const result = resolveStrykerConfig(project.root, ['src/foo.ts', 'src/bar.ts'], [], 'vitest');
+    const result = resolveStrykerConfig(project.root, ['src/foo.ts', 'src/bar.ts'], 'vitest');
     expect(result.cleanup).toBe(true);
     expect(fs.existsSync(result.configPath)).toBe(true);
 
@@ -110,7 +110,7 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
 
   it('生成临时配置时 mutate 限定为 sourceFiles 路径列表', () => {
     const sourceFiles = ['src/foo.ts', 'src/bar.ts'];
-    const result = resolveStrykerConfig(project.root, sourceFiles, [], 'vitest');
+    const result = resolveStrykerConfig(project.root, sourceFiles, 'vitest');
     expect(result.cleanup).toBe(true);
 
     const configContent = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
@@ -121,33 +121,33 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
 
   it('生成临时配置时 testRunner 根据 framework 选择 "jest-runner" 或 "vitest"', () => {
     // vitest -> vitest
-    const result1 = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
+    const result1 = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     const config1 = JSON.parse(fs.readFileSync(result1.configPath, 'utf-8'));
     expect(config1.testRunner).toBe('vitest');
     fs.unlinkSync(result1.configPath);
 
     // jest -> jest-runner
-    const result2 = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'jest');
+    const result2 = resolveStrykerConfig(project.root, ['src/test.ts'], 'jest');
     const config2 = JSON.parse(fs.readFileSync(result2.configPath, 'utf-8'));
     expect(config2.testRunner).toBe('jest-runner');
     fs.unlinkSync(result2.configPath);
 
     // vite-plus -> vitest
-    const result3 = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vite-plus');
+    const result3 = resolveStrykerConfig(project.root, ['src/test.ts'], 'vite-plus');
     const config3 = JSON.parse(fs.readFileSync(result3.configPath, 'utf-8'));
     expect(config3.testRunner).toBe('vitest');
     fs.unlinkSync(result3.configPath);
   });
 
   it('生成临时配置时 reporters 设置为 ["json"]', () => {
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
+    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
     expect(config.reporters).toEqual(['json']);
     fs.unlinkSync(result.configPath);
   });
 
   it('生成临时配置时 thresholds 从传入参数读取', () => {
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
+    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
     expect(config.thresholds).toBeDefined();
     expect(config.thresholds.high).toBe(80);
@@ -173,14 +173,14 @@ describe('resolveStrykerConfig -- 异常', () => {
   });
 
   it('sourceFiles 为空数组时 mutate 为空列表', () => {
-    const result = resolveStrykerConfig(project.root, [], [], 'vitest');
+    const result = resolveStrykerConfig(project.root, [], 'vitest');
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
     expect(config.mutate).toEqual([]);
     fs.unlinkSync(result.configPath);
   });
 
   it('不支持框架时抛出错误', () => {
-    expect(() => resolveStrykerConfig(project.root, ['src/test.ts'], [], 'bun')).toThrow();
+    expect(() => resolveStrykerConfig(project.root, ['src/test.ts'], 'bun')).toThrow();
   });
 });
 
@@ -200,8 +200,8 @@ describe('resolveStrykerConfig -- 边界', () => {
   });
 
   it('临时配置文件名使用随机后缀避免冲突', () => {
-    const result1 = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
-    const result2 = resolveStrykerConfig(project.root, ['src/test.ts'], [], 'vitest');
+    const result1 = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
+    const result2 = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
 
     // 文件名应不同（随机后缀）
     expect(result1.configPath).not.toBe(result2.configPath);
