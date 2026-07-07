@@ -271,6 +271,8 @@ function runMutationPhase(
 
     const mutationBlock = buildMutationBlockFromReport(entry, projectRoot, sourceFiles);
 
+    cleanupMutationArtifacts(projectRoot, configPath, cleanup);
+
     if (!mutationBlock) {
       console.log('  Mutation report not found or invalid — skipping mutation result');
       return null;
@@ -279,8 +281,6 @@ function runMutationPhase(
     console.log(
       `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%)`,
     );
-
-    cleanupMutationArtifacts(projectRoot, configPath, cleanup);
 
     return mutationBlock;
   } catch (e) {
@@ -326,7 +326,11 @@ function buildMutationBlockFromReport(
  * Removes the reports/mutation/ directory and the temporary config file
  * if it was generated (cleanup === true).
  */
-function cleanupMutationArtifacts(projectRoot: string, configPath: string, cleanup: boolean): void {
+function cleanupMutationArtifacts(
+  projectRoot: string,
+  configPath: string,
+  cleanupConfigFile: boolean,
+): void {
   // Remove reports/mutation/ directory
   const mutationReportDir = path.resolve(projectRoot, 'reports', 'mutation');
   try {
@@ -338,7 +342,7 @@ function cleanupMutationArtifacts(projectRoot: string, configPath: string, clean
   }
 
   // Remove temporary config file
-  if (cleanup) {
+  if (cleanupConfigFile) {
     try {
       if (fs.existsSync(configPath)) {
         fs.unlinkSync(configPath);
