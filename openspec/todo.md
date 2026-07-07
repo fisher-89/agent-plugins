@@ -2,7 +2,7 @@
 - [x] 所有evaluator的checklist不区分是否“必须”，都是必要检查项
 - [x] 测试文件直接写入源码目录，不放在openspec目录下（关联：plugins\dev-team\agents\test-design-evaluator.md T2）
 - [x] 使用静态扫描工具检查源码
-- [ ] 使用静态扫描工具检查测试文件（关联：plugins\dev-team\agents\test-gen-evaluator.md G3）
+- [x] 使用静态扫描工具检查测试文件（关联：plugins\dev-team\agents\test-gen-evaluator.md G3）
 - [x] config统一指定测试框架（关联：plugins\dev-team\agents\test-gen-evaluator.md G5）
 - [x] 禁止直接写入eval.json
 - [x] unit-test生成覆盖度报告
@@ -31,7 +31,7 @@
 - [x] 根据test配置决定哪些目录可以单测
 - [ ] 根据test配置提供mcp，自动执行测试，生成统一格式报告
 - [x] PowerShell Set-Content可以绕过不让编辑eval.json的禁令
-- [ ] 禁止修改config.json
+- [x] 禁止修改config.json
 - [x] hooks响应格式没有实现拦截，应该返回decision
 - [x] fix:主Agent执行了流程外行为，改代码、运行测试、调用phase_log
 - ~~[ ] fix:unit-test概率没有生成报告~~
@@ -39,7 +39,7 @@
 - [x] phase_log设置backtrack_to时增加字段记录backtrack_reason，phase_next返回的prompt拼接该原因
 - [x] phase_log设置backtrack_to时, 当前记录也应该标记stale
 - [x] code-review-evaluator.md 描述"Evaluate design.md"，容易误触发"design-review skill"
-- [ ] config.json指定保护文件，禁止agent修改
+- [x] config.json指定保护文件，禁止agent修改
 - [ ] fix:突变测试结果未写入报告
 - [x] test-execution使用cli 命令执行测试
 - [ ] stryker运行后没有清理临时配置和副本

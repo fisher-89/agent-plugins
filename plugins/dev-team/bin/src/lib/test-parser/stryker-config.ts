@@ -101,7 +101,7 @@ function generateTempConfig(
  * cleanup=false.  Otherwise generates a temporary configuration file and
  * returns its path with cleanup=true.
  *
- * @param projectRoot - Absolute path to the project root
+ * @param rootPath - Absolute path to the framework root
  * @param sourceFiles - Array of source file paths (relative to projectRoot)
  * @param testFiles  - Array of test file paths (relative to projectRoot)
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
@@ -109,13 +109,13 @@ function generateTempConfig(
  * @throws {Error} If the framework is not supported by StrykerJS
  */
 export function resolveStrykerConfig(
-  projectRoot: string,
+  rootPath: string,
   sourceFiles: string[],
   testFiles: string[],
   framework: string,
 ): StrykerConfigResult {
   // Check for existing config first
-  const existingConfig = findExistingConfig(projectRoot);
+  const existingConfig = findExistingConfig(rootPath);
   if (existingConfig) {
     return { configPath: existingConfig, cleanup: false };
   }
@@ -126,7 +126,7 @@ export function resolveStrykerConfig(
   // Merge sourceFiles and derived source paths from testFiles
   const allSources = [...new Set([...sourceFiles, ...deriveSourcesFromTestFiles(testFiles)])];
 
-  const configPath = generateTempConfig(projectRoot, allSources, testRunner);
+  const configPath = generateTempConfig(rootPath, allSources, testRunner);
   return { configPath, cleanup: true };
 }
 

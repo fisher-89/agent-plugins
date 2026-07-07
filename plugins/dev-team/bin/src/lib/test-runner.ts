@@ -256,7 +256,7 @@ function runMutationPhase(
 
   try {
     const { configPath, cleanup } = resolveStrykerConfig(
-      projectRoot,
+      path.resolve(projectRoot, entry.directory),
       sourceFiles,
       [],
       entry.framework,
