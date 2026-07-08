@@ -23,6 +23,7 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import type { ExecutionResult } from '../lib/test-runner';
 import { type TestPlan } from '../schemas';
 import type { TestExecutionSubReport } from '../schemas/test-execution-output.schema';
+import { runTestExecution } from './test-execution';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -133,9 +134,10 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('应调用 runTestDetectFrameworks 获取 plan', async () => {
+  it('应调用 runTestDetectFrameworks 获取 plan', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -159,7 +161,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
 
       expect(mockDetectFrameworks).toHaveBeenCalledWith(
@@ -171,7 +172,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('应对 plan 中每个 framework 调用 executePlanEntry', async () => {
+  it('应对 plan 中每个 framework 调用 executePlanEntry', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -205,7 +206,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
@@ -224,7 +224,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('应在每个 framework 执行后调用 generateSubReport 写入子报告', async () => {
+  it('应在每个 framework 执行后调用 generateSubReport 写入子报告', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -248,7 +248,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSubReport).toHaveBeenCalledTimes(1);
@@ -261,7 +260,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('应在所有 framework 执行后调用 generateSummaryReport 写入汇总报告', async () => {
+  it('应在所有 framework 执行后调用 generateSummaryReport 写入汇总报告', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -285,7 +284,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSummaryReport).toHaveBeenCalledTimes(1);
@@ -298,7 +296,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('子报告应写入 reports/test-execution/<framework>.json 路径', async () => {
+  it('子报告应写入 reports/test-execution/<framework>.json 路径', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -322,7 +320,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       const reportsDir = mockGenerateSubReport.mock.calls[0][3];
@@ -332,7 +329,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('汇总报告应写入 reports/test-execution.json', async () => {
+  it('汇总报告应写入 reports/test-execution.json', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -356,7 +353,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSummaryReport).toHaveBeenCalled();
@@ -376,9 +372,10 @@ describe('runTestExecution -- 异常', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('plan 为空时不执行任何测试，退出码 0', async () => {
+  it('plan 为空时不执行任何测试，退出码 0', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -387,7 +384,6 @@ describe('runTestExecution -- 异常', () => {
         plan: [],
       });
 
-      const { runTestExecution } = await import('./test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
 
       expect(exitCode).toBe(0);
@@ -399,7 +395,7 @@ describe('runTestExecution -- 异常', () => {
     }
   });
 
-  it('某个 framework 执行失败不阻塞后续 framework', async () => {
+  it('某个 framework 执行失败不阻塞后续 framework', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -448,7 +444,6 @@ describe('runTestExecution -- 异常', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
 
       // 两个框架都应执行
@@ -474,9 +469,10 @@ describe('runTestExecution -- 边界', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('options.projectRoot 为 undefined 时使用默认 project dir', async () => {
+  it('options.projectRoot 为 undefined 时使用默认 project dir', () => {
     // 当 projectRoot 为 undefined 时，runTestExecution 应使用 getProjectDir() 的返回值
     // 这里我们 mock detectFrameworks 返回空 plan，确保不会出错
     mockDetectFrameworks.mockReturnValue({
@@ -485,12 +481,11 @@ describe('runTestExecution -- 边界', () => {
       plan: [],
     });
 
-    const { runTestExecution } = await import('./test-execution');
     // 不传 projectRoot，应该不会崩溃
     expect(() => runTestExecution({})).not.toThrow();
   });
 
-  it('所有框架均通过时 conclusion=pass 退出码 0', async () => {
+  it('所有框架均通过时 conclusion=pass 退出码 0', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -518,7 +513,6 @@ describe('runTestExecution -- 边界', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
       expect(exitCode).toBe(0);
     } finally {
@@ -537,9 +531,10 @@ describe('runTestExecution -- 幂等性', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('相同 plan 重复执行两次 generateSubReport 产生相同的子报告内容', async () => {
+  it('相同 plan 重复执行两次 generateSubReport 产生相同的子报告内容', () => {
     const project = createTempProject();
     try {
       const planEntry = makePlanEntry();
@@ -565,7 +560,6 @@ describe('runTestExecution -- 幂等性', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       // 验证 generateSubReport 被调用
@@ -575,7 +569,7 @@ describe('runTestExecution -- 幂等性', () => {
     }
   });
 
-  it('相同 plan 重复执行两次 generateSummaryReport 产生相同的汇总报告内容', async () => {
+  it('相同 plan 重复执行两次 generateSummaryReport 产生相同的汇总报告内容', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -601,7 +595,6 @@ describe('runTestExecution -- 幂等性', () => {
       };
       mockGenerateSummaryReport.mockReturnValue(summaryReport);
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       // 验证 generateSummaryReport 被正确调用
@@ -622,9 +615,10 @@ describe('runTestExecution -- noMutation 透传', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('TestExecutionOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中', async () => {
+  it('TestExecutionOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -648,7 +642,6 @@ describe('runTestExecution -- noMutation 透传', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root, noMutation: true });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
@@ -661,7 +654,7 @@ describe('runTestExecution -- noMutation 透传', () => {
     }
   });
 
-  it('TestExecutionOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中', async () => {
+  it('TestExecutionOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -685,7 +678,6 @@ describe('runTestExecution -- noMutation 透传', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root, noMutation: false });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
@@ -698,7 +690,7 @@ describe('runTestExecution -- noMutation 透传', () => {
     }
   });
 
-  it('TestExecutionOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）', async () => {
+  it('TestExecutionOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）', () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -722,7 +714,6 @@ describe('runTestExecution -- noMutation 透传', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('./test-execution');
       runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(

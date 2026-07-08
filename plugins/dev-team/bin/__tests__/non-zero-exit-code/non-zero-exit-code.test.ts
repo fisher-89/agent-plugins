@@ -15,6 +15,7 @@ import * as path from 'path';
 
 import { beforeEach, describe, it, expect, vi } from 'vite-plus/test';
 
+import { runTestExecution } from '../../src/commands/test-execution';
 import type { ExecutionResult } from '../../src/lib/test-runner';
 import type { TestPlan } from '../../src/schemas';
 
@@ -159,7 +160,6 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
 
       expect(exitCode).toBe(1);
@@ -217,7 +217,6 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
 
       // 两个框架都应被执行
@@ -258,7 +257,6 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
 
       // 所有测试通过，退出码为 0

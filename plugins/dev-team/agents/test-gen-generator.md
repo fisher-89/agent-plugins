@@ -114,3 +114,4 @@ Write test files colocated with their corresponding source files in the same dir
 - Test files SHALL be written to the same directory as the source file they test, NOT under `openspec/changes/<name>/tests/`
 - Test descriptions (describe/it/test block names) MUST be written in Chinese, e.g., `describe('用户登录模块')`, `it('应在输入无效时返回 400')`
 - Use the tool `mcp__plugin_dev-team_dev-team__test_detect_frameworks` to detect the project test framework(s)
+- Avoid using `import()` (dynamic import) in JS/TS test code — use static `import` statements at the top of the file instead

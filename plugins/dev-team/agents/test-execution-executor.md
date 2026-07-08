@@ -7,14 +7,6 @@ model: sonnet-4.6
 
 The CLI handles all test execution, coverage parsing, and report generation — this agent focuses on CLI execution, report validation, and diagnostic analysis.
 
-## Input
-
-Read:
-
-- `openspec/changes/<change-name>/reports/test-execution/<framework>.json` — per-framework sub-reports (read for detailed failure analysis)
-- The project's CLAUDE.md for project conventions
-- `openspec/changes/<change-name>/test-design.md` — read `测试设计 > 测试用例` for test scope
-
 ## Process
 
 ### Step 0: Execute the CLI

@@ -1,0 +1,5104 @@
+{
+  "framework": "vite-plus",
+  "timestamp": "2026-07-08T01:32:59.569Z",
+  "exit_code": 0,
+  "duration_ms": 17503,
+  "summary": {
+    "total": 919,
+    "passed": 919,
+    "failed": 0,
+    "skipped": 0
+  },
+  "test_cases": [
+    {
+      "name": "test_detect_frameworks — 首匹配规则 tests/e2e/test_app.ts 同时匹配 **/*.ts 与 **/e2e/** 时应归属数组首项 vitest",
+      "duration_ms": 16.814499999999498,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — 首匹配规则 交换 override 顺序后框架归属应随之改变",
+      "duration_ms": 10.137500000000728,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- istanbul format should parse istanbul JSON and extract lines/branches/functions",
+      "duration_ms": 6.196300000000065,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- istanbul format should return null for non-existent file",
+      "duration_ms": 0.40850000000000364,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- istanbul format should return null for empty file",
+      "duration_ms": 7.93309999999974,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- istanbul format should handle all 100% coverage",
+      "duration_ms": 4.38590000000022,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- istanbul format should handle all 0% coverage",
+      "duration_ms": 5.199500000000171,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- istanbul format should preserve decimal precision",
+      "duration_ms": 4.043799999999919,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- llvm-cov format should parse llvm-cov JSON and extract lines/branches/functions",
+      "duration_ms": 3.13130000000001,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- llvm-cov format should handle missing data array",
+      "duration_ms": 2.8764000000001033,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- go-cover format should parse go-cover text and extract lines, branches/functions=null",
+      "duration_ms": 3.5972999999999047,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- go-cover format should return null when no total line found",
+      "duration_ms": 3.1833999999998923,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- coverage-py format should parse coverage.py JSON and extract lines/branches, functions=null",
+      "duration_ms": 5.198800000000119,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- coverage-py format should handle missing percent_covered_branches",
+      "duration_ms": 3.5996000000000095,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- unknown format should return null for unsupported format",
+      "duration_ms": 2.6885000000002037,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- node-test format should parse node-test text table and extract lines/branches/functions",
+      "duration_ms": 3.2653000000000247,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- node-test format should handle node-test with only lines column (branches/functions null)",
+      "duration_ms": 3.3132000000000517,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- node-test format should handle node-test with dash placeholder for missing dimensions",
+      "duration_ms": 3.459600000000137,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- node-test format should return null when no \"All files\" line found",
+      "duration_ms": 3.4821999999999207,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- node-test format should handle all 100% in node-test format",
+      "duration_ms": 3.870800000000145,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- node-test format should handle all 0% in node-test format",
+      "duration_ms": 3.172900000000027,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- null dimension support should return branches=null for go-cover",
+      "duration_ms": 6.548300000000381,
+      "status": "passed"
+    },
+    {
+      "name": "parseCoverageFromFile -- null dimension support should return functions=null for coverage-py",
+      "duration_ms": 2.784099999999853,
+      "status": "passed"
+    },
+    {
+      "name": "hooks 子命令调度 (AC-1) process.argv[2] = \"protect-files\" 时 main 调用 runProtectFiles 并输出 allow JSON",
+      "duration_ms": 5.320099999999911,
+      "status": "passed"
+    },
+    {
+      "name": "hooks 子命令调度 (AC-1) process.argv[2] = \"static-check\" 时 main 调用 runStaticCheck 并输出 JSON",
+      "duration_ms": 0.608600000000024,
+      "status": "passed"
+    },
+    {
+      "name": "hooks 子命令调度 (AC-1) runProtectFiles 输出格式为 { hookSpecificOutput: { hookEventName, permissionDecision } }",
+      "duration_ms": 0.9085999999997512,
+      "status": "passed"
+    },
+    {
+      "name": "hooks 子命令调度 (AC-1) 未知子命令 \"unknown\" 时 process.exit(1)",
+      "duration_ms": 1.620900000000347,
+      "status": "passed"
+    },
+    {
+      "name": "hooks 子命令调度 (AC-1) process.argv[2] 未定义时 process.exit(1)",
+      "duration_ms": 0.2941000000000713,
+      "status": "passed"
+    },
+    {
+      "name": "hooks 子命令调度 (AC-1) process.argv[2]=\"\" 空字符串时 process.exit(1) (边界)",
+      "duration_ms": 0.3951999999999316,
+      "status": "passed"
+    },
+    {
+      "name": "hooks 子命令调度 (AC-1) 顶层 try-catch 包裹整个处理流程，任何未捕获异常输出 { decision: \"block\", reason } (边界)",
+      "duration_ms": 1.9734999999996035,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 解析 Write 受保护文件路径返回 deny",
+      "duration_ms": 0.18719999999984793,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 解析 Edit 受保护文件路径返回 deny",
+      "duration_ms": 0.1997999999998683,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 解析 Write 未受保护文件路径返回 allow",
+      "duration_ms": 0.21939999999995052,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite — > 重定向到 eval.json 返回 deny",
+      "duration_ms": 0.2177999999998974,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite — >> 追加到 eval.json 返回 deny",
+      "duration_ms": 0.21469999999999345,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite — tee 写入 eval.json 返回 deny",
+      "duration_ms": 0.3607999999999265,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite — heredoc 写入 eval.json 返回 deny",
+      "duration_ms": 0.22290000000020882,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite — >& 重定向到 eval.json 返回 deny",
+      "duration_ms": 0.24359999999978754,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite — >| noclobber 重定向到 eval.json 返回 deny",
+      "duration_ms": 0.2851999999998043,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — Set-Content 写入 eval.json 返回 deny",
+      "duration_ms": 0.24909999999999854,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — Out-File 写入 eval.json 返回 deny",
+      "duration_ms": 0.2959000000000742,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — Add-Content 追加 eval.json 返回 deny",
+      "duration_ms": 0.2543000000000575,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — Export-Csv 写入 eval.json 返回 deny",
+      "duration_ms": 0.26830000000018117,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — Export-CliXml 写入 eval.json 返回 deny",
+      "duration_ms": 0.25820000000021537,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — Tee-Object 写入 eval.json 返回 deny",
+      "duration_ms": 0.2452000000002954,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — > 重定向到 eval.json 返回 deny",
+      "duration_ms": 0.20010000000002037,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — >> 追加到 eval.json 返回 deny",
+      "duration_ms": 0.20519999999987704,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — *> 合并流到 eval.json 返回 deny",
+      "duration_ms": 0.19849999999996726,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — [System.IO.File]::WriteAllText 写入 eval.json 返回 deny",
+      "duration_ms": 0.9778999999998632,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite — [System.IO.File]::AppendAllText 追加 eval.json 返回 deny",
+      "duration_ms": 0.5889000000001943,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) outputAllow 返回含 permissionDecision: \"allow\" 的有效 JSON",
+      "duration_ms": 0.21979999999985012,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) outputDeny(reason) 返回含 permissionDecision: \"deny\" 和 reason 的有效 JSON",
+      "duration_ms": 0.23489999999992506,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) buildDenyReason — 自定义 reason 含 %s 和 %t 占位符替换",
+      "duration_ms": 0.5171000000000276,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) extractChangeName 从 openspec/changes/my-feature/eval.json 提取 my-feature",
+      "duration_ms": 0.12530000000015207,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) extractChangeName Windows 反斜杠路径提取 change name",
+      "duration_ms": 0.1813999999999396,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) extractChangeName 路径不含 openspec/changes/ 时返回空字符串",
+      "duration_ms": 0.1979999999998654,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) extractChangeName 空路径返回空字符串",
+      "duration_ms": 0.12059999999974025,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 空字符串输入返回 allow (fail-open)",
+      "duration_ms": 0.17769999999973152,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 空白字符串输入返回 allow (fail-open)",
+      "duration_ms": 0.17309999999997672,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 无效 JSON 输入返回 allow (fail-open)",
+      "duration_ms": 0.20200000000022555,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 有效 JSON 缺失 tool_name 返回 allow (fail-open)",
+      "duration_ms": 0.16150000000016007,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput Write 工具缺失 tool_input.file_path 返回 allow (fail-open)",
+      "duration_ms": 0.15439999999989595,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) parseInput 未知工具名称 Read 返回 allow (fail-open)",
+      "duration_ms": 0.14809999999988577,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite 空命令字符串返回 allow",
+      "duration_ms": 0.1570000000001528,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite 空命令字符串返回 allow",
+      "duration_ms": 0.1932000000001608,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) isProtected filePath 为空字符串时 parseInput 返回 allow",
+      "duration_ms": 0.20650000000023283,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) 内置保护模式正确匹配受保护路径",
+      "duration_ms": 0.20650000000023283,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) 内置保护模式匹配 eval.json 时返回 deny",
+      "duration_ms": 0.21109999999998763,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) buildDenyReason pattern 无 reason 时使用默认回退文案",
+      "duration_ms": 0.40059999999994034,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) buildDenyReason reason 含特殊字符（换行、引号、反斜杠、emoji）时序列化可 JSON.parse",
+      "duration_ms": 0.3805999999999585,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) isProtected filePath 为空字符串时返回 { matched: false } (边界)",
+      "duration_ms": 0.21129999999993743,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) isProtected patterns 为空数组时返回 { matched: false } (边界)",
+      "duration_ms": 0.15950000000020736,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) buildDenyReason filePath/toolName 为空字符串时占位符替换仍安全 (边界)",
+      "duration_ms": 0.1738999999997759,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) buildDenyReason pattern 为 null 时使用默认回退文案 (边界)",
+      "duration_ms": 0.21129999999993743,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite 含 \"->\" 但无写入操作时返回 allow",
+      "duration_ms": 0.2874000000001615,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite python 命令豁免返回 allow",
+      "duration_ms": 0.17020000000002256,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite node 命令豁免返回 allow",
+      "duration_ms": 0.16789999999991778,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectBashWrite cat 只读 eval.json 返回 allow",
+      "duration_ms": 0.15390000000024884,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite python 命令豁免返回 allow",
+      "duration_ms": 0.223700000000008,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite node 命令豁免返回 allow",
+      "duration_ms": 0.15950000000020736,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite eval.json 出现在非路径上下文中不应误报",
+      "duration_ms": 0.151299999999992,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 功能等价迁移 (AC-2) detectPowerShellWrite Get-Content 只读返回 allow",
+      "duration_ms": 0.1855000000000473,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 复用 picomatch (AC-3) isProtected 使用 matchGlob 进行匹配，对 eval.json 模式返回 denied",
+      "duration_ms": 0.23729999999977736,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 复用 picomatch (AC-3) 用户配置自定义 glob 模式后 isProtected 正确匹配对应路径",
+      "duration_ms": 0.4252999999998792,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 复用 picomatch (AC-3) 用户自定义 glob 模式不匹配时允许写入",
+      "duration_ms": 0.7267000000001644,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 复用 picomatch (AC-3) 超长路径前缀 + eval.json 仍应匹配",
+      "duration_ms": 0.2242999999998574,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 复用 picomatch (AC-3) Windows 反斜杠路径归一化后匹配",
+      "duration_ms": 0.4157000000000153,
+      "status": "passed"
+    },
+    {
+      "name": "protect-files 复用 picomatch (AC-3) 路径含特殊字符（空格、括号、Unicode）时 glob 匹配正确",
+      "duration_ms": 0.31710000000020955,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 进程内调用 (AC-4) runStaticCheck 直接调用 runStaticAnalysis()",
+      "duration_ms": 0.40370000000029904,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 进程内调用 (AC-4) runStaticCheck 调用 runStaticAnalysis 时传递从 stdin 解析的 workspaceRoot",
+      "duration_ms": 1.7725000000000364,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 进程内调用 (AC-4) runStaticAnalysis 返回非零但无 stderr 时输出 { decision: \"block\" } 和默认 reason",
+      "duration_ms": 0.43760000000020227,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) formatOutput CLI exit 0 时应返回 {}",
+      "duration_ms": 0.6537999999995918,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) formatOutput CLI exit 非 0 时应返回 { decision: \"block\", reason }",
+      "duration_ms": 0.8955000000000837,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) formatOutput 应将 stderr 合并进 reason",
+      "duration_ms": 0.22859999999991487,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) parseWorkspaceRoot 从合法 event JSON 提取 workspace_roots[0]",
+      "duration_ms": 0.5904000000000451,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) parseWorkspaceRoot workspace_roots 为空数组时使用 fallback",
+      "duration_ms": 0.2957000000001244,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) parseWorkspaceRoot 无 workspace_roots 字段时使用 fallback",
+      "duration_ms": 0.28729999999995925,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) parseWorkspaceRoot 非法 JSON 时返回 null 且不抛异常",
+      "duration_ms": 1.1176000000000386,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) formatOutput CLI 输出含特殊字符时 JSON.stringify 可解析",
+      "duration_ms": 0.269800000000032,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) CLI 文件缺失时 ENOENT 错误应正确传递",
+      "duration_ms": 0.25540000000000873,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) runStaticAnalysis 返回 exit 2 时输出 { decision: \"block\" } (边界)",
+      "duration_ms": 0.2849999999998545,
+      "status": "passed"
+    },
+    {
+      "name": "static-check 功能等价迁移 (AC-5) runStaticAnalysis 返回 exit 127 时输出 { decision: \"block\" } (边界)",
+      "duration_ms": 0.20249999999987267,
+      "status": "passed"
+    },
+    {
+      "name": "captureStderr 辅助函数 captureStderr 可捕获 stderr 输出并在 restore 后恢复",
+      "duration_ms": 0.17489999999997963,
+      "status": "passed"
+    },
+    {
+      "name": "captureStderr 辅助函数 captureStderr restore 后写入不被收集",
+      "duration_ms": 0.24379999999973734,
+      "status": "passed"
+    },
+    {
+      "name": "captureStderr 辅助函数 多次 captureStderr 嵌套时正确分层",
+      "duration_ms": 0.33159999999998035,
+      "status": "passed"
+    },
+    {
+      "name": "hooks.ts 顶层代码结构验证 hooks 模块导出 main、runProtectFiles、runStaticCheck、extractChangeName、captureStderr",
+      "duration_ms": 0.2579999999998108,
+      "status": "passed"
+    },
+    {
+      "name": "getProjectDir — 无 MCP 缓存时 env/cwd 回退链 缓存为 null 且 CLAUDE_PROJECT_DIR 已设置时返回该 env 值 (AC-4)",
+      "duration_ms": 345.76990000000023,
+      "status": "passed"
+    },
+    {
+      "name": "getProjectDir — 无 MCP 缓存时 env/cwd 回退链 无 MCP 缓存且两 env 均未设置时返回 process.cwd() (AC-4 / AC-5)",
+      "duration_ms": 1.021099999999933,
+      "status": "passed"
+    },
+    {
+      "name": "getProjectDir — env 空字符串 CLAUDE_PROJECT_DIR=\"\" 视为未设置，继续检查 process.cwd()",
+      "duration_ms": 0.8074000000001433,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 未配置放行 (AC-4, AC-7) openspec/config.json 不存在时应 exit 0 且不执行外部命令",
+      "duration_ms": 1671.4584000000004,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 未配置放行 (AC-4, AC-7) config 存在但无 static_analysis 字段时应 exit 0",
+      "duration_ms": 9.505299999999806,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 空配置放行 (边界) static_analysis 为空字符串时应 exit 0 且不执行外部命令",
+      "duration_ms": 5.583000000000538,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 空配置放行 (边界) static_analysis 为仅空白字符串时应 exit 0（trim 后视为空）",
+      "duration_ms": 6.039799999999559,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令成功 (AC-3, AC-7) 已配置且 mock 命令 exit 0 时 CLI 应 exit 0",
+      "duration_ms": 5.793500000000677,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令成功 (AC-3, AC-7) 命令 exit 0 时 CLI stdout 应无多余输出",
+      "duration_ms": 6.453700000000026,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令失败 (AC-5, AC-7) 已配置且 mock 命令 exit 非 0 时 CLI 应返回相同 exit code",
+      "duration_ms": 6.263899999999921,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 命令失败 (AC-5, AC-7) 命令失败时 CLI stderr 应含 stdout/stderr 合并输出",
+      "duration_ms": 6.339600000000246,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — exit code 传播 (边界) mock 命令 exit 1 时 CLI 应返回相同 exit code",
+      "duration_ms": 5.667199999999866,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — exit code 传播 (边界) mock 命令 exit 2 时 CLI 应返回相同 exit code",
+      "duration_ms": 6.0187000000005355,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — exit code 传播 (边界) mock 命令 exit 127 时 CLI 应返回相同 exit code",
+      "duration_ms": 7.834400000000642,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) 未传 options.projectRoot 时应使用 getProjectDir() 返回值定位 config",
+      "duration_ms": 5.635199999999713,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 项目根目录 (AC-7) options.projectRoot 应优先于 getProjectDir()",
+      "duration_ms": 9.257599999999911,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — config 容错 (边界) openspec/config.json JSON 解析失败时应等同未配置并 exit 0",
+      "duration_ms": 5.927599999999984,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 工作目录与参数 (AC-7) 已配置时应在项目根目录执行命令（cwd 为 projectRoot）",
+      "duration_ms": 7.4792999999999665,
+      "status": "passed"
+    },
+    {
+      "name": "runStaticAnalysis — 工作目录与参数 (AC-7) 执行 static_analysis 命令时不应传入 change name 或其他 CLI 参数",
+      "duration_ms": 5.290999999999258,
+      "status": "passed"
+    },
+    {
+      "name": "跨目录/跨 source 的扫描结果去重 当 test.overrides 中多个条目指向同一目录时，unit_tests 不包含重复条目 (AC-6)",
+      "duration_ms": 21.277000000000044,
+      "status": "passed"
+    },
+    {
+      "name": "跨目录/跨 source 的扫描结果去重 config-driven 扫描的目录下文件重复出现同一条目时 unit_tests 应去重",
+      "duration_ms": 12.230099999999766,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks should return correct coverage_format for istanbul frameworks",
+      "duration_ms": 0.10279999999966094,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks should return correct coverage_format for llvm-cov (rust)",
+      "duration_ms": 0.05490000000008877,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- known frameworks should return coverage_output path for all frameworks",
+      "duration_ms": 0.15559999999959473,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework should throw for unknown framework name \"unknown-framework\"",
+      "duration_ms": 0.12469999999984793,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework should throw for empty framework name",
+      "duration_ms": 0.11239999999997963,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- unknown framework should throw for nullish framework name",
+      "duration_ms": 0.7078999999998814,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases should reject framework name with leading/trailing whitespace",
+      "duration_ms": 0.09479999999985012,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases should be case-sensitive and reject uppercase \"Vitest\"",
+      "duration_ms": 0.12930000000005748,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases should handle framework names with special regex characters (e.g. \"jest?\")",
+      "duration_ms": 0.09950000000026193,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases should handle a very long framework name string (>1000 chars)",
+      "duration_ms": 0.11940000000004147,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- edge cases 未知框架名抛出错误，错误信息列出全部八个框架名",
+      "duration_ms": 0.3395999999997912,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup vitest should return coverage_artifacts and coverage_cleanup correctly",
+      "duration_ms": 0.2296000000001186,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup rust should return single-element JSON summary path for coverage_artifacts",
+      "duration_ms": 0.2481999999999971,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup rust should return coverage_cleanup containing coverage and target/llvm-cov",
+      "duration_ms": 1.0536000000001877,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup jest should return coverage_artifacts and coverage_cleanup fields",
+      "duration_ms": 0.14600000000018554,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup vite-plus should return coverage_artifacts and coverage_cleanup fields",
+      "duration_ms": 0.7975000000001273,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage_artifacts and coverage_cleanup bun should return coverage_cleanup without .nyc_output (only coverage)",
+      "duration_ms": 0.2096999999998843,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty each framework should have non-empty coverage_artifacts array",
+      "duration_ms": 0.22249999999985448,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty each framework should have non-empty coverage_cleanup array",
+      "duration_ms": 0.22249999999985448,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty each framework should return all 8 fields (no merge_mode, no coverage_cmd)",
+      "duration_ms": 0.9209999999998217,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- all frameworks coverage fields non-empty coverage_artifacts should contain only non-empty strings",
+      "duration_ms": 0.23149999999986903,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- pytest 链式命令 (AC-2) pytest test_cmd 应包含 `; _X=$?;` 链式分隔符",
+      "duration_ms": 0.10689999999976862,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- pytest 链式命令 (AC-2) pytest test_cmd 应以 `exit $_X` 结尾",
+      "duration_ms": 0.21829999999999927,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- pytest 链式命令 (AC-2) pytest test_cmd 应包含覆盖率命令 pytest --cov=",
+      "duration_ms": 0.1113999999997759,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- pytest 链式命令 (AC-2) pytest test_cmd 链式命令顺序：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`",
+      "duration_ms": 0.3101000000001477,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- pytest 链式命令 (AC-2) pytest test_cmd 应包含 `{files}` 占位符",
+      "duration_ms": 0.3321000000000822,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- rust 链式命令 (AC-2) rust test_cmd 应包含 `; _X=$?;` 链式分隔符",
+      "duration_ms": 0.06659999999965294,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- rust 链式命令 (AC-2) rust test_cmd 应以 `exit $_X` 结尾",
+      "duration_ms": 0.0850999999997839,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- rust 链式命令 (AC-2) rust test_cmd 应包含 `cargo llvm-cov` 覆盖率命令",
+      "duration_ms": 0.0965000000001055,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- rust 链式命令 (AC-2) rust test_cmd 应包含 `--output-path coverage/coverage-summary.json`",
+      "duration_ms": 0.05420000000003711,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- rust 链式命令 (AC-2) rust test_cmd 链式命令顺序：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`",
+      "duration_ms": 0.17350000000033106,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- rust 链式命令 (AC-2) rust test_cmd \"cargo test\" 不含 `{files}`/`{directory}` 占位符（链式命令的前半部分）",
+      "duration_ms": 0.13220000000001164,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 非链式框架 test_cmd 不含链式模式 非链式框架（jest/vitest/vite-plus/bun/node-test/go）test_cmd 不含 `; _X=$?`",
+      "duration_ms": 0.1412000000000262,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 非链式框架 test_cmd 不含链式模式 非链式框架 test_cmd 不含 `exit $_X` 模式",
+      "duration_ms": 0.1370999999999185,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 链式命令边界和异常 pytest test_cmd 链式命令各部分顺序正确：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`",
+      "duration_ms": 0.08709999999973661,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 链式命令边界和异常 pytest test_cmd 链式语法格式正确（包含 `;` 分隔符模式 `; _X=$?;`）",
+      "duration_ms": 0.11260000000038417,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 链式命令边界和异常 rust test_cmd 链式命令包含 `exit $_X`",
+      "duration_ms": 0.0874999999996362,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 链式命令边界和异常 pytest test_cmd 链式命令含有覆盖率后处理步骤时仍保留核心链式结构",
+      "duration_ms": 0.10330000000021755,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 无 merge_mode (AC-12) FrameworkConfig 对象不含 merge_mode 字段",
+      "duration_ms": 0.13550000000032014,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 无 merge_mode (AC-12) 所有八个框架返回对象均不含 merge_mode",
+      "duration_ms": 0.5541000000002896,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 无 merge_mode (AC-12) FrameworkConfig 接口字段数量为 8（含 mutation_framework，不含 merge_mode/coverage_cmd）",
+      "duration_ms": 0.4657999999999447,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- 无 merge_mode (AC-12) FrameworkConfig 无 merge_mode/coverage_cmd 属性时编译通过（纯类型检查，运行时验证字段数量）",
+      "duration_ms": 0.8418000000001484,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) vitest test_cmd 含 `--reporter=json` 和 `{files}` 占位符",
+      "duration_ms": 0.11239999999997963,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) go test_cmd 含 `-json` 和 `{directory}` 占位符",
+      "duration_ms": 0.06439999999975043,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) 所有八框架的 test_cmd 类型为 string 且非空",
+      "duration_ms": 0.193000000000211,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) pytest test_cmd 为链式命令含 `{files}` 占位符",
+      "duration_ms": 0.08599999999978536,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) jest test_cmd 含 `--json` 和 `{files}` 占位符",
+      "duration_ms": 0.06279999999969732,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) bun test_cmd 含 `--coverage` 和 `{files}` 占位符",
+      "duration_ms": 0.10179999999991196,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) node-test test_cmd 含 `--experimental-test-coverage` 和 `{files}` 占位符",
+      "duration_ms": 0.056599999999889405,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) 单命令框架（jest/vitest/vite-plus/bun/node-test/go）test_cmd 同时含 `{files}` 或 `{directory}` 占位符",
+      "duration_ms": 0.1532999999999447,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- test_cmd 模板化 (AC-3) test_cmd 含多个占位符时模板字符串格式正确",
+      "duration_ms": 0.0545999999999367,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- JSON-only coverage artifact config vitest should return coverage_artifacts with single JSON summary",
+      "duration_ms": 0.05580000000009022,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- JSON-only coverage artifact config vite-plus should return coverage_artifacts with single JSON summary",
+      "duration_ms": 0.08429999999998472,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- JSON-only coverage artifact config bun should return coverage_artifacts with single JSON summary",
+      "duration_ms": 0.058399999999892316,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- JSON-only coverage artifact config rust should return coverage_artifacts not containing target/llvm-cov/**",
+      "duration_ms": 0.08349999999973079,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- JSON-only coverage artifact config five JS/TS frameworks should have single-element JSON artifacts",
+      "duration_ms": 0.3213999999998123,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage artifact boundary and exception five frameworks should have coverage_artifacts.length === 1 with value coverage/coverage-summary.json",
+      "duration_ms": 0.27470000000039363,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- coverage artifact boundary and exception five frameworks should have non-empty coverage_artifacts containing coverage keyword",
+      "duration_ms": 0.21909999999979846,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- go should return coverage_format: \"go-cover\" with complete artifacts/cleanup/default_glob",
+      "duration_ms": 0.20060000000012224,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- node-test (coverage_output) node-test coverage_output should be \"coverage/node-test-output.txt\"",
+      "duration_ms": 0.20289999999977226,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- node-test (coverage_output) node-test coverage_output should end with .txt, unlike other frameworks .json output",
+      "duration_ms": 0.3170999999997548,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- node-test (coverage_output) other frameworks coverage_output should remain unchanged (jest/vitest/vite-plus/bun still coverage/coverage-summary.json)",
+      "duration_ms": 0.12259999999969295,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- node-test (coverage_artifacts) coverage_artifacts should be [\"coverage/node-test-output.txt\"]",
+      "duration_ms": 0.15630000000010114,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- node-test (coverage_artifacts) coverage_cleanup should still be [\"coverage\"]",
+      "duration_ms": 0.0706000000000131,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- node-test (coverage_format) coverage_format should still be \"node-test\"",
+      "duration_ms": 0.11850000000004002,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- node-test (coverage_output text file) coverage_output should point to a .txt file, not .json",
+      "duration_ms": 0.12319999999999709,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- pytest should return coverage_format: \"coverage-py\" and coverage_output: \"coverage.json\"",
+      "duration_ms": 0.07749999999987267,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- eight-framework completeness each of the eight frameworks should return non-empty test_cmd, coverage_artifacts, coverage_cleanup",
+      "duration_ms": 2.3939000000000306,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 jest 的 mutation_framework 为 \"stryker-js\"",
+      "duration_ms": 0.09660000000030777,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 vitest 的 mutation_framework 为 \"stryker-js\"",
+      "duration_ms": 0.04539999999997235,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 vite-plus 的 mutation_framework 为 \"stryker-js\"",
+      "duration_ms": 0.09180000000014843,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 bun 的 mutation_framework 为 null",
+      "duration_ms": 0.060899999999946886,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 node-test 的 mutation_framework 为 null",
+      "duration_ms": 0.053399999999783176,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 go 的 mutation_framework 为 null",
+      "duration_ms": 0.04359999999996944,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 rust 的 mutation_framework 为 null",
+      "duration_ms": 0.04639999999972133,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 pytest 的 mutation_framework 为 null",
+      "duration_ms": 0.08829999999989013,
+      "status": "passed"
+    },
+    {
+      "name": "getFrameworkConfig -- mutation_framework 字段 FrameworkConfig 字段数量为 8（含 mutation_framework，不含 coverage_cmd/merge_mode）",
+      "duration_ms": 0.6384000000002743,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- basic parsing should parse line-delimited JSON and count pass/fail/skip",
+      "duration_ms": 1.6328000000000884,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- basic parsing should extract test_cases with name/status/duration_ms",
+      "duration_ms": 0.732300000000123,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- edge cases should return empty result for empty input",
+      "duration_ms": 0.10869999999999891,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- edge cases should ignore Action=run and Action=output lines",
+      "duration_ms": 0.1247000000000753,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- edge cases should skip non-JSON lines without crashing",
+      "duration_ms": 0.13040000000000873,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- edge cases should handle large output with many test lines",
+      "duration_ms": 0.9227000000000771,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- edge cases should keep the final status when a test name appears multiple times",
+      "duration_ms": 0.16290000000003602,
+      "status": "passed"
+    },
+    {
+      "name": "parseGoOutput -- edge cases should ignore package-level events without Test field",
+      "duration_ms": 0.1048000000000684,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 报告格式 -- 子报告 子报告 mutation 块结构：pass/score/threshold/measured/by_framework",
+      "duration_ms": 7.198899999999867,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 报告格式 -- 汇总报告 汇总报告 mutation 块结构：pass/score/threshold/measured/by_framework",
+      "duration_ms": 14.151699999999892,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 报告格式 -- 得分低于阈值 变异得分低于阈值时报告 pass=false，conclusion=fail",
+      "duration_ms": 8.378699999999753,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 报告格式 -- 不支持框架 不支持框架时子报告和汇总报告 mutation 均为 null",
+      "duration_ms": 17.12940000000026,
+      "status": "passed"
+    },
+    {
+      "name": "cli-unit-test-execute (AC-1) 运行 dev-team unit-test 时调用 runTestDetectFrameworks 获取 plan",
+      "duration_ms": 7.731499999999869,
+      "status": "passed"
+    },
+    {
+      "name": "cli-unit-test-execute (AC-1) 对每个 framework plan entry 执行测试命令",
+      "duration_ms": 7.0943999999999505,
+      "status": "passed"
+    },
+    {
+      "name": "cli-unit-test-execute (AC-1) 在 reports/test-execution/<framework>.json 生成子报告",
+      "duration_ms": 6.274499999999989,
+      "status": "passed"
+    },
+    {
+      "name": "cli-unit-test-execute (AC-1) 在 reports/test-execution-execution.json 生成汇总报告",
+      "duration_ms": 5.598299999999654,
+      "status": "passed"
+    },
+    {
+      "name": "cli-unit-test-execute (AC-1) 重复执行 CLI 命令时报告文件内容一致（幂等性）",
+      "duration_ms": 750.1758,
+      "status": "passed"
+    },
+    {
+      "name": "cli-unit-test-execute -- 无 merge_mode (AC-12) FrameworkConfig 和 TestPlan 不含 merge_mode 字段",
+      "duration_ms": 6.542999999999665,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES should have exactly 8 phases for requirement workflow_type",
+      "duration_ms": 0.12199999999984357,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES should start with proposal (not requirements)",
+      "duration_ms": 0.08539999999993597,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES phase 表 id 顺序与 AC-1 一致 — implement 在 test-gen 之前（AC-1）",
+      "duration_ms": 0.15270000000009532,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES should have 6 phases for bug-fix workflow_type",
+      "duration_ms": 0.35359999999991487,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES should have same 8 phases for refactor workflow_type",
+      "duration_ms": 0.1268000000000029,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES should have 5 phases for test-only workflow_type",
+      "duration_ms": 0.6338999999998123,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES requirement 表应不包含 unit-test 和 integration-test",
+      "duration_ms": 0.1659999999997126,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES bug-fix 表应不包含 integration-test",
+      "duration_ms": 0.13439999999991414,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES getPhaseTable(\"UNKNOWN\") 应降级到 requirement 表（容错）",
+      "duration_ms": 0.7141999999998916,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TABLES getPhaseTable(\"\") 应降级到 requirement 表（容错）",
+      "duration_ms": 0.17290000000002692,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) should return proposal as next_phase when entries is empty",
+      "duration_ms": 0.21099999999978536,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) should return proposal-planner as planner agent_type",
+      "duration_ms": 0.15120000000024447,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) should return proposal-evaluator as evaluator agent_type",
+      "duration_ms": 0.19090000000005602,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) should set round to 1 on first call",
+      "duration_ms": 0.14949999999998909,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) should set phase_index to 1 and total_phases to 8",
+      "duration_ms": 0.19200000000000728,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — First Run (empty eval.json) should include change name in planner prompt",
+      "duration_ms": 0.14919999999983702,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return dev-design after proposal passes",
+      "duration_ms": 0.37190000000009604,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return test-design after phases 01-02 pass",
+      "duration_ms": 0.3465000000001055,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return implement after phases 01-03 pass（AC-5）",
+      "duration_ms": 0.3204000000000633,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return test-gen after phases 01-03 and 05 pass（AC-6）",
+      "duration_ms": 0.34140000000024884,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return test-execution after phases 01-05 and 04 pass",
+      "duration_ms": 0.4078000000004067,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return code-review with planner: null (EVAL-ONLY)",
+      "duration_ms": 0.3668000000002394,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return acceptance with planner: null (EVAL-ONLY)",
+      "duration_ms": 0.523899999999685,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Normal Progression should return done=true when all 8 phases pass",
+      "duration_ms": 0.5108000000000175,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) should skip to implement when 01-03 pass — 非 test-gen（AC-5）",
+      "duration_ms": 0.1898999999998523,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) should skip to test-execution when phases 01-05 and 04 pass",
+      "duration_ms": 0.2613000000001193,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skip Passed Phases (AC-6) should return done=true when all phases have pass records",
+      "duration_ms": 0.250999999999749,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) should return same phase for first retry after fail",
+      "duration_ms": 0.24080000000003565,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) should return same phase on 4th consecutive fail (attempt 5)",
+      "duration_ms": 0.3663000000001375,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) should return max_retries_exceeded error on 5th consecutive fail",
+      "duration_ms": 0.3188999999997577,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) should return error message in Chinese for max retries",
+      "duration_ms": 0.2523000000001048,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Retry Logic (AC-7) should reset retry count after a pass (then fail, then pass, then fail)",
+      "duration_ms": 0.31650000000036016,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack should return target phase on backtrack without clearing entries",
+      "duration_ms": 0.39709999999968204,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack should re-execute planner + evaluator after backtrack to proposal",
+      "duration_ms": 0.17929999999978463,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack should handle backtrack from a later phase to mid-chain",
+      "duration_ms": 0.20359999999982392,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack should handle backtrack set in latest entry only",
+      "duration_ms": 0.16959999999971842,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack should not modify entries when backtrack is detected (read-only)",
+      "duration_ms": 0.1971000000003187,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack should return earliest target for array backtrack_to (AC-16)",
+      "duration_ms": 0.19309999999995853,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack should throw invalid_backtrack_target for unknown target",
+      "duration_ms": 0.19689999999991414,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo 返回对象包含 target 和 reason 两个字段（AC-4）",
+      "duration_ms": 0.4691000000002532,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo 最新的 backtrack 条目包含 reason 时正确返回（AC-4）",
+      "duration_ms": 0.5276999999996406,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo 回溯条目无 backtrack_reason 字段时 reason 返回 null（AC-4）",
+      "duration_ms": 0.4758999999999105,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo 无任何回溯条目时 target 和 reason 均为 null（AC-4）",
+      "duration_ms": 0.671100000000024,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo 多个回溯条目中只返回最新的 backtrack_reason（边界）",
+      "duration_ms": 9.057999999999993,
+      "status": "passed"
+    },
+    {
+      "name": "Backtrack Prompt — reason propagation planner prompt 末尾包含 ⚠️ 回溯原因: <reason>（AC-5）",
+      "duration_ms": 0.4537000000000262,
+      "status": "passed"
+    },
+    {
+      "name": "Backtrack Prompt — reason propagation evaluator prompt 末尾包含 ⚠️ 回溯原因: <reason>（AC-5）",
+      "duration_ms": 0.2563000000000102,
+      "status": "passed"
+    },
+    {
+      "name": "Backtrack Prompt — reason propagation 无 backtrack_reason 时 prompt 不拼接回溯原因（AC-5 异常）",
+      "duration_ms": 0.22510000000011132,
+      "status": "passed"
+    },
+    {
+      "name": "Backtrack Prompt — reason propagation backtrack_reason 长度为 500 字符时 prompt 包含完整内容（AC-5 边界）",
+      "duration_ms": 0.33849999999983993,
+      "status": "passed"
+    },
+    {
+      "name": "Backtrack Prompt — reason propagation backtrack_to 为数组时 prompt 拼接原因（AC-5）",
+      "duration_ms": 0.37980000000015934,
+      "status": "passed"
+    },
+    {
+      "name": "Backtrack Prompt — reason propagation 正常前进（非回溯）时 prompt 不含回溯原因（AC-5 异常）",
+      "duration_ms": 0.2379000000000815,
+      "status": "passed"
+    },
+    {
+      "name": "Backtrack Prompt — reason propagation 回溯原因是空格字符串时 prompt 包含空格（当前行为：空格为 truthy 值）",
+      "duration_ms": 0.23270000000002256,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo — backward compatibility (AC-6) 旧 eval.json 条目（无 backtrack_reason）解析不抛错（AC-6）",
+      "duration_ms": 0.33090000000038344,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo — backward compatibility (AC-6) 混合新旧格式条目时，旧条目的 reason 为 null（AC-6）",
+      "duration_ms": 0.26949999999987995,
+      "status": "passed"
+    },
+    {
+      "name": "getLatestBacktrackInfo — backward compatibility (AC-6) getLatestBacktrackInfo() 在旧格式条目上正确返回 target 和 reason: null（AC-6）",
+      "duration_ms": 0.33080000000018117,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) should skip stale pass entries when determining next phase (AC-11)",
+      "duration_ms": 0.20209999999997308,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) should return done=true when all phases have non-stale pass (mix of stale and fresh)",
+      "duration_ms": 0.28710000000000946,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) should treat missing stale field as stale:false (AC-12 backward compat)",
+      "duration_ms": 0.2031000000001768,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) should resume correctly when stale entries are in middle phases",
+      "duration_ms": 0.2795000000000982,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Stale Entry Filtering (AC-11, AC-12) should return test-gen when 05 pass but 04 is stale（AC-7）",
+      "duration_ms": 0.32520000000022264,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) should return dev-design when test-design missing pass but 02 not passed (AC-5)",
+      "duration_ms": 0.23189999999976862,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) should return implement when dev-design is pass but 05 not passed (AC-6)",
+      "duration_ms": 0.19050000000015643,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7) should return implement when 04 pass but 05 not passed — 线性扫描优先 05（AC-11 子场景）",
+      "duration_ms": 0.2510000000002037,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) should return round_limit_exceeded error when round > 20",
+      "duration_ms": 0.3285000000000764,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) should return Chinese error message for round limit",
+      "duration_ms": 0.34879999999975553,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) should NOT error at exactly round 20 with all pass",
+      "duration_ms": 0.41800000000012005,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Round Limit (AC-10) should detect round limit via backtrack cycles",
+      "duration_ms": 0.4234000000001288,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Mid-Phase Interruption should re-return the phase when evaluator has not logged (no entries for phase)",
+      "duration_ms": 0.1839999999997417,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Mid-Phase Interruption should return the incomplete phase if evaluator never logged",
+      "duration_ms": 0.17419999999992797,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skipped Phases should treat skipped entries as pass",
+      "duration_ms": 0.21270000000004075,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Skipped Phases should advance past a mix of skipped and passed phases",
+      "duration_ms": 0.2460999999998421,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type should default to requirement when workflow_type is omitted",
+      "duration_ms": 0.22420000000010987,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type should follow bug-fix phase table when workflow_type is bug-fix",
+      "duration_ms": 1.7786999999998443,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type should follow refactor phase table when workflow_type is refactor",
+      "duration_ms": 0.15059999999994034,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type should follow test-only phase table when workflow.json has test-only",
+      "duration_ms": 0.20400000000017826,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type test-only proposal prompt differs from requirement (AC-9)",
+      "duration_ms": 0.32310000000006767,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type test-only returns code-analyze after proposal passes (AC-2)",
+      "duration_ms": 0.1993000000002212,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type test-only returns test-design after 01 and 02 pass (AC-4)",
+      "duration_ms": 0.37550000000010186,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type test-only returns done after all five phases pass",
+      "duration_ms": 0.27060000000028595,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type bug-fix phase table 仍为 6 个 phase，不含 03/04（AC-10）",
+      "duration_ms": 0.26880000000028303,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow_type should return acceptance from bug-fix after code-review passes",
+      "duration_ms": 0.20839999999998327,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only First Run should return proposal when workflow.json is test-only and eval.json empty (AC-1)",
+      "duration_ms": 0.18380000000024665,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only First Run should set total_phases to 5 for test-only",
+      "duration_ms": 0.2141999999998916,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Normal Progression should return code-analyze after proposal passes (AC-2)",
+      "duration_ms": 0.15790000000015425,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Normal Progression should return test-design after proposal and code-analyze pass (AC-2)",
+      "duration_ms": 0.19079999999985375,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Normal Progression should return test-gen after 01-03 pass (AC-2)",
+      "duration_ms": 0.18410000000039872,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Normal Progression should return test-execution after 01-04 pass (AC-2)",
+      "duration_ms": 0.2381000000000313,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Gate (code-analyze) should return code-analyze when 01 pass but 02 not passed — 03 cannot run early (AC-4)",
+      "duration_ms": 0.12940000000025975,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Gate (code-analyze) should return test-design when 01-02 pass — gate satisfied (AC-4)",
+      "duration_ms": 0.135899999999765,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Completion should return done=true when 01-04, 05 all pass",
+      "duration_ms": 0.29700000000002547,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Completion test-only 不应返回 implement 或 acceptance（AC-2）",
+      "duration_ms": 0.35669999999981883,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — test-only Completion integration-test 不应出现在 test-only 的输出范围内",
+      "duration_ms": 0.524199999999837,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow.json default should use requirement table when workflow.json missing",
+      "duration_ms": 0.21610000000009677,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — workflow.json default should use requirement table when workflow.json lacks workflow_type",
+      "duration_ms": 0.24949999999989814,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Backtrack (test-only) test-only backtrack_to proposal still returns target phase",
+      "duration_ms": 0.2640999999998712,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Input Validation should not throw for empty entries array",
+      "duration_ms": 1.1988999999998668,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseNext — Input Validation change 参数为空字符串时应抛出 Error",
+      "duration_ms": 0.3831999999997606,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios should handle empty eval.json (first run)",
+      "duration_ms": 0.27220000000033906,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios should handle all phases as first_run (empty entries)",
+      "duration_ms": 0.18779999999969732,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios should handle exactly 20 rounds with all pass (no limit error)",
+      "duration_ms": 0.4547000000002299,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios 01-03 pass + skip 04 时仍返回 implement（05 未 pass）",
+      "duration_ms": 0.49890000000004875,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios should handle change name with special characters",
+      "duration_ms": 0.2031000000001768,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios test-only change name with special characters still appears in planner prompt",
+      "duration_ms": 0.35370000000011714,
+      "status": "passed"
+    },
+    {
+      "name": "Boundary Scenarios should return done=true after acceptance passes",
+      "duration_ms": 0.3564000000001215,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema should return valid JSON when next phase is ready",
+      "duration_ms": 0.4465999999997621,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema should return valid JSON when all phases are done",
+      "duration_ms": 0.32169999999996435,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema should return valid JSON on error",
+      "duration_ms": 0.32780000000002474,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next Output Schema should return same prompt on retry (skill handles retry context)",
+      "duration_ms": 0.37900000000036016,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should return empty allowed_backtrack_phases for first phase",
+      "duration_ms": 0.1613999999999578,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should return preceding phases for second phase",
+      "duration_ms": 0.23610000000007858,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should return all preceding phases with id and description",
+      "duration_ms": 0.5840000000002874,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should have empty allowed_backtrack_phases on done",
+      "duration_ms": 0.2496000000001004,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should have empty allowed_backtrack_phases on error",
+      "duration_ms": 0.26830000000018117,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should append backtrack hint to evaluator prompt",
+      "duration_ms": 0.24400000000014188,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should NOT append backtrack hint when no preceding phases",
+      "duration_ms": 0.12690000000020518,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should include backtrack hint on retry",
+      "duration_ms": 0.2369000000003325,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases test-execution 的 allowed_backtrack_phases 不应包含 unit-test 或 integration-test",
+      "duration_ms": 0.38999999999987267,
+      "status": "passed"
+    },
+    {
+      "name": "phase_next — allowed_backtrack_phases should include backtrack hint after backtrack detection",
+      "duration_ms": 0.2118000000000393,
+      "status": "passed"
+    },
+    {
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) 应将 <phase> 替换为当前 phase 的 ID（如 \"proposal\"）",
+      "duration_ms": 0.06310000000030414,
+      "status": "passed"
+    },
+    {
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) 应将 <phase> 替换为 dev-design / implement 等中间 phase 的 ID",
+      "duration_ms": 0.08300000000008367,
+      "status": "passed"
+    },
+    {
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) 模板中不含 <phase> 时应原样返回",
+      "duration_ms": 0.05259999999998399,
+      "status": "passed"
+    },
+    {
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) 模板含多个 <phase> 时应全部替换",
+      "duration_ms": 0.05079999999998108,
+      "status": "passed"
+    },
+    {
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) 模板仅含 <phase> 时应替换为纯 phase ID",
+      "duration_ms": 0.04039999999986321,
+      "status": "passed"
+    },
+    {
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) 空白模板应返回空白字符串",
+      "duration_ms": 0.054099999999834836,
+      "status": "passed"
+    },
+    {
+      "name": "interpolatePrompt — <phase> 占位符替换 (AC-3) change name 含特殊字符时 <phase> 替换应不受影响",
+      "duration_ms": 0.04710000000022774,
+      "status": "passed"
+    },
+    {
+      "name": "buildPhaseDef — <phase> 动态注入 (AC-3) evaluator prompt 中 <phase> 应被替换为对应 phase 的 ID",
+      "duration_ms": 0.07619999999997162,
+      "status": "passed"
+    },
+    {
+      "name": "buildPhaseDef — <phase> 动态注入 (AC-3) planner prompt 中 <phase> 应被替换为对应 phase 的 ID",
+      "duration_ms": 0.040600000000267755,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 链式命令中测试+覆盖率按序执行，退出码为测试退出码",
+      "duration_ms": 56.35209999999995,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 链式命令退出码反映测试命令的退出码",
+      "duration_ms": 74.20060000000012,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 链式命令中测试失败时覆盖率仍执行（; _X=$?; 而非 &&）",
+      "duration_ms": 0.20250000000010004,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 链式命令覆盖率从文件读取而非 stdout",
+      "duration_ms": 3.969600000000014,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 链式命令 stdout 包含测试输出和覆盖率命令输出",
+      "duration_ms": 41.89109999999994,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) pytest 链式命令结构正确",
+      "duration_ms": 1.4317999999999529,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) rust 链式命令顺序正确",
+      "duration_ms": 0.2523999999998523,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 单命令框架（vitest/jest/vite-plus）不含链式模式",
+      "duration_ms": 0.2882000000001881,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 链式命令中覆盖率命令失败但测试通过，最终退出码为 0",
+      "duration_ms": 2.0633000000000266,
+      "status": "passed"
+    },
+    {
+      "name": "chained-command (AC-10) 链式命令中测试失败，最终退出码为测试退出码",
+      "duration_ms": 39.294700000000034,
+      "status": "passed"
+    },
+    {
+      "name": "non-zero-exit-code (AC-11) 测试命令非零退出时记录失败和退出码",
+      "duration_ms": 5.4167999999999665,
+      "status": "passed"
+    },
+    {
+      "name": "non-zero-exit-code (AC-11) 非零退出不阻塞同项目其他 framework 执行",
+      "duration_ms": 6.121800000000121,
+      "status": "passed"
+    },
+    {
+      "name": "non-zero-exit-code (AC-11) 所有 framework 执行完成后退出码反映汇总结果",
+      "duration_ms": 762.1785,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 工具已移除 (AC-6) registerTool 未注册 config_set",
+      "duration_ms": 0.14969999999993888,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 工具已移除 (AC-6) registerTool 未注册 config_unset",
+      "duration_ms": 0.12530000000060681,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 工具已移除 (AC-6) registerTool 未注册 config_context",
+      "duration_ms": 0.1750000000001819,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — config_get 保留 (AC-6) registerTool 已注册 config_get",
+      "duration_ms": 0.5918999999994412,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 phase_log",
+      "duration_ms": 0.07559999999921274,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 archi_query",
+      "duration_ms": 0.073500000000422,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 archi_validate",
+      "duration_ms": 0.06549999999970169,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 archi_write",
+      "duration_ms": 0.07119999999940774,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 archi_check",
+      "duration_ms": 0.047599999999874854,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 phase_next",
+      "duration_ms": 0.05010000000038417,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 test_detect_frameworks",
+      "duration_ms": 0.05209999999988213,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 test_resolve_paths",
+      "duration_ms": 0.04320000000006985,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 registerTool 已注册 change_list",
+      "duration_ms": 0.15229999999974098,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — 其他工具保留 总共注册了 10 个工具",
+      "duration_ms": 0.11670000000049185,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — import 完整性 schemas 模块可成功导入",
+      "duration_ms": 0.2767999999996391,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — import 完整性 所有注册的工具函数模块可成功导入",
+      "duration_ms": 0.2908999999999651,
+      "status": "passed"
+    },
+    {
+      "name": "MCP 注册 — import 完整性 architecture lib 模块可成功导入",
+      "duration_ms": 1.7930999999998676,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) should map each file to its matching framework via default + overrides",
+      "duration_ms": 5.859000000000378,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) should use first-match rule when a file matches both default and override globs",
+      "duration_ms": 5.917699999999968,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) should return \"unknown\" for files not matching any glob (reverse AC-4)",
+      "duration_ms": 5.2520999999997,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) should return empty detected for empty file list (reverse AC-4)",
+      "duration_ms": 5.230199999999968,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- glob first-match (AC-4) override 使用无通配符路径 plugins/dev-team/bin 时应检测子目录测试文件为对应框架",
+      "duration_ms": 5.8496000000000095,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework should detect framework from default config and match files",
+      "duration_ms": 6.241500000000087,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework should apply framework default glob for matching",
+      "duration_ms": 6.1361000000001695,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- single framework should match no files when framework config has no matching files",
+      "duration_ms": 5.7280000000000655,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases should handle files parameter as undefined (auto-scan) gracefully",
+      "duration_ms": 9.296199999999772,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases should handle config with no framework gracefully",
+      "duration_ms": 4.55809999999974,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases should handle a very large file list without error",
+      "duration_ms": 24.961699999999837,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases should handle files with special characters in paths",
+      "duration_ms": 6.193299999999908,
+      "status": "passed"
+    },
+    {
+      "name": "detectFrameworks -- edge cases should handle missing config gracefully",
+      "duration_ms": 5.281799999999748,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) 应为单框架配置生成正确的 plan 条目",
+      "duration_ms": 6.1240999999999985,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 内容正确性 (AC-6) 应为多框架多目录配置生成正确的 plan 数组（default first, then overrides）",
+      "duration_ms": 7.544499999999971,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) 应为 \"vitest\" 生成 plan，directory 为 \".\"",
+      "duration_ms": 7.427999999999884,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) 应为 \"jest\" 生成 plan，directory 为 \".\"",
+      "duration_ms": 6.0646999999999025,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan (AC-9) 应为 \"rust\" 生成 plan，directory 为 \".\"，coverage_format 为 \"llvm-cov\"",
+      "duration_ms": 6.308700000000044,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) 应在无 framework 配置时返回空 plan",
+      "duration_ms": 5.0349999999998545,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 空配置 plan (AC-10) 应在无 test 配置时返回空 plan",
+      "duration_ms": 4.484300000000076,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) 添加 plan 后 detected 字段结构和内容不变",
+      "duration_ms": 5.921800000000076,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) 添加 plan 后 frameworks 字段结构和内容不变",
+      "duration_ms": 5.70029999999997,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) 添加 plan 后首匹配规则不变",
+      "duration_ms": 5.391100000000279,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 向后兼容 (AC-11) 添加 plan 后无匹配文件仍返回 \"unknown\"",
+      "duration_ms": 4.893900000000031,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) 配置 vitest 框架时，plan 条目包含 coverage_artifacts 和 coverage_cleanup",
+      "duration_ms": 5.779399999999896,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) vitest plan 条目的 coverage_artifacts 为 [\"coverage/coverage-summary.json\"]，coverage_cleanup 为 [\"coverage\", \".nyc_output\", \"test-stderr.txt\"]",
+      "duration_ms": 6.589300000000094,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) 多框架 [vitest, rust] 时每个 plan 条目包含对应 coverage_artifacts 和 coverage_cleanup",
+      "duration_ms": 6.427200000000084,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) rust plan 条目 coverage_artifacts 为 [\"coverage/coverage-summary.json\"]",
+      "duration_ms": 5.43730000000005,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4) 单框架 \"vitest\" 时 plan 条目也包含 coverage_artifacts 和 coverage_cleanup",
+      "duration_ms": 5.747199999999793,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) vitest 框架配置时 plan 条目包含非空 script 字段 (AC-7)",
+      "duration_ms": 6.102699999999913,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) 多框架 [vitest, rust] 配置时每个 plan 条目都包含非空 script",
+      "duration_ms": 6.123900000000049,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) plan 条目 script 内容应由 directory、coverage_cleanup、test_cmd 组装",
+      "duration_ms": 5.37099999999964,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) vite-plus 框架（directory 非 \".\"）时 script 含 cd 行",
+      "duration_ms": 6.306799999999839,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9) 空 framework 配置时 plan 为空数组",
+      "duration_ms": 4.662600000000111,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script \"vitest\" 时 plan 条目 script 字段为非空字符串",
+      "duration_ms": 5.442300000000159,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script \"jest\" 时 plan 条目 script 字段为非空字符串",
+      "duration_ms": 6.0198999999997795,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- 单框架 plan script \"rust\" 时 plan 条目 script 字段为非空字符串",
+      "duration_ms": 5.152099999999791,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — go plan (AC-5) config framework: \"go\" 时 plan 含 coverage_format: \"go-cover\" 及注册表 artifacts/cleanup",
+      "duration_ms": 6.161800000000312,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — node-test plan (AC-5) config framework: \"node-test\" 时 plan 含 coverage_format \"node-test\" 及 coverage_output .txt",
+      "duration_ms": 7.513300000000072,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — node-test plan (AC-5) node-test plan 的 script 最后一行为简化后的覆盖命令，不含管道符 (AC-6)",
+      "duration_ms": 6.356199999999717,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — pytest plan (AC-5) config framework: \"pytest\" 时 plan 含 coverage_format: \"coverage-py\"",
+      "duration_ms": 5.907600000000002,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — 多框架 (AC-5) 配置 [vitest, go] 时 plan 两条目各自携带正确 coverage_format",
+      "duration_ms": 6.405299999999897,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks — glob 检测 (AC-5) *_test.go 文件在 go 配置下映射为 go 框架",
+      "duration_ms": 6.09270000000015,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 无 merge_mode (AC-12) vitest plan 条目包含 test_cmd 但不包含 merge_mode",
+      "duration_ms": 6.392199999999775,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 无 merge_mode (AC-12) pytest plan 条目包含 test_cmd 但不包含 merge_mode",
+      "duration_ms": 7.619599999999991,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 无 merge_mode (AC-12) 多框架每个 plan 条目均包含 test_cmd 但不含 merge_mode",
+      "duration_ms": 6.925900000000183,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 无 merge_mode (AC-12) plan 条目中 test_cmd 与 getFrameworkConfig 返回值一致",
+      "duration_ms": 7.56690000000026,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 无 merge_mode (AC-12) plan 条目的 test_cmd 为模板字符串格式（含 {files}/{directory}/{project_root} 占位符），未被替换",
+      "duration_ms": 5.32340000000022,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan 无 merge_mode (AC-12) 大量框架配置（如 8 框架全配置）时 plan 每条目均正确携带 test_cmd",
+      "duration_ms": 8.343899999999849,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan mutation 字段 vitest 框架时 PlanEntry.mutation_framework 为 \"stryker-js\"",
+      "duration_ms": 8.285499999999956,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan mutation 字段 vitest 框架时 PlanEntry.mutation_score 为 config 中的 score 值",
+      "duration_ms": 8.00500000000011,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan mutation 字段 vitest 框架时 PlanEntry.mutation_config 从 config 正确填充",
+      "duration_ms": 9.010600000000068,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan mutation 字段 bun 框架时 PlanEntry.mutation_framework 为 null",
+      "duration_ms": 5.576999999999771,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan mutation 字段 config 未设置 test.mutation 时 mutation_score 为 null",
+      "duration_ms": 17.715899999999692,
+      "status": "passed"
+    },
+    {
+      "name": "runTestDetectFrameworks -- plan mutation 字段 多框架（vitest + go）时每个 plan 条目正确携带各自的 mutation 字段",
+      "duration_ms": 6.630899999999656,
+      "status": "passed"
+    },
+    {
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 modules: [] 且 config.json 含 test.overrides 时，unit_tests 包含 src/ 下源文件的推导结果 (AC-1)",
+      "duration_ms": 26.64519999999993,
+      "status": "passed"
+    },
+    {
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 modules: [] 时 runTestDetectFrameworks 被真实调用且 plan[].directory 被用作扫描根目录 (AC-1)",
+      "duration_ms": 17.8746000000001,
+      "status": "passed"
+    },
+    {
+      "name": "config-driven 自动扫描 — 空 modules 时自动扫描 modules: [] 且计划目录下含非源文件（.md, .json）时应被过滤，不进入 unit_tests",
+      "duration_ms": 28.80540000000019,
+      "status": "passed"
+    },
+    {
+      "name": "workflow-test-only/SKILL.md — Step 1 workflow.json (AC-19) Step 1 明确写入 {\"workflow_type\": \"test-only\"}",
+      "duration_ms": 0.7251999999999725,
+      "status": "passed"
+    },
+    {
+      "name": "workflow-test-only/SKILL.md — 编排结构 (AC-8) Step 1 scaffold 后写入 workflow.json",
+      "duration_ms": 0.6509000000000924,
+      "status": "passed"
+    },
+    {
+      "name": "workflow-test-only/SKILL.md — 编排结构 (AC-8) Step 2 循环仅传 change 给 phase_next",
+      "duration_ms": 0.7311000000000831,
+      "status": "passed"
+    },
+    {
+      "name": "workflow-test-only/SKILL.md — 编排结构 (AC-8) 六阶段 test-only 完成摘要 total phases 占位符 (AC-9)",
+      "duration_ms": 0.843599999999924,
+      "status": "passed"
+    },
+    {
+      "name": "workflow-test-only/SKILL.md — bug 报告流程 (AC-15) 06/08 fail 且发现代码 bug 时写入 reports/code-bugs-found.md 并通知用户",
+      "duration_ms": 1.0622000000000753,
+      "status": "passed"
+    },
+    {
+      "name": "workflow-test-only vs workflow-requirement — Step 1 差异 requirement skill Step 1 不写 test-only workflow.json",
+      "duration_ms": 2.6954000000000633,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- basic parsing should parse vitest JSON with testResults and assertionResults",
+      "duration_ms": 0.8315000000000055,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- basic parsing should parse jest JSON format",
+      "duration_ms": 0.2378999999999678,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- basic parsing should extract test_cases with name/status/duration_ms",
+      "duration_ms": 0.28099999999994907,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- basic parsing should extract error details from failed test cases",
+      "duration_ms": 0.4557999999999538,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should return error for empty stdout",
+      "duration_ms": 0.15560000000004948,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should return error for whitespace-only stdout",
+      "duration_ms": 0.08730000000002747,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should return error for invalid JSON",
+      "duration_ms": 0.19409999999993488,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should return error for JSON missing testResults array",
+      "duration_ms": 0.11450000000002092,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should return total=0 when testResults array is empty",
+      "duration_ms": 0.19839999999999236,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should handle large JSON input",
+      "duration_ms": 0.2947000000000344,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should return all passed when all assertions pass",
+      "duration_ms": 0.1530999999999949,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- edge cases should handle nullish values in assertion results",
+      "duration_ms": 0.13810000000000855,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- source file derivation should derive source files from test files",
+      "duration_ms": 2.3070999999999913,
+      "status": "passed"
+    },
+    {
+      "name": "parseJsonOutput -- source file derivation should derive multiple source files",
+      "duration_ms": 0.45150000000001,
+      "status": "passed"
+    },
+    {
+      "name": "requirement phase index should return 0 for first phase",
+      "duration_ms": 0.29769999999996344,
+      "status": "passed"
+    },
+    {
+      "name": "requirement phase index should return 3 for implement（AC-1）",
+      "duration_ms": 0.07920000000001437,
+      "status": "passed"
+    },
+    {
+      "name": "requirement phase index should return 4 for test-gen（AC-1）",
+      "duration_ms": 0.11339999999995598,
+      "status": "passed"
+    },
+    {
+      "name": "requirement phase index should return 5 for test-execution（索引随 04/05 对调后仍正确）",
+      "duration_ms": 0.11659999999994852,
+      "status": "passed"
+    },
+    {
+      "name": "requirement phase index should return -1 for unknown phase",
+      "duration_ms": 0.0826999999999316,
+      "status": "passed"
+    },
+    {
+      "name": "requirement phase index should return -1 for old phase name",
+      "duration_ms": 0.0764000000000351,
+      "status": "passed"
+    },
+    {
+      "name": "requirement phase index should return -1 for empty string phase",
+      "duration_ms": 0.070699999999988,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [dev-design, test-design, acceptance] for proposal (AC-4)",
+      "duration_ms": 0.1109000000000151,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [test-design, implement, acceptance] for dev-design (AC-4)",
+      "duration_ms": 0.14600000000007185,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [test-gen] for test-design — 03 不依赖 05，05 非其 downstream（AC-4）",
+      "duration_ms": 0.1090999999998985,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [test-execution, code-review] for test-gen",
+      "duration_ms": 0.11220000000002983,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [test-gen, test-execution, code-review, acceptance] for implement",
+      "duration_ms": 0.1488000000000511,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [] for leaf phases (06, 07, 08)",
+      "duration_ms": 0.1674000000000433,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [] for unknown phase (fault-tolerant)",
+      "duration_ms": 0.12749999999994088,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [] for empty string phase",
+      "duration_ms": 0.1431999999999789,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should fallback to requirement table for empty string workflowType",
+      "duration_ms": 0.11969999999996617,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should fallback to requirement table for unknown workflowType (case-insensitive tolerant)",
+      "duration_ms": 0.14959999999996398,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should default to requirement workflow_type",
+      "duration_ms": 0.1250999999999749,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [code-analyze, test-design] for proposal in test-only (AC-5)",
+      "duration_ms": 0.11320000000000618,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents should return [test-design] for code-analyze in test-only (AC-6)",
+      "duration_ms": 0.2898999999999887,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — test-only should have exactly 5 phases for test-only workflow_type",
+      "duration_ms": 0.14140000000008968,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — test-only should list test-only phases in expected order",
+      "duration_ms": 0.13179999999999836,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — test-only should not include dev-design, implement, review, or acceptance phases",
+      "duration_ms": 0.5964999999999918,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — test-only should use code-analyze agents for code-analyze (AC-3)",
+      "duration_ms": 0.15819999999996526,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TEST_ONLY — prompt customization proposal planner prompt differs from requirement (AC-9)",
+      "duration_ms": 0.31730000000004566,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TEST_ONLY — WORKFLOW_CONTEXT prompts test-execution evaluator prompt includes WORKFLOW_CONTEXT",
+      "duration_ms": 0.13200000000006185,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents — test-only extended should return [test-gen] for test-design test-only",
+      "duration_ms": 0.10469999999997981,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents — test-only extended should return [test-execution] for test-gen test-only",
+      "duration_ms": 0.12170000000003256,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents — test-only extended should return [] for leaf phase test-execution test-only",
+      "duration_ms": 0.14790000000004966,
+      "status": "passed"
+    },
+    {
+      "name": "getDependents — test-only extended should return [] for unknown phase 99-unknown test-only",
+      "duration_ms": 0.11239999999997963,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only should return [proposal, code-analyze] for test-design test-only",
+      "duration_ms": 0.2986999999999398,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only should return [test-design] for test-gen test-only",
+      "duration_ms": 0.15779999999995198,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only should return [test-gen] for test-execution test-only",
+      "duration_ms": 2.58929999999998,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — regression (AC-10) bug-fix phase table length and ids unchanged",
+      "duration_ms": 0.14549999999997,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — regression (AC-10) bug-fix phase table 应不包含 integration-test",
+      "duration_ms": 0.20879999999999654,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — regression (AC-10) refactor phase table matches requirement",
+      "duration_ms": 0.15249999999991815,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — regression (AC-10) getPhaseTable(\"INVALID\") 应降级到 requirement 表（容错）",
+      "duration_ms": 0.12789999999995416,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — regression (AC-10) getPhaseTable(\"\") 应降级到 requirement 表（容错）",
+      "duration_ms": 0.19290000000000873,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — 降级容错 未知 workflowType 应降级到 requirement 表",
+      "duration_ms": 0.15829999999994016,
+      "status": "passed"
+    },
+    {
+      "name": "getPhaseTable — 降级容错 小写未知 workflowType 也应降级到 requirement 表",
+      "duration_ms": 0.13010000000008404,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only 边界 空 phase 应返回 []",
+      "duration_ms": 0.15179999999998017,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only 边界 空 phase 在 requirement 表中也应返回 []",
+      "duration_ms": 0.11230000000000473,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only 边界 inferPrerequisites(\"test-execution\", \"\") 使用 requirement 默认表返回 [implement, test-gen]",
+      "duration_ms": 1.0633000000000266,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only 边界 未知 phase 99-unknown 应返回 []（容错）",
+      "duration_ms": 0.11439999999993233,
+      "status": "passed"
+    },
+    {
+      "name": "getPrerequisites — test-only 边界 未知 phase 在 test-only 表中应返回 []",
+      "duration_ms": 0.11339999999995598,
+      "status": "passed"
+    },
+    {
+      "name": "PHASE_TEST_ONLY — code-analyze prompt 不含 WORKFLOW_CONTEXT code-analyze evaluator prompt 不应包含 WORKFLOW_CONTEXT",
+      "duration_ms": 0.18479999999999563,
+      "status": "passed"
+    },
+    {
+      "name": "backtrack-reason-flow — 回溯原因传播 (AC-5) phase_log 写入 backtrack_to + backtrack_reason 后，phase_next 返回的 prompt 含回溯原因",
+      "duration_ms": 1.1280000000001564,
+      "status": "passed"
+    },
+    {
+      "name": "backtrack-reason-flow — 回溯原因传播 (AC-5) 多阶段回溯：回溯到不同阶段时 prompt 均包含正确的原因",
+      "duration_ms": 1.067600000000084,
+      "status": "passed"
+    },
+    {
+      "name": "backtrack-reason-flow — 回溯原因传播 (AC-5) planner 和 evaluator 的 prompt 均包含 ⚠️ 回溯原因: 前缀",
+      "duration_ms": 11.492099999999937,
+      "status": "passed"
+    },
+    {
+      "name": "readWorkflowConfig — via getWorkflowType should parse workflow.json with workflow_type test-only",
+      "duration_ms": 2.6527999999999565,
+      "status": "passed"
+    },
+    {
+      "name": "getWorkflowType should return test-only when workflow.json contains test-only",
+      "duration_ms": 0.22249999999996817,
+      "status": "passed"
+    },
+    {
+      "name": "getWorkflowType should return requirement when workflow.json contains requirement",
+      "duration_ms": 0.20439999999996417,
+      "status": "passed"
+    },
+    {
+      "name": "getWorkflowType should return requirement when workflow.json file does not exist (AC-13)",
+      "duration_ms": 0.22690000000000055,
+      "status": "passed"
+    },
+    {
+      "name": "getWorkflowType should return requirement when workflow.json exists but workflow_type key is missing",
+      "duration_ms": 0.191599999999994,
+      "status": "passed"
+    },
+    {
+      "name": "getWorkflowType should return requirement when workflow_type is empty string",
+      "duration_ms": 0.34990000000004784,
+      "status": "passed"
+    },
+    {
+      "name": "getWorkflowType should throw when workflow.json contains invalid JSON",
+      "duration_ms": 1.1044000000000551,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 省略 files 参数时应检测 src/app.test.ts 与 tests/auth.rs 并归属正确框架",
+      "duration_ms": 14.285100000000057,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 仅含 readme.md 非测试文件时 detected 应为空",
+      "duration_ms": 8.86790000000019,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 node_modules/pkg/index.test.ts 不应被自动扫描纳入 detected",
+      "duration_ms": 16.846900000000005,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — 自动扫描匹配文件集合 自动扫描结果不应含 unknown 非测试文件（D5 语义变更）",
+      "duration_ms": 18.92950000000019,
+      "status": "passed"
+    },
+    {
+      "name": "getChangeDir — MCP 缓存已设置时路径拼接 MCP 缓存为 /workspace/project 时 getChangeDir 应拼接 openspec/changes/<name> (AC-1~AC-3)",
+      "duration_ms": 7.418599999999969,
+      "status": "passed"
+    },
+    {
+      "name": "getChangeDir — 无 MCP 缓存时回退 无 MCP 缓存、设置 CLAUDE_PROJECT_DIR 时 getChangeDir 基于 env 根目录拼接",
+      "duration_ms": 1.699899999999957,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 文件路径解析 多个源文件路径应各自返回同级测试文件 (AC-6)",
+      "duration_ms": 2.8072000000001935,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 文件路径解析 unit_tests 应按 source 字典序排序且去重",
+      "duration_ms": 2.8353000000001884,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 文件路径解析 已是测试文件的路径应写入 errors 而非 unit_tests",
+      "duration_ms": 2.907600000000002,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 文件路径解析 非源文件（.md、.json、.yaml 等）路径应写入 errors",
+      "duration_ms": 19.174200000000383,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 集成测试路径 integration_scenarios: [\"api-flow\"] + extension: \"ts\" (AC-7)",
+      "duration_ms": 5.599299999999857,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 集成测试路径 modules: [\"src/auth.py\"] + integration_scenarios: [\"db-roundtrip\"] 无 extension (AC-8)",
+      "duration_ms": 5.735800000000381,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 集成测试路径 无有效源文件时集成测试应默认 .test.ts 扩展名",
+      "duration_ms": 5.027499999999691,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 集成测试路径 多个 integration_scenarios 应按 scenario 字典序排序",
+      "duration_ms": 5.099700000000212,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 集成测试路径 integration_scenarios 未传或为空数组时 integration_tests 应为空",
+      "duration_ms": 4.832699999999932,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 错误收集 不存在的源文件路径仍应推导出测试路径（无需判断文件是否存在）(AC-9)",
+      "duration_ms": 2.9407999999998538,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 错误收集 README.md 应写入 errors，unit_tests 应为空",
+      "duration_ms": 5.731800000000021,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 错误收集 传入已是测试文件的路径应写入 errors",
+      "duration_ms": 5.819599999999809,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 错误收集 路径穿越 ../../../outside.ts 应写入 errors",
+      "duration_ms": 2.3180999999999585,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 错误收集 errors 应按 path 字典序排序",
+      "duration_ms": 2.5064000000002125,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 错误收集 单条失败不应中断其余 modules 条目的处理",
+      "duration_ms": 2.804899999999634,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- modules 边界 modules 含单元素文件路径时应返回单条 unit_tests",
+      "duration_ms": 4.8146999999999025,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- modules 边界 modules 含大量文件路径（100+ 条）时不应抛错且全部解析",
+      "duration_ms": 167.48689999999988,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- modules 边界 modules 含多个不同目录的文件路径时应各自返回同级测试文件",
+      "duration_ms": 1.9077000000002045,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 端到端编排 传入 modules、integration_scenarios、extension 应返回完整解析结构",
+      "duration_ms": 7.869599999999991,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 端到端编排 project_root 指向绝对路径且源文件存在时相对路径解析应正确",
+      "duration_ms": 5.367699999999786,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root 向后兼容 未传 integration_root + integration_scenarios: [\"api-flow\"] + extension: \"ts\" → __tests__/api-flow/api-flow.test.ts (AC-1)",
+      "duration_ms": 5.742199999999684,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root 为点号 integration_root: \".\" + 同上场景 → 与 AC-1 相同 (AC-2)",
+      "duration_ms": 6.600800000000163,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root 子目录前缀 integration_root: \"plugins/dev-team/bin\" + integration_scenarios: [\"api-flow\"] → 带子目录前缀路径 (AC-3)",
+      "duration_ms": 4.4362999999998465,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root 子目录前缀 integration_root: \"plugins/dev-team/bin/\" 经 runTestResolvePaths 映射后路径与 AC-3 一致 (AC-5)",
+      "duration_ms": 5.218199999999797,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root 与 unit_tests 隔离 modules: [\"src/config.ts\"] + integration_root: \"plugins/dev-team/bin\" 时 unit_tests[0].test_file 仍为 src/config.test.ts (AC-6)",
+      "duration_ms": 5.42069999999967,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root 与 unit_tests 隔离 多个 modules 含不同语言源文件时 integration_root 仅改变 integration_tests (AC-6)",
+      "duration_ms": 3.0307999999999993,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root 路径穿越 integration_root: \"../outside\" 含 .. 段时写入 errors 且 integration_tests 为空 (D7)",
+      "duration_ms": 6.5262000000002445,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root snake_case 映射 runTestResolvePaths({ integration_root: \"plugins/dev-team/bin\" }) 应生成带子目录前缀的集成测试路径",
+      "duration_ms": 5.565900000000056,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- integration_root snake_case 映射 未传 integration_root 时 runTestResolvePaths 应使用默认 __tests__ 前缀（回归）",
+      "duration_ms": 4.747499999999945,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- config-driven 自动扫描 modules: [] 且 test.overrides 配置有效时，unit_tests 包含扫描到的源文件推导结果 (AC-1)",
+      "duration_ms": 5.954299999999876,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- config-driven 自动扫描 modules: [] 时 runTestDetectFrameworks 被调用（通过 spy 验证）(AC-1)",
+      "duration_ms": 2.0828999999998814,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- config-driven 自动扫描 modules: [] 且 plan 为空时 errors 包含 \"No test configuration\" 提示，unit_tests 为空 (AC-2)",
+      "duration_ms": 1.7040999999999258,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- config-driven 过滤 modules: [\"src/config.ts\"] 在 test config 覆盖范围内时正常返回 unit_tests (AC-3)",
+      "duration_ms": 2.3037999999996828,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- config-driven 过滤 modules: [\"scripts/not-covered.ts\"] 不在 test config 范围内时该文件不出现在 unit_tests 中，errors 包含跳过的提示 (AC-3)",
+      "duration_ms": 2.8088000000002467,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- config-driven 过滤 modules 混合范围内外文件，仅范围内的文件进入 unit_tests (AC-3)",
+      "duration_ms": 2.828700000000026,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- git-change 模式 modules: \"git-change\" 且 git diff 返回变更文件时，返回对应 unit_tests (AC-5)",
+      "duration_ms": 4.01720000000023,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- git-change 模式 modules: \"git-change\" 且 git 命令失败时（非 git 仓库），errors 包含错误消息 (AC-5)",
+      "duration_ms": 2.102599999999711,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- git-change 模式 modules: \"git-change\" 返回的变更文件均不在 test config 范围内时 unit_tests 为空 (AC-5)",
+      "duration_ms": 1.9906000000000859,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- git-change 模式 modules: \"git-change\" 且 git diff 返回空（无变更）时 unit_tests 为空 (AC-5)",
+      "duration_ms": 1.945299999999861,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- git-change 模式 modules: \"git-change\" 且 git diff 返回大量文件（100+）时不应抛错 (AC-5)",
+      "duration_ms": 6.704999999999927,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 去重 多个 override 指向同一目录时扫描结果去重 (AC-6)",
+      "duration_ms": 6.38799999999992,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 去重 modules 包含重复文件路径时 unit_tests 去重 (AC-6)",
+      "duration_ms": 1.799199999999928,
+      "status": "passed"
+    },
+    {
+      "name": "runTestResolvePaths -- 去重 config-driven 扫描与 modules 显式传入产生重叠时去重 (AC-6)",
+      "duration_ms": 7.2818999999999505,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to json-parser should dispatch vitest to json-parser",
+      "duration_ms": 0.219300000000203,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to json-parser should dispatch jest to json-parser",
+      "duration_ms": 0.18099999999958527,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to json-parser should dispatch vite-plus to json-parser",
+      "duration_ms": 0.571400000000267,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to go-parser should dispatch go to go-parser",
+      "duration_ms": 0.5441000000000713,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to text-parser should dispatch rust to text-parser",
+      "duration_ms": 0.16749999999956344,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to text-parser should dispatch bun to text-parser",
+      "duration_ms": 0.15889999999990323,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to text-parser should dispatch node-test to text-parser",
+      "duration_ms": 0.1481999999996333,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch to text-parser should dispatch pytest to text-parser",
+      "duration_ms": 0.24049999999988358,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- edge cases should not throw for unknown framework, fallback to text-parser",
+      "duration_ms": 0.13409999999976208,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- edge cases should use stderr when stdout is empty for text-parser fallback",
+      "duration_ms": 0.10829999999987194,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch edge cases format 为空字符串时 fallback 到 text-parser",
+      "duration_ms": 0.48260000000027503,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch edge cases format 大小写敏感：\"JSON\" 不匹配 \"json\"，fallback 到 text-parser",
+      "duration_ms": 0.24139999999988504,
+      "status": "passed"
+    },
+    {
+      "name": "parseTestOutput -- dispatch edge cases 未知 format 字符串时不抛出，fallback 到 text-parser",
+      "duration_ms": 3.8682999999996355,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- aggregation should aggregate totals from multiple sub-reports",
+      "duration_ms": 11.874500000000353,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- aggregation should set conclusion to \"fail\" when tests fail",
+      "duration_ms": 10.38530000000037,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- aggregation should set conclusion to \"pass\" when all tests pass",
+      "duration_ms": 10.488800000000083,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- aggregation should include problems for failed tests",
+      "duration_ms": 9.30029999999988,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- aggregation should handle empty sub-reports list gracefully",
+      "duration_ms": 11.98929999999973,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage should set coverage=null when no sub-reports have coverage",
+      "duration_ms": 8.522500000000036,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage should compute weighted average coverage across frameworks",
+      "duration_ms": 10.106800000000021,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport should create a sub-report with correct fields",
+      "duration_ms": 8.702900000000227,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport should write the report file to disk",
+      "duration_ms": 14.471800000000258,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport should include coverage=null when no coverage data",
+      "duration_ms": 6.494599999999991,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport exit_code 非零时正确传递",
+      "duration_ms": 11.880299999999806,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport 0 个 test_cases 时 summary.total=0",
+      "duration_ms": 7.180199999999786,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport 大量 test_cases（>1000）时报告正确生成",
+      "duration_ms": 9.290399999999863,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage threshold (AC-9) coverage.measured >= coverage.thresholds 时 pass=true",
+      "duration_ms": 6.29930000000013,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage threshold (AC-9) 任一维度 measured < thresholds 时 pass=false",
+      "duration_ms": 5.768300000000181,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage threshold (AC-9) measured 某维度为 null 时跳过该维度判定",
+      "duration_ms": 5.947599999999966,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage threshold (AC-9) 所有 measured 维度均为 null 时 pass=true（跳过所有维度判定）",
+      "duration_ms": 5.452400000000125,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage threshold (AC-9) measured 某维度恰好等于 threshold（如 80.0 == 80.0）时 pass=true",
+      "duration_ms": 9.361999999999625,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage threshold (AC-9) thresholds 对象缺失或 undefined 时不崩溃",
+      "duration_ms": 6.836999999999989,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage weighted average 加权平均各维度按 source_files.length 加权",
+      "duration_ms": 8.271000000000186,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage weighted average 某框架某维度为 null 时不参与该维度加权平均",
+      "duration_ms": 5.467399999999998,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage weighted average 所有框架某维度均为 null 时总体该维度为 null",
+      "duration_ms": 6.116399999999885,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage weighted average 所有框架 source_files 等长时退化为简单平均",
+      "duration_ms": 7.443299999999908,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- coverage weighted average 某框架 source_files 为空数组时不参与加权",
+      "duration_ms": 16.232700000000023,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- conclusion edge cases 所有子报告测试均失败时 conclusion=fail",
+      "duration_ms": 5.624399999999696,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- conclusion edge cases 没有子报告时 conclusion=pass（未执行不视为失败）",
+      "duration_ms": 5.150500000000193,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- conclusion edge cases 汇总报告不包含 test_cases 和 test_files 明细字段（AC-7）",
+      "duration_ms": 6.048000000000229,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- conclusion edge cases 子报告 coverage 全为 null 时汇总报告 coverage=null",
+      "duration_ms": 6.201399999999921,
+      "status": "passed"
+    },
+    {
+      "name": "generateSummaryReport -- 幂等性 相同子报告列表重复调用两次应产生相同汇总报告对象（字段值一致）",
+      "duration_ms": 5.919500000000426,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport -- 幂等性 相同输入重复调用两次应产生相同子报告对象（字段值一致）",
+      "duration_ms": 7.308800000000247,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 result.mutation 非 null 时子报告 mutation 块包含正确的 score/threshold/pass/measured",
+      "duration_ms": 7.283199999999852,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 measured.score >= thresholds.score 时 pass=true",
+      "duration_ms": 5.4675000000002,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 measured.score < thresholds.score 时 pass=false",
+      "duration_ms": 6.5949999999998,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 result.mutation 为 null 时子报告 mutation 为 null",
+      "duration_ms": 6.931299999999737,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 所有子报告 mutation 均为 null 时汇总报告 mutation 为 null",
+      "duration_ms": 7.568699999999808,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 mutation pass=false 时汇总报告 conclusion 为 fail",
+      "duration_ms": 9.034300000000258,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 mutation score 恰好等于 threshold 时 pass=true",
+      "duration_ms": 8.560300000000097,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 computeMutationOverrides 正确匹配 glob 并计算 pass/fail",
+      "duration_ms": 10.554200000000037,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 computeMutationResult 按 source_files 加权平均计算 score",
+      "duration_ms": 4.791600000000017,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 override 失败时总体 pass=false",
+      "duration_ms": 11.762700000000223,
+      "status": "passed"
+    },
+    {
+      "name": "generateSubReport / generateSummaryReport -- mutation 块 多框架加权平均正确计算，某框架 source_files 为空时不参与加权",
+      "duration_ms": 5.963600000000042,
+      "status": "passed"
+    },
+    {
+      "name": "glob.ts 模块导出 应从 lib/glob.ts 可导入 matchGlob 且为函数类型",
+      "duration_ms": 0.1412000000000262,
+      "status": "passed"
+    },
+    {
+      "name": "glob.ts 模块导出 matchGlob 对相同输入多次调用结果应一致（纯函数确定性）",
+      "duration_ms": 0.41980000000012296,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 应匹配 vitest 默认 glob: src/utils/helper.test.ts",
+      "duration_ms": 0.18900000000007822,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 应匹配 .spec.js 文件: src/util.spec.js",
+      "duration_ms": 0.1596999999999298,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 应匹配 rust 测试 glob: tests/integration/test_auth.rs",
+      "duration_ms": 0.3647000000000844,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 应匹配无通配符目录前缀: plugins/dev-team/bin/src/foo.test.ts",
+      "duration_ms": 0.11570000000006075,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 项目 glob 模式正向匹配 应匹配 e2e 目录 glob: tests/e2e/test_app.ts",
+      "duration_ms": 0.28719999999998436,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 路径分隔符归一化 Windows 反斜杠与 POSIX 正斜杠路径应对 **/*.test.ts 均返回 true",
+      "duration_ms": 0.17800000000011096,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 路径分隔符归一化 Windows 反斜杠路径应对无通配符目录前缀返回 true",
+      "duration_ms": 0.10189999999988686,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 路径分隔符归一化 pattern 含反斜杠与正斜杠时对同一路径应产生相同结果",
+      "duration_ms": 0.23859999999990578,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 不匹配路径 非测试文件 helper.ts 不应匹配 **/*.test.ts",
+      "duration_ms": 0.13990000000012515,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 不匹配路径 readme.md 不应匹配 vitest 默认 glob",
+      "duration_ms": 0.16589999999996508,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 ** 零段路径: foo.test.ts 应匹配 **/*.test.ts",
+      "duration_ms": 0.6165000000000873,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 ? 单字符通配: tests/unit/foo.test.ts 应匹配 tests/?nit/*.test.ts",
+      "duration_ms": 2.443499999999858,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 花括号备选: lib/utils.test.ts 应匹配 {src,lib}/*.test.ts",
+      "duration_ms": 0.5105000000000928,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 无通配符精确路径不匹配: other/foo.test.ts 不应匹配 plugins/dev-team/bin",
+      "duration_ms": 0.1614999999999327,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — glob 语法边界 无通配符目录自身应匹配: plugins/dev-team/bin",
+      "duration_ms": 2.050299999999879,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 filePath 为空字符串时应返回确定性布尔值",
+      "duration_ms": 0.16360000000008768,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 pattern 为空字符串时应返回确定性结果",
+      "duration_ms": 0.08929999999986649,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 超长路径（>1000 字符）+ 标准 glob 模式不应抛出异常",
+      "duration_ms": 0.8378999999999905,
+      "status": "passed"
+    },
+    {
+      "name": "matchGlob — 输入边界 路径含空格与 Unicode 时应匹配 **/*.test.ts",
+      "duration_ms": 0.1509000000000924,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution command registration CLI 应注册 `test-execution` 子命令",
+      "duration_ms": 0.2235000000000582,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution command registration 命令应接受 `--project-root` 选项",
+      "duration_ms": 0.14780000000018845,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution command registration 命令 action 应调用 runTestExecution",
+      "duration_ms": 0.24700000000029831,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution command registration runTestExecution 返回非零时进程应以 exit(1) 退出",
+      "duration_ms": 0.3390999999996893,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- 异常 未注册 test-execution 子命令时 CLI 报错而非静默忽略",
+      "duration_ms": 6.292000000000144,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- 异常 未注册 unit-test 子命令（已移除）",
+      "duration_ms": 1035.7874,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- 异常 --project-root 后缺省值时 CLI 报错",
+      "duration_ms": 0.228099999999813,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- 边界 --project-root 值为空字符串时使用默认 project dir",
+      "duration_ms": 0.19319999999970605,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- 边界 同时传递多个未知选项时不影响 test-execution 命令正常注册",
+      "duration_ms": 0.8425999999999476,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- --no-mutation 选项 CLI 注册 `--no-mutation` 选项",
+      "duration_ms": 0.2112000000001899,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- --no-mutation 选项 --no-mutation 选项传递到 TestExecutionOptions.noMutation",
+      "duration_ms": 0.37799999999992906,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team test-execution -- --no-mutation 选项 --no-mutation 不传递时 noMutation 为 undefined",
+      "duration_ms": 119.18180000000007,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 活跃 change 聚合 进行中 change 应出现在结果中且 artifacts、tasks、latest_phase 字段正确 (AC-3)",
+      "duration_ms": 22.571399999999812,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 活跃 change 聚合 tasks.md 含 - [ ] / - [x] 时 tasks.total / tasks.done 计数应正确",
+      "duration_ms": 11.977899999999863,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 活跃 change 聚合 latest_phase 应取全部 eval 条目（不限 phase）按 timestamp 降序最新一条",
+      "duration_ms": 14.850199999999859,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 缺失 eval / 无 acceptance 条目 无 eval.json 的 change 仍应出现在结果中 (AC-4)",
+      "duration_ms": 8.927300000000287,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 缺失 eval / 无 acceptance 条目 有 eval.json 但无 acceptance 条目的 change 仍应出现在结果中 (AC-4)",
+      "duration_ms": 13.97840000000042,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 缺失 eval / 无 acceptance 条目 eval.json 解析失败时 change 仍视为活跃且 latest_phase 为 null",
+      "duration_ms": 14.443699999999808,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 目录扫描与排序 openspec/changes/ 不存在时应返回 { changes: [], count: 0 }",
+      "duration_ms": 1.9167999999999665,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 目录扫描与排序 无活跃 change 时应返回 { changes: [], count: 0 }",
+      "duration_ms": 11.215799999999945,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 目录扫描与排序 永不将 name === \"archive\" 的目录列入 changes",
+      "duration_ms": 10.676500000000033,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 目录扫描与排序 多个活跃 change 应按 name 字典序排序",
+      "duration_ms": 25.76399999999967,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 目录扫描与排序 openspec/changes/ 下非目录条目（文件）应被跳过",
+      "duration_ms": 10.689400000000205,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- 组合过滤 除archive 已登记外，其他都返回",
+      "duration_ms": 20.816800000000057,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- project_root 显式传入 project_root 指向 fixture 根目录时应正确解析路径",
+      "duration_ms": 16.215899999999692,
+      "status": "passed"
+    },
+    {
+      "name": "runChangeList -- project_root project_root: null 时行为应与省略 project_root 一致",
+      "duration_ms": 1.1943999999998596,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- 单一命令执行 执行 test_cmd 一次命令（无 merge_mode 分支，统一执行路径）",
+      "duration_ms": 0.39409999999998035,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- 单一命令执行 从 test_cmd 执行结果提取测试用例和覆盖率",
+      "duration_ms": 0.5958999999998014,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- 单一命令执行 所有框架（含链式命令和单命令）共享同一执行路径",
+      "duration_ms": 0.7051000000001295,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- 单一命令执行 执行命令超时时返回 error 字段，不崩溃",
+      "duration_ms": 0.40239999999994325,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- 单一命令执行 test_cmd 为空字符串时返回 error，不执行子进程",
+      "duration_ms": 0.22899999999981446,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- 单一命令执行 执行命令返回空 stdout 时，parsed testCases 为空数组",
+      "duration_ms": 0.32869999999957145,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- 单一命令执行 执行命令不可识别（如 binary 不存在）时 exitCode 非零",
+      "duration_ms": 0.4800000000000182,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- empty test command should return error when test_cmd is empty string",
+      "duration_ms": 0.8521999999998116,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- empty test command should return error when test_cmd is whitespace-only",
+      "duration_ms": 0.19569999999976062,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) pytest 链式命令：测试命令先执行，覆盖率命令后执行",
+      "duration_ms": 0.9202000000000226,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) rust 链式命令：测试命令先执行，覆盖率命令后执行",
+      "duration_ms": 0.4236000000000786,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) 链式命令退出码反映测试命令的退出码（exit $_X）",
+      "duration_ms": 0.4875999999999294,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) 链式命令中覆盖率从文件读取（coverage.json / coverage/coverage-summary.json）而非 stdout",
+      "duration_ms": 0.4181999999996151,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) 链式命令中测试命令失败时覆盖率命令仍执行（; _X=$?; 而非 &&）",
+      "duration_ms": 0.6594000000000051,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) 链式命令中测试命令失败，最终退出码为测试退出码",
+      "duration_ms": 0.32960000000002765,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) 链式命令中覆盖率命令失败但测试通过，最终退出码为 0",
+      "duration_ms": 0.3488999999999578,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- chained command (AC-10) 链式命令 stdout 包含测试输出和覆盖率命令输出，解析器只关心测试输出",
+      "duration_ms": 0.5072000000000116,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- non-zero exit code (AC-11) 退出码非零时记录 exitCode 和错误信息到 ExecutionResult",
+      "duration_ms": 0.4274000000000342,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- non-zero exit code (AC-11) 非零退出码不影响其他 framework 执行（单条执行无阻塞）",
+      "duration_ms": 0.5925999999999476,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- non-zero exit code (AC-11) 退出码为 0 时 error 字段为 undefined",
+      "duration_ms": 0.4067000000000007,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- non-zero exit code (AC-11) 退出码为负数（如被信号终止）时处理",
+      "duration_ms": 0.4246999999995751,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- non-zero exit code (AC-11) 退出码为非数字类型时转换为数字或返回 error",
+      "duration_ms": 0.506800000000112,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 mutation_framework 非空且 noMutation=false 时在覆盖率解析后执行 StrykerJS",
+      "duration_ms": 5.66359999999986,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 mutation_framework 为 null 时跳过 StrykerJS 执行，mutation=null",
+      "duration_ms": 1.6727000000000771,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 noMutation=true 时跳过 StrykerJS 执行，mutation=null",
+      "duration_ms": 0.4659999999998945,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 StrykerJS 命令失败时静默跳过，mutation=null，不阻断测试流程",
+      "duration_ms": 1.1044000000001688,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 mutation 执行时长计入 durationMs",
+      "duration_ms": 18.11700000000019,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 mutation 执行后清理临时配置文件和 reports/mutation/ 目录",
+      "duration_ms": 12.063700000000154,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 StrykerJS 报告文件不存在时 mutation=null，不崩溃",
+      "duration_ms": 6.224700000000212,
+      "status": "passed"
+    },
+    {
+      "name": "executePlanEntry -- mutation 执行阶段 执行顺序：测试命令 → 覆盖率解析 → StrykerJS",
+      "duration_ms": 14.840000000000146,
+      "status": "passed"
+    },
+    {
+      "name": "phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (AC-16) 第一次 invalid backtrack 抛错且 eval 未变；第二次 fail+null 成功 append",
+      "duration_ms": 12.10550000000012,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — roots 可用时缓存首个 root listRoots 返回单条 Windows file:// root 后 getProjectDir 应为本地绝对路径 (AC-1)",
+      "duration_ms": 0.8286000000000513,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — roots 可用时缓存首个 root 多条 root 时仅使用 roots[0].uri（D3 多 root 策略）",
+      "duration_ms": 0.6871000000001004,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — roots 可用时缓存首个 root URI 含 URL 编码字符（如 %20）应解码为正确本地路径 (AC-1)",
+      "duration_ms": 0.7977999999998246,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — 无 roots capability getClientCapabilities()?.roots 为 undefined 时不调用 listRoots，缓存保持 null (AC-4)",
+      "duration_ms": 1.0033000000000811,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — listRoots 抛错 listRoots reject/throw 时缓存保持 null，不阻断初始化 (AC-4)",
+      "duration_ms": 1.3907000000001517,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — 空 roots 数组 listRoots 返回 { roots: [] } 时缓存保持 null (AC-5)",
+      "duration_ms": 0.9854000000000269,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — 缓存更新 二次 init 返回新 URI 时 getProjectDir 应返回新路径 (AC-6)",
+      "duration_ms": 8.998799999999846,
+      "status": "passed"
+    },
+    {
+      "name": "initProjectRootFromMcp — 缓存更新 init 失败时保留旧缓存 (AC-6 / D6)",
+      "duration_ms": 3.702600000000075,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl should parse a simple model with specification block",
+      "duration_ms": 214.2530999999999,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl should return empty elements for empty DSL",
+      "duration_ms": 0.31419999999980064,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl should parse extend relationships correctly",
+      "duration_ms": 215.17720000000008,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl should extract path_to_element mappings",
+      "duration_ms": 202.1783000000005,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl should parse metadata with array values",
+      "duration_ms": 221.0706999999993,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl should handle elements with no metadata",
+      "duration_ms": 193.36260000000038,
+      "status": "passed"
+    },
+    {
+      "name": "parseC4Dsl should handle comments",
+      "duration_ms": 192.97580000000016,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl should validate a correct DSL",
+      "duration_ms": 467.3755000000001,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl should detect missing specification block",
+      "duration_ms": 440.2948000000006,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl should detect missing model content",
+      "duration_ms": 471.8089999999993,
+      "status": "passed"
+    },
+    {
+      "name": "validateC4Dsl should detect duplicate specification blocks across multiple files",
+      "duration_ms": 610.2944999999995,
+      "status": "passed"
+    },
+    {
+      "name": "readAllModels should concatenate content from all model files",
+      "duration_ms": 9.94589999999971,
+      "status": "passed"
+    },
+    {
+      "name": "readAllModels should return null when no model files exist",
+      "duration_ms": 2.006999999999607,
+      "status": "passed"
+    },
+    {
+      "name": "findSpecificationBlock should find and return the specification block",
+      "duration_ms": 10.496900000000096,
+      "status": "passed"
+    },
+    {
+      "name": "findSpecificationBlock should return null when no specification block exists",
+      "duration_ms": 7.93939999999975,
+      "status": "passed"
+    },
+    {
+      "name": "CLI 端到端执行 — AC-7 调用 runTestExecution 时应触发 runTestDetectFrameworks 获取 plan",
+      "duration_ms": 9.148699999999963,
+      "status": "passed"
+    },
+    {
+      "name": "CLI 端到端执行 — AC-7 应对每个 framework plan entry 执行测试命令",
+      "duration_ms": 5.626500000000078,
+      "status": "passed"
+    },
+    {
+      "name": "CLI 端到端执行 — AC-7 相同 plan 重复执行两次应产生相同子报告内容（幂等性）",
+      "duration_ms": 26.330100000000016,
+      "status": "passed"
+    },
+    {
+      "name": "报告路径 — AC-11 子报告应写入 reports/test-execution/<framework>.json（非旧 reports/unit-test/）",
+      "duration_ms": 6.2650000000001,
+      "status": "passed"
+    },
+    {
+      "name": "报告路径 — AC-11 汇总报告应写入 reports/test-execution.json（非旧 reports/unit-test-execution.json）",
+      "duration_ms": 5.792599999999993,
+      "status": "passed"
+    },
+    {
+      "name": "报告路径 — AC-11 汇总报告 phase 字段应为 \"test-execution\"（非旧 \"06-unit-test\"）",
+      "duration_ms": 6.045500000000175,
+      "status": "passed"
+    },
+    {
+      "name": "报告路径 — AC-11 汇总报告 command 字段应为 \"dev-team test-execution\"（非旧 \"dev-team unit-test\"）",
+      "duration_ms": 6.616399999999885,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — workflow-aware backtrack rejection rejects invalid backtrack for test-only workflow (AC-11)",
+      "duration_ms": 0.4740999999999076,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — workflow-aware backtrack rejection rejection error lists available phases (AC-12)",
+      "duration_ms": 1.3289999999999509,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — workflow-aware backtrack rejection uses requirement table when workflow.json absent (AC-13)",
+      "duration_ms": 0.6929999999999836,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — workflow-aware backtrack rejection rejects backtrack_to dev-design for test-only workflow (AC-11)",
+      "duration_ms": 0.3977999999999611,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — workflow-aware backtrack rejection allows backtrack_to implement when workflow.json missing — requirement default (AC-13)",
+      "duration_ms": 9.509300000000167,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — adaptive fail after invalid backtrack invalid backtrack then fail+null succeeds (AC-16)",
+      "duration_ms": 0.38609999999994216,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — pass entry no propagation pass entry does not trigger markPhaseStale",
+      "duration_ms": 0.3330999999998312,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_to triggers markPhaseStale test-only valid backtrack test-design → proposal triggers markPhaseStale",
+      "duration_ms": 0.4616000000000895,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — input validation null backtrack_to writes fail entry normally",
+      "duration_ms": 0.3864000000000942,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_reason validation (AC-2) backtrack_to 非空且 backtrack_reason 为有效字符串时通过",
+      "duration_ms": 0.3243999999999687,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_reason validation (AC-2) backtrack_to 非空但 backtrack_reason 缺失时抛错",
+      "duration_ms": 0.3449000000000524,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_reason validation (AC-2) backtrack_to 非空但 backtrack_reason 为空字符串时抛错",
+      "duration_ms": 0.33179999999993015,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_reason validation (AC-2) backtrack_to 为 null 时不校验 backtrack_reason，不抛错",
+      "duration_ms": 0.18060000000014043,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_reason validation (AC-2) backtrack_reason 长度为 500 字符时通过校验（边界）",
+      "duration_ms": 0.3532000000000153,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_reason validation (AC-2) backtrack_to 为数组且 backtrack_reason 提供时通过",
+      "duration_ms": 0.3268000000000484,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — backtrack_reason validation (AC-2) backtrack_to 非空且 backtrack_reason 为 null 时抛错",
+      "duration_ms": 0.2961999999999989,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — idempotency identical pass calls invoke appendEntry twice with consistent args (AC-16)",
+      "duration_ms": 3.2282000000000153,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — idempotency identical fail+null calls behave consistently",
+      "duration_ms": 0.41230000000018663,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — idempotency repeated invalid backtrack throws twice with zero appendEntry calls",
+      "duration_ms": 0.4095999999999549,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — auto-calculated verdict from checklist auto-calculates pass when all checklist items pass",
+      "duration_ms": 0.28910000000018954,
+      "status": "passed"
+    },
+    {
+      "name": "runPhaseLog — auto-calculated verdict from checklist auto-calculates fail when any item fails",
+      "duration_ms": 0.27919999999994616,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict should accept 'pass'",
+      "duration_ms": 0.2826000000000022,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict should accept 'fail'",
+      "duration_ms": 0.16210000000000946,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict should reject invalid verdict",
+      "duration_ms": 0.19860000000016953,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict should reject empty string",
+      "duration_ms": 0.2584999999999127,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict should accept 'pass' when skipped is true",
+      "duration_ms": 0.15250000000014552,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict should reject 'fail' when skipped is true",
+      "duration_ms": 0.3005000000000564,
+      "status": "passed"
+    },
+    {
+      "name": "validateVerdict should reject 'pass' when skipped is false (same behavior as undefined)",
+      "duration_ms": 0.16270000000008622,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry should build a basic entry with required fields",
+      "duration_ms": 2.9433000000001357,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry should include skipped field when set",
+      "duration_ms": 0.16039999999998145,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry should include all extended fields simultaneously",
+      "duration_ms": 0.16840000000001965,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry should include backtrack_to when set",
+      "duration_ms": 0.42480000000000473,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry should set backtrack_to null when undefined",
+      "duration_ms": 0.14370000000008076,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry should accept backtrack_to as array",
+      "duration_ms": 0.9317000000000917,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry phase 为 \"integration-test\" 时 zod parse 应失败（不在枚举中）",
+      "duration_ms": 1.2653000000000247,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry phase 为 \"unit-test\" 时 zod parse 应失败",
+      "duration_ms": 0.2679000000000542,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry report 长度 > 500 字符时 zod parse 应失败",
+      "duration_ms": 0.5396999999998116,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry checklist 为空数组时应通过",
+      "duration_ms": 0.15189999999984138,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry backtrack_reason 被正确写入 EvalEntry（AC-3）",
+      "duration_ms": 0.1453999999998814,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry backtrack_reason 为 undefined 时 entry 中该字段为 null（AC-3）",
+      "duration_ms": 0.15709999999990032,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry backtrack_reason 为 null 时 entry 中该字段为 null（AC-3）",
+      "duration_ms": 0.15769999999997708,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry backtrack_reason 长度为 500 字符时被正确写入（边界）",
+      "duration_ms": 0.23559999999997672,
+      "status": "passed"
+    },
+    {
+      "name": "buildEntry backtrack_reason 含有特殊字符时被正确序列化（边界）",
+      "duration_ms": 0.15660000000002583,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should mark latest pass entry stale and propagate downstream (AC-8)",
+      "duration_ms": 6.477000000000089,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should mark latest of multiple pass entries",
+      "duration_ms": 0.1957999999999629,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should be no-op when no pass entry exists",
+      "duration_ms": 1.1714999999999236,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should propagate to full transitive closure",
+      "duration_ms": 0.6028999999998632,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should not mark same-phase new entry as stale",
+      "duration_ms": 0.24660000000017135,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should mark test-gen stale when marking implement — test-gen 为直接 downstream（AC-8）",
+      "duration_ms": 0.28579999999988104,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should propagate from implement to test-execution/code-review/acceptance",
+      "duration_ms": 0.3512000000000626,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should mark test-gen and downstream stale when marking test-design",
+      "duration_ms": 0.5552999999999884,
+      "status": "passed"
+    },
+    {
+      "name": "markPhaseStale should NOT mark implement stale when marking test-design（AC-9）",
+      "duration_ms": 0.24119999999993524,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- bun output should parse bun [PASS] / [FAIL] / [SKIP] markers",
+      "duration_ms": 2.654399999999896,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- bun output should handle all passing bun tests",
+      "duration_ms": 0.34760000000005675,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- cargo test output should parse cargo test result: ok summary",
+      "duration_ms": 0.4091999999998279,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- cargo test output should parse cargo test result: FAILED summary",
+      "duration_ms": 0.22929999999996653,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- node test output should parse node --test # pass / # fail / # skip lines",
+      "duration_ms": 0.3170999999999822,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- node test output should handle all passing node tests",
+      "duration_ms": 0.25250000000005457,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- pytest output should parse pytest verbose PASSED/FAILED/SKIPPED markers",
+      "duration_ms": 0.9311999999999898,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- generic regex fallback should parse \"Tests: N passed, M failed, S total\" format",
+      "duration_ms": 0.2826000000000022,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- generic regex fallback should parse \"N passed, M failed\" format",
+      "duration_ms": 0.1696999999999207,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- generic regex fallback should parse \"N tests passed\" format",
+      "duration_ms": 0.19679999999993925,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- heuristic fallback should count PASSED/FAILED lines heuristically",
+      "duration_ms": 0.6923000000001593,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should return error for empty output",
+      "duration_ms": 0.21420000000011896,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should return error for whitespace-only output",
+      "duration_ms": 0.2076999999999316,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should return empty result for unknown format (no recognizable patterns)",
+      "duration_ms": 0.37809999999990396,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should not throw on malformed input",
+      "duration_ms": 1.0597999999999956,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should handle output with only passed tests (no skipped)",
+      "duration_ms": 0.17599999999993088,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should handle output with only failed tests (no passed)",
+      "duration_ms": 0.23530000000005202,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should handle mixed pass/fail/skip",
+      "duration_ms": 0.20329999999989923,
+      "status": "passed"
+    },
+    {
+      "name": "parseTextOutput -- edge cases should handle very long output",
+      "duration_ms": 1.0386999999998352,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — plan 输出结构 字符串简写 \"vitest\" 配置时 plan 应含完整字段且通过 schema 校验",
+      "duration_ms": 33.34960000000001,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — plan 输出结构 无 test.framework 配置时 plan 应为空数组且 detected 均为 unknown",
+      "duration_ms": 6.786600000000135,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team-cli.cjs — help 与打包 (AC-7) node dev-team-cli.cjs --help 输出应含 run_static_analysis 子命令",
+      "duration_ms": 212.65949999999998,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team-cli.cjs — help 与打包 (AC-7) pnpm run build 后 dev-team-cli.cjs 应存在且可执行",
+      "duration_ms": 0.722400000000107,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team-cli.cjs run_static_analysis — 端到端 (AC-7) 配置 node -e process.exit(0) 时 CLI 应 exit 0",
+      "duration_ms": 372.9743000000001,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team-cli.cjs run_static_analysis — 端到端 (AC-7) 配置 node -e process.exit(1) 时 CLI 应 exit 1 且 stderr 非空",
+      "duration_ms": 415.6058999999998,
+      "status": "passed"
+    },
+    {
+      "name": "dev-team-mcp.cjs — 打包回归 (AC-7) build 后 dev-team-mcp.cjs 仍应正常生成",
+      "duration_ms": 2.378300000000081,
+      "status": "passed"
+    },
+    {
+      "name": "config-driven 过滤 — 非空 modules 经 test_detect_frameworks 过滤后推导 modules: [\"src/commands/test-resolve-paths.ts\", \"node_modules/some-dep/index.ts\"] 时仅前者进入 unit_tests (AC-3)",
+      "duration_ms": 30.10239999999999,
+      "status": "passed"
+    },
+    {
+      "name": "无 test 配置 — modules: [] 时 errors 包含指导性消息 config.json 仅有 schema 字段时，errors 应包含配置提示且 unit_tests 为空 (AC-2)",
+      "duration_ms": 18.26890000000003,
+      "status": "passed"
+    },
+    {
+      "name": "无 test 配置 — modules: [] 时 errors 包含指导性消息 config.json 存在但 test.overrides 为空数组时 errors 应包含配置提示",
+      "duration_ms": 8.934600000000046,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 已删除 schema 不再导出 (AC-7) configSetInputSchema 不再从 index.ts 导出",
+      "duration_ms": 0.434099999999944,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 已删除 schema 不再导出 (AC-7) configSetOutputSchema 不再从 index.ts 导出",
+      "duration_ms": 0.2565999999999349,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 已删除 schema 不再导出 (AC-7) configUnsetInputSchema 不再从 index.ts 导出",
+      "duration_ms": 0.29909999999995307,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 已删除 schema 不再导出 (AC-7) configUnsetOutputSchema 不再从 index.ts 导出",
+      "duration_ms": 0.2498000000000502,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 已删除 schema 不再导出 (AC-7) configContextInputSchema 不再从 index.ts 导出",
+      "duration_ms": 1.3350000000000364,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 已删除 schema 不再导出 (AC-7) configContextOutputSchema 不再从 index.ts 导出",
+      "duration_ms": 0.2782999999999447,
+      "status": "passed"
+    },
+    {
+      "name": "exports — configGetInputSchema / configGetOutputSchema 仍保留导出 (AC-6) configGetInputSchema 仍从 index.ts 导出",
+      "duration_ms": 0.24240000000008877,
+      "status": "passed"
+    },
+    {
+      "name": "exports — configGetInputSchema / configGetOutputSchema 仍保留导出 (AC-6) configGetOutputSchema 仍从 index.ts 导出",
+      "duration_ms": 0.20679999999993015,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 核心导出仍保留 phaseLogInputSchema / phaseLogOutputSchema 仍导出",
+      "duration_ms": 0.48529999999982465,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 核心导出仍保留 configSchema 仍导出",
+      "duration_ms": 0.25119999999992615,
+      "status": "passed"
+    },
+    {
+      "name": "exports — 核心导出仍保留 changeListInputSchema / changeListOutputSchema 仍导出",
+      "duration_ms": 607.5203,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 正向 (AC-1) 应调用 runTestDetectFrameworks 获取 plan",
+      "duration_ms": 11.791699999999992,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 正向 (AC-1) 应对 plan 中每个 framework 调用 executePlanEntry",
+      "duration_ms": 10.339699999999993,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 正向 (AC-1) 应在每个 framework 执行后调用 generateSubReport 写入子报告",
+      "duration_ms": 8.020299999999907,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 正向 (AC-1) 应在所有 framework 执行后调用 generateSummaryReport 写入汇总报告",
+      "duration_ms": 7.1180000000001655,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 正向 (AC-1) 子报告应写入 reports/test-execution/<framework>.json 路径",
+      "duration_ms": 7.1211000000000695,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 正向 (AC-1) 汇总报告应写入 reports/test-execution.json",
+      "duration_ms": 16.277199999999993,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 异常 plan 为空时不执行任何测试，退出码 0",
+      "duration_ms": 7.989299999999957,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 异常 某个 framework 执行失败不阻塞后续 framework",
+      "duration_ms": 11.202299999999923,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 边界 options.projectRoot 为 undefined 时使用默认 project dir",
+      "duration_ms": 1.499599999999873,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 边界 所有框架均通过时 conclusion=pass 退出码 0",
+      "duration_ms": 9.090400000000045,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 幂等性 相同 plan 重复执行两次 generateSubReport 产生相同的子报告内容",
+      "duration_ms": 6.850300000000061,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- 幂等性 相同 plan 重复执行两次 generateSummaryReport 产生相同的汇总报告内容",
+      "duration_ms": 6.8840999999999894,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- noMutation 透传 TestExecutionOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中",
+      "duration_ms": 10.798099999999977,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- noMutation 透传 TestExecutionOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中",
+      "duration_ms": 8.28410000000008,
+      "status": "passed"
+    },
+    {
+      "name": "runTestExecution -- noMutation 透传 TestExecutionOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）",
+      "duration_ms": 304.0653000000001,
+      "status": "passed"
+    },
+    {
+      "name": "parseMutationReport -- 正向 解析完整 StrykerJS JSON 报告，正确提取 score 和 killed/survived/timeout 等计数",
+      "duration_ms": 6.56230000000005,
+      "status": "passed"
+    },
+    {
+      "name": "parseMutationReport -- 正向 解析的 score 为浮点数时保留精度",
+      "duration_ms": 6.487899999999968,
+      "status": "passed"
+    },
+    {
+      "name": "parseMutationReport -- 异常 报告文件不存在时返回 null",
+      "duration_ms": 0.2867999999999711,
+      "status": "passed"
+    },
+    {
+      "name": "parseMutationReport -- 异常 报告文件为空时返回 null",
+      "duration_ms": 7.191000000000031,
+      "status": "passed"
+    },
+    {
+      "name": "parseMutationReport -- 异常 报告 JSON 格式异常时返回 null",
+      "duration_ms": 6.06759999999997,
+      "status": "passed"
+    },
+    {
+      "name": "parseMutationReport -- 边界 所有变异体计数均为 0（无变异体）时返回 score=100",
+      "duration_ms": 9.343600000000038,
+      "status": "passed"
+    },
+    {
+      "name": "parseMutationReport -- 边界 score 为 0（所有变异体存活）时正确返回 0",
+      "duration_ms": 5.832200000000057,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — glob 模式匹配 应正确检测 {} 花括号、** 跨目录与无通配符目录前缀三类 pattern",
+      "duration_ms": 18.406999999999925,
+      "status": "passed"
+    },
+    {
+      "name": "test_detect_frameworks — Windows 路径 以反斜杠形式传入 files 参数时检测结果应与正斜杠形式一致",
+      "duration_ms": 11.797399999999925,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) 包含完整 write_protection.files 配置时验证通过",
+      "duration_ms": 1.8027999999999338,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) write_protection 完全省略时验证通过 (.passthrough())",
+      "duration_ms": 0.22329999999988104,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) write_protection 为 {} 空对象时验证通过（files 可选）",
+      "duration_ms": 0.27549999999996544,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) files 为空数组 [] 时验证通过",
+      "duration_ms": 0.19910000000004402,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) reason 省略时验证通过",
+      "duration_ms": 0.3239000000000942,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) 多个 files 条目均有效时验证通过",
+      "duration_ms": 0.3653999999999087,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) 额外未知字段不导致验证失败 (.passthrough() 兼容)",
+      "duration_ms": 0.31970000000001164,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 有效配置验证 (AC-1) 顶层额外未知字段不导致验证失败",
+      "duration_ms": 0.18880000000012842,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) files 条目缺少必填字段 glob 时验证失败",
+      "duration_ms": 0.46109999999998763,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) glob 为空字符串时验证失败",
+      "duration_ms": 0.40599999999994907,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) files 为字符串而非数组时验证失败",
+      "duration_ms": 0.20910000000003492,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) write_protection 为字符串而非对象时验证失败",
+      "duration_ms": 0.26060000000006767,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) reason 为数字而非字符串时验证失败",
+      "duration_ms": 0.3382000000001426,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) files 中的无效条目不应被静默忽略",
+      "duration_ms": 0.2959000000000742,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) files 条目中的额外字段被静默剥离（not strict）",
+      "duration_ms": 0.6739000000000033,
+      "status": "passed"
+    },
+    {
+      "name": "writeProtectionSchema — 无效配置拒绝 (AC-1) 嵌套层级过深的对象不应导致异常",
+      "duration_ms": 1.0115000000000691,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"jest\" 时验证通过",
+      "duration_ms": 0.19039999999995416,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"vitest\" 时验证通过",
+      "duration_ms": 0.09279999999989741,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"vite-plus\" 时验证通过",
+      "duration_ms": 0.09749999999985448,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"bun\" 时验证通过",
+      "duration_ms": 0.09739999999987958,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"rust\" 时验证通过",
+      "duration_ms": 0.08560000000011314,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"node-test\" 时验证通过",
+      "duration_ms": 0.14469999999982974,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"go\" 时验证通过",
+      "duration_ms": 0.07530000000019754,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为 \"pytest\" 时验证通过",
+      "duration_ms": 0.07169999999996435,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test.framework 为无效枚举值时验证失败",
+      "duration_ms": 0.43630000000007385,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.framework 验证 test 对象完全省略时验证通过（prefault 为空对象）",
+      "duration_ms": 0.12259999999992033,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 lines/branches/functions 均为 0 时验证通过（下限边界）",
+      "duration_ms": 0.2052000000001044,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 lines/branches/functions 均为 100 时验证通过（上限边界）",
+      "duration_ms": 0.17509999999992942,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 lines 为负数时验证失败",
+      "duration_ms": 0.2619999999999436,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 lines 超过 100 时验证失败",
+      "duration_ms": 0.1791000000000622,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 branches 为负数时验证失败",
+      "duration_ms": 0.3266000000000986,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 branches 超过 100 时验证失败",
+      "duration_ms": 0.17070000000012442,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 functions 超过 100 时验证失败",
+      "duration_ms": 0.25490000000013424,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.coverage 边界 coverage 未配置时使用 prefault 默认值",
+      "duration_ms": 0.24360000000001492,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.mutation 边界 score 为 0 时验证通过（下限边界）",
+      "duration_ms": 0.25900000000001455,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.mutation 边界 score 为 100 时验证通过（上限边界）",
+      "duration_ms": 0.36950000000001637,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.mutation 边界 score 为负数时验证失败",
+      "duration_ms": 0.8307999999999538,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.mutation 边界 score 超过 100 时验证失败",
+      "duration_ms": 0.31749999999988177,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — test.mutation 边界 mutation 未配置时使用 prefault 默认值",
+      "duration_ms": 4.173800000000028,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — 其他字段基础验证 context 为字符串时验证通过",
+      "duration_ms": 0.21479999999996835,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — 其他字段基础验证 static_analysis 为字符串时验证通过",
+      "duration_ms": 0.1529000000000451,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — 其他字段基础验证 rules 包含 proposal 和 tasks 规则列表时验证通过",
+      "duration_ms": 0.9083000000000538,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — 其他字段基础验证 schema 为 \"spec-driven\" 时验证通过",
+      "duration_ms": 0.15189999999984138,
+      "status": "passed"
+    },
+    {
+      "name": "存量 schema — 其他字段基础验证 schema 省略时 prefault 为 \"spec-driven\"",
+      "duration_ms": 0.15670000000000073,
+      "status": "passed"
+    },
+    {
+      "name": "backtrack-reason-compat — 向后兼容 (AC-6) 读取不含 backtrack_reason 字段的旧格式 eval.json，phase_next 正常返回不抛错",
+      "duration_ms": 0.9373000000000502,
+      "status": "passed"
+    },
+    {
+      "name": "backtrack-reason-compat — 向后兼容 (AC-6) 混合新旧格式条目，回溯时 prompt 不拼接 ⚠️ 回溯原因:",
+      "duration_ms": 0.3127999999999247,
+      "status": "passed"
+    },
+    {
+      "name": "backtrack-reason-compat — 向后兼容 (AC-6) 旧条目中无 backtrack_reason，backtrack_to 有效时仍正常回溯",
+      "duration_ms": 3.149699999999939,
+      "status": "passed"
+    },
+    {
+      "name": "git-change 模式 — git diff 变更文件推导 在工作树中有未暂存变更时调用 modules: \"git-change\"，unit_tests 包含变更文件的推导结果 (AC-5)",
+      "duration_ms": 1080.6893,
+      "status": "passed"
+    },
+    {
+      "name": "git-change 模式 — git diff 变更文件推导 干净的工作树中调用 modules: \"git-change\"，unit_tests 为空 (AC-5)",
+      "duration_ms": 1011.8579,
+      "status": "passed"
+    },
+    {
+      "name": "git-change 模式 — git diff 变更文件推导 非 git 目录中调用 modules: \"git-change\"，errors 包含 git 错误 (AC-5)",
+      "duration_ms": 121.82560000000001,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 临时配置生成 无自定义配置时生成临时配置文件，返回路径",
+      "duration_ms": 4.703300000000013,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 临时配置生成 生成临时配置时 mutate 限定为 sourceFiles 路径列表",
+      "duration_ms": 4.678600000000074,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 临时配置生成 生成临时配置时 testRunner 根据 framework 选择 \"jest-runner\" 或 \"vitest\"",
+      "duration_ms": 10.064799999999991,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 临时配置生成 生成临时配置时 reporters 设置为 [\"json\"]",
+      "duration_ms": 5.618000000000052,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 临时配置生成 生成临时配置时 thresholds 从传入参数读取",
+      "duration_ms": 5.137300000000096,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 异常 sourceFiles 为空数组时 mutate 为空列表",
+      "duration_ms": 6.080699999999979,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 异常 不支持框架时抛出错误",
+      "duration_ms": 2.8367000000000644,
+      "status": "passed"
+    },
+    {
+      "name": "resolveStrykerConfig -- 边界 临时配置文件名使用随机后缀避免冲突",
+      "duration_ms": 12.227299999999957,
+      "status": "passed"
+    },
+    {
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) Process 不应含 config_get、static_analysis、步骤 7/8",
+      "duration_ms": 0.9359000000000037,
+      "status": "passed"
+    },
+    {
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) Output 不应含 reports/static_analysis.json 及 JSON 报告模板",
+      "duration_ms": 1.0049999999999955,
+      "status": "passed"
+    },
+    {
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) frontmatter description 不应含 static-check / static_analysis 引用",
+      "duration_ms": 0.7262000000000057,
+      "status": "passed"
+    },
+    {
+      "name": "implementation-generator.md — 静态检查移除 (AC-8) Process 最后一步应为标记 tasks.md 完成（原步骤 6）",
+      "duration_ms": 1.0247999999999706,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 文件存在性验证 — AC-8 test-execution-executor.md 应存在",
+      "duration_ms": 0.6057999999999879,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 文件存在性验证 — AC-8 test-execution-evaluator.md 应存在",
+      "duration_ms": 0.4271999999999707,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 文件存在性验证 — AC-8 integration-test-executor.md 不应存在（已合并到 test-execution）",
+      "duration_ms": 0.2699000000000069,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 文件存在性验证 — AC-8 integration-test-evaluator.md 不应存在（已合并到 test-execution）",
+      "duration_ms": 0.2418999999999869,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 文件存在性验证 — AC-8 unit-test-executor.md 不应存在（已重命名为 test-execution-executor.md）",
+      "duration_ms": 0.45350000000001955,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 文件存在性验证 — AC-8 unit-test-evaluator.md 不应存在（已重命名为 test-execution-evaluator.md）",
+      "duration_ms": 0.2880000000000109,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 内容验证 — AC-8 test-execution-executor.md 应包含 test-execution 引用",
+      "duration_ms": 0.6852000000000089,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 内容验证 — AC-8 test-execution-executor.md frontmatter description 应包含 test execution 描述",
+      "duration_ms": 0.9784000000000219,
+      "status": "passed"
+    },
+    {
+      "name": "Agent 内容验证 — AC-8 test-execution-evaluator.md 不应含 unit-test 引用",
+      "duration_ms": 0.724899999999991,
+      "status": "passed"
+    },
+    {
+      "name": "Skill 文件存在性验证 — AC-9 skills/phase-test-execution/SKILL.md 应存在",
+      "duration_ms": 0.48570000000000846,
+      "status": "passed"
+    },
+    {
+      "name": "Skill 文件存在性验证 — AC-9 skills/phase-integration-test/ 目录不应存在（已合并到 phase-test-execution）",
+      "duration_ms": 0.21719999999999118,
+      "status": "passed"
+    },
+    {
+      "name": "Skill 文件存在性验证 — AC-9 skills/phase-unit-test/ 目录不应存在（已重命名为 phase-test-execution）",
+      "duration_ms": 0.2575999999999681,
+      "status": "passed"
+    },
+    {
+      "name": "Skill 内容验证 — AC-9 phase-test-execution/SKILL.md 不应含 unit-test 引用",
+      "duration_ms": 3.001000000000033,
+      "status": "passed"
+    },
+    {
+      "name": "Skill 内容验证 — AC-9 phase-test-execution/SKILL.md 不应含 integration-test 引用",
+      "duration_ms": 1.2384999999999877,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 执行全流程 -- 正向 完整配置（vitest + mutation.score=80）→ 框架检测 → plan 生成（含 mutation 字段）→ executePlanEntry 执行 → 报告生成（含 mutation 块）",
+      "duration_ms": 13.380400000000009,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 执行全流程 -- 正向 --no-mutation 标志跳过 mutation 阶段，其余流程正常",
+      "duration_ms": 10.739299999999957,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 执行全流程 -- 正向 不支持框架（如 bun）配置时 mutation 全流程跳过",
+      "duration_ms": 10.423099999999977,
+      "status": "passed"
+    },
+    {
+      "name": "mutation 执行全流程 -- 正向 配置 override 中 mutation 阈值覆盖全局阈值",
+      "duration_ms": 15.440699999999993,
+      "status": "passed"
+    }
+  ],
+  "test_files": [
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/dedup/dedup.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-report-format/mutation-report-format.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-unit-test-execute/cli-unit-test-execute.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/chained-command/chained-command.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/non-zero-exit-code/non-zero-exit-code.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/workflow-test-only skill scaffold/workflow-test-only skill scaffold.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/backtrack-reason-flow/backtrack-reason-flow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/phase_log workflow-aware backtrack rejection/phase_log workflow-aware backtrack rejection.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-execute.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-filter/config-driven-filter.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/no-test-config/no-test-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/index.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/backtrack-reason-compat/backtrack-reason-compat.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/git-change/git-change.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/agent-definitions-static/agent-definitions-static.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-execution-flow/mutation-execution-flow.test.ts"
+  ],
+  "source_files": [
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/index.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.ts"
+  ],
+  "file_coverage": [
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\cli.ts",
+      "lines": 45.45,
+      "branches": 0,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\hooks.ts",
+      "lines": 99.34,
+      "branches": 86.06,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\mcp.ts",
+      "lines": 44.26,
+      "branches": 0,
+      "functions": 44
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\change-list.ts",
+      "lines": 97.43,
+      "branches": 95,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\config-get.ts",
+      "lines": 0,
+      "branches": 0,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\phase-log.ts",
+      "lines": 87.5,
+      "branches": 81.81,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\phase-next.ts",
+      "lines": 96.7,
+      "branches": 91.66,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\run-static-analysis.ts",
+      "lines": 84.21,
+      "branches": 73.68,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-detect-frameworks.ts",
+      "lines": 95.28,
+      "branches": 85.29,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-execution.ts",
+      "lines": 89.74,
+      "branches": 78.57,
+      "functions": 87.5
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-resolve-paths.ts",
+      "lines": 92.26,
+      "branches": 71.69,
+      "functions": 96.29
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\archi-query.ts",
+      "lines": 0,
+      "branches": 0,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\archi-validate.ts",
+      "lines": 0,
+      "branches": 0,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\archi-write.ts",
+      "lines": 14.28,
+      "branches": 0,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\c4-cross-ref.ts",
+      "lines": 0.6,
+      "branches": 0,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\c4-parser.ts",
+      "lines": 90.21,
+      "branches": 57.14,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\change-config.ts",
+      "lines": 90,
+      "branches": 84.61,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\change.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\config.ts",
+      "lines": 92.3,
+      "branches": 91.66,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\eval-json.ts",
+      "lines": 79.03,
+      "branches": 70,
+      "functions": 92.85
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\exec-command.ts",
+      "lines": 0,
+      "branches": 100,
+      "functions": 0
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\glob.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\project-root.ts",
+      "lines": 86.36,
+      "branches": 70,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-framework.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-report.ts",
+      "lines": 79.9,
+      "branches": 65.69,
+      "functions": 81.57
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-runner.ts",
+      "lines": 92.13,
+      "branches": 79.36,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\workflow.ts",
+      "lines": 100,
+      "branches": 87.5,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\coverage-parser.ts",
+      "lines": 100,
+      "branches": 79.43,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\go-parser.ts",
+      "lines": 88.37,
+      "branches": 64.86,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\index.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\json-parser.ts",
+      "lines": 92.45,
+      "branches": 81.08,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\mutation-parser.ts",
+      "lines": 23.07,
+      "branches": 36.58,
+      "functions": 33.33
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\stryker-config.ts",
+      "lines": 100,
+      "branches": 83.33,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\text-parser.ts",
+      "lines": 98.33,
+      "branches": 96,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-check.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-query.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-validate.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-write.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\change-list.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config-get.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\index.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\phase-log.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\phase-next.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\test-detect-frameworks.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\test-resolve-paths.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config\\config.schema.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\utils\\constant.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\utils\\index.ts",
+      "lines": 100,
+      "branches": 100,
+      "functions": 100
+    }
+  ],
+  "coverage": {
+    "pass": false,
+    "measured": {
+      "lines": 78.88,
+      "branches": 68.62,
+      "functions": 82.08
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": {
+      "vite-plus": {
+        "measured": {
+          "lines": 78.88,
+          "branches": 68.62,
+          "functions": 82.08
+        },
+        "source_files": [
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.ts"
+        ]
+      }
+    }
+  },
+  "mutation": {
+    "pass": false,
+    "score": 55.757413839166446,
+    "threshold": 80,
+    "measured": {
+      "killed": 2087,
+      "survived": 1205,
+      "timeout": 0,
+      "noCoverage": 447,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 332,
+      "total": 4075,
+      "detected": 2087,
+      "undetected": 1652
+    },
+    "by_framework": {
+      "vite-plus": {
+        "score": 55.757413839166446,
+        "measured": {
+          "killed": 2087,
+          "survived": 1205,
+          "timeout": 0,
+          "noCoverage": 447,
+          "compileError": 0,
+          "runtimeError": 0,
+          "ignored": 332,
+          "total": 4075,
+          "detected": 2087,
+          "undetected": 1652
+        },
+        "source_files": [
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.ts"
+        ]
+      }
+    }
+  }
+}

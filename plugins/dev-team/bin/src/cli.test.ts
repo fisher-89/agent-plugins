@@ -12,7 +12,10 @@
  * - 边界: 同时传递多个未知选项时不影响 test-execution 命令正常注册
  */
 
+import cacModule from 'cac';
 import { describe, it, expect, vi } from 'vite-plus/test';
+
+import { runTestExecution } from './commands/test-execution';
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -29,11 +32,10 @@ vi.mock('./commands/test-execution', () => ({
 // ===========================================================================
 
 describe('dev-team test-execution command registration', () => {
-  it('CLI 应注册 `test-execution` 子命令', async () => {
+  it('CLI 应注册 `test-execution` 子命令', () => {
     // cli.ts 使用 cac 库，解析过程会注册命令
     // 验证 cac 实例已创建并命令可用
-    const cacModule = await import('cac');
-    const cli = cacModule.default('dev-team');
+    const cli = cacModule('dev-team');
     expect(cli).toBeDefined();
   });
 
@@ -44,7 +46,7 @@ describe('dev-team test-execution command registration', () => {
     expect(optionDef).toContain('--project-root');
   });
 
-  it('命令 action 应调用 runTestExecution', async () => {
+  it('命令 action 应调用 runTestExecution', () => {
     // 模拟 process.exit
     const originalExit = process.exit.bind(process);
 
@@ -52,7 +54,6 @@ describe('dev-team test-execution command registration', () => {
       mockRunTestExecution.mockReturnValue(0);
 
       // 直接测试 runTestExecution 的调用路径
-      const { runTestExecution } = await import('./commands/test-execution');
       const exitCode = runTestExecution({ projectRoot: '/test/project' });
 
       expect(mockRunTestExecution).toHaveBeenCalled();
@@ -63,13 +64,12 @@ describe('dev-team test-execution command registration', () => {
     }
   });
 
-  it('runTestExecution 返回非零时进程应以 exit(1) 退出', async () => {
+  it('runTestExecution 返回非零时进程应以 exit(1) 退出', () => {
     const originalExit = process.exit.bind(process);
 
     try {
       mockRunTestExecution.mockReturnValue(1);
 
-      const { runTestExecution } = await import('./commands/test-execution');
       const exitCode = runTestExecution({ projectRoot: '/test/project' });
 
       expect(mockRunTestExecution).toHaveBeenCalled();
@@ -86,18 +86,11 @@ describe('dev-team test-execution command registration', () => {
 // ===========================================================================
 
 describe('dev-team test-execution -- 异常', () => {
-  it('未注册 test-execution 子命令时 CLI 报错而非静默忽略', async () => {
+  it('未注册 test-execution 子命令时 CLI 报错而非静默忽略', () => {
     // cac 默认会为未注册的命令报错
-    const cacModule = await import('cac');
-    const cli = cacModule.default('dev-team');
+    const cli = cacModule('dev-team');
     // 验证 cac 实例可用
     expect(cli).toBeDefined();
-  });
-
-  it('未注册 unit-test 子命令（已移除）', async () => {
-    // 验证 CLI 模块不 export unit-test 相关内容
-    const cliModule = await import('./cli');
-    expect(cliModule).toBeDefined();
   });
 
   it('--project-root 后缺省值时 CLI 报错', () => {
@@ -114,11 +107,10 @@ describe('dev-team test-execution -- 异常', () => {
 // ===========================================================================
 
 describe('dev-team test-execution -- 边界', () => {
-  it('--project-root 值为空字符串时使用默认 project dir', async () => {
+  it('--project-root 值为空字符串时使用默认 project dir', () => {
     mockRunTestExecution.mockReset();
     mockRunTestExecution.mockReturnValue(0);
 
-    const { runTestExecution } = await import('./commands/test-execution');
     const exitCode = runTestExecution({ projectRoot: '' });
 
     // 当 projectRoot 为空字符串时，runTestExecution 应使用 getProjectDir() 的默认值
@@ -155,8 +147,6 @@ describe('dev-team test-execution -- --no-mutation 选项', () => {
     mockRunTestExecution.mockReset();
     mockRunTestExecution.mockReturnValue(0);
 
-    const { runTestExecution } = await import('./commands/test-execution');
-
     // 模拟传递 noMutation: true
     runTestExecution({ projectRoot: '/test/project', noMutation: true });
     expect(mockRunTestExecution).toHaveBeenCalled();
@@ -167,8 +157,6 @@ describe('dev-team test-execution -- --no-mutation 选项', () => {
   it('--no-mutation 不传递时 noMutation 为 undefined', async () => {
     mockRunTestExecution.mockReset();
     mockRunTestExecution.mockReturnValue(0);
-
-    const { runTestExecution } = await import('./commands/test-execution');
 
     runTestExecution({ projectRoot: '/test/project' });
     expect(mockRunTestExecution).toHaveBeenCalled();

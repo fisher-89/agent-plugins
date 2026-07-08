@@ -159,6 +159,9 @@ function deriveSourceFiles(testFiles: string[]): string[] {
 
   for (const tf of testFiles) {
     const posix = tf.replace(/\\/g, '/');
+    if (tf.includes('__tests__/')) {
+      continue;
+    }
     // Strip .test. or .spec. suffix patterns
     const src = posix
       .replace(/\.test\./g, '.')

@@ -1,19 +1,5 @@
 /**
  * 单元测试: lib/test-parser/stryker-config -- StrykerJS 配置检测与生成
- *
- * 覆盖范围:
- * - 正向: 项目根目录存在 stryker.config.json 时直接返回该路径，cleanup=false
- * - 正向: 项目根目录存在 stryker.config.mjs 时直接返回该路径，cleanup=false
- * - 正向: 项目根目录存在 stryker.config.cjs 时直接返回该路径，cleanup=false
- * - 正向: 无自定义配置时生成临时配置文件，返回路径和 cleanup=true
- * - 正向: 生成临时配置时 mutate 限定为 sourceFiles 路径列表
- * - 正向: 生成临时配置时 testRunner 根据 framework 选择 "jest-runner" 或 "vitest"
- * - 正向: 生成临时配置时 reporters 设置为 ["json"]
- * - 正向: 生成临时配置时 thresholds 从传入参数读取
- * - 异常: sourceFiles 为空数组时 mutate 为空列表
- * - 边界: 临时配置文件名使用随机后缀避免冲突
- *
- * @see openspec/changes/unit-test-mutation-testing/test-design.md
  */
 
 import * as fs from 'fs';
@@ -42,49 +28,6 @@ function createTempProject(): TempProject {
 }
 
 // ===========================================================================
-// 正向测试: 自定义配置检测
-// ===========================================================================
-
-describe('resolveStrykerConfig -- 自定义配置检测', () => {
-  let project: TempProject;
-
-  beforeEach(() => {
-    project = createTempProject();
-  });
-
-  afterEach(() => {
-    project.cleanup();
-  });
-
-  it('项目根目录存在 stryker.config.json 时直接返回该路径，cleanup=false', () => {
-    const configPath = path.join(project.root, 'stryker.config.json');
-    fs.writeFileSync(configPath, JSON.stringify({}), 'utf-8');
-
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
-    expect(result.configPath).toBe(configPath);
-    expect(result.cleanup).toBe(false);
-  });
-
-  it('项目根目录存在 stryker.config.mjs 时直接返回该路径，cleanup=false', () => {
-    const configPath = path.join(project.root, 'stryker.config.mjs');
-    fs.writeFileSync(configPath, 'export default {}', 'utf-8');
-
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
-    expect(result.configPath).toBe(configPath);
-    expect(result.cleanup).toBe(false);
-  });
-
-  it('项目根目录存在 stryker.config.cjs 时直接返回该路径，cleanup=false', () => {
-    const configPath = path.join(project.root, 'stryker.config.cjs');
-    fs.writeFileSync(configPath, 'module.exports = {}', 'utf-8');
-
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
-    expect(result.configPath).toBe(configPath);
-    expect(result.cleanup).toBe(false);
-  });
-});
-
-// ===========================================================================
 // 正向测试: 临时配置生成
 // ===========================================================================
 
@@ -99,9 +42,8 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
     project.cleanup();
   });
 
-  it('无自定义配置时生成临时配置文件，返回路径和 cleanup=true', () => {
+  it('无自定义配置时生成临时配置文件，返回路径', () => {
     const result = resolveStrykerConfig(project.root, ['src/foo.ts', 'src/bar.ts'], 'vitest');
-    expect(result.cleanup).toBe(true);
     expect(fs.existsSync(result.configPath)).toBe(true);
 
     // 清理临时文件
@@ -111,7 +53,6 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
   it('生成临时配置时 mutate 限定为 sourceFiles 路径列表', () => {
     const sourceFiles = ['src/foo.ts', 'src/bar.ts'];
     const result = resolveStrykerConfig(project.root, sourceFiles, 'vitest');
-    expect(result.cleanup).toBe(true);
 
     const configContent = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
     expect(configContent.mutate).toEqual(sourceFiles);

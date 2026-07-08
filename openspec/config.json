@@ -3,24 +3,14 @@
   "schema": "spec-driven",
   "static_analysis": "pnpm run -C ./plugins/dev-team/bin check",
   "test": {
-    "coverage": {
-      "lines": 77,
-      "branches": 66
-    },
     "overrides": [
       {
         "file": "plugins/dev-team/bin",
-        "framework": "vite-plus",
-        "coverage": {
-          "lines": 79,
-          "branches": 74,
-          "functions": 81
-        }
-      },
-      {
-        "file": "plugins/dev-team/hooks/scripts",
-        "framework": "node-test"
+        "framework": "vite-plus"
       }
     ]
+  },
+  "write_protection": {
+    "files": [{ "glob": "plugins/dev-team/bin/knip.json" }]
   }
 }

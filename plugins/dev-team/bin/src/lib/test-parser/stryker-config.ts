@@ -11,23 +11,18 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 // ---------------------------------------------------------------------------
-// Types
-// ---------------------------------------------------------------------------
-
-export interface StrykerConfigResult {
-  /** Absolute path to the StrykerJS configuration file */
-  configPath: string;
-  /** Whether the config file was generated and should be cleaned up after execution */
-  cleanup: boolean;
-}
-
-// ---------------------------------------------------------------------------
 // Temporary config generation
 // ---------------------------------------------------------------------------
-function generateTempConfig(rootPath: string, sourceFiles: string[], testRunner: string): string {
+function generateTempConfig(
+  rootPath: string,
+  sourceFiles: string[],
+  testRunner: string,
+): { configPath: string; tempDirPath: string } {
   const randomSuffix = crypto.randomBytes(4).toString('hex');
   const configFileName = `stryker.config.${randomSuffix}.json`;
   const configPath = path.resolve(rootPath, configFileName);
+  const tempDirName = `stryker-tmp-${randomSuffix}`;
+  const tempDirPath = path.resolve(rootPath, tempDirName);
 
   // Normalize source file paths to forward-slash, relative to project root
   const normalizedSources = sourceFiles.map((f) =>
@@ -35,28 +30,25 @@ function generateTempConfig(rootPath: string, sourceFiles: string[], testRunner:
   );
 
   const config = {
-    $schema:
-      'https://raw.githubusercontent.com/stryker-mutator/stryker-js/main/packages/core/schema/stryker-schema.json',
+    $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
     mutate: normalizedSources,
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
     reporters: ['json'],
-    json: {
-      file: 'reports/mutation/mutation.json',
+    jsonReporter: {
+      fileName: 'reports/mutation/mutation.json',
     },
     thresholds: {
       high: 80,
       low: 60,
       break: null,
     },
-    timeoutMS: 60000,
-    maxTestRunnerReuse: 10,
-    concurrency: 4,
-    tempDirName: `stryker-tmp-${randomSuffix}`,
+    ignoreStatic: true,
+    tempDirName,
   };
 
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
-  return configPath;
+  return { configPath, tempDirPath };
 }
 
 // ---------------------------------------------------------------------------
@@ -74,19 +66,16 @@ function generateTempConfig(rootPath: string, sourceFiles: string[], testRunner:
  * @param sourceFiles - Array of source file paths (relative to projectRoot)
  * @param testFiles  - Array of test file paths (relative to projectRoot)
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
- * @returns StrykerConfigResult with configPath and cleanup flag
  * @throws {Error} If the framework is not supported by StrykerJS
  */
 export function resolveStrykerConfig(
   rootPath: string,
   sourceFiles: string[],
   framework: string,
-): StrykerConfigResult {
-  // Determine the test runner plugin
+): { configPath: string; tempDirPath: string } {
   const testRunner = resolveTestRunner(framework);
-
-  const configPath = generateTempConfig(rootPath, sourceFiles, testRunner);
-  return { configPath, cleanup: true };
+  const { configPath, tempDirPath } = generateTempConfig(rootPath, sourceFiles, testRunner);
+  return { configPath, tempDirPath };
 }
 
 /**

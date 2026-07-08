@@ -1,0 +1,161 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-08T01:32:59.574Z",
+  "duration_seconds": 18,
+  "total": 919,
+  "passed": 919,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "fail",
+  "problems": [
+    {
+      "framework": "all",
+      "type": "coverage_failure",
+      "message": "Coverage below threshold: lines 78.9% < 80%, branches 68.6% < 70%"
+    },
+    {
+      "framework": "all",
+      "type": "coverage_failure",
+      "message": "Mutation score 55.8% < threshold 80%"
+    }
+  ],
+  "coverage": {
+    "pass": false,
+    "measured": {
+      "lines": 78.87999999999998,
+      "branches": 68.62000000000002,
+      "functions": 82.08
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "by_framework": {
+      "vite-plus": {
+        "measured": {
+          "lines": 78.88,
+          "branches": 68.62,
+          "functions": 82.08
+        },
+        "source_files": [
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.ts"
+        ]
+      }
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": 80.39999999999999,
+          "branches": 75.22916666666667,
+          "functions": 81.99041666666666
+        },
+        "pass": true,
+        "file_count": 48,
+        "passed_count": 35
+      }
+    ]
+  },
+  "mutation": {
+    "pass": false,
+    "score": 55.757413839166446,
+    "threshold": 80,
+    "measured": {
+      "killed": 2087,
+      "survived": 1205,
+      "timeout": 0,
+      "noCoverage": 447,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 332,
+      "total": 4075,
+      "detected": 2087,
+      "undetected": 1652
+    },
+    "by_framework": {
+      "vite-plus": {
+        "score": 55.757413839166446,
+        "measured": {
+          "killed": 2087,
+          "survived": 1205,
+          "timeout": 0,
+          "noCoverage": 447,
+          "compileError": 0,
+          "runtimeError": 0,
+          "ignored": 332,
+          "total": 4075,
+          "detected": 2087,
+          "undetected": 1652
+        },
+        "source_files": [
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/config/config.schema.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/schemas/index.ts",
+          "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.ts"
+        ]
+      }
+    }
+  }
+}

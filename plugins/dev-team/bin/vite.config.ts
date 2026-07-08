@@ -4,9 +4,11 @@ import { defineConfig } from 'vite-plus';
 
 const MCP_OUTPUT_FILE_NAME = 'dev-team-mcp.cjs';
 const CLI_OUTPUT_FILE_NAME = 'dev-team-cli.cjs';
+const HOOKS_OUTPUT_FILE_NAME = 'dev-team-hooks.cjs';
 const OUTPUT_FILE_NAMES = [
   MCP_OUTPUT_FILE_NAME,
   CLI_OUTPUT_FILE_NAME,
+  HOOKS_OUTPUT_FILE_NAME,
   'dev-team-config.schema.json',
   'openspec-bundled.js',
 ];
@@ -77,6 +79,22 @@ export default defineConfig({
       entry: 'src/cli.ts',
       outputOptions: {
         file: CLI_OUTPUT_FILE_NAME,
+        format: 'cjs',
+        minify: true,
+        sourcemap: true,
+        cleanDir: false,
+      },
+      deps: {
+        alwaysBundle: [/.*/],
+      },
+      dts: false,
+    },
+    {
+      name: 'hooks',
+      platform: 'node',
+      entry: 'src/hooks.ts',
+      outputOptions: {
+        file: HOOKS_OUTPUT_FILE_NAME,
         format: 'cjs',
         minify: true,
         sourcemap: true,

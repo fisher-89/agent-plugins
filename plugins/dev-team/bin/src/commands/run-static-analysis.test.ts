@@ -14,6 +14,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { execCommand } from '../lib/exec-command';
 import { getProjectDir } from '../utils';
+import { runStaticAnalysis } from './run-static-analysis';
 
 vi.mock('../lib/exec-command');
 
@@ -26,12 +27,6 @@ beforeEach(() => {
 // getProjectDir 已有独立的单元测试（constant.test.ts），此处 mock 以支持
 // Stryker worker 线程环境（worker 中不支持 process.chdir）。
 vi.mock('../utils');
-
-// 实现文件尚未创建时使用动态 import，避免模块加载失败阻塞测试收集
-async function loadRunStaticAnalysis(): Promise<(options?: { projectRoot?: string }) => number> {
-  const mod = await import('./run-static-analysis');
-  return mod.runStaticAnalysis;
-}
 
 // ---------------------------------------------------------------------------
 // Helpers: 临时项目目录
@@ -74,8 +69,7 @@ function writeConfig(root: string, configData: unknown): void {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — 未配置放行 (AC-4, AC-7)', () => {
-  it('openspec/config.json 不存在时应 exit 0 且不执行外部命令', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('openspec/config.json 不存在时应 exit 0 且不执行外部命令', () => {
     const project = createTempProject();
     const execSpy = vi.mocked(execCommand);
     try {
@@ -88,8 +82,7 @@ describe('runStaticAnalysis — 未配置放行 (AC-4, AC-7)', () => {
     }
   });
 
-  it('config 存在但无 static_analysis 字段时应 exit 0', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('config 存在但无 static_analysis 字段时应 exit 0', () => {
     const project = createTempProject({ schema: 'spec-driven' });
     const execSpy = vi.mocked(execCommand);
     try {
@@ -108,8 +101,7 @@ describe('runStaticAnalysis — 未配置放行 (AC-4, AC-7)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — 空配置放行 (边界)', () => {
-  it('static_analysis 为空字符串时应 exit 0 且不执行外部命令', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('static_analysis 为空字符串时应 exit 0 且不执行外部命令', () => {
     const project = createTempProject({ schema: 'spec-driven', static_analysis: '' });
     const execSpy = vi.mocked(execCommand);
     try {
@@ -122,8 +114,7 @@ describe('runStaticAnalysis — 空配置放行 (边界)', () => {
     }
   });
 
-  it('static_analysis 为仅空白字符串时应 exit 0（trim 后视为空）', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('static_analysis 为仅空白字符串时应 exit 0（trim 后视为空）', () => {
     const project = createTempProject({ schema: 'spec-driven', static_analysis: '   ' });
     const execSpy = vi.mocked(execCommand);
     try {
@@ -142,8 +133,7 @@ describe('runStaticAnalysis — 空配置放行 (边界)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — 命令成功 (AC-3, AC-7)', () => {
-  it('已配置且 mock 命令 exit 0 时 CLI 应 exit 0', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('已配置且 mock 命令 exit 0 时 CLI 应 exit 0', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       static_analysis: 'node -e process.exit(0)',
@@ -167,8 +157,7 @@ describe('runStaticAnalysis — 命令成功 (AC-3, AC-7)', () => {
     }
   });
 
-  it('命令 exit 0 时 CLI stdout 应无多余输出', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('命令 exit 0 时 CLI stdout 应无多余输出', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       static_analysis: 'node -e process.exit(0)',
@@ -200,8 +189,7 @@ describe('runStaticAnalysis — 命令成功 (AC-3, AC-7)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — 命令失败 (AC-5, AC-7)', () => {
-  it('已配置且 mock 命令 exit 非 0 时 CLI 应返回相同 exit code', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('已配置且 mock 命令 exit 非 0 时 CLI 应返回相同 exit code', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       static_analysis: 'node -e process.exit(1)',
@@ -224,8 +212,7 @@ describe('runStaticAnalysis — 命令失败 (AC-5, AC-7)', () => {
     }
   });
 
-  it('命令失败时 CLI stderr 应含 stdout/stderr 合并输出', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('命令失败时 CLI stderr 应含 stdout/stderr 合并输出', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       static_analysis: 'node -e process.exit(1)',
@@ -258,8 +245,7 @@ describe('runStaticAnalysis — 命令失败 (AC-5, AC-7)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — exit code 传播 (边界)', () => {
-  it.each([1, 2, 127])('mock 命令 exit %i 时 CLI 应返回相同 exit code', async (exitCode) => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it.each([1, 2, 127])('mock 命令 exit %i 时 CLI 应返回相同 exit code', (exitCode) => {
     const project = createTempProject({
       schema: 'spec-driven',
       static_analysis: `node -e process.exit(${String(exitCode)})`,
@@ -298,8 +284,7 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
     project.cleanup();
   });
 
-  it('未传 options.projectRoot 时应使用 getProjectDir() 返回值定位 config', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('未传 options.projectRoot 时应使用 getProjectDir() 返回值定位 config', () => {
     vi.mocked(getProjectDir).mockReturnValue(project.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
       status: 0,
@@ -321,8 +306,7 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
     }
   });
 
-  it('options.projectRoot 应优先于 getProjectDir()', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('options.projectRoot 应优先于 getProjectDir()', () => {
     const other = createTempProject({ schema: 'spec-driven', static_analysis: 'echo ok' });
     vi.mocked(getProjectDir).mockReturnValue(other.root);
     const execSpy = vi.mocked(execCommand).mockReturnValue({
@@ -352,8 +336,7 @@ describe('runStaticAnalysis — 项目根目录 (AC-7)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — config 容错 (边界)', () => {
-  it('openspec/config.json JSON 解析失败时应等同未配置并 exit 0', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('openspec/config.json JSON 解析失败时应等同未配置并 exit 0', () => {
     const project = createTempProject();
     writeConfig(project.root, '{ invalid json');
     const execSpy = vi.mocked(execCommand);
@@ -373,8 +356,7 @@ describe('runStaticAnalysis — config 容错 (边界)', () => {
 // ---------------------------------------------------------------------------
 
 describe('runStaticAnalysis — 工作目录与参数 (AC-7)', () => {
-  it('已配置时应在项目根目录执行命令（cwd 为 projectRoot）', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('已配置时应在项目根目录执行命令（cwd 为 projectRoot）', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       static_analysis: 'node -e process.exit(0)',
@@ -400,8 +382,7 @@ describe('runStaticAnalysis — 工作目录与参数 (AC-7)', () => {
     }
   });
 
-  it('执行 static_analysis 命令时不应传入 change name 或其他 CLI 参数', async () => {
-    const runStaticAnalysis = await loadRunStaticAnalysis();
+  it('执行 static_analysis 命令时不应传入 change name 或其他 CLI 参数', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       static_analysis: 'node -e process.exit(0)',

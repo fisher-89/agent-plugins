@@ -11,7 +11,12 @@ import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { McpServerLike } from './project-root';
+import { getProjectDir } from '../utils';
+import {
+  type McpServerLike,
+  getMcpCachedProjectRoot,
+  initProjectRootFromMcp,
+} from './project-root';
 
 // ---------------------------------------------------------------------------
 // Simple mock matching the narrow McpServerLike interface
@@ -86,8 +91,6 @@ describe('initProjectRootFromMcp — roots 可用时缓存首个 root', () => {
   });
 
   it('listRoots 返回单条 Windows file:// root 后 getProjectDir 应为本地绝对路径 (AC-1)', async () => {
-    const { getMcpCachedProjectRoot, initProjectRootFromMcp } = await import('./project-root');
-    const { getProjectDir } = await import('../utils/constant');
     const uri = 'file:///D:/Projects/wps-claude-plugin';
     const expected = path.resolve('D:/Projects/wps-claude-plugin');
     const { server } = createMockServer({
@@ -102,7 +105,6 @@ describe('initProjectRootFromMcp — roots 可用时缓存首个 root', () => {
   });
 
   it('多条 root 时仅使用 roots[0].uri（D3 多 root 策略）', async () => {
-    const { getMcpCachedProjectRoot, initProjectRootFromMcp } = await import('./project-root');
     const firstUri = 'file:///D:/Projects/first-root';
     const secondUri = 'file:///D:/Projects/second-root';
     const { server } = createMockServer({
@@ -118,7 +120,6 @@ describe('initProjectRootFromMcp — roots 可用时缓存首个 root', () => {
   });
 
   it('URI 含 URL 编码字符（如 %20）应解码为正确本地路径 (AC-1)', async () => {
-    const { getMcpCachedProjectRoot, initProjectRootFromMcp } = await import('./project-root');
     const { server } = createMockServer({
       capabilities: { roots: {} },
       listRootsResult: { roots: [{ uri: 'file:///D:/Projects/my%20project' }] },
@@ -237,8 +238,6 @@ describe('initProjectRootFromMcp — 缓存更新', () => {
   });
 
   it('二次 init 返回新 URI 时 getProjectDir 应返回新路径 (AC-6)', async () => {
-    const { getMcpCachedProjectRoot, initProjectRootFromMcp } = await import('./project-root');
-    const { getProjectDir } = await import('../utils/constant');
     const oldUri = 'file:///D:/Projects/old-workspace';
     const newUri = 'file:///D:/Projects/new-workspace';
 
@@ -257,8 +256,6 @@ describe('initProjectRootFromMcp — 缓存更新', () => {
   });
 
   it('init 失败时保留旧缓存 (AC-6 / D6)', async () => {
-    const { getMcpCachedProjectRoot, initProjectRootFromMcp } = await import('./project-root');
-    const { getProjectDir } = await import('../utils/constant');
     const oldPath = path.resolve('D:/Projects/stale-but-valid');
     const mock = createMockServer({
       capabilities: { roots: {} },

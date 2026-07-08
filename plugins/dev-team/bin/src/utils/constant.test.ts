@@ -9,6 +9,8 @@
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { getProjectDir } from './constant';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -49,14 +51,12 @@ describe('getProjectDir — 无 MCP 缓存时 env/cwd 回退链', () => {
 
   it('缓存为 null 且 CLAUDE_PROJECT_DIR 已设置时返回该 env 值 (AC-4)', async () => {
     process.env.CLAUDE_PROJECT_DIR = '/from/claude-project-dir';
-    const { getProjectDir } = await import('./constant');
 
     expect(getProjectDir()).toBe('/from/claude-project-dir');
   });
 
   it('无 MCP 缓存且两 env 均未设置时返回 process.cwd() (AC-4 / AC-5)', async () => {
     delete process.env.CLAUDE_PROJECT_DIR;
-    const { getProjectDir } = await import('./constant');
 
     expect(getProjectDir()).toBe(process.cwd());
   });
@@ -80,7 +80,6 @@ describe('getProjectDir — env 空字符串', () => {
 
   it('CLAUDE_PROJECT_DIR="" 视为未设置，继续检查 process.cwd()', async () => {
     process.env.CLAUDE_PROJECT_DIR = '';
-    const { getProjectDir } = await import('./constant');
 
     expect(getProjectDir()).toBe(process.cwd());
   });

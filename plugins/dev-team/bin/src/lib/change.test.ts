@@ -11,6 +11,8 @@ import * as path from 'node:path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { getChangeDir } from './change';
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -87,7 +89,6 @@ describe('getChangeDir — 无 MCP 缓存时回退', () => {
   it('无 MCP 缓存、设置 CLAUDE_PROJECT_DIR 时 getChangeDir 基于 env 根目录拼接', async () => {
     const envRoot = path.resolve('/env/project-root');
     process.env.CLAUDE_PROJECT_DIR = envRoot;
-    const { getChangeDir } = await import('./change');
 
     expect(getChangeDir('my-change')).toBe(
       path.resolve(envRoot, 'openspec', 'changes', 'my-change'),

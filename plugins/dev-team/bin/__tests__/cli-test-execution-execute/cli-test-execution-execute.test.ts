@@ -19,6 +19,7 @@ import * as path from 'path';
 
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { runTestExecution } from '../../src/commands/test-execution';
 import type { ExecutionResult } from '../../src/lib/test-runner';
 import { type TestPlan } from '../../src/schemas';
 import type { TestExecutionSubReport } from '../../src/schemas/test-execution-output.schema';
@@ -125,6 +126,7 @@ describe('CLI 端到端执行 — AC-7', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   it('调用 runTestExecution 时应触发 runTestDetectFrameworks 获取 plan', async () => {
@@ -152,7 +154,6 @@ describe('CLI 端到端执行 — AC-7', () => {
         mutation: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       const exitCode = runTestExecution({ projectRoot: project.root });
 
       expect(mockDetectFrameworks).toHaveBeenCalledWith(
@@ -199,7 +200,6 @@ describe('CLI 端到端执行 — AC-7', () => {
         mutation: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
@@ -236,8 +236,6 @@ describe('CLI 端到端执行 — AC-7', () => {
         mutation: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
-
       // 第一次执行
       runTestExecution({ projectRoot: project.root });
       const firstCall = mockGenerateSubReport.mock.calls[0];
@@ -268,6 +266,7 @@ describe('报告路径 — AC-11', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
   it('子报告应写入 reports/test-execution/<framework>.json（非旧 reports/unit-test/）', async () => {
@@ -295,7 +294,6 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       runTestExecution({ projectRoot: project.root });
 
       // 子报告路径应包含 test-execution（而非 unit-test）
@@ -333,7 +331,6 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       runTestExecution({ projectRoot: project.root });
 
       // 汇总报告被调用
@@ -371,7 +368,6 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       runTestExecution({ projectRoot: project.root });
 
       // 验证汇总报告中 phase 字段为 test-execution
@@ -410,7 +406,6 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      const { runTestExecution } = await import('../../src/commands/test-execution');
       runTestExecution({ projectRoot: project.root });
 
       // 验证汇总报告中 command 字段

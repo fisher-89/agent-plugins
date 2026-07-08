@@ -214,7 +214,8 @@ export function executePlanEntry(
     parsed.sourceFiles.length > 0 ? parsed.sourceFiles : deriveSourceFiles(parsed.testFiles);
 
   // Mutation testing phase
-  const mutation = runMutationPhase(entry, projectRoot, options, sourceFiles);
+  const mutation =
+    parsed.failed === 0 ? runMutationPhase(entry, projectRoot, options, sourceFiles) : null;
 
   return {
     framework: entry.framework,
@@ -254,22 +255,23 @@ function runMutationPhase(
 
   const absoluteDirectory = path.resolve(projectRoot, entry.directory);
   try {
-    const { configPath, cleanup } = resolveStrykerConfig(
+    const { configPath, tempDirPath } = resolveStrykerConfig(
       absoluteDirectory,
       sourceFiles,
       entry.framework,
     );
 
-    console.log(`Running StrykerJS mutation testing (config: ${configPath})...`);
-
     // Normalize configPath to forward slashes to avoid backslash escape issues in shell
     const normalizedConfigPath = configPath.replace(/\\/g, '/');
     const strykerCmd = `npx stryker run "${normalizedConfigPath}"`;
-    runCommand(strykerCmd, absoluteDirectory, 300000);
+    console.log(
+      `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absoluteDirectory})...`,
+    );
+    runCommand(strykerCmd, absoluteDirectory, 600000);
 
     const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory, sourceFiles);
 
-    cleanupMutationArtifacts(absoluteDirectory, configPath, cleanup);
+    cleanupMutationArtifacts(absoluteDirectory, configPath, tempDirPath);
 
     if (!mutationBlock) {
       console.log('  Mutation report not found or invalid — skipping mutation result');
@@ -293,10 +295,10 @@ function runMutationPhase(
  */
 function buildMutationBlockFromReport(
   entry: TestPlan,
-  projectRoot: string,
+  rootPath: string,
   sourceFiles: string[],
 ): MutationBlock | null {
-  const reportPath = path.resolve(projectRoot, 'reports', 'mutation', 'mutation.json');
+  const reportPath = path.resolve(rootPath, 'reports', 'mutation', 'mutation.json');
   const mutationReport = parseMutationReport(reportPath);
   if (!mutationReport) return null;
 
@@ -322,15 +324,10 @@ function buildMutationBlockFromReport(
  * Clean up temporary StrykerJS artifacts.
  *
  * Removes the reports/mutation/ directory and the temporary config file
- * if it was generated (cleanup === true).
  */
-function cleanupMutationArtifacts(
-  projectRoot: string,
-  configPath: string,
-  cleanupConfigFile: boolean,
-): void {
+function cleanupMutationArtifacts(rootPath: string, configPath: string, tempDirPath: string): void {
   // Remove reports/mutation/ directory
-  const mutationReportDir = path.resolve(projectRoot, 'reports', 'mutation');
+  const mutationReportDir = path.resolve(rootPath, 'reports', 'mutation');
   try {
     if (fs.existsSync(mutationReportDir)) {
       fs.rmSync(mutationReportDir, { recursive: true, force: true });
@@ -340,14 +337,20 @@ function cleanupMutationArtifacts(
   }
 
   // Remove temporary config file
-  if (cleanupConfigFile) {
-    try {
-      if (fs.existsSync(configPath)) {
-        fs.unlinkSync(configPath);
-      }
-    } catch {
-      // Best-effort cleanup
+  try {
+    if (fs.existsSync(configPath)) {
+      fs.rmSync(configPath);
     }
+  } catch {
+    // Best-effort cleanup
+  }
+
+  try {
+    if (fs.existsSync(tempDirPath)) {
+      fs.rmSync(tempDirPath);
+    }
+  } catch {
+    // Best-effort cleanup
   }
 }
 

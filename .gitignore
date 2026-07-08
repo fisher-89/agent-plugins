@@ -8,3 +8,4 @@ node_modules
 
 plugins/dev-team/bin/*.cjs.map
 plugins/dev-team/bin/coverage
+plugins/dev-team/bin/stryker-tmp-*
