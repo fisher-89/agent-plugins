@@ -200,9 +200,8 @@ export function executePlanEntry(
     return emptyResult(entry.framework, startTime, 'Empty test command');
   }
 
-  const execCwd = resolveExecCwd(entry, projectRoot);
   console.log(`Executing test cmd: "${testCmd}"`);
-  const { stdout, stderr, exitCode, execError } = runCommand(testCmd, execCwd, options.timeout);
+  const { stdout, stderr, exitCode, execError } = runCommand(testCmd, projectRoot, options.timeout);
   const durationMs = Date.now() - startTime;
 
   const parsed = parseTestOutput(stdout, stderr, entry.framework);
@@ -375,15 +374,6 @@ function extractMutationMeasured(report: MutationReport): MutationMeasured {
 
 function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]): string {
   return substitutePlaceholders(entry.script, files ?? [], entry.directory, projectRoot);
-}
-
-function resolveExecCwd(_entry: TestPlan, projectRoot: string): string {
-  // The script already contains a `cd` command when directory !== '.'.
-  // Always use projectRoot as CWD so that the relative `cd` in the script
-  // resolves correctly.  (On Windows, execSync defaults to cmd.exe, which
-  // cannot handle a relative `cd` to a path that does not exist under the
-  // already-resolved CWD.)
-  return projectRoot;
 }
 
 function resolveShell(): string | undefined {

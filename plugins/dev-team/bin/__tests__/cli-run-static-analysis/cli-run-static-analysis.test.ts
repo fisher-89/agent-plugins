@@ -10,6 +10,7 @@ import { execFileSync, execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 
@@ -17,9 +18,8 @@ import { afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 // 路径
 // ---------------------------------------------------------------------------
 
-/** vitest CWD 为 plugins/dev-team/bin/ */
-const projectRoot = path.resolve(process.cwd(), '../../..');
-const binDir = path.resolve(projectRoot, 'plugins/dev-team/bin');
+const binDir = fileURLToPath(new URL('../../', import.meta.url));;
+const projectRoot = path.resolve(binDir, '../../../');
 const cliPath = path.join(binDir, 'dev-team-cli.cjs');
 const mcpPath = path.join(binDir, 'dev-team-mcp.cjs');
 

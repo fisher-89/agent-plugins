@@ -8,7 +8,7 @@ const TEST_COVERAGE_BRANCH_DEFAULT = 70;
 const TEST_COVERAGE_FUNCTION_DEFAULT = 75;
 
 /** 变异测试得分阈值 */
-const TEST_MUTATION_SCORE_DEFAULT = 80;
+const TEST_MUTATION_SCORE_DEFAULT = 70;
 
 const testFrameworkSchema = z
   .enum(['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'])

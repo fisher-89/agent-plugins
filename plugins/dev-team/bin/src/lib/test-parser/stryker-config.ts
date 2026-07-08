@@ -21,8 +21,7 @@ function generateTempConfig(
   const randomSuffix = crypto.randomBytes(4).toString('hex');
   const configFileName = `stryker.config.${randomSuffix}.json`;
   const configPath = path.resolve(rootPath, configFileName);
-  const tempDirName = `stryker-tmp-${randomSuffix}`;
-  const tempDirPath = path.resolve(rootPath, tempDirName);
+  const tempDirPath = path.resolve(rootPath, '.stryker-tmp');
 
   // Normalize source file paths to forward-slash, relative to project root
   const normalizedSources = sourceFiles.map((f) =>
@@ -31,20 +30,16 @@ function generateTempConfig(
 
   const config = {
     $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
+    coverageAnalysis: 'all',
     mutate: normalizedSources,
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
+    vitest: testRunner === 'vitest' ? { related: false } : undefined,
+    jest: testRunner === 'jest' ? { enableFindRelatedTests: false } : undefined,
     reporters: ['json'],
     jsonReporter: {
       fileName: 'reports/mutation/mutation.json',
-    },
-    thresholds: {
-      high: 80,
-      low: 60,
-      break: null,
-    },
-    ignoreStatic: true,
-    tempDirName,
+    }
   };
 
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
@@ -88,7 +83,7 @@ export function resolveStrykerConfig(
 function resolveTestRunner(framework: string): string {
   switch (framework) {
     case 'jest':
-      return 'jest-runner';
+      return 'jest';
     case 'vitest':
     case 'vite-plus':
       return 'vitest';
@@ -111,7 +106,7 @@ function resolvePluginPackage(testRunner: string): string {
   // In StrykerJS v9, the vitest runner registers as "vitest" but the
   // npm package is still "@stryker-mutator/vitest-runner".
   const pluginMap: Record<string, string> = {
-    'jest-runner': '@stryker-mutator/jest-runner',
+    jest: '@stryker-mutator/jest-runner',
     vitest: '@stryker-mutator/vitest-runner',
   };
   return pluginMap[testRunner] ?? `@stryker-mutator/${testRunner}`;

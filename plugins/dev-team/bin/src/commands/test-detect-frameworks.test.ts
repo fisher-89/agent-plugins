@@ -1193,7 +1193,7 @@ describe('runTestDetectFrameworks -- plan mutation 字段', () => {
     }
   });
 
-  it('config 未设置 test.mutation 时 mutation_score 为 null', () => {
+  it('config 未设置 test.mutation 时 mutation_score 为默认值', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: { framework: 'vitest' },
@@ -1204,8 +1204,7 @@ describe('runTestDetectFrameworks -- plan mutation 字段', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      // 由于 schema 中 mutation 有 prefault 默认值 80，mutation_score 应为 80
-      expect(result.plan[0].mutation_score).toBe(80);
+      expect(result.plan[0].mutation_score).toBe(70);
     } finally {
       project.cleanup();
     }

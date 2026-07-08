@@ -8,7 +8,7 @@ The system SHALL NOT perform any commit-time evaluation validation. The existing
 - **THEN** no eval JSON or code review checks are performed by hooks
 
 ### Requirement: Eval check script validates chain before archive
-The system SHALL provide an eval check script (`utils/eval-check.py`) that validates the eval chain before archive.
+The system SHALL provide an eval check CLI command (`dev-team eval-check`) that validates the eval chain before archive.
 The script SHALL read `openspec/changes/<name>/eval.json`, extract the latest entry per phase by timestamp, and verify all phases in the expected sequence have verdict "pass" with no gaps or active backtrack markers.
 If any check fails, the script SHALL output the failure reason and exit with a non-zero code.
 
@@ -26,7 +26,7 @@ If any check fails, the script SHALL output the failure reason and exit with a n
 
 ### Requirement: Archive flow executes sequentially
 The system SHALL provide an archive flow that executes in strict sequence:
-1. **eval check**: run `utils/eval-check.py` to validate all phases passed
+1. **eval check**: run `dev-team eval-check` to validate all phases passed
 2. **openspec archive**: run `openspec archive <change-name>` to finalize the change
 3. **git commit**: run `git commit` to snapshot the completed work
 

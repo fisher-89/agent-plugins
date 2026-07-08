@@ -307,7 +307,7 @@ describe('存量 schema — test.mutation 边界', () => {
     const result = configSchema.safeParse(input);
     expect(result.success).toBe(true);
     if (result.success) {
-      expect(result.data.test?.mutation?.score).toBe(80);
+      expect(result.data.test?.mutation?.score).toBe(70);
     }
   });
 });

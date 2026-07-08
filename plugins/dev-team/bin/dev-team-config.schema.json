@@ -93,7 +93,7 @@
           "type": "object",
           "properties": {
             "score": {
-              "description": "变异测试得分阈值（百分比，默认 80）",
+              "description": "变异测试得分阈值（百分比，默认 70）",
               "type": "number",
               "minimum": 0,
               "maximum": 100

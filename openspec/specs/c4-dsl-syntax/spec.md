@@ -35,7 +35,7 @@ The system SHALL use `metadata { key value }` or `metadata { key [array] }` synt
 
 ### Requirement: Parsers handle brace-delimited metadata blocks
 
-The Python DSL parsers in `archi-model.py` and `archi-validate.py` SHALL parse `metadata { }` blocks by tracking brace depth and extracting key-value pairs from lines within the block.
+The system SHALL parse `metadata { }` blocks via `@likec4/core`'s `LikeC4.fromSource()` API, which handles brace-delimited metadata blocks and extracts key-value pairs.
 
 #### Scenario: Multi-line metadata block
 

@@ -1,7 +1,7 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
   "tags": ["-lintignore"],
-  "entry": ["src/mcp.ts", "src/cli.ts"],
+  "entry": ["src/mcp.ts", "src/cli.ts", "src/hooks.ts"],
   "project": ["src/**/*.ts", "!src/**/*.test.ts"],
   "ignore": ["dev-team-mcp.cjs"],
   "ignoreDependencies": ["@vitest/coverage-v8"],

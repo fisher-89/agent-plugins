@@ -1,9 +1,11 @@
 {
   "$schema": "./node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "coverageAnalysis": "all",
   "mutate": ["src/**/*.ts", "!src/**/*.test.ts"],
   "testRunner": "vitest",
   "plugins": ["@stryker-mutator/vitest-runner"],
   "vitest": {
+    "related": false,
     "configFile": "vite.config.ts"
   },
   "reporters": ["html", "clear-text", "progress"],

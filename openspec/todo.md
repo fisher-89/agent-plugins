@@ -11,25 +11,25 @@
 - [x] mcp工具改回下划线，避免claude code转义“/”导致找不到tools
 - [x] 明确测试文件的路径规则（test-design）
 - [x] unit-test-evaluator检查覆盖率
-- [ ] 引入突变测试
+- [x] 引入突变测试
 - [x] test_resolve_paths - 不检查源文件是否存在、集成测试__tests__放在测试运行的根目录下
 - [ ] test_resolve_paths - 设置白名单，拒绝生成vite.config、tsconfig等文件的单测
 - [x] unit-test-execution.json coverage_overrides和coverage_by_framework重复
-- [ ] mcp移除test_get_framework_config ，功能合入 test_detect_frameworks
+- [x] mcp移除test_get_framework_config ，功能合入 test_detect_frameworks
 - [x] 使用fast-glob解析glob表达式
 - [x] task.md中不要包含单元测试
 - [ ] test-gen-generator上下文预制常见的mock技能（mock文件、mock接口）
 - [x] unit-test-evaluator、integration-test-evaluator设置checklist
 - [x] change_list没有屏蔽已完成change
 - [x] 将test-gen移动到implement后面执行
-- [ ] 步骤定义中不包含序号，workflow动态生成
+- [x] 步骤定义中不包含序号，workflow动态生成
 - [ ] 禁止test-gen修改非.test文件
 - [x] phase-next返回allowed_backtracks
 - [x] fix: code-review未指定backtrack_to
 - [x] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli
 - [ ] 分离evaluator agent的eval_log和output，允许通知主agent
 - [x] 根据test配置决定哪些目录可以单测
-- [ ] 根据test配置提供mcp，自动执行测试，生成统一格式报告
+- [x] 根据test配置提供mcp，自动执行测试，生成统一格式报告
 - [x] PowerShell Set-Content可以绕过不让编辑eval.json的禁令
 - [x] 禁止修改config.json
 - [x] hooks响应格式没有实现拦截，应该返回decision
@@ -40,6 +40,6 @@
 - [x] phase_log设置backtrack_to时, 当前记录也应该标记stale
 - [x] code-review-evaluator.md 描述"Evaluate design.md"，容易误触发"design-review skill"
 - [x] config.json指定保护文件，禁止agent修改
-- [ ] fix:突变测试结果未写入报告
+- [x] fix:突变测试结果未写入报告
 - [x] test-execution使用cli 命令执行测试
-- [ ] stryker运行后没有清理临时配置和副本
+- [x] stryker运行后没有清理临时配置和副本

@@ -69,30 +69,27 @@ describe('git-change 模式 — git diff 变更文件推导', () => {
         overrides: [{ file: 'src', framework: 'vite-plus' }],
       },
     });
-    try {
-      // 创建初始提交
-      writeFile(project.root, 'src/unchanged.ts', '');
-      writeFile(project.root, 'src/changed.ts', '// original');
-      gitCommit(project.root, 'initial');
+    // 创建初始提交
+    writeFile(project.root, 'src/unchanged.ts', '');
+    writeFile(project.root, 'src/changed.ts', '// original');
+    gitCommit(project.root, 'initial');
 
-      // 做未暂存变更 — 修改已有的 tracked 文件
-      writeFile(project.root, 'src/changed.ts', '// modified');
+    // 做未暂存变更 — 修改已有的 tracked 文件
+    writeFile(project.root, 'src/changed.ts', '// modified');
 
-      const result = runTestResolvePaths({
-        modules: 'git-change',
-        project_root: project.root,
-      });
+    const result = runTestResolvePaths({
+      modules: 'git-change',
+      project_root: project.root,
+    });
 
-      expect(result.unit_tests).toContainEqual({
-        source: 'src/changed.ts',
-        test_file: 'src/changed.test.ts',
-      });
-      expect(result.unit_tests).not.toContainEqual(
-        expect.objectContaining({ source: 'src/unchanged.ts' }),
-      );
-    } finally {
-      project.cleanup();
-    }
+    expect(result.unit_tests).toContainEqual({
+      source: 'src/changed.ts',
+      test_file: 'src/changed.test.ts',
+    });
+    expect(result.unit_tests).not.toContainEqual(
+      expect.objectContaining({ source: 'src/unchanged.ts' }),
+    );
+    project.cleanup();
   });
 
   it('干净的工作树中调用 modules: "git-change"，unit_tests 为空 (AC-5)', () => {
@@ -102,19 +99,16 @@ describe('git-change 模式 — git diff 变更文件推导', () => {
         overrides: [{ file: 'src', framework: 'vite-plus' }],
       },
     });
-    try {
-      writeFile(project.root, 'src/foo.ts', '');
-      gitCommit(project.root, 'all clean');
+    writeFile(project.root, 'src/foo.ts', '');
+    gitCommit(project.root, 'all clean');
 
-      const result = runTestResolvePaths({
-        modules: 'git-change',
-        project_root: project.root,
-      });
+    const result = runTestResolvePaths({
+      modules: 'git-change',
+      project_root: project.root,
+    });
 
-      expect(result.unit_tests).toEqual([]);
-    } finally {
-      project.cleanup();
-    }
+    expect(result.unit_tests).toEqual([]);
+    project.cleanup();
   });
 
   it('非 git 目录中调用 modules: "git-change"，errors 包含 git 错误 (AC-5)', () => {

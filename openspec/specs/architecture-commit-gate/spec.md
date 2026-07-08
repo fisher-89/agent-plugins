@@ -12,7 +12,7 @@ The system SHALL intercept all `git commit` commands via a PreToolUse(Bash) hook
 #### Scenario: Commit without validation report
 
 - **WHEN** `git diff --cached` contains code changes AND no `architecture-validate-*.json` is staged
-- **THEN** the hook SHALL deny the commit with a message instructing the agent to run archi-validate
+- **THEN** the hook SHALL deny the commit with a message instructing the agent to run `dev-team archi check`
 
 #### Scenario: Commit with only architecture files
 
@@ -63,9 +63,9 @@ The system SHALL check all files in the staged changes, not only those matching 
 
 ### Requirement: Hook output guides agent to run validation
 
-When denying a commit, the hook SHALL output a clear instruction telling the agent to invoke the archi-validate sub-agent.
+When denying a commit, the hook SHALL output a clear instruction telling the agent to invoke the architecture sub-agent's validate mode.
 
 #### Scenario: Deny message contains action guidance
 
 - **WHEN** the hook denies a commit
-- **THEN** the output SHALL instruct the agent to run archi-validate, stage the resulting report, and retry the commit
+- **THEN** the output SHALL instruct the agent to run `dev-team archi check`, stage the resulting report, and retry the commit

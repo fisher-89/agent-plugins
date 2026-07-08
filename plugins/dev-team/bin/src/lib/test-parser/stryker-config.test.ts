@@ -60,17 +60,17 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
     fs.unlinkSync(result.configPath);
   });
 
-  it('生成临时配置时 testRunner 根据 framework 选择 "jest-runner" 或 "vitest"', () => {
+  it('生成临时配置时 testRunner 根据 framework 选择 "jest" 或 "vitest"', () => {
     // vitest -> vitest
     const result1 = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     const config1 = JSON.parse(fs.readFileSync(result1.configPath, 'utf-8'));
     expect(config1.testRunner).toBe('vitest');
     fs.unlinkSync(result1.configPath);
 
-    // jest -> jest-runner
+    // jest -> jest
     const result2 = resolveStrykerConfig(project.root, ['src/test.ts'], 'jest');
     const config2 = JSON.parse(fs.readFileSync(result2.configPath, 'utf-8'));
-    expect(config2.testRunner).toBe('jest-runner');
+    expect(config2.testRunner).toBe('jest');
     fs.unlinkSync(result2.configPath);
 
     // vite-plus -> vitest
@@ -84,16 +84,6 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
     const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
     expect(config.reporters).toEqual(['json']);
-    fs.unlinkSync(result.configPath);
-  });
-
-  it('生成临时配置时 thresholds 从传入参数读取', () => {
-    const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
-    const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(config.thresholds).toBeDefined();
-    expect(config.thresholds.high).toBe(80);
-    expect(config.thresholds.low).toBe(60);
-    expect(config.thresholds.break).toBeNull();
     fs.unlinkSync(result.configPath);
   });
 });

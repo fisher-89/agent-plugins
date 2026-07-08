@@ -16,7 +16,7 @@ The system SHALL provide an `architecture` subagent definition at `plugins/dev-t
 
 ### Requirement: Propose mode
 
-The architecture agent SHALL support a propose mode that reads current model files and relevant code, drafts DSL changes using correct LikeC4 DSL syntax (`element <name>` in specification, `metadata { }` blocks for metadata), validates them via `archi-model.py validate --source`, and presents the diff to the user for confirmation.
+The architecture agent SHALL support a propose mode that reads current model files and relevant code, drafts DSL changes using correct LikeC4 DSL syntax (`element <name>` in specification, `metadata { }` blocks for metadata), validates them via `dev-team archi validate` (MCP `archi_validate`), and presents the diff to the user for confirmation.
 
 #### Scenario: Propose a new component
 
@@ -35,16 +35,16 @@ The architecture agent SHALL support a propose mode that reads current model fil
 
 ### Requirement: Validate mode
 
-The architecture agent SHALL support a validate mode that runs `archi-validate.py` on staged or specified files, and explains violations in plain language with suggested fixes.
+The architecture agent SHALL support a validate mode that runs `dev-team archi check` on staged or specified files, and explains violations in plain language with suggested fixes.
 
 #### Scenario: Validate staged files
 
 - **WHEN** the user asks to validate architecture
-- **THEN** the agent SHALL run `archi-validate.py --project-root . --staged` and interpret the results
+- **THEN** the agent SHALL run `dev-team archi check --staged` and interpret the results
 
 #### Scenario: Explain violations
 
-- **WHEN** `archi-validate.py` reports an `unmodeled_dependency` violation
+- **WHEN** `dev-team archi check` reports an `unmodeled_dependency` violation
 - **THEN** the agent SHALL explain which elements are involved, which import triggered the violation, and suggest either adding a relationship or updating `metadata.path`
 
 ### Requirement: Decide mode
