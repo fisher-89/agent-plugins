@@ -18,7 +18,7 @@ import { afterEach, beforeAll, describe, expect, it } from 'vite-plus/test';
 // 路径
 // ---------------------------------------------------------------------------
 
-const binDir = fileURLToPath(new URL('../../', import.meta.url));;
+const binDir = fileURLToPath(new URL('../../', import.meta.url));
 const projectRoot = path.resolve(binDir, '../../../');
 const cliPath = path.join(binDir, 'dev-team-cli.cjs');
 const mcpPath = path.join(binDir, 'dev-team-mcp.cjs');

@@ -39,7 +39,7 @@ function generateTempConfig(
     reporters: ['json'],
     jsonReporter: {
       fileName: 'reports/mutation/mutation.json',
-    }
+    },
   };
 
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');

@@ -266,19 +266,22 @@ function runMutationPhase(
     console.log(
       `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absoluteDirectory})...`,
     );
-    runCommand(strykerCmd, absoluteDirectory, 600000);
+    const strykerStart = Date.now();
+    const cmdResult = runCommand(strykerCmd, absoluteDirectory, 1200000);
+    const strykerDuration = (Date.now() - strykerStart) / 1000;
+    logCommandFailure(cmdResult, strykerDuration);
 
     const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory, sourceFiles);
 
     cleanupMutationArtifacts(absoluteDirectory, configPath, tempDirPath);
 
     if (!mutationBlock) {
-      console.log('  Mutation report not found or invalid — skipping mutation result');
+      logMissingReport(cmdResult);
       return null;
     }
 
     console.log(
-      `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%)`,
+      `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%, took ${strykerDuration.toFixed(1)}s)`,
     );
 
     return mutationBlock;
@@ -370,6 +373,34 @@ function extractMutationMeasured(report: MutationReport): MutationMeasured {
     detected: report.detected,
     undetected: report.undetected,
   };
+}
+
+/**
+ * Log diagnostic info when a mutation command exits with non-zero code.
+ */
+function logCommandFailure(
+  result: { exitCode: number; stderr: string; execError?: string },
+  durationS: number,
+): void {
+  if (result.exitCode === 0) return;
+  console.log(`  StrykerJS exited with code ${result.exitCode} (took ${durationS.toFixed(1)}s)`);
+  if (result.stderr) {
+    console.log(`  StrykerJS stderr: ${result.stderr.slice(0, 500)}`);
+  }
+  if (result.execError) {
+    console.log(`  StrykerJS error: ${result.execError}`);
+  }
+}
+
+/**
+ * Log a message when the mutation report is missing.
+ * Only emits when the command appeared to succeed (exitCode 0),
+ * otherwise the failure was already logged by logCommandFailure.
+ */
+function logMissingReport(result: { exitCode: number }): void {
+  if (result.exitCode === 0) {
+    console.log('  Mutation report not found or invalid — skipping mutation result');
+  }
 }
 
 function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]): string {
