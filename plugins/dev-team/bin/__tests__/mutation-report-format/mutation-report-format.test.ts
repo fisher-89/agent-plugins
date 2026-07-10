@@ -73,23 +73,6 @@ describe('mutation 报告格式 -- 子报告', () => {
               detected: 11,
               undetected: 1,
             },
-            by_framework: {
-              vitest: {
-                score: 85.5,
-                measured: {
-                  killed: 10,
-                  survived: 1,
-                  timeout: 1,
-                  noCoverage: 0,
-                  compileError: 0,
-                  runtimeError: 0,
-                  ignored: 0,
-                  total: 12,
-                  detected: 11,
-                  undetected: 1,
-                },
-              },
-            },
           },
         }),
         dir.root,
@@ -101,9 +84,6 @@ describe('mutation 报告格式 -- 子报告', () => {
       expect(typeof sub.mutation!.score).toBe('number');
       expect(typeof sub.mutation!.threshold).toBe('number');
       expect(sub.mutation!.measured).toBeDefined();
-      expect(sub.mutation!.by_framework).toBeDefined();
-      expect(sub.mutation!.by_framework.vitest).toBeDefined();
-      expect(sub.mutation!.by_framework.vitest.score).toBe(85.5);
     } finally {
       dir.cleanup();
     }
@@ -137,23 +117,6 @@ describe('mutation 报告格式 -- 汇总报告', () => {
               detected: 11,
               undetected: 1,
             },
-            by_framework: {
-              vitest: {
-                score: 85.5,
-                measured: {
-                  killed: 10,
-                  survived: 1,
-                  timeout: 1,
-                  noCoverage: 0,
-                  compileError: 0,
-                  runtimeError: 0,
-                  ignored: 0,
-                  total: 12,
-                  detected: 11,
-                  undetected: 1,
-                },
-              },
-            },
           },
         }),
         dir.root,
@@ -170,7 +133,6 @@ describe('mutation 报告格式 -- 汇总报告', () => {
       expect(typeof summary.mutation!.score).toBe('number');
       expect(typeof summary.mutation!.threshold).toBe('number');
       expect(summary.mutation!.measured).toBeDefined();
-      expect(summary.mutation!.by_framework).toBeDefined();
     } finally {
       dir.cleanup();
     }
@@ -203,23 +165,6 @@ describe('mutation 报告格式 -- 得分低于阈值', () => {
               total: 10,
               detected: 5,
               undetected: 5,
-            },
-            by_framework: {
-              vitest: {
-                score: 50,
-                measured: {
-                  killed: 5,
-                  survived: 5,
-                  timeout: 0,
-                  noCoverage: 0,
-                  compileError: 0,
-                  runtimeError: 0,
-                  ignored: 0,
-                  total: 10,
-                  detected: 5,
-                  undetected: 5,
-                },
-              },
             },
           },
         }),

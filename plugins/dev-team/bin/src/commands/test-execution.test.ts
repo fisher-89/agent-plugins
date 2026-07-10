@@ -28,16 +28,21 @@ import type {
 } from '../schemas/test-execution-output.schema';
 import { runTestExecution } from './test-execution';
 
-function sfe(file: string, overrides: Partial<SourceFileEntry> = {}): SourceFileEntry {
+function sfe(file: string, overrides: Partial<SourceFileEntry['coverage']> = {}): SourceFileEntry {
   return {
     file,
-    total_lines: null,
-    covered_lines: null,
-    total_branches: null,
-    covered_branches: null,
-    total_functions: null,
-    covered_functions: null,
-    ...overrides,
+    coverage: {
+      lines: null,
+      branches: null,
+      functions: null,
+      total_lines: null,
+      covered_lines: null,
+      total_branches: null,
+      covered_branches: null,
+      total_functions: null,
+      covered_functions: null,
+      ...overrides,
+    },
   };
 }
 
@@ -129,10 +134,9 @@ function makeSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestExe
     exit_code: 0,
     duration_ms: 500,
     summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
-    test_cases: [{ name: 'test1', status: 'passed' }],
+    error_cases: [],
     test_files: ['src/foo.test.ts'],
     source_files: [sfe('src/foo.ts')],
-    file_coverage: null,
     coverage: null,
     mutation: null,
     ...overrides,

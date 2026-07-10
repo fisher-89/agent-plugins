@@ -1,14 +1,5 @@
 /**
  * Tests for lib/test-parser/go-parser -- parses `go test -json` line-delimited JSON.
- *
- * Covers:
- * - Parse line-delimited JSON with Action=pass/fail/skip
- * - Correctly compute total/passed/failed/skipped
- * - Extract test_cases with name/status/duration_ms
- * - Edge: empty input, non-JSON lines, ignored Action types
- * - Boundary: large output, duplicate test names
- *
- * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
 import { describe, it, expect } from 'vite-plus/test';

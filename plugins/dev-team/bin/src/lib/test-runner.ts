@@ -297,12 +297,6 @@ function buildMutationBlockFromReport(entry: TestPlan, rootPath: string): Mutati
     score: mutationReport.score,
     threshold,
     measured: extractMutationMeasured(mutationReport),
-    by_framework: {
-      [entry.framework]: {
-        score: mutationReport.score,
-        measured: extractMutationMeasured(mutationReport),
-      },
-    },
   };
 }
 

@@ -1,17 +1,5 @@
 /**
  * Tests for lib/test-report -- sub-report and summary report generation.
- *
- * Covers:
- * - generateSummaryReport: aggregation, conclusion, problems
- * - generateSummaryReport: coverage weighted average, threshold pass/fail
- * - generateSummaryReport: null dimensions, edge cases
- * - generateSubReport: basic structure, coverage block
- * - generateSubReport: exit_code passthrough, empty test_cases
- * - generateSummaryReport: coverage threshold pass/fail logic
- * - generateSummaryReport: weighted average by source_files.length
- * - Idempotency: same input produces same output
- *
- * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
 import * as fs from 'fs';
@@ -21,6 +9,7 @@ import * as path from 'path';
 import { describe, it, expect } from 'vite-plus/test';
 
 import type {
+  CoverageBlock,
   SourceFileEntry,
   TestExecutionSubReport,
 } from '../schemas/test-execution-output.schema';
@@ -31,16 +20,21 @@ import type { ExecutionResult } from './test-runner';
 // Helpers
 // ===========================================================================
 
-function sfe(file: string, overrides: Partial<SourceFileEntry> = {}): SourceFileEntry {
+function sfe(file: string, overrides: Partial<SourceFileEntry['coverage']> = {}): SourceFileEntry {
   return {
     file,
-    total_lines: null,
-    covered_lines: null,
-    total_branches: null,
-    covered_branches: null,
-    total_functions: null,
-    covered_functions: null,
-    ...overrides,
+    coverage: {
+      lines: null,
+      branches: null,
+      functions: null,
+      total_lines: null,
+      covered_lines: null,
+      total_branches: null,
+      covered_branches: null,
+      total_functions: null,
+      covered_functions: null,
+      ...overrides,
+    },
   };
 }
 
@@ -276,12 +270,6 @@ describe('generateSummaryReport -- coverage', () => {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
           thresholds: { lines: 80, branches: 70, functions: 75 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: [sfe('src/foo.ts'), sfe('src/bar.ts')],
-            },
-          },
         },
       };
 
@@ -324,7 +312,7 @@ describe('generateSubReport', () => {
       expect(report.exit_code).toBe(0);
       expect(report.summary.total).toBe(1);
       expect(report.summary.passed).toBe(1);
-      expect(report.test_cases).toHaveLength(1);
+      expect(report.error_cases).toHaveLength(0);
       expect(report.test_files).toContain('src/foo.test.ts');
       expect(report.source_files.map((s) => s.file)).toContain('src/foo.ts');
     } finally {
@@ -391,7 +379,7 @@ describe('generateSubReport', () => {
     }
   });
 
-  it('0 个 test_cases 时 summary.total=0', () => {
+  it('0 个 testCases 时 summary.total=0', () => {
     const dir = createTempDir();
     try {
       const result = makeExecutionResult({
@@ -411,7 +399,7 @@ describe('generateSubReport', () => {
       expect(report.summary.passed).toBe(0);
       expect(report.summary.failed).toBe(0);
       expect(report.summary.skipped).toBe(0);
-      expect(report.test_cases).toEqual([]);
+      expect(report.error_cases).toEqual([]);
     } finally {
       dir.cleanup();
     }
@@ -440,7 +428,7 @@ describe('generateSubReport', () => {
       );
       expect(report.summary.total).toBe(1001);
       expect(report.summary.passed).toBe(1001);
-      expect(report.test_cases).toHaveLength(1001);
+      expect(report.error_cases).toHaveLength(0);
     } finally {
       dir.cleanup();
     }
@@ -456,10 +444,9 @@ function createSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestE
     exit_code: 0,
     duration_ms: 500,
     summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
-    test_cases: [{ name: 'test1', status: 'passed' }],
+    error_cases: [],
     test_files: ['src/foo.test.ts'],
     source_files: [sfe('src/foo.ts')],
-    file_coverage: null,
     coverage: null,
     mutation: null,
     ...overrides,
@@ -479,12 +466,6 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
         },
       });
 
@@ -508,12 +489,6 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           pass: false,
           measured: { lines: 70, branches: 85, functions: 95 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 70, branches: 85, functions: 95 },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
         },
       });
 
@@ -537,12 +512,6 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           pass: true,
           measured: { lines: 90, branches: null, functions: null },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: null, functions: null },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
         },
       });
 
@@ -566,12 +535,6 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           pass: true,
           measured: { lines: null, branches: null, functions: null },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: null, branches: null, functions: null },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
         },
       });
 
@@ -595,12 +558,6 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           pass: true,
           measured: { lines: 80, branches: 80, functions: 80 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 80, branches: 80, functions: 80 },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
         },
       });
 
@@ -624,14 +581,8 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
         coverage: {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
-          // @ts-expect-error - intentionally omitting thresholds to test robustness
-          thresholds: undefined,
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
+          // eslint-disable-next-line typescript/no-unsafe-type-assertion
+          thresholds: undefined as unknown as CoverageBlock['thresholds'],
         },
       });
 
@@ -675,21 +626,6 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: [
-                sfe('src/foo.ts', {
-                  total_lines: 100,
-                  covered_lines: 90,
-                  total_branches: 100,
-                  covered_branches: 85,
-                  total_functions: 20,
-                  covered_functions: 19,
-                }),
-              ],
-            },
-          },
         },
       });
       const sub2 = createSubReport({
@@ -708,21 +644,6 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           pass: true,
           measured: { lines: 80, branches: 75, functions: 85 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            'vite-plus': {
-              measured: { lines: 80, branches: 75, functions: 85 },
-              source_files: [
-                sfe('src/bar.ts', {
-                  total_lines: 200,
-                  covered_lines: 160,
-                  total_branches: 200,
-                  covered_branches: 150,
-                  total_functions: 40,
-                  covered_functions: 34,
-                }),
-              ],
-            },
-          },
         },
       });
 
@@ -752,12 +673,6 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           pass: true,
           measured: { lines: 90, branches: null, functions: 95 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: null, functions: 95 },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
         },
       });
 
@@ -782,12 +697,6 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           pass: true,
           measured: { lines: null, branches: null, functions: null },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: null, branches: null, functions: null },
-              source_files: [sfe('src/foo.ts')],
-            },
-          },
         },
       });
 
@@ -816,15 +725,6 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: [
-                sfe('src/foo.ts', { total_lines: 100, covered_lines: 90 }),
-                sfe('src/bar.ts', { total_lines: 100, covered_lines: 90 }),
-              ],
-            },
-          },
         },
       });
       const sub2 = createSubReport({
@@ -837,15 +737,6 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           pass: true,
           measured: { lines: 80, branches: 75, functions: 85 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            'vite-plus': {
-              measured: { lines: 80, branches: 75, functions: 85 },
-              source_files: [
-                sfe('src/baz.ts', { total_lines: 200, covered_lines: 160 }),
-                sfe('src/qux.ts', { total_lines: 200, covered_lines: 160 }),
-              ],
-            },
-          },
         },
       });
 
@@ -872,12 +763,6 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
           thresholds: { lines: 80, branches: 80, functions: 80 },
-          by_framework: {
-            vitest: {
-              measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: [],
-            },
-          },
         },
       });
 
@@ -905,7 +790,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
     try {
       const subReport = createSubReport({
         summary: { total: 2, passed: 0, failed: 2, skipped: 0 },
-        test_cases: [
+        error_cases: [
           { name: 't1', status: 'failed', errorMessage: 'Error 1' },
           { name: 't2', status: 'failed', errorMessage: 'Error 2' },
         ],
@@ -1013,7 +898,7 @@ describe('generateSubReport -- 幂等性', () => {
       expect(first.framework).toBe(second.framework);
       expect(first.summary.total).toBe(second.summary.total);
       expect(first.summary.passed).toBe(second.summary.passed);
-      expect(first.test_cases).toEqual(second.test_cases);
+      expect(first.error_cases).toEqual(second.error_cases);
       expect(first.test_files).toEqual(second.test_files);
       expect(first.source_files).toEqual(second.source_files);
     } finally {
@@ -1048,23 +933,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
               total: 12,
               detected: 11,
               undetected: 1,
-            },
-            by_framework: {
-              vitest: {
-                score: 85.5,
-                measured: {
-                  killed: 10,
-                  survived: 1,
-                  timeout: 1,
-                  noCoverage: 0,
-                  compileError: 0,
-                  runtimeError: 0,
-                  ignored: 0,
-                  total: 12,
-                  detected: 11,
-                  undetected: 1,
-                },
-              },
             },
           },
         }),
@@ -1105,23 +973,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
               detected: 10,
               undetected: 0,
             },
-            by_framework: {
-              vitest: {
-                score: 80,
-                measured: {
-                  killed: 10,
-                  survived: 0,
-                  timeout: 0,
-                  noCoverage: 0,
-                  compileError: 0,
-                  runtimeError: 0,
-                  ignored: 0,
-                  total: 10,
-                  detected: 10,
-                  undetected: 0,
-                },
-              },
-            },
           },
         }),
         dir.root,
@@ -1157,23 +1008,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
               total: 10,
               detected: 7,
               undetected: 3,
-            },
-            by_framework: {
-              vitest: {
-                score: 70,
-                measured: {
-                  killed: 7,
-                  survived: 3,
-                  timeout: 0,
-                  noCoverage: 0,
-                  compileError: 0,
-                  runtimeError: 0,
-                  ignored: 0,
-                  total: 10,
-                  detected: 7,
-                  undetected: 3,
-                },
-              },
             },
           },
         }),
@@ -1246,23 +1080,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
               detected: 5,
               undetected: 5,
             },
-            by_framework: {
-              vitest: {
-                score: 50,
-                measured: {
-                  killed: 5,
-                  survived: 5,
-                  timeout: 0,
-                  noCoverage: 0,
-                  compileError: 0,
-                  runtimeError: 0,
-                  ignored: 0,
-                  total: 10,
-                  detected: 5,
-                  undetected: 5,
-                },
-              },
-            },
           },
         }),
         dir.root,
@@ -1300,23 +1117,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
             total: 10,
             detected: 8,
             undetected: 2,
-          },
-          by_framework: {
-            vitest: {
-              score: 80,
-              measured: {
-                killed: 8,
-                survived: 2,
-                timeout: 0,
-                noCoverage: 0,
-                compileError: 0,
-                runtimeError: 0,
-                ignored: 0,
-                total: 10,
-                detected: 8,
-                undetected: 2,
-              },
-            },
           },
         },
       });
@@ -1391,23 +1191,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
             detected: 8,
             undetected: 2,
           },
-          by_framework: {
-            vitest: {
-              score: 85,
-              measured: {
-                killed: 8,
-                survived: 2,
-                timeout: 0,
-                noCoverage: 0,
-                compileError: 0,
-                runtimeError: 0,
-                ignored: 0,
-                total: 10,
-                detected: 8,
-                undetected: 2,
-              },
-            },
-          },
         },
       });
 
@@ -1455,23 +1238,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
             detected: 9,
             undetected: 1,
           },
-          by_framework: {
-            vitest: {
-              score: 90,
-              measured: {
-                killed: 9,
-                survived: 1,
-                timeout: 0,
-                noCoverage: 0,
-                compileError: 0,
-                runtimeError: 0,
-                ignored: 0,
-                total: 10,
-                detected: 9,
-                undetected: 1,
-              },
-            },
-          },
         },
       });
       const sub2 = createSubReport({
@@ -1492,23 +1258,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
             total: 10,
             detected: 6,
             undetected: 4,
-          },
-          by_framework: {
-            jest: {
-              score: 60,
-              measured: {
-                killed: 6,
-                survived: 4,
-                timeout: 0,
-                noCoverage: 0,
-                compileError: 0,
-                runtimeError: 0,
-                ignored: 0,
-                total: 10,
-                detected: 6,
-                undetected: 4,
-              },
-            },
           },
         },
       });
@@ -1569,23 +1318,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
             detected: 8,
             undetected: 2,
           },
-          by_framework: {
-            vitest: {
-              score: 85,
-              measured: {
-                killed: 8,
-                survived: 2,
-                timeout: 0,
-                noCoverage: 0,
-                compileError: 0,
-                runtimeError: 0,
-                ignored: 0,
-                total: 10,
-                detected: 8,
-                undetected: 2,
-              },
-            },
-          },
         },
       });
 
@@ -1628,23 +1360,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
             detected: 9,
             undetected: 1,
           },
-          by_framework: {
-            vitest: {
-              score: 90,
-              measured: {
-                killed: 9,
-                survived: 1,
-                timeout: 0,
-                noCoverage: 0,
-                compileError: 0,
-                runtimeError: 0,
-                ignored: 0,
-                total: 10,
-                detected: 9,
-                undetected: 1,
-              },
-            },
-          },
         },
       });
       const sub2 = createSubReport({
@@ -1665,23 +1380,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
             total: 10,
             detected: 0,
             undetected: 10,
-          },
-          by_framework: {
-            jest: {
-              score: 0,
-              measured: {
-                killed: 0,
-                survived: 10,
-                timeout: 0,
-                noCoverage: 0,
-                compileError: 0,
-                runtimeError: 0,
-                ignored: 0,
-                total: 10,
-                detected: 0,
-                undetected: 10,
-              },
-            },
           },
         },
       });

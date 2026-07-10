@@ -8,20 +8,6 @@
 import { z } from 'zod/v4';
 
 // ---------------------------------------------------------------------------
-// SourceFileEntrySchema — per-file raw coverage counts
-// ---------------------------------------------------------------------------
-
-const sourceFileEntrySchema = z.object({
-  file: z.string().describe('Source file path (relative to project root)'),
-  total_lines: z.number().int().min(0).nullable().describe('Total executable lines in the file'),
-  covered_lines: z.number().int().min(0).nullable().describe('Covered lines in the file'),
-  total_branches: z.number().int().min(0).nullable().describe('Total branches in the file'),
-  covered_branches: z.number().int().min(0).nullable().describe('Covered branches in the file'),
-  total_functions: z.number().int().min(0).nullable().describe('Total functions in the file'),
-  covered_functions: z.number().int().min(0).nullable().describe('Covered functions in the file'),
-});
-
-// ---------------------------------------------------------------------------
 // TestCaseResultSchema
 // ---------------------------------------------------------------------------
 
@@ -65,13 +51,6 @@ const coverageThresholdsSchema = z.object({
   functions: z.number().min(0).max(100).describe('Function coverage threshold'),
 });
 
-const frameworkCoverageSchema = z.object({
-  measured: coverageMeasuredSchema.describe('Measured coverage per dimension'),
-  source_files: z
-    .array(sourceFileEntrySchema)
-    .describe("Source files contributing to this framework's weight, with per-file raw counts"),
-});
-
 const coverageOverrideSchema = z.object({
   glob: z.string().describe('Glob pattern for files this override applies to'),
   thresholds: coverageThresholdsSchema.describe('Coverage thresholds for this override group'),
@@ -89,13 +68,27 @@ const coverageBlockSchema = z.object({
   pass: z.boolean().describe('Whether coverage meets thresholds'),
   measured: coverageMeasuredSchema.describe('Aggregated measured coverage'),
   thresholds: coverageThresholdsSchema.describe('Coverage thresholds used for pass/fail'),
-  by_framework: z
-    .record(z.string(), frameworkCoverageSchema)
-    .describe('Per-framework coverage breakdown'),
   overrides: z
     .array(coverageOverrideSchema)
     .optional()
     .describe('Per-glob override coverage results'),
+});
+
+// ---------------------------------------------------------------------------
+// SourceFileEntrySchema — per-file raw coverage counts
+// ---------------------------------------------------------------------------
+
+const sourceFileEntrySchema = z.object({
+  file: z.string().describe('Source file path (relative to project root)'),
+  coverage: z.object({
+    ...coverageMeasuredSchema.shape,
+    total_lines: z.number().int().min(0).nullable().describe('Total executable lines in the file'),
+    covered_lines: z.number().int().min(0).nullable().describe('Covered lines in the file'),
+    total_branches: z.number().int().min(0).nullable().describe('Total branches in the file'),
+    covered_branches: z.number().int().min(0).nullable().describe('Covered branches in the file'),
+    total_functions: z.number().int().min(0).nullable().describe('Total functions in the file'),
+    covered_functions: z.number().int().min(0).nullable().describe('Covered functions in the file'),
+  }),
 });
 
 // ---------------------------------------------------------------------------
@@ -117,11 +110,6 @@ const mutationMeasuredSchema = z.object({
     .int()
     .min(0)
     .describe('Number of undetected mutants (survived + noCoverage)'),
-});
-
-const mutationFrameworkBlockSchema = z.object({
-  score: z.number().min(0).max(100).describe('Mutation score for this framework'),
-  measured: mutationMeasuredSchema.describe('Mutation measurements for this framework'),
 });
 
 const mutationOverrideSchema = z.object({
@@ -146,9 +134,6 @@ const mutationBlockSchema = z.object({
   score: z.number().min(0).max(100).describe('Aggregated mutation score'),
   threshold: z.number().min(0).max(100).describe('Mutation score threshold'),
   measured: mutationMeasuredSchema.describe('Aggregated mutation measurements'),
-  by_framework: z
-    .record(z.string(), mutationFrameworkBlockSchema)
-    .describe('Per-framework mutation breakdown'),
   overrides: z
     .array(mutationOverrideSchema)
     .optional()
@@ -183,15 +168,13 @@ const testExecutionSubReportSchema = z.object({
   exit_code: z.number().int().describe('Command exit code'),
   duration_ms: z.number().min(0).describe('Execution duration in milliseconds'),
   summary: summarySchema.describe('Test case summary counts'),
-  test_cases: z.array(testCaseResultSchema).describe('List of individual test case results'),
+  error_cases: z
+    .array(testCaseResultSchema)
+    .describe('List of test case results which is failed or timeout'),
   test_files: z.array(z.string()).describe('Test file paths involved'),
   source_files: z
     .array(sourceFileEntrySchema)
     .describe('Source files with per-file raw coverage counts'),
-  file_coverage: z
-    .array(fileCoverageEntrySchema)
-    .nullable()
-    .describe('Per-file coverage data (null when framework does not support file-level coverage)'),
   coverage: coverageBlockSchema
     .nullable()
     .describe('Coverage conclusion (null when coverage collection failed)'),
