@@ -112,6 +112,7 @@ function getChangedFiles(
         cwd: projectRoot,
         encoding: 'utf-8',
         timeout: 10000,
+        stdio: 'pipe',
       });
       return result
         .split('\n')

@@ -339,6 +339,7 @@ function resolveEffectiveModules(
         cwd: projectRoot,
         encoding: 'utf-8',
         timeout: 10000,
+        stdio: 'pipe',
       });
       effectiveModules = stdout
         .split('\n')

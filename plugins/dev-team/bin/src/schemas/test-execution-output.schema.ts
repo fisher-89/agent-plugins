@@ -8,6 +8,20 @@
 import { z } from 'zod/v4';
 
 // ---------------------------------------------------------------------------
+// SourceFileEntrySchema — per-file raw coverage counts
+// ---------------------------------------------------------------------------
+
+const sourceFileEntrySchema = z.object({
+  file: z.string().describe('Source file path (relative to project root)'),
+  total_lines: z.number().int().min(0).nullable().describe('Total executable lines in the file'),
+  covered_lines: z.number().int().min(0).nullable().describe('Covered lines in the file'),
+  total_branches: z.number().int().min(0).nullable().describe('Total branches in the file'),
+  covered_branches: z.number().int().min(0).nullable().describe('Covered branches in the file'),
+  total_functions: z.number().int().min(0).nullable().describe('Total functions in the file'),
+  covered_functions: z.number().int().min(0).nullable().describe('Covered functions in the file'),
+});
+
+// ---------------------------------------------------------------------------
 // TestCaseResultSchema
 // ---------------------------------------------------------------------------
 
@@ -54,8 +68,8 @@ const coverageThresholdsSchema = z.object({
 const frameworkCoverageSchema = z.object({
   measured: coverageMeasuredSchema.describe('Measured coverage per dimension'),
   source_files: z
-    .array(z.string())
-    .describe("Source files contributing to this framework's weight"),
+    .array(sourceFileEntrySchema)
+    .describe("Source files contributing to this framework's weight, with per-file raw counts"),
 });
 
 const coverageOverrideSchema = z.object({
@@ -108,7 +122,6 @@ const mutationMeasuredSchema = z.object({
 const mutationFrameworkBlockSchema = z.object({
   score: z.number().min(0).max(100).describe('Mutation score for this framework'),
   measured: mutationMeasuredSchema.describe('Mutation measurements for this framework'),
-  source_files: z.array(z.string()).describe('Source files tested by this framework'),
 });
 
 const mutationOverrideSchema = z.object({
@@ -151,6 +164,12 @@ const fileCoverageEntrySchema = z.object({
   lines: z.number().min(0).max(100).describe('Line coverage percentage'),
   branches: z.number().min(0).max(100).nullable().describe('Branch coverage percentage'),
   functions: z.number().min(0).max(100).nullable().describe('Function coverage percentage'),
+  total_lines: z.number().int().min(0).nullable().optional().describe('Total executable lines'),
+  covered_lines: z.number().int().min(0).nullable().optional().describe('Covered lines'),
+  total_branches: z.number().int().min(0).nullable().optional().describe('Total branches'),
+  covered_branches: z.number().int().min(0).nullable().optional().describe('Covered branches'),
+  total_functions: z.number().int().min(0).nullable().optional().describe('Total functions'),
+  covered_functions: z.number().int().min(0).nullable().optional().describe('Covered functions'),
 });
 
 // ---------------------------------------------------------------------------
@@ -159,13 +178,16 @@ const fileCoverageEntrySchema = z.object({
 
 const testExecutionSubReportSchema = z.object({
   framework: z.string().describe('Test framework identifier'),
+  directory: z.string().describe('Plan working directory (relative to project root)'),
   timestamp: z.string().describe('ISO 8601 timestamp of report generation'),
   exit_code: z.number().int().describe('Command exit code'),
   duration_ms: z.number().min(0).describe('Execution duration in milliseconds'),
   summary: summarySchema.describe('Test case summary counts'),
   test_cases: z.array(testCaseResultSchema).describe('List of individual test case results'),
   test_files: z.array(z.string()).describe('Test file paths involved'),
-  source_files: z.array(z.string()).describe('Corresponding source file paths'),
+  source_files: z
+    .array(sourceFileEntrySchema)
+    .describe('Source files with per-file raw coverage counts'),
   file_coverage: z
     .array(fileCoverageEntrySchema)
     .nullable()
@@ -231,6 +253,7 @@ export type CoverageMeasured = z.infer<typeof coverageMeasuredSchema>;
 export type CoverageThresholds = z.infer<typeof coverageThresholdsSchema>;
 export type CoverageOverride = z.infer<typeof coverageOverrideSchema>;
 export type FileCoverageEntry = z.infer<typeof fileCoverageEntrySchema>;
+export type SourceFileEntry = z.infer<typeof sourceFileEntrySchema>;
 export type MutationMeasured = z.infer<typeof mutationMeasuredSchema>;
 export type MutationBlock = z.infer<typeof mutationBlockSchema>;
 export type MutationOverride = z.infer<typeof mutationOverrideSchema>;

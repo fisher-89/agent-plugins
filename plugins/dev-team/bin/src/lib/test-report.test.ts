@@ -20,13 +20,29 @@ import * as path from 'path';
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import type { TestExecutionSubReport } from '../schemas/test-execution-output.schema';
+import type {
+  SourceFileEntry,
+  TestExecutionSubReport,
+} from '../schemas/test-execution-output.schema';
 import { generateSubReport, generateSummaryReport } from './test-report';
 import type { ExecutionResult } from './test-runner';
 
 // ===========================================================================
 // Helpers
 // ===========================================================================
+
+function sfe(file: string, overrides: Partial<SourceFileEntry> = {}): SourceFileEntry {
+  return {
+    file,
+    total_lines: null,
+    covered_lines: null,
+    total_branches: null,
+    covered_branches: null,
+    total_functions: null,
+    covered_functions: null,
+    ...overrides,
+  };
+}
 
 function createTempDir(): { root: string; cleanup: () => void } {
   const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'test-report-'));
@@ -40,8 +56,6 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
   return {
     framework: 'vitest',
     exitCode: 0,
-    stdout: '',
-    stderr: '',
     testCases: [
       { name: 'test1', status: 'passed', durationMs: 100 },
       { name: 'test2', status: 'failed', durationMs: 200, errorMessage: 'Error: fail' },
@@ -76,6 +90,7 @@ describe('generateSummaryReport -- aggregation', () => {
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
 
       const sub2 = generateSubReport(
@@ -88,6 +103,7 @@ describe('generateSummaryReport -- aggregation', () => {
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
 
       const summary = generateSummaryReport(
@@ -117,6 +133,7 @@ describe('generateSummaryReport -- aggregation', () => {
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
 
       const summary = generateSummaryReport(
@@ -142,6 +159,7 @@ describe('generateSummaryReport -- aggregation', () => {
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
 
       const summary = generateSummaryReport(
@@ -168,6 +186,7 @@ describe('generateSummaryReport -- aggregation', () => {
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
 
       const summary = generateSummaryReport(
@@ -214,6 +233,7 @@ describe('generateSummaryReport -- coverage', () => {
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
 
       const summary = generateSummaryReport(
@@ -244,6 +264,7 @@ describe('generateSummaryReport -- coverage', () => {
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
 
       // Need to write coverage report manually since generateSubReport
@@ -258,7 +279,7 @@ describe('generateSummaryReport -- coverage', () => {
           by_framework: {
             vitest: {
               measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: ['src/foo.ts', 'src/bar.ts'],
+              source_files: [sfe('src/foo.ts'), sfe('src/bar.ts')],
             },
           },
         },
@@ -297,6 +318,7 @@ describe('generateSubReport', () => {
         result,
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(report.framework).toBe('vitest');
       expect(report.exit_code).toBe(0);
@@ -304,7 +326,7 @@ describe('generateSubReport', () => {
       expect(report.summary.passed).toBe(1);
       expect(report.test_cases).toHaveLength(1);
       expect(report.test_files).toContain('src/foo.test.ts');
-      expect(report.source_files).toContain('src/foo.ts');
+      expect(report.source_files.map((s) => s.file)).toContain('src/foo.ts');
     } finally {
       dir.cleanup();
     }
@@ -316,7 +338,7 @@ describe('generateSubReport', () => {
       const result = makeExecutionResult();
       const reportsDir = path.join(dir.root, 'reports', 'test-execution');
 
-      generateSubReport('vitest', result, dir.root, reportsDir);
+      generateSubReport('vitest', result, dir.root, reportsDir, '.');
 
       const filePath = path.join(reportsDir, 'vitest.json');
       expect(fs.existsSync(filePath)).toBe(true);
@@ -337,6 +359,7 @@ describe('generateSubReport', () => {
         result,
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(report.coverage).toBeNull();
     } finally {
@@ -359,6 +382,7 @@ describe('generateSubReport', () => {
         result,
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(report.exit_code).toBe(1);
       expect(report.summary.failed).toBe(1);
@@ -381,6 +405,7 @@ describe('generateSubReport', () => {
         result,
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(report.summary.total).toBe(0);
       expect(report.summary.passed).toBe(0);
@@ -411,6 +436,7 @@ describe('generateSubReport', () => {
         result,
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(report.summary.total).toBe(1001);
       expect(report.summary.passed).toBe(1001);
@@ -425,13 +451,14 @@ describe('generateSubReport', () => {
 function createSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestExecutionSubReport {
   return {
     framework: 'vitest',
+    directory: '.',
     timestamp: '2026-07-01T00:00:00.000Z',
     exit_code: 0,
     duration_ms: 500,
     summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
     test_cases: [{ name: 'test1', status: 'passed' }],
     test_files: ['src/foo.test.ts'],
-    source_files: ['src/foo.ts'],
+    source_files: [sfe('src/foo.ts')],
     file_coverage: null,
     coverage: null,
     mutation: null,
@@ -455,7 +482,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           by_framework: {
             vitest: {
               measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -484,7 +511,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           by_framework: {
             vitest: {
               measured: { lines: 70, branches: 85, functions: 95 },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -513,7 +540,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           by_framework: {
             vitest: {
               measured: { lines: 90, branches: null, functions: null },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -542,7 +569,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           by_framework: {
             vitest: {
               measured: { lines: null, branches: null, functions: null },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -571,7 +598,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           by_framework: {
             vitest: {
               measured: { lines: 80, branches: 80, functions: 80 },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -602,7 +629,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
           by_framework: {
             vitest: {
               measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -629,11 +656,21 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
 // ===========================================================================
 
 describe('generateSummaryReport -- coverage weighted average', () => {
-  it('加权平均各维度按 source_files.length 加权', () => {
+  it('加权平均各维度按原始覆盖计数计算真实覆盖率', () => {
     const dir = createTempDir();
     try {
       const sub1 = createSubReport({
         framework: 'vitest',
+        source_files: [
+          sfe('src/foo.ts', {
+            total_lines: 100,
+            covered_lines: 90,
+            total_branches: 100,
+            covered_branches: 85,
+            total_functions: 20,
+            covered_functions: 19,
+          }),
+        ],
         coverage: {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
@@ -641,13 +678,32 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           by_framework: {
             vitest: {
               measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: ['src/foo.ts'],
+              source_files: [
+                sfe('src/foo.ts', {
+                  total_lines: 100,
+                  covered_lines: 90,
+                  total_branches: 100,
+                  covered_branches: 85,
+                  total_functions: 20,
+                  covered_functions: 19,
+                }),
+              ],
             },
           },
         },
       });
       const sub2 = createSubReport({
         framework: 'vite-plus',
+        source_files: [
+          sfe('src/bar.ts', {
+            total_lines: 200,
+            covered_lines: 160,
+            total_branches: 200,
+            covered_branches: 150,
+            total_functions: 40,
+            covered_functions: 34,
+          }),
+        ],
         coverage: {
           pass: true,
           measured: { lines: 80, branches: 75, functions: 85 },
@@ -655,7 +711,16 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           by_framework: {
             'vite-plus': {
               measured: { lines: 80, branches: 75, functions: 85 },
-              source_files: ['src/bar.ts'],
+              source_files: [
+                sfe('src/bar.ts', {
+                  total_lines: 200,
+                  covered_lines: 160,
+                  total_branches: 200,
+                  covered_branches: 150,
+                  total_functions: 40,
+                  covered_functions: 34,
+                }),
+              ],
             },
           },
         },
@@ -667,8 +732,12 @@ describe('generateSummaryReport -- coverage weighted average', () => {
         path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
-      // 加权平均: (90*1 + 80*1) / (1+1) = 85
-      expect(summary.coverage!.measured.lines).toBe(85);
+      // 原始计数: lines=(90+160)/(100+200)=250/300≈83.33
+      expect(summary.coverage!.measured.lines).toBeCloseTo(83.33, 1);
+      // branches=(85+150)/(100+200)=235/300≈78.33
+      expect(summary.coverage!.measured.branches).toBeCloseTo(78.33, 1);
+      // functions=(19+34)/(20+40)=53/60≈88.33
+      expect(summary.coverage!.measured.functions).toBeCloseTo(88.33, 1);
     } finally {
       dir.cleanup();
     }
@@ -686,7 +755,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           by_framework: {
             vitest: {
               measured: { lines: 90, branches: null, functions: 95 },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -716,7 +785,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           by_framework: {
             vitest: {
               measured: { lines: null, branches: null, functions: null },
-              source_files: ['src/foo.ts'],
+              source_files: [sfe('src/foo.ts')],
             },
           },
         },
@@ -734,11 +803,15 @@ describe('generateSummaryReport -- coverage weighted average', () => {
     }
   });
 
-  it('所有框架 source_files 等长时退化为简单平均', () => {
+  it('所有框架 source_files 提供原始计数时按真实覆盖率计算', () => {
     const dir = createTempDir();
     try {
       const sub1 = createSubReport({
         framework: 'vitest',
+        source_files: [
+          sfe('src/foo.ts', { total_lines: 100, covered_lines: 90 }),
+          sfe('src/bar.ts', { total_lines: 100, covered_lines: 90 }),
+        ],
         coverage: {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
@@ -746,13 +819,20 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           by_framework: {
             vitest: {
               measured: { lines: 90, branches: 85, functions: 95 },
-              source_files: ['src/foo.ts', 'src/bar.ts'],
+              source_files: [
+                sfe('src/foo.ts', { total_lines: 100, covered_lines: 90 }),
+                sfe('src/bar.ts', { total_lines: 100, covered_lines: 90 }),
+              ],
             },
           },
         },
       });
       const sub2 = createSubReport({
         framework: 'vite-plus',
+        source_files: [
+          sfe('src/baz.ts', { total_lines: 200, covered_lines: 160 }),
+          sfe('src/qux.ts', { total_lines: 200, covered_lines: 160 }),
+        ],
         coverage: {
           pass: true,
           measured: { lines: 80, branches: 75, functions: 85 },
@@ -760,7 +840,10 @@ describe('generateSummaryReport -- coverage weighted average', () => {
           by_framework: {
             'vite-plus': {
               measured: { lines: 80, branches: 75, functions: 85 },
-              source_files: ['src/baz.ts', 'src/qux.ts'],
+              source_files: [
+                sfe('src/baz.ts', { total_lines: 200, covered_lines: 160 }),
+                sfe('src/qux.ts', { total_lines: 200, covered_lines: 160 }),
+              ],
             },
           },
         },
@@ -772,14 +855,14 @@ describe('generateSummaryReport -- coverage weighted average', () => {
         path.join(dir.root, 'reports', 'test-execution'),
       );
       expect(summary.coverage).not.toBeNull();
-      // 等权平均: (90 + 80) / 2 = 85
-      expect(summary.coverage!.measured.lines).toBe(85);
+      // 真实覆盖率: (90+90+160+160)/(100+100+200+200)=500/600≈83.33
+      expect(summary.coverage!.measured.lines).toBeCloseTo(83.33, 1);
     } finally {
       dir.cleanup();
     }
   });
 
-  it('某框架 source_files 为空数组时不参与加权', () => {
+  it('某框架 source_files 为空数组时不参与覆盖率计算', () => {
     const dir = createTempDir();
     try {
       const sub1 = createSubReport({
@@ -803,10 +886,9 @@ describe('generateSummaryReport -- coverage weighted average', () => {
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
       );
-      // source_files 为空时该框架不参与加权
-      // coverage 仍存在但 measured 各维度为 null（因无有效权重）
+      // source_files 为空时无原始计数可累加，回退到框架 measured 值
       expect(summary.coverage).not.toBeNull();
-      expect(summary.coverage!.measured.lines).toBeNull();
+      expect(summary.coverage!.measured.lines).toBe(90);
     } finally {
       dir.cleanup();
     }
@@ -925,8 +1007,8 @@ describe('generateSubReport -- 幂等性', () => {
       });
       const reportsDir = path.join(dir.root, 'reports', 'test-execution');
 
-      const first = generateSubReport('vitest', result, dir.root, reportsDir);
-      const second = generateSubReport('vitest', result, dir.root, reportsDir);
+      const first = generateSubReport('vitest', result, dir.root, reportsDir, '.');
+      const second = generateSubReport('vitest', result, dir.root, reportsDir, '.');
 
       expect(first.framework).toBe(second.framework);
       expect(first.summary.total).toBe(second.summary.total);
@@ -982,13 +1064,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                   detected: 11,
                   undetected: 1,
                 },
-                source_files: ['src/foo.ts'],
               },
             },
           },
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(sub.mutation).not.toBeNull();
       expect(sub.mutation!.score).toBe(85.5);
@@ -1038,13 +1120,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                   detected: 10,
                   undetected: 0,
                 },
-                source_files: ['src/foo.ts'],
               },
             },
           },
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(sub.mutation!.pass).toBe(true);
       expect(sub.mutation!.score).toBe(80);
@@ -1091,13 +1173,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                   detected: 7,
                   undetected: 3,
                 },
-                source_files: ['src/foo.ts'],
               },
             },
           },
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(sub.mutation!.pass).toBe(false);
     } finally {
@@ -1113,6 +1195,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         makeExecutionResult({ mutation: null }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       expect(sub.mutation).toBeNull();
     } finally {
@@ -1128,6 +1211,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         makeExecutionResult({ mutation: null }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       const summary = generateSummaryReport(
         [sub1],
@@ -1177,13 +1261,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                   detected: 5,
                   undetected: 5,
                 },
-                source_files: ['src/foo.ts'],
               },
             },
           },
         }),
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       const summary = generateSummaryReport(
         [sub],
@@ -1232,7 +1316,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                 detected: 8,
                 undetected: 2,
               },
-              source_files: ['src/foo.ts'],
             },
           },
         },
@@ -1242,6 +1325,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         execResult,
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
+        '.',
       );
       // Verify mutation data is preserved in sub-report
       expect(sub.mutation).not.toBeNull();
@@ -1290,7 +1374,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
 
       const sub = createSubReport({
         framework: 'vitest',
-        source_files: ['src/core/foo.ts', 'src/utils/bar.ts'],
+        source_files: [sfe('src/core/foo.ts'), sfe('src/utils/bar.ts')],
         mutation: {
           pass: true,
           score: 85,
@@ -1322,7 +1406,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                 detected: 8,
                 undetected: 2,
               },
-              source_files: ['src/core/foo.ts', 'src/utils/bar.ts'],
             },
           },
         },
@@ -1349,13 +1432,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
     }
   });
 
-  it('computeMutationResult 按 source_files 加权平均计算 score', () => {
+  it('computeMutationResult 从原始突变计数计算真实 score', () => {
     const dir = createTempDir();
     try {
-      // 两个框架，不同 source_files 长度
+      // 两个框架，mutant counts 累加后计算真实突变率
       const sub1 = createSubReport({
         framework: 'vitest',
-        source_files: ['src/foo.ts', 'src/bar.ts'], // weight=2
+        source_files: [sfe('src/foo.ts'), sfe('src/bar.ts')],
         mutation: {
           pass: true,
           score: 90,
@@ -1387,14 +1470,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                 detected: 9,
                 undetected: 1,
               },
-              source_files: ['src/foo.ts', 'src/bar.ts'],
             },
           },
         },
       });
       const sub2 = createSubReport({
         framework: 'jest',
-        source_files: ['src/baz.ts'], // weight=1
+        source_files: [sfe('src/baz.ts')],
         mutation: {
           pass: true,
           score: 60,
@@ -1426,7 +1508,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                 detected: 6,
                 undetected: 4,
               },
-              source_files: ['src/baz.ts'],
             },
           },
         },
@@ -1437,9 +1518,10 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
       );
-      // 加权平均: (90*2 + 60*1) / (2+1) = 240/3 = 80
-      expect(summary.mutation!.score).toBeCloseTo(80, 5);
-      // threshold 取最大值: max(80, 80) = 80
+      // 新公式: (killed+timeout)/(total-ignored-compileError-runtimeError)*100
+      // = (9+0+6+0)/(10+10-0-0-0)*100 = 15/20*100 = 75
+      expect(summary.mutation!.score).toBeCloseTo(75, 5);
+      // threshold: uses first framework's threshold
       expect(summary.mutation!.threshold).toBe(80);
       // aggregated counts
       expect(summary.mutation!.measured.killed).toBe(15); // 9+6
@@ -1470,7 +1552,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
 
       const sub = createSubReport({
         framework: 'vitest',
-        source_files: ['src/core/foo.ts'],
+        source_files: [sfe('src/core/foo.ts')],
         mutation: {
           pass: true,
           score: 85,
@@ -1502,7 +1584,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                 detected: 8,
                 undetected: 2,
               },
-              source_files: ['src/core/foo.ts'],
             },
           },
         },
@@ -1525,12 +1606,12 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
     }
   });
 
-  it('多框架加权平均正确计算，某框架 source_files 为空时不参与加权', () => {
+  it('多框架时从原始突变计数计算真实 score，source_files 为空不影响', () => {
     const dir = createTempDir();
     try {
       const sub1 = createSubReport({
         framework: 'vitest',
-        source_files: ['src/foo.ts'], // weight=1
+        source_files: [sfe('src/foo.ts')],
         mutation: {
           pass: true,
           score: 90,
@@ -1562,14 +1643,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                 detected: 9,
                 undetected: 1,
               },
-              source_files: ['src/foo.ts'],
             },
           },
         },
       });
       const sub2 = createSubReport({
         framework: 'jest',
-        source_files: [], // weight=0 — 不应参与加权
+        source_files: [],
         mutation: {
           pass: true,
           score: 0,
@@ -1601,7 +1681,6 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
                 detected: 0,
                 undetected: 10,
               },
-              source_files: [],
             },
           },
         },
@@ -1612,10 +1691,10 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
       );
-      // source_files 为空的框架不参与加权，因此只有 vitest 的 90 分
-      // 加权平均 = 90
-      expect(summary.mutation!.score).toBeCloseTo(90, 5);
-      // 但 killed/total 是求和，不受 source_files 影响
+      // 新公式从原始计数计算: (9+0)/(10+10)*100 = 45
+      // 不再按 source_files 数量加权
+      expect(summary.mutation!.score).toBeCloseTo(45, 5);
+      // killed/total 是求和
       expect(summary.mutation!.measured.killed).toBe(9);
       expect(summary.mutation!.measured.total).toBe(20);
     } finally {

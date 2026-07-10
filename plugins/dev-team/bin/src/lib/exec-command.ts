@@ -4,5 +4,6 @@ export function execCommand(command: string, options: SpawnSyncOptions): SpawnSy
   return spawnSync(command, {
     ...options,
     encoding: 'utf-8',
+    stdio: 'pipe',
   });
 }

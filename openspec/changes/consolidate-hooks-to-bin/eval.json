@@ -175,7 +175,8 @@
     ],
     "backtrack_to": null,
     "backtrack_reason": null,
-    "timestamp": "2026-07-07T01:52:35.681Z"
+    "timestamp": "2026-07-07T01:52:35.681Z",
+    "stale": true
   },
   {
     "phase": "implement",
@@ -277,7 +278,8 @@
     ],
     "backtrack_to": null,
     "backtrack_reason": null,
-    "timestamp": "2026-07-07T02:28:58.130Z"
+    "timestamp": "2026-07-07T02:28:58.130Z",
+    "stale": true
   },
   {
     "phase": "test-gen",
@@ -333,7 +335,8 @@
     ],
     "backtrack_to": null,
     "backtrack_reason": null,
-    "timestamp": "2026-07-07T02:44:12.820Z"
+    "timestamp": "2026-07-07T02:44:12.820Z",
+    "stale": true
   },
   {
     "phase": "test-gen",
@@ -389,6 +392,39 @@
     ],
     "backtrack_to": null,
     "backtrack_reason": null,
-    "timestamp": "2026-07-07T02:56:35.314Z"
+    "timestamp": "2026-07-07T02:56:35.314Z",
+    "stale": true
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "覆盖率不达标: lines=79.03% (阈值 80%), branches=68.84% (阈值 70%). functions=82.77% (阈值 75%, 达标). Override plugins/dev-team/bin: 通过. 覆盖率不达标，需返回 test-design 阶段分析报告、扩展测试场景或补充存量用例",
+    "checklist": [
+      {
+        "item": "T1: 执行报告结构完整",
+        "pass": true,
+        "evidence": "报告有 phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 等必需字段，类型正确。test_cases 字段缺失但 failed=0 无实质性影响"
+      },
+      {
+        "item": "T2: 所有测试通过",
+        "pass": true,
+        "evidence": "passed=864, failed=0, total=864 > 0，所有测试通过"
+      },
+      {
+        "item": "T3: 覆盖率达标",
+        "pass": false,
+        "evidence": "coverage.pass=false: lines=79.03% < 80%阈值, branches=68.84% < 70%阈值. functions=82.77% >= 75%阈值 达标. Override plugins/dev-team/bin: 通过 (lines=81.14%>=80%, branches=76.97%>=70%, functions=83.73%>=75%)"
+      },
+      {
+        "item": "T4: 失败诊断根因明确",
+        "pass": true,
+        "evidence": "无测试失败 (failed=0)，无需诊断决策树"
+      }
+    ],
+    "backtrack_to": "test-design",
+    "backtrack_reason": "覆盖率不达标: lines=79.03% (阈值 80%, 差 0.97pp), branches=68.84% (阈值 70%, 差 1.16pp). 需返回 test-design 阶段分析覆盖率报告、扩展测试场景或补充存量用例",
+    "timestamp": "2026-07-09T01:19:32.964Z",
+    "stale": true
   }
 ]

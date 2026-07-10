@@ -101,7 +101,7 @@ function isLlvmCovData(data: unknown): data is LlvmCovData {
 interface CoveragePyData {
   totals?: {
     percent_covered?: number;
-    percent_covered_branches?: number;
+    percent_branches_covered?: number;
   };
 }
 
@@ -125,13 +125,26 @@ function parseIstanbul(content: string): ParsedCoverage | null {
   for (const [file, metrics] of Object.entries(data)) {
     if (file === 'total') continue;
     const m = metrics as Record<string, unknown>;
-    const lines = m.lines as { pct: number } | undefined;
+    const lines = m.lines as { total: number; covered: number; pct: number } | undefined;
     if (!lines || typeof lines.pct !== 'number') continue;
+
+    const branches = m.branches as { total: number; covered: number; pct: number } | undefined;
+    const functions = m.functions as { total: number; covered: number; pct: number } | undefined;
+
     fileCoverage.push({
       file,
+      // Percentages
       lines: lines.pct,
-      branches: (m.branches as { pct: number } | undefined)?.pct ?? null,
-      functions: (m.functions as { pct: number } | undefined)?.pct ?? null,
+      branches: branches?.pct ?? null,
+      functions: functions?.pct ?? null,
+      // Raw counts
+      total_lines: typeof lines.total === 'number' ? lines.total : 0,
+      covered_lines: typeof lines.covered === 'number' ? lines.covered : 0,
+      total_branches: branches && typeof branches.total === 'number' ? branches.total : null,
+      covered_branches: branches && typeof branches.covered === 'number' ? branches.covered : null,
+      total_functions: functions && typeof functions.total === 'number' ? functions.total : null,
+      covered_functions:
+        functions && typeof functions.covered === 'number' ? functions.covered : null,
     });
   }
 
@@ -235,7 +248,7 @@ function parseCoveragePy(content: string): ParsedCoverage | null {
 
   return {
     lines: data.totals.percent_covered ?? 0,
-    branches: data.totals.percent_covered_branches ?? null,
+    branches: data.totals.percent_branches_covered ?? null,
     functions: null,
     fileCoverage: null,
   };

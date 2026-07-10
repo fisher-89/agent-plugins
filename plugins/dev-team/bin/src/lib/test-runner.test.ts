@@ -287,37 +287,51 @@ describe('executePlanEntry -- empty test command', () => {
 // executePlanEntry -- chained command
 // ===========================================================================
 
+// ---------------------------------------------------------------------------
+// Helper: write a test file into a temp project directory
+// ---------------------------------------------------------------------------
+
+function setUpPythonProject(tmpDir: string, testFile: string, testContent: string): void {
+  fs.writeFileSync(path.join(tmpDir, testFile), testContent, 'utf-8');
+}
+
 describe('executePlanEntry -- chained command (AC-10)', () => {
   beforeEach(() => {
     mockExecSync.mockReset();
   });
 
-  it('pytest 链式命令：测试命令先执行，覆盖率命令后执行', () => {
-    // 链式命令整体被 execSync 执行一次
-    mockExecSync.mockReturnValue('collected 1 item\ntest_foo.py .');
+  it('pytest 链式命令：测试命令先执行，覆盖率命令后执行', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pytest-chain-'));
+    try {
+      setUpPythonProject(tmpDir, 'test_add.py', 'def test_add():\n    assert 1 + 1 == 2\n');
 
-    const entry = {
-      directory: '.',
-      framework: 'pytest',
-      test_cmd: '',
-      coverage_format: 'coverage-py' as const,
-      coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
-    };
+      // oxlint-disable-next-line no-unsafe-type-assertion
+      const actualModule = (await vi.importActual('child_process')) as {
+        execSync: (...args: unknown[]) => unknown;
+      };
+      mockExecSync.mockImplementationOnce(actualModule.execSync);
 
-    const result = executePlanEntry(entry, '/project');
-    expect(result.exitCode).toBe(0);
+      const entry = {
+        directory: '.',
+        framework: 'pytest',
+        test_cmd: '',
+        coverage_format: 'coverage-py' as const,
+        coverage_output: 'coverage.json',
+        coverage_artifacts: ['coverage.json'],
+        coverage_cleanup: ['.coverage', 'htmlcov'],
+        script:
+          'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+      };
 
-    // 验证 execSync 被调用且命令包含链式模式
-    expect(mockExecSync).toHaveBeenCalledTimes(1);
-    const calledCmd = String(mockExecSync.mock.calls[0][0]);
-    expect(calledCmd).toContain('; _X=$?;');
-    expect(calledCmd).toContain('exit $_X');
-    expect(calledCmd).toContain('pytest -v');
-    expect(calledCmd).toContain('pytest --cov=');
+      const result = executePlanEntry(entry, tmpDir, { files: ['test_add.py'] });
+      // 链式命令：测试先执行（获取 exitCode），覆盖率后执行（生成 coverage.json）
+      expect(result.exitCode).toBe(0);
+      expect(result.testCases.length).toBeGreaterThanOrEqual(1);
+      expect(result.coverage).not.toBeNull();
+      expect(result.coverage!.lines).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('rust 链式命令：测试命令先执行，覆盖率命令后执行', () => {
@@ -346,32 +360,40 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     expect(calledCmd).toContain('cargo llvm-cov');
   });
 
-  it('链式命令退出码反映测试命令的退出码（exit $_X）', () => {
-    // 模拟测试失败，退出码 1
-    mockExecSync.mockImplementation(() => {
-      throw createExecError('Command failed: pytest -v failed', {
-        status: 1,
-        stdout: 'collected 1 item\ntest_foo.py FAILED',
-        stderr: '',
-      });
-    });
+  it('链式命令退出码反映测试命令的退出码（exit $_X）', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pytest-exitcode-'));
+    try {
+      // 包含一个失败测试，确保 exit $_X 传递退出码 1
+      setUpPythonProject(
+        tmpDir,
+        'test_mixed.py',
+        'def test_pass():\n    assert True\n\n\ndef test_fail():\n    assert False  # 故意失败\n',
+      );
 
-    const entry = {
-      directory: '.',
-      framework: 'pytest',
-      test_cmd: '',
-      coverage_format: 'coverage-py' as const,
-      coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
-    };
+      // oxlint-disable-next-line no-unsafe-type-assertion
+      const actualModule = (await vi.importActual('child_process')) as {
+        execSync: (...args: unknown[]) => unknown;
+      };
+      mockExecSync.mockImplementationOnce(actualModule.execSync);
 
-    const result = executePlanEntry(entry, '/project');
-    // execSync 抛出异常，退出码由异常中的 status 决定
-    expect(result.exitCode).toBe(1);
-    expect(result.error).toContain('Command failed');
+      const entry = {
+        directory: '.',
+        framework: 'pytest',
+        test_cmd: '',
+        coverage_format: 'coverage-py' as const,
+        coverage_output: 'coverage.json',
+        coverage_artifacts: ['coverage.json'],
+        coverage_cleanup: ['.coverage', 'htmlcov'],
+        script:
+          'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+      };
+
+      const result = executePlanEntry(entry, tmpDir, { files: ['test_mixed.py'] });
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toContain('Command failed');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('链式命令中覆盖率从文件读取（coverage.json / coverage/coverage-summary.json）而非 stdout', () => {
@@ -397,34 +419,44 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     expect(result.coverage).toBeNull();
   });
 
-  it('链式命令中测试命令失败时覆盖率命令仍执行（; _X=$?; 而非 &&）', () => {
-    // 验证命令使用分号连接而非 &&
-    const pytestCmd =
-      'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X';
-    expect(pytestCmd).toContain('; _X=$?;');
-    expect(pytestCmd).not.toContain('&& _X=$?');
+  it('链式命令中测试命令失败时覆盖率命令仍执行（; _X=$?; 而非 &&）', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pytest-fail-cov-'));
+    try {
+      // 创建被测模块和含失败测试的用例
+      fs.writeFileSync(path.join(tmpDir, 'calc.py'), 'def add(a, b):\n    return a + b\n', 'utf-8');
+      setUpPythonProject(
+        tmpDir,
+        'test_calc.py',
+        'from calc import add\n\n\ndef test_pass():\n    assert add(1, 2) == 3\n\n\ndef test_fail():\n    assert False  # 故意失败\n',
+      );
 
-    // 模拟测试失败
-    mockExecSync.mockImplementation(() => {
-      throw createExecError('Command failed', { status: 1, stdout: 'FAILED', stderr: '' });
-    });
+      // oxlint-disable-next-line no-unsafe-type-assertion
+      const actualModule = (await vi.importActual('child_process')) as {
+        execSync: (...args: unknown[]) => unknown;
+      };
+      mockExecSync.mockImplementationOnce(actualModule.execSync);
 
-    const entry = {
-      directory: '.',
-      framework: 'pytest',
-      test_cmd: '',
-      coverage_format: 'coverage-py' as const,
-      coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: pytestCmd,
-    };
+      const entry = {
+        directory: '.',
+        framework: 'pytest',
+        test_cmd: '',
+        coverage_format: 'coverage-py' as const,
+        coverage_output: 'coverage.json',
+        coverage_artifacts: ['coverage.json'],
+        coverage_cleanup: ['.coverage', 'htmlcov'],
+        script:
+          'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+      };
 
-    const result = executePlanEntry(entry, '/project');
-    // 即使测试失败，execSync 仍被调用（因为整个链式命令是一条 shell 命令）
-    expect(mockExecSync).toHaveBeenCalledTimes(1);
-    // 退出码反映测试失败
-    expect(result.exitCode).toBe(1);
+      const result = executePlanEntry(entry, tmpDir, { files: ['test_calc.py'] });
+      // 测试失败 → 退出码非零
+      expect(result.exitCode).toBe(1);
+      // ; _X=$? 语义：覆盖率命令仍然执行，coverage.json 在磁盘上
+      expect(result.coverage).not.toBeNull();
+      expect(result.coverage!.lines).toBeGreaterThan(0);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 
   it('链式命令中测试命令失败，最终退出码为测试退出码', () => {
@@ -469,28 +501,50 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     expect(result.exitCode).toBe(0);
   });
 
-  it('链式命令 stdout 包含测试输出和覆盖率命令输出，解析器只关心测试输出', () => {
-    mockExecSync.mockReturnValue(
-      'collected 1 item\ntest_foo.py .\n---------- coverage: ----------\nName    Stmts   Miss  Cover\nfoo.py      10      0   100%',
-    );
+  it('链式命令 stdout 包含测试输出和覆盖率命令输出，解析器只关心测试输出', async () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'pytest-real-'));
+    try {
+      // 创建真实的 Python 测试项目（含分支覆盖）
+      fs.writeFileSync(
+        path.join(tmpDir, 'calc.py'),
+        'def classify(n):\n    if n > 0:\n        return "positive"\n    else:\n        return "non-positive"\n',
+        'utf-8',
+      );
+      fs.writeFileSync(
+        path.join(tmpDir, 'test_calc.py'),
+        'from calc import classify\n\n\ndef test_positive():\n    assert classify(5) == "positive"\n\n\ndef test_non_positive():\n    assert classify(-1) == "non-positive"\n',
+        'utf-8',
+      );
 
-    const entry = {
-      directory: '.',
-      framework: 'pytest',
-      test_cmd: '',
-      coverage_format: 'coverage-py' as const,
-      coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
-    };
+      // 使用真实的 execSync 执行 pytest 链式命令
+      // oxlint-disable-next-line no-unsafe-type-assertion
+      const actualModule = (await vi.importActual('child_process')) as {
+        execSync: (...args: unknown[]) => unknown;
+      };
+      mockExecSync.mockImplementationOnce(actualModule.execSync);
 
-    const result = executePlanEntry(entry, '/project');
-    // 即使 stdout 包含混合输出，解析器仍返回结果（text-parser fallback）
-    expect(result.testCases.length).toBeGreaterThanOrEqual(0);
-    expect(result.stdout).toContain('coverage');
-    expect(result.stdout).toContain('collected 1 item');
+      const entry = {
+        directory: '.',
+        framework: 'pytest',
+        test_cmd: '',
+        coverage_format: 'coverage-py' as const,
+        coverage_output: 'coverage.json',
+        coverage_artifacts: ['coverage.json'],
+        coverage_cleanup: ['.coverage', 'htmlcov'],
+        script:
+          'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+      };
+
+      const result = executePlanEntry(entry, tmpDir, { files: ['test_calc.py'] });
+      // 验证真实 pytest 运行产物被正确解析
+      expect(result.exitCode).toBe(0);
+      expect(result.testCases.length).toBeGreaterThanOrEqual(1);
+      expect(result.coverage).not.toBeNull();
+      expect(result.coverage!.lines).toBe(100);
+      expect(result.coverage!.branches).toBe(100);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
   });
 });
 

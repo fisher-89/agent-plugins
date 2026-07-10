@@ -103,11 +103,20 @@ export function runTestExecution(options: TestExecutionOptions): number {
 
   for (const entry of planEntries) {
     console.log(`Running ${entry.framework} tests in ${entry.directory}...`);
+    const planFiles = options.files
+      ?.map((filePath) => path.posix.relative(entry.directory, filePath))
+      .filter((filePath) => !filePath.startsWith('..'));
     const result = executePlanEntry(entry, projectRoot, {
-      files: options.files,
+      files: planFiles,
       noMutation: options.noMutation,
     });
-    const subReport = generateSubReport(entry.framework, result, projectRoot, reportsDir);
+    const subReport = generateSubReport(
+      entry.framework,
+      result,
+      projectRoot,
+      reportsDir,
+      entry.directory,
+    );
     logResult(entry.framework, result);
     subReports.push(subReport);
   }

@@ -28,8 +28,6 @@ import { resolveStrykerConfig } from './test-parser/stryker-config';
 export interface ExecutionResult {
   framework: string;
   exitCode: number;
-  stdout: string;
-  stderr: string;
   testCases: TestCase[];
   coverage: ParsedCoverage | null;
   mutation?: MutationBlock | null;
@@ -176,14 +174,6 @@ function extractBuffer(buf: string | Buffer | undefined): string {
 /**
  * Execute a single plan entry's test command.
  *
- * Steps:
- * 1. Substitute placeholders in the test command
- * 2. cd to the plan entry's directory
- * 3. Execute the shell command
- * 4. Parse stdout/stderr through the test parser dispatch
- * 5. Read coverage from the coverage output file
- * 6. Return ExecutionResult
- *
  * @param entry       - The plan entry to execute
  * @param projectRoot - Absolute project root path
  * @param options     - Optional overrides (files, timeout)
@@ -202,7 +192,6 @@ export function executePlanEntry(
 
   console.log(`Executing test cmd: "${testCmd}"`);
   const { stdout, stderr, exitCode, execError } = runCommand(testCmd, projectRoot, options.timeout);
-  const durationMs = Date.now() - startTime;
 
   const parsed = parseTestOutput(stdout, stderr, entry.framework);
   const coveragePath = resolveCoveragePath(entry, projectRoot);
@@ -216,11 +205,11 @@ export function executePlanEntry(
   const mutation =
     parsed.failed === 0 ? runMutationPhase(entry, projectRoot, options, sourceFiles) : null;
 
+  const durationMs = Date.now() - startTime;
+
   return {
     framework: entry.framework,
     exitCode,
-    stdout,
-    stderr,
     testCases: parsed.testCases,
     coverage,
     mutation,
@@ -271,7 +260,7 @@ function runMutationPhase(
     const strykerDuration = (Date.now() - strykerStart) / 1000;
     logCommandFailure(cmdResult, strykerDuration);
 
-    const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory, sourceFiles);
+    const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory);
 
     cleanupMutationArtifacts(absoluteDirectory, configPath, tempDirPath);
 
@@ -295,11 +284,7 @@ function runMutationPhase(
  * Parse the StrykerJS mutation report and build a MutationBlock.
  * Returns null if the report cannot be parsed.
  */
-function buildMutationBlockFromReport(
-  entry: TestPlan,
-  rootPath: string,
-  sourceFiles: string[],
-): MutationBlock | null {
+function buildMutationBlockFromReport(entry: TestPlan, rootPath: string): MutationBlock | null {
   const reportPath = path.resolve(rootPath, 'reports', 'mutation', 'mutation.json');
   const mutationReport = parseMutationReport(reportPath);
   if (!mutationReport) return null;
@@ -316,7 +301,6 @@ function buildMutationBlockFromReport(
       [entry.framework]: {
         score: mutationReport.score,
         measured: extractMutationMeasured(mutationReport),
-        source_files: sourceFiles,
       },
     },
   };
@@ -429,6 +413,7 @@ function runCommand(
       timeout: timeout ?? 60000,
       maxBuffer: 10 * 1024 * 1024,
       shell: resolveShell(),
+      stdio: 'pipe',
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (e: unknown) {
@@ -446,8 +431,6 @@ function emptyResult(framework: string, startTime: number, error: string): Execu
   return {
     framework,
     exitCode: -1,
-    stdout: '',
-    stderr: '',
     testCases: [],
     coverage: null,
     mutation: null,

@@ -230,7 +230,7 @@ describe('parseCoverageFromFile -- coverage-py format', () => {
     const content = JSON.stringify({
       totals: {
         percent_covered: 90.5,
-        percent_covered_branches: 85.0,
+        percent_branches_covered: 85.0,
       },
     });
 
@@ -246,7 +246,7 @@ describe('parseCoverageFromFile -- coverage-py format', () => {
     }
   });
 
-  it('should handle missing percent_covered_branches', () => {
+  it('should handle missing percent_branches_covered', () => {
     const content = JSON.stringify({
       totals: {
         percent_covered: 85.0,

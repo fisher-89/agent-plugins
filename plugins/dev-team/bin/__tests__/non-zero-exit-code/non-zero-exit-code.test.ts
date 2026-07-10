@@ -17,7 +17,19 @@ import { beforeEach, describe, it, expect, vi } from 'vite-plus/test';
 
 import { runTestExecution } from '../../src/commands/test-execution';
 import type { ExecutionResult } from '../../src/lib/test-runner';
-import type { TestPlan } from '../../src/schemas';
+import type { SourceFileEntry, TestPlan } from '../../src/schemas';
+
+function sf(file: string): SourceFileEntry {
+  return {
+    file,
+    total_lines: null,
+    covered_lines: null,
+    total_branches: null,
+    covered_branches: null,
+    total_functions: null,
+    covered_functions: null,
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Mocks
@@ -80,8 +92,6 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
   return {
     framework: 'vitest',
     exitCode: 0,
-    stdout: '',
-    stderr: '',
     testCases: [{ name: 'test1', status: 'passed', durationMs: 100 }],
     coverage: null,
     durationMs: 500,
@@ -94,13 +104,14 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
 function makeSubReport(framework = 'vitest', overrides: Record<string, unknown> = {}) {
   return {
     framework,
+    directory: '.',
     timestamp: '2026-07-01T00:00:00.000Z',
     exit_code: 0,
     duration_ms: 500,
     summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
     test_cases: [{ name: 'test1', status: 'passed' as const }],
     test_files: ['src/foo.test.ts'],
-    source_files: ['src/foo.ts'],
+    source_files: [sf('src/foo.ts')],
     file_coverage: null,
     coverage: null,
     ...overrides,

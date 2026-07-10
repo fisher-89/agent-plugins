@@ -32,6 +32,7 @@ export type {
   CoverageThresholds,
   CoverageOverride,
   FileCoverageEntry,
+  SourceFileEntry,
   MutationMeasured,
   MutationBlock,
   MutationOverride,

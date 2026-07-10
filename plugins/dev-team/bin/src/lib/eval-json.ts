@@ -190,7 +190,11 @@ export function markPhaseStale(entries: EvalEntry[], phaseId: string, workflowTy
 export function writeEvalJson(changeDir: string, entries: EvalEntry[]): void {
   const filePath = path.join(changeDir, EVAL_JSON_FILE);
   fs.mkdirSync(changeDir, { recursive: true });
-  fs.writeFileSync(filePath, JSON.stringify(entries, null, 2) + '\n', 'utf-8');
+  fs.writeFileSync(
+    filePath,
+    JSON.stringify(entries, null, 2).replace(/(?<!\\)\n/g, '\r\n') + '\r\n',
+    'utf-8',
+  );
 }
 
 /**
@@ -201,18 +205,15 @@ export function writeEvalJson(changeDir: string, entries: EvalEntry[]): void {
  * - Output uses 2-space indentation with trailing newline.
  */
 export function appendEntry(changeDir: string, entry: EvalEntry): void {
-  // Ensure change directory exists
-  fs.mkdirSync(changeDir, { recursive: true });
-
   const filePath = path.join(changeDir, EVAL_JSON_FILE);
-  let data: EvalEntry[];
+  let entries: EvalEntry[];
 
   if (fs.existsSync(filePath)) {
-    data = readEvalJson(changeDir);
+    entries = readEvalJson(changeDir);
   } else {
-    data = [];
+    entries = [];
   }
 
-  data.push(entry);
-  fs.writeFileSync(filePath, JSON.stringify(data, null, 2) + '\n', 'utf-8');
+  entries.push(entry);
+  writeEvalJson(changeDir, entries);
 }

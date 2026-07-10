@@ -37,8 +37,6 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
   return {
     framework: 'vitest',
     exitCode: 0,
-    stdout: '',
-    stderr: '',
     testCases: [{ name: 't1', status: 'passed', durationMs: 100 }],
     coverage: null,
     durationMs: 500,
@@ -90,13 +88,13 @@ describe('mutation 报告格式 -- 子报告', () => {
                   detected: 11,
                   undetected: 1,
                 },
-                source_files: ['src/foo.ts'],
               },
             },
           },
         }),
         dir.root,
         path.join(dir.root, 'reports', 'unit-test'),
+        '.',
       );
       expect(sub.mutation).not.toBeNull();
       expect(typeof sub.mutation!.pass).toBe('boolean');
@@ -154,13 +152,13 @@ describe('mutation 报告格式 -- 汇总报告', () => {
                   detected: 11,
                   undetected: 1,
                 },
-                source_files: ['src/foo.ts'],
               },
             },
           },
         }),
         dir.root,
         path.join(dir.root, 'reports', 'unit-test'),
+        '.',
       );
       const summary = generateSummaryReport(
         [sub],
@@ -221,13 +219,13 @@ describe('mutation 报告格式 -- 得分低于阈值', () => {
                   detected: 5,
                   undetected: 5,
                 },
-                source_files: ['src/foo.ts'],
               },
             },
           },
         }),
         dir.root,
         path.join(dir.root, 'reports', 'unit-test'),
+        '.',
       );
       const summary = generateSummaryReport(
         [sub],
@@ -261,6 +259,7 @@ describe('mutation 报告格式 -- 不支持框架', () => {
         result,
         dir.root,
         path.join(dir.root, 'reports', 'unit-test'),
+        '.',
       );
       expect(sub.mutation).toBeNull();
 

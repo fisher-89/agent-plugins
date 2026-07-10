@@ -30,16 +30,13 @@ function generateTempConfig(
 
   const config = {
     $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
-    coverageAnalysis: 'all',
     mutate: normalizedSources,
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
-    vitest: testRunner === 'vitest' ? { related: false } : undefined,
-    jest: testRunner === 'jest' ? { enableFindRelatedTests: false } : undefined,
+    ignoreStatic: true,
     reporters: ['json'],
-    jsonReporter: {
-      fileName: 'reports/mutation/mutation.json',
-    },
+    jsonReporter: { fileName: 'reports/mutation/mutation.json' },
+    timeoutMS: 10000,
   };
 
   fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');

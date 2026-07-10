@@ -20,6 +20,7 @@ import type {
   MutationBlock,
   MutationMeasured,
   MutationOverride,
+  SourceFileEntry,
   TestCaseResult,
   TestExecutionSubReport,
   TestExecutionSummaryReport,
@@ -63,6 +64,7 @@ function buildCoverageBlock(
   if (!result.coverage) return null;
 
   const thresholds = readCoverageThresholds(projectRoot);
+  const sourceFileEntries = buildSourceFileEntries(result);
   return {
     pass: computeCoveragePass(result.coverage, thresholds),
     measured: {
@@ -78,7 +80,7 @@ function buildCoverageBlock(
           branches: result.coverage.branches,
           functions: result.coverage.functions,
         },
-        source_files: result.sourceFiles,
+        source_files: sourceFileEntries,
       },
     },
   };
@@ -97,6 +99,58 @@ function writeJsonFile(filePath: string, data: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
+// Plan ID derivation (for sub-report filenames)
+// ---------------------------------------------------------------------------
+
+/**
+ * Derive a sub-report filename from a plan directory and framework.
+ *
+ * Examples:
+ *   derivePlanId('.', 'vitest')                → '_vitest.json'
+ *   derivePlanId('plugins/dev-team/bin', 'vite-plus') → 'plugins_dev-team_bin_vite-plus.json'
+ */
+function derivePlanId(directory: string, framework: string): string {
+  // Map '.' (current directory) to empty prefix; otherwise replace path separators
+  const sanitized = directory === '.' ? '' : directory.replace(/[\\/]/g, '_').replace(/\/$/, '');
+  const prefix = sanitized ? `${sanitized}_` : sanitized;
+  return `${prefix}${framework}.json`;
+}
+
+// ---------------------------------------------------------------------------
+// Source file entry builder
+// ---------------------------------------------------------------------------
+
+/**
+ * Build SourceFileEntry array from an ExecutionResult.
+ *
+ * Uses raw coverage counts from the coverage parser when available;
+ * falls back to entries with only the file path and null counts otherwise.
+ */
+function buildSourceFileEntries(result: ExecutionResult): SourceFileEntry[] {
+  const fileCoverage = result.coverage?.fileCoverage;
+  if (fileCoverage?.some((e) => e.total_lines != null)) {
+    return fileCoverage.map((e) => ({
+      file: e.file,
+      total_lines: e.total_lines ?? null,
+      covered_lines: e.covered_lines ?? null,
+      total_branches: e.total_branches ?? null,
+      covered_branches: e.covered_branches ?? null,
+      total_functions: e.total_functions ?? null,
+      covered_functions: e.covered_functions ?? null,
+    }));
+  }
+  return result.sourceFiles.map((f) => ({
+    file: f,
+    total_lines: null,
+    covered_lines: null,
+    total_branches: null,
+    covered_branches: null,
+    total_functions: null,
+    covered_functions: null,
+  }));
+}
+
+// ---------------------------------------------------------------------------
 // Sub-report generation
 // ---------------------------------------------------------------------------
 
@@ -105,12 +159,15 @@ export function generateSubReport(
   result: ExecutionResult,
   projectRoot: string,
   reportsDir: string,
+  planDirectory: string,
 ): TestExecutionSubReport {
   const now = new Date().toISOString();
   const testCases = buildTestCases(result);
+  const sourceFileEntries = buildSourceFileEntries(result);
 
   const subReport: TestExecutionSubReport = {
     framework,
+    directory: planDirectory,
     timestamp: now,
     exit_code: result.exitCode,
     duration_ms: result.durationMs,
@@ -122,14 +179,14 @@ export function generateSubReport(
     },
     test_cases: testCases,
     test_files: result.testFiles,
-    source_files: result.sourceFiles,
+    source_files: sourceFileEntries,
     file_coverage: result.coverage?.fileCoverage ?? null,
     coverage: buildCoverageBlock(framework, result, projectRoot),
     mutation: result.mutation ?? null,
     findings: result.error ? [result.error] : undefined,
   };
 
-  writeJsonFile(path.join(reportsDir, `${framework}.json`), subReport);
+  writeJsonFile(path.join(reportsDir, derivePlanId(planDirectory, framework)), subReport);
   return subReport;
 }
 
@@ -141,7 +198,7 @@ function collectProblemsAndCoverage(
   subReports: TestExecutionSubReport[],
   coverageFrameworks: Array<{
     measured: CoverageMeasured;
-    sourceFiles: string[];
+    sourceFiles: SourceFileEntry[];
     framework: string;
   }>,
 ): Array<{
@@ -190,7 +247,7 @@ function collectProblemsAndCoverage(
 function computeCoverageResult(
   coverageFrameworks: Array<{
     measured: CoverageMeasured;
-    sourceFiles: string[];
+    sourceFiles: SourceFileEntry[];
     framework: string;
   }>,
   projectRoot: string,
@@ -199,39 +256,38 @@ function computeCoverageResult(
   if (coverageFrameworks.length === 0) return null;
 
   const thresholds = readCoverageThresholds(projectRoot);
+  const rawMeasured = computeRawWeightedCoverage(subReports);
 
   const measured: CoverageMeasured = {
-    lines: weightedAverage(coverageFrameworks, 'lines'),
-    branches: weightedAverage(coverageFrameworks, 'branches'),
-    functions: weightedAverage(coverageFrameworks, 'functions'),
+    lines: rawMeasured.lines ?? fallbackCoverageDim(coverageFrameworks, 'lines'),
+    branches: rawMeasured.branches ?? fallbackCoverageDim(coverageFrameworks, 'branches'),
+    functions: rawMeasured.functions ?? fallbackCoverageDim(coverageFrameworks, 'functions'),
   };
 
-  const byFramework: Record<string, { measured: CoverageMeasured; source_files: string[] }> = {};
-  for (const fw of coverageFrameworks) {
-    byFramework[fw.framework] = {
-      measured: fw.measured,
-      source_files: fw.sourceFiles,
-    };
-  }
-
+  const byFramework = buildFrameworkMap(coverageFrameworks);
   const overrides = computeOverrides(subReports, projectRoot);
   let pass = computeCoveragePass(measured, thresholds);
   if (overrides.length > 0) {
-    const allOverridesPass = overrides.every((o) => o.pass);
-    pass = pass && allOverridesPass;
+    pass = pass && overrides.every((o) => o.pass);
   }
 
-  const result: CoverageBlock = {
-    pass,
-    measured,
-    thresholds,
-    by_framework: byFramework,
-  };
-  if (overrides.length > 0) {
-    result.overrides = overrides;
-  }
-
+  const result: CoverageBlock = { pass, measured, thresholds, by_framework: byFramework };
+  if (overrides.length > 0) result.overrides = overrides;
   return result;
+}
+
+function buildFrameworkMap(
+  frameworks: Array<{
+    measured: CoverageMeasured;
+    sourceFiles: SourceFileEntry[];
+    framework: string;
+  }>,
+): Record<string, { measured: CoverageMeasured; source_files: SourceFileEntry[] }> {
+  const map: Record<string, { measured: CoverageMeasured; source_files: SourceFileEntry[] }> = {};
+  for (const fw of frameworks) {
+    map[fw.framework] = { measured: fw.measured, source_files: fw.sourceFiles };
+  }
+  return map;
 }
 
 function determineConclusion(
@@ -264,7 +320,7 @@ export function generateSummaryReport(
 
   const coverageFrameworks: Array<{
     measured: CoverageMeasured;
-    sourceFiles: string[];
+    sourceFiles: SourceFileEntry[];
     framework: string;
   }> = [];
   const problems = collectProblemsAndCoverage(subReports, coverageFrameworks);
@@ -380,28 +436,71 @@ function readCoverageThresholds(projectRoot: string): CoverageThresholds {
   return { ...DEFAULT_THRESHOLDS };
 }
 
-function weightedAverage(
-  frameworks: Array<{ measured: CoverageMeasured; sourceFiles: string[] }>,
-  dimension: 'lines' | 'branches' | 'functions',
-): number | null {
-  let totalWeight = 0;
-  let weightedSum = 0;
-  let hasNonNull = false;
+/**
+ * Compute true weighted coverage from raw per-file line/branch/function counts.
+ *
+ * Instead of averaging pre-computed percentages (which loses precision when
+ * files or frameworks have different sizes), this sums raw total/covered counts
+ * across all source files and computes the true percentage.
+ *
+ * Skips files with null totals (non-Istanbul parsers) and files with zero
+ * totals.  Returns null for a dimension when no valid data is available.
+ */
+function computeRawWeightedCoverage(subReports: TestExecutionSubReport[]): CoverageMeasured {
+  let totalLines = 0,
+    covLines = 0;
+  let totalBranches = 0,
+    covBranches = 0;
+  let totalFunctions = 0,
+    covFunctions = 0;
 
-  for (const fw of frameworks) {
-    const value = fw.measured[dimension];
-    if (value === null) continue;
-
-    const weight = fw.sourceFiles.length;
-    if (weight <= 0) continue;
-
-    hasNonNull = true;
-    weightedSum += value * weight;
-    totalWeight += weight;
+  for (const report of subReports) {
+    for (const entry of report.source_files) {
+      if (entry.total_lines !== null && entry.total_lines > 0) {
+        totalLines += entry.total_lines;
+        covLines += entry.covered_lines ?? 0;
+      }
+      if (entry.total_branches !== null && entry.total_branches > 0) {
+        totalBranches += entry.total_branches;
+        covBranches += entry.covered_branches ?? 0;
+      }
+      if (entry.total_functions !== null && entry.total_functions > 0) {
+        totalFunctions += entry.total_functions;
+        covFunctions += entry.covered_functions ?? 0;
+      }
+    }
   }
 
-  if (!hasNonNull || totalWeight === 0) return null;
-  return weightedSum / totalWeight;
+  return {
+    lines: totalLines > 0 ? Math.round((covLines / totalLines) * 10000) / 100 : null,
+    branches: totalBranches > 0 ? Math.round((covBranches / totalBranches) * 10000) / 100 : null,
+    functions:
+      totalFunctions > 0 ? Math.round((covFunctions / totalFunctions) * 10000) / 100 : null,
+  };
+}
+
+/**
+ * Fallback: compute the average of a given dimension across framework-measured
+ * values.  Used when raw per-file counts are unavailable (e.g. non-Istanbul
+ * coverage formats).
+ *
+ * Returns null when no framework provides a non-null value for the dimension.
+ */
+function fallbackCoverageDim(
+  frameworks: Array<{ measured: CoverageMeasured }>,
+  dimension: 'lines' | 'branches' | 'functions',
+): number | null {
+  let sum = 0;
+  let count = 0;
+  for (const fw of frameworks) {
+    const value = fw.measured[dimension];
+    if (value !== null) {
+      sum += value;
+      count++;
+    }
+  }
+  if (count === 0) return null;
+  return Math.round((sum / count) * 100) / 100;
 }
 
 function computeCoveragePass(measured: CoverageMeasured, thresholds: CoverageThresholds): boolean {
@@ -433,8 +532,8 @@ function formatCoverageFailure(measured: CoverageMeasured, thresholds: CoverageT
  * Compute per-glob override coverage results.
  *
  * Reads `config.test.overrides`, matches each override's `file` glob against
- * file-level coverage entries, computes weighted averages, and checks against
- * thresholds.
+ * file-level coverage entries, computes coverage (preferring raw counts over
+ * simple percentage averages), and checks against thresholds.
  */
 function computeOverrides(
   subReports: TestExecutionSubReport[],
@@ -447,7 +546,7 @@ function computeOverrides(
   if (overrideConfigs.length === 0) return [];
 
   const allFileCoverage = collectFileCoverage(subReports);
-  if (allFileCoverage.length === 0) return [];
+  const allRawEntries = collectRawSourceEntries(subReports);
 
   // Normalize file paths to project-relative for glob matching
   const normalizedProjectRoot = toForwardSlash(path.resolve(projectRoot));
@@ -455,12 +554,21 @@ function computeOverrides(
     ...fc,
     file: toForwardSlash(fc.file).replace(normalizedProjectRoot + '/', ''),
   }));
+  const relativeRawEntries = allRawEntries.map((e) => ({
+    ...e,
+    file: toForwardSlash(e.file).replace(normalizedProjectRoot + '/', ''),
+  }));
 
   const results: CoverageOverride[] = [];
 
   for (const override of overrideConfigs) {
     if (!override.coverage) continue;
-    const result = computeSingleOverride(override, relativeFileCoverage, globalThresholds);
+    const result = computeSingleOverride(
+      override,
+      relativeFileCoverage,
+      relativeRawEntries,
+      globalThresholds,
+    );
     if (result) results.push(result);
   }
 
@@ -477,22 +585,25 @@ function collectFileCoverage(subReports: TestExecutionSubReport[]): FileCoverage
   return allFileCoverage;
 }
 
+function collectRawSourceEntries(subReports: TestExecutionSubReport[]): SourceFileEntry[] {
+  const entries: SourceFileEntry[] = [];
+  for (const report of subReports) {
+    entries.push(...report.source_files);
+  }
+  return entries;
+}
+
 function computeSingleOverride(
   override: NonNullable<NonNullable<ReturnType<typeof readConfig>['test']>['overrides']>[number],
   allFileCoverage: FileCoverageEntry[],
+  allRawEntries: SourceFileEntry[],
   globalThresholds: CoverageThresholds,
 ): CoverageOverride | null {
-  const matchedFiles = allFileCoverage.filter((fc) => matchGlob(fc.file, override.file));
-  if (matchedFiles.length === 0) return null;
+  const matchedPct = allFileCoverage.filter((fc) => matchGlob(fc.file, override.file));
+  const matchedRaw = allRawEntries.filter((e) => matchGlob(e.file, override.file));
 
   const overrideThresholds = override.coverage;
   if (!overrideThresholds) return null;
-
-  const measured: CoverageMeasured = {
-    lines: avgFileCoverage(matchedFiles, 'lines'),
-    branches: avgFileCoverage(matchedFiles, 'branches'),
-    functions: avgFileCoverage(matchedFiles, 'functions'),
-  };
 
   const thresholds: CoverageThresholds = {
     lines: overrideThresholds.lines ?? globalThresholds.lines,
@@ -500,21 +611,101 @@ function computeSingleOverride(
     functions: overrideThresholds.functions ?? globalThresholds.functions,
   };
 
+  // Prefer raw-count weighted computation; fall back to percentage average
+  const measured = computeRawOverrideCoverage(matchedRaw, matchedPct);
+
+  // file_count and passed_count are based on matched files (use whichever has entries)
+  const fileCount = matchedPct.length > 0 ? matchedPct.length : matchedRaw.length;
+  const passedCount =
+    matchedPct.length > 0
+      ? countPassedPctOverrides(matchedPct, thresholds)
+      : countPassedRawOverrides(matchedRaw, thresholds);
+
   return {
     glob: override.file,
     thresholds,
     measured,
     pass: computeCoveragePass(measured, thresholds),
-    file_count: matchedFiles.length,
-    passed_count: matchedFiles.filter((fc) => {
-      const fileMeasured: CoverageMeasured = {
-        lines: fc.lines,
-        branches: fc.branches,
-        functions: fc.functions,
-      };
-      return computeCoveragePass(fileMeasured, thresholds);
-    }).length,
+    file_count: fileCount,
+    passed_count: passedCount,
   };
+}
+
+/**
+ * Compute coverage from raw source-file entries or fall back to percentage averaging.
+ */
+function computeRawOverrideCoverage(
+  matchedRaw: SourceFileEntry[],
+  matchedPct: FileCoverageEntry[],
+): CoverageMeasured {
+  if (!matchedRaw.some((e) => e.total_lines !== null)) {
+    return {
+      lines: avgFileCoverage(matchedPct, 'lines'),
+      branches: avgFileCoverage(matchedPct, 'branches'),
+      functions: avgFileCoverage(matchedPct, 'functions'),
+    };
+  }
+  let totalLines = 0,
+    covLines = 0;
+  let totalBranches = 0,
+    covBranches = 0;
+  let totalFunctions = 0,
+    covFunctions = 0;
+  for (const entry of matchedRaw) {
+    if (entry.total_lines !== null && entry.total_lines > 0) {
+      totalLines += entry.total_lines;
+      covLines += entry.covered_lines ?? 0;
+    }
+    if (entry.total_branches !== null && entry.total_branches > 0) {
+      totalBranches += entry.total_branches;
+      covBranches += entry.covered_branches ?? 0;
+    }
+    if (entry.total_functions !== null && entry.total_functions > 0) {
+      totalFunctions += entry.total_functions;
+      covFunctions += entry.covered_functions ?? 0;
+    }
+  }
+  return {
+    lines: totalLines > 0 ? Math.round((covLines / totalLines) * 10000) / 100 : null,
+    branches: totalBranches > 0 ? Math.round((covBranches / totalBranches) * 10000) / 100 : null,
+    functions:
+      totalFunctions > 0 ? Math.round((covFunctions / totalFunctions) * 10000) / 100 : null,
+  };
+}
+
+function countPassedPctOverrides(
+  matched: FileCoverageEntry[],
+  thresholds: CoverageThresholds,
+): number {
+  return matched.filter((fc) =>
+    computeCoveragePass(
+      { lines: fc.lines, branches: fc.branches, functions: fc.functions },
+      thresholds,
+    ),
+  ).length;
+}
+
+function countPassedRawOverrides(
+  matched: SourceFileEntry[],
+  thresholds: CoverageThresholds,
+): number {
+  return matched.filter((e) => {
+    const fileMeasured: CoverageMeasured = {
+      lines:
+        e.total_lines !== null && e.total_lines > 0
+          ? ((e.covered_lines ?? 0) / e.total_lines) * 100
+          : null,
+      branches:
+        e.total_branches !== null && e.total_branches > 0
+          ? ((e.covered_branches ?? 0) / e.total_branches) * 100
+          : null,
+      functions:
+        e.total_functions !== null && e.total_functions > 0
+          ? ((e.covered_functions ?? 0) / e.total_functions) * 100
+          : null,
+    };
+    return computeCoveragePass(fileMeasured, thresholds);
+  }).length;
 }
 
 /**
@@ -560,8 +751,10 @@ function computeMutationResult(
   );
   if (mutationFrameworks.length === 0) return null;
 
-  const { aggregatedScore, aggregatedThreshold } = computeWeightedMutationScore(mutationFrameworks);
   const { aggregatedMeasured, byFramework } = aggregateMutationCounts(mutationFrameworks);
+  // Compute mutation score from raw counts rather than averaging pre-computed scores
+  const aggregatedScore = computeMutationScoreFromCounts(aggregatedMeasured);
+  const aggregatedThreshold = mutationFrameworks[0].mutation.threshold;
   const pass = aggregatedScore >= aggregatedThreshold;
 
   const result: MutationBlock = {
@@ -578,33 +771,20 @@ function computeMutationResult(
 }
 
 /**
- * Compute weighted average mutation score across frameworks.
- * Each framework's weight is the number of source files tested.
+ * Compute mutation score from raw mutant counts.
+ *
+ * Uses the standard StrykerJS formula:
+ *   score = (killed + timeout) / (total - ignored - compileError - runtimeError) * 100
+ *
+ * This is more accurate than averaging pre-computed scores across frameworks,
+ * especially when frameworks have very different numbers of mutants.
  */
-function computeWeightedMutationScore(
-  mutationFrameworks: Array<TestExecutionSubReport & { mutation: MutationBlock }>,
-): { aggregatedScore: number; aggregatedThreshold: number } {
-  let totalWeight = 0;
-  let weightedScore = 0;
-  let minThreshold = mutationFrameworks[0].mutation.threshold;
-
-  for (const report of mutationFrameworks) {
-    const mut = report.mutation;
-    const weight = report.source_files.length;
-    if (weight > 0) {
-      weightedScore += mut.score * weight;
-      totalWeight += weight;
-    }
-    if (mut.threshold > minThreshold) {
-      minThreshold = mut.threshold;
-    }
-  }
-
-  return {
-    aggregatedScore:
-      totalWeight > 0 ? weightedScore / totalWeight : mutationFrameworks[0].mutation.score,
-    aggregatedThreshold: minThreshold,
-  };
+function computeMutationScoreFromCounts(measured: MutationMeasured): number {
+  const validMutants =
+    measured.total - measured.ignored - measured.compileError - measured.runtimeError;
+  if (validMutants <= 0) return 100;
+  const detected = measured.killed + measured.timeout;
+  return Math.round((detected / validMutants) * 10000) / 100;
 }
 
 /**
@@ -614,10 +794,7 @@ function aggregateMutationCounts(
   mutationFrameworks: Array<TestExecutionSubReport & { mutation: MutationBlock }>,
 ): {
   aggregatedMeasured: MutationMeasured;
-  byFramework: Record<
-    string,
-    { score: number; measured: MutationMeasured; source_files: string[] }
-  >;
+  byFramework: MutationBlock['by_framework'];
 } {
   const aggregatedMeasured: MutationMeasured = {
     killed: 0,
@@ -632,10 +809,7 @@ function aggregateMutationCounts(
     undetected: 0,
   };
 
-  const byFramework: Record<
-    string,
-    { score: number; measured: MutationMeasured; source_files: string[] }
-  > = {};
+  const byFramework: MutationBlock['by_framework'] = {};
 
   for (const report of mutationFrameworks) {
     const mut = report.mutation;
@@ -653,7 +827,6 @@ function aggregateMutationCounts(
     byFramework[report.framework] = {
       score: mut.score,
       measured: { ...mut.measured },
-      source_files: [...report.source_files],
     };
   }
 
@@ -732,7 +905,7 @@ function collectAllSourceFiles(subReports: TestExecutionSubReport[]): string[] {
   const sources = new Set<string>();
   for (const report of subReports) {
     for (const f of report.source_files) {
-      sources.add(f);
+      sources.add(f.file);
     }
   }
   return Array.from(sources);
