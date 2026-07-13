@@ -12,9 +12,9 @@
 //   - coverage-py -- JSON coverage.json
 // ---------------------------------------------------------------------------
 
-/* eslint-disable @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/no-non-null-assertion */
-
 import * as fs from 'fs';
+
+import { z } from 'zod';
 
 import { type FileCoverageEntry } from '../../schemas';
 
@@ -30,122 +30,116 @@ export interface ParsedCoverage {
 }
 
 // ---------------------------------------------------------------------------
-// Safe JSON parse helper
+// Safe JSON parse helper (zod-based)
 // ---------------------------------------------------------------------------
 
-function safeParse<T>(json: string, guard: (data: unknown) => data is T): T | null {
+function safeParseJson<T>(json: string, schema: z.ZodType<T>): T | null {
   let parsed: unknown;
   try {
     parsed = JSON.parse(json);
   } catch {
     return null;
   }
-  return guard(parsed) ? parsed : null;
+  const result = schema.safeParse(parsed);
+  return result.success ? result.data : null;
 }
 
 // ---------------------------------------------------------------------------
-// Type guards
+// Zod schemas
 // ---------------------------------------------------------------------------
 
-interface IstanbulSummary {
-  total: {
-    lines: { pct: number };
-    branches: { pct: number };
-    functions: { pct: number };
-  };
-  [key: string]: unknown;
-}
+const pctMetricSchema = z.object({
+  pct: z.number(),
+});
 
-function isIstanbulSummary(data: unknown): data is IstanbulSummary {
-  if (!data || typeof data !== 'object') return false;
-  const d = data as Record<string, unknown>;
-  const total = d.total;
-  if (!total || typeof total !== 'object') return false;
-  const t = total as Record<string, unknown>;
-  return (
-    typeof t.lines === 'object' &&
-    t.lines !== null &&
-    typeof (t.lines as Record<string, unknown>).pct === 'number' &&
-    typeof t.branches === 'object' &&
-    t.branches !== null &&
-    typeof (t.branches as Record<string, unknown>).pct === 'number' &&
-    typeof t.functions === 'object' &&
-    t.functions !== null &&
-    typeof (t.functions as Record<string, unknown>).pct === 'number'
-  );
-}
+const istanbulSummarySchema = z.object({
+  total: z.object({
+    lines: pctMetricSchema,
+    branches: pctMetricSchema,
+    functions: pctMetricSchema,
+  }),
+});
 
-interface LlvmCovData {
-  data?: Array<{
-    totals?: {
-      lines?: { percent: number };
-      branches?: { percent: number };
-      functions?: { percent: number };
-    };
-  }>;
-}
+const llvmCovDataSchema = z.object({
+  data: z
+    .array(
+      z.object({
+        totals: z
+          .object({
+            lines: z.object({ percent: z.number() }).optional(),
+            branches: z.object({ percent: z.number() }).optional(),
+            functions: z.object({ percent: z.number() }).optional(),
+          })
+          .optional(),
+      }),
+    )
+    .nonempty(),
+});
 
-function isLlvmCovData(data: unknown): data is LlvmCovData {
-  if (!data || typeof data !== 'object') return false;
-  const d = data as Record<string, unknown>;
-  const dataArr = d.data;
-  if (!Array.isArray(dataArr) || dataArr.length === 0) return false;
-  const first = dataArr[0];
-  if (!first || typeof first !== 'object') return false;
-  const totals = (first as Record<string, unknown>).totals;
-  if (!totals || typeof totals !== 'object') return false;
-  const lines = (totals as Record<string, unknown>).lines;
-  return typeof lines === 'object' && lines !== null;
-}
+const coveragePyDataSchema = z.object({
+  totals: z
+    .object({
+      percent_covered: z.number(),
+      percent_branches_covered: z.number().optional(),
+    })
+    .optional(),
+});
 
-interface CoveragePyData {
-  totals?: {
-    percent_covered?: number;
-    percent_branches_covered?: number;
-  };
-}
+/** Per-file metric entry in istanbul summary (pct is required; total/covered optional). */
+const fileMetricSchema = z.object({
+  total: z.number().optional(),
+  covered: z.number().optional(),
+  pct: z.number(),
+});
 
-function isCoveragePyData(data: unknown): data is CoveragePyData {
-  if (!data || typeof data !== 'object') return false;
-  const d = data as Record<string, unknown>;
-  const totals = d.totals;
-  if (!totals || typeof totals !== 'object') return false;
-  return typeof (totals as Record<string, unknown>).percent_covered === 'number';
-}
+const fileEntrySchema = z.object({
+  lines: fileMetricSchema,
+  branches: fileMetricSchema.optional(),
+  functions: fileMetricSchema.optional(),
+});
 
 // ---------------------------------------------------------------------------
 // Istanbul parser
 // ---------------------------------------------------------------------------
 
 function parseIstanbul(content: string): ParsedCoverage | null {
-  const data = safeParse(content, isIstanbulSummary);
-  if (!data) return null;
+  // Parse full JSON with permissive record — we validate total and per-file entries separately
+  let raw: unknown;
+  try {
+    raw = JSON.parse(content);
+  } catch {
+    return null;
+  }
 
+  const totalResult = istanbulSummarySchema.safeParse(raw);
+  if (!totalResult.success) return null;
+
+  const data = totalResult.data;
   const fileCoverage: FileCoverageEntry[] = [];
-  for (const [file, metrics] of Object.entries(data)) {
-    if (file === 'total') continue;
-    const m = metrics as Record<string, unknown>;
-    const lines = m.lines as { total: number; covered: number; pct: number } | undefined;
-    if (!lines || typeof lines.pct !== 'number') continue;
 
-    const branches = m.branches as { total: number; covered: number; pct: number } | undefined;
-    const functions = m.functions as { total: number; covered: number; pct: number } | undefined;
+  // raw is already parsed — iterate entries with zod validation
+  const rawRecord = z.record(z.string(), z.unknown()).safeParse(raw);
+  if (rawRecord.success) {
+    for (const [file, metrics] of Object.entries(rawRecord.data)) {
+      if (file === 'total') continue;
 
-    fileCoverage.push({
-      file,
-      // Percentages
-      lines: lines.pct,
-      branches: branches?.pct ?? null,
-      functions: functions?.pct ?? null,
-      // Raw counts
-      total_lines: typeof lines.total === 'number' ? lines.total : 0,
-      covered_lines: typeof lines.covered === 'number' ? lines.covered : 0,
-      total_branches: branches && typeof branches.total === 'number' ? branches.total : null,
-      covered_branches: branches && typeof branches.covered === 'number' ? branches.covered : null,
-      total_functions: functions && typeof functions.total === 'number' ? functions.total : null,
-      covered_functions:
-        functions && typeof functions.covered === 'number' ? functions.covered : null,
-    });
+      const parsed = fileEntrySchema.safeParse(metrics);
+      if (!parsed.success) continue;
+
+      const m = parsed.data;
+      fileCoverage.push({
+        file,
+        lines: m.lines.pct,
+        branches: m.branches?.pct ?? null,
+        functions: m.functions?.pct ?? null,
+        total_lines: m.lines.total ?? 0,
+        covered_lines: m.lines.covered ?? 0,
+        total_branches: m.branches?.total ?? null,
+        covered_branches: m.branches?.covered ?? null,
+        total_functions: m.functions?.total ?? null,
+        covered_functions: m.functions?.covered ?? null,
+      });
+    }
   }
 
   return {
@@ -161,10 +155,10 @@ function parseIstanbul(content: string): ParsedCoverage | null {
 // ---------------------------------------------------------------------------
 
 function parseLlvmCov(content: string): ParsedCoverage | null {
-  const data = safeParse(content, isLlvmCovData);
+  const data = safeParseJson(content, llvmCovDataSchema);
   if (!data) return null;
 
-  const totals = data.data![0].totals;
+  const totals = data.data[0].totals;
   if (!totals) return null;
 
   return {
@@ -243,7 +237,7 @@ function parseGoCover(content: string): ParsedCoverage | null {
 // ---------------------------------------------------------------------------
 
 function parseCoveragePy(content: string): ParsedCoverage | null {
-  const data = safeParse(content, isCoveragePyData);
+  const data = safeParseJson(content, coveragePyDataSchema);
   if (!data?.totals) return null;
 
   return {

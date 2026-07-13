@@ -54,6 +54,7 @@ const mockDetectFrameworks = vi.fn();
 const mockExecutePlanEntry = vi.fn();
 const mockGenerateSubReport = vi.fn();
 const mockGenerateSummaryReport = vi.fn();
+const mockGetGitDiffFiles = vi.fn();
 
 vi.mock('./test-detect-frameworks', () => ({
   runTestDetectFrameworks: (...args: unknown[]) => mockDetectFrameworks(...args),
@@ -66,6 +67,10 @@ vi.mock('../lib/test-runner', () => ({
 vi.mock('../lib/test-report', () => ({
   generateSubReport: (...args: unknown[]) => mockGenerateSubReport(...args),
   generateSummaryReport: (...args: unknown[]) => mockGenerateSummaryReport(...args),
+}));
+
+vi.mock('../lib/git', () => ({
+  getGitDiffFiles: (...args: unknown[]) => mockGetGitDiffFiles(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -153,10 +158,11 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('应调用 runTestDetectFrameworks 获取 plan', () => {
+  it('应调用 runTestDetectFrameworks 获取 plan', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -180,7 +186,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
 
       expect(mockDetectFrameworks).toHaveBeenCalledWith(
         expect.objectContaining({ projectRoot: project.root }),
@@ -191,7 +197,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('应对 plan 中每个 framework 调用 executePlanEntry', () => {
+  it('应对 plan 中每个 framework 调用 executePlanEntry', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -225,7 +231,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
@@ -243,7 +249,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('应在每个 framework 执行后调用 generateSubReport 写入子报告', () => {
+  it('应在每个 framework 执行后调用 generateSubReport 写入子报告', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -267,7 +273,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSubReport).toHaveBeenCalledTimes(1);
       const callArgs = mockGenerateSubReport.mock.calls[0];
@@ -279,7 +285,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('应在所有 framework 执行后调用 generateSummaryReport 写入汇总报告', () => {
+  it('应在所有 framework 执行后调用 generateSummaryReport 写入汇总报告', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -303,7 +309,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSummaryReport).toHaveBeenCalledTimes(1);
       const callArgs = mockGenerateSummaryReport.mock.calls[0];
@@ -315,7 +321,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('子报告应写入 reports/test-execution/<framework>.json 路径', () => {
+  it('子报告应写入 reports/test-execution/<framework>.json 路径', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -339,7 +345,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       const reportsDir = mockGenerateSubReport.mock.calls[0][3];
       expect(reportsDir.replace(/\\/g, '/')).toContain('reports/test-execution');
@@ -348,7 +354,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     }
   });
 
-  it('汇总报告应写入 reports/test-execution.json', () => {
+  it('汇总报告应写入 reports/test-execution.json', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -372,7 +378,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       expect(mockGenerateSummaryReport).toHaveBeenCalled();
     } finally {
@@ -391,10 +397,11 @@ describe('runTestExecution -- 异常', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('plan 为空时不执行任何测试，退出码 0', () => {
+  it('plan 为空时不执行任何测试，退出码 0', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -403,7 +410,7 @@ describe('runTestExecution -- 异常', () => {
         plan: [],
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
 
       expect(exitCode).toBe(0);
       expect(mockExecutePlanEntry).not.toHaveBeenCalled();
@@ -414,7 +421,7 @@ describe('runTestExecution -- 异常', () => {
     }
   });
 
-  it('某个 framework 执行失败不阻塞后续 framework', () => {
+  it('某个 framework 执行失败不阻塞后续 framework', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -463,7 +470,7 @@ describe('runTestExecution -- 异常', () => {
         coverage: null,
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
 
       // 两个框架都应执行
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
@@ -488,10 +495,11 @@ describe('runTestExecution -- 边界', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('options.projectRoot 为 undefined 时使用默认 project dir', () => {
+  it('options.projectRoot 为 undefined 时使用默认 project dir', async () => {
     // 当 projectRoot 为 undefined 时，runTestExecution 应使用 getProjectDir() 的返回值
     // 这里我们 mock detectFrameworks 返回空 plan，确保不会出错
     mockDetectFrameworks.mockReturnValue({
@@ -501,10 +509,10 @@ describe('runTestExecution -- 边界', () => {
     });
 
     // 不传 projectRoot，应该不会崩溃
-    expect(() => runTestExecution({})).not.toThrow();
+    expect(async () => await runTestExecution({})).not.toThrow();
   });
 
-  it('所有框架均通过时 conclusion=pass 退出码 0', () => {
+  it('所有框架均通过时 conclusion=pass 退出码 0', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -532,7 +540,7 @@ describe('runTestExecution -- 边界', () => {
         coverage: null,
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
       expect(exitCode).toBe(0);
     } finally {
       project.cleanup();
@@ -550,10 +558,11 @@ describe('runTestExecution -- 幂等性', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('相同 plan 重复执行两次 generateSubReport 产生相同的子报告内容', () => {
+  it('相同 plan 重复执行两次 generateSubReport 产生相同的子报告内容', async () => {
     const project = createTempProject();
     try {
       const planEntry = makePlanEntry();
@@ -579,7 +588,7 @@ describe('runTestExecution -- 幂等性', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       // 验证 generateSubReport 被调用
       expect(mockGenerateSubReport).toHaveBeenCalledTimes(1);
@@ -588,7 +597,7 @@ describe('runTestExecution -- 幂等性', () => {
     }
   });
 
-  it('相同 plan 重复执行两次 generateSummaryReport 产生相同的汇总报告内容', () => {
+  it('相同 plan 重复执行两次 generateSummaryReport 产生相同的汇总报告内容', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -614,7 +623,7 @@ describe('runTestExecution -- 幂等性', () => {
       };
       mockGenerateSummaryReport.mockReturnValue(summaryReport);
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       // 验证 generateSummaryReport 被正确调用
       expect(mockGenerateSummaryReport).toHaveBeenCalledTimes(1);
@@ -634,10 +643,11 @@ describe('runTestExecution -- noMutation 透传', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('TestExecutionOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中', () => {
+  it('TestExecutionOptions.noMutation 为 true 时透传到 executePlanEntry 的 options 中', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -661,7 +671,7 @@ describe('runTestExecution -- noMutation 透传', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root, noMutation: true });
+      await runTestExecution({ projectRoot: project.root, noMutation: true });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
@@ -673,7 +683,7 @@ describe('runTestExecution -- noMutation 透传', () => {
     }
   });
 
-  it('TestExecutionOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中', () => {
+  it('TestExecutionOptions.noMutation 为 false 时透传到 executePlanEntry 的 options 中', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -697,7 +707,7 @@ describe('runTestExecution -- noMutation 透传', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root, noMutation: false });
+      await runTestExecution({ projectRoot: project.root, noMutation: false });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
@@ -709,7 +719,7 @@ describe('runTestExecution -- noMutation 透传', () => {
     }
   });
 
-  it('TestExecutionOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）', () => {
+  it('TestExecutionOptions.noMutation 为 undefined 时等价于 false（默认执行 mutation）', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -733,13 +743,198 @@ describe('runTestExecution -- noMutation 透传', () => {
         coverage: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
         project.root,
         expect.objectContaining({ noMutation: undefined }),
       );
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// mutationDiffOnly 透传
+// ===========================================================================
+
+describe('runTestExecution -- mutationDiffOnly 透传', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('mutationDiffOnly 为 true 时调用 getGitDiffFiles 获取变更文件', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockGetGitDiffFiles.mockResolvedValue(['src/a.ts', 'src/b.ts']);
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
+
+      expect(mockGetGitDiffFiles).toHaveBeenCalledWith(project.root);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutationDiffOnly 为 true 且 git diff 为空时透传空数组', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockGetGitDiffFiles.mockResolvedValue([]);
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ mutationDiffFiles: [] }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutationDiffOnly 为 false 时不调用 getGitDiffFiles', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: false });
+
+      expect(mockGetGitDiffFiles).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutationDiffOnly 为 false 时透传 undefined 到 executePlanEntry 的 mutationDiffFiles', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: false });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ mutationDiffFiles: undefined }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutationDiffOnly 为 undefined 时不调用 getGitDiffFiles（等价于 false）', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        frameworks: ['vitest'],
+        plan: [makePlanEntry()],
+      });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockGetGitDiffFiles).not.toHaveBeenCalled();
     } finally {
       project.cleanup();
     }

@@ -374,7 +374,7 @@ describe('runStaticAnalysis — 工作目录与参数 (AC-7)', () => {
       runStaticAnalysis({ projectRoot: project.root });
       expect(execSpy).toHaveBeenCalledWith(
         expect.any(String),
-        expect.objectContaining({ cwd: project.root, shell: true }),
+        expect.objectContaining({ cwd: project.root }),
       );
     } finally {
       execSpy.mockRestore();

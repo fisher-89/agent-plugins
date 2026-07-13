@@ -24,10 +24,7 @@ export function runStaticAnalysis(options?: RunStaticAnalysisOptions): number {
   }
 
   const command = value.trim();
-  const result = execCommand(command, {
-    cwd: projectRoot,
-    shell: true,
-  });
+  const result = execCommand(command, { cwd: projectRoot });
 
   const stdout = result.stdout ?? '';
   const stderr = result.stderr ?? '';

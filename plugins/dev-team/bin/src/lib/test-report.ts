@@ -189,14 +189,7 @@ export function generateSubReport(
 // Summary report generation helpers
 // ---------------------------------------------------------------------------
 
-function collectProblemsAndCoverage(
-  subReports: TestExecutionSubReport[],
-  coverageFrameworks: Array<{
-    measured: CoverageMeasured;
-    sourceFiles: SourceFileEntry[];
-    framework: string;
-  }>,
-): Array<{
+function collectProblems(subReports: TestExecutionSubReport[]): Array<{
   framework: string;
   type: 'test_failure' | 'coverage_failure' | 'execution_error';
   message: string;
@@ -226,38 +219,20 @@ function collectProblemsAndCoverage(
         message: `Exit code ${report.exit_code}`,
       });
     }
-
-    if (report.coverage) {
-      coverageFrameworks.push({
-        measured: report.coverage.measured,
-        sourceFiles: report.source_files,
-        framework: report.framework,
-      });
-    }
   }
 
   return problems;
 }
 
 function computeCoverageResult(
-  coverageFrameworks: Array<{
-    measured: CoverageMeasured;
-    sourceFiles: SourceFileEntry[];
-    framework: string;
-  }>,
   projectRoot: string,
   subReports: TestExecutionSubReport[],
 ): CoverageBlock | null {
-  if (coverageFrameworks.length === 0) return null;
-
   const thresholds = readCoverageThresholds(projectRoot);
-  const rawMeasured = computeRawWeightedCoverage(subReports);
-
-  const measured: CoverageMeasured = {
-    lines: rawMeasured.lines ?? fallbackCoverageDim(coverageFrameworks, 'lines'),
-    branches: rawMeasured.branches ?? fallbackCoverageDim(coverageFrameworks, 'branches'),
-    functions: rawMeasured.functions ?? fallbackCoverageDim(coverageFrameworks, 'functions'),
-  };
+  const measured = computeRawWeightedCoverage(subReports);
+  if (measured === null) {
+    return null;
+  }
 
   const overrides = computeOverrides(subReports, projectRoot);
   let pass = computeCoveragePass(measured, thresholds);
@@ -297,14 +272,8 @@ export function generateSummaryReport(
 ): TestExecutionSummaryReport {
   const now = new Date().toISOString();
   const { total, passed, failed, skipped, totalDuration } = aggregateTotals(subReports);
-
-  const coverageFrameworks: Array<{
-    measured: CoverageMeasured;
-    sourceFiles: SourceFileEntry[];
-    framework: string;
-  }> = [];
-  const problems = collectProblemsAndCoverage(subReports, coverageFrameworks);
-  const coverageResult = computeCoverageResult(coverageFrameworks, projectRoot, subReports);
+  const problems = collectProblems(subReports);
+  const coverageResult = computeCoverageResult(projectRoot, subReports);
 
   pushCoverageProblems(problems, coverageResult);
 
@@ -426,7 +395,11 @@ function readCoverageThresholds(projectRoot: string): CoverageThresholds {
  * Skips files with null totals (non-Istanbul parsers) and files with zero
  * totals.  Returns null for a dimension when no valid data is available.
  */
-function computeRawWeightedCoverage(subReports: TestExecutionSubReport[]): CoverageMeasured {
+function computeRawWeightedCoverage(subReports: TestExecutionSubReport[]): CoverageMeasured | null {
+  if (subReports.length === 1) {
+    return subReports[0].coverage?.measured ?? null;
+  }
+
   let totalLines = 0,
     covLines = 0;
   let totalBranches = 0,
@@ -457,30 +430,6 @@ function computeRawWeightedCoverage(subReports: TestExecutionSubReport[]): Cover
     functions:
       totalFunctions > 0 ? Math.round((covFunctions / totalFunctions) * 10000) / 100 : null,
   };
-}
-
-/**
- * Fallback: compute the average of a given dimension across framework-measured
- * values.  Used when raw per-file counts are unavailable (e.g. non-Istanbul
- * coverage formats).
- *
- * Returns null when no framework provides a non-null value for the dimension.
- */
-function fallbackCoverageDim(
-  frameworks: Array<{ measured: CoverageMeasured }>,
-  dimension: 'lines' | 'branches' | 'functions',
-): number | null {
-  let sum = 0;
-  let count = 0;
-  for (const fw of frameworks) {
-    const value = fw.measured[dimension];
-    if (value !== null) {
-      sum += value;
-      count++;
-    }
-  }
-  if (count === 0) return null;
-  return Math.round((sum / count) * 100) / 100;
 }
 
 function computeCoveragePass(measured: CoverageMeasured, thresholds: CoverageThresholds): boolean {

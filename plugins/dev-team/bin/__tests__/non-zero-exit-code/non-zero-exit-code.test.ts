@@ -179,7 +179,7 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
 
       expect(exitCode).toBe(1);
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
@@ -236,7 +236,7 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
 
       // 两个框架都应被执行
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
@@ -276,7 +276,7 @@ describe('non-zero-exit-code (AC-11)', () => {
         coverage: null,
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
 
       // 所有测试通过，退出码为 0
       expect(exitCode).toBe(0);

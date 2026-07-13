@@ -7,17 +7,23 @@
 // "output" or "run" are ignored.
 // ---------------------------------------------------------------------------
 
-/* eslint-disable @typescript-eslint/no-unsafe-type-assertion */
+import { z } from 'zod';
 
 import type { ParsedTestResult, TestCase } from './index';
 
-interface GoTestEvent {
-  Action: string;
-  Test?: string;
-  Elapsed?: number;
-  Output?: string;
-  Package?: string;
-}
+// ---------------------------------------------------------------------------
+// Zod schema
+// ---------------------------------------------------------------------------
+
+const goTestEventSchema = z.object({
+  Action: z.string(),
+  Test: z.string().optional(),
+  Elapsed: z.number().optional(),
+  Output: z.string().optional(),
+  Package: z.string().optional(),
+});
+
+type GoTestEvent = z.infer<typeof goTestEventSchema>;
 
 /**
  * Map Go test event Action to our TestCase status.
@@ -87,13 +93,17 @@ function collectGoTestEvents(lines: string[]): Map<string, TestCase> {
   const seenTests = new Set<string>();
 
   for (const line of lines) {
-    let event: GoTestEvent;
+    let json: unknown;
     try {
-      event = JSON.parse(line) as GoTestEvent;
+      json = JSON.parse(line);
     } catch {
       continue;
     }
 
+    const parseResult = goTestEventSchema.safeParse(json);
+    if (!parseResult.success) continue;
+
+    const event: GoTestEvent = parseResult.data;
     if (!event.Test) continue;
 
     if (event.Action === 'pass' || event.Action === 'fail' || event.Action === 'skip') {

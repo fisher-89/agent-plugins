@@ -6,31 +6,37 @@
 // with individual test-case details.
 // ---------------------------------------------------------------------------
 
-/* eslint-disable @typescript-eslint/no-unsafe-type-assertion, @typescript-eslint/no-explicit-any */
+import { z } from 'zod';
 
 import type { ParsedTestResult, TestCase } from './index';
 
-interface VitestAssertionResult {
-  title: string;
-  fullName: string;
-  status: 'passed' | 'failed' | 'skipped';
-  duration?: number;
-  failureMessages?: string[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  meta?: any;
-}
+// ---------------------------------------------------------------------------
+// Zod schemas
+// ---------------------------------------------------------------------------
 
-interface VitestTestResult {
-  assertionResults: VitestAssertionResult[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-}
+const vitestAssertionResultSchema = z.object({
+  title: z.string().nullable(),
+  fullName: z.string().nullable(),
+  status: z.enum(['passed', 'failed', 'skipped']),
+  duration: z.number().optional(),
+  failureMessages: z.array(z.string()).optional(),
+});
 
-interface VitestJsonOutput {
-  testResults: VitestTestResult[];
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
-  [key: string]: any;
-}
+const vitestTestResultSchema = z.object({
+  assertionResults: z.array(vitestAssertionResultSchema),
+  name: z.string().optional(),
+});
+
+const vitestJsonOutputSchema = z.object({
+  testResults: z.array(vitestTestResultSchema),
+});
+
+type VitestAssertionResult = z.infer<typeof vitestAssertionResultSchema>;
+type VitestTestResult = z.infer<typeof vitestTestResultSchema>;
+
+// ---------------------------------------------------------------------------
+// Parser
+// ---------------------------------------------------------------------------
 
 /**
  * Attempt to parse a vitest/jest JSON reporter output.
@@ -43,22 +49,23 @@ export function parseJsonOutput(stdout: string): ParsedTestResult {
     return emptyJsonResult('Empty stdout');
   }
 
-  let parsed: VitestJsonOutput;
+  let json: unknown;
   try {
-    parsed = JSON.parse(stdout) as VitestJsonOutput;
+    json = JSON.parse(stdout);
   } catch {
     return emptyJsonResult('Failed to parse JSON output');
   }
 
-  if (!parsed || typeof parsed !== 'object') {
+  if (json === null || typeof json !== 'object') {
     return emptyJsonResult('Parsed JSON is not an object');
   }
 
-  const testResults = parsed.testResults;
-  if (!Array.isArray(testResults)) {
+  const parseResult = vitestJsonOutputSchema.safeParse(json);
+  if (!parseResult.success) {
     return emptyJsonResult('Missing testResults array');
   }
 
+  const { testResults } = parseResult.data;
   const { testCases, testFiles } = collectJsonTestCases(testResults);
   const sourceFiles = deriveSourceFiles(testFiles);
 
@@ -99,14 +106,11 @@ function collectJsonTestCases(testResults: VitestTestResult[]): {
   const testFiles: string[] = [];
 
   for (const result of testResults) {
-    const assertionResults = result.assertionResults;
-    if (!Array.isArray(assertionResults)) continue;
-
-    for (const assertion of assertionResults) {
+    for (const assertion of result.assertionResults) {
       testCases.push(mapAssertionToTestCase(assertion));
     }
 
-    if (typeof result.name === 'string' && result.name.length > 0) {
+    if (result.name && result.name.length > 0) {
       testFiles.push(result.name);
     }
   }
@@ -120,7 +124,7 @@ function collectJsonTestCases(testResults: VitestTestResult[]): {
 function mapAssertionToTestCase(assertion: VitestAssertionResult): TestCase {
   const testCase: TestCase = {
     name: assertion.fullName || assertion.title || 'unknown',
-    status: assertion.status || 'passed',
+    status: assertion.status,
   };
 
   if (typeof assertion.duration === 'number') {
@@ -129,20 +133,18 @@ function mapAssertionToTestCase(assertion: VitestAssertionResult): TestCase {
 
   if (assertion.failureMessages && assertion.failureMessages.length > 0) {
     const firstMsg = assertion.failureMessages[0];
-    if (typeof firstMsg === 'string') {
-      // Extract error type (first line before colon/newline)
-      const newlineIdx = firstMsg.indexOf('\n');
-      const firstLine = newlineIdx >= 0 ? firstMsg.slice(0, newlineIdx) : firstMsg;
-      const colonIdx = firstLine.indexOf(':');
-      if (colonIdx >= 0) {
-        testCase.errorType = firstLine.slice(0, colonIdx).trim();
-        testCase.errorMessage = firstLine.slice(colonIdx + 1).trim();
-      } else {
-        testCase.errorType = 'Error';
-        testCase.errorMessage = firstLine;
-      }
-      testCase.stackTrace = firstMsg;
+    // Extract error type (first line before colon/newline)
+    const newlineIdx = firstMsg.indexOf('\n');
+    const firstLine = newlineIdx >= 0 ? firstMsg.slice(0, newlineIdx) : firstMsg;
+    const colonIdx = firstLine.indexOf(':');
+    if (colonIdx >= 0) {
+      testCase.errorType = firstLine.slice(0, colonIdx).trim();
+      testCase.errorMessage = firstLine.slice(colonIdx + 1).trim();
+    } else {
+      testCase.errorType = 'Error';
+      testCase.errorMessage = firstLine;
     }
+    testCase.stackTrace = firstMsg;
   }
 
   return testCase;

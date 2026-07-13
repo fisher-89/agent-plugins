@@ -168,6 +168,20 @@ function extractBuffer(buf: string | Buffer | undefined): string {
 }
 
 // ---------------------------------------------------------------------------
+// Mutation scope restriction
+// ---------------------------------------------------------------------------
+
+/**
+ * When --mutation-diff-only is active, restrict the mutation file set to
+ * only those files appearing in the git diff.
+ */
+function restrictMutationScope(sourceFiles: string[], mutationDiffFiles?: string[]): string[] {
+  if (mutationDiffFiles === undefined) return sourceFiles;
+  const diffSet = new Set(mutationDiffFiles);
+  return sourceFiles.filter((f) => diffSet.has(f));
+}
+
+// ---------------------------------------------------------------------------
 // Main execution function
 // ---------------------------------------------------------------------------
 
@@ -176,13 +190,19 @@ function extractBuffer(buf: string | Buffer | undefined): string {
  *
  * @param entry       - The plan entry to execute
  * @param projectRoot - Absolute project root path
- * @param options     - Optional overrides (files, timeout)
+ * @param options     - Optional overrides (files, timeout, mutationDiffFiles)
  * @returns ExecutionResult
  */
 export function executePlanEntry(
   entry: TestPlan,
   projectRoot: string,
-  options: { files?: string[]; timeout?: number; noMutation?: boolean } = {},
+  options: {
+    files?: string[];
+    timeout?: number;
+    noMutation?: boolean;
+    /** Git diff file list used to restrict mutation scope (--mutation-diff-only) */
+    mutationDiffFiles?: string[];
+  } = {},
 ): ExecutionResult {
   const startTime = Date.now();
   const testCmd = buildTestCommand(entry, projectRoot, options.files);
@@ -201,9 +221,11 @@ export function executePlanEntry(
   const sourceFiles =
     parsed.sourceFiles.length > 0 ? parsed.sourceFiles : deriveSourceFiles(parsed.testFiles);
 
+  const mutationFiles = restrictMutationScope(sourceFiles, options.mutationDiffFiles);
+
   // Mutation testing phase
   const mutation =
-    parsed.failed === 0 ? runMutationPhase(entry, projectRoot, options, sourceFiles) : null;
+    parsed.failed === 0 ? runMutationPhase(entry, projectRoot, options, mutationFiles) : null;
 
   const durationMs = Date.now() - startTime;
 

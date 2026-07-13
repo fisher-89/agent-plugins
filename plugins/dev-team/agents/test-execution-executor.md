@@ -14,7 +14,7 @@ The CLI handles all test execution, coverage parsing, and report generation — 
 Run the `dev-team test-execution` CLI command to generate the execution report:
 
 ```bash
-node plugins/dev-team/bin/dev-team-cli.cjs test-execution --change <change-name>
+node plugins/dev-team/bin/dev-team-cli.cjs test-execution --change <change-name> --mutation-diff-only
 ```
 
 Wait for the command to complete. The CLI handles framework detection, test execution, coverage measurement, and report generation — writing the summary report to `openspec/changes/<change-name>/reports/test-execution.json`.

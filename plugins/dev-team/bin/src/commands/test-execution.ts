@@ -10,6 +10,7 @@
 
 import * as path from 'path';
 
+import { getGitDiffFiles } from '../lib/git';
 import { generateSubReport, generateSummaryReport } from '../lib/test-report';
 import { executePlanEntry } from '../lib/test-runner';
 import { getProjectDir } from '../utils';
@@ -22,9 +23,12 @@ import { runTestDetectFrameworks } from './test-detect-frameworks';
 export interface TestExecutionOptions {
   change?: string;
   projectRoot?: string;
+  /** test files to run */
   files?: string[];
   framework?: string;
   noMutation?: boolean;
+  /** Only mutate files changed in git diff (mutation scope restricted to working tree changes) */
+  mutationDiffOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -36,6 +40,24 @@ function resolveReportsDir(projectRoot: string, change?: string): string {
     return path.resolve(projectRoot, 'openspec', 'changes', change, 'reports', 'test-execution');
   }
   return path.resolve(projectRoot, 'reports', 'test-execution');
+}
+
+// ---------------------------------------------------------------------------
+// Mutation diff file resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve git diff file list when --mutation-diff-only is enabled.
+ * Returns undefined when the option is not active.
+ */
+async function resolveMutationDiffFiles(
+  mutationDiffOnly: boolean | undefined,
+  projectRoot: string,
+): Promise<string[] | undefined> {
+  if (!mutationDiffOnly) return undefined;
+  const files = await getGitDiffFiles(projectRoot);
+  console.log(`--mutation-diff-only: ${files.length} files in working tree diff`);
+  return files.map((file) => path.resolve(projectRoot, file).replace(/\\/g, '/'));
 }
 
 // ---------------------------------------------------------------------------
@@ -80,7 +102,7 @@ function logSummary(report: {
 // Main handler
 // ---------------------------------------------------------------------------
 
-export function runTestExecution(options: TestExecutionOptions): number {
+export async function runTestExecution(options: TestExecutionOptions): Promise<number> {
   const projectRoot = options.projectRoot || getProjectDir();
   const detectResult = runTestDetectFrameworks({ files: options.files, projectRoot });
 
@@ -98,6 +120,8 @@ export function runTestExecution(options: TestExecutionOptions): number {
     return 0;
   }
 
+  const mutationDiffFiles = await resolveMutationDiffFiles(options.mutationDiffOnly, projectRoot);
+
   const reportsDir = resolveReportsDir(projectRoot, options.change);
   const subReports = [];
 
@@ -109,6 +133,7 @@ export function runTestExecution(options: TestExecutionOptions): number {
     const result = executePlanEntry(entry, projectRoot, {
       files: planFiles,
       noMutation: options.noMutation,
+      mutationDiffFiles,
     });
     const subReport = generateSubReport(
       entry.framework,

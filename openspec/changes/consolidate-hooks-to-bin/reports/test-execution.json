@@ -1,10 +1,10 @@
 {
   "phase": "test-execution",
   "command": "dev-team test-execution",
-  "timestamp": "2026-07-10T09:55:58.246Z",
-  "duration_seconds": 638,
-  "total": 864,
-  "passed": 864,
+  "timestamp": "2026-07-13T09:47:28.928Z",
+  "duration_seconds": 574,
+  "total": 934,
+  "passed": 934,
   "failed": 0,
   "skipped": 0,
   "conclusion": "fail",
@@ -12,20 +12,15 @@
     {
       "framework": "all",
       "type": "coverage_failure",
-      "message": "Coverage below threshold: lines 78.8% < 80%, branches 66.2% < 70%"
-    },
-    {
-      "framework": "all",
-      "type": "coverage_failure",
-      "message": "Mutation score 55.2% < threshold 70%"
+      "message": "Mutation score 58.0% < threshold 70%"
     }
   ],
   "coverage": {
-    "pass": false,
+    "pass": true,
     "measured": {
-      "lines": 78.76,
-      "branches": 66.17,
-      "functions": 81.87
+      "lines": 88.8,
+      "branches": 74.55,
+      "functions": 90.72
     },
     "thresholds": {
       "lines": 80,
@@ -41,31 +36,31 @@
           "functions": 75
         },
         "measured": {
-          "lines": 78.76,
-          "branches": 66.17,
-          "functions": 81.87
+          "lines": 88.81,
+          "branches": 74.55,
+          "functions": 90.72
         },
-        "pass": false,
-        "file_count": 47,
-        "passed_count": 35
+        "pass": true,
+        "file_count": 48,
+        "passed_count": 39
       }
     ]
   },
   "mutation": {
     "pass": false,
-    "score": 55.22,
+    "score": 58.04,
     "threshold": 70,
     "measured": {
-      "killed": 2146,
-      "survived": 1172,
+      "killed": 1025,
+      "survived": 520,
       "timeout": 0,
-      "noCoverage": 564,
+      "noCoverage": 216,
       "compileError": 0,
       "runtimeError": 0,
-      "ignored": 384,
-      "total": 4270,
-      "detected": 2146,
-      "undetected": 1736
+      "ignored": 22,
+      "total": 1788,
+      "detected": 1025,
+      "undetected": 736
     }
   }
 }

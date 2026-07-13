@@ -46,7 +46,7 @@ describe('dev-team test-execution command registration', () => {
     expect(optionDef).toContain('--project-root');
   });
 
-  it('命令 action 应调用 runTestExecution', () => {
+  it('命令 action 应调用 runTestExecution', async () => {
     // 模拟 process.exit
     const originalExit = process.exit.bind(process);
 
@@ -54,7 +54,7 @@ describe('dev-team test-execution command registration', () => {
       mockRunTestExecution.mockReturnValue(0);
 
       // 直接测试 runTestExecution 的调用路径
-      const exitCode = runTestExecution({ projectRoot: '/test/project' });
+      const exitCode = await runTestExecution({ projectRoot: '/test/project' });
 
       expect(mockRunTestExecution).toHaveBeenCalled();
       expect(exitCode).toBe(0);
@@ -64,13 +64,13 @@ describe('dev-team test-execution command registration', () => {
     }
   });
 
-  it('runTestExecution 返回非零时进程应以 exit(1) 退出', () => {
+  it('runTestExecution 返回非零时进程应以 exit(1) 退出', async () => {
     const originalExit = process.exit.bind(process);
 
     try {
       mockRunTestExecution.mockReturnValue(1);
 
-      const exitCode = runTestExecution({ projectRoot: '/test/project' });
+      const exitCode = await runTestExecution({ projectRoot: '/test/project' });
 
       expect(mockRunTestExecution).toHaveBeenCalled();
       expect(exitCode).toBe(1);
@@ -107,11 +107,11 @@ describe('dev-team test-execution -- 异常', () => {
 // ===========================================================================
 
 describe('dev-team test-execution -- 边界', () => {
-  it('--project-root 值为空字符串时使用默认 project dir', () => {
+  it('--project-root 值为空字符串时使用默认 project dir', async () => {
     mockRunTestExecution.mockReset();
     mockRunTestExecution.mockReturnValue(0);
 
-    const exitCode = runTestExecution({ projectRoot: '' });
+    const exitCode = await runTestExecution({ projectRoot: '' });
 
     // 当 projectRoot 为空字符串时，runTestExecution 应使用 getProjectDir() 的默认值
     expect(exitCode).toBe(0);
@@ -148,7 +148,7 @@ describe('dev-team test-execution -- --no-mutation 选项', () => {
     mockRunTestExecution.mockReturnValue(0);
 
     // 模拟传递 noMutation: true
-    runTestExecution({ projectRoot: '/test/project', noMutation: true });
+    await runTestExecution({ projectRoot: '/test/project', noMutation: true });
     expect(mockRunTestExecution).toHaveBeenCalled();
     const callArgs = mockRunTestExecution.mock.calls[0];
     expect(callArgs[0].noMutation).toBe(true);
@@ -158,7 +158,7 @@ describe('dev-team test-execution -- --no-mutation 选项', () => {
     mockRunTestExecution.mockReset();
     mockRunTestExecution.mockReturnValue(0);
 
-    runTestExecution({ projectRoot: '/test/project' });
+    await runTestExecution({ projectRoot: '/test/project' });
     expect(mockRunTestExecution).toHaveBeenCalled();
     const callArgs = mockRunTestExecution.mock.calls[0];
     expect(callArgs[0].noMutation).toBeUndefined();

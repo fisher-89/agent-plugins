@@ -16,6 +16,7 @@
     "@likec4/language-services": "^1.57.0",
     "cac": "^6.7.14",
     "picomatch": "^4.0.4",
+    "simple-git": "^3.27.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

@@ -43,3 +43,4 @@
 - [x] fix:突变测试结果未写入报告
 - [x] test-execution使用cli 命令执行测试
 - [x] stryker运行后没有清理临时配置和副本
+- [ ] test和test.overrides支持排除指定glob，避免生成glob对应的测试文件，突变测试也忽略该文件

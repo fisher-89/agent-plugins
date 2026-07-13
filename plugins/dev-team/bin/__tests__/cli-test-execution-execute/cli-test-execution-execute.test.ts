@@ -169,7 +169,7 @@ describe('CLI 端到端执行 — AC-7', () => {
         mutation: null,
       });
 
-      const exitCode = runTestExecution({ projectRoot: project.root });
+      const exitCode = await runTestExecution({ projectRoot: project.root });
 
       expect(mockDetectFrameworks).toHaveBeenCalledWith(
         expect.objectContaining({ projectRoot: project.root }),
@@ -215,7 +215,7 @@ describe('CLI 端到端执行 — AC-7', () => {
         mutation: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
     } finally {
@@ -252,14 +252,14 @@ describe('CLI 端到端执行 — AC-7', () => {
       });
 
       // 第一次执行
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
       const firstCall = mockGenerateSubReport.mock.calls[0];
 
       mockGenerateSubReport.mockReset();
       mockGenerateSubReport.mockReturnValue(subReport);
 
       // 第二次执行
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
       const secondCall = mockGenerateSubReport.mock.calls[0];
 
       // 子报告内容应一致
@@ -309,7 +309,7 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       // 子报告路径应包含 test-execution（而非 unit-test）
       expect(mockGenerateSubReport).toHaveBeenCalled();
@@ -346,7 +346,7 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       // 汇总报告被调用
       expect(mockGenerateSummaryReport).toHaveBeenCalled();
@@ -383,7 +383,7 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       // 验证汇总报告中 phase 字段为 test-execution
       const summaryReport = mockGenerateSummaryReport.mock.results[0]?.value;
@@ -421,7 +421,7 @@ describe('报告路径 — AC-11', () => {
         mutation: null,
       });
 
-      runTestExecution({ projectRoot: project.root });
+      await runTestExecution({ projectRoot: project.root });
 
       // 验证汇总报告中 command 字段
       const summaryReport = mockGenerateSummaryReport.mock.results[0]?.value;
