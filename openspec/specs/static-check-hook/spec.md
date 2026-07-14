@@ -1,145 +1,142 @@
-# static-check-hook Specification
+## MODIFIED Requirements
 
-## Purpose
+### Requirement: hooks.json 声明 subagentStop hook 匹配 implementation-generator (command 路径更新)
 
-Automatically enforce static analysis (lint, type checking) when the `implementation-generator` subagent completes, via a `subagentStop` hook. Static check configuration is read from `openspec/config.json` and executed through the embedded `dev-team-cli.cjs run_static_analysis` command. Failed checks block agent completion and return a followup message for remediation, replacing prior agent-instruction-based static check flows and report file validation.
-
-## Requirements
-
-### Requirement: hooks.json 声明 subagentStop hook 匹配 implementation-generator
-
-`plugins/dev-team/hooks/hooks.json` SHALL 在 `hooks` 对象中包含 `subagentStop` 数组，包含一项 hook 配置：
+`plugins/dev-team/hooks/hooks.json` SHALL 在 `hooks` 对象中包含 `subagentStop` 数组，包含一项 hook 配置，保持以下配置不变：
 
 - `matcher`: `"implementation-generator"` — 仅匹配 implementation-generator subagent 的结束事件
 - `hooks[0].type`: `"command"`
-- `hooks[0].command`: `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"`
 - `loop_limit`: `5` — 最多允许 5 次 followup 循环
 
-当 followup 循环次数达到 `loop_limit` 时，hook 框架 SHALL 停止阻止 subagent 结束，允许 `implementation-generator` 在静态检查仍未通过的情况下结束。此为有意的降级策略，避免无限循环。
+`hooks[0].command` 字段 SHALL 从 `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"` 变更为 `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs" static-check`。
 
-顶层 `description` 字段 SHALL 说明静态检查 hook 用途。
+`test-gen-generator` 对应的 subagentStop hook SHALL 同步更新 command 路径。
 
-`hooks.json` 中 PreToolUse hook 的 command SHALL 同样使用 `node` 调用 `.mjs` 脚本，以确保 Windows（PowerShell）环境下 hook 可正常执行。
+当 followup 循环次数达到 `loop_limit` 时，hook 框架 SHALL 停止阻止 subagent 结束，允许 `implementation-generator` 在静态检查仍未通过的情况下结束（降级策略，行为不变）。
 
-#### Scenario: subagentStop hook 配置为合法 JSON
+顶层 `description` 字段 SHALL 仍说明静态检查 hook 用途。
 
-- **WHEN** `plugins/dev-team/hooks/hooks.json` 被 `JSON.parse()` 解析
-- **THEN** 解析成功无错误
-- **AND** 对象包含 `hooks.subagentStop` 数组，至少包含一项
-- **AND** 该项的 `matcher` 为 `"implementation-generator"`
-- **AND** 该项包含 `loop_limit: 5`
-- **AND** 该项的 `hooks[0].command` 以 `node` 开头并引用 `static-check.mjs`
+#### Scenario: subagentStop hook 配置中 command 指向 dev-team-hooks.cjs
 
-#### Scenario: 其他 subagent 结束时不触发静态检查 hook
+**WHEN** `plugins/dev-team/hooks/hooks.json` 被 `JSON.parse()` 解析
+**THEN** 对象包含 `hooks.subagentStop` 数组，至少包含一项
+**AND** 该项的 `hooks[0].command` 包含 `bin/dev-team-hooks.cjs" static-check`
 
-- **WHEN** `proposal-planner` 或其他非 `implementation-generator` 的 subagent 尝试结束
-- **THEN** `static-check.mjs` hook 不被触发
-- **AND** subagent 正常结束
+#### Scenario: 其他 subagent 结束时不触发静态检查 hook（不变）
 
-#### Scenario: loop_limit 耗尽后允许 subagent 结束
+**WHEN** `proposal-planner` 或其他非 `implementation-generator` 的 subagent 尝试结束
+**THEN** `static-check` hook 不被触发
+**AND** subagent 正常结束
 
-- **WHEN** `implementation-generator` 连续 5 次尝试结束且静态检查均失败（hook 每次返回 `followup_message`）
-- **THEN** 第 5 次 followup 循环后，hook 框架不再阻止 subagent 结束
-- **AND** `implementation-generator` 被允许结束，即使静态检查仍未通过
+#### Scenario: loop_limit 耗尽后允许 subagent 结束（不变）
 
-#### Scenario: Windows PowerShell 环境下 hook command 可执行
+**WHEN** `implementation-generator` 连续 5 次尝试结束且静态检查均失败
+**THEN** 第 5 次 followup 循环后，hook 框架不再阻止 subagent 结束
+**AND** `implementation-generator` 被允许结束，即使静态检查仍未通过
 
-- **WHEN** 在 Windows 上执行 `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"`（无需 bash）
-- **THEN** 命令 exit code 为 `0`
-- **AND** stdout 输出合法 JSON（`{}` 或含 `followup_message` 的对象）
+### Requirement: static-check 子命令进程内调用替代 spawnSync
 
-### Requirement: static-check.mjs 通过 CLI 执行静态检查并根据 exit code 决定放行或 followup
-
-`plugins/dev-team/hooks/scripts/static-check.mjs` SHALL 为有效的 Node.js ES Module 脚本，从 stdin 接收 subagentStop 事件 JSON（脚本 MAY 忽略 stdin 内容）。
-
-脚本 SHALL 通过 `child_process` 执行：
-
-```javascript
-node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis
-```
+`static-check` 子命令在 `bin/src/hooks.ts` 中实现，SHALL 直接导入并调用 `runStaticAnalysis` 函数（来自 `bin/src/commands/run-static-analysis.ts`），替代原有的 `spawnSync` 子进程调用。
 
 行为规则：
 
-- CLI exit code 为 `0`：向 stdout 输出空 JSON `{}`，脚本 exit `0`，允许 subagent 结束
-- CLI exit code 非 `0`：向 stdout 输出包含 `followup_message` 的 JSON，脚本 exit `0`（hook 协议要求通过 JSON 字段传递 followup，而非脚本 exit code）
-- `followup_message` SHALL 包含 CLI 的完整 stderr/stdout 输出及中文修复指令前缀「静态检查未通过，请修复以下错误后重新提交：」，要求 agent 修复静态检查错误后重新提交
-- CLI 文件不存在时：向 stdout 输出含 `followup_message` 的 JSON（说明 CLI 路径），脚本 exit `0`
+- `runStaticAnalysis()` exit code 为 `0`：向 stdout 输出空 JSON `{}`，脚本 exit `0`，允许 subagent 结束
+- `runStaticAnalysis()` exit code 非 `0`：向 stdout 输出包含 `followup_message` 的 JSON，脚本 exit `0`（通过 JSON 字段传递 followup）
+- `followup_message` SHALL 包含 `runStaticAnalysis` 的完整 stderr/stdout 输出及中文修复指令前缀「静态检查未通过，请修复以下错误后重新提交：」，要求 agent 修复静态检查错误后重新提交
+- `runStaticAnalysis` 函数不可用时（如 import 失败）：向 stdout 输出含 `followup_message` 的 JSON（说明错误原因），脚本 exit `0`，不抛未捕获异常
 
-脚本 SHALL NOT 生成 `reports/static_analysis.json` 或任何其他报告文件。
+脚本 SHALL NOT 生成 `reports/static_analysis.json` 或任何其他报告文件（行为不变）。
 
-脚本 SHALL 使用 `JSON.stringify` 生成输出，确保特殊字符正确转义。
+子命令 SHALL 从 stdin 接收 subagentStop 事件 JSON，从中提取 `workspace_roots[0]` 作为 `projectRoot` 传递给 `runStaticAnalysis`。
 
 #### Scenario: 静态检查通过时 hook 放行
 
-- **WHEN** `dev-team-cli.cjs run_static_analysis` 以 exit code `0` 结束
-- **THEN** `static-check.mjs` 向 stdout 输出 `{}`
-- **AND** subagent 正常结束
+**WHEN** `runStaticAnalysis()` 返回 exit code `0`
+**THEN** `static-check` 子命令向 stdout 输出 `{}`
+**AND** subagent 正常结束
 
 #### Scenario: 静态检查失败时 hook 返回 followup_message
 
-- **WHEN** `dev-team-cli.cjs run_static_analysis` 以 exit code 非 `0` 结束，且 stderr 包含 lint 错误信息
-- **THEN** `static-check.mjs` 向 stdout 输出 JSON，包含 `followup_message` 字段
-- **AND** `followup_message` 包含 CLI 的错误输出内容
-- **AND** subagent 不被允许结束，继续修复
+**WHEN** `runStaticAnalysis()` 返回 exit code 非 `0`，且输出包含 lint 错误信息
+**THEN** `static-check` 子命令向 stdout 输出 JSON，包含 `followup_message` 字段
+**AND** `followup_message` 包含 CLI 的错误输出内容
+**AND** subagent 不被允许结束，继续修复
 
 #### Scenario: 未配置 static_analysis 时 hook 放行
 
-- **WHEN** `openspec/config.json` 未配置 `static_analysis` 字段
-- **THEN** CLI 以 exit code `0` 结束
-- **AND** hook 输出 `{}`，subagent 正常结束
+**WHEN** `openspec/config.json` 未配置 `static_analysis` 字段
+**THEN** `runStaticAnalysis()` 返回 exit code `0`
+**AND** `static-check` 子命令输出 `{}`，subagent 正常结束
 
-#### Scenario: static-check.mjs 可被 node 直接执行
+#### Scenario: static-check 子命令可被 node 直接执行
 
-- **WHEN** 执行 `node plugins/dev-team/hooks/scripts/static-check.mjs`
-- **THEN** 命令 exit code 为 `0` 且无未捕获异常
-- **AND** stdout 输出合法 JSON
+**WHEN** 执行 `node bin/dev-team-hooks.cjs static-check`
+**AND** stdin 传入有效事件 JSON
+**THEN** 命令 exit code 为 `0`
+**AND** stdout 输出合法 JSON（`{}` 或含 `followup_message` 的对象）
 
-#### Scenario: CLI 不存在时返回 followup_message
+#### Scenario: 函数 import 失败时返回 followup_message
 
-- **WHEN** `${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs` 文件不存在
-- **THEN** `static-check.mjs` 向 stdout 输出含 `followup_message` 的 JSON
-- **AND** 脚本 exit `0`（不抛出未捕获异常）
+**WHEN** `runStaticAnalysis` 因任何原因无法导入或执行
+**THEN** `static-check` 子命令向 stdout 输出含 `followup_message` 的 JSON
+**AND** 脚本 exit `0`（不抛出未捕获异常）
 
-### Requirement: static-check hook 不影响现有 PreToolUse hook
+### Requirement: static-check hook 不影响现有 PreToolUse hook（不变）
 
 `subagentStop` hook SHALL NOT 改变 `PreToolUse` hook 的配置结构或拦截语义。
 
-`protect-eval.mjs` 对 eval.json 的 Write/Edit/Bash 拦截行为 SHALL 保持不变。
+`protect-files` hook 对 eval.json 的 Write/Edit/Bash 拦截行为 SHALL 保持不变。
 
-#### Scenario: protect-eval hook 在 static-check hook 迁移后仍生效
+#### Scenario: protect-files hook 在 static-check 迁移后仍生效
 
-- **WHEN** agent 尝试 Write 写入 `openspec/changes/test/eval.json`
-- **THEN** PreToolUse hook 仍返回 `permissionDecision: "deny"`
-- **AND** static-check hook 未被触发
+**WHEN** agent 尝试 Write 写入 `openspec/changes/test/eval.json`
+**THEN** PreToolUse hook 仍返回 `permissionDecision: "deny"`
+**AND** static-check hook 未被触发
 
-### Requirement: 插件版本号递增
+### Requirement: 插件版本号递增（不变）
 
 `plugins/dev-team/.claude-plugin/plugin.json` 的 `version` 字段 SHALL 递增（patch bump），以反映 hook 脚本变更。
 
 #### Scenario: 插件版本号已升级
 
-- **WHEN** 读取 `plugins/dev-team/.claude-plugin/plugin.json`
-- **THEN** `version` 字段值遵循 semver
+**WHEN** 读取 `plugins/dev-team/.claude-plugin/plugin.json`
+**THEN** `version` 字段值遵循 semver
 
 ## Module Contract
 
 ### Hook 声明：`plugins/dev-team/hooks/hooks.json`
 
-| 字段 | 类型 | 描述 |
-|------|------|------|
-| `hooks.subagentStop` | `object[]` | subagentStop hook 配置数组 |
-| `hooks.subagentStop[0].matcher` | `string` | `"implementation-generator"` |
-| `hooks.subagentStop[0].loop_limit` | `number` | `5` |
-| `hooks.subagentStop[0].hooks[0].type` | `string` | `"command"` |
-| `hooks.subagentStop[0].hooks[0].command` | `string` | `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"` |
+| 字段 | 类型 | 描述 | 变更 |
+|------|------|------|------|
+| `hooks.subagentStop` | `object[]` | subagentStop hook 配置数组 | 不变 |
+| `hooks.subagentStop[0].matcher` | `string` | `"implementation-generator"` | 不变 |
+| `hooks.subagentStop[0].loop_limit` | `number` | `5` | 不变 |
+| `hooks.subagentStop[0].hooks[0].type` | `string` | `"command"` | 不变 |
+| `hooks.subagentStop[0].hooks[0].command` | `string` | `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs" static-check` | 从 `.mjs` 变更为 `dev-team-hooks.cjs` |
+| `hooks.subagentStop[1].matcher` | `string` | `"test-gen-generator"` | 不变 |
+| `hooks.subagentStop[1].hooks[0].command` | `string` | `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs" static-check` | 从 `.mjs` 变更为 `dev-team-hooks.cjs` |
 
-### Hook 脚本：`plugins/dev-team/hooks/scripts/static-check.mjs`
+### Hook 子命令：`plugins/dev-team/bin/dev-team-hooks.cjs static-check`
 
 | 方面 | 描述 |
 |------|------|
-| **运行时** | Node.js ES Module（`.mjs`），通过 `node` 调用 |
-| **输入** | stdin JSON（subagentStop 事件，可选读取） |
-| **执行** | `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-cli.cjs" run_static_analysis` |
+| **运行时** | Node.js CJS bundle，通过 `node` 调用 |
+| **输入** | stdin JSON（subagentStop 事件，从中提取 `workspace_roots[0]`） |
+| **执行方式** | 进程内 `import { runStaticAnalysis } from './commands/run-static-analysis'`（替代 spawnSync） |
+| **projectRoot 来源** | stdin 事件 JSON 的 `workspace_roots[0]` |
 | **通过** | stdout `{}`，exit `0` |
-| **失败** | stdout `{"followup_message": "<错误输出 + 修复指令>"}`，exit `0` |
+| **失败** | stdout `{"decision": "block", "reason": "<错误输出 + 修复指令>"}`，exit `0` |
+| **异常安全** | 顶层 try-catch，任何异常转为 `{ decision: "block", reason }` |
 | **报告** | 不生成任何 report 文件 |
+
+### vite.config.ts（新增 hooks 打包项）
+
+| 属性 | 值 |
+|------|-----|
+| pack entry name | `hooks` |
+| platform | `node` |
+| entry | `src/hooks.ts` |
+| output file | `dev-team-hooks.cjs` |
+| format | `cjs` |
+| minify | `true` |
+| sourcemap | `true` |

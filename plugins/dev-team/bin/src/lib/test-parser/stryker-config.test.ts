@@ -80,10 +80,10 @@ describe('resolveStrykerConfig -- 临时配置生成', () => {
     fs.unlinkSync(result3.configPath);
   });
 
-  it('生成临时配置时 reporters 设置为 ["json"]', () => {
+  it('生成临时配置时 reporters 设置为 ["json", "html"]', () => {
     const result = resolveStrykerConfig(project.root, ['src/test.ts'], 'vitest');
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(config.reporters).toEqual(['json']);
+    expect(config.reporters).toEqual(['json', 'html']);
     fs.unlinkSync(result.configPath);
   });
 });

@@ -825,7 +825,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
     }
   });
 
-  it('mutation 执行后清理临时配置文件和 reports/mutation/ 目录', () => {
+  it('mutation 执行后清理临时配置文件和快照目录', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-cleanup-'));
     try {
       // 先创建 reports/mutation/mutation.json 模拟 StrykerJS 输出
@@ -853,6 +853,11 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         'utf-8',
       );
 
+      // 创建 .stryker-tmp 模拟 StrykerJS 执行时源码快照
+      const strykerTmpDir = path.join(tmpDir, '.stryker-tmp', 'xxx-xxx');
+      fs.mkdirSync(strykerTmpDir, { recursive: true });
+      fs.writeFileSync(path.join(strykerTmpDir, 'cli.ts'), '// source file', 'utf-8');
+
       // 第一次 execSync: 测试执行
       mockExecSync.mockReturnValueOnce(
         '{"testResults":[{"assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
@@ -878,8 +883,8 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       expect(result.mutation).not.toBeNull();
       expect(result.mutation!.score).toBeCloseTo(91.66666, 1);
 
-      // reports/mutation/ 目录应被清理
-      expect(fs.existsSync(reportDir)).toBe(false);
+      // .stryker-tmp 目录应被清理
+      expect(fs.existsSync(strykerTmpDir)).toBe(false);
 
       // 临时配置文件应被清理
       // 列出 tmpDir 下所有 stryker.config.*.json 文件，应不存在

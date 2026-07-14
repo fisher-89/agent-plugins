@@ -7,7 +7,7 @@
   "scripts": {
     "build": "vp pack",
     "start": "node dev-team-mcp.cjs",
-    "test": "vp test",
+    "test": "vp test --sequence.shuffle",
     "check": "vp check --fix && knip",
     "knip": "knip",
     "stryker": "stryker run"

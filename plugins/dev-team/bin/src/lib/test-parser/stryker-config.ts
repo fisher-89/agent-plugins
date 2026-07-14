@@ -34,7 +34,7 @@ function generateTempConfig(
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
     ignoreStatic: true,
-    reporters: ['json'],
+    reporters: ['json', 'html'],
     jsonReporter: { fileName: 'reports/mutation/mutation.json' },
     timeoutMS: 10000,
   };

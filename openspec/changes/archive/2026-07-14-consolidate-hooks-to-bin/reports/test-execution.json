@@ -1,10 +1,10 @@
 {
   "phase": "test-execution",
   "command": "dev-team test-execution",
-  "timestamp": "2026-07-14T07:09:42.021Z",
-  "duration_seconds": 153,
-  "total": 977,
-  "passed": 977,
+  "timestamp": "2026-07-14T02:27:19.987Z",
+  "duration_seconds": 172,
+  "total": 961,
+  "passed": 961,
   "failed": 0,
   "skipped": 0,
   "conclusion": "fail",
@@ -12,15 +12,15 @@
     {
       "framework": "all",
       "type": "coverage_failure",
-      "message": "Mutation score 57.4% < threshold 70%"
+      "message": "Mutation score 58.5% < threshold 70%"
     }
   ],
   "coverage": {
     "pass": true,
     "measured": {
-      "lines": 90.37,
-      "branches": 77.04,
-      "functions": 91.27
+      "lines": 90.46,
+      "branches": 77,
+      "functions": 91.3
     },
     "thresholds": {
       "lines": 80,
@@ -36,9 +36,9 @@
           "functions": 75
         },
         "measured": {
-          "lines": 90.38,
-          "branches": 77.05,
-          "functions": 91.28
+          "lines": 90.47,
+          "branches": 77,
+          "functions": 91.3
         },
         "pass": true,
         "file_count": 48,
@@ -48,19 +48,19 @@
   },
   "mutation": {
     "pass": false,
-    "score": 57.43,
+    "score": 58.48,
     "threshold": 70,
     "measured": {
-      "killed": 317,
-      "survived": 198,
+      "killed": 386,
+      "survived": 232,
       "timeout": 0,
-      "noCoverage": 33,
+      "noCoverage": 38,
       "compileError": 0,
       "runtimeError": 0,
       "ignored": 0,
-      "total": 552,
-      "detected": 317,
-      "undetected": 231
+      "total": 660,
+      "detected": 386,
+      "undetected": 270
     }
   }
 }

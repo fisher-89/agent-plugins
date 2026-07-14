@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-files.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" protect-files"
           }
         ]
       },
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-files.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" protect-files"
           }
         ]
       },
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/protect-files.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" protect-files"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" static-check"
           }
         ]
       },
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs\""
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" static-check"
           }
         ]
       }

@@ -1,162 +1,159 @@
 ## MODIFIED Requirements
 
-### Requirement: protect-files hook replaces protect-eval
+### Requirement: protect-files hook 迁入 bin 构建体系
 
-The PreToolUse hook SHALL be renamed from `protect-eval.mjs` to `protect-files.mjs` and SHALL support config-driven file protection.
+protect-files hook 脚本 SHALL 从 `hooks/scripts/protect-files.mjs` 迁入 `bin/src/hooks.ts`，作为 `dev-team-hooks.cjs` 的子命令 `protect-files` 暴露。
 
-The hook SHALL intercept the following tool calls: `Write`, `Edit`, `Bash`, `PowerShell`.
+hook 的 PreToolUse 入口 SHALL 保留，通过 `hooks/hooks.json` 中 `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs" protect-files` 注册。
 
-The hook SHALL read `openspec/config.json` at invocation time to obtain the `write_protection` configuration.
+hook SHALL 拦截的 tool 范围不变：`Write`, `Edit`, `Bash`, `PowerShell`。
 
-#### Scenario: Hook script is renamed to protect-files.mjs
+hook SHALL 读取 `openspec/config.json` 的方式从手写 `loadConfig` 改为复用 `bin/src/lib/config.ts` 的 `readConfig` 函数。
 
-**WHEN** inspecting `hooks/hooks.json` for PreToolUse entries
-**THEN** the script paths reference `hooks/scripts/protect-files.mjs` instead of `hooks/scripts/protect-eval.mjs`
+#### Scenario: hook 注册命令指向 dev-team-hooks.cjs
 
-#### Scenario: Hook reads config.json at each invocation
+**WHEN** 检查 `hooks/hooks.json` 中 PreToolUse hook 的 command 字段
+**THEN** 所有 command 引用 `bin/dev-team-hooks.cjs protect-files` 而非 `hooks/scripts/protect-files.mjs`
 
-**WHEN** the hook is invoked
-**THEN** it reads and parses `openspec/config.json` from the project root
-**AND** extracts the `write_protection` configuration object
+#### Scenario: hooks.ts protect-files 子命令可被调用
 
-### Requirement: Built-in default protections
+**WHEN** 执行 `node bin/dev-team-hooks.cjs protect-files` 并传入有效 stdin JSON
+**THEN** 进程 exit code 为 0
+**AND** stdout 输出含 `hookSpecificOutput.permissionDecision` 的 JSON
 
-The hook SHALL always protect the following files regardless of `write_protection` configuration:
+#### Scenario: config 读取复用 readConfig
 
-- Any file matching `openspec/changes/*/eval.json` (glob pattern `**/openspec/changes/*/eval.json`)
-- Any file matching `openspec/config.json` (glob pattern `**/openspec/config.json`)
+**WHEN** protect-files 子命令启动
+**THEN** 它使用 `import { readConfig } from './lib/config'` 读取配置
+**AND** `readConfig` 执行 Zod schema 验证
 
-These built-in defaults SHALL be enforced even when `write_protection` is absent, empty, or when `config.json` cannot be parsed.
+### Requirement: Built-in default protections (迁移不变)
 
-The default denial reason SHALL use `%s` for file path and `%t` for tool name placeholders.
+内置保护规则不变 — 该 requirement 整体保持，仅实现方式从手写 globToRegex 改为 picomatch。
 
-#### Scenario: eval.json write is denied without write_protection config
+内置保护文件列表不变：
+- 任何匹配 `openspec/changes/*/eval.json` 的文件（glob 模式 `**/openspec/changes/*/eval.json`）
+- 任何匹配 `openspec/config.json` 的文件（glob 模式 `**/openspec/config.json`）
 
-**WHEN** the tool `Write` is called with `file_path` containing `openspec/changes/test-change/eval.json`
-**AND** `openspec/config.json` does not contain `write_protection`
-**THEN** the hook returns `permissionDecision: "deny"`
-**AND** the denial reason mentions `eval.json` and the tool name
+这些内置默认保护在 `write_protection` 不存在、为空或 `config.json` 无法解析时 SHALL 仍被强制执行。
 
-#### Scenario: config.json write is denied by built-in default
+默认 denial reason SHALL 继续使用 `%s`（文件路径）和 `%t`（工具名称）占位符。
 
-**WHEN** the tool `Write` is called with `file_path` containing `openspec/config.json`
-**AND** `openspec/config.json` does not contain `write_protection`
-**THEN** the hook returns `permissionDecision: "deny"`
+#### Scenario: eval.json 写入被内置保护拒绝
 
-#### Scenario: config.json write via Bash redirect is denied
+**WHEN** `dev-team-hooks.cjs protect-files` 接收到 stdin `{ "tool_name": "Write", "tool_input": { "file_path": "openspec/changes/test-change/eval.json" } }`
+**AND** `openspec/config.json` 不包含 `write_protection`
+**THEN** 输出 `permissionDecision: "deny"`
+**AND** denial reason 包含 `eval.json` 和工具名称
 
-**WHEN** the tool `Bash` is called with a command containing `echo '{}' > openspec/config.json`
-**AND** `openspec/config.json` does not contain `write_protection`
-**THEN** the hook returns `permissionDecision: "deny"`
+#### Scenario: config.json 写入被内置保护拒绝
 
-### Requirement: User-defined glob protection
+**WHEN** `dev-team-hooks.cjs protect-files` 接收到 stdin `{ "tool_name": "Write", "tool_input": { "file_path": "openspec/config.json" } }`
+**AND** `openspec/config.json` 不包含 `write_protection`
+**THEN** 输出 `permissionDecision: "deny"`
 
-The hook SHALL iterate over `write_protection.files` and match the target file path against each entry's `glob` pattern using an inline `globToRegex` function.
+#### Scenario: config.json Bash 重定向被拒绝
 
-Path normalization SHALL convert backslashes to forward slashes before matching to ensure cross-platform consistency.
+**WHEN** `dev-team-hooks.cjs protect-files` 接收到 stdin 中 `tool_name: "Bash"` 且 command 包含 `echo '{}' > openspec/config.json`
+**AND** `openspec/config.json` 不包含 `write_protection`
+**THEN** 输出 `permissionDecision: "deny"`
 
-When a match is found, the hook SHALL return `permissionDecision: "deny"`.
+### Requirement: User-defined glob protection (改用 picomatch)
 
-#### Scenario: User glob matches target file path
+matchGlob 实现 SHALL 从手写 `globToRegex` 替换为 `bin/src/lib/glob.ts` 的 `matchGlob` 函数，基于 picomatch 库。
 
-**WHEN** `openspec/config.json` contains `{ "write_protection": { "files": [{ "glob": "secrets/**" }] } }`
-**AND** the tool `Edit` is called with `file_path` containing `secrets/keys.yml`
-**THEN** the hook returns `permissionDecision: "deny"`
+路径归一化逻辑 SHALL 继续使用 `toForwardSlash`（源自 `lib/glob.ts`），将反斜杠转换为正斜杠。
 
-#### Scenario: File not matching any glob passes through
+当目标文件路径匹配任一用户配置的 `write_protection.files[].glob` 时，hook SHALL 返回 `permissionDecision: "deny"`。
 
-**WHEN** `openspec/config.json` contains `{ "write_protection": { "files": [{ "glob": "secrets/**" }] } }`
-**AND** the tool `Write` is called with `file_path` containing `src/app.ts`
-**THEN** the hook returns `permissionDecision: "allow"`
+#### Scenario: 用户 glob 匹配目标文件路径
 
-#### Scenario: Windows backslash path matches glob after normalization
+**WHEN** `openspec/config.json` 包含 `{ "write_protection": { "files": [{ "glob": "secrets/**" }] } }`
+**AND** stdin 中 `tool_name: "Edit"` 且 `file_path` 为 `secrets/keys.yml`
+**THEN** hook 输出 `permissionDecision: "deny"`
 
-**WHEN** `openspec/config.json` contains `{ "write_protection": { "files": [{ "glob": "secrets/**" }] } }`
-**AND** the tool `Write` is called with `file_path` containing `secrets\keys.yml` (Windows backslash)
-**THEN** the hook returns `permissionDecision: "deny"`
+#### Scenario: 未匹配任何 glob 的文件放行
 
-### Requirement: Custom denial reason
+**WHEN** `openspec/config.json` 包含 `{ "write_protection": { "files": [{ "glob": "secrets/**" }] } }`
+**AND** stdin 中 `tool_name: "Write"` 且 `file_path` 为 `src/app.ts`
+**THEN** hook 输出 `permissionDecision: "allow"`
 
-When a matched `write_protection.files` entry contains a `reason` field, the hook SHALL use that string as the denial reason, with the following placeholder substitutions:
+#### Scenario: Windows 反斜杠路径匹配 glob
 
-- `%s` — the file path that was attempted to be written
-- `%t` — the tool name (e.g., "Write", "Edit", "Bash", "PowerShell")
+**WHEN** `openspec/config.json` 包含 `{ "write_protection": { "files": [{ "glob": "secrets/**" }] } }`
+**AND** stdin 中 `tool_name: "Write"` 且 `file_path` 为 `secrets\keys.yml`
+**THEN** hook 输出 `permissionDecision: "deny"`
 
-#### Scenario: Custom reason with file path placeholder
+### Requirement: Custom denial reason (不变)
 
-**WHEN** `openspec/config.json` contains `{ "write_protection": { "files": [{ "glob": "secrets/*", "reason": "File '%s' is protected. Use a dedicated tool." }] } }`
-**AND** the tool `Write` is called with `file_path` containing `secrets/api.key`
-**THEN** the hook returns `permissionDecision: "deny"`
-**AND** the denial reason contains "File '...secrets/api.key' is protected."
+该 requirement 整体保持不变，行为和占位符规则与迁移前一致。
 
-#### Scenario: Custom reason with tool name placeholder
+#### Scenario: 自定义 reason 含文件路径占位符
 
-**WHEN** `openspec/config.json` contains `{ "write_protection": { "files": [{ "glob": "secrets/*", "reason": "Protected via %t" }] } }`
-**AND** the tool `Write` is called with `file_path` containing `secrets/api.key`
-**THEN** the denial reason contains "Protected via Write"
+**WHEN** `openspec/config.json` 包含 `{ "write_protection": { "files": [{ "glob": "secrets/*", "reason": "File '%s' is protected." }] } }`
+**AND** stdin 中 `tool_name: "Write"` 且 `file_path` 为 `secrets/api.key`
+**THEN** denial reason 包含 `"File '...secrets/api.key' is protected."`
 
-### Requirement: Fail-open behavior preserved
+#### Scenario: 自定义 reason 含工具名称占位符
 
-The hook SHALL default to `permissionDecision: "allow"` under any of the following conditions:
+**WHEN** `openspec/config.json` 包含 `{ "write_protection": { "files": [{ "glob": "secrets/*", "reason": "Protected via %t" }] } }`
+**AND** stdin 中 `tool_name: "Write"` 且 `file_path` 为 `secrets/api.key`
+**THEN** denial reason 包含 `"Protected via Write"`
 
-- Empty or missing stdin
-- Invalid JSON stdin
-- Missing `tool_name` field
-- Missing `tool_input.file_path` for Write/Edit tools
-- Missing `tool_input.command` for Bash/PowerShell tools
-- `config.json` read or parse failure (SHALL fall back to built-in defaults)
+### Requirement: Fail-open behavior preserved (不变)
 
-These are the same fail-open guards as the original protect-eval.mjs.
+fail-open 行为规则不变 — 与迁移前完全一致。
 
-#### Scenario: Empty stdin returns allow
+#### Scenario: 空 stdin 返回 allow
 
-**WHEN** the hook receives empty stdin
-**THEN** it returns `permissionDecision: "allow"`
+**WHEN** hook 接收到空 stdin
+**THEN** 输出 `permissionDecision: "allow"`
 
-#### Scenario: Invalid JSON stdin returns allow
+#### Scenario: 无效 JSON stdin 返回 allow
 
-**WHEN** the hook receives invalid JSON stdin (`{not json`)
-**THEN** it returns `permissionDecision: "allow"`
+**WHEN** stdin 为 `{not json`
+**THEN** 输出 `permissionDecision: "allow"`
 
-#### Scenario: Missing tool_input.file_path for Write returns allow
+#### Scenario: 缺少 tool_input.file_path 返回 allow
 
-**WHEN** the hook receives `{ "tool_name": "Write", "tool_input": {} }`
-**THEN** it returns `permissionDecision: "allow"`
+**WHEN** stdin 为 `{ "tool_name": "Write", "tool_input": {} }`
+**THEN** 输出 `permissionDecision: "allow"`
 
-#### Scenario: Config.json parse failure falls back to built-in defaults
+#### Scenario: config.json 解析失败仍执行内置保护
 
-**WHEN** `openspec/config.json` contains invalid JSON
-**AND** the tool `Write` is called with `file_path` containing `openspec/changes/test/eval.json`
-**THEN** the hook still returns `permissionDecision: "deny"` (built-in default protection applies)
+**WHEN** `openspec/config.json` 包含无效 JSON
+**AND** stdin 中 `tool_name: "Write"` 且 `file_path` 为 `openspec/changes/test/eval.json`
+**THEN** 内置保护仍生效，输出 `permissionDecision: "deny"`
 
-### Requirement: Python/Node exemption preserved
+### Requirement: Python/Node exemption preserved (不变)
 
-The hook SHALL NOT deny Bash commands that start with `python`, `python3`, or `node`, matching the existing exemption behavior.
+Python/Node 命令豁免规则不变 — 与迁移前完全一致。
 
-#### Scenario: Python command writing eval.json is allowed
+#### Scenario: Python 命令写入 eval.json 豁免
 
-**WHEN** the tool `Bash` is called with command `python scripts/deploy.py --eval openspec/changes/test/eval.json`
-**THEN** the hook returns `permissionDecision: "allow"`
+**WHEN** stdin 中 `tool_name: "Bash"` 且 command 为 `python scripts/deploy.py --eval openspec/changes/test/eval.json`
+**THEN** 输出 `permissionDecision: "allow"`
 
-#### Scenario: Node command writing config.json is allowed
+#### Scenario: Node 命令写入 config.json 豁免
 
-**WHEN** the tool `Bash` is called with command `node scripts/setup.js openspec/config.json`
-**THEN** the hook returns `permissionDecision: "allow"`
+**WHEN** stdin 中 `tool_name: "Bash"` 且 command 为 `node scripts/setup.js openspec/config.json`
+**THEN** 输出 `permissionDecision: "allow"`
 
 ## Module Contract
 
-### Hook: PreToolUse — protect-files.mjs
+### Hook: PreToolUse — dev-team-hooks.cjs protect-files
 
 | Property | Description |
 |----------|-------------|
-| **Location** | `plugins/dev-team/hooks/scripts/protect-files.mjs` |
+| **Entry** | `plugins/dev-team/bin/src/hooks.ts` (子命令: `protect-files`) |
+| **Bundle** | `plugins/dev-team/bin/dev-team-hooks.cjs` |
 | **Registration** | `plugins/dev-team/hooks/hooks.json` — PreToolUse for Write/Edit/Bash/PowerShell |
 | **Input** | stdin JSON: `{ tool_name, tool_input: { file_path?, command? } }` |
 | **Output** | stdout JSON: `{ hookSpecificOutput: { permissionDecision, permissionDecisionReason? } }` |
-| **Config source** | `openspec/config.json` → `write_protection` field |
+| **Config source** | `openspec/config.json` → `write_protection` field (via `readConfig` from `lib/config.ts`) |
 | **Built-in defaults** | `**/openspec/changes/*/eval.json`, `**/openspec/config.json` |
-| **Glob library** | Inline `globToRegex` function (zero external dependencies) |
-| **Path normalization** | Backslash (`\`) → forward slash (`/`) before pattern matching |
+| **Glob library** | `picomatch` via `lib/glob.ts` `matchGlob` |
+| **Path normalization** | `lib/glob.ts` `toForwardSlash` (backslash → forward slash) |
 | **Fallback** | Config parse failure → built-in defaults only |
 | **Fail-open** | Input anomalies → allow |
 
@@ -164,6 +161,14 @@ The hook SHALL NOT deny Bash commands that start with `python`, `python3`, or `n
 
 | Property | Before | After |
 |----------|--------|-------|
-| PreToolUse script (Write/Edit) | `protect-eval.mjs` | `protect-files.mjs` |
-| PreToolUse script (Bash) | `protect-eval.mjs` | `protect-files.mjs` |
-| PreToolUse script (PowerShell) | `protect-eval.mjs` | `protect-files.mjs` |
+| PreToolUse command (Write/Edit) | `node ".../hooks/scripts/protect-files.mjs"` | `node ".../bin/dev-team-hooks.cjs" protect-files` |
+| PreToolUse command (Bash) | `node ".../hooks/scripts/protect-files.mjs"` | `node ".../bin/dev-team-hooks.cjs" protect-files` |
+| PreToolUse command (PowerShell) | `node ".../hooks/scripts/protect-files.mjs"` | `node ".../bin/dev-team-hooks.cjs" protect-files` |
+
+### vite.config.ts (updated)
+
+| Property | Before | After |
+|----------|--------|-------|
+| pack entries | `[mcp, cli]` | `[mcp, cli, hooks]` |
+| hooks entry | (none) | `src/hooks.ts` |
+| hooks output | (none) | `dev-team-hooks.cjs`, format: `cjs`, minify: `true` |

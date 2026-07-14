@@ -1,6 +1,6 @@
 # 测试设计: consolidate-hooks-to-bin
 
-> **日期**: 2026-07-07
+> **日期**: 2026-07-13 (回溯更新: 覆盖率分析后扩展测试场景)
 
 ---
 
@@ -36,7 +36,9 @@
 | `plugins/dev-team/bin/src/hooks.test.ts` | hooks 子命令调度 | 正向 | `runProtectFiles` 输出格式为 `{ hookSpecificOutput: { hookEventName, permissionDecision } }` | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | hooks 子命令调度 | 异常 | 未知子命令 `process.argv[2] = 'unknown'` 时 stderr 输出错误信息并 `process.exit(1)` | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | hooks 子命令调度 | 异常 | `process.argv[2]` 未定义时 stderr 输出 help/error 并 `process.exit(1)` | 新增 |
-| `plugins/dev-team/bin/src/hooks.test.ts` | hooks 子命令调度 | 边界 | 顶层 try-catch 包裹整个处理流程，任何未捕获异常输出 `{ decision: "block", reason }` 而非抛到框架 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | hooks 子命令调度 | 边界 | 顶层 try-catch 包裹整个处理流程，任何未捕获异常输出 `{ decision: "block", reason }` 而非抛到框架 (Error 实例) | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | hooks 子命令调度 | 边界 | 顶层 try-catch 捕获非 Error 对象（如字符串）时 `String(error)` 输出 `{ decision: "block", reason }` | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | hooks 子命令调度 | 边界 | `process.argv[2]=""` 空字符串时 `process.exit(1)` | 新增 |
 
 ##### protect-files 功能等价迁移 (AC-2)
 
@@ -61,11 +63,14 @@
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `detectPowerShellWrite` — `*>` 合并流到 eval.json 返回 deny | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `detectPowerShellWrite` — `[System.IO.File]::WriteAllText` 写入 eval.json 返回 deny | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `detectPowerShellWrite` — `[System.IO.File]::AppendAllText` 追加 eval.json 返回 deny | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `detectPowerShellWrite` — `[System.IO.File]::WriteAllLines` 写入 eval.json 返回 deny | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `detectPowerShellWrite` — `[System.IO.File]::WriteAllBytes` 写入 eval.json 返回 deny | **新增-覆盖扩展** |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `outputAllow` 返回含 `permissionDecision: "allow"` 的有效 JSON（等价移植） | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `outputDeny(reason)` 返回含 `permissionDecision: "deny"` 和 reason 的有效 JSON | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `buildDenyReason` — 自定义 reason 含 `%s` 和 `%t` 占位符替换 | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 正向 | `extractChangeName` 从 `openspec/changes/my-feature/eval.json` 提取 `my-feature` | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 异常 | `parseInput` 空字符串输入返回 `{ decision: "allow" }` (fail-open) | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 异常 | `parseInput` 空白字符串输入返回 `{ decision: "allow" }` (fail-open) | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 异常 | `parseInput` 无效 JSON 输入返回 `{ decision: "allow" }` (fail-open) | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 异常 | `parseInput` 有效 JSON 缺失 `tool_name` 返回 `{ decision: "allow" }` (fail-open) | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 异常 | `parseInput` Write 工具缺失 `tool_input.file_path` 返回 `{ decision: "allow" }` (fail-open) | 新增 |
@@ -78,11 +83,21 @@
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `buildDenyReason` pattern 为 null 时使用默认回退文案 | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `buildDenyReason` reason 含特殊字符（换行、引号、反斜杠、emoji）时序列化可 JSON.parse | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectBashWrite` 含 `->` 但无写入操作时返回 allow | 新增 |
-| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectBashWrite` python/node 命令豁免返回 allow | 新增 |
-| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectPowerShellWrite` python/node 命令豁免返回 allow | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectBashWrite` node 命令豁免返回 allow | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectBashWrite` python3 命令豁免返回 allow | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectPowerShellWrite` python 命令豁免返回 allow | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectPowerShellWrite` node 命令豁免返回 allow | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectPowerShellWrite` 命令字符串 eval.json 出现在非路径上下文中不应误报 | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `extractChangeName` Windows 反斜杠路径提取 change name | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `extractChangeName` 路径不含 openspec/changes/ 时返回空字符串 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `extractChangeName` 空路径返回空字符串 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `parseInput` Write 工具 `tool_input` 为数字（非 Record）时返回 allow | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `parseInput` Write 工具 `tool_input` 为 null 时返回 allow | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `loadPatterns` 用户配置 `files` 数组为空时仅使用内置保护模式 | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `loadPatterns` 用户配置 file 条目缺失 `glob` 属性时跳过该条目 | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `loadPatterns` 用户配置 file 条目 `glob` 为空字符串时跳过该条目 | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `detectPowerShellWrite` 写入非受保护文件时返回 allow（覆盖 extract + isProtected 未匹配路径） | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 功能等价迁移 | 边界 | `Select-Object` 读操作不产生 deny（仅写 cmdlet 生效） | **新增-覆盖扩展** |
 
 ##### protect-files 复用 picomatch (AC-3)
 
@@ -90,6 +105,7 @@
 |---------|---------|----------|----------|----------|
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 复用 picomatch | 正向 | `isProtected` 使用 `pattern.match`（由 `matchGlob` 编译）进行匹配，对 eval.json 模式返回 `matched: true` | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 复用 picomatch | 正向 | 用户配置自定义 glob 模式后 `isProtected` 正确匹配对应路径 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 复用 picomatch | 正向 | 用户自定义 glob 模式不匹配时允许写入 | **新增-覆盖扩展** |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 复用 picomatch | 边界 | 超长路径前缀 + eval.json 仍应匹配 | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 复用 picomatch | 边界 | Windows 反斜杠路径归一化后匹配 | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | protect-files 复用 picomatch | 边界 | 路径含特殊字符（空格、括号、Unicode）时 glob 匹配正确 | 新增 |
@@ -103,6 +119,9 @@
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 进程内调用 | 正向 | `runStaticCheck` 内部不包含 `import { spawnSync }` 或 `execFileSync` | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 进程内调用 | 正向 | `runStaticCheck` 调用 `runStaticAnalysis` 时传递从 stdin 解析的 workspaceRoot | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 进程内调用 | 异常 | `runStaticAnalysis` 抛异常时 `runStaticCheck` 捕获并输出 `{ decision: "block", reason }` | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 进程内调用 | 边界 | `captureStderr` 接收 `Uint8Array`/`Buffer` 输入时仍正确转换为字符串 | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 进程内调用 | 边界 | `captureStderr` restore 后写入不被收集 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 进程内调用 | 边界 | 多次 `captureStderr` 嵌套时正确分层 | 新增 |
 
 ##### static-check 功能等价迁移 (AC-5)
 
@@ -115,8 +134,13 @@
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 异常 | `parseWorkspaceRoot` `workspace_roots` 为空数组时返回 null | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 异常 | `parseWorkspaceRoot` 无 `workspace_roots` 字段时返回 null | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 异常 | `parseWorkspaceRoot` 非法 JSON 时返回 null 且不抛异常 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 异常 | `parseWorkspaceRoot` JSON 解析为数组（非 Record）时返回 null | **新增-覆盖扩展** |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 异常 | `parseWorkspaceRoot` JSON 解析为字符串（非 Record）时返回 null | **新增-覆盖扩展** |
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 边界 | `formatOutput` CLI 输出含特殊字符时 `JSON.stringify` 可解析 | 新增 |
 | `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 边界 | `handleMissingCli` CLI 文件不存在时返回 `{ decision: "block" }` 且 reason 含路径 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 边界 | CLI exit 非 0 且 stderr 为空时 reason 使用默认前缀 | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 边界 | `runStaticAnalysis` 返回 exit 2 时输出 `{ decision: "block" }` | 新增 |
+| `plugins/dev-team/bin/src/hooks.test.ts` | static-check 功能等价迁移 | 边界 | `runStaticAnalysis` 返回 exit 127 时输出 `{ decision: "block" }` | 新增 |
 
 #### 测试文件: `plugins/dev-team/bin/src/vite.config.test.ts`
 
@@ -140,6 +164,7 @@
 | `plugins/dev-team/bin/src/hooks.test.ts` | `process.stdin` (fd 0) | 使用 `vi.spyOn(fs, 'readFileSync').mockReturnValue(stdinJson)` 模拟 stdin 输入 | protect-files 输入解析（AC-2）、static-check 输入解析（AC-5） |
 | `plugins/dev-team/bin/src/hooks.test.ts` | `readConfig` / `runStaticAnalysis` 等外部模块 | 使用 `vi.mock('../lib/config')` 和 `vi.mock('../commands/run-static-analysis')` 隔离文件系统调用 | protect-files 模式加载（AC-2）、static-check 进程内调用（AC-4） |
 | `plugins/dev-team/bin/src/hooks.test.ts` | `import.meta.resolve` | 使用 `vi.mock` 或直接注入 mock 返回值 | static-check 路径解析（AC-5） |
+| `plugins/dev-team/bin/src/hooks.test.ts` | `process.stderr.write` 行为 | 使用 `vi.spyOn` 注入 `Uint8Array`/`Buffer` 测试 `captureStderr` 的非字符串入参 | captureStderr Buffer 处理（AC-4 边界） |
 | `plugins/dev-team/bin/src/vite.config.test.ts` | vite-plus `defineConfig` | 导入配置模块，检查返回对象属性，不做静态类型验证 | hooks 构建配置验证 |
 
 ---
@@ -208,6 +233,16 @@
 
 - **代码审查项 (AC-3 import 验证)** — `hooks.ts` 中是否包含手写 `globToRegex` 实现的检查属于静态代码审查，可通过 ESLint 规则或 Code Review 阶段人工验证。单元测试通过功能等价性（AC-2）间接验证迁移正确性。
 
+- **`hooks.json` 和 `plugin.json`** — 此两类 JSON 配置文件被 MCP 工具报告为不可测试源文件。其内容正确性通过集成测试（build.test.ts）以文件读检查方式验证，不架构为单元测试用例。
+
+- **`hasBashWriteOperator` heredoc 分支** — heredoc (`<<`) 作为输入重定向符，在实际写命令中总是与 `>` 或 `>>` 等输出重定向符同时出现。`>` 分支先于 `<<` 分支在前短路返回，因此 heredoc 独立分支在 `hasBashWriteOperator` 的实际执行中不可达。该分支在代码评审中确认安全。
+
+- **`extractBashWriteTargets` / `extractPowerShellWriteTargets` 的 `m[1]` 空值守卫** — 正则 `re.exec` 匹配成功时捕获组 `m[1]` 在正则设计上保证非空，`if (m[1])` 守卫仅作防御性编程。该守卫的 `false` 分支在运行时不可达，不附加测试。
+
+- **`detectBashWrite` / `detectPowerShellWrite` 空命令守卫** — 空命令字符串在 `parseInput` 阶段已被 `if (!command || typeof command !== 'string')` 提前返回 `{ decision: 'allow' }`，因此 `detectBashWrite` 和 `detectPowerShellWrite` 的 `if (!cmd)` 分支从上层无法到达。该守卫为防御性编程，不附加测试。
+
+- **`runProtectFiles` 的 `result.reason ?? ''` `null` 分支** — 所有返回 `deny` 的代码路径均通过 `buildDenyReason` 设置了非空 `reason` 字段，因此 `??` 的右操作数在 deny 路径上实际不可达。该 `?? ''` 为防御性编程，不附加测试。
+
 ---
 
 ## 参数类型 — 边界值系统映射
@@ -215,9 +250,13 @@
 | 参数 | 类型 | 边界值 | 最小值 | 覆盖场景 |
 |------|------|--------|--------|----------|
 | `process.argv[2]` (子命令) | string | `""`, `"protect-files"`, `"static-check"`, `"unknown"`, undefined | 5 | 子命令调度 AC-1 |
-| stdin (protect-files) | string | `""`, `"  "`, `"{not json"`, 合法 Write/Edit/Bash/PowerShell JSON, 缺失字段 JSON | 7+ | 输入解析 AC-2 |
-| stdin (static-check) | string | `""`, `"not json"`, `{ workspace_roots: [] }`, `{ workspace_roots: ['/path'] }`, 无 workspace_roots 字段 | 5 | 输入解析 AC-5 |
+| stdin (protect-files) | string | `""`, `"  "`, `"{not json"`, 合法 Write/Edit/Bash/PowerShell JSON, 缺失字段 JSON, `tool_input` 为 number/null | 8+ | 输入解析 AC-2 |
+| stdin (static-check) | string | `""`, `"not json"`, `{ workspace_roots: [] }`, `{ workspace_roots: ['/path'] }`, 无 workspace_roots 字段, JSON 数组, JSON 字符串 | 7 | 输入解析 AC-5 |
+| `tool_input` | object (Record) | `{ file_path: "..." }`, `{}`, `null`, `123`, `"string"` | 5 | 输入解析 AC-2 |
 | file_path | string | `""`, `"openspec/config.json"`, Windows 反斜杠, 超长路径(>400), 含空格/Unicode/特殊字符 | 6+ | 路径匹配 AC-2, AC-3 |
 | CLI exit code | number | 0, 1, 2, 127 | 4 | static-check 输出 AC-5 |
-| patterns 数组 | array | `[]`, `[单模式]`, `[内置+自定义]` | 3 | 模式加载 AC-2 |
+| patterns 数组 | array | `[]`, `[单模式]`, `[内置+自定义]`, `[{空 glob}]`, `[{缺 glob 属性}]` | 5 | 模式加载 AC-2, AC-3 |
 | `buildDenyReason` pattern | object/null | `{ reason: "..." }`, `{ no reason }`, null | 3 | 拒绝文案 AC-2 |
+| `captureStderr` chunk | string/Uint8Array | 字符串, Buffer (`Uint8Array`) | 2 | captureStderr AC-4 |
+
+> 回溯覆盖分析: 当前 hooks.ts 的 lines 覆盖率为 99.34% (151/152)，branches 覆盖率为 86.06% (105/122)。剩余 17 个未覆盖分支中，11 个为防御性编程不可达分支（见不可测试项），6 个可通过上述新增测试用例覆盖。新增测试用例后预期 branches 覆盖率可提升至约 92%。

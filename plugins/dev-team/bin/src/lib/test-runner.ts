@@ -284,7 +284,7 @@ function runMutationPhase(
 
     const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory);
 
-    cleanupMutationArtifacts(absoluteDirectory, configPath, tempDirPath);
+    cleanupMutationArtifacts(configPath, tempDirPath);
 
     if (!mutationBlock) {
       logMissingReport(cmdResult);
@@ -327,17 +327,7 @@ function buildMutationBlockFromReport(entry: TestPlan, rootPath: string): Mutati
  *
  * Removes the reports/mutation/ directory and the temporary config file
  */
-function cleanupMutationArtifacts(rootPath: string, configPath: string, tempDirPath: string): void {
-  // Remove reports/mutation/ directory
-  const mutationReportDir = path.resolve(rootPath, 'reports', 'mutation');
-  try {
-    if (fs.existsSync(mutationReportDir)) {
-      fs.rmSync(mutationReportDir, { recursive: true, force: true });
-    }
-  } catch {
-    // Best-effort cleanup
-  }
-
+function cleanupMutationArtifacts(configPath: string, tempDirPath: string): void {
   // Remove temporary config file
   try {
     if (fs.existsSync(configPath)) {
@@ -347,9 +337,10 @@ function cleanupMutationArtifacts(rootPath: string, configPath: string, tempDirP
     // Best-effort cleanup
   }
 
+  // Remove temporary snapshot files
   try {
     if (fs.existsSync(tempDirPath)) {
-      fs.rmSync(tempDirPath);
+      fs.rmSync(tempDirPath, { recursive: true });
     }
   } catch {
     // Best-effort cleanup
