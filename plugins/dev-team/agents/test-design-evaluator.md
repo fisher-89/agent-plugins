@@ -16,13 +16,28 @@ Read only:
 - `openspec/changes/<change-name>/proposal.md` — reference for cross-checking requirements
 - `plugins/dev-team/templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
 
+### Parameter Type → Edge Case Systematic Mapping
+
+| Type | Edge Cases | Minimum Count |
+|------|-----------|---------------|
+| int / number | 0, -1, MAX_INT, None/undefined | 4 edge + 1 normal |
+| str / string | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal |
+| bool | True, False, None | 3 |
+| list / array | [] (empty), [单元素], 超大列表, None | 4 edge + 1 normal |
+| dict / object | {} (empty), 缺失必填字段, 多余字段, None | 4 edge + 1 normal |
+| Optional[T] | None | 1 (merge with other boundaries) |
+| Enum | 每个枚举值, 非法枚举值 | N+1 |
+| float | 0.0, -0.0, NaN, Inf, None | 5 edge + 1 normal |
+
+> For nested generic types (e.g., `List[Dict[str, int]]`), combine outer container boundary values (empty, single-element, large, None) with inner type boundary values. Each combination exercises a different nesting depth.
+
 ## Static Checklist
 
 | ID | 检查项 | 判断依据 |
 |----|------|---------|
 | T1 | proposal.md 中每个验收标准都在`验收范围`中有映射 | 逐项交叉验证 proposal.md 中每个 AC-N 与`验收范围`表格 |
 | T2 | `验收范围`与`用例`互相对应 | 逐项交叉验证所有`用例`章节中每个测试对象/测试场景与`验收范围`表格，互相没有缺失 |
-| T3 | `单元测试`充分覆盖`异常`和`边界` | 每个测试对象至少有一个异常/边界情况 |
+| T3 | `单元测试`充分覆盖`异常`和`边界` | 每个测试对象至少有一个异常用例，每个参数根据数据类型选择边界用例（参考 `### Parameter Type → Edge Case Systematic Mapping`） |
 | T4 | 存在外部依赖时描述了 Mock 策略 | 如果 proposal 提到外部服务/接口/文件/数据库，必须有 Mock 策略 |
 | T5 | 所有模板章节已填写实质性内容 | 章节：验收范围、单元测试、集成测试（可选）、不可测试项（可选） |
 | T6 | 测试设计与 proposal 范围一致 | out_of_scope 项无测试覆盖；所有 in_scope 项均有测试覆盖 |
