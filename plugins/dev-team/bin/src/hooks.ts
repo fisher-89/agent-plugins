@@ -25,11 +25,6 @@ interface ProtectedPattern {
   reason?: string;
 }
 
-interface ToolDecision {
-  decision: 'allow' | 'deny';
-  reason?: string;
-}
-
 interface ProtectionResult {
   matched: boolean;
   matchedGlob?: string;
@@ -47,9 +42,6 @@ interface ProtectionResult {
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value != null && typeof value === 'object' && !Array.isArray(value);
 }
-
-/** Sentinel return value: allow decision. */
-const ALLOW: ToolDecision = Object.freeze({ decision: 'allow' });
 
 // ---------------------------------------------------------------------------
 // Pattern Loading
@@ -97,7 +89,7 @@ function loadPatterns(projectRoot: string): ProtectedPattern[] {
  *
  * @internal Exported for testing only.
  */
-export function isProtected(filePath: string, patterns: ProtectedPattern[]): ProtectionResult {
+function isProtected(filePath: string, patterns: ProtectedPattern[]): ProtectionResult {
   if (!filePath) return { matched: false };
   const normalized = filePath.replace(/\\/g, '/');
 
@@ -125,7 +117,7 @@ export function isProtected(filePath: string, patterns: ProtectedPattern[]): Pro
  *
  * @internal Exported for testing only.
  */
-export function buildDenyReason(
+function buildDenyReason(
   pattern: ProtectionResult | null,
   filePath: string,
   toolName: string,
@@ -151,21 +143,20 @@ export function buildDenyReason(
  *   - >& redirect
  *   - heredoc via cat > / tee (captured by the > / tee patterns above)
  */
-const BASH_WRITE_REGEXES: readonly RegExp[] = [
-  // > and >> redirect (not preceded by - or part of ->)
-  /(?:^|[^-])>{1,2}\s+['"]?([^\s;|`$&()'"]+)['"]?/g,
-  // >| redirect (noclobber override)
-  />\|\s+['"]?([^\s;|`$&()'"]+)['"]?/g,
-  // tee (possibly with -a or other flags)
-  /(?:^|[\s;|&(])\s*tee\s+(?:-[a-zA-Z]+\s+)?['"]?([^\s;|`$&()'"]+)['"]?/g,
-  // >& redirect
-  />&\s*['"]?([^\s;|`$&()'"]+)['"]?/g,
-];
-
 function extractBashWriteTargets(cmd: string): string[] {
+  const regexes: readonly RegExp[] = [
+    // > and >> redirect (not preceded by - or part of ->)
+    /(?:^|[^-])>{1,2}\s+['"]?([^\s;|`$&()'"]+)['"]?/g,
+    // >| redirect (noclobber override)
+    />\|\s+['"]?([^\s;|`$&()'"]+)['"]?/g,
+    // tee (possibly with -a or other flags)
+    /(?:^|[\s;|&(])\s*tee\s+(?:-[a-zA-Z]+\s+)?['"]?([^\s;|`$&()'"]+)['"]?/g,
+    // >& redirect
+    />&\s*['"]?([^\s;|`$&()'"]+)['"]?/g,
+  ];
   const targets: string[] = [];
 
-  for (const re of BASH_WRITE_REGEXES) {
+  for (const re of regexes) {
     // Reset lastIndex for reused regex literals in global mode
     re.lastIndex = 0;
     let m: RegExpExecArray | null;
@@ -178,17 +169,14 @@ function extractBashWriteTargets(cmd: string): string[] {
 }
 
 /**
- * Detect whether a bash command tries to write to a protected file.
- * Returns { decision: 'allow' } or { decision: 'deny', reason }.
- *
- * Uses a single regex extraction pass — if no write targets are found,
- * the command is safe.
+ * Check whether a bash command attempts to write to any protected file.
+ * Returns a deny reason string if protected, or null if the command is allowed.
  */
-function detectBashWrite(cmd: string, patterns: ProtectedPattern[]): ToolDecision {
+function checkBashCommand(cmd: string, patterns: ProtectedPattern[]): string | null {
   const normalized = cmd.replace(/\\/g, '/');
 
   // Exempt python/node script runners
-  if (/^(python|python3|node)\s/.test(normalized)) return ALLOW;
+  if (/^(python|python3|node)\s/.test(normalized)) return null;
 
   // Single-pass: extract + check in one flow (no separate hasBashWriteOperator guard)
   const targets = extractBashWriteTargets(normalized);
@@ -197,14 +185,11 @@ function detectBashWrite(cmd: string, patterns: ProtectedPattern[]): ToolDecisio
   for (const target of targets) {
     const result = isProtected(target, patterns);
     if (result.matched) {
-      return {
-        decision: 'deny',
-        reason: buildDenyReason(result, target, 'Bash'),
-      };
+      return buildDenyReason(result, target, 'Bash');
     }
   }
 
-  return ALLOW;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,14 +241,14 @@ function extractPowerShellWriteTargets(cmd: string): string[] {
 }
 
 /**
- * Detect whether a PowerShell command tries to write to a protected file.
- * Returns { decision: 'allow' } or { decision: 'deny', reason }.
+ * Check whether a PowerShell command attempts to write to any protected file.
+ * Returns a deny reason string if protected, or null if the command is allowed.
  */
-function detectPowerShellWrite(cmd: string, patterns: ProtectedPattern[]): ToolDecision {
+function checkPowerShellCommand(cmd: string, patterns: ProtectedPattern[]): string | null {
   const normalized = cmd.replace(/\\/g, '/');
 
   // Exempt python/node script runners
-  if (/^(python|python3|node)\s/.test(normalized)) return ALLOW;
+  if (/^(python|python3|node)\s/.test(normalized)) return null;
 
   // Extract target file paths
   const targets = extractPowerShellWriteTargets(normalized);
@@ -272,104 +257,112 @@ function detectPowerShellWrite(cmd: string, patterns: ProtectedPattern[]): ToolD
   for (const target of targets) {
     const result = isProtected(target, patterns);
     if (result.matched) {
-      return {
-        decision: 'deny',
-        reason: buildDenyReason(result, target, 'PowerShell'),
-      };
+      return buildDenyReason(result, target, 'PowerShell');
     }
   }
 
-  return ALLOW;
+  return null;
 }
 
 // ---------------------------------------------------------------------------
-// Change Name Extraction
+// Project Root
+// ---------------------------------------------------------------------------
+
+/** Resolve the project root from environment or cwd. */
+function resolveProjectRoot(): string {
+  return process.env.CLAUDE_PROJECT_ROOT || getProjectDir();
+}
+
+// ---------------------------------------------------------------------------
+// Protected Path Matching
 // ---------------------------------------------------------------------------
 
 /**
- * Extract the change name from a file path under openspec/changes/.
+ * Check a single file path against protected patterns.
+ * Returns the deny reason if the path matches a protected pattern, or null.
  */
-export function extractChangeName(filePath: string): string {
-  const normalized = filePath.replace(/\\/g, '/');
-  const match = normalized.match(/openspec\/changes\/([^/]+)/);
-  return match ? match[1] : '';
+function matchProtectedPath(
+  filePath: string,
+  patterns: ProtectedPattern[],
+  toolName: string,
+): string | null {
+  const result = isProtected(filePath, patterns);
+  return result.matched ? buildDenyReason(result, filePath, toolName) : null;
 }
 
 // ---------------------------------------------------------------------------
-// Output Helpers
-// ---------------------------------------------------------------------------
-
-function outputAllow(): string {
-  return JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'allow',
-    },
-  });
-}
-
-function outputDeny(reason: string): string {
-  return JSON.stringify({
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: 'deny',
-      permissionDecisionReason: reason,
-    },
-  });
-}
-
-// ---------------------------------------------------------------------------
-// Input Parser
+// Tool Access Evaluation
 // ---------------------------------------------------------------------------
 
 /**
- * Parse the stdin JSON received from the hook runtime, check the tool
- * invocation against the protected patterns, and return a decision.
+ * Evaluate whether a hook event's tool invocation is allowed to access
+ * protected files.
  *
- * Fail-open: returns { decision: 'allow' } when input is missing, invalid,
- * or the tool is not a write-capable tool.
+ * Parses the stdin JSON, routes to the appropriate checker based on tool_name,
+ * and returns a deny reason string or null (fail-open).
  */
-function parseInput(raw: string, patterns: ProtectedPattern[]): ToolDecision {
-  if (!raw || !raw.trim()) return ALLOW;
+function evaluateToolAccess(raw: string, patterns: ProtectedPattern[]): string | null {
+  if (!raw || !raw.trim()) return null;
 
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(raw);
   } catch {
-    return ALLOW;
+    return null;
   }
 
   const toolName = parsed.tool_name;
-  if (!toolName || typeof toolName !== 'string') return ALLOW;
+  if (!toolName || typeof toolName !== 'string') return null;
 
   const toolInput = isRecord(parsed.tool_input) ? parsed.tool_input : undefined;
 
   if (toolName === 'Write' || toolName === 'Edit') {
     const filePath = toolInput?.file_path;
-    if (!filePath || typeof filePath !== 'string') return ALLOW;
-    const result = isProtected(filePath, patterns);
-    if (result.matched) {
-      return {
-        decision: 'deny',
-        reason: buildDenyReason(result, filePath, toolName),
-      };
-    }
-    return ALLOW;
+    if (!filePath || typeof filePath !== 'string') return null;
+    return matchProtectedPath(filePath, patterns, toolName);
   }
 
   if (toolName === 'Bash') {
     const command = toolInput?.command;
-    if (!command || typeof command !== 'string') return ALLOW;
-    return detectBashWrite(command, patterns);
+    if (!command || typeof command !== 'string') return null;
+    return checkBashCommand(command, patterns);
   }
 
   if (toolName === 'PowerShell') {
     const command = toolInput?.command;
-    if (!command || typeof command !== 'string') return ALLOW;
-    return detectPowerShellWrite(command, patterns);
+    if (!command || typeof command !== 'string') return null;
+    return checkPowerShellCommand(command, patterns);
   }
 
-  return ALLOW;
+  return null;
+}
+
+// ---------------------------------------------------------------------------
+// Hook Response Output
+// ---------------------------------------------------------------------------
+
+/** Write allow/deny hook response JSON to stdout. */
+function writeHookResponse(denyReason: string | null): void {
+  if (denyReason !== null) {
+    process.stdout.write(
+      `${JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'deny',
+          permissionDecisionReason: denyReason,
+        },
+      })}\n`,
+    );
+  } else {
+    process.stdout.write(
+      `${JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: 'PreToolUse',
+          permissionDecision: 'allow',
+        },
+      })}\n`,
+    );
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -383,18 +376,9 @@ function parseInput(raw: string, patterns: ProtectedPattern[]): ToolDecision {
  * checks the tool invocation, and outputs allow/deny JSON to stdout.
  */
 export function runProtectFiles(): void {
-  const projectRoot = process.env.CLAUDE_PROJECT_ROOT || getProjectDir();
-  const patterns = loadPatterns(projectRoot);
-
-  const input = readFileSync(0, 'utf-8');
-  const result = parseInput(input, patterns);
-
-  if (result.decision === 'deny') {
-    process.stdout.write(`${outputDeny(result.reason ?? '')}\n`);
-    return;
-  }
-
-  process.stdout.write(`${outputAllow()}\n`);
+  const patterns = loadPatterns(resolveProjectRoot());
+  const denyReason = evaluateToolAccess(readFileSync(0, 'utf-8'), patterns);
+  writeHookResponse(denyReason);
 }
 
 // ---------------------------------------------------------------------------
@@ -444,8 +428,7 @@ const FOLLOWUP_PREFIX = '静态检查未通过，请修复以下错误后重新�
  */
 function parseWorkspaceRoot(stdinRaw: string): string | null {
   try {
-    const parsed: unknown = JSON.parse(stdinRaw);
-    if (!isRecord(parsed)) return null;
+    const parsed: Record<string, unknown> = JSON.parse(stdinRaw);
     const roots = parsed.workspace_roots;
     const firstRoot: unknown = Array.isArray(roots) && roots.length > 0 ? roots[0] : undefined;
     if (typeof firstRoot === 'string') {

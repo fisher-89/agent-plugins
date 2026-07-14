@@ -244,7 +244,7 @@ describe('parseMutationReport -- 边界', () => {
                 id: '3',
                 mutatorName: 'StringLiteral',
                 replacement: '""',
-                status: 'TimedOut',
+                status: 'Timeout',
                 testsRan: ['t1'],
               },
             ],

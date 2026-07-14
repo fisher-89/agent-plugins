@@ -42,15 +42,7 @@ const exitMock = vi.spyOn(process, 'exit').mockImplementation(() => undefined as
 vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
 // 动态 import — vi.mock 已生效，process 拦截已就位
-const {
-  main,
-  runProtectFiles,
-  extractChangeName,
-  isProtected,
-  buildDenyReason,
-  runStaticCheck,
-  captureStderr,
-} = await import('./hooks');
+const { main, runProtectFiles, runStaticCheck, captureStderr } = await import('./hooks');
 
 // 模块加载完成后设置 stdout spy（auto-execution 未写 stdout）
 const stdoutWriteMock = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
@@ -538,24 +530,6 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecisionReason).not.toContain('%t');
   });
 
-  // ---- extractChangeName ----
-
-  it('extractChangeName 从 openspec/changes/my-feature/eval.json 提取 my-feature', () => {
-    expect(extractChangeName('openspec/changes/my-feature/eval.json')).toBe('my-feature');
-  });
-
-  it('extractChangeName Windows 反斜杠路径提取 change name', () => {
-    expect(extractChangeName('openspec\\changes\\my-feature\\eval.json')).toBe('my-feature');
-  });
-
-  it('extractChangeName 路径不含 openspec/changes/ 时返回空字符串', () => {
-    expect(extractChangeName('src/foo/bar.json')).toBe('');
-  });
-
-  it('extractChangeName 空路径返回空字符串', () => {
-    expect(extractChangeName('')).toBe('');
-  });
-
   // ---- 异常: fail-open ----
 
   it('parseInput 空字符串输入返回 allow (fail-open)', () => {
@@ -708,63 +682,6 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('换行');
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('引号');
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('反斜杠');
-  });
-
-  // ---- 边界: isProtected 直接测试 ----
-
-  it('isProtected filePath 为空字符串时返回 { matched: false } (边界)', () => {
-    expect(isProtected('', [{ glob: '*.json' }])).toEqual({ matched: false });
-  });
-
-  it('isProtected filePath 为 undefined 时返回 { matched: false } (边界)', () => {
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion
-    expect(isProtected(undefined as unknown as string, [{ glob: '*.json' }])).toEqual({
-      matched: false,
-    });
-  });
-
-  it('isProtected filePath 为 null 时返回 { matched: false } (边界)', () => {
-    // eslint-disable-next-line typescript/no-unsafe-type-assertion
-    expect(isProtected(null as unknown as string, [{ glob: '*.json' }])).toEqual({
-      matched: false,
-    });
-  });
-
-  it('isProtected patterns 为空数组时返回 { matched: false } (边界)', () => {
-    const result = isProtected('any/path/file.json', []);
-    expect(result).toEqual({ matched: false });
-  });
-
-  // ---- 边界: buildDenyReason 直接测试 ----
-
-  it('buildDenyReason filePath/toolName 为空字符串时占位符替换仍安全 (边界)', () => {
-    const pattern = { matched: true, matchedGlob: '*.json', reason: '禁止: %s, 工具: %t' };
-    const result = buildDenyReason(pattern, '', '');
-    expect(result).toBe('禁止: , 工具: ');
-  });
-
-  it('buildDenyReason pattern 为 null 时使用默认回退文案 (边界)', () => {
-    const result = buildDenyReason(null, '/path/to/file', 'TestTool');
-    expect(result).toContain('/path/to/file');
-    expect(result).toContain('TestTool');
-    expect(result).toContain('受写入保护');
-  });
-
-  it('buildDenyReason pattern.reason 为空字符串时使用默认回退文案 (边界)', () => {
-    const pattern = { matched: true, matchedGlob: 'config.json', reason: '' };
-    const result = buildDenyReason(pattern, '/path/to/file', 'TestTool');
-    // Empty reason string is falsy, should fall through to default
-    expect(result).toBe('该文件受写入保护：/path/to/file。detected via TestTool。');
-  });
-
-  it('buildDenyReason pattern.reason 为 undefined 时使用默认回退文案 (边界)', () => {
-    const pattern = {
-      matched: true,
-      matchedGlob: 'config.json',
-      reason: undefined,
-    };
-    const result = buildDenyReason(pattern, '/path', 'Tool');
-    expect(result).toBe('该文件受写入保护：/path。detected via Tool。');
   });
 
   // ---- 边界: detectBashWrite ----

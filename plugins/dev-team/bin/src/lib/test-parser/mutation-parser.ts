@@ -213,7 +213,7 @@ function tallyMutant(status: string, c: MutantCounters): void {
       c.survived++;
       c.totalUndetected++;
       break;
-    case 'TimedOut':
+    case 'Timeout':
       c.timeout++;
       c.totalDetected++;
       break;
