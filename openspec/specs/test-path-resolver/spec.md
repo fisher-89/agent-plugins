@@ -369,3 +369,104 @@ __tests__/<scenario>/<scenario>.test.<ext>
 | **Module** | `schemas/test-resolve-paths.schema.ts` |
 | **Exports** | `testResolvePathsInputSchema`, `testResolvePathsOutputSchema` |
 | **Behavior** | Zod v4 schema；`modules` 最少 1 项；与 MCP 注册一致 |
+
+### Module Contract (exclude additions)
+
+#### Module: commands/test-resolve-paths.ts (Added behavior)
+
+| Aspect | Detail |
+|--------|--------|
+| **New import** | `import { readConfig } from '../lib/config'` and `import { isFileExcluded } from '../lib/test-exclude'` |
+| **Change point in processNonEmptyModules** | After `isSourceFile(posix)` check passes, before `collectedSources.push(posix)` + `addUnitTest(...)` |
+| **Added logic in processNonEmptyModules** | `if (isFileExcluded(posix, config)) continue;` |
+| **Change point in processEmptyModules** | After `if (isSourceFile(posix))`, before `sourceFiles.add(posix)` |
+| **Added logic in processEmptyModules** | `if (isFileExcluded(posix, config)) continue;` |
+| **Config access** | In `resolveTestPaths`, call `readConfig(projectRoot)` once and pass it to both `processNonEmptyModules` and `processEmptyModules` |
+| **Error behavior** | Excluded files produce NO error entries — the skip is silent, distinguishing exclusion from "not in test config scope" |
+
+#### Function signature change: processNonEmptyModules
+
+| Property | Before | After |
+|----------|--------|-------|
+| **Parameters** | `(effectiveModules, projectRoot, unitTestMap, errors, collectedSources)` | `(effectiveModules, projectRoot, unitTestMap, errors, collectedSources, config)` |
+| **New parameter** | — | `config: OpenSpecConfig` — parsed config used for exclude check |
+
+#### Function signature change: processEmptyModules
+
+| Property | Before | After |
+|----------|--------|-------|
+| **Parameters** | `(projectRoot, unitTestMap, errors, collectedSources)` | `(projectRoot, unitTestMap, errors, collectedSources, config)` |
+| **New parameter** | — | `config: OpenSpecConfig` — parsed config used for exclude check |
+
+---
+
+### Requirement: 非空 modules 模式增加 exclude 过滤
+
+当 `resolveTestPaths` 收到非空 `modules` 数组时，`processNonEmptyModules` 函数 SHALL 在 "in test config scope" 检查通过之后、将源文件加入 `unitTestMap` 之前，应用 exclude 过滤。函数 SHALL 导入 `isFileExcluded` 并获取项目配置，对每个有效源文件调用 `isFileExcluded(posix, config)`；若返回 `true`，则跳过该文件——不添加 `unit_tests` 条目，不加入 `collectedSources`。
+
+此阶段被排除的文件 SHALL NOT 产生 `errors` 条目（排除是主动行为，非错误）。
+
+#### Scenario: 非空 modules 排除文件不出现在 unit_tests
+
+- **WHEN** `resolveTestPaths` 收到 `modules: ["src/app.ts", "src/generated/api.ts"]`
+- **AND** 项目配置 `test.exclude: ["**/generated/**"]`
+- **AND** test config 覆盖两个文件
+- **THEN** `unit_tests` 包含 `{source: "src/app.ts", test_file: "src/app.test.ts"}`
+- **AND** `unit_tests` 不包含 source 为 `"src/generated/api.ts"` 的条目
+- **AND** `errors` 不包含 `"src/generated/api.ts"`（排除是静默的）
+
+#### Scenario: 非空 modules 模式下 override-level exclude 同样生效
+
+- **WHEN** `resolveTestPaths` 收到 `modules: ["plugins/dev-team/bin/src/app.ts", "plugins/dev-team/bin/vendor/lib.ts"]`
+- **AND** 项目配置 `test.overrides: [{ file: "plugins/dev-team/bin", framework: "vite-plus", exclude: ["**/vendor/**"] }]`
+- **THEN** `unit_tests` 包含 `{source: "plugins/dev-team/bin/src/app.ts", ...}`
+- **AND** `unit_tests` 不包含 `"plugins/dev-team/bin/vendor/lib.ts"` 的条目
+
+### Requirement: 空 modules 自动扫描模式增加 exclude 过滤
+
+当 `modules` 为空数组时，`processEmptyModules` 函数 SHALL 在 `isSourceFile` 检查通过之后、将文件加入 `sourceFiles` 集合之前应用 exclude 过滤。对每个发现的源文件，SHALL 调用 `isFileExcluded(posix, config)`；若返回 `true`，则跳过该文件。
+
+#### Scenario: 空 modules 排除文件不出现在 unit_tests
+
+- **WHEN** `resolveTestPaths` 收到 `modules: []`
+- **AND** 项目配置 `test.exclude: ["**/generated/**"]`
+- **AND** 自动扫描发现 `src/app.ts`, `src/utils.ts`, `src/generated/api.ts`
+- **AND** test config 覆盖扫描目录
+- **THEN** `unit_tests` 包含 `"src/app.ts"` 和 `"src/utils.ts"` 的条目
+- **AND** `unit_tests` 不包含 `"src/generated/api.ts"` 的条目
+
+### Requirement: git-change 模式通过非空 modules 路径继承 exclude 过滤
+
+当 `modules` 为 `"git-change"` 时，exclude 过滤 SHALL 通过与非空 modules 相同的路径自动生效——`resolveEffectiveModules` 将 git diff 输出转换为模块列表并委托给 `processNonEmptyModules`，因此 `processNonEmptyModules` 中的 exclude 过滤逻辑（REQ-TPR-EXC-1）SHALL 自动适用。
+
+#### Scenario: git-change 模式遵守 test.exclude
+
+- **WHEN** `resolveTestPaths` 收到 `modules: "git-change"`
+- **AND** 项目配置 `test.exclude: ["**/generated/**"]`
+- **AND** `git diff HEAD --name-only` 返回 `["src/app.ts", "src/generated/api.ts"]`
+- **AND** test config 覆盖两个文件
+- **THEN** `unit_tests` 仅包含 `{source: "src/app.ts", test_file: "src/app.test.ts"}`
+- **AND** `unit_tests` 不包含 `"src/generated/api.ts"` 的条目
+
+### Requirement: 未配置 exclude 时保持向后兼容
+
+当未配置 `test.exclude` 或 `test.overrides[].exclude` 时，三种解析模式（非空 modules、空 modules、git-change）的行为 SHALL 与变更前完全一致。
+
+#### Scenario: 非空 modules 未配置 exclude 时行为不变
+
+- **WHEN** 项目配置没有 `test.exclude` 和 `test.overrides[].exclude`
+- **AND** `resolveTestPaths` 收到 `modules: ["src/app.ts", "src/utils.ts"]`
+- **AND** test config 覆盖两个文件
+- **THEN** `unit_tests` 包含两个条目的结果（与变更前相同）
+
+#### Scenario: 空 modules 未配置 exclude 时行为不变
+
+- **WHEN** 项目配置没有 `test.exclude` 和 `test.overrides[].exclude`
+- **AND** `resolveTestPaths` 收到 `modules: []`
+- **THEN** 自动扫描行为与变更前完全一致
+
+#### Scenario: git-change 模式未配置 exclude 时行为不变
+
+- **WHEN** 项目配置没有 `test.exclude` 和 `test.overrides[].exclude`
+- **AND** `resolveTestPaths` 收到 `modules: "git-change"`
+- **THEN** git diff 行为与变更前完全一致

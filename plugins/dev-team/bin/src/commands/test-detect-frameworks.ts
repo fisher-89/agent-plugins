@@ -3,6 +3,7 @@ import * as path from 'path';
 
 import { readConfig } from '../lib/config';
 import { matchGlob } from '../lib/glob';
+import { isFileExcluded } from '../lib/test-exclude';
 import { type FrameworkConfig, getFrameworkConfig } from '../lib/test-framework';
 import {
   type TestDetectFrameworksResult,
@@ -260,11 +261,17 @@ function detectFrameworksForFiles(
   projectRoot: string,
   mappings: FrameworkMapping[],
   isAutoScan: boolean,
+  config: OpenSpecConfig,
 ): { detected: DetectedFile[]; frameworks: string[] } {
   const detected: DetectedFile[] = [];
   const frameworkSet = new Set<string>();
 
   for (const file of filesToCheck) {
+    // Skip excluded files — they don't participate in framework detection
+    if (isFileExcluded(file, config)) {
+      continue;
+    }
+
     const relativePath = path.isAbsolute(file) ? path.relative(projectRoot, file) : file;
     let matched = false;
 
@@ -354,6 +361,7 @@ export function runTestDetectFrameworks(
     projectRoot,
     mappings,
     isAutoScan,
+    config,
   );
 
   return { detected, frameworks, plan };

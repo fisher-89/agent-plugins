@@ -13,7 +13,7 @@
 - [x] unit-test-evaluator检查覆盖率
 - [x] 引入突变测试
 - [x] test_resolve_paths - 不检查源文件是否存在、集成测试__tests__放在测试运行的根目录下
-- [ ] test_resolve_paths - 设置白名单，拒绝生成vite.config、tsconfig等文件的单测
+- [x] test_resolve_paths - 设置白名单，拒绝生成vite.config、tsconfig等文件的单测
 - [x] unit-test-execution.json coverage_overrides和coverage_by_framework重复
 - [x] mcp移除test_get_framework_config ，功能合入 test_detect_frameworks
 - [x] 使用fast-glob解析glob表达式
@@ -43,4 +43,8 @@
 - [x] fix:突变测试结果未写入报告
 - [x] test-execution使用cli 命令执行测试
 - [x] stryker运行后没有清理临时配置和副本
-- [ ] test和test.overrides支持排除指定glob，避免生成glob对应的测试文件，突变测试也忽略该文件
+- [x] test和test.overrides支持排除指定glob，避免生成glob对应的测试文件，突变测试也忽略该文件
+- [ ] 移除 test_resolve_paths 中 integration_root 和 integration_scenarios 参数，下线集成测试路径解析功能
+- [ ] 测试执行改为cli + evaluator
+- [ ] test-runner执行前清理coverage和reports
+- [ ] test-runner同时生成cmd和shell脚本，runcommand根据系统自行选择

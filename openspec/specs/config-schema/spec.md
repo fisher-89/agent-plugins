@@ -10,9 +10,11 @@ The schema SHALL define the following top-level fields:
 - `rules`: an optional object with optional `proposal` (string array) and `tasks` (string array) fields
 - `test`: an optional object with the following sub-fields:
   - `frameworks`: an optional field accepting either a single framework name string (valid values: `"jest"`, `"vitest"`, `"vite-plus"`, `"bun"`, `"rust"`, `"node-test"`, `"go"`, `"pytest"`) or an array of `{glob: string, framework: string}` objects, defining test framework detection rules
+  - `exclude`: an optional `string[]` field accepting an array of glob patterns that match source file paths to be excluded from the testing pipeline
   - `coverage`: an optional object with:
     - `thresholds`: an optional object with `lines: number` (default 80), `branches: number` (default 70), `functions: number` (default 75), defining minimum coverage percentages per dimension
     - `overrides`: an optional array of `{glob: string, thresholds: {lines?: number, branches?: number, functions?: number}}` objects, defining per-directory threshold overrides. Missing fields in an override entry inherit the global defaults.
+  - `overrides`: an optional array of `{file: string, framework?: string, exclude?: string[]}` objects, defining per-glob override configurations. Each entry's `exclude` field accepts scoped exclusion globs for source file filtering.
 The schema SHALL allow additional unknown fields via `.passthrough()` to avoid rejecting valid configurations with tool-managed keys.
 A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema using `z.infer<typeof configSchema>`.
 
@@ -116,6 +118,41 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 - **WHEN** a config object `{"test": {"frameworks": 123}}` is validated
 - **THEN** validation fails with a ZodError indicating that the value must be either a string or an array
 
+#### Scenario: Schema accepts test.exclude as string array of globs
+
+- **WHEN** a config object `{"test": {"exclude": ["**/generated/**", "**/*.d.ts"]}}` is validated
+- **THEN** validation succeeds and the parsed `test.exclude` equals `["**/generated/**", "**/*.d.ts"]`
+
+#### Scenario: test.exclude defaults to undefined when not specified
+
+- **WHEN** a config object `{"test": {"framework": "vitest"}}` is validated
+- **THEN** validation succeeds and `test.exclude` is `undefined`
+
+#### Scenario: Schema rejects test.exclude with non-array value
+
+- **WHEN** a config object `{"test": {"exclude": "**/generated/**"}}` is validated
+- **THEN** validation fails with a ZodError indicating that string is not assignable to array
+
+#### Scenario: Schema accepts empty exclude array
+
+- **WHEN** a config object `{"test": {"exclude": []}}` is validated
+- **THEN** validation succeeds and `test.exclude` equals `[]`
+
+#### Scenario: Schema accepts override entry with exclude
+
+- **WHEN** a config object `{"test": {"overrides": [{"file": "src/**", "framework": "vitest", "exclude": ["**/legacy/**"]}]}}` is validated
+- **THEN** validation succeeds and `test.overrides[0].exclude` equals `["**/legacy/**"]`
+
+#### Scenario: Schema accepts override entry without exclude (defaults to undefined)
+
+- **WHEN** a config object `{"test": {"overrides": [{"file": "src/**", "framework": "vitest"}]}}` is validated
+- **THEN** validation succeeds and `test.overrides[0].exclude` is `undefined`
+
+#### Scenario: Schema rejects override entry with invalid exclude type
+
+- **WHEN** a config object `{"test": {"overrides": [{"file": "src/**", "exclude": "single-string"}]}}` is validated
+- **THEN** validation fails with a ZodError
+
 ## Module Contract
 
 ### Schema: testFrameworkSchema
@@ -133,7 +170,7 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 |----------|-------------|
 | **Module** | `schemas/config/config.schema.ts` |
 | **Type** | `z.ZodObject<...>` |
-| **Definition** | Object schema with `schema` (literal `"spec-driven"`, default), `context` (optional string), `rules` (optional object with optional `proposal` and `tasks` string arrays), `test` (optional object with optional `frameworks` accepting either a single framework name string — validated via `testFrameworkSchema` — or an array of `{glob, framework}` objects, and optional `coverage` object with `thresholds: {lines, branches, functions}` defaults 80/70/75 and optional `overrides` array of `{glob, thresholds}`), `.passthrough()` for additional keys |
+| **Definition** | Object schema with `schema` (literal `"spec-driven"`, default), `context` (optional string), `rules` (optional object with optional `proposal` and `tasks` string arrays), `test` (optional object with optional `frameworks` accepting either a single framework name string — validated via `testFrameworkSchema` — or an array of `{glob, framework}` objects), optional `exclude` (`string[]` — exclusion globs), optional `coverage` object with `thresholds: {lines, branches, functions}` defaults 80/70/75 and optional `overrides` array of `{glob, thresholds}`, and optional `overrides` array of `{file, framework?, exclude?}` objects, `.passthrough()` for additional keys |
 | **Export** | Named export `configSchema` |
 
 ### Type: TestFrameworks
@@ -143,6 +180,40 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 | **Module** | `schemas/config/config.schema.ts` |
 | **Definition** | `NonNullable<OpenSpecConfig['test']['framework']>` — union of eight framework name literals |
 | **Export** | Named type export |
+
+---
+
+### Requirement: JSON schema mirrors Zod schema for exclude fields
+
+The `dev-team-config.schema.json` file SHALL include the `exclude` field in both the `test` object's `properties` and each override item's `properties`. The type SHALL be `"array"` with `"items": {"type": "string"}`. The field SHALL NOT be in the `required` array.
+
+#### Scenario: JSON schema includes test.exclude
+
+**WHEN** `dev-team-config.schema.json` is inspected
+**THEN** `properties.test.properties.exclude` exists
+**AND** `properties.test.properties.exclude.type` SHALL be `"array"`
+**AND** `properties.test.properties.exclude.items.type` SHALL be `"string"`
+
+#### Scenario: JSON schema includes overrides[].exclude
+
+**WHEN** `dev-team-config.schema.json` is inspected
+**THEN** `properties.test.properties.overrides.items.properties.exclude` exists
+**AND** its `type` SHALL be `"array"`
+**AND** its `items.type` SHALL be `"string"`
+
+### Requirement: OpenSpecConfig type reflects exclude field
+
+The TypeScript type `OpenSpecConfig` (inferred from `configSchema` via `z.infer`) SHALL include `test.exclude` as `string[] | undefined` and `test.overrides[].exclude` as `string[] | undefined`. No manual type annotation is required — the Zod schema inference SHALL produce the correct type.
+
+#### Scenario: OpenSpecConfig type includes test.exclude
+
+**WHEN** inspecting the `OpenSpecConfig` type
+**THEN** `test.exclude` is an accessible property of type `string[] | undefined`
+
+#### Scenario: OpenSpecConfig type includes overrides[].exclude
+
+**WHEN** inspecting the `OpenSpecConfig` type
+**THEN** `test.overrides[number].exclude` is an accessible property of type `string[] | undefined`
 
 ---
 

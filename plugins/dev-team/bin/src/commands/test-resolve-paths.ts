@@ -2,9 +2,11 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { readConfig } from '../lib/config';
+import { isFileExcluded } from '../lib/test-exclude';
+import type { OpenSpecConfig } from '../schemas';
 import { getProjectDir } from '../utils';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
-
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
@@ -375,6 +377,7 @@ function processNonEmptyModules(
   unitTestMap: Map<string, UnitTestEntry>,
   errors: ResolveError[],
   collectedSources: string[],
+  config: OpenSpecConfig,
 ): void {
   const detectedResult = runTestDetectFrameworks({
     files: effectiveModules,
@@ -384,35 +387,63 @@ function processNonEmptyModules(
   const detectedSet = new Set(detectedResult.detected.map((d) => d.file));
 
   for (const moduleEntry of effectiveModules) {
-    const posix = moduleEntry.replace(/\\/g, '/');
-
-    if (!isWithinProjectRoot(projectRoot, moduleEntry)) {
-      errors.push({ path: posix, message: 'Path is outside project root' });
-      continue;
-    }
-
-    const absPath = path.isAbsolute(moduleEntry)
-      ? path.resolve(moduleEntry)
-      : path.resolve(projectRoot, moduleEntry);
-
-    if (!detectedSet.has(absPath)) {
-      errors.push({ path: posix, message: 'Not in test config scope' });
-      continue;
-    }
-
-    if (isTestFile(posix)) {
-      errors.push({ path: posix, message: 'Path is already a test file' });
-      continue;
-    }
-
-    if (!isSourceFile(posix)) {
-      errors.push({ path: posix, message: 'Not a testable source file' });
-      continue;
-    }
-
-    collectedSources.push(posix);
-    addUnitTest(unitTestMap, posix);
+    processModuleEntry(
+      moduleEntry,
+      projectRoot,
+      unitTestMap,
+      errors,
+      collectedSources,
+      config,
+      detectedSet,
+    );
   }
+}
+
+/**
+ * Validate a single module entry and add its unit-test entry if valid.
+ */
+function processModuleEntry(
+  moduleEntry: string,
+  projectRoot: string,
+  unitTestMap: Map<string, UnitTestEntry>,
+  errors: ResolveError[],
+  collectedSources: string[],
+  config: OpenSpecConfig,
+  detectedSet: Set<string>,
+): void {
+  const posix = moduleEntry.replace(/\\/g, '/');
+
+  if (!isWithinProjectRoot(projectRoot, moduleEntry)) {
+    errors.push({ path: posix, message: 'Path is outside project root' });
+    return;
+  }
+
+  const absPath = path.isAbsolute(moduleEntry)
+    ? path.resolve(moduleEntry)
+    : path.resolve(projectRoot, moduleEntry);
+
+  if (!detectedSet.has(absPath)) {
+    errors.push({ path: posix, message: 'Not in test config scope' });
+    return;
+  }
+
+  // Silently skip excluded files (no error added)
+  if (isFileExcluded(absPath, config)) {
+    return;
+  }
+
+  if (isTestFile(posix)) {
+    errors.push({ path: posix, message: 'Path is already a test file' });
+    return;
+  }
+
+  if (!isSourceFile(posix)) {
+    errors.push({ path: posix, message: 'Not a testable source file' });
+    return;
+  }
+
+  collectedSources.push(posix);
+  addUnitTest(unitTestMap, posix);
 }
 
 /**
@@ -425,6 +456,7 @@ function processEmptyModules(
   unitTestMap: Map<string, UnitTestEntry>,
   errors: ResolveError[],
   collectedSources: string[],
+  config: OpenSpecConfig,
 ): void {
   const detectedResult = runTestDetectFrameworks({ projectRoot });
   const plan = detectedResult.plan;
@@ -454,6 +486,12 @@ function processEmptyModules(
   }
 
   for (const sourceFile of sourceFiles) {
+    // Silently skip excluded files
+    const absSourcePath = path.resolve(projectRoot, sourceFile);
+    if (isFileExcluded(absSourcePath, config)) {
+      continue;
+    }
+
     addUnitTest(unitTestMap, sourceFile);
     collectedSources.push(sourceFile);
   }
@@ -475,6 +513,9 @@ function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResul
   const errors: ResolveError[] = [];
   const collectedSources: string[] = [];
 
+  // Read config early so both process functions can use exclude filtering
+  const config = readConfig(projectRoot);
+
   // Step 1: Determine effective modules
   const step1 = resolveEffectiveModules(params, projectRoot, errors);
   if ('earlyReturn' in step1) {
@@ -483,9 +524,16 @@ function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResul
 
   // Step 2: Process by mode
   if (step1.modules.length > 0) {
-    processNonEmptyModules(step1.modules, projectRoot, unitTestMap, errors, collectedSources);
+    processNonEmptyModules(
+      step1.modules,
+      projectRoot,
+      unitTestMap,
+      errors,
+      collectedSources,
+      config,
+    );
   } else {
-    processEmptyModules(projectRoot, unitTestMap, errors, collectedSources);
+    processEmptyModules(projectRoot, unitTestMap, errors, collectedSources, config);
   }
 
   // Step 3: Build and return result

@@ -59,7 +59,7 @@ Write `openspec/changes/<name>/workflow.json`:
 
 ### Step 2: Orchestration loop
 
-Enter the main execution loop. Each iteration calls phase_next, executes the returned
+Enter the main execution loop. Each iteration calls `mcp__plugin_dev-team_dev-team__phase_next`, executes the returned
 planner and evaluator agents, and reports progress.
 
 ```

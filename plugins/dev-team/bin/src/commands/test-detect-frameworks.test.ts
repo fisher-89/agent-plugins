@@ -1238,3 +1238,242 @@ describe('runTestDetectFrameworks -- plan mutation 字段', () => {
     }
   });
 });
+
+// ===========================================================================
+// detectFrameworks -- exclude 过滤 (AC-3)
+// ===========================================================================
+
+describe('detectFrameworks -- exclude 过滤 (AC-3)', () => {
+  // Normalize Windows paths for assertion matching
+  function posixFile(p: string): string {
+    return p.replace(/\\/g, '/');
+  }
+
+  it('配置 test.exclude 后被排除的文件不出现在 detected[] 中', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        exclude: ['**/generated/**'],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts', 'generated/out.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('src/app.test.ts'))).toBe(true);
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('generated/out.test.ts'))).toBe(
+        false,
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('未被排除的文件正常出现在 detected[] 中', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        exclude: ['**/generated/**'],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts', 'src/lib/helper.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected.every((d) => !posixFile(d.file).includes('generated'))).toBe(true);
+      expect(result.detected.length).toBeGreaterThan(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('override-level exclude 仅在该 override 文件范围内生效', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [
+          { file: '**/dir-a/**', exclude: ['**/*.snap'] },
+          { file: '**/dir-b/**', framework: 'vite-plus', exclude: ['**/*.test.ts'] },
+        ],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: [
+          'dir-a/src/types.ts',
+          'dir-a/src/icon.snap',
+          'dir-b/src/foo.test.ts',
+          'dir-b/src/bar.ts',
+        ],
+        projectRoot: project.root,
+      });
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('dir-a/src/icon.snap'))).toBe(
+        false,
+      );
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('dir-b/src/foo.test.ts'))).toBe(
+        false,
+      );
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('dir-b/src/bar.ts'))).toBe(
+        true,
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('多框架配置下 exclude 过滤正确作用于各框架', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        exclude: ['**/legacy/**'],
+        overrides: [{ file: '**/rust-tests/**/*.rs', framework: 'rust' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/new.test.ts', 'legacy/old.test.ts', 'rust-tests/test_foo.rs'],
+        projectRoot: project.root,
+      });
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('legacy/old.test.ts'))).toBe(
+        false,
+      );
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('src/new.test.ts'))).toBe(true);
+      expect(
+        result.detected.some((d) => posixFile(d.file).endsWith('rust-tests/test_foo.rs')),
+      ).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('exclude 配置不影响非匹配框架的文件检测', () => {
+    // 场景：全局 exclude 匹配默认框架的部分文件，但 override 框架的文件
+    // 不应受 exclude 影响，仍应被正确分配所属框架
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        exclude: ['**/generated/**'],
+        overrides: [{ file: '**/rust-tests/**/*.rs', framework: 'rust' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts', 'rust-tests/test_foo.rs'],
+        projectRoot: project.root,
+      });
+      // 不匹配 exclude 的 vitest 文件框架仍为 vitest
+      const vitestEntry = result.detected.find((d) =>
+        posixFile(d.file).endsWith('src/app.test.ts'),
+      );
+      expect(vitestEntry?.framework).toBe('vitest');
+      // 不匹配 exclude 且属于 override 框架的文件框架为 rust（不被全局 exclude 干扰）
+      const rustEntry = result.detected.find((d) =>
+        posixFile(d.file).endsWith('rust-tests/test_foo.rs'),
+      );
+      expect(rustEntry?.framework).toBe('rust');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('非排除且在框架 glob 范围内的文件应被正常检测', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        exclude: ['**/generated/**'],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected.some((d) => posixFile(d.file).endsWith('src/app.test.ts'))).toBe(true);
+      expect(result.detected[0].framework).toBe('vitest');
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestDetectFrameworks -- 向后兼容 (AC-6)
+// ===========================================================================
+
+describe('runTestDetectFrameworks -- 向后兼容 (AC-6)', () => {
+  it('不配置 exclude 时全部现有功能行为不变', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/helper.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected).toHaveLength(1);
+      expect(result.detected[0].framework).toBe('vitest');
+      expect(result.frameworks).toEqual(['vitest']);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('配置中存在 `"exclude": []` 空数组时检测结果与无 exclude 配置时一致', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest', exclude: [] },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/helper.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected).toHaveLength(1);
+      expect(result.detected[0].framework).toBe('vitest');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('配置中 `test` 节不包含 `exclude` 字段时检测结果不受影响', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/helper.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected).toHaveLength(1);
+      expect(result.detected[0].framework).toBe('vitest');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('配置中不存在 `test` 节时检测结果与无 exclude 配置时一致', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/helper.test.ts'],
+        projectRoot: project.root,
+      });
+      expect(result.detected).toHaveLength(1);
+      expect(result.detected[0].framework).toBe('unknown');
+    } finally {
+      project.cleanup();
+    }
+  });
+});

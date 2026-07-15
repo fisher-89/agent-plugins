@@ -1,0 +1,603 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated proposal against 11-item checklist. All items pass: R1 clear problem definition; R2 has impl/test/do-not-modify sections; R3 risks have specific mitigations; R4 ACs testable; R5 decisions include rejected alternatives; R6 no CLAUDE.md conflict; R7 no placeholders; R8 all sections substantive; R9 capability section complete; R10 specs match capabilities; R11 no logical conflicts.",
+    "checklist": [
+      {
+        "item": "R1 - 问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题 section (lines 10-17) describes specific problem: cannot exclude auto-generated/vendor files from test pipeline, with 3 concrete pain points (wasted tokens, mutation noise, manual effort)."
+      },
+      {
+        "item": "R2 - 变更范围明确划分为实现文件、测试文件和不要修改",
+        "pass": true,
+        "evidence": "All three subsections present (lines 78-99): 实现文件 (7 entries), 测试文件 (4 entries), 不要修改 (4 entries). Both 实现文件 and 测试文件 non-empty."
+      },
+      {
+        "item": "R3 - 风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "4 risks (lines 117-123) each have specific mitigations: reuse existing matchGlob, O(n) scan with <=20 globs, log-only for empty results, document union semantics."
+      },
+      {
+        "item": "R4 - 验收标准可测试",
+        "pass": true,
+        "evidence": "6 ACs (lines 104-112) all specify object+condition: AC-1 schema type assertions, AC-2 function return values, AC-3/4/5 'not in result array' assertions, AC-6 backward compatibility."
+      },
+      {
+        "item": "R5 - 关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "5 decisions (lines 131-137) each include rejected alternative: nested run.exclude (over-engineered), global-only (limited use), independent modules (DRY violation), mutation-only (semantic inconsistency), agents self-filter (error-prone)."
+      },
+      {
+        "item": "R6 - 提案与项目CLAUDE.md约定一致",
+        "pass": true,
+        "evidence": "No contradiction with CLAUDE.md: proposal respects slim architecture (no embedded skills), focuses on utility functions, changes only needed files in plugins/dev-team/bin/."
+      },
+      {
+        "item": "R7 - 无占位符或TODO内容",
+        "pass": true,
+        "evidence": "Grep for TODO, TBD, placeholder, {{...}} across both proposal.md and specs/ returns zero matches."
+      },
+      {
+        "item": "R8 - 所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "Problem (4 lines + 3 bullets), Proposal (config example + 5 design decisions), Change Scope (15 files across 3 categories), Acceptance Criteria (6 rows), Risks (4 items) all have substantive content."
+      },
+      {
+        "item": "R9 - 能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "能力 section (lines 63-73) has 新增能力 (test-exclude-filter) with 1 entry and 修改的能力 (config-schema, test-detect-frameworks, test-path-resolver) with 3 entries."
+      },
+      {
+        "item": "R10 - specs/文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "4 capabilities listed -> 4 spec files: test-exclude-filter/spec.md, config-schema/spec.md, test-detect-frameworks/spec.md, test-path-resolver/spec.md. No orphan or missing specs."
+      },
+      {
+        "item": "R11 - proposal.md与specs/之间无逻辑冲突",
+        "pass": true,
+        "evidence": "Capability types (added/modified) consistent with spec headings; AC-1 through AC-6 map to spec REQ IDs; change scope files match spec scenario coverage; test-runner consumer logic correctly nested under test-exclude-filter spec."
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T09:26:54.470Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 10 items pass. D1: table has 4 required columns. D2: model has fields and persistence. D3: all 6 ACs covered. D4: tasks ordered by phase, deps correct. D5: tasks specific. D6: deps listed (picomatch via matchGlob). D7: consistent with CLAUDE.md. D8: all template sections filled. D9: no test steps. D10: change list covers proposal files and matches tasks.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "6 components in table, each row has 职责, 文件位置, 依赖, 技术; no TBD; all file paths are specific"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "OpenSpecConfig model has 字段 (test.exclude?, test.overrides[].exclude?), 关系, and 持久化 (openspec/config.json)"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1 (config-schema/json-schema), AC-2 (test-exclude), AC-3 (detect-frameworks), AC-4 (resolve-paths), AC-5 (test-runner), AC-6 (optional fields) all covered"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "14 tasks in 6 phases; no later task depends on earlier; checkboxes present"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "Each task specifies concrete operations (schema field additions, function writes, filter placements)"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "Dependencies section lists no new runtime/build deps; references picomatch via matchGlob"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "TypeScript utility in existing plugins/dev-team/bin/src/lib/ follows project patterns"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件 (6 rows), 变更清单 (5 sub-tables), 数据模型, 依赖, 待决问题 all present"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md has no test strategy section; tasks.md has no test tasks"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "Change list covers all 6 proposal implementation files; all change-list files have corresponding tasks; sub-tables consistent"
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T09:32:34.168Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "T3 fails: 3 AC-6 向后兼容测试对象(runTestDetectFrameworks/runTestResolvePaths/executePlanEntry)仅有正向用例，缺少异常或边界覆盖。其余7项全部通过。",
+    "checklist": [
+      {
+        "item": "T1: 每个验收标准在验收范围中有映射",
+        "pass": true,
+        "evidence": "所有6个AC均在验收范围表中有映射行(行16-27)"
+      },
+      {
+        "item": "T2: 验收范围与用例互相对应",
+        "pass": true,
+        "evidence": "验收范围9个测试对象与用例表45-84行双向一一对应，无缺失"
+      },
+      {
+        "item": "T3: 单元测试充分覆盖异常和边界",
+        "pass": false,
+        "evidence": "runTestDetectFrameworks—向后兼容(AC-6)(行73)、runTestResolvePaths—向后兼容(AC-6)(行80)、executePlanEntry—向后兼容(AC-6)(行84)仅有正向用例，无异常或边界"
+      },
+      {
+        "item": "T4: 外部依赖有Mock策略",
+        "pass": true,
+        "evidence": "Mock策略表(行93-100)覆盖picomatch、文件系统、vi.mock子进程等所有外部依赖"
+      },
+      {
+        "item": "T5: 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试(用例+Mock策略)、集成测试(含解释)、不可测试项均有实质内容"
+      },
+      {
+        "item": "T6: 测试设计与proposal范围一致",
+        "pass": true,
+        "evidence": "in_scope项全覆盖；out_of_scope项(Agents等)无测试覆盖与proposal一致"
+      },
+      {
+        "item": "T7: 写操作包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal不涉及写操作(CRUD)，不适用"
+      },
+      {
+        "item": "T8: 产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "所有表格列名与模板一致，占位符均已替换"
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": "3个AC-6向后兼容测试对象缺少异常或边界用例，需test-design-planner补充",
+    "timestamp": "2026-07-14T09:35:25.119Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. 验收范围 covers all 6 ACs; 用例 maps completely; anomaly/boundary coverage present per test object; Mock策略 covers all external deps; all template sections have substantive content; scope consistent with proposal; no write operations requiring idempotency; structure matches template format exactly.",
+    "checklist": [
+      {
+        "item": "T1: 每个验收标准在验收范围中有映射",
+        "pass": true,
+        "evidence": "AC-1~AC-6 全部映射: AC-1(第18行), AC-2(第19-20行), AC-3(第21行), AC-4(第22行), AC-5(第23行), AC-6(第24-27行)"
+      },
+      {
+        "item": "T2: 验收范围与用例互相对应",
+        "pass": true,
+        "evidence": "验收范围每行在用例表中均有对应的测试文件+测试对象; config.schema.test.ts(第61-67行), test-exclude.test.ts(第47-60行), test-detect-frameworks.test.ts(第68-76行), test-resolve-paths.test.ts(第77-86行), test-runner.test.ts(第87-93行)"
+      },
+      {
+        "item": "T3: 单元测试覆盖异常和边界",
+        "pass": true,
+        "evidence": "isFileExcluded 5个边界(第52-56行), getExcludeGlobs 去重和空数组(第59-60行), configSchema 2个异常+1个边界(第65-67行), executePlanEntry 1个异常(第89行), 每个测试对象至少一个异常/边界用例"
+      },
+      {
+        "item": "T4: 存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Mock策略表(第102-109行): config.json用createTempProject, child_process用vi.mock, test-detect-frameworks 跨模块依赖用vi.mock, picomatch不mock直接调用"
+      },
+      {
+        "item": "T5: 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围(第16-27行)填写6个AC映射; 用例(第45-93行)47条; Mock策略(第102-109行)6条; 集成测试部分说明无需集成测试的原因(第117-122行); 不可测试项2条(第130-131行)"
+      },
+      {
+        "item": "T6: 测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "实现文件5个全部有对应测试; agents/test-get-framework-config/test-framework 无测试覆盖(正确: proposal标记为不要修改); JSON Schema文件列为不可测试项(第130-131行)"
+      },
+      {
+        "item": "T7: 写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "本变更不涉及写操作(create/update/delete)--仅为配置读取和内存过滤; 无API/DB写入, 无需幂等性测试"
+      },
+      {
+        "item": "T8: 产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "表格列名与模板完全一致; 所有占位符({{change_name}}, {{date}}, {{proposal_ac_id}}等)已替换为国家/地区特定内容; 章节结构符合模板"
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T09:36:38.552Z",
+    "stale": true
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL: getExcludeGlobs (test-exclude.ts) listed in design.md as public API, in tasks.md phase-2 task-2 as [x], but function body is absent from code. All other items pass — schema, JSON schema, 3 integration points, plugin version.",
+    "checklist": [
+      {
+        "item": "I1 - 每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "6 architecture components (test-exclude, config-schema, config-json-schema, test-detect-frameworks, test-resolve-paths, test-runner) each have corresponding files in git diff or working tree"
+      },
+      {
+        "item": "I2 - 变更清单中的所有条目均有对应实现",
+        "pass": false,
+        "evidence": "getExcludeGlobs (公共函数/API) listed in design.md but not implemented in plugins/dev-team/bin/src/lib/test-exclude.ts. All other items (new file, 5 modified files, types, config) present."
+      },
+      {
+        "item": "I3 - 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "camelCase naming, ESM imports, file organization under bin/src/lib/ and bin/src/schemas/, import type for type-only imports all consistent with codebase conventions"
+      },
+      {
+        "item": "I4 - design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "Design states no HTTP APIs involved — no routes to implement, N/A"
+      },
+      {
+        "item": "I5 - tasks.md 中所有任务均标记 [x]",
+        "pass": true,
+        "evidence": "All 14 tasks across 6 phases marked [x]. However phase-2 task-2 (getExcludeGlobs) has no code despite being checked"
+      },
+      {
+        "item": "I6 - 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "All 7 changed files (test-exclude.ts, schema, JSON schema, 3 integration points, plugin.json) plus change artifacts under openspec/changes/ are directly related to this change"
+      },
+      {
+        "item": "I7 - 设计决策在实现中得到遵守",
+        "pass": false,
+        "evidence": "getExcludeGlobs specified as exported utility function in design.md test-exclude component but missing from plugins/dev-team/bin/src/lib/test-exclude.ts (only isFileExcluded present)"
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": "getExcludeGlobs not implemented — function defined in design.md public API list and tasks.md phase-2 but missing from test-exclude.ts",
+    "timestamp": "2026-07-14T09:42:53.624Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "All 7 checklist items pass. The implementation exactly matches design.md: 6 architecture components all have code (test-exclude.ts new, config.schema/JSON schema, 3 command/lib integrations). Tasks.md shows all 14 tasks [x]. Code follows project conventions (TypeScript imports, file layout). Complete verification detailed in checklist.",
+    "checklist": [
+      {
+        "item": "I1 - design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "6/6 components: test-exclude.ts (new), config.schema.ts (exclude field added), dev-team-config.schema.json (exclude property added), test-detect-frameworks.ts (isFileExcluded call), test-resolve-paths.ts (isFileExcluded in processNonEmptyModules/processEmptyModules), test-runner.ts (isFileExcluded in runMutationPhase)"
+      },
+      {
+        "item": "I2 - 变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "1 new file test-exclude.ts created. 5 modified files all have correct diffs. Public functions isFileExcluded/getExcludeGlobs match signatures. OpenSpecConfig auto-derived via Zod. Config keys test.exclude and test.overrides[].exclude in both Zod schema and JSON Schema."
+      },
+      {
+        "item": "I3 - 代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TypeScript import style (import type, relative paths) consistent with codebase. File placement in src/lib/, src/commands/, src/schemas/ follows existing layout. JSDoc comments match project style. Plugin version bumped 2.8.9->2.8.10 per project rules."
+      },
+      {
+        "item": "I4 - design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md explicitly states no HTTP routes/APIs in this change (本变更不涉及 HTTP API). N/A - pass."
+      },
+      {
+        "item": "I5 - tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 14 tasks across phases 1-6 are [x] (checked): Schema extension (4), Shared exclude utils (3), test-detect-frameworks (2), test-resolve-paths (2), test-runner mutation (2), plugin version (1)."
+      },
+      {
+        "item": "I6 - 没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "All code changes trace to this change: config schema extensions, new test-exclude.ts, exclude filtering in 3 consumers, plugin version bump. todo.md has 2 new unrelated todo items but that is a tracking file, not implementation code."
+      },
+      {
+        "item": "I7 - 设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Global exclude direct match + override-level only when file matches override.file (test-exclude.ts lines 30-57). Silent skip (no errors) in test-resolve-paths.ts. Empty filtered sources returns null skip mutation (test-runner.ts lines 273-275). Uses matchGlob from existing glob.ts. Union merge of global+override excludes."
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T09:46:17.591Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "G3 FAIL: test-detect-frameworks.test.ts missing boundary test row 72 \"exclude 配置不影响非匹配框架的文件检测\". G7 FAIL: same missing boundary case causes coverage gap. Other 7 items PASS. Verdict: fail — Generator missed one explicit it() from test-design.md.",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "所有 affected 源码文件 (test-exclude.ts, test-detect-frameworks.ts, test-resolve-paths.ts, test-runner.ts, config.schema.ts) 在相同目录均有对应的 *.test.ts 文件"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "所有测试文件使用 *.test.ts 命名规范且与源文件共存在同一目录"
+      },
+      {
+        "item": "G3: 单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "test-detect-frameworks.test.ts 中缺少行72的边界测试 'exclude 配置不影响非匹配框架的文件检测' (迭代类型=新增)。该 describe 内仅有4个匹配测试和一个额外测试，但边界条件未单独实现。"
+      },
+      {
+        "item": "G4: 集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design.md 声明本变更无集成测试，所有 AC 均通过单元测试覆盖，无需生成集成测试"
+      },
+      {
+        "item": "G5: Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "test-resolve-paths.test.ts: vi.mock('./test-detect-frameworks') 和 vi.mock('child_process'); test-runner.test.ts: vi.mock('child_process') 和 mockExecSync; test-detect-frameworks.test.ts: createTempProject 管理文件系统; test-exclude.test.ts: 直接使用真实 matchGlob (不 mock)"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "所有测试文件导入来自 'vite-plus/test' (describe/it/expect/vi/beforeEach)，与项目框架检测结果 vite-plus 一致"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "test-detect-frameworks.test.ts 缺少边界测试 'exclude 配置不影响非匹配框架的文件检测'(行72)。其他边界情况均已覆盖。"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test-detect-frameworks.test.ts: try/finally + project.cleanup(); test-resolve-paths.test.ts: try/finally + project.cleanup(); test-runner.test.ts: try/finally + fs.rmSync; config.schema.test.ts: 纯函数无需清理; test-exclude.test.ts: 纯函数无需清理"
+      },
+      {
+        "item": "G9: 迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "用例表中所有行均为'新增'迭代类型，无'废弃'条目需要验证"
+      }
+    ],
+    "backtrack_to": [
+      "test-design"
+    ],
+    "backtrack_reason": "G3/G7 失败: test-detect-frameworks.test.ts 中缺少边界测试用例(exclude不影响非匹配框架)。需回到 test-design 确认是否需要修正设计或补充该测试。",
+    "timestamp": "2026-07-14T10:01:24.048Z",
+    "stale": true
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "全 9 项检查均通过。G1-G3/G5-G9 全部验证通过：5 个源码文件对应 5 个测试文件，命名规范且同目录；47 条用例表行均已生成骨架；mock 策略（vi.mock/createTempProject/mockExecSync）全部实现；边界覆盖（含 attempt-1 缺失的行72 边界用例）完整；清理逻辑（try/finally + cleanup）存在；无废弃条目。G4 集成测试无需覆盖。",
+    "checklist": [
+      {
+        "item": "G1: 源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "5个受影响的源码文件均在相同目录有 .test.ts 文件：test-exclude.ts→test-exclude.test.ts(新增), config.schema.ts→config.schema.test.ts, test-detect-frameworks.ts→test-detect-frameworks.test.ts, test-resolve-paths.ts→test-resolve-paths.test.ts, test-runner.ts→test-runner.test.ts"
+      },
+      {
+        "item": "G2: 测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "所有5个测试文件均使用 *.test.ts 命名规范，与对应的源文件共存于同一目录（src/lib/、src/commands/、src/schemas/config/）"
+      },
+      {
+        "item": "G3: 单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "47条「迭代类型=新增」用例表行逐一验证。test-exclude.test.ts 10条、config.schema.test.ts 7条、test-detect-frameworks.test.ts 9条、test-resolve-paths.test.ts 10条、test-runner.test.ts 7条——每条均在 git diff 中有对应的 describe/it 骨架，包括 attempt-1 缺失的行72(exclude不影响非匹配框架)边界用例"
+      },
+      {
+        "item": "G4: 集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design.md 声明「本变更无集成测试」，所有 AC 均通过单元测试覆盖，无需生成集成测试"
+      },
+      {
+        "item": "G5: Mock策略 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "test-exclude.test.ts: 不mock直接调用; test-detect-frameworks.test.ts: createTempProject管理文件系统; test-resolve-paths.test.ts: vi.mock('./test-detect-frameworks')(行29)+createTempProject; test-runner.test.ts: vi.mock('child_process')(行21)+mockExecSync"
+      },
+      {
+        "item": "G6: 测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "5个测试文件均从 'vite-plus/test' 导入 describe/it/expect/vi/beforeEach，与项目框架检测结果一致"
+      },
+      {
+        "item": "G7: test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "所有边界用例均已实现：isFileExcluded 5个边界(空数组/undefined/特殊字符/Windows路径/超长路径), getExcludeGlobs 2个边界(去重/空), configSchema 1边界+2异常, test-detect-frameworks 4边界, test-resolve-paths 4边界, test-runner 3边界+1异常。每种参数类型(string[], string)至少2个边界值"
+      },
+      {
+        "item": "G8: 测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test-detect-frameworks.test.ts: try/finally + project.cleanup(); test-resolve-paths.test.ts: try/finally + project.cleanup(); test-runner.test.ts: try/finally + fs.rmSync; config.schema.test.ts/test-exclude.test.ts: 纯函数无需清理"
+      },
+      {
+        "item": "G9: 迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "用例表中47条全部为「新增」迭代类型，无「废弃」条目需要验证"
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T10:06:13.897Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "All 8 checklist items pass. test-design.md fully maps proposal AC-1~AC-6, covers all test objects with boundary/error cases, documents mock strategies for external deps, and maintains structure consistent with template.",
+    "checklist": [
+      {
+        "item": "T1: proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "Proposal AC-1~AC-6 all mapped in 验收范围 table (lines 18-27). AC-2 split into isFileExcluded and getExcludeGlobs, AC-6 split across 4 test files."
+      },
+      {
+        "item": "T2: `验收范围`与`用例`互相对应",
+        "pass": true,
+        "evidence": "Every 验收范围 entry has corresponding 用例 rows (lines 47-93). Every 用例 row maps back to an 验收范围 entry. No orphan entries on either side."
+      },
+      {
+        "item": "T3: `单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "All 9 test objects have at least one 异常 or 边界 case: configSchema has 2异常+1边界 (lines 65-67), isFileExcluded has 5边界 (52-56), getExcludeGlobs has 2边界 (59-60), executePlanEntry has 1异常+3边界 (89,91-93), other objects have boundary cases."
+      },
+      {
+        "item": "T4: 存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Mock策略 table (lines 114-121) covers picomatch, config.json filesystem via createTempProject, runTestDetectFrameworks via vi.mock, child_process via vi.mock. All external deps from proposal addressed."
+      },
+      {
+        "item": "T5: 所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "All required sections filled: 验收范围 (16-27), 单元测试/用例 (46-93), Mock策略 (114-121), 集成测试 (127-134, explains why none needed), 不可测试项 (142-143). All have substantive content, not placeholders."
+      },
+      {
+        "item": "T6: 测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "All in_scope items (config-schema, test-exclude-filter, detect-frameworks, resolve-paths, runner) have test coverage. Out_of_scope items (Agents, test-get-framework-config, test-framework) have no test coverage. JSON Schema listed as untestable with valid rationale in 不可测试项."
+      },
+      {
+        "item": "T7: 写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "No write operations (create/update/delete) exist in this change. The entire change is read-only filtering (config schema extension, pure filter functions, list filtering in consumers). T7 not applicable, trivially passes."
+      },
+      {
+        "item": "T8: 产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "Title format matches (line 1), date present (line 3). Table column names in 验收范围, 用例, Mock策略 all match template exactly. All placeholders ({{change_name}}, {{date}}, etc.) replaced. 集成测试 (optional) uses narrative form per template guidance."
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T10:32:50.811Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "诊断分析: test-execution 阶段测试执行结果。总计: 1019 | 通过: 1019 | 失败: 0 | 跳过: 0。覆盖率: lines=90.17%, branches=77.08%, functions=91.11%，均高于阈值(lines≥80%, branches≥70%, functions≥75%)。覆盖率达标: true。全部测试通过，无需回溯。",
+    "checklist": [
+      {
+        "item": "T1: 执行报告结构完整",
+        "pass": true,
+        "evidence": "报告包含所有必需字段(phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds)。test_cases 字段缺失但失败数为0，无诊断需求，不影响评估。"
+      },
+      {
+        "item": "T2: 所有测试通过",
+        "pass": true,
+        "evidence": "failed=0 且 total=1019>0，全部1019个测试通过。"
+      },
+      {
+        "item": "T3: 覆盖率达标",
+        "pass": true,
+        "evidence": "coverage.pass=true。lines=90.17%(阈值80%), branches=77.08%(阈值70%), functions=91.11%(阈值75%)，全部高于阈值。override 项 plugins/dev-team/bin 同样全部达标(pass=true)。"
+      },
+      {
+        "item": "T4: 失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无失败测试，无需诊断。"
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T10:56:13.171Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 items pass. C1: No security issues — no eval/exec, no hardcoded keys. C2: Input validated via Zod schema + path guards. C3: Impl matches design.md exactly. C4: Null-safe with ?? [] , edge cases covered. C5: No dead code. C6: Follows project conventions. C7: Uses OpenSpecConfig type directly from Zod schema.",
+    "checklist": [
+      {
+        "item": "C1 - 变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No hardcoded secrets/API keys in changed files. No eval/exec/system in new code. test-exclude.ts is pure glob-matching logic."
+      },
+      {
+        "item": "C2 - 所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "Config validated by Zod schema. Path traversal guard (test-resolve-paths.ts:416). isSourceFile/isTestFile filters. File paths used for matching, not execution."
+      },
+      {
+        "item": "C3 - 实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "isFileExcluded/getExcludeGlobs per design. Config schema has exclude fields. All 3 callers (detect-frameworks, resolve-paths, test-runner) use the shared filter."
+      },
+      {
+        "item": "C4 - 无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "?? [] for all optional fields. Empty arrays handled. Override isolation tested. Windows->POSIX conversion. Long path stress test."
+      },
+      {
+        "item": "C5 - 无冗余或死代码",
+        "pass": true,
+        "evidence": "All imports used. Both test-exclude exports used. Schema exclude field consumed. No dead branches."
+      },
+      {
+        "item": "C6 - 代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "JSDoc on public functions. Chinese section comments. Consistent naming. Test files follow project patterns with satisfies OpenSpecConfig."
+      },
+      {
+        "item": "C7 - 外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Uses OpenSpecConfig type directly from Zod schema. No intermediate types. Test data uses satisfies OpenSpecConfig."
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T10:57:53.991Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 5 items pass. A1: 6 ACs traced to code (config.schema.ts:108-120, test-exclude.ts:30-89, test-detect-frameworks.ts:269-273, test-resolve-paths.ts:431-493, test-runner.ts:268-275, all 1019 tests). A2: Only proposal-listed files changed. A3: All 4 in_scope capabilities + 11 files present. A4: Agents/framework files unchanged. A5: All 4 risks mitigated (matchGlob reuse, O(n) scan, silent skip, JSDoc semantics).",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1: config.schema.ts:108-120, JSON schema:61-129. AC-2: test-exclude.ts:30-57,70-89. AC-3: test-detect-frameworks.ts:269-273. AC-4: test-resolve-paths.ts:431-433,490-493. AC-5: test-runner.ts:268-275. AC-6: ??[] guards; all 1019 tests pass."
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Changes limited to 6 impl files, 4 test files, plugin.json, dev-team-config.schema.json. No agent files or unlisted components modified. todo.md is tracking file."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "4 capabilities present: test-exclude-filter, config-schema, test-detect-frameworks, test-path-resolver. All 7 impl and 4 test files exist."
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "Agents unchanged. test-framework.ts no exclude references. test-get-framework-config absent from codebase."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk1: matchGlob reused (test-exclude.ts:12). Risk2: O(n) scan. Risk3: silent skip (test-runner.ts:273-275). Risk4: JSDoc+union merge (test-exclude.ts:21-25,42-53)."
+      }
+    ],
+    "backtrack_to": null,
+    "backtrack_reason": null,
+    "timestamp": "2026-07-14T10:59:22.120Z"
+  }
+]

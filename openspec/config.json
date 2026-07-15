@@ -6,7 +6,8 @@
     "overrides": [
       {
         "file": "plugins/dev-team/bin",
-        "framework": "vite-plus"
+        "framework": "vite-plus",
+        "exclude": ["./*", "src/schemas/**/*"]
       }
     ]
   },

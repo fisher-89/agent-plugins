@@ -770,6 +770,18 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
     // 使用临时项目目录确保 resolveStrykerConfig 可创建临时配置
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-duration-'));
     try {
+      // 创建 openspec/config.json 以支持 readConfig 和 isFileExcluded
+      const openspecDir = path.join(tmpDir, 'openspec');
+      fs.mkdirSync(openspecDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspecDir, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          test: { framework: 'vitest', mutation: { score: 80 } },
+        }),
+        'utf-8',
+      );
+
       // 创建报告文件以支持 mutation 解析
       const reportDir = path.join(tmpDir, 'reports', 'mutation');
       fs.mkdirSync(reportDir, { recursive: true });
@@ -794,9 +806,9 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         'utf-8',
       );
 
-      // 第一次 execSync: 测试执行
+      // 第一次 execSync: 测试执行 (含 name 字段以填充 sourceFiles)
       mockExecSync.mockReturnValueOnce(
-        '{"testResults":[{"assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
+        '{"testResults":[{"name":"src/foo.test.ts","assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
       );
       // 第二次 execSync: StrykerJS 执行
       mockExecSync.mockReturnValueOnce('StrykerJS run completed');
@@ -828,6 +840,18 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
   it('mutation 执行后清理临时配置文件和快照目录', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-cleanup-'));
     try {
+      // 创建 openspec/config.json 以支持 readConfig 和 isFileExcluded
+      const openspecDir = path.join(tmpDir, 'openspec');
+      fs.mkdirSync(openspecDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspecDir, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          test: { framework: 'vitest', mutation: { score: 80 } },
+        }),
+        'utf-8',
+      );
+
       // 先创建 reports/mutation/mutation.json 模拟 StrykerJS 输出
       const reportDir = path.join(tmpDir, 'reports', 'mutation');
       fs.mkdirSync(reportDir, { recursive: true });
@@ -858,9 +882,9 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       fs.mkdirSync(strykerTmpDir, { recursive: true });
       fs.writeFileSync(path.join(strykerTmpDir, 'cli.ts'), '// source file', 'utf-8');
 
-      // 第一次 execSync: 测试执行
+      // 第一次 execSync: 测试执行 (含 name 字段以填充 sourceFiles)
       mockExecSync.mockReturnValueOnce(
-        '{"testResults":[{"assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
+        '{"testResults":[{"name":"src/foo.test.ts","assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
       );
       // 第二次 execSync: StrykerJS 执行
       mockExecSync.mockReturnValueOnce('StrykerJS run completed');
@@ -934,6 +958,18 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
   it('执行顺序：测试命令 → 覆盖率解析 → StrykerJS', () => {
     const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-order-'));
     try {
+      // 创建 openspec/config.json 以支持 readConfig 和 isFileExcluded
+      const openspecDir = path.join(tmpDir, 'openspec');
+      fs.mkdirSync(openspecDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspecDir, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          test: { framework: 'vitest', mutation: { score: 80 } },
+        }),
+        'utf-8',
+      );
+
       // 创建报告文件以验证 mutation 阶段确实执行
       const reportDir = path.join(tmpDir, 'reports', 'mutation');
       fs.mkdirSync(reportDir, { recursive: true });
@@ -960,7 +996,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
       // execSync 应被调用 2 次: 测试命令 + StrykerJS
       mockExecSync.mockReturnValueOnce(
-        '{"testResults":[{"assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
+        '{"testResults":[{"name":"src/foo.test.ts","assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
       );
       mockExecSync.mockReturnValueOnce('StrykerJS run completed');
 
@@ -990,6 +1026,341 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       expect(secondCall).toContain('npx stryker run');
 
       // 验证 mutation 结果存在（说明 StrykerJS 阶段执行完成）
+      expect(result.mutation).not.toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ===========================================================================
+// executePlanEntry -- mutation exclude 过滤 (AC-5)
+// ===========================================================================
+
+describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+
+  /** Helper: vitest JSON stdout with a test file name (populates sourceFiles). */
+  function vitestStdout(name: string): string {
+    return JSON.stringify({
+      testResults: [
+        { name, assertionResults: [{ title: 't1', fullName: 't1', status: 'passed' as const }] },
+      ],
+    });
+  }
+
+  /** Helper: create openspec/config.json and reports/mutation/mutation.json in temp dir. */
+  function setupMutationDir(tmpDir: string, config: Record<string, unknown>): void {
+    const openspecDir = path.join(tmpDir, 'openspec');
+    fs.mkdirSync(openspecDir, { recursive: true });
+    fs.writeFileSync(path.join(openspecDir, 'config.json'), JSON.stringify(config), 'utf-8');
+    const reportDir = path.join(tmpDir, 'reports', 'mutation');
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reportDir, 'mutation.json'),
+      JSON.stringify({
+        metrics: {
+          mutationScore: 100,
+          mutationScoreBasedOnCoveredCode: 100,
+          killed: 3,
+          survived: 0,
+          timeout: 0,
+          noCoverage: 0,
+          compileErrors: 0,
+          runtimeErrors: 0,
+          ignored: 0,
+          totalDetected: 3,
+          totalUndetected: 0,
+          totalMutants: 3,
+        },
+      }),
+      'utf-8',
+    );
+  }
+
+  it('配置 exclude 后被排除的源文件不进入 StrykerJS 变异目标列表', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-excl-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        test: {
+          framework: 'vitest',
+          exclude: ['**/src/app.ts'],
+          mutation: { score: 80 },
+        },
+      });
+
+      // testFile "src/app.test.ts" → sourceFile "src/app.ts" → excluded by **/src/app.ts
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        test_cmd: '',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        coverage_cleanup: ['coverage'],
+        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      // All source files excluded → mutation skipped → mutation is null
+      expect(result.exitCode).toBe(0);
+      expect(result.mutation).toBeNull();
+      // Only test execution called, not StrykerJS
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('未配置 exclude 时全部源文件正常进入变异目标列表', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-noex-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        test: { framework: 'vitest', mutation: { score: 80 } },
+      });
+
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+      mockExecSync.mockReturnValueOnce('StrykerJS run completed');
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        test_cmd: '',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        coverage_cleanup: ['coverage'],
+        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.exitCode).toBe(0);
+      // mutation runs because sourceFiles (derived from test name) are non-empty and no exclude
+      expect(result.mutation).not.toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('exclude 配置下 mutation 阶段源文件列表为空时静默跳过', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-empty-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        test: {
+          framework: 'vitest',
+          exclude: ['**/*'],
+          mutation: { score: 80 },
+        },
+      });
+
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        test_cmd: '',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        coverage_cleanup: ['coverage'],
+        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.mutation).toBeNull();
+      // Only test execution called because all sources excluded
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ===========================================================================
+// executePlanEntry -- 向后兼容 (AC-6)
+// ===========================================================================
+
+describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+
+  /** Helper: vitest JSON stdout with a test file name. */
+  function vitestStdout(name: string): string {
+    return JSON.stringify({
+      testResults: [
+        { name, assertionResults: [{ title: 't1', fullName: 't1', status: 'passed' as const }] },
+      ],
+    });
+  }
+
+  /** Helper: create openspec/config.json + mutation report. */
+  function setupMutationDir(tmpDir: string, config: Record<string, unknown>): void {
+    const openspecDir = path.join(tmpDir, 'openspec');
+    fs.mkdirSync(openspecDir, { recursive: true });
+    fs.writeFileSync(path.join(openspecDir, 'config.json'), JSON.stringify(config), 'utf-8');
+    const reportDir = path.join(tmpDir, 'reports', 'mutation');
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reportDir, 'mutation.json'),
+      JSON.stringify({
+        metrics: {
+          mutationScore: 100,
+          mutationScoreBasedOnCoveredCode: 100,
+          killed: 2,
+          survived: 0,
+          timeout: 0,
+          noCoverage: 0,
+          compileErrors: 0,
+          runtimeErrors: 0,
+          ignored: 0,
+          totalDetected: 2,
+          totalUndetected: 0,
+          totalMutants: 2,
+        },
+      }),
+      'utf-8',
+    );
+  }
+
+  it('不配置 exclude 时全部现有功能行为不变', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bw-compat-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        test: { framework: 'vitest', mutation: { score: 80 } },
+      });
+
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
+      mockExecSync.mockReturnValueOnce('StrykerJS run completed');
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        test_cmd: '',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        coverage_cleanup: ['coverage'],
+        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.testCases).toHaveLength(1);
+      expect(result.mutation).not.toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('配置中存在 `"exclude": []` 空数组时变异测试源文件列表与无 exclude 配置时一致', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bw-empty-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        test: { framework: 'vitest', exclude: [], mutation: { score: 80 } },
+      });
+
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
+      mockExecSync.mockReturnValueOnce('StrykerJS run completed');
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        test_cmd: '',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        coverage_cleanup: ['coverage'],
+        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.exitCode).toBe(0);
+      // Mutation runs normally with empty exclude (same as no exclude)
+      expect(result.mutation).not.toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('配置中 `test` 节包含 `exclude` 字段但其值为 undefined 时变异测试源文件列表不受影响', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bw-undefined-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        test: { framework: 'vitest', mutation: { score: 80 } },
+      });
+
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
+      mockExecSync.mockReturnValueOnce('StrykerJS run completed');
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        test_cmd: '',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        coverage_cleanup: ['coverage'],
+        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.exitCode).toBe(0);
+      expect(result.mutation).not.toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('配置中不存在 `test` 节时变异测试源文件列表与无 exclude 配置时一致', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'bw-no-test-'));
+    try {
+      setupMutationDir(tmpDir, { schema: 'spec-driven' });
+
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
+      mockExecSync.mockReturnValueOnce('StrykerJS run completed');
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        test_cmd: '',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        coverage_cleanup: ['coverage'],
+        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.exitCode).toBe(0);
+      // Without a test section, readConfig returns a default config, and
+      // runMutationPhase still uses entry.mutation_framework to run mutation.
+      // The exclude filtering gets config (which has no exclude), so no filtering happens.
       expect(result.mutation).not.toBeNull();
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });

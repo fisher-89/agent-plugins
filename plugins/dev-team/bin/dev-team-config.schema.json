@@ -58,6 +58,13 @@
           ],
           "description": "测试框架"
         },
+        "exclude": {
+          "description": "全局排除的源文件 glob 模式列表",
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
         "coverage": {
           "description": "测试覆盖率",
           "type": "object",
@@ -113,6 +120,13 @@
                 "type": "string",
                 "minLength": 1,
                 "description": "文件路径，支持glob规则（如 \"src/**/*.test.ts\"）"
+              },
+              "exclude": {
+                "description": "该 override 范围内排除的源文件 glob 模式列表",
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
               },
               "framework": {
                 "type": "string",

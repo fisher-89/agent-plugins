@@ -1,0 +1,60 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-14T10:55:04.279Z",
+  "duration_seconds": 395,
+  "total": 1019,
+  "passed": 1019,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 90.17,
+      "branches": 77.08,
+      "functions": 91.11
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": 90.18,
+          "branches": 77.09,
+          "functions": 91.12
+        },
+        "pass": true,
+        "file_count": 49,
+        "passed_count": 40
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 61.52,
+    "threshold": 60,
+    "measured": {
+      "killed": 494,
+      "survived": 209,
+      "timeout": 0,
+      "noCoverage": 100,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 74,
+      "total": 877,
+      "detected": 494,
+      "undetected": 309
+    }
+  }
+}

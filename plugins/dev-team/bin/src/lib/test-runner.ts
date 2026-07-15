@@ -16,6 +16,8 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import type { MutationBlock, MutationMeasured, TestPlan } from '../schemas';
+import { readConfig } from './config';
+import { isFileExcluded } from './test-exclude';
 import { parseCoverageFromFile, type ParsedCoverage } from './test-parser/coverage-parser';
 import { parseTestOutput, type TestCase } from './test-parser/index';
 import { type MutationReport, parseMutationReport } from './test-parser/mutation-parser';
@@ -263,43 +265,64 @@ function runMutationPhase(
     return null;
   }
 
+  // Filter out source files that match test.exclude or test.overrides[].exclude
+  const config = readConfig(projectRoot);
+  const filteredSources = sourceFiles.filter((f) => !isFileExcluded(f, config));
+
+  // If all source files are excluded, skip mutation testing entirely
+  if (filteredSources.length === 0) {
+    return null;
+  }
+
   const absoluteDirectory = path.resolve(projectRoot, entry.directory);
   try {
-    const { configPath, tempDirPath } = resolveStrykerConfig(
-      absoluteDirectory,
-      sourceFiles,
-      entry.framework,
-    );
-
-    // Normalize configPath to forward slashes to avoid backslash escape issues in shell
-    const normalizedConfigPath = configPath.replace(/\\/g, '/');
-    const strykerCmd = `npx stryker run "${normalizedConfigPath}"`;
-    console.log(
-      `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absoluteDirectory})...`,
-    );
-    const strykerStart = Date.now();
-    const cmdResult = runCommand(strykerCmd, absoluteDirectory, 1200000);
-    const strykerDuration = (Date.now() - strykerStart) / 1000;
-    logCommandFailure(cmdResult, strykerDuration);
-
-    const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory);
-
-    cleanupMutationArtifacts(configPath, tempDirPath);
-
-    if (!mutationBlock) {
-      logMissingReport(cmdResult);
-      return null;
-    }
-
-    console.log(
-      `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%, took ${strykerDuration.toFixed(1)}s)`,
-    );
-
-    return mutationBlock;
+    return executeStrykerMutation(entry, absoluteDirectory, filteredSources);
   } catch (e) {
     console.log(`  Mutation testing skipped: ${e instanceof Error ? e.message : 'Unknown error'}`);
     return null;
   }
+}
+
+/**
+ * Execute the StrykerJS mutation test run, parse the report, and clean up.
+ * Returns a MutationBlock on success, or null if the report is missing.
+ */
+function executeStrykerMutation(
+  entry: TestPlan,
+  absoluteDirectory: string,
+  filteredSources: string[],
+): MutationBlock | null {
+  const { configPath, tempDirPath } = resolveStrykerConfig(
+    absoluteDirectory,
+    filteredSources,
+    entry.framework,
+  );
+
+  // Normalize configPath to forward slashes to avoid backslash escape issues in shell
+  const normalizedConfigPath = configPath.replace(/\\/g, '/');
+  const strykerCmd = `npx stryker run "${normalizedConfigPath}"`;
+  console.log(
+    `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absoluteDirectory})...`,
+  );
+  const strykerStart = Date.now();
+  const cmdResult = runCommand(strykerCmd, absoluteDirectory, 1200000);
+  const strykerDuration = (Date.now() - strykerStart) / 1000;
+  logCommandFailure(cmdResult, strykerDuration);
+
+  const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory);
+
+  cleanupMutationArtifacts(configPath, tempDirPath);
+
+  if (!mutationBlock) {
+    logMissingReport(cmdResult);
+    return null;
+  }
+
+  console.log(
+    `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%, took ${strykerDuration.toFixed(1)}s)`,
+  );
+
+  return mutationBlock;
 }
 
 /**

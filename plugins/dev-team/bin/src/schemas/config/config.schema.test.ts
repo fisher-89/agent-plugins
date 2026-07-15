@@ -360,3 +360,109 @@ describe('存量 schema — 其他字段基础验证', () => {
     }
   });
 });
+
+// ===========================================================================
+// configSchema — test.exclude 验证 (AC-1)
+// ===========================================================================
+
+describe('configSchema — test.exclude 验证 (AC-1)', () => {
+  it('test.exclude 为合法字符串数组时验证通过', () => {
+    const input = { test: { exclude: ['**/node_modules/**', '**/dist/**'] } };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.test?.exclude).toEqual(['**/node_modules/**', '**/dist/**']);
+    }
+  });
+
+  it('test.overrides[].exclude 为合法字符串数组时验证通过', () => {
+    const input = {
+      test: {
+        overrides: [{ file: 'src/**', exclude: ['**/*.snap'] }],
+      },
+    };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.test?.overrides?.[0].exclude).toEqual(['**/*.snap']);
+    }
+  });
+
+  it('同时配置 test.exclude 和 test.overrides[].exclude 时验证通过', () => {
+    const input = {
+      test: {
+        exclude: ['**/node_modules/**'],
+        overrides: [{ file: 'src/**', exclude: ['**/*.snap'] }],
+      },
+    };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.test?.exclude).toEqual(['**/node_modules/**']);
+      expect(result.data.test?.overrides?.[0].exclude).toEqual(['**/*.snap']);
+    }
+  });
+
+  it('test.exclude 省略时验证通过（可选字段）', () => {
+    const input = { test: { framework: 'vitest' } };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(true);
+  });
+
+  it('test.exclude 为字符串而非数组时验证失败', () => {
+    const input = { test: { exclude: '**/node_modules/**' } };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('test.exclude 元素为非字符串（如数字）时验证失败', () => {
+    const input = { test: { exclude: ['**/node_modules/**', 42] } };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+
+  it('test.exclude 为空数组 [] 时验证通过（不排除任何文件）', () => {
+    const input = { test: { exclude: [] } };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.test?.exclude).toEqual([]);
+    }
+  });
+
+  it('test.overrides[].exclude 为空数组 [] 时验证通过', () => {
+    const input = {
+      test: {
+        overrides: [{ file: 'src/**', exclude: [] }],
+      },
+    };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.test?.overrides?.[0].exclude).toEqual([]);
+    }
+  });
+
+  it('test.overrides[].exclude 省略时验证通过', () => {
+    const input = {
+      test: {
+        overrides: [{ file: 'src/**' }],
+      },
+    };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(true);
+    if (result.success) {
+      expect(result.data.test?.overrides?.[0].exclude).toBeUndefined();
+    }
+  });
+
+  it('test.overrides[].exclude 为字符串而非数组时验证失败', () => {
+    const input = {
+      test: {
+        overrides: [{ file: 'src/**', exclude: '**/*.snap' }],
+      },
+    };
+    const result = configSchema.safeParse(input);
+    expect(result.success).toBe(false);
+  });
+});

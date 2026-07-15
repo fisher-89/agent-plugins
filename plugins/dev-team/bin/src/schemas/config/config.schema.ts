@@ -107,12 +107,17 @@ export const configSchema = z.object({
   test: z
     .object({
       framework: testFrameworkSchema.optional(),
+      exclude: z.array(z.string()).optional().describe('全局排除的源文件 glob 模式列表'),
       coverage: testCoverageSchema.optional(),
       mutation: mutationConfigSchema.optional(),
       overrides: z
         .array(
           z.object({
             file: z.string().nonempty().describe('文件路径，支持glob规则（如 "src/**/*.test.ts"）'),
+            exclude: z
+              .array(z.string())
+              .optional()
+              .describe('该 override 范围内排除的源文件 glob 模式列表'),
             framework: testFrameworkSchema.optional(),
             coverage: testCoverageSchema.optional(),
             mutation: mutationOverrideSchema.optional(),
