@@ -58,19 +58,22 @@ function loadPatterns(projectRoot: string): ProtectedPattern[] {
   // Add built-in patterns inline to ensure perTest coverage analysis
   // attributes mutations on these strings to each calling test
   patterns.push({
-    glob: 'openspec/changes/**/eval.json',
+    glob: '**/openspec/changes/**/eval.json',
     reason: '该文件受写入保护：%s。detected via %t。请使用 phase_log MCP 工具替代。',
   });
   patterns.push({
-    glob: 'openspec/config.json',
+    glob: '**/openspec/config.json',
     reason: '该文件受写入保护：%s。detected via %t。请使用 config_get/config_set MCP 工具替代。',
   });
 
   const config = readConfig(projectRoot);
   const files = config.write_protection?.files ?? [];
   for (const file of files) {
+    if (!file.glob) {
+      continue;
+    }
     patterns.push({
-      glob: file.glob,
+      glob: path.isAbsolute(file.glob) ? file.glob : `**/${file.glob}`,
       reason: file.reason,
     });
   }

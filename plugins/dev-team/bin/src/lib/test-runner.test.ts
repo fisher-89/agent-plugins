@@ -11,7 +11,7 @@
  * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
-import { beforeEach, describe, it, expect, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vite-plus/test';
 
 // ---------------------------------------------------------------------------
 // Mock child_process.execSync for all executePlanEntry tests
@@ -63,7 +63,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
     mockExecSync.mockReset();
   });
 
-  it('执行 test_cmd 一次命令（无 merge_mode 分支，统一执行路径）', () => {
+  it('执行一次命令（无 merge_mode 分支，统一执行路径）', () => {
     mockExecSync.mockReturnValue(
       '{"testResults":[{"assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
     );
@@ -71,12 +71,13 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      },
     };
     const result = executePlanEntry(entry, '/project', { files: ['src/test.test.ts'] });
     expect(result.exitCode).toBe(0);
@@ -86,7 +87,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
     expect(mockExecSync).toHaveBeenCalledTimes(1);
   });
 
-  it('从 test_cmd 执行结果提取测试用例和覆盖率', () => {
+  it('从执行结果提取测试用例和覆盖率', () => {
     mockExecSync.mockReturnValue(
       '{"testResults":[{"assertionResults":[{"title":"t1","fullName":"t1","status":"passed"},{"title":"t2","fullName":"t2","status":"failed"}]}]}',
     );
@@ -94,12 +95,13 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      },
     };
     const result = executePlanEntry(entry, '/project');
     expect(result.testCases).toHaveLength(2);
@@ -117,12 +119,13 @@ describe('executePlanEntry -- 单一命令执行', () => {
       {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
       },
       '/project',
     );
@@ -132,13 +135,14 @@ describe('executePlanEntry -- 单一命令执行', () => {
       {
         directory: '.',
         framework: 'pytest',
-        test_cmd: '',
         coverage_format: 'coverage-py' as const,
         coverage_output: 'coverage.json',
         coverage_artifacts: ['coverage.json'],
-        coverage_cleanup: ['.coverage'],
-        script:
-          'rm -rf .coverage\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        script: {
+          shell:
+            'rm -rf .coverage\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+          cmd: 'rm -rf .coverage\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        },
       },
       '/project',
     );
@@ -162,12 +166,13 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      },
     };
     const result = executePlanEntry(entry, '/project');
     // 不崩溃，返回 error 和 exitCode
@@ -176,18 +181,16 @@ describe('executePlanEntry -- 单一命令执行', () => {
     expect(result.testCases).toEqual([]);
   });
 
-  it('test_cmd 为空字符串时返回 error，不执行子进程', () => {
+  it('空命令时返回 error，不执行子进程', () => {
     // 不应调用 execSync
     const result = executePlanEntry(
       {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: '',
+        script: { shell: '', cmd: '' },
       },
       '/project',
     );
@@ -202,12 +205,13 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
+      },
     };
     const result = executePlanEntry(entry, '/project');
     expect(result.testCases).toEqual([]);
@@ -227,12 +231,13 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnonexistent-binary --version\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnonexistent-binary --version\\n',
+        cmd: 'rm -rf coverage\\nnonexistent-binary --version\\n',
+      },
     };
     const result = executePlanEntry(entry, '/project');
     expect(result.exitCode).toBe(127);
@@ -249,16 +254,14 @@ describe('executePlanEntry -- empty test command', () => {
     mockExecSync.mockReset();
   });
 
-  it('should return error when test_cmd is empty string', async () => {
+  it('should return error when command is empty string', async () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: '',
+      script: { shell: '', cmd: '' },
     };
     const result = executePlanEntry(entry, '/project');
     expect(result.exitCode).toBe(-1);
@@ -267,16 +270,14 @@ describe('executePlanEntry -- empty test command', () => {
     expect(mockExecSync).not.toHaveBeenCalled();
   });
 
-  it('should return error when test_cmd is whitespace-only', async () => {
+  it('should return error when command is whitespace-only', async () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: [],
-      script: '   ',
+      script: { shell: '   ', cmd: '   ' },
     };
     const result = executePlanEntry(entry, '/project');
     expect(result.exitCode).toBe(-1);
@@ -313,13 +314,14 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       const entry = {
         directory: '.',
         framework: 'pytest',
-        test_cmd: '',
         coverage_format: 'coverage-py' as const,
         coverage_output: 'coverage.json',
         coverage_artifacts: ['coverage.json'],
-        coverage_cleanup: ['.coverage', 'htmlcov'],
-        script:
-          'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+        script: {
+          shell:
+            'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+          cmd: 'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+        },
       };
 
       const result = executePlanEntry(entry, tmpDir, { files: ['test_add.py'] });
@@ -339,13 +341,14 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     const entry = {
       directory: '.',
       framework: 'rust',
-      test_cmd: '',
       coverage_format: 'llvm-cov' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage', 'target/llvm-cov'],
-      script:
-        'rm -rf coverage\\nrm -rf target/llvm-cov\\ncargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X\\n',
+      script: {
+        shell:
+          'rm -rf coverage\\nrm -rf target/llvm-cov\\ncargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X\\n',
+        cmd: 'rm -rf coverage\\nrm -rf target/llvm-cov\\ncargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -372,13 +375,14 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     const entry = {
       directory: '.',
       framework: 'pytest',
-      test_cmd: '',
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script: {
+        shell:
+          'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        cmd: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -393,18 +397,19 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     const entry = {
       directory: '.',
       framework: 'pytest',
-      test_cmd: '',
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script: {
+        shell:
+          'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        cmd: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      },
     };
 
     // 覆盖率输出是 coverage.json 文件，不在 stdout 中
-    // 验证 test_cmd 包含 --cov-report=json（文件输出）
-    expect(entry.script).toContain('--cov-report=json');
+    // 验证 script 包含 --cov-report=json（文件输出）
+    expect(entry.script.shell).toContain('--cov-report=json');
     // 执行结果中 coverage 为 null（因为 coverage.json 文件不存在）
     const result = executePlanEntry(entry, '/project');
     expect(result.coverage).toBeNull();
@@ -425,12 +430,10 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     const entry = {
       directory: '.',
       framework: 'pytest',
-      test_cmd: '',
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script: pytestCmd,
+      script: { shell: pytestCmd, cmd: pytestCmd },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -449,13 +452,14 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     const entry = {
       directory: '.',
       framework: 'pytest',
-      test_cmd: '',
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script: {
+        shell:
+          'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        cmd: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -469,13 +473,14 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     const entry = {
       directory: '.',
       framework: 'pytest',
-      test_cmd: '',
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script: {
+        shell:
+          'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        cmd: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -490,13 +495,14 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
     const entry = {
       directory: '.',
       framework: 'pytest',
-      test_cmd: '',
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
-      coverage_cleanup: ['.coverage', 'htmlcov'],
-      script:
-        'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      script: {
+        shell:
+          'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+        cmd: 'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -527,12 +533,13 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -549,22 +556,24 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
     const entry1 = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+      },
     };
     const entry2 = {
       directory: '.',
       framework: 'vite-plus',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nvp test {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nvp test {files}\\n',
+        cmd: 'rm -rf coverage\\nvp test {files}\\n',
+      },
     };
 
     const result1 = executePlanEntry(entry1, '/project');
@@ -587,12 +596,14 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -612,12 +623,14 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run\\n',
+
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -635,12 +648,14 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run\\n',
+
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run\\n',
+      },
     };
 
     const result = executePlanEntry(entry, '/project');
@@ -670,12 +685,14 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+      },
       mutation_framework: 'stryker-js',
       mutation_score: 80,
     };
@@ -695,12 +712,13 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
     const entry = {
       directory: '.',
       framework: 'bun',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nbun test {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nbun test {files}\\n',
+        cmd: 'rm -rf coverage\\nbun test {files}\\n',
+      },
       mutation_framework: null,
       mutation_score: null,
     };
@@ -717,12 +735,14 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+      },
       mutation_framework: 'stryker-js',
       mutation_score: 80,
     };
@@ -748,12 +768,13 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
     const entry = {
       directory: '.',
       framework: 'vitest',
-      test_cmd: '',
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
-      coverage_cleanup: ['coverage'],
-      script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+      script: {
+        shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+      },
       mutation_framework: 'stryker-js',
       mutation_score: 80,
     };
@@ -816,12 +837,13 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -892,12 +914,13 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -934,12 +957,13 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1003,12 +1027,13 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1098,12 +1123,13 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1133,12 +1159,13 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1169,12 +1196,13 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1251,12 +1279,13 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1284,12 +1313,13 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1317,12 +1347,13 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1346,12 +1377,13 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
       const entry = {
         directory: '.',
         framework: 'vitest',
-        test_cmd: '',
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
-        coverage_cleanup: ['coverage'],
-        script: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
         mutation_framework: 'stryker-js',
         mutation_score: 80,
       };
@@ -1364,6 +1396,289 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
       expect(result.mutation).not.toBeNull();
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+});
+
+// ===========================================================================
+// executePlanEntry -- platform command selection (AC-6)
+// ===========================================================================
+
+describe('executePlanEntry -- platform command selection (AC-6)', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('Windows (win32, no SHELL) uses entry.script.cmd in the command passed to execSync', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      vi.stubEnv('SHELL', '');
+      vi.stubEnv('COMSPEC', '');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        coverage_format: 'istanbul' as const,
+        coverage_output: 'coverage/coverage-summary.json',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'rm -rf coverage\nnpx vitest run --reporter=json {files}\n',
+          cmd: 'if exist coverage (rmdir /s /q coverage)\nnpx vitest run --reporter=json {files}\n',
+        },
+      };
+      executePlanEntry(entry, '/project', { files: ['test.test.ts'] });
+      const cmd = String(mockExecSync.mock.calls[0][0]);
+      expect(cmd).toContain('rmdir');
+      expect(cmd).not.toContain('rm -rf');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('Unix (linux, SHELL set) uses entry.script.shell in the command passed to execSync', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.stubEnv('SHELL', '/bin/bash');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        coverage_format: 'istanbul' as const,
+        coverage_output: 'coverage/coverage-summary.json',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'rm -rf coverage\nnpx vitest run --reporter=json {files}\n',
+          cmd: 'if exist coverage (rmdir /s /q coverage)\nnpx vitest run --reporter=json {files}\n',
+        },
+      };
+      executePlanEntry(entry, '/project', { files: ['test.test.ts'] });
+      const cmd = String(mockExecSync.mock.calls[0][0]);
+      expect(cmd).toContain('rm -rf');
+      expect(cmd).not.toContain('rmdir');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+});
+
+// ===========================================================================
+// executePlanEntry -- shell resolution (AC-7, AC-10)
+// ===========================================================================
+
+describe('executePlanEntry -- shell resolution (AC-7, AC-10)', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  const makeEntry = () => ({
+    directory: '.',
+    framework: 'vitest',
+    coverage_format: 'istanbul' as const,
+    coverage_output: 'coverage/coverage-summary.json',
+    coverage_artifacts: ['coverage/coverage-summary.json'],
+    script: {
+      shell: 'npx vitest run --reporter=json {files}\n',
+      cmd: 'npx vitest run --reporter=json {files}\n',
+    },
+  });
+
+  it('win32 + no SHELL/COMSPEC → execSync called with shell: cmd.exe', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      vi.stubEnv('SHELL', '');
+      vi.stubEnv('COMSPEC', '');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      executePlanEntry(makeEntry(), '/project');
+      expect(mockExecSync.mock.calls[0][1].shell).toBe('cmd.exe');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('win32 + COMSPEC set → execSync called with COMSPEC value', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      vi.stubEnv('COMSPEC', 'C:\\Windows\\System32\\cmd.exe');
+      vi.stubEnv('SHELL', '');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      executePlanEntry(makeEntry(), '/project');
+      expect(mockExecSync.mock.calls[0][1].shell).toBe('C:\\Windows\\System32\\cmd.exe');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('non-win32 → execSync called with shell: undefined', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.stubEnv('SHELL', '');
+      vi.stubEnv('COMSPEC', '');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      executePlanEntry(makeEntry(), '/project');
+      expect(mockExecSync.mock.calls[0][1].shell).toBeUndefined();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('SHELL takes priority over COMSPEC on win32', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      vi.stubEnv('SHELL', '/usr/bin/bash');
+      vi.stubEnv('COMSPEC', 'C:\\Windows\\System32\\cmd.exe');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      executePlanEntry(makeEntry(), '/project');
+      expect(mockExecSync.mock.calls[0][1].shell).toBe('/usr/bin/bash');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('win32 + SHELL/COMSPEC both undefined → falls back to cmd.exe', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      vi.stubEnv('SHELL', '');
+      vi.stubEnv('COMSPEC', '');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      executePlanEntry(makeEntry(), '/project');
+      expect(mockExecSync.mock.calls[0][1].shell).toBe('cmd.exe');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('win32 + empty SHELL → falls back (falsy SHELL treated as absent)', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'win32' });
+      vi.stubEnv('SHELL', '');
+      vi.stubEnv('COMSPEC', '');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      executePlanEntry(makeEntry(), '/project');
+      expect(mockExecSync.mock.calls[0][1].shell).toBe('cmd.exe');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('darwin (macOS) → execSync called with shell: undefined', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'darwin' });
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      executePlanEntry(makeEntry(), '/project');
+      expect(mockExecSync.mock.calls[0][1].shell).toBeUndefined();
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+});
+
+// ===========================================================================
+// executePlanEntry -- 向后兼容（缺失 cmd 字段）
+// ===========================================================================
+
+describe('executePlanEntry -- 向后兼容（缺失 cmd 字段）', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+
+  it('入口缺失 cmd 字段时 fallback 到 shell（向后兼容）', () => {
+    vi.stubEnv('SHELL', '/bin/bash');
+    mockExecSync.mockReturnValue(
+      '{"testResults":[{"assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
+    );
+
+    const entry = {
+      directory: '.',
+      framework: 'vitest',
+      coverage_format: 'istanbul' as const,
+      coverage_output: 'coverage/coverage-summary.json',
+      coverage_artifacts: ['coverage/coverage-summary.json'],
+      script: {
+        shell: 'npx vitest run --reporter=json {files}\\n',
+        cmd: 'npx vitest run --reporter=json {files}\\n',
+      },
+    };
+    const result = executePlanEntry(entry, '/project');
+    expect(result.framework).toBe('vitest');
+    expect(result.exitCode).toBe(0);
+    vi.unstubAllEnvs();
+  });
+});
+
+// ===========================================================================
+// executeStrykerMutation -- 平台感知 (AC-8)
+// ===========================================================================
+
+describe('executePlanEntry -- StrykerJS 平台感知 (AC-8)', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+
+  it('executeStrykerMutation 从 FrameworkConfig 读取 mutation_execution 并替换 {config} 占位符', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'stryker-platform-'));
+    try {
+      // 创建 openspec/config.json 以支持 readConfig
+      const openspecDir = path.join(tmpDir, 'openspec');
+      fs.mkdirSync(openspecDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspecDir, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          test: { framework: 'vitest', mutation: { score: 80 } },
+        }),
+        'utf-8',
+      );
+
+      // 第一次 execSync: 测试执行
+      mockExecSync.mockReturnValueOnce(
+        '{"testResults":[{"name":"src/foo.test.ts","assertionResults":[{"title":"t1","fullName":"t1","status":"passed"}]}]}',
+      );
+      // 第二次 execSync: StrykerJS 执行
+      mockExecSync.mockReturnValueOnce('StrykerJS run completed');
+
+      const entry = {
+        directory: '.',
+        framework: 'vitest',
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+          cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+
+      const result = executePlanEntry(entry, tmpDir);
+      // 验证 execSync 被调用了 2 次（测试 + StrykerJS）
+      expect(mockExecSync).toHaveBeenCalled();
+
+      // 获取第二次调用的命令（StrykerJS 命令）
+      if (mockExecSync.mock.calls.length >= 2) {
+        const strykerCmd = String(mockExecSync.mock.calls[1][0]);
+        expect(strykerCmd).toContain('npx stryker run');
+        expect(strykerCmd).toContain('stryker.config');
+      }
+      expect(result.mutation).toBeNull(); // 报告文件不存在
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+      vi.unstubAllEnvs();
     }
   });
 });

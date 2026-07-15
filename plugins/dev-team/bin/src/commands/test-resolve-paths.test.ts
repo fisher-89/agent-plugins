@@ -763,13 +763,14 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
               {
                 directory: 'src',
                 framework: 'vite-plus' as const,
-                test_cmd: 'vp test --coverage --coverage.reporter=json-summary {files}',
                 coverage_format: 'istanbul' as const,
                 coverage_output: 'coverage/coverage-summary.json',
                 coverage_artifacts: ['coverage/coverage-summary.json'],
-                coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
-                script:
-                  '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nrm -rf .nyc_output\nrm -rf test-stderr.txt\nvp test --coverage --coverage.reporter=json-summary\n',
+                script: {
+                  shell:
+                    '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nrm -rf .nyc_output\nrm -rf test-stderr.txt\nvp test --coverage --coverage.reporter=json-summary\n',
+                  cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nif exist ".nyc_output" (rmdir /s /q ".nyc_output" 2>nul & del /f /q ".nyc_output" 2>nul)\nif exist "test-stderr.txt" (rmdir /s /q "test-stderr.txt" 2>nul & del /f /q "test-stderr.txt" 2>nul)\nvp test --coverage --coverage.reporter=json-summary\r\n',
+                },
               },
             ],
           };
@@ -1097,24 +1098,24 @@ describe('runTestResolvePaths -- 去重', () => {
           {
             directory: 'src',
             framework: 'vitest' as const,
-            test_cmd:
-              'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
             coverage_format: 'istanbul' as const,
             coverage_output: 'coverage/coverage-summary.json',
             coverage_artifacts: ['coverage/coverage-summary.json'],
-            coverage_cleanup: ['coverage', '.nyc_output'],
-            script: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx vitest run --coverage\n',
+            script: {
+              shell: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx vitest run --coverage\n',
+              cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nnpx vitest run --coverage\r\n',
+            },
           },
           {
             directory: 'src',
             framework: 'jest' as const,
-            test_cmd:
-              'npx jest --verbose --json --coverage --coverageReporters=json-summary {files}',
             coverage_format: 'istanbul' as const,
             coverage_output: 'coverage/coverage-summary.json',
             coverage_artifacts: ['coverage/coverage-summary.json'],
-            coverage_cleanup: ['coverage', '.nyc_output'],
-            script: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx jest --coverage\n',
+            script: {
+              shell: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx jest --coverage\n',
+              cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nnpx jest --coverage\r\n',
+            },
           },
         ],
       });
@@ -1171,13 +1172,13 @@ describe('runTestResolvePaths -- 去重', () => {
               {
                 directory: 'src',
                 framework: 'vitest' as const,
-                test_cmd:
-                  'npx vitest run --reporter=json --coverage --coverage.reporter=json-summary {files}',
                 coverage_format: 'istanbul' as const,
                 coverage_output: 'coverage/coverage-summary.json',
                 coverage_artifacts: ['coverage/coverage-summary.json'],
-                coverage_cleanup: ['coverage'],
-                script: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nvp test\n',
+                script: {
+                  shell: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nvp test\n',
+                  cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nvp test\r\n',
+                },
               },
             ],
           };
@@ -1326,12 +1327,10 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
               {
                 directory: '.',
                 framework: 'vite-plus' as const,
-                test_cmd: 'vp test {files}',
                 coverage_format: 'istanbul' as const,
                 coverage_output: 'coverage/coverage-summary.json',
                 coverage_artifacts: ['coverage/coverage-summary.json'],
-                coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
-                script: 'vp test\n',
+                script: { shell: 'vp test\n', cmd: 'vp test\r\n' },
               },
             ],
           };

@@ -63,7 +63,6 @@ describe('test_detect_frameworks — plan 输出结构', () => {
       });
       expect(result.plan[0]).toHaveProperty('coverage_output');
       expect(result.plan[0]).toHaveProperty('coverage_artifacts');
-      expect(result.plan[0]).toHaveProperty('coverage_cleanup');
       expect(result.plan[0]).toHaveProperty('script');
 
       const parsed = testDetectFrameworksOutputSchema.safeParse(result);
@@ -87,6 +86,71 @@ describe('test_detect_frameworks — plan 输出结构', () => {
       expect(result.plan).toEqual([]);
       expect(result.frameworks).toEqual([]);
       expect(result.detected.every((d) => d.framework === 'unknown')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// plan 双脚本内容验证 (AC-2, AC-5)
+// ===========================================================================
+
+describe('test_detect_frameworks — plan 双脚本内容验证', () => {
+  it('script.shell 包含 `rm -rf` 和 bash 语法命令', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const shell = (result.plan[0].script as { shell: string; cmd: string }).shell;
+      expect(shell).toContain('rm -rf');
+      expect(shell).toContain('npx vitest run');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('script.cmd 包含 `rmdir /s /q`、`cd /d` 和 cmd.exe 兼容语法', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [{ file: 'plugins/dev-team/bin/**', framework: 'vitest' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['plugins/dev-team/bin/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const cmd = (result.plan[1].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('rmdir /s /q');
+      expect(cmd).toContain('cd /d');
+      expect(cmd).toContain('\r\n');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('脚本双输出通过 schema 校验', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: { framework: 'vitest' },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const parsed = testDetectFrameworksOutputSchema.safeParse(result);
+      expect(parsed.success).toBe(true);
+      expect(parsed.data!.plan[0].script).toHaveProperty('shell');
+      expect(parsed.data!.plan[0].script).toHaveProperty('cmd');
     } finally {
       project.cleanup();
     }

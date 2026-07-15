@@ -8,6 +8,8 @@
 // Consumers: test-detect-frameworks, test-resolve-paths, test-runner.
 // ---------------------------------------------------------------------------
 
+import path from 'node:path';
+
 import type { OpenSpecConfig } from '../schemas';
 import { matchGlob } from './glob';
 
@@ -29,31 +31,8 @@ import { matchGlob } from './glob';
  */
 export function isFileExcluded(filePath: string, config: OpenSpecConfig): boolean {
   const posixPath = filePath.replace(/\\/g, '/');
-
-  // 1. Global exclude
-  const globalExcludes = config.test?.exclude ?? [];
-  for (const glob of globalExcludes) {
-    if (matchGlob(posixPath, glob)) {
-      return true;
-    }
-  }
-
-  // 2. Override-level exclude (only if file matches the override's file glob)
-  const overrides = config.test?.overrides ?? [];
-  for (const override of overrides) {
-    const overrideExcludes = override.exclude ?? [];
-    if (overrideExcludes.length === 0) continue;
-
-    if (!matchGlob(posixPath, override.file)) continue;
-
-    for (const glob of overrideExcludes) {
-      if (matchGlob(posixPath, glob)) {
-        return true;
-      }
-    }
-  }
-
-  return false;
+  const globs = getExcludeGlobs(config);
+  return globs.some((glob) => matchGlob(posixPath, glob));
 }
 
 /**
@@ -71,7 +50,10 @@ export function getExcludeGlobs(config: OpenSpecConfig): string[] {
   const seen = new Set<string>();
 
   // 1. Global exclude
-  const globalExcludes = config.test?.exclude ?? [];
+  const globalExcludes =
+    config.test?.exclude?.map((pattern) =>
+      needWildcardPrefix(pattern) ? path.posix.join('**', pattern) : pattern,
+    ) ?? [];
   for (const glob of globalExcludes) {
     seen.add(glob);
   }
@@ -79,11 +61,22 @@ export function getExcludeGlobs(config: OpenSpecConfig): string[] {
   // 2. Override-level exclude
   const overrides = config.test?.overrides ?? [];
   for (const override of overrides) {
-    const overrideExcludes = override.exclude ?? [];
+    const overridePrefix = needWildcardPrefix(override.file)
+      ? path.posix.join('**', override.file)
+      : override.file;
+    const overrideExcludes =
+      override.exclude?.map((pattern) => path.posix.join(overridePrefix, pattern)) ?? [];
     for (const glob of overrideExcludes) {
       seen.add(glob);
     }
   }
 
   return [...seen];
+}
+
+function needWildcardPrefix(globPattern: string): boolean {
+  if (path.isAbsolute(globPattern)) {
+    return false;
+  }
+  return !globPattern.startsWith('*');
 }

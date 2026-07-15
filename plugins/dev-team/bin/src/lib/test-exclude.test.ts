@@ -172,8 +172,8 @@ describe('getExcludeGlobs — 正向', () => {
     } satisfies OpenSpecConfig;
     const result = getExcludeGlobs(config);
     expect(result).toContain('**/node_modules/**');
-    expect(result).toContain('**/*.test.ts');
-    expect(result).toContain('**/generated/**');
+    expect(result).toContain('**/dir-a/**/*.test.ts');
+    expect(result).toContain('**/dir-b/**/generated/**');
     expect(result).toHaveLength(3);
   });
 });
@@ -187,11 +187,11 @@ describe('getExcludeGlobs — 边界', () => {
     const config = {
       schema: 'spec-driven' as const,
       test: {
-        exclude: ['**/node_modules/**'],
-        overrides: [{ file: 'dir-a', exclude: ['**/node_modules/**'] }],
+        exclude: ['dir-a/node_modules/**'],
+        overrides: [{ file: 'dir-a', exclude: ['node_modules/**'] }],
       },
     } satisfies OpenSpecConfig;
-    expect(getExcludeGlobs(config)).toEqual(['**/node_modules/**']);
+    expect(getExcludeGlobs(config)).toEqual(['**/dir-a/node_modules/**']);
   });
 
   it('无任何 exclude 时返回空数组', () => {

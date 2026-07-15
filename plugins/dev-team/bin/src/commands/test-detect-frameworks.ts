@@ -156,27 +156,29 @@ function deriveWorkingDirectory(glob: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// generateScript
+// generateShellScript
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a bash execution script from plan entry fields.
+ * Generate a POSIX shell (bash) execution script from plan entry fields.
+ * Uses Unix shell syntax: `cd`, `rm -rf`, `\n` line separation, `;` chaining
+ * and `_X=$?` exit code capture (embedded in the test_execution template).
  */
-function generateScript(directory: string, frameworkConfig: FrameworkConfig): string {
+function generateShellScript(directory: string, frameworkConfig: FrameworkConfig): string {
   if (frameworkConfig === null || frameworkConfig === undefined) {
-    throw new TypeError('generateScript input must not be null or undefined');
+    throw new TypeError('generateShellScript input must not be null or undefined');
   }
 
-  const { test_cmd, coverage_cleanup } = frameworkConfig;
+  const { test_execution, coverage_cleanup } = frameworkConfig.shell;
 
   if (typeof directory !== 'string') {
-    throw new TypeError('generateScript: directory must be a string');
+    throw new TypeError('generateShellScript: directory must be a string');
   }
-  if (typeof test_cmd !== 'string') {
-    throw new TypeError('generateScript: test_cmd must be a string');
+  if (typeof test_execution !== 'string') {
+    throw new TypeError('generateShellScript: test_execution must be a string');
   }
   if (!Array.isArray(coverage_cleanup)) {
-    throw new TypeError('generateScript: coverage_cleanup must be an array');
+    throw new TypeError('generateShellScript: coverage_cleanup must be an array');
   }
 
   const lines: string[] = [];
@@ -189,9 +191,62 @@ function generateScript(directory: string, frameworkConfig: FrameworkConfig): st
     lines.push(`rm -rf ${item}`);
   }
 
-  lines.push(test_cmd);
+  lines.push(test_execution);
 
   return lines.join('\n') + '\n';
+}
+
+// ---------------------------------------------------------------------------
+// generateCmdScript
+// ---------------------------------------------------------------------------
+
+/**
+ * Generate a Windows cmd.exe execution script from plan entry fields.
+ * Uses cmd.exe compatible syntax:
+ *   - `cd /d <dir>` instead of `cd <dir>` (cross-drive safe)
+ *   - `if exist <item> (rmdir /s /q <item> 2>nul & del /f /q <item> 2>nul)` instead of `rm -rf`
+ *   - `\r\n` line separators for cmd.exe compatibility
+ *
+ * Exit code capture relies on multi-line parsing where cmd.exe's `%errorlevel%`
+ * correctly reflects the previous line's exit code (see design decision D1).
+ */
+function generateCmdScript(directory: string, frameworkConfig: FrameworkConfig): string {
+  if (frameworkConfig === null || frameworkConfig === undefined) {
+    throw new TypeError('generateCmdScript input must not be null or undefined');
+  }
+
+  const { test_execution, coverage_cleanup } = frameworkConfig.cmd;
+
+  if (typeof directory !== 'string') {
+    throw new TypeError('generateCmdScript: directory must be a string');
+  }
+  if (typeof test_execution !== 'string') {
+    throw new TypeError('generateCmdScript: test_execution must be a string');
+  }
+  if (!Array.isArray(coverage_cleanup)) {
+    throw new TypeError('generateCmdScript: coverage_cleanup must be an array');
+  }
+
+  const lines: string[] = [];
+
+  if (directory !== '.') {
+    // Quote paths with spaces for cmd.exe safety
+    const quotedDir =
+      directory.includes(' ') || directory.includes('\t')
+        ? `"${directory.replace(/"/g, '\\"')}"`
+        : directory;
+    lines.push(`cd /d ${quotedDir}`);
+  }
+
+  for (const item of coverage_cleanup) {
+    // rmdir/s/q works for directories, del/f/q works for files — combining
+    // both ensures the target is removed regardless of its type.
+    lines.push(`if exist "${item}" (rmdir /s /q "${item}" 2>nul & del /f /q "${item}" 2>nul)`);
+  }
+
+  lines.push(test_execution);
+
+  return lines.join('\r\n') + '\r\n';
 }
 
 // ---------------------------------------------------------------------------
@@ -207,15 +262,16 @@ function buildPlanFromMappings(mappings: FrameworkMapping[], projectRoot?: strin
       plan.push({
         directory,
         framework: config.framework,
-        test_cmd: config.test_cmd,
         coverage_format: config.coverage_format,
         coverage_output: config.coverage_output,
         coverage_artifacts: config.coverage_artifacts,
-        coverage_cleanup: config.coverage_cleanup,
         mutation_framework: config.mutation_framework,
         mutation_config: null,
         mutation_score: null,
-        script: generateScript(directory, config),
+        script: {
+          shell: generateShellScript(directory, config),
+          cmd: generateCmdScript(directory, config),
+        },
       });
     } catch {
       // Skip entries for frameworks not in the registry

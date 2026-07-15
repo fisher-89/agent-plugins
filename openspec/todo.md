@@ -23,7 +23,7 @@
 - [x] change_list没有屏蔽已完成change
 - [x] 将test-gen移动到implement后面执行
 - [x] 步骤定义中不包含序号，workflow动态生成
-- [ ] 禁止test-gen修改非.test文件
+- ~~[ ] 禁止test-gen修改非.test文件~~
 - [x] phase-next返回allowed_backtracks
 - [x] fix: code-review未指定backtrack_to
 - [x] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli
@@ -48,3 +48,5 @@
 - [ ] 测试执行改为cli + evaluator
 - [ ] test-runner执行前清理coverage和reports
 - [ ] test-runner同时生成cmd和shell脚本，runcommand根据系统自行选择
+- [ ] mcp test_detect_frameworks当前职责仅剩识别指定文件的测试框架，调整入参和返回类型
+- [ ] 整合implement和test-gen

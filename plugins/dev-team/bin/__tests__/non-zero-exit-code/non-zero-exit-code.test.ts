@@ -83,12 +83,13 @@ function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
   return {
     directory: '.',
     framework: 'vitest',
-    test_cmd: 'npx vitest run --reporter=json {files}',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/coverage-summary.json'],
-    coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
-    script: '#!/bin/bash\nset -e\n\nnpx vitest run --coverage --coverage.reporter=json-summary',
+    script: {
+      shell: '#!/bin/bash\nset -e\n\nnpx vitest run --coverage --coverage.reporter=json-summary',
+      cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
+    },
     ...overrides,
   };
 }

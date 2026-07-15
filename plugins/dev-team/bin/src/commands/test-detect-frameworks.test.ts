@@ -4,7 +4,7 @@
  *
  * Covers:
  * - AC-4: Glob-first-match file-to-framework detection
- * - AC-4: plan entries include coverage_artifacts, coverage_cleanup, script
+ * - AC-4: plan entries include coverage_artifacts, script
  * - Reverse AC-4: unmatched files return "unknown", empty file list returns empty
  * - Boundary: empty files list, auto-scan with no matches
  *
@@ -568,11 +568,11 @@ describe('runTestDetectFrameworks -- 向后兼容 (AC-11)', () => {
 });
 
 // ===========================================================================
-// AC-4: plan 条目包含 coverage_artifacts 和 coverage_cleanup
+// AC-4: plan 条目包含 coverage_artifacts
 // ===========================================================================
 
 describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', () => {
-  it('配置 vitest 框架时，plan 条目包含 coverage_artifacts 和 coverage_cleanup', () => {
+  it('配置 vitest 框架时，plan 条目包含 coverage_artifacts', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -586,13 +586,12 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
       });
       expect(result.plan).toHaveLength(1);
       expect(result.plan[0]).toHaveProperty('coverage_artifacts');
-      expect(result.plan[0]).toHaveProperty('coverage_cleanup');
     } finally {
       project.cleanup();
     }
   });
 
-  it('vitest plan 条目的 coverage_artifacts 为 ["coverage/coverage-summary.json"]，coverage_cleanup 为 ["coverage", ".nyc_output", "test-stderr.txt"]', () => {
+  it('vitest plan 条目的 coverage_artifacts 为 ["coverage/coverage-summary.json"]', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -605,17 +604,12 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
         projectRoot: project.root,
       });
       expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-      expect(result.plan[0].coverage_cleanup).toEqual([
-        'coverage',
-        '.nyc_output',
-        'test-stderr.txt',
-      ]);
     } finally {
       project.cleanup();
     }
   });
 
-  it('多框架 [vitest, rust] 时每个 plan 条目包含对应 coverage_artifacts 和 coverage_cleanup', () => {
+  it('多框架 [vitest, rust] 时每个 plan 条目包含对应 coverage_artifacts', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -631,7 +625,6 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
       expect(result.plan).toHaveLength(2);
       for (const entry of result.plan) {
         expect(entry).toHaveProperty('coverage_artifacts');
-        expect(entry).toHaveProperty('coverage_cleanup');
       }
     } finally {
       project.cleanup();
@@ -651,14 +644,12 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
         projectRoot: project.root,
       });
       expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-      expect(result.plan[0].coverage_cleanup).toContain('coverage');
-      expect(result.plan[0].coverage_cleanup).toContain('target/llvm-cov');
     } finally {
       project.cleanup();
     }
   });
 
-  it('单框架 "vitest" 时 plan 条目也包含 coverage_artifacts 和 coverage_cleanup', () => {
+  it('单框架 "vitest" 时 plan 条目也包含 coverage_artifacts', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -672,7 +663,6 @@ describe('runTestDetectFrameworks -- plan 新增覆盖率产物字段 (AC-4)', (
       });
       expect(result.plan).toHaveLength(1);
       expect(result.plan[0]).toHaveProperty('coverage_artifacts');
-      expect(result.plan[0]).toHaveProperty('coverage_cleanup');
       expect(result.plan[0].coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
     } finally {
       project.cleanup();
@@ -699,8 +689,11 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
       });
       expect(result.plan).toHaveLength(1);
       expect(result.plan[0]).toHaveProperty('script');
-      expect(typeof result.plan[0].script).toBe('string');
-      expect(result.plan[0].script.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script).toBe('object');
+      expect(typeof result.plan[0].script.shell).toBe('string');
+      expect(result.plan[0].script.shell.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script.cmd).toBe('string');
+      expect(result.plan[0].script.cmd.length).toBeGreaterThan(0);
     } finally {
       project.cleanup();
     }
@@ -722,32 +715,12 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
       expect(result.plan).toHaveLength(2);
       for (const entry of result.plan) {
         expect(entry).toHaveProperty('script');
-        expect(typeof entry.script).toBe('string');
-        expect(entry.script.length).toBeGreaterThan(0);
+        expect(typeof entry.script).toBe('object');
+        expect(typeof entry.script.shell).toBe('string');
+        expect(entry.script.shell.length).toBeGreaterThan(0);
+        expect(typeof entry.script.cmd).toBe('string');
+        expect(entry.script.cmd.length).toBeGreaterThan(0);
       }
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('plan 条目 script 内容应由 directory、coverage_cleanup、test_cmd 组装', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: {
-        framework: 'vitest',
-      },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/test.test.ts'],
-        projectRoot: project.root,
-      });
-      expect(result.plan).toHaveLength(1);
-      const entry = result.plan[0];
-      for (const item of entry.coverage_cleanup ?? []) {
-        expect(entry.script).toContain(`rm -rf ${item}`);
-      }
-      expect(entry.script).toContain(entry.test_cmd);
     } finally {
       project.cleanup();
     }
@@ -769,7 +742,7 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
       expect(result.plan).toHaveLength(2);
       // The vite-plus override entry (index 1) should have cd line
       const vitePlusPlan = result.plan[1];
-      expect(vitePlusPlan.script).toContain('cd plugins/dev-team/bin');
+      expect(vitePlusPlan.script.shell).toContain('cd plugins/dev-team/bin');
     } finally {
       project.cleanup();
     }
@@ -797,7 +770,7 @@ describe('runTestDetectFrameworks -- plan 包含 script 字段 (AC-7, AC-9)', ()
 // ===========================================================================
 
 describe('runTestDetectFrameworks -- 单框架 plan script', () => {
-  it('"vitest" 时 plan 条目 script 字段为非空字符串', () => {
+  it('"vitest" 时 plan 条目 script 字段为非空对象含 shell/cmd', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -810,14 +783,17 @@ describe('runTestDetectFrameworks -- 单框架 plan script', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      expect(typeof result.plan[0].script).toBe('string');
-      expect(result.plan[0].script.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script).toBe('object');
+      expect(typeof result.plan[0].script.shell).toBe('string');
+      expect(result.plan[0].script.shell.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script.cmd).toBe('string');
+      expect(result.plan[0].script.cmd.length).toBeGreaterThan(0);
     } finally {
       project.cleanup();
     }
   });
 
-  it('"jest" 时 plan 条目 script 字段为非空字符串', () => {
+  it('"jest" 时 plan 条目 script 字段为非空对象含 shell/cmd', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -830,14 +806,17 @@ describe('runTestDetectFrameworks -- 单框架 plan script', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      expect(typeof result.plan[0].script).toBe('string');
-      expect(result.plan[0].script.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script).toBe('object');
+      expect(typeof result.plan[0].script.shell).toBe('string');
+      expect(result.plan[0].script.shell.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script.cmd).toBe('string');
+      expect(result.plan[0].script.cmd.length).toBeGreaterThan(0);
     } finally {
       project.cleanup();
     }
   });
 
-  it('"rust" 时 plan 条目 script 字段为非空字符串', () => {
+  it('"rust" 时 plan 条目 script 字段为非空对象含 shell/cmd', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -850,8 +829,11 @@ describe('runTestDetectFrameworks -- 单框架 plan script', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      expect(typeof result.plan[0].script).toBe('string');
-      expect(result.plan[0].script.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script).toBe('object');
+      expect(typeof result.plan[0].script.shell).toBe('string');
+      expect(result.plan[0].script.shell.length).toBeGreaterThan(0);
+      expect(typeof result.plan[0].script.cmd).toBe('string');
+      expect(result.plan[0].script.cmd.length).toBeGreaterThan(0);
     } finally {
       project.cleanup();
     }
@@ -878,7 +860,6 @@ describe('runTestDetectFrameworks — go plan (AC-5)', () => {
       expect(result.plan).toHaveLength(1);
       expect(result.plan[0].coverage_format).toBe('go-cover');
       expect(result.plan[0].coverage_artifacts).toEqual(expected.coverage_artifacts);
-      expect(result.plan[0].coverage_cleanup).toEqual(expected.coverage_cleanup);
     } finally {
       project.cleanup();
     }
@@ -915,9 +896,8 @@ describe('runTestDetectFrameworks — node-test plan (AC-5)', () => {
         files: ['src/app.test.mjs'],
         projectRoot: project.root,
       });
-      const script = result.plan[0].script;
+      const script = result.plan[0].script.shell;
       const lastLine = script.trimEnd().split('\n').pop() ?? '';
-      expect(lastLine).toBe(result.plan[0].test_cmd);
       expect(lastLine).not.toContain('|');
       expect(lastLine).not.toContain('parse-node-test-coverage.mjs');
       expect(lastLine).not.toContain('tee');
@@ -992,7 +972,7 @@ describe('runTestDetectFrameworks — glob 检测 (AC-5)', () => {
 // ===========================================================================
 
 describe('runTestDetectFrameworks -- plan 无 merge_mode (AC-12)', () => {
-  it('vitest plan 条目包含 test_cmd 但不包含 merge_mode', () => {
+  it('vitest plan 条目不包含 merge_mode', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: { framework: 'vitest' },
@@ -1003,14 +983,13 @@ describe('runTestDetectFrameworks -- plan 无 merge_mode (AC-12)', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      expect(result.plan[0]).toHaveProperty('test_cmd');
       expect(result.plan[0]).not.toHaveProperty('merge_mode');
     } finally {
       project.cleanup();
     }
   });
 
-  it('pytest plan 条目包含 test_cmd 但不包含 merge_mode', () => {
+  it('pytest plan 条目不包含 merge_mode', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: { framework: 'pytest' },
@@ -1021,14 +1000,13 @@ describe('runTestDetectFrameworks -- plan 无 merge_mode (AC-12)', () => {
         projectRoot: project.root,
       });
       expect(result.plan).toHaveLength(1);
-      expect(result.plan[0]).toHaveProperty('test_cmd');
       expect(result.plan[0]).not.toHaveProperty('merge_mode');
     } finally {
       project.cleanup();
     }
   });
 
-  it('多框架每个 plan 条目均包含 test_cmd 但不含 merge_mode', () => {
+  it('多框架每个 plan 条目均不包含 merge_mode', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       test: {
@@ -1043,71 +1021,7 @@ describe('runTestDetectFrameworks -- plan 无 merge_mode (AC-12)', () => {
       });
       expect(result.plan.length).toBeGreaterThanOrEqual(2);
       for (const entry of result.plan) {
-        expect(entry).toHaveProperty('test_cmd');
         expect(entry).not.toHaveProperty('merge_mode');
-      }
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('plan 条目中 test_cmd 与 getFrameworkConfig 返回值一致', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: { framework: 'vitest' },
-    });
-    try {
-      const expected = getFrameworkConfig('vitest');
-      const result = runTestDetectFrameworks({
-        files: ['src/test.test.ts'],
-        projectRoot: project.root,
-      });
-      expect(result.plan[0].test_cmd).toBe(expected.test_cmd);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('plan 条目的 test_cmd 为模板字符串格式（含 {files}/{directory}/{project_root} 占位符），未被替换', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: { framework: 'vitest' },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/test.test.ts'],
-        projectRoot: project.root,
-      });
-      // plan 中的 test_cmd 应保留占位符，未被替换
-      expect(result.plan[0].test_cmd).toContain('{files}');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('大量框架配置（如 8 框架全配置）时 plan 每条目均正确携带 test_cmd', () => {
-    // 使用多个 override 模拟多个框架
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: {
-        framework: 'vitest',
-        overrides: [
-          { file: '**/*.test.{js,ts}', framework: 'jest' },
-          { file: '**/tests/**/*.rs', framework: 'rust' },
-        ],
-      },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/vitest.test.ts', 'src/jest.test.js', 'tests/test_auth.rs'],
-        projectRoot: project.root,
-      });
-      expect(result.plan.length).toBeGreaterThanOrEqual(2);
-      for (const entry of result.plan) {
-        expect(entry).toHaveProperty('test_cmd');
-        expect(entry).not.toHaveProperty('merge_mode');
-        expect(typeof entry.test_cmd).toBe('string');
-        expect(entry.test_cmd?.length).toBeGreaterThan(0);
       }
     } finally {
       project.cleanup();
@@ -1472,6 +1386,270 @@ describe('runTestDetectFrameworks -- 向后兼容 (AC-6)', () => {
       });
       expect(result.detected).toHaveLength(1);
       expect(result.detected[0].framework).toBe('unknown');
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestDetectFrameworks -- shell script content verification (AC-3)
+// ===========================================================================
+
+describe('runTestDetectFrameworks -- shell script content (AC-3)', () => {
+  it('vitest 框架的 plan shell 包含 `npx vitest run` 和 `rm -rf coverage`', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'vitest' } });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const shell = (result.plan[0].script as { shell: string; cmd: string }).shell;
+      expect(shell).toContain('npx vitest run');
+      expect(shell).toContain('rm -rf coverage');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('非 "." 目录的 plan shell 包含 `cd` 行', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [{ file: 'plugins/dev-team/bin/**', framework: 'vitest' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['plugins/dev-team/bin/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const shell = (result.plan[1].script as { shell: string; cmd: string }).shell;
+      expect(shell).toContain('cd plugins/dev-team/bin');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('链式命令框架（rust）的 plan shell 包含 `; _X=$?;` 和 `exit $_X`', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'rust' } });
+    try {
+      const result = runTestDetectFrameworks({ files: ['src/lib.rs'], projectRoot: project.root });
+      const shell = (result.plan[0].script as { shell: string; cmd: string }).shell;
+      expect(shell).toContain('; _X=$?;');
+      expect(shell).toContain('exit $_X');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('链式命令框架（pytest）的 plan shell 包含 `; _X=$?;` 和 `exit $_X`', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'pytest' } });
+    try {
+      const result = runTestDetectFrameworks({ files: ['test_app.py'], projectRoot: project.root });
+      const shell = (result.plan[0].script as { shell: string; cmd: string }).shell;
+      expect(shell).toContain('; _X=$?;');
+      expect(shell).toContain('exit $_X');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('所有 8 框架生成的 plan shell 为非空字符串', () => {
+    const ALL_EIGHT = [
+      'jest',
+      'vitest',
+      'vite-plus',
+      'bun',
+      'rust',
+      'node-test',
+      'go',
+      'pytest',
+    ] as const;
+    for (const fw of ALL_EIGHT) {
+      const project = createTempProject({ schema: 'spec-driven', test: { framework: fw } });
+      try {
+        const result = runTestDetectFrameworks({
+          files: ['src/test.test.ts'],
+          projectRoot: project.root,
+        });
+        const script = result.plan[0].script as { shell: string; cmd: string };
+        expect(typeof script.shell).toBe('string');
+        expect(script.shell.length).toBeGreaterThan(0);
+      } finally {
+        project.cleanup();
+      }
+    }
+  });
+
+  it('directory 为 `"."` 时不生成 `cd` 行', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'vitest' } });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const shell = (result.plan[0].script as { shell: string; cmd: string }).shell;
+      expect(shell).not.toContain('cd ');
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestDetectFrameworks -- cmd script content (AC-4)
+// ===========================================================================
+
+describe('runTestDetectFrameworks -- cmd script content (AC-4)', () => {
+  it('vitest 框架的 plan cmd 包含 `npx vitest run` 和 `if exist ... rmdir`', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'vitest' } });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('npx vitest run');
+      expect(cmd).toContain('if exist "coverage" (rmdir /s /q "coverage"');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('非 "." 目录的 plan cmd 包含 `cd /d` 行（带 `/d` 标志）', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [{ file: 'plugins/dev-team/bin/**', framework: 'vitest' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['plugins/dev-team/bin/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const cmd = (result.plan[1].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('cd /d plugins/dev-team/bin');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('链式命令框架（rust）的 plan cmd 使用 `if errorlevel` 模式', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'rust' } });
+    try {
+      const result = runTestDetectFrameworks({ files: ['src/lib.rs'], projectRoot: project.root });
+      const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('if errorlevel');
+      expect(cmd).toContain('%errorlevel%');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('链式命令框架（pytest）的 plan cmd 使用 `if errorlevel` 模式', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'pytest' } });
+    try {
+      const result = runTestDetectFrameworks({ files: ['test_app.py'], projectRoot: project.root });
+      const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('if errorlevel');
+      expect(cmd).toContain('%errorlevel%');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('所有 8 框架生成的 plan cmd 为非空字符串', () => {
+    const ALL_EIGHT = [
+      'jest',
+      'vitest',
+      'vite-plus',
+      'bun',
+      'rust',
+      'node-test',
+      'go',
+      'pytest',
+    ] as const;
+    for (const fw of ALL_EIGHT) {
+      const project = createTempProject({ schema: 'spec-driven', test: { framework: fw } });
+      try {
+        const result = runTestDetectFrameworks({
+          files: ['src/test.test.ts'],
+          projectRoot: project.root,
+        });
+        const script = result.plan[0].script as { shell: string; cmd: string };
+        expect(typeof script.cmd).toBe('string');
+        expect(script.cmd.length).toBeGreaterThan(0);
+      } finally {
+        project.cleanup();
+      }
+    }
+  });
+
+  it('cmd 脚本使用 `\\r\\n` 行分隔符', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'vitest' } });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('\r\n');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('directory 为 `"."` 时 plan cmd 不含 `cd` 行', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'vitest' } });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['src/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).not.toContain('cd ');
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestDetectFrameworks -- cmd cleanup edge cases
+// ===========================================================================
+
+describe('runTestDetectFrameworks -- cmd cleanup edge cases', () => {
+  it('含空格路径的 directory 在 cmd 中生成带引号的 `cd /d`', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      test: {
+        framework: 'vitest',
+        overrides: [{ file: 'path/with spaces/**', framework: 'vitest' }],
+      },
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        files: ['path/with spaces/app.test.ts'],
+        projectRoot: project.root,
+      });
+      const cmd = (result.plan[1].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('cd /d "path/with spaces"');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('coverage_cleanup 含路径分隔符的框架（rust）在 cmd 中正确生成 rmdir', () => {
+    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'rust' } });
+    try {
+      const result = runTestDetectFrameworks({ files: ['src/lib.rs'], projectRoot: project.root });
+      const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
+      expect(cmd).toContain('"target/llvm-cov"');
+      expect(cmd).toContain('rmdir /s /q "target/llvm-cov"');
     } finally {
       project.cleanup();
     }

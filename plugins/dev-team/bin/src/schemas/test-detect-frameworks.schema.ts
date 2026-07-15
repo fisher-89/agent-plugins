@@ -5,12 +5,6 @@ const testPlanSchema = z.object({
     .string()
     .describe('Working directory for command execution (relative to project root)'),
   framework: z.string().describe('Framework name'),
-  test_cmd: z
-    .string()
-    .optional()
-    .describe(
-      'Test command (template string with {files}, {directory}, {project_root} placeholders)',
-    ),
   coverage_format: z
     .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
     .describe('Coverage output format'),
@@ -19,10 +13,6 @@ const testPlanSchema = z.object({
     .array(z.string())
     .optional()
     .describe('Glob patterns for coverage artifacts to move to unified location'),
-  coverage_cleanup: z
-    .array(z.string())
-    .optional()
-    .describe('Directory/file names to clean up after successful move'),
   mutation_framework: z
     .string()
     .nullable()
@@ -40,7 +30,14 @@ const testPlanSchema = z.object({
     .nullable()
     .optional()
     .describe('Global mutation score threshold from config'),
-  script: z.string().describe('Bash execution script generated from test_cmd'),
+  script: z
+    .object({
+      shell: z
+        .string()
+        .describe('POSIX shell (bash) execution script for Unix/macOS and Windows Git Bash'),
+      cmd: z.string().describe('Windows cmd.exe execution script for Windows without Git Bash'),
+    })
+    .describe('Platform-specific execution scripts: shell for POSIX, cmd for Windows cmd.exe'),
 });
 
 /**

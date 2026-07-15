@@ -27,3 +27,4 @@ The plugin follows a "slim" architecture:
 2. **Simplicity first**: No speculative features. No abstractions for single-use code.
 3. **Surgical changes**: Touch only what's needed. Match existing style.
 4. **Goal-Driven Execution**: Define success criteria. Loop until verified.
+5. **No test-only exports**: Do not add `export` solely to make a symbol accessible to tests. knip treats exports only imported by test files as unused, which pollutes the dead-code report. Instead, test through the module's public API, or refactor so the logic is testable without extra exports.

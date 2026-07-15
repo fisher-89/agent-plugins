@@ -18,6 +18,7 @@ import * as path from 'path';
 import type { MutationBlock, MutationMeasured, TestPlan } from '../schemas';
 import { readConfig } from './config';
 import { isFileExcluded } from './test-exclude';
+import { getFrameworkConfig } from './test-framework';
 import { parseCoverageFromFile, type ParsedCoverage } from './test-parser/coverage-parser';
 import { parseTestOutput, type TestCase } from './test-parser/index';
 import { type MutationReport, parseMutationReport } from './test-parser/mutation-parser';
@@ -300,7 +301,18 @@ function executeStrykerMutation(
 
   // Normalize configPath to forward slashes to avoid backslash escape issues in shell
   const normalizedConfigPath = configPath.replace(/\\/g, '/');
-  const strykerCmd = `npx stryker run "${normalizedConfigPath}"`;
+
+  // Read platform-appropriate mutation_execution template from framework config.
+  // On Windows without SHELL (no Git Bash), prefer cmd.mutation_execution with
+  // fallback to shell.mutation_execution; on Unix/macOS, use shell.mutation_execution.
+  const frameworkConfig = getFrameworkConfig(entry.framework);
+  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
+  const mutationTemplate = isWinCmd
+    ? (frameworkConfig.cmd.mutation_execution ?? frameworkConfig.shell.mutation_execution)
+    : frameworkConfig.shell.mutation_execution;
+  const strykerCmd = mutationTemplate
+    ? mutationTemplate.replace(/\{config\}/g, normalizedConfigPath)
+    : `npx stryker run "${normalizedConfigPath}"`;
   console.log(
     `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absoluteDirectory})...`,
   );
@@ -418,15 +430,18 @@ function logMissingReport(result: { exitCode: number }): void {
 }
 
 function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]): string {
-  return substitutePlaceholders(entry.script, files ?? [], entry.directory, projectRoot);
+  // Select platform-appropriate script:
+  //   - Windows without SHELL env (no Git Bash) → entry.script.cmd (cmd.exe)
+  //   - Otherwise → entry.script.shell (POSIX shell / bash)
+  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
+  const script = isWinCmd ? entry.script.cmd : entry.script.shell;
+  return substitutePlaceholders(script, files ?? [], entry.directory, projectRoot);
 }
 
 function resolveShell(): string | undefined {
-  // On Windows, test scripts use Unix shell syntax (rm -rf, \n separation, etc.)
-  // which requires a POSIX shell (e.g. Git Bash) rather than cmd.exe.
-  // process.env.SHELL is set by Git Bash for Windows.
   if (process.platform === 'win32') {
-    return process.env.SHELL || 'bash';
+    // Prefer SHELL (Git Bash) if available; fall back to COMSPEC or cmd.exe
+    return process.env.SHELL || process.env.COMSPEC || 'cmd.exe';
   }
   return undefined; // Use default shell on Unix
 }

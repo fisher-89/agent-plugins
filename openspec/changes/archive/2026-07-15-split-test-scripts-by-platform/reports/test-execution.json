@@ -1,0 +1,72 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-15T09:29:39.678Z",
+  "duration_seconds": 336,
+  "total": 1004,
+  "passed": 1004,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "fail",
+  "problems": [
+    {
+      "framework": "all",
+      "type": "coverage_failure",
+      "message": "Mutation score 67.4% < threshold 70%"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 90.29,
+      "branches": 77.26,
+      "functions": 91.52
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": 90.3,
+          "branches": 77.26,
+          "functions": 91.53
+        },
+        "pass": true,
+        "file_count": 49,
+        "passed_count": 41
+      }
+    ]
+  },
+  "mutation": {
+    "pass": false,
+    "score": 67.41,
+    "threshold": 70,
+    "measured": {
+      "killed": 544,
+      "survived": 209,
+      "timeout": 2,
+      "noCoverage": 55,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 146,
+      "total": 956,
+      "detected": 546,
+      "undetected": 264
+    }
+  },
+  "findings": [
+    "All 1004 tests passed (0 failures) and code coverage thresholds were met (lines 90.29%, branches 77.26%, functions 91.52%).",
+    "Mutation score 67.41% is below the 70% threshold by 2.59%. The shortfall is driven by 209 survived mutants (21.9% of non-ignored) and 55 noCoverage mutants (5.8% of non-ignored).",
+    "Coverage summary report is missing the by_framework breakdown field, though per-framework data is available in the vite-plus sub-report at reports/test-execution/plugins_dev-team_bin_vite-plus.json.",
+    "The surviving mutants suggest insufficient test assertions that fail to detect behavioral changes in the code under test. Consider reviewing the 209 survived mutants to identify code paths that need stronger test coverage, particularly in the src/lib/test-report.ts (branches 58.04%) and src/lib/test-runner.ts (branches 75.58%) modules where branch coverage is relatively low."
+  ]
+}
