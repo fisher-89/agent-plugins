@@ -1,0 +1,784 @@
+{
+  "framework": "vite-plus",
+  "directory": "plugins/dev-team/bin",
+  "timestamp": "2026-07-15T12:57:22.408Z",
+  "exit_code": 0,
+  "duration_ms": 91289,
+  "summary": {
+    "total": 1013,
+    "passed": 1013,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/json-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-cross-ref.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/exec-command.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/git.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-exclude.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/backtrack-reason-compat/backtrack-reason-compat.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/dedup/dedup.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-execution-flow/mutation-execution-flow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/constant.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-run-static-analysis/cli-run-static-analysis.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-filter/config-driven-filter.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/backtrack-reason-flow/backtrack-reason-flow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/non-zero-exit-code/non-zero-exit-code.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/no-test-config/no-test-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-execute.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-diff-only/mutation-diff-only.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/git-change/git-change.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/phase_log workflow-aware backtrack rejection/phase_log workflow-aware backtrack rejection.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-report-format/mutation-report-format.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts"
+  ],
+  "source_files": [
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\hooks.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 97.46,
+        "functions": 100,
+        "total_lines": 128,
+        "covered_lines": 128,
+        "total_branches": 79,
+        "covered_branches": 77,
+        "total_functions": 20,
+        "covered_functions": 20
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\mcp.ts",
+      "coverage": {
+        "lines": 86.88,
+        "branches": 75,
+        "functions": 84,
+        "total_lines": 61,
+        "covered_lines": 53,
+        "total_branches": 4,
+        "covered_branches": 3,
+        "total_functions": 25,
+        "covered_functions": 21
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\change-list.ts",
+      "coverage": {
+        "lines": 97.43,
+        "branches": 95,
+        "functions": 100,
+        "total_lines": 39,
+        "covered_lines": 38,
+        "total_branches": 20,
+        "covered_branches": 19,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\config-get.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 50,
+        "functions": 100,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 2,
+        "covered_branches": 1,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\phase-log.ts",
+      "coverage": {
+        "lines": 87.5,
+        "branches": 81.81,
+        "functions": 100,
+        "total_lines": 40,
+        "covered_lines": 35,
+        "total_branches": 33,
+        "covered_branches": 27,
+        "total_functions": 7,
+        "covered_functions": 7
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\phase-next.ts",
+      "coverage": {
+        "lines": 96.7,
+        "branches": 91.66,
+        "functions": 100,
+        "total_lines": 91,
+        "covered_lines": 88,
+        "total_branches": 60,
+        "covered_branches": 55,
+        "total_functions": 28,
+        "covered_functions": 28
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\run-static-analysis.ts",
+      "coverage": {
+        "lines": 84.21,
+        "branches": 73.68,
+        "functions": 100,
+        "total_lines": 19,
+        "covered_lines": 16,
+        "total_branches": 19,
+        "covered_branches": 14,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-detect-frameworks.ts",
+      "coverage": {
+        "lines": 92.8,
+        "branches": 84.88,
+        "functions": 100,
+        "total_lines": 125,
+        "covered_lines": 116,
+        "total_branches": 86,
+        "covered_branches": 73,
+        "total_functions": 14,
+        "covered_functions": 14
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-execution.ts",
+      "coverage": {
+        "lines": 91.48,
+        "branches": 93.75,
+        "functions": 83.33,
+        "total_lines": 47,
+        "covered_lines": 43,
+        "total_branches": 16,
+        "covered_branches": 15,
+        "total_functions": 12,
+        "covered_functions": 10
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\commands\\test-resolve-paths.ts",
+      "coverage": {
+        "lines": 98.44,
+        "branches": 84.93,
+        "functions": 100,
+        "total_lines": 129,
+        "covered_lines": 127,
+        "total_branches": 73,
+        "covered_branches": 62,
+        "total_functions": 20,
+        "covered_functions": 20
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\archi-query.ts",
+      "coverage": {
+        "lines": 25,
+        "branches": 12.5,
+        "functions": 25,
+        "total_lines": 12,
+        "covered_lines": 3,
+        "total_branches": 8,
+        "covered_branches": 1,
+        "total_functions": 4,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\archi-validate.ts",
+      "coverage": {
+        "lines": 36.36,
+        "branches": 20,
+        "functions": 100,
+        "total_lines": 11,
+        "covered_lines": 4,
+        "total_branches": 10,
+        "covered_branches": 2,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\archi-write.ts",
+      "coverage": {
+        "lines": 14.28,
+        "branches": 0,
+        "functions": 0,
+        "total_lines": 14,
+        "covered_lines": 2,
+        "total_branches": 7,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\c4-cross-ref.ts",
+      "coverage": {
+        "lines": 96.38,
+        "branches": 91.34,
+        "functions": 95.65,
+        "total_lines": 166,
+        "covered_lines": 160,
+        "total_branches": 104,
+        "covered_branches": 95,
+        "total_functions": 23,
+        "covered_functions": 22
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\c4-parser.ts",
+      "coverage": {
+        "lines": 90.21,
+        "branches": 58.92,
+        "functions": 100,
+        "total_lines": 92,
+        "covered_lines": 83,
+        "total_branches": 56,
+        "covered_branches": 33,
+        "total_functions": 18,
+        "covered_functions": 18
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\change-config.ts",
+      "coverage": {
+        "lines": 90,
+        "branches": 84.61,
+        "functions": 100,
+        "total_lines": 20,
+        "covered_lines": 18,
+        "total_branches": 13,
+        "covered_branches": 11,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\change.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\config.ts",
+      "coverage": {
+        "lines": 92.3,
+        "branches": 91.66,
+        "functions": 100,
+        "total_lines": 26,
+        "covered_lines": 24,
+        "total_branches": 12,
+        "covered_branches": 11,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\eval-json.ts",
+      "coverage": {
+        "lines": 80.32,
+        "branches": 70,
+        "functions": 92.85,
+        "total_lines": 61,
+        "covered_lines": 49,
+        "total_branches": 40,
+        "covered_branches": 28,
+        "total_functions": 14,
+        "covered_functions": 13
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\exec-command.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\git.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 14,
+        "covered_lines": 14,
+        "total_branches": 6,
+        "covered_branches": 6,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\glob.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 7,
+        "covered_lines": 7,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\project-root.ts",
+      "coverage": {
+        "lines": 86.36,
+        "branches": 70,
+        "functions": 100,
+        "total_lines": 22,
+        "covered_lines": 19,
+        "total_branches": 10,
+        "covered_branches": 7,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-exclude.ts",
+      "coverage": {
+        "lines": 94.44,
+        "branches": 91.66,
+        "functions": 100,
+        "total_lines": 18,
+        "covered_lines": 17,
+        "total_branches": 12,
+        "covered_branches": 11,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-framework.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 6,
+        "covered_lines": 6,
+        "total_branches": 2,
+        "covered_branches": 2,
+        "total_functions": 2,
+        "covered_functions": 2
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-report.ts",
+      "coverage": {
+        "lines": 92.48,
+        "branches": 58.04,
+        "functions": 93.33,
+        "total_lines": 213,
+        "covered_lines": 197,
+        "total_branches": 205,
+        "covered_branches": 119,
+        "total_functions": 45,
+        "covered_functions": 42
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-runner.ts",
+      "coverage": {
+        "lines": 86.91,
+        "branches": 75.58,
+        "functions": 95.23,
+        "total_lines": 107,
+        "covered_lines": 93,
+        "total_branches": 86,
+        "covered_branches": 65,
+        "total_functions": 21,
+        "covered_functions": 20
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\workflow.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 87.5,
+        "functions": 100,
+        "total_lines": 23,
+        "covered_lines": 23,
+        "total_branches": 8,
+        "covered_branches": 7,
+        "total_functions": 6,
+        "covered_functions": 6
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\coverage-parser.ts",
+      "coverage": {
+        "lines": 98.55,
+        "branches": 77.63,
+        "functions": 100,
+        "total_lines": 69,
+        "covered_lines": 68,
+        "total_branches": 76,
+        "covered_branches": 59,
+        "total_functions": 9,
+        "covered_functions": 9
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\go-parser.ts",
+      "coverage": {
+        "lines": 89.36,
+        "branches": 64.1,
+        "functions": 100,
+        "total_lines": 47,
+        "covered_lines": 42,
+        "total_branches": 39,
+        "covered_branches": 25,
+        "total_functions": 9,
+        "covered_functions": 9
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\index.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 9,
+        "covered_branches": 9,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\json-parser.ts",
+      "coverage": {
+        "lines": 92.59,
+        "branches": 87.09,
+        "functions": 100,
+        "total_lines": 54,
+        "covered_lines": 50,
+        "total_branches": 31,
+        "covered_branches": 27,
+        "total_functions": 8,
+        "covered_functions": 8
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\mutation-parser.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 97.56,
+        "functions": 100,
+        "total_lines": 39,
+        "covered_lines": 39,
+        "total_branches": 41,
+        "covered_branches": 40,
+        "total_functions": 3,
+        "covered_functions": 3
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\stryker-config.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 83.33,
+        "functions": 100,
+        "total_lines": 18,
+        "covered_lines": 18,
+        "total_branches": 6,
+        "covered_branches": 5,
+        "total_functions": 5,
+        "covered_functions": 5
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\lib\\test-parser\\text-parser.ts",
+      "coverage": {
+        "lines": 98.33,
+        "branches": 96,
+        "functions": 100,
+        "total_lines": 120,
+        "covered_lines": 118,
+        "total_branches": 75,
+        "covered_branches": 72,
+        "total_functions": 15,
+        "covered_functions": 15
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-check.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-query.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-validate.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\archi-write.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\change-list.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config-get.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\index.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 0,
+        "covered_lines": 0,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\phase-log.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 5,
+        "covered_lines": 5,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\phase-next.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 4,
+        "covered_lines": 4,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\test-detect-frameworks.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 3,
+        "covered_lines": 3,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\test-resolve-paths.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 2,
+        "covered_lines": 2,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\schemas\\config\\config.schema.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 12,
+        "covered_lines": 12,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\utils\\constant.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 1,
+        "covered_lines": 1,
+        "total_branches": 4,
+        "covered_branches": 4,
+        "total_functions": 1,
+        "covered_functions": 1
+      }
+    },
+    {
+      "file": "D:\\Projects\\wps-claude-plugin\\plugins\\dev-team\\bin\\src\\utils\\index.ts",
+      "coverage": {
+        "lines": 100,
+        "branches": 100,
+        "functions": 100,
+        "total_lines": 0,
+        "covered_lines": 0,
+        "total_branches": 0,
+        "covered_branches": 0,
+        "total_functions": 0,
+        "covered_functions": 0
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 92.6,
+      "branches": 78.74,
+      "functions": 95.37
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    }
+  },
+  "mutation": {
+    "pass": false,
+    "score": 54.191616766467064,
+    "threshold": 70,
+    "measured": {
+      "killed": 181,
+      "survived": 56,
+      "timeout": 0,
+      "noCoverage": 97,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 17,
+      "total": 351,
+      "detected": 181,
+      "undetected": 153
+    }
+  }
+}

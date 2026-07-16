@@ -7,17 +7,13 @@ import { isFileExcluded } from '../lib/test-exclude';
 import type { OpenSpecConfig } from '../schemas';
 import { getProjectDir } from '../utils';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
+
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
 
 interface UnitTestEntry {
   source: string;
-  test_file: string;
-}
-
-interface IntegrationTestEntry {
-  scenario: string;
   test_file: string;
 }
 
@@ -29,22 +25,15 @@ interface ResolveError {
 interface ResolveTestPathsParams {
   projectRoot: string;
   modules: string[] | 'git-change';
-  integrationScenarios?: string[];
-  extension?: string;
-  integrationRoot?: string;
 }
 
 export interface ResolveTestPathsResult {
   unit_tests: UnitTestEntry[];
-  integration_tests: IntegrationTestEntry[];
   errors: ResolveError[];
 }
 
 export interface TestResolvePathsInput {
   modules: string[] | 'git-change';
-  integration_scenarios?: string[];
-  extension?: string;
-  integration_root?: string;
   project_root?: string | null;
 }
 
@@ -154,81 +143,6 @@ function deriveUnitTestPath(sourcePath: string): string {
   return dir === '.' ? testName : `${dir}/${testName}`;
 }
 
-/** Normalize integration_root: POSIX slashes, strip trailing slash; "." / "" → no prefix. */
-function normalizeIntegrationRoot(integrationRoot?: string): string | undefined {
-  if (integrationRoot === undefined || integrationRoot === '') {
-    return undefined;
-  }
-
-  const posix = integrationRoot.replace(/\\/g, '/').replace(/\/+$/, '');
-  if (posix === '' || posix === '.') {
-    return undefined;
-  }
-
-  return posix;
-}
-
-/** Return true when integrationRoot has no path-traversal segments. */
-function isValidIntegrationRoot(integrationRoot: string): boolean {
-  return !integrationRoot.split('/').some((segment) => segment === '..');
-}
-
-/** Derive integration test path: __tests__/<scenario>/<scenario>.test.<ext> */
-function deriveIntegrationTestPath(
-  scenario: string,
-  ext: string,
-  integrationRoot?: string,
-): string {
-  const normalized = normalizeExtension(ext);
-  const basePath = `__tests__/${scenario}/${scenario}.test.${normalized}`;
-  const root = normalizeIntegrationRoot(integrationRoot);
-  if (!root) {
-    return basePath;
-  }
-  return `${root}/${basePath}`;
-}
-
-/** Strip leading dot and lower-case an extension string. */
-function normalizeExtension(ext: string): string {
-  const trimmed = ext.startsWith('.') ? ext.slice(1) : ext;
-  return trimmed.toLowerCase();
-}
-
-/**
- * Resolve integration test extension: explicit > mode of source extensions > "ts".
- */
-function inferExtension(sourceFiles: string[], explicitExtension?: string): string {
-  if (explicitExtension !== undefined && explicitExtension !== '') {
-    return normalizeExtension(explicitExtension);
-  }
-
-  if (sourceFiles.length === 0) {
-    return 'ts';
-  }
-
-  const counts = new Map<string, number>();
-  for (const file of sourceFiles) {
-    const ext = path.posix.extname(file.replace(/\\/g, '/'));
-    if (!ext) continue;
-    const normalized = ext.slice(1).toLowerCase();
-    counts.set(normalized, (counts.get(normalized) ?? 0) + 1);
-  }
-
-  if (counts.size === 0) {
-    return 'ts';
-  }
-
-  let bestExt = 'ts';
-  let bestCount = -1;
-  for (const [ext, count] of counts) {
-    if (count > bestCount || (count === bestCount && ext < bestExt)) {
-      bestCount = count;
-      bestExt = ext;
-    }
-  }
-  return bestExt;
-}
-
 // ---------------------------------------------------------------------------
 // collectFiles — recursive file discovery (local implementation, per D5)
 // ---------------------------------------------------------------------------
@@ -289,35 +203,6 @@ function addUnitTest(unitTests: Map<string, UnitTestEntry>, sourcePath: string):
   }
 }
 
-function resolveIntegrationTests(
-  params: ResolveTestPathsParams,
-  collectedSources: string[],
-  errors: ResolveError[],
-): IntegrationTestEntry[] {
-  const integration_tests: IntegrationTestEntry[] = [];
-  const scenarios = params.integrationScenarios;
-  if (scenarios && scenarios.length > 0) {
-    const ext = inferExtension(collectedSources, params.extension);
-    const normalizedRoot = normalizeIntegrationRoot(params.integrationRoot);
-    const invalidRoot = normalizedRoot !== undefined && !isValidIntegrationRoot(normalizedRoot);
-
-    if (invalidRoot) {
-      errors.push({
-        path: normalizedRoot.replace(/\\/g, '/'),
-        message: 'integration_root path is outside project root',
-      });
-    } else {
-      for (const scenario of [...scenarios].sort((a, b) => a.localeCompare(b))) {
-        integration_tests.push({
-          scenario,
-          test_file: deriveIntegrationTestPath(scenario, ext, params.integrationRoot),
-        });
-      }
-    }
-  }
-  return integration_tests;
-}
-
 // ---------------------------------------------------------------------------
 // resolveTestPaths — Step helpers
 // ---------------------------------------------------------------------------
@@ -349,14 +234,14 @@ function resolveEffectiveModules(
         .filter(Boolean);
       if (effectiveModules.length === 0) {
         return {
-          earlyReturn: { unit_tests: [], integration_tests: [], errors },
+          earlyReturn: { unit_tests: [], errors },
         };
       }
     } catch (e: unknown) {
       const msg = extractErrorMessage(e, 'git diff HEAD --name-only failed');
       errors.push({ path: 'git', message: msg });
       return {
-        earlyReturn: { unit_tests: [], integration_tests: [], errors },
+        earlyReturn: { unit_tests: [], errors },
       };
     }
   } else {
@@ -498,7 +383,7 @@ function processEmptyModules(
 }
 
 /**
- * Resolve unit and integration test paths from a module list.
+ * Resolve unit test paths from a module list.
  *
  * Three modes:
  * 1. modules === "git-change" → run git diff HEAD --name-only to discover files
@@ -541,11 +426,9 @@ function resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResul
     a.source.localeCompare(b.source),
   );
 
-  const integration_tests = resolveIntegrationTests(params, collectedSources, errors);
-
   errors.sort((a, b) => a.path.localeCompare(b.path));
 
-  return { unit_tests, integration_tests, errors };
+  return { unit_tests, errors };
 }
 
 /**
@@ -556,8 +439,5 @@ export function runTestResolvePaths(args: TestResolvePathsInput): ResolveTestPat
   return resolveTestPaths({
     projectRoot,
     modules: args.modules,
-    integrationScenarios: args.integration_scenarios,
-    extension: args.extension,
-    integrationRoot: args.integration_root,
   });
 }

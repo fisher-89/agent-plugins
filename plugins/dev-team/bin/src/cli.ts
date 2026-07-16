@@ -3,7 +3,7 @@ import cac from 'cac';
 import { runStaticAnalysis } from './commands/run-static-analysis';
 import { runTestExecution } from './commands/test-execution';
 
-const cli = cac('dev-team');
+export const cli = cac('dev-team');
 
 cli
   .command('run_static_analysis', 'Run static analysis command from openspec/config.json')
@@ -54,5 +54,7 @@ cli
     },
   );
 
-cli.help();
-cli.parse();
+if (require.main === module) {
+  cli.help();
+  cli.parse();
+}

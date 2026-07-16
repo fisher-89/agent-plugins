@@ -1,0 +1,73 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-15T12:57:22.413Z",
+  "duration_seconds": 91,
+  "total": 1013,
+  "passed": 1013,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "fail",
+  "problems": [
+    {
+      "framework": "all",
+      "type": "coverage_failure",
+      "message": "Mutation score 54.2% < threshold 70%"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 92.6,
+      "branches": 78.74,
+      "functions": 95.37
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": 92.6,
+          "branches": 78.74,
+          "functions": 95.38
+        },
+        "pass": true,
+        "file_count": 49,
+        "passed_count": 42
+      }
+    ]
+  },
+  "mutation": {
+    "pass": false,
+    "score": 54.19,
+    "threshold": 70,
+    "measured": {
+      "killed": 181,
+      "survived": 56,
+      "timeout": 0,
+      "noCoverage": 97,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 17,
+      "total": 351,
+      "detected": 181,
+      "undetected": 153
+    }
+  },
+  "findings": [
+    "All 1013 tests passed (0 failed, 0 skipped). Coverage thresholds met (lines 92.6%, branches 78.74%, functions 95.37%).",
+    "Mutation score improved from 43.11% to 54.19% but remains below the 70% threshold. 181/334 active mutants detected, 56 survived, 97 uncovered.",
+    "97 noCoverage mutants concentrated in mcp.ts handler lambdas (phase_log, archi_write) that require real infrastructure (model files, change directories) to execute. The handlers are mocked in the test suite and cannot be exercised through unit tests alone without integration test infrastructure.",
+    "56 survived mutants spread across test-resolve-paths.ts and mcp.ts. Surviving mutants in test-resolve-paths.ts include edge-case branches (dead-code fallback in deriveUnitTestPath else branch, collectFiles catch on readdirSync failure). Surviving mutants in mcp.ts include handler lambda bodies that are registered but their return values from jsonContent are checked generically.",
+    "To reach the 70% threshold, integration-style tests for the remaining mcp.ts handlers (phase_log, archi_write) would be needed, or the threshold should be adjusted to reflect the practical limits of mock-based unit testing for MCP handler lambdas."
+  ]
+}

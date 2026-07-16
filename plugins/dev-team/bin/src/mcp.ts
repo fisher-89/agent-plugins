@@ -1,8 +1,8 @@
 import { McpServer } from '@modelcontextprotocol/sdk/server/mcp';
 import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
+import { type Transport } from '@modelcontextprotocol/sdk/shared/transport';
 import { type z, type ZodType } from 'zod/v4';
 
-import pluginConfig from '../../.claude-plugin/plugin.json';
 import { runChangeList } from './commands/change-list';
 import { runConfigGet } from './commands/config-get';
 import { runPhaseLog } from './commands/phase-log';
@@ -37,8 +37,6 @@ import {
   changeListOutputSchema,
 } from './schemas';
 import { getProjectDir } from './utils';
-
-const { name: SERVER_NAME, version: SERVER_VERSION } = pluginConfig;
 
 function resolveProjectRoot(cwd?: string | null): string {
   return cwd || getProjectDir();
@@ -213,14 +211,13 @@ function registerTestResolvePathsTool(server: McpServer): void {
     'test_resolve_paths',
     {
       description:
-        'Derive unit and integration test file paths from a module list ' +
+        'Derive unit test file paths from a module list ' +
         '(files or directories). Three modes: (1) modules is an empty array — ' +
         'directories are auto-detected from config.json test configuration; ' +
         '(2) modules is a non-empty array — paths are filtered by test config ' +
         'scope before resolving; (3) modules is "git-change" — reads git diff ' +
         'HEAD --name-only to discover changed files, then resolves test paths ' +
-        'filtered by test config. Returns colocated unit test paths per source ' +
-        'file and __tests__/<scenario>/ integration test paths.',
+        'filtered by test config. Returns colocated unit test paths per source file.',
       inputSchema: testResolvePathsInputSchema,
       outputSchema: testResolvePathsOutputSchema,
     },
@@ -250,11 +247,8 @@ function registerChangeListTool(server: McpServer): void {
   );
 }
 
-async function main(): Promise<void> {
-  const server = new McpServer(
-    { name: SERVER_NAME, version: SERVER_VERSION },
-    { capabilities: {} },
-  );
+export async function connectToServer(transport: Transport): Promise<McpServer> {
+  const server = new McpServer({ name: 'dev-team', version: '2.8.11' });
 
   registerPhaseLogTool(server);
   registerArchiQueryTool(server);
@@ -267,17 +261,24 @@ async function main(): Promise<void> {
   registerTestResolvePathsTool(server);
   registerChangeListTool(server);
 
-  const transport = new StdioServerTransport();
   await server.connect(transport);
   await initProjectRootFromMcp(server.server);
-
-  void server.sendLoggingMessage({
-    level: 'info',
-    data: `MCP server started in project: ${getProjectDir()}`,
-  });
+  return server;
 }
 
-main().catch((e) => {
-  process.stderr.write(`Fatal: ${e.message}\n`);
-  process.exit(1);
-});
+if (require.main === module) {
+  async function main(): Promise<void> {
+    const transport = new StdioServerTransport();
+    const server = await connectToServer(transport);
+
+    void server.sendLoggingMessage({
+      level: 'info',
+      data: `MCP server started in project: ${getProjectDir()}`,
+    });
+  }
+
+  main().catch((e) => {
+    process.stderr.write(`Fatal: ${e.message}\n`);
+    process.exit(1);
+  });
+}

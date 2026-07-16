@@ -44,9 +44,9 @@
 - [x] test-execution使用cli 命令执行测试
 - [x] stryker运行后没有清理临时配置和副本
 - [x] test和test.overrides支持排除指定glob，避免生成glob对应的测试文件，突变测试也忽略该文件
-- [ ] 移除 test_resolve_paths 中 integration_root 和 integration_scenarios 参数，下线集成测试路径解析功能
+- [x] 移除 test_resolve_paths 中 integration_root 和 integration_scenarios 参数，下线集成测试路径解析功能
 - [ ] 测试执行改为cli + evaluator
 - [ ] test-runner执行前清理coverage和reports
-- [ ] test-runner同时生成cmd和shell脚本，runcommand根据系统自行选择
+- [x] test-runner同时生成cmd和shell脚本，runcommand根据系统自行选择
 - [ ] mcp test_detect_frameworks当前职责仅剩识别指定文件的测试框架，调整入参和返回类型
 - [ ] 整合implement和test-gen

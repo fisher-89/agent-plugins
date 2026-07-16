@@ -108,5 +108,6 @@ export default defineConfig({
   ],
   test: {
     include: ['src/**/*.test.ts', './__tests__/**/*.test.ts'],
+    silent: 'passed-only',
   },
 });

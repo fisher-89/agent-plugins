@@ -1,9 +1,6 @@
 /**
- * Tests for test-resolve-paths -- MCP tool that derives unit/integration test
- * file paths from module lists (files or directories).
- *
- * Covers AC-1~AC-9 from openspec/changes/add-test-path-resolver-api/test-design.md
- * AND AC-1~AC-6 from openspec/changes/test-resolve-paths-config-dirs/test-design.md
+ * Tests for test-resolve-paths -- MCP tool that derives unit test file paths
+ * from module lists (files or directories).
  *
  * @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
  * @see openspec/changes/add-test-path-resolver-api/test-design.md
@@ -94,6 +91,135 @@ function writeDir(projectRoot: string, relativeDir: string): void {
   fs.mkdirSync(path.join(projectRoot, relativeDir), { recursive: true });
 }
 
+// ---------------------------------------------------------------------------
+// Local type for testing legacy parameters (AC-1, AC-2, AC-7)
+// The function ignores these extra properties at runtime, but we need them
+// on the type to avoid `as any` assertions.
+// ---------------------------------------------------------------------------
+
+interface TestResolvePathsInputWithLegacy extends Omit<
+  Parameters<typeof runTestResolvePaths>[0],
+  'modules'
+> {
+  modules: string[];
+  integration_scenarios?: string[];
+  extension?: string;
+  integration_root?: string;
+}
+
+// ===========================================================================
+// runTestResolvePaths -- 集成测试路径移除 (AC-1, AC-2, AC-7)
+//
+// @see openspec/changes/remove-integration-test-path-resolution/test-design.md
+// ===========================================================================
+
+describe('runTestResolvePaths -- 集成测试路径移除', () => {
+  it('传入 integration_scenarios: ["api-flow"]、extension: "ts"、integration_root: "." 时结果不包含 integration_tests 字段，且无相关错误 (AC-1, AC-2, AC-7)', () => {
+    const project = createTempProject();
+    try {
+      const input: TestResolvePathsInputWithLegacy = {
+        project_root: project.root,
+        modules: ['src/config.ts'],
+        integration_scenarios: ['api-flow'],
+        extension: 'ts',
+        integration_root: '.',
+      };
+      const result = runTestResolvePaths(input);
+
+      // 旧参数被静默忽略，结果不含 integration_tests
+      expect(result).not.toHaveProperty('integration_tests');
+      // 单元测试路径推导不受影响
+      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests[0]).toEqual({
+        source: 'src/config.ts',
+        test_file: 'src/config.test.ts',
+      });
+      // 不因旧参数产生任何错误
+      expect(result.errors).toHaveLength(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('仅传入 integration_scenarios: ["api-flow"] 时结果不包含 integration_tests 字段 (AC-1, AC-2, AC-7)', () => {
+    const project = createTempProject();
+    try {
+      const input: TestResolvePathsInputWithLegacy = {
+        project_root: project.root,
+        modules: ['src/config.ts'],
+        integration_scenarios: ['api-flow'],
+      };
+      const result = runTestResolvePaths(input);
+
+      expect(result).not.toHaveProperty('integration_tests');
+      expect(result.unit_tests).toHaveLength(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('integration_scenarios: [] 空数组时语义等价于不传，结果不包含 integration_tests (AC-7)', () => {
+    const project = createTempProject();
+    try {
+      const input: TestResolvePathsInputWithLegacy = {
+        project_root: project.root,
+        modules: ['src/config.ts'],
+        integration_scenarios: [],
+      };
+      const result = runTestResolvePaths(input);
+
+      expect(result).not.toHaveProperty('integration_tests');
+      expect(result.unit_tests).toHaveLength(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('同时传入三个已移除的旧参数时结果中只出现 unit_tests 与 errors（不含 integration_tests）(AC-1, AC-2, AC-7)', () => {
+    const project = createTempProject();
+    try {
+      const input: TestResolvePathsInputWithLegacy = {
+        project_root: project.root,
+        modules: ['src/config.ts', 'README.md'],
+        integration_scenarios: ['api-flow'],
+        extension: 'ts',
+        integration_root: '.',
+      };
+      const result = runTestResolvePaths(input);
+
+      expect(result).not.toHaveProperty('integration_tests');
+      // 结果仅含 unit_tests 和 errors 两个顶层字段
+      expect(Object.keys(result)).toEqual(['unit_tests', 'errors']);
+      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests[0].source).toBe('src/config.ts');
+      expect(result.errors.some((e) => e.path === 'README.md')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('不传任何旧参数时 unit_tests 与 errors 行为正常 (AC-6)', () => {
+    const project = createTempProject();
+    try {
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: ['src/foo.ts', 'README.md'],
+      });
+
+      expect(result).toHaveProperty('unit_tests');
+      expect(result).toHaveProperty('errors');
+      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests[0]).toEqual({
+        source: 'src/foo.ts',
+        test_file: 'src/foo.test.ts',
+      });
+      expect(result.errors.some((e) => e.path === 'README.md')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
 // ===========================================================================
 // runTestResolvePaths -- 文件路径解析 (AC-6)
 // ===========================================================================
@@ -172,111 +298,104 @@ describe('runTestResolvePaths -- 文件路径解析', () => {
       project.cleanup();
     }
   });
-});
 
-// ===========================================================================
-// runTestResolvePaths -- 集成测试路径 (AC-7, AC-8)
-// ===========================================================================
-
-describe('runTestResolvePaths -- 集成测试路径', () => {
-  it('integration_scenarios: ["api-flow"] + extension: "ts" (AC-7)', () => {
+  it('派生 .py 文件的测试路径为 test_<name>.py', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/config.ts', '');
-
       const result = runTestResolvePaths({
         project_root: project.root,
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
+        modules: ['src/app.py'],
       });
 
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: '__tests__/api-flow/api-flow.test.ts',
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/app.py',
+        test_file: 'src/test_app.py',
       });
     } finally {
       project.cleanup();
     }
   });
 
-  it('modules: ["src/auth.py"] + integration_scenarios: ["db-roundtrip"] 无 extension (AC-8)', () => {
+  it('派生 .go 文件的测试路径为 <name>_test.go', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/auth.py', '');
-
       const result = runTestResolvePaths({
         project_root: project.root,
-        modules: ['src/auth.py'],
-        integration_scenarios: ['db-roundtrip'],
+        modules: ['src/app.go'],
       });
 
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'db-roundtrip',
-        test_file: '__tests__/db-roundtrip/db-roundtrip.test.py',
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/app.go',
+        test_file: 'src/app_test.go',
       });
     } finally {
       project.cleanup();
     }
   });
 
-  it('无有效源文件时集成测试应默认 .test.ts 扩展名', () => {
+  it('派生 .rs 文件的测试路径为 <name>_test.rs', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'README.md', '# readme');
-
       const result = runTestResolvePaths({
         project_root: project.root,
-        modules: ['README.md'],
-        integration_scenarios: ['smoke'],
+        modules: ['src/app.rs'],
       });
 
-      expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'smoke',
-        test_file: '__tests__/smoke/smoke.test.ts',
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/app.rs',
+        test_file: 'src/app_test.rs',
       });
     } finally {
       project.cleanup();
     }
   });
 
-  it('多个 integration_scenarios 应按 scenario 字典序排序', () => {
+  it('派生 .tsx 文件的测试路径为 <name>.test.tsx', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/a.ts', '');
-
       const result = runTestResolvePaths({
         project_root: project.root,
-        modules: ['src/a.ts'],
-        integration_scenarios: ['zebra', 'alpha', 'middle'],
-        extension: 'ts',
+        modules: ['src/component.tsx'],
       });
 
-      const scenarios = result.integration_tests.map((e) => e.scenario);
-      expect(scenarios).toEqual([...scenarios].sort());
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/component.tsx',
+        test_file: 'src/component.test.tsx',
+      });
     } finally {
       project.cleanup();
     }
   });
 
-  it('integration_scenarios 未传或为空数组时 integration_tests 应为空', () => {
+  it('派生 .jsx 文件的测试路径为 <name>.test.jsx', () => {
     const project = createTempProject();
     try {
-      writeFile(project.root, 'src/a.ts', '');
-
-      const without = runTestResolvePaths({
+      const result = runTestResolvePaths({
         project_root: project.root,
-        modules: ['src/a.ts'],
+        modules: ['src/component.jsx'],
       });
-      expect(without.integration_tests).toEqual([]);
 
-      const empty = runTestResolvePaths({
-        project_root: project.root,
-        modules: ['src/a.ts'],
-        integration_scenarios: [],
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/component.jsx',
+        test_file: 'src/component.test.jsx',
       });
-      expect(empty.integration_tests).toEqual([]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('派生 .mjs 文件的测试路径为 <name>.test.mjs', () => {
+    const project = createTempProject();
+    try {
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: ['src/module.mjs'],
+      });
+
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/module.mjs',
+        test_file: 'src/module.test.mjs',
+      });
     } finally {
       project.cleanup();
     }
@@ -374,6 +493,30 @@ describe('runTestResolvePaths -- 错误收集', () => {
     }
   });
 
+  it('绝对路径在项目范围内时正常解析', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/a.ts', '');
+      const absPath = path.resolve(project.root, 'src/a.ts');
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: [absPath],
+      });
+
+      // 绝对路径传入后, source 保留原始绝对路径,
+      // test_file 也使用绝对路径推导
+      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests[0].source).toBe(absPath.replace(/\\/g, '/'));
+      expect(result.unit_tests[0].test_file).toBe(
+        path.posix.join(path.dirname(absPath.replace(/\\/g, '/')), 'a.test.ts'),
+      );
+      expect(result.errors).toHaveLength(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+
   it('单条失败不应中断其余 modules 条目的处理', () => {
     const project = createTempProject();
     try {
@@ -466,11 +609,11 @@ describe('runTestResolvePaths -- modules 边界', () => {
 });
 
 // ===========================================================================
-// runTestResolvePaths -- 端到端编排 (AC-1~AC-9 集成)
+// runTestResolvePaths -- 端到端编排
 // ===========================================================================
 
 describe('runTestResolvePaths -- 端到端编排', () => {
-  it('传入 modules、integration_scenarios、extension 应返回完整解析结构', () => {
+  it('传入 modules 应返回完整解析结构', () => {
     const project = createTempProject();
     try {
       writeFile(project.root, 'src/config.ts', '');
@@ -479,18 +622,12 @@ describe('runTestResolvePaths -- 端到端编排', () => {
 
       const result = runTestResolvePaths({
         modules: ['src/config.ts', 'src/commands/'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
         project_root: project.root,
       });
 
       expect(result.unit_tests).toContainEqual({
         source: 'src/config.ts',
         test_file: 'src/config.test.ts',
-      });
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: '__tests__/api-flow/api-flow.test.ts',
       });
       expect(result.errors.some((e) => e.path === 'src/commands/')).toBe(true);
     } finally {
@@ -511,227 +648,6 @@ describe('runTestResolvePaths -- 端到端编排', () => {
       expect(result.unit_tests).toContainEqual({
         source: 'src/a.ts',
         test_file: 'src/a.test.ts',
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-// ===========================================================================
-// add-integration-root-param — integration_root via runTestResolvePaths
-// @see openspec/changes/add-integration-root-param/test-design.md
-// ===========================================================================
-
-describe('runTestResolvePaths -- integration_root 向后兼容', () => {
-  it('未传 integration_root + integration_scenarios: ["api-flow"] + extension: "ts" → __tests__/api-flow/api-flow.test.ts (AC-1)', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-      });
-
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: '__tests__/api-flow/api-flow.test.ts',
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-describe('runTestResolvePaths -- integration_root 为点号', () => {
-  it('integration_root: "." + 同上场景 → 与 AC-1 相同 (AC-2)', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-        integration_root: '.',
-      });
-
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: '__tests__/api-flow/api-flow.test.ts',
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-describe('runTestResolvePaths -- integration_root 子目录前缀', () => {
-  it('integration_root: "plugins/dev-team/bin" + integration_scenarios: ["api-flow"] → 带子目录前缀路径 (AC-3)', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-        integration_root: 'plugins/dev-team/bin',
-      });
-
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: 'plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts',
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('integration_root: "plugins/dev-team/bin/" 经 runTestResolvePaths 映射后路径与 AC-3 一致 (AC-5)', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-        integration_root: 'plugins/dev-team/bin/',
-        project_root: project.root,
-      });
-
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: 'plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts',
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-describe('runTestResolvePaths -- integration_root 与 unit_tests 隔离', () => {
-  it('modules: ["src/config.ts"] + integration_root: "plugins/dev-team/bin" 时 unit_tests[0].test_file 仍为 src/config.test.ts (AC-6)', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        integration_root: 'plugins/dev-team/bin',
-        extension: 'ts',
-      });
-
-      expect(result.unit_tests).toContainEqual({
-        source: 'src/config.ts',
-        test_file: 'src/config.test.ts',
-      });
-      expect(result.integration_tests[0]?.test_file).toContain('plugins/dev-team/bin/__tests__/');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('多个 modules 含不同语言源文件时 integration_root 仅改变 integration_tests (AC-6)', () => {
-    const project = createTempProject();
-    try {
-      const modules = ['src/a.ts', 'src/b.py', 'src/c.go'];
-
-      const withoutRoot = runTestResolvePaths({
-        project_root: project.root,
-        modules,
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-      });
-
-      const withRoot = runTestResolvePaths({
-        project_root: project.root,
-        modules,
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-        integration_root: 'plugins/dev-team/bin',
-      });
-
-      expect(withRoot.unit_tests).toEqual(withoutRoot.unit_tests);
-      expect(withRoot.integration_tests[0]?.test_file).toMatch(
-        /^plugins\/dev-team\/bin\/__tests__\//,
-      );
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-describe('runTestResolvePaths -- integration_root 路径穿越', () => {
-  it('integration_root: "../outside" 含 .. 段时写入 errors 且 integration_tests 为空 (D7)', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        integration_root: '../outside',
-        extension: 'ts',
-      });
-
-      expect(result.integration_tests).toEqual([]);
-      expect(
-        result.errors.some((e) => e.path.includes('integration') || e.message.length > 0),
-      ).toBe(true);
-    } finally {
-      project.cleanup();
-    }
-  });
-});
-
-describe('runTestResolvePaths -- integration_root snake_case 映射', () => {
-  it('runTestResolvePaths({ integration_root: "plugins/dev-team/bin" }) 应生成带子目录前缀的集成测试路径', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-        integration_root: 'plugins/dev-team/bin',
-        project_root: project.root,
-      });
-
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: 'plugins/dev-team/bin/__tests__/api-flow/api-flow.test.ts',
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('未传 integration_root 时 runTestResolvePaths 应使用默认 __tests__ 前缀（回归）', () => {
-    const project = createTempProject();
-    try {
-      writeFile(project.root, 'src/config.ts', '');
-
-      const result = runTestResolvePaths({
-        modules: ['src/config.ts'],
-        integration_scenarios: ['api-flow'],
-        extension: 'ts',
-        project_root: project.root,
-      });
-
-      expect(result.integration_tests).toContainEqual({
-        scenario: 'api-flow',
-        test_file: '__tests__/api-flow/api-flow.test.ts',
       });
     } finally {
       project.cleanup();
@@ -1047,6 +963,60 @@ describe('runTestResolvePaths -- git-change 模式', () => {
 
       expect(result.unit_tests).toEqual([]);
       expect(result.errors).toHaveLength(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: "git-change" 且 stderr 的 toString 抛出时 extractErrorMessage 的 catch 分支被覆盖 (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      // execSync 抛出含 throws-on-stringify stderr 的对象时
+      // String(stderr) 抛出错误，触发 extractErrorMessage 中 try/catch 的 catch 分支
+      vi.mocked(execSync).mockImplementation(() => {
+        const err = {
+          stderr: {
+            toString() {
+              throw new Error('cannot stringify');
+            },
+          },
+        };
+        throw err;
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'git-change',
+      });
+
+      expect(result.errors.some((e) => e.path === 'git')).toBe(true);
+      expect(result.errors[0].message).toBe('git diff HEAD --name-only failed');
+      expect(result.unit_tests).toEqual([]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: "git-change" 且 execSync 抛出带 stderr 的非 Error 对象时 errors 包含错误消息 (AC-5)', () => {
+    const project = createTempProject();
+    try {
+      // execSync 可能抛出非 Error 但包含 stderr 的对象（如 child_process 底层错误）
+      vi.mocked(execSync).mockImplementation(() => {
+        const err: { stderr: string; message: string } = {
+          stderr: 'fatal: not a git repository',
+          message: 'Command failed',
+        };
+        throw err;
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'git-change',
+      });
+
+      expect(result.errors.some((e) => e.path === 'git')).toBe(true);
+      expect(result.errors[0].message).toContain('fatal: not a git repository');
+      expect(result.unit_tests).toEqual([]);
     } finally {
       project.cleanup();
     }

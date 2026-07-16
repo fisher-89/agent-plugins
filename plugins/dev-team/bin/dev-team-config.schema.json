@@ -206,18 +206,15 @@
             "type": "object",
             "properties": {
               "glob": {
+                "description": "文件路径 glob 模式（如 \"openspec/changes/**/eval.json\"）",
                 "type": "string",
-                "minLength": 1,
-                "description": "文件路径 glob 模式（如 \"openspec/changes/**/eval.json\"）"
+                "minLength": 1
               },
               "reason": {
                 "description": "自定义拒绝原因，支持 %s（文件路径）和 %t（工具名称）占位符",
                 "type": "string"
               }
             },
-            "required": [
-              "glob"
-            ],
             "additionalProperties": false,
             "description": "单条写入保护规则"
           }

@@ -1,14 +1,5 @@
 /**
  * Tests for lib/test-runner -- test command execution and template substitution.
- *
- * Covers:
- * - executePlanEntry: template substitution via buildTestCommand
- * - executePlanEntry: single command execution (mocked execSync)
- * - executePlanEntry: chained command (pytest/rust) exit code behavior
- * - executePlanEntry: non-zero exit code handling
- * - executePlanEntry: timeout, empty stdout, binary not found
- *
- * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
 import { afterEach, beforeEach, describe, it, expect, vi } from 'vite-plus/test';

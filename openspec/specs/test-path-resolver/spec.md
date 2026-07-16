@@ -63,39 +63,6 @@
 - **WHEN** `modules` 包含 `src/` 且其下存在 `src/node_modules/pkg/index.ts`
 - **THEN** `unit_tests` 不包含 `src/node_modules/pkg/index.ts` 的条目
 
-### Requirement: resolveTestPaths 推导集成测试路径
-
-当提供 `integration_scenarios` 字符串数组时，`resolveTestPaths` SHALL 为每个场景名 `scenario` 生成集成测试路径：
-
-```
-__tests__/<scenario>/<scenario>.test.<ext>
-```
-
-其中 `<ext>` 为不含点号的扩展名字符串（如 `ts`、`py`）。
-
-扩展名解析优先级 SHALL 为：
-1. 若调用方提供 `extension` 参数，使用该值（去除前导 `.`）
-2. 否则从 `modules` 展开后的源文件扩展名统计众数（`.ts` 计为 `ts`，`.py` 计为 `py` 等）
-3. 若无法推断（无有效源文件），默认 `ts`
-
-`integration_tests` 结果 SHALL 按 `scenario` 字典序排序。
-
-#### Scenario: 显式 extension 生成集成测试路径
-
-- **WHEN** `resolveTestPaths` 收到 `integration_scenarios: ["api-flow"]` 且 `extension: "ts"`
-- **THEN** `integration_tests` 包含 `{scenario: "api-flow", test_file: "__tests__/api-flow/api-flow.test.ts"}`
-
-#### Scenario: 从 modules 推断集成测试扩展名
-
-- **WHEN** `resolveTestPaths` 收到 `modules: ["src/auth.py"]` 且 `integration_scenarios: ["db-roundtrip"]`（未传 `extension`）
-- **THEN** `integration_tests` 包含 `{scenario: "db-roundtrip", test_file: "__tests__/db-roundtrip/db-roundtrip.test.py"}`
-
-#### Scenario: 无有效源文件时集成测试默认 ts 扩展名
-
-- **WHEN** `resolveTestPaths` 收到 `modules: ["README.md"]`（非源文件，写入 `errors`）
-- **AND** `integration_scenarios: ["smoke"]` 且未传 `extension`
-- **THEN** `integration_tests` 包含 `{scenario: "smoke", test_file: "__tests__/smoke/smoke.test.ts"}`
-
 ### Requirement: resolveTestPaths 错误收集与输入校验
 
 修改：
@@ -166,31 +133,31 @@ __tests__/<scenario>/<scenario>.test.<ext>
 
 ### Requirement: MCP 工具 test_resolve_paths 注册
 
-修改：
-- 输入 schema 中 `modules` 从 `z.array(z.string()).min(1)` 改为 `z.union([z.array(z.string()), z.literal("git-change")])`
-- 更新 description 以反映 config-driven 过滤、空 modules 自动扫描、`"git-change"` 模式
-
 `plugins/dev-team/bin/src/mcp.ts` SHALL 注册名为 `test_resolve_paths` 的 MCP 工具，遵循 `test_` 域名前缀的下划线命名约定。
 
 输入 schema SHALL 包含：
 - `modules`: `string[] | "git-change"`，必填，可为空数组。为空时自动从 config.json 推导扫描目录；为 `"git-change"` 时读取 git diff 变更文件。所有路径均受 test config 过滤
-- `integration_scenarios`: `string[]`，可选，集成测试场景名列表
-- `extension`: `string`，可选，集成测试文件扩展名（如 `"ts"`、`"py"`，可带或不带前导 `.`）
-- `integration_root`: `string`，可选，`__tests__/` 的父级目录（相对于 `project_root`）
 - `project_root`: `string`，可选，项目根目录（默认由 `resolveProjectRoot()` 解析）
 
-输出 schema SHALL 包含（不变）：
+输入 schema SHALL NOT 包含以下已移除字段：
+- `integration_scenarios`
+- `integration_root`
+- `extension`
+
+输出 schema SHALL 包含：
 - `unit_tests`: `{source: string, test_file: string}[]`，单元测试路径列表
-- `integration_tests`: `{scenario: string, test_file: string}[]`，集成测试路径列表
 - `errors`: `{path: string, message: string}[]`，解析错误列表
 
-#### Scenario: test_resolve_paths 返回完整结构（不变）
+输出 schema SHALL NOT 包含以下已移除字段：
+- `integration_tests`
 
-- **WHEN** `test_resolve_paths` 收到 `{"modules": ["src/config.ts"], "integration_scenarios": ["api-flow"], "extension": "ts"}`
+#### Scenario: test_resolve_paths 返回单元测试路径（输入 schema 不再含集成测试参数）
+
+- **WHEN** `test_resolve_paths` 收到 `{"modules": ["src/config.ts"]}`
 - **AND** test config 覆盖 `src/` 目录
-- **THEN** 返回对象包含 `unit_tests`、`integration_tests` 及 `errors` 字段
+- **THEN** 返回对象包含 `unit_tests` 及 `errors` 字段
 - **AND** `unit_tests[0].test_file` 为 `"src/config.test.ts"`
-- **AND** `integration_tests[0].test_file` 为 `"__tests__/api-flow/api-flow.test.ts"`
+- **AND** 返回对象不包含 `integration_tests` 字段
 
 #### Scenario: test_resolve_paths 支持 project_root 覆盖（不变）
 
@@ -244,7 +211,6 @@ __tests__/<scenario>/<scenario>.test.<ext>
 - **AND** `config.json` 中既无 `test.framework` 也无 `test.overrides`（`plan` 为空）
 - **THEN** `unit_tests` 为空数组
 - **AND** `errors` 包含一条消息，指示用户在 `openspec/config.json` 中配置 `test.framework` 或 `test.overrides`
-- **AND** `integration_tests` 为空数组
 
 #### Scenario: 多个 override 指向同一目录时去重
 
@@ -252,13 +218,6 @@ __tests__/<scenario>/<scenario>.test.<ext>
 - **AND** `config.json` 的 `test.overrides` 中包含两个条目指向同一目录（如 `plugins/dev-team/bin`）
 - **AND** 该目录下存在文件 `plugins/dev-team/bin/src/foo.ts`
 - **THEN** `unit_tests` 中 `foo.ts` 仅出现一次（去重）
-
-#### Scenario: 空 modules 时 integration_scenarios 仍正常工作
-
-- **WHEN** `resolveTestPaths` 收到 `modules: []`, `integration_scenarios: ["smoke"]`, `extension: "ts"`
-- **AND** config 中存在有效的 test 配置（plan 非空）
-- **THEN** `unit_tests` 非空（从 config 目录扫描）
-- **AND** `integration_tests` 包含 `{scenario: "smoke", test_file: "__tests__/smoke/smoke.test.ts"}`
 
 ### Requirement: modules 非空时基于 test config 过滤
 
@@ -308,7 +267,6 @@ __tests__/<scenario>/<scenario>.test.<ext>
 - **WHEN** `resolveTestPaths` 收到 `modules: "git-change"`
 - **AND** `git diff HEAD --name-only` 返回空（无变更）
 - **THEN** `unit_tests` 为空数组
-- **AND** `integration_tests` 为空数组
 - **AND** `errors` 为空（或无致命错误）
 
 #### Scenario: git 命令失败
@@ -328,9 +286,9 @@ __tests__/<scenario>/<scenario>.test.<ext>
 |----------|-------------|
 | **Module** | `commands/test-resolve-paths.ts` |
 | **Signature** | `resolveTestPaths(params: ResolveTestPathsParams): ResolveTestPathsResult` |
-| **Input** | `projectRoot: string`；`modules: string[]`；`integrationScenarios?: string[]`；`extension?: string` |
-| **Output** | `{ unit_tests: {source, test_file}[], integration_tests: {scenario, test_file}[], errors: {path, message}[] }` |
-| **Behavior** | 展开目录、按语言规则推导单元/集成测试路径；错误不中断其余条目；纯函数、确定性输出 |
+| **Input** | `projectRoot: string`；`modules: string[]` |
+| **Output** | `{ unit_tests: {source, test_file}[], errors: {path, message}[] }` |
+| **Behavior** | 展开目录、按语言规则推导单元测试路径；错误不中断其余条目；纯函数、确定性输出 |
 
 ### Function: runTestResolvePaths
 
@@ -357,8 +315,8 @@ __tests__/<scenario>/<scenario>.test.<ext>
 | Property | Description |
 |----------|-------------|
 | **Tool name** | `test_resolve_paths` |
-| **Input schema** | `{ modules: z.array(z.string()).min(1), integration_scenarios: z.array(z.string()).optional(), extension: z.string().optional(), project_root: z.string().optional().nullable() }` |
-| **Output schema** | `{ unit_tests: z.array(z.object({source, test_file})), integration_tests: z.array(z.object({scenario, test_file})), errors: z.array(z.object({path, message})) }` |
+| **Input schema** | `{ modules: z.union([z.array(z.string()), z.literal("git-change")]), project_root: z.string().optional().nullable() }` |
+| **Output schema** | `{ unit_tests: z.array(z.object({source, test_file})), errors: z.array(z.object({path, message})) }` |
 | **Registration** | `mcp.ts` — `server.registerTool('test_resolve_paths', ...)` |
 | **Handler** | `async (args) => jsonContent(runTestResolvePaths({...}))` |
 
@@ -368,7 +326,7 @@ __tests__/<scenario>/<scenario>.test.<ext>
 |----------|-------------|
 | **Module** | `schemas/test-resolve-paths.schema.ts` |
 | **Exports** | `testResolvePathsInputSchema`, `testResolvePathsOutputSchema` |
-| **Behavior** | Zod v4 schema；`modules` 最少 1 项；与 MCP 注册一致 |
+| **Behavior** | Zod v4 schema；`modules` 为 `string[] | "git-change"`，可为空数组；与 MCP 注册一致 |
 
 ### Module Contract (exclude additions)
 

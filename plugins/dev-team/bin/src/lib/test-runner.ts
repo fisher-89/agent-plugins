@@ -299,30 +299,20 @@ function executeStrykerMutation(
     entry.framework,
   );
 
-  // Normalize configPath to forward slashes to avoid backslash escape issues in shell
-  const normalizedConfigPath = configPath.replace(/\\/g, '/');
-
-  // Read platform-appropriate mutation_execution template from framework config.
-  // On Windows without SHELL (no Git Bash), prefer cmd.mutation_execution with
-  // fallback to shell.mutation_execution; on Unix/macOS, use shell.mutation_execution.
-  const frameworkConfig = getFrameworkConfig(entry.framework);
-  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
-  const mutationTemplate = isWinCmd
-    ? (frameworkConfig.cmd.mutation_execution ?? frameworkConfig.shell.mutation_execution)
-    : frameworkConfig.shell.mutation_execution;
-  const strykerCmd = mutationTemplate
-    ? mutationTemplate.replace(/\{config\}/g, normalizedConfigPath)
-    : `npx stryker run "${normalizedConfigPath}"`;
+  const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
   console.log(
     `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absoluteDirectory})...`,
   );
   const strykerStart = Date.now();
   const cmdResult = runCommand(strykerCmd, absoluteDirectory, 1200000);
   const strykerDuration = (Date.now() - strykerStart) / 1000;
-  logCommandFailure(cmdResult, strykerDuration);
+
+  if (cmdResult.exitCode !== 0) {
+    logCommandFailure(cmdResult, strykerDuration);
+    return null;
+  }
 
   const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory);
-
   cleanupMutationArtifacts(configPath, tempDirPath);
 
   if (!mutationBlock) {
@@ -335,6 +325,17 @@ function executeStrykerMutation(
   );
 
   return mutationBlock;
+}
+
+function genStrykerCommand(entry: TestPlan, configPath: string): string {
+  const frameworkConfig = getFrameworkConfig(entry.framework);
+  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
+  const mutationTemplate = isWinCmd
+    ? (frameworkConfig.cmd.mutation_execution ?? frameworkConfig.shell.mutation_execution)
+    : frameworkConfig.shell.mutation_execution;
+  return mutationTemplate
+    ? mutationTemplate.replace(/\{config\}/g, configPath)
+    : `npx stryker run "${configPath}"`;
 }
 
 /**
@@ -408,13 +409,12 @@ function logCommandFailure(
   result: { exitCode: number; stderr: string; execError?: string },
   durationS: number,
 ): void {
-  if (result.exitCode === 0) return;
-  console.log(`  StrykerJS exited with code ${result.exitCode} (took ${durationS.toFixed(1)}s)`);
+  console.log(`StrykerJS exited with code ${result.exitCode} (took ${durationS.toFixed(1)}s)`);
   if (result.stderr) {
-    console.log(`  StrykerJS stderr: ${result.stderr.slice(0, 500)}`);
+    console.log(`StrykerJS stderr: ${result.stderr.slice(0, 500)}`);
   }
   if (result.execError) {
-    console.log(`  StrykerJS error: ${result.execError}`);
+    console.log(`StrykerJS error: ${result.execError}`);
   }
 }
 
