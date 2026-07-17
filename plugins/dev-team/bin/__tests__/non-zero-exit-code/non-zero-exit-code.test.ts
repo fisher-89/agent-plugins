@@ -23,7 +23,7 @@ function sf(file: string): SourceFileEntry {
   return {
     file,
     coverage: {
-      lines: null,
+      lines: 0,
       branches: null,
       functions: null,
       total_lines: null,
@@ -144,7 +144,6 @@ describe('non-zero-exit-code (AC-11)', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(
@@ -197,7 +196,6 @@ describe('non-zero-exit-code (AC-11)', () => {
           { file: 'src/foo.test.ts', framework: 'vitest' },
           { file: 'tests/bar.test.ts', framework: 'vite-plus' },
         ],
-        frameworks: ['vitest', 'vite-plus'],
         plan: [makePlanEntry({ framework: 'vitest' }), makePlanEntry({ framework: 'vite-plus' })],
       });
       // vitest 失败
@@ -254,7 +252,6 @@ describe('non-zero-exit-code (AC-11)', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(

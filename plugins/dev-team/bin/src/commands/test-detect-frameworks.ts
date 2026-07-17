@@ -318,9 +318,8 @@ function detectFrameworksForFiles(
   mappings: FrameworkMapping[],
   isAutoScan: boolean,
   config: OpenSpecConfig,
-): { detected: DetectedFile[]; frameworks: string[] } {
+): { detected: DetectedFile[] } {
   const detected: DetectedFile[] = [];
-  const frameworkSet = new Set<string>();
 
   for (const file of filesToCheck) {
     // Skip excluded files — they don't participate in framework detection
@@ -334,7 +333,6 @@ function detectFrameworksForFiles(
     for (const mapping of mappings) {
       if (matchGlob(relativePath, mapping.glob)) {
         detected.push({ file, framework: mapping.framework });
-        frameworkSet.add(mapping.framework);
         matched = true;
         break;
       }
@@ -345,10 +343,7 @@ function detectFrameworksForFiles(
     }
   }
 
-  return {
-    detected,
-    frameworks: Array.from(frameworkSet).sort(),
-  };
+  return { detected };
 }
 
 function resolveFilesToCheck(
@@ -381,7 +376,7 @@ function buildNoMappingsResult(
         file,
         framework: 'unknown',
       }));
-  return { detected, frameworks: [], plan: [] };
+  return { detected, plan: [] };
 }
 
 /**
@@ -403,7 +398,7 @@ export function runTestDetectFrameworks(
 
   const filesResult = resolveFilesToCheck(options, projectRoot);
   if (filesResult === 'empty') {
-    return { detected: [], frameworks: [], plan: [] };
+    return { detected: [], plan: [] };
   }
   const filesToCheck = filesResult;
   const isAutoScan = options.files === undefined;
@@ -412,7 +407,7 @@ export function runTestDetectFrameworks(
     return buildNoMappingsResult(filesToCheck, isAutoScan);
   }
 
-  const { detected, frameworks } = detectFrameworksForFiles(
+  const { detected } = detectFrameworksForFiles(
     filesToCheck,
     projectRoot,
     mappings,
@@ -420,5 +415,5 @@ export function runTestDetectFrameworks(
     config,
   );
 
-  return { detected, frameworks, plan };
+  return { detected, plan };
 }

@@ -22,11 +22,13 @@ import { type FileCoverageEntry } from '../../schemas';
 // Types
 // ---------------------------------------------------------------------------
 
+type FileCoverage = { file: string } & FileCoverageEntry;
+
 export interface ParsedCoverage {
   lines: number;
   branches: number | null;
   functions: number | null;
-  fileCoverage: FileCoverageEntry[] | null;
+  fileCoverage: FileCoverage[] | null;
 }
 
 // ---------------------------------------------------------------------------
@@ -115,7 +117,7 @@ function parseIstanbul(content: string): ParsedCoverage | null {
   if (!totalResult.success) return null;
 
   const data = totalResult.data;
-  const fileCoverage: FileCoverageEntry[] = [];
+  const fileCoverage: FileCoverage[] = [];
 
   // raw is already parsed — iterate entries with zod validation
   const rawRecord = z.record(z.string(), z.unknown()).safeParse(raw);

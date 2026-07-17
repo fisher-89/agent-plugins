@@ -33,7 +33,7 @@ export interface ParsedTestResult {
 // ---------------------------------------------------------------------------
 
 import { parseGoOutput } from './go-parser';
-import { parseJsonOutput } from './json-parser';
+import { parseJsOutput } from './js-parser';
 import { parseTextOutput } from './text-parser';
 
 // ---------------------------------------------------------------------------
@@ -63,7 +63,7 @@ export function parseTestOutput(
   }
 
   if (framework === 'vitest' || framework === 'jest' || framework === 'vite-plus') {
-    return parseJsonOutput(stdout);
+    return parseJsOutput(stdout);
   }
 
   return parseTextOutput(stdout || stderr);

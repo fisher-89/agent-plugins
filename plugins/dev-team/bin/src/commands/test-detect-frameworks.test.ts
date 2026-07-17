@@ -69,8 +69,6 @@ describe('detectFrameworks -- glob first-match (AC-4)', () => {
       const rustEntry = result.detected.find((d) => d.file.endsWith('test_auth.rs'));
       expect(vitestEntry?.framework).toBe('vitest');
       expect(rustEntry?.framework).toBe('rust');
-      expect(result.frameworks).toContain('rust');
-      expect(result.frameworks).toContain('vitest');
     } finally {
       project.cleanup();
     }
@@ -130,7 +128,6 @@ describe('detectFrameworks -- glob first-match (AC-4)', () => {
         projectRoot: project.root,
       });
       expect(result.detected).toEqual([]);
-      expect(result.frameworks).toEqual([]);
     } finally {
       project.cleanup();
     }
@@ -175,7 +172,6 @@ describe('detectFrameworks -- single framework', () => {
       });
       expect(result.detected).toHaveLength(1);
       expect(result.detected[0].framework).toBe('vitest');
-      expect(result.frameworks).toEqual(['vitest']);
     } finally {
       project.cleanup();
     }
@@ -216,7 +212,6 @@ describe('detectFrameworks -- single framework', () => {
         projectRoot: project.root,
       });
       expect(result.detected).toEqual([]);
-      expect(result.frameworks).toEqual([]);
     } finally {
       project.cleanup();
     }
@@ -245,7 +240,6 @@ describe('detectFrameworks -- edge cases', () => {
         projectRoot: project.root,
       });
       expect(result.detected.length).toBeGreaterThanOrEqual(0);
-      expect(result.frameworks).toEqual([]);
     } finally {
       project.cleanup();
     }
@@ -503,46 +497,6 @@ describe('runTestDetectFrameworks -- 向后兼容 (AC-11)', () => {
       expect(result.detected[0]).toHaveProperty('file');
       expect(result.detected[0]).toHaveProperty('framework');
       expect(result.detected[0].framework).toBe('vitest');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('添加 plan 后 frameworks 字段结构和内容不变', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: {
-        framework: 'vitest',
-        overrides: [{ file: '**/tests/**/*.rs', framework: 'rust' }],
-      },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/utils/helper.test.ts', 'tests/test_auth.rs'],
-        projectRoot: project.root,
-      });
-      expect(result.frameworks).toContain('vitest');
-      expect(result.frameworks).toContain('rust');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('添加 plan 后首匹配规则不变', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: {
-        framework: 'vitest',
-        overrides: [{ file: '**/e2e/**', framework: 'vite-plus' }],
-      },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['tests/e2e/test_app.ts'],
-        projectRoot: project.root,
-      });
-      // e2e file doesn't match default vitest glob, override matches → vite-plus
-      expect(result.detected[0].framework).toBe('vite-plus');
     } finally {
       project.cleanup();
     }
@@ -1335,7 +1289,6 @@ describe('runTestDetectFrameworks -- 向后兼容 (AC-6)', () => {
       });
       expect(result.detected).toHaveLength(1);
       expect(result.detected[0].framework).toBe('vitest');
-      expect(result.frameworks).toEqual(['vitest']);
     } finally {
       project.cleanup();
     }

@@ -113,37 +113,18 @@ function derivePlanId(directory: string, framework: string): string {
  * falls back to entries with only the file path and null counts otherwise.
  */
 function buildSourceFileEntries(result: ExecutionResult): SourceFileEntry[] {
-  const fileCoverage = result.coverage?.fileCoverage;
-  if (fileCoverage?.some((e) => e.total_lines != null)) {
-    return fileCoverage.map((e) => ({
-      file: e.file,
-      coverage: {
-        lines: e.lines ?? null,
-        branches: e.branches ?? null,
-        functions: e.functions ?? null,
-        total_lines: e.total_lines ?? null,
-        covered_lines: e.covered_lines ?? null,
-        total_branches: e.total_branches ?? null,
-        covered_branches: e.covered_branches ?? null,
-        total_functions: e.total_functions ?? null,
-        covered_functions: e.covered_functions ?? null,
-      },
-    }));
+  const fileEntries = new Map<string, SourceFileEntry>([]);
+  for (const sourceFile of result.sourceFiles) {
+    fileEntries.set(sourceFile, { file: sourceFile });
   }
-  return result.sourceFiles.map((f) => ({
-    file: f,
-    coverage: {
-      lines: null,
-      branches: null,
-      functions: null,
-      total_lines: null,
-      covered_lines: null,
-      total_branches: null,
-      covered_branches: null,
-      total_functions: null,
-      covered_functions: null,
-    },
-  }));
+  for (const fileCoverage of result.coverage?.fileCoverage ?? []) {
+    const fileEntry = fileEntries.get(fileCoverage.file);
+    if (!fileEntry) {
+      continue;
+    }
+    fileEntry.coverage = fileCoverage;
+  }
+  return [...fileEntries.values()];
 }
 
 // ---------------------------------------------------------------------------
@@ -409,6 +390,9 @@ function computeRawWeightedCoverage(subReports: TestExecutionSubReport[]): Cover
 
   for (const report of subReports) {
     for (const { coverage: fileCoverage } of report.source_files) {
+      if (!fileCoverage) {
+        continue;
+      }
       if (fileCoverage.total_lines !== null && fileCoverage.total_lines > 0) {
         totalLines += fileCoverage.total_lines;
         covLines += fileCoverage.covered_lines ?? 0;
@@ -546,6 +530,9 @@ function computeRawOverrideCoverage(matchedRaw: SourceFileEntry[]): CoverageMeas
   let totalFunctions = 0,
     covFunctions = 0;
   for (const { coverage: fileCoverage } of matchedRaw) {
+    if (!fileCoverage) {
+      continue;
+    }
     if (fileCoverage.total_lines !== null && fileCoverage.total_lines > 0) {
       totalLines += fileCoverage.total_lines;
       covLines += fileCoverage.covered_lines ?? 0;
@@ -572,6 +559,9 @@ function countPassedRawOverrides(
   thresholds: CoverageThresholds,
 ): number {
   return matched.filter(({ coverage: fileCoverage }) => {
+    if (!fileCoverage) {
+      return false;
+    }
     const fileMeasured: CoverageMeasured = {
       lines:
         fileCoverage.total_lines !== null && fileCoverage.total_lines > 0

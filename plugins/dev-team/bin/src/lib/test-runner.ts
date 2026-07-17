@@ -102,38 +102,6 @@ function resolveCoveragePath(entry: TestPlan, projectRoot: string): string | nul
 }
 
 // ---------------------------------------------------------------------------
-// Source file derivation
-// ---------------------------------------------------------------------------
-
-/**
- * Derive source file paths from test file paths.
- *
- * Conventions:
- *   - .test.ts → .ts
- *   - .spec.ts → .ts
- *   - _test.go → .go
- *   - test_*.py → *.py
- */
-function deriveSourceFiles(testFiles: string[]): string[] {
-  const sourceSet = new Set<string>();
-
-  for (const tf of testFiles) {
-    const posix = tf.replace(/\\/g, '/');
-    const src = posix
-      .replace(/\.test\./g, '.')
-      .replace(/\.spec\./g, '.')
-      .replace(/_test\.go$/, '.go')
-      .replace(/^test_(.+)\.py$/, '$1.py');
-
-    if (src !== posix) {
-      sourceSet.add(src);
-    }
-  }
-
-  return Array.from(sourceSet).sort();
-}
-
-// ---------------------------------------------------------------------------
 // Main execution function
 // ---------------------------------------------------------------------------
 
@@ -216,32 +184,31 @@ export function executePlanEntry(
   console.log(`Executing test cmd: "${testCmd}"`);
   const { stdout, stderr, exitCode, execError } = runCommand(testCmd, projectRoot, options.timeout);
 
-  const parsed = parseTestOutput(stdout, stderr, entry.framework);
+  const { failed, error, sourceFiles, testFiles, testCases } = parseTestOutput(
+    stdout,
+    stderr,
+    entry.framework,
+  );
   const coveragePath = resolveCoveragePath(entry, projectRoot);
   const coverage = coveragePath ? parseCoverageFromFile(coveragePath, entry.coverage_format) : null;
 
-  // Derive source files from test files
-  const sourceFiles =
-    parsed.sourceFiles.length > 0 ? parsed.sourceFiles : deriveSourceFiles(parsed.testFiles);
-
-  const mutationFiles = restrictMutationScope(sourceFiles, options.mutationDiffFiles);
-
   // Mutation testing phase
+  const mutationFiles = restrictMutationScope(sourceFiles, options.mutationDiffFiles);
   const mutation =
-    parsed.failed === 0 ? runMutationPhase(entry, projectRoot, options, mutationFiles) : null;
+    failed === 0 ? runMutationPhase(entry, projectRoot, options, mutationFiles) : null;
 
   const durationMs = Date.now() - startTime;
 
   return {
     framework: entry.framework,
     exitCode,
-    testCases: parsed.testCases,
+    testCases,
     coverage,
     mutation,
     durationMs,
-    testFiles: parsed.testFiles,
+    testFiles,
     sourceFiles,
-    error: execError || parsed.error,
+    error: execError || error,
   };
 }
 

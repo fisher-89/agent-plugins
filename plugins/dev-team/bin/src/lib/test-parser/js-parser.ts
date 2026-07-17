@@ -44,7 +44,7 @@ type VitestTestResult = z.infer<typeof vitestTestResultSchema>;
  * @param stdout - The raw stdout from the test command
  * @returns ParsedTestResult
  */
-export function parseJsonOutput(stdout: string): ParsedTestResult {
+export function parseJsOutput(stdout: string): ParsedTestResult {
   if (!stdout || stdout.trim().length === 0) {
     return emptyJsonResult('Empty stdout');
   }
@@ -165,11 +165,7 @@ function deriveSourceFiles(testFiles: string[]): string[] {
       continue;
     }
     // Strip .test. or .spec. suffix patterns
-    const src = posix
-      .replace(/\.test\./g, '.')
-      .replace(/\.spec\./g, '.')
-      .replace(/_test\.go$/, '.go')
-      .replace(/^test_(.+)\.py$/, '$1.py');
+    const src = posix.replace(/\.test\./g, '.').replace(/\.spec\./g, '.');
 
     if (src !== posix) {
       sourceSet.add(src);

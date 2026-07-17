@@ -20,7 +20,7 @@ cli
   )
   .option('--change <name>', 'Change name (reports written to openspec/changes/<name>/reports/)')
   .option('--project-root <path>', 'Override project root directory')
-  .option('--files <files>', 'Comma-separated list of test files to run')
+  .option('--files <files>', 'Comma-separated list of test files to run, relative to project root')
   .option('--framework <name>', 'Only run tests for the specified framework')
   .option('--no-mutation', 'Skip mutation testing phase')
   .option(
@@ -53,6 +53,17 @@ cli
       process.exit(exitCode);
     },
   );
+
+cli.command('[*]').action((command) => {
+  if (command) {
+    process.stderr.write(`Unknown command: "${command}"`);
+  } else {
+    process.stderr.write('No command specified');
+  }
+  // 展示帮助信息
+  cli.outputHelp();
+  process.exit(1);
+});
 
 if (require.main === module) {
   cli.help();

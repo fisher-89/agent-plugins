@@ -84,7 +84,6 @@ describe('test_detect_frameworks — plan 输出结构', () => {
       });
 
       expect(result.plan).toEqual([]);
-      expect(result.frameworks).toEqual([]);
       expect(result.detected.every((d) => d.framework === 'unknown')).toBe(true);
     } finally {
       project.cleanup();

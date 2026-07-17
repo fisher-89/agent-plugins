@@ -14,7 +14,7 @@
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import { parseJsonOutput } from './json-parser';
+import { parseJsOutput } from './js-parser';
 
 // ===========================================================================
 // Basic parsing
@@ -35,7 +35,7 @@ describe('parseJsonOutput -- basic parsing', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     expect(result.total).toBe(3);
     expect(result.passed).toBe(1);
     expect(result.failed).toBe(1);
@@ -59,7 +59,7 @@ describe('parseJsonOutput -- basic parsing', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     expect(result.total).toBe(1);
     expect(result.passed).toBe(1);
     expect(result.testCases[0].name).toBe('bar test');
@@ -78,7 +78,7 @@ describe('parseJsonOutput -- basic parsing', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     expect(result.testCases).toHaveLength(2);
     expect(result.testCases[0].durationMs).toBe(5);
     expect(result.testCases[1].durationMs).toBe(5000);
@@ -101,7 +101,7 @@ describe('parseJsonOutput -- basic parsing', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     const failed = result.testCases.find((t) => t.status === 'failed');
     expect(failed).toBeDefined();
     expect(failed!.errorType).toBe('AssertionError');
@@ -116,31 +116,31 @@ describe('parseJsonOutput -- basic parsing', () => {
 
 describe('parseJsonOutput -- edge cases', () => {
   it('should return error for empty stdout', () => {
-    const result = parseJsonOutput('');
+    const result = parseJsOutput('');
     expect(result.total).toBe(0);
     expect(result.error).toBe('Empty stdout');
   });
 
   it('should return error for whitespace-only stdout', () => {
-    const result = parseJsonOutput('   \n  ');
+    const result = parseJsOutput('   \n  ');
     expect(result.total).toBe(0);
     expect(result.error).toBe('Empty stdout');
   });
 
   it('should return error for invalid JSON', () => {
-    const result = parseJsonOutput('not json');
+    const result = parseJsOutput('not json');
     expect(result.total).toBe(0);
     expect(result.error).toBe('Failed to parse JSON output');
   });
 
   it('should return error for JSON missing testResults array', () => {
-    const result = parseJsonOutput(JSON.stringify({ foo: 'bar' }));
+    const result = parseJsOutput(JSON.stringify({ foo: 'bar' }));
     expect(result.total).toBe(0);
     expect(result.error).toBe('Missing testResults array');
   });
 
   it('should return total=0 when testResults array is empty', () => {
-    const result = parseJsonOutput(JSON.stringify({ testResults: [] }));
+    const result = parseJsOutput(JSON.stringify({ testResults: [] }));
     expect(result.total).toBe(0);
     expect(result.passed).toBe(0);
     expect(result.failed).toBe(0);
@@ -160,7 +160,7 @@ describe('parseJsonOutput -- edge cases', () => {
       testResults: [{ name: 'src/large.test.ts', assertionResults }],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     expect(result.total).toBe(100);
     expect(result.passed).toBe(99);
     expect(result.failed).toBe(1);
@@ -179,7 +179,7 @@ describe('parseJsonOutput -- edge cases', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     expect(result.total).toBe(2);
     expect(result.passed).toBe(2);
     expect(result.failed).toBe(0);
@@ -198,7 +198,7 @@ describe('parseJsonOutput -- edge cases', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     // null titles become "unknown"
     expect(result.total).toBe(2);
     expect(result.testCases[0].name).toBe('unknown');
@@ -220,7 +220,7 @@ describe('parseJsonOutput -- source file derivation', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     expect(result.sourceFiles).toContain('src/foo.ts');
   });
 
@@ -238,7 +238,7 @@ describe('parseJsonOutput -- source file derivation', () => {
       ],
     });
 
-    const result = parseJsonOutput(stdout);
+    const result = parseJsOutput(stdout);
     expect(result.sourceFiles).toContain('src/foo.ts');
     expect(result.sourceFiles).toContain('src/bar.ts');
   });

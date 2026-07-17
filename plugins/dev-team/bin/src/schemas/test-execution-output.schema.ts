@@ -75,23 +75,6 @@ const coverageBlockSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
-// SourceFileEntrySchema — per-file raw coverage counts
-// ---------------------------------------------------------------------------
-
-const sourceFileEntrySchema = z.object({
-  file: z.string().describe('Source file path (relative to project root)'),
-  coverage: z.object({
-    ...coverageMeasuredSchema.shape,
-    total_lines: z.number().int().min(0).nullable().describe('Total executable lines in the file'),
-    covered_lines: z.number().int().min(0).nullable().describe('Covered lines in the file'),
-    total_branches: z.number().int().min(0).nullable().describe('Total branches in the file'),
-    covered_branches: z.number().int().min(0).nullable().describe('Covered branches in the file'),
-    total_functions: z.number().int().min(0).nullable().describe('Total functions in the file'),
-    covered_functions: z.number().int().min(0).nullable().describe('Covered functions in the file'),
-  }),
-});
-
-// ---------------------------------------------------------------------------
 // Mutation schemas
 // ---------------------------------------------------------------------------
 
@@ -145,16 +128,24 @@ const mutationBlockSchema = z.object({
 // ---------------------------------------------------------------------------
 
 const fileCoverageEntrySchema = z.object({
-  file: z.string().describe('File path (relative to project root)'),
   lines: z.number().min(0).max(100).describe('Line coverage percentage'),
   branches: z.number().min(0).max(100).nullable().describe('Branch coverage percentage'),
   functions: z.number().min(0).max(100).nullable().describe('Function coverage percentage'),
-  total_lines: z.number().int().min(0).nullable().optional().describe('Total executable lines'),
-  covered_lines: z.number().int().min(0).nullable().optional().describe('Covered lines'),
-  total_branches: z.number().int().min(0).nullable().optional().describe('Total branches'),
-  covered_branches: z.number().int().min(0).nullable().optional().describe('Covered branches'),
-  total_functions: z.number().int().min(0).nullable().optional().describe('Total functions'),
-  covered_functions: z.number().int().min(0).nullable().optional().describe('Covered functions'),
+  total_lines: z.number().int().min(0).nullable().describe('Total executable lines'),
+  covered_lines: z.number().int().min(0).nullable().describe('Covered lines'),
+  total_branches: z.number().int().min(0).nullable().describe('Total branches'),
+  covered_branches: z.number().int().min(0).nullable().describe('Covered branches'),
+  total_functions: z.number().int().min(0).nullable().describe('Total functions'),
+  covered_functions: z.number().int().min(0).nullable().describe('Covered functions'),
+});
+
+// ---------------------------------------------------------------------------
+// SourceFileEntrySchema — per-file raw coverage counts
+// ---------------------------------------------------------------------------
+
+const sourceFileEntrySchema = z.object({
+  file: z.string().describe('Source file path (relative to project root)'),
+  coverage: fileCoverageEntrySchema.optional().describe('源文件覆盖率数据'),
 });
 
 // ---------------------------------------------------------------------------

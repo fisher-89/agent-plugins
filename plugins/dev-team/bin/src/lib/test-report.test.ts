@@ -24,7 +24,7 @@ function sfe(file: string, overrides: Partial<SourceFileEntry['coverage']> = {})
   return {
     file,
     coverage: {
-      lines: null,
+      lines: 0,
       branches: null,
       functions: null,
       total_lines: null,

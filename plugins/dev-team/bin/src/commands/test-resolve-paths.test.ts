@@ -674,7 +674,6 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
         if (opts.files === undefined) {
           return {
             detected: [],
-            frameworks: ['vite-plus'],
             plan: [
               {
                 directory: 'src',
@@ -691,7 +690,7 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
             ],
           };
         }
-        return { detected: [], frameworks: [], plan: [] };
+        return { detected: [], plan: [] };
       });
 
       writeFile(project.root, 'src/foo.ts', '');
@@ -721,7 +720,6 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
     try {
       vi.mocked(runTestDetectFrameworks).mockReturnValue({
         detected: [],
-        frameworks: [],
         plan: [],
       });
 
@@ -747,7 +745,6 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
     try {
       vi.mocked(runTestDetectFrameworks).mockReturnValue({
         detected: [],
-        frameworks: [],
         plan: [],
       });
 
@@ -784,7 +781,6 @@ describe('runTestResolvePaths -- config-driven 过滤', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -818,7 +814,7 @@ describe('runTestResolvePaths -- config-driven 过滤', () => {
             return rel.startsWith('src/');
           })
           .map(({ file }) => ({ file, framework: 'vitest' as const }));
-        return { detected, frameworks: ['vitest'], plan: [] };
+        return { detected, plan: [] };
       });
 
       const result = runTestResolvePaths({
@@ -848,7 +844,7 @@ describe('runTestResolvePaths -- config-driven 过滤', () => {
             return rel.startsWith('src/');
           })
           .map(({ file }) => ({ file, framework: 'vitest' as const }));
-        return { detected, frameworks: ['vitest'], plan: [] };
+        return { detected, plan: [] };
       });
 
       const result = runTestResolvePaths({
@@ -885,7 +881,7 @@ describe('runTestResolvePaths -- git-change 模式', () => {
           file: path.resolve(opts.projectRoot!, f),
           framework: 'vitest' as const,
         }));
-        return { detected, frameworks: ['vitest'], plan: [] };
+        return { detected, plan: [] };
       });
 
       const result = runTestResolvePaths({
@@ -935,7 +931,6 @@ describe('runTestResolvePaths -- git-change 模式', () => {
       vi.mocked(execSync).mockReturnValue('outside/foo.ts\n');
       vi.mocked(runTestDetectFrameworks).mockReturnValue({
         detected: [],
-        frameworks: [],
         plan: [],
       });
 
@@ -1032,7 +1027,7 @@ describe('runTestResolvePaths -- git-change 模式', () => {
           file: path.resolve(opts.projectRoot!, f),
           framework: 'vitest' as const,
         }));
-        return { detected, frameworks: ['vitest'], plan: [] };
+        return { detected, plan: [] };
       });
 
       const result = runTestResolvePaths({
@@ -1063,7 +1058,6 @@ describe('runTestResolvePaths -- 去重', () => {
       // 模拟两个 override 都指向 src/ 目录 → plan 有两个相同 directory
       vi.mocked(runTestDetectFrameworks).mockReturnValue({
         detected: [],
-        frameworks: ['vitest', 'jest'],
         plan: [
           {
             directory: 'src',
@@ -1113,7 +1107,7 @@ describe('runTestResolvePaths -- 去重', () => {
           file: path.resolve(opts.projectRoot!, f),
           framework: 'vitest' as const,
         }));
-        return { detected, frameworks: ['vitest'], plan: [] };
+        return { detected, plan: [] };
       });
 
       const result = runTestResolvePaths({
@@ -1137,7 +1131,6 @@ describe('runTestResolvePaths -- 去重', () => {
           // auto-scan mode — plan for src/ directory
           return {
             detected: [],
-            frameworks: ['vitest'],
             plan: [
               {
                 directory: 'src',
@@ -1153,7 +1146,7 @@ describe('runTestResolvePaths -- 去重', () => {
             ],
           };
         }
-        return { detected: [], frameworks: [], plan: [] };
+        return { detected: [], plan: [] };
       });
 
       // 既有 src/ 目录下的文件，又显式传入 src/shared.ts
@@ -1173,9 +1166,9 @@ describe('runTestResolvePaths -- 去重', () => {
             file: path.resolve(opts.projectRoot!, f),
             framework: 'vitest' as const,
           }));
-          return { detected, frameworks: ['vitest'], plan: [] };
+          return { detected, plan: [] };
         }
-        return { detected: [], frameworks: [], plan: [] };
+        return { detected: [], plan: [] };
       });
 
       // 模拟第二次调用时传入的 modules 包含 src/shared.ts（与扫描重叠）
@@ -1215,7 +1208,6 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1257,7 +1249,6 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1292,7 +1283,6 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         if (opts.files === undefined) {
           return {
             detected: [],
-            frameworks: ['vite-plus'],
             plan: [
               {
                 directory: '.',
@@ -1305,7 +1295,7 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
             ],
           };
         }
-        return { detected: [], frameworks: [], plan: [] };
+        return { detected: [], plan: [] };
       });
 
       const openspecDir = path.join(project.root, 'openspec');
@@ -1341,7 +1331,6 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1379,7 +1368,6 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1416,7 +1404,6 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1475,7 +1462,6 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1512,7 +1498,6 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1548,7 +1533,6 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });
@@ -1584,7 +1568,6 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
         );
         return {
           detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          frameworks: ['vitest'],
           plan: [],
         };
       });

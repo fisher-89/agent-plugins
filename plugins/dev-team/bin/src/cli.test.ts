@@ -1,17 +1,3 @@
-/**
- * 单元测试: cli -- CLI 命令注册
- *
- * 覆盖范围:
- * - AC-1: CLI 注册 `test-execution` 子命令
- * - AC-1: 命令接受 `--project-root` 选项
- * - AC-1: 命令 action 调用 `runTestExecution`
- * - AC-1: `runTestExecution` 返回非零时进程以 exit(1) 退出
- * - 异常: 未注册 `test-execution` 子命令时 CLI 报错
- * - 异常: `--project-root` 后缺省值时 CLI 报错
- * - 边界: `--project-root` 值为空字符串时使用默认 project dir
- * - 边界: 同时传递多个未知选项时不影响 test-execution 命令正常注册
- */
-
 import { describe, it, expect, vi } from 'vite-plus/test';
 
 import { cli } from './cli';
@@ -21,9 +7,14 @@ import { cli } from './cli';
 // ---------------------------------------------------------------------------
 
 const mockRunTestExecution = vi.fn();
+const mockRunStaticAnalysis = vi.fn();
 
 vi.mock('./commands/test-execution', () => ({
   runTestExecution: (...args: unknown[]) => mockRunTestExecution(...args),
+}));
+
+vi.mock('./commands/run-static-analysis', () => ({
+  runStaticAnalysis: (...args: unknown[]) => mockRunStaticAnalysis(...args),
 }));
 
 // ---------------------------------------------------------------------------
@@ -33,6 +24,11 @@ vi.mock('./commands/test-execution', () => ({
 /** 从 cli 实例中获取 test-execution 命令 */
 function getTestExecCommand() {
   return cli.commands.find((c) => c.name === 'test-execution')!;
+}
+
+/** 从 cli 实例中获取 run_static_analysis 命令 */
+function getStaticAnalysisCommand() {
+  return cli.commands.find((c) => c.name === 'run_static_analysis')!;
 }
 
 /** mock process.exit 并返回 spy，调用方负责 restore */
@@ -46,20 +42,6 @@ function spyOnProcessExit() {
 // ===========================================================================
 
 describe('dev-team test-execution command registration', () => {
-  it('CLI 应注册 `test-execution` 子命令', () => {
-    const cmd = getTestExecCommand();
-    expect(cmd).toBeDefined();
-    expect(cmd.name).toBe('test-execution');
-  });
-
-  it('命令应接受 `--project-root` 选项', () => {
-    const cmd = getTestExecCommand();
-    const opt = cmd.options.find((o) => o.rawName.includes('--project-root'));
-    expect(opt).toBeDefined();
-    // <path> (尖括号) 表示必须提供值
-    expect(opt!.rawName).toContain('<path>');
-  });
-
   it('命令 action 应调用 runTestExecution', async () => {
     const exitSpy = spyOnProcessExit();
     mockRunTestExecution.mockResolvedValue(0);
@@ -89,20 +71,45 @@ describe('dev-team test-execution command registration', () => {
 // 异常测试
 // ===========================================================================
 
-describe('dev-team test-execution -- 异常', () => {
-  it('未注册 test-execution 子命令时 CLI 报错而非静默忽略', () => {
-    // 验证 cli 实例有 commands 列表，不存在的命令不会在其中
-    const fakeCmd = cli.commands.find((c) => c.name === 'nonexistent-command');
-    expect(fakeCmd).toBeUndefined();
+describe('cli 命令 -- 异常', () => {
+  it('未指定命令时 CLI 报错而非静默忽略', () => {
+    const exitSpy = spyOnProcessExit();
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    // 使用不存在的子命令触发 cac 的 unknown command 错误
+    cli.parse(['node', 'cli.js']);
+
+    // cac 应输出错误信息到 stderr，而非静默退出
+    const stderrOutput = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stderrOutput).include('No command specified');
+
+    stderrSpy.mockRestore();
+    exitSpy.mockRestore();
   });
 
+  it('执行未注册命令时 CLI 报错而非静默忽略', () => {
+    const exitSpy = spyOnProcessExit();
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    const commandName = 'un-registered-command';
+
+    // 使用不存在的子命令触发 cac 的 unknown command 错误
+    cli.parse(['node', 'cli.js', commandName]);
+
+    // cac 应输出错误信息到 stderr，而非静默退出
+    const stderrOutput = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stderrOutput).include(`Unknown command: "${commandName}"`);
+
+    stderrSpy.mockRestore();
+    exitSpy.mockRestore();
+  });
+});
+
+describe('dev-team test-execution -- 异常', () => {
   it('--project-root 后缺省值时 CLI 报错', () => {
-    const cmd = getTestExecCommand();
-    const opt = cmd.options.find((o) => o.rawName.includes('--project-root'));
-    expect(opt).toBeDefined();
-    // <path> 表示必填参数，[path] 表示可选
-    expect(opt!.rawName).toContain('<path>');
-    expect(opt!.rawName).not.toContain('[path]');
+    // --project-root <path> 要求必填值，传空将触发 cac 的 CACError
+    expect(() => {
+      cli.parse(['node', 'cli.js', 'test-execution', '--project-root']);
+    }).toThrow(/option.*--project-root.*value.*missing/i);
   });
 });
 
@@ -135,12 +142,6 @@ describe('dev-team test-execution -- 边界', () => {
 // ===========================================================================
 
 describe('dev-team test-execution -- --no-mutation 选项', () => {
-  it('CLI 注册 `--no-mutation` 选项', () => {
-    const cmd = getTestExecCommand();
-    const opt = cmd.options.find((o) => o.rawName.includes('--no-mutation'));
-    expect(opt).toBeDefined();
-  });
-
   it('--no-mutation 选项传递到 runTestExecution', async () => {
     const exitSpy = spyOnProcessExit();
     mockRunTestExecution.mockResolvedValue(0);
@@ -163,6 +164,69 @@ describe('dev-team test-execution -- --no-mutation 选项', () => {
 
     const callArgs = mockRunTestExecution.mock.calls.at(-1)!;
     expect(callArgs[0].noMutation).toBeUndefined();
+    exitSpy.mockRestore();
+  });
+});
+
+// ===========================================================================
+// 正向测试: run_static_analysis CLI 注册
+// ===========================================================================
+
+describe('dev-team run_static_analysis command registration', () => {
+  it('命令 action 应调用 runStaticAnalysis', () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunStaticAnalysis.mockReturnValue(0);
+
+    const cmd = getStaticAnalysisCommand();
+    cmd.commandAction!({ projectRoot: '/test/project' });
+
+    expect(mockRunStaticAnalysis).toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(0);
+    exitSpy.mockRestore();
+  });
+
+  it('runStaticAnalysis 返回非零时进程应以 exit(1) 退出', () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunStaticAnalysis.mockReturnValue(1);
+
+    const cmd = getStaticAnalysisCommand();
+    cmd.commandAction!({ projectRoot: '/test/project' });
+
+    expect(mockRunStaticAnalysis).toHaveBeenCalled();
+    expect(exitSpy).toHaveBeenCalledWith(1);
+    exitSpy.mockRestore();
+  });
+});
+
+// ===========================================================================
+// 异常测试: run_static_analysis
+// ===========================================================================
+
+describe('dev-team run_static_analysis -- 异常', () => {
+  it('--project-root 后缺省值时 CLI 报错', () => {
+    // --project-root <path> 要求必填值，传空将触发 cac 的 CACError
+    expect(() => {
+      cli.parse(['node', 'cli.js', 'run_static_analysis', '--project-root']);
+    }).toThrow(/option.*--project-root.*value.*missing/i);
+  });
+});
+
+// ===========================================================================
+// 边界测试: run_static_analysis
+// ===========================================================================
+
+describe('dev-team run_static_analysis -- 边界', () => {
+  it('--project-root 值为空字符串时使用默认 project dir', () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunStaticAnalysis.mockReturnValue(0);
+
+    const cmd = getStaticAnalysisCommand();
+    cmd.commandAction!({ projectRoot: '' });
+
+    // 当 projectRoot 为空字符串时，action 仍正常执行
+    expect(mockRunStaticAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRoot: '' }),
+    );
     exitSpy.mockRestore();
   });
 });

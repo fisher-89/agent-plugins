@@ -73,7 +73,6 @@ export const testDetectFrameworksOutputSchema = z.object({
         .describe('Framework name (e.g. "vitest", "jest", "rust") or "unknown" if no match'),
     }),
   ),
-  frameworks: z.array(z.string()).describe('Unique framework names detected across all files'),
   plan: z
     .array(testPlanSchema)
     .describe('Execution plan: one entry per configured framework mapping'),

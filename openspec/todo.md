@@ -48,5 +48,5 @@
 - [ ] 测试执行改为cli + evaluator
 - [ ] test-runner执行前清理coverage和reports
 - [x] test-runner同时生成cmd和shell脚本，runcommand根据系统自行选择
-- [ ] mcp test_detect_frameworks当前职责仅剩识别指定文件的测试框架，调整入参和返回类型
+- [x] mcp test_detect_frameworks 当前职责仅剩识别指定文件的测试框架，调整入参和返回类型
 - [ ] 整合implement和test-gen

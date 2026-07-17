@@ -28,7 +28,7 @@ function sf(file: string): SourceFileEntry {
   return {
     file,
     coverage: {
-      lines: null,
+      lines: 0,
       branches: null,
       functions: null,
       total_lines: null,
@@ -150,7 +150,6 @@ describe('CLI 端到端执行 — AC-7', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -189,7 +188,6 @@ describe('CLI 端到端执行 — AC-7', () => {
           { file: 'src/foo.test.ts', framework: 'vitest' },
           { file: 'tests/bar.test.ts', framework: 'vite-plus' },
         ],
-        frameworks: ['vitest', 'vite-plus'],
         plan: [makePlanEntry({ framework: 'vitest' }), makePlanEntry({ framework: 'vite-plus' })],
       });
       mockExecutePlanEntry
@@ -227,7 +225,6 @@ describe('CLI 端到端执行 — AC-7', () => {
       const planEntry = makePlanEntry();
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [planEntry],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -287,7 +284,6 @@ describe('报告路径 — AC-11', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -324,7 +320,6 @@ describe('报告路径 — AC-11', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -361,7 +356,6 @@ describe('报告路径 — AC-11', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -399,7 +393,6 @@ describe('报告路径 — AC-11', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());

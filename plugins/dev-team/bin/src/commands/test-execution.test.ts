@@ -32,7 +32,7 @@ function sfe(file: string, overrides: Partial<SourceFileEntry['coverage']> = {})
   return {
     file,
     coverage: {
-      lines: null,
+      lines: 0,
       branches: null,
       functions: null,
       total_lines: null,
@@ -168,7 +168,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -206,7 +205,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
           { file: 'src/foo.test.ts', framework: 'vitest' },
           { file: 'tests/bar.test.ts', framework: 'vite-plus' },
         ],
-        frameworks: ['vitest', 'vite-plus'],
         plan: [makePlanEntry({ framework: 'vitest' }), makePlanEntry({ framework: 'vite-plus' })],
       });
       mockExecutePlanEntry
@@ -252,7 +250,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -288,7 +285,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -324,7 +320,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -357,7 +352,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -404,7 +398,6 @@ describe('runTestExecution -- 异常', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [],
-        frameworks: [],
         plan: [],
       });
 
@@ -427,7 +420,6 @@ describe('runTestExecution -- 异常', () => {
           { file: 'src/foo.test.ts', framework: 'vitest' },
           { file: 'tests/bar.test.ts', framework: 'vite-plus' },
         ],
-        frameworks: ['vitest', 'vite-plus'],
         plan: [makePlanEntry({ framework: 'vitest' }), makePlanEntry({ framework: 'vite-plus' })],
       });
       // 第一个框架执行成功
@@ -502,7 +494,6 @@ describe('runTestExecution -- 边界', () => {
     // 这里我们 mock detectFrameworks 返回空 plan，确保不会出错
     mockDetectFrameworks.mockReturnValue({
       detected: [],
-      frameworks: [],
       plan: [],
     });
 
@@ -515,7 +506,6 @@ describe('runTestExecution -- 边界', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(
@@ -566,7 +556,6 @@ describe('runTestExecution -- 幂等性', () => {
       const planEntry = makePlanEntry();
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [planEntry],
       });
 
@@ -600,7 +589,6 @@ describe('runTestExecution -- 幂等性', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -650,7 +638,6 @@ describe('runTestExecution -- noMutation 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -686,7 +673,6 @@ describe('runTestExecution -- noMutation 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -722,7 +708,6 @@ describe('runTestExecution -- noMutation 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -773,7 +758,6 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockGetGitDiffFiles.mockResolvedValue(['src/a.ts', 'src/b.ts']);
@@ -806,7 +790,6 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockGetGitDiffFiles.mockResolvedValue([]);
@@ -843,7 +826,6 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -875,7 +857,6 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -911,7 +892,6 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
     try {
       mockDetectFrameworks.mockReturnValue({
         detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        frameworks: ['vitest'],
         plan: [makePlanEntry()],
       });
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult());

@@ -58,6 +58,7 @@ export function parseGoOutput(stdout: string): ParsedTestResult {
 
   const testCases = Array.from(testMap.values());
   const testFiles = deriveGoTestFiles(testCases);
+  const sourceFiles = deriveGoSourceFiles(testFiles);
 
   const total = testCases.length;
   const passed = testCases.filter((t) => t.status === 'passed').length;
@@ -71,7 +72,7 @@ export function parseGoOutput(stdout: string): ParsedTestResult {
     skipped,
     testCases,
     testFiles,
-    sourceFiles: [],
+    sourceFiles,
   };
 }
 
@@ -145,4 +146,23 @@ function deriveGoTestFiles(testCases: TestCase[]): string[] {
     }
   }
   return testFiles;
+}
+
+function deriveGoSourceFiles(testFiles: string[]): string[] {
+  const sourceSet = new Set<string>();
+
+  for (const tf of testFiles) {
+    const posix = tf.replace(/\\/g, '/');
+    if (tf.includes('__tests__/')) {
+      continue;
+    }
+    // Strip .test. or .spec. suffix patterns
+    const src = posix.replace(/_test\.go$/, '.go');
+
+    if (src !== posix) {
+      sourceSet.add(src);
+    }
+  }
+
+  return Array.from(sourceSet).sort();
 }

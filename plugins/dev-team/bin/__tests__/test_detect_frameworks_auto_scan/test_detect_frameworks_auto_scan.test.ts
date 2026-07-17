@@ -71,8 +71,6 @@ describe('test_detect_frameworks — 自动扫描匹配文件集合', () => {
       const rsEntry = result.detected.find((d) => d.file.endsWith('auth.rs'));
       expect(tsEntry?.framework).toBe('vitest');
       expect(rsEntry?.framework).toBe('rust');
-      expect(result.frameworks).toContain('vitest');
-      expect(result.frameworks).toContain('rust');
     } finally {
       project.cleanup();
     }
@@ -89,7 +87,6 @@ describe('test_detect_frameworks — 自动扫描匹配文件集合', () => {
       const result = runTestDetectFrameworks({ projectRoot: project.root });
 
       expect(result.detected).toEqual([]);
-      expect(result.frameworks).toEqual([]);
     } finally {
       project.cleanup();
     }

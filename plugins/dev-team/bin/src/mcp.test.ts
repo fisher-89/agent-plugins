@@ -229,7 +229,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
   });
 
   describe('MCP 工具调用 — test_detect_frameworks', () => {
-    it('返回 frameworks 和 detected 字段', async () => {
+    it('返回 detected 字段', async () => {
       const { dir, cleanup } = setupTempProject();
       try {
         const result = await client.callTool({
@@ -238,7 +238,6 @@ describe('MCP Server (via InMemoryTransport)', () => {
         });
 
         const data: TestDetectFrameworksResult = JSON.parse(extractText(result));
-        expect(data).toHaveProperty('frameworks');
         expect(data).toHaveProperty('detected');
       } finally {
         cleanup();
