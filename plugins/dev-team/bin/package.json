@@ -7,6 +7,7 @@
   "scripts": {
     "build": "vp pack",
     "start": "mcp-inspector node dev-team-mcp.cjs",
+    "start:likec4": "mcp-inspector npx -y @likec4/mcp@1.58.0",
     "test": "vp test --sequence.shuffle",
     "check": "vp check --fix && knip",
     "knip": "knip",

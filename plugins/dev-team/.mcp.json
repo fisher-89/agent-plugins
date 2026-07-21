@@ -5,8 +5,8 @@
       "args": ["${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs"]
     },
     "likec4": {
-      "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/remote-npm-mcp.cjs", "@likec4/mcp"],
+      "command": "npx",
+      "args": ["-y", "@likec4/mcp@1.58.0"],
       "env": { "LIKEC4_WORKSPACE": "${CLAUDE_PROJECT_DIR}/openspec/architecture" }
     }
   }
