@@ -1,16 +1,8 @@
 ---
 name: phase-dev-design
-description: |
-  DESIGN phase (P→E): dev-design-planner writes design.md + tasks.md, then evaluator checks.
-  Loops on fail until pass.
-license: MIT
+description: Dev-design-planner writes design.md + tasks.md, then evaluator checks. Loops on fail.
 disable-model-invocation: true
-metadata:
-  author: dev-team
-  version: "1.0"
 ---
-
-Dev design phase — Planner writes design.md + tasks.md, Evaluator checks.
 
 ## Usage
 
@@ -18,39 +10,73 @@ Dev design phase — Planner writes design.md + tasks.md, Evaluator checks.
 /dev-team:phase-dev-design [change-name]
 ```
 
-## Steps
+## Process
 
-### 1. Parse change name
-If a name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__change_list` to get active changes and prompt user to select.
+### Detect active change
 
-### 2. Gate check
+Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, workflow_type="requirement")`. If `result.next_phase` is not `dev-design`, stop — prior phase gates have not passed.
+### Phase Check
 
-### 3. Check backtrack
-Read eval.json for `backtrack_to` = "dev-design". If found, run Evaluator first.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state. 
 
-### 4. P→E Loop
+If `next_phase` is "dev-design" continue to `### Run Executor`.
 
-**4a. Planner:**
+Otherwise, follow the table bellow:
+
+| 条件 | 含义 | 处理 |
+|---|---|---|
+| `done == true` | 流程已完成 | 停止：报告异常，如需修改可开启新流程 |
+| `allowed_backtrack_phases[].id have "dev-design"` | 回溯至当前步骤 | 继续步骤 `**Backtrack**` |
+| `last_result.verdict == "fail"` and `allowed_backtrack_phases[].id not have "dev-design"` | 不支持回溯至当前步骤 | 停止：告知异常及支持回溯的步骤 |
+| `last_result.verdict == "pass"` and `allowed_backtrack_phases[].id not have "dev-design"` | 下一步不匹配 | 停止：告知异常及应该执行的步骤 `next_phase` |
+
+**Backtrack**
+```
+mcp__plugin_dev-team_dev-team__backtrack({
+  change: "<change-name>",
+  phase: "<last_result.phase>",
+  backtrack_to: "dev-design",
+  backtrack_reason: "用户手动执行回溯，推测原因：<Infer from `last_result.report`>"
+})
+```
+If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Executor`.
+
+### Run Executor
+
+Call `Agent` with response of `phase_next`: 
 ```
 Agent({
-  description: "Write design.md and tasks.md",
-  subagent_type: "dev-team:dev-design-planner",
-  prompt: "Write design.md and tasks.md for change '<name>'."
+  description: "Execute phase <next_phase>",
+  subagent_type: executor.agent_type,
+  prompt: executor.prompt
 })
 ```
 
-**4b. Evaluator:**
+### Run Evaluator
+
+Call `Agent` with response of `phase_next`: 
 ```
 Agent({
-  description: "Evaluate design.md",
-  subagent_type: "dev-team:dev-design-evaluator",
-  prompt: "Evaluate design.md and tasks.md for change '<name>' against proposal.md. Append result to eval.json."
+  description: "Evaluate phase <next_phase>",
+  subagent_type: evaluator.agent_type,
+  prompt: evaluator.prompt
 })
 ```
 
-**4c. Verdict:** Read latest phase "dev-design" entry from eval.json. If "fail", redo Planner with failed items, then Evaluator. Loop max 5x.
+### Verdict Phase Result
 
-### 5. Report
+```
+result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
+
+if result.last_result is null:
+  → 错误：Evaluator 未正确写入 eval.json，停止
+
+if result.last_result.verdict == "pass" → continue to `### Report`
+
+if result.last_result.verdict == "fail" → retry from `### Run Executor` or stop with backtrack suggestion to one of `allowed_backtrack_phases[].id`
+```
+
+### Report
+
 Show verdict, pass/total, and notes.

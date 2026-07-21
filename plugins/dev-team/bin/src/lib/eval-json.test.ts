@@ -46,7 +46,6 @@ describe('buildEntry', () => {
     report: 'All tests passed',
     checklist: [{ item: '测试覆盖率达到80%', pass: true, evidence: 'ok' }],
     attempt: 1,
-    backtrack_to: null,
   };
 
   it('should build a basic entry with required fields', () => {
@@ -55,7 +54,8 @@ describe('buildEntry', () => {
     expect(entry.verdict).toBe('pass');
     expect(entry.attempt).toBe(1);
     expect(entry.timestamp).toBeDefined();
-    expect(entry.backtrack_to).toBeNull();
+    // backtrack_to not set by buildEntry (handled by standalone backtrack tool)
+    expect(entry.backtrack_to).toBeUndefined();
     // Extended fields not set
     expect(entry.skipped).toBeUndefined();
   });
@@ -76,19 +76,11 @@ describe('buildEntry', () => {
     expect(entry.report).toBe('No tests found, skipping');
   });
 
-  it('should include backtrack_to when set', () => {
-    const entry = buildEntry({ ...baseParams, backtrack_to: 'test-gen' });
-    expect(entry.backtrack_to).toBe('test-gen');
-  });
-
-  it('should set backtrack_to null when undefined', () => {
+  it('should build entry without backtrack fields (now handled by standalone backtrack tool)', () => {
     const entry = buildEntry(baseParams);
-    expect(entry.backtrack_to).toBeNull();
-  });
-
-  it('should accept backtrack_to as array', () => {
-    const entry = buildEntry({ ...baseParams, backtrack_to: ['dev-design', 'test-design'] });
-    expect(entry.backtrack_to).toEqual(['dev-design', 'test-design']);
+    expect(entry.phase).toBe('test-execution');
+    expect(entry.backtrack_to).toBeUndefined();
+    expect(entry.backtrack_reason).toBeUndefined();
   });
 
   it('phase 为 "integration-test" 时 zod parse 应失败（不在枚举中）', () => {
@@ -124,40 +116,6 @@ describe('buildEntry', () => {
   it('checklist 为空数组时应通过', () => {
     const entry = buildEntry({ ...baseParams, checklist: [] });
     expect(entry.checklist).toEqual([]);
-  });
-
-  // =====================================================================
-  // backtrack_reason field (AC-3)
-  // =====================================================================
-
-  it('backtrack_reason 被正确写入 EvalEntry（AC-3）', () => {
-    const entry = buildEntry({
-      ...baseParams,
-      backtrack_reason: '设计文档缺少API签名部分',
-    });
-    expect(entry.backtrack_reason).toBe('设计文档缺少API签名部分');
-  });
-
-  it('backtrack_reason 为 undefined 时 entry 中该字段为 null（AC-3）', () => {
-    const entry = buildEntry(baseParams);
-    expect(entry.backtrack_reason).toBeNull();
-  });
-
-  it('backtrack_reason 为 null 时 entry 中该字段为 null（AC-3）', () => {
-    const entry = buildEntry({ ...baseParams, backtrack_reason: null });
-    expect(entry.backtrack_reason).toBeNull();
-  });
-
-  it('backtrack_reason 长度为 500 字符时被正确写入（边界）', () => {
-    const reason500 = 'a'.repeat(500);
-    const entry = buildEntry({ ...baseParams, backtrack_reason: reason500 });
-    expect(entry.backtrack_reason).toBe(reason500);
-  });
-
-  it('backtrack_reason 含有特殊字符时被正确序列化（边界）', () => {
-    const reason = '原因: 包含emoji 😊 和换行\n以及制表符\t';
-    const entry = buildEntry({ ...baseParams, backtrack_reason: reason });
-    expect(entry.backtrack_reason).toBe(reason);
   });
 });
 

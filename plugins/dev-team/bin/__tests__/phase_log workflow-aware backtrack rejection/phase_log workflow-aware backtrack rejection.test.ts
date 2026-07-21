@@ -1,7 +1,7 @@
 /**
- * 集成测试: phase_log 无效 backtrack 不污染 eval.json 后 fail 写入
+ * 集成测试: phase_log 不再处理回溯 — 回溯由独立 backtrack 工具验证
  *
- * @see openspec/changes/workflow-test-only/test-design.md — AC-16
+ * @see openspec/changes/refactor-backtrack-to-skill/design.md — backtrack tool
  */
 
 import * as fs from 'fs';
@@ -32,10 +32,12 @@ vi.mock('../../src/lib/change', () => ({
   getChangeDir: vi.fn(() => '/tmp/test-change'),
 }));
 
+import { runBacktrack } from '../../src/commands/backtrack';
 import { runPhaseLog } from '../../src/commands/phase-log';
 import { appendEntry } from '../../src/lib/eval-json';
 
 const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'none' }];
+const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
 
 function mockWorkflowType(workflowType: string): void {
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
@@ -60,28 +62,13 @@ beforeEach(() => {
   mockWorkflowType('test-only');
 });
 
-describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (AC-16)', () => {
-  it('第一次 invalid backtrack 抛错且 eval 未变；第二次 fail+null 成功 append', () => {
-    expect(() =>
-      runPhaseLog({
-        change: 'test-change',
-        phase: 'test-execution',
-        report: 'bugs found',
-        checklist: FAILED_ITEMS,
-        backtrack_to: 'implement',
-        backtrack_reason: 'test reason',
-      }),
-    ).toThrow(/工作流 test-only 不包含 phase 'implement'/);
-
-    expect(mockEntries).toHaveLength(0);
-    expect(appendEntry).not.toHaveBeenCalled();
-
+describe('phase_log — 不再处理回溯，回溯由独立 backtrack 工具负责', () => {
+  it('phase_log 写入成功（不含回溯参数）', () => {
     runPhaseLog({
       change: 'test-change',
       phase: 'test-execution',
-      report: 'bugs found, adaptive retry',
+      report: 'bugs found',
       checklist: FAILED_ITEMS,
-      backtrack_to: null,
     });
 
     expect(mockEntries).toHaveLength(1);
@@ -89,7 +76,61 @@ describe('phase_log — invalid backtrack 不污染 eval.json 后 fail 写入 (A
     expect(mockEntries[0]).toMatchObject({
       phase: 'test-execution',
       verdict: 'fail',
-      backtrack_to: null,
     });
+  });
+
+  it('backtrack 工具验证 phase 存在性', () => {
+    // First, add a pass entry for the phase we want to backtrack
+    runPhaseLog({
+      change: 'test-change',
+      phase: 'test-execution',
+      report: 'ok',
+      checklist: VALID_ITEMS,
+    });
+
+    // backtrack to a non-existent phase should throw
+    expect(() =>
+      runBacktrack({
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'implement',
+        backtrack_reason: 'test reason',
+      }),
+    ).toThrow(/工作流 "test-only" 不包含 phase "implement"/);
+
+    // eval.json should NOT be modified
+    expect(mockEntries).toHaveLength(1);
+  });
+
+  it('backtrack 工具验证目标 phase 在 phase 之前（不能回溯到未来 phase）', () => {
+    // Add entries for earlier phases
+    runPhaseLog({
+      change: 'test-change',
+      phase: 'proposal',
+      report: 'ok',
+      checklist: VALID_ITEMS,
+    });
+
+    // Try backtracking proposal -> test-execution (future phase)
+    expect(() =>
+      runBacktrack({
+        change: 'test-change',
+        phase: 'proposal',
+        backtrack_to: 'test-execution',
+        backtrack_reason: 'future phase',
+      }),
+    ).toThrow(/无效的回溯目标/);
+  });
+
+  it('backtrack 需要 phase 有 eval.json 条目', () => {
+    // No entries for the phase yet
+    expect(() =>
+      runBacktrack({
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'proposal',
+        backtrack_reason: 'no entry',
+      }),
+    ).toThrow(/没有 eval.json 条目/);
   });
 });

@@ -627,7 +627,7 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     runProtectFiles();
     const parsed = JSON.parse(getLastStdout());
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('config_get');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('openspec/config.json');
   });
 
   it('内置保护模式匹配 eval.json 时返回 deny，reason 含 phase_log MCP 工具提示', () => {

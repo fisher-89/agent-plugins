@@ -1,7 +1,7 @@
 ---
 name: test-execution-evaluator
 description: |
-  【use proactively】Reads the test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and backtrack_to.
+  【use proactively】Reads the test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and diagnoses root cause.
 model: opus-4.6
 ---
 
@@ -14,7 +14,7 @@ Evaluate the test execution report and determine the root cause of failures. Inv
 | T1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds, test_cases）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
 | T2 | 所有测试通过 | failed === 0 且 total > 0 |
 | T3 | 覆盖率达标 | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成）；null 维度存在但 coverage.pass === true 时不失败 |
-| T4 | 失败诊断根因明确 | 决策树能确定唯一根因类型和回溯目标（仅 failed > 0 时评估，否则自动通过） |
+| T4 | 失败诊断根因明确 | 诊断分析能确定唯一根因类型（仅 failed > 0 时评估，否则自动通过） |
 
 ## Input
 
@@ -37,7 +37,6 @@ Check that the report contains all required fields:
 If any required field is missing or has wrong type, set:
 - `verdict`: `"fail"`
 - `report`: `"报告不完整: [缺失字段列表]"`
-- `backtrack_to`: `null` (re-run the test executor)
 
 Note: `coverage` may be `null` when coverage was not generated. This is acceptable.
 
@@ -47,73 +46,26 @@ If `total === 0`:
 - `verdict`: `"pass"`
 - `skipped`: `true`
 - `report`: `"未发现测试文件，阶段跳过"`
-- `backtrack_to`: `null`
 
 ### Step 3: All-pass check
 
 If `failed === 0` and `total > 0`:
 - `verdict`: `"pass"`
 - `report`: `"所有 ${total} 个测试通过"`
-- `backtrack_to`: `null`
 
 **Coverage sub-check (within all-pass):** If the report contains `coverage`, also verify:
 - If `coverage.pass` is `true` and `coverage` is not null, add to findings: "覆盖率达标: lines=X%, branches=X%, functions=X%" (read from `coverage.measured`; for null dimensions write `"N/A (框架不支持)"` instead of a percentage)
 - If `coverage.pass` is `false` and `coverage` is not null:
   - Set `verdict`: `"fail"`
-  - Set `backtrack_to`: `"test-design"`
   - Build evidence listing each failing **non-null** dimension against `coverage.thresholds`: "lines=X% (阈值 coverage.thresholds.lines%), branches=X% (阈值 coverage.thresholds.branches%), functions=X% (阈值 coverage.thresholds.functions%)" — skip null dimensions in the comparison list; for null dimensions note "N/A (框架不支持)"; include any failing entries from `coverage.overrides`: "${glob}: ${dimension}=X% 低于 override 阈值 Y%"
   - Set `report` to the coverage failure evidence, followed by: "覆盖率不达标，需返回 test-design 阶段分析报告、扩展测试场景或补充存量用例"
   - Mark the coverage checklist item (T3) as `fail` with the same evidence
   - Skip remaining steps (Step 4–6) — proceed directly to phase_log
 - If `coverage === null`, mark the coverage checklist item as `pass` with evidence "覆盖率检查未配置或生成失败，跳过"
 
-### Step 4: Apply diagnostic decision tree
+### Step 4: Apply diagnostic analysis
 
-If `failed > 0`, analyze each failure from `test_cases.filter(c => c.status === "failed")` and apply the following decision tree. For each failed entry, read `error_type`, `file`, and `line`:
-
-**Decision Tree:**
-
-1. **语法错误 (SyntaxError / TypeError / ReferenceError in test file)**
-   - IF `error_type` is `SyntaxError`, `TypeError`, or `ReferenceError`
-   - AND the error `file` is a test file (ends in `.test.*`, `_test.*`, or inside `tests/` or `__tests__/`)
-   - THEN backtrack_to: `"test-gen"`
-   - Finding reason: "语法错误: test-gen 生成的测试文件存在语法问题"
-
-2. **逻辑错误 (AssertionError in implementation file)**
-   - IF `error_type` is `AssertionError` or the error `file` is a source file (not a test file)
-   - AND the assertion expectation seems reasonable
-   - THEN backtrack_to: `"implement"`
-   - Finding reason: "逻辑错误: 实现代码的逻辑与测试期望不一致"
-
-3. **设计冲突 (expected/actual vs test-design.md mismatch)**
-   - IF failure has `design_ref` field
-   - OR the expected behavior contradicts test-design.md requirements
-   - THEN backtrack_to: `"test-design"`
-   - Finding reason: "设计冲突: 测试期望与 test-design.md 不一致"
-
-4. **接口签名不匹配 (双方签名一致但实现行为异常)**
-   - IF test and implementation agree on interface signatures
-   - BUT the implementation behavior does not match spec
-   - THEN backtrack_to: `"dev-design"`
-   - Finding reason: "接口签名双方一致但实现行为不符合设计提案"
-
-5. **覆盖率不达标 (Coverage below threshold alongside test failures)**
-   - IF `coverage` is not null AND `coverage.pass` is `false`
-   - AND the test failures do not clearly match categories 1–4 above
-   - THEN backtrack_to: `"test-design"`
-   - Finding reason: "覆盖率不达标: 当前测试未覆盖足够代码路径，需返回 test-design 阶段分析报告、扩展测试场景或补充存量用例"
-
-6. **无法判断 (multiple ambiguous errors or no clear pattern)**
-   - IF no single root cause dominates (mixed error types across multiple files)
-   - OR the error pattern doesn't clearly match any of the above categories
-   - THEN do NOT call phase_log. Return to the main agent with:
-     - A structured diagnostic summary of all failures and the decision tree analysis
-     - 3-4 recommended backtrack options with phase identifiers and reasons
-   - The main agent will ask the user to choose a backtrack target and call phase_log
-   - Finding reason: "无法自动判断根因，需用户确认回溯目标"
-
-**Priority (when multiple error types exist):**
-- Design conflict (4) > Syntax error (1) > Logic error (2) > Interface mismatch (3) > Coverage failure (5) > Unknown (6)
+If `failed > 0`, analyze each failure from `test_cases.filter(c => c.status === "failed")`. For each failed entry, read `error_type`, `file`, and `line`:
 
 ### Step 5: Build findings
 
@@ -130,9 +82,8 @@ ${coverage ? coverage.by_framework.map(fw => `- ${fw.framework}: lines=${fw.meas
 失败详情:
 ${failure_details_summary}
 
-诊断决策树分析:
+诊断分析:
 - 判定类型: ${decision_category}
-- 回溯目标: ${backtrack_to}
 - 根因: ${root_cause_reason}
 ```
 

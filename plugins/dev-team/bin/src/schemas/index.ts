@@ -21,6 +21,7 @@ export {
   testResolvePathsOutputSchema,
 } from './test-resolve-paths.schema';
 export { changeListInputSchema, changeListOutputSchema } from './change-list.schema';
+export { backtrackInputSchema, backtrackOutputSchema } from './backtrack.schema';
 export { configSchema } from './config/config.schema';
 export type { OpenSpecConfig, OpenSpecConfigInput, TestFrameworks } from './config/config.schema';
 export type {

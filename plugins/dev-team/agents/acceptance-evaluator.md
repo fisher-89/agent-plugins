@@ -39,7 +39,7 @@ Inspect:
 4. For each AC: grep/glob the codebase for implementation evidence
 5. For each out_of_scope item: grep to verify absence
 6. For scope creep: check for components/APIs not in in_scope
-7. Backtrack if requirements gaps found (AC without implementation)
+7. If requirements gaps found, list unmet AC-IDs in report. For each unmet AC, provide the AC-ID and the reason it's not satisfied.
 8. Evaluate each checklist item with specific file:line evidence
 9. Write report (≤500 chars)
 10. Call the dev-team MCP tool to append the evaluation result

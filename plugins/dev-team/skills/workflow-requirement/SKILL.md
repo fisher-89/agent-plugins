@@ -4,11 +4,7 @@ description: |
   Full PGE workflow orchestrator.
   No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
   On completion, notifies user to archive manually.
-license: MIT
 disable-model-invocation: true
-metadata:
-  author: dev-team
-  version: "1.0"
 ---
 
 **Input**: Optionally specify a change name (kebab-case), OR a description of what the user wants to build. If omitted, check if it can be inferred from conversation context.
@@ -31,27 +27,25 @@ Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
 1. **User provided a parameter that exactly matches an existing change name** → use that change, skip to Step 2.
 2. **User or context provided a description (not an exact change name match)**:
    - If **no active changes exist** → treat as a new change. Derive a kebab-case name and proceed to Step 1.
-   - If **active changes exist**, judge whether the description semantically relates to an existing change (e.g., the description refines, extends, or refers to the same topic as an existing change name).
+   - If **active changes exist**, judge whether the description semantically relates to an existing change.
      - **Confident it matches an existing change** → use that change, skip to Step 2.
      - **Confident it is unrelated to any existing change** → treat as a new change. Derive a kebab-case name and proceed to Step 1.
-     - **Uncertain** → use `AskUserQuestion` to present the potentially matching change(s) plus a "Create a new change" option. Let the user decide.
+     - **Uncertain** → use `AskUserQuestion` to present the potentially matching change(s) plus a "Create a new change" option.
 3. **No parameter provided AND exactly one active change exists** → auto-select that change, skip to Step 2.
-4. **No parameter provided AND multiple active changes exist** → use `AskUserQuestion` to present the list of active changes (plus an "Other — describe a new change" option). If the user picks an existing change, skip to Step 2. If the user describes a new change, derive a kebab-case name and proceed to Step 1.
-5. **No parameter provided AND zero active changes exist** → use `AskUserQuestion` (open-ended, no preset options) to ask: "What change do you want to work on? Describe what you want to build or fix." Derive a kebab-case name from the response and proceed to Step 1.
+4. **No parameter provided AND multiple active changes exist** → use `AskUserQuestion` to present the list plus "Other — describe a new change".
+5. **No parameter provided AND zero active changes exist** → use `AskUserQuestion` to ask: "What change do you want to work on?"
 
 **IMPORTANT**: Do NOT proceed without a resolved change name.
 
 ### Step 1: Create the change directory
 
-Only reached when starting a **new** change (not resuming an existing one).
+Only reached when starting a **new** change.
 
 ```bash
-openspec new change "<name>"
+openspec new change "<change-name>"
 ```
 
-This creates a scaffolded change in the planning home resolved by the CLI with `.openspec.yaml`.
-
-Write `openspec/changes/<name>/workflow.json`:
+Write `openspec/changes/<change-name>/workflow.json`:
 
 ```json
 {"workflow_type": "requirement"}
@@ -59,37 +53,54 @@ Write `openspec/changes/<name>/workflow.json`:
 
 ### Step 2: Orchestration loop
 
-Enter the main execution loop. Each iteration calls `mcp__plugin_dev-team_dev-team__phase_next`, executes the returned
-planner and evaluator agents, and reports progress.
-
 ```
 LOOP:
-  result = mcp__plugin_dev-team_dev-team__phase_next(change=<name>)
+  -- Phase Check --
+  gate = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
 
-  if result.error:
-    报告: "Workflow error [{result.error}]: {result.message}"
-    PushNotification("Workflow {name} failed: {result.error}")
+  if gate.error:
+    报告: "Workflow error [{gate.error}]: {gate.message}"
+    PushNotification("Workflow {change-name} failed: {gate.error}")
     STOP
 
-  if result.done:
-    跳转到 Step 3
+  if gate.done:
+    proceed to Step 3
 
-  if result.planner:
+  if gate.last_result.verdict == "fail":
+    分析 gate.last_result.report 确定失败原因
+    从 gate.allowed_backtrack_phases 获取可以回溯的步骤
+    三叉决策分支：
+      - retry：continue with gate.last_result.phase
+      - backtrack：
+        mcp__plugin_dev-team_dev-team__backtrack({
+          change: "<change-name>",
+          phase: "<gate.last_result.phase>",
+          backtrack_to: "<从 report 分析出的目标 phase，必须在gate.allowed_backtrack_phases中>",
+          backtrack_reason: "<从 report 提取的原因>"
+        })
+      - ask-user：AskUserQuestion 请求用户选择：
+        - 重试（继续 LOOP）
+        - 回溯到指定 phase
+        - 停止
+
+  -- Run Executor if Exist --
+  if gate.executor:
     Agent({
-      description: "Write artifacts for phase {result.next_phase}",
-      subagent_type: result.planner.agent_type,
-      prompt: result.planner.prompt
+      description: "Execute phase {gate.next_phase}",
+      subagent_type: gate.executor.agent_type,
+      prompt: gate.executor.prompt
     })
 
-  if result.evaluator:
+  -- Run Evaluator --
+  if gate.evaluator:
     Agent({
-      description: "Evaluate artifacts for phase {result.next_phase}",
-      subagent_type: result.evaluator.agent_type,
-      prompt: result.evaluator.prompt
+      description: "Evaluate phase {gate.next_phase}",
+      subagent_type: gate.evaluator.agent_type,
+      prompt: gate.evaluator.prompt
     })
 
-  输出: "[Round {result.round}/20] [Phase {result.phase_index}/{result.total_phases}] {result.next_phase}: executed"
-  PushNotification("Workflow {name}: Phase {result.next_phase} completed ({result.phase_index}/{result.total_phases})")
+  输出: "[Round {gate.round}/20] [Phase {gate.phase_index}/{gate.total_phases}] {gate.next_phase}: executed"
+  PushNotification("Workflow {change-name}: Phase {gate.next_phase} completed ({gate.phase_index}/{gate.total_phases})")
 
   继续 LOOP
 ```
@@ -98,13 +109,7 @@ LOOP:
 
 All phases have passed evaluation.
 
-1. 显示完成摘要:
-   - Done: all phases passed
-   - Total phases: {total_phases}
-   - Total rounds: {round}
-
-2. PushNotification("Workflow for change '{name}' completed. Please verify and run /dev-team:openspec-archive-change")
-
-3. **Do NOT auto-archive.** The user must manually run `/dev-team:openspec-archive-change` after inspection.
-
+1. 显示完成摘要：Done: all phases passed / Total phases: {total_phases} / Total rounds: {round}
+2. PushNotification("Workflow for change '{change-name}' completed. Please verify and run /dev-team:openspec-archive-change")
+3. **Do NOT auto-archive.**
 4. 完成提示: "All phases completed. Please review the results and run `/dev-team:openspec-archive-change` to finalize."

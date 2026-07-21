@@ -34,13 +34,22 @@ export const phaseNextOutputSchema = z.object({
   error: z.string().nullable().describe('Error code if something went wrong (null on success)'),
   message: z.string().nullable().describe('Human-readable message (error details or info)'),
   next_phase: phaseIdSchema.nullable().describe('Next phase identifier (null if done or error)'),
-  planner: phaseAgentSchema
+  executor: phaseAgentSchema
     .nullable()
-    .describe('Planner agent config (null for EVAL-ONLY or done/error)'),
+    .describe('Executor agent config (null for EVAL-ONLY or done/error)'),
   evaluator: phaseAgentSchema.nullable().describe('Evaluator agent config (null if done or error)'),
   allowed_backtrack_phases: z
     .array(backtrackPhaseSchema)
     .describe('Phases that the evaluator can backtrack to from the current phase'),
+  last_result: z
+    .object({
+      phase: phaseIdSchema,
+      verdict: z.enum(['pass', 'fail']),
+      report: z.string(),
+      timestamp: z.iso.datetime(),
+    })
+    .nullable()
+    .describe('Latest eval entry snapshot (null if no entries exist)'),
   total_phases: z.number().int().describe('Total number of phases in this workflow'),
   phase_index: z.number().int().describe('1-based index of the current phase'),
   round: z.number().int().describe('Current workflow round (1-based)'),

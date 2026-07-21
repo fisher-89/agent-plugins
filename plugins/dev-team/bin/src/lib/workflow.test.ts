@@ -108,6 +108,73 @@ describe('getDependents', () => {
 });
 
 // ---------------------------------------------------------------------------
+// requirement phase table
+// ---------------------------------------------------------------------------
+
+describe('PHASE_TABLES', () => {
+  it('should have exactly 8 phases for requirement workflow_type', () => {
+    expect(getPhaseTable('requirement').length).toBe(8);
+  });
+
+  it('should start with proposal (not requirements)', () => {
+    expect(getPhaseTable('requirement')[0].id).toBe('proposal');
+  });
+
+  it('phase 表 id 顺序与 AC-1 一致 — implement 在 test-gen 之前（AC-1）', () => {
+    const phases = getPhaseTable('requirement').map((p) => p.id);
+    expect(phases).toEqual([
+      'proposal',
+      'dev-design',
+      'test-design',
+      'implement',
+      'test-gen',
+      'test-execution',
+      'code-review',
+      'acceptance',
+    ]);
+  });
+
+  it('should have 6 phases for bug-fix workflow_type', () => {
+    const phases = getPhaseTable('bug-fix').map((p) => p.id);
+    expect(phases.length).toBe(6);
+    // bug-fix skips test-design, test-gen
+    expect(phases).not.toContain('test-design');
+    expect(phases).not.toContain('test-gen');
+  });
+
+  it('should have same 8 phases for refactor workflow_type', () => {
+    const req = getPhaseTable('requirement').map((p) => p.id);
+    const ref = getPhaseTable('refactor').map((p) => p.id);
+    expect(ref).toEqual(req);
+  });
+
+  it('should have 5 phases for test-only workflow_type', () => {
+    expect(getPhaseTable('test-only')).toHaveLength(5);
+  });
+
+  it('requirement 表应不包含 unit-test 和 integration-test', () => {
+    const phases = getPhaseTable('requirement').map((p) => p.id);
+    expect(phases).not.toContain('unit-test');
+    expect(phases).not.toContain('integration-test');
+  });
+
+  it('bug-fix 表应不包含 integration-test', () => {
+    const phases = getPhaseTable('bug-fix').map((p) => p.id);
+    expect(phases).not.toContain('integration-test');
+  });
+
+  it('getPhaseTable("UNKNOWN") 应降级到 requirement 表（容错）', () => {
+    const phases = getPhaseTable('UNKNOWN');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
+  });
+
+  it('getPhaseTable("") 应降级到 requirement 表（容错）', () => {
+    const phases = getPhaseTable('');
+    expect(phases.map((p) => p.id)).toEqual(getPhaseTable('requirement').map((p) => p.id));
+  });
+});
+
+// ---------------------------------------------------------------------------
 // test-only phase table
 // ---------------------------------------------------------------------------
 
@@ -131,16 +198,17 @@ describe('getPhaseTable — test-only', () => {
 
   it('should use code-analyze agents for code-analyze (AC-3)', () => {
     const phase = getPhaseTable('test-only').find((p) => p.id === 'code-analyze');
-    expect(phase?.planner?.agent_type).toBe('dev-team:code-analyze-planner');
+    expect(phase?.executor?.agent_type).toBe('dev-team:code-analyze-planner');
     expect(phase?.evaluator?.agent_type).toBe('dev-team:code-analyze-evaluator');
   });
 });
 
 describe('PHASE_TEST_ONLY — prompt customization', () => {
-  it('proposal planner prompt differs from requirement (AC-9)', () => {
-    const reqPrompt = getPhaseTable('requirement').find((p) => p.id === 'proposal')!.planner!
+  it('proposal executor prompt differs from requirement (AC-9)', () => {
+    const reqPrompt = getPhaseTable('requirement').find((p) => p.id === 'proposal')!.executor!
       .prompt;
-    const testPrompt = getPhaseTable('test-only').find((p) => p.id === 'proposal')!.planner!.prompt;
+    const testPrompt = getPhaseTable('test-only').find((p) => p.id === 'proposal')!.executor!
+      .prompt;
     expect(testPrompt).not.toBe(reqPrompt);
     expect(testPrompt).toMatch(/coverage gaps|testing strategy/i);
   });

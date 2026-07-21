@@ -24,7 +24,7 @@ interface PhaseAgentDef {
 export interface PhaseDefinition {
   id: PhaseId;
   description: string;
-  planner: PhaseAgentDef | null;
+  executor: PhaseAgentDef | null;
   evaluator: PhaseAgentDef | null;
 }
 
@@ -38,7 +38,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'proposal',
     description: '需求提案与规格说明',
-    planner: {
+    executor: {
       agent_type: 'dev-team:proposal-planner',
       prompt: 'Write proposal.md and specs/ for change "<change>".',
     },
@@ -50,7 +50,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'dev-design',
     description: '详细设计与任务拆解',
-    planner: {
+    executor: {
       agent_type: 'dev-team:dev-design-planner',
       prompt: 'Write design.md and tasks.md for change "<change>".',
     },
@@ -63,7 +63,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'test-design',
     description: '测试设计',
-    planner: {
+    executor: {
       agent_type: 'dev-team:test-design-planner',
       prompt: 'Write test design for change "<change>".',
     },
@@ -76,7 +76,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'implement',
     description: '代码实现',
-    planner: {
+    executor: {
       agent_type: 'dev-team:implementation-generator',
       prompt: 'Implement the code for change "<change>".',
     },
@@ -89,7 +89,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'test-gen',
     description: '测试代码生成',
-    planner: {
+    executor: {
       agent_type: 'dev-team:test-gen-generator',
       prompt: 'Generate test code for change "<change>".',
     },
@@ -102,7 +102,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'test-execution',
     description: '测试执行与诊断',
-    planner: {
+    executor: {
       agent_type: 'dev-team:test-execution-executor',
       prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
@@ -115,7 +115,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'code-review',
     description: '代码审查',
-    planner: null,
+    executor: null,
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
       prompt:
@@ -125,7 +125,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'acceptance',
     description: '验收评估',
-    planner: null,
+    executor: null,
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
       prompt:
@@ -138,7 +138,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
     id: 'proposal',
     description: '需求提案与规格说明',
-    planner: {
+    executor: {
       agent_type: 'dev-team:proposal-planner',
       prompt: 'Write proposal.md and specs/ for change "<change>".',
     },
@@ -150,7 +150,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
     id: 'dev-design',
     description: '详细设计与任务拆解',
-    planner: {
+    executor: {
       agent_type: 'dev-team:dev-design-planner',
       prompt: 'Write design.md and tasks.md for change "<change>".',
     },
@@ -163,7 +163,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
     id: 'implement',
     description: '代码实现',
-    planner: {
+    executor: {
       agent_type: 'dev-team:implementation-generator',
       prompt: 'Implement the code for change "<change>".',
     },
@@ -176,7 +176,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
     id: 'test-execution',
     description: '测试执行与诊断',
-    planner: {
+    executor: {
       agent_type: 'dev-team:test-execution-executor',
       prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
@@ -189,7 +189,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
     id: 'code-review',
     description: '代码审查',
-    planner: null,
+    executor: null,
     evaluator: {
       agent_type: 'dev-team:code-review-evaluator',
       prompt:
@@ -199,7 +199,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
   {
     id: 'acceptance',
     description: '验收评估',
-    planner: null,
+    executor: null,
     evaluator: {
       agent_type: 'dev-team:acceptance-evaluator',
       prompt:
@@ -217,7 +217,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
   {
     id: 'proposal',
     description: '测试需求提案与规格说明',
-    planner: {
+    executor: {
       agent_type: 'dev-team:proposal-planner',
       prompt:
         'Write test-focused proposal.md and specs/ for change "<change>": coverage gaps, testing strategy, and acceptance criteria for existing code.',
@@ -230,7 +230,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
   {
     id: 'code-analyze',
     description: '逆向分析现有代码架构',
-    planner: {
+    executor: {
       agent_type: 'dev-team:code-analyze-planner',
       prompt:
         'Reverse-engineer existing code architecture and write design.md for change "<change>".',
@@ -244,7 +244,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
   {
     id: 'test-design',
     description: '测试设计',
-    planner: {
+    executor: {
       agent_type: 'dev-team:test-design-planner',
       prompt: 'Write test design for change "<change>".',
     },
@@ -257,7 +257,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
   {
     id: 'test-gen',
     description: '测试代码生成',
-    planner: {
+    executor: {
       agent_type: 'dev-team:test-gen-generator',
       prompt: 'Generate test code for change "<change>".',
     },
@@ -270,7 +270,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
   {
     id: 'test-execution',
     description: '测试执行与诊断',
-    planner: {
+    executor: {
       agent_type: 'dev-team:test-execution-executor',
       prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },

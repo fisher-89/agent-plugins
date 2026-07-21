@@ -1,10 +1,10 @@
 /**
  * 集成测试: backtrack-reason-flow
  *
- * 验证 phase_log 写入 backtrack_to + backtrack_reason 后，
+ * 验证调用 backtrack MCP 工具写入 backtrack_to + backtrack_reason 后，
  * phase_next 返回的 prompt 包含回溯原因。
  *
- * @see openspec/changes/backtrack-reason-propagation/test-design.md — AC-5
+ * @see openspec/changes/refactor-backtrack-to-skill/design.md — backtrack tool
  */
 
 import * as fs from 'fs';
@@ -38,6 +38,7 @@ vi.mock('../../src/lib/change', () => ({
   getChangeDir: vi.fn(() => '/tmp/test-change'),
 }));
 
+import { runBacktrack } from '../../src/commands/backtrack';
 import { runPhaseLog } from '../../src/commands/phase-log';
 import { runPhaseNext } from '../../src/commands/phase-next';
 
@@ -76,10 +77,8 @@ beforeEach(() => {
   mockWorkflowType('test-only');
 });
 
-// Note: vi.useRealTimers() not needed — beforeEach resets with vi.useFakeTimers() for each test
-
-describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
-  it('phase_log 写入 backtrack_to + backtrack_reason 后，phase_next 返回的 prompt 含回溯原因', () => {
+describe('backtrack-reason-flow — 回溯原因传播', () => {
+  it('backtrack 写入 backtrack_to + backtrack_reason 后，phase_next 返回的 prompt 含回溯原因', () => {
     // Step 1: pass phases up to test-design
     advanceTime();
     runPhaseLog({
@@ -87,7 +86,6 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'proposal',
       report: 'proposal ok',
       checklist: VALID_ITEMS,
-      backtrack_to: null,
     });
 
     advanceTime();
@@ -96,16 +94,21 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'code-analyze',
       report: 'analysis ok',
       checklist: VALID_ITEMS,
-      backtrack_to: null,
     });
 
-    // Step 2: log fail with backtrack + reason
+    // Step 2: log fail, then call backtrack separately
     advanceTime();
     runPhaseLog({
       change: 'test-change',
       phase: 'test-design',
       report: 'test design needs redo',
       checklist: FAILED_ITEMS,
+    });
+
+    // Use the standalone backtrack tool instead of passing backtrack_to to phase_log
+    runBacktrack({
+      change: 'test-change',
+      phase: 'test-design',
       backtrack_to: 'proposal',
       backtrack_reason: '设计文档缺少测试覆盖范围定义',
     });
@@ -115,7 +118,7 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
 
     expect(result.next_phase).toBe('proposal');
     expect(result.error).toBeNull();
-    expect(result.planner!.prompt).toContain('⚠️ 回溯原因: 设计文档缺少测试覆盖范围定义');
+    expect(result.executor!.prompt).toContain('⚠️ 回溯原因: 设计文档缺少测试覆盖范围定义');
     expect(result.evaluator!.prompt).toContain('⚠️ 回溯原因: 设计文档缺少测试覆盖范围定义');
   });
 
@@ -127,7 +130,6 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'proposal',
       report: 'proposal ok',
       checklist: VALID_ITEMS,
-      backtrack_to: null,
     });
 
     advanceTime();
@@ -136,7 +138,6 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'code-analyze',
       report: 'analysis ok',
       checklist: VALID_ITEMS,
-      backtrack_to: null,
     });
 
     advanceTime();
@@ -145,13 +146,18 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'test-design',
       report: 'needs redo',
       checklist: FAILED_ITEMS,
+    });
+
+    runBacktrack({
+      change: 'test-change',
+      phase: 'test-design',
       backtrack_to: 'proposal',
       backtrack_reason: '第一阶段回溯：范围定义不清',
     });
 
     let result = runPhaseNext({ change: 'test-change' });
     expect(result.next_phase).toBe('proposal');
-    expect(result.planner!.prompt).toContain('第一阶段回溯：范围定义不清');
+    expect(result.executor!.prompt).toContain('第一阶段回溯：范围定义不清');
 
     // Re-pass proposal with backtrack
     advanceTime();
@@ -160,7 +166,6 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'proposal',
       report: 'proposal redo ok',
       checklist: VALID_ITEMS,
-      backtrack_to: null,
     });
 
     // Track 2: backtrack to code-analyze
@@ -170,24 +175,28 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'code-analyze',
       report: 'needs redo',
       checklist: FAILED_ITEMS,
+    });
+
+    runBacktrack({
+      change: 'test-change',
+      phase: 'code-analyze',
       backtrack_to: 'proposal',
       backtrack_reason: '第二阶段回溯：代码分析不充分',
     });
 
     result = runPhaseNext({ change: 'test-change' });
     expect(result.next_phase).toBe('proposal');
-    expect(result.planner!.prompt).toContain('第二阶段回溯：代码分析不充分');
-    expect(result.planner!.prompt).not.toContain('第一阶段回溯');
+    expect(result.executor!.prompt).toContain('第二阶段回溯：代码分析不充分');
+    expect(result.executor!.prompt).not.toContain('第一阶段回溯');
   });
 
-  it('planner 和 evaluator 的 prompt 均包含 ⚠️ 回溯原因: 前缀', () => {
+  it('executor 和 evaluator 的 prompt 均包含 ⚠️ 回溯原因: 前缀', () => {
     advanceTime();
     runPhaseLog({
       change: 'test-change',
       phase: 'proposal',
       report: 'proposal ok',
       checklist: VALID_ITEMS,
-      backtrack_to: null,
     });
 
     advanceTime();
@@ -196,13 +205,18 @@ describe('backtrack-reason-flow — 回溯原因传播 (AC-5)', () => {
       phase: 'code-analyze',
       report: 'test design needs redo',
       checklist: FAILED_ITEMS,
+    });
+
+    runBacktrack({
+      change: 'test-change',
+      phase: 'code-analyze',
       backtrack_to: 'proposal',
       backtrack_reason: '需重新审视 proposal',
     });
 
     const result = runPhaseNext({ change: 'test-change' });
 
-    expect(result.planner!.prompt).toMatch(/⚠️ 回溯原因:/);
+    expect(result.executor!.prompt).toMatch(/⚠️ 回溯原因:/);
     expect(result.evaluator!.prompt).toMatch(/⚠️ 回溯原因:/);
   });
 });

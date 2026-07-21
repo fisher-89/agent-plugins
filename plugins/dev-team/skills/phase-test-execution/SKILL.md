@@ -1,14 +1,7 @@
 ---
 name: phase-test-execution
-description: |
-  EXECUTION phase (Executor->Evaluator): test-execution-executor (sonnet) runs tests and generates structured report.
-  Then test-execution-evaluator (opus) validates the report, applies diagnostic decision tree, and appends to eval.json.
-  Includes no-op detection: if no test files exist, the phase is skipped with skipped:true.
-license: MIT
+description: Test-execution-executor runs tests and generates structured report, then evaluator checks. Loops on fail. 
 disable-model-invocation: true
-metadata:
-  author: dev-team
-  version: "1.0"
 ---
 
 Test execution phase — Executor runs tests, Evaluator diagnoses failures.
@@ -21,81 +14,71 @@ Test execution phase — Executor runs tests, Evaluator diagnoses failures.
 
 ## Process
 
-### Step 1: Detect active change
+### Detect active change
 
-If a change name is provided, use it. Otherwise find the active change.
+Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
 
-### Step 2: No-op detection
+### Phase Check
 
-Check if any test files exist:
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state. 
 
-```bash
-count=$(find . -type f \( -name "*.test.ts{x}" -o -name "*.test.js{x}" -o -name "*_test.rs" \) 2>/dev/null | wc -l)
-count_unit=$(find . -path "*/tests/unit/*" -type f 2>/dev/null | wc -l)
-count_dunder=$(find . -path "*/__tests__/*" -type f 2>/dev/null | wc -l)
-count_integration=$(find . -path "*/tests/integration/*" -type f 2>/dev/null | wc -l)
-total=$((count + count_unit + count_dunder + count_integration))
-echo "Test files found: $total"
+If `next_phase` is "test-execution" continue to `### Run Executor`.
+
+Otherwise, follow the table bellow:
+
+| 条件 | 含义 | 处理 |
+|---|---|---|
+| `done == true` | 流程已完成 | 停止：报告异常，如需修改可开启新流程 |
+| `allowed_backtrack_phases[].id have "test-execution"` | 回溯至当前步骤 | 继续步骤 `**Backtrack**` |
+| `last_result.verdict == "fail"` and `allowed_backtrack_phases[].id not have "test-execution"` | 不支持回溯至当前步骤 | 停止：告知异常及支持回溯的步骤 |
+| `last_result.verdict == "pass"` and `allowed_backtrack_phases[].id not have "test-execution"` | 下一步不匹配 | 停止：告知异常及应该执行的步骤 `next_phase` |
+
+**Backtrack**
 ```
+mcp__plugin_dev-team_dev-team__backtrack({
+  change: "<change-name>",
+  phase: "<last_result.phase>",
+  backtrack_to: "test-execution",
+  backtrack_reason: "用户手动执行回溯，推测原因：<Infer from `last_result.report`>"
+})
+```
+If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Executor`.
 
-If total is 0 (no test files found):
-- Skip the phase: append a skipped entry to eval.json via MCP:
-  ```
-  mcp__plugin_dev-team_dev-team__phase_log({change: "<name>", phase: "test-execution", report: "No tests found, phase skipped (no-op)", checklist: '[]', backtrack_to: null, skipped: true, findings: "未发现测试文件，阶段跳过"})
-  ```
-- Phase complete.
+### Run Executor
 
-If total > 0, proceed to the Executor->Evaluator loop.
-
-### Step 3: Executor->Evaluator Loop
-
-**3a. Invoke Executor:**
+Call `Agent` with response of `phase_next`: 
 ```
 Agent({
-  description: "Execute all tests",
-  subagent_type: "dev-team:test-execution-executor",
-  model: "sonnet",
-  prompt: "Execute all tests (unit + integration) for change '<name>' and produce a structured JSON execution report at openspec/changes/<name>/reports/test-execution.json. Read test-design.md for context then run the appropriate test commands."
+  description: "Execute phase <next_phase>",
+  subagent_type: executor.agent_type,
+  prompt: executor.prompt
 })
 ```
 
-After Executor completes, validate the Read tool calls:
+### Run Evaluator
 
-```bash
-# Check that no source code files were read by the Executor
-# (Executor should only read test files and test-design.md)
-```
-
-If Read violations are found:
-- Record to eval.json findings and re-invoke the Executor with a warning.
-- If violations persist after 3 attempts, set verdict "fail" with findings listing the violations.
-
-**3b. Invoke Evaluator:**
+Call `Agent` with response of `phase_next`: 
 ```
 Agent({
-  description: "Evaluate test results",
-  subagent_type: "dev-team:test-execution-evaluator",
-  prompt: "Evaluate test execution results for change '<name>'. Read the execution report from openspec/changes/<name>/reports/test-execution.json. Validate report completeness, apply diagnostic decision tree, and append result to eval.json."
+  description: "Evaluate phase <next_phase>",
+  subagent_type: evaluator.agent_type,
+  prompt: evaluator.prompt
 })
 ```
 
-**3c. Check verdict:**
-- Read the latest entry for phase "test-execution" from eval.json
-- If verdict is "pass": phase complete
-- If verdict is "fail": re-invoke Executor with failed items and evaluator notes, re-run Evaluator
-- If backtrack_to is set: inform the user to run the target phase (`/dev-team:phase-<backtrack_target>`)
-- Loop until pass or user interrupts
+### Verdict Phase Result
 
-### Step 4: Report result
+```
+result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
 
-Display verdict, pass/total items, and notes. If skipped, display "(skipped: no applicable tests)".
+if result.last_result is null:
+  → 错误：Evaluator 未正确写入 eval.json，停止
 
-## EXECUTION Phase Pattern (Executor->Evaluator)
+if result.last_result.verdict == "pass" → continue to `### Report`
 
-- **No-op detection**: skill-level file existence check before Executor invocation
-- **Executor** (`test-execution-executor`, sonnet, Read/Write/Grep/Glob/Bash): runs tests, writes structured JSON report
-- **Read validation**: skill layer checks Executor's Read tool calls against blacklist
-- **Evaluator** (`test-execution-evaluator`, opus, Read/Write/Bash): validates report, applies diagnostic decision tree, appends to eval.json
-- **Loop**: if fail -> Executor re-invoked -> Evaluator re-runs
-- **Backtrack**: Evaluator can set backtrack_to for root cause recovery (test-gen, implement, test-design, dev-design)
-- **AskUserQuestion**: Used when the diagnostic tree cannot determine root cause (timeout 5 min, fallback to dev-design)
+if result.last_result.verdict == "fail" → retry from `### Run Executor` or stop with backtrack suggestion to one of `allowed_backtrack_phases[].id`
+```
+
+### Report
+
+Display verdict, pass/total items, and notes.

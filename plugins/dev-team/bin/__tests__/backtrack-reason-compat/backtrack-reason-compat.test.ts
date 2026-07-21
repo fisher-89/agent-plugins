@@ -144,7 +144,7 @@ describe('backtrack-reason-compat — 向后兼容 (AC-6)', () => {
     expect(result.next_phase).toBe('code-analyze');
     // The latest entry (test-execution) DOES have backtrack_reason
     // So the prompt should contain it
-    expect(result.planner!.prompt).toContain('⚠️ 回溯原因: 测试执行发现新的分析需求');
+    expect(result.executor!.prompt).toContain('⚠️ 回溯原因: 测试执行发现新的分析需求');
   });
 
   it('旧条目中无 backtrack_reason，backtrack_to 有效时仍正常回溯', () => {
@@ -157,9 +157,9 @@ describe('backtrack-reason-compat — 向后兼容 (AC-6)', () => {
     expect(result.next_phase).toBe('proposal');
     expect(result.error).toBeNull();
     // Reason should be null (no backtrack_reason in old entries)
-    expect(result.planner!.prompt).not.toContain('⚠️ 回溯原因');
+    expect(result.executor!.prompt).not.toContain('⚠️ 回溯原因');
     // Planner and evaluator should be present (normal phase response)
-    expect(result.planner).not.toBeNull();
+    expect(result.executor).not.toBeNull();
     expect(result.evaluator).not.toBeNull();
   });
 });

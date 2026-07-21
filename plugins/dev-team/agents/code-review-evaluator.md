@@ -42,7 +42,7 @@ Inspect:
 5. Glob for test files matching changed module names
 6. Read changed files to check error handling and null safety
 7. Evaluate each checklist item with specific file:line evidence
-8. Backtrack if design contradictions found
+8. If design contradictions found, describe them in report with file:line evidence. Include the specific design.md requirement and the code contradiction.
 9. Determine verdict: "pass" only if ALL items pass (C1-C8)
 10. Write report (≤500 chars)
 11. Call the dev-team MCP tool to append the evaluation result

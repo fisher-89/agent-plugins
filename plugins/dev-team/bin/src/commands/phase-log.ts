@@ -1,19 +1,15 @@
 import type z from 'zod/v4';
 
 import { getChangeDir } from '../lib/change';
-import { getWorkflowType } from '../lib/change-config';
 import {
   readEvalJson,
   validateVerdict,
   validateReportLength,
   buildEntry,
   computeAttempt,
-  markPhaseStale,
-  writeEvalJson,
   appendEntry,
   type EvalEntry,
 } from '../lib/eval-json';
-import { getPhaseTable } from '../lib/workflow';
 import { type phaseLogInputSchema, type phaseLogOutputSchema } from '../schemas';
 
 type PhaseLogOptions = z.input<typeof phaseLogInputSchema>;
@@ -29,66 +25,18 @@ function resolveVerdict(checklist: { pass: boolean }[]): 'pass' | 'fail' {
 }
 
 /**
- * Handle backtrack stale marking when backtrack_to is set.
- * Returns true if entries were modified, false otherwise.
- */
-function handleBacktrackMarking(entries: EvalEntry[], options: PhaseLogOptions): boolean {
-  if (options.backtrack_to == null || options.backtrack_to === '') {
-    return false;
-  }
-
-  const targets = Array.isArray(options.backtrack_to)
-    ? options.backtrack_to
-    : [options.backtrack_to];
-
-  const workflowType = getWorkflowType(options.change);
-  const phaseTable = getPhaseTable(workflowType);
-  const currentIdx = phaseTable.findIndex((p) => p.id === options.phase);
-
-  for (const target of targets) {
-    const targetIdx = phaseTable.findIndex((p) => p.id === target);
-    if (targetIdx === -1) {
-      throw new Error(`工作流 ${workflowType} 不包含 phase '${target}'`);
-    }
-    if (currentIdx === -1 || targetIdx >= currentIdx) {
-      throw new Error(`无效的回溯目标 phase: "${target}"。不支持回溯到当前或未来phase。`);
-    }
-  }
-
-  // Mark stale for each target (handles propagation internally)
-  for (const target of targets) {
-    markPhaseStale(entries, target, workflowType);
-  }
-  return true;
-}
-
-/**
- * Validate that backtrack_reason is provided when backtrack_to is set.
- * Throws an error if backtrack_to is non-empty but backtrack_reason is missing or empty.
- */
-function validateBacktrackReason(backtrack_to: unknown, backtrack_reason: unknown): void {
-  const hasBacktrackTo = backtrack_to != null && backtrack_to !== '';
-  if (hasBacktrackTo && (backtrack_reason == null || backtrack_reason === '')) {
-    throw new Error('backtrack_to 非空时，backtrack_reason 必须填写回溯原因（不能为空字符串）。');
-  }
-}
-
-/**
- * Core logic for phase-log: validate, handle backtrack stale marking,
- * build entry, and persist to eval.json.
+ * Core logic for phase-log: validate, build entry, and persist to eval.json.
  *
  * Key responsibilities:
- * - When `backtrack_to` is set (string or array), marks the target phase(s)
- *   stale AND propagates downstream BEFORE writing the new entry.
- * - Pass entries do NOT trigger any stale marking.
+ * - Validates verdict and report length
+ * - Builds the entry and appends to eval.json
+ * - Does NOT handle backtrack (backtrack state is managed by standalone backtrack tool)
  * - Does NOT perform gate-check (gate logic is entirely owned by phase_next).
  */
 export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   const verdict = resolveVerdict(options.checklist);
   validateVerdict(verdict, options.skipped === true);
   validateReportLength(options.report);
-
-  validateBacktrackReason(options.backtrack_to, options.backtrack_reason);
 
   const changeDir = getChangeDir(options.change);
 
@@ -100,8 +48,6 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     throw new Error(`读取 eval.json 失败: ${msg}`);
   }
 
-  const modifiedByBacktrack = handleBacktrackMarking(entries, options);
-
   const attempt = computeAttempt(entries, options.phase, options.attempt);
 
   const entry = buildEntry({
@@ -110,21 +56,11 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
     report: options.report,
     checklist: options.checklist,
     attempt,
-    backtrack_to: options.backtrack_to ?? null,
-    backtrack_reason: options.backtrack_reason ?? null,
     skipped: options.skipped === true ? true : undefined,
   });
 
   try {
-    if (modifiedByBacktrack) {
-      // If we modified entries (stale marking), push the new entry and write full array
-      entry.stale = true;
-      entries.push(entry);
-      writeEvalJson(changeDir, entries);
-    } else {
-      // Normal path: no stale modifications, just append
-      appendEntry(changeDir, entry);
-    }
+    appendEntry(changeDir, entry);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
     throw new Error(`写入 eval.json 失败: ${msg}`);

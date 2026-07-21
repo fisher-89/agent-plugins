@@ -3,6 +3,7 @@ import { StdioServerTransport } from '@modelcontextprotocol/sdk/server/stdio';
 import { type Transport } from '@modelcontextprotocol/sdk/shared/transport';
 import { type z, type ZodType } from 'zod/v4';
 
+import { runBacktrack } from './commands/backtrack';
 import { runChangeList } from './commands/change-list';
 import { runConfigGet } from './commands/config-get';
 import { runPhaseLog } from './commands/phase-log';
@@ -17,6 +18,8 @@ import { initProjectRootFromMcp } from './lib/project-root';
 import {
   phaseLogInputSchema,
   phaseLogOutputSchema,
+  backtrackInputSchema,
+  backtrackOutputSchema,
   archiQueryInputSchema,
   archiQueryOutputSchema,
   archiValidateInputSchema,
@@ -247,10 +250,28 @@ function registerChangeListTool(server: McpServer): void {
   );
 }
 
+function registerBacktrackTool(server: McpServer): void {
+  server.registerTool(
+    'backtrack',
+    {
+      description:
+        'Set backtrack target and reason for a phase entry in eval.json. ' +
+        'This is the only way to modify backtrack state.',
+      inputSchema: backtrackInputSchema,
+      outputSchema: backtrackOutputSchema,
+    },
+    async (args) => {
+      const result = runBacktrack(args);
+      return jsonContent(backtrackOutputSchema, result);
+    },
+  );
+}
+
 export async function connectToServer(transport: Transport): Promise<McpServer> {
   const server = new McpServer({ name: 'dev-team', version: '2.8.11' });
 
   registerPhaseLogTool(server);
+  registerBacktrackTool(server);
   registerArchiQueryTool(server);
   registerArchiValidateTool(server);
   registerArchiWriteTool(server);

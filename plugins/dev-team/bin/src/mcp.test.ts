@@ -113,64 +113,42 @@ describe('MCP Server (via InMemoryTransport)', () => {
   });
 
   // -------------------------------------------------------------------------
-  // MCP 注册 — 工具已移除 (AC-6)
+  // MCP 注册 — backtrack 工具
   // -------------------------------------------------------------------------
 
-  describe('MCP 注册 — 工具已移除 (AC-6)', () => {
-    it('未注册 config_set', async () => {
-      const names = await getRegisteredToolNames(client);
-      expect(names).not.toContain('config_set');
-    });
-
-    it('未注册 config_unset', async () => {
-      const names = await getRegisteredToolNames(client);
-      expect(names).not.toContain('config_unset');
-    });
-
-    it('未注册 config_context', async () => {
-      const names = await getRegisteredToolNames(client);
-      expect(names).not.toContain('config_context');
+  describe('MCP 注册 — backtrack 工具', () => {
+    it('backtrack 工具的 description 不为空', async () => {
+      const desc = await getToolDescription(client, 'backtrack');
+      expect(desc).toBeDefined();
+      expect(desc!.length).toBeGreaterThan(0);
     });
   });
 
   // -------------------------------------------------------------------------
-  // MCP 注册 — config_get 保留 (AC-6)
+  // MCP 注册 — 工具清单
   // -------------------------------------------------------------------------
 
-  describe('MCP 注册 — config_get 保留 (AC-6)', () => {
-    it('已注册 config_get', async () => {
-      const names = await getRegisteredToolNames(client);
-      expect(names).toContain('config_get');
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // MCP 注册 — 其他工具保留
-  // -------------------------------------------------------------------------
-
-  describe('MCP 注册 — 其他工具保留', () => {
-    const expectedTools = [
+  describe('MCP 注册 — 工具清单', () => {
+    const allTools = [
+      'backtrack',
       'phase_log',
       'archi_query',
       'archi_validate',
       'archi_write',
       'archi_check',
+      'config_get',
       'phase_next',
       'test_detect_frameworks',
       'test_resolve_paths',
       'change_list',
     ];
 
-    it('所有预期工具均已注册', async () => {
+    it('所有预期工具均已注册，且没有多余的工具', async () => {
       const names = await getRegisteredToolNames(client);
-      for (const toolName of expectedTools) {
+      expect(names).toHaveLength(allTools.length);
+      for (const toolName of allTools) {
         expect(names).toContain(toolName);
       }
-    });
-
-    it('总共注册了 10 个工具', async () => {
-      const { tools } = await client.listTools();
-      expect(tools).toHaveLength(10);
     });
   });
 

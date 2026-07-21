@@ -46,7 +46,8 @@
 - [x] test和test.overrides支持排除指定glob，避免生成glob对应的测试文件，突变测试也忽略该文件
 - [x] 移除 test_resolve_paths 中 integration_root 和 integration_scenarios 参数，下线集成测试路径解析功能
 - [ ] 测试执行改为cli + evaluator
-- [ ] test-runner执行前清理coverage和reports
+- ~~[ ] test-runner执行前清理coverage和reports~~
 - [x] test-runner同时生成cmd和shell脚本，runcommand根据系统自行选择
 - [x] mcp test_detect_frameworks 当前职责仅剩识别指定文件的测试框架，调整入参和返回类型
-- [ ] 整合implement和test-gen
+- ~~[ ] 整合implement和test-gen~~
+- [ ] 单元测试设计模板，改为`### <源文件> -> <测试文件>`，每个文件独立设计用例和Mock，前面补充功能分析，方便人工审查

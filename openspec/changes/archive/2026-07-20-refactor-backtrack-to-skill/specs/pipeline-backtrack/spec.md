@@ -1,18 +1,44 @@
+## REMOVED Requirements
+
+### Requirement: phaseLogInputSchema 中的 backtrack_to 和 backtrack_reason 字段
+
+**Reason**: `backtrack_to` 和 `backtrack_reason` 从 `phaseLogInputSchema` 中移除。回溯不再是 Evaluator 的职责——所有 Evaluator（包括 test-execution-evaluator）一致地做纯诊断，不做路由决策。新增的 `backtrack` MCP 工具接管所有回溯状态变更。
+
+**Migration**: 从 `phase-log.schema.ts` 的 `phaseLogInputSchema` 中移除 `backtrack_to` 和 `backtrack_reason` 字段。`phaseLogSchema` 保留这两个字段（向后兼容，用于解析已有 eval.json 条目）。`backtrack.schema.ts` 中的 `backtrackInputSchema` 将包含约束相同的字段。
+
+### Requirement: phase_log 在 backtrack_to 设置时验证 backtrack_reason
+
+**Reason**: 随着 `backtrack_to` 和 `backtrack_reason` 从 `phase_log` 中移除，此验证不再需要。`backtrack` MCP 工具执行等效验证。
+
+**Migration**: 从 `phase-log.ts` 中移除 `validateBacktrackReason()` 函数。`backtrack.ts` 中的 `backtrack` 命令 SHALL 验证 `backtrack_reason` 在 `backtrack_to` 设置时为非空字符串。
+
+### Requirement: buildEntry() 透传 backtrack_to 和 backtrack_reason
+
+**Reason**: `BuildEntryParams` 不再包含 `backtrack_to` 和 `backtrack_reason`，因为条目不再在创建时携带回溯状态。`backtrack` 命令原地修改条目而非创建新条目。
+
+**Migration**: 从 `eval-json.ts` 的 `BuildEntryParams` 类型中移除 `backtrack_to` 和 `backtrack_reason`。移除 `buildEntry()` 中对应的逻辑。
+
+### Requirement: phase-log.ts 中的 handleBacktrackMarking
+
+**Reason**: 回溯触发的 stale 标记现在由 `backtrack` MCP 工具处理，不再由 `phase_log` 处理。当 `backtrack` 被调用时，它标记目标 phase 的 pass 条目为 stale 并向下游传播。
+
+**Migration**: 从 `phase-log.ts` 中移除 `handleBacktrackMarking()` 函数。将 stale 标记逻辑（调用 `markPhaseStale()` 和 `propagateStale()`）移入 `backtrack.ts`。
+
+### Requirement: phase-next.ts 中的 computeAllowedBacktrackPhases 和 buildBacktrackHint
+
+**Reason**: 这些函数构建 evaluator prompt 后缀，列出允许回溯的 phase。既然所有 Evaluator 不再设置 `backtrack_to`（那是 skill 的工作），这些函数在 `phase_next` 中不再需要。`allowed_backtrack_phases` 响应字段保留但返回空数组（向后兼容）。
+
+**Migration**: 从 `phase-next.ts` 中移除 `computeAllowedBacktrackPhases()` 和 `buildBacktrackHint()`。从 `buildPhaseResponse()` 中移除对它们的调用。
+
+### Requirement: test-execution-evaluator 回溯目标（特例逻辑）
+
+**Reason**: test-execution-evaluator 不再拥有特殊的回溯决策逻辑。6 分支决策树移至 `phase-test-execution/SKILL.md`，与 code-review 和 acceptance evaluator 的决策迁移方式一致。所有 Evaluator 统一为纯诊断模式，不做路由决策。
+
+**Migration**: 从 `test-execution-evaluator.md` 中移除 Step 4（6 分支决策树）。Evaluator 仅执行诊断，在 report 中描述失败根因。Skill 读取报告并按需调用 `backtrack()`。新增约束"禁止设置 backtrack_to"。
+
+---
+
 ## ADDED Requirements
-
-### Requirement: phaseLogSchema 中的 backtrack_reason 字段（向后兼容）
-
-`phase-log.schema.ts` 中的 `phaseLogSchema` SHALL 包含可选的 `backtrack_reason` 字段，类型为 `z.string().max(500).optional().nullable()`。此字段用于解析已有 eval.json 条目（向后兼容）。新条目不再通过 `phase_log` 写入该字段。
-
-不含 `backtrack_reason` 字段的旧 eval.json 条目 SHALL 无错误解析 — 该字段在 Zod 解析后默认为 `null`/`undefined`。
-
-#### Scenario: 含 backtrack_reason 的旧条目通过 schema 验证
-- **WHEN** 调用 `phaseLogSchema.parse({ phase: "proposal", verdict: "pass", report: "...", backtrack_to: "proposal", backtrack_reason: "设计文档缺少 API 契约定义" })`
-- **THEN** 解析结果包含 `backtrack_reason: "设计文档缺少 API 契约定义"`
-
-#### Scenario: 不含 backtrack_reason 的条目解析无错误（向后兼容）
-- **WHEN** 调用 `phaseLogSchema.parse({ phase: "proposal", verdict: "pass", report: "..." })`
-- **THEN** 不抛出错误
 
 ### Requirement: backtrack MCP 工具验证 phase 存在性和回溯目标
 
@@ -223,28 +249,6 @@ test-execution-evaluator SHALL 不因拥有 6 分支决策树而获得特殊权�
 
 ## MODIFIED Requirements
 
-### Requirement: 回溯 phase 目标使用更新后的 phase ID
-
-eval.json 条目中 `backtrack_to` 字段的回溯目标 SHALL 使用更新后的 phase ID。不再遗留 `integration-test` 引用。
-
-以下回溯流程已更新：
-
-| Scenario | 新回溯目标 | 变更 |
-|----------|-----------|--------|
-| acceptance 发现未满足需求 | `proposal` | 不变 |
-| code-review 发现设计偏离 | `dev-design` | 不变 |
-| test-execution 发现语法错误 | `test-gen` | 旧 spec 中为 `unit-test` 回溯，现为 `test-execution` phase |
-| test-execution 发现逻辑错误 | `implement` | 目标相同，phase 来源不同 |
-| test-execution 发现设计问题 | `test-design` | 目标相同，phase 来源不同 |
-
-#### Scenario: 回溯到 proposal 使用更新后的 ID（不变）
-- **WHEN** acceptance Evaluator 在 eval.json 中设置 `backtrack_to: "proposal"`
-- **THEN** `phase_next` 检测到回溯并返回 `next_phase: "proposal"`
-
-#### Scenario: 从 test-execution 回溯使用更新后的 phase 名称
-- **WHEN** test-execution Evaluator 在 eval.json 中设置 `backtrack_to: "test-gen"`
-- **THEN** `phase_next` 检测到回溯并返回 `next_phase: "test-gen"`
-
 ### Requirement: Stale 传播由 backtrack 工具触发（原为 phase_log）
 
 之前由 `phase-log.ts` 中 `handleBacktrackMarking()` 持有的 stale 标记逻辑现在由 `backtrack.ts` 中的 `backtrack` 命令持有。行为功能上相同：
@@ -260,82 +264,6 @@ eval.json 条目中 `backtrack_to` 字段的回溯目标 SHALL 使用更新后�
 #### Scenario: backtrack 工具的 stale 标记与旧行为一致
 - **WHEN** 调用 `backtrack({change, phase: "test-execution", backtrack_to: "test-gen", backtrack_reason: "fix"})`
 - **THEN** stale 标记行为与旧的 `handleBacktrackMarking()` 调用相同
-
-### Requirement: Stale 传播不再传播到 integration-test
-
-`propagateStale` 函数 SHALL NOT 将 stale 标记传播到 `integration-test`，因为该 phase 在所有工作流的 phase 表中不再存在。传播遵循 `getDependents()`，该函数从更新后的前置依赖表动态派生。
-
-#### Scenario: propagateStale 从 implement 不再提及 integration-test
-- **GIVEN** eval.json 有需求工作流全部 8 个 phase 的条目
-- **WHEN** 调用 `propagateStale(entries, "implement")`
-- **THEN** `test-gen`、`test-execution`、`code-review`、`acceptance` 条目被标记为 stale（直接或传递）
-- **AND** `integration-test` 条目不被标记（phase 不再存在）
-
-#### Scenario: propagateStale 从 test-gen 不再提及 integration-test
-- **GIVEN** eval.json 有所有 phase 的条目
-- **WHEN** 调用 `propagateStale(entries, "test-gen")`
-- **THEN** `test-execution` 和 `code-review` 条目被标记为 stale
-- **AND** `integration-test` 条目不被标记（phase 不再存在）
-
----
-
-## REMOVED Requirements
-
-### Requirement: phaseLogInputSchema 中的 backtrack_to 和 backtrack_reason 字段
-
-**Reason**: `backtrack_to` 和 `backtrack_reason` 从 `phaseLogInputSchema` 中移除。回溯不再是 Evaluator 的职责——所有 Evaluator（包括 test-execution-evaluator）一致地做纯诊断，不做路由决策。新增的 `backtrack` MCP 工具接管所有回溯状态变更。
-
-**Migration**: 从 `phase-log.schema.ts` 的 `phaseLogInputSchema` 中移除 `backtrack_to` 和 `backtrack_reason` 字段。`phaseLogSchema` 保留这两个字段（向后兼容，用于解析已有 eval.json 条目）。`backtrack.schema.ts` 中的 `backtrackInputSchema` 将包含约束相同的字段。
-
-### Requirement: phase_log 在 backtrack_to 设置时验证 backtrack_reason
-
-**Reason**: 随着 `backtrack_to` 和 `backtrack_reason` 从 `phase_log` 中移除，此验证不再需要。`backtrack` MCP 工具执行等效验证。
-
-**Migration**: 从 `phase-log.ts` 中移除 `validateBacktrackReason()` 函数。`backtrack.ts` 中的 `backtrack` 命令 SHALL 验证 `backtrack_reason` 在 `backtrack_to` 设置时为非空字符串。
-
-### Requirement: buildEntry() 透传 backtrack_to 和 backtrack_reason
-
-**Reason**: `BuildEntryParams` 不再包含 `backtrack_to` 和 `backtrack_reason`，因为条目不再在创建时携带回溯状态。`backtrack` 命令原地修改条目而非创建新条目。
-
-**Migration**: 从 `eval-json.ts` 的 `BuildEntryParams` 类型中移除 `backtrack_to` 和 `backtrack_reason`。移除 `buildEntry()` 中对应的逻辑。
-
-### Requirement: phase-log.ts 中的 handleBacktrackMarking
-
-**Reason**: 回溯触发的 stale 标记现在由 `backtrack` MCP 工具处理，不再由 `phase_log` 处理。当 `backtrack` 被调用时，它标记目标 phase 的 pass 条目为 stale 并向下游传播。
-
-**Migration**: 从 `phase-log.ts` 中移除 `handleBacktrackMarking()` 函数。将 stale 标记逻辑（调用 `markPhaseStale()` 和 `propagateStale()`）移入 `backtrack.ts`。
-
-### Requirement: phase-next.ts 中的 computeAllowedBacktrackPhases 和 buildBacktrackHint
-
-**Reason**: 这些函数构建 evaluator prompt 后缀，列出允许回溯的 phase。既然所有 Evaluator 不再设置 `backtrack_to`（那是 skill 的工作），这些函数在 `phase_next` 中不再需要。`allowed_backtrack_phases` 响应字段保留但返回空数组（向后兼容）。
-
-**Migration**: 从 `phase-next.ts` 中移除 `computeAllowedBacktrackPhases()` 和 `buildBacktrackHint()`。从 `buildPhaseResponse()` 中移除对它们的调用。
-
-### Requirement: test-execution-evaluator 回溯目标（特例逻辑）
-
-**Reason**: test-execution-evaluator 不再拥有特殊的回溯决策逻辑。6 分支决策树移至 `phase-test-execution/SKILL.md`，与 code-review 和 acceptance evaluator 的决策迁移方式一致。所有 Evaluator 统一为纯诊断模式，不做路由决策。
-
-**Migration**: 从 `test-execution-evaluator.md` 中移除 Step 4（6 分支决策树）。Evaluator 仅执行诊断，在 report 中描述失败根因。Skill 读取报告并按需调用 `backtrack()`。新增约束"禁止设置 backtrack_to"。
-
-### Requirement: Unit-test evaluator 回溯到 integration-test
-**Reason**: `integration-test` phase 不再存在。测试执行评估处理了之前由独立 unit-test 和 integration-test evaluator 覆盖的所有场景。
-
-**Migration**: Unit-test-evaluator 和 integration-test-evaluator 的回溯逻辑合并到 test-execution-evaluator。允许目标不变（`test-gen`、`implement`、`test-design`、`dev-design`）。
-
-### Requirement: Integration-test evaluator 回溯到 unit-test
-**Reason**: Integration-test phase 已移除。不存在独立的 evaluator。
-
-**Migration**: 所有测试执行回溯流程现在源自 `test-execution-evaluator`。
-
-### Requirement: Integration-test evaluator 回溯到 code-review
-**Reason**: 不再需要作为独立的回溯边。测试执行 evaluator 仍可识别结构性问题，但 code-review phase 有独立的 evaluator 路径。
-
-**Migration**: 合并后的 test-execution-evaluator 回溯目标仍为 `test-gen`、`implement`、`test-design`、`dev-design`。
-
-### Requirement: propagateStale 从 implement（移除 integration-test 依赖）
-**Reason**: `getDependents("implement")` 不再包含 `integration-test`。依赖现为：`test-gen`、`test-execution`、`code-review`、`acceptance`。
-
-**Migration**: 传播逻辑通过 `getDependents()` 更新，该函数从前置依赖表动态读取。
 
 ---
 

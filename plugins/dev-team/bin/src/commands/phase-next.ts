@@ -6,8 +6,11 @@
  * mid-phase interruption, and skipped entries.
  *
  * KEY CHANGE: phase_next is now READ-ONLY. It never modifies eval.json.
- * Stale marking and propagation are handled by phase_log when writing entries
- * with backtrack_to.
+ * Stale marking and propagation are handled by the standalone backtrack tool.
+ *
+ * Responses now include `last_result` — a snapshot of the latest eval entry
+ * (phase, verdict, report, timestamp) so skills can make backtrack decisions
+ * without re-reading eval.json.
  *
  * The workflow skill calls phase_next in a loop and executes the returned
  * planner/evaluator agents without any hardcoded phase knowledge.
@@ -24,6 +27,8 @@ import { type phaseNextInputSchema, type phaseNextOutputSchema } from '../schema
 export type PhaseNextOptions = z.input<typeof phaseNextInputSchema>;
 
 export type PhaseNextResult = z.output<typeof phaseNextOutputSchema>;
+
+const MAX_RETRY_TIMES = 5;
 
 /**
  * Replace '<change>' and '<phase>' placeholders in a prompt string with
@@ -47,49 +52,34 @@ function computeAllowedBacktrackPhases(
 ): { id: string; description: string }[] {
   const idx = phaseTable.findIndex((p) => p.id === currentPhaseId);
   if (idx <= 0) return [];
-  return phaseTable.slice(0, idx).map((p) => ({ id: p.id, description: p.description }));
-}
-
-/**
- * Build a backtrack hint string to append to the evaluator prompt.
- */
-function buildBacktrackHint(allowedPhases: { id: string; description: string }[]): string {
-  if (allowedPhases.length === 0) return '';
-  const lines = allowedPhases.map((p) => `  - ${p.id}: ${p.description}`);
-  return `\n\n可回退阶段 (backtrack_to):\n${lines.join('\n')}`;
+  return phaseTable.slice(0, idx + 1).map((p) => ({ id: p.id, description: p.description }));
 }
 
 /**
  * Build a phase definition with prompts interpolated for the given change name.
- * Dynamically appends allowed backtrack phases to the evaluator prompt.
  * When backtrackReason is provided, appends a reason suffix to both planners
  * and evaluator prompts.
  */
 function buildPhaseDef(
   def: PhaseDefinition,
   change: string,
-  phaseTable: PhaseDefinition[],
   backtrackReason?: string | null,
 ): PhaseDefinition {
-  const allowedBacktrack = computeAllowedBacktrackPhases(def.id, phaseTable);
-  const backtrackHint = buildBacktrackHint(allowedBacktrack);
-
   // Build reason suffix when backtrack reason is provided
   const reasonSuffix = backtrackReason ? `\n\n⚠️ 回溯原因: ${backtrackReason}` : '';
 
   return {
     ...def,
-    planner: def.planner
+    executor: def.executor
       ? {
-          agent_type: def.planner.agent_type,
-          prompt: interpolatePrompt(def.planner.prompt, change, def.id) + reasonSuffix,
+          agent_type: def.executor.agent_type,
+          prompt: interpolatePrompt(def.executor.prompt, change, def.id) + reasonSuffix,
         }
       : null,
     evaluator: def.evaluator
       ? {
           agent_type: def.evaluator.agent_type,
-          prompt:
-            interpolatePrompt(def.evaluator.prompt, change, def.id) + backtrackHint + reasonSuffix,
+          prompt: interpolatePrompt(def.evaluator.prompt, change, def.id) + reasonSuffix,
         }
       : null,
   };
@@ -105,8 +95,9 @@ function buildPhaseResponse(
   change: string,
   phaseTable: PhaseDefinition[],
   backtrackReason?: string | null,
+  lastResult?: PhaseNextResult['last_result'],
 ): PhaseNextResult {
-  const resolved = buildPhaseDef(phase, change, phaseTable, backtrackReason);
+  const resolved = buildPhaseDef(phase, change, backtrackReason);
   const allowedBacktrack = computeAllowedBacktrackPhases(phase.id, phaseTable);
   const phaseIndex = phaseTable.findIndex((p) => p.id === phase.id) + 1;
   return {
@@ -114,9 +105,10 @@ function buildPhaseResponse(
     error: null,
     message: null,
     next_phase: phase.id,
-    planner: resolved.planner,
+    executor: resolved.executor,
     evaluator: resolved.evaluator,
     allowed_backtrack_phases: allowedBacktrack,
+    last_result: lastResult ?? null,
     total_phases: totalPhases,
     phase_index: phaseIndex,
     round,
@@ -126,15 +118,20 @@ function buildPhaseResponse(
 /**
  * Build a "done" response — all phases complete.
  */
-function buildDoneResponse(round: number, totalPhases: number): PhaseNextResult {
+function buildDoneResponse(
+  round: number,
+  totalPhases: number,
+  lastResult?: PhaseNextResult['last_result'],
+): PhaseNextResult {
   return {
     done: true,
     error: null,
     message: 'All phases have passed evaluation. Ready for archiving.',
     next_phase: null,
-    planner: null,
+    executor: null,
     evaluator: null,
     allowed_backtrack_phases: [],
+    last_result: lastResult ?? null,
     total_phases: totalPhases,
     phase_index: totalPhases,
     round,
@@ -149,15 +146,17 @@ function buildErrorResponse(
   message: string,
   round: number,
   totalPhases: number,
+  lastResult?: PhaseNextResult['last_result'],
 ): PhaseNextResult {
   return {
     done: false,
     error,
     message,
     next_phase: null,
-    planner: null,
+    executor: null,
     evaluator: null,
     allowed_backtrack_phases: [],
+    last_result: lastResult ?? null,
     total_phases: totalPhases,
     phase_index: 0,
     round,
@@ -211,16 +210,31 @@ function getLatestBacktrackInfo(entries: EvalEntry[]): {
 }
 
 /**
- * Count attempts for a specific phase from eval entries.
+ * Get the latest eval entry as a last_result snapshot.
+ * Returns null if no entries exist.
  */
-function countAttempts(entries: EvalEntry[], phaseId: string): number {
-  return entries.filter((e) => e.phase === phaseId).length;
+function getLatestEntry(entries: EvalEntry[]): PhaseNextResult['last_result'] {
+  if (entries.length === 0) return null;
+  const sorted = [...entries].sort(
+    (a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime(),
+  );
+  const latest = sorted[0];
+  return {
+    phase: latest.phase,
+    verdict: latest.verdict,
+    report: latest.report,
+    timestamp: latest.timestamp,
+  };
 }
 
 /**
  * Check round limit. Returns an error result if exceeded, or null to continue.
  */
-function checkRoundLimit(round: number, totalPhases: number): ResolvePhaseNextResult | null {
+function checkRoundLimit(
+  round: number,
+  totalPhases: number,
+  lastResult?: PhaseNextResult['last_result'],
+): ResolvePhaseNextResult | null {
   if (round <= 20) {
     return null;
   }
@@ -230,59 +244,69 @@ function checkRoundLimit(round: number, totalPhases: number): ResolvePhaseNextRe
       '超过 20 轮限制，可能存在循环回溯。请检查 eval.json 中的 backtrack 记录，或手动清理后重试。',
       round,
       totalPhases,
+      lastResult,
     ),
   };
 }
 
 /**
+ * Resolve the earliest valid backtrack target from entries.
+ * Returns the target phase ID and its table index, or null if invalid.
+ */
+function resolveEarliestBacktrack(
+  backtrackTarget: string | string[] | null,
+  phaseTable: PhaseDefinition[],
+): { target: string; idx: number } | null {
+  if (!backtrackTarget) return null;
+  const targets = Array.isArray(backtrackTarget) ? backtrackTarget : [backtrackTarget];
+  let earliest: { target: string; idx: number } | null = null;
+  for (const t of targets) {
+    const idx = phaseTable.findIndex((p) => p.id === t);
+    if (idx !== -1 && (earliest === null || idx < earliest.idx)) {
+      earliest = { target: t, idx };
+    }
+  }
+  return earliest;
+}
+
+/**
  * Handle backtrack detection. Returns a result if backtrack was detected,
  * or null if no backtrack is needed.
+ * Preserved for backward compatibility with older eval.json entries that
+ * have backtrack_to set by the old phase_log mechanism.
  */
 function handleBacktrack(
   entries: EvalEntry[],
   phaseTable: PhaseDefinition[],
   change: string,
   round: number,
-  totalPhases: number,
+  lastResult?: PhaseNextResult['last_result'],
 ): ResolvePhaseNextResult | null {
   const { target: backtrackTarget, reason: backtrackReason } = getLatestBacktrackInfo(entries);
-  if (!backtrackTarget) {
-    return null;
-  }
+  const resolved = resolveEarliestBacktrack(backtrackTarget, phaseTable);
 
-  const targets = Array.isArray(backtrackTarget) ? backtrackTarget : [backtrackTarget];
-
-  let earliestTarget: string | null = null;
-  let earliestIdx = Infinity;
-  for (const target of targets) {
-    const idx = phaseTable.findIndex((p) => p.id === target);
-    if (idx !== -1 && idx < earliestIdx) {
-      earliestIdx = idx;
-      earliestTarget = target;
-    }
-  }
-
-  if (!earliestTarget) {
+  if (!resolved) {
+    if (!backtrackTarget) return null;
     return {
       result: buildErrorResponse(
         'invalid_backtrack_target',
         `回溯目标 "${JSON.stringify(backtrackTarget)}" 不包含有效的 phase 标识符`,
         round,
-        totalPhases,
+        phaseTable.length,
+        lastResult,
       ),
     };
   }
 
-  const targetPhase = phaseTable[earliestIdx];
-
   return {
     result: buildPhaseResponse(
-      targetPhase,
+      phaseTable[resolved.idx],
       round,
-      totalPhases,
+      phaseTable.length,
       change,
       phaseTable,
       backtrackReason,
+      lastResult,
     ),
   };
 }
@@ -296,33 +320,22 @@ function checkRetryLimit(
   nextPhaseDef: PhaseDefinition,
   round: number,
   totalPhases: number,
-  change: string,
-  phaseTable: PhaseDefinition[],
+  lastResult?: PhaseNextResult['last_result'],
 ): ResolvePhaseNextResult | null {
-  const attempts = countAttempts(entries, nextPhaseDef.id);
+  const attempts = entries.filter(
+    (e) => e.phase === nextPhaseDef.id && e.verdict === 'fail',
+  ).length;
 
-  const phaseEntries = entries
-    .filter((e) => e.phase === nextPhaseDef.id)
-    .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
-
-  if (phaseEntries.length > 0) {
-    const latest = phaseEntries[0];
-
-    if (latest.verdict === 'fail') {
-      if (attempts >= 5) {
-        return {
-          result: buildErrorResponse(
-            'max_retries_exceeded',
-            `Phase "${nextPhaseDef.id}" 已失败 ${attempts} 次，超过最大重试次数（5 次）。请检查 artifact 质量或手动干预后重试。`,
-            round,
-            totalPhases,
-          ),
-        };
-      }
-      return {
-        result: buildPhaseResponse(nextPhaseDef, round, totalPhases, change, phaseTable),
-      };
-    }
+  if (attempts >= MAX_RETRY_TIMES) {
+    return {
+      result: buildErrorResponse(
+        'max_retries_exceeded',
+        `Phase "${nextPhaseDef.id}" 失败超过最大重试次数（${MAX_RETRY_TIMES} 次）。请检查 artifact 质量或手动干预后重试。`,
+        round,
+        totalPhases,
+        lastResult,
+      ),
+    };
   }
 
   return null;
@@ -339,7 +352,7 @@ function checkRetryLimit(
  * unit-tested without disk access.
  *
  * IMPORTANT: This function is READ-ONLY. It does NOT modify the entries array.
- * All stale marking is handled by phase_log.
+ * All stale marking is handled by the standalone backtrack tool.
  *
  * Returns the next phase config or a done/error response.
  */
@@ -353,55 +366,63 @@ interface ResolvePhaseNextResult {
   result: PhaseNextResult;
 }
 
-function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult {
-  const { change, entries, workflowType } = opts;
-  const phaseTable = getPhaseTable(workflowType);
+/**
+ * Find the next unpassed phase and determine whether to retry or run fresh.
+ */
+function resolveDefaultPhase(
+  entries: EvalEntry[],
+  phaseTable: PhaseDefinition[],
+  round: number,
+  change: string,
+  lastResult: PhaseNextResult['last_result'],
+): ResolvePhaseNextResult {
   const totalPhases = phaseTable.length;
-  const round = computeRound(entries);
-
-  const roundLimitResult = checkRoundLimit(round, totalPhases);
-  if (roundLimitResult) {
-    return roundLimitResult;
+  const allPassed = phaseTable.every((p) => hasPhasePassed(entries, p.id));
+  if (allPassed) {
+    return { result: buildDoneResponse(round, totalPhases, lastResult) };
   }
 
-  // -- Backtrack detection --
-  const backtrackResult = handleBacktrack(entries, phaseTable, change, round, totalPhases);
-  if (backtrackResult) {
-    return backtrackResult;
-  }
+  const nextPhaseIndex = phaseTable.findIndex((p) => !hasPhasePassed(entries, p.id));
+  const nextPhaseDef = phaseTable[nextPhaseIndex];
 
-  const passedPhases = phaseTable.filter((p) => hasPhasePassed(entries, p.id));
-  if (passedPhases.length >= totalPhases) {
-    return { result: buildDoneResponse(round, totalPhases) };
-  }
-
-  const nextPhaseDef = phaseTable.find((p) => !hasPhasePassed(entries, p.id));
-  if (!nextPhaseDef) {
-    return { result: buildDoneResponse(round, totalPhases) };
-  }
-
-  const retryResult = checkRetryLimit(
-    entries,
-    nextPhaseDef,
-    round,
-    totalPhases,
-    change,
-    phaseTable,
-  );
+  const retryResult = checkRetryLimit(entries, nextPhaseDef, round, totalPhases, lastResult);
   if (retryResult) {
     return retryResult;
   }
 
   return {
-    result: buildPhaseResponse(nextPhaseDef, round, totalPhases, change, phaseTable),
+    result: buildPhaseResponse(
+      nextPhaseDef,
+      round,
+      phaseTable.length,
+      change,
+      phaseTable,
+      undefined,
+      lastResult,
+    ),
   };
+}
+
+function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult {
+  const { change, entries, workflowType } = opts;
+  const phaseTable = getPhaseTable(workflowType);
+  const round = computeRound(entries);
+  const lastResult = getLatestEntry(entries);
+
+  const roundLimitResult = checkRoundLimit(round, phaseTable.length, lastResult);
+  if (roundLimitResult) return roundLimitResult;
+
+  const backtrackResult = handleBacktrack(entries, phaseTable, change, round, lastResult);
+  if (backtrackResult) return backtrackResult;
+
+  return resolveDefaultPhase(entries, phaseTable, round, change, lastResult);
 }
 
 /**
  * Full phase_next: reads eval.json from disk, resolves next phase.
  *
  * This function is READ-ONLY — it never writes to eval.json.
- * Stale marking and propagation are handled entirely by phase_log.
+ * Stale marking and propagation are handled entirely by the standalone backtrack tool.
  *
  * Called by the MCP tool handler.
  */

@@ -63,7 +63,7 @@ function loadPatterns(projectRoot: string): ProtectedPattern[] {
   });
   patterns.push({
     glob: '**/openspec/config.json',
-    reason: '该文件受写入保护：%s。detected via %t。请使用 config_get/config_set MCP 工具替代。',
+    reason: '该文件受写入保护：%s。detected via %t。请提供修改方案，通知用户自行操作。',
   });
 
   const config = readConfig(projectRoot);

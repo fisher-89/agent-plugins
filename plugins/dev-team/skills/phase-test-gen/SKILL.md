@@ -1,13 +1,7 @@
 ---
 name: phase-test-gen
-description: |
-  EXECUTION phase (G→E): test-gen-generator writes test files, then evaluator checks
-  via git diff against test-design.md. Loops on fail.
-license: MIT
+description: Test-gen-generator writes test files, then evaluator checks via git diff against test-design.md. Loops on fail.
 disable-model-invocation: true
-metadata:
-  author: dev-team
-  version: "1.0"
 ---
 
 Test generation phase — Generator writes test files, Evaluator inspects.
@@ -18,38 +12,73 @@ Test generation phase — Generator writes test files, Evaluator inspects.
 /dev-team:phase-test-gen [change-name]
 ```
 
-## Steps
+## Process
 
-### 1. Parse change name
+### Detect active change
 
-If a change name is provided, use it. Otherwise call `mcp__plugin_dev-team_dev-team__change_list` to get active changes and prompt user to select.
+Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
 
-### 2. Gate check
+### Phase Check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`. If `result.next_phase` is not `test-gen`, stop — prior phase gates have not passed.
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state. 
 
-### 3. G→E Loop
+If `next_phase` is "test-gen" continue to `### Run Executor`.
 
-**3a. Generator:**
+Otherwise, follow the table bellow:
+
+| 条件 | 含义 | 处理 |
+|---|---|---|
+| `done == true` | 流程已完成 | 停止：报告异常，如需修改可开启新流程 |
+| `allowed_backtrack_phases[].id have "test-gen"` | 回溯至当前步骤 | 继续步骤 `**Backtrack**` |
+| `last_result.verdict == "fail"` and `allowed_backtrack_phases[].id not have "test-gen"` | 不支持回溯至当前步骤 | 停止：告知异常及支持回溯的步骤 |
+| `last_result.verdict == "pass"` and `allowed_backtrack_phases[].id not have "test-gen"` | 下一步不匹配 | 停止：告知异常及应该执行的步骤 `next_phase` |
+
+**Backtrack**
+```
+mcp__plugin_dev-team_dev-team__backtrack({
+  change: "<change-name>",
+  phase: "<last_result.phase>",
+  backtrack_to: "test-gen",
+  backtrack_reason: "用户手动执行回溯，推测原因：<Infer from `last_result.report`>"
+})
+```
+If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Executor`.
+
+### Run Executor
+
+Call `Agent` with response of `phase_next`: 
 ```
 Agent({
-  description: "Generate test files",
-  subagent_type: "dev-team:test-gen-generator",
-  prompt: "Generate test files for change '<name>'."
+  description: "Execute phase <next_phase>",
+  subagent_type: executor.agent_type,
+  prompt: executor.prompt
 })
 ```
 
-**3b. Evaluator:**
+### Run Evaluator
+
+Call `Agent` with response of `phase_next`: 
 ```
 Agent({
-  description: "Evaluate generated tests",
-  subagent_type: "dev-team:test-gen-evaluator",
-  prompt: "Evaluate generated test code for change '<name>' against test-design.md. Append result to eval.json."
+  description: "Evaluate phase <next_phase>",
+  subagent_type: evaluator.agent_type,
+  prompt: evaluator.prompt
 })
 ```
 
-**3c. Verdict:** Read latest phase "test-gen" entry from eval.json. If "fail", redo Generator with failed items, then Evaluator. Loop max 5x.
+### Verdict Phase Result
 
-### 4. Report
+```
+result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
+
+if result.last_result is null:
+  → 错误：Evaluator 未正确写入 eval.json，停止
+
+if result.last_result.verdict == "pass" → continue to `### Report`
+
+if result.last_result.verdict == "fail" → retry from `### Run Executor` or stop with backtrack suggestion to one of `allowed_backtrack_phases[].id`
+```
+
+### Report
 
 Show verdict, pass/total, and notes.
