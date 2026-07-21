@@ -183,7 +183,7 @@ export function writeEvalJson(changeDir: string, entries: EvalEntry[]): void {
   fs.mkdirSync(changeDir, { recursive: true });
   fs.writeFileSync(
     filePath,
-    JSON.stringify(entries, null, 2).replace(/(?<!\\)\n/g, '\r\n') + '\r\n',
+    JSON.stringify(entries, null, 2).replace(/(?<!\\)\n/g, '\n') + '\n',
     'utf-8',
   );
 }
