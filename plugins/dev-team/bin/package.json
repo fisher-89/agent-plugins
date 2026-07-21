@@ -6,7 +6,7 @@
   "type": "module",
   "scripts": {
     "build": "vp pack",
-    "start": "node dev-team-mcp.cjs",
+    "start": "mcp-inspector node dev-team-mcp.cjs",
     "test": "vp test --sequence.shuffle",
     "check": "vp check --fix && knip",
     "knip": "knip",
@@ -20,6 +20,7 @@
     "zod": "^4.4.3"
   },
   "devDependencies": {
+    "@modelcontextprotocol/inspector": "^1.0.0",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "@stryker-mutator/core": "^9.6.1",
     "@stryker-mutator/vitest-runner": "^9.6.1",
@@ -27,7 +28,7 @@
     "@types/picomatch": "^4.0.3",
     "@vitest/coverage-v8": "^4.1.8",
     "knip": "^6.17.1",
-    "typescript": "^6.0.3",
+    "typescript": "^7.0.2",
     "vite-plus": "^0.2.1"
   }
 }

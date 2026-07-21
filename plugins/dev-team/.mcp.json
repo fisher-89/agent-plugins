@@ -1,11 +1,12 @@
 {
   "mcpServers": {
     "dev-team": {
-      "command": "node ${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs"
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs"]
     },
     "likec4": {
-      "command": "npx",
-      "args": ["-y", "@likec4/mcp"],
+      "command": "node",
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/remote-npm-mcp.cjs", "@likec4/mcp"],
       "env": { "LIKEC4_WORKSPACE": "${CLAUDE_PROJECT_DIR}/openspec/architecture" }
     }
   }
