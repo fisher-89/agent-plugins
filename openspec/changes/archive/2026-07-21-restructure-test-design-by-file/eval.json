@@ -1,0 +1,603 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md + 4 spec files against 11-item static checklist. All items pass: problem clearly scoped (4 specific pain points), change scope has all 3 required sections, risks have concrete mitigations, 6 ACs are testable, 3 decisions include rejected alternatives, spec files 1:1 match capabilities (4/4), no TODOs/placeholders, and cross-validation between proposal and specs reveals no conflicts.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "L9-17 lists 4 specific problems (关注点耦合, 结构不一致, 增量维护成本高, 工具集成困难) with concrete descriptions"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "L61-70 实现文件 (8 items), L72-74 测试文件 (non-empty: '无新增测试文件'), L76-83 不要修改 (5 items)"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "L101 risk1: compat write or modify test-gen; L103 risk2: path diff / hash suffix; L105 risk3: affects new changes only"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-1 to AC-6 (L88-95) each specify object+condition, e.g. AC-1 '存在 test-design-by-file-spec 能力定义，每项 Requirement 有至少一个 Scenario'"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "L113-117 all 3 decisions list rejected alternative: separate dir ('增加目录层级'), keep both ('增加维护成本'), modify test-gen now ('增加变更复杂度')"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "No architectural or coding guideline contradictions found; version bump rule is implementation-time action not contradicted"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "No 'TODO', 'TBD', 'placeholder', or '{{...}}' found in proposal.md. L121 is an open question, not a placeholder"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题 (4 problems), 提案 (detailed plan), 变更范围 (file lists), 验收标准 (6 ACs), 风险 (3 risks with mitigations), 过程/决策 (3 decisions) all substantive"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "L47-56: 新增能力 (2 items: test-design-by-file-spec, test-design-template), 修改的能力 (2 items: test-design-planner-workflow, test-design-evaluator-workflow)"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "4 capabilities map 1:1 to 4 spec files: test-design-by-file-spec, test-design-template, test-design-planner-workflow, test-design-evaluator-workflow. No extra specs"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "新增 specs have `## ADDED`, 修改 specs have `## MODIFIED`. All ACs referenced in specs. 变更范围 files match spec scenarios. No contradictions"
+      }
+    ],
+    "timestamp": "2026-07-21T08:06:20.217Z"
+  },
+  {
+    "phase": "proposal",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "Evaluated proposal.md + 3 spec files against 11-item static checklist. R2 FAILS: test-design.md.template section missing. All other items pass. Overall verdict: fail.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "L9-14: specifically describes the 'by table type' grouping problem and missing function overview with concrete pain points"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": false,
+        "evidence": "L58-72: has `### 实现文件` (L60-64) and `### 不要修改` (L66-71) but NO `### 测试文件` section. R2 requires all three sections with at least one non-empty among 实现文件/测试文件."
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "L97-101: Risk 1 mitigation '模板注释清晰标注重复结构; evaluator 严格按模板列名检查', Risk 2 mitigation '仅改变章节层级和列名; test-gen 按列名读取' — both are specific, non-generic"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "L77-84: AC-1 to AC-6 each specify object+condition, e.g. AC-1 targets test-design.md.template and verifies per-file section structure"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "L107-112: 3 decisions each list a rejected alternative (拆多文件, 表格, 一起改) with reasoning"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "No contradictions with CLAUDE.md guidelines (slim architecture, surgical changes, no test-only exports). Version bump rule is implementation-time, not contradicted"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "No TODO, TBD, or placeholder found. The `{{源文件}}`/`{{测试文件}}` in L79 are code-quoted template syntax examples describing the format, not incomplete content"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题 (4 specific pain points), 提案 (detailed BEFORE/AFTER comparison), 变更范围 (file lists), 验收标准 (6 ACs), 风险 (2 risks with mitigations), 过程/决策 (3 decisions) — all substantive, no placeholders"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "L48-55: `### 修改的能力` lists 3 items (test-design-template, test-design-planner-workflow, test-design-evaluator-workflow) — non-empty"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "3 capabilities in proposal (test-design-template, test-design-planner-workflow, test-design-evaluator-workflow) map 1:1 to 3 spec files under specs/. No extra or missing specs"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "All 3 specs declare `## MODIFIED` matching proposal's '修改的能力'. AC-1 to AC-6 each have corresponding requirements in specs (e.g. AC-1 -> '单元测试章节按 per-file 组织'). 变更范围 files match spec scenarios. No contradictions"
+      }
+    ],
+    "timestamp": "2026-07-21T08:15:23.298Z"
+  },
+  {
+    "phase": "proposal",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md + 3 spec files against 11-item checklist. All items pass. R2 now has correct sections (实现文件:3 files, 测试文件:non-empty, 不要修改:4 items). All 3 capabilities match 3 spec dirs. No TODOs/placeholders. R3 mitigations specific. R5 all decisions have rejected alternatives. R11 cross-validated — no conflicts. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "R1: 问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题 section describes specific flat table-type grouping issue forcing reviewer jumps, plus missing 待测功能 overview (lines 10-14)"
+      },
+      {
+        "item": "R2: 变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "All three sections present: 实现文件 (3 files), 测试文件 (explanatory text, non-empty), 不要修改 (4 items) — lines 58-76"
+      },
+      {
+        "item": "R3: 风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "Two risks with specific mitigations (lines 99-105): template-evaluator inconsistency → comments + strict column checks; test-gen impact → row data unchanged + column-name-based reading"
+      },
+      {
+        "item": "R4: 验收标准可测试",
+        "pass": true,
+        "evidence": "6 ACs (lines 81-88) each specify object and condition — e.g., AC-1 checks template uses '### {{源文件}} -> {{测试文件}}' with 3 subsections"
+      },
+      {
+        "item": "R5: 关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "3 decisions in 决策 table (lines 110-117) each list rejected alternative with reason: 拆多文件, 表格, 一起改"
+      },
+      {
+        "item": "R6: 提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "No contradiction with CLAUDE.md — surgical changes to template/agent files only, consistent with slim architecture"
+      },
+      {
+        "item": "R7: 无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "Grep for TODO/TBD/placeholder/{{...}} on proposal.md and all 3 spec files returned no matches"
+      },
+      {
+        "item": "R8: 所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题, 提案, 变更范围, 验收标准, 风险 sections all have substantive content with no placeholders"
+      },
+      {
+        "item": "R9: 能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "'## 能力' section present (line 48) with '### 修改的能力' listing 3 non-empty capabilities"
+      },
+      {
+        "item": "R10: specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "3 capabilities → 3 spec dirs: test-design-template, test-design-planner-workflow, test-design-evaluator-workflow (1:1 match)"
+      },
+      {
+        "item": "R11: proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "All 3 specs use ## MODIFIED consistent with '修改的能力'; AC-1..AC-6 map to spec requirements; 变更范围 files match spec scenarios; 集成测试不变 consistent across both"
+      }
+    ],
+    "backtrack_to": "proposal",
+    "backtrack_reason": "用户决定将集成测试章节模板也纳入变更范围，需要修订 proposal 以反映新的集成测试结构设计",
+    "timestamp": "2026-07-21T08:16:28.871Z",
+    "stale": true
+  },
+  {
+    "phase": "proposal",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "Evaluated proposal.md + 3 spec files against 11-item checklist. All items pass: R1 3 specific problems; R2 all 3 scope sections present; R3 mitigations specific; R4 6 testable ACs; R5 3 decisions with rejected alternatives; R6 aligns CLAUDE.md; R7 no TODOs/TBD; R8 all sections substantive; R9 modified capabilities non-empty; R10 3 specs 1:1 mapping; R11 ACs/scopes consistent, no conflicts. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "L9-15: 3 specific problems — unit test cases/mocks across 2 tables forcing reviewer jumps, integration test similarly scattered, missing overview sections"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "L91-108: all 3 sections present. 实现文件 (3 files L93-97), 测试文件 (non-empty explanatory text L99-101), 不要修改 (4 items L103-108)"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "L125-130: 2 risks. Risk1 planner inconsistency → comments + strict eval. Risk2 test-gen impact → row data unchanged + column-name reading. Both specific, non-generic"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "L112-121: 6 ACs each specify object+condition, e.g. AC-1 template must use `### {{源文件}} -> {{测试文件}}` with 3 subsections"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "L136-142: 3 decisions each list rejected alternative with reason (拆多文件→复杂度; 功能模块分组→粒度粗; 去掉测试文件列→不适用多文件场景)"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "Surgical changes to 3 files only; no test-only exports; no speculative features; consistent with slim architecture"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "Grep for TODO/TBD/placeholder returned matches only in eval.json (historic). `{{源文件}}`/`{{测试文件}}` in AC-1 (L116) are code-quoted template syntax examples, not placeholders"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题 (3 problems), 提案 (BEFORE/AFTER with ASCII diagram), 变更范围 (file lists), 验收标准 (6 ACs), 风险 (2 risks), 过程/决策 (3 decisions) — all substantive"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "L81-87: `## 能力` with `### 修改的能力` listing 3 non-empty capabilities (test-design-template, test-design-planner-workflow, test-design-evaluator-workflow)"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "3 capabilities → 3 spec files: specs/test-design-template/spec.md, specs/test-design-planner-workflow/spec.md, specs/test-design-evaluator-workflow/spec.md. 1:1 mapping, no extra/missing"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "AC-1~AC-6 map to spec requirements across all 3 specs. 变更范围 files (template + 2 agent files) match spec scenarios. Specs describe ADDED requirements for modified capabilities — consistent declaration. No contradictions"
+      }
+    ],
+    "backtrack_to": "proposal",
+    "backtrack_reason": "重新设计集成测试模板：顶层按关系分组（数据/时序/逻辑），关系下按路径类型分场景；明确定义集成测试关注数据流动、时序协调、涌现逻辑，而非单元测试已覆盖的模块依赖关系",
+    "timestamp": "2026-07-21T08:42:23.748Z",
+    "stale": true
+  },
+  {
+    "phase": "proposal",
+    "attempt": 5,
+    "verdict": "pass",
+    "report": "All 11 items pass. 问题 has 4 specific defects. R2 all 3 scope sections present. R3 3 risks with specific mitigations. R4 6 testable ACs. R5 3 decisions with rejected alternatives. R6 consistent with CLAUDE.md. R7 no TODOs/placeholders. R8 all sections substantive. R9 3 modified capabilities. R10 3 specs 1:1 map. R11 no cross-conflicts.",
+    "checklist": [
+      {
+        "item": "R1: 问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "L9-19 lists 4 specific structural defects: unit/integration boundary blurry, integration lacks top nav, unit tables scattered, missing overview. Each has concrete description."
+      },
+      {
+        "item": "R2: 变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "L167-183: all 3 sections present. 实现文件 (3 files), 测试文件 (non-empty explanatory text), 不要修改 (4 items)."
+      },
+      {
+        "item": "R3: 风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "L200-206: 3 risks. Risk1: comments+guide+evaluator check. Risk2: row data unchanged+column-name reading. Risk3: 'most non-trivial' principle. All specific."
+      },
+      {
+        "item": "R4: 验收标准可测试",
+        "pass": true,
+        "evidence": "L188-196: 6 ACs each specify object+condition. AC-1: template uses '### {{源文件}} -> {{测试文件}}' with 3 subsections."
+      },
+      {
+        "item": "R5: 关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "L212-218: 3 decisions each list rejected alternative: 拆多文件, 按场景/模块分组, 保留路径类型列 — each with reason."
+      },
+      {
+        "item": "R6: 提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "Surgical changes to 3 template/agent files. No test-only exports. No speculative features. Consistent with slim architecture."
+      },
+      {
+        "item": "R7: 无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "No TODO/TBD. 'placeholder' in specs is domain term for empty-section behavior. {{源文件}}/{{测试文件}} are template syntax examples, not unfilled content."
+      },
+      {
+        "item": "R8: 所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题 (4 problems), 提案 (detailed BEFORE/AFTER), 变更范围, 验收标准 (6 ACs), 风险 (3 risks), 过程/决策 (3 decisions) — all substantive."
+      },
+      {
+        "item": "R9: 能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "L155-162: '## 能力' with '### 修改的能力' listing 3 non-empty: test-design-template, test-design-planner-workflow, test-design-evaluator-workflow."
+      },
+      {
+        "item": "R10: specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "3 capabilities map 1:1 to 3 spec dirs: specs/test-design-template/spec.md, specs/test-design-planner-workflow/spec.md, specs/test-design-evaluator-workflow/spec.md."
+      },
+      {
+        "item": "R11: proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "All 3 specs ADDED+MODIFIED consistent with '修改的能力'. AC-1..AC-6 map to spec requirements. 变更范围 files match spec scenarios. No contradictions."
+      }
+    ],
+    "backtrack_to": "proposal",
+    "backtrack_reason": "探索阶段重新设计了集成测试模板结构，需完整修订 proposal。核心变更：(1) 放弃数据/时序/逻辑三类固定分类，改为自由命名的关系标题；(2) 每组关系对应一个测试文件；(3) 场景描述用自由文本而非表格；(4) 路径类型放入用例表列内",
+    "timestamp": "2026-07-21T09:10:08.608Z",
+    "stale": true
+  },
+  {
+    "phase": "proposal",
+    "attempt": 6,
+    "verdict": "pass",
+    "report": "All 11 checklist items pass. Proposal is well-structured: problem clearly describes 5 concrete defects, change scope has 3 implementation files + non-change list, risks have specific mitigations (naming guidelines, column-format resilience), 7 ACs are verifiable by object+condition, 4 decisions each list rejected alternatives, no TODOs/placeholders, 3 capabilities match 3 spec files with no conflicts.",
+    "checklist": [
+      {
+        "item": "R1: 问题描述清晰",
+        "pass": true,
+        "evidence": "L9-21 lists 5 specific structural defects (boundary blur, missing declarations, cross-section scatter, missing overview, classification framework issues)"
+      },
+      {
+        "item": "R2: 变更范围明确",
+        "pass": true,
+        "evidence": "L189-206: 实现文件 (3 files) + 测试文件 (explanation) + 不要修改 (4 items); 实现文件和测试文件均有内容"
+      },
+      {
+        "item": "R3: 风险有具体缓解措施",
+        "pass": true,
+        "evidence": "L226-231: 3 risks with concrete mitigations — naming guidelines in template/planner/evaluator, column-format resilience, paragraph structure suggestions"
+      },
+      {
+        "item": "R4: 验收标准可测试",
+        "pass": true,
+        "evidence": "L210-221: AC1-AC7 each specify object (template/planner/evaluator) + verifiable conditions (heading patterns, column names, section completeness)"
+      },
+      {
+        "item": "R5: 关键决策有备选方案",
+        "pass": true,
+        "evidence": "L236-243: 4 decisions each list at least one rejected alternative with reason (按关系类型, 不Mock, 保留列, 保留场景描述列)"
+      },
+      {
+        "item": "R6: 与CLAUDE.md一致",
+        "pass": true,
+        "evidence": "No plugin.json changes needed (template/prompt only); no test-only exports; no architecture conflicts"
+      },
+      {
+        "item": "R7: 无占位符/TODO",
+        "pass": true,
+        "evidence": "No TODO, TBD, or placeholder found; {{...}} markers in code blocks are legitimate template syntax examples, not proposal placeholders"
+      },
+      {
+        "item": "R8: 所有章节有实质性内容",
+        "pass": true,
+        "evidence": "问题 (5 issues), 提案 (detailed structure), 变更范围 (specific files), 验收标准 (7 ACs), 风险 (3 risks), 过程 (4 decisions + 待决问题:无)"
+      },
+      {
+        "item": "R9: 能力章节存在且有新增条目",
+        "pass": true,
+        "evidence": "L179-186: ## 能力 with ### 新增能力 listing 3 capabilities (test-design-template, test-design-planner-workflow, test-design-evaluator-workflow)"
+      },
+      {
+        "item": "R10: specs/与能力一一对应",
+        "pass": true,
+        "evidence": "3 capabilities → 3 spec files: specs/test-design-template/spec.md, specs/test-design-planner-workflow/spec.md, specs/test-design-evaluator-workflow/spec.md; no extra files"
+      },
+      {
+        "item": "R11: proposal与specs无逻辑冲突",
+        "pass": true,
+        "evidence": "Capabilities all ADDED per spec headers; AC1-AC5 match test-design-template spec requirements; AC6 matches planner spec; AC7 matches evaluator spec; change scope files match spec Module Contract sections"
+      }
+    ],
+    "timestamp": "2026-07-21T09:43:56.966Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 10 checklist items pass. Data model uses pseudocode (not table format) but fields and persistence are fully documented. All 7 ACs from proposal are covered in design. Tasks follow linear phase dependency. No test tasks present. Change list matches proposal and tasks.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "3 components in lines 8-14: each has 职责, 依赖, 技术(Markdown), and concrete 文件路径. No TBD."
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "Lines 143-199 define UnitTestSection/IntegrationSection/AcceptanceScope with full field types. Data flow diagram (lines 201-228) shows persistence pipeline."
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1/2/3/4/5 covered in 模板修改明细 (lines 39-79); AC-6 in Planner 修改明细 (lines 89-100); AC-7 in Evaluator 修改明细 (lines 104-128)."
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "4 linear phases: Phase1->Phase2+3->Phase4. No later task depends on earlier. All use - [ ] checkboxes."
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "Each task specifies exact files to modify and exact changes (e.g., '重写 Step 8' with 6 sub-operations, '新增检查 **涉及模块** 表格列名'). No vague tasks."
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "Lines 240-253: 运行时依赖('无新增'), 构建/测试依赖('无新增'), 逻辑依赖(4 items with purposes documented)."
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "Modifies only agent prompts and templates, no runtime code — matches CLAUDE.md 'slim plugin' architecture where agents are context-intensive and skills via OpenSpec CLI."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "All required sections present: 架构组件, 变更清单(3 files with sub-tables), 数据模型, 路由/API(N/A), 依赖, 待决问题(4 items)."
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md has no test strategy section. tasks.md tasks are template/agent modifications and verification only — no unit/integration test tasks."
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "All 3 proposal files in design.md 修改文件. All 3 referenced by tasks. 公共函数 subtable correctly states no changes. No contradictions between sub-tables."
+      }
+    ],
+    "timestamp": "2026-07-21T09:48:53.753Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Skipped: change only involves markdown files, no testable code.",
+    "checklist": [],
+    "skipped": true,
+    "timestamp": "2026-07-21T09:55:03.225Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 checklist items pass. Template restructured to per-file/per-relationship format, planner/evaluator agents updated consistently. No unrelated changes, all tasks completed. Design decisions fully implemented.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "3 components (template, planner, evaluator) all have implementation in git diff: plugins/dev-team/templates/artifacts/test-design.md.template, agents/test-design-planner.md, agents/test-design-evaluator.md"
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "3 modified files specified in design.md all present in git diff. No new files, public functions, types, or config changes needed (confirmed zero)."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Template in templates/artifacts/, agents in agents/ with YAML frontmatter. HTML comment style, Markdown structures, and naming conventions match existing files."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md states no HTTP API or MCP tool changes for this change. Trivially satisfied."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "All 18 task items (1.1-4.3) in tasks.md are marked [x]. Verified via git diff and current file content."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff touches only 4 files: 3 implementation files + tasks.md status updates. All directly related to the change."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Template per-file/per-relationship structure matches design. Planner Step 8/9-10 rewritten for new format. Evaluator T8 sub-items (U1-U5, I1-I8, G1), T2, T5 updated as specified."
+      }
+    ],
+    "timestamp": "2026-07-21T09:59:29.842Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Skipped: change only involves markdown/template files, no test code to generate.",
+    "checklist": [],
+    "skipped": true,
+    "timestamp": "2026-07-21T09:59:39.982Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Skipped: no tests to run for a markdown/template-only change.",
+    "checklist": [],
+    "skipped": true,
+    "timestamp": "2026-07-21T09:59:44.511Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 7 checklist items pass. Changes are Markdown-only (template + agent prompts) with no runtime code. Implementation fully matches design.md: per-file unit test grouping, per-relationship integration test grouping, detailed evaluator T8 checks. No security concerns, no dead code, consistent formatting.",
+    "checklist": [
+      {
+        "item": "C1: 变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "All changed files are Markdown (template, agent specs). No executable code, no SQL/command injection vectors, no hardcoded keys."
+      },
+      {
+        "item": "C2: 所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "Template uses {{placeholder}} variables with HTML comment guidance. Evaluator T8-U1 through T8-G1 provide thorough format validation on generated output."
+      },
+      {
+        "item": "C3: 实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "Template restructuring (per-file unit tests, per-relationship integration tests), planner step updates, and evaluator T8 rewrites all match design.md specs. AC-1 through AC-7 covered."
+      },
+      {
+        "item": "C4: 无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Evaluator enforces: non-empty **关联AC**, non-empty **关系描述**, at least 1 scenario per relationship, ≥2 rows in **涉及模块** table, non-empty scene descriptions."
+      },
+      {
+        "item": "C5: 无冗余或死代码",
+        "pass": true,
+        "evidence": "Old flat table structure (global `### 用例`/`### Mock策略`) fully replaced with new per-file and per-relationship sections. Planner steps 8-10 rewritten, no dead branches."
+      },
+      {
+        "item": "C6: 代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Agent specs follow YAML frontmatter + Process + Output + Constraints format. Templates use extensive HTML comments. Consistent with existing project conventions."
+      },
+      {
+        "item": "C7: 外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Not applicable. No runtime code with external data types; all changes are Markdown templates and agent prompts."
+      }
+    ],
+    "timestamp": "2026-07-21T10:00:34.191Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 5 checklist items pass. AC-1..AC-7 traced to specific code: template per-file/per-relationship structure, planner steps 8/10, evaluator T8-U1..T8-G1 + T2. No scope creep — only 3 impl files changed. All in_scope items implemented. out_of_scope (test-gen-generator/evaluator, archive, 验收范围 table) unchanged. All 3 risks have concrete mitigations in code. All tasks [x].",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1→template L27/32/39/54; AC-2→template L74/79/90/94/101; AC-3→template L37/86/99; AC-4→template L50/63/115/130; AC-5→template L101-119; AC-6→planner L19-28/30-35/57-62; AC-7→evaluator L53-77/39-43"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Only 3 impl files (template, planner, evaluator) plus change artifacts. No new features/APIs/components beyond in_scope list."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "Template per-file/per-relationship restructured (L27-131), planner Process steps 8/10 rewritten (L19-35), evaluator T8+T2 checks adapted (L53-77, L39-43)"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "test-gen-generator.md and test-gen-evaluator.md grep no new structure terms (unchanged). 验收范围 table preserves 5 columns. Archive files untouched."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Risk1→template L76 naming guidelines+planner L57 constraints+evaluator T8-I1; Risk2→template L115 scene table columns preserved; Risk3→template L103 paragraph guidance+planner scene format"
+      }
+    ],
+    "timestamp": "2026-07-21T10:01:57.109Z"
+  }
+]

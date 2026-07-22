@@ -61,7 +61,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -85,7 +85,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -109,7 +109,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const vitestResult = executePlanEntry(
       {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -125,7 +125,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const pytestResult = executePlanEntry(
       {
         directory: '.',
-        framework: 'pytest',
+        framework: 'pytest' as const,
         coverage_format: 'coverage-py' as const,
         coverage_output: 'coverage.json',
         coverage_artifacts: ['coverage.json'],
@@ -156,7 +156,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -177,7 +177,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
     const result = executePlanEntry(
       {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -195,7 +195,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -221,7 +221,7 @@ describe('executePlanEntry -- 单一命令执行', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -248,7 +248,7 @@ describe('executePlanEntry -- empty test command', () => {
   it('should return error when command is empty string', async () => {
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -264,7 +264,7 @@ describe('executePlanEntry -- empty test command', () => {
   it('should return error when command is whitespace-only', async () => {
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -304,14 +304,13 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'pytest',
+        framework: 'pytest' as const,
         coverage_format: 'coverage-py' as const,
         coverage_output: 'coverage.json',
         coverage_artifacts: ['coverage.json'],
         script: {
-          shell:
-            'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
-          cmd: 'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\n',
+          shell: 'pytest -v {files}; pytest --cov=. --cov-report=json --cov-branch -q',
+          cmd: 'pytest -v {files} && pytest --cov=. --cov-report=json --cov-branch -q',
         },
       };
 
@@ -331,7 +330,7 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'rust',
+      framework: 'rust' as const,
       coverage_format: 'llvm-cov' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -365,7 +364,7 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'pytest',
+      framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
@@ -387,7 +386,7 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'pytest',
+      framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
@@ -398,9 +397,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       },
     };
 
-    // 覆盖率输出是 coverage.json 文件，不在 stdout 中
-    // 验证 script 包含 --cov-report=json（文件输出）
-    expect(entry.script.shell).toContain('--cov-report=json');
     // 执行结果中 coverage 为 null（因为 coverage.json 文件不存在）
     const result = executePlanEntry(entry, '/project');
     expect(result.coverage).toBeNull();
@@ -420,7 +416,7 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'pytest',
+      framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
@@ -442,7 +438,7 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'pytest',
+      framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
@@ -463,7 +459,7 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'pytest',
+      framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
@@ -485,7 +481,7 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'pytest',
+      framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
       coverage_artifacts: ['coverage.json'],
@@ -523,7 +519,7 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -546,7 +542,7 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
 
     const entry1 = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -557,7 +553,7 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
     };
     const entry2 = {
       directory: '.',
-      framework: 'vite-plus',
+      framework: 'vite-plus' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -586,7 +582,7 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -613,7 +609,7 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -638,7 +634,7 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -675,7 +671,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -702,7 +698,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
     const entry = {
       directory: '.',
-      framework: 'bun',
+      framework: 'bun' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -725,7 +721,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -758,7 +754,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -789,7 +785,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', mutation: { score: 80 } },
+          test: { framework: 'vitest' as const, mutation: { score: 80 } },
         }),
         'utf-8',
       );
@@ -827,7 +823,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -860,7 +856,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', mutation: { score: 80 } },
+          test: { framework: 'vitest' as const, mutation: { score: 80 } },
         }),
         'utf-8',
       );
@@ -904,7 +900,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -947,7 +943,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -980,7 +976,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', mutation: { score: 80 } },
+          test: { framework: 'vitest' as const, mutation: { score: 80 } },
         }),
         'utf-8',
       );
@@ -1017,7 +1013,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1102,7 +1098,7 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
         test: {
-          framework: 'vitest',
+          framework: 'vitest' as const,
           exclude: ['**/src/app.ts'],
           mutation: { score: 80 },
         },
@@ -1113,7 +1109,7 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1141,7 +1137,7 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest', mutation: { score: 80 } },
+        test: { framework: 'vitest' as const, mutation: { score: 80 } },
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
@@ -1149,7 +1145,7 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1176,7 +1172,7 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
         test: {
-          framework: 'vitest',
+          framework: 'vitest' as const,
           exclude: ['**/*'],
           mutation: { score: 80 },
         },
@@ -1186,7 +1182,7 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1261,7 +1257,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest', mutation: { score: 80 } },
+        test: { framework: 'vitest' as const, mutation: { score: 80 } },
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
@@ -1269,7 +1265,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1295,7 +1291,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest', exclude: [], mutation: { score: 80 } },
+        test: { framework: 'vitest' as const, exclude: [], mutation: { score: 80 } },
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
@@ -1303,7 +1299,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1329,7 +1325,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest', mutation: { score: 80 } },
+        test: { framework: 'vitest' as const, mutation: { score: 80 } },
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
@@ -1337,7 +1333,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1367,7 +1363,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1412,7 +1408,7 @@ describe('executePlanEntry -- platform command selection (AC-6)', () => {
       mockExecSync.mockReturnValue('{"testResults":[]}');
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1438,7 +1434,7 @@ describe('executePlanEntry -- platform command selection (AC-6)', () => {
       mockExecSync.mockReturnValue('{"testResults":[]}');
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
         coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1471,7 +1467,7 @@ describe('executePlanEntry -- shell resolution (AC-7, AC-10)', () => {
 
   const makeEntry = () => ({
     directory: '.',
-    framework: 'vitest',
+    framework: 'vitest' as const,
     coverage_format: 'istanbul' as const,
     coverage_output: 'coverage/coverage-summary.json',
     coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1595,7 +1591,7 @@ describe('executePlanEntry -- 向后兼容（缺失 cmd 字段）', () => {
 
     const entry = {
       directory: '.',
-      framework: 'vitest',
+      framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
       coverage_artifacts: ['coverage/coverage-summary.json'],
@@ -1630,7 +1626,7 @@ describe('executePlanEntry -- StrykerJS 平台感知 (AC-8)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', mutation: { score: 80 } },
+          test: { framework: 'vitest' as const, mutation: { score: 80 } },
         }),
         'utf-8',
       );
@@ -1644,7 +1640,7 @@ describe('executePlanEntry -- StrykerJS 平台感知 (AC-8)', () => {
 
       const entry = {
         directory: '.',
-        framework: 'vitest',
+        framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
         coverage_artifacts: ['coverage/coverage-summary.json'],

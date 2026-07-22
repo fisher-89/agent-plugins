@@ -1,10 +1,12 @@
 import { z } from 'zod/v4';
 
+import { testFrameworkSchema } from './config/config.schema';
+
 const testPlanSchema = z.object({
   directory: z
     .string()
     .describe('Working directory for command execution (relative to project root)'),
-  framework: z.string().describe('Framework name'),
+  framework: testFrameworkSchema.describe('Framework name'),
   coverage_format: z
     .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
     .describe('Coverage output format'),
@@ -69,7 +71,7 @@ export const testDetectFrameworksOutputSchema = z.object({
     z.object({
       file: z.string().describe('File path'),
       framework: z
-        .string()
+        .union([testFrameworkSchema, z.literal('unknown')])
         .describe('Framework name (e.g. "vitest", "jest", "rust") or "unknown" if no match'),
     }),
   ),

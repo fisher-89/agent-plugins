@@ -10,7 +10,7 @@ const TEST_COVERAGE_FUNCTION_DEFAULT = 75;
 /** 变异测试得分阈值 */
 const TEST_MUTATION_SCORE_DEFAULT = 70;
 
-const testFrameworkSchema = z
+export const testFrameworkSchema = z
   .enum(['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'])
   .describe('测试框架');
 
@@ -139,4 +139,4 @@ export type OpenSpecConfig = z.output<typeof configSchema>;
 
 export type OpenSpecConfigInput = z.input<typeof configSchema>;
 
-export type TestFrameworks = NonNullable<OpenSpecConfig['test']['framework']>;
+export type TestFramework = z.infer<typeof testFrameworkSchema>;

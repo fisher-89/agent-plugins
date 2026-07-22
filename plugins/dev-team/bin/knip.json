@@ -3,7 +3,6 @@
   "tags": ["-lintignore"],
   "entry": ["src/mcp.ts", "src/cli.ts", "src/hooks.ts"],
   "project": ["src/**/*.ts", "!src/**/*.test.ts"],
-  "ignore": ["dev-team-mcp.cjs"],
   "ignoreDependencies": ["@vitest/coverage-v8"],
   "typescript": {
     "config": ["tsconfig.json"]

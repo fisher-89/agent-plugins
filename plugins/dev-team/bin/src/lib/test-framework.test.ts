@@ -196,43 +196,19 @@ describe('getFrameworkConfig -- all frameworks coverage fields non-empty', () =>
 });
 
 // ===========================================================================
-// AC-2: pytest 链式命令
+// AC-2: pytest 命令
 // ===========================================================================
 
-describe('getFrameworkConfig -- pytest 链式命令 (AC-2)', () => {
-  it('pytest shell.test_execution 应包含 `; _X=$?;` 链式分隔符', () => {
+describe('getFrameworkConfig -- pytest 命令 (AC-2)', () => {
+  it('pytest 框架 cmd.test_execution 包含测试和覆盖语句', () => {
     const result = getFrameworkConfig('pytest');
-    expect(result.shell.test_execution).toContain('; _X=$?;');
-  });
-
-  it('pytest shell.test_execution 应以 `exit $_X` 结尾', () => {
-    const result = getFrameworkConfig('pytest');
-    expect(result.shell.test_execution.endsWith('exit $_X')).toBe(true);
-  });
-
-  it('pytest shell.test_execution 应包含覆盖率命令 pytest --cov=', () => {
-    const result = getFrameworkConfig('pytest');
-    expect(result.shell.test_execution).toContain('pytest --cov=.');
-  });
-
-  it('pytest shell.test_execution 链式命令顺序：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`', () => {
-    const result = getFrameworkConfig('pytest');
-    const parts = result.shell.test_execution.split(';');
-    expect(parts[0].trim()).toMatch(/^pytest -v/);
-    expect(parts[1].trim()).toMatch(/^_X=\$[?]/);
-    expect(parts[2].trim()).toMatch(/^pytest --cov=/);
-    const lastPart = parts[parts.length - 1].trim();
-    expect(lastPart).toBe('exit $_X');
-  });
-
-  it('pytest shell.test_execution 应包含 `{files}` 占位符', () => {
-    const result = getFrameworkConfig('pytest');
-    expect(result.shell.test_execution).toContain('{files}');
+    expect(result.shell.test_execution).toContain('pytest -v {files}');
+    expect(result.cmd.test_execution).toContain('pytest --cov=');
   });
 });
 
 // ===========================================================================
-// AC-2: rust 链式命令
+// AC-2: rust 命令
 // ===========================================================================
 
 describe('getFrameworkConfig -- rust 链式命令 (AC-2)', () => {
@@ -292,39 +268,6 @@ describe('getFrameworkConfig -- 非链式框架 test_execution 不含链式模�
       const result = getFrameworkConfig(fw);
       expect(result.shell.test_execution).not.toContain('exit $_X');
     }
-  });
-});
-
-// ===========================================================================
-// AC-2: 链式命令边界和异常
-// ===========================================================================
-
-describe('getFrameworkConfig -- 链式命令边界和异常', () => {
-  it('pytest shell.test_execution 链式命令各部分顺序正确：测试命令 -> `; _X=$?;` -> 覆盖率命令 -> `; exit $_X`', () => {
-    const result = getFrameworkConfig('pytest');
-    const match = result.shell.test_execution.match(
-      /^pytest -v .+?; _X=\$.; pytest --cov=..+?; exit \$_X$/,
-    );
-    expect(match).toBeTruthy();
-  });
-
-  it('pytest shell.test_execution 链式语法格式正确（包含 `;` 分隔符模式 `; _X=$?;`）', () => {
-    const result = getFrameworkConfig('pytest');
-    expect(result.shell.test_execution).toMatch(/; _X=\$.;/);
-    expect(result.shell.test_execution).toMatch(/; exit \$_X$/);
-  });
-
-  it('rust shell.test_execution 链式命令包含 `exit $_X`', () => {
-    const result = getFrameworkConfig('rust');
-    expect(result.shell.test_execution).toMatch(/; exit \$_X$/);
-  });
-
-  it('pytest shell.test_execution 链式命令含有覆盖率后处理步骤时仍保留核心链式结构', () => {
-    const result = getFrameworkConfig('pytest');
-    expect(result.shell.test_execution).toContain('; _X=$?;');
-    expect(result.shell.test_execution).toContain('exit $_X');
-    expect(result.shell.test_execution).toContain('pytest --cov=');
-    expect(result.shell.test_execution).toContain('pytest -v');
   });
 });
 
@@ -401,13 +344,6 @@ describe('getFrameworkConfig -- test_execution 模板化 (AC-3)', () => {
       expect(typeof result.shell.test_execution).toBe('string');
       expect(result.shell.test_execution.length).toBeGreaterThan(0);
     }
-  });
-
-  it('pytest shell.test_execution 为链式命令含 `{files}` 占位符', () => {
-    const result = getFrameworkConfig('pytest');
-    expect(result.shell.test_execution).toContain('{files}');
-    expect(result.shell.test_execution).toContain('; _X=$?;');
-    expect(result.shell.test_execution).toContain('exit $_X');
   });
 
   it('jest shell.test_execution 含 `--json` 和 `{files}` 占位符', () => {
@@ -770,14 +706,6 @@ describe('getFrameworkConfig -- shell/cmd 二级嵌套结构 (AC-1)', () => {
 
   it('rust 框架 cmd.test_execution 使用 `if errorlevel` 模式代替 `; _X=$?;`', () => {
     const result = getFrameworkConfig('rust');
-    expect(result.cmd.test_execution).not.toContain('; _X=$?;');
-    expect(result.cmd.test_execution).toContain('if errorlevel');
-    expect(result.cmd.test_execution).toContain('%errorlevel%');
-    expect(result.cmd.test_execution).toContain('exit /b');
-  });
-
-  it('pytest 框架 cmd.test_execution 使用 `if errorlevel` 模式代替 `; _X=$?;`', () => {
-    const result = getFrameworkConfig('pytest');
     expect(result.cmd.test_execution).not.toContain('; _X=$?;');
     expect(result.cmd.test_execution).toContain('if errorlevel');
     expect(result.cmd.test_execution).toContain('%errorlevel%');

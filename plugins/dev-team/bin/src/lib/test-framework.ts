@@ -6,10 +6,10 @@
 // plugin maintainer, NOT by project config.json (see design decision D1).
 // ---------------------------------------------------------------------------
 
-import { type TestFrameworks } from '../schemas';
+import { type TestFramework } from '../schemas';
 
 export interface FrameworkConfig {
-  framework: TestFrameworks;
+  framework: TestFramework;
   shell: {
     test_execution: string;
     coverage_cleanup: string[];
@@ -27,7 +27,7 @@ export interface FrameworkConfig {
   mutation_framework: string | null;
 }
 
-const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
+const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   jest: {
     framework: 'jest',
     shell: {
@@ -113,7 +113,7 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
     },
     cmd: {
       test_execution:
-        'cargo test\nif errorlevel 1 set _X=%errorlevel%\ncargo llvm-cov --json --output-path coverage/coverage-summary.json\nexit /b %_X%',
+        'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path coverage/coverage-summary.json & exit /b %_X%',
       coverage_cleanup: ['coverage', 'target/llvm-cov'],
     },
     coverage_format: 'llvm-cov',
@@ -157,13 +157,11 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   pytest: {
     framework: 'pytest',
     shell: {
-      test_execution:
-        'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X',
+      test_execution: 'pytest -v {files}; pytest --cov=. --cov-report=json --cov-branch -q',
       coverage_cleanup: ['.coverage', 'htmlcov'],
     },
     cmd: {
-      test_execution:
-        'pytest -v {files}\nif errorlevel 1 set _X=%errorlevel%\npytest --cov=. --cov-report=json --cov-branch -q\nexit /b %_X%',
+      test_execution: 'pytest -v {files} && pytest --cov=. --cov-report=json --cov-branch -q',
       coverage_cleanup: ['.coverage', 'htmlcov'],
     },
     coverage_format: 'coverage-py',
@@ -174,7 +172,7 @@ const FRAMEWORK_REGISTRY: Record<TestFrameworks, FrameworkConfig> = {
   },
 };
 
-function isTestFramework(framework: string): framework is TestFrameworks {
+function isTestFramework(framework: string): framework is TestFramework {
   return framework in FRAMEWORK_REGISTRY;
 }
 

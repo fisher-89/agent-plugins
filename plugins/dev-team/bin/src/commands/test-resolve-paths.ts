@@ -1,10 +1,12 @@
-import { execSync } from 'child_process';
-import * as fs from 'fs';
-import * as path from 'path';
+import { execSync } from 'node:child_process';
+import * as fs from 'node:fs';
+import * as path from 'node:path';
+
+import { type z } from 'zod/v4';
 
 import { readConfig } from '../lib/config';
 import { isFileExcluded } from '../lib/test-exclude';
-import type { OpenSpecConfig } from '../schemas';
+import type { OpenSpecConfig, unitTestEntrySchema } from '../schemas';
 import { getProjectDir } from '../utils';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
@@ -12,10 +14,7 @@ import { runTestDetectFrameworks } from './test-detect-frameworks';
 // Types
 // ---------------------------------------------------------------------------
 
-interface UnitTestEntry {
-  source: string;
-  test_file: string;
-}
+type UnitTestEntry = z.output<typeof unitTestEntrySchema>;
 
 interface ResolveError {
   path: string;

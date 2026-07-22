@@ -19,11 +19,12 @@ export {
 export {
   testResolvePathsInputSchema,
   testResolvePathsOutputSchema,
+  unitTestEntrySchema,
 } from './test-resolve-paths.schema';
 export { changeListInputSchema, changeListOutputSchema } from './change-list.schema';
 export { backtrackInputSchema, backtrackOutputSchema } from './backtrack.schema';
 export { configSchema } from './config/config.schema';
-export type { OpenSpecConfig, OpenSpecConfigInput, TestFrameworks } from './config/config.schema';
+export type { OpenSpecConfig, OpenSpecConfigInput, TestFramework } from './config/config.schema';
 export type {
   TestCaseResult,
   TestExecutionSubReport,

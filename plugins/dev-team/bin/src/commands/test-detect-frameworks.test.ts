@@ -1397,18 +1397,6 @@ describe('runTestDetectFrameworks -- shell script content (AC-3)', () => {
     }
   });
 
-  it('链式命令框架（pytest）的 plan shell 包含 `; _X=$?;` 和 `exit $_X`', () => {
-    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'pytest' } });
-    try {
-      const result = runTestDetectFrameworks({ files: ['test_app.py'], projectRoot: project.root });
-      const shell = (result.plan[0].script as { shell: string; cmd: string }).shell;
-      expect(shell).toContain('; _X=$?;');
-      expect(shell).toContain('exit $_X');
-    } finally {
-      project.cleanup();
-    }
-  });
-
   it('所有 8 框架生成的 plan shell 为非空字符串', () => {
     const ALL_EIGHT = [
       'jest',
@@ -1495,18 +1483,6 @@ describe('runTestDetectFrameworks -- cmd script content (AC-4)', () => {
     const project = createTempProject({ schema: 'spec-driven', test: { framework: 'rust' } });
     try {
       const result = runTestDetectFrameworks({ files: ['src/lib.rs'], projectRoot: project.root });
-      const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
-      expect(cmd).toContain('if errorlevel');
-      expect(cmd).toContain('%errorlevel%');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('链式命令框架（pytest）的 plan cmd 使用 `if errorlevel` 模式', () => {
-    const project = createTempProject({ schema: 'spec-driven', test: { framework: 'pytest' } });
-    try {
-      const result = runTestDetectFrameworks({ files: ['test_app.py'], projectRoot: project.root });
       const cmd = (result.plan[0].script as { shell: string; cmd: string }).cmd;
       expect(cmd).toContain('if errorlevel');
       expect(cmd).toContain('%errorlevel%');

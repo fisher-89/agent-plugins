@@ -9,7 +9,7 @@ import {
   type TestDetectFrameworksResult,
   type TestPlan,
   type OpenSpecConfig,
-  type TestFrameworks,
+  type TestFramework,
 } from '../schemas';
 import { getProjectDir } from '../utils';
 
@@ -19,12 +19,12 @@ import { getProjectDir } from '../utils';
 
 interface FrameworkMapping {
   glob: string;
-  framework: TestFrameworks;
+  framework: TestFramework;
 }
 
 interface DetectedFile {
   file: string;
-  framework: string;
+  framework: TestFramework | 'unknown';
 }
 
 export interface TestDetectFrameworksOptions {
