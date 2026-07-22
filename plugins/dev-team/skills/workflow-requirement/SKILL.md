@@ -33,7 +33,12 @@ Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
      - **Uncertain** → use `AskUserQuestion` to present the potentially matching change(s) plus a "Create a new change" option.
 3. **No parameter provided AND exactly one active change exists** → auto-select that change, skip to Step 2.
 4. **No parameter provided AND multiple active changes exist** → use `AskUserQuestion` to present the list plus "Other — describe a new change".
-5. **No parameter provided AND zero active changes exist** → use `AskUserQuestion` to ask: "What change do you want to work on?"
+5. **No parameter provided AND zero active changes exist**:
+   - List `openspec/explores/*.md` (topic-named drafts).
+     - **Exactly one draft** → use its stem as the change name (confirm if unclear), proceed to Step 1.
+     - **Multiple drafts** → `AskUserQuestion` to pick a draft or describe a new change.
+     - **No drafts** but conversation has **explore signals** → derive kebab-case name from topic, proceed to Step 1.
+     - **Otherwise** → `AskUserQuestion`: "What change do you want to work on?"
 
 **IMPORTANT**: Do NOT proceed without a resolved change name.
 
@@ -50,6 +55,13 @@ Write `openspec/changes/<change-name>/workflow.json`:
 ```json
 {"workflow_type": "requirement"}
 ```
+
+**Promote explore draft** (mechanical move):
+
+1. Under `openspec/explores/`, find a file whose stem matches `<change-name>` or clearly matches the topic.
+2. One match and change `explore.md` missing → move to `openspec/changes/<change-name>/explore.md`.
+3. Multiple candidates → `AskUserQuestion` which to promote (or skip).
+4. No draft → continue without change `explore.md`.
 
 ### Step 2: Orchestration loop
 
@@ -82,6 +94,18 @@ LOOP:
         - 重试（继续 LOOP）
         - 回溯到指定 phase
         - 停止
+
+  -- Explore handoff (proposal only) --
+  if gate.next_phase == "proposal":
+    target = openspec/changes/<change-name>/explore.md  (free-form; no template)
+    inbox = openspec/explores/<topic-kebab>.md  (explore-owned drafts)
+    if target missing:
+      promote matching draft from inbox (stem == change name or single obvious match) via move
+      if multiple candidates → AskUserQuestion
+    else if target exists and conversation has new insights not in file → Append (default)
+    Do NOT invent a full first draft from conversation when it should live in openspec/explores/ first
+    CRITICAL: Do NOT append explore body / EXPLORE_CONTEXT_SUMMARY to gate.executor.prompt
+    Reminder: explore.md alone does not update proposal.md; this proposal executor is the convergence path
 
   -- Run Executor if Exist --
   if gate.executor:

@@ -89,9 +89,25 @@ This tells you:
 - Their names, artifacts, task progress, and latest eval phase
 - What the user might be working on
 
+### Explore draft inbox (`openspec/explores/`)
+
+Explore owns note-taking. Free-form Markdown, **no template / no required sections**.
+
+| 状态 | 落盘路径 |
+|------|----------|
+| 尚无 change | `openspec/explores/<topic-kebab>.md` — 主题命名（kebab-case，与拟议 change 名对齐更佳） |
+| 已有 change | `openspec/changes/<name>/explore.md` |
+
+规则：
+
+- **Append by default**; whole-file rewrite only if the user asks.
+- Create `openspec/explores/` as needed. One topic → one file; new topic → new file.
+- Do **not** invent a change directory solely to dump notes.
+- When the user starts `/dev-team:phase-proposal` or a workflow, that skill **promotes** the matching draft into `openspec/changes/<name>/explore.md` (move). You do not need to copy it yourself.
+
 ### When no change exists
 
-Think freely. When insights crystallize, you might offer:
+Think freely. When insights crystallize, offer to append `openspec/explores/<topic-kebab>.md`, and/or:
 
 - "This feels solid enough to start a change. Want me to create a proposal?"
 - Or keep exploring - no pressure to formalize
@@ -101,6 +117,7 @@ Think freely. When insights crystallize, you might offer:
 If the user mentions a change or you detect one is relevant:
 
 1. **Read existing artifacts for context**
+   - `openspec/changes/<name>/explore.md` (and any related `openspec/explores/*.md` if still present)
    - `openspec/changes/<name>/proposal.md`
    - `openspec/changes/<name>/design.md`
    - `openspec/changes/<name>/tasks.md`
@@ -114,19 +131,26 @@ If the user mentions a change or you detect one is relevant:
 
    | Insight Type | Where to Capture |
    |--------------|------------------|
-   | New requirement discovered | `specs/<capability>/spec.md` |
-   | Requirement changed | `specs/<capability>/spec.md` |
+   | Thinking / comparisons / open questions /补探索细节 | Append `openspec/changes/<name>/explore.md` (create if missing) |
+   | New requirement discovered | Prefer: append change `explore.md`, then guide `/dev-team:phase-proposal` |
+   | Requirement changed | Prefer: append change `explore.md`, then `/dev-team:phase-proposal` (backtrack if proposal already passed) |
    | Design decision made | `design.md` |
-   | Scope changed | `proposal.md` |
+   | Scope / AC / capability changes that must enter formal proposal | Append change `explore.md`, then **re-run** `/dev-team:phase-proposal` — do **not** treat direct edits to `proposal.md` as the default path |
    | New work identified | `tasks.md` |
-   | Assumption invalidated | Relevant artifact |
+   | Assumption invalidated | Relevant artifact + usually append change `explore.md` |
 
    Example offers:
+   - "要把这轮补充记到 explore.md 吗？"
+   - "这会影响验收/范围的话，记到 explore.md 后建议再跑 `/dev-team:phase-proposal` 做收敛和评估。"
    - "That's a design decision. Capture it in design.md?"
-   - "This is a new requirement. Add it to specs?"
-   - "This changes scope. Update the proposal?"
 
 4. **The user decides** - Offer and move on. Don't pressure. Don't auto-capture.
+
+5. **Re-explore after proposal**
+   - Always Read existing `proposal.md` + change `explore.md` before digging into gaps.
+   - Append new notes to change `explore.md` (do not overwrite prior notes unless the user asks to rewrite).
+   - If the new conclusions should change formal requirements (范围 / 验收 / 能力 / specs): tell the user to run `/dev-team:phase-proposal` again (backtrack first if proposal already passed). Appending `explore.md` alone does **not** update `proposal.md`.
+   - If the notes only deepen understanding and do not change the formal proposal: stop after appending `explore.md`.
 
 ---
 

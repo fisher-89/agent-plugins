@@ -21,7 +21,12 @@ Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
      - **Uncertain** → use `AskUserQuestion` to present the potentially matching change(s) plus a "Create a new change" option. Let the user decide.
 3. **No parameter provided AND exactly one active change exists** → auto-select that change, skip to `### Confirm workflow type`.
 4. **No parameter provided AND multiple active changes exist** → use `AskUserQuestion` to present the list of active changes (plus an "Other — describe a new change" option). If the user picks an existing change, skip to `### Confirm workflow type`. If the user describes a new change, derive a kebab-case name and proceed to `### Create the change directory`.
-5. **No parameter provided AND zero active changes exist** → use `AskUserQuestion` (open-ended, no preset options) to ask: "What change do you want to work on? Describe what you want to build or fix." Derive a kebab-case name from the response and proceed to `### Create the change directory`.
+5. **No parameter provided AND zero active changes exist**:
+   - List `openspec/explores/*.md` (topic-named drafts).
+     - **Exactly one draft** → use its stem as the kebab-case change name (confirm with user if unclear), proceed to `### Create the change directory`.
+     - **Multiple drafts** → `AskUserQuestion` to pick a draft (or "Other — describe a new change").
+     - **No drafts** but conversation has **explore signals** → derive a kebab-case name from the explore topic and proceed to `### Create the change directory`.
+     - **Otherwise** → use `AskUserQuestion` (open-ended) to ask: "What change do you want to work on?" Derive a kebab-case name and proceed to `### Create the change directory`.
 
 **IMPORTANT**: Do NOT proceed without a resolved change name.
 
@@ -32,6 +37,13 @@ Only reached when starting a **new** change (not resuming an existing one).
 ```bash
 openspec new change "<name>"
 ```
+
+Then **promote explore draft** (mechanical move, not rewrite):
+
+1. Look under `openspec/explores/` for a file whose stem matches `<name>` or clearly matches the topic.
+2. If **one** match and `openspec/changes/<name>/explore.md` does not exist → move that file to `openspec/changes/<name>/explore.md`.
+3. If **multiple** candidates → `AskUserQuestion` which draft to promote (or skip).
+4. If **no** draft → leave change without `explore.md` for now (handoff may still append later).
 
 ### Confirm workflow type
 
@@ -55,7 +67,7 @@ Check if `openspec/changes/<name>/workflow.json` exists:
 
 Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state. 
 
-If `next_phase` is "proposal" continue to `### Run Executor`.
+If `next_phase` is "proposal" continue to `### Explore handoff`.
 
 Otherwise, follow the table bellow:
 
@@ -75,7 +87,26 @@ mcp__plugin_dev-team_dev-team__backtrack({
   backtrack_reason: "用户手动执行回溯，推测原因：<Infer from `last_result.report`>"
 })
 ```
-If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Executor`.
+If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Explore handoff`.
+
+### Explore handoff
+
+Run **before every** proposal executor (first run, retry, and after backtrack).
+
+Authoritative note for the planner: `openspec/changes/<change-name>/explore.md` (free-form; no template).
+
+Draft inbox: `openspec/explores/<topic-kebab>.md` (owned by explore; this skill only **promotes**).
+
+1. **Promote** (if change `explore.md` missing):
+   - Find matching draft under `openspec/explores/` (stem equals change name, or single obvious topic match).
+   - One match → **move** to `openspec/changes/<change-name>/explore.md`.
+   - Multiple → `AskUserQuestion` which to promote.
+   - None → continue (planner can run without explore notes).
+2. **Append** only when change `explore.md` already exists and the conversation has **new** insights not in the file (default append; rewrite only if user asks). Prefer that explore itself wrote those notes; do not invent a full first draft from conversation when a draft file should have been captured in `openspec/explores/` instead.
+3. **Do NOT** paste explore body, conversation dumps, or `EXPLORE_CONTEXT_SUMMARY` into the subagent `prompt`.
+4. Reminder: `explore.md` alone does not update `proposal.md`. This executor is the convergence path when formal requirements must change.
+
+Then continue to `### Run Executor`.
 
 ### Run Executor
 
@@ -87,6 +118,8 @@ Agent({
   prompt: executor.prompt
 })
 ```
+
+**CRITICAL**: Use `executor.prompt` as returned by `phase_next` only. Do not append explore text.
 
 ### Run Evaluator
 
@@ -109,7 +142,7 @@ if result.last_result is null:
 
 if result.last_result.verdict == "pass" → continue to `### Report`
 
-if result.last_result.verdict == "fail" → retry from `### Run Executor` or stop with error
+if result.last_result.verdict == "fail" → retry from `### Explore handoff` or stop with error
 ```
 
 ### Report

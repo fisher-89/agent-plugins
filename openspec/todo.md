@@ -51,6 +51,6 @@
 - [x] mcp test_detect_frameworks 当前职责仅剩识别指定文件的测试框架，调整入参和返回类型
 - ~~[ ] 整合implement和test-gen~~
 - [x] 单元测试设计模板，改为`### <源文件> -> <测试文件>`，每个文件章节下包含独立的`#### 待测功能`、`#### 用例`、`#### Mock策略`，方便人工审查
-- [ ] fix:phase-proposal 和 workflow-* 的prompt没有说明如何读取explore的报告，且explore生成的大段上下文经过subagent传递容易失真
+- [x] fix:phase-proposal 和 workflow-* 的prompt没有说明如何读取explore的报告，且explore生成的大段上下文经过subagent传递容易失真
 - [ ] phase-next的round limit设计目的是避免LOOP陷入死循环，实际workflow可能拆分为多个session执行。调整round的计算方式，仅在workflow-*命令中限制总轮次。
 - [ ] config中指定test运行的cwd和配置文件

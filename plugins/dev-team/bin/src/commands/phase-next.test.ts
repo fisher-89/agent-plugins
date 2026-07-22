@@ -187,6 +187,16 @@ describe('runPhaseNext — First Run (empty eval.json)', () => {
     const result = next([], 'my-change');
     expect(result.executor!.prompt).toContain('my-change');
   });
+
+  it('proposal executor prompt references free-form explore.md and merge semantics', () => {
+    const result = next([], 'my-change');
+    expect(result.executor!.prompt).toContain('openspec/changes/my-change/explore.md');
+    expect(result.executor!.prompt).toMatch(/free-form explore context/i);
+    expect(result.executor!.prompt).toMatch(/merge new explore insights/i);
+    expect(result.executor!.prompt).toMatch(/do not rewrite from scratch/i);
+    expect(result.executor!.prompt).toMatch(/Do not expect inline EXPLORE_CONTEXT_SUMMARY/i);
+    expect(result.executor!.prompt).toMatch(/Write or update proposal\.md/i);
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -884,6 +894,8 @@ describe('runPhaseNext — workflow_type', () => {
     const testOnlyResult = next([], 'test-change', 'test-only');
     expect(testOnlyResult.executor!.prompt).not.toBe(requirementResult.executor!.prompt);
     expect(testOnlyResult.executor!.prompt).toMatch(/coverage gaps|testing strategy/i);
+    expect(testOnlyResult.executor!.prompt).toContain('openspec/changes/test-change/explore.md');
+    expect(testOnlyResult.executor!.prompt).toMatch(/Do not expect inline EXPLORE_CONTEXT_SUMMARY/i);
   });
 
   it('test-only returns code-analyze after proposal passes (AC-2)', () => {

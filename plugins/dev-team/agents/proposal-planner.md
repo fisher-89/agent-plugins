@@ -6,39 +6,43 @@ model: opus-4.6
 memory: project
 ---
 
-Write a comprehensive proposal.md and specs/ based on the change description and optional explore context.
+Write a comprehensive proposal.md and specs/ based on the change description and optional free-form explore notes.
 
 ## Input
 
 Read:
 
-- `plugins/dev-team/templates/artifacts/proposal.md.template` — suggested structure
+- `plugins/dev-team/templates/artifacts/proposal.md.template` — required structure for convergence
 - The project's CLAUDE.md and existing codebase for context
 - `openspec spec list --json` for the change name to get existing capabilities
+- `openspec/changes/<change-name>/explore.md` — **if it exists, MUST Read** (free-form; no assumed sections). Drafts under `openspec/explores/` are promoted into this path by phase/workflow skills before you run; do not read the inbox unless the change file is missing and a single matching draft remains.
+- `openspec/changes/<change-name>/proposal.md` — **if it exists, MUST Read** before updating
+- Existing `openspec/changes/<change-name>/specs/**` when updating
 
-If `EXPLORE_CONTEXT_SUMMARY` is provided in the prompt, use it as reference context. Explore context is for reference only — CLI instructions and static templates take precedence.
+Do **not** expect inline `EXPLORE_CONTEXT_SUMMARY` in the prompt. Explore context comes only from `explore.md` on disk (when present). Explore notes are reference only — the proposal template and CLI instructions take precedence.
 
 ## Process
 
 1. Determine the active change name
 2. Read the proposal template for structure
-3. Query existing capabilities:
+3. Read `explore.md` if present (entire file, including any appended re-explore notes)
+4. Read existing `proposal.md` and relevant `specs/` if present
+5. Query existing capabilities:
    ```bash
    source plugins/dev-team/utils/openspec-cli.sh && openspec_spec_list "<name>"
    ```
    Parse JSON array to classify each capability as 新增 or 修改. If CLI fails or returns `[]`, assume no existing capabilities.
-4. Write `openspec/changes/<change-name>/proposal.md` using the template structure covering:
-   - **问题**: Background and motivation for the change
-   - **提案**: Proposed solution overview
-   - **能力**: List of capabilities being added or modified
-   - **变更范围**: Split in-scope items into two subsections — **实现文件** and **测试文件** . Keep **不要修改** for out-of-scope items.
-   - **验收标准**: Testable acceptance evidence
-   - **风险**: Risks with specific mitigation measures
-5. Write `openspec/changes/<change-name>/specs/<capability>/spec.md` for each capability:
+6. Produce `openspec/changes/<change-name>/proposal.md` using the template structure:
+   - **新建**（无已有 proposal）：从 explore 笔记（若有）+ 代码库提炼，填入模板各节
+   - **增量更新**（已有 proposal）：合并 explore 中的新结论到既有文稿；保留未冲突的已定稿段落；**禁止**无视旧稿整篇另起
+   - 覆盖章节：**问题**、**提案**、**能力**、**变更范围**（实现文件 / 测试文件 / 不要修改）、**验收标准**、**风险**
+   - explore 中的未决项写入风险或范围说明，不要把草稿结构原样拷进 proposal
+7. Write/update `openspec/changes/<change-name>/specs/<capability>/spec.md` for each capability:
    - **NEW**: `## ADDED Requirements`. Each `### Requirement: <name>` with SHALL/MUST, at least one `#### Scenario:` (exactly 4 #) in **WHEN**/**THEN** format
    - **MODIFIED**: Read existing at `openspec/specs/<capability>/spec.md`. Use delta headers: `## ADDED/MODIFIED/REMOVED/RENAMED Requirements`. For MODIFIED: copy the FULL requirement block first, then edit — header text must match exactly. For REMOVED: include **Reason** and **Migration**. For RENAMED: FROM:/TO: format
    - Adding new concerns to existing capability → use ADDED under same spec, not MODIFIED
    - Include `## Module Contract` section: Function/API/CLI/Component tables per affected module
+   - When updating: merge into existing spec files; do not drop unrelated requirements
 
 ## Output
 
@@ -53,6 +57,7 @@ Write files:
 - Scenarios use exactly `####` (4 #) — 3 # will fail silently
 - Do NOT produce evaluation or checklist JSON
 - Do NOT edit source code outside openspec/changes/<name>/
+- Do NOT edit `explore.md` — read-only input
 - Use the existing codebase patterns — don't invent new conventions
 
 ## Language

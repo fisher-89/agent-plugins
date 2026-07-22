@@ -34,13 +34,19 @@ export interface PhaseDefinition {
 
 const DEFAULT_WORKFLOW: string = 'requirement';
 
+/** Shared explore→proposal handoff lines (file-based; no inline EXPLORE_CONTEXT_SUMMARY). */
+const PROPOSAL_EXPLORE_HANDOFF =
+  'If openspec/changes/<change>/explore.md exists, Read it as free-form explore context. ' +
+  'If proposal.md already exists, Read it and merge new explore insights (do not rewrite from scratch). ' +
+  'Do not expect inline EXPLORE_CONTEXT_SUMMARY.';
+
 const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'proposal',
     description: '需求提案与规格说明',
     executor: {
       agent_type: 'dev-team:proposal-planner',
-      prompt: 'Write proposal.md and specs/ for change "<change>".',
+      prompt: `Write or update proposal.md and specs/ for change "<change>". ${PROPOSAL_EXPLORE_HANDOFF}`,
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
@@ -140,7 +146,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     description: '需求提案与规格说明',
     executor: {
       agent_type: 'dev-team:proposal-planner',
-      prompt: 'Write proposal.md and specs/ for change "<change>".',
+      prompt: `Write or update proposal.md and specs/ for change "<change>". ${PROPOSAL_EXPLORE_HANDOFF}`,
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
@@ -220,7 +226,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     executor: {
       agent_type: 'dev-team:proposal-planner',
       prompt:
-        'Write test-focused proposal.md and specs/ for change "<change>": coverage gaps, testing strategy, and acceptance criteria for existing code.',
+        `Write or update test-focused proposal.md and specs/ for change "<change>": coverage gaps, testing strategy, and acceptance criteria for existing code. ${PROPOSAL_EXPLORE_HANDOFF}`,
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',
