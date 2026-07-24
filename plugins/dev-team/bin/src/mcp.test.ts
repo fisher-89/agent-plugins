@@ -30,6 +30,26 @@ vi.mock('./lib/project-root', () => ({
   getMcpCachedProjectRoot: vi.fn(() => process.cwd()),
 }));
 
+// Avoid cold-loading @likec4/language-services via c4-parser during beforeAll
+// (full-suite parallelism otherwise exceeds Vitest's 10s hookTimeout).
+vi.mock('./lib/c4-parser', () => ({
+  readAllModels: vi.fn(() => null),
+  findSpecificationBlock: vi.fn(() => null),
+  parseC4Dsl: vi.fn(async () => ({
+    elements: [],
+    relationships: [],
+    path_to_element: {},
+    errors: [],
+  })),
+  validateC4Dsl: vi.fn(async () => ({
+    elements: [],
+    relationships: [],
+    path_to_element: {},
+    errors: [],
+    valid: true,
+  })),
+}));
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
