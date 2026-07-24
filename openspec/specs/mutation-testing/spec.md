@@ -47,16 +47,16 @@
 |----------|-------------|
 | **File** | `plugins/dev-team/bin/src/commands/test-detect-frameworks.ts` |
 | **NEW Fields in PlanEntry** | `mutation_framework: string | null` — 从 registry 继承；`mutation_score: number | null` — 从 config 读取的阈值 |
-| **Filling** | 在 `buildPlanFromMappings` 中从 `getFrameworkConfig(framework).mutation_framework` 和 `config.test.mutation.score` 填充 |
+| **Filling** | 从 `getFrameworkConfig(framework).mutation_framework` 和对应 suite 解析后的 `mutation.score` 填充 |
 
 ### Schema: schemas/config/config.schema.ts (Mutation Threshold)
 
 | Property | Description |
 |----------|-------------|
 | **File** | `plugins/dev-team/bin/src/schemas/config/config.schema.ts` |
-| **NEW Constants** | `TEST_MUTATION_SCORE_DEFAULT = 80` |
-| **NEW Schemas** | `testMutationSchema`: `z.object({ score: z.number().optional().prefault(80).describe("变异得分阈值（百分比）") })` |
-| **Modified** | `test` object 添加 `mutation: testMutationSchema.optional()`；`overrides` item 添加 `mutation: testMutationSchema.optional()` |
+| **Constants** | `TEST_MUTATION_SCORE_DEFAULT`（schema 目录常量模块，当前为 70） |
+| **Schemas** | suite 级可选 `mutation` 对象，含可选 `score`（prefault 引用常量） |
+| **Model** | `tests[].mutation`；无全局 `test.mutation` / `test.overrides[].mutation` 级联 |
 
 ### Schema: schemas/unit-test-output.schema.ts (Mutation Report)
 
@@ -78,10 +78,20 @@
 | Property | Description |
 |----------|-------------|
 | **File** | `plugins/dev-team/bin/src/lib/test-report.ts` |
+| **Threshold source** | `tests[i].coverage` / plan entry；mutation 阈值为 `tests[i].mutation` / `plan.mutation_score` |
+| **Grouping key** | suite scope / plan entry（不再用 `overrides[].file`） |
 | **Sub-report** | `generateSubReport` 读取 `result.mutation`，生成 `mutation` 块（含 pass/score/threshold/measured/by_framework/overrides） |
 | **Summary** | `generateSummaryReport` 聚合各子报告的 mutation 数据，计算全局 `mutation.pass` |
-| **Pass Logic** | `measured.score >= thresholds.score` → pass；overrides 中所有分组的 score >= 其阈值 → 额外 pass 条件 |
+| **Pass Logic** | `measured.score >= thresholds.score` → pass；suite 分组的 score >= 其阈值 → 额外 pass 条件 |
 | **Conclusion** | mutation 不达标（`mutation.pass === false`）时，添加 `mutation_failure` 类型 problem |
+
+### Module: lib/test-runner.ts / stryker-config.ts (absCwd)
+
+| Aspect | Detail |
+|--------|--------|
+| rootPath / cwd | absCwd (`projectRoot / plan.directory`) |
+| Artifacts | under absCwd（v1） |
+| mutate paths | relative to absCwd |
 
 ### Module: cli.ts (CLI Entry — --no-mutation Flag)
 
@@ -283,25 +293,24 @@
 **Description**: `lib/test-report.ts` 的 `generateSubReport` SHALL 在 `ExecutionResult` 包含 `mutation` 字段时，生成 mutation 块写入子报告。mutation 块 SHALL 包含：
 - `pass` — `score >= threshold` 的计算结果
 - `score` — 从 parser 解析的变异得分
-- `threshold` — 从 config 读取的变异得分阈值
+- `threshold` — 从**对应 suite / PlanEntry.mutation_score** 读取的阈值（非全局 `test.mutation`）
 - `measured` — 各类变异体计数
 - `by_framework` — 当前框架的 mutation 结果
-- `overrides` — 按 overrides 配置的逐个分组结果（仅在 mutation overrides 存在时）
+- `overrides` — 按 suite 分组的结果（若报告 schema 仍使用该字段名）
 - `error` — 仅当 mutation 执行失败时存在
 
 #### Scenario: vitest 子报告包含 mutation 块
 
 **WHEN** `ExecutionResult.mutation` 包含 `{ score: 85, measured: { killed: 20, survived: 3, total: 25, ... } }`
-**AND** config 中 `test.mutation.score` 为 `80`
-**THEN** 子报告 `mutation` 块的 `pass` SHALL 为 `true`（85 >= 80）
+**AND** 对应 suite / plan entry 的 `mutation_score` 为 `70`
+**THEN** 子报告 `mutation` 块的 `pass` SHALL 为 `true`（85 >= 70）
 **AND** `score` SHALL 为 `85`
-**AND** `threshold` SHALL 为 `80`
-**AND** `by_framework` SHALL 包含 `{ vitest: { measured: { killed: 20, survived: 3, total: 25, ... }, source_files: [...] } }`
+**AND** `threshold` SHALL 为 `70`
 
 #### Scenario: mutation 不达标时 pass 为 false
 
 **WHEN** `ExecutionResult.mutation.score` 为 `65`
-**AND** config 中 `test.mutation.score` 为 `80`
+**AND** suite `mutation_score` 为 `70`
 **THEN** 子报告 `mutation.pass` SHALL 为 `false`
 
 #### Scenario: mutation 执行失败时 mutation 块含 error
@@ -310,7 +319,6 @@
 **AND** `score` 为 `null`
 **THEN** 子报告 `mutation` 块的 `pass` SHALL 为 `false`
 **AND** `error` SHALL 为 `"StrykerJS not installed"`
-**AND** `measured` SHALL 为所有计数为 0 的默认值
 
 #### Scenario: mutation 框架跳过时 mutation 为 null
 
@@ -385,41 +393,39 @@
 
 **ID**: REQ-MT-8
 **Priority**: MUST
-**Description**: `schemas/config/config.schema.ts` SHALL 定义 `testMutationSchema`，包含可选的 `score` 数字字段，默认值为 `80`。SHALL 在 `test` 对象中添加 `mutation` 字段（可选）。SHALL 在 `overrides` 数组的 item 中添加 `mutation` 字段（可选）。
+**Description**: `schemas/config/config.schema.ts` SHALL 在每个 **suite**（`tests[]` 元素）上定义可选 `mutation` 对象，包含可选 `score` 数字字段，默认值来自 schema 目录常量（`TEST_MUTATION_SCORE_DEFAULT`，当前为 70）。SHALL NOT 再在顶层旧 `test` 对象上提供全局 `mutation` 块，亦 SHALL NOT 再提供 `test.overrides[].mutation` 级联模型。
 
-#### Scenario: 全局 mutation 阈值默认值
+#### Scenario: suite mutation 阈值默认值
 
-**WHEN** `config.test.mutation` 未在 config.json 中设置
-**THEN** `config.test.mutation.score` 的默认值 SHALL 为 `80`
+**WHEN** suite 未在 config.json 中设置 `mutation`
+**THEN** 经 schema parse 后该 suite 的 `mutation.score` SHALL 等于常量默认值
 
-#### Scenario: override 中的 mutation 阈值
+#### Scenario: suite 显式 mutation 阈值
 
-**WHEN** `config.test.overrides` 包含 `{ "file": "src/core/**", "mutation": { "score": 90 } }`
-**THEN** override 的 mutation score 阈值 SHALL 为 `90`
-**AND** 该 override 的 `coverage` 阈值与 `mutation` 阈值独立配置
+**WHEN** suite 为 `{ "root": "src", "framework": "vitest", "mutation": { "score": 90 } }`
+**THEN** 该 suite 的 mutation score 阈值 SHALL 为 `90`
 
-#### Scenario: override 未设置 mutation 时继承全局
+#### Scenario: 无全局 mutation 级联
 
-**WHEN** `config.test.overrides` 包含 `{ "file": "src/core/**", "coverage": { "lines": 85 } }`
-**AND** 该 override 未包含 `mutation` 字段
-**THEN** 该 override 的 mutation 阈值 SHALL 继承全局 `test.mutation.score`
-**AND** 仍按 overrides 的 glob 分组计算该分组的实际 mutation score
+**WHEN** 配置仅含 `tests` 数组、无旧 `test.mutation`
+**THEN** 各 suite 阈值互相独立
+**AND** 实现 MUST NOT 再读取 `config.test.mutation` 作为回退
 
 ### Requirement: PlanEntry 传递 mutation 字段
 
 **ID**: REQ-MT-9
 **Priority**: MUST
-**Description**: `PlanEntry` 接口和 schema SHALL 新增 `mutation_framework: string | null` 和 `mutation_score: number | null` 字段。`buildPlanFromMappings` 在构建 PlanEntry 时 SHALL 从 `getFrameworkConfig(framework).mutation_framework` 获取 mutation_framework，从 `config.test.mutation.score` 获取 mutation_score。
+**Description**: `PlanEntry` 接口和 schema SHALL 包含 `mutation_framework: string | null` 和 `mutation_score: number | null` 字段。构建 PlanEntry 时 SHALL 从 `getFrameworkConfig(framework).mutation_framework` 获取 mutation_framework，从**对应 suite** 解析后的 `mutation.score` 获取 mutation_score（不再读全局 `config.test.mutation.score`）。
 
 #### Scenario: 支持框架的 PlanEntry 含 mutation_framework
 
-**WHEN** `buildPlanFromMappings` 处理 vitest 框架映射
+**WHEN** plan 由 vitest suite 构建
 **THEN** 生成的 `PlanEntry` 的 `mutation_framework` SHALL 为 `"stryker-js"`
-**AND** `mutation_score` SHALL 为从 config 读取的数值
+**AND** `mutation_score` SHALL 为该 suite 的 `mutation.score`
 
 #### Scenario: 不支持框架的 PlanEntry 的 mutation_framework 为 null
 
-**WHEN** `buildPlanFromMappings` 处理 go 框架映射
+**WHEN** plan 由 go suite 构建
 **THEN** 生成的 `PlanEntry` 的 `mutation_framework` SHALL 为 `null`
 
 ### Requirement: FrameworkConfig 添加 mutation_framework 字段
@@ -462,25 +468,63 @@
 
 **ID**: REQ-MT-11
 **Priority**: MUST
-**Description**: `lib/test-report.ts` 的 `computeOverrides` 函数 SHALL 扩展支持 `mutation` 字段。对于每个 override 配置，如果包含 `mutation.score`，SHALL 计算该 glob 分组的实际 mutation score 并生成 `MutationOverride` 条目。mutation score 的计算基于该 glob 匹配的源文件在 StrykerJS 报告中的 `files` 字段。
+**Description**: `lib/test-report.ts` 中按分组计算 mutation 结果的逻辑 SHALL 适配 `tests[]` 模型。每个声明了自定义 `mutation.score` 的 suite（或每个 plan 条目）可作为一组，基于该 suite scope（`root` ∩ `includes` ∩ ¬`excludes`）匹配的源文件在 StrykerJS 报告 `files` 中的数据计算实际 score，并与该 suite 阈值比较。
+
+SHALL NOT 再依赖 `config.test.overrides[].file` + `overrides[].mutation` 作为配置来源。
 
 由于 StrykerJS 报告按文件提供变异体数据，计算方式为：
-1. 根据 override 的 `file` glob 匹配源文件
+1. 根据 suite scope 匹配源文件
 2. 从 StrykerJS 报告的 `files` 字段中提取匹配文件的变异体数据
 3. 计算匹配文件的加权平均 mutation score
-4. 对比阈值生成 `pass` 结果
+4. 对比该 suite 阈值生成 `pass` 结果
 
-#### Scenario: override 匹配部分源文件
+#### Scenario: suite 匹配部分源文件
 
-**WHEN** override 配置 `{ "file": "src/core/**", "mutation": { "score": 90 } }`
-**AND** StrykerJS 报告中 `src/core/index.ts` 的变异体统计为 `{ killed: 10, survived: 1, total: 12 }`（score=83.3）
-**AND** 该 glob 匹配了 2 个源文件
-**THEN** 该 override 的 `score` SHALL 为匹配文件的 weighted average
-**AND** `pass` SHALL 根据实际 score 是否 >= 90 判断
+**WHEN** suite 配置 `{ "root": "src/core", "framework": "vitest", "mutation": { "score": 90 } }`
+**AND** StrykerJS 报告中匹配文件的加权平均 score 为 83.3
+**THEN** 该分组的 `pass` SHALL 为 `false`（83.3 < 90）
 **AND** `file_count` SHALL 为匹配的源文件数
 
-#### Scenario: override 未设置 mutation 时不生成 mutation override
+#### Scenario: suite 使用默认 mutation 阈值时仍可分组展示
 
-**WHEN** override 配置仅包含 `coverage` 字段，无 `mutation` 字段
-**THEN** `computeOverrides` SHALL NOT 为该 override 生成 mutation override 条目
-**AND** coverage override 计算不受影响
+**WHEN** suite 未显式写 `mutation`（使用 schema 默认 score）
+**THEN** 报告仍可按 suite/plan 展示 mutation 结果
+**AND** MUST NOT 要求旧 overrides 数组存在
+
+### Requirement: Stryker 工作目录与产物落在 absCwd
+
+**ID**: REQ-MT-CWD-1
+**Priority**: MUST
+**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 absCwd（即 `projectRoot / plan.directory`）。临时配置（`stryker.config.*`）、`.stryker-tmp/`、`reports/mutation/` 等产物 SHALL 默认落在该 absCwd 下（第一版不引入独立 `artifacts` 字段）。
+
+传入 `resolveStrykerConfig` 的 `mutate` / sourceFiles 路径 SHALL 重写为相对 absCwd 的 POSIX 路径。
+
+#### Scenario: mutation 在 suite absCwd 下执行
+
+**WHEN** plan entry `directory` 为 `"plugins/dev-team/bin"`
+**AND** mutation 阶段启动
+**THEN** Stryker 命令的 cwd / rootPath SHALL 解析为 `projectRoot/plugins/dev-team/bin`
+**AND** 临时 `stryker.config.*` SHALL 创建于该目录下（当需要生成临时配置时）
+
+#### Scenario: mutate 路径相对 absCwd
+
+**WHEN** sourceFiles 含项目相对路径 `"plugins/dev-team/bin/src/foo.ts"`
+**AND** absCwd 为 `plugins/dev-team/bin`
+**THEN** 写入 Stryker 配置的 mutate 条目 SHALL 为 `"src/foo.ts"`（相对 absCwd）
+
+### Requirement: 覆盖率阈值读取改为 suite 维度
+
+**ID**: REQ-MT-COV-1
+**Priority**: MUST
+**Description**: `lib/test-report.ts` 中读取覆盖率阈值的逻辑（原 `readCoverageThresholds` / `computeOverrides`）SHALL 改为使用各 suite / plan entry 的 `coverage` 阈值，MUST NOT 再合成全局 `test.coverage` + `test.overrides[].coverage`。
+
+#### Scenario: 子报告 threshold 来自 suite coverage
+
+**WHEN** suite 配置 `coverage: { lines: 90, branches: 70, functions: 75 }`
+**AND** 生成该框架子报告
+**THEN** 报告中的 coverage thresholds SHALL 使用 lines=90（及该 suite 的 branches/functions）
+
+#### Scenario: 未显式 coverage 时使用 schema 默认
+
+**WHEN** suite 省略 `coverage` 块
+**THEN** thresholds SHALL 为 schema 常量默认值 80/70/75

@@ -11,32 +11,105 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type {
-  CoverageBlock,
-  CoverageMeasured,
-  CoverageOverride,
-  CoverageThresholds,
-  MutationBlock,
-  MutationMeasured,
-  MutationOverride,
-  SourceFileEntry,
-  TestCaseResult,
-  TestExecutionSubReport,
-  TestExecutionSummaryReport,
+import {
+  TEST_COVERAGE_BRANCH_DEFAULT,
+  TEST_COVERAGE_FUNCTION_DEFAULT,
+  TEST_COVERAGE_LINE_DEFAULT,
+  TEST_MUTATION_SCORE_DEFAULT,
+  type CoverageBlock,
+  type CoverageMeasured,
+  type CoverageOverride,
+  type CoverageThresholds,
+  type MutationBlock,
+  type MutationMeasured,
+  type MutationOverride,
+  type OpenSpecConfig,
+  type SourceFileEntry,
+  type TestCaseResult,
+  type TestExecutionSubReport,
+  type TestExecutionSummaryReport,
+  type TestSuite,
 } from '../schemas';
 import { readConfig } from './config';
 import { matchGlob, toForwardSlash } from './glob';
+import { isFileExcluded } from './test-exclude';
+import { getFrameworkConfig } from './test-framework';
 import type { ExecutionResult } from './test-runner';
 
 // ---------------------------------------------------------------------------
-// Constants
+// Suite helpers
 // ---------------------------------------------------------------------------
 
-const DEFAULT_THRESHOLDS: CoverageThresholds = {
-  lines: 80,
-  branches: 80,
-  functions: 80,
+/** Schema-default coverage thresholds (only used when no suite is configured). */
+const SCHEMA_DEFAULT_THRESHOLDS: CoverageThresholds = {
+  lines: TEST_COVERAGE_LINE_DEFAULT,
+  branches: TEST_COVERAGE_BRANCH_DEFAULT,
+  functions: TEST_COVERAGE_FUNCTION_DEFAULT,
 };
+
+function suiteAbsCwdRelative(suite: TestSuite): string {
+  return path.posix.normalize(
+    path.posix.join(toForwardSlash(suite.root), toForwardSlash(suite.cwd ?? '.')),
+  );
+}
+
+function findSuite(
+  config: OpenSpecConfig,
+  framework?: string,
+  planDirectory?: string,
+): TestSuite | undefined {
+  const suites = config.tests ?? [];
+  if (framework && planDirectory !== undefined) {
+    const match = suites.find(
+      (s) => s.framework === framework && suiteAbsCwdRelative(s) === toForwardSlash(planDirectory),
+    );
+    if (match) return match;
+  }
+  if (framework) {
+    const byFw = suites.find((s) => s.framework === framework);
+    if (byFw) return byFw;
+  }
+  return suites[0];
+}
+
+function suiteCoverageThresholds(suite: TestSuite | undefined): CoverageThresholds {
+  if (!suite?.coverage) {
+    return { ...SCHEMA_DEFAULT_THRESHOLDS };
+  }
+  return {
+    lines: suite.coverage.lines,
+    branches: suite.coverage.branches,
+    functions: suite.coverage.functions,
+  };
+}
+
+/**
+ * Whether a project-relative file is in a suite's scope for report grouping:
+ * under(root) ∧ match(includesEffective) ∧ ¬excludes,
+ * where includesEffective = suite.includes ?? framework.default_glob.
+ */
+function fileInSuiteScope(relativePath: string, suite: TestSuite, config: OpenSpecConfig): boolean {
+  const posix = toForwardSlash(relativePath);
+  const root = path.posix.normalize(toForwardSlash(suite.root)).replace(/\/$/, '');
+
+  if (posix !== root && !posix.startsWith(root + '/')) {
+    return false;
+  }
+  if (isFileExcluded(posix, config)) {
+    return false;
+  }
+
+  const includePatterns = suite.includes?.length
+    ? suite.includes
+    : [getFrameworkConfig(suite.framework).default_glob];
+
+  return includePatterns.some((pattern) => {
+    const scoped = path.posix.normalize(
+      path.posix.join(toForwardSlash(suite.root), toForwardSlash(pattern)),
+    );
+    return matchGlob(posix, scoped);
+  });
+}
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -57,10 +130,15 @@ function collectErrorTestCases(result: ExecutionResult): TestCaseResult[] {
     }));
 }
 
-function buildCoverageBlock(result: ExecutionResult, projectRoot: string): CoverageBlock | null {
+function buildCoverageBlock(
+  result: ExecutionResult,
+  projectRoot: string,
+  framework: string,
+  planDirectory: string,
+): CoverageBlock | null {
   if (!result.coverage) return null;
 
-  const thresholds = readCoverageThresholds(projectRoot);
+  const thresholds = readCoverageThresholds(projectRoot, framework, planDirectory);
   return {
     pass: computeCoveragePass(result.coverage, thresholds),
     measured: {
@@ -157,7 +235,7 @@ export function generateSubReport(
     error_cases: errorCases,
     test_files: result.testFiles,
     source_files: sourceFileEntries,
-    coverage: buildCoverageBlock(result, projectRoot),
+    coverage: buildCoverageBlock(result, projectRoot, framework, planDirectory),
     mutation: result.mutation ?? null,
     findings: result.error ? [result.error] : undefined,
   };
@@ -349,21 +427,22 @@ function aggregateTotals(subReports: TestExecutionSubReport[]): {
 // Coverage helpers
 // ---------------------------------------------------------------------------
 
-function readCoverageThresholds(projectRoot: string): CoverageThresholds {
+/**
+ * Read coverage thresholds from the matching suite (by framework + plan directory).
+ * Falls back to the first suite, then schema defaults. Does not cascade global + override.
+ */
+function readCoverageThresholds(
+  projectRoot: string,
+  framework?: string,
+  planDirectory?: string,
+): CoverageThresholds {
   try {
     const config = readConfig(projectRoot);
-    const thresholds = config.test?.coverage;
-    if (thresholds) {
-      return {
-        lines: thresholds.lines ?? DEFAULT_THRESHOLDS.lines,
-        branches: thresholds.branches ?? DEFAULT_THRESHOLDS.branches,
-        functions: thresholds.functions ?? DEFAULT_THRESHOLDS.functions,
-      };
-    }
+    const suite = findSuite(config, framework, planDirectory);
+    return suiteCoverageThresholds(suite);
   } catch {
-    // Fall through to defaults
+    return { ...SCHEMA_DEFAULT_THRESHOLDS };
   }
-  return { ...DEFAULT_THRESHOLDS };
 }
 
 /**
@@ -438,29 +517,25 @@ function formatCoverageFailure(measured: CoverageMeasured, thresholds: CoverageT
 }
 
 // ---------------------------------------------------------------------------
-// Coverage overrides
+// Coverage suite groups (report field name remains `overrides`)
 // ---------------------------------------------------------------------------
 
 /**
- * Compute per-glob override coverage results.
+ * Compute per-suite coverage results.
  *
- * Reads `config.test.overrides`, matches each override's `file` glob against
- * file-level coverage entries, computes coverage (preferring raw counts over
- * simple percentage averages), and checks against thresholds.
+ * Walks `config.tests`, matches each suite's scope against file-level coverage
+ * entries, and checks against that suite's parsed coverage thresholds.
  */
 function computeOverrides(
   subReports: TestExecutionSubReport[],
   projectRoot: string,
 ): CoverageOverride[] {
   const config = readConfig(projectRoot);
-  const globalThresholds = readCoverageThresholds(projectRoot);
-  const overrideConfigs = config.test?.overrides ?? [];
-
-  if (overrideConfigs.length === 0) return [];
+  const suites = config.tests ?? [];
+  if (suites.length === 0) return [];
 
   const allRawEntries = collectRawSourceEntries(subReports);
 
-  // Normalize file paths to project-relative for glob matching
   const normalizedProjectRoot = toForwardSlash(path.resolve(projectRoot));
   const relativeRawEntries = allRawEntries.map((e) => ({
     ...e,
@@ -469,9 +544,8 @@ function computeOverrides(
 
   const results: CoverageOverride[] = [];
 
-  for (const override of overrideConfigs) {
-    if (!override.coverage) continue;
-    const result = computeSingleOverride(override, relativeRawEntries, globalThresholds);
+  for (const suite of suites) {
+    const result = computeSingleSuiteCoverage(suite, relativeRawEntries, config);
     if (result) results.push(result);
   }
 
@@ -486,31 +560,21 @@ function collectRawSourceEntries(subReports: TestExecutionSubReport[]): SourceFi
   return entries;
 }
 
-function computeSingleOverride(
-  override: NonNullable<NonNullable<ReturnType<typeof readConfig>['test']>['overrides']>[number],
+function computeSingleSuiteCoverage(
+  suite: TestSuite,
   allRawEntries: SourceFileEntry[],
-  globalThresholds: CoverageThresholds,
+  config: OpenSpecConfig,
 ): CoverageOverride | null {
-  const matchedRaw = allRawEntries.filter((e) => matchGlob(e.file, override.file));
+  const matchedRaw = allRawEntries.filter((e) => fileInSuiteScope(e.file, suite, config));
+  if (matchedRaw.length === 0) return null;
 
-  const overrideThresholds = override.coverage;
-  if (!overrideThresholds) return null;
-
-  const thresholds: CoverageThresholds = {
-    lines: overrideThresholds.lines ?? globalThresholds.lines,
-    branches: overrideThresholds.branches ?? globalThresholds.branches,
-    functions: overrideThresholds.functions ?? globalThresholds.functions,
-  };
-
-  // Prefer raw-count weighted computation; fall back to percentage average
+  const thresholds = suiteCoverageThresholds(suite);
   const measured = computeRawOverrideCoverage(matchedRaw);
-
-  // file_count and passed_count are based on matched files (use whichever has entries)
   const fileCount = matchedRaw.length;
   const passedCount = countPassedRawOverrides(matchedRaw, thresholds);
 
   return {
-    glob: override.file,
+    glob: suite.root,
     thresholds,
     measured,
     pass: computeCoveragePass(measured, thresholds),
@@ -689,25 +753,25 @@ function applyMutationOverrides(
 }
 
 /**
- * Compute per-glob override mutation results.
+ * Compute per-suite mutation group results.
  *
- * Reads `config.test.overrides`, filters overrides that have a `mutation` field,
- * matches each override's `file` glob against the sub-reports' source files,
- * and computes the mutation score and pass/fail for each matched group.
+ * Walks `config.tests`, matches each suite's scope against sub-report source
+ * files, and compares against that suite's parsed mutation.score threshold.
+ * (Per-file mutant scores are not always available; score uses the suite
+ * threshold as a placeholder when only file counts are known — same limitation
+ * as the previous overrides model.)
  */
 function computeMutationOverrides(
   subReports: TestExecutionSubReport[],
   projectRoot: string,
 ): MutationOverride[] {
   const config = readConfig(projectRoot);
-  const overrideConfigs = config.test?.overrides ?? [];
-
-  if (overrideConfigs.length === 0) return [];
+  const suites = config.tests ?? [];
+  if (suites.length === 0) return [];
 
   const allSourceFiles = collectAllSourceFiles(subReports);
   if (allSourceFiles.length === 0) return [];
 
-  // Normalize file paths
   const normalizedProjectRoot = toForwardSlash(path.resolve(projectRoot));
   const relativeSources = allSourceFiles.map((f) =>
     toForwardSlash(f).replace(normalizedProjectRoot + '/', ''),
@@ -715,19 +779,23 @@ function computeMutationOverrides(
 
   const results: MutationOverride[] = [];
 
-  for (const override of overrideConfigs) {
-    if (!override.mutation?.score) continue;
-    const matchedFiles = relativeSources.filter((f) => matchGlob(f, override.file));
+  for (const suite of suites) {
+    const matchedFiles = relativeSources.filter((f) => fileInSuiteScope(f, suite, config));
     if (matchedFiles.length === 0) continue;
 
-    const threshold = override.mutation.score;
-    // For mutation overrides, we use the override threshold directly
-    // (not a weighted average, since mutation runs at the framework level)
-    const score = threshold; // Placeholder — actual per-file mutation scores aren't available
+    const threshold = suite.mutation?.score ?? TEST_MUTATION_SCORE_DEFAULT;
+    // Prefer the matching sub-report's measured mutation score when available
+    const matchingReport = subReports.find(
+      (r) =>
+        r.framework === suite.framework &&
+        toForwardSlash(r.directory) === suiteAbsCwdRelative(suite) &&
+        r.mutation !== null,
+    );
+    const score = matchingReport?.mutation?.score ?? threshold;
     const pass = score >= threshold;
 
     results.push({
-      glob: override.file,
+      glob: suite.root,
       score,
       threshold,
       pass,

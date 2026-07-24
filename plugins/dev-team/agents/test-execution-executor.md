@@ -143,7 +143,7 @@ Coverage thresholds were not met. Analyze which dimensions failed:
 
 All frameworks failed to generate coverage data. Possible causes:
 
-- No `test.coverage` configuration in `openspec/config.json`
+- No `tests[].coverage` configuration in `openspec/config.json`
 - All test commands failed before coverage generation
 - Coverage files were not found at expected paths
 

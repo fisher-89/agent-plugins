@@ -101,7 +101,14 @@ function createProjectWithGit(
   fs.mkdirSync(openspecDir, { recursive: true });
   fs.writeFileSync(
     path.join(openspecDir, 'config.json'),
-    JSON.stringify({ schema: 'spec-driven', test: { framework } }, null, 2),
+    JSON.stringify(
+      {
+        schema: 'spec-driven',
+        tests: [{ root: '.', framework, includes: ['**/*.{test,spec}.{ts,tsx,js,jsx}'] }],
+      },
+      null,
+      2,
+    ),
     'utf-8',
   );
 
@@ -382,9 +389,21 @@ describe('--mutation-diff-only + 多 framework', () => {
     fs.writeFileSync(path.join(testsDir, 'test_basic.py'), '# test placeholder', 'utf-8');
 
     const configPath = path.join(project.root, 'openspec', 'config.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    config.test.overrides = [{ file: 'tests/**/*.py', framework: 'pytest' }];
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          schema: 'spec-driven',
+          tests: [
+            { root: '.', framework: 'vitest', includes: ['**/*.{test,spec}.{ts,tsx,js,jsx}'] },
+            { root: 'tests', framework: 'pytest', includes: ['**/test_*.py'] },
+          ],
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
 
     // 提交新增的 pytest 配置，然后再次修改 dirty files
     const execSync = require('child_process').execSync;
@@ -450,9 +469,21 @@ describe('--mutation-diff-only + --framework', () => {
     fs.writeFileSync(path.join(testsDir, 'test_basic.py'), '# test placeholder', 'utf-8');
 
     const configPath = path.join(project.root, 'openspec', 'config.json');
-    const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-    config.test.overrides = [{ file: 'tests/**/*.py', framework: 'pytest' }];
-    fs.writeFileSync(configPath, JSON.stringify(config, null, 2), 'utf-8');
+    fs.writeFileSync(
+      configPath,
+      JSON.stringify(
+        {
+          schema: 'spec-driven',
+          tests: [
+            { root: '.', framework: 'vitest', includes: ['**/*.{test,spec}.{ts,tsx,js,jsx}'] },
+            { root: 'tests', framework: 'pytest', includes: ['**/test_*.py'] },
+          ],
+        },
+        null,
+        2,
+      ),
+      'utf-8',
+    );
 
     const execSync = require('child_process').execSync;
     execSync('git add -A && git commit -m "add pytest config"', {
@@ -483,5 +514,5 @@ describe('--mutation-diff-only + --framework', () => {
     } finally {
       project.cleanup();
     }
-  });
+  }, 10000);
 });

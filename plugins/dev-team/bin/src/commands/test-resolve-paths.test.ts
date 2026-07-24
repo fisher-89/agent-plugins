@@ -666,32 +666,19 @@ describe('runTestResolvePaths -- config-driven 自动扫描', () => {
     vi.mocked(execSync).mockClear();
   });
 
-  it('modules: [] 且 test.overrides 配置有效时，unit_tests 包含扫描到的源文件推导结果 (AC-1)', () => {
+  it('modules: [] 且 tests[] 配置有效时，unit_tests 包含扫描到的源文件推导结果 (AC-1)', () => {
     const project = createTempProject();
     try {
-      // Mock auto-scan → return plan with src/ directory
-      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
-        if (opts.files === undefined) {
-          return {
-            detected: [],
-            plan: [
-              {
-                directory: 'src',
-                framework: 'vite-plus' as const,
-                coverage_format: 'istanbul' as const,
-                coverage_output: 'coverage/coverage-summary.json',
-                coverage_artifacts: ['coverage/coverage-summary.json'],
-                script: {
-                  shell:
-                    '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nrm -rf .nyc_output\nrm -rf test-stderr.txt\nvp test --coverage --coverage.reporter=json-summary\n',
-                  cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nif exist ".nyc_output" (rmdir /s /q ".nyc_output" 2>nul & del /f /q ".nyc_output" 2>nul)\nif exist "test-stderr.txt" (rmdir /s /q "test-stderr.txt" 2>nul & del /f /q "test-stderr.txt" 2>nul)\nvp test --coverage --coverage.reporter=json-summary\r\n',
-                },
-              },
-            ],
-          };
-        }
-        return { detected: [], plan: [] };
-      });
+      const openspecDir = path.join(project.root, 'openspec');
+      fs.mkdirSync(openspecDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspecDir, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: 'src', framework: 'vite-plus', includes: ['**/*.{ts,tsx}'] }],
+        }),
+      );
+      // 使用真实 detect（passthrough），不再依赖旧 overrides mock
 
       writeFile(project.root, 'src/foo.ts', '');
       writeFile(project.root, 'src/bar.ts', '');
@@ -1052,37 +1039,21 @@ describe('runTestResolvePaths -- 去重', () => {
     vi.mocked(runTestDetectFrameworks).mockClear();
   });
 
-  it('多个 override 指向同一目录时扫描结果去重 (AC-6)', () => {
+  it('多个 suite 指向同一目录时扫描结果去重 (AC-6)', () => {
     const project = createTempProject();
     try {
-      // 模拟两个 override 都指向 src/ 目录 → plan 有两个相同 directory
-      vi.mocked(runTestDetectFrameworks).mockReturnValue({
-        detected: [],
-        plan: [
-          {
-            directory: 'src',
-            framework: 'vitest' as const,
-            coverage_format: 'istanbul' as const,
-            coverage_output: 'coverage/coverage-summary.json',
-            coverage_artifacts: ['coverage/coverage-summary.json'],
-            script: {
-              shell: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx vitest run --coverage\n',
-              cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nnpx vitest run --coverage\r\n',
-            },
-          },
-          {
-            directory: 'src',
-            framework: 'jest' as const,
-            coverage_format: 'istanbul' as const,
-            coverage_output: 'coverage/coverage-summary.json',
-            coverage_artifacts: ['coverage/coverage-summary.json'],
-            script: {
-              shell: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nnpx jest --coverage\n',
-              cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nnpx jest --coverage\r\n',
-            },
-          },
-        ],
-      });
+      const openspecDir = path.join(project.root, 'openspec');
+      fs.mkdirSync(openspecDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspecDir, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [
+            { root: 'src', framework: 'vitest', includes: ['**/*.{ts,tsx}'] },
+            { root: 'src', framework: 'jest', includes: ['**/*.{ts,tsx}'] },
+          ],
+        }),
+      );
 
       writeFile(project.root, 'src/foo.ts', '');
 
@@ -1091,7 +1062,6 @@ describe('runTestResolvePaths -- 去重', () => {
         modules: [],
       });
 
-      // 尽管两个 override 都指向 src/，但 src/foo.ts 只出现一次
       expect(result.unit_tests).toHaveLength(1);
       expect(result.unit_tests[0].source).toBe('src/foo.ts');
     } finally {
@@ -1126,28 +1096,15 @@ describe('runTestResolvePaths -- 去重', () => {
   it('config-driven 扫描与 modules 显式传入产生重叠时去重 (AC-6)', () => {
     const project = createTempProject();
     try {
-      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
-        if (opts.files === undefined) {
-          // auto-scan mode — plan for src/ directory
-          return {
-            detected: [],
-            plan: [
-              {
-                directory: 'src',
-                framework: 'vitest' as const,
-                coverage_format: 'istanbul' as const,
-                coverage_output: 'coverage/coverage-summary.json',
-                coverage_artifacts: ['coverage/coverage-summary.json'],
-                script: {
-                  shell: '#!/bin/bash\nset -e\ncd src\nrm -rf coverage\nvp test\n',
-                  cmd: 'cd /d src\nif exist "coverage" (rmdir /s /q "coverage" 2>nul & del /f /q "coverage" 2>nul)\nvp test\r\n',
-                },
-              },
-            ],
-          };
-        }
-        return { detected: [], plan: [] };
-      });
+      const openspecDir = path.join(project.root, 'openspec');
+      fs.mkdirSync(openspecDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspecDir, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.{ts,tsx}'] }],
+        }),
+      );
 
       // 既有 src/ 目录下的文件，又显式传入 src/shared.ts
       writeFile(project.root, 'src/shared.ts', '');
@@ -1212,17 +1169,27 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         };
       });
 
-      // 模拟 openspec/config.json 包含 test.exclude
+      // 模拟 openspec/config.json 包含 suite excludes
       const openspecDir = path.join(project.root, 'openspec');
       fs.mkdirSync(openspecDir, { recursive: true });
       fs.writeFileSync(
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: {
-            framework: 'vitest',
-            exclude: ['**/generated/**'],
-          },
+          tests: [
+            {
+              root: 'src',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              excludes: ['**/generated/**'],
+            },
+            {
+              root: 'generated',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              excludes: ['**/*'],
+            },
+          ],
         }),
       );
       writeFile(project.root, 'src/app.ts', '');
@@ -1259,7 +1226,7 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', exclude: ['**/generated/**'] },
+          tests: [{ root: '.', framework: 'vitest', excludes: ['**/generated/**'] }],
         }),
       );
       writeFile(project.root, 'src/a.ts', '');
@@ -1279,32 +1246,25 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
   it('空 modules 自动扫描模式下 exclude 过滤生效', () => {
     const project = createTempProject();
     try {
-      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
-        if (opts.files === undefined) {
-          return {
-            detected: [],
-            plan: [
-              {
-                directory: '.',
-                framework: 'vite-plus' as const,
-                coverage_format: 'istanbul' as const,
-                coverage_output: 'coverage/coverage-summary.json',
-                coverage_artifacts: ['coverage/coverage-summary.json'],
-                script: { shell: 'vp test\n', cmd: 'vp test\r\n' },
-              },
-            ],
-          };
-        }
-        return { detected: [], plan: [] };
-      });
-
       const openspecDir = path.join(project.root, 'openspec');
       fs.mkdirSync(openspecDir, { recursive: true });
       fs.writeFileSync(
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', exclude: ['**/generated/**'] },
+          tests: [
+            {
+              root: 'src',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+            },
+            {
+              root: 'generated',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              excludes: ['**/*'],
+            },
+          ],
         }),
       );
       writeFile(project.root, 'src/app.ts', '');
@@ -1325,23 +1285,21 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
   it('混合排除/未排除文件时仅未排除文件进入 unit_tests', () => {
     const project = createTempProject();
     try {
-      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
-        const absFiles = opts.files!.map((f) =>
-          path.isAbsolute(f) ? path.resolve(f) : path.resolve(opts.projectRoot!, f),
-        );
-        return {
-          detected: absFiles.map((f) => ({ file: f, framework: 'vitest' as const })),
-          plan: [],
-        };
-      });
-
       const openspecDir = path.join(project.root, 'openspec');
       fs.mkdirSync(openspecDir, { recursive: true });
       fs.writeFileSync(
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', exclude: ['**/excluded/**'] },
+          tests: [
+            { root: 'src', framework: 'vitest', includes: ['**/*.{ts,tsx}'] },
+            {
+              root: 'excluded',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              excludes: ['**/*'],
+            },
+          ],
         }),
       );
       writeFile(project.root, 'src/keep.ts', '');
@@ -1378,7 +1336,7 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest' },
+          tests: [{ root: '.', framework: 'vitest' }],
         }),
       );
       writeFile(project.root, 'src/a.ts', '');
@@ -1414,13 +1372,20 @@ describe('runTestResolvePaths -- exclude 过滤 (AC-4)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: {
-            framework: 'vitest',
-            overrides: [
-              { file: 'dir-a/**', exclude: ['**/*.snap'] },
-              { file: 'dir-b/**', exclude: ['**/ignored/**'] },
-            ],
-          },
+          tests: [
+            {
+              root: 'dir-a',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              excludes: ['**/*.snap'],
+            },
+            {
+              root: 'dir-b',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              excludes: ['**/ignored/**'],
+            },
+          ],
         }),
       );
       writeFile(project.root, 'dir-a/main.ts', '');
@@ -1472,7 +1437,7 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest' },
+          tests: [{ root: '.', framework: 'vitest' }],
         }),
       );
       writeFile(project.root, 'src/helper.ts', '');
@@ -1508,7 +1473,7 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', exclude: [] },
+          tests: [{ root: '.', framework: 'vitest', excludes: [] }],
         }),
       );
       writeFile(project.root, 'src/helper.ts', '');
@@ -1543,7 +1508,7 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest', exclude: undefined },
+          tests: [{ root: '.', framework: 'vitest' }],
         }),
       );
       writeFile(project.root, 'src/helper.ts', '');
@@ -1589,6 +1554,218 @@ describe('runTestResolvePaths -- 向后兼容 (AC-6)', () => {
       // 在 resolveTestPaths 中 readConfig 读取，然后传给 processNonEmptyModules，
       // 内部仍使用 detectFrameworks 的结果。这里验证基本功能不变
       expect(result.unit_tests).toHaveLength(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths — suite root 扫描 (AC-4)
+// ===========================================================================
+
+describe('runTestResolvePaths — suite root 扫描 (AC-4)', () => {
+  function writeConfig(root: string, config: unknown): void {
+    fs.mkdirSync(path.join(root, 'openspec'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'openspec', 'config.json'), JSON.stringify(config), 'utf-8');
+  }
+
+  it('modules: [] 且 suite root: "pkg/src", cwd: ".." 时仍扫描 pkg/src 下源文件', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        tests: [
+          {
+            root: 'pkg/src',
+            framework: 'vite-plus',
+            cwd: '..',
+            includes: ['**/*.{ts,tsx}'],
+          },
+        ],
+      });
+      writeFile(project.root, 'pkg/src/app.ts');
+      writeFile(project.root, 'pkg/outside.ts');
+      const result = runTestResolvePaths({ modules: [], project_root: project.root });
+      expect(result.unit_tests).toContainEqual({
+        source: 'pkg/src/app.ts',
+        test_file: 'pkg/src/app.test.ts',
+      });
+      expect(result.unit_tests).not.toContainEqual(
+        expect.objectContaining({ source: 'pkg/outside.ts' }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('显式 includes/excludes 时 unit_tests 仅含 in-scope 源文件', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        tests: [
+          {
+            root: 'src',
+            framework: 'vite-plus',
+            includes: ['**/*.{ts,tsx}'],
+            excludes: ['**/skip/**'],
+          },
+        ],
+      });
+      writeFile(project.root, 'src/ok.ts');
+      writeFile(project.root, 'src/skip/hidden.ts');
+      const result = runTestResolvePaths({ modules: [], project_root: project.root });
+      expect(result.unit_tests.map((u) => u.source)).toEqual(['src/ok.ts']);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('非空 modules 时按 suite scope 过滤后再推导测试路径', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        tests: [
+          {
+            root: 'src',
+            framework: 'vite-plus',
+            includes: ['**/*.{ts,tsx}'],
+          },
+        ],
+      });
+      writeFile(project.root, 'src/a.ts');
+      writeFile(project.root, 'other/b.ts');
+      const result = runTestResolvePaths({
+        modules: ['src/a.ts', 'other/b.ts'],
+        project_root: project.root,
+      });
+      expect(result.unit_tests.map((u) => u.source)).toContain('src/a.ts');
+      // 范围外文件 marked unknown 仍进入 detected，但空 modules 扫描不会包含它
+      const emptyScan = runTestResolvePaths({ modules: [], project_root: project.root });
+      expect(emptyScan.unit_tests.map((u) => u.source)).not.toContain('other/b.ts');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules 指向项目外路径时 errors 含对应 path/message，不崩溃', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vite-plus', includes: ['**/*.{ts,tsx}'] }],
+      });
+      const result = runTestResolvePaths({
+        modules: ['../outside.ts'],
+        project_root: project.root,
+      });
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0]).toHaveProperty('path');
+      expect(result.errors[0]).toHaveProperty('message');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules 为单元素合法路径时返回对应 unit_tests', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vite-plus', includes: ['**/*.{ts,tsx}'] }],
+      });
+      writeFile(project.root, 'src/one.ts');
+      const result = runTestResolvePaths({
+        modules: ['src/one.ts'],
+        project_root: project.root,
+      });
+      expect(result.unit_tests).toEqual([{ source: 'src/one.ts', test_file: 'src/one.test.ts' }]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules 为空数组且 suite includes 省略时按 default_glob 语义扫描', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vite-plus' }],
+      });
+      writeFile(project.root, 'src/app.ts');
+      writeFile(project.root, 'src/app.test.ts');
+      const result = runTestResolvePaths({ modules: [], project_root: project.root });
+      expect(result.unit_tests).toEqual([]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules 含超长路径字符串（>1000）时进入 errors 或不崩溃', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vite-plus', includes: ['**/*.{ts,tsx}'] }],
+      });
+      const longPath = `src/${'x'.repeat(1001)}.ts`;
+      expect(() =>
+        runTestResolvePaths({ modules: [longPath], project_root: project.root }),
+      ).not.toThrow();
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths — 错误文案引导 tests (AC-6)
+// ===========================================================================
+
+describe('runTestResolvePaths — 错误文案引导 tests (AC-6)', () => {
+  function writeConfig(root: string, config: unknown): void {
+    fs.mkdirSync(path.join(root, 'openspec'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'openspec', 'config.json'), JSON.stringify(config), 'utf-8');
+  }
+
+  it('modules: [] 且无 tests / tests: [] 时 errors 提示配置 tests', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, { schema: 'spec-driven', tests: [] });
+      const result = runTestResolvePaths({ modules: [], project_root: project.root });
+      expect(result.errors[0].message).toContain('tests');
+      expect(result.errors[0].message).not.toContain('test.framework');
+      expect(result.errors[0].message).not.toContain('test.overrides');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('配置仅含旧 test.overrides、无 tests 时 errors 引导配置 tests（硬 breaking）', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, {
+        schema: 'spec-driven',
+        test: { overrides: [{ file: 'src', framework: 'vite-plus' }] },
+      });
+      const result = runTestResolvePaths({ modules: [], project_root: project.root });
+      expect(result.unit_tests).toEqual([]);
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors.some((e) => e.message.includes('tests'))).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('错误 message 非空字符串且不含已废弃键名', () => {
+    const project = createTempProject();
+    try {
+      writeConfig(project.root, { schema: 'spec-driven' });
+      const result = runTestResolvePaths({ modules: [], project_root: project.root });
+      expect(result.errors[0].message.length).toBeGreaterThan(0);
+      expect(result.errors[0].message).not.toMatch(/test\.framework|test\.overrides/);
     } finally {
       project.cleanup();
     }

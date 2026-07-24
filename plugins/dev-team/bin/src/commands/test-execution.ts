@@ -107,7 +107,7 @@ export async function runTestExecution(options: TestExecutionOptions): Promise<n
   const detectResult = runTestDetectFrameworks({ files: options.files, projectRoot });
 
   if (detectResult.plan.length === 0) {
-    console.log('No test configuration found. Configure test.framework in openspec/config.json');
+    console.log('No test configuration found. Configure tests in openspec/config.json');
     return 0;
   }
 

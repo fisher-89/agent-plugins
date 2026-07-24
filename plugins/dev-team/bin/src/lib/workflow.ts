@@ -225,8 +225,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     description: '测试需求提案与规格说明',
     executor: {
       agent_type: 'dev-team:proposal-planner',
-      prompt:
-        `Write or update test-focused proposal.md and specs/ for change "<change>": coverage gaps, testing strategy, and acceptance criteria for existing code. ${PROPOSAL_EXPLORE_HANDOFF}`,
+      prompt: `Write or update test-focused proposal.md and specs/ for change "<change>": coverage gaps, testing strategy, and acceptance criteria for existing code. ${PROPOSAL_EXPLORE_HANDOFF}`,
     },
     evaluator: {
       agent_type: 'dev-team:proposal-evaluator',

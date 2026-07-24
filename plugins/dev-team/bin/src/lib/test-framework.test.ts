@@ -27,6 +27,7 @@ interface FrameworkConfig {
   coverage_artifacts: string[];
   default_glob: string;
   mutation_framework: string | null;
+  config_flag: string | null;
 }
 
 const ALL_EIGHT = ['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'];
@@ -180,7 +181,8 @@ describe('getFrameworkConfig -- all frameworks coverage fields non-empty', () =>
       expect(keys).not.toContain('coverage_cmd');
       expect(keys).not.toContain('test_cmd');
       expect(keys).not.toContain('coverage_cleanup');
-      expect(keys.length).toBe(8);
+      expect(keys).toContain('config_flag');
+      expect(keys.length).toBe(9);
     }
   });
 
@@ -288,15 +290,16 @@ describe('getFrameworkConfig -- 无 merge_mode (AC-12)', () => {
     }
   });
 
-  it('FrameworkConfig 接口字段数量为 8（含 shell/cmd，不含 merge_mode/coverage_cmd/test_cmd/coverage_cleanup）', () => {
+  it('FrameworkConfig 接口字段数量为 9（含 shell/cmd/config_flag，不含 merge_mode/coverage_cmd/test_cmd/coverage_cleanup）', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       const keys = Object.keys(result);
-      expect(keys.length).toBe(8);
+      expect(keys.length).toBe(9);
       expect(keys).not.toContain('merge_mode');
       expect(keys).not.toContain('coverage_cmd');
       expect(keys).not.toContain('test_cmd');
       expect(keys).not.toContain('coverage_cleanup');
+      expect(keys).toContain('config_flag');
     }
   });
 
@@ -314,9 +317,10 @@ describe('getFrameworkConfig -- 无 merge_mode (AC-12)', () => {
           'coverage_artifacts',
           'default_glob',
           'mutation_framework',
+          'config_flag',
         ]),
       );
-      expect(keys).toHaveLength(8);
+      expect(keys).toHaveLength(9);
     }
   });
 });
@@ -457,6 +461,7 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
     coverage_artifacts: ['coverage/func-summary.txt'],
     default_glob: '**/*_test.go',
     mutation_framework: null,
+    config_flag: null,
   },
   'node-test': {
     framework: 'node-test',
@@ -473,17 +478,16 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
     coverage_artifacts: ['coverage/node-test-output.txt'],
     default_glob: '**/*.test.{mjs,js,cjs}',
     mutation_framework: null,
+    config_flag: null,
   },
   pytest: {
     framework: 'pytest',
     shell: {
-      test_execution:
-        'pytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X',
+      test_execution: 'pytest -v {files}; pytest --cov=. --cov-report=json --cov-branch -q',
       coverage_cleanup: ['.coverage', 'htmlcov'],
     },
     cmd: {
-      test_execution:
-        'pytest -v {files}\nif errorlevel 1 set _X=%errorlevel%\npytest --cov=. --cov-report=json --cov-branch -q\nexit /b %_X%',
+      test_execution: 'pytest -v {files} && pytest --cov=. --cov-report=json --cov-branch -q',
       coverage_cleanup: ['.coverage', 'htmlcov'],
     },
     coverage_format: 'coverage-py',
@@ -491,6 +495,7 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
     coverage_artifacts: ['coverage.json'],
     default_glob: '**/test_*.py',
     mutation_framework: null,
+    config_flag: null,
   },
 };
 
@@ -643,18 +648,19 @@ describe('getFrameworkConfig -- mutation_framework 字段', () => {
     expect(result.mutation_framework).toBeNull();
   });
 
-  it('FrameworkConfig 字段数量为 8（含 shell/cmd/mutation_framework，不含 coverage_cmd/merge_mode）', () => {
+  it('FrameworkConfig 字段数量为 9（含 shell/cmd/mutation_framework/config_flag，不含 coverage_cmd/merge_mode）', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       const keys = Object.keys(result);
       expect(keys).toContain('mutation_framework');
+      expect(keys).toContain('config_flag');
       expect(keys).toContain('shell');
       expect(keys).toContain('cmd');
       expect(keys).not.toContain('coverage_cmd');
       expect(keys).not.toContain('merge_mode');
       expect(keys).not.toContain('test_cmd');
       expect(keys).not.toContain('coverage_cleanup');
-      expect(keys.length).toBe(8);
+      expect(keys.length).toBe(9);
     }
   });
 });
@@ -768,5 +774,88 @@ describe('getFrameworkConfig -- shell/cmd 二级嵌套结构 (AC-1)', () => {
       const result = getFrameworkConfig(fw);
       expect(result).not.toHaveProperty('coverage_cleanup');
     }
+  });
+});
+
+// ===========================================================================
+// AC-3: config_flag 与 {config_args}
+// ===========================================================================
+
+describe('getFrameworkConfig — config_flag 与 {config_args} (AC-3)', () => {
+  it('jest 的 config_flag 为 "--config" 且 shell/cmd test_execution 均含 {config_args}', () => {
+    const result = getFrameworkConfig('jest');
+    expect(result.config_flag).toBe('--config');
+    expect(result.shell.test_execution).toContain('{config_args}');
+    expect(result.cmd.test_execution).toContain('{config_args}');
+  });
+
+  it('vitest 的 config_flag 为 "--config" 且 shell/cmd test_execution 均含 {config_args}', () => {
+    const result = getFrameworkConfig('vitest');
+    expect(result.config_flag).toBe('--config');
+    expect(result.shell.test_execution).toContain('{config_args}');
+    expect(result.cmd.test_execution).toContain('{config_args}');
+  });
+
+  it('vite-plus 的 config_flag 为 "--config" 且 shell/cmd test_execution 均含 {config_args}', () => {
+    const result = getFrameworkConfig('vite-plus');
+    expect(result.config_flag).toBe('--config');
+    expect(result.shell.test_execution).toContain('{config_args}');
+    expect(result.cmd.test_execution).toContain('{config_args}');
+  });
+
+  it('pytest / rust / go / bun / node-test 的 config_flag 为 null', () => {
+    for (const fw of ['pytest', 'rust', 'go', 'bun', 'node-test']) {
+      expect(getFrameworkConfig(fw).config_flag).toBeNull();
+    }
+  });
+
+  it('未知框架名（非法枚举）抛出 Error', () => {
+    expect(() => getFrameworkConfig('mocha')).toThrow(/Unknown framework/);
+  });
+
+  it('framework 为 undefined/null 强转调用时抛错', () => {
+    expect(() => getFrameworkConfig(null!)).toThrow();
+    expect(() => getFrameworkConfig(undefined!)).toThrow();
+  });
+
+  it('framework 为空字符串时抛错', () => {
+    expect(() => getFrameworkConfig('')).toThrow();
+  });
+
+  it('framework 为超长字符串（>1000 chars）时抛错', () => {
+    expect(() => getFrameworkConfig('x'.repeat(1001))).toThrow();
+  });
+
+  it('framework 含特殊字符（\\n / emoji）时抛错', () => {
+    expect(() => getFrameworkConfig('vit\nest')).toThrow();
+    expect(() => getFrameworkConfig('vitest🚀')).toThrow();
+  });
+
+  it('八框架均具备 config_flag 字段（string | null），且返回对象为浅拷贝', () => {
+    for (const fw of ALL_EIGHT) {
+      const a = getFrameworkConfig(fw);
+      const b = getFrameworkConfig(fw);
+      expect('config_flag' in a).toBe(true);
+      expect(a).not.toBe(b);
+      expect(a).toEqual(b);
+      a.config_flag = 'mutated';
+      expect(getFrameworkConfig(fw).config_flag).not.toBe('mutated');
+    }
+  });
+});
+
+describe('getFrameworkConfig — test_execution 含 config_args 占位 (AC-3)', () => {
+  it('既有 {files}/{directory} 占位断言保留；支持 config 的框架额外含 {config_args}', () => {
+    for (const fw of ['jest', 'vitest', 'vite-plus']) {
+      const result = getFrameworkConfig(fw);
+      expect(result.shell.test_execution).toContain('{files}');
+      expect(result.shell.test_execution).toContain('{config_args}');
+    }
+    expect(getFrameworkConfig('go').shell.test_execution).toContain('{directory}');
+    expect(getFrameworkConfig('go').shell.test_execution).not.toContain('{config_args}');
+  });
+
+  it('未知框架名查询时抛 Error，不返回残缺 test_execution 模板', () => {
+    expect(() => getFrameworkConfig('unknown-fw')).toThrow(/Unknown framework/);
   });
 });

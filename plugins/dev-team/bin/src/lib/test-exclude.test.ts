@@ -1,204 +1,213 @@
 /**
  * 单元测试: lib/test-exclude.ts — isFileExcluded / getExcludeGlobs
  *
- * 覆盖:
- * - AC-2: isFileExcluded 正向（全局/override/混合/不匹配/范围隔离）
- * - AC-2: getExcludeGlobs 正向（全局/合并）
- * - AC-2: isFileExcluded 边界（空数组/undefined/特殊字符/Windows路径/超长路径）
- * - AC-2: getExcludeGlobs 边界（去重/空配置）
- * - AC-6: 向后兼容（不配置 exclude 时返回 false）
+ * 覆盖 suite-scoped excludes（相对 suite.root），不再使用旧 test.exclude。
  *
- * @see openspec/changes/test-exclude-source-globs/test-design.md
+ * @see openspec/changes/tests-array-cwd-config/test-design.md
  */
 
 import { describe, it, expect } from 'vite-plus/test';
 
-import type { OpenSpecConfig } from '../schemas';
+import type { OpenSpecConfig, TestSuite } from '../schemas';
 import { isFileExcluded, getExcludeGlobs } from './test-exclude';
 
+function makeSuite(
+  overrides: Partial<TestSuite> & Pick<TestSuite, 'root' | 'framework'>,
+): TestSuite {
+  return {
+    cwd: '.',
+    coverage: { lines: 80, branches: 70, functions: 75 },
+    mutation: { score: 70 },
+    ...overrides,
+  };
+}
+
+function makeConfig(tests: TestSuite[]): OpenSpecConfig {
+  return { schema: 'spec-driven', tests };
+}
+
 // ===========================================================================
-// isFileExcluded — 正向场景
+// isFileExcluded — suite excludes (AC-4)
 // ===========================================================================
 
-describe('isFileExcluded — 正向', () => {
-  it('文件匹配全局 exclude glob 时返回 true', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { exclude: ['**/node_modules/**'] },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/node_modules/pkg/index.js', config)).toBe(true);
+describe('isFileExcluded — suite excludes (AC-4)', () => {
+  it('文件在 suite.root 下且匹配 excludes 时返回 true', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*.test.ts'] }),
+    ]);
+    expect(isFileExcluded('pkg/src/foo.test.ts', config)).toBe(true);
   });
 
-  it('文件匹配 override-level exclude glob 时返回 true', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: {
-        overrides: [{ file: 'plugins/dev-team/bin', exclude: ['**/*.test.ts'] }],
-      },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('plugins/dev-team/bin/src/foo.test.ts', config)).toBe(true);
+  it('文件匹配 excludes 但不在该 suite.root 下时返回 false（范围隔离）', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg-a', framework: 'vite-plus', excludes: ['**/*.test.ts'] }),
+    ]);
+    expect(isFileExcluded('pkg-b/src/foo.test.ts', config)).toBe(false);
   });
 
-  it('文件同时匹配全局和 override exclude 时返回 true', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: {
-        exclude: ['**/*.snap'],
-        overrides: [{ file: 'plugins/dev-team/bin', exclude: ['**/*.snap'] }],
-      },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('plugins/dev-team/bin/src/foo.snap', config)).toBe(true);
+  it('文件在 root 下但不匹配 excludes 时返回 false', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*.test.ts'] }),
+    ]);
+    expect(isFileExcluded('pkg/src/foo.ts', config)).toBe(false);
   });
 
-  it('文件不匹配任何 exclude glob 时返回 false', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { exclude: ['**/node_modules/**'] },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/app.ts', config)).toBe(false);
-  });
-
-  it('override-level exclude 仅在该 override file 范围内生效', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: {
-        overrides: [
-          { file: 'dir-a', exclude: ['**/*.test.ts'] },
-          { file: 'dir-b', exclude: ['**/ignored/**'] },
-        ],
-      },
-    } satisfies OpenSpecConfig;
-    // dir-b 下的 .test.ts 文件不应被 dir-a 的 exclude 排除
+  it('多 suite 各自 excludes 仅作用于对应 root 树', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'dir-a', framework: 'vite-plus', excludes: ['**/*.test.ts'] }),
+      makeSuite({ root: 'dir-b', framework: 'vitest', excludes: ['**/ignored/**'] }),
+    ]);
+    expect(isFileExcluded('dir-a/src/foo.test.ts', config)).toBe(true);
     expect(isFileExcluded('dir-b/src/foo.test.ts', config)).toBe(false);
+    expect(isFileExcluded('dir-b/ignored/x.ts', config)).toBe(true);
+  });
+
+  it('filePath 为 undefined/null 时明确抛 TypeError', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*'] }),
+    ]);
+    expect(() => {
+      // @ts-expect-error intentional invalid runtime input
+      isFileExcluded(undefined, config);
+    }).toThrow();
+    expect(() => {
+      // @ts-expect-error intentional invalid runtime input
+      isFileExcluded(null, config);
+    }).toThrow();
+  });
+
+  it('config.tests 缺失或非数组时安全回落（false / 不崩溃）', () => {
+    expect(
+      isFileExcluded('pkg/a.ts', {
+        schema: 'spec-driven',
+        // @ts-expect-error intentional missing tests for runtime fallback
+        tests: undefined,
+      }),
+    ).toBe(false);
+    expect(
+      isFileExcluded('pkg/a.ts', {
+        schema: 'spec-driven',
+        // @ts-expect-error intentional invalid tests shape for runtime fallback
+        tests: null,
+      }),
+    ).toBe(false);
+  });
+
+  it('filePath 为空字符串时返回 false', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*'] }),
+    ]);
+    expect(isFileExcluded('', config)).toBe(false);
+  });
+
+  it('filePath 为超长路径（>1000）不抛异常且匹配结果确定', () => {
+    const longSeg = 'a'.repeat(1000);
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*.test.ts'] }),
+    ]);
+    expect(() => isFileExcluded(`pkg/${longSeg}/foo.test.ts`, config)).not.toThrow();
+    expect(isFileExcluded(`pkg/${longSeg}/foo.test.ts`, config)).toBe(true);
+  });
+
+  it('filePath 含特殊字符（空格 / emoji / Unicode）时匹配正确', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*.test.ts'] }),
+    ]);
+    expect(isFileExcluded('pkg/my test/测试🚀.test.ts', config)).toBe(true);
+  });
+
+  it('excludes: [] 或省略时返回 false', () => {
+    expect(
+      isFileExcluded(
+        'pkg/a.ts',
+        makeConfig([makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: [] })]),
+      ),
+    ).toBe(false);
+    expect(
+      isFileExcluded('pkg/a.ts', makeConfig([makeSuite({ root: 'pkg', framework: 'vite-plus' })])),
+    ).toBe(false);
+  });
+
+  it('tests: [] 时返回 false', () => {
+    expect(isFileExcluded('pkg/a.ts', makeConfig([]))).toBe(false);
+  });
+
+  it('Windows 反斜杠路径归一化为 POSIX 后匹配', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['src/**/*.test.ts'] }),
+    ]);
+    expect(isFileExcluded('pkg\\src\\utils\\helper.test.ts', config)).toBe(true);
+    expect(isFileExcluded('pkg\\src\\utils\\app.ts', config)).toBe(false);
   });
 });
 
 // ===========================================================================
-// isFileExcluded — 边界场景
+// getExcludeGlobs — suite excludes (AC-4)
 // ===========================================================================
 
-describe('isFileExcluded — 边界', () => {
-  it('exclude 数组为空时返回 false', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { exclude: [] },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/app.ts', config)).toBe(false);
-  });
-
-  it('exclude 未配置（undefined）时返回 false', () => {
-    const config = { schema: 'spec-driven' as const, test: {} } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/app.ts', config)).toBe(false);
-
-    const config2 = { schema: 'spec-driven' as const, test: {} } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/app.ts', config2)).toBe(false);
-  });
-
-  it('路径含特殊字符（空格、Unicode）时 glob 匹配正确', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { exclude: ['**/*.test.ts'] },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/my test/测试.test.ts', config)).toBe(true);
-    expect(isFileExcluded('src/normal.test.ts', config)).toBe(true);
-  });
-
-  it('Windows 反斜杠路径在 glob 匹配前被转换为 POSIX 格式', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { exclude: ['src/**/*.test.ts'] },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src\\utils\\helper.test.ts', config)).toBe(true);
-    expect(isFileExcluded('src\\utils\\app.ts', config)).toBe(false);
-  });
-
-  it('超长路径字符串不应导致异常', () => {
-    const longSegment = 'a'.repeat(1000);
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { exclude: ['**/*.test.ts'] },
-    } satisfies OpenSpecConfig;
-    expect(() => isFileExcluded(`${longSegment}/foo.test.ts`, config)).not.toThrow();
-  });
-});
-
-// ===========================================================================
-// isFileExcluded — 向后兼容 (AC-6)
-// ===========================================================================
-
-describe('isFileExcluded — 向后兼容 (AC-6)', () => {
-  it('不配置 exclude 时返回 false（不影响既有行为）', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { framework: 'vitest' as const },
-    } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/app.ts', config)).toBe(false);
-  });
-
-  it('test 节只包含默认值时返回 false（无 exclude）', () => {
-    const config = { schema: 'spec-driven' as const, test: {} } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/app.ts', config)).toBe(false);
-  });
-
-  it('仅含 schema 的默认 config 返回 false', () => {
-    const config = { schema: 'spec-driven' as const, test: {} } satisfies OpenSpecConfig;
-    expect(isFileExcluded('src/app.ts', config)).toBe(false);
-  });
-});
-
-// ===========================================================================
-// getExcludeGlobs — 正向场景
-// ===========================================================================
-
-describe('getExcludeGlobs — 正向', () => {
-  it('仅全局 exclude 时返回全局列表', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: { exclude: ['**/node_modules/**', '**/dist/**'] },
-    } satisfies OpenSpecConfig;
-    expect(getExcludeGlobs(config)).toEqual(['**/node_modules/**', '**/dist/**']);
-  });
-
-  it('合并全局和 override-level 的 exclude globs', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: {
-        exclude: ['**/node_modules/**'],
-        overrides: [
-          { file: 'dir-a', exclude: ['**/*.test.ts'] },
-          { file: 'dir-b', exclude: ['**/generated/**'] },
-        ],
-      },
-    } satisfies OpenSpecConfig;
+describe('getExcludeGlobs — suite excludes (AC-4)', () => {
+  it('单 suite 返回拼成 project-relative 的 exclude 模式', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*.snap', 'dist/**'] }),
+    ]);
     const result = getExcludeGlobs(config);
-    expect(result).toContain('**/node_modules/**');
-    expect(result).toContain('**/dir-a/**/*.test.ts');
-    expect(result).toContain('**/dir-b/**/generated/**');
-    expect(result).toHaveLength(3);
-  });
-});
-
-// ===========================================================================
-// getExcludeGlobs — 边界场景
-// ===========================================================================
-
-describe('getExcludeGlobs — 边界', () => {
-  it('全局和 override 存在重复 glob 时去重', () => {
-    const config = {
-      schema: 'spec-driven' as const,
-      test: {
-        exclude: ['dir-a/node_modules/**'],
-        overrides: [{ file: 'dir-a', exclude: ['node_modules/**'] }],
-      },
-    } satisfies OpenSpecConfig;
-    expect(getExcludeGlobs(config)).toEqual(['**/dir-a/node_modules/**']);
+    expect(result).toContain('pkg/**/*.snap');
+    expect(result).toContain('pkg/dist/**');
+    expect(result).toHaveLength(2);
   });
 
-  it('无任何 exclude 时返回空数组', () => {
-    const config = { schema: 'spec-driven' as const, test: {} } satisfies OpenSpecConfig;
-    expect(getExcludeGlobs(config)).toEqual([]);
+  it('多 suite 返回并集', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'a', framework: 'vite-plus', excludes: ['**/*.test.ts'] }),
+      makeSuite({ root: 'b', framework: 'vitest', excludes: ['**/gen/**'] }),
+    ]);
+    const result = getExcludeGlobs(config);
+    expect(result).toContain('a/**/*.test.ts');
+    expect(result).toContain('b/**/gen/**');
+    expect(result).toHaveLength(2);
+  });
 
-    const config2 = { schema: 'spec-driven' as const, test: {} } satisfies OpenSpecConfig;
-    expect(getExcludeGlobs(config2)).toEqual([]);
+  it('config 为 null/undefined 时明确抛错', () => {
+    expect(() => {
+      // @ts-expect-error intentional invalid runtime input
+      getExcludeGlobs(null);
+    }).toThrow();
+    expect(() => {
+      // @ts-expect-error intentional invalid runtime input
+      getExcludeGlobs(undefined);
+    }).toThrow();
+  });
+
+  it('excludes 为单元素数组时返回对应一条 project-relative 模式', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'src', framework: 'vite-plus', excludes: ['**/node_modules/**'] }),
+    ]);
+    expect(getExcludeGlobs(config)).toEqual(['src/**/node_modules/**']);
+  });
+
+  it('excludes 超大列表（大量模式）时返回完整并集', () => {
+    const patterns = Array.from({ length: 200 }, (_, i) => `p${i}/**`);
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: patterns }),
+    ]);
+    const result = getExcludeGlobs(config);
+    expect(result).toHaveLength(200);
+    expect(result[0]).toBe('pkg/p0/**');
+    expect(result[199]).toBe('pkg/p199/**');
+  });
+
+  it('重复模式去重', () => {
+    const config = makeConfig([
+      makeSuite({ root: 'pkg', framework: 'vite-plus', excludes: ['**/*.ts', '**/*.ts'] }),
+      makeSuite({ root: 'pkg', framework: 'vitest', excludes: ['**/*.ts'] }),
+    ]);
+    expect(getExcludeGlobs(config)).toEqual(['pkg/**/*.ts']);
+  });
+
+  it('无 excludes / 空 tests 时返回 []', () => {
+    expect(getExcludeGlobs(makeConfig([]))).toEqual([]);
+    expect(
+      getExcludeGlobs(makeConfig([makeSuite({ root: 'pkg', framework: 'vite-plus' })])),
+    ).toEqual([]);
   });
 });

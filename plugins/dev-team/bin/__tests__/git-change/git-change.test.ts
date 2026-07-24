@@ -65,9 +65,7 @@ describe('git-change 模式 — git diff 变更文件推导', () => {
   it('在工作树中有未暂存变更时调用 modules: "git-change"，unit_tests 包含变更文件的推导结果 (AC-5)', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [{ file: 'src', framework: 'vite-plus' }],
-      },
+      tests: [{ root: 'src', framework: 'vite-plus', includes: ['**/*.{ts,tsx}'] }],
     });
     // 创建初始提交
     writeFile(project.root, 'src/unchanged.ts', '');
@@ -95,9 +93,7 @@ describe('git-change 模式 — git diff 变更文件推导', () => {
   it('干净的工作树中调用 modules: "git-change"，unit_tests 为空 (AC-5)', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [{ file: 'src', framework: 'vite-plus' }],
-      },
+      tests: [{ root: 'src', framework: 'vite-plus', includes: ['**/*.{ts,tsx}'] }],
     });
     writeFile(project.root, 'src/foo.ts', '');
     gitCommit(project.root, 'all clean');

@@ -23,10 +23,26 @@ function generateTempConfig(
   const configPath = path.resolve(rootPath, configFileName);
   const tempDirPath = path.resolve(rootPath, '.stryker-tmp');
 
-  // Normalize source file paths to forward-slash, relative to project root
-  const normalizedSources = sourceFiles.map((f) =>
-    f.replace(/\\/g, '/').replace(path.resolve(rootPath).replace(/\\/g, '/') + '/', ''),
-  );
+  // Normalize source file paths to forward-slash, relative to rootPath (absCwd)
+  const normalizedRoot = path.resolve(rootPath).replace(/\\/g, '/');
+  const normalizedSources = sourceFiles.map((f) => {
+    const posix = f.replace(/\\/g, '/');
+    if (path.isAbsolute(f) || /^[A-Za-z]:/.test(f)) {
+      const abs = path.resolve(f).replace(/\\/g, '/');
+      if (abs === normalizedRoot) {
+        return '.';
+      }
+      if (abs.startsWith(normalizedRoot + '/')) {
+        return abs.slice(normalizedRoot.length + 1);
+      }
+      return path.relative(rootPath, f).replace(/\\/g, '/');
+    }
+    // Already relative — strip an accidental rootPath prefix if present
+    if (posix.startsWith(normalizedRoot + '/')) {
+      return posix.slice(normalizedRoot.length + 1);
+    }
+    return posix;
+  });
 
   const config = {
     $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
@@ -55,8 +71,7 @@ function generateTempConfig(
  * returns its path with cleanup=true.
  *
  * @param rootPath - Absolute path to the framework root
- * @param sourceFiles - Array of source file paths (relative to projectRoot)
- * @param testFiles  - Array of test file paths (relative to projectRoot)
+ * @param sourceFiles - Array of source file paths (relative to rootPath / absCwd, or absolute)
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
  * @throws {Error} If the framework is not supported by StrykerJS
  */

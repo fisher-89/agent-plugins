@@ -315,4 +315,76 @@ describe('MCP Server (via InMemoryTransport)', () => {
       expect(hasViolations || hasPassed).toBe(true);
     });
   });
+  // ===========================================================================
+  // MCP 注册 — test_detect_frameworks description (AC-6)
+  // ===========================================================================
+
+  describe('MCP 注册 — test_detect_frameworks description (AC-6)', () => {
+    it('listTools 得到的 test_detect_frameworks.description 含 tests（suite 映射语义）', async () => {
+      const desc = await getToolDescription(client, 'test_detect_frameworks');
+      expect(desc).toBeDefined();
+      expect(desc!).toMatch(/tests/i);
+    });
+
+    it('description 非空且仍描述 detect / plan 行为', async () => {
+      const desc = await getToolDescription(client, 'test_detect_frameworks');
+      expect(desc!.length).toBeGreaterThan(0);
+      expect(desc!.toLowerCase()).toMatch(/detect|plan|framework/);
+    });
+
+    it('工具未注册或缺 description 时测试失败（断言存在性）', async () => {
+      const desc = await getToolDescription(client, 'test_detect_frameworks');
+      expect(desc).toBeTruthy();
+    });
+
+    it('description 不再包含已废弃键名 test.framework / test.overrides', async () => {
+      const desc = await getToolDescription(client, 'test_detect_frameworks');
+      expect(desc).not.toContain('test.framework');
+      expect(desc).not.toContain('test.overrides');
+    });
+
+    it('description 字符串长度合理（非空、非超长垃圾文案）', async () => {
+      const desc = await getToolDescription(client, 'test_detect_frameworks');
+      expect(desc!.length).toBeGreaterThan(20);
+      expect(desc!.length).toBeLessThan(2000);
+    });
+  });
+
+  describe('MCP 工具调用 — test_detect_frameworks（tests[]）', () => {
+    it('既有 callTool 返回 detected 字段路径保持（夹具配置迁 tests[]）', async () => {
+      const { dir, cleanup } = setupTempProject({
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.test.ts'] }],
+      });
+      try {
+        fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'foo.test.ts'), '', 'utf-8');
+        const result = await client.callTool({
+          name: 'test_detect_frameworks',
+          arguments: { files: ['src/foo.test.ts'], project_root: dir },
+        });
+        const data: TestDetectFrameworksResult = JSON.parse(extractText(result));
+        expect(data).toHaveProperty('detected');
+        expect(data).toHaveProperty('plan');
+        expect(data.plan.length).toBeGreaterThan(0);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('无有效 tests（或 tests: []）时 callTool 返回空 detected/plan 或明确错误结构，不抛未处理异常', async () => {
+      const { dir, cleanup } = setupTempProject({ schema: 'spec-driven', tests: [] });
+      try {
+        const result = await client.callTool({
+          name: 'test_detect_frameworks',
+          arguments: { project_root: dir },
+        });
+        const data: TestDetectFrameworksResult = JSON.parse(extractText(result));
+        expect(data.plan).toEqual([]);
+        expect(Array.isArray(data.detected)).toBe(true);
+      } finally {
+        cleanup();
+      }
+    });
+  });
 });

@@ -78,7 +78,7 @@ function createTempProject(): TempProject {
   fs.mkdirSync(openspecDir, { recursive: true });
   fs.writeFileSync(
     path.join(openspecDir, 'config.json'),
-    JSON.stringify({ schema: 'spec-driven', test: { framework: 'vitest' } }, null, 2),
+    JSON.stringify({ schema: 'spec-driven', tests: [{ root: '.', framework: 'vitest' }] }, null, 2),
     'utf-8',
   );
   return {

@@ -1,9 +1,5 @@
 /**
- * 集成测试: test_detect_frameworks 首匹配规则（AC-6）
- *
- * 验证文件同时匹配多个 glob 时 frameworks 数组中第一个匹配的框架生效。
- *
- * @see openspec/changes/use-fast-glob/test-design.md
+ * 集成测试: test_detect_frameworks 首匹配规则（tests[] 数组顺序）
  */
 
 import * as fs from 'node:fs';
@@ -13,10 +9,6 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { runTestDetectFrameworks } from '../../src/commands/test-detect-frameworks';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface TempProject {
   root: string;
@@ -38,20 +30,14 @@ function createTempProject(configData: unknown): TempProject {
   };
 }
 
-// ===========================================================================
-// test_detect_frameworks — 首匹配规则（AC-6）
-// ===========================================================================
-
 describe('test_detect_frameworks — 首匹配规则', () => {
-  it('tests/e2e/test_app.ts 同时匹配 **/*.ts 与 **/e2e/** 时应归属数组首项 vitest', () => {
+  it('tests/e2e/test_app.ts 同时匹配两 suite 时应归属数组首项 vitest', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [
-          { file: '**/*.ts', framework: 'vitest' },
-          { file: '**/e2e/**', framework: 'vite-plus' },
-        ],
-      },
+      tests: [
+        { root: 'tests', framework: 'vitest', includes: ['**/*.ts'] },
+        { root: 'tests', framework: 'vite-plus', includes: ['**/e2e/**'] },
+      ],
     });
     try {
       const result = runTestDetectFrameworks({
@@ -64,15 +50,13 @@ describe('test_detect_frameworks — 首匹配规则', () => {
     }
   });
 
-  it('交换 override 顺序后框架归属应随之改变', () => {
+  it('交换 suite 顺序后框架归属应随之改变', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [
-          { file: '**/e2e/**', framework: 'vite-plus' },
-          { file: '**/*.ts', framework: 'vitest' },
-        ],
-      },
+      tests: [
+        { root: 'tests', framework: 'vite-plus', includes: ['**/e2e/**'] },
+        { root: 'tests', framework: 'vitest', includes: ['**/*.ts'] },
+      ],
     });
     try {
       const result = runTestDetectFrameworks({

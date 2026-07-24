@@ -91,7 +91,7 @@ function createTempProject(): TempProject {
     JSON.stringify(
       {
         schema: 'spec-driven',
-        test: { framework: 'vitest' },
+        tests: [{ root: '.', framework: 'vitest' }],
       },
       null,
       2,
@@ -913,6 +913,150 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
       await runTestExecution({ projectRoot: project.root });
 
       expect(mockGetGitDiffFiles).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestExecution — 无配置提示引导 tests (AC-6)
+// ===========================================================================
+
+describe('runTestExecution — 无配置提示引导 tests (AC-6)', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+  });
+
+  it('plan.length === 0 时日志包含配置 tests 的引导文案，返回 0', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((msg?: string) => {
+      logs.push(String(msg ?? ''));
+    });
+    try {
+      mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+      const code = await runTestExecution({ projectRoot: project.root });
+      expect(code).toBe(0);
+      expect(logs.some((l) => l.includes('tests'))).toBe(true);
+      expect(logs.some((l) => /test\.framework|test\.overrides/.test(l))).toBe(false);
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('runTestDetectFrameworks 抛错时向上传播或转为非 0 退出码', async () => {
+    const project = createTempProject();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockDetectFrameworks.mockImplementation(() => {
+        throw new Error('detect failed');
+      });
+      await expect(runTestExecution({ projectRoot: project.root })).rejects.toThrow(
+        /detect failed/,
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('配置仅含旧 test 键导致空 plan 时仍引导 tests，不提及 test.framework', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((msg?: string) => {
+      logs.push(String(msg ?? ''));
+    });
+    try {
+      mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+      await runTestExecution({ projectRoot: project.root });
+      const joined = logs.join('\n');
+      expect(joined).toMatch(/tests/i);
+      expect(joined).not.toContain('test.framework');
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('旧文案 test.framework / test.overrides 不再出现在日志中', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((msg?: string) => {
+      logs.push(String(msg ?? ''));
+    });
+    try {
+      mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+      await runTestExecution({ projectRoot: project.root });
+      expect(logs.join('\n')).not.toMatch(/test\.framework|test\.overrides/);
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('options 缺省字段（如无 files）时仍能完成空 plan 提示路径', async () => {
+    const project = createTempProject();
+    const spy = vi.spyOn(console, 'log').mockImplementation(() => {});
+    try {
+      mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+      const code = await runTestExecution({ projectRoot: project.root });
+      expect(code).toBe(0);
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestExecution -- 正向异常路径 (AC-1)', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('executePlanEntry 失败或子报告生成抛错时返回非 0 退出码（不静默成功）', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [],
+        plan: [makePlanEntry()],
+      });
+      mockExecutePlanEntry.mockReturnValue(
+        makeExecutionResult({
+          exitCode: 1,
+          testCases: [{ name: 't', status: 'failed', durationMs: 1 }],
+        }),
+      );
+      mockGenerateSubReport.mockReturnValue(
+        makeSubReport({
+          exit_code: 1,
+          summary: { total: 1, passed: 0, failed: 1, skipped: 0 },
+        }),
+      );
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 0,
+        failed: 1,
+        skipped: 0,
+        conclusion: 'fail',
+        problems: [],
+        coverage: null,
+      });
+      const code = await runTestExecution({ projectRoot: project.root });
+      expect(code).not.toBe(0);
     } finally {
       project.cleanup();
     }

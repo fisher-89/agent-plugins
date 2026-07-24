@@ -2,15 +2,15 @@
   "$schema": "https://ksogitlab.kso.net/zhangbohan3/wps-agent-plugin/-/raw/master/plugins/dev-team/bin/dev-team-config.schema.json?ref_type=heads",
   "schema": "spec-driven",
   "static_analysis": "pnpm run -C ./plugins/dev-team/bin check",
-  "test": {
-    "overrides": [
-      {
-        "file": "plugins/dev-team/bin",
-        "framework": "vite-plus",
-        "exclude": ["./*", "src/schemas/**/*"]
-      }
-    ]
-  },
+  "tests": [
+    {
+      "root": "plugins/dev-team/bin",
+      "framework": "vite-plus",
+      "config": "vite.config.ts",
+      "includes": ["src/**/*.{ts,tsx}"],
+      "excludes": ["src/schemas/**/*"]
+    }
+  ],
   "write_protection": {
     "files": [{ "glob": "plugins/dev-team/bin/knip.json" }]
   }

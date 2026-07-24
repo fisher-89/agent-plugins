@@ -1,9 +1,7 @@
 /**
- * 集成测试: test-resolve-paths 无 test 配置 (AC-2)
+ * 集成测试: test-resolve-paths 无 tests 配置
  *
- * 验证 modules: [] 且 config.json 无 test 配置时 errors 包含指导消息。
- *
- * @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+ * @see openspec/changes/tests-array-cwd-config/test-design.md
  */
 
 import * as fs from 'node:fs';
@@ -13,10 +11,6 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { runTestResolvePaths } from '../../src/commands/test-resolve-paths';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface TempProject {
   root: string;
@@ -38,15 +32,10 @@ function createTempProject(configData: unknown): TempProject {
   };
 }
 
-// ===========================================================================
-// 无 test 配置 (AC-2)
-// ===========================================================================
-
-describe('无 test 配置 — modules: [] 时 errors 包含指导性消息', () => {
-  it('config.json 仅有 schema 字段时，errors 应包含配置提示且 unit_tests 为空 (AC-2)', () => {
+describe('无 tests 配置 — modules: [] 时 errors 包含指导性消息', () => {
+  it('config.json 仅有 schema 字段时，errors 应包含配置提示且 unit_tests 为空', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      // 无 test 字段
     });
     try {
       const result = runTestResolvePaths({
@@ -56,19 +45,17 @@ describe('无 test 配置 — modules: [] 时 errors 包含指导性消息', () 
 
       expect(result.errors.length).toBeGreaterThan(0);
       expect(result.errors[0].path).toBe('config');
-      expect(result.errors[0].message).toContain('No test configuration');
+      expect(result.errors[0].message).toContain('tests');
       expect(result.unit_tests).toEqual([]);
     } finally {
       project.cleanup();
     }
   });
 
-  it('config.json 存在但 test.overrides 为空数组时 errors 应包含配置提示', () => {
+  it('config.json 存在但 tests 为空数组时 errors 应包含配置提示', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [],
-      },
+      tests: [],
     });
     try {
       const result = runTestResolvePaths({
@@ -77,7 +64,7 @@ describe('无 test 配置 — modules: [] 时 errors 包含指导性消息', () 
       });
 
       expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.errors[0].message).toContain('No test configuration');
+      expect(result.errors[0].message).toContain('tests');
       expect(result.unit_tests).toEqual([]);
     } finally {
       project.cleanup();

@@ -2,25 +2,21 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readConfig } from '../lib/config';
-import { matchGlob } from '../lib/glob';
-import { isFileExcluded } from '../lib/test-exclude';
+import { matchGlob, toForwardSlash } from '../lib/glob';
+import { isFileExcluded, isExcludedBySuite } from '../lib/test-exclude';
 import { type FrameworkConfig, getFrameworkConfig } from '../lib/test-framework';
 import {
   type TestDetectFrameworksResult,
   type TestPlan,
   type OpenSpecConfig,
   type TestFramework,
+  type TestSuite,
 } from '../schemas';
 import { getProjectDir } from '../utils';
 
 // ---------------------------------------------------------------------------
 // Types
 // ---------------------------------------------------------------------------
-
-interface FrameworkMapping {
-  glob: string;
-  framework: TestFramework;
-}
 
 interface DetectedFile {
   file: string;
@@ -30,6 +26,18 @@ interface DetectedFile {
 export interface TestDetectFrameworksOptions {
   files?: string[];
   projectRoot?: string;
+}
+
+interface ResolvedSuite {
+  suite: TestSuite;
+  absRoot: string;
+  absCwd: string;
+  absConfig: string | null;
+  /** absCwd relative to projectRoot (POSIX) */
+  directory: string;
+  frameworkConfig: FrameworkConfig;
+  /** Include globs as projectRoot-relative patterns */
+  includeGlobs: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -80,83 +88,97 @@ function collectFiles(rootDir: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Config normalisation
+// Suite path helpers
 // ---------------------------------------------------------------------------
 
+function toPosixRelative(from: string, to: string): string {
+  const rel = path.relative(from, to);
+  const posix = toForwardSlash(rel);
+  return posix === '' ? '.' : posix;
+}
+
+function joinRootScoped(root: string, pattern: string): string {
+  return path.posix.normalize(path.posix.join(toForwardSlash(root), toForwardSlash(pattern)));
+}
+
 /**
- * Normalise the `test.framework` + `test.overrides` config into an array of
- * `{glob, framework}` mappings.
- *
- * - If `framework` is set, it becomes the first mapping using the framework's default glob.
- * - For each override with a `framework` field, a mapping is added using the override's `file` glob.
- * - If both are empty/undefined, return an empty array.
+ * Expand `{config_args}` in a test_execution template.
+ * Replaces every occurrence; never appends to the end of the whole string.
  */
-function normalizeFrameworks(
-  framework: OpenSpecConfig['test']['framework'],
-  overrides: OpenSpecConfig['test']['overrides'],
-): FrameworkMapping[] {
-  const frameworkMapping: FrameworkMapping[] = [];
-  if (framework) {
-    const glob = getFrameworkConfig(framework).default_glob;
-    frameworkMapping.push({ glob, framework });
+function expandConfigArgs(template: string, configArgs: string): string {
+  // Collapse leftover whitespace when configArgs is empty
+  if (!configArgs) {
+    return template.replace(/\s*\{config_args\}/g, '').replace(/\{config_args\}/g, '');
+  }
+  return template.replace(/\{config_args\}/g, configArgs);
+}
+
+function resolveConfigArgs(
+  suite: TestSuite,
+  frameworkConfig: FrameworkConfig,
+  absCwd: string,
+  absConfig: string | null,
+): string {
+  if (!suite.config) {
+    return '';
+  }
+  if (!frameworkConfig.config_flag) {
+    throw new Error(
+      `Suite root "${suite.root}" declares config "${suite.config}" but framework ` +
+        `"${suite.framework}" does not support config injection (config_flag is null)`,
+    );
+  }
+  if (!absConfig) {
+    throw new Error(
+      `Suite root "${suite.root}" declares config "${suite.config}" but absConfig could not be resolved`,
+    );
+  }
+  const relConfig = toPosixRelative(absCwd, absConfig);
+  return `${frameworkConfig.config_flag} ${relConfig}`;
+}
+
+function resolveSuite(suite: TestSuite, projectRoot: string): ResolvedSuite {
+  const frameworkConfig = getFrameworkConfig(suite.framework);
+  const absRoot = path.resolve(projectRoot, suite.root);
+  const absCwd = path.resolve(absRoot, suite.cwd ?? '.');
+  const absConfig = suite.config ? path.resolve(absRoot, suite.config) : null;
+  const directory = toPosixRelative(projectRoot, absCwd);
+
+  const includePatterns = suite.includes?.length ? suite.includes : [frameworkConfig.default_glob];
+  const includeGlobs = includePatterns.map((pattern) => joinRootScoped(suite.root, pattern));
+
+  return {
+    suite,
+    absRoot,
+    absCwd,
+    absConfig,
+    directory,
+    frameworkConfig,
+    includeGlobs,
+  };
+}
+
+/**
+ * Whether a project-relative file path is in a suite's scope:
+ * under(root) ∧ match(includesEffective) ∧ ¬excludes (this suite only).
+ */
+function isInSuiteScope(relativePath: string, resolved: ResolvedSuite): boolean {
+  const posix = toForwardSlash(relativePath);
+  const root = path.posix.normalize(toForwardSlash(resolved.suite.root)).replace(/\/$/, '');
+
+  if (posix !== root && !posix.startsWith(root + '/')) {
+    return false;
   }
 
-  if (Array.isArray(overrides)) {
-    for (const override of overrides) {
-      if (override.framework) {
-        frameworkMapping.push({ glob: override.file, framework: override.framework });
-      }
-    }
+  if (isExcludedBySuite(posix, resolved.suite)) {
+    return false;
   }
 
-  return frameworkMapping;
+  return resolved.includeGlobs.some((glob) => matchGlob(posix, glob));
 }
 
 // ---------------------------------------------------------------------------
-// deriveWorkingDirectory
-// ---------------------------------------------------------------------------
-
-/**
- * Derive the working directory from a glob pattern.
- *
- * Rules:
- * 1. Normalise backslashes to forward slashes (cross-platform).
- * 2. Merge consecutive forward slashes into one.
- * 3. Find the first wildcard character (`*`, `?`, `{`).
- * 4. If no wildcard is found, return the entire (normalised) string.
- * 5. Take the substring before the first wildcard, then strip any trailing
- *    path separator (`/`).  If the result is empty, return `"."`.
- *
- * Examples:
- *   - `"plugins/dev-team/bin"`      -> `"plugins/dev-team/bin"`
- *   - `"tests/?nit/*.test.ts"`      -> `"tests"`
- *   - `"{src,lib}/*.test.ts"`       -> `"."`
- */
-function deriveWorkingDirectory(glob: string): string {
-  // 1. Normalise backslashes to forward slashes
-  let normalised = glob.replace(/\\/g, '/');
-
-  // 2. Merge consecutive forward slashes
-  normalised = normalised.replace(/\/+/g, '/');
-
-  // 3. Find first wildcard character
-  const WILDCARD_PATTERN = /[*?{]/;
-  const match = WILDCARD_PATTERN.exec(normalised);
-
-  if (!match) {
-    // 4. No wildcard — return the entire normalised string
-    return normalised;
-  }
-
-  // 5. Take the substring before the first wildcard
-  const prefix = normalised.slice(0, match.index);
-  const trimmed = prefix.replace(/\/+$/, '');
-
-  return trimmed || '.';
-}
-
-// ---------------------------------------------------------------------------
-// generateShellScript
+// generateShellScript / generateCmdScript
 // ---------------------------------------------------------------------------
 
 /**
@@ -164,12 +186,17 @@ function deriveWorkingDirectory(glob: string): string {
  * Uses Unix shell syntax: `cd`, `rm -rf`, `\n` line separation, `;` chaining
  * and `_X=$?` exit code capture (embedded in the test_execution template).
  */
-function generateShellScript(directory: string, frameworkConfig: FrameworkConfig): string {
+function generateShellScript(
+  directory: string,
+  frameworkConfig: FrameworkConfig,
+  configArgs: string,
+): string {
   if (frameworkConfig === null || frameworkConfig === undefined) {
     throw new TypeError('generateShellScript input must not be null or undefined');
   }
 
-  const { test_execution, coverage_cleanup } = frameworkConfig.shell;
+  const test_execution = expandConfigArgs(frameworkConfig.shell.test_execution, configArgs);
+  const { coverage_cleanup } = frameworkConfig.shell;
 
   if (typeof directory !== 'string') {
     throw new TypeError('generateShellScript: directory must be a string');
@@ -196,26 +223,20 @@ function generateShellScript(directory: string, frameworkConfig: FrameworkConfig
   return lines.join('\n') + '\n';
 }
 
-// ---------------------------------------------------------------------------
-// generateCmdScript
-// ---------------------------------------------------------------------------
-
 /**
  * Generate a Windows cmd.exe execution script from plan entry fields.
- * Uses cmd.exe compatible syntax:
- *   - `cd /d <dir>` instead of `cd <dir>` (cross-drive safe)
- *   - `if exist <item> (rmdir /s /q <item> 2>nul & del /f /q <item> 2>nul)` instead of `rm -rf`
- *   - `\r\n` line separators for cmd.exe compatibility
- *
- * Exit code capture relies on multi-line parsing where cmd.exe's `%errorlevel%`
- * correctly reflects the previous line's exit code (see design decision D1).
  */
-function generateCmdScript(directory: string, frameworkConfig: FrameworkConfig): string {
+function generateCmdScript(
+  directory: string,
+  frameworkConfig: FrameworkConfig,
+  configArgs: string,
+): string {
   if (frameworkConfig === null || frameworkConfig === undefined) {
     throw new TypeError('generateCmdScript input must not be null or undefined');
   }
 
-  const { test_execution, coverage_cleanup } = frameworkConfig.cmd;
+  const test_execution = expandConfigArgs(frameworkConfig.cmd.test_execution, configArgs);
+  const { coverage_cleanup } = frameworkConfig.cmd;
 
   if (typeof directory !== 'string') {
     throw new TypeError('generateCmdScript: directory must be a string');
@@ -230,7 +251,6 @@ function generateCmdScript(directory: string, frameworkConfig: FrameworkConfig):
   const lines: string[] = [];
 
   if (directory !== '.') {
-    // Quote paths with spaces for cmd.exe safety
     const quotedDir =
       directory.includes(' ') || directory.includes('\t')
         ? `"${directory.replace(/"/g, '\\"')}"`
@@ -239,8 +259,6 @@ function generateCmdScript(directory: string, frameworkConfig: FrameworkConfig):
   }
 
   for (const item of coverage_cleanup) {
-    // rmdir/s/q works for directories, del/f/q works for files — combining
-    // both ensures the target is removed regardless of its type.
     lines.push(`if exist "${item}" (rmdir /s /q "${item}" 2>nul & del /f /q "${item}" 2>nul)`);
   }
 
@@ -253,86 +271,70 @@ function generateCmdScript(directory: string, frameworkConfig: FrameworkConfig):
 // Plan and detection helpers
 // ---------------------------------------------------------------------------
 
-function buildPlanFromMappings(mappings: FrameworkMapping[], projectRoot?: string): TestPlan[] {
+function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan[] {
   const plan: TestPlan[] = [];
-  for (const mapping of mappings) {
-    try {
-      const directory = deriveWorkingDirectory(mapping.glob);
-      const config = getFrameworkConfig(mapping.framework);
-      plan.push({
-        directory,
-        framework: config.framework,
-        coverage_format: config.coverage_format,
-        coverage_output: config.coverage_output,
-        coverage_artifacts: config.coverage_artifacts,
-        mutation_framework: config.mutation_framework,
-        mutation_config: null,
-        mutation_score: null,
-        script: {
-          shell: generateShellScript(directory, config),
-          cmd: generateCmdScript(directory, config),
-        },
-      });
-    } catch {
-      // Skip entries for frameworks not in the registry
+  const seen = new Set<string>();
+
+  for (const suite of suites) {
+    const resolved = resolveSuite(suite, projectRoot);
+    const dedupeKey = `${resolved.directory}::${suite.framework}`;
+    if (seen.has(dedupeKey)) {
+      continue;
     }
+    seen.add(dedupeKey);
+
+    const configArgs = resolveConfigArgs(
+      suite,
+      resolved.frameworkConfig,
+      resolved.absCwd,
+      resolved.absConfig,
+    );
+    const { frameworkConfig } = resolved;
+
+    plan.push({
+      directory: resolved.directory,
+      framework: frameworkConfig.framework,
+      coverage_format: frameworkConfig.coverage_format,
+      coverage_output: frameworkConfig.coverage_output,
+      coverage_artifacts: frameworkConfig.coverage_artifacts,
+      mutation_framework: frameworkConfig.mutation_framework,
+      mutation_config: null,
+      mutation_score: suite.mutation?.score ?? null,
+      script: {
+        shell: generateShellScript(resolved.directory, frameworkConfig, configArgs),
+        cmd: generateCmdScript(resolved.directory, frameworkConfig, configArgs),
+      },
+    });
   }
 
-  populateMutationConfig(plan, projectRoot);
   return plan;
-}
-
-/**
- * Populate mutation_config and mutation_score for each plan entry
- * from the project's config.json.
- */
-function populateMutationConfig(plan: TestPlan[], projectRoot?: string): void {
-  if (plan.length === 0) return;
-
-  try {
-    const root = projectRoot || getProjectDir();
-    const config = readConfig(root);
-    const mutationScore = config.test?.mutation?.score ?? null;
-    const overrideConfigs = config.test?.overrides ?? [];
-
-    for (const entry of plan) {
-      if (entry.mutation_framework) {
-        let matchedScore: number | null = null;
-        for (const override of overrideConfigs) {
-          if (override.mutation?.score !== undefined) {
-            matchedScore = override.mutation.score;
-          }
-        }
-        entry.mutation_score = mutationScore;
-        entry.mutation_config = matchedScore !== null ? { score: matchedScore } : null;
-      }
-    }
-  } catch {
-    // Config read failure — mutation fields remain null
-  }
 }
 
 function detectFrameworksForFiles(
   filesToCheck: string[],
   projectRoot: string,
-  mappings: FrameworkMapping[],
+  resolvedSuites: ResolvedSuite[],
   isAutoScan: boolean,
   config: OpenSpecConfig,
 ): { detected: DetectedFile[] } {
   const detected: DetectedFile[] = [];
 
   for (const file of filesToCheck) {
+    const relativePath = toForwardSlash(
+      path.isAbsolute(file) ? path.relative(projectRoot, file) : file,
+    );
+
     // Skip excluded files — they don't participate in framework detection
-    if (isFileExcluded(file, config)) {
+    if (isFileExcluded(relativePath, config) || isFileExcluded(file, config)) {
       continue;
     }
 
-    const relativePath = path.isAbsolute(file) ? path.relative(projectRoot, file) : file;
     let matched = false;
 
-    for (const mapping of mappings) {
-      if (matchGlob(relativePath, mapping.glob)) {
-        detected.push({ file, framework: mapping.framework });
+    // Array order priority: first matching suite wins
+    for (const resolved of resolvedSuites) {
+      if (isInSuiteScope(relativePath, resolved)) {
+        detected.push({ file, framework: resolved.suite.framework });
         matched = true;
         break;
       }
@@ -351,22 +353,15 @@ function resolveFilesToCheck(
   projectRoot: string,
 ): string[] | 'empty' {
   if (options.files && options.files.length > 0) {
-    // Provided file list — resolve relative paths against project root
     return options.files.map((f) => (path.isAbsolute(f) ? f : path.resolve(projectRoot, f)));
   }
   if (options.files !== undefined && options.files.length === 0) {
-    // Empty file list — signal early return
     return 'empty';
   }
-  // Auto-scan
   return collectFiles(projectRoot);
 }
 
-// ---------------------------------------------------------------------------
-// Main handler
-// ---------------------------------------------------------------------------
-
-function buildNoMappingsResult(
+function buildNoSuitesResult(
   filesToCheck: string[],
   isAutoScan: boolean,
 ): TestDetectFrameworksResult {
@@ -379,12 +374,16 @@ function buildNoMappingsResult(
   return { detected, plan: [] };
 }
 
+// ---------------------------------------------------------------------------
+// Main handler
+// ---------------------------------------------------------------------------
+
 /**
  * Run `test_detect_frameworks`: detect which test framework(s) each file
- * belongs to, based on the glob-to-framework mappings in config.json.
+ * belongs to, based on the `tests[]` suite mappings in config.json.
  *
  * When `files` is provided, match only those files.  When omitted,
- * auto-scan the project for files matching any of the configured globs.
+ * auto-scan the project for files matching any of the configured suite scopes.
  */
 export function runTestDetectFrameworks(
   options: TestDetectFrameworksOptions,
@@ -392,9 +391,9 @@ export function runTestDetectFrameworks(
   const projectRoot = options.projectRoot || getProjectDir();
 
   const config = readConfig(projectRoot);
-  const { framework, overrides } = config.test;
-  const mappings = normalizeFrameworks(framework, overrides);
-  const plan = buildPlanFromMappings(mappings, projectRoot);
+  const suites = config.tests ?? [];
+  const plan = buildPlanFromSuites(suites, projectRoot);
+  const resolvedSuites = suites.map((suite) => resolveSuite(suite, projectRoot));
 
   const filesResult = resolveFilesToCheck(options, projectRoot);
   if (filesResult === 'empty') {
@@ -403,14 +402,14 @@ export function runTestDetectFrameworks(
   const filesToCheck = filesResult;
   const isAutoScan = options.files === undefined;
 
-  if (mappings.length === 0) {
-    return buildNoMappingsResult(filesToCheck, isAutoScan);
+  if (suites.length === 0) {
+    return buildNoSuitesResult(filesToCheck, isAutoScan);
   }
 
   const { detected } = detectFrameworksForFiles(
     filesToCheck,
     projectRoot,
-    mappings,
+    resolvedSuites,
     isAutoScan,
     config,
   );

@@ -1153,27 +1153,34 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
   it('computeMutationOverrides 正确匹配 glob 并计算 pass/fail', () => {
     const dir = createTempDir();
     try {
-      // 创建 openspec/config.json 包含 mutation overrides
+      // 创建 openspec/config.json 包含多 suite mutation 阈值
       const openspecDir = path.join(dir.root, 'openspec');
       fs.mkdirSync(openspecDir, { recursive: true });
       fs.writeFileSync(
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: {
-            framework: 'vitest',
-            mutation: { score: 80 },
-            overrides: [
-              { file: 'src/core/**', mutation: { score: 90 } },
-              { file: 'src/utils/**', mutation: { score: 70 } },
-            ],
-          },
+          tests: [
+            {
+              root: 'src/core',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              mutation: { score: 90 },
+            },
+            {
+              root: 'src/utils',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              mutation: { score: 70 },
+            },
+          ],
         }),
         'utf-8',
       );
 
       const sub = createSubReport({
         framework: 'vitest',
+        directory: 'src/core',
         source_files: [sfe('src/core/foo.ts'), sfe('src/utils/bar.ts')],
         mutation: {
           pass: true,
@@ -1199,16 +1206,12 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         dir.root,
         path.join(dir.root, 'reports', 'test-execution'),
       );
-      // overrides 应存在
+      // overrides 字段语义为 suite 分组
       expect(summary.mutation!.overrides).toBeDefined();
       expect(summary.mutation!.overrides!.length).toBeGreaterThan(0);
-      // src/core/** 的 override 应 pass（score=90 threshold=90）
-      const coreOverride = summary.mutation!.overrides!.find((o) => o.glob === 'src/core/**');
+      const coreOverride = summary.mutation!.overrides!.find((o) => o.glob === 'src/core');
       expect(coreOverride).toBeDefined();
-      expect(coreOverride!.pass).toBe(true);
-      // src/utils/** 的 override 应 fail（score=70 threshold=70 但这里 override 的 score=threshold，用实际实现验证）
-      // 注意: 当前 computeMutationOverrides 实现中 score = threshold（placeholder），所以 pass=true
-      // 验证结构正确性即可
+      expect(coreOverride!.threshold).toBe(90);
       expect(summary.mutation!.overrides!.some((o) => o.glob.startsWith('src/'))).toBe(true);
     } finally {
       dir.cleanup();
@@ -1290,11 +1293,14 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: {
-            framework: 'vitest',
-            mutation: { score: 80 },
-            overrides: [{ file: 'src/core/**', mutation: { score: 95 } }],
-          },
+          tests: [
+            {
+              root: 'src/core',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              mutation: { score: 95 },
+            },
+          ],
         }),
         'utf-8',
       );
@@ -1395,6 +1401,505 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       // killed/total 是求和
       expect(summary.mutation!.measured.killed).toBe(9);
       expect(summary.mutation!.measured.total).toBe(20);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// generateSubReport / generateSummaryReport — suite 阈值 (AC-5)
+// ===========================================================================
+
+describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', () => {
+  function writeTestsConfig(root: string, tests: Array<Record<string, unknown>>): void {
+    const openspecDir = path.join(root, 'openspec');
+    fs.mkdirSync(openspecDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(openspecDir, 'config.json'),
+      JSON.stringify({ schema: 'spec-driven', tests }),
+      'utf-8',
+    );
+  }
+
+  it('suite 自定义 coverage.lines/branches/functions 时子报告/汇总使用该阈值', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'src',
+          framework: 'vitest',
+          coverage: { lines: 90, branches: 85, functions: 95 },
+          mutation: { score: 80 },
+        },
+      ]);
+      const result = makeExecutionResult({
+        coverage: { lines: 92, branches: 90, functions: 96, fileCoverage: null },
+        sourceFiles: ['src/foo.ts'],
+      });
+      const sub = generateSubReport(
+        'vitest',
+        result,
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+        'src',
+      );
+      expect(sub.coverage?.thresholds).toEqual({ lines: 90, branches: 85, functions: 95 });
+      const summary = generateSummaryReport(
+        [sub],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      expect(summary.coverage?.thresholds.lines).toBe(90);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('suite 省略 coverage/mutation 时使用 schema 默认 80/70/75 与 mutation 70', () => {
+    const dir = createTempDir();
+    try {
+      // 省略 includes → 报告 suite scope 使用框架 default_glob（非源码全树）
+      writeTestsConfig(dir.root, [{ root: 'src', framework: 'vitest' }]);
+      const result = makeExecutionResult({
+        coverage: { lines: 90, branches: 90, functions: 90, fileCoverage: null },
+        sourceFiles: ['src/foo.ts'],
+        mutation: {
+          pass: true,
+          score: 80,
+          threshold: 70,
+          measured: {
+            killed: 8,
+            survived: 2,
+            timeout: 0,
+            noCoverage: 0,
+            compileError: 0,
+            runtimeError: 0,
+            ignored: 0,
+            total: 10,
+            detected: 8,
+            undetected: 2,
+          },
+        },
+      });
+      const sub = generateSubReport(
+        'vitest',
+        result,
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+        'src',
+      );
+      expect(sub.coverage?.thresholds).toEqual({ lines: 80, branches: 70, functions: 75 });
+
+      // 源文件不匹配 default_glob → 汇总无 suite 分组
+      const summarySource = generateSummaryReport(
+        [sub],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      expect(summarySource.mutation?.overrides?.find((o) => o.glob === 'src')).toBeUndefined();
+
+      // 匹配 default_glob 的测试文件可入 scope，mutation 阈值仍为 schema 默认 70
+      const subTest = createSubReport({
+        framework: 'vitest',
+        directory: 'src',
+        source_files: [sfe('src/foo.test.ts')],
+        mutation: {
+          pass: true,
+          score: 80,
+          threshold: 70,
+          measured: {
+            killed: 8,
+            survived: 2,
+            timeout: 0,
+            noCoverage: 0,
+            compileError: 0,
+            runtimeError: 0,
+            ignored: 0,
+            total: 10,
+            detected: 8,
+            undetected: 2,
+          },
+        },
+      });
+      const summaryTest = generateSummaryReport(
+        [subTest],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      expect(summaryTest.mutation?.overrides?.find((o) => o.glob === 'src')?.threshold).toBe(70);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('两 suite 不同阈值时汇总按 suite 分组（overrides 字段语义为 suite 分组）', () => {
+    const dir = createTempDir();
+    try {
+      // 源码树分组需显式 includes；省略 includes 时仅 default_glob（测试文件）入 scope
+      writeTestsConfig(dir.root, [
+        {
+          root: 'pkg-a',
+          framework: 'vitest',
+          includes: ['**/*.{ts,tsx}'],
+          coverage: { lines: 90, branches: 90, functions: 90 },
+          mutation: { score: 90 },
+        },
+        {
+          root: 'pkg-b',
+          framework: 'vite-plus',
+          includes: ['**/*.{ts,tsx}'],
+          coverage: { lines: 60, branches: 60, functions: 60 },
+          mutation: { score: 50 },
+        },
+      ]);
+      const sub1 = createSubReport({
+        framework: 'vitest',
+        directory: 'pkg-a',
+        source_files: [
+          sfe('pkg-a/a.ts', {
+            total_lines: 10,
+            covered_lines: 10,
+            lines: 100,
+            branches: 100,
+            functions: 100,
+            total_branches: 10,
+            covered_branches: 10,
+            total_functions: 10,
+            covered_functions: 10,
+          }),
+        ],
+        coverage: {
+          pass: true,
+          measured: { lines: 100, branches: 100, functions: 100 },
+          thresholds: { lines: 90, branches: 90, functions: 90 },
+        },
+        mutation: {
+          pass: true,
+          score: 95,
+          threshold: 90,
+          measured: {
+            killed: 9,
+            survived: 1,
+            timeout: 0,
+            noCoverage: 0,
+            compileError: 0,
+            runtimeError: 0,
+            ignored: 0,
+            total: 10,
+            detected: 9,
+            undetected: 1,
+          },
+        },
+      });
+      const sub2 = createSubReport({
+        framework: 'vite-plus',
+        directory: 'pkg-b',
+        source_files: [
+          sfe('pkg-b/b.ts', {
+            total_lines: 10,
+            covered_lines: 10,
+            lines: 100,
+            branches: 100,
+            functions: 100,
+            total_branches: 10,
+            covered_branches: 10,
+            total_functions: 10,
+            covered_functions: 10,
+          }),
+        ],
+        coverage: {
+          pass: true,
+          measured: { lines: 100, branches: 100, functions: 100 },
+          thresholds: { lines: 60, branches: 60, functions: 60 },
+        },
+        mutation: {
+          pass: true,
+          score: 80,
+          threshold: 50,
+          measured: {
+            killed: 8,
+            survived: 2,
+            timeout: 0,
+            noCoverage: 0,
+            compileError: 0,
+            runtimeError: 0,
+            ignored: 0,
+            total: 10,
+            detected: 8,
+            undetected: 2,
+          },
+        },
+      });
+      const summary = generateSummaryReport(
+        [sub1, sub2],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      expect(summary.coverage?.overrides?.length).toBeGreaterThanOrEqual(2);
+      expect(summary.mutation?.overrides?.some((o) => o.glob === 'pkg-a')).toBe(true);
+      expect(summary.mutation?.overrides?.some((o) => o.glob === 'pkg-b')).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('配置无顶层全局 test.coverage/test.mutation 块时报告仍能给出阈值结论', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        { root: 'src', framework: 'vitest', coverage: { lines: 50, branches: 50, functions: 50 } },
+      ]);
+      const sub = createSubReport({
+        framework: 'vitest',
+        directory: 'src',
+        source_files: [sfe('src/foo.ts')],
+        coverage: {
+          pass: true,
+          measured: { lines: 60, branches: 60, functions: 60 },
+          thresholds: { lines: 50, branches: 50, functions: 50 },
+        },
+      });
+      const summary = generateSummaryReport(
+        [sub],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      expect(summary.coverage).not.toBeNull();
+      expect(summary.coverage!.thresholds.lines).toBe(50);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('coverage 产物缺失或 JSON 非法时子报告错误字段明确、不崩溃', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [{ root: 'src', framework: 'vitest' }]);
+      const result = makeExecutionResult({
+        coverage: null,
+        error: 'coverage missing',
+        sourceFiles: ['src/foo.ts'],
+      });
+      expect(() =>
+        generateSubReport(
+          'vitest',
+          result,
+          dir.root,
+          path.join(dir.root, 'reports', 'test-execution'),
+          'src',
+        ),
+      ).not.toThrow();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('suite coverage.lines 为 -1 / 超过 100 时配置侧已拒绝，报告层使用 schema 默认', () => {
+    const dir = createTempDir();
+    try {
+      fs.mkdirSync(path.join(dir.root, 'openspec'), { recursive: true });
+      fs.writeFileSync(
+        path.join(dir.root, 'openspec', 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: 'src', framework: 'vitest', coverage: { lines: -1 } }],
+        }),
+        'utf-8',
+      );
+      const result = makeExecutionResult({
+        coverage: { lines: 90, branches: 90, functions: 90, fileCoverage: null },
+        sourceFiles: ['src/foo.ts'],
+      });
+      const sub = generateSubReport(
+        'vitest',
+        result,
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+        'src',
+      );
+      // invalid config → readConfig falls back → schema defaults
+      expect(sub.coverage?.thresholds.lines).toBe(80);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('coverage.lines/branches/functions 均为 0 时阈值结论按 0 判定', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'src',
+          framework: 'vitest',
+          coverage: { lines: 0, branches: 0, functions: 0 },
+        },
+      ]);
+      const result = makeExecutionResult({
+        coverage: { lines: 0, branches: 0, functions: 0, fileCoverage: null },
+        sourceFiles: ['src/foo.ts'],
+      });
+      const sub = generateSubReport(
+        'vitest',
+        result,
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+        'src',
+      );
+      expect(sub.coverage?.thresholds).toEqual({ lines: 0, branches: 0, functions: 0 });
+      expect(sub.coverage?.pass).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('coverage.lines 为 100（上界）时使用 100', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'src',
+          framework: 'vitest',
+          coverage: { lines: 100, branches: 100, functions: 100 },
+        },
+      ]);
+      const result = makeExecutionResult({
+        coverage: { lines: 100, branches: 100, functions: 100, fileCoverage: null },
+        sourceFiles: ['src/foo.ts'],
+      });
+      const sub = generateSubReport(
+        'vitest',
+        result,
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+        'src',
+      );
+      expect(sub.coverage?.thresholds.lines).toBe(100);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('mutation.score 为 0 / 100 时汇总分组使用该值', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'src',
+          framework: 'vitest',
+          includes: ['**/*.{ts,tsx}'],
+          mutation: { score: 0 },
+        },
+      ]);
+      const sub = createSubReport({
+        framework: 'vitest',
+        directory: 'src',
+        source_files: [sfe('src/foo.ts')],
+        mutation: {
+          pass: true,
+          score: 50,
+          threshold: 0,
+          measured: {
+            killed: 1,
+            survived: 1,
+            timeout: 0,
+            noCoverage: 0,
+            compileError: 0,
+            runtimeError: 0,
+            ignored: 0,
+            total: 2,
+            detected: 1,
+            undetected: 1,
+          },
+        },
+      });
+      const summary = generateSummaryReport(
+        [sub],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      const group = summary.mutation?.overrides?.find((o) => o.glob === 'src');
+      expect(group?.threshold).toBe(0);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('tests: [] 时阈值回退行为明确（不读旧全局块）', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, []);
+      const result = makeExecutionResult({
+        coverage: { lines: 90, branches: 90, functions: 90, fileCoverage: null },
+      });
+      const sub = generateSubReport(
+        'vitest',
+        result,
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+        '.',
+      );
+      expect(sub.coverage?.thresholds).toEqual({ lines: 80, branches: 70, functions: 75 });
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('subReports: []（空数组）时汇总报告结构合法', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [{ root: 'src', framework: 'vitest' }]);
+      const summary = generateSummaryReport(
+        [],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      expect(summary.total).toBe(0);
+      expect(summary.conclusion).toBeDefined();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('subReports 为单元素时分组仅一条', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'src',
+          framework: 'vitest',
+          includes: ['**/*.{ts,tsx}'],
+          mutation: { score: 70 },
+        },
+      ]);
+      const sub = createSubReport({
+        framework: 'vitest',
+        directory: 'src',
+        source_files: [sfe('src/foo.ts')],
+        mutation: {
+          pass: true,
+          score: 80,
+          threshold: 70,
+          measured: {
+            killed: 8,
+            survived: 2,
+            timeout: 0,
+            noCoverage: 0,
+            compileError: 0,
+            runtimeError: 0,
+            ignored: 0,
+            total: 10,
+            detected: 8,
+            undetected: 2,
+          },
+        },
+      });
+      const summary = generateSummaryReport(
+        [sub],
+        dir.root,
+        path.join(dir.root, 'reports', 'test-execution'),
+      );
+      expect(summary.mutation?.overrides?.length).toBe(1);
     } finally {
       dir.cleanup();
     }

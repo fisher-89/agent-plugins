@@ -46,9 +46,13 @@ describe('config-driven 过滤 — 非空 modules 经 test_detect_frameworks 过
   it('modules: ["src/commands/test-resolve-paths.ts", "node_modules/some-dep/index.ts"] 时仅前者进入 unit_tests (AC-3)', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [{ file: 'src', framework: 'vite-plus' }],
-      },
+      tests: [
+        {
+          root: 'src',
+          framework: 'vite-plus',
+          includes: ['**/*.{ts,tsx}'],
+        },
+      ],
     });
     try {
       const result = runTestResolvePaths({

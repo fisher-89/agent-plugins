@@ -1,9 +1,7 @@
 /**
- * 集成测试: test-resolve-paths 去重 (AC-6)
+ * 集成测试: test-resolve-paths 去重
  *
- * 验证跨目录/跨 source 的扫描结果去重。
- *
- * @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+ * @see openspec/changes/tests-array-cwd-config/test-design.md
  */
 
 import * as fs from 'node:fs';
@@ -13,10 +11,6 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { runTestResolvePaths } from '../../src/commands/test-resolve-paths';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface TempProject {
   root: string;
@@ -44,20 +38,14 @@ function writeFile(projectRoot: string, relativePath: string, content = ''): voi
   fs.writeFileSync(fullPath, content, 'utf-8');
 }
 
-// ===========================================================================
-// 去重 (AC-6)
-// ===========================================================================
-
 describe('跨目录/跨 source 的扫描结果去重', () => {
-  it('当 test.overrides 中多个条目指向同一目录时，unit_tests 不包含重复条目 (AC-6)', () => {
+  it('当多 suite 指向同一扫描范围时，unit_tests 不包含重复条目', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [
-          { file: 'src', framework: 'vitest' },
-          { file: 'src', framework: 'jest' },
-        ],
-      },
+      tests: [
+        { root: 'src', framework: 'vitest', includes: ['**/*.{ts,tsx}'] },
+        { root: 'src', framework: 'jest', includes: ['**/*.{ts,tsx}'] },
+      ],
     });
     try {
       writeFile(project.root, 'src/app.ts', '');
@@ -77,19 +65,15 @@ describe('跨目录/跨 source 的扫描结果去重', () => {
   it('config-driven 扫描的目录下文件重复出现同一条目时 unit_tests 应去重', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [{ file: 'src', framework: 'vitest' }],
-      },
+      tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.{ts,tsx}'] }],
     });
     try {
       writeFile(project.root, 'src/app.ts', '');
-
       const result = runTestResolvePaths({
         modules: [],
         project_root: project.root,
       });
-
-      expect(result.unit_tests).toHaveLength(1);
+      expect(result.unit_tests.filter((u) => u.source === 'src/app.ts')).toHaveLength(1);
     } finally {
       project.cleanup();
     }

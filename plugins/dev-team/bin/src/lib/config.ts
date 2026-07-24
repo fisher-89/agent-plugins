@@ -22,24 +22,26 @@ const CONFIG_FILE = 'openspec/config.json';
  * written as JSON, and the YAML file is deleted.  If validation fails the
  * error propagates and the YAML file is preserved.
  */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
 export function readConfig(projectRoot: string): OpenSpecConfig {
   const jsonPath = path.join(projectRoot, CONFIG_FILE);
 
-  let parsed: object;
+  let parsed: unknown = {};
 
   // No config file at all — return default
-  if (!fs.existsSync(jsonPath)) {
-    parsed = {};
-  } else {
+  if (fs.existsSync(jsonPath)) {
     try {
-      const raw = fs.readFileSync(jsonPath, 'utf-8');
-      parsed = JSON.parse(raw);
+      parsed = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
     } catch {
       parsed = {};
     }
   }
 
-  const result = configSchema.safeDecode(parsed);
+  const input = isPlainObject(parsed) ? parsed : {};
+  const result = configSchema.safeDecode(input);
 
   return result.success ? result.data : configSchema.decode({});
 }

@@ -895,7 +895,9 @@ describe('runPhaseNext — workflow_type', () => {
     expect(testOnlyResult.executor!.prompt).not.toBe(requirementResult.executor!.prompt);
     expect(testOnlyResult.executor!.prompt).toMatch(/coverage gaps|testing strategy/i);
     expect(testOnlyResult.executor!.prompt).toContain('openspec/changes/test-change/explore.md');
-    expect(testOnlyResult.executor!.prompt).toMatch(/Do not expect inline EXPLORE_CONTEXT_SUMMARY/i);
+    expect(testOnlyResult.executor!.prompt).toMatch(
+      /Do not expect inline EXPLORE_CONTEXT_SUMMARY/i,
+    );
   });
 
   it('test-only returns code-analyze after proposal passes (AC-2)', () => {

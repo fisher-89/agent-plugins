@@ -1,14 +1,11 @@
 import { z } from 'zod/v4';
 
-/** 行覆盖率阈值 */
-const TEST_COVERAGE_LINE_DEFAULT = 80;
-/** 分支覆盖率阈值 */
-const TEST_COVERAGE_BRANCH_DEFAULT = 70;
-/** 函数覆盖率阈值 */
-const TEST_COVERAGE_FUNCTION_DEFAULT = 75;
-
-/** 变异测试得分阈值 */
-const TEST_MUTATION_SCORE_DEFAULT = 70;
+import {
+  TEST_COVERAGE_BRANCH_DEFAULT,
+  TEST_COVERAGE_FUNCTION_DEFAULT,
+  TEST_COVERAGE_LINE_DEFAULT,
+  TEST_MUTATION_SCORE_DEFAULT,
+} from './defaults';
 
 export const testFrameworkSchema = z
   .enum(['jest', 'vitest', 'vite-plus', 'bun', 'rust', 'node-test', 'go', 'pytest'])
@@ -41,25 +38,42 @@ const testCoverageSchema = z
   .prefault({})
   .describe('测试覆盖率');
 
-const mutationScoreSchema = z
-  .number()
-  .min(0)
-  .max(100)
-  .optional()
-  .describe('变异测试得分阈值（百分比）');
-
 const mutationConfigSchema = z
   .object({
-    score: mutationScoreSchema
+    score: z
+      .number()
+      .min(0)
+      .max(100)
+      .optional()
       .prefault(TEST_MUTATION_SCORE_DEFAULT)
       .describe(`变异测试得分阈值（百分比，默认 ${TEST_MUTATION_SCORE_DEFAULT}）`),
   })
   .prefault({})
   .describe('变异测试配置');
 
-const mutationOverrideSchema = z
-  .object({ score: mutationScoreSchema })
-  .describe('变异测试覆盖配置');
+/** Characters that must not appear in suite `root` (glob wildcards). */
+const ROOT_WILDCARD_PATTERN = /[*?{[]/;
+
+const suiteRootSchema = z
+  .string()
+  .nonempty()
+  .refine((value) => !ROOT_WILDCARD_PATTERN.test(value), {
+    message: 'root MUST NOT contain glob wildcards (*, ?, {, [)',
+  })
+  .describe('suite 锚点路径（相对 projectRoot，禁止通配符）');
+
+const testSuiteSchema = z
+  .object({
+    root: suiteRootSchema,
+    framework: testFrameworkSchema,
+    cwd: z.string().optional().prefault('.').describe('执行目录（相对 root，默认 "."）'),
+    config: z.string().nonempty().optional().describe('框架配置文件路径（相对 root）'),
+    includes: z.array(z.string()).optional().describe('匹配 glob 列表（相对 root）'),
+    excludes: z.array(z.string()).optional().describe('排除 glob 列表（相对 root）'),
+    coverage: testCoverageSchema.optional().prefault({}).describe('覆盖率阈值'),
+    mutation: mutationConfigSchema.optional().prefault({}).describe('变异测试配置'),
+  })
+  .describe('测试 suite 配置');
 
 /**
  * Zod schema for openspec/config.json.
@@ -89,50 +103,29 @@ const writeProtectionSchema = z
   })
   .describe('写入保护配置');
 
-export const configSchema = z.object({
-  $schema: z.string().optional().describe('schema规则文件'),
-  schema: z
-    .literal('spec-driven')
-    .optional()
-    .prefault('spec-driven')
-    .describe('@deprecated 模式标识，固定为 spec-driven'),
-  context: z.string().optional().describe('项目上下文描述，用于向 AI 提供业务背景信息'),
-  rules: z
-    .object({
-      proposal: z.array(z.string()).optional().describe('提案阶段的自定义规则列表'),
-      tasks: z.array(z.string()).optional().describe('任务阶段的自定义规则列表'),
-    })
-    .optional()
-    .describe('自定义规则配置，按工作流阶段分组'),
-  static_analysis: z.string().optional().describe('静态分析工具配置（如 ESLint、Prettier）'),
-  test: z
-    .object({
-      framework: testFrameworkSchema.optional(),
-      exclude: z.array(z.string()).optional().describe('全局排除的源文件 glob 模式列表'),
-      coverage: testCoverageSchema.optional(),
-      mutation: mutationConfigSchema.optional(),
-      overrides: z
-        .array(
-          z.object({
-            file: z.string().nonempty().describe('文件路径，支持glob规则（如 "src/**/*.test.ts"）'),
-            exclude: z
-              .array(z.string())
-              .optional()
-              .describe('该 override 范围内排除的源文件 glob 模式列表'),
-            framework: testFrameworkSchema.optional(),
-            coverage: testCoverageSchema.optional(),
-            mutation: mutationOverrideSchema.optional(),
-          }),
-        )
-        .optional(),
-    })
-    .optional()
-    .prefault({})
-    .describe('测试相关配置'),
-  write_protection: writeProtectionSchema
-    .optional()
-    .describe('写入保护配置，定义受保护的文件路径模式'),
-});
+export const configSchema = z
+  .object({
+    $schema: z.string().optional().describe('schema规则文件'),
+    schema: z
+      .literal('spec-driven')
+      .optional()
+      .prefault('spec-driven')
+      .describe('@deprecated 模式标识，固定为 spec-driven'),
+    context: z.string().optional().describe('项目上下文描述，用于向 AI 提供业务背景信息'),
+    rules: z
+      .object({
+        proposal: z.array(z.string()).optional().describe('提案阶段的自定义规则列表'),
+        tasks: z.array(z.string()).optional().describe('任务阶段的自定义规则列表'),
+      })
+      .optional()
+      .describe('自定义规则配置，按工作流阶段分组'),
+    static_analysis: z.string().optional().describe('静态分析工具配置（如 ESLint、Prettier）'),
+    tests: z.array(testSuiteSchema).optional().prefault([]).describe('测试 suite 配置列表'),
+    write_protection: writeProtectionSchema
+      .optional()
+      .describe('写入保护配置，定义受保护的文件路径模式'),
+  })
+  .passthrough();
 
 /** TypeScript type inferred from configSchema — replaces `Record<string, unknown>`. */
 export type OpenSpecConfig = z.output<typeof configSchema>;
@@ -140,3 +133,6 @@ export type OpenSpecConfig = z.output<typeof configSchema>;
 export type OpenSpecConfigInput = z.input<typeof configSchema>;
 
 export type TestFramework = z.infer<typeof testFrameworkSchema>;
+
+/** A single entry in `OpenSpecConfig.tests`. */
+export type TestSuite = OpenSpecConfig['tests'][number];

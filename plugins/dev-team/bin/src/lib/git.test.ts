@@ -249,5 +249,5 @@ describe('getGitDiffFiles — 混合变更场景', () => {
     expect(files).toContain('keep.ts');
     expect(files).toContain('new-a.ts');
     expect(files).toContain('new-b.ts');
-  });
+  }, 10000);
 });

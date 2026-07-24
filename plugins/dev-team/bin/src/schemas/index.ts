@@ -24,7 +24,18 @@ export {
 export { changeListInputSchema, changeListOutputSchema } from './change-list.schema';
 export { backtrackInputSchema, backtrackOutputSchema } from './backtrack.schema';
 export { configSchema } from './config/config.schema';
-export type { OpenSpecConfig, OpenSpecConfigInput, TestFramework } from './config/config.schema';
+export type {
+  OpenSpecConfig,
+  OpenSpecConfigInput,
+  TestFramework,
+  TestSuite,
+} from './config/config.schema';
+export {
+  TEST_COVERAGE_LINE_DEFAULT,
+  TEST_COVERAGE_BRANCH_DEFAULT,
+  TEST_COVERAGE_FUNCTION_DEFAULT,
+  TEST_MUTATION_SCORE_DEFAULT,
+} from './config/defaults';
 export type {
   TestCaseResult,
   TestExecutionSubReport,

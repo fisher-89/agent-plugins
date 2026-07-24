@@ -1,12 +1,5 @@
 /**
- * 集成测试: test_detect_frameworks 自动扫描行为（AC-7）
- *
- * 验证省略 files 参数时 scanProjectFiles 驱动的自动扫描：
- * - 匹配文件集合正确
- * - 排除 node_modules
- * - 不再将非测试文件以 unknown 纳入 detected（D5 语义变更）
- *
- * @see openspec/changes/use-fast-glob/test-design.md
+ * 集成测试: test_detect_frameworks 自动扫描行为（tests[]）
  */
 
 import * as fs from 'node:fs';
@@ -16,10 +9,6 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { runTestDetectFrameworks } from '../../src/commands/test-detect-frameworks';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface TempProject {
   root: string;
@@ -47,18 +36,14 @@ function writeFile(projectRoot: string, relativePath: string, content = ''): voi
   fs.writeFileSync(fullPath, content, 'utf-8');
 }
 
-// ===========================================================================
-// test_detect_frameworks — 自动扫描匹配文件集合（AC-7）
-// ===========================================================================
-
 describe('test_detect_frameworks — 自动扫描匹配文件集合', () => {
   it('省略 files 参数时应检测 src/app.test.ts 与 tests/auth.rs 并归属正确框架', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        framework: 'vitest',
-        overrides: [{ file: '**/tests/**/*.rs', framework: 'rust' }],
-      },
+      tests: [
+        { root: 'src', framework: 'vitest', includes: ['**/*.{test,spec}.{ts,tsx,js,jsx}'] },
+        { root: 'tests', framework: 'rust', includes: ['**/*.rs'] },
+      ],
     });
     try {
       writeFile(project.root, 'src/app.test.ts');
@@ -79,7 +64,7 @@ describe('test_detect_frameworks — 自动扫描匹配文件集合', () => {
   it('仅含 readme.md 非测试文件时 detected 应为空', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: { framework: 'vitest' },
+      tests: [{ root: 'src', framework: 'vitest' }],
     });
     try {
       writeFile(project.root, 'readme.md', '# readme');
@@ -95,7 +80,7 @@ describe('test_detect_frameworks — 自动扫描匹配文件集合', () => {
   it('node_modules/pkg/index.test.ts 不应被自动扫描纳入 detected', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: { framework: 'vitest' },
+      tests: [{ root: 'src', framework: 'vitest' }],
     });
     try {
       writeFile(project.root, 'node_modules/pkg/index.test.ts');
@@ -110,10 +95,10 @@ describe('test_detect_frameworks — 自动扫描匹配文件集合', () => {
     }
   });
 
-  it('自动扫描结果不应含 unknown 非测试文件（D5 语义变更）', () => {
+  it('自动扫描结果不应含 unknown 非测试文件', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: { framework: 'vitest' },
+      tests: [{ root: 'src', framework: 'vitest' }],
     });
     try {
       writeFile(project.root, 'src/app.test.ts');

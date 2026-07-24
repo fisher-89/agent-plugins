@@ -15,7 +15,12 @@ import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
-import type { MutationBlock, MutationMeasured, TestPlan } from '../schemas';
+import {
+  TEST_MUTATION_SCORE_DEFAULT,
+  type MutationBlock,
+  type MutationMeasured,
+  type TestPlan,
+} from '../schemas';
 import { readConfig } from './config';
 import { isFileExcluded } from './test-exclude';
 import { getFrameworkConfig } from './test-framework';
@@ -233,7 +238,7 @@ function runMutationPhase(
     return null;
   }
 
-  // Filter out source files that match test.exclude or test.overrides[].exclude
+  // Filter out source files that match suite-scoped tests[].excludes
   const config = readConfig(projectRoot);
   const filteredSources = sourceFiles.filter((f) => !isFileExcluded(f, config));
 
@@ -242,9 +247,15 @@ function runMutationPhase(
     return null;
   }
 
+  // Mutation cwd is absCwd (plan.directory); rewrite mutate paths relative to it
   const absoluteDirectory = path.resolve(projectRoot, entry.directory);
+  const sourcesRelativeToCwd = filteredSources.map((f) => {
+    const abs = path.isAbsolute(f) ? path.resolve(f) : path.resolve(projectRoot, f);
+    return path.relative(absoluteDirectory, abs).replace(/\\/g, '/');
+  });
+
   try {
-    return executeStrykerMutation(entry, absoluteDirectory, filteredSources);
+    return executeStrykerMutation(entry, absoluteDirectory, sourcesRelativeToCwd);
   } catch (e) {
     console.log(`  Mutation testing skipped: ${e instanceof Error ? e.message : 'Unknown error'}`);
     return null;
@@ -314,7 +325,7 @@ function buildMutationBlockFromReport(entry: TestPlan, rootPath: string): Mutati
   const mutationReport = parseMutationReport(reportPath);
   if (!mutationReport) return null;
 
-  const threshold = entry.mutation_score ?? 80;
+  const threshold = entry.mutation_score ?? TEST_MUTATION_SCORE_DEFAULT;
   const pass = mutationReport.score >= threshold;
 
   return {

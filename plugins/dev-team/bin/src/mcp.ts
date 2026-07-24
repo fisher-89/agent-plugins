@@ -192,9 +192,9 @@ function registerTestDetectFrameworksTool(server: McpServer): void {
     {
       description:
         'Detect test framework(s) for given files based on config.json ' +
-        'test.framework glob mappings. When files is omitted, auto-scan ' +
-        'the project for matching test files. Returns per-file framework ' +
-        'detection and a deduplicated framework list.',
+        'tests suite mappings. When files is omitted, auto-scan ' +
+        'the project for files in suite scope. Returns per-file framework ' +
+        'detection and a plan built from tests[].',
       inputSchema: testDetectFrameworksInputSchema,
       outputSchema: testDetectFrameworksOutputSchema,
     },

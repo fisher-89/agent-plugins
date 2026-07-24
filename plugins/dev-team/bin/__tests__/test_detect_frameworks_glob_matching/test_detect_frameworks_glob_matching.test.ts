@@ -1,10 +1,5 @@
 /**
- * 集成测试: test_detect_frameworks glob 模式端到端匹配（AC-3、AC-4）
- *
- * 验证 {}、**、无通配符目录前缀三类 pattern 的文件检测，
- * 以及 Windows 反斜杠路径与 POSIX 路径的一致性。
- *
- * @see openspec/changes/use-fast-glob/test-design.md
+ * 集成测试: test_detect_frameworks glob 模式端到端匹配（tests[]）
  */
 
 import * as fs from 'node:fs';
@@ -14,10 +9,6 @@ import * as path from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { runTestDetectFrameworks } from '../../src/commands/test-detect-frameworks';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface TempProject {
   root: string;
@@ -47,21 +38,19 @@ function findDetected(
   return detected.find((d) => d.file.replace(/\\/g, '/').endsWith(normalized));
 }
 
-// ===========================================================================
-// test_detect_frameworks — glob 模式匹配（AC-3）
-// ===========================================================================
-
 describe('test_detect_frameworks — glob 模式匹配', () => {
   it('应正确检测 {} 花括号、** 跨目录与无通配符目录前缀三类 pattern', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        overrides: [
-          { file: '{src,lib}/*.test.ts', framework: 'jest' },
-          { file: '**/nested/**/*.test.ts', framework: 'vitest' },
-          { file: 'plugins/dev-team/bin', framework: 'vite-plus' },
-        ],
-      },
+      tests: [
+        { root: 'lib', framework: 'jest', includes: ['*.test.ts'] },
+        { root: 'src', framework: 'vitest', includes: ['**/nested/**/*.test.ts'] },
+        {
+          root: 'plugins/dev-team/bin',
+          framework: 'vite-plus',
+          includes: ['**/*.{test,spec}.{ts,tsx,js,jsx}'],
+        },
+      ],
     });
     try {
       const result = runTestDetectFrameworks({
@@ -86,15 +75,11 @@ describe('test_detect_frameworks — glob 模式匹配', () => {
   });
 });
 
-// ===========================================================================
-// test_detect_frameworks — Windows 路径（AC-4）
-// ===========================================================================
-
 describe('test_detect_frameworks — Windows 路径', () => {
   it('以反斜杠形式传入 files 参数时检测结果应与正斜杠形式一致', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: { framework: 'vitest' },
+      tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.{test,spec}.ts'] }],
     });
     try {
       const posixResult = runTestDetectFrameworks({

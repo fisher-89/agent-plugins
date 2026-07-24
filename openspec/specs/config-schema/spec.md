@@ -1,4 +1,4 @@
-## MODIFIED Requirements
+## Requirements
 
 ### Requirement: config-schema defines a Zod schema for config.json
 
@@ -8,15 +8,21 @@ The schema SHALL define the following top-level fields:
 - `schema`: a string literal type `"spec-driven"` with a default value of `"spec-driven"`
 - `context`: an optional string field
 - `rules`: an optional object with optional `proposal` (string array) and `tasks` (string array) fields
-- `test`: an optional object with the following sub-fields:
-  - `frameworks`: an optional field accepting either a single framework name string (valid values: `"jest"`, `"vitest"`, `"vite-plus"`, `"bun"`, `"rust"`, `"node-test"`, `"go"`, `"pytest"`) or an array of `{glob: string, framework: string}` objects, defining test framework detection rules
-  - `exclude`: an optional `string[]` field accepting an array of glob patterns that match source file paths to be excluded from the testing pipeline
-  - `coverage`: an optional object with:
-    - `thresholds`: an optional object with `lines: number` (default 80), `branches: number` (default 70), `functions: number` (default 75), defining minimum coverage percentages per dimension
-    - `overrides`: an optional array of `{glob: string, thresholds: {lines?: number, branches?: number, functions?: number}}` objects, defining per-directory threshold overrides. Missing fields in an override entry inherit the global defaults.
-  - `overrides`: an optional array of `{file: string, framework?: string, exclude?: string[]}` objects, defining per-glob override configurations. Each entry's `exclude` field accepts scoped exclusion globs for source file filtering.
+- `tests`: an optional array of **test suite** objects (default `[]` when omitted via `prefault`). Each suite object SHALL define:
+  - `root` (required, nonempty string): suite anchor path relative to projectRoot；MUST NOT contain glob wildcard characters `*`, `?`, `{`, or `[`
+  - `framework` (required): validated via `testFrameworkSchema`（`"jest"` \| `"vitest"` \| `"vite-plus"` \| `"bun"` \| `"rust"` \| `"node-test"` \| `"go"` \| `"pytest"`）
+  - `cwd` (optional string, prefault `"."`): execution directory relative to `root`
+  - `config` (optional nonempty string): framework config file path relative to `root`
+  - `includes` (optional `string[]`): include globs relative to `root`；when omitted, consumers SHALL treat the suite includes as the framework `default_glob`（not a schema-injected glob string）
+  - `excludes` (optional `string[]`): exclude globs relative to `root`
+  - `coverage` (optional object): `lines` / `branches` / `functions` numbers in `[0, 100]`，各字段缺省为 schema 目录常量（默认 80 / 70 / 75）
+  - `mutation` (optional object): `score` number in `[0, 100]`，缺省为 schema 目录常量（默认 70）
+- The schema SHALL NOT define a top-level `test` object with `framework` / `overrides` / global `coverage` / `mutation` / `exclude` as the supported configuration model
+
+Coverage / mutation numeric defaults SHALL be imported from a dedicated constants module under `plugins/dev-team/bin/src/schemas/config/`（例如 `defaults.ts`），不得在消费者中手写级联默认值。
+
 The schema SHALL allow additional unknown fields via `.passthrough()` to avoid rejecting valid configurations with tool-managed keys.
-A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema using `z.infer<typeof configSchema>`.
+A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema using `z.infer` / `z.output`.
 
 #### Scenario: Valid config object passes schema validation
 
@@ -46,176 +52,50 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 #### Scenario: OpenSpecConfig type is inferred from schema
 
 - **WHEN** the module is imported in TypeScript
-- **THEN** `OpenSpecConfig` type exists and is assignable to `z.infer<typeof configSchema>`
+- **THEN** `OpenSpecConfig` type exists and is assignable to the inferred schema output type
 
-#### Scenario: Schema validates tests.frameworks structure
+#### Scenario: Minimal suite with root and framework is accepted
 
-- **WHEN** a config object `{"test": {"frameworks": [{"glob": "**/*.test.ts", "framework": "vitest"}, {"glob": "**/test_*.rs", "framework": "rust"}]}}` is validated
-- **THEN** validation succeeds and `test.frameworks` contains the expected glob and framework pairs
+- **WHEN** a config object `{"tests": [{"root": "plugins/dev-team/bin", "framework": "vite-plus"}]}` is validated
+- **THEN** validation succeeds
+- **AND** parsed suite `cwd` SHALL be `"."`
+- **AND** parsed suite `coverage.lines` / `branches` / `functions` SHALL equal schema defaults 80 / 70 / 75
+- **AND** parsed suite `mutation.score` SHALL equal schema default 70
 
-#### Scenario: Schema assigns defaults for coverage.thresholds
+#### Scenario: Schema rejects root containing glob wildcards
 
-- **WHEN** a config object `{"test": {"frameworks": []}}` is validated without `coverage` or `thresholds` specified
-- **THEN** the parsed output includes `test.coverage.thresholds` with defaults `{lines: 80, branches: 70, functions: 75}`
+- **WHEN** a config object `{"tests": [{"root": "src/**", "framework": "vitest"}]}` is validated
+- **THEN** validation fails with a ZodError indicating that `root` MUST NOT contain wildcards
 
-#### Scenario: Schema applies per-field defaults for partial thresholds
+#### Scenario: Schema rejects suite missing framework
 
-- **WHEN** a config object `{"test": {"coverage": {"thresholds": {"lines": 90}}}}` is validated
-- **THEN** the parsed output includes `test.coverage.thresholds` with `{lines: 90, branches: 70, functions: 75}` (branches and functions inherit defaults)
+- **WHEN** a config object `{"tests": [{"root": "src"}]}` is validated
+- **THEN** validation fails with a ZodError indicating that `framework` is required
 
-#### Scenario: Schema validates coverage.overrides structure
+#### Scenario: Schema accepts suite with cwd, config, includes, excludes
 
-- **WHEN** a config object `{"test": {"coverage": {"overrides": [{"glob": "demo/**", "thresholds": {"lines": 60}}]}}}` is validated
-- **THEN** validation succeeds and `overrides[0]` contains `glob: "demo/**"` and `thresholds: {lines: 60}`
+- **WHEN** a config object `{"tests": [{"root": "plugins/dev-team/bin", "framework": "vite-plus", "cwd": ".", "config": "vite.config.ts", "includes": ["src/**/*.{ts,tsx}"], "excludes": ["src/schemas/**/*"]}]}` is validated
+- **THEN** validation succeeds and all provided fields are preserved in the parsed suite
 
-#### Scenario: Schema rejects invalid overrides entry
+#### Scenario: Schema accepts parent cwd
 
-- **WHEN** an overrides entry is missing `glob` field: `{"test": {"coverage": {"overrides": [{"thresholds": {"lines": 60}}]}}}`
-- **THEN** validation fails with a ZodError indicating that `glob` is required
+- **WHEN** a config object `{"tests": [{"root": "plugins/dev-team/bin/src", "cwd": "..", "framework": "vite-plus"}]}` is validated
+- **THEN** validation succeeds and parsed `cwd` SHALL be `".."`
 
-#### Scenario: Schema rejects invalid overrides thresholds value
+#### Scenario: Schema applies partial coverage defaults per field
 
-- **WHEN** a config object `{"test": {"coverage": {"overrides": [{"glob": "demo/**", "thresholds": {"lines": "high"}}]}}}` is validated
-- **THEN** validation fails with a ZodError indicating that `lines` must be a number
+- **WHEN** a config object `{"tests": [{"root": "src", "framework": "vitest", "coverage": {"lines": 90}}]}` is validated
+- **THEN** the parsed suite `coverage` SHALL be `{lines: 90, branches: 70, functions: 75}`
 
-#### Scenario: Schema rejects invalid tests.frameworks entry
+#### Scenario: Schema rejects invalid framework name
 
-- **WHEN** a config object `{"test": {"frameworks": [{"glob": "**/*.test.ts"}]}}` is validated (missing `framework` field)
-- **THEN** validation fails with a ZodError indicating the required field
+- **WHEN** a config object `{"tests": [{"root": "src", "framework": "mocha"}]}` is validated
+- **THEN** validation fails with a ZodError indicating the framework MUST be one of the valid enum values
 
-#### Scenario: Schema accepts frameworks as a single string
+#### Scenario: tests defaults to empty array when omitted
 
-- **WHEN** a config object `{"test": {"frameworks": "vitest"}}` is validated against the schema
-- **THEN** validation succeeds and `test.frameworks` contains the string value `"vitest"`
-
-#### Scenario: Schema accepts frameworks as an array of objects (unchanged behavior)
-
-- **WHEN** a config object `{"test": {"frameworks": [{"glob": "**/*.test.ts", "framework": "vitest"}]}}` is validated
-- **THEN** validation succeeds and `test.frameworks` contains the expected array of objects
-
-#### Scenario: Schema rejects invalid framework name string
-
-- **WHEN** a config object `{"test": {"frameworks": "mocha"}}` is validated with a string value that is not in the valid set (`jest`, `vitest`, `vite-plus`, `bun`, `rust`, `node-test`, `go`, `pytest`)
-- **THEN** validation fails with a ZodError indicating that the framework name must be one of the valid values
-
-#### Scenario: Schema accepts new framework names node-test, go, and pytest
-
-- **WHEN** a config object `{"test": {"frameworks": "node-test"}}` is validated
-- **THEN** validation succeeds and `test.frameworks` contains the string value `"node-test"`
-
-#### Scenario: Schema accepts go as framework string
-
-- **WHEN** a config object `{"test": {"frameworks": "go"}}` is validated
-- **THEN** validation succeeds and `test.frameworks` contains the string value `"go"`
-
-#### Scenario: Schema accepts pytest as framework string
-
-- **WHEN** a config object `{"test": {"frameworks": "pytest"}}` is validated
-- **THEN** validation succeeds and `test.frameworks` contains the string value `"pytest"`
-
-#### Scenario: Schema rejects non-string non-array value for frameworks
-
-- **WHEN** a config object `{"test": {"frameworks": 123}}` is validated
-- **THEN** validation fails with a ZodError indicating that the value must be either a string or an array
-
-#### Scenario: Schema accepts test.exclude as string array of globs
-
-- **WHEN** a config object `{"test": {"exclude": ["**/generated/**", "**/*.d.ts"]}}` is validated
-- **THEN** validation succeeds and the parsed `test.exclude` equals `["**/generated/**", "**/*.d.ts"]`
-
-#### Scenario: test.exclude defaults to undefined when not specified
-
-- **WHEN** a config object `{"test": {"framework": "vitest"}}` is validated
-- **THEN** validation succeeds and `test.exclude` is `undefined`
-
-#### Scenario: Schema rejects test.exclude with non-array value
-
-- **WHEN** a config object `{"test": {"exclude": "**/generated/**"}}` is validated
-- **THEN** validation fails with a ZodError indicating that string is not assignable to array
-
-#### Scenario: Schema accepts empty exclude array
-
-- **WHEN** a config object `{"test": {"exclude": []}}` is validated
-- **THEN** validation succeeds and `test.exclude` equals `[]`
-
-#### Scenario: Schema accepts override entry with exclude
-
-- **WHEN** a config object `{"test": {"overrides": [{"file": "src/**", "framework": "vitest", "exclude": ["**/legacy/**"]}]}}` is validated
-- **THEN** validation succeeds and `test.overrides[0].exclude` equals `["**/legacy/**"]`
-
-#### Scenario: Schema accepts override entry without exclude (defaults to undefined)
-
-- **WHEN** a config object `{"test": {"overrides": [{"file": "src/**", "framework": "vitest"}]}}` is validated
-- **THEN** validation succeeds and `test.overrides[0].exclude` is `undefined`
-
-#### Scenario: Schema rejects override entry with invalid exclude type
-
-- **WHEN** a config object `{"test": {"overrides": [{"file": "src/**", "exclude": "single-string"}]}}` is validated
-- **THEN** validation fails with a ZodError
-
-## Module Contract
-
-### Schema: testFrameworkSchema
-
-| Property | Description |
-|----------|-------------|
-| **Module** | `schemas/config/config.schema.ts` |
-| **Type** | `z.enum([...])` |
-| **Valid values** | `"jest"`, `"vitest"`, `"vite-plus"`, `"bun"`, `"rust"`, `"node-test"`, `"go"`, `"pytest"` |
-| **Export** | Named export `testFrameworkSchema` |
-
-### Schema: configSchema
-
-| Property | Description |
-|----------|-------------|
-| **Module** | `schemas/config/config.schema.ts` |
-| **Type** | `z.ZodObject<...>` |
-| **Definition** | Object schema with `schema` (literal `"spec-driven"`, default), `context` (optional string), `rules` (optional object with optional `proposal` and `tasks` string arrays), `test` (optional object with optional `frameworks` accepting either a single framework name string — validated via `testFrameworkSchema` — or an array of `{glob, framework}` objects), optional `exclude` (`string[]` — exclusion globs), optional `coverage` object with `thresholds: {lines, branches, functions}` defaults 80/70/75 and optional `overrides` array of `{glob, thresholds}`, and optional `overrides` array of `{file, framework?, exclude?}` objects, `.passthrough()` for additional keys |
-| **Export** | Named export `configSchema` |
-
-### Type: TestFrameworks
-
-| Property | Description |
-|----------|-------------|
-| **Module** | `schemas/config/config.schema.ts` |
-| **Definition** | `NonNullable<OpenSpecConfig['test']['framework']>` — union of eight framework name literals |
-| **Export** | Named type export |
-
----
-
-### Requirement: JSON schema mirrors Zod schema for exclude fields
-
-The `dev-team-config.schema.json` file SHALL include the `exclude` field in both the `test` object's `properties` and each override item's `properties`. The type SHALL be `"array"` with `"items": {"type": "string"}`. The field SHALL NOT be in the `required` array.
-
-#### Scenario: JSON schema includes test.exclude
-
-**WHEN** `dev-team-config.schema.json` is inspected
-**THEN** `properties.test.properties.exclude` exists
-**AND** `properties.test.properties.exclude.type` SHALL be `"array"`
-**AND** `properties.test.properties.exclude.items.type` SHALL be `"string"`
-
-#### Scenario: JSON schema includes overrides[].exclude
-
-**WHEN** `dev-team-config.schema.json` is inspected
-**THEN** `properties.test.properties.overrides.items.properties.exclude` exists
-**AND** its `type` SHALL be `"array"`
-**AND** its `items.type` SHALL be `"string"`
-
-### Requirement: OpenSpecConfig type reflects exclude field
-
-The TypeScript type `OpenSpecConfig` (inferred from `configSchema` via `z.infer`) SHALL include `test.exclude` as `string[] | undefined` and `test.overrides[].exclude` as `string[] | undefined`. No manual type annotation is required — the Zod schema inference SHALL produce the correct type.
-
-#### Scenario: OpenSpecConfig type includes test.exclude
-
-**WHEN** inspecting the `OpenSpecConfig` type
-**THEN** `test.exclude` is an accessible property of type `string[] | undefined`
-
-#### Scenario: OpenSpecConfig type includes overrides[].exclude
-
-**WHEN** inspecting the `OpenSpecConfig` type
-**THEN** `test.overrides[number].exclude` is an accessible property of type `string[] | undefined`
-
----
+- **WHEN** a config object `{}` is validated
+- **THEN** the parsed output `tests` SHALL be `[]`
 
 ### Requirement: config-schema defines write_protection sub-schema
 
@@ -255,9 +135,85 @@ The TypeScript type `OpenSpecConfig` (inferred from `configSchema`) SHALL includ
 **WHEN** inspecting the `OpenSpecConfig` type
 **THEN** `write_protection` is an accessible optional property
 
-## Module Contract (write_protection additions)
+### Requirement: Schema constants module for test thresholds
 
-### Schema: configSchema (added field)
+覆盖率与变异阈值的默认数值 SHALL 定义在 `plugins/dev-team/bin/src/schemas/config/` 目录下的专用常量模块中（例如 `defaults.ts`），并由 `config.schema.ts` 的 suite `coverage` / `mutation` `prefault` 引用。消费者（`test-report`、`test-detect-frameworks` 等）SHALL 使用 schema parse 后的 suite 字段，MUST NOT 再维护一份平行的全局默认级联。
+
+#### Scenario: Constants are shared by schema prefaults
+
+- **WHEN** inspecting the schema constants module
+- **THEN** it SHALL export line/branch/function coverage defaults and mutation score default
+- **AND** `config.schema.ts` SHALL import those constants for suite `coverage` / `mutation` defaults
+
+#### Scenario: Parsed suite without coverage block still has numeric thresholds
+
+- **WHEN** `{"tests": [{"root": "src", "framework": "vitest"}]}` is validated
+- **THEN** parsed `tests[0].coverage` SHALL contain numeric `lines` / `branches` / `functions` from the constants module
+
+### Requirement: JSON schema mirrors Zod tests array
+
+`plugins/dev-team/bin/dev-team-config.schema.json` SHALL describe top-level `tests` as an array of suite objects with properties `root`, `framework`, `cwd`, `config`, `includes`, `excludes`, `coverage`, `mutation`。`root` 与 `framework` SHALL 出现在 suite `required` 中。旧的 `properties.test`（含 `framework` / `overrides` / 全局 `exclude` / `coverage` / `mutation`）SHALL NOT 再作为受支持的配置形状出现。
+
+#### Scenario: JSON schema documents tests suite fields
+
+- **WHEN** `dev-team-config.schema.json` is inspected
+- **THEN** `properties.tests` exists with `type: "array"`
+- **AND** `properties.tests.items.properties` includes `root`, `framework`, `cwd`, `config`, `includes`, `excludes`, `coverage`, `mutation`
+- **AND** `properties.tests.items.required` includes `"root"` and `"framework"`
+
+#### Scenario: JSON schema does not document legacy test object as supported shape
+
+- **WHEN** `dev-team-config.schema.json` is inspected
+- **THEN** there SHALL be no supported `properties.test.properties.overrides` suite model for new configs
+
+### Requirement: OpenSpecConfig type reflects tests suites
+
+`OpenSpecConfig` SHALL expose `tests` as an array of suite objects。TypeScript 访问路径 SHALL 为 `config.tests[number].root` / `.framework` / `.cwd` / `.config` / `.includes` / `.excludes` / `.coverage` / `.mutation`。SHALL NOT 再暴露作为正式模型的 `config.test.framework` / `config.test.overrides`。
+
+#### Scenario: OpenSpecConfig includes tests array
+
+- **WHEN** inspecting the `OpenSpecConfig` type
+- **THEN** `tests` is an accessible array property
+- **AND** each element includes required `root` and `framework` fields
+
+---
+
+## Module Contract
+
+### Schema: testFrameworkSchema
+
+| Property | Description |
+|----------|-------------|
+| **Module** | `schemas/config/config.schema.ts` |
+| **Type** | `z.enum([...])` |
+| **Valid values** | `"jest"`, `"vitest"`, `"vite-plus"`, `"bun"`, `"rust"`, `"node-test"`, `"go"`, `"pytest"` |
+| **Export** | Named export `testFrameworkSchema` |
+
+### Schema: configSchema
+
+| Property | Description |
+|----------|-------------|
+| **Module** | `schemas/config/config.schema.ts` |
+| **Type** | `z.ZodObject<...>` |
+| **Definition** | Top-level `tests: Suite[]`（optional/`prefault([])`）；suite 必填 `root`+`framework`；可选 `cwd`/`config`/`includes`/`excludes`/`coverage`/`mutation`；无受支持的旧 `test` 对象模型；`.passthrough()` 保留未知键 |
+| **Export** | Named export `configSchema` |
+
+### Module: schemas/config/defaults.ts（或等价常量文件）
+
+| Property | Description |
+|----------|-------------|
+| **Exports** | `TEST_COVERAGE_LINE_DEFAULT`, `TEST_COVERAGE_BRANCH_DEFAULT`, `TEST_COVERAGE_FUNCTION_DEFAULT`, `TEST_MUTATION_SCORE_DEFAULT` |
+| **Consumers** | `config.schema.ts` prefaults |
+
+### Type: OpenSpecConfig
+
+| Property | Description |
+|----------|-------------|
+| **Module** | `schemas/config/config.schema.ts` |
+| **Definition** | `z.output<typeof configSchema>` |
+| **Key path** | `tests: Array<{ root, framework, cwd, config?, includes?, excludes?, coverage, mutation }>` |
+
+### Schema: configSchema (write_protection field)
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|

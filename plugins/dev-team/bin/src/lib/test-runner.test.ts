@@ -785,7 +785,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest' as const, mutation: { score: 80 } },
+          tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],
         }),
         'utf-8',
       );
@@ -856,7 +856,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest' as const, mutation: { score: 80 } },
+          tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],
         }),
         'utf-8',
       );
@@ -976,7 +976,7 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest' as const, mutation: { score: 80 } },
+          tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],
         }),
         'utf-8',
       );
@@ -1097,14 +1097,17 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: {
-          framework: 'vitest' as const,
-          exclude: ['**/src/app.ts'],
-          mutation: { score: 80 },
-        },
+        tests: [
+          {
+            root: 'src',
+            framework: 'vitest',
+            excludes: ['**/app.ts'],
+            mutation: { score: 80 },
+          },
+        ],
       });
 
-      // testFile "src/app.test.ts" → sourceFile "src/app.ts" → excluded by **/src/app.ts
+      // testFile "src/app.test.ts" → sourceFile "src/app.ts" → excluded by suite root src + **/app.ts
       mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
 
       const entry = {
@@ -1137,7 +1140,7 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest' as const, mutation: { score: 80 } },
+        tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
@@ -1171,11 +1174,14 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: {
-          framework: 'vitest' as const,
-          exclude: ['**/*'],
-          mutation: { score: 80 },
-        },
+        tests: [
+          {
+            root: 'src',
+            framework: 'vitest',
+            excludes: ['**/*'],
+            mutation: { score: 80 },
+          },
+        ],
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
@@ -1257,7 +1263,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest' as const, mutation: { score: 80 } },
+        tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
@@ -1291,7 +1297,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest' as const, exclude: [], mutation: { score: 80 } },
+        tests: [{ root: '.', framework: 'vitest', excludes: [], mutation: { score: 80 } }],
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
@@ -1325,7 +1331,7 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
     try {
       setupMutationDir(tmpDir, {
         schema: 'spec-driven',
-        test: { framework: 'vitest' as const, mutation: { score: 80 } },
+        tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],
       });
 
       mockExecSync.mockReturnValueOnce(vitestStdout('src/foo.test.ts'));
@@ -1626,7 +1632,7 @@ describe('executePlanEntry -- StrykerJS 平台感知 (AC-8)', () => {
         path.join(openspecDir, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          test: { framework: 'vitest' as const, mutation: { score: 80 } },
+          tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],
         }),
         'utf-8',
       );
@@ -1666,6 +1672,444 @@ describe('executePlanEntry -- StrykerJS 平台感知 (AC-8)', () => {
     } finally {
       fs.rmSync(tmpDir, { recursive: true, force: true });
       vi.unstubAllEnvs();
+    }
+  });
+});
+
+// ===========================================================================
+// executePlanEntry — absCwd 变异 (AC-2)
+// ===========================================================================
+
+describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+
+  function vitestStdout(name: string): string {
+    return JSON.stringify({
+      testResults: [
+        { name, assertionResults: [{ title: 't1', fullName: 't1', status: 'passed' as const }] },
+      ],
+    });
+  }
+
+  function setupProject(config: Record<string, unknown>): string {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'runner-abscwd-'));
+    const openspecDir = path.join(tmpDir, 'openspec');
+    fs.mkdirSync(openspecDir, { recursive: true });
+    fs.writeFileSync(path.join(openspecDir, 'config.json'), JSON.stringify(config), 'utf-8');
+    const reportDir = path.join(tmpDir, 'a', 'reports', 'mutation');
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reportDir, 'mutation.json'),
+      JSON.stringify({
+        metrics: {
+          mutationScore: 100,
+          killed: 1,
+          survived: 0,
+          timeout: 0,
+          noCoverage: 0,
+          compileErrors: 0,
+          runtimeErrors: 0,
+          ignored: 0,
+          totalDetected: 1,
+          totalUndetected: 0,
+          totalMutants: 1,
+        },
+      }),
+      'utf-8',
+    );
+    fs.mkdirSync(path.join(tmpDir, 'a', 'b'), { recursive: true });
+    fs.writeFileSync(path.join(tmpDir, 'a', 'b', 'foo.ts'), 'export {}', 'utf-8');
+    return tmpDir;
+  }
+
+  it('entry.directory 为上级目录时，mutation 子进程 cwd 指向该 absCwd', () => {
+    const tmpDir = setupProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'a/b', framework: 'vitest', cwd: '..' }],
+    });
+    try {
+      mockExecSync.mockReturnValueOnce(vitestStdout('a/b/foo.test.ts'));
+      mockExecSync.mockReturnValueOnce('ok');
+      const entry = {
+        directory: 'a',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 70,
+      };
+      executePlanEntry(entry, tmpDir);
+      expect(mockExecSync).toHaveBeenCalledTimes(2);
+      const strykerCall = mockExecSync.mock.calls[1];
+      expect(strykerCall[1].cwd).toBe(path.resolve(tmpDir, 'a'));
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('传入 resolveStrykerConfig 的源路径相对 absCwd（非 projectRoot）', () => {
+    const tmpDir = setupProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'a/b', framework: 'vitest', cwd: '..' }],
+    });
+    try {
+      mockExecSync.mockReturnValueOnce(vitestStdout('a/b/foo.test.ts'));
+      mockExecSync.mockReturnValueOnce('ok');
+      const entry = {
+        directory: 'a',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 70,
+      };
+      executePlanEntry(entry, tmpDir);
+      const strykerCmd = String(mockExecSync.mock.calls[1][0]);
+      // temp config under absCwd
+      expect(strykerCmd.replace(/\\/g, '/')).toContain('/a/stryker.config.');
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('entry.directory 指向不存在目录时执行失败且错误信息明确', () => {
+    mockExecSync.mockImplementation(() => {
+      throw createExecError('ENOENT', { status: 1, message: 'ENOENT' });
+    });
+    const entry = {
+      directory: 'missing-dir',
+      framework: 'vitest' as const,
+      coverage_format: 'istanbul' as const,
+      coverage_output: '',
+      coverage_artifacts: ['coverage/coverage-summary.json'],
+      script: {
+        shell: 'npx vitest run {files}\n',
+        cmd: 'npx vitest run {files}\n',
+      },
+    };
+    const result = executePlanEntry(entry, '/tmp/project-does-not-matter');
+    expect(result.exitCode).not.toBe(0);
+    expect(result.error).toBeTruthy();
+  });
+
+  it('测试命令为空时返回 Empty test command 结果，不进入 mutation', () => {
+    const entry = {
+      directory: '.',
+      framework: 'vitest' as const,
+      coverage_format: 'istanbul' as const,
+      coverage_output: '',
+      coverage_artifacts: ['coverage/coverage-summary.json'],
+      script: { shell: '   \n', cmd: '   \n' },
+      mutation_framework: 'stryker-js',
+    };
+    const result = executePlanEntry(entry, '/project');
+    expect(result.error).toBe('Empty test command');
+    expect(mockExecSync).not.toHaveBeenCalled();
+  });
+
+  it('entry.directory 为空字符串时行为明确', () => {
+    mockExecSync.mockReturnValue(vitestStdout('src/a.test.ts'));
+    const entry = {
+      directory: '',
+      framework: 'vitest' as const,
+      coverage_format: 'istanbul' as const,
+      coverage_output: '',
+      coverage_artifacts: ['coverage/coverage-summary.json'],
+      script: {
+        shell: 'npx vitest run {files}\n',
+        cmd: 'npx vitest run {files}\n',
+      },
+    };
+    expect(() => executePlanEntry(entry, process.cwd())).not.toThrow();
+  });
+
+  it('options.timeout 为 0 时超时行为明确', () => {
+    mockExecSync.mockReturnValue(vitestStdout('src/a.test.ts'));
+    const entry = {
+      directory: '.',
+      framework: 'vitest' as const,
+      coverage_format: 'istanbul' as const,
+      coverage_output: '',
+      coverage_artifacts: ['coverage/coverage-summary.json'],
+      script: {
+        shell: 'npx vitest run {files}\n',
+        cmd: 'npx vitest run {files}\n',
+      },
+    };
+    expect(() => executePlanEntry(entry, process.cwd(), { timeout: 0 })).not.toThrow();
+  });
+
+  it('options.timeout 为 -1 / undefined 时不崩溃', () => {
+    mockExecSync.mockReturnValue(vitestStdout('src/a.test.ts'));
+    const entry = {
+      directory: '.',
+      framework: 'vitest' as const,
+      coverage_format: 'istanbul' as const,
+      coverage_output: '',
+      coverage_artifacts: ['coverage/coverage-summary.json'],
+      script: {
+        shell: 'npx vitest run {files}\n',
+        cmd: 'npx vitest run {files}\n',
+      },
+    };
+    expect(() => executePlanEntry(entry, process.cwd(), { timeout: -1 })).not.toThrow();
+    expect(() => executePlanEntry(entry, process.cwd(), { timeout: undefined })).not.toThrow();
+  });
+
+  it('options.files 为 [] / 单元素 / 超大列表时命令构建正确', () => {
+    mockExecSync.mockReturnValue('{"testResults":[]}');
+    const entry = {
+      directory: '.',
+      framework: 'vitest' as const,
+      coverage_format: 'istanbul' as const,
+      coverage_output: '',
+      coverage_artifacts: ['coverage/coverage-summary.json'],
+      script: {
+        shell: 'npx vitest run {files}\n',
+        cmd: 'npx vitest run {files}\n',
+      },
+    };
+    executePlanEntry(entry, process.cwd(), { files: [] });
+    executePlanEntry(entry, process.cwd(), { files: ['a.test.ts'] });
+    executePlanEntry(entry, process.cwd(), {
+      files: Array.from({ length: 50 }, (_, i) => `f${i}.test.ts`),
+    });
+    expect(mockExecSync).toHaveBeenCalledTimes(3);
+  });
+});
+
+// ===========================================================================
+// executePlanEntry — suite exclude 变异 (AC-4)
+// ===========================================================================
+
+describe('executePlanEntry — suite exclude 变异 (AC-4)', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+
+  function vitestStdout(name: string): string {
+    return JSON.stringify({
+      testResults: [
+        { name, assertionResults: [{ title: 't1', fullName: 't1', status: 'passed' as const }] },
+      ],
+    });
+  }
+
+  function setupMutationDir(tmpDir: string, config: Record<string, unknown>): void {
+    const openspecDir = path.join(tmpDir, 'openspec');
+    fs.mkdirSync(openspecDir, { recursive: true });
+    fs.writeFileSync(path.join(openspecDir, 'config.json'), JSON.stringify(config), 'utf-8');
+    const reportDir = path.join(tmpDir, 'reports', 'mutation');
+    fs.mkdirSync(reportDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reportDir, 'mutation.json'),
+      JSON.stringify({
+        metrics: {
+          mutationScore: 100,
+          killed: 3,
+          survived: 0,
+          timeout: 0,
+          noCoverage: 0,
+          compileErrors: 0,
+          runtimeErrors: 0,
+          ignored: 0,
+          totalDetected: 3,
+          totalUndetected: 0,
+          totalMutants: 3,
+        },
+      }),
+      'utf-8',
+    );
+  }
+
+  it('suite excludes 命中的源文件不进入 Stryker mutate 列表', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-excl-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        tests: [
+          {
+            root: 'src',
+            framework: 'vitest',
+            excludes: ['**/app.ts'],
+          },
+        ],
+      });
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+      const entry = {
+        directory: '.',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.mutation).toBeNull();
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('未排除源文件正常进入 mutate 列表', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-noex-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        tests: [{ root: '.', framework: 'vitest' }],
+      });
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+      mockExecSync.mockReturnValueOnce('StrykerJS run completed');
+      const entry = {
+        directory: '.',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.mutation).not.toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('exclude 后源文件列表为空时静默跳过 mutation', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-empty-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vitest', excludes: ['**/*'] }],
+      });
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+      const entry = {
+        directory: '.',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+      const result = executePlanEntry(entry, tmpDir);
+      expect(result.mutation).toBeNull();
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('options.mutationDiffFiles: [] 时 mutation 范围为空并跳过', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-diff-empty-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        tests: [{ root: '.', framework: 'vitest' }],
+      });
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+      const entry = {
+        directory: '.',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+      const result = executePlanEntry(entry, tmpDir, { mutationDiffFiles: [] });
+      expect(result.mutation).toBeNull();
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('options.mutationDiffFiles 为单元素且被 excludes 命中时跳过 mutation', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-diff-ex-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vitest', excludes: ['**/app.ts'] }],
+      });
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+      const entry = {
+        directory: '.',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+      const result = executePlanEntry(entry, tmpDir, { mutationDiffFiles: ['src/app.ts'] });
+      expect(result.mutation).toBeNull();
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
+    }
+  });
+
+  it('options.noMutation: true 时不调用 resolveStrykerConfig', () => {
+    const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'suite-nomut-'));
+    try {
+      setupMutationDir(tmpDir, {
+        schema: 'spec-driven',
+        tests: [{ root: '.', framework: 'vitest' }],
+      });
+      mockExecSync.mockReturnValueOnce(vitestStdout('src/app.test.ts'));
+      const entry = {
+        directory: '.',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: '',
+        coverage_artifacts: ['coverage/coverage-summary.json'],
+        script: {
+          shell: 'npx vitest run {files}\n',
+          cmd: 'npx vitest run {files}\n',
+        },
+        mutation_framework: 'stryker-js',
+        mutation_score: 80,
+      };
+      const result = executePlanEntry(entry, tmpDir, { noMutation: true });
+      expect(result.mutation).toBeNull();
+      expect(mockExecSync).toHaveBeenCalledTimes(1);
+    } finally {
+      fs.rmSync(tmpDir, { recursive: true, force: true });
     }
   });
 });

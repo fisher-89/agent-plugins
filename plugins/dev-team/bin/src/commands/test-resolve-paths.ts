@@ -5,8 +5,10 @@ import * as path from 'node:path';
 import { type z } from 'zod/v4';
 
 import { readConfig } from '../lib/config';
+import { matchGlob, toForwardSlash } from '../lib/glob';
 import { isFileExcluded } from '../lib/test-exclude';
-import type { OpenSpecConfig, unitTestEntrySchema } from '../schemas';
+import { getFrameworkConfig } from '../lib/test-framework';
+import type { OpenSpecConfig, TestSuite, unitTestEntrySchema } from '../schemas';
 import { getProjectDir } from '../utils';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
@@ -331,9 +333,42 @@ function processModuleEntry(
 }
 
 /**
+ * Whether a project-relative source file falls in a suite's coverage scope
+ * for empty-module scanning: under(root) ∧ match(includesEffective) ∧ ¬excludes,
+ * where includesEffective = suite.includes ?? framework.default_glob.
+ */
+function isInSuiteSourceScope(
+  relativePath: string,
+  suite: TestSuite,
+  config: OpenSpecConfig,
+): boolean {
+  const posix = toForwardSlash(relativePath);
+  const root = path.posix.normalize(toForwardSlash(suite.root)).replace(/\/$/, '');
+
+  if (posix !== root && !posix.startsWith(root + '/')) {
+    return false;
+  }
+
+  if (isFileExcluded(posix, config)) {
+    return false;
+  }
+
+  const includePatterns = suite.includes?.length
+    ? suite.includes
+    : [getFrameworkConfig(suite.framework).default_glob];
+
+  return includePatterns.some((pattern) => {
+    const scoped = path.posix.normalize(
+      path.posix.join(toForwardSlash(suite.root), toForwardSlash(pattern)),
+    );
+    return matchGlob(posix, scoped);
+  });
+}
+
+/**
  * Step 2b of resolveTestPaths: config-driven directory scan when no modules
- * are specified. Uses runTestDetectFrameworks to discover source directories
- * and scans each for source files.
+ * are specified. Scans each suite `root` (not plan.directory / absCwd) so
+ * `cwd: ".."` does not widen or shrink the coverage scope incorrectly.
  */
 function processEmptyModules(
   projectRoot: string,
@@ -344,38 +379,35 @@ function processEmptyModules(
 ): void {
   const detectedResult = runTestDetectFrameworks({ projectRoot });
   const plan = detectedResult.plan;
+  const suites = config.tests ?? [];
 
-  if (plan.length === 0) {
+  if (plan.length === 0 || suites.length === 0) {
     errors.push({
       path: 'config',
-      message:
-        "No test configuration found. Please configure 'test.framework' or 'test.overrides' in openspec/config.json",
+      message: "No test configuration found. Please configure 'tests' in openspec/config.json",
     });
     return;
   }
 
-  const directories = [...new Set(plan.map((p) => p.directory))] as string[];
   const sourceFiles = new Set<string>();
 
-  for (const dir of directories) {
-    const absDir = path.resolve(projectRoot, dir);
-    const allFiles = collectFiles(absDir);
+  for (const suite of suites) {
+    const absRoot = path.resolve(projectRoot, suite.root);
+    const allFiles = collectFiles(absRoot);
     for (const file of allFiles) {
       const relPath = path.relative(projectRoot, file);
-      const posix = relPath.replace(/\\/g, '/');
-      if (isSourceFile(posix)) {
-        sourceFiles.add(posix);
+      const posix = toForwardSlash(relPath);
+      if (!isSourceFile(posix)) {
+        continue;
       }
+      if (!isInSuiteSourceScope(posix, suite, config)) {
+        continue;
+      }
+      sourceFiles.add(posix);
     }
   }
 
   for (const sourceFile of sourceFiles) {
-    // Silently skip excluded files
-    const absSourcePath = path.resolve(projectRoot, sourceFile);
-    if (isFileExcluded(absSourcePath, config)) {
-      continue;
-    }
-
     addUnitTest(unitTestMap, sourceFile);
     collectedSources.push(sourceFile);
   }

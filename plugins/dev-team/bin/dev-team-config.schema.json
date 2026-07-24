@@ -40,160 +40,111 @@
       "description": "静态分析工具配置（如 ESLint、Prettier）",
       "type": "string"
     },
-    "test": {
-      "description": "测试相关配置",
-      "type": "object",
-      "properties": {
-        "framework": {
-          "type": "string",
-          "enum": [
-            "jest",
-            "vitest",
-            "vite-plus",
-            "bun",
-            "rust",
-            "node-test",
-            "go",
-            "pytest"
-          ],
-          "description": "测试框架"
-        },
-        "exclude": {
-          "description": "全局排除的源文件 glob 模式列表",
-          "type": "array",
-          "items": {
+    "tests": {
+      "description": "测试 suite 配置列表",
+      "type": "array",
+      "items": {
+        "type": "object",
+        "properties": {
+          "root": {
+            "type": "string",
+            "minLength": 1,
+            "description": "suite 锚点路径（相对 projectRoot，禁止通配符）"
+          },
+          "framework": {
+            "type": "string",
+            "enum": [
+              "jest",
+              "vitest",
+              "vite-plus",
+              "bun",
+              "rust",
+              "node-test",
+              "go",
+              "pytest"
+            ],
+            "description": "测试框架"
+          },
+          "cwd": {
+            "description": "执行目录（相对 root，默认 \".\"）",
             "type": "string"
-          }
-        },
-        "coverage": {
-          "description": "测试覆盖率",
-          "type": "object",
-          "properties": {
-            "lines": {
-              "description": "行覆盖率阈值（百分比，默认 80）",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 100
-            },
-            "branches": {
-              "description": "分支覆盖率阈值（百分比，默认 70）",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 100
-            },
-            "functions": {
-              "description": "函数覆盖率阈值（百分比，默认 75）",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 100
+          },
+          "config": {
+            "description": "框架配置文件路径（相对 root）",
+            "type": "string",
+            "minLength": 1
+          },
+          "includes": {
+            "description": "匹配 glob 列表（相对 root）",
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
-          "required": [
-            "lines",
-            "branches",
-            "functions"
-          ],
-          "additionalProperties": false
-        },
-        "mutation": {
-          "description": "变异测试配置",
-          "type": "object",
-          "properties": {
-            "score": {
-              "description": "变异测试得分阈值（百分比，默认 70）",
-              "type": "number",
-              "minimum": 0,
-              "maximum": 100
+          "excludes": {
+            "description": "排除 glob 列表（相对 root）",
+            "type": "array",
+            "items": {
+              "type": "string"
             }
           },
-          "required": [
-            "score"
-          ],
-          "additionalProperties": false
-        },
-        "overrides": {
-          "type": "array",
-          "items": {
+          "coverage": {
+            "description": "覆盖率阈值",
             "type": "object",
             "properties": {
-              "file": {
-                "type": "string",
-                "minLength": 1,
-                "description": "文件路径，支持glob规则（如 \"src/**/*.test.ts\"）"
+              "lines": {
+                "description": "行覆盖率阈值（百分比，默认 80）",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
               },
-              "exclude": {
-                "description": "该 override 范围内排除的源文件 glob 模式列表",
-                "type": "array",
-                "items": {
-                  "type": "string"
-                }
+              "branches": {
+                "description": "分支覆盖率阈值（百分比，默认 70）",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
               },
-              "framework": {
-                "type": "string",
-                "enum": [
-                  "jest",
-                  "vitest",
-                  "vite-plus",
-                  "bun",
-                  "rust",
-                  "node-test",
-                  "go",
-                  "pytest"
-                ],
-                "description": "测试框架"
-              },
-              "coverage": {
-                "description": "测试覆盖率",
-                "type": "object",
-                "properties": {
-                  "lines": {
-                    "description": "行覆盖率阈值（百分比，默认 80）",
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 100
-                  },
-                  "branches": {
-                    "description": "分支覆盖率阈值（百分比，默认 70）",
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 100
-                  },
-                  "functions": {
-                    "description": "函数覆盖率阈值（百分比，默认 75）",
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 100
-                  }
-                },
-                "required": [
-                  "lines",
-                  "branches",
-                  "functions"
-                ],
-                "additionalProperties": false
-              },
-              "mutation": {
-                "type": "object",
-                "properties": {
-                  "score": {
-                    "description": "变异测试得分阈值（百分比）",
-                    "type": "number",
-                    "minimum": 0,
-                    "maximum": 100
-                  }
-                },
-                "additionalProperties": false,
-                "description": "变异测试覆盖配置"
+              "functions": {
+                "description": "函数覆盖率阈值（百分比，默认 75）",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
               }
             },
             "required": [
-              "file"
+              "lines",
+              "branches",
+              "functions"
+            ],
+            "additionalProperties": false
+          },
+          "mutation": {
+            "description": "变异测试配置",
+            "type": "object",
+            "properties": {
+              "score": {
+                "description": "变异测试得分阈值（百分比，默认 70）",
+                "type": "number",
+                "minimum": 0,
+                "maximum": 100
+              }
+            },
+            "required": [
+              "score"
             ],
             "additionalProperties": false
           }
-        }
-      },
-      "additionalProperties": false
+        },
+        "required": [
+          "root",
+          "framework",
+          "cwd",
+          "coverage",
+          "mutation"
+        ],
+        "additionalProperties": false,
+        "description": "测试 suite 配置"
+      }
     },
     "write_protection": {
       "description": "写入保护配置，定义受保护的文件路径模式",
@@ -225,7 +176,7 @@
   },
   "required": [
     "schema",
-    "test"
+    "tests"
   ],
-  "additionalProperties": false
+  "additionalProperties": {}
 }

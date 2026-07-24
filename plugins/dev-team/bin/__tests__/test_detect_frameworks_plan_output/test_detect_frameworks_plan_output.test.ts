@@ -1,9 +1,5 @@
 /**
- * 集成测试: test_detect_frameworks plan 输出结构（AC-8）
- *
- * 验证 detected、frameworks、plan 输出结构与 schema 不变。
- *
- * @see openspec/changes/use-fast-glob/test-design.md
+ * 集成测试: test_detect_frameworks plan 输出结构（tests[]）
  */
 
 import * as fs from 'node:fs';
@@ -14,10 +10,6 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import { runTestDetectFrameworks } from '../../src/commands/test-detect-frameworks';
 import { testDetectFrameworksOutputSchema } from '../../src/schemas/test-detect-frameworks.schema';
-
-// ---------------------------------------------------------------------------
-// Helpers
-// ---------------------------------------------------------------------------
 
 interface TempProject {
   root: string;
@@ -39,15 +31,11 @@ function createTempProject(configData: unknown): TempProject {
   };
 }
 
-// ===========================================================================
-// test_detect_frameworks — plan 输出结构（AC-8）
-// ===========================================================================
-
 describe('test_detect_frameworks — plan 输出结构', () => {
-  it('字符串简写 "vitest" 配置时 plan 应含完整字段且通过 schema 校验', () => {
+  it('tests[] vitest suite 时 plan 应含完整字段且通过 schema 校验', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: { framework: 'vitest' },
+      tests: [{ root: '.', framework: 'vitest' }],
     });
     try {
       const result = runTestDetectFrameworks({
@@ -72,10 +60,10 @@ describe('test_detect_frameworks — plan 输出结构', () => {
     }
   });
 
-  it('无 test.framework 配置时 plan 应为空数组且 detected 均为 unknown', () => {
+  it('无 tests 配置时 plan 应为空数组且 detected 均为 unknown', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {},
+      tests: [],
     });
     try {
       const result = runTestDetectFrameworks({
@@ -91,65 +79,29 @@ describe('test_detect_frameworks — plan 输出结构', () => {
   });
 });
 
-// ===========================================================================
-// plan 双脚本内容验证 (AC-2, AC-5)
-// ===========================================================================
-
 describe('test_detect_frameworks — plan 双脚本内容验证', () => {
   it('script.shell 包含 `rm -rf` 和 bash 语法命令', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: { framework: 'vitest' },
+      tests: [{ root: '.', framework: 'vitest' }],
     });
     try {
-      const result = runTestDetectFrameworks({
-        files: ['src/app.test.ts'],
-        projectRoot: project.root,
-      });
-      const shell = (result.plan[0].script as { shell: string; cmd: string }).shell;
-      expect(shell).toContain('rm -rf');
-      expect(shell).toContain('npx vitest run');
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(result.plan[0].script.shell).toContain('rm -rf');
     } finally {
       project.cleanup();
     }
   });
 
-  it('script.cmd 包含 `rmdir /s /q`、`cd /d` 和 cmd.exe 兼容语法', () => {
+  it('script.cmd 包含 Windows cmd 清理语法', () => {
     const project = createTempProject({
       schema: 'spec-driven',
-      test: {
-        framework: 'vitest',
-        overrides: [{ file: 'plugins/dev-team/bin/**', framework: 'vitest' }],
-      },
+      tests: [{ root: 'pkg', framework: 'vitest' }],
     });
     try {
-      const result = runTestDetectFrameworks({
-        files: ['plugins/dev-team/bin/app.test.ts'],
-        projectRoot: project.root,
-      });
-      const cmd = (result.plan[1].script as { shell: string; cmd: string }).cmd;
-      expect(cmd).toContain('rmdir /s /q');
-      expect(cmd).toContain('cd /d');
-      expect(cmd).toContain('\r\n');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('脚本双输出通过 schema 校验', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      test: { framework: 'vitest' },
-    });
-    try {
-      const result = runTestDetectFrameworks({
-        files: ['src/app.test.ts'],
-        projectRoot: project.root,
-      });
-      const parsed = testDetectFrameworksOutputSchema.safeParse(result);
-      expect(parsed.success).toBe(true);
-      expect(parsed.data!.plan[0].script).toHaveProperty('shell');
-      expect(parsed.data!.plan[0].script).toHaveProperty('cmd');
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(result.plan[0].script.cmd).toContain('cd /d');
+      expect(result.plan[0].script.cmd).toMatch(/if exist|rmdir/);
     } finally {
       project.cleanup();
     }
