@@ -225,6 +225,11 @@ function generateShellScript(
 
 /**
  * Generate a Windows cmd.exe execution script from plan entry fields.
+ *
+ * Constraints when run via Node `execSync(..., { shell: cmd.exe })`:
+ * 1. Join steps with ` & ` (single line) — multiline `/c` strings only run the first line.
+ * 2. Wrap each `if exist ...` in an outer `(...)` — without it, a trailing `&` after a
+ *    parenthesized IF with no ELSE is skipped when the condition is false.
  */
 function generateCmdScript(
   directory: string,
@@ -259,12 +264,13 @@ function generateCmdScript(
   }
 
   for (const item of coverage_cleanup) {
-    lines.push(`if exist "${item}" (rmdir /s /q "${item}" 2>nul & del /f /q "${item}" 2>nul)`);
+    // Outer parens required so subsequent ` & ` steps still run when the path is absent.
+    lines.push(`(if exist "${item}" (rmdir /s /q "${item}" 2>nul & del /f /q "${item}" 2>nul))`);
   }
 
   lines.push(test_execution);
 
-  return lines.join('\r\n') + '\r\n';
+  return lines.join(' & ');
 }
 
 // ---------------------------------------------------------------------------

@@ -106,4 +106,37 @@ describe('test_detect_frameworks — plan 双脚本内容验证', () => {
       project.cleanup();
     }
   });
+
+  it('script.cmd 用 & 串联为单行（避免 cmd /c 只执行第一行）', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest' }],
+    });
+    try {
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      const cmd = result.plan[0].script.cmd;
+      expect(cmd).not.toMatch(/[\r\n]/);
+      expect(cmd).toContain(' & ');
+      expect(cmd).toContain('cd /d pkg');
+      expect(cmd).toContain('npx vitest');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('script.cmd 的 if exist 清理步骤有外层括号（避免条件为假时吞掉后续 &）', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest' }],
+    });
+    try {
+      const cmd = runTestDetectFrameworks({ projectRoot: project.root }).plan[0].script.cmd;
+      expect(cmd).toContain('(if exist "coverage"');
+      expect(cmd).toMatch(/\(if exist "[^"]+" \(rmdir[\s\S]*?\)\)/);
+      // cleanup 之后仍能接到 test_execution
+      expect(cmd.indexOf('(if exist')).toBeLessThan(cmd.indexOf('npx vitest'));
+    } finally {
+      project.cleanup();
+    }
+  });
 });

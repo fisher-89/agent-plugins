@@ -140,6 +140,21 @@ describe('runTestDetectFrameworks — plan.directory = absCwd (AC-2)', () => {
       project.cleanup();
     }
   });
+
+  it('script.cmd 用 & 串联为单行，不含换行', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest' }],
+    });
+    try {
+      const cmd = runTestDetectFrameworks({ projectRoot: project.root }).plan[0].script.cmd;
+      expect(cmd).not.toMatch(/[\r\n]/);
+      expect(cmd).toContain(' & ');
+      expect(cmd.indexOf('cd /d')).toBeLessThan(cmd.indexOf('npx vitest'));
+    } finally {
+      project.cleanup();
+    }
+  });
 });
 
 // ===========================================================================
