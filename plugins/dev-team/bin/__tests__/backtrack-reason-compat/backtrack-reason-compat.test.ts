@@ -98,7 +98,11 @@ let actualReadEntries: Array<Record<string, unknown>> = [];
 
 function mockWorkflowType(workflowType: string): void {
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
-    return String(filePath).endsWith('workflow.json');
+    const p = String(filePath);
+    if (p === '/tmp/test-change') {
+      return true;
+    }
+    return p.endsWith('workflow.json');
   });
   vi.mocked(fs.readFileSync).mockImplementation(
     (

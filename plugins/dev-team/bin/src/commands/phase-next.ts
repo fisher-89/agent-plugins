@@ -16,6 +16,8 @@
  * planner/evaluator agents without any hardcoded phase knowledge.
  */
 
+import * as fs from 'fs';
+
 import { type z } from 'zod/v4';
 
 import { getChangeDir } from '../lib/change';
@@ -433,10 +435,14 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
   }
 
   const change = options.change;
+  const changeDir = getChangeDir(change);
+  if (!fs.existsSync(changeDir)) {
+    throw new Error(`Change "${change}" does not exist: ${changeDir}`);
+  }
+
   const workflowType = getWorkflowType(change);
 
   // -- Read eval.json --
-  const changeDir = getChangeDir(change);
   let entries: EvalEntry[];
   try {
     entries = readEvalJson(changeDir);

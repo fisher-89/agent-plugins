@@ -20,6 +20,7 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 import { runPhaseNext } from '../commands/phase-next';
+import { getChangeDir } from '../lib/change';
 import { type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable } from '../lib/workflow';
 
@@ -124,6 +125,9 @@ function staleEntry(
 function next(entries: MockEntry[], change: string = 'test-change', workflowType?: string) {
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
     const p = String(filePath);
+    if (p === getChangeDir(change)) {
+      return true;
+    }
     if (p.endsWith('workflow.json')) {
       return workflowType !== undefined;
     }
@@ -1068,7 +1072,10 @@ describe('runPhaseNext — workflow.json default', () => {
 
   it('should use requirement table when workflow.json lacks workflow_type', () => {
     vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
-      return String(filePath).endsWith('workflow.json') || String(filePath).endsWith('eval.json');
+      const p = String(filePath);
+      return (
+        p === getChangeDir('test-change') || p.endsWith('workflow.json') || p.endsWith('eval.json')
+      );
     });
     vi.mocked(fs.readFileSync).mockImplementation(
       (
@@ -1196,6 +1203,13 @@ describe('runPhaseNext — Input Validation', () => {
   it('change 参数为空字符串时应抛出 Error', () => {
     // 直接调用 runPhaseNext 验证空 change 抛错
     expect(() => runPhaseNext({ change: '' })).toThrow('Missing required parameter: change');
+  });
+
+  it('change 不存在时应抛出 Error', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    expect(() => runPhaseNext({ change: 'non-existent-change' })).toThrow(
+      /Change "non-existent-change" does not exist/,
+    );
   });
 });
 

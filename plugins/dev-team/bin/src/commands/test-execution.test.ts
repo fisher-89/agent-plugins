@@ -954,9 +954,7 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
 
       await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
 
-      const expectedDiffFiles = [
-        path.resolve(project.root, 'src/a.ts').replace(/\\/g, '/'),
-      ];
+      const expectedDiffFiles = [path.resolve(project.root, 'src/a.ts').replace(/\\/g, '/')];
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
       expect(mockExecutePlanEntry).toHaveBeenNthCalledWith(
         1,
