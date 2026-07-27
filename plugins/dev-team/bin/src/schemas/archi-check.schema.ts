@@ -1,10 +1,9 @@
 import { z } from 'zod/v4';
 
-export const archiCheckInputSchema = {
+export const archiCheckInputSchema = z.object({
   staged: z.boolean().optional().describe('Check git staged files'),
   files: z.string().optional().describe('Comma-separated file list to check'),
-  project_root: z.string().optional().describe('Project root directory (defaults to cwd)'),
-};
+});
 
 export const archiCheckOutputSchema = z.object({
   violations: z.array(z.unknown()).describe('List of cross-reference violations found'),

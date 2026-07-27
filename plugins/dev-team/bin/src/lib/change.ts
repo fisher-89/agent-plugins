@@ -1,6 +1,6 @@
 import * as path from 'path';
 
-import { getProjectDir } from '../utils';
+import { getProjectDir } from '../lib/project-root';
 
 /**
  * Resolve the root directory for a change.

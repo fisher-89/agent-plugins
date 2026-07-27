@@ -33,7 +33,6 @@ function getStaticAnalysisCommand() {
 
 /** mock process.exit 并返回 spy，调用方负责 restore */
 function spyOnProcessExit() {
-  // eslint-disable-next-line typescript/no-unsafe-type-assertion
   return vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
 }
 

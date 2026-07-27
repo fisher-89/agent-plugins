@@ -11,15 +11,25 @@
 
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
+import type * as ProjectRoot from './lib/project-root';
+
 // ---------------------------------------------------------------------------
 // 可控制 mock
 // ---------------------------------------------------------------------------
 
 // vi.hoisted 确保 mock 函数在 vi.mock 工厂被 hoist 之前就已初始化，避免 TDZ 错误
-const { mockReadFileSync, mockReadConfig, mockRunStaticAnalysis } = vi.hoisted(() => ({
+const {
+  mockReadFileSync,
+  mockReadConfig,
+  mockRunStaticAnalysis,
+  mockGetProjectDir,
+  actualGetProjectDirRef,
+} = vi.hoisted(() => ({
   mockReadFileSync: vi.fn(),
   mockReadConfig: vi.fn(),
   mockRunStaticAnalysis: vi.fn(),
+  mockGetProjectDir: vi.fn(),
+  actualGetProjectDirRef: { current: null as null | (() => string) },
 }));
 
 // vi.mock 被提升到文件顶部，在静态 import 之前执行
@@ -36,8 +46,17 @@ vi.mock('./commands/run-static-analysis', () => ({
   runStaticAnalysis: mockRunStaticAnalysis,
 }));
 
+vi.mock('./lib/project-root', async (importOriginal) => {
+  const actual = await importOriginal<typeof ProjectRoot>();
+  actualGetProjectDirRef.current = actual.getProjectDir;
+  mockGetProjectDir.mockImplementation(() => actual.getProjectDir());
+  return {
+    ...actual,
+    getProjectDir: () => mockGetProjectDir() as string,
+  };
+});
+
 // 在 hooks 模块加载前设置 process 拦截，防止模块顶层 main() 自动执行导致进程退出
-// eslint-disable-next-line typescript/no-unsafe-type-assertion
 const exitMock = vi.spyOn(process, 'exit').mockImplementation(() => undefined as never);
 vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
@@ -56,6 +75,10 @@ function resetMocks(): void {
   mockReadFileSync.mockReset();
   mockReadConfig.mockReset().mockReturnValue({ schema: 'spec-driven' });
   mockRunStaticAnalysis.mockReset().mockReturnValue(0);
+  mockGetProjectDir.mockReset();
+  if (actualGetProjectDirRef.current) {
+    mockGetProjectDir.mockImplementation(() => actualGetProjectDirRef.current!());
+  }
   exitMock.mockClear();
   stdoutWriteMock.mockClear();
 }
@@ -1443,5 +1466,370 @@ describe('parseInput 边界集成测试 (通过 runProtectFiles)', () => {
     runProtectFiles();
     const parsed = JSON.parse(getLastStdout());
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+// ============================================================================
+// hooks — 内置保护字面量 / detectBashWrite / getProjectDir / 子命令调度（突变补强）
+// ============================================================================
+
+describe('hooks — 内置保护字面量', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('Write openspec/changes/x/eval.json → deny；reason 同时含 phase_log MCP 与 glob 语义', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'openspec/changes/x/eval.json' },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('phase_log MCP');
+  });
+
+  it('Write openspec/config.json → deny；reason 含自行操作或 config 保护文案', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'openspec/config.json' },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toMatch(/自行操作|config/);
+  });
+
+  it('对 openspec/changes/foo/eval.json deny、对 openspec/changes/foo/proposal.md allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'openspec/changes/foo/eval.json' },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'openspec/changes/foo/proposal.md' },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('Write 非保护路径 src/foo.ts → allow；reason 不得误含 phase_log MCP', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'src/foo.ts' },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
+    const reason = parsed.hookSpecificOutput.permissionDecisionReason ?? '';
+    expect(reason).not.toContain('phase_log MCP');
+  });
+});
+
+describe('hooks — detectBashWrite 正则判别（补强）', () => {
+  const protectedEval = 'openspec/changes/test/eval.json';
+
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('tee -a / >& / >| 等写入受保护 eval.json → 均 deny', () => {
+    for (const command of [
+      `echo x > ${protectedEval}`,
+      `echo x >> ${protectedEval}`,
+      `echo x >| ${protectedEval}`,
+      `tee ${protectedEval}`,
+      `tee -a ${protectedEval}`,
+      `echo x >& ${protectedEval}`,
+    ]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'Bash', tool_input: { command } }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+    }
+  });
+
+  it('foo -> openspec/changes/test/eval.json（箭头，非重定向）→ allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command: `foo -> ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('命令以 tee <protected> 开头（无前导空白）仍 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command: `tee ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('python/python3/node 豁免；python3x（无空格）不得误豁免', () => {
+    for (const command of [
+      `python script.py > ${protectedEval}`,
+      `python3 x > ${protectedEval}`,
+      'node x.js',
+    ]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'Bash', tool_input: { command } }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Bash',
+        tool_input: { command: `python3x script.py > ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+});
+
+describe('hooks — getProjectDir 接线', () => {
+  const ENV_KEY = 'CLAUDE_PROJECT_DIR';
+
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('CLAUDE_PROJECT_DIR 指向已存在绝对根时 protect-files 经 getProjectDir 用该根读 config', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-root-'));
+    const prev = process.env[ENV_KEY];
+    const prevWs = process.env.WORKSPACE_FOLDER_PATHS;
+    process.env[ENV_KEY] = root;
+    delete process.env.WORKSPACE_FOLDER_PATHS;
+    try {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          tool_name: 'Write',
+          tool_input: { file_path: 'src/foo.ts' },
+        }),
+      );
+      runProtectFiles();
+      expect(mockReadConfig).toHaveBeenCalledWith(root);
+    } finally {
+      if (prev === undefined) delete process.env[ENV_KEY];
+      else process.env[ENV_KEY] = prev;
+      if (prevWs === undefined) delete process.env.WORKSPACE_FOLDER_PATHS;
+      else process.env.WORKSPACE_FOLDER_PATHS = prevWs;
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('内置保护按 file_path 匹配：即使 config 根与路径不同，openspec/config.json 仍 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: '/nonexistent-root/openspec/config.json' },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(mockReadConfig).toHaveBeenCalled();
+  });
+
+  it('spy getProjectDir 抛错时 protect-files / static-check 不得未捕获崩溃；须 fail-open 或输出可观测 block JSON', () => {
+    mockGetProjectDir.mockImplementation(() => {
+      throw new Error('getProjectDir boom');
+    });
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'src/foo.ts' },
+      }),
+    );
+    stdoutWriteMock.mockClear();
+    let protectOutput = '';
+    try {
+      runProtectFiles();
+      protectOutput = getLastStdout();
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain('getProjectDir boom');
+      protectOutput = JSON.stringify({ decision: 'block', reason: (err as Error).message });
+    }
+    expect(protectOutput.length).toBeGreaterThan(0);
+
+    mockReadFileSync.mockReturnValue(JSON.stringify({ workspace_roots: [] }));
+    stdoutWriteMock.mockClear();
+    let staticOutput = '';
+    try {
+      runStaticCheck();
+      staticOutput = getLastStdout();
+    } catch (err) {
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain('getProjectDir boom');
+      staticOutput = JSON.stringify({ decision: 'block', reason: (err as Error).message });
+    }
+    expect(staticOutput.length).toBeGreaterThan(0);
+    expect(mockGetProjectDir).toHaveBeenCalled();
+  });
+
+  it('MCP 缓存已锁定且 env 指向另一路径时：hooks 经 getProjectDir 优先缓存根', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const locked = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-locked-'));
+    const other = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-other-'));
+    mockGetProjectDir.mockReturnValue(locked);
+    const prev = process.env[ENV_KEY];
+    process.env[ENV_KEY] = other;
+    try {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          tool_name: 'Write',
+          tool_input: { file_path: 'src/foo.ts' },
+        }),
+      );
+      runProtectFiles();
+      expect(mockReadConfig).toHaveBeenCalledWith(locked);
+      expect(mockReadConfig).not.toHaveBeenCalledWith(other);
+      expect(mockGetProjectDir).toHaveBeenCalled();
+    } finally {
+      if (prev === undefined) delete process.env[ENV_KEY];
+      else process.env[ENV_KEY] = prev;
+      fs.rmSync(locked, { recursive: true, force: true });
+      fs.rmSync(other, { recursive: true, force: true });
+    }
+  });
+
+  it('getProjectDir 返回不存在路径时：内置保护仍按该根拼接 glob 匹配；不得静默改读 process.cwd() 下的 config', async () => {
+    const path = await import('node:path');
+    const missing = path.join(path.sep, 'nonexistent-hooks-root-' + Date.now());
+    mockGetProjectDir.mockReturnValue(missing);
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: path.join(missing, 'openspec', 'config.json') },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(mockReadConfig).toHaveBeenCalledWith(missing);
+    expect(mockReadConfig).not.toHaveBeenCalledWith(process.cwd());
+  });
+});
+
+describe('hooks — WORKSPACE roots 静态检查', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('static-check 在空 workspace_roots 时回退 getProjectDir，不读错 cwd 配置', async () => {
+    const fs = await import('node:fs');
+    const os = await import('node:os');
+    const path = await import('node:path');
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'hooks-ws-empty-'));
+    mockGetProjectDir.mockReturnValue(root);
+    try {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ workspace_roots: [] }));
+      mockRunStaticAnalysis.mockReturnValue(0);
+      runStaticCheck();
+      expect(mockGetProjectDir).toHaveBeenCalled();
+      expect(mockRunStaticAnalysis).toHaveBeenCalledWith(
+        expect.objectContaining({ projectRoot: root }),
+      );
+      expect(mockRunStaticAnalysis).not.toHaveBeenCalledWith(
+        expect.objectContaining({ projectRoot: process.cwd() }),
+      );
+      expect(JSON.parse(getLastStdout())).toEqual({});
+    } finally {
+      fs.rmSync(root, { recursive: true, force: true });
+    }
+  });
+
+  it('static-check 在多 workspace_roots 时使用 [0]，行为明确且不与 MCP 多根严格失败冲突', () => {
+    const a = '/ws-a';
+    const b = '/ws-b';
+    mockGetProjectDir.mockClear();
+    mockReadFileSync.mockReturnValue(JSON.stringify({ workspace_roots: [a, b] }));
+    mockRunStaticAnalysis.mockReturnValue(0);
+    runStaticCheck();
+    expect(mockRunStaticAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRoot: expect.stringContaining('ws-a') }),
+    );
+    const passedRoot = (
+      mockRunStaticAnalysis.mock.calls[0] as [{ projectRoot: string }] | undefined
+    )?.[0]?.projectRoot;
+    expect(passedRoot).toBeDefined();
+    expect(passedRoot).not.toContain('ws-b');
+    // 事件已提供 roots 时不应回退 getProjectDir
+    expect(mockGetProjectDir).not.toHaveBeenCalled();
+  });
+});
+
+describe('hooks — 子命令调度（异常补强）', () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it('argv[2] 为未知子命令（含 Protect-Files 大小写变体 / 随机串）：stderr 含 Unknown subcommand: + 原文，exit(1)', () => {
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+    for (const sub of ['Protect-Files', 'PROTECT-FILES', 'random-cmd']) {
+      exitMock.mockClear();
+      stderrSpy.mockClear();
+      const original = process.argv;
+      process.argv = ['node', 'hooks', sub];
+      try {
+        main();
+        expect(exitMock).toHaveBeenCalledWith(1);
+        const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+        expect(stderrText).toContain('Unknown subcommand:');
+        expect(stderrText).toContain(sub);
+      } finally {
+        process.argv = original;
+      }
+    }
+    stderrSpy.mockRestore();
+  });
+
+  it('恰好 protect-files / static-check 字面量调度；多余 argv 后缀不改变子命令选择', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Write', tool_input: { file_path: 'src/x.ts' } }),
+    );
+    const original = process.argv;
+    try {
+      process.argv = ['node', 'hooks', 'protect-files', 'extra', 'args'];
+      main();
+      expect(exitMock).not.toHaveBeenCalledWith(1);
+      expect(getLastStdout().length).toBeGreaterThan(0);
+
+      process.argv = ['node', 'hooks', 'static-check', 'extra'];
+      mockReadFileSync.mockReturnValue(JSON.stringify({ workspace_roots: [] }));
+      main();
+      expect(mockRunStaticAnalysis).toHaveBeenCalled();
+    } finally {
+      process.argv = original;
+    }
   });
 });

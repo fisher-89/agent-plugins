@@ -1,0 +1,74 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-27T09:10:43.013Z",
+  "duration_seconds": 283,
+  "total": 1194,
+  "passed": 1194,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 94.83,
+      "branches": 84.67,
+      "functions": 98.17
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 33,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 77.63,
+    "threshold": 70,
+    "measured": {
+      "killed": 1067,
+      "survived": 263,
+      "timeout": 2,
+      "noCoverage": 45,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 13,
+      "total": 1390,
+      "detected": 1069,
+      "undetected": 308
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team/bin",
+        "score": 77.63253449527959,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 33,
+        "passed_count": 33
+      }
+    ]
+  },
+  "findings": [
+    "All tests passed (1194/1194) and coverage thresholds met (lines 94.83%, branches 84.67%, functions 98.17%).",
+    "Mutation testing passed with score 77.63% (threshold 70%)."
+  ]
+}

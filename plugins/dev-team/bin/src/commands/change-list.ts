@@ -4,10 +4,7 @@ import * as path from 'path';
 import type z from 'zod/v4';
 
 import { readEvalJson } from '../lib/eval-json';
-import { type changeListOutputSchema, type changeListInputSchema } from '../schemas';
-import { getProjectDir } from '../utils';
-
-type ChangeListOptions = z.input<typeof changeListInputSchema>;
+import { type changeListOutputSchema } from '../schemas';
 
 type ChangeListResult = z.output<typeof changeListOutputSchema>;
 
@@ -82,8 +79,7 @@ function processChangeEntry(
  * List all active (non-archived) changes under openspec/changes/.
  * Pure filesystem scan — no CLI dependency.
  */
-export function runChangeList(options: ChangeListOptions): ChangeListResult {
-  const projectRoot = options.project_root || getProjectDir();
+export function runChangeList(projectRoot: string): ChangeListResult {
   const changesDir = path.resolve(projectRoot, 'openspec', 'changes');
 
   if (!fs.existsSync(changesDir)) {

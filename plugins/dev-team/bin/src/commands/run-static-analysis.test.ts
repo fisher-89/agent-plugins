@@ -13,7 +13,7 @@ import * as path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { execCommand } from '../lib/exec-command';
-import { getProjectDir } from '../utils';
+import { getProjectDir } from '../lib/project-root';
 import { runStaticAnalysis } from './run-static-analysis';
 
 vi.mock('../lib/exec-command');
@@ -26,7 +26,7 @@ beforeEach(() => {
 
 // getProjectDir 已有独立的单元测试（constant.test.ts），此处 mock 以支持
 // Stryker worker 线程环境（worker 中不支持 process.chdir）。
-vi.mock('../utils');
+vi.mock('../lib/project-root');
 
 // ---------------------------------------------------------------------------
 // Helpers: 临时项目目录

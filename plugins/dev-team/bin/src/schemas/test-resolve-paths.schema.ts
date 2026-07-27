@@ -20,11 +20,6 @@ export const testResolvePathsInputSchema = z.object({
         ),
     ])
     .describe('Module paths or "git-change" to auto-detect from git diff'),
-  project_root: z
-    .string()
-    .optional()
-    .nullable()
-    .describe('Project root directory (defaults to cwd)'),
 });
 
 export const unitTestEntrySchema = z.object({

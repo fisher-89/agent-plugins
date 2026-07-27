@@ -14,7 +14,7 @@ import * as path from 'node:path';
 import { runStaticAnalysis } from './commands/run-static-analysis';
 import { readConfig } from './lib/config';
 import { matchGlob } from './lib/glob';
-import { getProjectDir } from './utils';
+import { getProjectDir } from './lib/project-root';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -268,15 +268,6 @@ function checkPowerShellCommand(cmd: string, patterns: ProtectedPattern[]): stri
 }
 
 // ---------------------------------------------------------------------------
-// Project Root
-// ---------------------------------------------------------------------------
-
-/** Resolve the project root from environment or cwd. */
-function resolveProjectRoot(): string {
-  return process.env.CLAUDE_PROJECT_ROOT || getProjectDir();
-}
-
-// ---------------------------------------------------------------------------
 // Protected Path Matching
 // ---------------------------------------------------------------------------
 
@@ -379,7 +370,7 @@ function writeHookResponse(denyReason: string | null): void {
  * checks the tool invocation, and outputs allow/deny JSON to stdout.
  */
 export function runProtectFiles(): void {
-  const patterns = loadPatterns(resolveProjectRoot());
+  const patterns = loadPatterns(getProjectDir());
   const denyReason = evaluateToolAccess(readFileSync(0, 'utf-8'), patterns);
   writeHookResponse(denyReason);
 }
@@ -453,7 +444,7 @@ function parseWorkspaceRoot(stdinRaw: string): string | null {
 export function runStaticCheck(): void {
   const stdinRaw = readFileSync(0, 'utf-8');
   const workspaceRoot = parseWorkspaceRoot(stdinRaw);
-  const projectRoot = workspaceRoot || process.env.CLAUDE_PROJECT_ROOT || getProjectDir();
+  const projectRoot = workspaceRoot || getProjectDir();
 
   const [getCaptured, restore] = captureStderr();
   let exitCode: number;

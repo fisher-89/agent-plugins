@@ -1,6 +1,6 @@
 import { ensureConfigFile, getValue } from '../lib/config';
 import { execCommand } from '../lib/exec-command';
-import { getProjectDir } from '../utils';
+import { getProjectDir } from '../lib/project-root';
 
 export interface RunStaticAnalysisOptions {
   projectRoot?: string;

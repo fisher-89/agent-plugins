@@ -1771,3 +1771,266 @@ describe('runTestResolvePaths — 错误文案引导 tests (AC-6)', () => {
     }
   });
 });
+
+// ===========================================================================
+// runTestResolvePaths — project_root 注入与 getProjectDir 回退 (AC-7)
+// ===========================================================================
+
+describe('runTestResolvePaths — project_root 注入与 getProjectDir 回退', () => {
+  it('显式 project_root 指向 fixture 时 unit_tests 相对该根；spy getProjectDir 调用次数 0 (AC-7)', async () => {
+    const project = createTempProject();
+    writeFile(project.root, 'src/a.ts');
+    const projectRootLib = await import('../lib/project-root');
+    const spy = vi.spyOn(projectRootLib, 'getProjectDir');
+    try {
+      const result = runTestResolvePaths({
+        modules: ['src/a.ts'],
+        project_root: project.root,
+      });
+      expect(spy).toHaveBeenCalledTimes(0);
+      expect(result.unit_tests.some((u) => u.source === 'src/a.ts')).toBe(true);
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('project_root: null / 省略 / ""：均回退 getProjectDir（断言 spy 被调用）(AC-7)', async () => {
+    const project = createTempProject();
+    writeFile(project.root, 'src/b.ts');
+    const projectRootLib = await import('../lib/project-root');
+    const spy = vi.spyOn(projectRootLib, 'getProjectDir').mockReturnValue(project.root);
+    try {
+      for (const input of [
+        { modules: ['src/b.ts'] as string[] | 'git-change' },
+        { modules: ['src/b.ts'] as string[], project_root: null },
+        { modules: ['src/b.ts'] as string[], project_root: '' },
+      ]) {
+        spy.mockClear();
+        runTestResolvePaths(input);
+        expect(spy).toHaveBeenCalled();
+      }
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths — SOURCE_EXTENSIONS 全扩展名
+// ===========================================================================
+
+describe('runTestResolvePaths — SOURCE_EXTENSIONS 全扩展名', () => {
+  it('分别传入 .ts/.tsx/.js/.jsx/.mjs/.cjs/.py/.go/.rs：均进入 unit_tests 且派生路径精确', () => {
+    const project = createTempProject();
+    const cases: Array<{ src: string; test: string }> = [
+      { src: 'src/a.ts', test: 'src/a.test.ts' },
+      { src: 'src/a.tsx', test: 'src/a.test.tsx' },
+      { src: 'src/a.js', test: 'src/a.test.js' },
+      { src: 'src/a.jsx', test: 'src/a.test.jsx' },
+      { src: 'src/a.mjs', test: 'src/a.test.mjs' },
+      { src: 'src/a.cjs', test: 'src/a.test.cjs' },
+      { src: 'src/a.py', test: 'src/test_a.py' },
+      { src: 'src/a.go', test: 'src/a_test.go' },
+      { src: 'src/a.rs', test: 'src/a_test.rs' },
+    ];
+    try {
+      for (const { src, test } of cases) {
+        writeFile(project.root, src);
+        const result = runTestResolvePaths({ modules: [src], project_root: project.root });
+        expect(result.errors).toEqual([]);
+        expect(result.unit_tests.some((u) => u.source === src && u.test_file === test)).toBe(true);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('.md / .json / .yaml / 无扩展名 → 进入 errors，不进 unit_tests', () => {
+    const project = createTempProject();
+    try {
+      for (const src of ['docs/a.md', 'cfg.json', 'x.yaml', 'noext']) {
+        writeFile(project.root, src);
+        const result = runTestResolvePaths({ modules: [src], project_root: project.root });
+        expect(result.unit_tests.find((u) => u.source === src)).toBeUndefined();
+        expect(result.errors.some((e) => e.path === src)).toBe(true);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths — isTestFile 正则判别
+// ===========================================================================
+
+describe('runTestResolvePaths — isTestFile 正则判别', () => {
+  it('传入 foo.test.ts / test_foo.py / foo_test.go / foo_test.rs / foo_tests.rs → 均进 errors', () => {
+    const project = createTempProject();
+    const tests = [
+      'src/foo.test.ts',
+      'src/test_foo.py',
+      'src/foo_test.go',
+      'src/foo_test.rs',
+      'src/foo_tests.rs',
+    ];
+    try {
+      for (const src of tests) {
+        writeFile(project.root, src);
+        const result = runTestResolvePaths({ modules: [src], project_root: project.root });
+        expect(result.unit_tests.find((u) => u.source === src)).toBeUndefined();
+        expect(result.errors.some((e) => e.path === src)).toBe(true);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('testX.py（无下划线）不是测试文件约定，必须与 test_foo.py 行为不同', () => {
+    const project = createTempProject();
+    try {
+      writeFile(project.root, 'src/testX.py');
+      writeFile(project.root, 'src/test_foo.py');
+      const asSource = runTestResolvePaths({
+        modules: ['src/testX.py'],
+        project_root: project.root,
+      });
+      const asTest = runTestResolvePaths({
+        modules: ['src/test_foo.py'],
+        project_root: project.root,
+      });
+      expect(asTest.errors.some((e) => e.path === 'src/test_foo.py')).toBe(true);
+      expect(asSource.unit_tests.some((u) => u.source === 'src/testX.py')).toBe(true);
+      expect(asSource.unit_tests.find((u) => u.source === 'src/testX.py')?.test_file).toBe(
+        'src/test_testX.py',
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('foo_tests.rs 与 foo_test.rs 均识别为测试文件；foo_tes.rs 不得误判（证明 tests?）', () => {
+    const project = createTempProject();
+    try {
+      for (const src of ['src/foo_tests.rs', 'src/foo_test.rs']) {
+        writeFile(project.root, src);
+        const result = runTestResolvePaths({ modules: [src], project_root: project.root });
+        expect(result.errors.some((e) => e.path === src)).toBe(true);
+      }
+      writeFile(project.root, 'src/foo_tes.rs');
+      const notTest = runTestResolvePaths({
+        modules: ['src/foo_tes.rs'],
+        project_root: project.root,
+      });
+      expect(notTest.unit_tests.some((u) => u.source === 'src/foo_tes.rs')).toBe(true);
+      expect(notTest.unit_tests.find((u) => u.source === 'src/foo_tes.rs')?.test_file).toBe(
+        'src/foo_tes_test.rs',
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestResolvePaths — extractErrorMessage stderr
+// ===========================================================================
+
+describe('runTestResolvePaths — extractErrorMessage stderr', () => {
+  function writeConfig(root: string): void {
+    fs.mkdirSync(path.join(root, 'openspec'), { recursive: true });
+    fs.writeFileSync(
+      path.join(root, 'openspec', 'config.json'),
+      JSON.stringify({
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
+      }),
+      'utf-8',
+    );
+  }
+
+  it('modules: "git-change" 且 execSync 抛 Error：errors.message === error.message', () => {
+    const project = createTempProject();
+    writeConfig(project.root);
+    vi.mocked(execSync).mockImplementation(() => {
+      throw new Error('exact-git-error');
+    });
+    try {
+      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+      expect(result.errors.some((e) => e.message === 'exact-git-error')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it("抛非 Error 但 { stderr: '  boom  ' }：errors.message === 'boom'（trim 后）", () => {
+    const project = createTempProject();
+    writeConfig(project.root);
+    vi.mocked(execSync).mockImplementation(() => {
+      throw { stderr: '  boom  ' };
+    });
+    try {
+      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+      expect(result.errors.some((e) => e.message === 'boom')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it("抛 { stderr: '   ' }（仅空白）：errors.message === fallback 非空串", () => {
+    const project = createTempProject();
+    writeConfig(project.root);
+    vi.mocked(execSync).mockImplementation(() => {
+      throw { stderr: '   ' };
+    });
+    try {
+      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+      expect(result.errors.length).toBeGreaterThan(0);
+      expect(result.errors[0].message.trim().length).toBeGreaterThan(0);
+      expect(result.errors[0].message).not.toBe('   ');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('抛 { stderr: { toString() { throw } } }：走 catch 后仍有非空 fallback', () => {
+    const project = createTempProject();
+    writeConfig(project.root);
+    vi.mocked(execSync).mockImplementation(() => {
+      throw {
+        stderr: {
+          toString() {
+            throw new Error('x');
+          },
+        },
+      };
+    });
+    try {
+      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+      expect(result.errors[0].message.length).toBeGreaterThan(0);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('抛 null / 数字 / 无 stderr 对象：使用 fallback，不抛未捕获异常', () => {
+    const project = createTempProject();
+    writeConfig(project.root);
+    try {
+      for (const thrown of [null, 42, { message: 'no-stderr' }]) {
+        vi.mocked(execSync).mockImplementation(() => {
+          throw thrown;
+        });
+        expect(() =>
+          runTestResolvePaths({ modules: 'git-change', project_root: project.root }),
+        ).not.toThrow();
+        const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+        expect(result.errors[0].message.length).toBeGreaterThan(0);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+});

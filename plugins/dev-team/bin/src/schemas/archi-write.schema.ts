@@ -1,10 +1,9 @@
 import { z } from 'zod/v4';
 
-export const archiWriteInputSchema = {
+export const archiWriteInputSchema = z.object({
   path: z.string().describe('Target file path within models/ directory (required)'),
   source: z.string().describe('DSL text to write (required)'),
-  project_root: z.string().optional().describe('Project root directory (defaults to cwd)'),
-};
+});
 
 export const archiWriteOutputSchema = z.object({
   success: z.boolean().describe('Whether the write succeeded'),

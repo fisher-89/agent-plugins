@@ -40,6 +40,7 @@ export default defineConfig({
         rules: {
           'max-lines-per-function': 'off',
           'typescript/no-non-null-assertion': 'off',
+          'typescript/no-unsafe-type-assertion': 'off',
         },
       },
     ],
@@ -60,6 +61,8 @@ export default defineConfig({
         minify: true,
         sourcemap: true,
         cleanDir: false,
+        // Keep a single CJS artifact even when mcp.ts lazy-imports archi modules.
+        codeSplitting: false,
       },
       deps: {
         alwaysBundle: [/.*/],

@@ -48,17 +48,12 @@ const testPlanSchema = z.object({
  * Accepts an optional `files` array of file paths. When omitted, the tool
  * auto-scans the project for files matching configured glob patterns.
  */
-export const testDetectFrameworksInputSchema = {
+export const testDetectFrameworksInputSchema = z.object({
   files: z
     .array(z.string())
     .optional()
     .describe('File paths to detect framework for (omit for auto-scan)'),
-  project_root: z
-    .string()
-    .optional()
-    .nullable()
-    .describe('Project root directory (defaults to cwd)'),
-};
+});
 
 /**
  * Output schema for `test_detect_frameworks` MCP tool.

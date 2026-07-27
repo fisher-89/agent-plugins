@@ -2,18 +2,20 @@
  * Tests for change_list filtering — archive registration and acceptance completion.
  *
  * Covers AC-1~AC-5 from openspec/changes/fix-change-list-archived-filter/test-design.md
+ * and AC-7 from openspec/changes/mcp-project-root-lock/test-design.md
  *
  * @see openspec/changes/fix-change-list-archived-filter/test-design.md
- * @see openspec/changes/fix-change-list-archived-filter/design.md
+ * @see openspec/changes/mcp-project-root-lock/test-design.md
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { describe, it, expect } from 'vite-plus/test';
+import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { type EvalEntry, writeEvalJson } from '../lib/eval-json';
+import { changeListInputSchema, changeListOutputSchema } from '../schemas';
 import { runChangeList } from './change-list';
 
 // ---------------------------------------------------------------------------
@@ -127,7 +129,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
         ],
       });
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(result.changes).toHaveLength(1);
       const entry = result.changes[0];
@@ -151,7 +153,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
         tasksMd: '- [ ] a\n- [x] b\n- [X] c\n  - [ ] indented ignored\n',
       });
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
       const entry = result.changes.find((c) => c.name === 'task-count');
 
       expect(entry?.tasks).toEqual({ total: 4, done: 2 });
@@ -183,7 +185,7 @@ describe('runChangeList -- 活跃 change 聚合', () => {
         ],
       });
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
       const entry = result.changes.find((c) => c.name === 'latest-phase');
 
       expect(entry?.latest_phase).toEqual({
@@ -206,7 +208,7 @@ describe('runChangeList -- 缺失 eval / 无 acceptance 条目', () => {
     try {
       writeChange(project.changesDir, 'no-eval-active');
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(changeNames(result)).toContain('no-eval-active');
     } finally {
@@ -227,7 +229,7 @@ describe('runChangeList -- 缺失 eval / 无 acceptance 条目', () => {
         ],
       });
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(changeNames(result)).toContain('no-acceptance');
     } finally {
@@ -242,7 +244,7 @@ describe('runChangeList -- 缺失 eval / 无 acceptance 条目', () => {
         invalidEvalJson: 'not-json',
       });
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
       const entry = result.changes.find((c) => c.name === 'bad-eval-active');
 
       expect(entry).toBeDefined();
@@ -261,7 +263,7 @@ describe('runChangeList -- 目录扫描与排序', () => {
   it('openspec/changes/ 不存在时应返回 { changes: [], count: 0 }', () => {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'change-list-no-changes-'));
     try {
-      const result = runChangeList({ project_root: root });
+      const result = runChangeList(root);
 
       expect(result.changes).toEqual([]);
       expect(result.count).toBe(0);
@@ -275,7 +277,7 @@ describe('runChangeList -- 目录扫描与排序', () => {
     try {
       writeArchiveDir(project.changesDir, '2026-06-18-only-archived');
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(result.changes).toEqual([]);
       expect(result.count).toBe(0);
@@ -290,7 +292,7 @@ describe('runChangeList -- 目录扫描与排序', () => {
       writeDir(path.join(project.changesDir, 'archive'));
       writeChange(project.changesDir, 'real-change');
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(changeNames(result)).not.toContain('archive');
       expect(changeNames(result)).toContain('real-change');
@@ -306,7 +308,7 @@ describe('runChangeList -- 目录扫描与排序', () => {
       writeChange(project.changesDir, 'alpha');
       writeChange(project.changesDir, 'middle');
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(changeNames(result)).toEqual(['alpha', 'middle', 'zebra']);
     } finally {
@@ -320,7 +322,7 @@ describe('runChangeList -- 目录扫描与排序', () => {
       writeFile(path.join(project.changesDir, 'README.md'), '# changes');
       writeChange(project.changesDir, 'valid-dir');
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(changeNames(result)).toEqual(['valid-dir']);
     } finally {
@@ -359,7 +361,7 @@ describe('runChangeList -- 组合过滤', () => {
         ],
       });
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(changeNames(result)).toContain('active-only');
       expect(changeNames(result)).toContain('archived-same-name');
@@ -377,12 +379,16 @@ describe('runChangeList -- 组合过滤', () => {
 // ===========================================================================
 
 describe('runChangeList -- project_root', () => {
-  it('显式传入 project_root 指向 fixture 根目录时应正确解析路径', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('显式传入 project_root 指向 fixture 根时：result.project_root === 传入值（字节级相等），且可扫描到该根下 change (AC-7)', () => {
     const project = createTempProject();
     try {
       writeChange(project.changesDir, 'rooted-change');
 
-      const result = runChangeList({ project_root: project.root });
+      const result = runChangeList(project.root);
 
       expect(result.project_root).toBe(project.root);
       expect(changeNames(result)).toContain('rooted-change');
@@ -391,12 +397,117 @@ describe('runChangeList -- project_root', () => {
     }
   });
 
-  it('project_root: null 时行为应与省略 project_root 一致', () => {
-    const withNull = runChangeList({ project_root: null });
-    const omitted = runChangeList({});
+  it('显式 project_root 指向含活跃 change 的 fixture 时，列表结果含该 change；result.project_root !== process.cwd() (AC-7)', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'fixture-active', {
+        artifacts: { 'proposal.md': '# p' },
+      });
 
-    expect(withNull.project_root).toBe(omitted.project_root);
-    expect(withNull.changes).toEqual(omitted.changes);
-    expect(withNull.count).toBe(omitted.count);
+      const result = runChangeList(project.root);
+
+      expect(changeNames(result)).toContain('fixture-active');
+      expect(result.project_root).toBe(project.root);
+      expect(result.project_root).not.toBe(process.cwd());
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('显式 project_root 指向不存在路径时返回 { changes: [], count: 0 }，且 project_root 仍为传入值（不得改写成 cwd）(AC-7)', () => {
+    const missing = path.join(os.tmpdir(), `change-list-missing-${Date.now()}`);
+
+    const result = runChangeList(missing);
+
+    expect(result.changes).toEqual([]);
+    expect(result.count).toBe(0);
+    expect(result.project_root).toBe(missing);
+    expect(result.project_root).not.toBe(process.cwd());
+  });
+
+  it('显式超长 project_root（>1000 chars）不崩溃；result.project_root 仍为该超长字符串；count === 0', () => {
+    const longMissing = path.join(os.tmpdir(), `${'z'.repeat(1001)}`);
+
+    expect(() => runChangeList(longMissing)).not.toThrow();
+    const result = runChangeList(longMissing);
+    expect(result.changes).toEqual([]);
+    expect(result.count).toBe(0);
+    expect(result.project_root).toBe(longMissing);
+  });
+
+  it('显式含 emoji 的 project_root 不崩溃；result.project_root 严格等于传入值且 !== cwd', () => {
+    const weird = path.join(os.tmpdir(), `change-list-emoji-🚀-${Date.now()}`);
+
+    expect(() => runChangeList(weird)).not.toThrow();
+    const result = runChangeList(weird);
+    expect(result.project_root).toBe(weird);
+    expect(result.project_root).not.toBe(process.cwd());
+    expect(result.changes).toEqual([]);
+  });
+
+  it('显式根与 process.cwd() 不同时仍以传入 fixture 为准，且 count === changes.length', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'other-root-change');
+      writeChange(project.changesDir, 'second-change');
+
+      const result = runChangeList(project.root);
+
+      expect(result.project_root).toBe(project.root);
+      expect(result.project_root).not.toBe(process.cwd());
+      expect(result.count).toBe(result.changes.length);
+      expect(result.count).toBe(2);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runChangeList — CLI vs MCP schema 契约
+// ===========================================================================
+
+describe('runChangeList — CLI vs MCP schema 契约', () => {
+  it('changeListInputSchema 的 shape / keyof 不含 project_root；同时 runChangeList({ project_root }) 仍可用（CLI/MCP 契约分离）(AC-4/AC-7)', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'schema-contract');
+      const shapeKeys = Object.keys(changeListInputSchema.shape);
+      expect(shapeKeys).not.toContain('project_root');
+      expect(shapeKeys).not.toContain('projectRoot');
+
+      const result = runChangeList(project.root);
+      expect(result.project_root).toBe(project.root);
+      expect(changeNames(result)).toContain('schema-contract');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('changeListOutputSchema.safeParse(runChangeList(...)) 成功，且解析后的 project_root 等于命令使用的根 (AC-6/AC-7)', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'output-schema');
+      const result = runChangeList(project.root);
+      const parsed = changeListOutputSchema.safeParse(result);
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.project_root).toBe(project.root);
+        expect(parsed.data.count).toBe(parsed.data.changes.length);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it("changeListInputSchema.safeParse({ project_root: '/x' })：若 strip 成功则解析 data 无 project_root 键；若 strict 失败则 success === false（不得把 input 字段当作 CLI 选项来源）(AC-4)", () => {
+    const parsed = changeListInputSchema.safeParse({ project_root: '/x' });
+    if (parsed.success) {
+      expect(parsed.data).not.toHaveProperty('project_root');
+      expect(Object.keys(parsed.data)).not.toContain('project_root');
+    } else {
+      expect(parsed.success).toBe(false);
+    }
   });
 });

@@ -11,9 +11,9 @@
 import * as path from 'path';
 
 import { getGitDiffFiles } from '../lib/git';
+import { getProjectDir } from '../lib/project-root';
 import { generateSubReport, generateSummaryReport } from '../lib/test-report';
 import { executePlanEntry } from '../lib/test-runner';
-import { getProjectDir } from '../utils';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------

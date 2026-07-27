@@ -3,6 +3,7 @@ import * as path from 'path';
 
 import { readConfig } from '../lib/config';
 import { matchGlob, toForwardSlash } from '../lib/glob';
+import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded, isExcludedBySuite } from '../lib/test-exclude';
 import { type FrameworkConfig, getFrameworkConfig } from '../lib/test-framework';
 import {
@@ -12,7 +13,6 @@ import {
   type TestFramework,
   type TestSuite,
 } from '../schemas';
-import { getProjectDir } from '../utils';
 
 // ---------------------------------------------------------------------------
 // Types

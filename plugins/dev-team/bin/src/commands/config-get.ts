@@ -1,5 +1,5 @@
 import { getValue, ensureConfigFile } from '../lib/config';
-import { getProjectDir } from '../utils';
+import { getProjectDir } from '../lib/project-root';
 
 export interface ConfigGetOptions {
   key: string;

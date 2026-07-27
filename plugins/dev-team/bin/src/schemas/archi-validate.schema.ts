@@ -1,12 +1,11 @@
 import { z } from 'zod/v4';
 
-export const archiValidateInputSchema = {
+export const archiValidateInputSchema = z.object({
   source: z
     .string()
     .optional()
     .describe('DSL text to validate (omit to validate current model files)'),
-  project_root: z.string().optional().describe('Project root directory (defaults to cwd)'),
-};
+});
 
 export const archiValidateOutputSchema = z.object({
   valid: z.boolean().describe('Whether the DSL is valid'),

@@ -1,12 +1,6 @@
 import { z } from 'zod/v4';
 
-export const changeListInputSchema = z.object({
-  project_root: z
-    .string()
-    .optional()
-    .nullable()
-    .describe('Project root directory (defaults to cwd)'),
-});
+export const changeListInputSchema = z.object({});
 
 const changeEntrySchema = z.object({
   name: z.string().describe('Change directory name (kebab-case)'),

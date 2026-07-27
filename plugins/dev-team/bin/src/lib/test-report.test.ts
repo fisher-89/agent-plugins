@@ -581,7 +581,6 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
         coverage: {
           pass: true,
           measured: { lines: 90, branches: 85, functions: 95 },
-          // eslint-disable-next-line typescript/no-unsafe-type-assertion
           thresholds: undefined as unknown as CoverageBlock['thresholds'],
         },
       });

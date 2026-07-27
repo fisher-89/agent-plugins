@@ -15,7 +15,6 @@ const c4RelationSchema = z.object({
 
 export const archiQueryInputSchema = z.object({
   element: z.string().optional().describe('Filter by element FQN (optional)'),
-  project_root: z.string().optional().describe('Project root directory (defaults to cwd)'),
 });
 
 export const archiQueryOutputSchema = z.object({

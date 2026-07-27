@@ -1215,3 +1215,395 @@ describe('runTestExecution -- 正向异常路径 (AC-1)', () => {
     }
   });
 });
+
+// ===========================================================================
+// runTestExecution — projectRoot / getProjectDir (AC-7)
+// ===========================================================================
+
+describe('runTestExecution — projectRoot / getProjectDir', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('显式 projectRoot 时 spy getProjectDir 次数 0 (AC-7)', async () => {
+    const project = createTempProject();
+    const projectRootLib = await import('../lib/project-root');
+    const spy = vi.spyOn(projectRootLib, 'getProjectDir');
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+    try {
+      await runTestExecution({ projectRoot: project.root });
+      expect(spy).toHaveBeenCalledTimes(0);
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('省略 / "" 时调用 getProjectDir (AC-7)', async () => {
+    const project = createTempProject();
+    const projectRootLib = await import('../lib/project-root');
+    const spy = vi.spyOn(projectRootLib, 'getProjectDir').mockReturnValue(project.root);
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+    try {
+      spy.mockClear();
+      await runTestExecution({});
+      expect(spy).toHaveBeenCalled();
+      spy.mockClear();
+      await runTestExecution({ projectRoot: '' });
+      expect(spy).toHaveBeenCalled();
+    } finally {
+      spy.mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('显式根不存在且 detect plan 为空：返回 0，日志含 Configure tests in openspec/config.json', async () => {
+    const missing = path.join(os.tmpdir(), `exec-missing-${Date.now()}`);
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    const code = await runTestExecution({ projectRoot: missing });
+    expect(code).toBe(0);
+    expect(logs.some((l) => l.includes('Configure tests in openspec/config.json'))).toBe(true);
+  });
+});
+
+// ===========================================================================
+// runTestExecution — logResult 状态计数文案
+// ===========================================================================
+
+describe('runTestExecution — logResult 状态计数文案', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+  });
+
+  function stubHappySummary(): void {
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 1,
+      total: 4,
+      passed: 2,
+      failed: 1,
+      skipped: 1,
+      conclusion: 'fail',
+      problems: [],
+      coverage: null,
+    });
+  }
+
+  it('testCases：passed×2 + failed×1 + skipped×1 时 stdout 精确匹配 n tests / 2 passed / 1 failed / 1 skipped', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockExecutePlanEntry.mockReturnValue(
+      makeExecutionResult({
+        testCases: [
+          { name: 'a', status: 'passed', durationMs: 1 },
+          { name: 'b', status: 'passed', durationMs: 1 },
+          { name: 'c', status: 'failed', durationMs: 1 },
+          { name: 'd', status: 'skipped', durationMs: 1 },
+        ],
+      }),
+    );
+    stubHappySummary();
+    try {
+      await runTestExecution({ projectRoot: project.root });
+      const line = logs.find((l) => l.includes('tests,'));
+      expect(line).toBeDefined();
+      expect(line).toContain('4 tests,');
+      expect(line).toContain('2 passed');
+      expect(line).toContain('1 failed');
+      expect(line).toContain('1 skipped');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('status 为未知值时不得计入三计数器；文案中对应计数保持 0', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockExecutePlanEntry.mockReturnValue(
+      makeExecutionResult({
+        testCases: [
+          { name: 'a', status: 'flaky' as 'failed', durationMs: 1 },
+          { name: 'b', status: 'passed', durationMs: 1 },
+        ],
+      }),
+    );
+    stubHappySummary();
+    try {
+      await runTestExecution({ projectRoot: project.root });
+      const line = logs.find((l) => l.includes('tests,'))!;
+      expect(line).toContain('2 tests,');
+      expect(line).toContain('1 passed');
+      expect(line).toContain('0 failed');
+      expect(line).toContain('0 skipped');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('空 testCases：计数均为 0，文案仍含三个状态词', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult({ testCases: [] }));
+    stubHappySummary();
+    try {
+      await runTestExecution({ projectRoot: project.root });
+      const line = logs.find((l) => l.includes('tests,'))!;
+      expect(line).toContain('0 tests,');
+      expect(line).toContain('passed');
+      expect(line).toContain('failed');
+      expect(line).toContain('skipped');
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestExecution — logSummary 文案
+// ===========================================================================
+
+describe('runTestExecution — logSummary 文案', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+  });
+
+  it("conclusion: 'pass' 时 stdout 含 Summary: PASS 与 Total/Passed/Failed/Skipped/Duration 精确标签", async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 1.5,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'pass',
+      problems: [],
+      coverage: null,
+    });
+    try {
+      await runTestExecution({ projectRoot: project.root });
+      const joined = logs.join('\n');
+      expect(joined).toContain('Summary: PASS');
+      expect(joined).toContain('Total:');
+      expect(joined).toContain('Passed:');
+      expect(joined).toContain('Failed:');
+      expect(joined).toContain('Skipped:');
+      expect(joined).toContain('Duration:');
+      expect(joined).not.toContain('Problems (');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('problems.length > 0 时打印 Problems (N):；problems: [] 时不得打印 Problems 块', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 0,
+      total: 0,
+      passed: 0,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'fail',
+      problems: [{ type: 'error', framework: 'vitest', message: 'boom' }],
+      coverage: null,
+    });
+    try {
+      await runTestExecution({ projectRoot: project.root });
+      const joined = logs.join('\n');
+      expect(joined).toContain('Summary: FAIL');
+      expect(joined).toContain('Problems (1):');
+      expect(joined).toContain('[error] vitest: boom');
+      expect(joined).toMatch(/Total: 0/);
+      expect(joined).toMatch(/Passed: 0/);
+      expect(joined).toMatch(/Failed: 0/);
+      expect(joined).toMatch(/Skipped: 0/);
+      expect(joined).toMatch(/Duration: 0/);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestExecution — mutationDiffOnly 路径过滤
+// ===========================================================================
+
+describe('runTestExecution — mutationDiffOnly 路径过滤', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it("mutationDiffOnly: true 且 options.files 含 ../x.ts：传给 executePlanEntry 的 files 过滤掉 startsWith('..') 项", async () => {
+    const project = createTempProject();
+    mockDetectFrameworks.mockReturnValue({
+      detected: [],
+      plan: [makePlanEntry({ directory: '.' })],
+    });
+    mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 1,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'pass',
+      problems: [],
+      coverage: null,
+    });
+    try {
+      await runTestExecution({
+        projectRoot: project.root,
+        mutationDiffOnly: true,
+        files: ['../x.ts', 'src/keep.ts'],
+      });
+      expect(mockExecutePlanEntry).toHaveBeenCalled();
+      const opts = mockExecutePlanEntry.mock.calls[0][2];
+      expect(opts.files).toBeDefined();
+      expect(opts.files!.every((f: string) => !f.startsWith('..'))).toBe(true);
+      expect(opts.files).toContain('src/keep.ts');
+      expect(opts.files).not.toContain('../x.ts');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutationDiffOnly: true 时 stdout 含精确前缀 --mutation-diff-only: 与文件数量', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockGetGitDiffFiles.mockResolvedValue(['a.ts', 'b.ts']);
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 1,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'pass',
+      problems: [],
+      coverage: null,
+    });
+    try {
+      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
+      expect(logs.some((l) => l.startsWith('--mutation-diff-only:') && l.includes('2'))).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestExecution — 无配置 / framework 过滤
+// ===========================================================================
+
+describe('runTestExecution — 无配置 / framework 过滤', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+  });
+
+  it('plan 空：日志含 Configure tests in openspec/config.json（精确）；返回 0', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [] });
+    try {
+      const code = await runTestExecution({ projectRoot: project.root });
+      expect(code).toBe(0);
+      expect(logs).toContain(
+        'No test configuration found. Configure tests in openspec/config.json',
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('--framework 无匹配：日志含 No plan entries found for framework "…"；返回 0', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    try {
+      const code = await runTestExecution({ projectRoot: project.root, framework: 'pytest' });
+      expect(code).toBe(0);
+      expect(logs.some((l) => l === 'No plan entries found for framework "pytest"')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});

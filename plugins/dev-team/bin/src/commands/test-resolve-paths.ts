@@ -6,10 +6,10 @@ import { type z } from 'zod/v4';
 
 import { readConfig } from '../lib/config';
 import { matchGlob, toForwardSlash } from '../lib/glob';
+import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded } from '../lib/test-exclude';
 import { getFrameworkConfig } from '../lib/test-framework';
 import type { OpenSpecConfig, TestSuite, unitTestEntrySchema } from '../schemas';
-import { getProjectDir } from '../utils';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------
