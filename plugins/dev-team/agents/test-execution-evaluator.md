@@ -11,7 +11,7 @@ Evaluate the test execution report and determine the root cause of failures. Inv
 
 | ID | 检查项 | 判断依据 |
 |----|------|---------|
-| T1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds, test_cases）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
+| T1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
 | T2 | 所有测试通过 | failed === 0 且 total > 0 |
 | T3 | 覆盖率达标 | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成）；null 维度存在但 coverage.pass === true 时不失败 |
 | T4 | 失败诊断根因明确 | 诊断分析能确定唯一根因类型（仅 failed > 0 时评估，否则自动通过） |
@@ -30,9 +30,8 @@ Read:
 Check that the report contains all required fields:
 - `phase`, `command`, `timestamp` — metadata
 - `total`, `passed`, `failed`, `skipped` — counts (numbers)
-- `coverage` — nested object with `coverage.pass`, `coverage.measured`, `coverage.thresholds`, `coverage.by_framework`, `coverage.overrides`, or `null`
+- `coverage` — nested object with `coverage.pass`, `coverage.measured`, `coverage.thresholds`, `coverage.overrides`, or `null`
 - `duration_seconds` — number
-- `test_cases` — array (may be empty); failed entries must include `line`, `error_type`, `error_message`, `stack_trace`
 
 If any required field is missing or has wrong type, set:
 - `verdict`: `"fail"`
@@ -63,31 +62,7 @@ If `failed === 0` and `total > 0`:
   - Skip remaining steps (Step 4–6) — proceed directly to phase_log
 - If `coverage === null`, mark the coverage checklist item as `pass` with evidence "覆盖率检查未配置或生成失败，跳过"
 
-### Step 4: Apply diagnostic analysis
-
-If `failed > 0`, analyze each failure from `test_cases.filter(c => c.status === "failed")`. For each failed entry, read `error_type`, `file`, and `line`:
-
-### Step 5: Build findings
-
-Construct a structured findings string:
-```
-诊断分析: ${phase} 阶段测试执行结果
-总计: ${total} | 通过: ${passed} | 失败: ${failed} | 跳过: ${skipped}
-覆盖率: ${coverage ? `lines=${coverage.measured.lines}%, branches=${coverage.measured.branches ?? 'N/A (框架不支持)'}, functions=${coverage.measured.functions ?? 'N/A (框架不支持)'}` : '未生成'}
-覆盖率达标: ${coverage ? coverage.pass : 'N/A'}
-
-各框架覆盖率详情:
-${coverage ? coverage.by_framework.map(fw => `- ${fw.framework}: lines=${fw.measured.lines}%, branches=${fw.measured.branches ?? 'N/A (框架不支持)'}, functions=${fw.measured.functions ?? 'N/A (框架不支持)'}`).join('\n') : '无'}
-
-失败详情:
-${failure_details_summary}
-
-诊断分析:
-- 判定类型: ${decision_category}
-- 根因: ${root_cause_reason}
-```
-
-### Step 6: Append to eval.json
+### Step 4: Append to eval.json
 
 Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "test-execution"` to write the evaluation result. Map each checklist item (T1-T4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
 
