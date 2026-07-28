@@ -6,8 +6,8 @@ license: MIT
 compatibility: Requires openspec CLI.
 metadata:
   author: openspec
-  version: '1.0'
-  generatedBy: '1.2.0'
+  version: "1.0"
+  generatedBy: "1.2.0"
 ---
 
 Enter explore mode. Think deeply. Visualize freely. Follow the conversation wherever it goes.
@@ -34,28 +34,24 @@ Enter explore mode. Think deeply. Visualize freely. Follow the conversation wher
 Depending on what the user brings, you might:
 
 **Explore the problem space**
-
 - Ask clarifying questions that emerge from what they said
 - Challenge assumptions
 - Reframe the problem
 - Find analogies
 
 **Investigate the codebase**
-
 - Map existing architecture relevant to the discussion
 - Find integration points
 - Identify patterns already in use
 - Surface hidden complexity
 
 **Compare options**
-
 - Brainstorm multiple approaches
 - Build comparison tables
 - Sketch tradeoffs
 - Recommend a path (if asked)
 
 **Visualize**
-
 ```
 ┌─────────────────────────────────────────┐
 │     Use ASCII diagrams liberally        │
@@ -74,7 +70,6 @@ Depending on what the user brings, you might:
 ```
 
 **Surface risks and unknowns**
-
 - Identify what could go wrong
 - Find gaps in understanding
 - Suggest spikes or investigations
@@ -90,7 +85,6 @@ You have full context of the OpenSpec system. Use it naturally, don't force it.
 At the start, quickly check what exists by calling `mcp__plugin_dev-team_dev-team__change_list`.
 
 This tells you:
-
 - If there are active changes
 - Their names, artifacts, task progress, and latest eval phase
 - What the user might be working on
@@ -99,10 +93,10 @@ This tells you:
 
 Explore owns note-taking. Free-form Markdown, **no template / no required sections**.
 
-| 状态        | 落盘路径                                                                                |
-| ----------- | --------------------------------------------------------------------------------------- |
+| 状态 | 落盘路径 |
+|------|----------|
 | 尚无 change | `openspec/explores/<topic-kebab>.md` — 主题命名（kebab-case，与拟议 change 名对齐更佳） |
-| 已有 change | `openspec/changes/<name>/explore.md`                                                    |
+| 已有 change | `openspec/changes/<name>/explore.md` |
 
 规则：
 
@@ -135,15 +129,15 @@ If the user mentions a change or you detect one is relevant:
 
 3. **Offer to capture when decisions are made**
 
-   | Insight Type                                                    | Where to Capture                                                                                                                            |
-   | --------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
-   | Thinking / comparisons / open questions /补探索细节             | Append `openspec/changes/<name>/explore.md` (create if missing)                                                                             |
-   | New requirement discovered                                      | Prefer: append change `explore.md`, then guide `/dev-team:phase-proposal`                                                                   |
-   | Requirement changed                                             | Prefer: append change `explore.md`, then `/dev-team:phase-proposal` (backtrack if proposal already passed)                                  |
-   | Design decision made                                            | `design.md`                                                                                                                                 |
+   | Insight Type | Where to Capture |
+   |--------------|------------------|
+   | Thinking / comparisons / open questions /补探索细节 | Append `openspec/changes/<name>/explore.md` (create if missing) |
+   | New requirement discovered | Prefer: append change `explore.md`, then guide `/dev-team:phase-proposal` |
+   | Requirement changed | Prefer: append change `explore.md`, then `/dev-team:phase-proposal` (backtrack if proposal already passed) |
+   | Design decision made | `design.md` |
    | Scope / AC / capability changes that must enter formal proposal | Append change `explore.md`, then **re-run** `/dev-team:phase-proposal` — do **not** treat direct edits to `proposal.md` as the default path |
-   | New work identified                                             | `tasks.md`                                                                                                                                  |
-   | Assumption invalidated                                          | Relevant artifact + usually append change `explore.md`                                                                                      |
+   | New work identified | `tasks.md` |
+   | Assumption invalidated | Relevant artifact + usually append change `explore.md` |
 
    Example offers:
    - "要把这轮补充记到 explore.md 吗？"
@@ -174,7 +168,6 @@ If the user mentions a change or you detect one is relevant:
 ## Handling Different Entry Points
 
 **User brings a vague idea:**
-
 ```
 User: I'm thinking about adding real-time collaboration
 
@@ -198,7 +191,6 @@ You: Real-time collab is a big space. Let me think about this...
 ```
 
 **User brings a specific problem:**
-
 ```
 User: The auth system is a mess
 
@@ -230,7 +222,6 @@ You: [reads codebase]
 ```
 
 **User is stuck mid-implementation:**
-
 ```
 User: /openspec-explore add-auth-system
       The OAuth integration is more complex than expected
@@ -248,7 +239,6 @@ You: [reads change artifacts]
 ```
 
 **User wants to compare options:**
-
 ```
 User: Should we use Postgres or SQLite?
 

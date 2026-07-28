@@ -29,7 +29,7 @@ mcp__plugin_dev-team_dev-team__test_detect_frameworks({files:[<test files>]})
 Collect the `detected` list from the result to select the correct test syntax for test generation. Otherwise, fall back to file-extension heuristics:
 
 - `.ts` / `.tsx` / `.js` / `.jsx` => vitest-style (describe / it / expect)
-- `.py` => pytest (def test\_\*)
+- `.py` => pytest (def test_*)
 - `.rs` => rust (#[cfg(test)] mod tests)
 
 ### 2. Read test-design.md (对照 template 理解各表格列定义)
@@ -59,13 +59,13 @@ Use the detected framework's native test syntax.
 
 **Test descriptions MUST be written in Chinese.** All `describe()`, `it()`, `test()` block descriptions should use Chinese to describe the test scenario, e.g., `describe('用户登录模块')`, `it('应在密码为空时返回错误')`. This applies to all JS/TS test frameworks (jest, vitest, vite-plus, bun).
 
-| Framework | Test Syntax                                | Import / Module Declaration                            | Test File Naming                       |
-| --------- | ------------------------------------------ | ------------------------------------------------------ | -------------------------------------- |
-| jest      | `describe` / `it` / `expect`               | `import { describe, it, expect } from '@jest/globals'` | `<module>.test.ts`                     |
-| vitest    | `describe` / `it` / `expect` / `vi`        | `import { describe, it, expect, vi } from 'vitest'`    | `<module>.test.ts`                     |
-| vite-plus | `describe` / `it` / `expect`               | (same as vitest convention)                            | `<module>.test.ts`                     |
-| bun       | `describe` / `test` / `expect`             | `import { describe, test, expect } from 'bun:test'`    | `<module>.test.ts`                     |
-| rust      | `#[cfg(test)]` module, `#[test]` functions | `mod tests { use super::*; #[test] fn ... }`           | Inline in source or `<module>_test.rs` |
+| Framework | Test Syntax | Import / Module Declaration | Test File Naming |
+|---|---|---|---|
+| jest | `describe` / `it` / `expect` | `import { describe, it, expect } from '@jest/globals'` | `<module>.test.ts` |
+| vitest | `describe` / `it` / `expect` / `vi` | `import { describe, it, expect, vi } from 'vitest'` | `<module>.test.ts` |
+| vite-plus | `describe` / `it` / `expect` | (same as vitest convention) | `<module>.test.ts` |
+| bun | `describe` / `test` / `expect` | `import { describe, test, expect } from 'bun:test'` | `<module>.test.ts` |
+| rust | `#[cfg(test)]` module, `#[test]` functions | `mod tests { use super::*; #[test] fn ... }` | Inline in source or `<module>_test.rs` |
 
 Create test files colocated with each source file in the same directory, following the naming conventions above.
 
@@ -82,16 +82,16 @@ Infer parameter types from parameter names (e.g., `username`→`str`, `count`→
 
 ### Parameter Type → Edge Case Systematic Mapping
 
-| Type          | Edge Cases                                                         | Minimum Count                   |
-| ------------- | ------------------------------------------------------------------ | ------------------------------- |
-| int / number  | 0, -1, MAX_INT, None/undefined                                     | 4 edge + 1 normal               |
-| str / string  | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal               |
-| bool          | True, False, None                                                  | 3                               |
-| list / array  | [] (empty), [单元素], 超大列表, None                               | 4 edge + 1 normal               |
-| dict / object | {} (empty), 缺失必填字段, 多余字段, None                           | 4 edge + 1 normal               |
-| Optional[T]   | None                                                               | 1 (merge with other boundaries) |
-| Enum          | 每个枚举值, 非法枚举值                                             | N+1                             |
-| float         | 0.0, -0.0, NaN, Inf, None                                          | 5 edge + 1 normal               |
+| Type | Edge Cases | Minimum Count |
+|---|---|---|
+| int / number | 0, -1, MAX_INT, None/undefined | 4 edge + 1 normal |
+| str / string | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal |
+| bool | True, False, None | 3 |
+| list / array | [] (empty), [单元素], 超大列表, None | 4 edge + 1 normal |
+| dict / object | {} (empty), 缺失必填字段, 多余字段, None | 4 edge + 1 normal |
+| Optional[T] | None | 1 (merge with other boundaries) |
+| Enum | 每个枚举值, 非法枚举值 | N+1 |
+| float | 0.0, -0.0, NaN, Inf, None | 5 edge + 1 normal |
 
 > For nested generic types (e.g., `List[Dict[str, int]]`), combine outer container boundary values (empty, single-element, large, None) with inner type boundary values. Each combination exercises a different nesting depth.
 

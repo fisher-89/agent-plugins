@@ -9,12 +9,12 @@ Evaluate the test execution report and determine the root cause of failures. Inv
 
 ## Static Checklist
 
-| ID  | 检查项           | 判断依据                                                                                                                                                                |
-| --- | ---------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| T1  | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
-| T2  | 所有测试通过     | failed === 0 且 total > 0                                                                                                                                               |
-| T3  | 覆盖率达标       | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成）；null 维度存在但 coverage.pass === true 时不失败                                               |
-| T4  | 失败诊断根因明确 | 诊断分析能确定唯一根因类型（仅 failed > 0 时评估，否则自动通过）                                                                                                        |
+| ID | 检查项 | 判断依据 |
+|---|---|---|
+| T1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
+| T2 | 所有测试通过 | failed === 0 且 total > 0 |
+| T3 | 覆盖率达标 | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成）；null 维度存在但 coverage.pass === true 时不失败 |
+| T4 | 失败诊断根因明确 | 诊断分析能确定唯一根因类型（仅 failed > 0 时评估，否则自动通过） |
 
 ## Input
 

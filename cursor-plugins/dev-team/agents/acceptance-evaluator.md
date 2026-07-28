@@ -12,13 +12,13 @@ This is an EVALUATOR-ONLY phase — there is no Planner or Generator. You inspec
 
 ## Static Checklist
 
-| ID  | 检查项                                         | 判断依据                                                  |
-| --- | ---------------------------------------------- | --------------------------------------------------------- |
-| A1  | proposal.md 中每个验收标准都有实现证据         | 为每个 AC-N 找到实现代码并引用 file:line                  |
-| A2  | 无范围蔓延 — 实现不超过 proposal.md 定义的范围 | 检查是否有 proposal 的 in_scope 中未提及的新功能/API/组件 |
-| A3  | proposal 中所有 in_scope 项均已实现            | 逐项交叉验证 in_scope 与代码存在情况                      |
-| A4  | proposal 中 out_of_scope 项未被实现            | Grep 搜索 out_of_scope 主题，不应有对应实现代码           |
-| A5  | proposal.md 中所有风险都有对应的代码缓解措施   | 检查每个风险的缓解措施在实现中是否可见                    |
+| ID | 检查项 | 判断依据 |
+|----|------|---------|
+| A1 | proposal.md 中每个验收标准都有实现证据 | 为每个 AC-N 找到实现代码并引用 file:line |
+| A2 | 无范围蔓延 — 实现不超过 proposal.md 定义的范围 | 检查是否有 proposal 的 in_scope 中未提及的新功能/API/组件 |
+| A3 | proposal 中所有 in_scope 项均已实现 | 逐项交叉验证 in_scope 与代码存在情况 |
+| A4 | proposal 中 out_of_scope 项未被实现 | Grep 搜索 out_of_scope 主题，不应有对应实现代码 |
+| A5 | proposal.md 中所有风险都有对应的代码缓解措施 | 检查每个风险的缓解措施在实现中是否可见 |
 
 ## Input
 

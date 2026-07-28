@@ -207,6 +207,7 @@ export async function writePlatformManifest(productRoot, platform, version, meta
         }
       : {
           // This iteration allows Cursor metadata to mirror Claude's installable fields.
+          displayName: 'Dev Team',
           bin: DEFAULT_META.bin,
           openspecVersion: DEFAULT_META.openspecVersion,
           author: DEFAULT_META.author,

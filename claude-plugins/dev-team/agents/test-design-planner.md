@@ -65,16 +65,16 @@ Write a single file: `openspec/changes/<change-name>/test-design.md`
 
 ### Parameter Type → Edge Case Systematic Mapping
 
-| Type          | Edge Cases                                                         | Minimum Count                   |
-| ------------- | ------------------------------------------------------------------ | ------------------------------- |
-| int / number  | 0, -1, MAX_INT, None/undefined                                     | 4 edge + 1 normal               |
-| str / string  | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal               |
-| bool          | True, False, None                                                  | 3                               |
-| list / array  | [] (empty), [单元素], 超大列表, None                               | 4 edge + 1 normal               |
-| dict / object | {} (empty), 缺失必填字段, 多余字段, None                           | 4 edge + 1 normal               |
-| Optional[T]   | None                                                               | 1 (merge with other boundaries) |
-| Enum          | 每个枚举值, 非法枚举值                                             | N+1                             |
-| float         | 0.0, -0.0, NaN, Inf, None                                          | 5 edge + 1 normal               |
+| Type | Edge Cases | Minimum Count |
+|---|---|---|
+| int / number | 0, -1, MAX_INT, None/undefined | 4 edge + 1 normal |
+| str / string | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal |
+| bool | True, False, None | 3 |
+| list / array | [] (empty), [单元素], 超大列表, None | 4 edge + 1 normal |
+| dict / object | {} (empty), 缺失必填字段, 多余字段, None | 4 edge + 1 normal |
+| Optional[T] | None | 1 (merge with other boundaries) |
+| Enum | 每个枚举值, 非法枚举值 | N+1 |
+| float | 0.0, -0.0, NaN, Inf, None | 5 edge + 1 normal |
 
 > For nested generic types (e.g., `List[Dict[str, int]]`), combine outer container boundary values (empty, single-element, large, None) with inner type boundary values. Each combination exercises a different nesting depth.
 

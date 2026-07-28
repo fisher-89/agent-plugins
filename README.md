@@ -7,7 +7,7 @@
 将本仓库配置为 Claude Code 插件源：
 
 ```bash
-claude plugin marketplace add https://ksogitlab.kso.net/zhangbohan3/wps-agent-plugin.git
+claude plugin marketplace add https://github.com/fisher-89/agent-plugins.git
 ```
 
 安装插件
@@ -15,6 +15,13 @@ claude plugin marketplace add https://ksogitlab.kso.net/zhangbohan3/wps-agent-pl
 ```bash
 claude plugin install dev-team@wps-ai
 ```
+
+### Cursor 团队分发
+
+1. Dashboard → Plugins → Team Marketplaces → Add Marketplace
+2. Import from Repo：`https://github.com/fisher-89/agent-plugins`
+3. 确认解析出 `dev-team` 后 Add to Marketplace，设置 Access 并保存
+4. 团队成员在编辑器 **Customize** 中搜索并安装 `dev-team` / `Dev Team`
 
 ## 插件清单
 

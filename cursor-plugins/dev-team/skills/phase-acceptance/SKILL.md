@@ -26,12 +26,12 @@ If `next_phase` is "acceptance" continue to `### Run Evaluator`.
 
 Otherwise, follow the table bellow:
 
-| 条件                                                                                      | 含义                 | 处理                                        |
-| ----------------------------------------------------------------------------------------- | -------------------- | ------------------------------------------- |
-| `done == true`                                                                            | 流程已完成           | 停止：报告异常，如需修改可开启新流程        |
-| `allowed_backtrack_phases[].id have "acceptance"`                                         | 回溯至当前步骤       | 继续步骤 `**Backtrack**`                    |
-| `last_result.verdict == "fail"` and `allowed_backtrack_phases[].id not have "acceptance"` | 不支持回溯至当前步骤 | 停止：告知异常及支持回溯的步骤              |
-| `last_result.verdict == "pass"` and `allowed_backtrack_phases[].id not have "acceptance"` | 下一步不匹配         | 停止：告知异常及应该执行的步骤 `next_phase` |
+| 条件 | 含义 | 处理 |
+|---|---|---|
+| `done == true` | 流程已完成 | 停止：报告异常，如需修改可开启新流程 |
+| `allowed_backtrack_phases[].id have "acceptance"` | 回溯至当前步骤 | 继续步骤 `**Backtrack**` |
+| `last_result.verdict == "fail"` and `allowed_backtrack_phases[].id not have "acceptance"` | 不支持回溯至当前步骤 | 停止：告知异常及支持回溯的步骤 |
+| `last_result.verdict == "pass"` and `allowed_backtrack_phases[].id not have "acceptance"` | 下一步不匹配 | 停止：告知异常及应该执行的步骤 `next_phase` |
 
 **Backtrack**
 

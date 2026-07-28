@@ -91,7 +91,7 @@ export function ensureConfigFile(projectRoot: string): OpenSpecConfig {
     fs.mkdirSync(dirPath, { recursive: true });
     const defaultConfig: OpenSpecConfigInput = {
       $schema:
-        'https://ksogitlab.kso.net/zhangbohan3/wps-agent-plugin/-/raw/master/plugins/dev-team/bin/dev-team-config.schema.json?ref_type=heads',
+        'https://raw.githubusercontent.com/fisher-89/agent-plugins/master/plugins/dev-team/bin/dev-team-config.schema.json',
       schema: 'spec-driven',
     };
     fs.writeFileSync(filePath, JSON.stringify(defaultConfig, null, 2), 'utf-8');
