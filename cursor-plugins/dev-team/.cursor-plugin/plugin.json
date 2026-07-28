@@ -1,5 +1,6 @@
 {
   "name": "dev-team",
+  "displayName": "Dev Team",
   "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration",
   "version": "2.10.3",
   "bin": "./bin",

@@ -1,11 +1,11 @@
 {
   "name": "wps-ai",
+  "displayName": "WPS AI",
   "owner": {
     "name": "wps-ai-team",
     "email": "zhangbohan3@wps.cn"
   },
   "metadata": {
-    "description": "A focused Team Marketplace: starter engineering defaults, product management, design, technical writing, and testing.",
     "version": "0.2.0",
     "pluginRoot": "cursor-plugins"
   },
@@ -13,7 +13,7 @@
     {
       "name": "dev-team",
       "source": "dev-team",
-      "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration"
+      "description": "A custom Cursor plugin for enhancing development workflow with OpenSpec integration"
     }
   ]
 }
