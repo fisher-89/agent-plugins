@@ -18,7 +18,7 @@ claude plugin install dev-team@wps-ai
 
 ### Cursor 团队分发
 
-1. Dashboard → Plugins → Team Marketplaces → Add Marketplace
+1. [Dashboard → Plugins](https://cursor.com/dashboard/plugins) → Team Marketplaces → Add Marketplace
 2. Import from Repo：`https://github.com/fisher-89/agent-plugins`
 3. 确认解析出 `dev-team` 后 Add to Marketplace，设置 Access 并保存
 4. 团队成员在编辑器 **Customize** 中搜索并安装 `dev-team` / `Dev Team`
