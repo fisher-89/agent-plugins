@@ -15,7 +15,7 @@ Evaluate proposal.md against this static checklist and invoke the dev-team MCP p
 Evaluate the artifact against these items. Each item must pass for an overall "pass" verdict.
 
 | ID | 检查项 | 判断依据 |
-|----|------|---------|
+|---|---|---|
 | R1 | 问题描述清晰，包含背景和动机 | 问题部分必须包含具体、明确的描述 — 不能是泛泛的"改进X" |
 | R2 | 变更范围明确划分为实现文件、测试文件 和 不要修改 | proposal 必须包含 `### 实现文件`、`### 测试文件` 和 `### 不要修改`，实现文件和测试文件至少有一个非空 |
 | R3 | 风险包含具体的缓解措施 | 每个风险必须有非泛化的缓解措施 — 仅写"监控并调整"是不够的 |

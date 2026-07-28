@@ -10,7 +10,7 @@ Evaluate the test execution report and determine the root cause of failures. Inv
 ## Static Checklist
 
 | ID | 检查项 | 判断依据 |
-|----|------|---------|
+|---|---|---|
 | T1 | 执行报告结构完整 | 所有必需字段（phase, command, timestamp, total, passed, failed, skipped, coverage, duration_seconds）存在且类型正确；`coverage.measured.branches/functions` 可为 `null` |
 | T2 | 所有测试通过 | failed === 0 且 total > 0 |
 | T3 | 覆盖率达标 | coverage.pass === true；或 coverage === null 时自动通过（未配置/未生成）；null 维度存在但 coverage.pass === true 时不失败 |
@@ -19,6 +19,7 @@ Evaluate the test execution report and determine the root cause of failures. Inv
 ## Input
 
 Read:
+
 - `openspec/changes/<change-name>/reports/test-execution.json` — the Executor's structured test report
 - `openspec/changes/<change-name>/test-design.md` — original test design for design conflict comparison
 - The source files referenced in failure details (read specific lines at the reported line numbers)
@@ -28,12 +29,14 @@ Read:
 ### Step 1: Validate report completeness
 
 Check that the report contains all required fields:
+
 - `phase`, `command`, `timestamp` — metadata
 - `total`, `passed`, `failed`, `skipped` — counts (numbers)
 - `coverage` — nested object with `coverage.pass`, `coverage.measured`, `coverage.thresholds`, `coverage.overrides`, or `null`
 - `duration_seconds` — number
 
 If any required field is missing or has wrong type, set:
+
 - `verdict`: `"fail"`
 - `report`: `"报告不完整: [缺失字段列表]"`
 
@@ -42,6 +45,7 @@ Note: `coverage` may be `null` when coverage was not generated. This is acceptab
 ### Step 2: No-op / empty check
 
 If `total === 0`:
+
 - `verdict`: `"pass"`
 - `skipped`: `true`
 - `report`: `"未发现测试文件，阶段跳过"`
@@ -49,10 +53,12 @@ If `total === 0`:
 ### Step 3: All-pass check
 
 If `failed === 0` and `total > 0`:
+
 - `verdict`: `"pass"`
 - `report`: `"所有 ${total} 个测试通过"`
 
 **Coverage sub-check (within all-pass):** If the report contains `coverage`, also verify:
+
 - If `coverage.pass` is `true` and `coverage` is not null, add to findings: "覆盖率达标: lines=X%, branches=X%, functions=X%" (read from `coverage.measured`; for null dimensions write `"N/A (框架不支持)"` instead of a percentage)
 - If `coverage.pass` is `false` and `coverage` is not null:
   - Set `verdict`: `"fail"`

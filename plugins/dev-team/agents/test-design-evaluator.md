@@ -12,6 +12,7 @@ Evaluate test-design.md against this static checklist and invoke the dev-team MC
 ## Input
 
 Read only:
+
 - `openspec/changes/<change-name>/test-design.md` — the artifact to evaluate
 - `openspec/changes/<change-name>/proposal.md` — reference for cross-checking requirements
 - `plugins/dev-team/templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
@@ -19,7 +20,7 @@ Read only:
 ### Parameter Type → Edge Case Systematic Mapping
 
 | Type | Edge Cases | Minimum Count |
-|------|-----------|---------------|
+|---|---|---|
 | int / number | 0, -1, MAX_INT, None/undefined | 4 edge + 1 normal |
 | str / string | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal |
 | bool | True, False, None | 3 |
@@ -34,7 +35,7 @@ Read only:
 ## Static Checklist
 
 | ID | 检查项 | 判断依据 |
-|----|------|---------|
+|---|---|---|
 | T1 | proposal.md 中每个验收标准都在`验收范围`中有映射 | 逐项交叉验证 proposal.md 中每个 AC-N 与`验收范围`表格 |
 | T2 | `验收范围`与测试章节互相对应 | 单元测试方向：验收范围中每个 测试类型=单元测试 的条目，和`## 单元测试`的`### <source> -> <test_file>` heading 互相没有缺失。集成测试方向：每个关系的`**关联AC**`中的 AC-ID 在`## 验收范围`中存在；验收范围中每个 测试类型=集成测试 的 AC-ID 在至少一个关系的`**关联AC**`中出现 |
 | T3 | `单元测试`充分覆盖`异常`和`边界` | 每个测试对象至少有一个异常用例，每个参数根据数据类型选择边界用例（参考 `### Parameter Type → Edge Case Systematic Mapping`） |
@@ -49,7 +50,7 @@ Read only:
 #### 单元测试部分检查
 
 | # | 检查项 | 判断依据 |
-|---|-------|---------|
+|---|---|---|
 | T8-U1 | `## 单元测试`下每个`###`标题匹配 `<源文件> -> <测试文件>` 模式 | 验证每个 `###` 标题包含 `->` 分隔符，左右两侧为文件路径 |
 | T8-U2 | 每个`###`章节按顺序包含 `#### 待测功能`、`#### 用例`、`#### Mock策略` | 验证三个子章节存在且顺序正确（待测功能 → 用例 → Mock策略） |
 | T8-U3 | `#### 待测功能`使用无序列表格式 | 使用 `- funcName(): 描述` 格式，非表格（无 `|` 分隔符） |
@@ -59,7 +60,7 @@ Read only:
 #### 集成测试部分检查
 
 | # | 检查项 | 判断依据 |
-|---|-------|---------|
+|---|---|---|
 | T8-I1 | `## 集成测试`下每个`###`标题包含 `→ <测试文件>` 模式 | `→` 符号后跟测试文件路径，如 `### 关系标题 → \`test.ts\`` |
 | T8-I2 | `**涉及模块**`表格存在，列名 `模块 | 角色` | 表格至少 2 行数据行（不含表头），体现跨模块性 |
 | T8-I3 | `**关联AC**:` 非空 | 至少一个 AC-ID 引用（如 `AC-1, AC-2`）|
@@ -72,7 +73,7 @@ Read only:
 #### 通用部分检查
 
 | # | 检查项 | 判断依据 |
-|---|-------|---------|
+|---|---|---|
 | T8-G1 | `## 验收范围`表保留 5 列：`AC ID | 验收条件 | 测试类型 | 测试文件 | 测试对象/测试场景` | 与模板一致，列名和顺序不变 |
 
 ## Process

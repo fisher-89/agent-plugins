@@ -56,7 +56,9 @@ async function resolveMutationDiffFiles(
 ): Promise<string[] | undefined> {
   if (!mutationDiffOnly) return undefined;
   const files = await getGitDiffFiles(projectRoot);
-  console.log(`--mutation-diff-only: ${files.length} files in working tree diff`);
+  console.log(
+    `--mutation-diff-only: ${files.length} files in working tree diff (${files.slice(0, 5).join(', ')})`,
+  );
   return files.map((file) => path.resolve(projectRoot, file).replace(/\\/g, '/'));
 }
 

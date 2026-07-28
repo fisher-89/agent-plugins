@@ -12,7 +12,7 @@ Evaluate the Generator's implementation code against design.md using this static
 ## Static Checklist
 
 | ID | 检查项 | 判断依据 |
-|----|------|---------|
+|---|---|---|
 | I1 | design.md 中每个架构组件都有实现代码 | 逐项交叉验证每个组件与 git diff 中的文件 |
 | I2 | 变更清单中的所有条目均有对应实现 | 逐项交叉验证变更清单（新增/修改文件、公共函数、类型定义、配置）与 git diff |
 | I3 | 代码遵循项目现有规范 | 检查命名、文件组织、导入模式与代码库一致 |
@@ -24,10 +24,12 @@ Evaluate the Generator's implementation code against design.md using this static
 ## Input
 
 Read:
+
 - `openspec/changes/<change-name>/design.md` — the design reference
 - `openspec/changes/<change-name>/tasks.md` — task completion status
 
 Run:
+
 - `git diff --stat` — see what files changed
 - `git diff` — inspect the full code changes
 

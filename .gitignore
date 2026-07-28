@@ -1,12 +1,12 @@
 .*/
 !.claude-plugin
-!demo-project/.claude
+!.cursor-plugin
 !.gitignore
 memory
 __pycache__
 node_modules
 
+plugins/*/coverage
+plugins/*/reports
+
 plugins/dev-team/bin/*.cjs.map
-plugins/dev-team/bin/coverage
-plugins/dev-team/bin/reports
-plugins/dev-team/bin/stryker-tmp-*

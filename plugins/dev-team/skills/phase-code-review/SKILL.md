@@ -20,7 +20,7 @@ Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <cha
 
 ### Phase Check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state. 
+Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state.
 
 If `next_phase` is "code-review" continue to `### Run Evaluator`.
 
@@ -34,6 +34,7 @@ Otherwise, follow the table bellow:
 | `last_result.verdict == "pass"` and `allowed_backtrack_phases[].id not have "code-review"` | 下一步不匹配 | 停止：告知异常及应该执行的步骤 `next_phase` |
 
 **Backtrack**
+
 ```
 mcp__plugin_dev-team_dev-team__backtrack({
   change: "<change-name>",
@@ -42,11 +43,13 @@ mcp__plugin_dev-team_dev-team__backtrack({
   backtrack_reason: "用户手动执行回溯，推测原因：<Infer from `last_result.report`>"
 })
 ```
+
 If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Evaluator`.
 
 ### Run Evaluator
 
-Call `Agent` with response of `phase_next`: 
+Call `Agent` with response of `phase_next`:
+
 ```
 Agent({
   description: "Evaluate phase <next_phase>",

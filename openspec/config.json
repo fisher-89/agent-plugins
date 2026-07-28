@@ -1,14 +1,14 @@
 {
   "$schema": "https://ksogitlab.kso.net/zhangbohan3/wps-agent-plugin/-/raw/master/plugins/dev-team/bin/dev-team-config.schema.json?ref_type=heads",
   "schema": "spec-driven",
-  "static_analysis": "pnpm run -C ./plugins/dev-team/bin check",
+  "static_analysis": "pnpm run -C ./plugins/dev-team check",
   "tests": [
     {
-      "root": "plugins/dev-team/bin",
+      "root": "plugins/dev-team",
       "framework": "vite-plus",
       "config": "vite.config.ts",
-      "includes": ["src/**/*.{ts,tsx}"],
-      "excludes": ["src/schemas/**/*"]
+      "includes": ["bin/src/**/*.{ts,tsx}"],
+      "excludes": ["bin/src/schemas/**/*"]
     }
   ],
   "write_protection": {

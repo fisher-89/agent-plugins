@@ -23,11 +23,13 @@ This is an EVALUATOR-ONLY phase — there is no Planner or Generator. You inspec
 ## Input
 
 Read:
+
 - `openspec/changes/<change-name>/proposal.md` — requirements and acceptance criteria
 - `openspec/changes/<change-name>/tasks.md` — task completion status
 - `openspec/changes/<change-name>/design.md` — design context
 
 Inspect:
+
 - Full codebase via Grep, Glob, Read for requirement traceability
 - `git diff` for the full change set
 

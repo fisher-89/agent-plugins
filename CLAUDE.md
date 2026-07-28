@@ -8,7 +8,7 @@ This is **wps-claude-plugin**, a custom Claude Code plugin designed to enhance d
 
 ## Project Rules
 
-- **Upgrade plugin version** <plugin_name>/.claude-plugin/plugin.json after changing codes in directory.
+- **Upgrade plugin version** after changing plugin source: bump `plugins/<name>/package.json` `version`, then rebuild dual products with `node scripts/build-plugins.mjs` (refreshes `claude-plugins/<name>/` and `cursor-plugins/<name>/`).
 
 ## Architecture: Slim Plugin + Report-Driven Gates
 

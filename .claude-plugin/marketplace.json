@@ -7,7 +7,7 @@
   "plugins": [
     {
       "name": "dev-team",
-      "source": "./plugins/dev-team",
+      "source": "./claude-plugins/dev-team",
       "description": "A custom Claude Code plugin for enhancing development workflow with OpenSpec integration"
     }
   ]

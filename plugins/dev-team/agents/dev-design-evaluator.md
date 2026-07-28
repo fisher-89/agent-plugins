@@ -12,7 +12,7 @@ Evaluate design.md against this static checklist and invoke the dev-team MCP pha
 ## Static Checklist
 
 | ID | 检查项 | 判断依据 |
-|----|------|---------|
+|---|---|---|
 | D1 | 架构组件已列出职责、依赖、技术栈和文件路径 | 组件表每个组件至少填写4列（职责、依赖、技术栈、文件路径）；技术栈不能写"TBD"；文件路径必须指向具体文件 |
 | D2 | 数据模型已列出字段、关系和持久化 | 数据模型表至少包含一个模型，每个模型至少填写字段和持久化两列 |
 | D3 | 设计覆盖 proposal.md 中每个验收标准 | 逐项交叉验证每个 AC-N 与设计覆盖情况 |
@@ -27,6 +27,7 @@ Evaluate design.md against this static checklist and invoke the dev-team MCP pha
 ## Input
 
 Read only:
+
 - `openspec/changes/<change-name>/design.md` — the artifact to evaluate
 - `openspec/changes/<change-name>/tasks.md` — implementation tasks
 - `openspec/changes/<change-name>/proposal.md` — requirements for cross-reference

@@ -23,25 +23,26 @@ memory: project
    c. 列出此交互覆盖的 AC-ID → 生成 `**关联AC**: AC-1, AC-2` 行
    d. 撰写交互描述 → 生成 `**关系描述**` 叙事段落（描述交互方式、测试价值、可能的出错模式）
    e. 生成一个或多个 `#### 场景:` 子章节，每个场景包含：
-      - 叙事描述段落（验证什么、前置条件、输入、预期输出）
-      - `##### 用例` 表格（列：`路径类型 | 测试条件 | 迭代类型`）
-      - 可选 `##### Mock策略` 表格（列：`Mock主体 | Mock方案 | 应用场景`，仅跨进程边界时需要）
-   集成测试文件扩展名应与步骤 7 的框架检测结果一致，文件放置在 `__tests__/` 目录下
-   无跨模块交互时，仅保留`## 集成测试`章节标题，并用注释说明
+   - 叙事描述段落（验证什么、前置条件、输入、预期输出）
+   - `##### 用例` 表格（列：`路径类型 | 测试条件 | 迭代类型`）
+   - 可选 `##### Mock策略` 表格（列：`Mock主体 | Mock方案 | 应用场景`，仅跨进程边界时需要）
+     集成测试文件放置在测试区域 `__tests__/` 目录下
+     无跨模块交互时，仅保留`## 集成测试`章节标题，并用注释说明
 10. **单元测试路径**：调用 `mcp__plugin_dev-team_dev-team__test_resolve_paths`，传入 `modules` 参数获取单元测试路径。`unit_tests` 返回每个 `source -> test_file` 的映射对
 11. **生成 per-file 单元测试章节**：遍历 `unit_tests` 中每个 `source -> test_file` 对：
     a. 在 `## 单元测试` 中创建独立的 `### <源文件> -> <测试文件>` 章节
     b. **Grep** 源文件的导出声明（`export function`、`export class`、`export const`、`export default`）→ 提取函数/类方法签名 → 填充 `#### 待测功能` 列表（格式：`- functionName(): 简短描述`）
-    c. 设计测试用例 → 填充 `#### 用例` 表（列：`测试对象 | 路径类型 | 测试条件 | 迭代类型`，不包含 `测试文件` 列）
-    d. 设计 Mock 策略 → 填充 `#### Mock策略` 表（列：`Mock主体 | Mock方案 | 应用场景`，不包含 `测试文件` 列）
-    同时将每个 `source -> test_file` 映射填写到 `## 验收范围` 表的 `测试文件` 和 `测试对象/测试场景` 列
+    c. 设计测试用例 → 填充 `#### 用例` 表（列：`测试对象 | 路径类型 | 测试条件 | 迭代类型`），每个文件都包含正向、异常、边界三种类型
+    d. 设计 Mock 策略 → 填充 `#### Mock策略` 表（列：`Mock主体 | Mock方案 | 应用场景`）
+    同时将每个 `source` 填写到 `## 验收范围` 表的 `被测文件或模块` 列
 12. 若 `test_resolve_paths` 调用的 `errors` 非空，在 test-design.md `## 不可测试项` 章节记录无法解析的模块及原因
 13. **Write** `openspec/changes/<change-name>/test-design.md`，分段写入：
-    - 先写 `## 验收范围` 表
-    - 再逐文件写入 `## 单元测试` 的 per-file 章节
-    - 再逐关系写入 `## 集成测试` 的 per-relationship 章节
-    - 最后写 `## 不可测试项`
-    每写入一段后对照模板确认列名和占位符无遗漏
+
+- 先写 `## 验收范围` 表
+- 再逐文件写入 `## 单元测试` 的 per-file 章节
+- 再逐关系写入 `## 集成测试` 的 per-relationship 章节
+- 最后写 `## 不可测试项`
+  每写入一段后对照模板确认列名和占位符无遗漏
 
 ## Output
 
@@ -65,7 +66,7 @@ Write a single file: `openspec/changes/<change-name>/test-design.md`
 ### Parameter Type → Edge Case Systematic Mapping
 
 | Type | Edge Cases | Minimum Count |
-|------|-----------|---------------|
+|---|---|---|
 | int / number | 0, -1, MAX_INT, None/undefined | 4 edge + 1 normal |
 | str / string | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal |
 | bool | True, False, None | 3 |
@@ -82,6 +83,7 @@ Write a single file: `openspec/changes/<change-name>/test-design.md`
 All narrative content in the output test-design.md SHALL be written in Chinese (简体中文).
 
 The following SHALL remain in English:
+
 - Code identifiers (variable names, function names, class names)
 - File paths and CLI commands
 - Widely-accepted technical abbreviations (API, JSON, SDK, CI/CD, URL, etc.)

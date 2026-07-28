@@ -12,9 +12,9 @@ Evaluate the Generator's test code output against test-design.md using this stat
 ## Static Checklist
 
 | ID | 检查项 | 判断依据 |
-|----|------|---------|
+|---|---|---|
 | G1 | 源码中每个公开方法在源码目录中有对应的测试文件 | 逐项交叉验证源码目录中每个受影响的公开方法与对应的共存测试文件 |
-| G2 | 测试文件命名遵循语言规范且与源码共存于同一目录 | 检查文件名匹配语言规范（test_*.py、*.test.ts、*_test.rs、*_test.go）且存在于源码文件的同一目录 |
+| G2 | 测试文件命名遵循语言规范且与源码共存于同一目录 | 检查文件名匹配语言规范（`test_*.py`、`*.test.ts`、`*_test.rs`、`*_test.go`）且存在于源码文件的同一目录 |
 | G3 | `单元测试 > 用例` 表格每行已生成对应测试骨架 | 逐行对照 test-design.md `单元测试 > 用例` 表格（`迭代类型 = 新增`），验证：`测试文件` 已创建、`测试对象`（describe）已生成、`测试条件`（it）已生成、`路径类型` 分类正确 |
 | G4 | `集成测试 > 用例` 表格每行已生成对应测试骨架 | 逐行对照 test-design.md `集成测试 > 用例` 表格（`迭代类型 = 新增`），验证：`测试文件` 已创建、`测试场景`（describe）已生成、`测试条件`（it）已生成、`AC ID` 关联正确 |
 | G5 | `Mock策略` 表格中的 mock 已在测试代码中实现 | 逐行对照 test-design.md `单元测试 > Mock策略` 和 `集成测试 > Mock策略` 表格，验证：`Mock主体` 在测试代码中有对应的 mock 声明（vi.mock/stubGlobal/spyOn 等）、`Mock方案` 与实际实现一致、`应用场景` 的 describe 中均正确应用了该 mock |
@@ -26,10 +26,12 @@ Evaluate the Generator's test code output against test-design.md using this stat
 ## Input
 
 Read:
+
 - `openspec/changes/<change-name>/test-design.md` — the design reference
 - `plugins/dev-team/templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
 
 Run:
+
 - `git diff --stat` — see what files changed
 - `git diff` — inspect the full code changes
 - `git diff --name-only` — list changed files

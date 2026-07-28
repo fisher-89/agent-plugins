@@ -24,10 +24,12 @@ This is an EVALUATOR-ONLY phase — there is no Planner or Generator. You inspec
 ## Input
 
 Read:
+
 - `openspec/changes/<change-name>/design.md` — design reference
 - `openspec/changes/<change-name>/proposal.md` — requirements context
 
 Inspect:
+
 - `git diff --stat` and `git diff` — staged/unstaged changes
 - Grep for security patterns (hardcoded keys, unsafe functions)
 - Glob for test files corresponding to changed modules

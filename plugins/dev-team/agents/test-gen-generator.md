@@ -9,6 +9,7 @@ model: sonnet-4.6
 ## Input
 
 Read:
+
 - `openspec/changes/<change-name>/test-design.md` — test levels, coverage map, forward ACs, reverse ACs, strategy, boundary cases
 - `plugins/dev-team/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
 - Source code files for the affected modules — read directly to extract method signatures, parameter types, return types, and implementation logic
@@ -20,10 +21,13 @@ Read:
 ### 1. Framework detection
 
 Call the MCP tool `test_detect_frameworks` to detect the project's test framework(s):
+
 ```
 mcp__plugin_dev-team_dev-team__test_detect_frameworks({files:[<test files>]})
 ```
+
 Collect the `detected` list from the result to select the correct test syntax for test generation. Otherwise, fall back to file-extension heuristics:
+
 - `.ts` / `.tsx` / `.js` / `.jsx` => vitest-style (describe / it / expect)
 - `.py` => pytest (def test_*)
 - `.rs` => rust (#[cfg(test)] mod tests)
@@ -31,6 +35,7 @@ Collect the `detected` list from the result to select the correct test syntax fo
 ### 2. Read test-design.md (对照 template 理解各表格列定义)
 
 对照 test-design.md.template 中定义的列名和结构，解析 test-design.md 的：
+
 - `单元测试` / `集成测试` > `用例` 表格：测试文件、测试对象、路径类型、测试条件、迭代类型
 - `单元测试` / `集成测试` > `Mock策略` 表格：Mock主体、Mock方案、应用场景
 
@@ -39,6 +44,7 @@ Collect the `detected` list from the result to select the correct test syntax fo
 ### 3. Read the affected source code files directly
 
 Understand:
+
 - Function/method signatures and actual parameter types
 - Return types and error handling patterns
 - Business logic for accurate test assertions
@@ -54,7 +60,7 @@ Use the detected framework's native test syntax.
 **Test descriptions MUST be written in Chinese.** All `describe()`, `it()`, `test()` block descriptions should use Chinese to describe the test scenario, e.g., `describe('用户登录模块')`, `it('应在密码为空时返回错误')`. This applies to all JS/TS test frameworks (jest, vitest, vite-plus, bun).
 
 | Framework | Test Syntax | Import / Module Declaration | Test File Naming |
-|-----------|-------------|----------------------------|------------------|
+|---|---|---|---|
 | jest | `describe` / `it` / `expect` | `import { describe, it, expect } from '@jest/globals'` | `<module>.test.ts` |
 | vitest | `describe` / `it` / `expect` / `vi` | `import { describe, it, expect, vi } from 'vitest'` | `<module>.test.ts` |
 | vite-plus | `describe` / `it` / `expect` | (same as vitest convention) | `<module>.test.ts` |
@@ -70,7 +76,6 @@ Create test files colocated with each source file in the same directory, followi
 - **Sad path tests** derived from Reverse ACs (error handling, invalid inputs)
 - **Edge case tests** systematically derived from parameter types using the mapping below
 
-
 ### 7. For untyped files (JavaScript, Python without type hints)
 
 Infer parameter types from parameter names (e.g., `username`→`str`, `count`→`int`, `flags`→`boolean`). Mark these inferred-type tests as priority **P2** and add a `# TODO: Review inferred type` comment.
@@ -78,7 +83,7 @@ Infer parameter types from parameter names (e.g., `username`→`str`, `count`→
 ### Parameter Type → Edge Case Systematic Mapping
 
 | Type | Edge Cases | Minimum Count |
-|------|-----------|---------------|
+|---|---|---|
 | int / number | 0, -1, MAX_INT, None/undefined | 4 edge + 1 normal |
 | str / string | "" (empty), 超长字符串 (>1000 chars), 特殊字符 (\n \0 emoji), None | 4 edge + 1 normal |
 | bool | True, False, None | 3 |
