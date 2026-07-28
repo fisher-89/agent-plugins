@@ -16,20 +16,15 @@ claude plugin marketplace add https://github.com/fisher-89/agent-plugins.git
 claude plugin install dev-team@wps-ai
 ```
 
-### Cursor 团队分发
+### Cursor 本地安装
 
-1. [Dashboard → Plugins](https://cursor.com/dashboard/plugins) → Team Marketplaces → Add Marketplace
-2. Import from Repo：`https://github.com/fisher-89/agent-plugins`
-3. 确认解析出 `dev-team` 后 Add to Marketplace，设置 Access 并保存
-4. 团队成员在编辑器 **Customize** 中搜索并安装 `dev-team` / `Dev Team`
+进入Cursor Desktop，输入：
 
-## 插件清单
+```
+/add-plugin fisher-89/agent-plugins/cursor-plugins/dev-team
+```
 
-### 插件列表
-
-| 插件名 | 描述 |
-|--------|------|
-| `dev-team` | OpenSpec 集成的开发工作流增强插件 |
+## 使用插件
 
 ### dev-team
 

@@ -2,7 +2,10 @@
   "mcpServers": {
     "dev-team": {
       "command": "node",
-      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs"]
+      "args": ["${CLAUDE_PLUGIN_ROOT}/bin/dev-team-mcp.cjs"],
+      "env": {
+        "CLAUDE_PROJECT_DIR": "${CLAUDE_PROJECT_DIR}"
+      }
     },
     "likec4": {
       "command": "npx",
