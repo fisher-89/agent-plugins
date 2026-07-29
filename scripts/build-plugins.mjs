@@ -49,7 +49,7 @@ function normalizeRelativePath(relativePath) {
  * @param {string} packageJsonPath
  * @returns {string}
  */
-export function readPackageVersion(packageJsonPath) {
+function readPackageVersion(packageJsonPath) {
   requireNonEmptyString(packageJsonPath, 'packageJsonPath');
   const raw = readFileSync(packageJsonPath, 'utf8');
   const parsed = JSON.parse(raw);
@@ -67,7 +67,7 @@ export function readPackageVersion(packageJsonPath) {
  * @param {string} pluginRoot
  * @returns {Promise<void>}
  */
-export function runVpPack(pluginRoot) {
+function runVpPack(pluginRoot) {
   requireNonEmptyString(pluginRoot, 'pluginRoot');
   return new Promise((resolve, reject) => {
     // On Windows, vite-plus exposes `vp` via a .cmd shim; shell is required for PATH lookup.
@@ -92,7 +92,7 @@ export function runVpPack(pluginRoot) {
  * @param {string} relativePath
  * @returns {boolean}
  */
-export function shouldCopyPath(relativePath) {
+function shouldCopyPath(relativePath) {
   if (relativePath == null || typeof relativePath !== 'string' || relativePath === '') {
     return false;
   }
@@ -143,7 +143,7 @@ function walkFiles(dir, baseDir, out) {
  * @param {string} destRoot
  * @returns {Promise<void>}
  */
-export async function assembleProductTree(srcRoot, destRoot) {
+async function assembleProductTree(srcRoot, destRoot) {
   requireNonEmptyString(srcRoot, 'srcRoot');
   requireNonEmptyString(destRoot, 'destRoot');
   if (!existsSync(srcRoot) || !statSync(srcRoot).isDirectory()) {
@@ -171,7 +171,7 @@ export async function assembleProductTree(srcRoot, destRoot) {
  * @param {string} _productRoot
  * @returns {Promise<void>}
  */
-export async function assembleCursorExtras(_productRoot) {
+async function assembleCursorExtras(_productRoot) {
   // Intentionally empty — Cursor may later receive platform-specific extras.
 }
 
@@ -183,7 +183,7 @@ export async function assembleCursorExtras(_productRoot) {
  * @param {object} [meta]
  * @returns {Promise<void>}
  */
-export async function writePlatformManifest(productRoot, platform, version, meta) {
+async function writePlatformManifest(productRoot, platform, version, meta) {
   requireNonEmptyString(productRoot, 'productRoot');
   requireNonEmptyString(platform, 'platform');
   requireNonEmptyString(version, 'version');
@@ -228,7 +228,7 @@ export async function writePlatformManifest(productRoot, platform, version, meta
  * Fail if the source tree still contains platform manifest directories.
  * @param {string} pluginRoot
  */
-export function ensureSourceCleanOfPlatformManifests(pluginRoot) {
+function ensureSourceCleanOfPlatformManifests(pluginRoot) {
   requireNonEmptyString(pluginRoot, 'pluginRoot');
   if (!existsSync(pluginRoot)) {
     throw new Error(`Plugin root does not exist: ${pluginRoot}`);
@@ -246,7 +246,7 @@ export function ensureSourceCleanOfPlatformManifests(pluginRoot) {
  * @param {{ repoRoot?: string }} [options]
  * @returns {Promise<void>}
  */
-export async function buildPlugins(options = {}) {
+async function buildPlugins(options = {}) {
   if (options != null && Object.hasOwn(options, 'repoRoot') && options.repoRoot == null) {
     throw new Error('options.repoRoot must not be null or undefined when provided');
   }
@@ -280,17 +280,11 @@ export async function buildPlugins(options = {}) {
   ensureSourceCleanOfPlatformManifests(pluginRoot);
 }
 
-const isMain =
-  process.argv[1] &&
-  path.resolve(fileURLToPath(import.meta.url)) === path.resolve(process.argv[1]);
-
-if (isMain) {
-  buildPlugins()
-    .then(() => {
-      console.log('Built claude-plugins/dev-team and cursor-plugins/dev-team');
-    })
-    .catch((err) => {
-      console.error(err instanceof Error ? err.message : err);
-      process.exitCode = 1;
-    });
-}
+buildPlugins()
+  .then(() => {
+    console.log('Built claude-plugins/dev-team and cursor-plugins/dev-team');
+  })
+  .catch((err) => {
+    console.error(err instanceof Error ? err.message : err);
+    process.exitCode = 1;
+  });
