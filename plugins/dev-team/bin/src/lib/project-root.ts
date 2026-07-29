@@ -280,12 +280,14 @@ function resolveProjectRootForTool(toolName: string, args: Record<string, unknow
         : '';
     throw new ProjectRootResolveError('invalid_path', 'project_root must be a non-empty string', {
       project_root: display,
+      candidates: getProjectRootCandidates(),
     });
   }
 
   if (!isUsableAbsolutePath(raw)) {
     throw new ProjectRootResolveError('invalid_path', invalidPathMessage(raw), {
       project_root: raw,
+      candidates: getProjectRootCandidates(),
     });
   }
 
