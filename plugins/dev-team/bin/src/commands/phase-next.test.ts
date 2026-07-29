@@ -24,6 +24,8 @@ import { getChangeDir } from '../lib/change';
 import { type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable } from '../lib/workflow';
 
+const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
+
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios
 // ---------------------------------------------------------------------------
@@ -125,7 +127,7 @@ function staleEntry(
 function next(entries: MockEntry[], change: string = 'test-change', workflowType?: string) {
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
     const p = String(filePath);
-    if (p === getChangeDir(change)) {
+    if (p === getChangeDir(change, FIXTURE_PROJECT_ROOT)) {
       return true;
     }
     if (p.endsWith('workflow.json')) {
@@ -151,7 +153,7 @@ function next(entries: MockEntry[], change: string = 'test-change', workflowType
       return '';
     },
   );
-  return runPhaseNext({ change });
+  return runPhaseNext({ change, project_root: FIXTURE_PROJECT_ROOT });
 }
 
 // ---------------------------------------------------------------------------
@@ -1074,7 +1076,9 @@ describe('runPhaseNext — workflow.json default', () => {
     vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
       const p = String(filePath);
       return (
-        p === getChangeDir('test-change') || p.endsWith('workflow.json') || p.endsWith('eval.json')
+        p === getChangeDir('test-change', FIXTURE_PROJECT_ROOT) ||
+        p.endsWith('workflow.json') ||
+        p.endsWith('eval.json')
       );
     });
     vi.mocked(fs.readFileSync).mockImplementation(
@@ -1092,7 +1096,7 @@ describe('runPhaseNext — workflow.json default', () => {
         return '';
       },
     );
-    const result = runPhaseNext({ change: 'test-change' });
+    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
     expect(result.total_phases).toBe(8);
   });
 });
@@ -1202,14 +1206,16 @@ describe('runPhaseNext — Input Validation', () => {
 
   it('change 参数为空字符串时应抛出 Error', () => {
     // 直接调用 runPhaseNext 验证空 change 抛错
-    expect(() => runPhaseNext({ change: '' })).toThrow('Missing required parameter: change');
+    expect(() => runPhaseNext({ change: '', project_root: FIXTURE_PROJECT_ROOT })).toThrow(
+      'Missing required parameter: change',
+    );
   });
 
   it('change 不存在时应抛出 Error', () => {
     vi.mocked(fs.existsSync).mockReturnValue(false);
-    expect(() => runPhaseNext({ change: 'non-existent-change' })).toThrow(
-      /Change "non-existent-change" does not exist/,
-    );
+    expect(() =>
+      runPhaseNext({ change: 'non-existent-change', project_root: FIXTURE_PROJECT_ROOT }),
+    ).toThrow(/Change "non-existent-change" does not exist/);
   });
 });
 

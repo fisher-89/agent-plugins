@@ -1,0 +1,75 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-29T07:04:19.976Z",
+  "duration_seconds": 99,
+  "total": 1217,
+  "passed": 1217,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 94.59,
+      "branches": 84.19,
+      "functions": 97.95
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 33,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 74.02,
+    "threshold": 70,
+    "measured": {
+      "killed": 94,
+      "survived": 25,
+      "timeout": 0,
+      "noCoverage": 8,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 271,
+      "total": 398,
+      "detected": 94,
+      "undetected": 33
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 74.01574803149606,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 33,
+        "passed_count": 33
+      }
+    ]
+  },
+  "findings": [
+    "All 1217 tests passed; coverage thresholds met (lines 94.6%, branches 84.2%, functions 98.0%).",
+    "Mutation score 74.0% meets the 70% threshold (diff-scoped to project-root.ts and mcp.ts).",
+    "Report validation: passed+failed+skipped equals total; conclusion matches zero failures with coverage.pass and mutation.pass."
+  ]
+}

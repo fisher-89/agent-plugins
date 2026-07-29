@@ -30,6 +30,8 @@ vi.mock('../lib/change', () => ({
 
 import { appendEntry, writeEvalJson } from '../lib/eval-json';
 import { runPhaseLog } from './phase-log';
+
+const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
 const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
 const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'ok' }];
 
@@ -40,6 +42,7 @@ beforeEach(() => {
 describe('runPhaseLog -- 无回溯参数的正常路径', () => {
   it('pass entry appends normally', () => {
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'ok',
@@ -51,6 +54,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
 
   it('fail entry appends normally', () => {
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'has issues',
@@ -62,6 +66,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
 
   it('skipped entry includes skipped flag', () => {
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       report: 'No tests found',
@@ -77,6 +82,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
 
   it('auto-calculates pass when all checklist items pass', () => {
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'all good',
@@ -93,6 +99,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
 
   it('auto-calculates fail when any item fails', () => {
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'has issues',
@@ -110,6 +117,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
   it('report exceeding 500 chars throws', () => {
     expect(() =>
       runPhaseLog({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'proposal',
         report: 'x'.repeat(501),
@@ -120,6 +128,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
 
   it('always uses appendEntry (no conditional write logic)', () => {
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'ok',
@@ -134,6 +143,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
     // phaseLogInputSchema 不包含 backtrack_to/backtrack_reason 字段，
     // Zod 默认 stripUnknown=true，额外字段被静默忽略
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'ok',
@@ -153,6 +163,7 @@ describe('runPhaseLog -- 无回溯参数的正常路径', () => {
     vi.setSystemTime(new Date('2026-06-25T01:29:05.000Z'));
     try {
       const opts = {
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'proposal' as const,
         report: 'ok',

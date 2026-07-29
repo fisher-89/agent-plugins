@@ -1,11 +1,14 @@
 import { z } from 'zod/v4';
 
+import { projectRootSchema } from './public/project-root.schema';
+
 /**
  * Input schema for `test_resolve_paths` MCP tool.
  *
  * Accepts a module path list (files or directories relative to project_root).
  */
 export const testResolvePathsInputSchema = z.object({
+  project_root: projectRootSchema,
   modules: z
     .union([
       z

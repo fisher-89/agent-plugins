@@ -468,14 +468,16 @@ describe('runChangeList -- project_root', () => {
 // ===========================================================================
 
 describe('runChangeList — CLI vs MCP schema 契约', () => {
-  it('changeListInputSchema 的 shape / keyof 不含 project_root；同时 runChangeList({ project_root }) 仍可用（CLI/MCP 契约分离）(AC-4/AC-7)', () => {
+  it('changeListInputSchema 必填 project_root；CLI runChangeList(projectRoot) 仍可用（MCP/CLI 契约分离）(AC-2/AC-11)', () => {
     const project = createTempProject();
     try {
       writeChange(project.changesDir, 'schema-contract');
       const shapeKeys = Object.keys(changeListInputSchema.shape);
-      expect(shapeKeys).not.toContain('project_root');
-      expect(shapeKeys).not.toContain('projectRoot');
+      expect(shapeKeys).toContain('project_root');
+      expect(changeListInputSchema.safeParse({}).success).toBe(false);
+      expect(changeListInputSchema.safeParse({ project_root: project.root }).success).toBe(true);
 
+      // CLI/command helper takes a positional root string — not MCP schema args
       const result = runChangeList(project.root);
       expect(result.project_root).toBe(project.root);
       expect(changeNames(result)).toContain('schema-contract');
@@ -484,7 +486,7 @@ describe('runChangeList — CLI vs MCP schema 契约', () => {
     }
   });
 
-  it('changeListOutputSchema.safeParse(runChangeList(...)) 成功，且解析后的 project_root 等于命令使用的根 (AC-6/AC-7)', () => {
+  it('changeListOutputSchema.safeParse(runChangeList(...)) 成功，且解析后的 project_root 等于命令使用的根 (AC-11)', () => {
     const project = createTempProject();
     try {
       writeChange(project.changesDir, 'output-schema');
@@ -501,13 +503,11 @@ describe('runChangeList — CLI vs MCP schema 契约', () => {
     }
   });
 
-  it("changeListInputSchema.safeParse({ project_root: '/x' })：若 strip 成功则解析 data 无 project_root 键；若 strict 失败则 success === false（不得把 input 字段当作 CLI 选项来源）(AC-4)", () => {
+  it("changeListInputSchema.safeParse({ project_root: '/x' }) 成功且保留 project_root（MCP 必填字段，不得 strip）(AC-2)", () => {
     const parsed = changeListInputSchema.safeParse({ project_root: '/x' });
+    expect(parsed.success).toBe(true);
     if (parsed.success) {
-      expect(parsed.data).not.toHaveProperty('project_root');
-      expect(Object.keys(parsed.data)).not.toContain('project_root');
-    } else {
-      expect(parsed.success).toBe(false);
+      expect(parsed.data).toHaveProperty('project_root', '/x');
     }
   });
 });

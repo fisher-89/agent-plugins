@@ -1,6 +1,9 @@
 import { z } from 'zod/v4';
 
+import { projectRootSchema } from './public/project-root.schema';
+
 export const archiCheckInputSchema = z.object({
+  project_root: projectRootSchema,
   staged: z.boolean().optional().describe('Check git staged files'),
   files: z.string().optional().describe('Comma-separated file list to check'),
 });

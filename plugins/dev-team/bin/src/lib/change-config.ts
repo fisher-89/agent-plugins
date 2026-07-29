@@ -1,14 +1,12 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { isPlainObject } from '../utils';
 import { getChangeDir } from './change';
+import { getProjectDir } from './project-root';
 
 const WORKFLOW_JSON = 'workflow.json';
 const DEFAULT_WORKFLOW_TYPE = 'requirement';
-
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
 
 /**
  * Read and parse `openspec/changes/<change>/workflow.json`.
@@ -16,7 +14,7 @@ function isPlainObject(value: unknown): value is Record<string, unknown> {
  * Throws a readable error when JSON is invalid.
  */
 function readWorkflowConfig(change: string): Record<string, unknown> {
-  const filePath = path.join(getChangeDir(change), WORKFLOW_JSON);
+  const filePath = path.join(getChangeDir(change, getProjectDir()), WORKFLOW_JSON);
   if (!fs.existsSync(filePath)) {
     return {};
   }

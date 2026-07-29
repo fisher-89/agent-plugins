@@ -1,0 +1,619 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked R1–R11 on proposal.md + 3 specs (mcp-project-root, config-get, test-path-resolver). Problem/motivation concrete; scope/ACs/risks/decisions complete; no TODOs; CLAUDE.md version bump honored; caps↔specs 1:1; ACs map to requirements. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节列 Cursor multi_root 全失败、子目录工作区不得向上 walk、共享 .mcp.json 禁 ${workspaceFolder}/未展开 CLAUDE_PROJECT_DIR，动机具体非泛泛改进。"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（project-root.ts/mcp.ts/schemas/.mcp.json/版本与重建）、### 测试文件（project-root.test.ts/mcp.test.ts 等）、### 不要修改；前两者非空。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "6 条风险均有非空缓解：文案+重启清空、全参全同门槛、normalize+测试、按新 API 重写测试、schema 必填+skill 填参等，非仅“监控并调整”。"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-1..AC-11 均对象+条件（如 AC-2 schema required 省略失败；AC-5 同全参 force；AC-8 禁用 cwd），可测。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "过程/决策表 6 行均有理由与备选（硬锁/[0]、删除 project_root、独立 force、M-hint、CLI 同样禁 cwd、向上找 git）。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "含升级 package.json version + node scripts/build-plugins.mjs；skill 不嵌状态机仅按 schema 填参，符合 slim 架构。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal/specs 全文无 TODO/TBD/placeholder/{{...}}；待决问题为 design 细化项非空模板。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案（行为模型/决策/API）、变更范围、验收标准、风险均有实质内容。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 下 ### 修改的能力 列 mcp-project-root、config-get、test-path-resolver 三条非空。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "三条修改能力分别对应 specs/mcp-project-root、config-get、test-path-resolver/spec.md；无多余 spec。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "均为修改能力；config-get/test-path-resolver 为 MODIFIED；mcp-project-root REMOVED+ADDED 对齐取消硬锁；AC-1..11 在 scenarios/requirements 有对应；范围与禁 cwd/list_changed 一致。"
+      }
+    ],
+    "timestamp": "2026-07-29T06:11:48.021Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS. design.md+tasks.md cover AC-1..11: candidates/pending/force, required project_root schemas, no cwd MCP, call-scoped root, .mcp.json, version bump. Components/deps/data models filled; tasks phased 1→5 actionable, no test tasks; change list matches proposal impl files.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表6项均有职责/依赖/技术/路径；技术为TypeScript/JSON/MCP SDK，无TBD；核心路径指向project-root.ts、mcp.ts、schemas、.mcp.json、package.json"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "数据模型表含candidates/pending/call-scoped/错误载荷等，均填字段与持久化（进程内存或无）"
+      },
+      {
+        "item": "设计覆盖proposal.md中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1采集无锁、AC-2必填schema、AC-3∈放行、AC-4/5/6/7 pending-force、AC-8禁cwd、AC-9无realpath、AC-10配置、AC-11 CLI分离均有对应设计"
+      },
+      {
+        "item": "tasks.md存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md分阶段1 lib→2 schemas→3 mcp→4升版重建→5自检；前置不依赖后续"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "任务为删除锁API、实现collect/resolve/runWithCallScopedRoot、各schema加必填字段等具体操作，非空泛“实现功能”"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时列MCP SDK/fs/path/zod；构建列vite-plus与build-plugins.mjs；无新增npm包"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "改插件源码后升版并build-plugins；MCP工具契约变更，符合slim plugin+hooks/agents模式，无矛盾"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件/变更清单(修改文件齐全)/数据模型/路由API(MCP)/依赖/待决问题均有实质内容"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design注明测试属测试阶段不列；tasks无单元/集成测试任务，阶段5仅为实现自检不含写测试"
+      },
+      {
+        "item": "变更清单完整且与tasks一致",
+        "pass": true,
+        "evidence": "变更清单覆盖proposal实现文件全部条目；tasks引用文件均在清单中；新增API均在公共函数子表列出"
+      }
+    ],
+    "timestamp": "2026-07-29T06:18:28.142Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL T3. AC-1..11 mapped; unit↔integration sections align; mocks/scope/format OK. T3: getProjectDir has no 异常; toolName string edges (\"\"/超长/特殊/None) incomplete; runWithCallScopedRoot.projectRoot lacks systematic string boundaries; several 测试对象 groups are 正向-only.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-11 均在 test-design ## 验收范围出现；条件与 proposal 验收标准表一致（重复行用「同上」）。"
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "单元：project-root.ts/mcp.ts 均有 ### source -> test 章。集成 AC-1/2/3/4/5/6/8/9 均出现在关系 **关联AC**；三关系关联AC 均在验收范围存在。"
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": false,
+        "evidence": "getProjectDir 仅正向+边界无异常；resolve 的 toolName 未覆盖 \"\"/超长/特殊字符/None；runWithCallScopedRoot 的 projectRoot 缺系统化字符串边界；多组测试对象仅正向。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "project-root/mcp 单元含 McpServerLike、env、fs、stderr、fakeTimers、vi.mock(project-root)；集成含 roots handler、env、temp 项目。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围/单元(待测功能·用例·Mock)/集成(涉及模块·关联AC·关系描述·场景)/不可测试项均有实质内容，非占位。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in-scope（collect/resolve/force/schema/.mcp.json/CLI 分离）有对应用例；out-of-scope（list_changed、skill 状态机、真实 IDE、升版构建）在不可测试项或负向断言，无越界覆盖。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal 无 API/DB 写接口；进程内 force/candidates 有二次 collect 幂等与 force 后第三次直接放行，无副作用累积断言。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "验收范围列与模板一致；单元 ### a -> b + 待测功能/用例/Mock 列名正确；集成 ### … → `test.ts`、涉及模块、关联AC、关系描述、场景与用例列名符合 T8-U/I。"
+      }
+    ],
+    "timestamp": "2026-07-29T06:23:36.719Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "FAIL T8: 验收范围 has 4 cols (被测文件或模块) not required 5 (测试文件|测试对象/测试场景) per T8-G1. T1–T7 pass: AC-1..11 mapped; unit headings match; 异常/边界+string edges covered; Mock策略 present; in/out scope OK; collect/force idempotency covered.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-11 all appear in test-design ## 验收范围 rows (lines 11–30)."
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "Unit sources project-root.ts/mcp.ts match ### ... -> ... headings. Integration ACs AC-1..6,8,9 each appear in 关联AC; 关联AC IDs exist in 验收范围."
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "Each active test object has ≥1 异常; string params (project_root/toolName/CLAUDE/WORKSPACE) cover \"\", >1000, special chars, None per mapping."
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Mock tables cover MCP server/roots, process.env, temp fs, vi.mock project-root, InMemoryTransport (unit+integration)."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围/单元测试(待测功能|用例|Mock策略)/集成测试/不可测试项 all filled with non-placeholder content."
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "out_of_scope (list_changed, skill state machine, walk git) in 不可测试项 or negative asserts; in_scope ACs covered; version/build noted untestable."
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "candidates/pending writes: collect idempotent merge case; force then third call ∈ candidates; pending cleared after success (AC-5/7)."
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": false,
+        "evidence": "T8-G1 fail: ## 验收范围 header is AC ID|验收条件|测试类型|被测文件或模块 (4 cols); required AC ID|验收条件|测试类型|测试文件|测试对象/测试场景 (5 cols). Unit/integration ### structure otherwise OK."
+      }
+    ],
+    "timestamp": "2026-07-29T06:28:15.343Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 3,
+    "verdict": "fail",
+    "report": "FAIL T3: list/array params (WORKSPACE segments, roots[]) lack 超大列表 edge; 测试对象「collectProjectRootCandidates — 边界」「resolveProjectRootForTool — 无 realpath」无异常行. T1/T2/T4–T8 pass: AC-1..11 mapped; unit headings project-root/mcp; IT 关联AC cover AC-1..9; Mock for env/roots/fs; sections complete; scope OK; collect幂等; T8 format OK.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-11 均出现在 test-design.md ## 验收范围（L11–L34），条件摘录/同上与 proposal L143–L153 一致"
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "单元：验收范围指向 project-root.test.ts / mcp.test.ts，对应 ### … -> … 章节（L42、L168）。集成：三关系 关联AC 覆盖 AC-1..9；验收范围集成行 AC-1..9 均出现在某关系 关联AC"
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": false,
+        "evidence": "list/array（WORKSPACE 分段、roots[]）缺「超大列表」边界。测试对象「collectProjectRootCandidates — 边界」(L72–79)与「resolveProjectRootForTool — 无 realpath」(L117)无路径类型=异常用例，不满足每测试对象至少一异常"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal 依赖 env/roots/fs/.mcp.json；unit Mock策略表（L154–164、L216–221）与集成场景 Mock（env、ListRoots、temp、InMemoryTransport）已描述"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "含验收范围/单元测试/集成测试/不可测试项；两 unit 文件均有 #### 待测功能/用例/Mock策略；集成 Mock 缺失处用注释说明（L280、L362）"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "out_of_scope（list_changed 热刷新、skill 状态机、walk git）在不可测试项或负向断言；in_scope AC 与 project-root/mcp/集成文件均有覆盖；版本重建标不可测"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "候选合并属进程内写：L83 二次 collect 同输入幂等；force 后第三次直接 ∈（L323）无重复副作用累积；无独立 DB API 写契约"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8：验收范围5列；### src -> test；待测功能列表；用例/Mock列名正确；集成 ### … → `test.ts`；涉及模块≥2行；关联AC/关系描述/场景/用例列合规"
+      }
+    ],
+    "timestamp": "2026-07-29T06:31:44.734Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 4,
+    "verdict": "fail",
+    "report": "T1–T7 pass: AC-1..11 mapped; unit/integration cross-links OK; exception/boundary dense; mocks for env/roots/fs; scope matches proposal; collect/force idempotency covered. T8 fail: scenes「∉候选拒绝」「全工具省略」keep ##### Mock策略 but only HTML comments—no Mock主体|Mock方案|应用场景 table (T8-I8). Fix: add tables or omit heading per template.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-11 均在`## 验收范围`出现；条件与 proposal 验收标准表一致（如 AC-1 只采候选/无 requireLocked，AC-5 force，AC-8 禁 cwd）。"
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "单元：project-root.test.ts 与 mcp.test.ts 均有 `### src -> test` 章节。集成：三关系关联AC⊆验收范围；AC-1..9 集成行均出现在某关系关联AC（Rel1/Rel2/Rel3）。"
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "各测试对象含异常行；string/list/dict 边界含 \"\"、超长>1000、\\n/emoji、空/超大 WORKSPACE|roots、args 缺字段/多余 key、toolName 边界等。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal 涉及 roots/env/fs/.mcp.json；project-root 与 mcp 单元 Mock 表及集成场景覆盖 McpServerLike、env、temp、InMemoryTransport、vi.mock(project-root)。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、两处单元（待测功能/用例/Mock策略）、三集成关系、不可测试项均有实质内容，非占位。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "out_of_scope（list_changed、skill 状态机、walk git、独立 force 字段）无正向覆盖；in_scope AC 与实现文件均有对应用例；版本/真实 IDE 列入不可测试项。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "候选/pending 状态写：二次 collect 幂等边界；force 后第三次∈放行；无独立 DB API，进程内写已覆盖重复调用一致。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": false,
+        "evidence": "T8-I8：场景「∉ 候选拒绝且无 cwd 副作用」「全工具省略 project_root 均失败」有 ##### Mock策略 但仅 HTML 注释、无三列表；模板要求有表或省略该小节。其余 T8-U/G/I 标题与列名合规。"
+      }
+    ],
+    "timestamp": "2026-07-29T06:35:13.296Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 5,
+    "verdict": "pass",
+    "report": "T1–T8 all pass. AC-1..11 mapped in 验收范围; unit headings cover project-root.test.ts + mcp.test.ts; integration 关联AC cover AC-1..9. Exception/boundary per describe + string/list/None edges for project_root/toolName/candidates. Mock for MCP roots/env/fs/.mcp.json. Sections complete; out_of_scope excluded; collect/force idempotency present. Format matches T8-U/I/G.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-11 均出现在 test-design ## 验收范围（多行映射单元/集成）"
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "单元：project-root.test.ts / mcp.test.ts 均有 ### source -> test；集成 AC-1..9 均出现在三组关系 **关联AC**；关联AC 均在验收范围存在"
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "各非废弃 describe 含异常；project_root/toolName 覆盖 \"\"/超长/特殊字符/None；candidates 覆盖 []/单元素/≥100；env/listRoots 失败与超时边界齐全"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "project-root Mock：McpServerLike/listRoots、env、temp fs、stderr、fakeTimers、cwd；mcp Mock：vi.mock project-root、InMemoryTransport、.mcp.json 读取；集成含 roots handler/env/temp"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、两处单元（待测功能/用例/Mock策略）、三组集成关系与场景、不可测试项均有实质内容"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope AC-1..11 有覆盖；out_of_scope（list_changed/walk git/独立 force/LikeC4/skill 状态机）未当新能力测，或列为不可测试/负向断言"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "无 API/DB CRUD；进程内写 candidates/pending：二次 collect 幂等、force 后第三次直放行、成功/force 清 pending，覆盖状态写幂等"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1..U5/I1..I8/G1：### source -> test；待测功能列表；用例/Mock 列名正确；集成 ### … → `test.ts`；涉及模块≥2行；关联AC/关系描述/场景叙事齐全"
+      }
+    ],
+    "timestamp": "2026-07-29T06:37:30.741Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL I6: core impl matches design (project-root candidates/pending/force, mcp withResolvedProjectRoot, schemas project_root, v2.10.5 rebuild). Unrelated broken edit in project-root.test.ts (syntax error; design excludes tests from implement).",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "project-root.ts candidates/resolve/call-scope; mcp.ts collect+withResolvedProjectRoot; 11 schemas; .mcp.json; package 2.10.5 + dual rebuild"
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "All listed files/APIs present: collectProjectRootCandidates, resolveProjectRootForTool, runWithCallScopedRoot, getProjectRootCandidates; lock APIs removed from prod"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS layout/imports/zod.describe match existing schemas and mcp.ts patterns"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "All MCP tools use required project_root + withResolvedProjectRoot; no HTTP routes in design"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md phases 1–5: all checkboxes [x]"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": false,
+        "evidence": "project-root.test.ts L1334 broken: expect(path.isAbsolute(cached).toBe(true); design excludes test edits from implement"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "No cwd/list_changed/force field/len==1 lock; pending force; normalize no realpath; JSON errors; getProjectDir CLI order"
+      }
+    ],
+    "timestamp": "2026-07-29T06:42:08.920Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS. Candidates+pending/force in project-root.ts; mcp.ts withResolvedProjectRoot+collect; all 11 schemas require project_root; .mcp.json clean; v2.10.5+dual rebuild. Lock APIs removed from prod. Decisions (normalize, force_hint JSON, 2000ms roots, call-scoped getProjectDir) covered.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "project-root.ts: candidates/pending/callScoped+collect/resolve/runWithCallScopedRoot; mcp.ts connect collect+handlers; 11 schemas; package 2.10.5; dual products rebuilt"
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "Diff covers project-root.ts, mcp.ts, all listed schemas, .mcp.json (no workspaceFolder/CLAUDE env), package.json 2.10.5, claude/cursor bundles"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "zod/v4 schemas, MCP handler patterns, node:fs/path imports match existing style"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "All MCP tools (phase_*/archi_*/config_get/change_list/test_*/backtrack) use required project_root + withResolvedProjectRoot; no HTTP routes"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–5: all checkboxes [x]"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Core diffs map to design list+rebuild; dual agent/template sync from rebuild; project-root.test.ts 1-line assertion only (no behavior)"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "No cwd candidates; no list_changed; no force field; normalize w/o realpath; pending key+force_hint; resolve JSON errors; getProjectDir CLI order"
+      }
+    ],
+    "timestamp": "2026-07-29T06:44:39.564Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS: project-root.test.ts (92 its), mcp.test.ts (~30 design its), mcp-workspace-root.test.ts (16 design its). All 新增 skeletons present with matching describe/it; mocks (vi.mock/env/temp/fakeTimers/cwd); vite-plus/test; afterEach cleanup; 废弃 lock cases removed not regenerated.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "project-root.ts→project-root.test.ts; mcp.ts→mcp.test.ts; schemas covered via mcp.test.ts per design 不可测试项"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "*.test.ts colocated under bin/src/lib and bin/src; integration at __tests__/mcp-workspace-root/"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "project-root 92/92 新增 its; mcp design describes (connect/schema/handlers/.mcp.json) all present with it skeletons"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "mcp-workspace-root.test.ts: 多候选/∉候选/force/省略project_root 四场景 16/16 新增 its"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "createMockServer; env save/restore; vi.resetModules; fakeTimers; cwd/stderr spies; vi.mock(project-root); InMemoryTransport; ListRoots handler"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All three files import describe/it/expect/vi from vite-plus/test"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "Boundary its for string/empty/long/emoji/toolName/symlink/trailing-sep/Windows case present in project-root + mcp schema"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach restoreEnv+rmSync temps; mockRestore/restoreAllMocks; pair.close(); useRealTimers"
+      },
+      {
+        "item": "迭代类型=废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "旧 lock/getMcpCached/requireLocked/无参成功 describes removed; only negative not.toHaveProperty asserts remain"
+      }
+    ],
+    "timestamp": "2026-07-29T06:52:44.668Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 1217 个测试通过",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "所有必需字段存在且类型正确: phase, command, timestamp, total=1217, passed=1217, failed=0, skipped=0, coverage(object), duration_seconds=99"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0 且 total=1217 > 0"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=94.59%, branches=84.19%, functions=97.95%"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-07-29T07:05:00.437Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "C1–C7 pass. Lock removed; candidates+pending/force+call-scoped match design. Schemas require project_root; resolve validates abs/exists/no ${}; MCP no cwd; .mcp.json clean; v2.10.5. Tests: project-root/mcp/mcp-workspace-root. No design contradictions.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "project-root.ts:90-101/225-263: abs+exists+reject ${}; no eval/exec/secrets; force is intentional AC-6 gate; error JSON via JSON.stringify (mcp.ts:64)"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "All 11 schemas add required project_root z.string(); resolveProjectRootForTool re-validates type/usable path before I/O (project-root.ts:226-237)"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "collect-only post-connect (mcp.ts:329-330); withResolvedProjectRoot+call-scoped (77-92); lock APIs gone; no list_changed; CLI getProjectDir cwd fallback (298-310); pkg 2.10.5"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "null/non-string project_root→invalid_path no pending (227-230); empty candidates force escape (247-252); roots timeout/fail skip (352-365); runWithCallScopedRoot finally clears async (270-285)"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "requireLocked/getMcpCached/LockError removed; initProjectRootFromMcp thin alias per design (398-400); no leftover lock refs in src"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Naming/structure match prior module; zod describe text matches design; dual-product rebuild+version bump present"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "McpServerLike from SDK Pick (project-root.ts:8); zod/v4 schemas shared; RootsListResult mirrors listRoots shape"
+      }
+    ],
+    "timestamp": "2026-07-29T07:06:24.633Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Acceptance PASS. tasks.md all [x]. AC-1..11 evidenced: collectCandidates+no lock (project-root.ts:385-393,mcp.ts:329-330); required project_root schemas; ∈/pending/force/empty-escape (resolve 225-263); FORCE_HINT; no cwd in MCP resolve; no git/openspec walk; .mcp.json clean; getProjectDir cwd CLI-only. Out-of-scope absent (no list_changed/force field/set tool). Risks mitigated via hint+normalize+tests.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1 collectProjectRootCandidates+no requireLocked project-root.ts:385-393,mcp.ts:329-330; AC-2 schemas *.schema.ts project_root z.string(); AC-3..7 resolveProjectRootForTool:225-263 + FORCE_HINT:17-18; AC-8 no cwd in resolve; AC-9 normalize no realpath:107; AC-10 .mcp.json no workspaceFolder; AC-11 getProjectDir:298-310 cwd CLI"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Diff limited to project-root.ts/mcp.ts/schemas/tests/.mcp.json/package 2.10.5/dual rebuild + agent schema fill; no new MCP tools or list_changed"
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "candidates+pending/force; schemas required project_root; withResolvedProjectRoot mcp.ts:77-92; version 2.10.5; build products; lock API deleted (tests assert no requireLocked)"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "No list_changed handler (mcp.test); no force field/set-resolve tools; no git/openspec walk; CLI projectRoot retained; .mcp.json no ${workspaceFolder}/unexpanded CLAUDE for dev-team"
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "FORCE_HINT:17-18; pending full-args key:203-205; empty-escape 2-call:247-254; win normalize+case key:107-131; lock tests rewritten mcp-workspace-root/; schema required blocks omit"
+      }
+    ],
+    "timestamp": "2026-07-29T07:07:40.540Z"
+  }
+]

@@ -1,6 +1,9 @@
 import { z } from 'zod/v4';
 
+import { projectRootSchema } from './public/project-root.schema';
+
 export const archiValidateInputSchema = z.object({
+  project_root: projectRootSchema,
   source: z
     .string()
     .optional()

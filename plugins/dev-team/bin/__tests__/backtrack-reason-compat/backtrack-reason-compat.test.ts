@@ -93,6 +93,8 @@ vi.mock('../../src/lib/change', () => ({
 
 import { runPhaseNext } from '../../src/commands/phase-next';
 
+const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
+
 // Module-level variable to control what readEvalJson returns
 let actualReadEntries: Array<Record<string, unknown>> = [];
 
@@ -127,9 +129,11 @@ describe('backtrack-reason-compat — 向后兼容 (AC-6)', () => {
   it('读取不含 backtrack_reason 字段的旧格式 eval.json，phase_next 正常返回不抛错', () => {
     actualReadEntries = [...oldFormatEntries];
 
-    expect(() => runPhaseNext({ change: 'test-change' })).not.toThrow();
+    expect(() =>
+      runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT }),
+    ).not.toThrow();
 
-    const result = runPhaseNext({ change: 'test-change' });
+    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
     expect(result.error).toBeNull();
     // Should backtrack to proposal (from old-format test-design)
     expect(result.next_phase).toBe('proposal');
@@ -138,7 +142,7 @@ describe('backtrack-reason-compat — 向后兼容 (AC-6)', () => {
   it('混合新旧格式条目，回溯时 prompt 不拼接 ⚠️ 回溯原因:', () => {
     actualReadEntries = [...mixedFormatEntries];
 
-    const result = runPhaseNext({ change: 'test-change' });
+    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
 
     // Latest entry is test-execution with backtrack_to: code-analyze
     // But the actual backtrack entries in the old format had no backtrack_reason
@@ -155,7 +159,7 @@ describe('backtrack-reason-compat — 向后兼容 (AC-6)', () => {
     // Only use old-format entries (no backtrack_reason anywhere)
     actualReadEntries = [...oldFormatEntries];
 
-    const result = runPhaseNext({ change: 'test-change' });
+    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
 
     // Should still backtrack to proposal (backtrack_to is present)
     expect(result.next_phase).toBe('proposal');

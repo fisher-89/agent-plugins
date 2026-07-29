@@ -435,7 +435,7 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
   }
 
   const change = options.change;
-  const changeDir = getChangeDir(change);
+  const changeDir = getChangeDir(change, options.project_root);
   if (!fs.existsSync(changeDir)) {
     throw new Error(`Change "${change}" does not exist: ${changeDir}`);
   }

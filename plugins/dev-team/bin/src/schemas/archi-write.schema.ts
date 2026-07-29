@@ -1,6 +1,9 @@
 import { z } from 'zod/v4';
 
+import { projectRootSchema } from './public/project-root.schema';
+
 export const archiWriteInputSchema = z.object({
+  project_root: projectRootSchema,
   path: z.string().describe('Target file path within models/ directory (required)'),
   source: z.string().describe('DSL text to write (required)'),
 });

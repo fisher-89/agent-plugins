@@ -2,6 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { configSchema, type OpenSpecConfig, type OpenSpecConfigInput } from '../schemas/';
+import { isPlainObject } from '../utils';
 
 const CONFIG_FILE = 'openspec/config.json';
 
@@ -22,10 +23,6 @@ const CONFIG_FILE = 'openspec/config.json';
  * written as JSON, and the YAML file is deleted.  If validation fails the
  * error propagates and the YAML file is preserved.
  */
-function isPlainObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
-}
-
 export function readConfig(projectRoot: string): OpenSpecConfig {
   const jsonPath = path.join(projectRoot, CONFIG_FILE);
 

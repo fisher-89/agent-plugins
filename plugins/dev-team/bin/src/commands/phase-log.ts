@@ -38,7 +38,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   validateVerdict(verdict, options.skipped === true);
   validateReportLength(options.report);
 
-  const changeDir = getChangeDir(options.change);
+  const changeDir = getChangeDir(options.change, options.project_root);
 
   let entries: EvalEntry[];
   try {

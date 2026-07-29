@@ -45,6 +45,8 @@ import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, writeEvalJson, type EvalEntry } from '../lib/eval-json';
 import { runBacktrack } from './backtrack';
 
+const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
+
 // ---------------------------------------------------------------------------
 // Helpers — construct eval.json entries for test scenarios
 // ---------------------------------------------------------------------------
@@ -105,6 +107,7 @@ beforeEach(() => {
 describe('runBacktrack — 正常回溯操作', () => {
   it('runBacktrack 修改指定 phase 最新 entry 的 backtrack_to 为 "test-gen"，backtrack_reason 为指定原因', () => {
     const result = runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -122,6 +125,7 @@ describe('runBacktrack — 正常回溯操作', () => {
 
   it('修改后 entry 的 backtrack_to 和 backtrack_reason 字段值正确', () => {
     runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -136,6 +140,7 @@ describe('runBacktrack — 正常回溯操作', () => {
 
   it('返回 { modified: true, phase, target }', () => {
     const result = runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -151,6 +156,7 @@ describe('runBacktrack — 正常回溯操作', () => {
 
   it('标记目标 phase test-gen 的最新 pass entry 为 stale: true', () => {
     runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -176,6 +182,7 @@ describe('runBacktrack — 正常回溯操作', () => {
     vi.mocked(readEvalJson).mockReturnValue(entries);
 
     runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -209,6 +216,7 @@ describe('runBacktrack — 正常回溯操作', () => {
     vi.mocked(readEvalJson).mockReturnValue(entries);
 
     const result = runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -241,6 +249,7 @@ describe('runBacktrack — 目标合法性验证', () => {
     vi.mocked(readEvalJson).mockReturnValue(entries);
 
     const result = runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-execution',
@@ -259,6 +268,7 @@ describe('runBacktrack — 目标合法性验证', () => {
   it('backtrack_to 在当前 phase 之后时抛出错误（AC-3）', () => {
     expect(() =>
       runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'test-gen',
         backtrack_to: 'acceptance',
@@ -270,6 +280,7 @@ describe('runBacktrack — 目标合法性验证', () => {
   it('backtrack_to 不在 phase 表中时抛出错误', () => {
     expect(() =>
       runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'test-execution',
         backtrack_to: 'nonexistent-phase',
@@ -285,6 +296,7 @@ describe('runBacktrack — 目标合法性验证', () => {
 
     expect(() =>
       runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'non-existent-change',
         phase: 'test-execution',
         backtrack_to: 'test-gen',
@@ -296,6 +308,7 @@ describe('runBacktrack — 目标合法性验证', () => {
   it('phase 不在 phase 表中时抛出错误', () => {
     expect(() =>
       runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'invalid-phase',
         backtrack_to: 'test-gen',
@@ -313,6 +326,7 @@ describe('runBacktrack — 目标合法性验证', () => {
 
     // test-gen 无任何 entry — markPhaseStale 视为 no-op，不应报错
     const result = runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -339,6 +353,7 @@ describe('runBacktrack — 目标合法性验证', () => {
     // 回溯到 test-gen 时，没有 pass entry 可标记 stale，但不应是错误
     // markPhaseStale 对无 pass entry 的情况是 no-op
     const result = runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',
@@ -360,6 +375,7 @@ describe('runBacktrack — 目标合法性验证', () => {
 describe('runBacktrack — 幂等性', () => {
   it('连续调用两次 backtrack 结果一致（第二次覆盖第一次的设置）', () => {
     const opts = {
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       backtrack_to: 'test-gen',

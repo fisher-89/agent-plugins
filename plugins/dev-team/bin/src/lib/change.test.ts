@@ -1,16 +1,14 @@
 /**
  * 单元测试: getChangeDir 路径拼接
  *
- * 覆盖 MCP 缓存已设置时间接受益于 getProjectDir 的路径解析（AC-1~AC-3）。
+ * 覆盖 call-scoped / CLAUDE_PROJECT_DIR 经 getProjectDir 的路径解析。
  *
- * @see openspec/changes/mcp-project-root-lock/test-design.md
- * @see openspec/changes/mcp-project-root-lock/design.md
+ * @see openspec/changes/mcp-workspace-root/test-design.md
  */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
-import { pathToFileURL } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
@@ -43,45 +41,6 @@ function clearProjectEnv(): void {
 }
 
 // ===========================================================================
-// getChangeDir — MCP 缓存已设置时路径拼接
-// ===========================================================================
-
-describe('getChangeDir — MCP 缓存已设置时路径拼接', () => {
-  let savedEnv: ReturnType<typeof saveEnv>;
-  let tempRoot: string | undefined;
-
-  beforeEach(() => {
-    savedEnv = saveEnv();
-    clearProjectEnv();
-    vi.resetModules();
-  });
-
-  afterEach(() => {
-    restoreEnv(savedEnv);
-    if (tempRoot) {
-      fs.rmSync(tempRoot, { recursive: true, force: true });
-      tempRoot = undefined;
-    }
-  });
-
-  it('MCP 缓存为 /workspace/project 时 getChangeDir 应拼接 openspec/changes/<name> (AC-1~AC-3)', async () => {
-    tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'change-mcp-cache-'));
-    const { initProjectRootFromMcp } = await import('./project-root');
-    const { getChangeDir } = await import('./change');
-    const server = {
-      getClientCapabilities: () => ({ roots: { listChanged: false } }),
-      listRoots: async () => ({ roots: [{ uri: pathToFileURL(tempRoot!).href }] }),
-    };
-
-    await initProjectRootFromMcp(server);
-
-    expect(getChangeDir('my-change')).toBe(
-      path.resolve(tempRoot, 'openspec', 'changes', 'my-change'),
-    );
-  });
-});
-
-// ===========================================================================
 // getChangeDir — 无 MCP 缓存时回退
 // ===========================================================================
 
@@ -109,7 +68,7 @@ describe('getChangeDir — 无 MCP 缓存时回退', () => {
 
     const { getChangeDir } = await import('./change');
 
-    expect(getChangeDir('my-change')).toBe(
+    expect(getChangeDir('my-change', tempRoot)).toBe(
       path.resolve(tempRoot, 'openspec', 'changes', 'my-change'),
     );
   });

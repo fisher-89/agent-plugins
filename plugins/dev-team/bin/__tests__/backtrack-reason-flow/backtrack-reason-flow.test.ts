@@ -42,6 +42,8 @@ import { runBacktrack } from '../../src/commands/backtrack';
 import { runPhaseLog } from '../../src/commands/phase-log';
 import { runPhaseNext } from '../../src/commands/phase-next';
 
+const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
+
 const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'none' }];
 const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
 
@@ -86,6 +88,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     // Step 1: pass phases up to test-design
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'proposal ok',
@@ -94,6 +97,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
 
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'code-analyze',
       report: 'analysis ok',
@@ -103,6 +107,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     // Step 2: log fail, then call backtrack separately
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-design',
       report: 'test design needs redo',
@@ -111,6 +116,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
 
     // Use the standalone backtrack tool instead of passing backtrack_to to phase_log
     runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-design',
       backtrack_to: 'proposal',
@@ -118,7 +124,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     });
 
     // Step 3: phase_next should return proposal with reason in prompt
-    const result = runPhaseNext({ change: 'test-change' });
+    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
 
     expect(result.next_phase).toBe('proposal');
     expect(result.error).toBeNull();
@@ -130,6 +136,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     // Track 1: backtrack to proposal
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'proposal ok',
@@ -138,6 +145,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
 
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'code-analyze',
       report: 'analysis ok',
@@ -146,6 +154,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
 
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-design',
       report: 'needs redo',
@@ -153,19 +162,21 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     });
 
     runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-design',
       backtrack_to: 'proposal',
       backtrack_reason: '第一阶段回溯：范围定义不清',
     });
 
-    let result = runPhaseNext({ change: 'test-change' });
+    let result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
     expect(result.next_phase).toBe('proposal');
     expect(result.executor!.prompt).toContain('第一阶段回溯：范围定义不清');
 
     // Re-pass proposal with backtrack
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'proposal redo ok',
@@ -175,6 +186,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     // Track 2: backtrack to code-analyze
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'code-analyze',
       report: 'needs redo',
@@ -182,13 +194,14 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     });
 
     runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'code-analyze',
       backtrack_to: 'proposal',
       backtrack_reason: '第二阶段回溯：代码分析不充分',
     });
 
-    result = runPhaseNext({ change: 'test-change' });
+    result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
     expect(result.next_phase).toBe('proposal');
     expect(result.executor!.prompt).toContain('第二阶段回溯：代码分析不充分');
     expect(result.executor!.prompt).not.toContain('第一阶段回溯');
@@ -197,6 +210,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
   it('executor 和 evaluator 的 prompt 均包含 ⚠️ 回溯原因: 前缀', () => {
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'proposal ok',
@@ -205,6 +219,7 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
 
     advanceTime();
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'code-analyze',
       report: 'test design needs redo',
@@ -212,13 +227,14 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     });
 
     runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'code-analyze',
       backtrack_to: 'proposal',
       backtrack_reason: '需重新审视 proposal',
     });
 
-    const result = runPhaseNext({ change: 'test-change' });
+    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
 
     expect(result.executor!.prompt).toMatch(/⚠️ 回溯原因:/);
     expect(result.evaluator!.prompt).toMatch(/⚠️ 回溯原因:/);

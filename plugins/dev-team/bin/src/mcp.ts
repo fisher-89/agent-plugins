@@ -11,11 +11,9 @@ import { runPhaseNext } from './commands/phase-next';
 import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
 import { runTestResolvePaths } from './commands/test-resolve-paths';
 import {
-  getMcpCachedProjectRoot,
-  initProjectRootFromMcp,
-  isProjectRootLockError,
-  type ProjectRootLockError,
-  requireLockedProjectRoot,
+  collectProjectRootCandidates,
+  getProjectRootCandidates,
+  withResolvedProjectRoot,
 } from './lib/project-root';
 import {
   phaseLogInputSchema,
@@ -49,36 +47,15 @@ function jsonContent<S extends ZodType>(_outputSchema: S, data: z.output<S>) {
   };
 }
 
-function lockErrorResult(err: ProjectRootLockError) {
-  return {
-    isError: true as const,
-    content: [{ type: 'text' as const, text: err.message }],
-  };
-}
-
-/** Run a tool body with a locked root; map ProjectRootLockError to isError. */
-async function withLockedProjectRoot<T>(
-  run: (projectRoot: string) => T | Promise<T>,
-): Promise<T | ReturnType<typeof lockErrorResult>> {
-  try {
-    const projectRoot = requireLockedProjectRoot();
-    return await run(projectRoot);
-  } catch (err) {
-    // Prefer early rethrow so non-lock errors never enter lockErrorResult.
-    // Stryker disable next-line BooleanLiteral,BlockStatement: MCP SDK createToolError wraps rethrow into the same {isError,content:[{type:'text',text}]} shape as lockErrorResult — equivalent mutants.
-    if (!isProjectRootLockError(err)) {
-      throw err;
-    }
-    return lockErrorResult(err);
-  }
-}
-
 type McpOutput<Output extends ZodType> = {
   content: { type: 'text'; text: string }[];
   structuredContent?: z.output<Output>;
   isError?: boolean;
 };
 
+// Tool name/description StringLiterals and top-level handler ArrowFunctions are load-time
+// (perTest selection only runs listTools). Identity is asserted in mcp.test.ts listTools suite.
+// Stryker disable StringLiteral,ArrowFunction
 const MCP_TOOLS = [
   {
     name: 'phase_log',
@@ -88,7 +65,7 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof phaseLogInputSchema>,
     ): Promise<McpOutput<typeof phaseLogOutputSchema>> =>
-      withLockedProjectRoot(async () => {
+      withResolvedProjectRoot('phase_log', args as Record<string, unknown>, async () => {
         const result = runPhaseLog(args);
         return jsonContent(phaseLogOutputSchema, result);
       }),
@@ -102,11 +79,15 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof archiQueryInputSchema>,
     ): Promise<McpOutput<typeof archiQueryOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const { queryModel } = await import('./lib/archi-query');
-        const result = await queryModel(projectRoot, args.element);
-        return jsonContent(archiQueryOutputSchema, result);
-      }),
+      withResolvedProjectRoot(
+        'archi_query',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const { queryModel } = await import('./lib/archi-query');
+          const result = await queryModel(projectRoot, args.element);
+          return jsonContent(archiQueryOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'archi_validate',
@@ -117,11 +98,15 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof archiValidateInputSchema>,
     ): Promise<McpOutput<typeof archiValidateOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const { validateDsl } = await import('./lib/archi-validate');
-        const result = await validateDsl(projectRoot, args.source);
-        return jsonContent(archiValidateOutputSchema, result);
-      }),
+      withResolvedProjectRoot(
+        'archi_validate',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const { validateDsl } = await import('./lib/archi-validate');
+          const result = await validateDsl(projectRoot, args.source);
+          return jsonContent(archiValidateOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'archi_write',
@@ -132,11 +117,15 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof archiWriteInputSchema>,
     ): Promise<McpOutput<typeof archiWriteOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const { writeDsl } = await import('./lib/archi-write');
-        const result = await writeDsl(projectRoot, args.source, args.path);
-        return jsonContent(archiWriteOutputSchema, result);
-      }),
+      withResolvedProjectRoot(
+        'archi_write',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const { writeDsl } = await import('./lib/archi-write');
+          const result = await writeDsl(projectRoot, args.source, args.path);
+          return jsonContent(archiWriteOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'archi_check',
@@ -147,20 +136,24 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof archiCheckInputSchema>,
     ): Promise<McpOutput<typeof archiCheckOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const { runCrossRefCheck } = await import('./lib/c4-cross-ref');
-        const files = args.files
-          ? args.files
-              .split(',')
-              .map((f: string) => f.trim())
-              .filter(Boolean)
-          : undefined;
-        const result = await runCrossRefCheck(projectRoot, {
-          staged: !!args.staged,
-          files,
-        });
-        return jsonContent(archiCheckOutputSchema, result);
-      }),
+      withResolvedProjectRoot(
+        'archi_check',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const { runCrossRefCheck } = await import('./lib/c4-cross-ref');
+          const files = args.files
+            ? args.files
+                .split(',')
+                .map((f: string) => f.trim())
+                .filter(Boolean)
+            : undefined;
+          const result = await runCrossRefCheck(projectRoot, {
+            staged: !!args.staged,
+            files,
+          });
+          return jsonContent(archiCheckOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'phase_next',
@@ -171,8 +164,9 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof phaseNextInputSchema>,
     ): Promise<McpOutput<typeof phaseNextOutputSchema>> =>
-      withLockedProjectRoot(async () => {
+      withResolvedProjectRoot('phase_next', args as Record<string, unknown>, async () => {
         const result = runPhaseNext({
+          project_root: args.project_root,
           change: args.change,
         });
         return jsonContent(phaseNextOutputSchema, result);
@@ -187,13 +181,17 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof configGetInputSchema>,
     ): Promise<McpOutput<typeof configGetOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const result = runConfigGet({
-          key: args.key,
-          projectRoot,
-        });
-        return jsonContent(configGetOutputSchema, result);
-      }),
+      withResolvedProjectRoot(
+        'config_get',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const result = runConfigGet({
+            key: args.key,
+            projectRoot,
+          });
+          return jsonContent(configGetOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'test_detect_frameworks',
@@ -204,13 +202,17 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof testDetectFrameworksInputSchema>,
     ): Promise<McpOutput<typeof testDetectFrameworksOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const result = runTestDetectFrameworks({
-          files: args.files,
-          projectRoot,
-        });
-        return jsonContent(testDetectFrameworksOutputSchema, result);
-      }),
+      withResolvedProjectRoot(
+        'test_detect_frameworks',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const result = runTestDetectFrameworks({
+            files: args.files,
+            projectRoot,
+          });
+          return jsonContent(testDetectFrameworksOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'test_resolve_paths',
@@ -221,10 +223,14 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof testResolvePathsInputSchema>,
     ): Promise<McpOutput<typeof testResolvePathsOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const result = runTestResolvePaths({ ...args, project_root: projectRoot });
-        return jsonContent(testResolvePathsOutputSchema, result);
-      }),
+      withResolvedProjectRoot(
+        'test_resolve_paths',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const result = runTestResolvePaths({ ...args, project_root: projectRoot });
+          return jsonContent(testResolvePathsOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'change_list',
@@ -232,11 +238,17 @@ const MCP_TOOLS = [
       'List all active (non-archived) changes under openspec/changes/. Returns each change with its artifacts, task progress, and latest eval phase.',
     inputSchema: changeListInputSchema,
     outputSchema: changeListOutputSchema,
-    handler: async (): Promise<McpOutput<typeof changeListOutputSchema>> =>
-      withLockedProjectRoot(async (projectRoot) => {
-        const result = runChangeList(projectRoot);
-        return jsonContent(changeListOutputSchema, result);
-      }),
+    handler: async (
+      args: z.input<typeof changeListInputSchema>,
+    ): Promise<McpOutput<typeof changeListOutputSchema>> =>
+      withResolvedProjectRoot(
+        'change_list',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const result = runChangeList(projectRoot);
+          return jsonContent(changeListOutputSchema, result);
+        },
+      ),
   },
   {
     name: 'backtrack',
@@ -247,12 +259,13 @@ const MCP_TOOLS = [
     handler: async (
       args: z.input<typeof backtrackInputSchema>,
     ): Promise<McpOutput<typeof backtrackOutputSchema>> =>
-      withLockedProjectRoot(async () => {
+      withResolvedProjectRoot('backtrack', args as Record<string, unknown>, async () => {
         const result = runBacktrack(args);
         return jsonContent(backtrackOutputSchema, result);
       }),
   },
 ];
+// Stryker restore StringLiteral,ArrowFunction
 
 export async function connectToServer(transport: Transport): Promise<McpServer> {
   const server = new McpServer({ name: 'dev-team', version: '2.8.11' });
@@ -270,7 +283,7 @@ export async function connectToServer(transport: Transport): Promise<McpServer> 
   }
 
   await server.connect(transport);
-  await initProjectRootFromMcp(server.server);
+  await collectProjectRootCandidates(server.server);
   return server;
 }
 
@@ -281,12 +294,13 @@ if (require.main === module) {
     const transport = new StdioServerTransport();
     const server = await connectToServer(transport);
 
-    const lockedRoot = getMcpCachedProjectRoot();
+    const candidates = getProjectRootCandidates();
     void server.sendLoggingMessage({
       level: 'info',
-      data: lockedRoot
-        ? `MCP server started; project root locked: ${lockedRoot}`
-        : 'MCP server started; project root NOT locked (tools will fail until a unique root is available)',
+      data:
+        candidates.length > 0
+          ? `MCP server started; project root candidates: ${candidates.join(', ')}`
+          : 'MCP server started; project root candidates: (none)',
     });
   }
 

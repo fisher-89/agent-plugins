@@ -1,5 +1,7 @@
 import { z } from 'zod/v4';
 
+import { projectRootSchema } from './public/project-root.schema';
+
 export const phaseIdSchema = z
   .enum([
     'proposal',
@@ -61,6 +63,7 @@ export const phaseLogInputSchema = phaseLogSchema
     skipped: true,
   })
   .extend({
+    project_root: projectRootSchema,
     change: z.string().describe('Change name'),
   });
 

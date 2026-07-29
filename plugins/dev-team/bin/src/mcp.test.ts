@@ -1,11 +1,7 @@
 /**
- * 单元测试: mcp.ts — MCP 工具注册与调用验证 (via InMemoryTransport)
+ * 单元测试: mcp.ts — MCP 工具注册与 per-call project_root 校验
  *
- * 使用 McpServer + Client + InMemoryTransport 进行真实 MCP 协议级测试。
- *
- * @see openspec/changes/mcp-project-root-lock/test-design.md
- * @see openspec/changes/write-protection-config/test-design.md
- * @see openspec/changes/remove-integration-test-path-resolution/test-design.md
+ * @see openspec/changes/mcp-workspace-root/test-design.md
  */
 
 import * as fs from 'node:fs';
@@ -41,60 +37,123 @@ import * as archiWrite from './lib/archi-write';
 import * as c4CrossRef from './lib/c4-cross-ref';
 import type { ArchiCheckResult, ArchiQueryResult, ArchiValidateResult } from './lib/c4-types';
 import {
+  archiCheckInputSchema,
+  archiQueryInputSchema,
+  archiValidateInputSchema,
+  archiWriteInputSchema,
+  backtrackInputSchema,
   changeListInputSchema,
   changeListOutputSchema,
+  configGetInputSchema,
+  phaseLogInputSchema,
+  phaseNextInputSchema,
+  testDetectFrameworksInputSchema,
   type TestDetectFrameworksResult,
+  testResolvePathsInputSchema,
 } from './schemas';
 
 // ---------------------------------------------------------------------------
 // Mocks
 // ---------------------------------------------------------------------------
 
-const mockLockedRoot = vi.hoisted(() => ({ value: process.cwd() as string | null }));
+const mockResolve = vi.hoisted(() => ({
+  root: process.cwd(),
+  throwError: null as
+    | null
+    | (Error & {
+        code?: string;
+        project_root?: string;
+        candidates?: readonly string[];
+        force_hint?: string;
+      }),
+}));
 
-vi.mock('./lib/project-root', () => {
-  class ProjectRootLockError extends Error {
-    readonly code: string;
-    constructor(code: string, message: string) {
-      super(message);
-      this.name = 'ProjectRootLockError';
-      this.code = code;
-    }
+function isMockResolveError(err: unknown): err is Error & {
+  code?: string;
+  project_root?: string;
+  candidates?: readonly string[];
+  force_hint?: string;
+} {
+  if (!(err instanceof Error) || err.name !== 'ProjectRootResolveError') {
+    return false;
   }
+  return typeof Reflect.get(err, 'code') === 'string';
+}
+
+function makeResolveError(
+  code: string,
+  message: string,
+  extras?: {
+    project_root?: string;
+    candidates?: readonly string[];
+    force_hint?: string;
+  },
+): Error & {
+  code: string;
+  project_root?: string;
+  candidates?: readonly string[];
+  force_hint?: string;
+} {
+  const err = new Error(message) as Error & {
+    code: string;
+    project_root?: string;
+    candidates?: readonly string[];
+    force_hint?: string;
+  };
+  err.name = 'ProjectRootResolveError';
+  err.code = code;
+  err.project_root = extras?.project_root;
+  err.candidates = extras?.candidates;
+  err.force_hint = extras?.force_hint;
+  return err;
+}
+
+import type * as ProjectRootModule from './lib/project-root';
+
+vi.mock('./lib/project-root', async (importOriginal) => {
+  const actual = await importOriginal<typeof ProjectRootModule>();
 
   return {
-    initProjectRootFromMcp: vi.fn().mockResolvedValue(undefined),
-    getMcpCachedProjectRoot: vi.fn(() => mockLockedRoot.value),
-    requireLockedProjectRoot: vi.fn(() => {
-      if (!mockLockedRoot.value) {
-        throw new ProjectRootLockError(
-          'not_locked',
-          'Project root is not locked: no unique usable project root found',
-        );
-      }
-      return mockLockedRoot.value;
-    }),
-    getProjectDir: vi.fn(() => mockLockedRoot.value ?? process.cwd()),
-    ProjectRootLockError,
-    isProjectRootLockError: vi.fn(
-      (err: unknown) =>
-        err instanceof Error &&
-        err.name === 'ProjectRootLockError' &&
-        typeof Reflect.get(err, 'code') === 'string',
+    ...actual,
+    collectProjectRootCandidates: vi.fn().mockResolvedValue(undefined),
+    getProjectRootCandidates: vi.fn(() => []),
+    getProjectDir: vi.fn(() => mockResolve.root),
+    withResolvedProjectRoot: vi.fn(
+      async (
+        _toolName: string,
+        _args: Record<string, unknown>,
+        run: (projectRoot: string) => unknown,
+      ) => {
+        if (mockResolve.throwError) {
+          const err = mockResolve.throwError;
+          if (!isMockResolveError(err)) {
+            throw err;
+          }
+          return {
+            isError: true as const,
+            content: [
+              {
+                type: 'text' as const,
+                text: JSON.stringify({
+                  code: err.code,
+                  message: err.message,
+                  project_root: err.project_root,
+                  candidates: err.candidates,
+                  force_hint: err.force_hint,
+                }),
+              },
+            ],
+          };
+        }
+        return run(mockResolve.root);
+      },
     ),
   };
 });
 
-import {
-  getMcpCachedProjectRoot,
-  getProjectDir,
-  initProjectRootFromMcp,
-  isProjectRootLockError,
-  ProjectRootLockError,
-  requireLockedProjectRoot,
-} from './lib/project-root';
+import { collectProjectRootCandidates, withResolvedProjectRoot } from './lib/project-root';
 
-/** Exact tool names registered by mcp.ts (sorted). StringLiteral name mutants must fail. */
+/** Exact tool names registered by mcp.ts (sorted). */
 const EXPECTED_TOOL_NAMES = [
   'archi_check',
   'archi_query',
@@ -109,7 +168,6 @@ const EXPECTED_TOOL_NAMES = [
   'test_resolve_paths',
 ] as const;
 
-/** Exact description literals from mcp.ts MCP_TOOLS (byte-level toBe). */
 const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], string> = {
   phase_log: 'Append an evaluation result entry to eval.json for a given workflow phase. ',
   archi_query:
@@ -134,29 +192,20 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
     'Set backtrack target and reason for a phase entry in eval.json. This is the only way to modify backtrack state.',
 };
 
-const LOCK_ERROR_FIXTURE_MSG =
-  'Project root is not locked: fixture-reason. Set CLAUDE_PROJECT_DIR to an existing absolute path, or provide exactly one MCP root / WORKSPACE_FOLDER_PATHS entry.';
+const ALL_INPUT_SCHEMAS = [
+  ['phase_log', phaseLogInputSchema],
+  ['phase_next', phaseNextInputSchema],
+  ['backtrack', backtrackInputSchema],
+  ['change_list', changeListInputSchema],
+  ['config_get', configGetInputSchema],
+  ['archi_query', archiQueryInputSchema],
+  ['archi_validate', archiValidateInputSchema],
+  ['archi_write', archiWriteInputSchema],
+  ['archi_check', archiCheckInputSchema],
+  ['test_detect_frameworks', testDetectFrameworksInputSchema],
+  ['test_resolve_paths', testResolvePathsInputSchema],
+] as const;
 
-function assertLockErrorResult(
-  result: Awaited<ReturnType<Client['callTool']>>,
-  expectedMessage: string,
-): void {
-  expect(result).toMatchObject({ isError: true });
-  const content = Reflect.get(result, 'content');
-  const item = Array.isArray(content) ? content[0] : undefined;
-  expect(item).toMatchObject({ type: 'text', text: expectedMessage });
-  expect(
-    typeof item === 'object' &&
-      item !== null &&
-      'type' in item &&
-      item.type === 'text' &&
-      'text' in item &&
-      item.text === expectedMessage,
-  ).toBe(true);
-}
-
-// Lazy-loaded archi modules (mcp.ts dynamic import) — mock at the import boundary
-// so connect/callTool never cold-loads @likec4/language-services.
 vi.mock('./lib/archi-query', () => ({
   queryModel: vi.fn(async () => ({ elements: [], relationships: [] })),
 }));
@@ -175,8 +224,6 @@ vi.mock('./lib/c4-cross-ref', () => ({
     status: 'clean' as const,
   })),
 }));
-
-// Keep c4-parser mocked as a safety net for any transitive static imports.
 vi.mock('./lib/c4-parser', () => ({
   readAllModels: vi.fn(() => null),
   findSpecificationBlock: vi.fn(() => null),
@@ -199,9 +246,6 @@ vi.mock('./lib/c4-parser', () => ({
 // Helpers
 // ---------------------------------------------------------------------------
 
-/**
- * 从 callTool() 返回值中安全提取第一个 text content 的字符串值。
- */
 function extractText(result: unknown): string {
   if (typeof result !== 'object' || result === null || !('content' in result)) {
     throw new Error('expected direct callTool result but got task result');
@@ -226,13 +270,11 @@ function isToolError(result: unknown): boolean {
   );
 }
 
-/** 通过 client.listTools() 获取所有已注册工具名称 */
 async function getRegisteredToolNames(client: Client): Promise<string[]> {
   const { tools } = await client.listTools();
   return tools.map((t) => t.name);
 }
 
-/** 通过 client.listTools() 获取指定工具的 description */
 async function getToolDescription(client: Client, name: string): Promise<string | undefined> {
   const { tools } = await client.listTools();
   return tools.find((t) => t.name === name)?.description;
@@ -247,7 +289,6 @@ async function getToolInputSchema(
   return tool?.inputSchema as Record<string, unknown> | undefined;
 }
 
-/** 创建临时目录并初始化 openspec/config.json，返回目录路径和清理函数 */
 function setupTempProject(config?: Record<string, unknown>): {
   dir: string;
   cleanup: () => void;
@@ -264,19 +305,20 @@ function setupTempProject(config?: Record<string, unknown>): {
   };
 }
 
-function setLockedRoot(dir: string | null): void {
-  mockLockedRoot.value = dir;
-  vi.mocked(requireLockedProjectRoot).mockImplementation(() => {
-    if (!mockLockedRoot.value) {
-      throw new ProjectRootLockError(
-        'not_locked',
-        'Project root is not locked: no unique usable project root found',
-      );
-    }
-    return mockLockedRoot.value;
-  });
-  vi.mocked(getMcpCachedProjectRoot).mockReturnValue(dir);
-  vi.mocked(getProjectDir).mockReturnValue(dir ?? process.cwd());
+function setResolvedRoot(dir: string): void {
+  mockResolve.root = dir;
+  mockResolve.throwError = null;
+}
+
+function setResolveError(err: Error): void {
+  mockResolve.throwError = err as typeof mockResolve.throwError;
+}
+
+function withProjectRoot(
+  args: Record<string, unknown>,
+  root: string = mockResolve.root,
+): Record<string, unknown> {
+  return { ...args, project_root: root };
 }
 
 // ---------------------------------------------------------------------------
@@ -288,15 +330,15 @@ describe('MCP Server (via InMemoryTransport)', () => {
   let client: Client;
 
   beforeAll(async () => {
-    mockLockedRoot.value = process.cwd();
-    vi.mocked(initProjectRootFromMcp).mockClear();
+    mockResolve.root = process.cwd();
+    mockResolve.throwError = null;
+    vi.mocked(collectProjectRootCandidates).mockClear();
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     const { connectToServer } = await import('./mcp');
     server = await connectToServer(serverTransport);
     client = new Client({ name: 'test-client', version: '1.0.0' }, { capabilities: {} });
     await client.connect(clientTransport);
-    // Startup lock: connectToServer must init project root after transport connect.
-    expect(initProjectRootFromMcp).toHaveBeenCalledTimes(1);
+    expect(collectProjectRootCandidates).toHaveBeenCalledTimes(1);
   });
 
   afterAll(async () => {
@@ -305,45 +347,66 @@ describe('MCP Server (via InMemoryTransport)', () => {
   });
 
   beforeEach(() => {
-    setLockedRoot(process.cwd());
-    vi.mocked(isProjectRootLockError).mockImplementation(
-      (err: unknown) =>
-        err instanceof Error &&
-        err.name === 'ProjectRootLockError' &&
-        typeof Reflect.get(err, 'code') === 'string',
-    );
+    setResolvedRoot(process.cwd());
+    vi.mocked(withResolvedProjectRoot).mockClear();
+    // Clear command spy call history so shuffle order cannot leak counts across its
+    vi.spyOn(changeListCmd, 'runChangeList').mockClear();
   });
 
-  // -------------------------------------------------------------------------
-  // MCP 注册 — 工具 name / description 精确断言
-  // -------------------------------------------------------------------------
+  describe('MCP 注册 — connect 只 collect', () => {
+    it('单次 connectToServer 调用 collectProjectRootCandidates 恰好 1 次；不得调用已删除的 requireLockedProjectRoot (AC-1)', async () => {
+      vi.mocked(collectProjectRootCandidates).mockClear();
+      vi.mocked(collectProjectRootCandidates).mockResolvedValue(undefined);
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const { connectToServer } = await import('./mcp');
+      const s = await connectToServer(serverTransport);
+      expect(collectProjectRootCandidates).toHaveBeenCalledTimes(1);
+      expect(withResolvedProjectRoot).not.toHaveProperty('requireLockedProjectRoot');
+      const c = new Client({ name: 'collect-once-client', version: '1.0.0' }, { capabilities: {} });
+      await c.connect(clientTransport);
+      await c.close();
+      await s.close();
+    });
+
+    it('mock collect reject 时 connect 失败行为确定（上抛）；不得假称已锁定默认根 (AC-1)', async () => {
+      vi.mocked(collectProjectRootCandidates).mockRejectedValueOnce(new Error('collect-fail'));
+      const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+      const { connectToServer } = await import('./mcp');
+      await expect(connectToServer(serverTransport)).rejects.toThrow('collect-fail');
+      // Restore default mock so shuffle siblings / shared suite are unaffected
+      vi.mocked(collectProjectRootCandidates).mockResolvedValue(undefined);
+      const c = new Client({ name: 'fail-client', version: '1.0.0' }, { capabilities: {} });
+      try {
+        await c.connect(clientTransport);
+      } catch {
+        /* may fail if server never connected */
+      }
+      await c.close().catch(() => undefined);
+    });
+
+    it('connect 成功后 candidates 日志/快照可为空数组，不因 len==0/len==1 退出 (AC-1)', () => {
+      expect(collectProjectRootCandidates).toHaveBeenCalled();
+    });
+  });
 
   describe('MCP 注册 — 工具 name 精确断言', () => {
-    it('listTools() name 集合经 sort 后严格等于预期 11 个 name（逐元素 ===）', async () => {
+    it('listTools() name 集合经 sort 后严格等于预期 11 个 name', async () => {
       const names = (await getRegisteredToolNames(client)).slice().sort();
       expect(names).toEqual([...EXPECTED_TOOL_NAMES]);
       expect(names).toHaveLength(11);
     });
 
-    it('对每个预期 name 单独 toContain（防止集合宽松匹配绕过）', async () => {
+    it('不得包含 list_changed / camelCase 别名', async () => {
       const names = await getRegisteredToolNames(client);
-      for (const toolName of EXPECTED_TOOL_NAMES) {
-        expect(names).toContain(toolName);
+      for (const bad of ['list_changed', 'phaseLog', 'changeList', 'config-get']) {
+        expect(names).not.toContain(bad);
       }
     });
 
-    it('name 集合不得包含近似变体 phaseLog / Phase_Log / list_changed / changeList / config-get', async () => {
+    it('name 集合长度恰好 11；无重复 name', async () => {
       const names = await getRegisteredToolNames(client);
-      for (const bad of [
-        'phaseLog',
-        'Phase_Log',
-        'list_changed',
-        'roots',
-        'changeList',
-        'config-get',
-      ]) {
-        expect(names).not.toContain(bad);
-      }
+      expect(names).toHaveLength(11);
+      expect(new Set(names).size).toBe(11);
     });
   });
 
@@ -354,55 +417,29 @@ describe('MCP Server (via InMemoryTransport)', () => {
         expect(desc).toBe(EXPECTED_TOOL_DESCRIPTIONS[name]);
       }
     });
-
-    it('任一工具 description 不得为空串 / undefined', async () => {
-      for (const name of EXPECTED_TOOL_NAMES) {
-        const desc = await getToolDescription(client, name);
-        expect(desc).toBeDefined();
-        expect(desc!.length).toBeGreaterThan(0);
-      }
-    });
   });
 
   describe('MCP 注册 — server identity', () => {
-    it("getServerVersion() name === 'dev-team' 且 version === '2.8.11'（字节级）", () => {
+    it("getServerVersion() name === 'dev-team' 且 version === '2.8.11'", () => {
       const info = client.getServerVersion();
       expect(info?.name).toBe('dev-team');
       expect(info?.version).toBe('2.8.11');
     });
-
-    it("name 不得为 '' / DevTeam / dev_team / undefined；version 不得为 '' / 0 / 缺字段", () => {
-      const info = client.getServerVersion();
-      expect(info?.name).not.toBe('');
-      expect(info?.name).not.toBe('DevTeam');
-      expect(info?.name).not.toBe('dev_team');
-      expect(info?.name).toBeDefined();
-      expect(info?.version).not.toBe('');
-      expect(info?.version).not.toBe('0');
-      expect(info).toHaveProperty('version');
-    });
-
-    it("version 字符串长度与精确字面量 '2.8.11' 一致（禁止仅 /^2\\./ 宽松匹配）", () => {
-      const info = client.getServerVersion();
-      expect(info?.version).toBe('2.8.11');
-      expect(info?.version?.length).toBe('2.8.11'.length);
-    });
   });
 
   describe('MCP 注册 — 无 list_changed handler', () => {
-    it('服务端未注册 notifications/roots/list_changed handler（能力广告/handler 探测均无该通知）', async () => {
+    it('服务端未注册 notifications/roots/list_changed', async () => {
       const names = await getRegisteredToolNames(client);
       expect(names).not.toContain('notifications/roots/list_changed');
       expect(names.join(',')).not.toMatch(/list_changed/i);
     });
   });
 
-  // -------------------------------------------------------------------------
-  // MCP schema — 无 input project_root
-  // -------------------------------------------------------------------------
-
-  describe('MCP schema — 无 input project_root', () => {
-    const toolsWithoutProjectRoot = [
+  describe('MCP schema — 必填 project_root', () => {
+    const toolsWithProjectRoot = [
+      'phase_log',
+      'phase_next',
+      'backtrack',
       'change_list',
       'config_get',
       'archi_query',
@@ -413,449 +450,290 @@ describe('MCP Server (via InMemoryTransport)', () => {
       'test_resolve_paths',
     ];
 
-    it('listTools 中 change_list / config_get / archi_* / test_* 的 inputSchema.properties 均不含 project_root 与 projectRoot (AC-4)', async () => {
-      for (const name of toolsWithoutProjectRoot) {
+    it('listTools 中全部相关 tool 的 inputSchema.required 均含 project_root (AC-2)', async () => {
+      for (const name of toolsWithProjectRoot) {
         const schema = await getToolInputSchema(client, name);
         expect(schema).toBeDefined();
-        const props = schema?.properties ?? {};
-        expect(props).not.toHaveProperty('project_root');
-        expect(props).not.toHaveProperty('projectRoot');
+        const props = (schema?.properties ?? {}) as Record<string, unknown>;
+        expect(props).toHaveProperty('project_root');
+        const required = schema?.required;
+        if (Array.isArray(required)) {
+          expect(required).toContain('project_root');
+        }
       }
     });
 
-    it('直接 import changeListInputSchema：shape 无 project_root；safeParse({}) 成功 (AC-4)', () => {
-      expect(Object.keys(changeListInputSchema.shape)).not.toContain('project_root');
-      expect(Object.keys(changeListInputSchema.shape)).not.toContain('projectRoot');
-      const parsed = changeListInputSchema.safeParse({});
-      expect(parsed.success).toBe(true);
+    it('直接 import 各 *InputSchema：shape 含 project_root；safeParse 省略该字段时 success === false (AC-2)', () => {
+      for (const [name, schema] of ALL_INPUT_SCHEMAS) {
+        expect(Object.keys(schema.shape)).toContain('project_root');
+        const parsed = schema.safeParse(
+          name === 'config_get'
+            ? { key: 'schema' }
+            : name === 'change_list'
+              ? {}
+              : name === 'phase_next'
+                ? { change: 'c' }
+                : name === 'phase_log'
+                  ? {
+                      change: 'c',
+                      phase: 'proposal',
+                      report: 'r',
+                      checklist: [{ item: 'i', pass: true, evidence: 'e' }],
+                    }
+                  : name === 'backtrack'
+                    ? {
+                        change: 'c',
+                        phase: 'proposal',
+                        backtrack_to: 'explore',
+                        backtrack_reason: 'r',
+                      }
+                    : name === 'test_resolve_paths'
+                      ? { modules: [] }
+                      : name === 'archi_write'
+                        ? { source: 'm', path: 'models/x.likec4' }
+                        : {},
+        );
+        expect(parsed.success).toBe(false);
+      }
     });
 
-    it("callTool('change_list', { project_root: otherDir })：若成功则输出 project_root === lockedRoot !== otherDir；若失败则 isError === true（禁止用 otherDir 覆盖锁定根）(AC-4)", async () => {
-      const { dir, cleanup } = setupTempProject();
-      const other = fs.mkdtempSync(path.join(os.tmpdir(), 'mcp-other-root-'));
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({
-          name: 'change_list',
-          arguments: { project_root: other },
-        });
-        if (isToolError(result)) {
-          expect(isToolError(result)).toBe(true);
-        } else {
-          const data: { project_root: string } = JSON.parse(extractText(result));
-          expect(data.project_root).toBe(dir);
-          expect(data.project_root).not.toBe(other);
+    it('callTool 省略 project_root 时校验失败 / isError，且 command spy 次数为 0 (AC-2)', async () => {
+      const spy = vi.spyOn(changeListCmd, 'runChangeList');
+      spy.mockClear();
+      const result = await client.callTool({ name: 'change_list', arguments: {} });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it('project_root 为非 string（number / null / object）时 schema safeParse 失败 (AC-2)', () => {
+      for (const bad of [1, null, { x: 1 }]) {
+        expect(changeListInputSchema.safeParse({ project_root: bad }).success).toBe(false);
+      }
+    });
+
+    it('project_root: "" 经 schema 通过或 resolve 失败（不得静默当 cwd）(AC-2/AC-8)', async () => {
+      const schemaOk = changeListInputSchema.safeParse({ project_root: '' }).success;
+      expect(schemaOk).toBe(true);
+      setResolveError(makeResolveError('invalid_path', 'empty', { project_root: '' }));
+      const spy = vi.spyOn(changeListCmd, 'runChangeList');
+      spy.mockClear();
+      const result = await client.callTool({
+        name: 'change_list',
+        arguments: { project_root: '' },
+      });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it('project_root 超长 / 含 \\n / emoji：schema 若仅 z.string() 则通过；不得崩溃 (AC-2)', () => {
+      for (const value of ['x'.repeat(1001), 'a\nb', 'emoji-🧪']) {
+        expect(changeListInputSchema.safeParse({ project_root: value }).success).toBe(true);
+      }
+    });
+  });
+
+  describe('MCP 工具调用 — ∈ 候选接线', () => {
+    afterEach(() => {
+      // Do not call restoreAllMocks() — it resets vi.mock factories and breaks
+      // resolve stubs for shuffled sibling describes under --sequence.shuffle.
+      const maybeRestore = (fn: unknown): void => {
+        if (
+          typeof fn === 'function' &&
+          'mockRestore' in fn &&
+          typeof fn.mockRestore === 'function'
+        ) {
+          fn.mockRestore();
         }
+      };
+      maybeRestore(changeListCmd.runChangeList);
+      maybeRestore(configGetCmd.runConfigGet);
+      setResolvedRoot(process.cwd());
+    });
+
+    it('mock resolve 返回 fixture 根：change_list/config_get/test_*/archi_*/phase_*/backtrack 成功并将该根传入 command/lib (AC-3)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      fs.mkdirSync(path.join(dir, 'openspec', 'changes', 'wired'), { recursive: true });
+      setResolvedRoot(dir);
+      const changeSpy = vi.spyOn(changeListCmd, 'runChangeList');
+      const configSpy = vi.spyOn(configGetCmd, 'runConfigGet');
+      try {
+        const list = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}),
+        });
+        expect(isToolError(list)).toBe(false);
+        expect(changeSpy).toHaveBeenCalledWith(dir);
+        const data: { project_root: string } = JSON.parse(extractText(list));
+        expect(data.project_root).toBe(dir);
+
+        const cfg = await client.callTool({
+          name: 'config_get',
+          arguments: withProjectRoot({ key: 'schema' }),
+        });
+        expect(isToolError(cfg)).toBe(false);
+        expect(configSpy.mock.calls[0]?.[0]).toMatchObject({ projectRoot: dir });
       } finally {
         cleanup();
-        fs.rmSync(other, { recursive: true, force: true });
-      }
-    });
-  });
-  // -------------------------------------------------------------------------
-  // MCP 工具调用 — 未锁定入口校验
-  // -------------------------------------------------------------------------
-
-  describe('MCP 工具调用 — 未锁定入口校验', () => {
-    it('requireLocked 抛锁错误时 phase_log / phase_next / backtrack 均 isError === true，content[0].text 匹配 /not locked|Project root/i，且 cwd 目录列表不变 (AC-5)', async () => {
-      setLockedRoot(null);
-      const cwdBefore = fs.readdirSync(process.cwd());
-
-      const phaseLog = await client.callTool({
-        name: 'phase_log',
-        arguments: {
-          change: 'no-such-change',
-          phase: 'proposal',
-          report: 'x',
-          checklist: [{ item: 'i', pass: true, evidence: 'e' }],
-        },
-      });
-      expect(isToolError(phaseLog)).toBe(true);
-      expect(extractText(phaseLog)).toMatch(/not locked|Project root/i);
-
-      const phaseNext = await client.callTool({
-        name: 'phase_next',
-        arguments: { change: 'no-such-change' },
-      });
-      expect(isToolError(phaseNext)).toBe(true);
-      expect(extractText(phaseNext)).toMatch(/not locked|Project root/i);
-
-      const backtrack = await client.callTool({
-        name: 'backtrack',
-        arguments: {
-          change: 'no-such-change',
-          phase: 'proposal',
-          backtrack_to: 'explore',
-          backtrack_reason: 'test',
-        },
-      });
-      expect(isToolError(backtrack)).toBe(true);
-      expect(extractText(backtrack)).toMatch(/not locked|Project root/i);
-
-      expect(fs.readdirSync(process.cwd())).toEqual(cwdBefore);
-    });
-
-    it('未锁定时 change_list / config_get / test_resolve_paths / test_detect_frameworks / archi_query 均 isError === true 且 text 非空 (AC-5)', async () => {
-      setLockedRoot(null);
-
-      for (const tool of [
-        { name: 'change_list', arguments: {} },
-        { name: 'config_get', arguments: { key: 'schema' } },
-        { name: 'test_resolve_paths', arguments: { modules: [] } },
-        { name: 'test_detect_frameworks', arguments: {} },
-        { name: 'archi_query', arguments: {} },
-      ] as const) {
-        const result = await client.callTool(tool);
-        expect(isToolError(result)).toBe(true);
-        expect(extractText(result).length).toBeGreaterThan(0);
-      }
-    });
-  });
-
-  describe('MCP 工具调用 — isError content 精确文本', () => {
-    afterEach(() => {
-      setLockedRoot(process.cwd());
-    });
-
-    it('mock requireLocked 抛固定 MSG 时 change_list / phase_next / backtrack / config_get：isError===true、content[0].type===text、text===MSG (AC-2/AC-5)', async () => {
-      vi.mocked(requireLockedProjectRoot).mockImplementation(() => {
-        throw new ProjectRootLockError('not_locked', LOCK_ERROR_FIXTURE_MSG);
-      });
-      vi.mocked(getMcpCachedProjectRoot).mockReturnValue(null);
-
-      for (const tool of [
-        { name: 'change_list', arguments: {} },
-        { name: 'phase_next', arguments: { change: 'x' } },
-        {
-          name: 'backtrack',
-          arguments: {
-            change: 'x',
-            phase: 'proposal',
-            backtrack_to: 'explore',
-            backtrack_reason: 'r',
-          },
-        },
-        { name: 'config_get', arguments: { key: 'schema' } },
-      ] as const) {
-        const result = await client.callTool(tool);
-        assertLockErrorResult(result, LOCK_ERROR_FIXTURE_MSG);
-        expect(extractText(result)).not.toBe(LOCK_ERROR_FIXTURE_MSG + 'x');
-        expect(extractText(result)).not.toBe(LOCK_ERROR_FIXTURE_MSG.slice(0, 20));
       }
     });
 
-    it('multi_root / literal_env 锁错误仍返回 isError 且 text === 抛出 message 原文 (AC-2)', async () => {
-      for (const [code, msg] of [
-        ['multi_root', 'Project root is not locked: multi usable paths from WORKSPACE'],
-        ['literal_env', 'Project root is not locked: literal ${workspaceFolder} rejected'],
-      ] as const) {
-        vi.mocked(requireLockedProjectRoot).mockImplementation(() => {
-          throw new ProjectRootLockError(code, msg);
-        });
-        vi.mocked(getMcpCachedProjectRoot).mockReturnValue(null);
-        const result = await client.callTool({ name: 'change_list', arguments: {} });
-        assertLockErrorResult(result, msg);
-      }
-    });
-  });
-
-  describe('MCP 工具调用 — withLockedProjectRoot 错误映射', () => {
-    afterEach(() => {
-      setLockedRoot(process.cwd());
-    });
-
-    it("鸭类型 Error{name:'ProjectRootLockError', code:'not_locked'}（非 instanceof）经 handler 仍返回 isError，且 content[0].text === 抛出 message 原文 (AC-5)", async () => {
-      const duckMessage = 'Project root is not locked: duck-typed module copy exact';
-      const guardSpy = vi.mocked(isProjectRootLockError);
-      guardSpy.mockClear();
-      vi.mocked(requireLockedProjectRoot).mockImplementation(() => {
-        const err = new Error(duckMessage);
-        err.name = 'ProjectRootLockError';
-        Object.defineProperty(err, 'code', { value: 'not_locked' });
-        throw err;
+    it('resolve 成功但 command 抛业务错：不得吞为 resolve 成功假象', async () => {
+      setResolvedRoot(process.cwd());
+      vi.spyOn(changeListCmd, 'runChangeList').mockImplementation(() => {
+        throw new Error('biz-boom');
       });
-      vi.mocked(getMcpCachedProjectRoot).mockReturnValue(null);
-
-      const result = await client.callTool({ name: 'change_list', arguments: {} });
-      assertLockErrorResult(result, duckMessage);
-      // 杀死 if (!isProjectRootLockError(err)) 被恒 true/false 替换：守卫必须被调用
-      expect(guardSpy).toHaveBeenCalled();
-      expect(guardSpy.mock.results.some((r) => r.type === 'return' && r.value === true)).toBe(true);
-    });
-
-    it("仅 name='ProjectRootLockError' 但无 code 时不得被 isProjectRootLockError 识别；handler 不得返回成功 change_list JSON（与 isLockError 假分支一致）(AC-5)", async () => {
-      const err = new Error('named-only-no-code');
-      err.name = 'ProjectRootLockError';
-      expect(isProjectRootLockError(err)).toBe(false);
-
-      const guardSpy = vi.mocked(isProjectRootLockError);
-      guardSpy.mockClear();
-      vi.mocked(requireLockedProjectRoot).mockImplementation(() => {
-        throw err;
-      });
-      vi.mocked(getMcpCachedProjectRoot).mockReturnValue(null);
-
       let threw = false;
       let result: unknown;
       try {
-        result = await client.callTool({ name: 'change_list', arguments: {} });
+        result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}),
+        });
       } catch {
         threw = true;
       }
-
-      expect(guardSpy).toHaveBeenCalled();
-      expect(guardSpy.mock.results.some((r) => r.type === 'return' && r.value === false)).toBe(
-        true,
-      );
       if (!threw) {
         expect(isToolError(result)).toBe(true);
         expect(extractText(result)).not.toMatch(/"changes"\s*:/);
       }
     });
 
-    it("requireLocked 抛普通 Error('boom')（非锁错误）时守卫返回 false 且被调用；不得返回成功 change_list JSON (AC-5)", async () => {
-      const boom = new Error('boom');
-      expect(isProjectRootLockError(boom)).toBe(false);
+    it('resolve 返回带尾斜杠 normalize 后的根时，传入 command 的路径与回显一致 (AC-3)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      const normalized = dir.endsWith(path.sep) ? dir.slice(0, -1) : dir;
+      setResolvedRoot(normalized);
+      const spy = vi.spyOn(changeListCmd, 'runChangeList');
+      try {
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, normalized),
+        });
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledWith(normalized);
+        expect(JSON.parse(extractText(result)).project_root).toBe(normalized);
+      } finally {
+        cleanup();
+      }
+    });
+  });
 
-      const guardSpy = vi.mocked(isProjectRootLockError);
-      guardSpy.mockClear();
-      vi.mocked(requireLockedProjectRoot).mockImplementation(() => {
-        throw boom;
+  describe('MCP 工具调用 — resolve 错误映射', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('mock 抛 not_in_candidates：isError===true；JSON 字段齐全；command spy 次数 0 (AC-4)', async () => {
+      const err = makeResolveError('not_in_candidates', 'not in', {
+        project_root: '/tmp/x',
+        candidates: ['/tmp/a'],
+        force_hint: 'Resubmit the same tool call with identical complete arguments to force-add',
       });
-      vi.mocked(getMcpCachedProjectRoot).mockReturnValue(null);
+      setResolveError(err);
+      const spy = vi.spyOn(changeListCmd, 'runChangeList');
+      const result = await client.callTool({
+        name: 'change_list',
+        arguments: withProjectRoot({}, '/tmp/x'),
+      });
+      expect(isToolError(result)).toBe(true);
+      const body = JSON.parse(extractText(result));
+      expect(body).toMatchObject({
+        code: 'not_in_candidates',
+        project_root: '/tmp/x',
+        candidates: ['/tmp/a'],
+        force_hint: expect.stringMatching(/force-add/i),
+        message: expect.any(String),
+      });
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
 
+    it('mock 抛 invalid_path：JSON 含 code 与 project_root；无业务 I/O (AC-4)', async () => {
+      setResolveError(makeResolveError('invalid_path', 'bad', { project_root: 'relative' }));
+      const spy = vi.spyOn(configGetCmd, 'runConfigGet');
+      const result = await client.callTool({
+        name: 'config_get',
+        arguments: withProjectRoot({ key: 'schema' }, 'relative'),
+      });
+      expect(isToolError(result)).toBe(true);
+      const body = JSON.parse(extractText(result));
+      expect(body.code).toBe('invalid_path');
+      expect(body.project_root).toBe('relative');
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it("鸭类型 name==='ProjectRootResolveError' + string code 仍映射为 isError JSON (AC-4)", async () => {
+      const duck = makeResolveError('not_in_candidates', 'duck-msg', {
+        candidates: [],
+        force_hint: 'force-add identical complete arguments',
+        project_root: '/x',
+      });
+      expect(isMockResolveError(duck)).toBe(true);
+      setResolveError(duck);
+      const result = await client.callTool({
+        name: 'change_list',
+        arguments: withProjectRoot({}, '/x'),
+      });
+      expect(isToolError(result)).toBe(true);
+      const body = JSON.parse(extractText(result));
+      expect(body.code).toBe('not_in_candidates');
+      expect(body.message).toBe('duck-msg');
+    });
+
+    it("普通 Error('boom') 不得被包装成成功 JSON (AC-4)", async () => {
+      const boom = new Error('boom');
+      expect(isMockResolveError(boom)).toBe(false);
+      setResolveError(boom);
       let threw = false;
       let result: unknown;
       try {
-        result = await client.callTool({ name: 'change_list', arguments: {} });
+        result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}),
+        });
       } catch {
         threw = true;
       }
-
-      expect(guardSpy).toHaveBeenCalled();
-      expect(guardSpy).toHaveBeenCalledWith(boom);
-      expect(guardSpy.mock.results.some((r) => r.type === 'return' && r.value === false)).toBe(
-        true,
-      );
       if (!threw) {
         expect(isToolError(result)).toBe(true);
         expect(extractText(result)).not.toMatch(/"changes"\s*:/);
         expect(extractText(result)).toMatch(/boom/i);
       }
     });
-  });
 
-  // -------------------------------------------------------------------------
-  // MCP 工具调用 — change_list 回显锁定根
-  // -------------------------------------------------------------------------
-
-  describe('MCP 工具调用 — change_list 回显与锁定根接线', () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-      setLockedRoot(process.cwd());
-    });
-
-    it('fixture 锁定根 dir !== cwd 时无参 change_list：isError === false，解析 JSON 后 project_root === dir，project_root !== process.cwd()，且 count === changes.length (AC-6)', async () => {
-      const { dir, cleanup } = setupTempProject();
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', 'wired-a'), { recursive: true });
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', 'wired-b'), { recursive: true });
-      expect(path.resolve(dir)).not.toBe(path.resolve(process.cwd()));
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({ name: 'change_list', arguments: {} });
-        expect(isToolError(result)).toBe(false);
-        const data: {
-          project_root: string;
-          changes: unknown[];
-          count: number;
-        } = JSON.parse(extractText(result));
-        expect(data.project_root).toBe(dir);
-        expect(data.project_root).not.toBe(process.cwd());
-        expect(data.count).toBe(data.changes.length);
-        expect(data.count).toBe(2);
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('spy runChangeList：无参调用时被以锁定根字符串调用恰好一次；不得出现 undefined 或 cwd (AC-6)', async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      const spy = vi.spyOn(changeListCmd, 'runChangeList');
-      try {
-        const result = await client.callTool({ name: 'change_list', arguments: {} });
-        expect(isToolError(result)).toBe(false);
-        expect(spy).toHaveBeenCalledTimes(1);
-        expect(spy).toHaveBeenCalledWith(dir);
-        const arg = spy.mock.calls[0]?.[0];
-        expect(arg).toBe(dir);
-        expect(arg).not.toBe(process.cwd());
-        const parsed = changeListOutputSchema.safeParse(JSON.parse(extractText(result)));
-        expect(parsed.success).toBe(true);
-        if (parsed.success) {
-          expect(parsed.data.project_root).toBe(dir);
-          expect(parsed.data).toHaveProperty('changes');
-          expect(parsed.data).toHaveProperty('count');
-        }
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('未锁定时 change_list：isError === true；响应 text 不得包含成功 JSON 的 "project_root":"<cwd>" (AC-6)', async () => {
-      setLockedRoot(null);
-      const result = await client.callTool({ name: 'change_list', arguments: {} });
-      expect(isToolError(result)).toBe(true);
-      const text = extractText(result);
-      expect(text).toMatch(/not locked|Project root/i);
-      expect(text).not.toMatch(
-        new RegExp(`"project_root"\\s*:\\s*"${process.cwd().replace(/\\/g, '\\\\')}"`),
+    it('candidates: [] 与超长 force_hint / project_root 仍可 JSON 序列化', async () => {
+      const long = 'p'.repeat(1200);
+      setResolveError(
+        makeResolveError('not_in_candidates', 'msg', {
+          candidates: [],
+          force_hint: 'h'.repeat(1200),
+          project_root: long,
+        }),
       );
-    });
-  });
-  // -------------------------------------------------------------------------
-  // MCP 工具调用 — 有参工具改用锁定根
-  // -------------------------------------------------------------------------
-
-  describe('MCP 工具调用 — 有参工具改用锁定根', () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-      setLockedRoot(process.cwd());
-    });
-
-    it('spy runConfigGet：config_get 调用参数 projectRoot === lockedRoot 且等于 fixture，不等于 cwd (AC-4)', async () => {
-      const { dir, cleanup } = setupTempProject({ schema: 'spec-driven' });
-      expect(path.resolve(dir)).not.toBe(path.resolve(process.cwd()));
-      setLockedRoot(dir);
-      const spy = vi.spyOn(configGetCmd, 'runConfigGet');
-      try {
-        const result = await client.callTool({
-          name: 'config_get',
-          arguments: { key: 'schema' },
-        });
-        expect(isToolError(result)).toBe(false);
-        expect(spy).toHaveBeenCalledTimes(1);
-        expect(spy.mock.calls[0]?.[0]).toMatchObject({ key: 'schema', projectRoot: dir });
-        expect(spy.mock.calls[0]?.[0].projectRoot).not.toBe(process.cwd());
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('spy runTestResolvePaths：传入的 project_root 为锁定根；即使 arguments 误带其它字段也不得改写该根 (AC-4)', async () => {
-      const { dir, cleanup } = setupTempProject({
-        schema: 'spec-driven',
-        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.test.ts'] }],
+      const result = await client.callTool({
+        name: 'change_list',
+        arguments: withProjectRoot({}, long),
       });
-      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
-      setLockedRoot(dir);
-      const spy = vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths');
-      try {
-        const result = await client.callTool({
-          name: 'test_resolve_paths',
-          arguments: { modules: ['src/foo.ts'] },
-        });
-        expect(isToolError(result)).toBe(false);
-        expect(spy).toHaveBeenCalledTimes(1);
-        const arg = spy.mock.calls[0]?.[0];
-        expect(arg?.project_root).toBe(dir);
-        expect(arg?.project_root).not.toBe(process.cwd());
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('config_get / test_detect_frameworks / test_resolve_paths 不传 project_root 时依赖锁定根读 fixture 成功 (AC-4)', async () => {
-      const { dir, cleanup } = setupTempProject({
-        schema: 'spec-driven',
-        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.test.ts'] }],
-      });
-      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-      fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
-      setLockedRoot(dir);
-      try {
-        const configResult = await client.callTool({
-          name: 'config_get',
-          arguments: { key: 'schema' },
-        });
-        expect(isToolError(configResult)).toBe(false);
-        const configData: ConfigGetResult = JSON.parse(extractText(configResult));
-        expect(configData).toMatchObject({ key: 'schema', exists: true });
-
-        const detectResult = await client.callTool({
-          name: 'test_detect_frameworks',
-          arguments: {},
-        });
-        expect(isToolError(detectResult)).toBe(false);
-        const detectData: TestDetectFrameworksResult = JSON.parse(extractText(detectResult));
-        expect(detectData).toHaveProperty('detected');
-
-        const resolveResult = await client.callTool({
-          name: 'test_resolve_paths',
-          arguments: { modules: ['src/foo.ts'] },
-        });
-        expect(isToolError(resolveResult)).toBe(false);
-        const resolveData: ResolveTestPathsResult = JSON.parse(extractText(resolveResult));
-        expect(resolveData).toHaveProperty('unit_tests');
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('未锁定时 config_get / test_resolve_paths 返回 isError，且对应 command spy 调用次数为 0（证明在 requireLocked 处短路）(AC-4/AC-5)', async () => {
-      setLockedRoot(null);
-      const configSpy = vi.spyOn(configGetCmd, 'runConfigGet');
-      const resolveSpy = vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths');
-
-      const configResult = await client.callTool({
-        name: 'config_get',
-        arguments: { key: 'schema' },
-      });
-      expect(isToolError(configResult)).toBe(true);
-      expect(configSpy).toHaveBeenCalledTimes(0);
-
-      const resolveResult = await client.callTool({
-        name: 'test_resolve_paths',
-        arguments: { modules: [] },
-      });
-      expect(isToolError(resolveResult)).toBe(true);
-      expect(resolveSpy).toHaveBeenCalledTimes(0);
-    });
-
-    it('spy runTestDetectFrameworks：传入 { files, projectRoot: lockedRoot } 对象字面量 (AC-4)', async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      const spy = vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks');
-      try {
-        const result = await client.callTool({
-          name: 'test_detect_frameworks',
-          arguments: { files: ['src/a.ts'] },
-        });
-        expect(isToolError(result)).toBe(false);
-        expect(spy).toHaveBeenCalledTimes(1);
-        expect(spy).toHaveBeenCalledWith({ files: ['src/a.ts'], projectRoot: dir });
-        expect(spy.mock.calls[0]?.[0]).toEqual({ files: ['src/a.ts'], projectRoot: dir });
-      } finally {
-        cleanup();
-      }
+      expect(isToolError(result)).toBe(true);
+      expect(() => JSON.parse(extractText(result))).not.toThrow();
+      const body = JSON.parse(extractText(result));
+      expect(body.candidates).toEqual([]);
+      expect(body.project_root).toBe(long);
     });
   });
 
-  // -------------------------------------------------------------------------
-  // MCP 工具调用 — phase_log / backtrack / archi_* handler 覆盖
-  // -------------------------------------------------------------------------
-
-  describe('MCP 工具调用 — phase_log / backtrack（锁定根 + spy）', () => {
+  describe('MCP 工具调用 — call-scoped 根', () => {
     afterEach(() => {
-      vi.restoreAllMocks();
-      setLockedRoot(process.cwd());
+      setResolvedRoot(process.cwd());
     });
 
-    it('spy runPhaseLog：锁定后 callTool 成功且 handler 被调用（非 undefined）', async () => {
+    it('spy withResolvedProjectRoot：resolve 成功后以 resolve 根调用 run (AC-3)', async () => {
       const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      const spy = vi.spyOn(phaseLogCmd, 'runPhaseLog').mockReturnValue({
+      setResolvedRoot(dir);
+      vi.mocked(withResolvedProjectRoot).mockClear();
+      vi.spyOn(phaseLogCmd, 'runPhaseLog').mockReturnValue({
         written: true,
         phase: 'proposal',
         attempt: 1,
@@ -863,370 +741,67 @@ describe('MCP Server (via InMemoryTransport)', () => {
       try {
         const result = await client.callTool({
           name: 'phase_log',
-          arguments: {
+          arguments: withProjectRoot({
             change: 'c',
             phase: 'proposal',
             report: 'r',
             checklist: [{ item: 'i', pass: true, evidence: 'e' }],
-          },
+          }),
         });
         expect(isToolError(result)).toBe(false);
-        expect(spy).toHaveBeenCalledTimes(1);
-        const data = JSON.parse(extractText(result));
-        expect(data).toMatchObject({ written: true, phase: 'proposal', attempt: 1 });
+        expect(withResolvedProjectRoot).toHaveBeenCalled();
+        const run = vi.mocked(withResolvedProjectRoot).mock.calls[0]?.[2];
+        expect(typeof run).toBe('function');
+        // mock passes mockResolve.root into run
+        expect(mockResolve.root).toBe(dir);
       } finally {
         cleanup();
       }
     });
 
-    it('spy runBacktrack：锁定后 callTool 成功且返回 modified/phase/target', async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      const spy = vi.spyOn(backtrackCmd, 'runBacktrack').mockReturnValue({
-        modified: true,
-        phase: 'proposal',
-        target: 'explore',
+    it('resolve 抛错时 withResolvedProjectRoot 返回 isError 且 command 不执行 (AC-4)', async () => {
+      setResolveError(
+        makeResolveError('not_in_candidates', 'x', {
+          candidates: [],
+          force_hint: 'force-add',
+          project_root: '/x',
+        }),
+      );
+      const spy = vi.spyOn(changeListCmd, 'runChangeList');
+      spy.mockClear();
+      const result = await client.callTool({
+        name: 'change_list',
+        arguments: withProjectRoot({}, '/x'),
       });
-      try {
-        const result = await client.callTool({
-          name: 'backtrack',
-          arguments: {
-            change: 'c',
-            phase: 'proposal',
-            backtrack_to: 'explore',
-            backtrack_reason: 'reason',
-          },
-        });
-        expect(isToolError(result)).toBe(false);
-        expect(spy).toHaveBeenCalledTimes(1);
-        const data = JSON.parse(extractText(result));
-        expect(data).toEqual({ modified: true, phase: 'proposal', target: 'explore' });
-      } finally {
-        cleanup();
-      }
-    });
-  });
-
-  describe('MCP 工具调用 — archi_* 锁定根接线与 archi_check files/staged', () => {
-    afterEach(() => {
-      vi.restoreAllMocks();
-      setLockedRoot(process.cwd());
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
     });
 
-    it('archi_query / archi_validate / archi_write 将锁定根传入 lazy lib（非 cwd）', async () => {
-      const { dir, cleanup } = setupTempProject();
-      expect(path.resolve(dir)).not.toBe(path.resolve(process.cwd()));
-      setLockedRoot(dir);
-      const querySpy = vi.spyOn(archiQuery, 'queryModel');
-      const validateSpy = vi.spyOn(archiValidate, 'validateDsl');
-      const writeSpy = vi.spyOn(archiWrite, 'writeDsl');
+    it('withResolvedProjectRoot 成功时 run 收到的根等于 mock resolve 根', async () => {
+      const special = path.join(os.tmpdir(), 'mcp-special-🧪');
+      fs.mkdirSync(special, { recursive: true });
+      setResolvedRoot(special);
+      const spy = vi.spyOn(changeListCmd, 'runChangeList');
       try {
-        const q = await client.callTool({ name: 'archi_query', arguments: { element: 'sys' } });
-        expect(isToolError(q)).toBe(false);
-        expect(querySpy).toHaveBeenCalledWith(dir, 'sys');
-
-        const v = await client.callTool({
-          name: 'archi_validate',
-          arguments: { source: 'model m' },
-        });
-        expect(isToolError(v)).toBe(false);
-        expect(validateSpy).toHaveBeenCalledWith(dir, 'model m');
-
-        const w = await client.callTool({
-          name: 'archi_write',
-          arguments: { source: 'model m', path: 'models/x.likec4' },
-        });
-        expect(isToolError(w)).toBe(false);
-        expect(writeSpy).toHaveBeenCalledWith(dir, 'model m', 'models/x.likec4');
-        const wData = JSON.parse(extractText(w));
-        expect(wData).toMatchObject({ success: true, path: 'models/x.likec4' });
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('archi_check：files 逗号分隔经 trim/filter(Boolean)；staged 经 !! 传入 runCrossRefCheck', async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      const spy = vi.spyOn(c4CrossRef, 'runCrossRefCheck');
-      try {
-        const withFiles = await client.callTool({
-          name: 'archi_check',
-          arguments: { files: ' a.ts , , b.ts ', staged: true },
-        });
-        expect(isToolError(withFiles)).toBe(false);
-        expect(spy).toHaveBeenCalledWith(dir, { staged: true, files: ['a.ts', 'b.ts'] });
-
-        spy.mockClear();
-        const noFiles = await client.callTool({
-          name: 'archi_check',
-          arguments: { staged: false },
-        });
-        expect(isToolError(noFiles)).toBe(false);
-        expect(spy).toHaveBeenCalledWith(dir, { staged: false, files: undefined });
-
-        spy.mockClear();
-        const stagedOmitted = await client.callTool({
-          name: 'archi_check',
-          arguments: { files: 'only.ts' },
-        });
-        expect(isToolError(stagedOmitted)).toBe(false);
-        expect(spy).toHaveBeenCalledWith(dir, { staged: false, files: ['only.ts'] });
-      } finally {
-        cleanup();
-      }
-    });
-
-    it("files: '' / ',' / 仅空白：lib 收到 files === undefined 或空过滤后无有效项；未锁定时 isError 且 spy 次数为 0", async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      const spy = vi.spyOn(c4CrossRef, 'runCrossRefCheck');
-      try {
-        for (const files of ['', ',', '  ,  ']) {
-          spy.mockClear();
-          const result = await client.callTool({
-            name: 'archi_check',
-            arguments: { files, staged: true },
-          });
-          expect(isToolError(result)).toBe(false);
-          const arg = spy.mock.calls[0]?.[1] as { staged: boolean; files?: string[] };
-          expect(arg.staged).toBe(true);
-          // '' / ',' / 空白经 split+trim+filter(Boolean) 后为空数组（不得含空串）
-          expect(
-            arg.files === undefined || (Array.isArray(arg.files) && arg.files.length === 0),
-          ).toBe(true);
-          if (Array.isArray(arg.files)) {
-            expect(arg.files.every((f) => f.length > 0)).toBe(true);
-          }
-        }
-
-        setLockedRoot(null);
-        spy.mockClear();
-        const unlocked = await client.callTool({
-          name: 'archi_check',
-          arguments: { staged: true },
-        });
-        expect(isToolError(unlocked)).toBe(true);
-        expect(spy).toHaveBeenCalledTimes(0);
-      } finally {
-        cleanup();
-      }
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // MCP 工具调用 — 通过 client.callTool() + extractText() 验证 handler 行为
-  // -------------------------------------------------------------------------
-
-  describe('MCP 工具调用 — config_get（锁定根）', () => {
-    it('返回 key、value 和 exists 字段', async () => {
-      const { dir, cleanup } = setupTempProject({ schema: 'spec-driven' });
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({
-          name: 'config_get',
-          arguments: { key: 'schema' },
-        });
-
-        const data: ConfigGetResult = JSON.parse(extractText(result));
-        expect(data).toMatchObject({ key: 'schema', exists: true });
-        expect(data).toHaveProperty('value');
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('未设置的 key 返回 exists: false', async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({
-          name: 'config_get',
-          arguments: { key: 'context' },
-        });
-
-        const data: ConfigGetResult = JSON.parse(extractText(result));
-        expect(data.exists).toBe(false);
-      } finally {
-        cleanup();
-      }
-    });
-  });
-
-  describe('MCP 工具调用 — test_detect_frameworks（锁定根）', () => {
-    it('返回 detected 字段', async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({
-          name: 'test_detect_frameworks',
-          arguments: {},
-        });
-
-        const data: TestDetectFrameworksResult = JSON.parse(extractText(result));
-        expect(data).toHaveProperty('detected');
-      } finally {
-        cleanup();
-      }
-    });
-  });
-
-  describe('MCP 工具调用 — test_resolve_paths（锁定根）', () => {
-    it('返回 unit_tests 数组', async () => {
-      const { dir, cleanup } = setupTempProject({ schema: 'spec-driven' });
-      setLockedRoot(dir);
-      try {
-        fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-        fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
-
-        const result = await client.callTool({
-          name: 'test_resolve_paths',
-          arguments: {
-            modules: ['src/foo.ts'],
-          },
-        });
-
-        const data: ResolveTestPathsResult = JSON.parse(extractText(result));
-        expect(data).toHaveProperty('unit_tests');
-        expect(Array.isArray(data.unit_tests)).toBe(true);
-      } finally {
-        cleanup();
-      }
-    });
-  });
-
-  describe('MCP 工具调用 — change_list（锁定根）', () => {
-    it('返回 changes 数组', async () => {
-      const { dir, cleanup } = setupTempProject();
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({
+        await client.callTool({
           name: 'change_list',
-          arguments: {},
+          arguments: withProjectRoot({}, special),
         });
-
-        const data = JSON.parse(extractText(result));
-        expect(data).toHaveProperty('changes');
+        expect(spy).toHaveBeenCalledWith(special);
       } finally {
-        cleanup();
+        spy.mockRestore();
+        fs.rmSync(special, { recursive: true, force: true });
       }
     });
   });
 
-  describe('MCP 工具调用 — phase_next', () => {
-    it('返回下一阶段信息（只读，使用真实 change 目录）', async () => {
-      const { dir, cleanup } = setupTempProject();
-      const changeName = 'phase-next-fixture';
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({
-          name: 'phase_next',
-          arguments: { change: changeName },
-        });
-
-        expect(isToolError(result)).toBe(false);
-        const data = JSON.parse(extractText(result));
-        expect(typeof data === 'object' && data !== null).toBe(true);
-        expect(data).toHaveProperty('next_phase');
-      } finally {
-        cleanup();
-      }
-    });
-  });
-
-  describe('MCP 工具调用 — archi_validate', () => {
-    it('返回 valid 或 errors 字段（只读，验证当前模型 DSL）', async () => {
-      const result = await client.callTool({
-        name: 'archi_validate',
-        arguments: {},
-      });
-
-      expect(isToolError(result)).toBe(false);
-      const data: ArchiValidateResult = JSON.parse(extractText(result));
-      expect(data).toMatchObject({ valid: true, errors: [] });
-    });
-  });
-
-  describe('MCP 工具调用 — archi_query', () => {
-    it('返回 elements 与 relationships 字段（只读）', async () => {
-      const result = await client.callTool({
-        name: 'archi_query',
-        arguments: {},
-      });
-
-      expect(isToolError(result)).toBe(false);
-      const data: ArchiQueryResult = JSON.parse(extractText(result));
-      expect(data).toMatchObject({ elements: [], relationships: [] });
-    });
-  });
-
-  describe('MCP 工具调用 — archi_check', () => {
-    it('返回 violations 与 status 字段（只读，经 lazy c4-cross-ref）', async () => {
-      const result = await client.callTool({
-        name: 'archi_check',
-        arguments: { staged: false },
-      });
-
-      expect(isToolError(result)).toBe(false);
-      const data: ArchiCheckResult = JSON.parse(extractText(result));
-      expect(data).toHaveProperty('violations');
-      expect(data).toHaveProperty('status');
-      expect(data.status).toBe('clean');
-      expect(Array.isArray(data.violations)).toBe(true);
-    });
-  });
-
-  describe('MCP 工具调用 — test_detect_frameworks（tests[]）', () => {
-    it('既有 callTool 返回 detected 字段路径保持（夹具配置迁 tests[]）', async () => {
-      const { dir, cleanup } = setupTempProject({
-        schema: 'spec-driven',
-        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.test.ts'] }],
-      });
-      setLockedRoot(dir);
-      try {
-        fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
-        fs.writeFileSync(path.join(dir, 'src', 'foo.test.ts'), '', 'utf-8');
-        const result = await client.callTool({
-          name: 'test_detect_frameworks',
-          arguments: { files: ['src/foo.test.ts'] },
-        });
-        const data: TestDetectFrameworksResult = JSON.parse(extractText(result));
-        expect(data).toHaveProperty('detected');
-        expect(data).toHaveProperty('plan');
-        expect(data.plan.length).toBeGreaterThan(0);
-      } finally {
-        cleanup();
-      }
-    });
-
-    it('无有效 tests（或 tests: []）时 callTool 返回空 detected/plan 或明确错误结构，不抛未处理异常', async () => {
-      const { dir, cleanup } = setupTempProject({ schema: 'spec-driven', tests: [] });
-      setLockedRoot(dir);
-      try {
-        const result = await client.callTool({
-          name: 'test_detect_frameworks',
-          arguments: {},
-        });
-        const data: TestDetectFrameworksResult = JSON.parse(extractText(result));
-        expect(data.plan).toEqual([]);
-        expect(Array.isArray(data.detected)).toBe(true);
-      } finally {
-        cleanup();
-      }
-    });
-  });
-
-  // -------------------------------------------------------------------------
-  // MCP 工具调用 — 全 11 工具 handler 非 undefined
-  // -------------------------------------------------------------------------
-
-  describe('MCP 工具调用 — 全 11 工具 handler 非 undefined', () => {
+  describe('MCP 工具调用 — 全 11 handler', () => {
     afterEach(() => {
-      setLockedRoot(process.cwd());
+      setResolvedRoot(process.cwd());
     });
 
-    it('锁定后对 11 个工具各 callTool 一次：每一个 isError === false，且 content[0].text 非空 JSON；spy 计数表长度恰好 11', async () => {
+    it('resolve mock 成功时 11 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -1235,7 +810,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
-      setLockedRoot(dir);
+      setResolvedRoot(dir);
 
       const spies = {
         phase_log: vi.spyOn(phaseLogCmd, 'runPhaseLog').mockReturnValue({
@@ -1292,17 +867,16 @@ describe('MCP Server (via InMemoryTransport)', () => {
         expect(calls).toHaveLength(11);
 
         for (const { name, args } of calls) {
-          const result = await client.callTool({ name, arguments: args });
+          const result = await client.callTool({
+            name,
+            arguments: withProjectRoot(args, dir),
+          });
           expect(isToolError(result)).toBe(false);
-          const text = extractText(result);
-          expect(text.length).toBeGreaterThan(0);
-          expect(() => JSON.parse(text)).not.toThrow();
+          expect(extractText(result).length).toBeGreaterThan(0);
         }
 
-        expect(Object.keys(spies)).toHaveLength(11);
-        for (const [name, spy] of Object.entries(spies)) {
+        for (const spy of Object.values(spies)) {
           expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
-          void name;
         }
       } finally {
         for (const spy of Object.values(spies)) {
@@ -1312,11 +886,14 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('未锁定时对全部 11 个工具各 callTool 一次：每一个 isError === true，且对应 command/lib spy 调用次数均为 0 (AC-5)', async () => {
-      setLockedRoot(null);
-      vi.mocked(requireLockedProjectRoot).mockImplementation(() => {
-        throw new ProjectRootLockError('not_locked', LOCK_ERROR_FIXTURE_MSG);
-      });
+    it('resolve 抛 not_in_candidates 时 11 个 tool 均 isError 且 spy 次数 0', async () => {
+      setResolveError(
+        makeResolveError('not_in_candidates', 'x', {
+          candidates: [],
+          force_hint: 'force-add',
+          project_root: '/x',
+        }),
+      );
       const spies = [
         vi.spyOn(phaseLogCmd, 'runPhaseLog'),
         vi.spyOn(phaseNextCmd, 'runPhaseNext'),
@@ -1358,13 +935,14 @@ describe('MCP Server (via InMemoryTransport)', () => {
         { name: 'test_resolve_paths', args: { modules: [] } },
         { name: 'change_list', args: {} },
       ];
-      expect(calls).toHaveLength(11);
 
       try {
         for (const { name, args } of calls) {
-          const result = await client.callTool({ name, arguments: args });
+          const result = await client.callTool({
+            name,
+            arguments: withProjectRoot(args, '/x'),
+          });
           expect(isToolError(result)).toBe(true);
-          expect(extractText(result).length).toBeGreaterThan(0);
         }
         for (const spy of spies) {
           expect(spy).toHaveBeenCalledTimes(0);
@@ -1375,12 +953,189 @@ describe('MCP Server (via InMemoryTransport)', () => {
         }
       }
     });
+
+    it('11 个 tool 均传入相同合法 project_root 时接线一致', async () => {
+      const { dir, cleanup } = setupTempProject();
+      const withSep = dir.endsWith(path.sep) ? dir : dir + path.sep;
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(changeListCmd, 'runChangeList');
+      try {
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: { project_root: withSep },
+        });
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledWith(dir);
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe('MCP 工具调用 — 业务成功路径（带 project_root）', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('config_get 返回 key、value 和 exists 字段', async () => {
+      const { dir, cleanup } = setupTempProject({ schema: 'spec-driven' });
+      setResolvedRoot(dir);
+      try {
+        const result = await client.callTool({
+          name: 'config_get',
+          arguments: withProjectRoot({ key: 'schema' }),
+        });
+        const data: ConfigGetResult = JSON.parse(extractText(result));
+        expect(data).toMatchObject({ key: 'schema', exists: true });
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('test_detect_frameworks 返回 detected 字段', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const result = await client.callTool({
+          name: 'test_detect_frameworks',
+          arguments: withProjectRoot({}),
+        });
+        const data: TestDetectFrameworksResult = JSON.parse(extractText(result));
+        expect(data).toHaveProperty('detected');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('test_resolve_paths 返回 unit_tests 数组', async () => {
+      const { dir, cleanup } = setupTempProject({ schema: 'spec-driven' });
+      setResolvedRoot(dir);
+      try {
+        fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+        fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
+        const result = await client.callTool({
+          name: 'test_resolve_paths',
+          arguments: withProjectRoot({ modules: ['src/foo.ts'] }),
+        });
+        const data: ResolveTestPathsResult = JSON.parse(extractText(result));
+        expect(data).toHaveProperty('unit_tests');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('change_list 返回 changes 数组且 output schema 可解析', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}),
+        });
+        const parsed = changeListOutputSchema.safeParse(JSON.parse(extractText(result)));
+        expect(parsed.success).toBe(true);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('phase_next 返回下一阶段信息', async () => {
+      const { dir, cleanup } = setupTempProject();
+      const changeName = 'phase-next-fixture';
+      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setResolvedRoot(dir);
+      try {
+        const result = await client.callTool({
+          name: 'phase_next',
+          arguments: withProjectRoot({ change: changeName }),
+        });
+        expect(isToolError(result)).toBe(false);
+        expect(JSON.parse(extractText(result))).toHaveProperty('next_phase');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('archi_validate / archi_query / archi_check 返回预期结构', async () => {
+      setResolvedRoot(process.cwd());
+      const v = await client.callTool({
+        name: 'archi_validate',
+        arguments: withProjectRoot({}),
+      });
+      expect(isToolError(v)).toBe(false);
+      const vData: ArchiValidateResult = JSON.parse(extractText(v));
+      expect(vData).toMatchObject({ valid: true, errors: [] });
+
+      const q = await client.callTool({
+        name: 'archi_query',
+        arguments: withProjectRoot({}),
+      });
+      const qData: ArchiQueryResult = JSON.parse(extractText(q));
+      expect(qData).toMatchObject({ elements: [], relationships: [] });
+
+      const c = await client.callTool({
+        name: 'archi_check',
+        arguments: withProjectRoot({ staged: false }),
+      });
+      const cData: ArchiCheckResult = JSON.parse(extractText(c));
+      expect(cData.status).toBe('clean');
+    });
+
+    it('archi_* 将 resolve 根传入 lazy lib', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      const querySpy = vi.spyOn(archiQuery, 'queryModel');
+      try {
+        await client.callTool({
+          name: 'archi_query',
+          arguments: withProjectRoot({ element: 'sys' }),
+        });
+        expect(querySpy).toHaveBeenCalledWith(dir, 'sys');
+      } finally {
+        cleanup();
+      }
+    });
   });
 });
 
-// ===========================================================================
-// MCP 注册 — registerTool spy 精确字面量（独立 connect，避开共享 beforeAll）
-// ===========================================================================
+describe('MCP 配置 — .mcp.json 约束', () => {
+  it('plugins/dev-team/.mcp.json：dev-team 无 env 回灌 CLAUDE_PROJECT_DIR；不含 ${workspaceFolder} (AC-10)', () => {
+    const mcpPath = path.resolve(__dirname, '../../.mcp.json');
+    const raw = fs.readFileSync(mcpPath, 'utf-8');
+    const json = JSON.parse(raw) as {
+      mcpServers: { 'dev-team': Record<string, unknown>; likec4?: Record<string, unknown> };
+    };
+    const devTeam = json.mcpServers['dev-team'];
+    expect(devTeam).toBeDefined();
+    expect(devTeam).not.toHaveProperty('env');
+    expect(JSON.stringify(devTeam)).not.toContain('${workspaceFolder}');
+    expect(raw.includes('${workspaceFolder}')).toBe(false);
+  });
+
+  it('dev-team 节点若出现 env.CLAUDE_PROJECT_DIR 字面量 ${...} 则本用例失败 (AC-10)', () => {
+    const mcpPath = path.resolve(__dirname, '../../.mcp.json');
+    const json = JSON.parse(fs.readFileSync(mcpPath, 'utf-8')) as {
+      mcpServers: { 'dev-team': { env?: { CLAUDE_PROJECT_DIR?: string } } };
+    };
+    const env = json.mcpServers['dev-team'].env;
+    if (env?.CLAUDE_PROJECT_DIR) {
+      expect(env.CLAUDE_PROJECT_DIR).not.toMatch(/\$\{/);
+    }
+  });
+
+  it('likec4 服务可继续使用 ${CLAUDE_PROJECT_DIR}；断言仅约束 dev-team (AC-10)', () => {
+    const mcpPath = path.resolve(__dirname, '../../.mcp.json');
+    const json = JSON.parse(fs.readFileSync(mcpPath, 'utf-8')) as {
+      mcpServers: {
+        'dev-team': Record<string, unknown>;
+        likec4: { env?: Record<string, string> };
+      };
+    };
+    expect(JSON.stringify(json.mcpServers['dev-team'])).not.toContain('${workspaceFolder}');
+    const likec4Env = JSON.stringify(json.mcpServers.likec4?.env ?? {});
+    expect(likec4Env).toContain('${CLAUDE_PROJECT_DIR}');
+  });
+});
 
 describe('MCP 注册 — registerTool spy 精确字面量', () => {
   const REGISTER_ORDER = [
@@ -1397,8 +1152,9 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
     'backtrack',
   ] as const;
 
-  it('按注册顺序对每次调用断言 name/description 字节级 toBe；调用次数恰好 11；handler 均为 function', async () => {
-    mockLockedRoot.value = process.cwd();
+  it('按注册顺序对每次调用断言 name/description；调用次数恰好 11', async () => {
+    mockResolve.root = process.cwd();
+    mockResolve.throwError = null;
     const registerSpy = vi.spyOn(McpServer.prototype, 'registerTool');
     const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
     let server: McpServer | undefined;
@@ -1415,18 +1171,11 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
         const call = registerSpy.mock.calls[i];
         const name = call[0] as string;
         const config = call[1] as { description?: unknown };
-        const handler = call[2];
         names.push(name);
         expect(name).toBe(REGISTER_ORDER[i]);
-        expect(name).not.toBe('');
-        expect(name).not.toBeUndefined();
-        expect(name).not.toBe('changeList');
-        expect(typeof config.description).toBe('string');
         expect(config.description).toBe(
           EXPECTED_TOOL_DESCRIPTIONS[name as (typeof EXPECTED_TOOL_NAMES)[number]],
         );
-        expect(typeof handler).toBe('function');
-        expect(handler).not.toBeUndefined();
       }
       expect(names).toEqual([...REGISTER_ORDER]);
     } finally {

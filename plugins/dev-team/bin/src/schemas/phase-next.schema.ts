@@ -1,12 +1,14 @@
 import { z } from 'zod/v4';
 
 import { phaseIdSchema } from './phase-log.schema';
+import { projectRootSchema } from './public/project-root.schema';
 
 /**
  * Input schema for phase_next MCP tool.
  * `change` is required; workflow_type is read from change `workflow.json`.
  */
 export const phaseNextInputSchema = z.object({
+  project_root: projectRootSchema,
   change: z.string().min(1).describe('Change name (corresponds to openspec/changes/<name>)'),
 });
 

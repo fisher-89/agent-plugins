@@ -80,9 +80,9 @@ function persistEvalJson(changeDir: string, entries: EvalEntry[]): void {
  * This is the ONLY function that should modify backtrack state in eval.json.
  */
 export function runBacktrack(options: BacktrackOptions): BacktrackResult {
-  const { change, phase, backtrack_to, backtrack_reason } = options;
+  const { change, phase, backtrack_to, backtrack_reason, project_root } = options;
 
-  const changeDir = getChangeDir(change);
+  const changeDir = getChangeDir(change, project_root);
   const workflowType = getWorkflowType(change);
 
   // Validate phase and target positions in the workflow

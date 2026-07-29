@@ -36,6 +36,8 @@ import { runBacktrack } from '../../src/commands/backtrack';
 import { runPhaseLog } from '../../src/commands/phase-log';
 import { appendEntry } from '../../src/lib/eval-json';
 
+const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
+
 const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'none' }];
 const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
 
@@ -65,6 +67,7 @@ beforeEach(() => {
 describe('phase_log — 不再处理回溯，回溯由独立 backtrack 工具负责', () => {
   it('phase_log 写入成功（不含回溯参数）', () => {
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       report: 'bugs found',
@@ -82,6 +85,7 @@ describe('phase_log — 不再处理回溯，回溯由独立 backtrack 工具负
   it('backtrack 工具验证 phase 存在性', () => {
     // First, add a pass entry for the phase we want to backtrack
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'test-execution',
       report: 'ok',
@@ -91,6 +95,7 @@ describe('phase_log — 不再处理回溯，回溯由独立 backtrack 工具负
     // backtrack to a non-existent phase should throw
     expect(() =>
       runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'test-execution',
         backtrack_to: 'implement',
@@ -105,6 +110,7 @@ describe('phase_log — 不再处理回溯，回溯由独立 backtrack 工具负
   it('backtrack 工具验证目标 phase 在 phase 之前（不能回溯到未来 phase）', () => {
     // Add entries for earlier phases
     runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
       phase: 'proposal',
       report: 'ok',
@@ -114,6 +120,7 @@ describe('phase_log — 不再处理回溯，回溯由独立 backtrack 工具负
     // Try backtracking proposal -> test-execution (future phase)
     expect(() =>
       runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'proposal',
         backtrack_to: 'test-execution',
@@ -126,6 +133,7 @@ describe('phase_log — 不再处理回溯，回溯由独立 backtrack 工具负
     // No entries for the phase yet
     expect(() =>
       runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
         change: 'test-change',
         phase: 'test-execution',
         backtrack_to: 'proposal',

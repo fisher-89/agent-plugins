@@ -32,7 +32,7 @@ memory: project
 11. **生成 per-file 单元测试章节**：遍历 `unit_tests` 中每个 `source -> test_file` 对：
     a. 在 `## 单元测试` 中创建独立的 `### <源文件> -> <测试文件>` 章节
     b. **Grep** 源文件的导出声明（`export function`、`export class`、`export const`、`export default`）→ 提取函数/类方法签名 → 填充 `#### 待测功能` 列表（格式：`- functionName(): 简短描述`）
-    c. 设计测试用例 → 填充 `#### 用例` 表（列：`测试对象 | 路径类型 | 测试条件 | 迭代类型`），每个文件都包含正向、异常、边界三种类型
+    c. 设计测试用例 → 填充 `#### 用例` 表（列：`测试对象 | 路径类型 | 测试条件 | 迭代类型`），每个测试对象都包含正向、异常、边界三种类型
     d. 设计 Mock 策略 → 填充 `#### Mock策略` 表（列：`Mock主体 | Mock方案 | 应用场景`）
     同时将每个 `source` 填写到 `## 验收范围` 表的 `被测文件或模块` 列
 12. 若 `test_resolve_paths` 调用的 `errors` 非空，在 test-design.md `## 不可测试项` 章节记录无法解析的模块及原因

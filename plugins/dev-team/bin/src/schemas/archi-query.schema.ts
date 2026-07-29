@@ -1,5 +1,7 @@
 import { z } from 'zod/v4';
 
+import { projectRootSchema } from './public/project-root.schema';
+
 const c4ElementSchema = z.object({
   kind: z.string(),
   name: z.string(),
@@ -14,6 +16,7 @@ const c4RelationSchema = z.object({
 });
 
 export const archiQueryInputSchema = z.object({
+  project_root: projectRootSchema,
   element: z.string().optional().describe('Filter by element FQN (optional)'),
 });
 

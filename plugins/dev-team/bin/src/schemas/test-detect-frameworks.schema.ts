@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 
 import { testFrameworkSchema } from './config/config.schema';
+import { projectRootSchema } from './public/project-root.schema';
 
 const testPlanSchema = z.object({
   directory: z
@@ -49,6 +50,7 @@ const testPlanSchema = z.object({
  * auto-scans the project for files matching configured glob patterns.
  */
 export const testDetectFrameworksInputSchema = z.object({
+  project_root: projectRootSchema,
   files: z
     .array(z.string())
     .optional()
