@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/fisher-89/agent-plugins/master/plugins/dev-team/bin/dev-team-config.schema.json",
+  "$schema": "https://raw.githubusercontent.com/fisher-89/agent-plugins/refs/heads/master/plugins/dev-team/bin/dev-team-config.schema.json",
   "schema": "spec-driven",
   "static_analysis": "pnpm run -C ./plugins/dev-team check",
   "tests": [
