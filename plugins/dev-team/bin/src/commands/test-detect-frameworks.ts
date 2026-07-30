@@ -5,7 +5,11 @@ import { readConfig } from '../lib/config';
 import { matchGlob, toForwardSlash } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded, isExcludedBySuite } from '../lib/test-exclude';
-import { type FrameworkConfig, getFrameworkConfig } from '../lib/test-framework';
+import {
+  type FrameworkConfig,
+  getFrameworkConfig,
+  detectFrameworkVersion,
+} from '../lib/test-framework';
 import {
   type TestDetectFrameworksResult,
   type TestPlan,
@@ -190,19 +194,23 @@ function generateShellScript(
   directory: string,
   frameworkConfig: FrameworkConfig,
   configArgs: string,
+  version: string,
 ): string {
   if (frameworkConfig === null || frameworkConfig === undefined) {
     throw new TypeError('generateShellScript input must not be null or undefined');
   }
 
-  const test_execution = expandConfigArgs(frameworkConfig.shell.test_execution, configArgs);
+  const test_execution = expandConfigArgs(
+    frameworkConfig.shell.test_execution(version),
+    configArgs,
+  );
   const { coverage_cleanup } = frameworkConfig.shell;
 
   if (typeof directory !== 'string') {
     throw new TypeError('generateShellScript: directory must be a string');
   }
   if (typeof test_execution !== 'string') {
-    throw new TypeError('generateShellScript: test_execution must be a string');
+    throw new TypeError('generateShellScript: test_execution must return a string');
   }
   if (!Array.isArray(coverage_cleanup)) {
     throw new TypeError('generateShellScript: coverage_cleanup must be an array');
@@ -235,19 +243,20 @@ function generateCmdScript(
   directory: string,
   frameworkConfig: FrameworkConfig,
   configArgs: string,
+  version: string,
 ): string {
   if (frameworkConfig === null || frameworkConfig === undefined) {
     throw new TypeError('generateCmdScript input must not be null or undefined');
   }
 
-  const test_execution = expandConfigArgs(frameworkConfig.cmd.test_execution, configArgs);
+  const test_execution = expandConfigArgs(frameworkConfig.cmd.test_execution(version), configArgs);
   const { coverage_cleanup } = frameworkConfig.cmd;
 
   if (typeof directory !== 'string') {
     throw new TypeError('generateCmdScript: directory must be a string');
   }
   if (typeof test_execution !== 'string') {
-    throw new TypeError('generateCmdScript: test_execution must be a string');
+    throw new TypeError('generateCmdScript: test_execution must return a string');
   }
   if (!Array.isArray(coverage_cleanup)) {
     throw new TypeError('generateCmdScript: coverage_cleanup must be an array');
@@ -296,6 +305,8 @@ function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan
       resolved.absConfig,
     );
     const { frameworkConfig } = resolved;
+    // Version is used only while building scripts; not exposed on the plan schema.
+    const version = detectFrameworkVersion(suite.framework, resolved.absCwd);
 
     plan.push({
       directory: resolved.directory,
@@ -307,8 +318,8 @@ function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan
       mutation_config: null,
       mutation_score: suite.mutation?.score ?? null,
       script: {
-        shell: generateShellScript(resolved.directory, frameworkConfig, configArgs),
-        cmd: generateCmdScript(resolved.directory, frameworkConfig, configArgs),
+        shell: generateShellScript(resolved.directory, frameworkConfig, configArgs, version),
+        cmd: generateCmdScript(resolved.directory, frameworkConfig, configArgs, version),
       },
     });
   }

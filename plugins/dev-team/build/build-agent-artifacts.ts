@@ -29,7 +29,6 @@ function copyAgentPluginFiles(agent: AgentType): void {
     'skills/',
     'templates/',
     'utils/',
-    '.mcp.json',
     'bin/openspec',
     'bin/openspec-bundled.js',
     'bin/openspec.cmd',

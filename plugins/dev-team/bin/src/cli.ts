@@ -22,7 +22,7 @@ cli
   .option('--project-root <path>', 'Override project root directory')
   .option('--files <files>', 'Comma-separated list of test files to run, relative to project root')
   .option('--framework <name>', 'Only run tests for the specified framework')
-  .option('--no-mutation', 'Skip mutation testing phase')
+  .option('--skip-mutation', 'Skip mutation testing phase')
   .option(
     '--mutation-diff-only',
     'Only mutate files changed in git diff (mutation scope restricted to working tree changes)',
@@ -33,7 +33,7 @@ cli
       projectRoot?: string;
       files?: string;
       framework?: string;
-      noMutation?: boolean;
+      skipMutation?: boolean;
       mutationDiffOnly?: boolean;
     }) => {
       const files = options.files
@@ -47,7 +47,7 @@ cli
         projectRoot: options.projectRoot,
         files,
         framework: options.framework,
-        noMutation: options.noMutation,
+        noMutation: options.skipMutation,
         mutationDiffOnly: options.mutationDiffOnly,
       });
       process.exit(exitCode);

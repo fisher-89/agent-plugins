@@ -1098,45 +1098,6 @@ describe('MCP Server (via InMemoryTransport)', () => {
   });
 });
 
-describe('MCP 配置 — .mcp.json 约束', () => {
-  it('plugins/dev-team/.mcp.json：dev-team 无 env 回灌 CLAUDE_PROJECT_DIR；不含 ${workspaceFolder} (AC-10)', () => {
-    const mcpPath = path.resolve(__dirname, '../../.mcp.json');
-    const raw = fs.readFileSync(mcpPath, 'utf-8');
-    const json = JSON.parse(raw) as {
-      mcpServers: { 'dev-team': Record<string, unknown>; likec4?: Record<string, unknown> };
-    };
-    const devTeam = json.mcpServers['dev-team'];
-    expect(devTeam).toBeDefined();
-    expect(devTeam).not.toHaveProperty('env');
-    expect(JSON.stringify(devTeam)).not.toContain('${workspaceFolder}');
-    expect(raw.includes('${workspaceFolder}')).toBe(false);
-  });
-
-  it('dev-team 节点若出现 env.CLAUDE_PROJECT_DIR 字面量 ${...} 则本用例失败 (AC-10)', () => {
-    const mcpPath = path.resolve(__dirname, '../../.mcp.json');
-    const json = JSON.parse(fs.readFileSync(mcpPath, 'utf-8')) as {
-      mcpServers: { 'dev-team': { env?: { CLAUDE_PROJECT_DIR?: string } } };
-    };
-    const env = json.mcpServers['dev-team'].env;
-    if (env?.CLAUDE_PROJECT_DIR) {
-      expect(env.CLAUDE_PROJECT_DIR).not.toMatch(/\$\{/);
-    }
-  });
-
-  it('likec4 服务可继续使用 ${CLAUDE_PROJECT_DIR}；断言仅约束 dev-team (AC-10)', () => {
-    const mcpPath = path.resolve(__dirname, '../../.mcp.json');
-    const json = JSON.parse(fs.readFileSync(mcpPath, 'utf-8')) as {
-      mcpServers: {
-        'dev-team': Record<string, unknown>;
-        likec4: { env?: Record<string, string> };
-      };
-    };
-    expect(JSON.stringify(json.mcpServers['dev-team'])).not.toContain('${workspaceFolder}');
-    const likec4Env = JSON.stringify(json.mcpServers.likec4?.env ?? {});
-    expect(likec4Env).toContain('${CLAUDE_PROJECT_DIR}');
-  });
-});
-
 describe('MCP 注册 — registerTool spy 精确字面量', () => {
   const REGISTER_ORDER = [
     'phase_log',

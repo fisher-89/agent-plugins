@@ -60,7 +60,7 @@ describe('mutation 执行全流程 -- 正向', () => {
     }
   });
 
-  it('--no-mutation 标志跳过 mutation 阶段，其余流程正常', () => {
+  it('--skip-mutation 标志跳过 mutation 阶段，其余流程正常', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       tests: [{ root: '.', framework: 'vitest', mutation: { score: 80 } }],

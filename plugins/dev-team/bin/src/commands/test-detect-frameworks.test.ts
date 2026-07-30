@@ -1096,3 +1096,31 @@ describe('runTestDetectFrameworks — mutation_score / 空 tests（异常）', (
     }
   });
 });
+
+// ===========================================================================
+// plan script — framework version gating (jest --randomize)
+// ===========================================================================
+
+describe('runTestDetectFrameworks — jest version gating', () => {
+  it('jest >= 29.5.0 时 plan.script 含 --randomize；更低版本不含', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'jest' }],
+    });
+    const versionSpy = vi.spyOn(testFramework, 'detectFrameworkVersion');
+    try {
+      versionSpy.mockReturnValue('29.5.0');
+      const withFlag = runTestDetectFrameworks({ projectRoot: project.root }).plan[0];
+      expect(withFlag.script.shell).toContain('--randomize');
+      expect(withFlag.script.cmd).toContain('--randomize');
+
+      versionSpy.mockReturnValue('29.4.0');
+      const withoutFlag = runTestDetectFrameworks({ projectRoot: project.root }).plan[0];
+      expect(withoutFlag.script.shell).not.toContain('--randomize');
+      expect(withoutFlag.script.cmd).not.toContain('--randomize');
+    } finally {
+      versionSpy.mockReturnValue('99.0.0');
+      project.cleanup();
+    }
+  });
+});

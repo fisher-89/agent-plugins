@@ -7,16 +7,22 @@
 // ---------------------------------------------------------------------------
 
 import { type TestFramework } from '../schemas';
+import { execCommand } from './exec-command';
+
+/** Build a test_execution command template from a detected framework version. */
+type TestExecutionBuilder = (version: string) => string;
 
 export interface FrameworkConfig {
   framework: TestFramework;
+  /** Command run in the suite cwd to detect the framework version (usually `--version`). */
+  version_command: string;
   shell: {
-    test_execution: string;
+    test_execution: TestExecutionBuilder;
     coverage_cleanup: string[];
     mutation_execution?: string;
   };
   cmd: {
-    test_execution: string;
+    test_execution: TestExecutionBuilder;
     coverage_cleanup: string[];
     mutation_execution?: string;
   };
@@ -32,15 +38,16 @@ export interface FrameworkConfig {
 const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   jest: {
     framework: 'jest',
+    version_command: 'npx jest --version',
     shell: {
-      test_execution:
-        'npx jest --randomize --verbose --json --coverage --coverageReporters=json-summary {config_args} {files}',
+      test_execution: (version) =>
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --verbose --json --coverage --coverageReporters=json-summary {config_args} {files}`,
       coverage_cleanup: ['coverage', '.nyc_output'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
-      test_execution:
-        'npx jest --randomize --verbose --json --coverage --coverageReporters=json-summary {config_args} {files}',
+      test_execution: (version) =>
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --verbose --json --coverage --coverageReporters=json-summary {config_args} {files}`,
       coverage_cleanup: ['coverage', '.nyc_output'],
       mutation_execution: 'npx stryker run "{config}"',
     },
@@ -53,14 +60,15 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   },
   vitest: {
     framework: 'vitest',
+    version_command: 'npx vitest --version',
     shell: {
-      test_execution:
+      test_execution: () =>
         'npx vitest run --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
-      test_execution:
+      test_execution: () =>
         'npx vitest run --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
@@ -74,14 +82,15 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   },
   'vite-plus': {
     framework: 'vite-plus',
+    version_command: 'vp --version',
     shell: {
-      test_execution:
+      test_execution: () =>
         'vp test --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
-      test_execution:
+      test_execution: () =>
         'vp test --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
@@ -95,12 +104,13 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   },
   bun: {
     framework: 'bun',
+    version_command: 'bun --version',
     shell: {
-      test_execution: 'bun test --coverage --coverageReporters=json-summary {files}',
+      test_execution: () => 'bun test --coverage --coverageReporters=json-summary {files}',
       coverage_cleanup: ['coverage'],
     },
     cmd: {
-      test_execution: 'bun test --coverage --coverageReporters=json-summary {files}',
+      test_execution: () => 'bun test --coverage --coverageReporters=json-summary {files}',
       coverage_cleanup: ['coverage'],
     },
     coverage_format: 'istanbul',
@@ -112,13 +122,14 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   },
   rust: {
     framework: 'rust',
+    version_command: 'cargo --version',
     shell: {
-      test_execution:
+      test_execution: () =>
         'cargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X',
       coverage_cleanup: ['coverage', 'target/llvm-cov'],
     },
     cmd: {
-      test_execution:
+      test_execution: () =>
         'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path coverage/coverage-summary.json & exit /b %_X%',
       coverage_cleanup: ['coverage', 'target/llvm-cov'],
     },
@@ -131,12 +142,13 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   },
   'node-test': {
     framework: 'node-test',
+    version_command: 'node --version',
     shell: {
-      test_execution: 'node --test --experimental-test-coverage {files}',
+      test_execution: () => 'node --test --experimental-test-coverage {files}',
       coverage_cleanup: ['coverage'],
     },
     cmd: {
-      test_execution: 'node --test --experimental-test-coverage {files}',
+      test_execution: () => 'node --test --experimental-test-coverage {files}',
       coverage_cleanup: ['coverage'],
     },
     coverage_format: 'node-test',
@@ -148,12 +160,15 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   },
   go: {
     framework: 'go',
+    version_command: 'go version',
     shell: {
-      test_execution: 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}',
+      test_execution: () =>
+        'go test -json -coverprofile=coverage.out -covermode=atomic {directory}',
       coverage_cleanup: ['coverage', 'coverage.out'],
     },
     cmd: {
-      test_execution: 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}',
+      test_execution: () =>
+        'go test -json -coverprofile=coverage.out -covermode=atomic {directory}',
       coverage_cleanup: ['coverage', 'coverage.out'],
     },
     coverage_format: 'go-cover',
@@ -165,12 +180,13 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
   },
   pytest: {
     framework: 'pytest',
+    version_command: 'pytest --version',
     shell: {
-      test_execution: 'pytest -v {files}; pytest --cov=. --cov-report=json --cov-branch -q',
+      test_execution: () => 'pytest -v {files}; pytest --cov=. --cov-report=json --cov-branch -q',
       coverage_cleanup: ['.coverage', 'htmlcov'],
     },
     cmd: {
-      test_execution: 'pytest -v {files} && pytest --cov=. --cov-report=json --cov-branch -q',
+      test_execution: () => 'pytest -v {files} && pytest --cov=. --cov-report=json --cov-branch -q',
       coverage_cleanup: ['.coverage', 'htmlcov'],
     },
     coverage_format: 'coverage-py',
@@ -184,6 +200,45 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
 
 function isTestFramework(framework: string): framework is TestFramework {
   return framework in FRAMEWORK_REGISTRY;
+}
+
+/**
+ * Extract the first `major.minor.patch` semver found in command output.
+ */
+function extractSemver(text: string): string | null {
+  const match = text.match(/(\d+)\.(\d+)\.(\d+)/);
+  return match ? `${match[1]}.${match[2]}.${match[3]}` : null;
+}
+
+/**
+ * Compare two semver strings (major.minor.patch). Returns false when either
+ * side cannot be parsed — callers treat unknown versions as "feature unsupported".
+ */
+function isVersionAtLeast(version: string, minimum: string): boolean {
+  const a = extractSemver(version);
+  const b = extractSemver(minimum);
+  if (!a || !b) return false;
+
+  const [aMaj, aMin, aPat] = a.split('.').map(Number);
+  const [bMaj, bMin, bPat] = b.split('.').map(Number);
+
+  if (aMaj !== bMaj) return aMaj > bMaj;
+  if (aMin !== bMin) return aMin > bMin;
+  return aPat >= bPat;
+}
+
+/**
+ * Detect a framework's installed version by running its `version_command` in `cwd`.
+ * Returns an empty string when the command fails or no semver can be parsed.
+ */
+export function detectFrameworkVersion(framework: string, cwd: string): string {
+  const config = getFrameworkConfig(framework);
+  const result = execCommand(config.version_command, { cwd, timeout: 30_000 });
+  if (result.status !== 0) {
+    return '';
+  }
+  const output = `${result.stdout ?? ''}\n${result.stderr ?? ''}`;
+  return extractSemver(output) ?? '';
 }
 
 // ---------------------------------------------------------------------------

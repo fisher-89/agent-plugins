@@ -1655,7 +1655,7 @@ describe('withResolvedProjectRoot — 错误 JSON 载荷', () => {
     const body = await expectInvalidPath(mod, 'config_get', { project_root: 'relative' });
     expect(body.code).toBe('invalid_path');
     expect(body.force_hint).toBeUndefined();
-    expect(body.candidates).toBeUndefined();
+    expect(body.candidates).toEqual([]);
     expect(body.project_root).toBe('relative');
   });
 

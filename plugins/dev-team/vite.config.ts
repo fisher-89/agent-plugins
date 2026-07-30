@@ -8,7 +8,7 @@ import {
 } from './build';
 
 const SUPPORT_AGENTS: AgentType[] = ['cursor', 'claude'];
-const NO_OXC_FILES = ['bin/openspec-bundled.js', '*.md'];
+const NO_OXC_FILES = ['bin/openspec-bundled.js', 'bin/dev-team-config.schema.json', '*.md'];
 
 export default defineConfig({
   lint: {
@@ -50,6 +50,7 @@ export default defineConfig({
   pack: [...makeBinPackConfigs()],
   test: {
     include: ['bin/src/**/*.test.ts', 'bin/__tests__/**/*.test.ts'],
+    setupFiles: ['bin/__tests__/test-setup.ts'],
     silent: 'passed-only',
   },
 });
@@ -71,11 +72,12 @@ function makeBinPackConfigs(): Extract<UserConfig['pack'], Array<unknown>> {
     ];
   });
 
-  packs.at(-1)!.hooks = {
-    'build:done': async () => {
-      await generateConfigJsonSchema();
-    },
-  };
+  const noHookPack = packs.find((item) => !item.hooks);
+  if (noHookPack) {
+    noHookPack.hooks = {
+      'build:done': () => generateConfigJsonSchema(),
+    };
+  }
 
   return packs;
 }

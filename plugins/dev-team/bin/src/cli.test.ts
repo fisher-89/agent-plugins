@@ -131,22 +131,22 @@ describe('dev-team test-execution -- 边界', () => {
 
   it('同时传递多个选项时不影响 test-execution 命令正常注册', () => {
     const cmd = getTestExecCommand();
-    // --change, --project-root, --files, --framework, --no-mutation, --mutation-diff-only
+    // --change, --project-root, --files, --framework, --skip-mutation, --mutation-diff-only
     expect(cmd.options.length).toBeGreaterThanOrEqual(4);
   });
 });
 
 // ===========================================================================
-// --no-mutation 选项
+// --skip-mutation 选项
 // ===========================================================================
 
-describe('dev-team test-execution -- --no-mutation 选项', () => {
-  it('--no-mutation 选项传递到 runTestExecution', async () => {
+describe('dev-team test-execution --skip-mutation 选项', () => {
+  it('--skip-mutation 选项传递到 runTestExecution', async () => {
     const exitSpy = spyOnProcessExit();
     mockRunTestExecution.mockResolvedValue(0);
 
     const cmd = getTestExecCommand();
-    await cmd.commandAction!({ projectRoot: '/test/project', noMutation: true });
+    await cmd.commandAction!({ projectRoot: '/test/project', skipMutation: true });
 
     expect(mockRunTestExecution).toHaveBeenCalledWith(
       expect.objectContaining({ noMutation: true }),
@@ -154,7 +154,7 @@ describe('dev-team test-execution -- --no-mutation 选项', () => {
     exitSpy.mockRestore();
   });
 
-  it('--no-mutation 不传递时 noMutation 为 undefined', async () => {
+  it('--skip-mutation 不传递时 skipMutation 为 undefined', async () => {
     const exitSpy = spyOnProcessExit();
     mockRunTestExecution.mockResolvedValue(0);
 
@@ -162,7 +162,7 @@ describe('dev-team test-execution -- --no-mutation 选项', () => {
     await cmd.commandAction!({ projectRoot: '/test/project' });
 
     const callArgs = mockRunTestExecution.mock.calls.at(-1)!;
-    expect(callArgs[0].noMutation).toBeUndefined();
+    expect(callArgs[0].skipMutation).toBeUndefined();
     exitSpy.mockRestore();
   });
 });
