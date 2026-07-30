@@ -9,4 +9,4 @@ node_modules
 plugins/*/coverage
 plugins/*/reports
 
-plugins/dev-team/bin/*.cjs.map
+*/dev-team/bin/*.cjs.map

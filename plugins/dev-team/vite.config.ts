@@ -1,19 +1,13 @@
-import { writeFileSync } from 'node:fs';
+import { writeFileSync, cpSync, mkdirSync } from 'node:fs';
+import { dirname } from 'node:path';
 
-import { defineConfig } from 'vite-plus';
+import { defineConfig, type UserConfig } from 'vite-plus';
 
-const MCP_OUTPUT_FILE_NAME = 'bin/dev-team-mcp.cjs';
-const CLI_OUTPUT_FILE_NAME = 'bin/dev-team-cli.cjs';
-const HOOKS_OUTPUT_FILE_NAME = 'bin/dev-team-hooks.cjs';
-const SCHEMA_OUTPUT_FILE_NAME = 'bin/dev-team-config.schema.json';
-const NO_OXC_FILES = [
-  MCP_OUTPUT_FILE_NAME,
-  CLI_OUTPUT_FILE_NAME,
-  HOOKS_OUTPUT_FILE_NAME,
-  SCHEMA_OUTPUT_FILE_NAME,
-  'bin/openspec-bundled.js',
-  '*.md',
-];
+const PLUGIN_NAME = 'dev-team';
+const SUPPORT_AGENTS = ['cursor' as const, 'claude' as const];
+type AgentType = typeof SUPPORT_AGENTS extends Array<infer T> ? T : never;
+
+const NO_OXC_FILES = ['bin/openspec-bundled.js', '*.md'];
 
 export default defineConfig({
   lint: {
@@ -52,67 +46,106 @@ export default defineConfig({
     singleQuote: true,
     sortImports: true,
   },
-  pack: [
-    {
-      name: 'mcp',
-      platform: 'node',
-      entry: 'bin/src/mcp.ts',
-      outputOptions: {
-        file: MCP_OUTPUT_FILE_NAME,
-        format: 'cjs',
-        minify: true,
-        sourcemap: true,
-        cleanDir: false,
-        // Keep a single CJS artifact even when mcp.ts lazy-imports archi modules.
-        codeSplitting: false,
-      },
-      deps: {
-        alwaysBundle: [/.*/],
-      },
-      dts: false,
-      hooks: {
-        'build:done': async () => {
-          const { configSchema } = await import('./bin/src/schemas');
-          const jsonSchemaContent = JSON.stringify(configSchema.toJSONSchema(), null, 2);
-          writeFileSync(SCHEMA_OUTPUT_FILE_NAME, jsonSchemaContent);
-        },
-      },
-    },
-    {
-      name: 'cli',
-      platform: 'node',
-      entry: 'bin/src/cli.ts',
-      outputOptions: {
-        file: CLI_OUTPUT_FILE_NAME,
-        format: 'cjs',
-        minify: true,
-        sourcemap: true,
-        cleanDir: false,
-      },
-      deps: {
-        alwaysBundle: [/.*/],
-      },
-      dts: false,
-    },
-    {
-      name: 'hooks',
-      platform: 'node',
-      entry: 'bin/src/hooks.ts',
-      outputOptions: {
-        file: HOOKS_OUTPUT_FILE_NAME,
-        format: 'cjs',
-        minify: true,
-        sourcemap: true,
-        cleanDir: false,
-      },
-      deps: {
-        alwaysBundle: [/.*/],
-      },
-      dts: false,
-    },
-  ],
+  pack: [...makeBinPackConfigs()],
   test: {
     include: ['bin/src/**/*.test.ts', 'bin/__tests__/**/*.test.ts'],
     silent: 'passed-only',
   },
 });
+
+function makeBinPackConfigs(): Extract<UserConfig['pack'], Array<unknown>> {
+  return SUPPORT_AGENTS.flatMap((agent) => {
+    return [
+      {
+        ...toSingleFilePack(agent, 'mcp'),
+        clean: [getOutputPathByAgent(agent)],
+        hooks: {
+          'build:done': async () => {
+            await generateConfigJsonSchema(agent);
+            copyAgentPluginFiles(agent);
+            await generateAgentPluginConfig(agent);
+          },
+        },
+      },
+      toSingleFilePack(agent, 'cli'),
+      toSingleFilePack(agent, 'hooks'),
+    ];
+  });
+}
+
+function toSingleFilePack(
+  agent: AgentType,
+  entry: string,
+): NonNullable<Exclude<UserConfig['pack'], Array<unknown>>> {
+  return {
+    name: entry,
+    platform: 'node',
+    entry: `bin/src/${entry}.ts`,
+    outputOptions: {
+      file: getOutputPathByAgent(agent, `bin/${PLUGIN_NAME}-${entry}.cjs`),
+      format: 'cjs',
+      minify: true,
+      sourcemap: true,
+      cleanDir: false,
+      codeSplitting: false,
+    },
+    deps: {
+      alwaysBundle: [/.*/],
+    },
+    dts: false,
+  };
+}
+
+async function generateConfigJsonSchema(agent: AgentType): Promise<void> {
+  const { configSchema } = await import('./bin/src/schemas');
+  const jsonSchemaContent = JSON.stringify(configSchema.toJSONSchema(), null, 2);
+  outputToFile(agent, 'bin/dev-team-config.schema.json', jsonSchemaContent);
+}
+
+function copyAgentPluginFiles(agent: AgentType): void {
+  const staticFiles = [
+    'agents/',
+    'hooks/',
+    'skills/',
+    'templates/',
+    'utils/',
+    '.mcp.json',
+    'bin/openspec',
+    'bin/openspec-bundled.js',
+    'bin/openspec.cmd',
+  ];
+  for (const staticFile of staticFiles) {
+    cpSync(staticFile, getOutputPathByAgent(agent, staticFile), { recursive: true });
+  }
+}
+
+async function generateAgentPluginConfig(agent: AgentType): Promise<void> {
+  const { version } = await import('./package.json');
+  const pluginConfigContent = JSON.stringify(
+    {
+      name: PLUGIN_NAME,
+      description: 'A plugin for enhancing development workflow with OpenSpec integration',
+      version,
+      bin: './bin',
+      openspecVersion: '1.2.0',
+    },
+    null,
+    2,
+  );
+  const pluginConfigFilePath: Record<AgentType, string> = {
+    claude: '.claude-plugin/plugin.json',
+    cursor: '.cursor-plugin/plugin.json',
+  };
+  outputToFile(agent, pluginConfigFilePath[agent], pluginConfigContent);
+}
+
+function outputToFile(agent: AgentType, filePath: string, content: string): void {
+  const outputFilePath = getOutputPathByAgent(agent, filePath);
+  const outputDirPath = dirname(outputFilePath);
+  mkdirSync(outputDirPath, { recursive: true });
+  writeFileSync(outputFilePath, content, 'utf-8');
+}
+
+function getOutputPathByAgent(agent: AgentType, filePath: string = ''): string {
+  return `../../${agent}-plugins/${PLUGIN_NAME}/${filePath}`;
+}
