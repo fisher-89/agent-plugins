@@ -188,6 +188,21 @@ const problemSchema = z.object({
 });
 
 // ---------------------------------------------------------------------------
+// PlanIndexEntrySchema — path index in summary.plans[]
+// ---------------------------------------------------------------------------
+
+const planIndexEntrySchema = z.object({
+  id: z.string().describe('Plan directory id (same as planId / directory name under reports/test)'),
+  framework: z.string().describe('Test framework identifier'),
+  directory: z.string().describe('Plan working directory (relative to project root)'),
+  path: z
+    .string()
+    .describe(
+      'Plan artifact directory relative to project root (POSIX, e.g. reports/test/<planId>)',
+    ),
+});
+
+// ---------------------------------------------------------------------------
 // TestExecutionSummaryReportSchema
 // ---------------------------------------------------------------------------
 
@@ -212,6 +227,11 @@ const testExecutionSummaryReportSchema = z.object({
     .describe(
       'Overall mutation test conclusion (null when mutation testing is skipped or not supported)',
     ),
+  plans: z
+    .array(planIndexEntrySchema)
+    .describe(
+      'Path index of attempted plans (no status fields; success/failure live in report.json)',
+    ),
   findings: z.array(z.string()).optional().describe('Diagnostic findings from agent analysis'),
 });
 
@@ -222,6 +242,7 @@ const testExecutionSummaryReportSchema = z.object({
 export type TestCaseResult = z.infer<typeof testCaseResultSchema>;
 export type TestExecutionSubReport = z.infer<typeof testExecutionSubReportSchema>;
 export type TestExecutionSummaryReport = z.infer<typeof testExecutionSummaryReportSchema>;
+export type PlanIndexEntry = z.infer<typeof planIndexEntrySchema>;
 export type CoverageBlock = z.infer<typeof coverageBlockSchema>;
 export type CoverageMeasured = z.infer<typeof coverageMeasuredSchema>;
 export type CoverageThresholds = z.infer<typeof coverageThresholdsSchema>;

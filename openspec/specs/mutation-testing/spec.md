@@ -20,7 +20,8 @@
 | **Input** | `projectRoot` — 项目根目录；`StrykerConfigOptions` — `{ framework: string, sourceFiles: string[], testFiles: string[], mutationScore?: number }` |
 | **Output** | `StrykerConfigResult`: `{ configPath: string, cleanup: boolean }` — `configPath` 是最终使用的 StrykerJS 配置文件路径；`cleanup` 标记是否需要执行后清理 |
 | **Strategy** | 1) 检查 `stryker.config.{json,mjs,cjs}` 是否存在；2) 存在则直接使用（`cleanup = false`）；3) 不存在则从内置模板生成临时文件（`cleanup = true`） |
-| **Side Effects** | 可能创建临时文件到项目根目录 |
+| **Change** | overlay `jsonReporter.fileName` → `<reportDir>/mutation.json`；临时 config 仍在 absCwd，用后删 |
+| **Side Effects** | 可能创建临时文件到 absCwd |
 
 ### Module: lib/test-parser/mutation-parser.ts (NEW — StrykerJS JSON Report Parser)
 
@@ -28,7 +29,7 @@
 |----------|-------------|
 | **File** | `plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts` |
 | **Exports** | `parseMutationReport(reportPath: string): MutationReportResult` |
-| **Input** | StrykerJS JSON 报告文件路径（默认 `reports/mutation/mutation.json`） |
+| **Input** | plan 目录下 `mutation.json` 路径（非旧 `reports/mutation/mutation.json`） |
 | **Output** | `MutationReportResult`: `{ score: number, measured: MutationMeasured, sourceFiles: string[] }` |
 | **Parsing** | 读取 StrykerJS JSON 报告，提取 `mutationScore`、`killed`、`survived`、`timeout`、`noCoverage`、`compileError`、`runtimeError`、`ignored`、`totalDetected`、`totalUndetected`、`totalMutants` |
 | **Side Effects** | 读取文件 |
@@ -90,7 +91,8 @@
 | Aspect | Detail |
 |--------|--------|
 | rootPath / cwd | absCwd (`projectRoot / plan.directory`) |
-| Artifacts | under absCwd（v1） |
+| Temp artifacts | under absCwd（临时 config / `.stryker-tmp/`，用后删） |
+| Mutation JSON | `<reportDir>/mutation.json`（权威产物；非 absCwd `reports/mutation/`） |
 | mutate paths | relative to absCwd |
 
 ### Module: cli.ts (CLI Entry — --no-mutation Flag)
@@ -153,11 +155,15 @@
 3. `testFiles` 数组非空
 
 执行流程：
-1. 调用 `resolveStrykerConfig(projectRoot, { framework, sourceFiles, testFiles, mutationScore })`
-2. 执行 `execSync("npx stryker run --config <configPath>", { cwd: projectRoot })`
-3. 调用 `parseMutationReport("reports/mutation/mutation.json")`
-4. 如果 `cleanup === true`，清理临时配置文件和 `reports/mutation/` 目录
+1. 调用 `resolveStrykerConfig`（工作目录仍为 absCwd；可将 `jsonReporter.fileName` overlay 到当前 plan 的 `reportDir/mutation.json`）
+2. 执行 `npx stryker run --config <configPath>`（cwd = absCwd）
+3. 调用 `parseMutationReport("<reportDir>/mutation.json")`（路径为当前 plan 产物目录）
+4. 如果需要清理，best-effort 删除临时配置文件；MUST NOT 依赖或清理 suite cwd 旧 `reports/mutation/` 作为权威产物
 5. 将解析结果存入 `ExecutionResult.mutation`
+
+**Changes from previous version**:
+- 权威 mutation 报告路径：`reports/mutation/mutation.json`（相对 absCwd）→ `<reportDir>/mutation.json`
+- 解析 MUST NOT 回退读取旧路径
 
 #### Scenario: 支持的框架执行 StrykerJS
 
@@ -167,7 +173,7 @@
 **AND** `options.skipMutation` 未设置
 **THEN** `executePlanEntry` SHALL 调用 `resolveStrykerConfig`
 **AND** SHALL 执行 `npx stryker run`
-**AND** SHALL 调用 `parseMutationReport`
+**AND** SHALL 调用 `parseMutationReport` 并传入 plan 目录下的 `mutation.json`
 **AND** 返回的 `ExecutionResult.mutation` SHALL NOT 为 null
 
 #### Scenario: 不支持的框架跳过 mutation
@@ -199,11 +205,18 @@
 **AND** `ExecutionResult.mutation` SHALL 包含 `error` 字段描述失败原因
 **AND** `ExecutionResult.exitCode` SHALL NOT 受此影响（退出码仍由测试命令决定）
 
+#### Scenario: mutation report written under plan reportDir
+
+**WHEN** StrykerJS 成功完成
+**THEN** mutation JSON SHALL 存在于当前 plan 的 `reportDir/mutation.json`
+**AND** `parseMutationReport` SHALL 读取该路径
+**AND** SHALL NOT 以 absCwd 下 `reports/mutation/mutation.json` 作为权威来源
+
 ### Requirement: StrykerJS JSON 报告解析
 
 **ID**: REQ-MT-3
 **Priority**: MUST
-**Description**: `lib/test-parser/mutation-parser.ts` 的 `parseMutationReport` SHALL 解析 StrykerJS JSON 报告文件，提取变异得分和各类变异体计数。
+**Description**: `lib/test-parser/mutation-parser.ts` 的 `parseMutationReport` SHALL 解析 StrykerJS JSON 报告文件，提取变异得分和各类变异体计数。调用方 SHALL 传入当前 plan 的 `reportDir/mutation.json`（或等价绝对路径）。
 
 提取字段映射：
 
@@ -233,6 +246,7 @@
 **WHEN** 指定的报告文件路径不存在
 **THEN** `parseMutationReport` SHALL 抛出错误或返回含 `error` 的结果
 **AND** 调用方 SHALL 在 `ExecutionResult.mutation.error` 中记录该错误
+**AND** 调用方 SHALL NOT 自动回退到旧 `reports/mutation/mutation.json`
 
 #### Scenario: 无效 JSON 内容
 
@@ -495,7 +509,9 @@ SHALL NOT 再依赖 `config.test.overrides[].file` + `overrides[].mutation` 作�
 
 **ID**: REQ-MT-CWD-1
 **Priority**: MUST
-**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 absCwd（即 `projectRoot / plan.directory`）。临时配置（`stryker.config.*`）、`.stryker-tmp/`、`reports/mutation/` 等产物 SHALL 默认落在该 absCwd 下（第一版不引入独立 `artifacts` 字段）。
+**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 absCwd（即 `projectRoot / plan.directory`）。临时配置（`stryker.config.*`）、`.stryker-tmp/` SHALL 默认落在该 absCwd 下并在用后删除（与 C4 一致）。
+
+权威 mutation JSON 报告 SHALL 写入当前 plan 的 `reportDir/mutation.json`（通过配置 overlay `jsonReporter.fileName` 或等价），MUST NOT 以 absCwd 下 `reports/mutation/` 作为解析权威源。
 
 传入 `resolveStrykerConfig` 的 `mutate` / sourceFiles 路径 SHALL 重写为相对 absCwd 的 POSIX 路径。
 
@@ -511,6 +527,13 @@ SHALL NOT 再依赖 `config.test.overrides[].file` + `overrides[].mutation` 作�
 **WHEN** sourceFiles 含项目相对路径 `"plugins/dev-team/bin/src/foo.ts"`
 **AND** absCwd 为 `plugins/dev-team/bin`
 **THEN** 写入 Stryker 配置的 mutate 条目 SHALL 为 `"src/foo.ts"`（相对 absCwd）
+
+#### Scenario: jsonReporter targets plan reportDir
+
+**WHEN** 生成或 overlay Stryker 配置
+**AND** 当前 plan 的 `reportDir` 已决议
+**THEN** 配置中的 JSON reporter 输出路径 SHALL 指向 `reportDir/mutation.json`
+**AND** 解析阶段 SHALL 只读取该路径
 
 ### Requirement: 覆盖率阈值读取改为 suite 维度
 

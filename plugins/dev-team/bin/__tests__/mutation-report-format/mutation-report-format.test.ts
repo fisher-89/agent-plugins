@@ -62,6 +62,8 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
     durationMs: 500,
     testFiles: ['src/foo.test.ts'],
     sourceFiles: ['src/foo.ts'],
+    planId: '',
+    reportDir: '',
     ...overrides,
   };
 }

@@ -9,7 +9,7 @@
 
 import { z } from 'zod';
 
-import type { ParsedTestResult, TestCase } from './index';
+import type { ParsedTestResult, TestCase } from './types';
 
 // ---------------------------------------------------------------------------
 // Zod schema
@@ -45,15 +45,18 @@ function mapGoStatus(action: string): 'passed' | 'failed' | 'skipped' {
 /**
  * Parse `go test -json` line-delimited JSON output.
  *
- * @param stdout - The raw stdout from the test command
+ * Accepts file contents from planDir/results.ndjson (or equivalent NDJSON
+ * text). Execute reads the plan directory file via parsePlanArtifacts.
+ *
+ * @param content - Raw NDJSON string
  * @returns ParsedTestResult
  */
-export function parseGoOutput(stdout: string): ParsedTestResult {
-  if (!stdout || stdout.trim().length === 0) {
-    return emptyGoResult('Empty stdout');
+export function parseGoOutput(content: string): ParsedTestResult {
+  if (!content || content.trim().length === 0) {
+    return emptyGoResult('Empty results content');
   }
 
-  const lines = stdout.split('\n').filter((l) => l.trim().length > 0);
+  const lines = content.split('\n').filter((l) => l.trim().length > 0);
   const testMap = collectGoTestEvents(lines);
 
   const testCases = Array.from(testMap.values());

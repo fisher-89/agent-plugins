@@ -424,3 +424,97 @@ describe('parseCoverageFromFile -- null dimension support', () => {
     }
   });
 });
+
+// ===========================================================================
+// LCOV (bun)
+// ===========================================================================
+
+describe('parseCoverageFromFile -- lcov', () => {
+  it("format='lcov' 读取合法 lcov.info → 归一为 lines 等字段", () => {
+    const content = [
+      'TN:',
+      'SF:src/a.ts',
+      'LF:10',
+      'LH:8',
+      'FNF:2',
+      'FNH:1',
+      'BRF:4',
+      'BRH:2',
+      'end_of_record',
+    ].join('\n');
+    const { filePath, cleanup } = writeTempFile('lcov-ok', content);
+    try {
+      const result = parseCoverageFromFile(filePath, 'lcov');
+      expect(result).not.toBeNull();
+      expect(result!.lines).toBe(80);
+      expect(result!.functions).toBe(50);
+      expect(result!.branches).toBe(50);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('文件不存在 → null', () => {
+    expect(parseCoverageFromFile('/nonexistent/lcov.info', 'lcov')).toBeNull();
+  });
+
+  it("format='lcov' 但内容损坏 → null", () => {
+    const { filePath, cleanup } = writeTempFile('lcov-bad', 'this is not lcov');
+    try {
+      expect(parseCoverageFromFile(filePath, 'lcov')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('空 lcov 文件 → null', () => {
+    const { filePath, cleanup } = writeTempFile('lcov-empty', '');
+    try {
+      expect(parseCoverageFromFile(filePath, 'lcov')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('lcov 全 0% / 全 100%', () => {
+    const zero = 'TN:\nSF:a.ts\nLF:10\nLH:0\nend_of_record\n';
+    const full = 'TN:\nSF:a.ts\nLF:10\nLH:10\nend_of_record\n';
+    const z = writeTempFile('lcov-0', zero);
+    const f = writeTempFile('lcov-100', full);
+    try {
+      expect(parseCoverageFromFile(z.filePath, 'lcov')!.lines).toBe(0);
+      expect(parseCoverageFromFile(f.filePath, 'lcov')!.lines).toBe(100);
+    } finally {
+      z.cleanup();
+      f.cleanup();
+    }
+  });
+
+  it('超大 lcov（多 SF 段）', () => {
+    const parts: string[] = [];
+    for (let i = 0; i < 50; i++) {
+      parts.push(`TN:\nSF:src/f${i}.ts\nLF:10\nLH:9\nend_of_record`);
+    }
+    const { filePath, cleanup } = writeTempFile('lcov-large', parts.join('\n'));
+    try {
+      const result = parseCoverageFromFile(filePath, 'lcov');
+      expect(result).not.toBeNull();
+      expect(result!.lines).toBe(90);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('format 为 undefined/空字符串 → null', () => {
+    const { filePath, cleanup } = writeTempFile(
+      'lcov-fmt',
+      'TN:\nSF:a.ts\nLF:1\nLH:1\nend_of_record\n',
+    );
+    try {
+      expect(parseCoverageFromFile(filePath, undefined as unknown as string)).toBeNull();
+      expect(parseCoverageFromFile(filePath, '')).toBeNull();
+    } finally {
+      cleanup();
+    }
+  });
+});

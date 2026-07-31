@@ -4,7 +4,7 @@
 // CLI entry point for `dev-team test-execution`.  Orchestrates the full flow:
 //   1. Detect frameworks via runTestDetectFrameworks
 //   2. For each framework plan entry, execute via executePlanEntry
-//   3. Generate per-framework sub-reports via generateSubReport
+//   3. Generate per-plan atomic reports via generateSubReport
 //   4. Generate summary report via generateSummaryReport
 // ---------------------------------------------------------------------------
 
@@ -37,9 +37,9 @@ export interface TestExecutionOptions {
 
 function resolveReportsDir(projectRoot: string, change?: string): string {
   if (change) {
-    return path.resolve(projectRoot, 'openspec', 'changes', change, 'reports', 'test-execution');
+    return path.resolve(projectRoot, 'openspec', 'changes', change, 'reports', 'test');
   }
-  return path.resolve(projectRoot, 'reports', 'test-execution');
+  return path.resolve(projectRoot, 'reports', 'test');
 }
 
 // ---------------------------------------------------------------------------
@@ -136,6 +136,7 @@ export async function runTestExecution(options: TestExecutionOptions): Promise<n
       files: planFiles,
       noMutation: options.noMutation,
       mutationDiffFiles,
+      reportsDir,
     });
     const subReport = generateSubReport(
       entry.framework,

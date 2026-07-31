@@ -13,8 +13,13 @@
  * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
-import { describe, it, expect } from 'vite-plus/test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
+import { describe, expect, it } from 'vite-plus/test';
+
+import { parsePlanArtifacts } from './index';
 import { parseTextOutput } from './text-parser';
 
 // ===========================================================================
@@ -243,5 +248,45 @@ describe('parseTextOutput -- edge cases', () => {
     const result = parseTextOutput(output);
     expect(result.total).toBe(1000);
     expect(result.passed).toBe(1000);
+  });
+});
+
+describe('parseTextOutput — results.txt 文件通道 (AC-12)', () => {
+  it('从 results.txt 解析 bun [PASS]/[FAIL]', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'text-parser-file-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'results.txt'), '1 [PASS] a\n2 [FAIL] b\n', 'utf-8');
+      const result = parsePlanArtifacts('bun', dir);
+      expect(result.passed).toBe(1);
+      expect(result.failed).toBe(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('前缀噪声 + 合法结果段：文件通道读纯净文件仍成功', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'text-parser-noise-'));
+    try {
+      const clean = '1 [PASS] works\n';
+      fs.writeFileSync(path.join(dir, 'results.txt'), clean, 'utf-8');
+      // 脏组合串可能失败；文件通道成功
+      expect(parsePlanArtifacts('bun', dir).passed).toBe(1);
+      expect(parseTextOutput(clean).passed).toBe(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('空字符串 / 仅空白 → error', () => {
+    const result = parseTextOutput('   \n\t  ');
+    expect(result.error || result.total === 0).toBeTruthy();
+  });
+
+  it('特殊字符（emoji）夹在用例名中不抛异常', () => {
+    expect(() => parseTextOutput('1 [PASS] test_😀_ok\n')).not.toThrow();
+  });
+
+  it('未知格式不抛异常', () => {
+    expect(() => parseTextOutput('completely unknown format xyz')).not.toThrow();
   });
 });

@@ -79,61 +79,38 @@ describe('test_detect_frameworks — plan 输出结构', () => {
 });
 
 describe('test_detect_frameworks — plan 双脚本内容验证', () => {
-  it('script.shell 包含 `rm -rf` 和 bash 语法命令', () => {
+  it('script.shell / script.cmd 含未展开 report 占位符且含 test_execution', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       tests: [{ root: '.', framework: 'vitest' }],
     });
     try {
-      const result = runTestDetectFrameworks({ projectRoot: project.root });
-      expect(result.plan[0].script.shell).toContain('rm -rf');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('script.cmd 包含 Windows cmd 清理语法', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      tests: [{ root: 'pkg', framework: 'vitest' }],
-    });
-    try {
-      const result = runTestDetectFrameworks({ projectRoot: project.root });
-      expect(result.plan[0].script.cmd).toContain('cd /d');
-      expect(result.plan[0].script.cmd).toMatch(/if exist|rmdir/);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('script.cmd 用 & 串联为单行（避免 cmd /c 只执行第一行）', () => {
-    const project = createTempProject({
-      schema: 'spec-driven',
-      tests: [{ root: 'pkg', framework: 'vitest' }],
-    });
-    try {
-      const result = runTestDetectFrameworks({ projectRoot: project.root });
-      const cmd = result.plan[0].script.cmd;
-      expect(cmd).not.toMatch(/[\r\n]/);
-      expect(cmd).toContain(' & ');
-      expect(cmd).toContain('cd /d pkg');
+      const { shell, cmd } = runTestDetectFrameworks({ projectRoot: project.root }).plan[0].script;
+      expect(shell).toContain('{results_file}');
+      expect(shell).toContain('{report_dir}');
+      expect(shell).toContain('npx vitest');
+      expect(cmd).toContain('{results_file}');
       expect(cmd).toContain('npx vitest');
+      expect(cmd).not.toMatch(/[\r\n]/);
     } finally {
       project.cleanup();
     }
   });
 
-  it('script.cmd 的 if exist 清理步骤有外层括号（避免条件为假时吞掉后续 &）', () => {
+  it('不注入 suite cwd coverage_cleanup（rm -rf / if exist / rmdir）', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       tests: [{ root: 'pkg', framework: 'vitest' }],
     });
     try {
-      const cmd = runTestDetectFrameworks({ projectRoot: project.root }).plan[0].script.cmd;
-      expect(cmd).toContain('(if exist "coverage"');
-      expect(cmd).toMatch(/\(if exist "[^"]+" \(rmdir[\s\S]*?\)\)/);
-      // cleanup 之后仍能接到 test_execution
-      expect(cmd.indexOf('(if exist')).toBeLessThan(cmd.indexOf('npx vitest'));
+      const { shell, cmd } = runTestDetectFrameworks({ projectRoot: project.root }).plan[0].script;
+      expect(shell).not.toContain('rm -rf');
+      expect(shell).not.toMatch(/^cd /);
+      expect(cmd).not.toContain('cd /d');
+      expect(cmd).not.toMatch(/if exist|rmdir/);
+      expect(cmd).not.toContain('(if exist "coverage"');
+      expect(cmd).not.toContain(' & ');
+      expect(cmd).toContain('npx vitest');
     } finally {
       project.cleanup();
     }

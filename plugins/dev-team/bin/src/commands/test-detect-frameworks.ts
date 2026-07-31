@@ -106,25 +106,16 @@ function joinRootScoped(root: string, pattern: string): string {
 }
 
 /**
- * Expand `{config_args}` in a test_execution template.
- * Replaces every occurrence; never appends to the end of the whole string.
+ * Validate that a suite declaring `config` uses a framework that supports injection.
+ * Actual `{config_args}` expansion is deferred to execute (preparePlanArtifacts).
  */
-function expandConfigArgs(template: string, configArgs: string): string {
-  // Collapse leftover whitespace when configArgs is empty
-  if (!configArgs) {
-    return template.replace(/\s*\{config_args\}/g, '').replace(/\{config_args\}/g, '');
-  }
-  return template.replace(/\{config_args\}/g, configArgs);
-}
-
-function resolveConfigArgs(
+function validateSuiteConfig(
   suite: TestSuite,
   frameworkConfig: FrameworkConfig,
-  absCwd: string,
   absConfig: string | null,
-): string {
+): void {
   if (!suite.config) {
-    return '';
+    return;
   }
   if (!frameworkConfig.config_flag) {
     throw new Error(
@@ -137,8 +128,6 @@ function resolveConfigArgs(
       `Suite root "${suite.root}" declares config "${suite.config}" but absConfig could not be resolved`,
     );
   }
-  const relConfig = toPosixRelative(absCwd, absConfig);
-  return `${frameworkConfig.config_flag} ${relConfig}`;
 }
 
 function resolveSuite(suite: TestSuite, projectRoot: string): ResolvedSuite {
@@ -186,100 +175,44 @@ function isInSuiteScope(relativePath: string, resolved: ResolvedSuite): boolean 
 // ---------------------------------------------------------------------------
 
 /**
- * Generate a POSIX shell (bash) execution script from plan entry fields.
- * Uses Unix shell syntax: `cd`, `rm -rf`, `\n` line separation, `;` chaining
- * and `_X=$?` exit code capture (embedded in the test_execution template).
+ * Generate a POSIX shell (bash) execution script from the framework template.
+ *
+ * Report-related placeholders ({results_file}, {coverage_file}, {report_dir},
+ * {config_args}, …) are intentionally left unexpanded — execute resolves them
+ * against the plan report directory. Suite cwd cleanup is no longer injected;
+ * execute clears the plan directory instead. The script is run with cwd=absCwd,
+ * so no `cd` prefix is added.
  */
-function generateShellScript(
-  directory: string,
-  frameworkConfig: FrameworkConfig,
-  configArgs: string,
-  version: string,
-): string {
+function generateShellScript(frameworkConfig: FrameworkConfig, version: string): string {
   if (frameworkConfig === null || frameworkConfig === undefined) {
     throw new TypeError('generateShellScript input must not be null or undefined');
   }
 
-  const test_execution = expandConfigArgs(
-    frameworkConfig.shell.test_execution(version),
-    configArgs,
-  );
-  const { coverage_cleanup } = frameworkConfig.shell;
-
-  if (typeof directory !== 'string') {
-    throw new TypeError('generateShellScript: directory must be a string');
-  }
+  const test_execution = frameworkConfig.shell.test_execution(version);
   if (typeof test_execution !== 'string') {
     throw new TypeError('generateShellScript: test_execution must return a string');
   }
-  if (!Array.isArray(coverage_cleanup)) {
-    throw new TypeError('generateShellScript: coverage_cleanup must be an array');
-  }
 
-  const lines: string[] = [];
-
-  if (directory !== '.') {
-    lines.push(`cd ${directory}`);
-  }
-
-  for (const item of coverage_cleanup) {
-    lines.push(`rm -rf ${item}`);
-  }
-
-  lines.push(test_execution);
-
-  return lines.join('\n') + '\n';
+  return test_execution + '\n';
 }
 
 /**
- * Generate a Windows cmd.exe execution script from plan entry fields.
+ * Generate a Windows cmd.exe execution script from the framework template.
  *
- * Constraints when run via Node `execSync(..., { shell: cmd.exe })`:
- * 1. Join steps with ` & ` (single line) — multiline `/c` strings only run the first line.
- * 2. Wrap each `if exist ...` in an outer `(...)` — without it, a trailing `&` after a
- *    parenthesized IF with no ELSE is skipped when the condition is false.
+ * Same placeholder-deferral rules as {@link generateShellScript}. Execute runs
+ * with cwd=absCwd, so no `cd /d` prefix is added.
  */
-function generateCmdScript(
-  directory: string,
-  frameworkConfig: FrameworkConfig,
-  configArgs: string,
-  version: string,
-): string {
+function generateCmdScript(frameworkConfig: FrameworkConfig, version: string): string {
   if (frameworkConfig === null || frameworkConfig === undefined) {
     throw new TypeError('generateCmdScript input must not be null or undefined');
   }
 
-  const test_execution = expandConfigArgs(frameworkConfig.cmd.test_execution(version), configArgs);
-  const { coverage_cleanup } = frameworkConfig.cmd;
-
-  if (typeof directory !== 'string') {
-    throw new TypeError('generateCmdScript: directory must be a string');
-  }
+  const test_execution = frameworkConfig.cmd.test_execution(version);
   if (typeof test_execution !== 'string') {
     throw new TypeError('generateCmdScript: test_execution must return a string');
   }
-  if (!Array.isArray(coverage_cleanup)) {
-    throw new TypeError('generateCmdScript: coverage_cleanup must be an array');
-  }
 
-  const lines: string[] = [];
-
-  if (directory !== '.') {
-    const quotedDir =
-      directory.includes(' ') || directory.includes('\t')
-        ? `"${directory.replace(/"/g, '\\"')}"`
-        : directory;
-    lines.push(`cd /d ${quotedDir}`);
-  }
-
-  for (const item of coverage_cleanup) {
-    // Outer parens required so subsequent ` & ` steps still run when the path is absent.
-    lines.push(`(if exist "${item}" (rmdir /s /q "${item}" 2>nul & del /f /q "${item}" 2>nul))`);
-  }
-
-  lines.push(test_execution);
-
-  return lines.join(' & ');
+  return test_execution;
 }
 
 // ---------------------------------------------------------------------------
@@ -298,12 +231,7 @@ function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan
     }
     seen.add(dedupeKey);
 
-    const configArgs = resolveConfigArgs(
-      suite,
-      resolved.frameworkConfig,
-      resolved.absCwd,
-      resolved.absConfig,
-    );
+    validateSuiteConfig(suite, resolved.frameworkConfig, resolved.absConfig);
     const { frameworkConfig } = resolved;
     // Version is used only while building scripts; not exposed on the plan schema.
     const version = detectFrameworkVersion(suite.framework, resolved.absCwd);
@@ -320,8 +248,8 @@ function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan
       mutation_config: null,
       mutation_score: suite.mutation?.score ?? null,
       script: {
-        shell: generateShellScript(resolved.directory, frameworkConfig, configArgs, version),
-        cmd: generateCmdScript(resolved.directory, frameworkConfig, configArgs, version),
+        shell: generateShellScript(frameworkConfig, version),
+        cmd: generateCmdScript(frameworkConfig, version),
       },
     });
   }

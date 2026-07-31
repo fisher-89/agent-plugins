@@ -84,7 +84,7 @@ function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
     directory: '.',
     framework: 'vitest',
     coverage_format: 'istanbul',
-    coverage_output: 'coverage/coverage-summary.json',
+    coverage_output: 'coverage-summary.json',
     script: {
       shell: '#!/bin/bash\nset -e\n\nnpx vitest run --coverage --coverage.reporter=json-summary',
       cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
@@ -102,6 +102,8 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
     durationMs: 500,
     testFiles: ['src/foo.test.ts'],
     sourceFiles: ['src/foo.ts'],
+    planId: 'vitest',
+    reportDir: '/tmp/reports/test/vitest',
     ...overrides,
   };
 }

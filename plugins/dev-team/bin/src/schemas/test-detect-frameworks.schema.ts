@@ -15,9 +15,11 @@ const testPlanSchema = z.object({
     ),
   framework: testFrameworkSchema.describe('Framework name'),
   coverage_format: z
-    .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
+    .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py', 'lcov'])
     .describe('Coverage output format'),
-  coverage_output: z.string().describe('Coverage output file path (relative to directory)'),
+  coverage_output: z
+    .string()
+    .describe('Coverage output file name relative to the plan report directory (reportDir)'),
   mutation_framework: z
     .string()
     .nullable()

@@ -384,3 +384,44 @@ describe('parseMutationReport -- 边界', () => {
     }
   });
 });
+
+describe('parseMutationReport — planDir 路径 (AC-9)', () => {
+  it('读取 reportDir/mutation.json 合法 Stryker 报告成功', () => {
+    const tmp = createTempDir();
+    try {
+      const reportDir = path.join(tmp.root, 'reports', 'test', 'vitest');
+      fs.mkdirSync(reportDir, { recursive: true });
+      const reportPath = writeReport(reportDir, makeFullReport());
+      const result = parseMutationReport(reportPath);
+      expect(result).not.toBeNull();
+      expect(result!.score).toBe(85.5);
+      expect(result!.killed).toBe(10);
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('路径指向旧 reports/mutation/ 且文件不存在 → null', () => {
+    const tmp = createTempDir();
+    try {
+      const oldPath = path.join(tmp.root, 'reports', 'mutation', 'mutation.json');
+      expect(parseMutationReport(oldPath)).toBeNull();
+    } finally {
+      tmp.cleanup();
+    }
+  });
+
+  it('空文件 / 非法 JSON → null', () => {
+    const tmp = createTempDir();
+    try {
+      const emptyPath = path.join(tmp.root, 'empty.json');
+      fs.writeFileSync(emptyPath, '', 'utf-8');
+      expect(parseMutationReport(emptyPath)).toBeNull();
+      const badPath = path.join(tmp.root, 'bad.json');
+      fs.writeFileSync(badPath, '{not-json', 'utf-8');
+      expect(parseMutationReport(badPath)).toBeNull();
+    } finally {
+      tmp.cleanup();
+    }
+  });
+});

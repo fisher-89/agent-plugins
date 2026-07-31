@@ -8,7 +8,7 @@
 
 import { z } from 'zod';
 
-import type { ParsedTestResult, TestCase } from './index';
+import type { ParsedTestResult, TestCase } from './types';
 
 // ---------------------------------------------------------------------------
 // Zod schemas
@@ -39,19 +39,23 @@ type VitestTestResult = z.infer<typeof vitestTestResultSchema>;
 // ---------------------------------------------------------------------------
 
 /**
- * Attempt to parse a vitest/jest JSON reporter output.
+ * Parse vitest/jest/vite-plus JSON reporter output.
  *
- * @param stdout - The raw stdout from the test command
+ * Accepts either file contents from planDir/results.json or (legacy) a
+ * JSON string. Callers on the execute path should read the file first —
+ * do not pass dirty process stdout.
+ *
+ * @param content - Raw JSON string (typically from results.json)
  * @returns ParsedTestResult
  */
-export function parseJsOutput(stdout: string): ParsedTestResult {
-  if (!stdout || stdout.trim().length === 0) {
-    return emptyJsonResult('Empty stdout');
+export function parseJsOutput(content: string): ParsedTestResult {
+  if (!content || content.trim().length === 0) {
+    return emptyJsonResult('Empty results content');
   }
 
   let json: unknown;
   try {
-    json = JSON.parse(stdout);
+    json = JSON.parse(content);
   } catch {
     return emptyJsonResult('Failed to parse JSON output');
   }

@@ -18,7 +18,7 @@
 //     - Count lines containing PASS/FAIL/SKIP keywords
 // ---------------------------------------------------------------------------
 
-import type { ParsedTestResult, TestCase } from './index';
+import type { ParsedTestResult, TestCase } from './types';
 
 // ---------------------------------------------------------------------------
 // Layer 1: Framework-specific parsers
@@ -274,7 +274,10 @@ function mapPytestStatus(status: string): 'passed' | 'failed' | 'skipped' {
 /**
  * Parse free-text test output using a multi-layer fallback strategy.
  *
- * @param output - The raw text output (stdout or stderr)
+ * On the execute path, callers read planDir results files (e.g. results.txt)
+ * and pass the file contents here — not dirty process stdout.
+ *
+ * @param output - The raw text content (typically from a results file)
  * @returns ParsedTestResult
  */
 export function parseTextOutput(output: string): ParsedTestResult {

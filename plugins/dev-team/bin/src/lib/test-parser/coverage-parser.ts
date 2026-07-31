@@ -10,6 +10,7 @@
 //   - node-test  -- Text table
 //   - go-cover   -- func-summary.txt (total: line)
 //   - coverage-py -- JSON coverage.json
+//   - lcov       -- lcov.info (LF:/LH: records; bun)
 // ---------------------------------------------------------------------------
 
 import * as fs from 'fs';
@@ -251,6 +252,99 @@ function parseCoveragePy(content: string): ParsedCoverage | null {
 }
 
 // ---------------------------------------------------------------------------
+// LCOV parser (lcov.info)
+// ---------------------------------------------------------------------------
+
+interface LcovTotals {
+  totalLines: number;
+  coveredLines: number;
+  totalBranches: number;
+  coveredBranches: number;
+  totalFunctions: number;
+  coveredFunctions: number;
+  sawRecord: boolean;
+}
+
+function accumulateLcovTotals(content: string): LcovTotals {
+  const totals: LcovTotals = {
+    totalLines: 0,
+    coveredLines: 0,
+    totalBranches: 0,
+    coveredBranches: 0,
+    totalFunctions: 0,
+    coveredFunctions: 0,
+    sawRecord: false,
+  };
+
+  for (const rawLine of content.split('\n')) {
+    const line = rawLine.trim();
+    if (line.startsWith('LF:')) {
+      totals.totalLines += parseInt(line.slice(3), 10) || 0;
+      totals.sawRecord = true;
+    } else if (line.startsWith('LH:')) {
+      totals.coveredLines += parseInt(line.slice(3), 10) || 0;
+      totals.sawRecord = true;
+    } else if (line.startsWith('BRF:')) {
+      totals.totalBranches += parseInt(line.slice(4), 10) || 0;
+    } else if (line.startsWith('BRH:')) {
+      totals.coveredBranches += parseInt(line.slice(4), 10) || 0;
+    } else if (line.startsWith('FNF:')) {
+      totals.totalFunctions += parseInt(line.slice(4), 10) || 0;
+    } else if (line.startsWith('FNH:')) {
+      totals.coveredFunctions += parseInt(line.slice(4), 10) || 0;
+    }
+  }
+  return totals;
+}
+
+/** Some lcov emitters only list DA: hits without LF/LH — count DA lines. */
+function fallbackLcovFromDa(content: string): { totalLines: number; coveredLines: number } | null {
+  const daLines = content.split('\n').filter((l) => l.trim().startsWith('DA:'));
+  if (daLines.length === 0) return null;
+  return {
+    totalLines: daLines.length,
+    coveredLines: daLines.filter((l) => {
+      const parts = l.trim().slice(3).split(',');
+      return (parseInt(parts[1] ?? '0', 10) || 0) > 0;
+    }).length,
+  };
+}
+
+/**
+ * Parse lcov.info into ParsedCoverage.
+ *
+ * Aggregates LF (lines found) / LH (lines hit) across all SF records.
+ * Branch and function percentages are derived from BRF/BRH and FNF/FNH when present.
+ */
+function parseLcov(content: string): ParsedCoverage | null {
+  if (!content || content.trim().length === 0) return null;
+
+  const totals = accumulateLcovTotals(content);
+  let { totalLines, coveredLines } = totals;
+
+  if (!totals.sawRecord || totalLines <= 0) {
+    if (!totals.sawRecord) {
+      const da = fallbackLcovFromDa(content);
+      if (!da) return null;
+      totalLines = da.totalLines;
+      coveredLines = da.coveredLines;
+    } else {
+      return null;
+    }
+  }
+
+  const pct = (covered: number, total: number): number | null =>
+    total > 0 ? Math.round((covered / total) * 10000) / 100 : null;
+
+  return {
+    lines: pct(coveredLines, totalLines) ?? 0,
+    branches: pct(totals.coveredBranches, totals.totalBranches),
+    functions: pct(totals.coveredFunctions, totals.totalFunctions),
+    fileCoverage: null,
+  };
+}
+
+// ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
 
@@ -283,6 +377,8 @@ export function parseCoverageFromFile(filePath: string, format: string): ParsedC
       return parseGoCover(content);
     case 'coverage-py':
       return parseCoveragePy(content);
+    case 'lcov':
+      return parseLcov(content);
     default:
       return null;
   }

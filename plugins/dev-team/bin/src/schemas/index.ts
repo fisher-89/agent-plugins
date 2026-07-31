@@ -40,6 +40,7 @@ export type {
   TestCaseResult,
   TestExecutionSubReport,
   TestExecutionSummaryReport,
+  PlanIndexEntry,
   CoverageBlock,
   CoverageMeasured,
   CoverageThresholds,

@@ -5,11 +5,10 @@
 `plugins/dev-team/bin/src/cli.ts` SHALL register a `test-execution` subcommand instead of `unit-test`, associated with `commands/test-execution.ts` action handler. The command SHALL support `--project-root <path>` option. When executed, SHALL call `runTestDetectFrameworks({})` to get the framework plan.
 
 **Changes from previous version**:
-- CLI command name: `unit-test` → `test-execution`
-- Handler file: `commands/unit-test.ts` → `commands/test-execution.ts`
-- Report output paths: `reports/unit-test-execution.json` → `reports/test-execution.json`
-- Sub-report paths: `reports/unit-test/<fw>.json` → `reports/test-execution/<fw>.json`
-- Schema file: `schemas/unit-test-output.schema.ts` → `schemas/test-execution-output.schema.ts`
+- CLI command name: `unit-test` → `test-execution`（保持不变）
+- Report output paths: `reports/test-execution.json` → `reports/test/summary.json`
+- Sub-report paths: `reports/test-execution/<fw>.json` → `reports/test/<planId>/report.json`
+- Schema file: `schemas/test-execution-output.schema.ts`（保持）；summary 增加 `plans[]`
 
 #### Scenario: test-execution subcommand registered
 
@@ -22,13 +21,20 @@
 
 **WHEN** `dev-team test-execution --project-root /custom/path` is called
 **THEN** SHALL use `/custom/path` as project root for all internal functions
-**AND** test report files SHALL be written to `/custom/path/reports/`
+**AND** test report files SHALL be written under `/custom/path/reports/test/`（无 `--change` 时）
 
 #### Scenario: deprecated unit-test command
 
 **WHEN** `dev-team unit-test` is called
 **THEN** CLI SHALL output a deprecation message: "`unit-test` has been renamed to `test-execution`. Please use `dev-team test-execution`."
 **AND** SHALL still route to `runTestExecution` (backward compatibility)
+
+#### Scenario: writes summary and plan directories under reports/test
+
+**WHEN** `dev-team test-execution` completes（无 `--change`）
+**THEN** summary report SHALL exist at `reports/test/summary.json`
+**AND** each attempted plan SHALL have atomic report at `reports/test/<planId>/report.json`
+**AND** SHALL NOT write `reports/test-execution.json` or `reports/test-execution/<planId>.json`
 
 ### Requirement: Schema file renamed and updated
 
@@ -54,6 +60,170 @@
 **THEN** `runTestExecution` is available (not `runUnitTest`)
 **AND** `TestExecutionOptions` type is available (not `UnitTestOptions`)
 
+### Requirement: Plan artifact directory layout and planId
+
+**ID**: REQ-TEF-LAYOUT-1
+**Priority**: MUST
+**Description**: CLI SHALL 将每个 plan 的产物写入 `reports/test/<planId>/`（有 `--change` 时前缀为 `openspec/changes/<change>/reports/test/<planId>/`）。`planId` SHALL 由既有消毒算法生成目录 id（不含 `.json`）：
+- `directory === '.'` → `planId = "<framework>"`（无前缀、无前导 `_`）
+- 其他 → `sanitize(directory) + "_" + framework`（路径分隔符替换为 `_`）
+
+跨框架强制统一文件名仅：
+- `reports/test/summary.json`（聚合报告）
+- `reports/test/<planId>/report.json`（原子报告）
+
+测试结果 / 覆盖率 / mutation 文件名由各框架垂直定义。CLI / phase 名仍为 `test-execution`。
+
+#### Scenario: root suite planId is framework name
+
+**WHEN** plan entry `directory` 为 `"."` 且 `framework` 为 `"vitest"`
+**THEN** `planId` SHALL 为 `"vitest"`
+**AND** reportDir SHALL 为 `reports/test/vitest/`（相对对应 reports 根）
+
+#### Scenario: nested suite planId sanitizes directory
+
+**WHEN** plan entry `directory` 为 `"plugins/dev-team/bin"` 且 `framework` 为 `"vite-plus"`
+**THEN** `planId` SHALL 为 `"plugins_dev-team_bin_vite-plus"`
+**AND** atomic report SHALL 写入 `reports/test/plugins_dev-team_bin_vite-plus/report.json`
+
+#### Scenario: change-scoped reports root
+
+**WHEN** `dev-team test-execution --change my-feature` 执行完成
+**THEN** summary SHALL 位于 `openspec/changes/my-feature/reports/test/summary.json`
+**AND** plan 目录 SHALL 位于 `openspec/changes/my-feature/reports/test/<planId>/`
+
+### Requirement: summary.plans path index
+
+**ID**: REQ-TEF-PLANS-1
+**Priority**: MUST
+**Description**: `summary.json` SHALL 保留既有聚合字段，并新增 `plans[]` 数组。每个元素 SHALL 包含且仅作为路径索引：
+- `id`：与 `planId` / 目录名相同
+- `framework`
+- `directory`：plan entry 的 directory
+- `path`：相对 **project root** 的 plan 目录（无 change：`reports/test/<planId>`；有 change：`openspec/changes/<change>/reports/test/<planId>`）
+
+每个尝试执行的 plan SHALL 进入 `plans[]`（含 prepare/执行失败）。`plans[]` SHALL NOT 携带 status；成败与原因落在对应 `report.json` 以及 summary 的 `conclusion` / `problems`。
+
+#### Scenario: plans index lists attempted plans with project-relative path
+
+**WHEN** CLI 执行两个 plan（一个成功、一个失败）后写 summary
+**THEN** `plans` SHALL 长度为 2
+**AND** 每个元素 SHALL 含 `id`、`framework`、`directory`、`path`
+**AND** `path` SHALL 为相对 project root 的 POSIX 风格路径
+**AND** 失败 plan 仍出现在 `plans[]`
+
+#### Scenario: plans index does not embed status
+
+**WHEN** 读取 `summary.json` 的 `plans[]` 元素
+**THEN** 元素 SHALL NOT 包含 `status` / `conclusion` / `exit_code` 字段
+
+### Requirement: preparePlanArtifacts before execute
+
+**ID**: REQ-TEF-PREP-1
+**Priority**: MUST
+**Description**: `executePlanEntry` SHALL 在运行测试命令前调用 `preparePlanArtifacts`：
+1. 决议 `reportDir`；`mkdir`；清空**该** `reportDir` 内既有内容（不影响其他 plan）
+2. 返回 `configArgs`、`placeholders`（至少含 `report_dir`、`results_file`、`coverage_file`）、`redirectStdoutToResults`、`tempPaths`
+3. 展开占位符后，若 `redirectStdoutToResults === true`，SHALL 对测试结果段追加壳层 `> "{results_file}"`；若为 false（原生 outputFile 族），SHALL NOT 追加
+4. 执行结束后 best-effort 删除 `tempPaths`（失败不阻断报告）
+
+临时测试 config / bunfig SHALL 仅在 CLI 无法把产物指到 plan 目录时创建（默认仅 bun）；临时文件落在 suite cwd，用后删除；MUST NOT 修改用户长期 config / bunfig。
+
+prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写 `report.json` 并进入 `plans[]`。
+
+#### Scenario: clears only the current plan directory before run
+
+**WHEN** `reports/test/vitest/` 与 `reports/test/jest/` 均已存在旧文件
+**AND** 即将执行 planId=`vitest`
+**THEN** SHALL 清空 `reports/test/vitest/`
+**AND** SHALL NOT 删除或清空 `reports/test/jest/`
+
+#### Scenario: native outputFile frameworks do not redirect stdout
+
+**WHEN** framework 为 `jest`（或其它 `redirectStdoutToResults=false` 的框架）
+**AND** `preparePlanArtifacts` 返回后拼命令
+**THEN** 最终命令 SHALL NOT 以壳层 `> "{results_file}"` 追加测试结果段
+**AND** 命令 SHALL 含框架原生文件输出旗标指向 planDir 内垂直结果文件
+
+#### Scenario: redirect frameworks append shell redirect
+
+**WHEN** framework 为 `bun` / `go` / `node-test` 等无原生结果文件输出的测试段
+**AND** `redirectStdoutToResults` 为 `true`
+**THEN** 最终命令的测试结果段 SHALL 追加 `> "{results_file}"`（或 Windows cmd 等价重定向）
+
+#### Scenario: temp files cleaned up after execute
+
+**WHEN** prepare 创建了临时 bunfig 或临时 Stryker config（`cleanup`/tempPaths 非空）
+**THEN** execute 结束（成功或失败）后 SHALL best-effort 删除这些临时文件
+**AND** MUST NOT 修改用户仓库内长期 `bunfig.toml` / 长期 Stryker config
+
+### Requirement: File-channel result collection and vertical parsers
+
+**ID**: REQ-TEF-PARSE-1
+**Priority**: MUST
+**Description**: 测试用例结果采集 SHALL 优先使用框架原生输出到文件；无原生能力时使用段级重定向文件。Runner SHALL 通过垂直 `parsePlanArtifacts(framework, reportDir)`（或等价）从 plan 目录读取约定文件，MUST NOT 对整段脏 stdout 做 `JSON.parse`，MUST NOT 做括号扫描抽 JSON，MUST NOT 做 tee。
+
+覆盖率：有侧车文件时从 plan 目录解析；无则 `coverage=null`。MUST NOT 从 jest 结果内 `coverageMap` fallback；MUST NOT 读取 suite cwd 下旧 `coverage/` 等路径。
+
+垂直命名原则（design 可微调文件名，通道原则不变）：
+
+| 框架 | 测试结果（示意） | 覆盖率（示意） | 采集 |
+|------|------------------|----------------|------|
+| jest | `results.json` | `coverage-summary.json` | 原生 outputFile / coverageDirectory |
+| vitest / vite-plus | `results.json` | `coverage-summary.json` | 原生 reporter/outputFile |
+| bun | `results.txt` | `lcov.info` | 测试 `>`；覆盖率临时 bunfig |
+| go | `results.ndjson` | `func-summary.txt` (+ `coverage.out`) | 测试 `>`；coverprofile 原生路径 |
+| rust | `results.txt` | `coverage-summary.json` | 测试 `>`；llvm-cov `--output-path` |
+| pytest | `results.txt` | `coverage.json` | 测试段 `>`；`--cov-report=json:path` |
+| node-test | `results.txt` | （可含于同一文本） | `>` |
+
+横向 coverage-parser SHALL 保留为库函数，由垂直模块调用。
+
+#### Scenario: jest reads results.json from planDir not stdout
+
+**WHEN** jest plan 执行完成且 `<planDir>/results.json` 存在合法 JSON
+**THEN** 垂直 parser SHALL 从该文件解析 testCases
+**AND** SHALL NOT 对捕获的 stdout 整段执行 `JSON.parse`
+
+#### Scenario: missing results file becomes execution_error
+
+**WHEN** 测试命令退出码非 0
+**AND** 约定的结果文件缺失、为空或无法解析
+**THEN** 该 plan 的 `report.json` SHALL 记录 `execution_error`（或等价）
+**AND** summary `problems` SHALL 计入该失败
+**AND** 该 plan 仍出现在 `summary.plans[]`
+
+#### Scenario: no coverage sidecar yields null coverage
+
+**WHEN** plan 目录内无覆盖率侧车文件
+**THEN** `ExecutionResult.coverage` / 原子报告 coverage SHALL 为 `null`
+**AND** parser SHALL NOT 回退读取 suite cwd 旧路径
+**AND** SHALL NOT 使用 jest `coverageMap` fallback
+
+#### Scenario: no tee during execution
+
+**WHEN** 执行任一框架测试命令
+**THEN** runner SHALL NOT 实现 tee（同时写文件并保留完整实时 stdout 镜像）
+**AND** 失败诊断 SHALL 依赖 plan 目录产物与 `report.json`
+
+### Requirement: ExecutionResult carries plan artifact fields
+
+**ID**: REQ-TEF-ER-1
+**Priority**: MUST
+**Description**: `ExecutionResult` SHALL 在现有字段上增量扩展（非替换类型）：
+- `planId`：目录 id
+- `reportDir`：plan 目录路径
+- `resultsFile?`：实际读取的测试结果文件（垂直名）
+- `error?`：保留；prepare / 解析失败原因
+
+summary 的 `plans[]` SHALL 仅从 `ExecutionResult` 投影索引字段（`id` / `framework` / `directory` / `path`）。
+
+#### Scenario: execution result exposes planId and reportDir
+
+**WHEN** `executePlanEntry` 成功返回
+**THEN** `ExecutionResult.planId` SHALL 等于目录 id
+**AND** `ExecutionResult.reportDir` SHALL 指向该 plan 产物目录
+
 ## REMOVED Requirements
 
 ### Requirement: dev-team unit-test CLI command exists
@@ -76,7 +246,22 @@
 | Exports | `runTestExecution(options: TestExecutionOptions): Promise<TestExecutionExitCode>` |
 | Input | `TestExecutionOptions`: `{ projectRoot?: string }` |
 | Output | `TestExecutionExitCode`: `0` / `1` |
-| Side Effects | Execute shell commands; read/write `reports/test-execution/<fw>.json` and `reports/test-execution.json` |
+| Side Effects | 读写 `reports/test/summary.json` 与 `reports/test/<planId>/report.json`（及 plan 目录内垂直产物） |
+
+### Module: lib/test-report.ts
+
+| Property | Description |
+|----------|-------------|
+| File | `plugins/dev-team/bin/src/lib/test-report.ts` |
+| Key APIs | `derivePlanId(directory, framework)` → 目录 id（无 `.json`）；`generateSubReport` → 写 `<planId>/report.json`；`generateSummaryReport` → 写 `summary.json`（含 `plans[]`） |
+
+### Module: lib/test-runner.ts
+
+| Property | Description |
+|----------|-------------|
+| File | `plugins/dev-team/bin/src/lib/test-runner.ts` |
+| Key APIs | `preparePlanArtifacts(...)`；`executePlanEntry(...)`；`parsePlanArtifacts(framework, reportDir)`（或等价垂直分发） |
+| Flow | mkdir/clear reportDir → prepare → expand placeholders → optional `>` → run → vertical parse → report.json → cleanup tempPaths |
 
 ### Module: schemas/test-execution-output.schema.ts (renamed)
 

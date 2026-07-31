@@ -12,8 +12,13 @@
  * @see openspec/changes/cli-unit-test-execute/test-design.md
  */
 
-import { describe, it, expect } from 'vite-plus/test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
 
+import { describe, expect, it } from 'vite-plus/test';
+
+import { parsePlanArtifacts } from './index';
 import { parseJsOutput } from './js-parser';
 
 // ===========================================================================
@@ -118,13 +123,13 @@ describe('parseJsonOutput -- edge cases', () => {
   it('should return error for empty stdout', () => {
     const result = parseJsOutput('');
     expect(result.total).toBe(0);
-    expect(result.error).toBe('Empty stdout');
+    expect(result.error).toBe('Empty results content');
   });
 
   it('should return error for whitespace-only stdout', () => {
     const result = parseJsOutput('   \n  ');
     expect(result.total).toBe(0);
-    expect(result.error).toBe('Empty stdout');
+    expect(result.error).toBe('Empty results content');
   });
 
   it('should return error for invalid JSON', () => {
@@ -241,5 +246,120 @@ describe('parseJsonOutput -- source file derivation', () => {
     const result = parseJsOutput(stdout);
     expect(result.sourceFiles).toContain('src/foo.ts');
     expect(result.sourceFiles).toContain('src/bar.ts');
+  });
+});
+
+// ===========================================================================
+// 文件通道（results.json）— AC-4 / AC-11 / AC-12
+// ===========================================================================
+
+describe('parseJsOutput / 文件读 — results.json 通道', () => {
+  it('合法 vitest/jest results.json 文件内容解析出 passed/failed', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'js-parser-file-'));
+    try {
+      const payload = JSON.stringify({
+        testResults: [
+          {
+            name: 'a.test.ts',
+            assertionResults: [
+              { title: 'p', fullName: 'p', status: 'passed' },
+              { title: 'f', fullName: 'f', status: 'failed', failureMessages: ['e'] },
+            ],
+          },
+        ],
+      });
+      fs.writeFileSync(path.join(dir, 'results.json'), payload, 'utf-8');
+      const result = parsePlanArtifacts('vitest', dir);
+      expect(result.passed).toBe(1);
+      expect(result.failed).toBe(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('有 coverage-summary 时由横向库解析（本文件专注 results）', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'js-parser-cov-'));
+    try {
+      const payload = JSON.stringify({
+        testResults: [
+          {
+            name: 'a.test.ts',
+            assertionResults: [{ title: 'ok', fullName: 'ok', status: 'passed' }],
+          },
+        ],
+      });
+      fs.writeFileSync(path.join(dir, 'results.json'), payload, 'utf-8');
+      fs.writeFileSync(
+        path.join(dir, 'coverage-summary.json'),
+        JSON.stringify({
+          total: { lines: { pct: 92 }, branches: { pct: 80 }, functions: { pct: 85 } },
+        }),
+        'utf-8',
+      );
+      // results 由 js 通道解析；coverage-summary 由横向 coverage-parser 解析
+      const result = parsePlanArtifacts('jest', dir);
+      expect(result.passed).toBe(1);
+      expect(result.coverage).not.toBeNull();
+      expect(result.coverage!.lines).toBe(92);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('非法 JSON 文件返回 error，不抛未捕获异常', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'js-parser-bad-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'results.json'), '{not json', 'utf-8');
+      expect(() => parsePlanArtifacts('jest', dir)).not.toThrow();
+      expect(parsePlanArtifacts('jest', dir).error).toBeTruthy();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('空文件 / 缺失文件', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'js-parser-empty-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'results.json'), '', 'utf-8');
+      expect(parsePlanArtifacts('vitest', dir).error).toBeTruthy();
+      fs.rmSync(path.join(dir, 'results.json'));
+      expect(parsePlanArtifacts('vitest', dir).error).toBeTruthy();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('文件通道不受脏 stdout 前缀噪声影响', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'js-parser-noise-'));
+    try {
+      const clean = JSON.stringify({
+        testResults: [
+          {
+            name: 'a.test.ts',
+            assertionResults: [{ title: 'ok', fullName: 'ok', status: 'passed' }],
+          },
+        ],
+      });
+      fs.writeFileSync(path.join(dir, 'results.json'), clean, 'utf-8');
+      // 脏 stdout 会失败
+      expect(parseJsOutput('>>> loading\n' + clean).error).toBeTruthy();
+      // 文件通道成功
+      expect(parsePlanArtifacts('vitest', dir).passed).toBe(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('超大 JSON（>1000 cases）可解析', () => {
+    const cases = Array.from({ length: 1001 }, (_, i) => ({
+      title: `t${i}`,
+      fullName: `t${i}`,
+      status: 'passed',
+    }));
+    const stdout = JSON.stringify({
+      testResults: [{ name: 'big.test.ts', assertionResults: cases }],
+    });
+    const result = parseJsOutput(stdout);
+    expect(result.total).toBe(1001);
   });
 });

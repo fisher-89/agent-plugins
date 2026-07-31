@@ -13,19 +13,11 @@ import * as path from 'path';
 // ---------------------------------------------------------------------------
 // Temporary config generation
 // ---------------------------------------------------------------------------
-function generateTempConfig(
-  rootPath: string,
-  sourceFiles: string[],
-  testRunner: string,
-): { configPath: string; tempDirPath: string } {
-  const randomSuffix = crypto.randomBytes(4).toString('hex');
-  const configFileName = `stryker.config.${randomSuffix}.json`;
-  const configPath = path.resolve(rootPath, configFileName);
-  const tempDirPath = path.resolve(rootPath, '.stryker-tmp');
 
-  // Normalize source file paths to forward-slash, relative to rootPath (absCwd)
+/** Normalize source paths to forward-slash, relative to rootPath (absCwd). */
+function normalizeSourceFilesForStryker(rootPath: string, sourceFiles: string[]): string[] {
   const normalizedRoot = path.resolve(rootPath).replace(/\\/g, '/');
-  const normalizedSources = sourceFiles.map((f) => {
+  return sourceFiles.map((f) => {
     const posix = f.replace(/\\/g, '/');
     if (path.isAbsolute(f) || /^[A-Za-z]:/.test(f)) {
       const abs = path.resolve(f).replace(/\\/g, '/');
@@ -43,6 +35,23 @@ function generateTempConfig(
     }
     return posix;
   });
+}
+
+function generateTempConfig(
+  rootPath: string,
+  sourceFiles: string[],
+  testRunner: string,
+  reportDir: string,
+): { configPath: string; tempDirPath: string } {
+  const randomSuffix = crypto.randomBytes(4).toString('hex');
+  const configPath = path.resolve(rootPath, `stryker.config.${randomSuffix}.json`);
+  const tempDirPath = path.resolve(rootPath, '.stryker-tmp');
+  const normalizedSources = normalizeSourceFilesForStryker(rootPath, sourceFiles);
+
+  // jsonReporter.fileName resolved relative to absCwd → must land in reportDir
+  const mutationFileRel = path
+    .relative(rootPath, path.join(reportDir, 'mutation.json'))
+    .replace(/\\/g, '/');
 
   const config = {
     $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
@@ -51,7 +60,7 @@ function generateTempConfig(
     plugins: [resolvePluginPackage(testRunner)],
     ignoreStatic: true,
     reporters: ['json', 'html'],
-    jsonReporter: { fileName: 'reports/mutation/mutation.json' },
+    jsonReporter: { fileName: mutationFileRel },
     timeoutMS: 10000,
   };
 
@@ -66,22 +75,30 @@ function generateTempConfig(
 /**
  * Resolve the StrykerJS configuration for a project.
  *
- * If the project already has a stryker.config.* file, returns its path with
- * cleanup=false.  Otherwise generates a temporary configuration file and
- * returns its path with cleanup=true.
+ * Always generates a temporary configuration in absCwd (rootPath) with
+ * `jsonReporter.fileName` pointing at `{reportDir}/mutation.json`. The temp
+ * config is deleted by the caller after the run; user long-lived Stryker
+ * configs are never modified.
  *
- * @param rootPath - Absolute path to the framework root
+ * @param rootPath - Absolute path to the suite cwd (absCwd)
  * @param sourceFiles - Array of source file paths (relative to rootPath / absCwd, or absolute)
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
+ * @param reportDir  - Absolute plan report directory (mutation.json lands here)
  * @throws {Error} If the framework is not supported by StrykerJS
  */
 export function resolveStrykerConfig(
   rootPath: string,
   sourceFiles: string[],
   framework: string,
+  reportDir: string,
 ): { configPath: string; tempDirPath: string } {
   const testRunner = resolveTestRunner(framework);
-  const { configPath, tempDirPath } = generateTempConfig(rootPath, sourceFiles, testRunner);
+  const { configPath, tempDirPath } = generateTempConfig(
+    rootPath,
+    sourceFiles,
+    testRunner,
+    reportDir,
+  );
   return { configPath, tempDirPath };
 }
 

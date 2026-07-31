@@ -1,11 +1,11 @@
 // ---------------------------------------------------------------------------
 // Test Report Generator
 //
-// Generates per-framework sub-reports and a summary report for test
-// execution.  Reports are written as JSON files.
+// Generates per-plan atomic reports and a summary report for test execution.
+// Reports are written as JSON files.
 //
-// Sub-report:  reports/test-execution/<framework>.json
-// Summary:     reports/test-execution.json
+// Atomic report: reports/test/<planId>/report.json
+// Summary:       reports/test/summary.json
 // ---------------------------------------------------------------------------
 
 import * as fs from 'fs';
@@ -24,6 +24,7 @@ import {
   type MutationMeasured,
   type MutationOverride,
   type OpenSpecConfig,
+  type PlanIndexEntry,
   type SourceFileEntry,
   type TestCaseResult,
   type TestExecutionSubReport,
@@ -163,21 +164,21 @@ function writeJsonFile(filePath: string, data: unknown): void {
 }
 
 // ---------------------------------------------------------------------------
-// Plan ID derivation (for sub-report filenames)
+// Plan ID derivation (directory id under reports/test/)
 // ---------------------------------------------------------------------------
 
 /**
- * Derive a sub-report filename from a plan directory and framework.
+ * Derive a plan directory id from a plan directory and framework.
  *
  * Examples:
- *   derivePlanId('.', 'vitest')                → '_vitest.json'
- *   derivePlanId('plugins/dev-team/bin', 'vite-plus') → 'plugins_dev-team_bin_vite-plus.json'
+ *   derivePlanId('.', 'vitest')                       → 'vitest'
+ *   derivePlanId('plugins/dev-team/bin', 'vite-plus') → 'plugins_dev-team_bin_vite-plus'
  */
 function derivePlanId(directory: string, framework: string): string {
   // Map '.' (current directory) to empty prefix; otherwise replace path separators
   const sanitized = directory === '.' ? '' : directory.replace(/[\\/]/g, '_').replace(/\/$/, '');
   const prefix = sanitized ? `${sanitized}_` : sanitized;
-  return `${prefix}${framework}.json`;
+  return `${prefix}${framework}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -240,7 +241,8 @@ export function generateSubReport(
     findings: result.error ? [result.error] : undefined,
   };
 
-  writeJsonFile(path.join(reportsDir, derivePlanId(planDirectory, framework)), subReport);
+  const planId = derivePlanId(planDirectory, framework);
+  writeJsonFile(path.join(reportsDir, planId, 'report.json'), subReport);
   return subReport;
 }
 
@@ -272,10 +274,21 @@ function collectProblems(subReports: TestExecutionSubReport[]): Array<{
     }
 
     if (report.exit_code !== 0 && report.summary.failed === 0) {
+      const detail =
+        report.findings && report.findings.length > 0
+          ? report.findings[0]
+          : `Exit code ${report.exit_code}`;
       problems.push({
         framework: report.framework,
         type: 'execution_error',
-        message: `Exit code ${report.exit_code}`,
+        message: detail,
+      });
+    } else if (report.summary.failed === 0 && report.findings && report.findings.length > 0) {
+      // prepare/parse failure recorded in findings even when exit_code is 0/-handled
+      problems.push({
+        framework: report.framework,
+        type: 'execution_error',
+        message: report.findings[0],
       });
     }
   }
@@ -346,6 +359,8 @@ export function generateSummaryReport(
     problems.some((p) => p.type === 'execution_error'),
   );
 
+  const plans = buildPlansIndex(subReports, projectRoot, reportsDir);
+
   const summaryReport: TestExecutionSummaryReport = {
     phase: 'test-execution',
     command: 'dev-team test-execution',
@@ -359,10 +374,33 @@ export function generateSummaryReport(
     problems,
     coverage: coverageResult,
     mutation: mutationResult,
+    plans,
   };
 
-  writeJsonFile(path.join(reportsDir, '..', 'test-execution.json'), summaryReport);
+  writeJsonFile(path.join(reportsDir, 'summary.json'), summaryReport);
   return summaryReport;
+}
+
+/**
+ * Project each attempted plan into a path-only index entry (no status fields).
+ */
+function buildPlansIndex(
+  subReports: TestExecutionSubReport[],
+  projectRoot: string,
+  reportsDir: string,
+): PlanIndexEntry[] {
+  const normalizedRoot = path.resolve(projectRoot);
+  return subReports.map((report) => {
+    const planId = derivePlanId(report.directory, report.framework);
+    const absPlanDir = path.resolve(reportsDir, planId);
+    const relPath = toForwardSlash(path.relative(normalizedRoot, absPlanDir));
+    return {
+      id: planId,
+      framework: report.framework,
+      directory: report.directory,
+      path: relPath === '' ? '.' : relPath,
+    };
+  });
 }
 
 function pushCoverageProblems(

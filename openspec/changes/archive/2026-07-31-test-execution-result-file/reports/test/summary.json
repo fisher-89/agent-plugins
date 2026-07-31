@@ -1,0 +1,90 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-31T09:24:38.568Z",
+  "duration_seconds": 494,
+  "total": 1089,
+  "passed": 1089,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "fail",
+  "problems": [
+    {
+      "framework": "all",
+      "type": "coverage_failure",
+      "message": "Mutation score 50.6% < threshold 70%"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 93.23,
+      "branches": 80.94,
+      "functions": 97.16
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 34,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": false,
+    "score": 50.58,
+    "threshold": 70,
+    "measured": {
+      "killed": 1313,
+      "survived": 1053,
+      "timeout": 0,
+      "noCoverage": 230,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 69,
+      "total": 2665,
+      "detected": 1313,
+      "undetected": 1283
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 50.577812018489986,
+        "threshold": 70,
+        "pass": false,
+        "file_count": 34,
+        "passed_count": 0
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "directory": "plugins/dev-team",
+      "path": "openspec/changes/test-execution-result-file/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "Report completeness OK: required fields present; passed+failed+skipped equals total (1089); conclusion=fail is consistent with mutation.pass=false despite zero test failures and coverage.pass=true.",
+    "All 1089 unit/integration tests passed after fixing obsolete plan-output integration assertions that still expected suite-cwd coverage_cleanup (rm -rf / cd /d / if exist).",
+    "Mutation score 50.6% is 19.4pp below threshold 70% (killed 1313 / total mutants with 1053 survived + 230 noCoverage). Highest survivor concentrations: test-report.ts (311), test-runner.ts (189), text-parser.ts (173), test-framework.ts (133). Likely cause: new report/path/placeholder paths lack assertion strength against equivalent mutants; improve tests targeting those modules or tighten mutation mutate/ignore config for boilerplate.",
+    "Coverage thresholds met (lines 93.2 / branches 80.9 / functions 97.2). Override group plugins/dev-team reports measured nulls but pass=true — treat as non-blocking; null dimensions are not shortfalls."
+  ]
+}

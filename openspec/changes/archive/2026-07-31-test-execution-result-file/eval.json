@@ -1,0 +1,541 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked R1–R11 on proposal.md + 7 specs. Problem/scope/risks/ACs/decisions complete; 7 modified capabilities map 1:1 to specs; no TODO/TBD/{{}}; ACs align with REQ-TEF/TDF/TF/MT/TEE/PA; CLAUDE.md OK. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节写明 stdout 噪声致 jest JSON.parse 失败，并对照 coverage/mutation 已走文件通道、扁平报告致 agent 拼错路径"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（test-runner/report/framework/parser 等）、### 测试文件（*.test.ts 与 e2e）、### 不要修改（CLI 名/兼容层/tee 等），前两者均非空"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "6 条风险均有具体缓解：C3 临时 config、bun 降级 coverage=null、切片交付、cmd/Bash 单测、AC-10+plans[]、明确不做兼容"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-1..AC-12 均含对象+条件（如 AC-4 jest --outputFile 写 planDir 且不对 stdout JSON.parse）"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "决策表 8 行均有理由与备选（如采集通道否决脏 JSON 扫描；旧路径否决双读 fallback）"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "改动限于 plugins/dev-team CLI/agents/薄 skill 路径文案，不嵌入新技能、不改 OpenSpec 编排，符合 slim 架构"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal.md 与 specs/ 无 TODO/TBD/{{...}}；文中 placeholder/占位符均指模板变量如 {results_file}，非未填内容"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题/提案/变更范围/验收标准/风险均有具体内容，非空壳"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 下 ### 修改的能力 列出 7 项（cli-unit-test-execute 等）；新增能力为（无）可接受"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "7 个修改能力与 specs/{cli-unit-test-execute,test-detect-frameworks,test-get-framework-config,mutation-testing,unit-test-executor,test-execution-diagnostics,phase-agents}/spec.md 一一对应，无多余"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "均为修改能力且 specs 含 MODIFIED/ADDED delta；AC-1..12 在 REQ-TEF-LAYOUT/PLANS/PREP/PARSE、TDF、TF-TEF、MT、TEE、PA 中有对应；reports/test 与不做兼容/tee 一致"
+      }
+    ],
+    "timestamp": "2026-07-31T08:10:41.820Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "D1–D9 pass. D10 fail: design 修改文件含 mutation-parser.ts（文档/默认路径），tasks.md 无对应任务。AC-1..12 均有设计映射（AC-11 单测面由八框架垂直 parser 覆盖，测试任务按 D9 不写入）。Verdict: fail.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表 11 行均含职责/文件位置/依赖/技术；技术非 TBD；路径指向具体文件或明确模块（test-parser/** 在变更清单展开）"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "数据模型表含 planId、summary.json、plans[]、ExecutionResult、垂直产物等，均有字段与持久化列"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1..3→report/schema；AC-4..7→runner/framework/parser；AC-8 bun/lcov；AC-9 stryker；AC-10 agents；AC-11/12→八框架垂直产物表+文件 parser（单测按 D9 延后）"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md 分阶段 1–7；路径层→registry→prepare/execute→parser→mutation→agents→收尾，无后置任务被前置依赖"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "各任务含具体文件与操作（如 derivePlanId 去.json、preparePlanArtifacts 签名、段级>条件），非空泛「实现功能」"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节列出 fs/path/child_process、zod、各框架 CLI；构建/测试注明无新增、沿用 Vitest/TS"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "改动限于 plugins/dev-team CLI/lib/agents/薄 skill 路径文案，不嵌入新技能、不改 OpenSpec 编排，符合 slim 架构"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件/变更清单(修改文件非空)/数据模型/依赖/待决问题均有实质内容；路由/API 不适用已省略"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design 无测试策略章；tasks 无单元/集成测试或执行测试任务（7.x 为 CLI 实证钉死，非写测）"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": false,
+        "evidence": "proposal 实现文件均在变更清单；但 mutation-parser.ts 在修改文件表中，tasks.md 无任何任务引用该文件（仅 5.2 改 runner 读路径）"
+      }
+    ],
+    "timestamp": "2026-07-31T08:14:22.256Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "D1–D10 all pass. Components/models/deps complete; AC-1..12 mapped in design (test ACs via vertical file channel); tasks.md phased 1–7 with checkboxes, no test tasks; change list covers proposal 实现文件 and matches tasks. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表11行均含职责/依赖/技术/文件位置；技术为TypeScript或Markdown非TBD；路径指向具体.ts/.md（vertical parsers在变更清单展开为index/js/go/text/coverage等）"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "数据模型表含planId/summary.json/plans[]/ExecutionResult/垂直产物等，均有字段与持久化列；另附垂直产物终表与execute管线"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1..3路径与plans[]；AC-4..7 prepare/文件通道/条件>；AC-8 bun lcov；AC-9 mutation planDir；AC-10 agents；AC-11/12由八框架产物表与redirectStdoutToResults覆盖实现侧"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md分阶段1–7；路径层→registry→prepare→parser→mutation→agents→收尾；前置不依赖后续；均有- [ ]"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "如1.1导出derivePlanId去.json、3.2实现preparePlanArtifacts、4.1新增parsePlanArtifacts，非空泛「实现功能」"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节列fs/path/child_process、zod、各框架CLI用途；构建侧注明无新增、沿用Vitest/TS"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "改动限于plugins/dev-team CLI/lib/schemas与agents/skill路径文案，不嵌入新技能、不改OpenSpec编排，符合slim插件架构"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件/变更清单(修改文件非空)/数据模型/依赖/待决问题均有实质内容；路由/API不适用已省略"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design无测试策略章节；tasks无写/跑单测或集成测任务（「测试段」指命令结果段，非测试任务）"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "修改文件覆盖proposal实现文件全部条目；tasks引用文件均在清单；清单文件均有对应任务；无新增源文件故与公共函数表无矛盾"
+      }
+    ],
+    "timestamp": "2026-07-31T08:39:59.105Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL. T2: mutation-parser.test.ts unit section not listed in 验收范围 被测文件. T3: generateSubReport only 异常 is 废弃 (no active exception); parseTestOutput has no 异常 case. T1/T4–T8 pass: AC-1..12 mapped; mocks for fs/exec/Stryker; idempotent generateSubReport; template format OK; AC-10/schemas in 不可测试项.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-12 all appear in test-design ## 验收范围 rows with matching criteria"
+      },
+      {
+        "item": "验收范围与测试章节互相对应",
+        "pass": false,
+        "evidence": "Unit headings for files in 验收范围 exist, but ### mutation-parser.ts -> mutation-parser.test.ts has no 验收范围 被测文件 entry; integration 关联AC↔集成测试 AC-IDs OK (AC-1,3,5,7,9,12)"
+      },
+      {
+        "item": "单元测试充分覆盖异常和边界",
+        "pass": false,
+        "evidence": "generateSubReport only 异常 row is 废弃 (reportsDir 不可写); parseTestOutput has 正向/边界 only, no 异常. Other objects generally have 异常+边界"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "fs temp dirs, execSync, detect/execute mocks, Stryker exec, config fixtures documented per section"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围/单元测试/集成测试/不可测试项 filled; each unit ### has 待测功能→用例→Mock策略"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope libs/commands/parsers covered; out_of_scope (compat/tee/agent routing) untested; AC-10+schemas in 不可测试项"
+      },
+      {
+        "item": "写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "generateSubReport 边界: 重复调用同一 planId 覆盖 report.json（幂等）; planDir clear-before-run also specified"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1..U5: ### src -> test, ordered subsections, list+tables; T8-I1..I8: → test file, 涉及模块, 关联AC, 场景+用例 cols; T8-G1 验收范围 cols match"
+      }
+    ],
+    "timestamp": "2026-07-31T08:44:54.655Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "T1-T8 all pass. AC-1..12 mapped in 验收范围; unit ### headings cover listed test files; integration 关联AC covers all 集成测试 ACs; each unit object has 异常+边界 (planId/path/format/list edges); Mock for fs/exec/Stryker; template sections filled; out_of_scope (compat/tee/agent-only) not over-tested; write idempotency via overwrite report.json; T8 format matches template (U1-U5, I1-I8, G1).",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-12 (验收标准表) 均在 test-design ## 验收范围出现，条件与 proposal 一致"
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "单元：验收范围所列 *.test.ts 均有 ### src -> test 章节；集成：AC-1/3/5/7/9/12 分别出现在四段关系的 **关联AC**；AC-10 为不可测试项"
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "各测试对象均有异常用例；derivePlanId/parse*/coverage format/sourceFiles=[]/空 reportsDir 等覆盖空串、超长、特殊字符、枚举非法值、半失败等边界"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal 涉及 fs/子进程/Stryker/临时 config；各单元与集成章节有 Mock策略（execSync、mkdtemp、vi.mock detect/execute）"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "含验收范围、12 个单元 ###（待测功能/用例/Mock策略）、4 个集成关系（场景+用例）、不可测试项（AC-10/schema/真实 shell）"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 路径/文件通道/八框架/mutation 均有对应用例；不要修改项（兼容层/tee/coverageMap/用户 bunfig）仅作否定断言或不可测试，无越界覆盖"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "generateSubReport 边界：重复调用同一 planId 覆盖 report.json（幂等）；executePlanEntry 执行前清空 planDir"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1..U5：### a -> b + 待测功能列表 + 用例/Mock 列名正确；T8-I1..I8：### … → `test.ts`、涉及模块≥2、关联AC、关系描述段落、场景+用例列；T8-G1 验收范围四列齐全"
+      }
+    ],
+    "timestamp": "2026-07-31T08:56:21.506Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS: All design components implemented (reports/test layout, preparePlanArtifacts, parsePlanArtifacts, vertical parsers+lcov, stryker→planDir, plans[], agents). All tasks [x]. Decisions followed; dual-product rebuild per project rules.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "All 11 design components covered: test-execution.ts reports/test; detect defer placeholders; test-framework 8-fw templates+lcov; test-runner prepare/redirect/parse; test-report planId/report.json/summary+plans; parsers; stryker reportDir; schemas; agents; skill N/A (no old paths)."
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "Modified files match design list: runner/report/framework/parsers/stryker/detect/execution/schemas/agents. APIs: preparePlanArtifacts, parsePlanArtifacts, derivePlanId export, executePlanEntry.reportsDir, resolveStrykerConfig(reportDir), plans[]/PlanIndexEntry/lcov."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS modules under bin/src match existing patterns (zod schemas, fs/path, execSync). package.json version bump + claude/cursor plugin rebuild per CLAUDE.md."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "No HTTP routes in design. CLI/public APIs implemented: runTestExecution, executePlanEntry(+reportsDir), preparePlanArtifacts, parsePlanArtifacts, generateSub/SummaryReport, resolveStrykerConfig(+reportDir)."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1.1–7.5 all checkboxes are [x]; no unchecked items remain."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff scoped to design change list + openspec artifacts + dual-product build outputs/version. No speculative features; design excludes test-task updates."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Pipeline: planId→clear planDir→prepare→expand→conditional >→parsePlanArtifacts→mutation.json in planDir→summary.plans[]. Detect keeps placeholders; no suite coverage_cleanup; bun lcov+temp bunfig; placeholders relative absCwd; plans path relative projectRoot."
+      }
+    ],
+    "timestamp": "2026-07-31T09:03:53.792Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "G1/G2/G5/G6/G8/G9 pass. FAIL G3: missing parseTestOutput dirty-stdout it; js-parser coverage-summary row. FAIL G4: missing change special-char path case in cli-test-execution-execute. FAIL G7: dirty-stdout boundary skeleton absent. Most AC cases/mocks/cleanup present. Verdict: fail.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "受影响公开 API 均有共存 *.test.ts：test-report/runner/framework、parsers、test-detect-frameworks、test-execution；schemas 属不可测试项"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "单元测均为 *.test.ts 与源码同目录；集成测在 __tests__/… 与 test-design 指定路径一致（含新建 redirect/placeholders）"
+      },
+      {
+        "item": "`单元测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "缺 index.test.ts parseTestOutput「脏 stdout JSON…」it；缺 js-parser「有 coverage-summary 时由横向库解析」it；其余 derivePlanId/prepare/execute/八框架 parse 等骨架齐"
+      },
+      {
+        "item": "`集成测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "cli-test-execution-execute 缺「change 名含特殊字符时路径仍可创建或被拒绝」；其余无/有 change、redirect、placeholders、mutation-flow 用例已生成"
+      },
+      {
+        "item": "`Mock策略` 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "vi.mock(child_process/detect/execute/report)、mkdtemp 约定产物、detectFrameworkVersion mock、真实 test-report 写盘等与 Mock策略表一致"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "生成/更新测均 from 'vite-plus/test'（describe/it/vi），与仓库既有框架一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "derivePlanId/lcov/空 coverage/tee/planDir 清空等边界有骨架；缺 parseTestOutput 脏 stdout 边界 it（设计表 边界+新增）"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "普遍 fs.rmSync(temp)/cleanup()；execute/集成 afterEach vi.restoreAllMocks()"
+      },
+      {
+        "item": "`迭代类型 = 废弃` 的条目未生成新测试",
+        "pass": true,
+        "evidence": "未新增要求旧 test-execution.json/扁平 json/stdout-only JSON.parse/旧 mutation 路径/bun istanbul 的正向用例；仅有否定旧路径断言"
+      }
+    ],
+    "timestamp": "2026-07-31T09:11:53.662Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "G1–G9 pass. Unit *.test.ts colocated for all affected APIs; 新增 cases have describe/it skeletons (report/runner/framework/parsers/detect/execution + 4 integration files). Mocks (execSync/mkdtemp/vi.mock) match Mock策略; vite-plus/test; boundaries covered; cleanup via rmSync/restoreAllMocks; 废弃 rows not reintroduced. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "受影响公开 API（derivePlanId/generate*/preparePlanArtifacts/executePlanEntry/getFrameworkConfig/parsePlanArtifacts/parse* /resolveStrykerConfig/runTestDetect*/runTestExecution）均有同目录 *.test.ts；schemas 属不可测试项"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "单元测均为 *.test.ts 且与源码同目录；集成测按 test-design 落在 __tests__/cli-test-execution-execute/ 与 mutation-execution-flow/"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "对照各 新增 行：test-report(derivePlanId/新布局)、test-runner(prepare/execute)、test-framework 占位符、index 八框架、js/go/text/coverage/mutation/stryker、detect、execution reportsDir 均有对应 describe/it"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "execute/redirect/placeholders/mutation-flow 四文件覆盖无/有 change、jest 文件通道、段级重定向、占位符延迟展开、mutation planDir；bun --config 降级标「若实现」且源码无独立降级支路可免"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "mkdtemp+rmSync（report/parser）；vi.mock child_process.execSync（runner/redirect）；vi.mock detect/execute/generate*（execution/CLI）；detectFrameworkVersion mock（placeholders）"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "生成/更新测试均 from 'vite-plus/test'（describe/it/expect/vi），与仓库既有框架一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "含空/超长 directory、半失败 plans[]、planDir 清空、lcov 0%/100%/多 SF、脏 stdout 文件通道、空 results、特殊字符 change 名等边界 it"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "createTempDir/Project.cleanup→rmSync；afterEach vi.restoreAllMocks；runner finally cleanupTempPaths 断言；try/finally 贯穿新用例"
+      },
+      {
+        "item": "迭代类型=废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "无新增用例要求旧 test-execution.json 扁平路径、stdout JSON.parse 主路径、bun istanbul/config_flag=null、suite cwd coverage_cleanup；仅负向断言旧路径不存在"
+      }
+    ],
+    "timestamp": "2026-07-31T09:14:47.050Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 1089 个测试通过。覆盖率达标: lines=93.23%, branches=80.94%, functions=97.16%。报告 conclusion=fail 因 mutation 50.58%<70%，但不在 T1-T4 检查项内。",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确；coverage.measured 各维度均非 null"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=1089, passed=1089, skipped=0"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=93.23%, branches=80.94%, functions=97.16%（阈值 lines=80, branches=70, functions=75）；coverage.pass=true"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需失败诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-07-31T09:26:07.885Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "C1–C7 all pass. File-channel execute path, reports/test layout, plans[], bun lcov, mutation→planDir/mutation.json match design. No secrets; planId sanitizes path seps before rmSync; detect no longer injects rm -rf. Zod on plan/output + parser JSON; null/empty artifact paths handled. Tests cover eight frameworks + e2e.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No hardcoded secrets. derivePlanId (test-runner.ts:129-133) replaces path seps before clearDirectory rmSync (138-143). detect removed suite-cwd rm -rf (test-detect-frameworks.ts). execSync runs framework templates only (test-runner.ts:374)."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "plans[]/lcov in zod schemas (test-execution-output.schema.ts:194-234; test-detect-frameworks.schema.ts:17-22). js-parser safeParse (js-parser.ts:57-70); coverage/mutation parse return null on bad/missing files (coverage-parser.ts:334-357)."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "resolveReportsDir→reports/test (test-execution.ts:38-42); preparePlanArtifacts+redirect (test-runner.ts:167-207,459-465); parsePlanArtifacts (index.ts:104); report.json+summary.plans[] (test-report.ts:244-246,362-380); bun lcov temp bunfig; stryker reportDir/mutation.json."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Empty script→emptyResult (test-runner.ts:447-448); missing/empty results→error (index.ts:113-115); coverage null if absent (126-131); exec/prepare catch→emptyResult (504-506); temp cleanup best-effort (145-154)."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "coverage_cleanup removed from FrameworkConfig (test-framework.ts). parseTestOutput kept per design for reuse (index.ts:154). Duplicate RESULTS_FILE maps are intentional vertical tables, not dead branches."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Matches existing module style (headers, helpers, schemas). Agents updated to summary.json+plans[] (test-execution-executor.md:85-92). Naming/structure consistent with prior test-runner/report patterns."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Reports use z.infer PlanIndexEntry/TestExecutionSummaryReport (schemas). Parsers reuse ParsedCoverage/ParsedTestResult; ExecutionResult imports TestPlan/MutationBlock from schemas (test-runner.ts:15-29,36-49)."
+      }
+    ],
+    "timestamp": "2026-07-31T09:27:28.102Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS. AC-1–12 evidenced: reports/test+summary/plans (test-report/test-execution), prepare+conditional > (test-runner), parsePlanArtifacts 8fw (test-parser), jest --outputFile no stdout JSON, bun lcov temp bunfig, Stryker mutation.json, agents paths. tasks all [x]. No OOS (tee/compat/coverageMap/post-copy). Risks mitigated.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1/2/3: test-report.ts:177-182,244-245,380,387-403; test-execution.ts:38-42. AC-4/5/7: test-framework.ts:46; test-runner.ts:75-76,167-207,435-471. AC-6: test-parser/index.ts:104-136 (no coverageMap). AC-8: test-framework.ts:107-111; test-runner.ts:213-241. AC-9: stryker-config.ts:48-50; test-runner.ts:609-611. AC-10: agents executor/evaluator reports/test. AC-11: index.test.ts:37-155. AC-12: cli-test-execution-redirect.test.ts + test-runner.test.ts noise/> cases."
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Diff limited to proposal 实现/测试文件 + agents; APIs preparePlanArtifacts/parsePlanArtifacts/plans[]/derivePlanId all listed in-scope. No new MCP/hook/archi features. CLI/phase name remains test-execution."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "tasks.md 1.1–7.5 all [x]. In-scope: reports/test layout, preparePlanArtifacts, file-channel parsers, registry placeholders+lcov, detect defer expand, mutation planDir, agent path updates — all present in listed source files."
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "No test-execution.json writer; no reports/mutation/ read path; no coverageMap in js-parser; no tee in execute cmds (test-runner.test.ts:506+); no bun post-copy; no old-path dual-read/compat layer; user bunfig not mutated (temp overlay only)."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "jest CLI-first (task 7.1 [x]); bun > + coverage null if sidecar missing; sliced path+parsers shipped; Win cmd redirect tests in cli-test-execution-redirect; AC-10 agent migration; intentional no legacy compat."
+      }
+    ],
+    "timestamp": "2026-07-31T09:28:38.462Z"
+  }
+]

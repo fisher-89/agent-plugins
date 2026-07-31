@@ -2,9 +2,14 @@
  * Tests for lib/test-parser/go-parser -- parses `go test -json` line-delimited JSON.
  */
 
-import { describe, it, expect } from 'vite-plus/test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+
+import { describe, expect, it } from 'vite-plus/test';
 
 import { parseGoOutput } from './go-parser';
+import { parsePlanArtifacts } from './index';
 
 function goEvent(event: {
   Action: string;
@@ -64,7 +69,7 @@ describe('parseGoOutput -- edge cases', () => {
   it('should return empty result for empty input', () => {
     const result = parseGoOutput('');
     expect(result.total).toBe(0);
-    expect(result.error).toBe('Empty stdout');
+    expect(result.error).toBe('Empty results content');
   });
 
   it('should ignore Action=run and Action=output lines', () => {
@@ -123,5 +128,42 @@ describe('parseGoOutput -- edge cases', () => {
 
     const result = parseGoOutput(stdout);
     expect(result.total).toBe(1);
+  });
+});
+
+describe('parseGoOutput — results.ndjson 文件通道', () => {
+  it('从 results.ndjson 文件读入后解析 pass/fail/skip', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'go-parser-file-'));
+    try {
+      const content = [
+        goEvent({ Action: 'pass', Test: 'TestA' }),
+        goEvent({ Action: 'fail', Test: 'TestB' }),
+        goEvent({ Action: 'skip', Test: 'TestC' }),
+      ].join('\n');
+      fs.writeFileSync(path.join(dir, 'results.ndjson'), content, 'utf-8');
+      const result = parsePlanArtifacts('go', dir);
+      expect(result.passed).toBe(1);
+      expect(result.failed).toBe(1);
+      expect(result.skipped).toBe(1);
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('空文件 → 空结果或 error', () => {
+    const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'go-parser-empty-'));
+    try {
+      fs.writeFileSync(path.join(dir, 'results.ndjson'), '', 'utf-8');
+      const result = parsePlanArtifacts('go', dir);
+      expect(result.error || result.total === 0).toBeTruthy();
+    } finally {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  it('夹杂非 JSON 行不崩溃', () => {
+    const stdout = ['not-json', goEvent({ Action: 'pass', Test: 'TestOk' }), '###'].join('\n');
+    expect(() => parseGoOutput(stdout)).not.toThrow();
+    expect(parseGoOutput(stdout).passed).toBe(1);
   });
 });

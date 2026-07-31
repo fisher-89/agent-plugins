@@ -58,8 +58,14 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
     durationMs: 500,
     testFiles: ['src/foo.test.ts'],
     sourceFiles: ['src/foo.ts'],
+    planId: 'vitest',
+    reportDir: '/tmp/reports/test/vitest',
     ...overrides,
   };
+}
+
+function reportsTestDir(root: string): string {
+  return path.join(root, 'reports', 'test');
 }
 
 // ===========================================================================
@@ -83,7 +89,7 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
 
@@ -96,14 +102,14 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/bar.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
 
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
 
       expect(summary.total).toBe(3);
@@ -126,14 +132,14 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.conclusion).toBe('fail');
     } finally {
@@ -152,14 +158,14 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.conclusion).toBe('pass');
     } finally {
@@ -179,14 +185,14 @@ describe('generateSummaryReport -- aggregation', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.problems.length).toBeGreaterThan(0);
       expect(summary.problems[0].type).toBe('test_failure');
@@ -198,11 +204,7 @@ describe('generateSummaryReport -- aggregation', () => {
   it('should handle empty sub-reports list gracefully', () => {
     const dir = createTempDir();
     try {
-      const summary = generateSummaryReport(
-        [],
-        dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
-      );
+      const summary = generateSummaryReport([], dir.root, path.join(dir.root, 'reports', 'test'));
       expect(summary.total).toBe(0);
       expect(summary.conclusion).toBe('pass');
     } finally {
@@ -226,14 +228,14 @@ describe('generateSummaryReport -- coverage', () => {
           sourceFiles: ['src/foo.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
 
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).toBeNull();
     } finally {
@@ -257,7 +259,7 @@ describe('generateSummaryReport -- coverage', () => {
           sourceFiles: ['src/foo.ts', 'src/bar.ts'],
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
 
@@ -276,7 +278,7 @@ describe('generateSummaryReport -- coverage', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -305,7 +307,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(report.framework).toBe('vitest');
@@ -324,11 +326,11 @@ describe('generateSubReport', () => {
     const dir = createTempDir();
     try {
       const result = makeExecutionResult();
-      const reportsDir = path.join(dir.root, 'reports', 'test-execution');
+      const reportsDir = path.join(dir.root, 'reports', 'test');
 
       generateSubReport('vitest', result, dir.root, reportsDir, '.');
 
-      const filePath = path.join(reportsDir, 'vitest.json');
+      const filePath = path.join(reportsDir, 'vitest', 'report.json');
       expect(fs.existsSync(filePath)).toBe(true);
 
       const content = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
@@ -346,7 +348,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(report.coverage).toBeNull();
@@ -369,7 +371,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(report.exit_code).toBe(1);
@@ -392,7 +394,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(report.summary.total).toBe(0);
@@ -423,7 +425,7 @@ describe('generateSubReport', () => {
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(report.summary.total).toBe(1001);
@@ -472,7 +474,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -495,7 +497,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(false);
@@ -518,7 +520,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -541,7 +543,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -564,7 +566,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.pass).toBe(true);
@@ -590,7 +592,7 @@ describe('generateSummaryReport -- coverage threshold (AC-9)', () => {
         const summary = generateSummaryReport(
           [subReport],
           dir.root,
-          path.join(dir.root, 'reports', 'test-execution'),
+          path.join(dir.root, 'reports', 'test'),
         );
         // 即使 thresholds 为 undefined，仍能正常生成报告
         expect(summary.coverage).not.toBeNull();
@@ -649,7 +651,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       // 原始计数: lines=(90+160)/(100+200)=250/300≈83.33
@@ -678,7 +680,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.measured.branches).toBeNull();
@@ -702,7 +704,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.measured.lines).toBeNull();
@@ -742,7 +744,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       // 真实覆盖率: (90+90+160+160)/(100+100+200+200)=500/600≈83.33
@@ -768,7 +770,7 @@ describe('generateSummaryReport -- coverage weighted average', () => {
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       // source_files 为空时无原始计数可累加，回退到框架 measured 值
       expect(summary.coverage).not.toBeNull();
@@ -798,7 +800,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.conclusion).toBe('fail');
       expect(summary.problems.length).toBeGreaterThan(0);
@@ -810,11 +812,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
   it('没有子报告时 conclusion=pass（未执行不视为失败）', () => {
     const dir = createTempDir();
     try {
-      const summary = generateSummaryReport(
-        [],
-        dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
-      );
+      const summary = generateSummaryReport([], dir.root, path.join(dir.root, 'reports', 'test'));
       expect(summary.conclusion).toBe('pass');
       expect(summary.total).toBe(0);
       expect(summary.problems).toEqual([]);
@@ -830,7 +828,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary).not.toHaveProperty('test_cases');
       expect(summary).not.toHaveProperty('test_files');
@@ -846,7 +844,7 @@ describe('generateSummaryReport -- conclusion edge cases', () => {
       const summary = generateSummaryReport(
         [subReport],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).toBeNull();
     } finally {
@@ -864,7 +862,7 @@ describe('generateSummaryReport -- 幂等性', () => {
     const dir = createTempDir();
     try {
       const subReport = createSubReport();
-      const reportsDir = path.join(dir.root, 'reports', 'test-execution');
+      const reportsDir = path.join(dir.root, 'reports', 'test');
 
       const first = generateSummaryReport([subReport], dir.root, reportsDir);
       const second = generateSummaryReport([subReport], dir.root, reportsDir);
@@ -889,7 +887,7 @@ describe('generateSubReport -- 幂等性', () => {
         sourceFiles: ['src/foo.ts'],
         testFiles: ['src/foo.test.ts'],
       });
-      const reportsDir = path.join(dir.root, 'reports', 'test-execution');
+      const reportsDir = path.join(dir.root, 'reports', 'test');
 
       const first = generateSubReport('vitest', result, dir.root, reportsDir, '.');
       const second = generateSubReport('vitest', result, dir.root, reportsDir, '.');
@@ -936,7 +934,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(sub.mutation).not.toBeNull();
@@ -975,7 +973,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(sub.mutation!.pass).toBe(true);
@@ -1011,7 +1009,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(sub.mutation!.pass).toBe(false);
@@ -1027,7 +1025,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         'vitest',
         makeExecutionResult({ mutation: null }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(sub.mutation).toBeNull();
@@ -1043,13 +1041,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         'vitest',
         makeExecutionResult({ mutation: null }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       const summary = generateSummaryReport(
         [sub1],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.mutation).toBeNull();
     } finally {
@@ -1082,13 +1080,13 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
           },
         }),
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.conclusion).toBe('fail');
     } finally {
@@ -1123,7 +1121,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
         'vitest',
         execResult,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       // Verify mutation data is preserved in sub-report
@@ -1134,7 +1132,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       // Verify all test cases passed
       expect(summary.failed).toBe(0);
@@ -1203,7 +1201,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       // overrides 字段语义为 suite 分组
       expect(summary.mutation!.overrides).toBeDefined();
@@ -1267,7 +1265,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       // 新公式: (killed+timeout)/(total-ignored-compileError-runtimeError)*100
       // = (9+0+6+0)/(10+10-0-0-0)*100 = 15/20*100 = 75
@@ -1329,7 +1327,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       // 当前 computeMutationOverrides 实现中 score = threshold（placeholder）
       // 所以 override pass=true，总体 pass 取决于聚合 pass
@@ -1392,7 +1390,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       // 新公式从原始计数计算: (9+0)/(10+10)*100 = 45
       // 不再按 source_files 数量加权
@@ -1440,14 +1438,14 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         'src',
       );
       expect(sub.coverage?.thresholds).toEqual({ lines: 90, branches: 85, functions: 95 });
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage?.thresholds.lines).toBe(90);
     } finally {
@@ -1485,7 +1483,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         'src',
       );
       expect(sub.coverage?.thresholds).toEqual({ lines: 80, branches: 70, functions: 75 });
@@ -1494,7 +1492,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       const summarySource = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summarySource.mutation?.overrides?.find((o) => o.glob === 'src')).toBeUndefined();
 
@@ -1524,7 +1522,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       const summaryTest = generateSummaryReport(
         [subTest],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summaryTest.mutation?.overrides?.find((o) => o.glob === 'src')?.threshold).toBe(70);
     } finally {
@@ -1633,7 +1631,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       const summary = generateSummaryReport(
         [sub1, sub2],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage?.overrides?.length).toBeGreaterThanOrEqual(2);
       expect(summary.mutation?.overrides?.some((o) => o.glob === 'pkg-a')).toBe(true);
@@ -1662,7 +1660,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.coverage).not.toBeNull();
       expect(summary.coverage!.thresholds.lines).toBe(50);
@@ -1685,7 +1683,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
           'vitest',
           result,
           dir.root,
-          path.join(dir.root, 'reports', 'test-execution'),
+          path.join(dir.root, 'reports', 'test'),
           'src',
         ),
       ).not.toThrow();
@@ -1714,7 +1712,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         'src',
       );
       // invalid config → readConfig falls back → schema defaults
@@ -1742,7 +1740,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         'src',
       );
       expect(sub.coverage?.thresholds).toEqual({ lines: 0, branches: 0, functions: 0 });
@@ -1770,7 +1768,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         'src',
       );
       expect(sub.coverage?.thresholds.lines).toBe(100);
@@ -1815,7 +1813,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       const group = summary.mutation?.overrides?.find((o) => o.glob === 'src');
       expect(group?.threshold).toBe(0);
@@ -1835,7 +1833,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
         'vitest',
         result,
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
         '.',
       );
       expect(sub.coverage?.thresholds).toEqual({ lines: 80, branches: 70, functions: 75 });
@@ -1848,11 +1846,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
     const dir = createTempDir();
     try {
       writeTestsConfig(dir.root, [{ root: 'src', framework: 'vitest' }]);
-      const summary = generateSummaryReport(
-        [],
-        dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
-      );
+      const summary = generateSummaryReport([], dir.root, path.join(dir.root, 'reports', 'test'));
       expect(summary.total).toBe(0);
       expect(summary.conclusion).toBeDefined();
     } finally {
@@ -1896,9 +1890,387 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       const summary = generateSummaryReport(
         [sub],
         dir.root,
-        path.join(dir.root, 'reports', 'test-execution'),
+        path.join(dir.root, 'reports', 'test'),
       );
       expect(summary.mutation?.overrides?.length).toBe(1);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// derivePlanId — 目录 id（AC-2），经 generateSubReport 写盘路径验收
+// ===========================================================================
+
+function expectPlanReportPath(
+  reportsDir: string,
+  framework: string,
+  planDirectory: string,
+  expectedPlanId: string,
+): void {
+  generateSubReport(
+    framework,
+    makeExecutionResult({ framework }),
+    path.dirname(reportsDir),
+    reportsDir,
+    planDirectory,
+  );
+  const reportPath = path.join(reportsDir, expectedPlanId, 'report.json');
+  expect(fs.existsSync(reportPath)).toBe(true);
+}
+
+describe('derivePlanId (via generateSubReport)', () => {
+  it("directory='.' + framework='vitest' → 'vitest'（无前导 _、无 .json）", () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      expectPlanReportPath(reportsDir, 'vitest', '.', 'vitest');
+      expect('vitest').not.toContain('.json');
+      expect('vitest').not.toMatch(/^_/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it("directory='plugins/dev-team/bin' + framework='vite-plus' → 'plugins_dev-team_bin_vite-plus'", () => {
+    const dir = createTempDir();
+    try {
+      expectPlanReportPath(
+        reportsTestDir(dir.root),
+        'vite-plus',
+        'plugins/dev-team/bin',
+        'plugins_dev-team_bin_vite-plus',
+      );
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('framework 为空字符串时仍参与拼接且不抛异常', () => {
+    const dir = createTempDir();
+    try {
+      expect(() =>
+        expectPlanReportPath(reportsTestDir(path.join(dir.root, 'a')), '', '.', ''),
+      ).not.toThrow();
+      expectPlanReportPath(
+        reportsTestDir(path.join(dir.root, 'b')),
+        '',
+        'plugins/dev-team',
+        'plugins_dev-team_',
+      );
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it("directory='' 与 directory='.' 行为一致（均为无前缀 framework）", () => {
+    const dir = createTempDir();
+    try {
+      expectPlanReportPath(reportsTestDir(path.join(dir.root, 'empty')), 'vitest', '', 'vitest');
+      expectPlanReportPath(reportsTestDir(path.join(dir.root, 'dot')), 'vitest', '.', 'vitest');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('Windows 反斜杠路径消毒为下划线', () => {
+    const dir = createTempDir();
+    try {
+      expectPlanReportPath(
+        reportsTestDir(dir.root),
+        'vitest',
+        'plugins\\dev-team\\bin',
+        'plugins_dev-team_bin_vitest',
+      );
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('尾部斜杠经路径分隔符替换后仍返回无 .json 的字符串', () => {
+    const dir = createTempDir();
+    try {
+      const expected = 'plugins_dev-team__vitest';
+      // trailing slash → trailing _ before framework (replace / with _)
+      generateSubReport(
+        'vitest',
+        makeExecutionResult(),
+        dir.root,
+        reportsTestDir(dir.root),
+        'plugins/dev-team/',
+      );
+      const entries = fs.readdirSync(reportsTestDir(dir.root));
+      expect(entries).toHaveLength(1);
+      const id = entries[0];
+      expect(id).not.toContain('.json');
+      expect(id).toContain('vitest');
+      expect(id).toContain('plugins');
+      expect(id === expected || id === 'plugins_dev-team_vitest').toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('较长 directory 经消毒后仍可写盘且无 .json', () => {
+    const dir = createTempDir();
+    try {
+      // Keep under Windows MAX_PATH once nested under temp + reports/test
+      const longDir = `a/${'b'.repeat(80)}/c`;
+      const expected = `${longDir.replace(/[\\/]/g, '_')}_jest`;
+      expectPlanReportPath(reportsTestDir(dir.root), 'jest', longDir, expected);
+      expect(expected.endsWith('_jest')).toBe(true);
+      expect(expected).not.toContain('.json');
+      expect(expected.length).toBeGreaterThan(80);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// 新报告布局 — summary.json / <planId>/report.json / plans[]（AC-1, AC-3）
+// ===========================================================================
+
+describe('generateSubReport / generateSummaryReport — 新报告布局', () => {
+  it('写入 reports/test/<planId>/report.json 而非扁平 <planId>.json', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      generateSubReport('vitest', makeExecutionResult(), dir.root, reportsDir, '.');
+      expect(fs.existsSync(path.join(reportsDir, 'vitest', 'report.json'))).toBe(true);
+      expect(fs.existsSync(path.join(reportsDir, 'vitest.json'))).toBe(false);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('根 suite（.）时 plan 目录名为框架名', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      generateSubReport(
+        'jest',
+        makeExecutionResult({ framework: 'jest' }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(fs.existsSync(path.join(reportsDir, 'jest', 'report.json'))).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('非根 directory 时目录 id 为 sanitize(directory)_framework', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      generateSubReport(
+        'vite-plus',
+        makeExecutionResult({ framework: 'vite-plus', planId: 'plugins_dev-team_bin_vite-plus' }),
+        dir.root,
+        reportsDir,
+        'plugins/dev-team/bin',
+      );
+      expect(
+        fs.existsSync(path.join(reportsDir, 'plugins_dev-team_bin_vite-plus', 'report.json')),
+      ).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('重复调用同一 planId 覆盖 report.json（幂等）', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      generateSubReport(
+        'vitest',
+        makeExecutionResult({ testCases: [{ name: 'a', status: 'passed' }] }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      generateSubReport(
+        'vitest',
+        makeExecutionResult({ testCases: [{ name: 'b', status: 'passed' }] }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const content = JSON.parse(
+        fs.readFileSync(path.join(reportsDir, 'vitest', 'report.json'), 'utf-8'),
+      );
+      expect(content.summary.total).toBe(1);
+      expect(content.error_cases).toEqual([]);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('result.error 半失败仍写出完整 report.json', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          exitCode: 1,
+          error: 'command failed',
+          testCases: [],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const content = JSON.parse(
+        fs.readFileSync(path.join(reportsDir, 'vitest', 'report.json'), 'utf-8'),
+      );
+      expect(content.exit_code).toBe(1);
+      expect(content.findings).toContain('command failed');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('reportsDir 指向不可创建路径时抛出 fs 错误', () => {
+    const dir = createTempDir();
+    try {
+      const fileAsDir = path.join(dir.root, 'blocked');
+      fs.writeFileSync(fileAsDir, 'not-a-dir', 'utf-8');
+      const badReportsDir = path.join(fileAsDir, 'reports', 'test');
+      expect(() =>
+        generateSubReport('vitest', makeExecutionResult(), dir.root, badReportsDir, '.'),
+      ).toThrow();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('result.testCases 为 undefined 时抛错或不写出非法 JSON', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const bad = makeExecutionResult({
+        testCases: undefined as unknown as ExecutionResult['testCases'],
+      });
+      expect(() => generateSubReport('vitest', bad, dir.root, reportsDir, '.')).toThrow();
+      expect(fs.existsSync(path.join(reportsDir, 'vitest', 'report.json'))).toBe(false);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('落盘 summary.json（非 test-execution.json），含 plans[]', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const sub = generateSubReport('vitest', makeExecutionResult(), dir.root, reportsDir, '.');
+      generateSummaryReport([sub], dir.root, reportsDir);
+      expect(fs.existsSync(path.join(reportsDir, 'summary.json'))).toBe(true);
+      expect(fs.existsSync(path.join(reportsDir, 'test-execution.json'))).toBe(false);
+      expect(fs.existsSync(path.join(dir.root, 'reports', 'test-execution.json'))).toBe(false);
+      const summary = JSON.parse(fs.readFileSync(path.join(reportsDir, 'summary.json'), 'utf-8'));
+      expect(Array.isArray(summary.plans)).toBe(true);
+      expect(summary.plans.length).toBe(1);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('plans[] 每项含 id/framework/directory/path，无 status 字段', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const sub = generateSubReport('vitest', makeExecutionResult(), dir.root, reportsDir, '.');
+      const summary = generateSummaryReport([sub], dir.root, reportsDir);
+      expect(summary.plans).toHaveLength(1);
+      const plan = summary.plans[0];
+      expect(plan).toEqual({
+        id: 'vitest',
+        framework: 'vitest',
+        directory: '.',
+        path: expect.stringMatching(/reports\/test\/vitest$/),
+      });
+      expect(plan).not.toHaveProperty('status');
+      expect(plan).not.toHaveProperty('exit_code');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('path 为相对 project root 的 POSIX 路径（含 change 前缀场景）', () => {
+    const dir = createTempDir();
+    try {
+      const changeReports = path.join(
+        dir.root,
+        'openspec',
+        'changes',
+        'my-change',
+        'reports',
+        'test',
+      );
+      const sub = generateSubReport('vitest', makeExecutionResult(), dir.root, changeReports, '.');
+      const summary = generateSummaryReport([sub], dir.root, changeReports);
+      expect(summary.plans[0].path).toBe('openspec/changes/my-change/reports/test/vitest');
+      expect(summary.plans[0].path).not.toContain('\\');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('空 subReports 仍写 summary，plans=[]', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const summary = generateSummaryReport([], dir.root, reportsDir);
+      expect(summary.plans).toEqual([]);
+      expect(fs.existsSync(path.join(reportsDir, 'summary.json'))).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('半失败 plan（exitCode≠0 / error 有值）仍进入 plans[] 且带 path', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const sub = generateSubReport(
+        'vitest',
+        makeExecutionResult({ exitCode: 1, error: 'boom', testCases: [] }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const summary = generateSummaryReport([sub], dir.root, reportsDir);
+      expect(summary.plans).toHaveLength(1);
+      expect(summary.plans[0].id).toBe('vitest');
+      expect(summary.plans[0].path).toMatch(/reports\/test\/vitest$/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('多 plan 时每个 id 唯一且 path 指向对应目录', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const sub1 = generateSubReport('vitest', makeExecutionResult(), dir.root, reportsDir, '.');
+      const sub2 = generateSubReport(
+        'vite-plus',
+        makeExecutionResult({ framework: 'vite-plus', planId: 'plugins_dev-team_bin_vite-plus' }),
+        dir.root,
+        reportsDir,
+        'plugins/dev-team/bin',
+      );
+      const summary = generateSummaryReport([sub1, sub2], dir.root, reportsDir);
+      const ids = summary.plans.map((p) => p.id);
+      expect(new Set(ids).size).toBe(2);
+      expect(summary.plans.find((p) => p.id === 'vitest')?.path).toMatch(/\/vitest$/);
+      expect(summary.plans.find((p) => p.id === 'plugins_dev-team_bin_vite-plus')?.path).toMatch(
+        /\/plugins_dev-team_bin_vite-plus$/,
+      );
     } finally {
       dir.cleanup();
     }

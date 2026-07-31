@@ -1,17 +1,14 @@
 // ---------------------------------------------------------------------------
 // Test Runner
 //
-// Executes a single plan entry's test command.  Handles template placeholder
-// substitution ({files}, {directory}, {project_root}), executes the command
-// via child_process, parses output through the test parser dispatch, and
-// reads coverage from the coverage file if available.
-//
-// When mutation testing is configured and not disabled, runs StrykerJS after
-// coverage collection and includes the mutation results in the execution
-// result.
+// Executes a single plan entry's test command.  Resolves plan reportDir,
+// prepares placeholders / temp configs, runs the command with cwd=absCwd,
+// parses vertical artifacts from the plan directory, and optionally runs
+// mutation testing (Stryker → reportDir/mutation.json).
 // ---------------------------------------------------------------------------
 
 import { execSync } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -19,13 +16,16 @@ import {
   TEST_MUTATION_SCORE_DEFAULT,
   type MutationBlock,
   type MutationMeasured,
+  type OpenSpecConfig,
   type TestPlan,
+  type TestSuite,
 } from '../schemas';
 import { readConfig } from './config';
+import { toForwardSlash } from './glob';
 import { isFileExcluded } from './test-exclude';
 import { getFrameworkConfig } from './test-framework';
-import { parseCoverageFromFile, type ParsedCoverage } from './test-parser/coverage-parser';
-import { parseTestOutput, type TestCase } from './test-parser/index';
+import { type ParsedCoverage } from './test-parser/coverage-parser';
+import { parsePlanArtifacts, type TestCase } from './test-parser/index';
 import { type MutationReport, parseMutationReport } from './test-parser/mutation-parser';
 import { resolveStrykerConfig } from './test-parser/stryker-config';
 
@@ -43,6 +43,202 @@ export interface ExecutionResult {
   testFiles: string[];
   sourceFiles: string[];
   error?: string;
+  planId: string;
+  reportDir: string;
+  resultsFile?: string;
+}
+
+interface PlanPlaceholders {
+  report_dir: string;
+  results_file: string;
+  coverage_file: string;
+  coverprofile_file?: string;
+  mutation_file?: string;
+}
+
+interface PreparePlanArtifactsInput {
+  framework: string;
+  absCwd: string;
+  reportDir: string;
+  userConfigPath: string | null;
+  projectRoot: string;
+}
+
+interface PreparePlanArtifactsResult {
+  configArgs: string;
+  redirectStdoutToResults: boolean;
+  placeholders: PlanPlaceholders;
+  tempPaths: string[];
+  env?: Record<string, string>;
+}
+
+/** Frameworks that write test results via native CLI outputFile (no shell `>`). */
+const NATIVE_OUTPUT_FILE_FRAMEWORKS = new Set(['jest', 'vitest', 'vite-plus']);
+
+/** Vertical results file names under reportDir. */
+const RESULTS_FILE_BY_FRAMEWORK: Record<string, string> = {
+  jest: 'results.json',
+  vitest: 'results.json',
+  'vite-plus': 'results.json',
+  bun: 'results.txt',
+  go: 'results.ndjson',
+  rust: 'results.txt',
+  pytest: 'results.txt',
+  'node-test': 'results.txt',
+};
+
+// ---------------------------------------------------------------------------
+// Path helpers
+// ---------------------------------------------------------------------------
+
+function toPosixRelative(from: string, to: string): string {
+  const rel = path.relative(from, to);
+  const posix = toForwardSlash(rel);
+  return posix === '' ? '.' : posix;
+}
+
+function suiteAbsCwdRelative(suite: TestSuite): string {
+  return path.posix.normalize(
+    path.posix.join(toForwardSlash(suite.root), toForwardSlash(suite.cwd ?? '.')),
+  );
+}
+
+/**
+ * Resolve the suite's framework config path (absolute) for this plan entry.
+ */
+function resolveUserConfigPath(entry: TestPlan, projectRoot: string): string | null {
+  try {
+    const config = readConfig(projectRoot);
+    const suites = config.tests ?? [];
+    const match = suites.find(
+      (s) =>
+        s.framework === entry.framework &&
+        suiteAbsCwdRelative(s) === toForwardSlash(entry.directory),
+    );
+    if (!match?.config) return null;
+    return path.resolve(projectRoot, match.root, match.config);
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Derive plan directory id (same algorithm as test-report.derivePlanId).
+ * Inlined here to avoid a circular import with test-report.
+ */
+function derivePlanId(directory: string, framework: string): string {
+  const sanitized = directory === '.' ? '' : directory.replace(/[\\/]/g, '_').replace(/\/$/, '');
+  const prefix = sanitized ? `${sanitized}_` : sanitized;
+  return `${prefix}${framework}`;
+}
+
+/**
+ * Clear all contents of a directory (recreate empty). Does not touch siblings.
+ */
+function clearDirectory(dir: string): void {
+  if (fs.existsSync(dir)) {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+  fs.mkdirSync(dir, { recursive: true });
+}
+
+function cleanupTempPaths(tempPaths: string[]): void {
+  for (const p of tempPaths) {
+    try {
+      if (fs.existsSync(p)) {
+        fs.rmSync(p, { recursive: true, force: true });
+      }
+    } catch {
+      // Best-effort cleanup
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// preparePlanArtifacts
+// ---------------------------------------------------------------------------
+
+/**
+ * Resolve placeholders, config args, redirect policy, and temp files for a plan.
+ *
+ * Paths in placeholders are relative to absCwd (POSIX) so commands run under
+ * suite cwd land artifacts in reportDir.
+ */
+function preparePlanArtifacts(input: PreparePlanArtifactsInput): PreparePlanArtifactsResult {
+  const { framework, absCwd, reportDir, userConfigPath } = input;
+  const frameworkConfig = getFrameworkConfig(framework);
+  const tempPaths: string[] = [];
+
+  const resultsName = RESULTS_FILE_BY_FRAMEWORK[framework] ?? 'results.txt';
+  const coverageName = frameworkConfig.coverage_output;
+
+  const absResults = path.join(reportDir, resultsName);
+  const absCoverage = path.join(reportDir, coverageName);
+  const absCoverprofile = path.join(reportDir, 'coverage.out');
+  const absMutation = path.join(reportDir, 'mutation.json');
+
+  const placeholders: PlanPlaceholders = {
+    report_dir: toPosixRelative(absCwd, reportDir),
+    results_file: toPosixRelative(absCwd, absResults),
+    coverage_file: toPosixRelative(absCwd, absCoverage),
+    coverprofile_file: toPosixRelative(absCwd, absCoverprofile),
+    mutation_file: toPosixRelative(absCwd, absMutation),
+  };
+
+  const redirectStdoutToResults = !NATIVE_OUTPUT_FILE_FRAMEWORKS.has(framework);
+
+  let configArgs = '';
+  if (framework === 'bun') {
+    const bunfigPath = writeTempBunfig(absCwd, placeholders.report_dir, userConfigPath);
+    tempPaths.push(bunfigPath);
+    const relBunfig = toPosixRelative(absCwd, bunfigPath);
+    configArgs = `${frameworkConfig.config_flag ?? '--config'} ${relBunfig}`;
+  } else if (userConfigPath && frameworkConfig.config_flag) {
+    const relConfig = toPosixRelative(absCwd, userConfigPath);
+    configArgs = `${frameworkConfig.config_flag} ${relConfig}`;
+  }
+
+  return {
+    configArgs,
+    redirectStdoutToResults,
+    placeholders,
+    tempPaths,
+  };
+}
+
+/**
+ * Write a temporary bunfig that overlays coverageDir / coverageReporter=lcov.
+ * Reads the user bunfig (if any) and appends an overlay — never modifies it.
+ */
+function writeTempBunfig(
+  absCwd: string,
+  coverageDirRel: string,
+  _userConfigPath: string | null,
+): string {
+  const randomSuffix = crypto.randomBytes(4).toString('hex');
+  const tempPath = path.join(absCwd, `bunfig.dev-team-${randomSuffix}.toml`);
+
+  let base = '';
+  const defaultBunfig = path.join(absCwd, 'bunfig.toml');
+  if (fs.existsSync(defaultBunfig)) {
+    try {
+      base = fs.readFileSync(defaultBunfig, 'utf-8');
+    } catch {
+      base = '';
+    }
+  }
+
+  const overlay = [
+    '',
+    '# Generated by dev-team test-execution — temporary overlay; do not commit',
+    '[test]',
+    `coverageDir = ${JSON.stringify(coverageDirRel)}`,
+    'coverageReporter = ["lcov"]',
+    '',
+  ].join('\n');
+
+  fs.writeFileSync(tempPath, base + overlay, 'utf-8');
+  return tempPath;
 }
 
 // ---------------------------------------------------------------------------
@@ -50,31 +246,34 @@ export interface ExecutionResult {
 // ---------------------------------------------------------------------------
 
 /**
- * Replace template placeholders in a test command string.
- *
- * Supported placeholders:
- *   {files}         — space-separated file paths; when empty, falls back to `scope`
- *                     (suite root relative to cwd) so discovery stays under absRoot
- *   {directory}     — go package path under cwd (`./...` or `./<scope>/...`)
- *   {project_root}  — absolute path to the project root
- *
- * @param cmd       - Command template containing placeholders
- * @param files     - Array of file paths to substitute for {files}
- * @param directory - Plan working directory (retained for call-site compatibility)
- * @param projectRoot - Absolute project root path for {project_root}
- * @param scope     - Suite root relative to absCwd (`"."` when equal)
- * @returns The command string with placeholders replaced
+ * Expand {config_args} and path placeholders, then {files}/{directory}/{project_root}.
  */
-function substitutePlaceholders(
+function expandCommandTemplate(
   cmd: string,
+  prepared: PreparePlanArtifactsResult,
   files: string[],
-  _directory: string,
   projectRoot: string,
-  scope: string = '.',
+  scope: string,
 ): string {
   let result = cmd;
 
-  // {files} — explicit paths win; otherwise constrain to absRoot via scope
+  if (prepared.configArgs) {
+    result = result.replace(/\{config_args\}/g, prepared.configArgs);
+  } else {
+    result = result.replace(/\s*\{config_args\}/g, '').replace(/\{config_args\}/g, '');
+  }
+
+  const ph = prepared.placeholders;
+  result = result.replace(/\{report_dir\}/g, ph.report_dir);
+  result = result.replace(/\{results_file\}/g, ph.results_file);
+  result = result.replace(/\{coverage_file\}/g, ph.coverage_file);
+  if (ph.coverprofile_file) {
+    result = result.replace(/\{coverprofile_file\}/g, ph.coverprofile_file);
+  }
+  if (ph.mutation_file) {
+    result = result.replace(/\{mutation_file\}/g, ph.mutation_file);
+  }
+
   if (files && files.length > 0) {
     result = result.replace(/\{files\}/g, files.join(' '));
   } else {
@@ -82,42 +281,53 @@ function substitutePlaceholders(
     result = result.replace(/\{files\}/g, filesFallback);
   }
 
-  // {directory} — package filter relative to cwd after `cd` (go)
   const directoryArg = scope && scope !== '.' ? `./${scope}/...` : './...';
   result = result.replace(/\{directory\}/g, directoryArg);
-
-  // {project_root}
   result = result.replace(/\{project_root\}/g, projectRoot);
 
   return result;
 }
 
-// ---------------------------------------------------------------------------
-// Coverage file path resolution
-// ---------------------------------------------------------------------------
-
 /**
- * Resolve the coverage output file path for a given plan entry.
- *
- * The file is expected to be relative to the working directory (entry.directory).
+ * Append shell/cmd redirect to the test-results segment when needed.
  */
-function resolveCoveragePath(entry: TestPlan, projectRoot: string): string | null {
-  const coverageOutput = entry.coverage_output;
-  if (!coverageOutput) return null;
+function applyResultsRedirect(
+  cmd: string,
+  resultsFile: string,
+  framework: string,
+  isWinCmd: boolean,
+): string {
+  const redirect = `> "${resultsFile}"`;
 
-  if (entry.directory && entry.directory !== '.') {
-    return path.resolve(projectRoot, entry.directory, coverageOutput);
+  switch (framework) {
+    case 'go': {
+      // Redirect only the go test segment (before first chain separator)
+      if (isWinCmd) {
+        return cmd.replace(/^(go test\b.*?)(\s*&)/, `$1 ${redirect}$2`);
+      }
+      return cmd.replace(/^(go test\b.*?)(\s*;)/, `$1 ${redirect}$2`);
+    }
+    case 'rust': {
+      // Insert after `cargo test` before the chain separator
+      return cmd.replace(/^(cargo test\b)/, `$1 ${redirect}`);
+    }
+    case 'pytest': {
+      if (isWinCmd) {
+        // first pytest segment ends at ` && `
+        return cmd.replace(/^(pytest\b.*?)(\s+&&\s+)/, `$1 ${redirect}$2`);
+      }
+      return cmd.replace(/^(pytest\b.*?)(\s*;\s*)/, `$1 ${redirect}$2`);
+    }
+    default:
+      // bun, node-test, and any other single-segment redirect framework
+      return `${cmd} ${redirect}`;
   }
-  return path.resolve(projectRoot, coverageOutput);
 }
 
 // ---------------------------------------------------------------------------
-// Main execution function
+// Exec helpers
 // ---------------------------------------------------------------------------
 
-/**
- * Extract stdout, stderr, exitCode, and error message from a caught execSync error.
- */
 interface ExecError {
   stdout?: string | Buffer;
   stderr?: string | Buffer;
@@ -148,291 +358,11 @@ function extractBuffer(buf: string | Buffer | undefined): string {
   return typeof buf === 'string' ? buf : buf.toString('utf-8');
 }
 
-// ---------------------------------------------------------------------------
-// Mutation scope restriction
-// ---------------------------------------------------------------------------
-
-/**
- * When --mutation-diff-only is active, restrict the mutation file set to
- * only those files appearing in the git diff.
- */
-function restrictMutationScope(sourceFiles: string[], mutationDiffFiles?: string[]): string[] {
-  if (mutationDiffFiles === undefined) return sourceFiles;
-  const diffSet = new Set(mutationDiffFiles);
-  return sourceFiles.filter((f) => diffSet.has(f));
-}
-
-// ---------------------------------------------------------------------------
-// Main execution function
-// ---------------------------------------------------------------------------
-
-/**
- * Execute a single plan entry's test command.
- *
- * @param entry       - The plan entry to execute
- * @param projectRoot - Absolute project root path
- * @param options     - Optional overrides (files, timeout, mutationDiffFiles)
- * @returns ExecutionResult
- */
-export function executePlanEntry(
-  entry: TestPlan,
-  projectRoot: string,
-  options: {
-    files?: string[];
-    timeout?: number;
-    noMutation?: boolean;
-    /** Git diff file list used to restrict mutation scope (--mutation-diff-only) */
-    mutationDiffFiles?: string[];
-  } = {},
-): ExecutionResult {
-  const startTime = Date.now();
-  const testCmd = buildTestCommand(entry, projectRoot, options.files);
-  if (!testCmd || testCmd.trim().length === 0) {
-    return emptyResult(entry.framework, startTime, 'Empty test command');
-  }
-
-  console.log(`Executing test cmd: "${testCmd}"`);
-  const { stdout, stderr, exitCode, execError } = runCommand(testCmd, projectRoot, options.timeout);
-
-  const { failed, error, sourceFiles, testFiles, testCases } = parseTestOutput(
-    stdout,
-    stderr,
-    entry.framework,
-  );
-  const coveragePath = resolveCoveragePath(entry, projectRoot);
-  const coverage = coveragePath ? parseCoverageFromFile(coveragePath, entry.coverage_format) : null;
-
-  // Mutation testing phase
-  const mutationFiles = restrictMutationScope(sourceFiles, options.mutationDiffFiles);
-  const mutation =
-    failed === 0 ? runMutationPhase(entry, projectRoot, options, mutationFiles) : null;
-
-  const durationMs = Date.now() - startTime;
-
-  return {
-    framework: entry.framework,
-    exitCode,
-    testCases,
-    coverage,
-    mutation,
-    durationMs,
-    testFiles,
-    sourceFiles,
-    error: execError || error,
-  };
-}
-
-/**
- * Run the mutation testing phase using StrykerJS.
- *
- * Checks whether mutation testing is applicable (mutation_framework is set
- * and noMutation is not true), resolves the StrykerJS configuration, executes
- * StrykerJS, parses the report, and cleans up temporary files.
- *
- * Returns a MutationBlock on success, or null if mutation testing is skipped
- * or fails (errors are silently caught to avoid breaking the test flow).
- */
-function runMutationPhase(
-  entry: TestPlan,
-  projectRoot: string,
-  options: { noMutation?: boolean },
-  sourceFiles: string[],
-): MutationBlock | null {
-  // Skip mutation if not supported or explicitly disabled
-  if (!entry.mutation_framework || options.noMutation) {
-    return null;
-  }
-
-  // Filter out source files that match suite-scoped tests[].excludes
-  const config = readConfig(projectRoot);
-  const filteredSources = sourceFiles.filter((f) => !isFileExcluded(f, config));
-
-  // If all source files are excluded, skip mutation testing entirely
-  if (filteredSources.length === 0) {
-    return null;
-  }
-
-  // Mutation cwd is absCwd (plan.directory); rewrite mutate paths relative to it
-  const absoluteDirectory = path.resolve(projectRoot, entry.directory);
-  const sourcesRelativeToCwd = filteredSources.map((f) => {
-    const abs = path.isAbsolute(f) ? path.resolve(f) : path.resolve(projectRoot, f);
-    return path.relative(absoluteDirectory, abs).replace(/\\/g, '/');
-  });
-
-  try {
-    return executeStrykerMutation(entry, absoluteDirectory, sourcesRelativeToCwd);
-  } catch (e) {
-    console.log(`  Mutation testing skipped: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    return null;
-  }
-}
-
-/**
- * Execute the StrykerJS mutation test run, parse the report, and clean up.
- * Returns a MutationBlock on success, or null if the report is missing.
- */
-function executeStrykerMutation(
-  entry: TestPlan,
-  absoluteDirectory: string,
-  filteredSources: string[],
-): MutationBlock | null {
-  const { configPath, tempDirPath } = resolveStrykerConfig(
-    absoluteDirectory,
-    filteredSources,
-    entry.framework,
-  );
-
-  const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
-  console.log(
-    `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absoluteDirectory})...`,
-  );
-  const strykerStart = Date.now();
-  const cmdResult = runCommand(strykerCmd, absoluteDirectory, 1200000);
-  const strykerDuration = (Date.now() - strykerStart) / 1000;
-
-  if (cmdResult.exitCode !== 0) {
-    logCommandFailure(cmdResult, strykerDuration);
-    return null;
-  }
-
-  const mutationBlock = buildMutationBlockFromReport(entry, absoluteDirectory);
-  cleanupMutationArtifacts(configPath, tempDirPath);
-
-  if (!mutationBlock) {
-    logMissingReport(cmdResult);
-    return null;
-  }
-
-  console.log(
-    `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%, took ${strykerDuration.toFixed(1)}s)`,
-  );
-
-  return mutationBlock;
-}
-
-function genStrykerCommand(entry: TestPlan, configPath: string): string {
-  const frameworkConfig = getFrameworkConfig(entry.framework);
-  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
-  const mutationTemplate = isWinCmd
-    ? (frameworkConfig.cmd.mutation_execution ?? frameworkConfig.shell.mutation_execution)
-    : frameworkConfig.shell.mutation_execution;
-  return mutationTemplate
-    ? mutationTemplate.replace(/\{config\}/g, configPath)
-    : `npx stryker run "${configPath}"`;
-}
-
-/**
- * Parse the StrykerJS mutation report and build a MutationBlock.
- * Returns null if the report cannot be parsed.
- */
-function buildMutationBlockFromReport(entry: TestPlan, rootPath: string): MutationBlock | null {
-  const reportPath = path.resolve(rootPath, 'reports', 'mutation', 'mutation.json');
-  const mutationReport = parseMutationReport(reportPath);
-  if (!mutationReport) return null;
-
-  const threshold = entry.mutation_score ?? TEST_MUTATION_SCORE_DEFAULT;
-  const pass = mutationReport.score >= threshold;
-
-  return {
-    pass,
-    score: mutationReport.score,
-    threshold,
-    measured: extractMutationMeasured(mutationReport),
-  };
-}
-
-/**
- * Clean up temporary StrykerJS artifacts.
- *
- * Removes the reports/mutation/ directory and the temporary config file
- */
-function cleanupMutationArtifacts(configPath: string, tempDirPath: string): void {
-  // Remove temporary config file
-  try {
-    if (fs.existsSync(configPath)) {
-      fs.rmSync(configPath);
-    }
-  } catch {
-    // Best-effort cleanup
-  }
-
-  // Remove temporary snapshot files
-  try {
-    if (fs.existsSync(tempDirPath)) {
-      fs.rmSync(tempDirPath, { recursive: true });
-    }
-  } catch {
-    // Best-effort cleanup
-  }
-}
-
-/**
- * Extract MutationMeasured fields from a MutationReport.
- * Shared helper to avoid duplicating the field mapping.
- */
-function extractMutationMeasured(report: MutationReport): MutationMeasured {
-  return {
-    killed: report.killed,
-    survived: report.survived,
-    timeout: report.timeout,
-    noCoverage: report.noCoverage,
-    compileError: report.compileError,
-    runtimeError: report.runtimeError,
-    ignored: report.ignored,
-    total: report.total,
-    detected: report.detected,
-    undetected: report.undetected,
-  };
-}
-
-/**
- * Log diagnostic info when a mutation command exits with non-zero code.
- */
-function logCommandFailure(
-  result: { exitCode: number; stderr: string; execError?: string },
-  durationS: number,
-): void {
-  console.log(`StrykerJS exited with code ${result.exitCode} (took ${durationS.toFixed(1)}s)`);
-  if (result.stderr) {
-    console.log(`StrykerJS stderr: ${result.stderr.slice(0, 500)}`);
-  }
-  if (result.execError) {
-    console.log(`StrykerJS error: ${result.execError}`);
-  }
-}
-
-/**
- * Log a message when the mutation report is missing.
- * Only emits when the command appeared to succeed (exitCode 0),
- * otherwise the failure was already logged by logCommandFailure.
- */
-function logMissingReport(result: { exitCode: number }): void {
-  if (result.exitCode === 0) {
-    console.log('  Mutation report not found or invalid — skipping mutation result');
-  }
-}
-
-function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]): string {
-  // Select platform-appropriate script:
-  //   - Windows without SHELL env (no Git Bash) → entry.script.cmd (cmd.exe)
-  //   - Otherwise → entry.script.shell (POSIX shell / bash)
-  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
-  const script = isWinCmd ? entry.script.cmd : entry.script.shell;
-  return substitutePlaceholders(
-    script,
-    files ?? [],
-    entry.directory,
-    projectRoot,
-    entry.scope ?? '.',
-  );
-}
-
 function resolveShell(): string | undefined {
   if (process.platform === 'win32') {
-    // Prefer SHELL (Git Bash) if available; fall back to COMSPEC or cmd.exe
     return process.env.SHELL || process.env.COMSPEC || 'cmd.exe';
   }
-  return undefined; // Use default shell on Unix
+  return undefined;
 }
 
 function runCommand(
@@ -461,7 +391,357 @@ function runCommand(
   }
 }
 
-function emptyResult(framework: string, startTime: number, error: string): ExecutionResult {
+// ---------------------------------------------------------------------------
+// Mutation scope restriction
+// ---------------------------------------------------------------------------
+
+function restrictMutationScope(sourceFiles: string[], mutationDiffFiles?: string[]): string[] {
+  if (mutationDiffFiles === undefined) return sourceFiles;
+  const diffSet = new Set(mutationDiffFiles);
+  return sourceFiles.filter((f) => diffSet.has(f));
+}
+
+function resolveTestCommand(
+  entry: TestPlan,
+  prepared: PreparePlanArtifactsResult,
+  options: { files?: string[] },
+  projectRoot: string,
+  isWinCmd: boolean,
+): string | null {
+  const script = isWinCmd ? entry.script.cmd : entry.script.shell;
+  if (!script || script.trim().length === 0) {
+    return null;
+  }
+
+  let testCmd = expandCommandTemplate(
+    script.trim(),
+    prepared,
+    options.files ?? [],
+    projectRoot,
+    entry.scope ?? '.',
+  );
+
+  if (prepared.redirectStdoutToResults) {
+    testCmd = applyResultsRedirect(
+      testCmd,
+      prepared.placeholders.results_file,
+      entry.framework,
+      isWinCmd,
+    );
+  }
+  return testCmd;
+}
+
+function buildPlanExecutionResult(
+  entry: TestPlan,
+  projectRoot: string,
+  absCwd: string,
+  reportDir: string,
+  planId: string,
+  startTime: number,
+  exitCode: number,
+  execError: string | undefined,
+  options: { noMutation?: boolean; mutationDiffFiles?: string[] },
+): ExecutionResult {
+  const parsed = parsePlanArtifacts(entry.framework, reportDir);
+  const resultsFile = path.join(
+    reportDir,
+    RESULTS_FILE_BY_FRAMEWORK[entry.framework] ?? 'results.txt',
+  );
+
+  // Missing/unparseable results after a non-zero exit → execution_error
+  const parseError =
+    parsed.error ||
+    (exitCode !== 0 && parsed.testCases.length === 0
+      ? 'Missing or unparseable results file in plan directory'
+      : undefined);
+
+  const mutationFiles = restrictMutationScope(parsed.sourceFiles, options.mutationDiffFiles);
+  const mutation =
+    parsed.failed === 0
+      ? runMutationPhase(entry, projectRoot, absCwd, reportDir, options, mutationFiles)
+      : null;
+
+  return {
+    framework: entry.framework,
+    exitCode,
+    testCases: parsed.testCases,
+    coverage: parsed.coverage,
+    mutation,
+    durationMs: Date.now() - startTime,
+    testFiles: parsed.testFiles,
+    sourceFiles: parsed.sourceFiles,
+    error: execError || parseError,
+    planId,
+    reportDir,
+    resultsFile,
+  };
+}
+
+type ExecutePlanOptions = {
+  files?: string[];
+  timeout?: number;
+  noMutation?: boolean;
+  mutationDiffFiles?: string[];
+  reportsDir: string;
+};
+
+function runPreparedPlanEntry(
+  entry: TestPlan,
+  projectRoot: string,
+  absCwd: string,
+  reportDir: string,
+  planId: string,
+  startTime: number,
+  prepared: PreparePlanArtifactsResult,
+  options: ExecutePlanOptions,
+  isWinCmd: boolean,
+): ExecutionResult {
+  const testCmd = resolveTestCommand(entry, prepared, options, projectRoot, isWinCmd);
+  if (testCmd === null) {
+    return emptyResult(entry.framework, startTime, 'Empty test command', planId, reportDir);
+  }
+
+  console.log(`Executing test cmd: "${testCmd}"`);
+  const { exitCode, execError } = runCommand(testCmd, absCwd, options.timeout);
+
+  return buildPlanExecutionResult(
+    entry,
+    projectRoot,
+    absCwd,
+    reportDir,
+    planId,
+    startTime,
+    exitCode,
+    execError,
+    options,
+  );
+}
+
+// ---------------------------------------------------------------------------
+// Main execution function
+// ---------------------------------------------------------------------------
+
+/**
+ * Execute a single plan entry's test command.
+ *
+ * @param entry       - The plan entry to execute
+ * @param projectRoot - Absolute project root path
+ * @param options     - reportsDir (required) plus optional files/timeout/mutation flags
+ */
+export function executePlanEntry(
+  entry: TestPlan,
+  projectRoot: string,
+  options: ExecutePlanOptions,
+): ExecutionResult {
+  const startTime = Date.now();
+  const planId = derivePlanId(entry.directory, entry.framework);
+  const reportDir = path.join(options.reportsDir, planId);
+  const absCwd = path.resolve(projectRoot, entry.directory);
+  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
+
+  let prepared: PreparePlanArtifactsResult | null = null;
+
+  try {
+    clearDirectory(reportDir);
+    prepared = preparePlanArtifacts({
+      framework: entry.framework,
+      absCwd,
+      reportDir,
+      userConfigPath: resolveUserConfigPath(entry, projectRoot),
+      projectRoot,
+    });
+    return runPreparedPlanEntry(
+      entry,
+      projectRoot,
+      absCwd,
+      reportDir,
+      planId,
+      startTime,
+      prepared,
+      options,
+      isWinCmd,
+    );
+  } catch (e) {
+    const message = e instanceof Error ? e.message : 'preparePlanArtifacts failed';
+    return emptyResult(entry.framework, startTime, message, planId, reportDir);
+  } finally {
+    if (prepared) {
+      cleanupTempPaths(prepared.tempPaths);
+    }
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Mutation testing
+// ---------------------------------------------------------------------------
+
+function runMutationPhase(
+  entry: TestPlan,
+  projectRoot: string,
+  absCwd: string,
+  reportDir: string,
+  options: { noMutation?: boolean },
+  sourceFiles: string[],
+): MutationBlock | null {
+  if (!entry.mutation_framework || options.noMutation) {
+    return null;
+  }
+
+  let projectConfig: OpenSpecConfig;
+  try {
+    projectConfig = readConfig(projectRoot);
+  } catch {
+    return null;
+  }
+
+  const filteredSources = sourceFiles.filter((f) => !isFileExcluded(f, projectConfig));
+  if (filteredSources.length === 0) {
+    return null;
+  }
+
+  const sourcesRelativeToCwd = filteredSources.map((f) => {
+    const abs = path.isAbsolute(f) ? path.resolve(f) : path.resolve(projectRoot, f);
+    return path.relative(absCwd, abs).replace(/\\/g, '/');
+  });
+
+  try {
+    return executeStrykerMutation(entry, absCwd, reportDir, sourcesRelativeToCwd);
+  } catch (e) {
+    console.log(`  Mutation testing skipped: ${e instanceof Error ? e.message : 'Unknown error'}`);
+    return null;
+  }
+}
+
+function executeStrykerMutation(
+  entry: TestPlan,
+  absCwd: string,
+  reportDir: string,
+  filteredSources: string[],
+): MutationBlock | null {
+  const { configPath, tempDirPath } = resolveStrykerConfig(
+    absCwd,
+    filteredSources,
+    entry.framework,
+    reportDir,
+  );
+
+  const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
+  console.log(`Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absCwd})...`);
+  const strykerStart = Date.now();
+  const cmdResult = runCommand(strykerCmd, absCwd, 1200000);
+  const strykerDuration = (Date.now() - strykerStart) / 1000;
+
+  if (cmdResult.exitCode !== 0) {
+    logCommandFailure(cmdResult, strykerDuration);
+    cleanupMutationArtifacts(configPath, tempDirPath);
+    return null;
+  }
+
+  const mutationBlock = buildMutationBlockFromReport(entry, reportDir);
+  cleanupMutationArtifacts(configPath, tempDirPath);
+
+  if (!mutationBlock) {
+    logMissingReport(cmdResult);
+    return null;
+  }
+
+  console.log(
+    `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%, took ${strykerDuration.toFixed(1)}s)`,
+  );
+
+  return mutationBlock;
+}
+
+function genStrykerCommand(entry: TestPlan, configPath: string): string {
+  const frameworkConfig = getFrameworkConfig(entry.framework);
+  const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
+  const mutationTemplate = isWinCmd
+    ? (frameworkConfig.cmd.mutation_execution ?? frameworkConfig.shell.mutation_execution)
+    : frameworkConfig.shell.mutation_execution;
+  return mutationTemplate
+    ? mutationTemplate.replace(/\{config\}/g, configPath)
+    : `npx stryker run "${configPath}"`;
+}
+
+/**
+ * Parse the StrykerJS mutation report from planDir/mutation.json.
+ */
+function buildMutationBlockFromReport(entry: TestPlan, reportDir: string): MutationBlock | null {
+  const reportPath = path.join(reportDir, 'mutation.json');
+  const mutationReport = parseMutationReport(reportPath);
+  if (!mutationReport) return null;
+
+  const threshold = entry.mutation_score ?? TEST_MUTATION_SCORE_DEFAULT;
+  const pass = mutationReport.score >= threshold;
+
+  return {
+    pass,
+    score: mutationReport.score,
+    threshold,
+    measured: extractMutationMeasured(mutationReport),
+  };
+}
+
+function cleanupMutationArtifacts(configPath: string, tempDirPath: string): void {
+  try {
+    if (fs.existsSync(configPath)) {
+      fs.rmSync(configPath);
+    }
+  } catch {
+    // Best-effort cleanup
+  }
+
+  try {
+    if (fs.existsSync(tempDirPath)) {
+      fs.rmSync(tempDirPath, { recursive: true });
+    }
+  } catch {
+    // Best-effort cleanup
+  }
+}
+
+function extractMutationMeasured(report: MutationReport): MutationMeasured {
+  return {
+    killed: report.killed,
+    survived: report.survived,
+    timeout: report.timeout,
+    noCoverage: report.noCoverage,
+    compileError: report.compileError,
+    runtimeError: report.runtimeError,
+    ignored: report.ignored,
+    total: report.total,
+    detected: report.detected,
+    undetected: report.undetected,
+  };
+}
+
+function logCommandFailure(
+  result: { exitCode: number; stderr: string; execError?: string },
+  durationS: number,
+): void {
+  console.log(`StrykerJS exited with code ${result.exitCode} (took ${durationS.toFixed(1)}s)`);
+  if (result.stderr) {
+    console.log(`StrykerJS stderr: ${result.stderr.slice(0, 500)}`);
+  }
+  if (result.execError) {
+    console.log(`StrykerJS error: ${result.execError}`);
+  }
+}
+
+function logMissingReport(result: { exitCode: number }): void {
+  if (result.exitCode === 0) {
+    console.log('  Mutation report not found or invalid — skipping mutation result');
+  }
+}
+
+function emptyResult(
+  framework: string,
+  startTime: number,
+  error: string,
+  planId: string,
+  reportDir: string,
+): ExecutionResult {
   return {
     framework,
     exitCode: -1,
@@ -472,5 +752,7 @@ function emptyResult(framework: string, startTime: number, error: string): Execu
     testFiles: [],
     sourceFiles: [],
     error,
+    planId,
+    reportDir,
   };
 }

@@ -20,7 +20,7 @@ Evaluate the test execution report and determine the root cause of failures. Inv
 
 Read:
 
-- `openspec/changes/<change-name>/reports/test-execution.json` — the Executor's structured test report
+- `openspec/changes/<change-name>/reports/test/summary.json` — the Executor's structured test report
 - `openspec/changes/<change-name>/test-design.md` — original test design for design conflict comparison
 - The source files referenced in failure details (read specific lines at the reported line numbers)
 

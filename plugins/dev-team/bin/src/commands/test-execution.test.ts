@@ -6,8 +6,8 @@
  * - AC-1: 对 plan 中每个 framework 调用 executePlanEntry
  * - AC-1: 在每个 framework 执行后调用 generateSubReport 写入子报告
  * - AC-1: 所有 framework 执行后调用 generateSummaryReport 写入汇总报告
- * - AC-1: 子报告写入 reports/test-execution/<framework>.json
- * - AC-1: 汇总报告写入 reports/test-execution.json
+ * - AC-1: 子报告写入 reports/test/<framework>.json
+ * - AC-1: 汇总报告写入 reports/test.json
  * - 异常: plan 为空、framework 执行失败不阻塞
  * - 边界: projectRoot 为 undefined、幂等性
  *
@@ -109,7 +109,7 @@ function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
     directory: '.',
     framework: 'vitest',
     coverage_format: 'istanbul',
-    coverage_output: 'coverage/coverage-summary.json',
+    coverage_output: 'coverage-summary.json',
     script: {
       shell: '#!/bin/bash\nset -e\n\nnpx vitest run --coverage --coverage.reporter=json-summary',
       cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',
@@ -127,6 +127,8 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
     durationMs: 500,
     testFiles: ['src/foo.test.ts'],
     sourceFiles: ['src/foo.ts'],
+    planId: 'vitest',
+    reportDir: '/tmp/reports/test/vitest',
     ...overrides,
   };
 }
@@ -273,7 +275,7 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
       const callArgs = mockGenerateSubReport.mock.calls[0];
       expect(callArgs[0]).toBe('vitest');
       expect(callArgs[2]).toBe(project.root);
-      expect(callArgs[3].replace(/\\/g, '/')).toContain('reports/test-execution');
+      expect(callArgs[3].replace(/\\/g, '/')).toContain('reports/test');
     } finally {
       project.cleanup();
     }
@@ -308,13 +310,13 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
       const callArgs = mockGenerateSummaryReport.mock.calls[0];
       expect(Array.isArray(callArgs[0])).toBe(true);
       expect(callArgs[1]).toBe(project.root);
-      expect(callArgs[2].replace(/\\/g, '/')).toContain('reports/test-execution');
+      expect(callArgs[2].replace(/\\/g, '/')).toContain('reports/test');
     } finally {
       project.cleanup();
     }
   });
 
-  it('子报告应写入 reports/test-execution/<framework>.json 路径', async () => {
+  it('子报告应写入 reports/test 目录（非扁平 <framework>.json）', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -340,13 +342,13 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
       await runTestExecution({ projectRoot: project.root });
 
       const reportsDir = mockGenerateSubReport.mock.calls[0][3];
-      expect(reportsDir.replace(/\\/g, '/')).toContain('reports/test-execution');
+      expect(reportsDir.replace(/\\/g, '/')).toContain('reports/test');
     } finally {
       project.cleanup();
     }
   });
 
-  it('汇总报告应写入 reports/test-execution.json', async () => {
+  it('汇总报告应写入 reports/test（summary.json 由 generateSummaryReport 负责）', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
@@ -1052,7 +1054,7 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
       });
 
       const expectedReportsDir = path
-        .resolve(project.root, 'openspec', 'changes', 'my-feature', 'reports', 'test-execution')
+        .resolve(project.root, 'openspec', 'changes', 'my-feature', 'reports', 'test')
         .replace(/\\/g, '/');
       const subReportsDir = mockGenerateSubReport.mock.calls[0][3].replace(/\\/g, '/');
       const summaryReportsDir = mockGenerateSummaryReport.mock.calls[0][2].replace(/\\/g, '/');
@@ -1601,6 +1603,108 @@ describe('runTestExecution — 无配置 / framework 过滤', () => {
       const code = await runTestExecution({ projectRoot: project.root, framework: 'pytest' });
       expect(code).toBe(0);
       expect(logs.some((l) => l === 'No plan entries found for framework "pytest"')).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestExecution — reportsDir 新布局 (AC-1)', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    mockGetGitDiffFiles.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  it('无 --change：reportsDir 为 {projectRoot}/reports/test', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+        mutation: null,
+        plans: [],
+      });
+      await runTestExecution({ projectRoot: project.root });
+      const opts = mockExecutePlanEntry.mock.calls[0][2];
+      expect(path.resolve(opts.reportsDir)).toBe(path.resolve(project.root, 'reports', 'test'));
+      expect(mockGenerateSummaryReport.mock.calls[0][2]).toBe(opts.reportsDir);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('有 --change：openspec/changes/<change>/reports/test', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+        mutation: null,
+        plans: [],
+      });
+      await runTestExecution({ projectRoot: project.root, change: 'my-change' });
+      const opts = mockExecutePlanEntry.mock.calls[0][2];
+      expect(path.resolve(opts.reportsDir)).toBe(
+        path.resolve(project.root, 'openspec', 'changes', 'my-change', 'reports', 'test'),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('调用 executePlanEntry 时 options 含 reportsDir', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 0,
+        total: 0,
+        passed: 0,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+        mutation: null,
+        plans: [],
+      });
+      await runTestExecution({ projectRoot: project.root });
+      expect(mockExecutePlanEntry.mock.calls[0][2]).toEqual(
+        expect.objectContaining({ reportsDir: expect.any(String) }),
+      );
     } finally {
       project.cleanup();
     }

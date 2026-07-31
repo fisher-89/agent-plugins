@@ -2,8 +2,8 @@
 // StrykerJS Mutation Report Parser
 //
 // Reads a StrykerJS JSON report file and extracts mutation metrics.
-// The report is expected at the path configured in the StrykerJS config
-// (default: reports/mutation/mutation.json).
+// The report path is provided by the caller (typically
+// reports/test/<planId>/mutation.json written via jsonReporter.fileName).
 // ---------------------------------------------------------------------------
 
 import * as fs from 'fs';
@@ -105,7 +105,9 @@ interface StrykerMetrics {
  * MutationReport object.  Returns null if the file does not exist or
  * cannot be parsed.
  *
- * @param reportPath - Absolute path to the StrykerJS JSON report file
+ * @param reportPath - Absolute path to the StrykerJS JSON report
+ *   (caller supplies planDir/mutation.json; this function does not assume
+ *   a default location)
  * @returns MutationReport or null if parsing fails
  */
 export function parseMutationReport(reportPath: string): MutationReport | null {
