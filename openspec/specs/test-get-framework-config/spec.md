@@ -2,7 +2,7 @@
 
 This capability defined the `test_get_framework_config` MCP tool and its underlying `FRAMEWORK_REGISTRY` in `commands/test-get-framework-config.ts`. As of the `merge-framework-config-into-detect` change, the MCP tool is **removed** and the registry has been extracted to an internal lib module at `lib/test-framework.ts`, consumed by `test-detect-frameworks.ts` rather than exposed as a standalone MCP tool.
 
-For framework configuration queries, consumers SHALL use `test_detect_frameworks` which returns all fields (`coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`) in its `plan[]` entries.
+For framework configuration queries, consumers SHALL use `test_detect_frameworks` which returns coverage fields (`coverage_format`, `coverage_output`) in its `plan[]` entries. Platform cleanup paths live under generated `script.shell` / `script.cmd`.
 
 As of the `cli-unit-test-execute` change, `FRAMEWORK_REGISTRY` entries have `merge_mode` **removed**. pytest and rust `test_cmd` are updated to chained shell commands. `test_cmd` supports template placeholders `{files}`, `{directory}`, `{project_root}` for runtime substitution. As of the `remove-coverage-cmd` change, `coverage_cmd` field is **removed** from `FrameworkConfig` — all coverage is now embedded within `test_cmd` via the chained command pattern or `--coverage` flags.
 
@@ -28,12 +28,11 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 | framework | `TestFrameworks` | 框架标识 |
 | test_cmd | `string` | 测试命令模板（含覆盖率步骤），支持 `{files}`、`{directory}`、`{project_root}` 占位符。pytest 和 rust 为链式命令 |
 | coverage_format | `'istanbul' \| 'llvm-cov' \| 'node-test' \| 'go-cover' \| 'coverage-py'` | 覆盖率输出格式 |
-| coverage_output | `string` | 覆盖率输出文件路径 |
-| coverage_artifacts | `string[]` | 需要移动的产物路径列表 |
-| coverage_cleanup | `string[]` | 清理列表 |
+| coverage_output | `string` | 覆盖率输出文件路径（供执行器解析） |
+| coverage_cleanup | `string[]` | 清理列表（位于 `shell` / `cmd` 子对象） |
 | default_glob | `string` | 默认测试文件 glob 模式 |
 
-**注意**: `merge_mode` 和 `coverage_cmd` 字段已移除。所有框架使用单一 `test_cmd` 执行（含覆盖率）。pytest 和 rust 通过链式命令 `; _X=$?; ...; exit $_X` 模式在单条命令中完成测试+覆盖率两步。其他框架通过 `test_cmd` 中的 `--coverage` 标志直接收集覆盖率。
+**注意**: `merge_mode`、`coverage_cmd` 和 `coverage_artifacts` 字段已移除。覆盖率解析仅使用 `coverage_output`。所有框架使用平台脚本执行（含覆盖率）。pytest 和 rust 通过链式命令模式在单条命令中完成测试+覆盖率两步。其他框架通过 `--coverage` 标志直接收集覆盖率。
 
 ---
 
@@ -44,7 +43,7 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 | Tool name | `test_get_framework_config` (removed) |
 | Input | `{framework: TestFrameworks, project_root?: string}` |
 | Reason | All output fields are already available in `test_detect_frameworks.plan[]`. No consumer actually needs `test_cmd`. |
-| Migration | Call `test_detect_frameworks({files: [...]})` and use `plan[].framework` for framework name, `plan[].coverage_format`/`plan[].coverage_output`/`plan[].coverage_artifacts`/`plan[].coverage_cleanup` for config. `plan[].test_cmd` is available for the `dev-team unit-test` CLI command. |
+| Migration | Call `test_detect_frameworks({files: [...]})` and use `plan[].framework` for framework name, `plan[].coverage_format`/`plan[].coverage_output` for config, and `plan[].script` for platform execution scripts. |
 
 ---
 
@@ -160,8 +159,8 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 #### Scenario: all eight frameworks are registered
 
 **WHEN** `getFrameworkConfig()` is called for each of `["jest", "vitest", "vite-plus", "bun", "rust", "node-test", "go", "pytest"]`
-**THEN** each call SHALL return a valid `FrameworkConfig` object with non-empty `test_cmd`, `coverage_artifacts`, `coverage_cleanup`, `default_glob`
-**AND** each returned object SHALL NOT have a `merge_mode` or `coverage_cmd` property
+**THEN** each call SHALL return a valid `FrameworkConfig` object with non-empty platform `test_execution`, `coverage_output`, `coverage_cleanup`, `default_glob`
+**AND** each returned object SHALL NOT have a `merge_mode`, `coverage_cmd`, or `coverage_artifacts` property
 
 ### Requirement: test-detect-frameworks imports from lib/test-framework
 

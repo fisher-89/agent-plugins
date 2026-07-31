@@ -12,10 +12,6 @@ const testPlanSchema = z.object({
     .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])
     .describe('Coverage output format'),
   coverage_output: z.string().describe('Coverage output file path (relative to directory)'),
-  coverage_artifacts: z
-    .array(z.string())
-    .optional()
-    .describe('Glob patterns for coverage artifacts to move to unified location'),
   mutation_framework: z
     .string()
     .nullable()

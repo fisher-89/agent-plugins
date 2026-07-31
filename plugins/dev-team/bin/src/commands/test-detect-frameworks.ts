@@ -313,7 +313,6 @@ function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan
       framework: frameworkConfig.framework,
       coverage_format: frameworkConfig.coverage_format,
       coverage_output: frameworkConfig.coverage_output,
-      coverage_artifacts: frameworkConfig.coverage_artifacts,
       mutation_framework: frameworkConfig.mutation_framework,
       mutation_config: null,
       mutation_score: suite.mutation?.score ?? null,

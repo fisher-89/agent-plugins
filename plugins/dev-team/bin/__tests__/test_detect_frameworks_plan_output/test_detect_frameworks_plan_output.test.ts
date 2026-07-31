@@ -50,7 +50,6 @@ describe('test_detect_frameworks — plan 输出结构', () => {
         coverage_format: 'istanbul',
       });
       expect(result.plan[0]).toHaveProperty('coverage_output');
-      expect(result.plan[0]).toHaveProperty('coverage_artifacts');
       expect(result.plan[0]).toHaveProperty('script');
 
       const parsed = testDetectFrameworksOutputSchema.safeParse(result);

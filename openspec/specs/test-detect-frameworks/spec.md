@@ -36,7 +36,7 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 | Tool name | `test_detect_frameworks` |
 | Input | `{files?: string[], projectRoot?: string}` |
 | Output | `TestDetectFrameworksResult` (`{ detected: DetectedFile[], frameworks: string[], plan: PlanEntry[] }`) |
-| Plan entry fields | `directory`, `framework`, `test_cmd`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`, `mutation_framework`, `mutation_config`, `mutation_score`, `script` |
+| Plan entry fields | `directory`, `framework`, `coverage_format`, `coverage_output`, `mutation_framework`, `mutation_config`, `mutation_score`, `script` |
 | Registration | `registerTestDetectFrameworksTool` in `mcp.ts` — unchanged |
 | Consumers | `test-gen-generator.md`, `unit-test-executor.md` — unchanged |
 
@@ -78,27 +78,26 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 
 **WHEN** `test_detect_frameworks` is invoked with `{files: ["src/example.test.ts"], projectRoot: "/tmp/test-project"}`
 **THEN** the result SHALL contain the `detected`, `frameworks`, and `plan` arrays
-**AND** each entry in `plan` SHALL contain the fields `directory`, `framework`, `test_cmd`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`, and `script`
+**AND** each entry in `plan` SHALL contain the fields `directory`, `framework`, `coverage_format`, `coverage_output`, and `script`
 
 ### Requirement: plan[] output carries all framework config fields
 
 **ID**: REQ-TDF-3
 **Priority**: MUST
-**Description**: The `plan[]` array in `test_detect_frameworks` output SHALL continue to include all framework config fields (`coverage_format`, `coverage_output`, `coverage_artifacts`, `coverage_cleanup`) sourced from the internal `lib/test-framework.ts` FRAMEWORK_REGISTRY. The `coverage_cmd` field has been removed — all coverage commands are now embedded within `test_cmd`.
+**Description**: The `plan[]` array in `test_detect_frameworks` output SHALL continue to include framework config fields (`coverage_format`, `coverage_output`) sourced from the internal `lib/test-framework.ts` FRAMEWORK_REGISTRY. The `coverage_cmd` and `coverage_artifacts` fields have been removed — coverage commands are embedded within platform scripts, and coverage parsing uses `coverage_output` only.
 
 #### Scenario: plan entry coverage fields match framework registry
 
 **WHEN** `test_detect_frameworks` is called on a project configured with framework `"vitest"`
 **THEN** `plan[0].coverage_format` SHALL be `"istanbul"`
 **AND** `plan[0].coverage_output` SHALL be `"coverage/coverage-summary.json"`
-**AND** `plan[0].coverage_artifacts` SHALL contain `"coverage/coverage-summary.json"`
-**AND** `plan[0].coverage_cleanup` SHALL be a non-empty array
+**AND** `plan[0]` SHALL NOT contain `coverage_artifacts`
 
 #### Scenario: node-test framework plan entry carries simplified fields
 
 **WHEN** `test_detect_frameworks` is called on a project configured with framework `"node-test"`
 **THEN** `plan[0].coverage_output` SHALL be `"coverage/node-test-output.txt"`
-**AND** `plan[0].coverage_artifacts` SHALL contain `"coverage/node-test-output.txt"`
+**AND** `plan[0]` SHALL NOT contain `coverage_artifacts`
 
 ### Requirement: FRAMEWORK_REGISTRY extracted to shared lib module
 
@@ -313,7 +312,7 @@ SHALL NOT append `config_flag` + path to the end of the entire `test_execution` 
 
 **ID**: REQ-TDF-PLAT-1
 **Priority**: MUST
-**Description**: `FrameworkConfig` interface in `lib/test-framework.ts` SHALL be restructured into a two-level nested form. Platform-specific fields (`test_execution`, `coverage_cleanup`) SHALL be grouped under `shell` and `cmd` sub-objects. Platform-independent fields (`framework`, `coverage_format`, `coverage_output`, `coverage_artifacts`, `default_glob`, `mutation_framework`) SHALL remain at the top level.
+**Description**: `FrameworkConfig` interface in `lib/test-framework.ts` SHALL be restructured into a two-level nested form. Platform-specific fields (`test_execution`, `coverage_cleanup`) SHALL be grouped under `shell` and `cmd` sub-objects. Platform-independent fields (`framework`, `coverage_format`, `coverage_output`, `default_glob`, `mutation_framework`) SHALL remain at the top level.
 
 ```typescript
 interface FrameworkConfig {
@@ -328,7 +327,6 @@ interface FrameworkConfig {
   };
   coverage_format: 'istanbul' | 'llvm-cov' | 'node-test' | 'go-cover' | 'coverage-py';
   coverage_output: string;
-  coverage_artifacts: string[];
   default_glob: string;
   mutation_framework: string | null;
 }
@@ -499,7 +497,6 @@ export interface FrameworkConfig {
   };
   coverage_format: 'istanbul' | 'llvm-cov' | 'node-test' | 'go-cover' | 'coverage-py';
   coverage_output: string;
-  coverage_artifacts: string[];
   default_glob: string;
   mutation_framework: string | null;
 }

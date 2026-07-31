@@ -64,7 +64,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
         cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
@@ -88,7 +87,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
         cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
@@ -112,7 +110,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -128,7 +125,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
         framework: 'pytest' as const,
         coverage_format: 'coverage-py' as const,
         coverage_output: 'coverage.json',
-        coverage_artifacts: ['coverage.json'],
         script: {
           shell:
             'rm -rf .coverage\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
@@ -159,7 +155,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
         cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
@@ -180,7 +175,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: { shell: '', cmd: '' },
       },
       '/project',
@@ -198,7 +192,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
         cmd: 'rm -rf coverage\\nnpx vitest run --reporter=json {files}\\n',
@@ -224,7 +217,6 @@ describe('executePlanEntry -- 单一命令执行', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnonexistent-binary --version\\n',
         cmd: 'rm -rf coverage\\nnonexistent-binary --version\\n',
@@ -251,7 +243,6 @@ describe('executePlanEntry -- empty test command', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: { shell: '', cmd: '' },
     };
     const result = executePlanEntry(entry, '/project');
@@ -267,7 +258,6 @@ describe('executePlanEntry -- empty test command', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: { shell: '   ', cmd: '   ' },
     };
     const result = executePlanEntry(entry, '/project');
@@ -307,7 +297,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
         framework: 'pytest' as const,
         coverage_format: 'coverage-py' as const,
         coverage_output: 'coverage.json',
-        coverage_artifacts: ['coverage.json'],
         script: {
           shell: 'pytest -v {files}; pytest --cov=. --cov-report=json --cov-branch -q',
           cmd: 'pytest -v {files} && pytest --cov=. --cov-report=json --cov-branch -q',
@@ -333,7 +322,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       framework: 'rust' as const,
       coverage_format: 'llvm-cov' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell:
           'rm -rf coverage\\nrm -rf target/llvm-cov\\ncargo test; _X=$?; cargo llvm-cov --json --output-path coverage/coverage-summary.json; exit $_X\\n',
@@ -367,7 +355,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
       script: {
         shell:
           'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
@@ -389,7 +376,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
       script: {
         shell:
           'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
@@ -419,7 +405,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
       script: { shell: pytestCmd, cmd: pytestCmd },
     };
 
@@ -441,7 +426,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
       script: {
         shell:
           'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
@@ -462,7 +446,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
       script: {
         shell:
           'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
@@ -484,7 +467,6 @@ describe('executePlanEntry -- chained command (AC-10)', () => {
       framework: 'pytest' as const,
       coverage_format: 'coverage-py' as const,
       coverage_output: 'coverage.json',
-      coverage_artifacts: ['coverage.json'],
       script: {
         shell:
           'rm -rf .coverage\\nrm -rf htmlcov\\npytest -v {files}; _X=$?; pytest --cov=. --cov-report=json --cov-branch -q; exit $_X\\n',
@@ -522,7 +504,6 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run\\n',
         cmd: 'rm -rf coverage\\nnpx vitest run\\n',
@@ -545,7 +526,6 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
         cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -556,7 +536,6 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
       framework: 'vite-plus' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nvp test {files}\\n',
         cmd: 'rm -rf coverage\\nvp test {files}\\n',
@@ -585,7 +564,6 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
 
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -612,7 +590,6 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
 
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run\\n',
@@ -637,7 +614,6 @@ describe('executePlanEntry -- non-zero exit code (AC-11)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
 
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run\\n',
@@ -674,7 +650,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
 
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -701,7 +676,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       framework: 'bun' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nbun test {files}\\n',
         cmd: 'rm -rf coverage\\nbun test {files}\\n',
@@ -724,7 +698,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
 
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -757,7 +730,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
         cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -826,7 +798,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -903,7 +874,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -946,7 +916,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1016,7 +985,6 @@ describe('executePlanEntry -- mutation 执行阶段', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1115,7 +1083,6 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1151,7 +1118,6 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1191,7 +1157,6 @@ describe('executePlanEntry -- mutation exclude 过滤 (AC-5)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1274,7 +1239,6 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1308,7 +1272,6 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1342,7 +1305,6 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1372,7 +1334,6 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1417,7 +1378,6 @@ describe('executePlanEntry -- platform command selection (AC-6)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\nnpx vitest run --reporter=json {files}\n',
           cmd: 'if exist coverage (rmdir /s /q coverage)\nnpx vitest run --reporter=json {files}\n',
@@ -1443,7 +1403,6 @@ describe('executePlanEntry -- platform command selection (AC-6)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: 'coverage/coverage-summary.json',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\nnpx vitest run --reporter=json {files}\n',
           cmd: 'if exist coverage (rmdir /s /q coverage)\nnpx vitest run --reporter=json {files}\n',
@@ -1476,7 +1435,6 @@ describe('executePlanEntry -- shell resolution (AC-7, AC-10)', () => {
     framework: 'vitest' as const,
     coverage_format: 'istanbul' as const,
     coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
     script: {
       shell: 'npx vitest run --reporter=json {files}\n',
       cmd: 'npx vitest run --reporter=json {files}\n',
@@ -1600,7 +1558,6 @@ describe('executePlanEntry -- 向后兼容（缺失 cmd 字段）', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: 'coverage/coverage-summary.json',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'npx vitest run --reporter=json {files}\\n',
         cmd: 'npx vitest run --reporter=json {files}\\n',
@@ -1649,7 +1606,6 @@ describe('executePlanEntry -- StrykerJS 平台感知 (AC-8)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'rm -rf coverage\\nnpx vitest run {files}\\n',
           cmd: 'rm -rf coverage\\nnpx vitest run {files}\\n',
@@ -1737,7 +1693,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',
@@ -1767,7 +1722,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',
@@ -1793,7 +1747,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'npx vitest run {files}\n',
         cmd: 'npx vitest run {files}\n',
@@ -1810,7 +1763,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: { shell: '   \n', cmd: '   \n' },
       mutation_framework: 'stryker-js',
     };
@@ -1826,7 +1778,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'npx vitest run {files}\n',
         cmd: 'npx vitest run {files}\n',
@@ -1842,7 +1793,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'npx vitest run {files}\n',
         cmd: 'npx vitest run {files}\n',
@@ -1858,7 +1808,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'npx vitest run {files}\n',
         cmd: 'npx vitest run {files}\n',
@@ -1875,7 +1824,6 @@ describe('executePlanEntry — absCwd 变异 (AC-2)', () => {
       framework: 'vitest' as const,
       coverage_format: 'istanbul' as const,
       coverage_output: '',
-      coverage_artifacts: ['coverage/coverage-summary.json'],
       script: {
         shell: 'npx vitest run {files}\n',
         cmd: 'npx vitest run {files}\n',
@@ -1953,7 +1901,6 @@ describe('executePlanEntry — suite exclude 变异 (AC-4)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',
@@ -1983,7 +1930,6 @@ describe('executePlanEntry — suite exclude 变异 (AC-4)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',
@@ -2011,7 +1957,6 @@ describe('executePlanEntry — suite exclude 变异 (AC-4)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',
@@ -2040,7 +1985,6 @@ describe('executePlanEntry — suite exclude 变异 (AC-4)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',
@@ -2069,7 +2013,6 @@ describe('executePlanEntry — suite exclude 变异 (AC-4)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',
@@ -2097,7 +2040,6 @@ describe('executePlanEntry — suite exclude 变异 (AC-4)', () => {
         framework: 'vitest' as const,
         coverage_format: 'istanbul' as const,
         coverage_output: '',
-        coverage_artifacts: ['coverage/coverage-summary.json'],
         script: {
           shell: 'npx vitest run {files}\n',
           cmd: 'npx vitest run {files}\n',

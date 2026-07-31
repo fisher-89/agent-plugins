@@ -93,21 +93,13 @@ describe('getFrameworkConfig -- edge cases', () => {
 });
 
 // ===========================================================================
-// Framework-specific coverage_artifacts and coverage_cleanup
+// Framework-specific coverage_cleanup
 // ===========================================================================
 
-describe('getFrameworkConfig -- coverage_artifacts and coverage_cleanup', () => {
-  it('vitest should return coverage_artifacts and coverage_cleanup correctly', () => {
+describe('getFrameworkConfig -- coverage_cleanup', () => {
+  it('vitest should return coverage_cleanup correctly', () => {
     const result = getFrameworkConfig('vitest');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
     expect(result.shell.coverage_cleanup).toEqual(['coverage', '.nyc_output', 'test-stderr.txt']);
-  });
-
-  it('rust should return single-element JSON summary path for coverage_artifacts', () => {
-    const result = getFrameworkConfig('rust');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-    expect(result.coverage_artifacts).not.toContain('target/llvm-cov/**');
-    expect(result.coverage_artifacts).toHaveLength(1);
   });
 
   it('rust should return coverage_cleanup containing coverage and target/llvm-cov', () => {
@@ -117,23 +109,19 @@ describe('getFrameworkConfig -- coverage_artifacts and coverage_cleanup', () => 
     expect(result.shell.coverage_cleanup).toHaveLength(2);
   });
 
-  it('jest should return coverage_artifacts and coverage_cleanup fields', () => {
+  it('jest should return coverage_cleanup fields', () => {
     const result = getFrameworkConfig('jest');
-    expect(result.coverage_artifacts).toBeDefined();
     expect(result.shell.coverage_cleanup).toBeDefined();
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
     expect(result.shell.coverage_cleanup).toEqual(['coverage', '.nyc_output']);
   });
 
-  it('vite-plus should return coverage_artifacts and coverage_cleanup fields', () => {
+  it('vite-plus should return coverage_cleanup fields', () => {
     const result = getFrameworkConfig('vite-plus');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
     expect(result.shell.coverage_cleanup).toEqual(['coverage', '.nyc_output', 'test-stderr.txt']);
   });
 
   it('bun should return coverage_cleanup without .nyc_output (only coverage)', () => {
     const result = getFrameworkConfig('bun');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
     expect(result.shell.coverage_cleanup).toEqual(['coverage']);
   });
 });
@@ -143,11 +131,11 @@ describe('getFrameworkConfig -- coverage_artifacts and coverage_cleanup', () => 
 // ===========================================================================
 
 describe('getFrameworkConfig -- all frameworks coverage fields non-empty', () => {
-  it('each framework should have non-empty coverage_artifacts array', () => {
+  it('each framework should have non-empty coverage_output', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
-      expect(Array.isArray(result.coverage_artifacts)).toBe(true);
-      expect(result.coverage_artifacts.length).toBeGreaterThan(0);
+      expect(typeof result.coverage_output).toBe('string');
+      expect(result.coverage_output.length).toBeGreaterThan(0);
     }
   });
 
@@ -159,30 +147,21 @@ describe('getFrameworkConfig -- all frameworks coverage fields non-empty', () =>
     }
   });
 
-  it('each framework should return all 8 fields (shell, cmd, no merge_mode, no coverage_cmd)', () => {
+  it('each framework should return all top-level fields (shell, cmd, no merge_mode, no coverage_cmd, no coverage_artifacts)', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       const keys = Object.keys(result);
-      expect(keys).toContain('coverage_artifacts');
+      expect(keys).toContain('coverage_output');
       expect(keys).toContain('shell');
       expect(keys).toContain('cmd');
       expect(keys).not.toContain('merge_mode');
       expect(keys).not.toContain('coverage_cmd');
+      expect(keys).not.toContain('coverage_artifacts');
       expect(keys).not.toContain('test_cmd');
       expect(keys).not.toContain('coverage_cleanup');
       expect(keys).toContain('config_flag');
       expect(keys).toContain('version_command');
-      expect(keys.length).toBe(10);
-    }
-  });
-
-  it('coverage_artifacts should contain only non-empty strings', () => {
-    for (const fw of ALL_EIGHT) {
-      const result = getFrameworkConfig(fw);
-      for (const artifact of result.coverage_artifacts) {
-        expect(typeof artifact).toBe('string');
-        expect(artifact.length).toBeGreaterThan(0);
-      }
+      expect(keys.length).toBe(9);
     }
   });
 });
@@ -282,13 +261,14 @@ describe('getFrameworkConfig -- 无 merge_mode (AC-12)', () => {
     }
   });
 
-  it('FrameworkConfig 接口字段数量为 10（含 shell/cmd/config_flag/version_command，不含 merge_mode/coverage_cmd/test_cmd/coverage_cleanup）', () => {
+  it('FrameworkConfig 接口字段数量为 9（含 shell/cmd/config_flag/version_command，不含 merge_mode/coverage_cmd/coverage_artifacts/test_cmd/coverage_cleanup）', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       const keys = Object.keys(result);
-      expect(keys.length).toBe(10);
+      expect(keys.length).toBe(9);
       expect(keys).not.toContain('merge_mode');
       expect(keys).not.toContain('coverage_cmd');
+      expect(keys).not.toContain('coverage_artifacts');
       expect(keys).not.toContain('test_cmd');
       expect(keys).not.toContain('coverage_cleanup');
       expect(keys).toContain('config_flag');
@@ -306,14 +286,14 @@ describe('getFrameworkConfig -- 无 merge_mode (AC-12)', () => {
           'cmd',
           'coverage_format',
           'coverage_output',
-          'coverage_artifacts',
           'default_glob',
           'mutation_framework',
           'config_flag',
           'version_command',
         ]),
       );
-      expect(keys).toHaveLength(10);
+      expect(keys).not.toContain('coverage_artifacts');
+      expect(keys).toHaveLength(9);
     }
   });
 });
@@ -382,54 +362,11 @@ describe('getFrameworkConfig -- test_execution 模板化 (AC-3)', () => {
   });
 });
 
-describe('getFrameworkConfig -- JSON-only coverage artifact config', () => {
-  it('vitest should return coverage_artifacts with single JSON summary', () => {
-    const result = getFrameworkConfig('vitest');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-  });
-
-  it('vite-plus should return coverage_artifacts with single JSON summary', () => {
-    const result = getFrameworkConfig('vite-plus');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-  });
-
-  it('bun should return coverage_artifacts with single JSON summary', () => {
-    const result = getFrameworkConfig('bun');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-  });
-
-  it('rust should return coverage_artifacts not containing target/llvm-cov/**', () => {
-    const result = getFrameworkConfig('rust');
-    expect(result.coverage_artifacts).toEqual(['coverage/coverage-summary.json']);
-    expect(result.coverage_artifacts).not.toContain('target/llvm-cov/**');
-  });
-
-  it('five JS/TS frameworks should have single-element JSON artifacts', () => {
+describe('getFrameworkConfig -- JSON-only coverage_output', () => {
+  it('five frameworks should use coverage/coverage-summary.json as coverage_output', () => {
     for (const fw of ['jest', 'vitest', 'vite-plus', 'bun', 'rust'] as const) {
       const result = getFrameworkConfig(fw);
-      expect(result.coverage_artifacts).toHaveLength(1);
-      expect(result.coverage_artifacts[0]).toBe('coverage/coverage-summary.json');
-    }
-  });
-});
-
-describe('getFrameworkConfig -- coverage artifact boundary and exception', () => {
-  it('five frameworks should have coverage_artifacts.length === 1 with value coverage/coverage-summary.json', () => {
-    for (const fw of ['jest', 'vitest', 'vite-plus', 'bun', 'rust']) {
-      const result = getFrameworkConfig(fw);
-      expect(result.coverage_artifacts).toHaveLength(1);
-      expect(result.coverage_artifacts[0]).toBe('coverage/coverage-summary.json');
-    }
-  });
-
-  it('five frameworks should have non-empty coverage_artifacts containing coverage keyword', () => {
-    for (const fw of ['jest', 'vitest', 'vite-plus', 'bun', 'rust']) {
-      const result = getFrameworkConfig(fw);
-      expect(Array.isArray(result.coverage_artifacts)).toBe(true);
-      expect(result.coverage_artifacts.length).toBeGreaterThan(0);
-      for (const artifact of result.coverage_artifacts) {
-        expect(artifact.toLowerCase()).toMatch(/coverage/);
-      }
+      expect(result.coverage_output).toBe('coverage/coverage-summary.json');
     }
   });
 });
@@ -454,7 +391,6 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
     },
     coverage_format: 'go-cover',
     coverage_output: 'coverage/func-summary.txt',
-    coverage_artifacts: ['coverage/func-summary.txt'],
     default_glob: '**/*_test.go',
     mutation_framework: null,
     config_flag: null,
@@ -472,7 +408,6 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
     },
     coverage_format: 'node-test',
     coverage_output: 'coverage/node-test-output.txt',
-    coverage_artifacts: ['coverage/node-test-output.txt'],
     default_glob: '**/*.test.{mjs,js,cjs}',
     mutation_framework: null,
     config_flag: null,
@@ -492,7 +427,6 @@ const FRAMEWORK_SPEC_EXPECTED: Record<string, FrameworkConfig> = {
     },
     coverage_format: 'coverage-py',
     coverage_output: 'coverage.json',
-    coverage_artifacts: ['coverage.json'],
     default_glob: '**/test_*.py',
     mutation_framework: null,
     config_flag: null,
@@ -507,7 +441,6 @@ describe('getFrameworkConfig -- go', () => {
     expect(result.version_command).toBe(expected.version_command);
     expect(result.coverage_format).toBe(expected.coverage_format);
     expect(result.coverage_output).toBe(expected.coverage_output);
-    expect(result.coverage_artifacts).toEqual(expected.coverage_artifacts);
     expect(result.default_glob).toBe(expected.default_glob);
     expect(result.mutation_framework).toBe(expected.mutation_framework);
     expect(result.config_flag).toBe(expected.config_flag);
@@ -549,16 +482,10 @@ describe('getFrameworkConfig -- node-test (coverage_output)', () => {
 });
 
 // ===========================================================================
-// node-test coverage_artifacts
+// node-test coverage_cleanup
 // ===========================================================================
 
-describe('getFrameworkConfig -- node-test (coverage_artifacts)', () => {
-  it('coverage_artifacts should be ["coverage/node-test-output.txt"]', () => {
-    const result = getFrameworkConfig('node-test');
-    expect(result.coverage_artifacts).toEqual(['coverage/node-test-output.txt']);
-    expect(result.coverage_artifacts).not.toEqual(['coverage/coverage-summary.json']);
-  });
-
+describe('getFrameworkConfig -- node-test (coverage_cleanup)', () => {
   it('coverage_cleanup should still be ["coverage"]', () => {
     const result = getFrameworkConfig('node-test');
     expect(result.shell.coverage_cleanup).toEqual(['coverage']);
@@ -605,11 +532,11 @@ describe('getFrameworkConfig -- pytest', () => {
 // ===========================================================================
 
 describe('getFrameworkConfig -- eight-framework completeness', () => {
-  it('each of the eight frameworks should return non-empty shell.test_execution, coverage_artifacts, shell.coverage_cleanup', () => {
+  it('each of the eight frameworks should return non-empty shell.test_execution, coverage_output, shell.coverage_cleanup', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       expect(te(result.shell.test_execution).length).toBeGreaterThan(0);
-      expect(result.coverage_artifacts.length).toBeGreaterThan(0);
+      expect(result.coverage_output.length).toBeGreaterThan(0);
       expect(result.shell.coverage_cleanup.length).toBeGreaterThan(0);
     }
   });
@@ -660,7 +587,7 @@ describe('getFrameworkConfig -- mutation_framework 字段', () => {
     expect(result.mutation_framework).toBeNull();
   });
 
-  it('FrameworkConfig 字段数量为 10（含 shell/cmd/mutation_framework/config_flag/version_command，不含 coverage_cmd/merge_mode）', () => {
+  it('FrameworkConfig 字段数量为 9（含 shell/cmd/mutation_framework/config_flag/version_command，不含 coverage_cmd/coverage_artifacts/merge_mode）', () => {
     for (const fw of ALL_EIGHT) {
       const result = getFrameworkConfig(fw);
       const keys = Object.keys(result);
@@ -669,10 +596,11 @@ describe('getFrameworkConfig -- mutation_framework 字段', () => {
       expect(keys).toContain('shell');
       expect(keys).toContain('cmd');
       expect(keys).not.toContain('coverage_cmd');
+      expect(keys).not.toContain('coverage_artifacts');
       expect(keys).not.toContain('merge_mode');
       expect(keys).not.toContain('test_cmd');
       expect(keys).not.toContain('coverage_cleanup');
-      expect(keys.length).toBe(10);
+      expect(keys.length).toBe(9);
     }
   });
 });
@@ -735,7 +663,7 @@ describe('getFrameworkConfig -- shell/cmd 二级嵌套结构 (AC-1)', () => {
       const result = getFrameworkConfig(fw);
       expect(result).toHaveProperty('coverage_format');
       expect(result).toHaveProperty('coverage_output');
-      expect(result).toHaveProperty('coverage_artifacts');
+      expect(result).not.toHaveProperty('coverage_artifacts');
       expect(result).toHaveProperty('default_glob');
       expect(result).toHaveProperty('mutation_framework');
       expect(result.shell).not.toHaveProperty('coverage_format');

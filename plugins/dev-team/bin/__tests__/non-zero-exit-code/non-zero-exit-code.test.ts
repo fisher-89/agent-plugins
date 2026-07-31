@@ -85,7 +85,6 @@ function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
     framework: 'vitest',
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
     script: {
       shell: '#!/bin/bash\nset -e\n\nnpx vitest run --coverage --coverage.reporter=json-summary',
       cmd: 'npx vitest run --coverage --coverage.reporter=json-summary',

@@ -28,7 +28,6 @@ export interface FrameworkConfig {
   };
   coverage_format: 'istanbul' | 'llvm-cov' | 'node-test' | 'go-cover' | 'coverage-py';
   coverage_output: string;
-  coverage_artifacts: string[];
   default_glob: string;
   mutation_framework: string | null;
   /** CLI flag for injecting a framework config file; null when unsupported. */
@@ -41,19 +40,18 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'npx jest --version',
     shell: {
       test_execution: (version) =>
-        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --verbose --json --coverage --coverageReporters=json-summary {config_args} {files}`,
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --silent --coverage --coverageReporters="json-summary" {config_args} {files}`,
       coverage_cleanup: ['coverage', '.nyc_output'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
       test_execution: (version) =>
-        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --verbose --json --coverage --coverageReporters=json-summary {config_args} {files}`,
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --silent --coverage --coverageReporters="json-summary" {config_args} {files}`,
       coverage_cleanup: ['coverage', '.nyc_output'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
     default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
     mutation_framework: 'stryker-js',
     config_flag: '--config',
@@ -63,19 +61,18 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'npx vitest --version',
     shell: {
       test_execution: () =>
-        'npx vitest run --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
+        'npx vitest run --sequence.shuffle --reporter=json --silent --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
       test_execution: () =>
-        'npx vitest run --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
+        'npx vitest run --sequence.shuffle --reporter=json --silent --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
     default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
     mutation_framework: 'stryker-js',
     config_flag: '--config',
@@ -85,19 +82,18 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'vp --version',
     shell: {
       test_execution: () =>
-        'vp test --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
+        'vp test --sequence.shuffle --reporter=json --silent --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
       test_execution: () =>
-        'vp test --sequence.shuffle --reporter=json --coverage --coverage.reporter=json-summary {config_args} {files}',
+        'vp test --sequence.shuffle --reporter=json --silent --coverage --coverage.reporter=json-summary {config_args} {files}',
       coverage_cleanup: ['coverage', '.nyc_output', 'test-stderr.txt'],
       mutation_execution: 'npx stryker run "{config}"',
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
     default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
     mutation_framework: 'stryker-js',
     config_flag: '--config',
@@ -115,7 +111,6 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
     default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
     mutation_framework: null,
     config_flag: null,
@@ -135,7 +130,6 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     },
     coverage_format: 'llvm-cov',
     coverage_output: 'coverage/coverage-summary.json',
-    coverage_artifacts: ['coverage/coverage-summary.json'],
     default_glob: '**/tests/**/*.rs',
     mutation_framework: null,
     config_flag: null,
@@ -153,7 +147,6 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     },
     coverage_format: 'node-test',
     coverage_output: 'coverage/node-test-output.txt',
-    coverage_artifacts: ['coverage/node-test-output.txt'],
     default_glob: '**/*.test.{mjs,js,cjs}',
     mutation_framework: null,
     config_flag: null,
@@ -173,7 +166,6 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     },
     coverage_format: 'go-cover',
     coverage_output: 'coverage/func-summary.txt',
-    coverage_artifacts: ['coverage/func-summary.txt'],
     default_glob: '**/*_test.go',
     mutation_framework: null,
     config_flag: null,
@@ -191,7 +183,6 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     },
     coverage_format: 'coverage-py',
     coverage_output: 'coverage.json',
-    coverage_artifacts: ['coverage.json'],
     default_glob: '**/test_*.py',
     mutation_framework: null,
     config_flag: null,
