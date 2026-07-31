@@ -7,6 +7,12 @@ const testPlanSchema = z.object({
   directory: z
     .string()
     .describe('Working directory for command execution (relative to project root)'),
+  scope: z
+    .string()
+    .optional()
+    .describe(
+      'Suite root relative to directory (absCwd). CLI path filter when {files} is empty; "." when absRoot === absCwd',
+    ),
   framework: testFrameworkSchema.describe('Framework name'),
   coverage_format: z
     .enum(['istanbul', 'llvm-cov', 'node-test', 'go-cover', 'coverage-py'])

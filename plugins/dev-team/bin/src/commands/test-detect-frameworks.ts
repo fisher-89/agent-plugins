@@ -307,9 +307,12 @@ function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan
     const { frameworkConfig } = resolved;
     // Version is used only while building scripts; not exposed on the plan schema.
     const version = detectFrameworkVersion(suite.framework, resolved.absCwd);
+    // Path filter relative to absCwd so empty {files} still stays inside absRoot.
+    const scope = toPosixRelative(resolved.absCwd, resolved.absRoot);
 
     plan.push({
       directory: resolved.directory,
+      scope,
       framework: frameworkConfig.framework,
       coverage_format: frameworkConfig.coverage_format,
       coverage_output: frameworkConfig.coverage_output,

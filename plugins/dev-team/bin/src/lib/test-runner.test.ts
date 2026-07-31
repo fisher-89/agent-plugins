@@ -1358,6 +1358,118 @@ describe('executePlanEntry -- 向后兼容 (AC-6)', () => {
 // executePlanEntry -- platform command selection (AC-6)
 // ===========================================================================
 
+describe('executePlanEntry -- absRoot scope when {files} empty', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+  });
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('files 为空且 scope 为子目录时，命令用 scope 约束路径', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.stubEnv('SHELL', '/bin/bash');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      const entry = {
+        directory: 'a',
+        scope: 'b',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: 'coverage/coverage-summary.json',
+        script: {
+          shell: 'npx vitest run --reporter=json {files}\n',
+          cmd: 'npx vitest run --reporter=json {files}\n',
+        },
+      };
+      executePlanEntry(entry, '/project', { files: [] });
+      const cmd = String(mockExecSync.mock.calls[0][0]);
+      expect(cmd).toContain('npx vitest run --reporter=json b');
+      expect(cmd).not.toContain('{files}');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('显式 files 优先于 scope', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.stubEnv('SHELL', '/bin/bash');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      const entry = {
+        directory: 'a',
+        scope: 'b',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: 'coverage/coverage-summary.json',
+        script: {
+          shell: 'npx vitest run --reporter=json {files}\n',
+          cmd: 'npx vitest run --reporter=json {files}\n',
+        },
+      };
+      executePlanEntry(entry, '/project', { files: ['a/b/foo.test.ts'] });
+      const cmd = String(mockExecSync.mock.calls[0][0]);
+      expect(cmd).toContain('a/b/foo.test.ts');
+      expect(cmd).not.toMatch(/json b(\s|$)/);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('scope 为 "." 且 files 为空时 {files} 展开为空（cwd === absRoot）', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.stubEnv('SHELL', '/bin/bash');
+      mockExecSync.mockReturnValue('{"testResults":[]}');
+      const entry = {
+        directory: 'pkg',
+        scope: '.',
+        framework: 'vitest' as const,
+        coverage_format: 'istanbul' as const,
+        coverage_output: 'coverage/coverage-summary.json',
+        script: {
+          shell: 'npx vitest run --reporter=json {files}\n',
+          cmd: 'npx vitest run --reporter=json {files}\n',
+        },
+      };
+      executePlanEntry(entry, '/project', { files: [] });
+      const cmd = String(mockExecSync.mock.calls[0][0]);
+      expect(cmd).toMatch(/npx vitest run --reporter=json\s*$/);
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+
+  it('go：scope 子目录时 {directory} 展开为 ./scope/...', () => {
+    const originalPlatform = process.platform;
+    try {
+      Object.defineProperty(process, 'platform', { value: 'linux' });
+      vi.stubEnv('SHELL', '/bin/bash');
+      mockExecSync.mockReturnValue('');
+      const entry = {
+        directory: 'mod',
+        scope: 'pkg',
+        framework: 'go' as const,
+        coverage_format: 'go-cover' as const,
+        coverage_output: 'coverage/func-summary.txt',
+        script: {
+          shell: 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}\n',
+          cmd: 'go test -json -coverprofile=coverage.out -covermode=atomic {directory}\n',
+        },
+      };
+      executePlanEntry(entry, '/project', { files: [] });
+      const cmd = String(mockExecSync.mock.calls[0][0]);
+      expect(cmd).toContain('./pkg/...');
+      expect(cmd).not.toContain('{directory}');
+    } finally {
+      Object.defineProperty(process, 'platform', { value: originalPlatform });
+    }
+  });
+});
+
 describe('executePlanEntry -- platform command selection (AC-6)', () => {
   beforeEach(() => {
     mockExecSync.mockReset();

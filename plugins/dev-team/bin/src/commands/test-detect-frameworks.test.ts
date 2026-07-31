@@ -81,13 +81,30 @@ describe('runTestDetectFrameworks — plan.directory = absCwd (AC-2)', () => {
       const result = runTestDetectFrameworks({ projectRoot: project.root });
       expect(result.plan).toHaveLength(1);
       expect(result.plan[0].directory).toBe('a');
+      expect(result.plan[0].scope).toBe('b');
       expect(result.plan[0].script.shell).toContain('cd a');
+      expect(result.plan[0].script.shell).toContain('{files}');
+      expect(result.plan[0].script.cmd).toContain('{files}');
     } finally {
       project.cleanup();
     }
   });
 
-  it('省略 cwd（或缺省 "."）时 directory 等于 root', () => {
+  it('root: "plugins/dev-team/bin/src", cwd: ".." → directory=bin、scope=src', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'plugins/dev-team/bin/src', cwd: '..', framework: 'vite-plus' }],
+    });
+    try {
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(result.plan[0].directory).toBe('plugins/dev-team/bin');
+      expect(result.plan[0].scope).toBe('src');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('省略 cwd（或缺省 "."）时 directory 等于 root，scope 为 "."', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       tests: [{ root: 'pkg/src', framework: 'vitest' }],
@@ -95,6 +112,7 @@ describe('runTestDetectFrameworks — plan.directory = absCwd (AC-2)', () => {
     try {
       const result = runTestDetectFrameworks({ projectRoot: project.root });
       expect(result.plan[0].directory).toBe('pkg/src');
+      expect(result.plan[0].scope).toBe('.');
     } finally {
       project.cleanup();
     }

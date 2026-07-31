@@ -53,33 +53,38 @@ export interface ExecutionResult {
  * Replace template placeholders in a test command string.
  *
  * Supported placeholders:
- *   {files}         — space-separated list of file paths (relative to project root)
- *   {directory}     — the plan entry's working directory
+ *   {files}         — space-separated file paths; when empty, falls back to `scope`
+ *                     (suite root relative to cwd) so discovery stays under absRoot
+ *   {directory}     — go package path under cwd (`./...` or `./<scope>/...`)
  *   {project_root}  — absolute path to the project root
  *
  * @param cmd       - Command template containing placeholders
  * @param files     - Array of file paths to substitute for {files}
- * @param directory - Working directory value for {directory}
+ * @param directory - Plan working directory (retained for call-site compatibility)
  * @param projectRoot - Absolute project root path for {project_root}
+ * @param scope     - Suite root relative to absCwd (`"."` when equal)
  * @returns The command string with placeholders replaced
  */
 function substitutePlaceholders(
   cmd: string,
   files: string[],
-  directory: string,
+  _directory: string,
   projectRoot: string,
+  scope: string = '.',
 ): string {
   let result = cmd;
 
-  // {files} — space-separated file paths
+  // {files} — explicit paths win; otherwise constrain to absRoot via scope
   if (files && files.length > 0) {
     result = result.replace(/\{files\}/g, files.join(' '));
   } else {
-    result = result.replace(/\{files\}/g, '');
+    const filesFallback = scope && scope !== '.' ? scope : '';
+    result = result.replace(/\{files\}/g, filesFallback);
   }
 
-  // {directory}
-  result = result.replace(/\{directory\}/g, directory);
+  // {directory} — package filter relative to cwd after `cd` (go)
+  const directoryArg = scope && scope !== '.' ? `./${scope}/...` : './...';
+  result = result.replace(/\{directory\}/g, directoryArg);
 
   // {project_root}
   result = result.replace(/\{project_root\}/g, projectRoot);
@@ -413,7 +418,13 @@ function buildTestCommand(entry: TestPlan, projectRoot: string, files?: string[]
   //   - Otherwise → entry.script.shell (POSIX shell / bash)
   const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
   const script = isWinCmd ? entry.script.cmd : entry.script.shell;
-  return substitutePlaceholders(script, files ?? [], entry.directory, projectRoot);
+  return substitutePlaceholders(
+    script,
+    files ?? [],
+    entry.directory,
+    projectRoot,
+    entry.scope ?? '.',
+  );
 }
 
 function resolveShell(): string | undefined {

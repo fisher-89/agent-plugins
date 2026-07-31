@@ -169,17 +169,21 @@ The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top o
 1. `absRoot = projectRoot / suite.root`
 2. `absCwd = absRoot / (suite.cwd ?? ".")`
 3. `plan.directory` = absCwd 相对于 `projectRoot` 的 POSIX 相对路径
-4. `framework` / coverage 元数据 / mutation_framework 来自 `FRAMEWORK_REGISTRY`
-5. `mutation_score` 来自该 suite 解析后的 `mutation.score`
-6. include 匹配 glob = `suite.includes` 若存在，否则为框架 `default_glob`；匹配时相对 `suite.root`（实现可将 glob 拼为 projectRoot 相对形式 `root/includes`）
+4. `plan.scope` = absRoot 相对于 absCwd 的 POSIX 相对路径（二者相同时为 `"."`）
+5. `framework` / coverage 元数据 / mutation_framework 来自 `FRAMEWORK_REGISTRY`
+6. `mutation_score` 来自该 suite 解析后的 `mutation.score`
+7. include 匹配 glob = `suite.includes` 若存在，否则为框架 `default_glob`；匹配时相对 `suite.root`（实现可将 glob 拼为 projectRoot 相对形式 `root/includes`）
 
 模块 SHALL 删除或停止调用 `deriveWorkingDirectory` 作为 cwd 来源。
+
+执行时：`{files}` 为空 SHALL 使用 `plan.scope` 作为 CLI 路径过滤（`scope === "."` 时展开为空，因 cwd 已等于 absRoot）；显式 `files` 列表优先于 `scope`。`{directory}`（go）SHALL 展开为 `./...` 或 `./<scope>/...`。rust 的 `cargo test` 不支持任意子目录 CLI 裁剪，SHALL 保持 crate 级行为（`scope` 不改变其 `test_execution`）。
 
 #### Scenario: directory equals root when cwd is default
 
 **WHEN** config has `tests: [{ root: "plugins/dev-team/bin", framework: "vite-plus" }]`
 **AND** `runTestDetectFrameworks({})` is called
 **THEN** `plan` SHALL contain one entry with `directory: "plugins/dev-team/bin"`
+**AND** `plan[0].scope` SHALL be `"."`
 **AND** `plan[0].framework` SHALL be `"vite-plus"`
 **AND** `plan[0].mutation_score` SHALL equal the suite schema default mutation score
 
@@ -188,6 +192,14 @@ The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top o
 **WHEN** config has `tests: [{ root: "plugins/dev-team/bin/src", cwd: "..", framework: "vite-plus" }]`
 **AND** `runTestDetectFrameworks({})` is called
 **THEN** `plan[0].directory` SHALL be `"plugins/dev-team/bin"`
+**AND** `plan[0].scope` SHALL be `"src"`
+
+#### Scenario: empty files falls back to scope under parent cwd
+
+**WHEN** config has `tests: [{ root: "plugins/dev-team/bin/src", cwd: "..", framework: "vite-plus" }]`
+**AND** the plan entry is executed with an empty `files` list
+**THEN** the substituted command SHALL include the path filter `src` in place of `{files}`
+**AND** SHALL NOT discover tests outside that suite root solely due to a wider absCwd
 
 #### Scenario: empty tests yields empty plan
 
@@ -293,7 +305,7 @@ SHALL NOT append `config_flag` + path to the end of the entire `test_execution` 
 |--------|--------|
 | **Config source** | `config.tests: Suite[]` |
 | **Removed** | `normalizeFrameworks(framework, overrides)` 旧签名；`deriveWorkingDirectory` 作为 cwd 来源 |
-| **Plan fields** | `directory`（absCwd 相对项目根）, `framework`, coverage 元数据, `mutation_framework`, `mutation_score`, `script: { shell, cmd }` |
+| **Plan fields** | `directory`（absCwd 相对项目根）, `scope`（absRoot 相对 absCwd）, `framework`, coverage 元数据, `mutation_framework`, `mutation_score`, `script: { shell, cmd }` |
 | **Script** | `cd` → cleanup → `test_execution` with `{config_args}` expanded（not whole-string append） |
 
 ### Function: buildPlanFromSuites（名称可调整）
