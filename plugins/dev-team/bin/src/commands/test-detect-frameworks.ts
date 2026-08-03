@@ -150,6 +150,18 @@ function generateCmdScript(frameworkConfig: FrameworkConfig, version: string): s
   return test_execution;
 }
 
+/** Copy mutation_execution templates onto the plan; null when unsupported. */
+function buildMutationScript(
+  frameworkConfig: FrameworkConfig,
+): NonNullable<TestPlan['mutation_script']> | null {
+  const shell = frameworkConfig.shell.mutation_execution;
+  if (!shell) return null;
+  return {
+    shell,
+    cmd: frameworkConfig.cmd.mutation_execution ?? shell,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // Plan and detection helpers
 // ---------------------------------------------------------------------------
@@ -176,9 +188,9 @@ function buildPlanFromSuites(resolvedSuites: ResolvedSuite[]): TestPlan[] {
       framework: frameworkConfig.framework,
       coverage_format: frameworkConfig.coverage_format,
       coverage_output: frameworkConfig.coverage_output,
-      mutation_framework: frameworkConfig.mutation_framework,
       mutation_config: null,
       mutation_score: suite.mutation?.score ?? null,
+      mutation_script: buildMutationScript(frameworkConfig),
       script: {
         shell: generateShellScript(frameworkConfig, version),
         cmd: generateCmdScript(frameworkConfig, version),

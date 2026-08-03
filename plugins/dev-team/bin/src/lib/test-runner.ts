@@ -564,7 +564,7 @@ function runMutationPhase(
   options: { noMutation?: boolean },
   sourceFiles: string[],
 ): MutationBlock | null {
-  if (!entry.mutation_framework || options.noMutation) {
+  if (!entry.mutation_script || options.noMutation) {
     return null;
   }
 
@@ -634,14 +634,13 @@ function executeStrykerMutation(
 }
 
 function genStrykerCommand(entry: TestPlan, configPath: string): string {
-  const frameworkConfig = getFrameworkConfig(entry.framework);
+  const script = entry.mutation_script;
+  if (!script) {
+    throw new Error(`Framework "${entry.framework}" does not support mutation testing`);
+  }
   const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
-  const mutationTemplate = isWinCmd
-    ? (frameworkConfig.cmd.mutation_execution ?? frameworkConfig.shell.mutation_execution)
-    : frameworkConfig.shell.mutation_execution;
-  return mutationTemplate
-    ? mutationTemplate.replace(/\{config\}/g, configPath)
-    : `npx stryker run "${configPath}"`;
+  const mutationTemplate = isWinCmd ? script.cmd : script.shell;
+  return mutationTemplate.replace(/\{config\}/g, configPath);
 }
 
 /**

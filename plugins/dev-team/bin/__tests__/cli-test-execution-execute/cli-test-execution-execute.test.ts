@@ -41,6 +41,7 @@ function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
     framework: 'vitest',
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
+    mutation_script: null,
     script: {
       shell: 'npx vitest run --outputFile={results_file} {files}',
       cmd: 'npx vitest run --outputFile={results_file} {files}',

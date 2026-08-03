@@ -69,16 +69,10 @@ const DEFAULT_GLOBS: Record<(typeof ALL_EIGHT)[number], string> = {
   pytest: '**/test_*.py',
 };
 
-const MUTATION_FRAMEWORKS: Record<(typeof ALL_EIGHT)[number], string | null> = {
-  jest: 'stryker-js',
-  vitest: 'stryker-js',
-  'vite-plus': 'stryker-js',
-  bun: null,
-  rust: null,
-  'node-test': null,
-  go: null,
-  pytest: null,
-};
+const MUTATION_EXECUTION_JEST =
+  'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/jest-runner@9 stryker run "{config}"';
+const MUTATION_EXECUTION_VITEST =
+  'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/vitest-runner@9 stryker run "{config}"';
 
 const CONFIG_FLAGS: Record<(typeof ALL_EIGHT)[number], string | null> = {
   jest: '--config',
@@ -98,23 +92,26 @@ describe('getFrameworkConfig -- 字面量杀伤', () => {
     }
   });
 
-  it('八框架 coverage_format / coverage_output / default_glob / mutation_framework / config_flag 精确断言', () => {
+  it('八框架 coverage_format / coverage_output / default_glob / config_flag 精确断言', () => {
     for (const fw of ALL_EIGHT) {
       const cfg = getFrameworkConfig(fw);
       expect(cfg.coverage_format).toBe(COVERAGE_FORMATS[fw]);
       expect(cfg.coverage_output).toBe(COVERAGE_OUTPUTS[fw]);
       expect(cfg.default_glob).toBe(DEFAULT_GLOBS[fw]);
-      expect(cfg.mutation_framework).toBe(MUTATION_FRAMEWORKS[fw]);
       expect(cfg.config_flag).toBe(CONFIG_FLAGS[fw]);
       expect(cfg.framework).toBe(fw);
     }
   });
 
-  it('jest/vitest/vite-plus 的 shell 与 cmd mutation_execution 精确为 npx stryker run "{config}"', () => {
-    for (const fw of ['jest', 'vitest', 'vite-plus'] as const) {
+  it('jest/vitest/vite-plus 的 shell 与 cmd mutation_execution 精确为 @stryker-mutator 包命令', () => {
+    const jestCfg = getFrameworkConfig('jest');
+    expect(jestCfg.shell.mutation_execution).toBe(MUTATION_EXECUTION_JEST);
+    expect(jestCfg.cmd.mutation_execution).toBe(MUTATION_EXECUTION_JEST);
+
+    for (const fw of ['vitest', 'vite-plus'] as const) {
       const cfg = getFrameworkConfig(fw);
-      expect(cfg.shell.mutation_execution).toBe('npx stryker run "{config}"');
-      expect(cfg.cmd.mutation_execution).toBe('npx stryker run "{config}"');
+      expect(cfg.shell.mutation_execution).toBe(MUTATION_EXECUTION_VITEST);
+      expect(cfg.cmd.mutation_execution).toBe(MUTATION_EXECUTION_VITEST);
     }
   });
 
@@ -378,11 +375,10 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
       coverage_format: 'istanbul',
       coverage_output: 'coverage-summary.json',
       default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
-      mutation_framework: 'stryker-js',
       config_flag: '--config',
     });
-    expect(jestCfg.shell.mutation_execution).toBe('npx stryker run "{config}"');
-    expect(jestCfg.cmd.mutation_execution).toBe('npx stryker run "{config}"');
+    expect(jestCfg.shell.mutation_execution).toBe(MUTATION_EXECUTION_JEST);
+    expect(jestCfg.cmd.mutation_execution).toBe(MUTATION_EXECUTION_JEST);
     expect(typeof jestCfg.shell.test_execution).toBe('function');
     expect(typeof jestCfg.cmd.test_execution).toBe('function');
     expect(jestCfg.shell.test_execution('29.5.0')).toBe(
@@ -399,7 +395,7 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
       'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );
     expect(vitestCfg.cmd.test_execution('1.0.0')).toBe(vitestCfg.shell.test_execution('1.0.0'));
-    expect(vitestCfg.shell.mutation_execution).toBe('npx stryker run "{config}"');
+    expect(vitestCfg.shell.mutation_execution).toBe(MUTATION_EXECUTION_VITEST);
 
     const vp = getFrameworkConfig('vite-plus');
     expect(vp.version_command).toBe('vp --version');
@@ -412,7 +408,6 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
     expect(bun.shell.test_execution('1.0.0')).toBe('bun {config_args} test --coverage {files}');
     expect(bun.cmd.test_execution('1.0.0')).toBe(bun.shell.test_execution('1.0.0'));
     expect(bun.shell.mutation_execution).toBeUndefined();
-    expect(bun.mutation_framework).toBeNull();
 
     const rust = getFrameworkConfig('rust');
     expect(rust.shell.test_execution('1.0.0')).toBe(

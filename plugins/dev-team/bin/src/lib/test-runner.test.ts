@@ -66,12 +66,16 @@ function writeIstanbulCoverage(reportDir: string): void {
 function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
   const fw = overrides.framework ?? 'vitest';
   const cfg = getFrameworkConfig(fw);
+  const mutationShell = cfg.shell.mutation_execution;
   return {
     cwd: '.',
     root: '.',
     framework: fw,
     coverage_format: cfg.coverage_format,
     coverage_output: cfg.coverage_output,
+    mutation_script: mutationShell
+      ? { shell: mutationShell, cmd: cfg.cmd.mutation_execution ?? mutationShell }
+      : null,
     script: {
       shell: cfg.shell.test_execution('29.5.0'),
       cmd: cfg.cmd.test_execution('29.5.0'),
@@ -196,6 +200,7 @@ describe('executePlanEntry', () => {
           framework: 'unknown-fw' as TestPlan['framework'],
           coverage_format: 'istanbul',
           coverage_output: 'coverage-summary.json',
+          mutation_script: null,
           script: { shell: 'echo hi', cmd: 'echo hi' },
         },
         dir.root,
@@ -481,7 +486,6 @@ describe('executePlanEntry', () => {
       const result = executePlanEntry(
         makePlan({
           framework: 'vitest',
-          mutation_framework: 'stryker-js',
           mutation_score: 50,
         }),
         dir.root,
@@ -1026,7 +1030,7 @@ describe('executePlanEntry -- mutation 开关', () => {
     );
   }
 
-  it('mutation_framework 有值、全通过、mock stryker 写 mutation.json → score/threshold/pass；临时 config 删除', () => {
+  it('支持 mutation_execution 的框架全通过、mock stryker 写 mutation.json → score/threshold/pass；临时 config 删除', () => {
     const dir = createTempDir();
     try {
       const openspec = path.join(dir.root, 'openspec');
@@ -1070,7 +1074,7 @@ describe('executePlanEntry -- mutation 开关', () => {
         return '';
       });
       const result = executePlanEntry(
-        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js', mutation_score: 50 }),
+        makePlan({ framework: 'vitest', mutation_score: 50 }),
         dir.root,
         { reportsDir },
       );
@@ -1086,7 +1090,7 @@ describe('executePlanEntry -- mutation 开关', () => {
     }
   });
 
-  it('noMutation:true / mutation_framework 空 / 有 failed → 跳过 stryker、mutation===null', () => {
+  it('noMutation:true / 无 mutation_execution 的框架 / 有 failed → 跳过 stryker、mutation===null', () => {
     const dir = createTempDir();
     try {
       const openspec = path.join(dir.root, 'openspec');
@@ -1105,36 +1109,28 @@ describe('executePlanEntry -- mutation 开关', () => {
         writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
         return '';
       });
-      const noMut = executePlanEntry(
-        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
-        dir.root,
-        { reportsDir, noMutation: true },
-      );
+      const noMut = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+        noMutation: true,
+      });
       expect(noMut.mutation).toBeNull();
       expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
 
       mockExecSync.mockReset();
       mockExecSync.mockImplementation(() => {
-        writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
+        writePassingJsWithSource(path.join(reportsDir, 'bun'), dir.root);
         return '';
       });
-      const nullFw = executePlanEntry(
-        makePlan({ framework: 'vitest', mutation_framework: null }),
-        dir.root,
-        { reportsDir },
-      );
-      expect(nullFw.mutation).toBeNull();
+      const noMutExec = executePlanEntry(makePlan({ framework: 'bun' }), dir.root, { reportsDir });
+      expect(noMutExec.mutation).toBeNull();
+      expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
 
       mockExecSync.mockReset();
       mockExecSync.mockImplementation(() => {
         writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
         return '';
       });
-      const failed = executePlanEntry(
-        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
-        dir.root,
-        { reportsDir },
-      );
+      const failed = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
       expect(failed.mutation).toBeNull();
       expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
     } finally {
@@ -1170,11 +1166,9 @@ describe('executePlanEntry -- mutation 开关', () => {
         });
         return '';
       });
-      const excluded = executePlanEntry(
-        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
-        dir.root,
-        { reportsDir },
-      );
+      const excluded = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+      });
       expect(excluded.mutation).toBeNull();
       expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
 
@@ -1193,11 +1187,10 @@ describe('executePlanEntry -- mutation 开关', () => {
         });
         return '';
       });
-      const noIntersect = executePlanEntry(
-        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
-        dir.root,
-        { reportsDir, mutationDiffFiles: ['other/unrelated.ts'] },
-      );
+      const noIntersect = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+        mutationDiffFiles: ['other/unrelated.ts'],
+      });
       expect(noIntersect.mutation).toBeNull();
       expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
     } finally {
@@ -1245,11 +1238,7 @@ describe('executePlanEntry -- mutation 开关', () => {
         return '';
       });
       expect(
-        executePlanEntry(
-          makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
-          dir.root,
-          { reportsDir },
-        ).mutation,
+        executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir }).mutation,
       ).toBeNull();
 
       mockExecSync.mockReset();
@@ -1262,11 +1251,7 @@ describe('executePlanEntry -- mutation 开关', () => {
         return '';
       });
       expect(
-        executePlanEntry(
-          makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
-          dir.root,
-          { reportsDir },
-        ).mutation,
+        executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir }).mutation,
       ).toBeNull();
     } finally {
       dir.cleanup();

@@ -117,7 +117,12 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
-          mutation_framework: 'stryker-js',
+          mutation_script: cfg.shell.mutation_execution
+            ? {
+                shell: cfg.shell.mutation_execution,
+                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+              }
+            : null,
           mutation_score: 50,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -179,7 +184,12 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
-          mutation_framework: 'stryker-js',
+          mutation_script: cfg.shell.mutation_execution
+            ? {
+                shell: cfg.shell.mutation_execution,
+                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+              }
+            : null,
           mutation_score: 50,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -238,7 +248,12 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
-          mutation_framework: 'stryker-js',
+          mutation_script: cfg.shell.mutation_execution
+            ? {
+                shell: cfg.shell.mutation_execution,
+                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+              }
+            : null,
           mutation_score: 50,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -300,7 +315,12 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
-          mutation_framework: 'stryker-js',
+          mutation_script: cfg.shell.mutation_execution
+            ? {
+                shell: cfg.shell.mutation_execution,
+                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+              }
+            : null,
           mutation_score: 50,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -330,7 +350,12 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
         framework: 'vitest' as const,
         coverage_format: cfg.coverage_format,
         coverage_output: cfg.coverage_output,
-        mutation_framework: 'stryker-js' as const,
+        mutation_script: cfg.shell.mutation_execution
+          ? {
+              shell: cfg.shell.mutation_execution,
+              cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+            }
+          : null,
         mutation_score: 50,
         script: {
           shell: cfg.shell.test_execution('99.0.0'),

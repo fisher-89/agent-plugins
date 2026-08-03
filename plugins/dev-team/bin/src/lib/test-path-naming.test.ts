@@ -26,7 +26,13 @@ describe('isTestFile / isSourceFile', () => {
 
   it('isSourceFile 排除测试文件并校验扩展名', () => {
     expect(isSourceFile('src/foo.ts')).toBe(true);
+    expect(isSourceFile('src/foo.py')).toBe(true);
+    expect(isSourceFile('src/foo.go')).toBe(true);
+    expect(isSourceFile('src/foo.rs')).toBe(true);
     expect(isSourceFile('src/foo.test.ts')).toBe(false);
+    expect(isSourceFile('src/test_foo.py')).toBe(false);
+    expect(isSourceFile('src/foo_test.go')).toBe(false);
+    expect(isSourceFile('src/foo_tests.rs')).toBe(false);
     expect(isSourceFile('docs/a.md')).toBe(false);
   });
 });

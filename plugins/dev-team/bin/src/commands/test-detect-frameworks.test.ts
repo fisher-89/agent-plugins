@@ -472,7 +472,7 @@ describe('runTestDetectFrameworks — mutation-score 补强', () => {
     }
   });
 
-  it('coverage_format/output、mutation_framework 来自 registry；mutation_score 来自 suite 或缺省 null', () => {
+  it('coverage_format/output、mutation_script 来自 registry；mutation_score 来自 suite 或缺省 null', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       tests: [
@@ -486,10 +486,14 @@ describe('runTestDetectFrameworks — mutation-score 补强', () => {
       const go = plans.find((p) => p.framework === 'go')!;
       expect(vitest.coverage_format).toBe('istanbul');
       expect(vitest.coverage_output).toBe('coverage-summary.json');
-      expect(vitest.mutation_framework).toBe('stryker-js');
       expect(vitest.mutation_score).toBe(66);
+      expect(vitest.mutation_script).toEqual({
+        shell:
+          'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/vitest-runner@9 stryker run "{config}"',
+        cmd: 'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/vitest-runner@9 stryker run "{config}"',
+      });
       expect(go.coverage_format).toBe('go-cover');
-      expect(go.mutation_framework).toBeNull();
+      expect(go.mutation_script).toBeNull();
       // schema 对 suite.mutation.score 有默认 70；未显式声明时仍可能得到默认值
       expect(go.mutation_score === null || go.mutation_score === 70).toBe(true);
     } finally {

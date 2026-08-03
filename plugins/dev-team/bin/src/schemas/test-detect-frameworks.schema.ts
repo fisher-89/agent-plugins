@@ -17,11 +17,6 @@ const testPlanSchema = z.object({
   coverage_output: z
     .string()
     .describe('Coverage output file name relative to the plan report directory (reportDir)'),
-  mutation_framework: z
-    .string()
-    .nullable()
-    .optional()
-    .describe('Mutation testing framework (e.g. "stryker-js") or null if not supported'),
   mutation_config: z
     .object({
       score: z.number().describe('Mutation score threshold for this plan entry'),
@@ -34,6 +29,19 @@ const testPlanSchema = z.object({
     .nullable()
     .optional()
     .describe('Global mutation score threshold from config'),
+  mutation_script: z
+    .object({
+      shell: z
+        .string()
+        .describe('POSIX mutation command template (placeholders like {config} unresolved)'),
+      cmd: z
+        .string()
+        .describe('Windows cmd.exe mutation command template (placeholders unresolved)'),
+    })
+    .nullable()
+    .describe(
+      'Platform-specific mutation scripts from registry; null when the framework has no mutation_execution',
+    ),
   script: z
     .object({
       shell: z
