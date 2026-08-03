@@ -100,7 +100,7 @@ function makeMutationMeasured(
 function createSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestExecutionSubReport {
   return {
     framework: 'vitest',
-    directory: 'src',
+    root: 'src',
     timestamp: new Date().toISOString(),
     exit_code: 0,
     duration_ms: 100,
@@ -319,7 +319,7 @@ describe('多 suite 阈值无全局级联', () => {
 
       const subA = createSubReport({
         framework: 'vitest',
-        directory: 'pkg-a',
+        root: 'pkg-a',
         source_files: [sfe('pkg-a/a.ts')],
         coverage: {
           pass: true,
@@ -335,7 +335,7 @@ describe('多 suite 阈值无全局级联', () => {
       });
       const subB = createSubReport({
         framework: 'vite-plus',
-        directory: 'pkg-b',
+        root: 'pkg-b',
         source_files: [sfe('pkg-b/b.ts')],
         coverage: {
           pass: true,
@@ -408,7 +408,7 @@ describe('多 suite 阈值无全局级联', () => {
 
       const subTest = createSubReport({
         framework: 'vitest',
-        directory: 'src',
+        root: 'src',
         source_files: [sfe('src/foo.test.ts')],
         mutation: {
           pass: true,
@@ -488,7 +488,7 @@ describe('多 suite 阈值无全局级联', () => {
 
       const subZero = createSubReport({
         framework: 'vitest',
-        directory: 'pkg-zero',
+        root: 'pkg-zero',
         source_files: [
           sfe('pkg-zero/a.ts', { lines: 0, branches: 0, functions: 0, covered_lines: 0 }),
         ],
@@ -512,7 +512,7 @@ describe('多 suite 阈值无全局级联', () => {
       });
       const subFull = createSubReport({
         framework: 'vite-plus',
-        directory: 'pkg-full',
+        root: 'pkg-full',
         source_files: [sfe('pkg-full/b.ts')],
         coverage: {
           pass: true,
@@ -587,7 +587,7 @@ describe('多 suite 阈值无全局级联', () => {
 
       const subTest = createSubReport({
         framework: 'vitest',
-        directory: 'src',
+        root: 'src',
         source_files: [sfe('src/foo.test.ts')],
         mutation: {
           pass: true,

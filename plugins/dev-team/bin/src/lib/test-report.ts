@@ -32,9 +32,8 @@ import {
   type TestSuite,
 } from '../schemas';
 import { readConfig } from './config';
-import { matchGlob, toForwardSlash } from './glob';
-import { isFileExcluded } from './test-exclude';
-import { getFrameworkConfig } from './test-framework';
+import { toForwardSlash } from './glob';
+import { derivePlanId, findSuite, isInSuiteScope } from './test-plan';
 import type { ExecutionResult } from './test-runner';
 
 // ---------------------------------------------------------------------------
@@ -48,31 +47,6 @@ const SCHEMA_DEFAULT_THRESHOLDS: CoverageThresholds = {
   functions: TEST_COVERAGE_FUNCTION_DEFAULT,
 };
 
-function suiteAbsCwdRelative(suite: TestSuite): string {
-  return path.posix.normalize(
-    path.posix.join(toForwardSlash(suite.root), toForwardSlash(suite.cwd ?? '.')),
-  );
-}
-
-function findSuite(
-  config: OpenSpecConfig,
-  framework?: string,
-  planDirectory?: string,
-): TestSuite | undefined {
-  const suites = config.tests ?? [];
-  if (framework && planDirectory !== undefined) {
-    const match = suites.find(
-      (s) => s.framework === framework && suiteAbsCwdRelative(s) === toForwardSlash(planDirectory),
-    );
-    if (match) return match;
-  }
-  if (framework) {
-    const byFw = suites.find((s) => s.framework === framework);
-    if (byFw) return byFw;
-  }
-  return suites[0];
-}
-
 function suiteCoverageThresholds(suite: TestSuite | undefined): CoverageThresholds {
   if (!suite?.coverage) {
     return { ...SCHEMA_DEFAULT_THRESHOLDS };
@@ -82,34 +56,6 @@ function suiteCoverageThresholds(suite: TestSuite | undefined): CoverageThreshol
     branches: suite.coverage.branches,
     functions: suite.coverage.functions,
   };
-}
-
-/**
- * Whether a project-relative file is in a suite's scope for report grouping:
- * under(root) ∧ match(includesEffective) ∧ ¬excludes,
- * where includesEffective = suite.includes ?? framework.default_glob.
- */
-function fileInSuiteScope(relativePath: string, suite: TestSuite, config: OpenSpecConfig): boolean {
-  const posix = toForwardSlash(relativePath);
-  const root = path.posix.normalize(toForwardSlash(suite.root)).replace(/\/$/, '');
-
-  if (posix !== root && !posix.startsWith(root + '/')) {
-    return false;
-  }
-  if (isFileExcluded(posix, config)) {
-    return false;
-  }
-
-  const includePatterns = suite.includes?.length
-    ? suite.includes
-    : [getFrameworkConfig(suite.framework).default_glob];
-
-  return includePatterns.some((pattern) => {
-    const scoped = path.posix.normalize(
-      path.posix.join(toForwardSlash(suite.root), toForwardSlash(pattern)),
-    );
-    return matchGlob(posix, scoped);
-  });
 }
 
 // ---------------------------------------------------------------------------
@@ -135,11 +81,11 @@ function buildCoverageBlock(
   result: ExecutionResult,
   projectRoot: string,
   framework: string,
-  planDirectory: string,
+  planRoot: string,
 ): CoverageBlock | null {
   if (!result.coverage) return null;
 
-  const thresholds = readCoverageThresholds(projectRoot, framework, planDirectory);
+  const thresholds = readCoverageThresholds(projectRoot, framework, planRoot);
   return {
     pass: computeCoveragePass(result.coverage, thresholds),
     measured: {
@@ -161,24 +107,6 @@ function countByStatus(
 function writeJsonFile(filePath: string, data: unknown): void {
   fs.mkdirSync(path.dirname(filePath), { recursive: true });
   fs.writeFileSync(filePath, JSON.stringify(data, null, 2), 'utf-8');
-}
-
-// ---------------------------------------------------------------------------
-// Plan ID derivation (directory id under reports/test/)
-// ---------------------------------------------------------------------------
-
-/**
- * Derive a plan directory id from a plan directory and framework.
- *
- * Examples:
- *   derivePlanId('.', 'vitest')                       → 'vitest'
- *   derivePlanId('plugins/dev-team/bin', 'vite-plus') → 'plugins_dev-team_bin_vite-plus'
- */
-function derivePlanId(directory: string, framework: string): string {
-  // Map '.' (current directory) to empty prefix; otherwise replace path separators
-  const sanitized = directory === '.' ? '' : directory.replace(/[\\/]/g, '_').replace(/\/$/, '');
-  const prefix = sanitized ? `${sanitized}_` : sanitized;
-  return `${prefix}${framework}`;
 }
 
 // ---------------------------------------------------------------------------
@@ -215,7 +143,7 @@ export function generateSubReport(
   result: ExecutionResult,
   projectRoot: string,
   reportsDir: string,
-  planDirectory: string,
+  planRoot: string,
 ): TestExecutionSubReport {
   const now = new Date().toISOString();
   const errorCases = collectErrorTestCases(result);
@@ -223,7 +151,7 @@ export function generateSubReport(
 
   const subReport: TestExecutionSubReport = {
     framework,
-    directory: planDirectory,
+    root: planRoot,
     timestamp: now,
     exit_code: result.exitCode,
     duration_ms: result.durationMs,
@@ -236,12 +164,12 @@ export function generateSubReport(
     error_cases: errorCases,
     test_files: result.testFiles,
     source_files: sourceFileEntries,
-    coverage: buildCoverageBlock(result, projectRoot, framework, planDirectory),
+    coverage: buildCoverageBlock(result, projectRoot, framework, planRoot),
     mutation: result.mutation ?? null,
     findings: result.error ? [result.error] : undefined,
   };
 
-  const planId = derivePlanId(planDirectory, framework);
+  const planId = derivePlanId(planRoot, framework);
   writeJsonFile(path.join(reportsDir, planId, 'report.json'), subReport);
   return subReport;
 }
@@ -391,13 +319,13 @@ function buildPlansIndex(
 ): PlanIndexEntry[] {
   const normalizedRoot = path.resolve(projectRoot);
   return subReports.map((report) => {
-    const planId = derivePlanId(report.directory, report.framework);
+    const planId = derivePlanId(report.root, report.framework);
     const absPlanDir = path.resolve(reportsDir, planId);
     const relPath = toForwardSlash(path.relative(normalizedRoot, absPlanDir));
     return {
       id: planId,
       framework: report.framework,
-      directory: report.directory,
+      root: report.root,
       path: relPath === '' ? '.' : relPath,
     };
   });
@@ -466,17 +394,17 @@ function aggregateTotals(subReports: TestExecutionSubReport[]): {
 // ---------------------------------------------------------------------------
 
 /**
- * Read coverage thresholds from the matching suite (by framework + plan directory).
+ * Read coverage thresholds from the matching suite (by framework + plan.root).
  * Falls back to the first suite, then schema defaults. Does not cascade global + override.
  */
 function readCoverageThresholds(
   projectRoot: string,
   framework?: string,
-  planDirectory?: string,
+  planRoot?: string,
 ): CoverageThresholds {
   try {
     const config = readConfig(projectRoot);
-    const suite = findSuite(config, framework, planDirectory);
+    const suite = findSuite(config, framework, planRoot);
     return suiteCoverageThresholds(suite);
   } catch {
     return { ...SCHEMA_DEFAULT_THRESHOLDS };
@@ -603,7 +531,7 @@ function computeSingleSuiteCoverage(
   allRawEntries: SourceFileEntry[],
   config: OpenSpecConfig,
 ): CoverageOverride | null {
-  const matchedRaw = allRawEntries.filter((e) => fileInSuiteScope(e.file, suite, config));
+  const matchedRaw = allRawEntries.filter((e) => isInSuiteScope(e.file, suite, config));
   if (matchedRaw.length === 0) return null;
 
   const thresholds = suiteCoverageThresholds(suite);
@@ -818,7 +746,7 @@ function computeMutationOverrides(
   const results: MutationOverride[] = [];
 
   for (const suite of suites) {
-    const matchedFiles = relativeSources.filter((f) => fileInSuiteScope(f, suite, config));
+    const matchedFiles = relativeSources.filter((f) => isInSuiteScope(f, suite, config));
     if (matchedFiles.length === 0) continue;
 
     const threshold = suite.mutation?.score ?? TEST_MUTATION_SCORE_DEFAULT;
@@ -826,7 +754,7 @@ function computeMutationOverrides(
     const matchingReport = subReports.find(
       (r) =>
         r.framework === suite.framework &&
-        toForwardSlash(r.directory) === suiteAbsCwdRelative(suite) &&
+        toForwardSlash(r.root) === toForwardSlash(suite.root) &&
         r.mutation !== null,
     );
     const score = matchingReport?.mutation?.score ?? threshold;

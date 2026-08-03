@@ -5,11 +5,11 @@ import * as path from 'node:path';
 import { type z } from 'zod/v4';
 
 import { readConfig } from '../lib/config';
-import { matchGlob, toForwardSlash } from '../lib/glob';
+import { toForwardSlash } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded } from '../lib/test-exclude';
-import { getFrameworkConfig } from '../lib/test-framework';
-import type { OpenSpecConfig, TestSuite, unitTestEntrySchema } from '../schemas';
+import { isInSuiteScope } from '../lib/test-plan';
+import type { OpenSpecConfig, unitTestEntrySchema } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------
@@ -333,41 +333,8 @@ function processModuleEntry(
 }
 
 /**
- * Whether a project-relative source file falls in a suite's coverage scope
- * for empty-module scanning: under(root) ∧ match(includesEffective) ∧ ¬excludes,
- * where includesEffective = suite.includes ?? framework.default_glob.
- */
-function isInSuiteSourceScope(
-  relativePath: string,
-  suite: TestSuite,
-  config: OpenSpecConfig,
-): boolean {
-  const posix = toForwardSlash(relativePath);
-  const root = path.posix.normalize(toForwardSlash(suite.root)).replace(/\/$/, '');
-
-  if (posix !== root && !posix.startsWith(root + '/')) {
-    return false;
-  }
-
-  if (isFileExcluded(posix, config)) {
-    return false;
-  }
-
-  const includePatterns = suite.includes?.length
-    ? suite.includes
-    : [getFrameworkConfig(suite.framework).default_glob];
-
-  return includePatterns.some((pattern) => {
-    const scoped = path.posix.normalize(
-      path.posix.join(toForwardSlash(suite.root), toForwardSlash(pattern)),
-    );
-    return matchGlob(posix, scoped);
-  });
-}
-
-/**
  * Step 2b of resolveTestPaths: config-driven directory scan when no modules
- * are specified. Scans each suite `root` (not plan.directory / absCwd) so
+ * are specified. Scans each suite `root` (not plan.cwd / absCwd) so
  * `cwd: ".."` does not widen or shrink the coverage scope incorrectly.
  */
 function processEmptyModules(
@@ -400,7 +367,7 @@ function processEmptyModules(
       if (!isSourceFile(posix)) {
         continue;
       }
-      if (!isInSuiteSourceScope(posix, suite, config)) {
+      if (!isInSuiteScope(posix, suite, config)) {
         continue;
       }
       sourceFiles.add(posix);

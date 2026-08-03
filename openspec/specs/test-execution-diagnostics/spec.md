@@ -21,7 +21,7 @@ Report file SHALL contain the following fields:
 - `coverage`: coverage nested object or null
 - `mutation`: mutation nested object or null（若启用）
 - `problems`: problem list
-- `plans`: path index array（`id` / `framework` / `directory` / `path`）
+- `plans`: path index array（`id` / `framework` / `root` / `path`）
 - `findings`: optional diagnostic information string
 
 **Changes from previous version**:
@@ -83,7 +83,7 @@ Report file SHALL contain the following fields:
 |-------|--------|-------|
 | Report path | `reports/test-execution.json` | `reports/test/summary.json` |
 | Atomic report | `reports/test-execution/<planId>.json` | `reports/test/<planId>/report.json` |
-| `plans` | 不存在 | `Array<{ id, framework, directory, path }>` |
+| `plans` | 不存在 | `Array<{ id, framework, root, path }>` |
 | `phase` | `"test-execution"` | `"test-execution"`（不变） |
 | Collection | stdout / 旧 coverage 路径 | plan 目录文件通道 |
 | `integration_test` | Optional sub-report object | REMOVED |

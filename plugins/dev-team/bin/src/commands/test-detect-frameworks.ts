@@ -2,14 +2,11 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { readConfig } from '../lib/config';
-import { matchGlob, toForwardSlash } from '../lib/glob';
+import { toForwardSlash } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
-import { isFileExcluded, isExcludedBySuite } from '../lib/test-exclude';
-import {
-  type FrameworkConfig,
-  getFrameworkConfig,
-  detectFrameworkVersion,
-} from '../lib/test-framework';
+import { isFileExcluded } from '../lib/test-exclude';
+import { type FrameworkConfig, detectFrameworkVersion } from '../lib/test-framework';
+import { type ResolvedSuite, isInSuiteScope, resolveAllSuites } from '../lib/test-plan';
 import {
   type TestDetectFrameworksResult,
   type TestPlan,
@@ -30,18 +27,6 @@ interface DetectedFile {
 export interface TestDetectFrameworksOptions {
   files?: string[];
   projectRoot?: string;
-}
-
-interface ResolvedSuite {
-  suite: TestSuite;
-  absRoot: string;
-  absCwd: string;
-  absConfig: string | null;
-  /** absCwd relative to projectRoot (POSIX) */
-  directory: string;
-  frameworkConfig: FrameworkConfig;
-  /** Include globs as projectRoot-relative patterns */
-  includeGlobs: string[];
 }
 
 // ---------------------------------------------------------------------------
@@ -92,18 +77,8 @@ function collectFiles(rootDir: string): string[] {
 }
 
 // ---------------------------------------------------------------------------
-// Suite path helpers
+// Suite config validation
 // ---------------------------------------------------------------------------
-
-function toPosixRelative(from: string, to: string): string {
-  const rel = path.relative(from, to);
-  const posix = toForwardSlash(rel);
-  return posix === '' ? '.' : posix;
-}
-
-function joinRootScoped(root: string, pattern: string): string {
-  return path.posix.normalize(path.posix.join(toForwardSlash(root), toForwardSlash(pattern)));
-}
 
 /**
  * Validate that a suite declaring `config` uses a framework that supports injection.
@@ -128,46 +103,6 @@ function validateSuiteConfig(
       `Suite root "${suite.root}" declares config "${suite.config}" but absConfig could not be resolved`,
     );
   }
-}
-
-function resolveSuite(suite: TestSuite, projectRoot: string): ResolvedSuite {
-  const frameworkConfig = getFrameworkConfig(suite.framework);
-  const absRoot = path.resolve(projectRoot, suite.root);
-  const absCwd = path.resolve(absRoot, suite.cwd ?? '.');
-  const absConfig = suite.config ? path.resolve(absRoot, suite.config) : null;
-  const directory = toPosixRelative(projectRoot, absCwd);
-
-  const includePatterns = suite.includes?.length ? suite.includes : [frameworkConfig.default_glob];
-  const includeGlobs = includePatterns.map((pattern) => joinRootScoped(suite.root, pattern));
-
-  return {
-    suite,
-    absRoot,
-    absCwd,
-    absConfig,
-    directory,
-    frameworkConfig,
-    includeGlobs,
-  };
-}
-
-/**
- * Whether a project-relative file path is in a suite's scope:
- * under(root) ∧ match(includesEffective) ∧ ¬excludes (this suite only).
- */
-function isInSuiteScope(relativePath: string, resolved: ResolvedSuite): boolean {
-  const posix = toForwardSlash(relativePath);
-  const root = path.posix.normalize(toForwardSlash(resolved.suite.root)).replace(/\/$/, '');
-
-  if (posix !== root && !posix.startsWith(root + '/')) {
-    return false;
-  }
-
-  if (isExcludedBySuite(posix, resolved.suite)) {
-    return false;
-  }
-
-  return resolved.includeGlobs.some((glob) => matchGlob(posix, glob));
 }
 
 // ---------------------------------------------------------------------------
@@ -197,7 +132,7 @@ function generateShellScript(frameworkConfig: FrameworkConfig, version: string):
 }
 
 /**
- * Generate a Windows cmd.exe execution script from the framework template.
+ * Generate a Windows cmd.exe execution script from the framework registry.
  *
  * Same placeholder-deferral rules as {@link generateShellScript}. Execute runs
  * with cwd=absCwd, so no `cd /d` prefix is added.
@@ -219,28 +154,25 @@ function generateCmdScript(frameworkConfig: FrameworkConfig, version: string): s
 // Plan and detection helpers
 // ---------------------------------------------------------------------------
 
-function buildPlanFromSuites(suites: TestSuite[], projectRoot: string): TestPlan[] {
+/** Build plan from already-resolved suites (dedupe by cwd + framework). */
+function buildPlanFromSuites(resolvedSuites: ResolvedSuite[]): TestPlan[] {
   const plan: TestPlan[] = [];
   const seen = new Set<string>();
 
-  for (const suite of suites) {
-    const resolved = resolveSuite(suite, projectRoot);
-    const dedupeKey = `${resolved.directory}::${suite.framework}`;
+  for (const resolved of resolvedSuites) {
+    const { suite, frameworkConfig } = resolved;
+    const dedupeKey = `${resolved.cwd}::${suite.framework}`;
     if (seen.has(dedupeKey)) {
       continue;
     }
     seen.add(dedupeKey);
 
-    validateSuiteConfig(suite, resolved.frameworkConfig, resolved.absConfig);
-    const { frameworkConfig } = resolved;
-    // Version is used only while building scripts; not exposed on the plan schema.
+    validateSuiteConfig(suite, frameworkConfig, resolved.absConfig);
     const version = detectFrameworkVersion(suite.framework, resolved.absCwd);
-    // Path filter relative to absCwd so empty {files} still stays inside absRoot.
-    const scope = toPosixRelative(resolved.absCwd, resolved.absRoot);
 
     plan.push({
-      directory: resolved.directory,
-      scope,
+      cwd: resolved.cwd,
+      root: resolved.root,
       framework: frameworkConfig.framework,
       coverage_format: frameworkConfig.coverage_format,
       coverage_output: frameworkConfig.coverage_output,
@@ -280,7 +212,7 @@ function detectFrameworksForFiles(
 
     // Array order priority: first matching suite wins
     for (const resolved of resolvedSuites) {
-      if (isInSuiteScope(relativePath, resolved)) {
+      if (isInSuiteScope(relativePath, resolved.suite)) {
         detected.push({ file, framework: resolved.suite.framework });
         matched = true;
         break;
@@ -339,8 +271,8 @@ export function runTestDetectFrameworks(
 
   const config = readConfig(projectRoot);
   const suites = config.tests ?? [];
-  const plan = buildPlanFromSuites(suites, projectRoot);
-  const resolvedSuites = suites.map((suite) => resolveSuite(suite, projectRoot));
+  const resolvedSuites = resolveAllSuites(suites, projectRoot);
+  const plan = buildPlanFromSuites(resolvedSuites);
 
   const filesResult = resolveFilesToCheck(options, projectRoot);
   if (filesResult === 'empty') {

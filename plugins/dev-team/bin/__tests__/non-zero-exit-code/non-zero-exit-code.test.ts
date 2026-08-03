@@ -81,7 +81,8 @@ function createTempProject(): TempProject {
 
 function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
   return {
-    directory: '.',
+    cwd: '.',
+    root: '.',
     framework: 'vitest',
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
@@ -114,7 +115,7 @@ function makeSubReport(
 ): TestExecutionSubReport {
   return {
     framework,
-    directory: '.',
+    root: '.',
     timestamp: '2026-07-01T00:00:00.000Z',
     exit_code: 0,
     duration_ms: 500,

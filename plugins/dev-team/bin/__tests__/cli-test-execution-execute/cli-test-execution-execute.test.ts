@@ -36,7 +36,8 @@ function createTempProject(): { root: string; cleanup: () => void } {
 
 function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
   return {
-    directory: '.',
+    cwd: '.',
+    root: '.',
     framework: 'vitest',
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
@@ -134,7 +135,8 @@ describe('CLI 新报告布局 — 无 change', () => {
         plan: [
           makePlan(),
           makePlan({
-            directory: 'plugins/dev-team/bin',
+            cwd: 'plugins/dev-team/bin',
+            root: 'plugins/dev-team/bin',
             framework: 'vite-plus',
             coverage_format: 'istanbul',
           }),
@@ -142,9 +144,9 @@ describe('CLI 新报告布局 — 无 change', () => {
       });
       mockExecutePlanEntry.mockImplementation((entry, _r, options) => {
         const planId =
-          entry.directory === '.'
+          entry.root === '.'
             ? entry.framework
-            : `${entry.directory.replace(/[\\/]/g, '_')}_${entry.framework}`;
+            : `${entry.root.replace(/[\\/]/g, '_')}_${entry.framework}`;
         return makeResult({
           framework: entry.framework,
           planId,

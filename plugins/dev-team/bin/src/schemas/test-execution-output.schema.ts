@@ -154,7 +154,9 @@ const sourceFileEntrySchema = z.object({
 
 const testExecutionSubReportSchema = z.object({
   framework: z.string().describe('Test framework identifier'),
-  directory: z.string().describe('Plan working directory (relative to project root)'),
+  root: z
+    .string()
+    .describe('Suite root / plan.root (relative to project root); used to derive planId'),
   timestamp: z.string().describe('ISO 8601 timestamp of report generation'),
   exit_code: z.number().int().describe('Command exit code'),
   duration_ms: z.number().min(0).describe('Execution duration in milliseconds'),
@@ -194,7 +196,9 @@ const problemSchema = z.object({
 const planIndexEntrySchema = z.object({
   id: z.string().describe('Plan directory id (same as planId / directory name under reports/test)'),
   framework: z.string().describe('Test framework identifier'),
-  directory: z.string().describe('Plan working directory (relative to project root)'),
+  root: z
+    .string()
+    .describe('Suite root / plan.root (relative to project root); same basis as planId'),
   path: z
     .string()
     .describe(

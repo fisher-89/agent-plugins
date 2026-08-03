@@ -106,7 +106,8 @@ function createTempProject(): TempProject {
 
 function makePlanEntry(overrides: Partial<TestPlan> = {}): TestPlan {
   return {
-    directory: '.',
+    cwd: '.',
+    root: '.',
     framework: 'vitest',
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
@@ -136,7 +137,7 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
 function makeSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestExecutionSubReport {
   return {
     framework: 'vitest',
-    directory: '.',
+    root: '.',
     timestamp: '2026-07-01T00:00:00.000Z',
     exit_code: 0,
     duration_ms: 500,
@@ -929,7 +930,7 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
         ],
         plan: [
           makePlanEntry({ framework: 'vitest' }),
-          makePlanEntry({ framework: 'pytest', directory: 'tests' }),
+          makePlanEntry({ framework: 'pytest', cwd: 'tests', root: 'tests' }),
         ],
       });
       mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
@@ -984,7 +985,7 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
         ],
         plan: [
           makePlanEntry({ framework: 'vitest' }),
-          makePlanEntry({ framework: 'pytest', directory: 'tests' }),
+          makePlanEntry({ framework: 'pytest', cwd: 'tests', root: 'tests' }),
         ],
       });
       mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
@@ -1494,7 +1495,7 @@ describe('runTestExecution — mutationDiffOnly 路径过滤', () => {
     const project = createTempProject();
     mockDetectFrameworks.mockReturnValue({
       detected: [],
-      plan: [makePlanEntry({ directory: '.' })],
+      plan: [makePlanEntry()],
     });
     mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
     mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
@@ -1705,6 +1706,51 @@ describe('runTestExecution — reportsDir 新布局 (AC-1)', () => {
       expect(mockExecutePlanEntry.mock.calls[0][2]).toEqual(
         expect.objectContaining({ reportsDir: expect.any(String) }),
       );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('显式 files 未命中某 suite root 时 skip，不回落全量执行', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [],
+        plan: [
+          makePlanEntry({ cwd: 'pkg', root: 'pkg/a', framework: 'vitest' }),
+          makePlanEntry({ cwd: 'pkg', root: 'pkg/b', framework: 'vitest' }),
+        ],
+      });
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport({ root: 'pkg/a' }));
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+        mutation: null,
+        plans: [],
+      });
+
+      await runTestExecution({
+        projectRoot: project.root,
+        files: ['pkg/a/foo.test.ts'],
+      });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+      expect(mockExecutePlanEntry.mock.calls[0][0].root).toBe('pkg/a');
+      expect(logs.some((l) => l.includes('Skipping') && l.includes('pkg/b'))).toBe(true);
     } finally {
       project.cleanup();
     }

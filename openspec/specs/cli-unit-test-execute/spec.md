@@ -64,9 +64,9 @@
 
 **ID**: REQ-TEF-LAYOUT-1
 **Priority**: MUST
-**Description**: CLI SHALL 将每个 plan 的产物写入 `reports/test/<planId>/`（有 `--change` 时前缀为 `openspec/changes/<change>/reports/test/<planId>/`）。`planId` SHALL 由既有消毒算法生成目录 id（不含 `.json`）：
-- `directory === '.'` → `planId = "<framework>"`（无前缀、无前导 `_`）
-- 其他 → `sanitize(directory) + "_" + framework`（路径分隔符替换为 `_`）
+**Description**: CLI SHALL 将每个 plan 的产物写入 `reports/test/<planId>/`（有 `--change` 时前缀为 `openspec/changes/<change>/reports/test/<planId>/`）。`planId` SHALL 由 `plan.root` 经既有消毒算法生成目录 id（不含 `.json`）：
+- `root === '.'` → `planId = "<framework>"`（无前缀、无前导 `_`）
+- 其他 → `sanitize(root) + "_" + framework`（路径分隔符替换为 `_`）
 
 跨框架强制统一文件名仅：
 - `reports/test/summary.json`（聚合报告）
@@ -76,15 +76,22 @@
 
 #### Scenario: root suite planId is framework name
 
-**WHEN** plan entry `directory` 为 `"."` 且 `framework` 为 `"vitest"`
+**WHEN** plan entry `root` 为 `"."` 且 `framework` 为 `"vitest"`
 **THEN** `planId` SHALL 为 `"vitest"`
 **AND** reportDir SHALL 为 `reports/test/vitest/`（相对对应 reports 根）
 
-#### Scenario: nested suite planId sanitizes directory
+#### Scenario: nested suite planId sanitizes root
 
-**WHEN** plan entry `directory` 为 `"plugins/dev-team/bin"` 且 `framework` 为 `"vite-plus"`
-**THEN** `planId` SHALL 为 `"plugins_dev-team_bin_vite-plus"`
-**AND** atomic report SHALL 写入 `reports/test/plugins_dev-team_bin_vite-plus/report.json`
+**WHEN** plan entry `root` 为 `"plugins/dev-team/bin/src"`、`cwd` 为 `"plugins/dev-team/bin"` 且 `framework` 为 `"vite-plus"`
+**THEN** `planId` SHALL 为 `"plugins_dev-team_bin_src_vite-plus"`
+**AND** atomic report SHALL 写入 `reports/test/plugins_dev-team_bin_src_vite-plus/report.json`
+
+#### Scenario: explicit --files skips suites with no matching root
+
+**WHEN** config 含两个 suite（root `pkg/a` 与 `pkg/b`）
+**AND** CLI 以 `--files pkg/a/foo.test.ts` 执行
+**THEN** 仅 `pkg/a` 对应 plan SHALL 被执行并写入 `report.json`
+**AND** `pkg/b` plan SHALL 被跳过（不得因空 files 回落全 suite 发现）
 
 #### Scenario: change-scoped reports root
 
@@ -99,7 +106,7 @@
 **Description**: `summary.json` SHALL 保留既有聚合字段，并新增 `plans[]` 数组。每个元素 SHALL 包含且仅作为路径索引：
 - `id`：与 `planId` / 目录名相同
 - `framework`
-- `directory`：plan entry 的 directory
+- `root`：plan entry 的 `root`（与 planId 同源）
 - `path`：相对 **project root** 的 plan 目录（无 change：`reports/test/<planId>`；有 change：`openspec/changes/<change>/reports/test/<planId>`）
 
 每个尝试执行的 plan SHALL 进入 `plans[]`（含 prepare/执行失败）。`plans[]` SHALL NOT 携带 status；成败与原因落在对应 `report.json` 以及 summary 的 `conclusion` / `problems`。
@@ -108,7 +115,7 @@
 
 **WHEN** CLI 执行两个 plan（一个成功、一个失败）后写 summary
 **THEN** `plans` SHALL 长度为 2
-**AND** 每个元素 SHALL 含 `id`、`framework`、`directory`、`path`
+**AND** 每个元素 SHALL 含 `id`、`framework`、`root`、`path`
 **AND** `path` SHALL 为相对 project root 的 POSIX 风格路径
 **AND** 失败 plan 仍出现在 `plans[]`
 
@@ -216,7 +223,7 @@ prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写
 - `resultsFile?`：实际读取的测试结果文件（垂直名）
 - `error?`：保留；prepare / 解析失败原因
 
-summary 的 `plans[]` SHALL 仅从 `ExecutionResult` 投影索引字段（`id` / `framework` / `directory` / `path`）。
+summary 的 `plans[]` SHALL 仅从 `ExecutionResult` 投影索引字段（`id` / `framework` / `root` / `path`）。
 
 #### Scenario: execution result exposes planId and reportDir
 
@@ -253,7 +260,7 @@ summary 的 `plans[]` SHALL 仅从 `ExecutionResult` 投影索引字段（`id` /
 | Property | Description |
 |----------|-------------|
 | File | `plugins/dev-team/bin/src/lib/test-report.ts` |
-| Key APIs | `derivePlanId(directory, framework)` → 目录 id（无 `.json`）；`generateSubReport` → 写 `<planId>/report.json`；`generateSummaryReport` → 写 `summary.json`（含 `plans[]`） |
+| Key APIs | `derivePlanId(root, framework)` → 目录 id（无 `.json`）；`generateSubReport` → 写 `<planId>/report.json`；`generateSummaryReport` → 写 `summary.json`（含 `plans[]`） |
 
 ### Module: lib/test-runner.ts
 

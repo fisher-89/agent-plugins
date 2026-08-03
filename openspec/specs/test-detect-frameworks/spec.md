@@ -36,7 +36,7 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 | Tool name | `test_detect_frameworks` |
 | Input | `{files?: string[], projectRoot?: string}` |
 | Output | `TestDetectFrameworksResult` (`{ detected: DetectedFile[], frameworks: string[], plan: PlanEntry[] }`) |
-| Plan entry fields | `directory`, `framework`, `coverage_format`, `coverage_output`, `mutation_framework`, `mutation_config`, `mutation_score`, `script` |
+| Plan entry fields | `cwd`, `root`, `framework`, `coverage_format`, `coverage_output`, `mutation_framework`, `mutation_config`, `mutation_score`, `script` |
 | Registration | `registerTestDetectFrameworksTool` in `mcp.ts` — unchanged |
 | Consumers | `test-gen-generator.md`, `unit-test-executor.md` — unchanged |
 
@@ -78,7 +78,7 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 
 **WHEN** `test_detect_frameworks` is invoked with `{files: ["src/example.test.ts"], projectRoot: "/tmp/test-project"}`
 **THEN** the result SHALL contain the `detected`, `frameworks`, and `plan` arrays
-**AND** each entry in `plan` SHALL contain the fields `directory`, `framework`, `coverage_format`, `coverage_output`, and `script`
+**AND** each entry in `plan` SHALL contain the fields `cwd`, `root`, `framework`, `coverage_format`, `coverage_output`, and `script`
 
 ### Requirement: plan[] output carries all framework config fields
 
@@ -132,7 +132,7 @@ The MCP tool `test_detect_frameworks` remains registered, its input/output schem
 
 **ID**: REQ-TDF-5
 **Priority**: MUST
-**Description**: The `detectFrameworksForFiles` function in `commands/test-detect-frameworks.ts` SHALL filter out source files that are outside every suite scope or matched by suite `excludes` before building the `detected` array. After determining the relative file path, the function SHALL call `isFileExcluded(relativePath, config)` from `lib/test-exclude.ts`（或等价的 suite-scope 判定）。If the function returns `true`, the file SHALL be skipped entirely — it SHALL NOT appear in `detected` and SHALL NOT be treated as "unknown".
+**Description**: The `detectFrameworksForFiles` function in `commands/test-detect-frameworks.ts` SHALL filter out source files that are outside every suite scope or matched by suite `excludes` before building the `detected` array. After determining the relative file path, the function SHALL call `isFileExcluded(relativePath, config)` from `lib/test-exclude.ts` for global exclude pre-filter, then match suites via `isInSuiteScope` from `lib/test-plan.ts`（suite-local excludes）。If globally excluded, the file SHALL be skipped entirely — it SHALL NOT appear in `detected` and SHALL NOT be treated as "unknown".
 
 The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top of the file.
 
@@ -179,38 +179,47 @@ The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top o
 对每个 suite：
 1. `absRoot = projectRoot / suite.root`
 2. `absCwd = absRoot / (suite.cwd ?? ".")`
-3. `plan.directory` = absCwd 相对于 `projectRoot` 的 POSIX 相对路径
-4. `plan.scope` = absRoot 相对于 absCwd 的 POSIX 相对路径（二者相同时为 `"."`）
+3. `plan.cwd` = absCwd 相对于 `projectRoot` 的 POSIX 相对路径（运行目录）
+4. `plan.root` = absRoot 相对于 `projectRoot` 的 POSIX 相对路径（测试范围根）
 5. `framework` / coverage 元数据 / mutation_framework 来自 `FRAMEWORK_REGISTRY`
 6. `mutation_score` 来自该 suite 解析后的 `mutation.score`
 7. include 匹配 glob = `suite.includes` 若存在，否则为框架 `default_glob`；匹配时相对 `suite.root`（实现可将 glob 拼为 projectRoot 相对形式 `root/includes`）
 
 模块 SHALL 删除或停止调用 `deriveWorkingDirectory` 作为 cwd 来源。
 
-执行时：`{files}` 为空 SHALL 使用 `plan.scope` 作为 CLI 路径过滤（`scope === "."` 时展开为空，因 cwd 已等于 absRoot）；显式 `files` 列表优先于 `scope`。`{directory}`（go）SHALL 展开为 `./...` 或 `./<scope>/...`。rust 的 `cargo test` 不支持任意子目录 CLI 裁剪，SHALL 保持 crate 级行为（`scope` 不改变其 `test_execution`）。
+执行时：CLI 路径过滤 `pathFilter = plan.root` 相对于 `plan.cwd`（二者相同时为 `"."`）。省略 `files`（未传列表）时，空 `{files}` SHALL 使用 `pathFilter`（`"."` 时展开为空，因 cwd 已等于 root）。显式 `files` 列表优先：SHALL 按 `plan.root` 过滤后再转为相对 `plan.cwd` 的路径；若某 plan 与显式列表无交集，CLI SHALL **跳过**该 plan（不得回落为全 suite 发现）。`{directory}`（go）SHALL 展开为 `./...` 或 `./<pathFilter>/...`。rust 的 `cargo test` 不支持任意子目录 CLI 裁剪，SHALL 保持 crate 级行为（`pathFilter` 不改变其 `test_execution`）。
 
-#### Scenario: directory equals root when cwd is default
+Suite 路径解析（`resolveSuite` / `resolveAllSuites`）与文件归属（`isInSuiteScope`）SHALL 由 `lib/test-plan.ts` 提供；`runTestDetectFrameworks` SHALL 对 `config.tests` **只 resolve 一次**，再同时用于 `detected` 匹配与 `plan` 构建。
+
+#### Scenario: cwd equals root when suite cwd is default
 
 **WHEN** config has `tests: [{ root: "plugins/dev-team/bin", framework: "vite-plus" }]`
 **AND** `runTestDetectFrameworks({})` is called
-**THEN** `plan` SHALL contain one entry with `directory: "plugins/dev-team/bin"`
-**AND** `plan[0].scope` SHALL be `"."`
+**THEN** `plan` SHALL contain one entry with `cwd: "plugins/dev-team/bin"`
+**AND** `plan[0].root` SHALL be `"plugins/dev-team/bin"`
 **AND** `plan[0].framework` SHALL be `"vite-plus"`
 **AND** `plan[0].mutation_score` SHALL equal the suite schema default mutation score
 
-#### Scenario: directory resolves parent cwd
+#### Scenario: cwd resolves parent of suite root
 
 **WHEN** config has `tests: [{ root: "plugins/dev-team/bin/src", cwd: "..", framework: "vite-plus" }]`
 **AND** `runTestDetectFrameworks({})` is called
-**THEN** `plan[0].directory` SHALL be `"plugins/dev-team/bin"`
-**AND** `plan[0].scope` SHALL be `"src"`
+**THEN** `plan[0].cwd` SHALL be `"plugins/dev-team/bin"`
+**AND** `plan[0].root` SHALL be `"plugins/dev-team/bin/src"`
 
-#### Scenario: empty files falls back to scope under parent cwd
+#### Scenario: omitted files falls back to pathFilter under parent cwd
 
 **WHEN** config has `tests: [{ root: "plugins/dev-team/bin/src", cwd: "..", framework: "vite-plus" }]`
-**AND** the plan entry is executed with an empty `files` list
+**AND** the plan entry is executed with `files` omitted (not an explicit empty filter after root matching)
 **THEN** the substituted command SHALL include the path filter `src` in place of `{files}`
 **AND** SHALL NOT discover tests outside that suite root solely due to a wider absCwd
+
+#### Scenario: explicit files with no overlap skips plan
+
+**WHEN** config has two suites with roots `pkg/a` and `pkg/b`
+**AND** `dev-team test-execution --files pkg/a/foo.test.ts` runs
+**THEN** the plan for `pkg/a` SHALL execute
+**AND** the plan for `pkg/b` SHALL be skipped (no execute / no full-scope fallback)
 
 #### Scenario: empty tests yields empty plan
 
@@ -223,7 +232,8 @@ The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top o
 **WHEN** config has two suites with different roots/frameworks
 **AND** `runTestDetectFrameworks({})` is called
 **THEN** `plan.length` SHALL be 2
-**AND** each entry's `directory` SHALL reflect that suite's absCwd
+**AND** each entry's `cwd` SHALL reflect that suite's absCwd
+**AND** each entry's `root` SHALL reflect that suite's absRoot
 
 ### Requirement: Script generation injects optional framework config via template placeholder
 
@@ -241,7 +251,7 @@ When suite 声明了 `config` 但框架 `config_flag` 为 `null`/缺省，plan/s
 
 SHALL NOT append `config_flag` + path to the end of the entire `test_execution` string（链式脚本如 pytest/rust 会只作用于最后一段或产生错误参数）。
 
-`script.shell` / `script.cmd` 仍先 `cd` 到 `plan.directory`（非 `"."` 时），再执行已展开占位符的 test_execution。
+`script.shell` / `script.cmd` 仍先 `cd` 到 `plan.cwd`（非 `"."` 时），再执行已展开占位符的 test_execution。
 
 **Changes from previous version**:
 - detect SHALL 保留 `{config_args}` / `{results_file}` / `{coverage_file}` / `{report_dir}` 等占位符，MUST NOT 在 detect 烤死 reportDir 相关路径
@@ -351,7 +361,8 @@ SHALL NOT append `config_flag` + path to the end of the entire `test_execution` 
 |--------|--------|
 | **Config source** | `config.tests: Suite[]` |
 | **Removed** | `normalizeFrameworks(framework, overrides)` 旧签名；`deriveWorkingDirectory` 作为 cwd 来源 |
-| **Plan fields** | `directory`（absCwd 相对项目根）, `scope`（absRoot 相对 absCwd）, `framework`, coverage 元数据（`coverage_output` 相对 reportDir；`coverage_format` 含 bun→`lcov`）, `mutation_framework`, `mutation_score`, `script: { shell, cmd }` |
+| **Plan fields** | `cwd`（absCwd 相对项目根）, `root`（absRoot 相对项目根）, `framework`, coverage 元数据（`coverage_output` 相对 reportDir；`coverage_format` 含 bun→`lcov`）, `mutation_framework`, `mutation_score`, `script: { shell, cmd }` |
+| **Shared lib** | `lib/test-plan.ts`：`resolveAllSuites` / `isInSuiteScope` / `derivePlanId` / `resolvePlanFiles` / `findSuite` |
 | **Script** | `cd` → `test_execution` with report/file-channel placeholders kept unexpanded at detect；`{config_args}` / report paths expanded at execute（not whole-string append）；不再注入 suite cwd `coverage_cleanup` |
 | **Behavior change** | detect 产出带 report 相关占位符的 script；不烤死 reportDir；不再注入 suite cwd `coverage_cleanup` |
 
@@ -359,9 +370,9 @@ SHALL NOT append `config_flag` + path to the end of the entire `test_execution` 
 
 | Property | Description |
 |----------|-------------|
-| **Input** | parsed `tests` suites + projectRoot |
+| **Input** | already-resolved `ResolvedSuite[]`（由 `resolveAllSuites` 一次产出） |
 | **Output** | `TestPlan[]` |
-| **Side Effects** | None（纯函数；读 registry） |
+| **Side Effects** | May run `detectFrameworkVersion` per suite（读 registry + exec version_command） |
 
 ---
 

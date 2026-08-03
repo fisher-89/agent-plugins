@@ -207,7 +207,7 @@
 当 `resolveTestPaths` 收到空的 `modules` 数组时，函数 SHALL 调用 `runTestDetectFrameworks`（来自 `test-detect-frameworks.ts`）获取配置计划 `plan`，并按以下规则推导源文件扫描范围：
 
 1. 不传 `files` 参数调用 `runTestDetectFrameworks({})`，触发 auto-scan 获取含完整 `plan` 的返回结果
-2. 扫描根优先取各 suite 的 `root`（相对于 projectRoot）；若实现仍从 `plan[].directory` 扫描，则 MUST 保证覆盖 suite scope（`root` ∩ `includes` ∩ ¬`excludes`），不得仅因 `cwd` 上移而漏扫 `root` 子树或误扫到 root 外
+2. 扫描根优先取各 suite 的 `root`（相对于 projectRoot）；若实现仍从 `plan[].cwd` / `plan[].root` 扫描，则 MUST 保证覆盖 suite scope（`root` ∩ `includes` ∩ ¬`excludes`，判定经 `lib/test-plan.isInSuiteScope`），不得仅因 `cwd` 上移而漏扫 `root` 子树或误扫到 root 外
 3. 对每个扫描根递归遍历，收集可测试源文件（复用现有 `collectFiles` 排除规则：跳过 `node_modules`、`.git`、`dist`、`build`、`target` 等）
 4. 对收集到的源文件应用现有单元测试路径推导规则（同非空 `modules` 的处理方式），并遵守 suite scope / `isFileExcluded`
 5. 若 `plan` 为空数组（无 `tests` suite 配置），则在 `errors` 中添加指导性消息，提示在 `openspec/config.json` 中配置 `tests`

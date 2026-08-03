@@ -67,7 +67,8 @@ function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
   const fw = overrides.framework ?? 'vitest';
   const cfg = getFrameworkConfig(fw);
   return {
-    directory: '.',
+    cwd: '.',
+    root: '.',
     framework: fw,
     coverage_format: cfg.coverage_format,
     coverage_output: cfg.coverage_output,
@@ -189,7 +190,8 @@ describe('executePlanEntry', () => {
       const reportsDir = path.join(dir.root, 'reports', 'test');
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'unknown-fw' as TestPlan['framework'],
           coverage_format: 'istanbul',
           coverage_output: 'coverage-summary.json',
@@ -579,7 +581,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         );
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'go', directory: '.', scope: '.' }), dir.root, {
+      executePlanEntry(makePlan({ framework: 'go', cwd: '.', root: '.' }), dir.root, {
         reportsDir,
       });
       const cmd = capturedCmd();
@@ -604,7 +606,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         writeMinimalJsResults(path.join(reportsDir, 'vitest'));
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'vitest', scope: 'src' }), dir.root, {
+      executePlanEntry(makePlan({ framework: 'vitest', root: 'src' }), dir.root, {
         reportsDir,
         files: ['a.test.ts', 'b.test.ts'],
       });
@@ -615,7 +617,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         writeMinimalJsResults(path.join(reportsDir, 'vitest'));
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'vitest', scope: 'src' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'vitest', root: 'src' }), dir.root, { reportsDir });
       expect(capturedCmd()).toMatch(/\bsrc\b/);
       expect(capturedCmd()).not.toContain('{files}');
 
@@ -624,7 +626,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         writeMinimalJsResults(path.join(reportsDir, 'vitest'));
         return '';
       });
-      const plan = makePlan({ framework: 'vitest', scope: '.' });
+      const plan = makePlan({ framework: 'vitest', root: '.' });
       // 用可观测模板锁定空 files 回落：末尾 {files} 被替换为空
       plan.script.shell = 'npx vitest run --outputFile={results_file} {files}';
       plan.script.cmd = plan.script.shell;
@@ -651,7 +653,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         );
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'go', scope: '.' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'go', root: '.' }), dir.root, { reportsDir });
       expect(capturedCmd()).toContain('./...');
 
       mockExecSync.mockReset();
@@ -665,7 +667,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         );
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'go', scope: 'pkg' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'go', root: 'pkg' }), dir.root, { reportsDir });
       expect(capturedCmd()).toContain('./pkg/...');
     } finally {
       dir.cleanup();
@@ -884,7 +886,7 @@ describe('executePlanEntry -- 空命令 / 解析失败 / timeout / planId', () =
     }
   });
 
-  it("directory='.' → planId=framework；含斜杠/反斜杠目录归一为下划线", () => {
+  it("root='.' → planId=framework；含斜杠/反斜杠 root 归一为下划线；cwd≠root 时仍用 root", () => {
     const dir = createTempDir();
     try {
       const reportsDir = path.join(dir.root, 'reports', 'test');
@@ -893,22 +895,26 @@ describe('executePlanEntry -- 空命令 / 解析失败 / timeout / planId', () =
         return '';
       });
       expect(
-        executePlanEntry(makePlan({ framework: 'vitest', directory: '.' }), dir.root, {
+        executePlanEntry(makePlan({ framework: 'vitest', cwd: '.', root: '.' }), dir.root, {
           reportsDir,
         }).planId,
       ).toBe('vitest');
 
-      const nestedId = 'plugins_dev-team_bin_vitest';
+      const nestedId = 'plugins_dev-team_bin_src_vitest';
       mockExecSync.mockReset();
       mockExecSync.mockImplementation(() => {
         writeMinimalJsResults(path.join(reportsDir, nestedId));
         return '';
       });
-      const nestedDir = path.join(dir.root, 'plugins', 'dev-team', 'bin');
-      fs.mkdirSync(nestedDir, { recursive: true });
+      const nestedCwd = path.join(dir.root, 'plugins', 'dev-team', 'bin');
+      fs.mkdirSync(path.join(nestedCwd, 'src'), { recursive: true });
       expect(
         executePlanEntry(
-          makePlan({ framework: 'vitest', directory: 'plugins/dev-team/bin' }),
+          makePlan({
+            framework: 'vitest',
+            cwd: 'plugins/dev-team/bin',
+            root: 'plugins/dev-team/bin/src',
+          }),
           dir.root,
           { reportsDir },
         ).planId,
@@ -921,7 +927,11 @@ describe('executePlanEntry -- 空命令 / 解析失败 / timeout / planId', () =
       });
       expect(
         executePlanEntry(
-          makePlan({ framework: 'vitest', directory: 'plugins\\dev-team\\bin' }),
+          makePlan({
+            framework: 'vitest',
+            cwd: 'plugins\\dev-team\\bin',
+            root: 'plugins\\dev-team\\bin\\src',
+          }),
           dir.root,
           { reportsDir },
         ).planId,
@@ -1344,7 +1354,7 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
         writeIstanbulCoverage(path.join(reportsDir, 'vitest'));
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'vitest', scope: 'pkg' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'vitest', root: 'pkg' }), dir.root, { reportsDir });
       const cmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
       expect(cmd).toMatch(/\spkg(\s|$)/);
       expect(cmd).not.toContain('{files}');
@@ -1367,7 +1377,7 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
         );
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'go', scope: 'pkg' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'go', root: 'pkg' }), dir.root, { reportsDir });
       const cmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
       expect(cmd).toContain('./pkg/...');
       expect(cmd).not.toContain('./...;');
@@ -1465,7 +1475,7 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
         );
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'go', scope: '.' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'go', root: '.' }), dir.root, { reportsDir });
       const rootCmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
       expect(rootCmd).toContain('./...');
       expect(rootCmd).not.toContain('././...');
@@ -1481,7 +1491,7 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
         );
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'go', scope: 'pkg' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'go', root: 'pkg' }), dir.root, { reportsDir });
       const pkgCmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
       expect(pkgCmd).toContain('./pkg/...');
       expect(pkgCmd).not.toMatch(/(?:^|[^/])pkg\/\.\.\./); // 必须带 ./ 前缀
@@ -1523,7 +1533,9 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
         writeIstanbulCoverage(path.join(reportsDir, 'vitest'));
         return '';
       });
-      executePlanEntry(makePlan({ framework: 'vitest', directory: '.' }), dir.root, { reportsDir });
+      executePlanEntry(makePlan({ framework: 'vitest', cwd: '.', root: '.' }), dir.root, {
+        reportsDir,
+      });
       const withCfg = String(mockExecSync.mock.calls[0]?.[0] ?? '');
       expect(withCfg).toMatch(/--config\s+\S*vite\.config\.ts/);
       expect(withCfg).not.toContain('{config_args}');

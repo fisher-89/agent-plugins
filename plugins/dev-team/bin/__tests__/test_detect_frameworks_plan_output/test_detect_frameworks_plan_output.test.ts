@@ -45,7 +45,8 @@ describe('test_detect_frameworks — plan 输出结构', () => {
 
       expect(result.plan).toHaveLength(1);
       expect(result.plan[0]).toMatchObject({
-        directory: '.',
+        cwd: '.',
+        root: '.',
         framework: 'vitest',
         coverage_format: 'istanbul',
       });

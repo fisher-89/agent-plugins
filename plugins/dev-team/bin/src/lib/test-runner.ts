@@ -18,7 +18,6 @@ import {
   type MutationMeasured,
   type OpenSpecConfig,
   type TestPlan,
-  type TestSuite,
 } from '../schemas';
 import { readConfig } from './config';
 import { toForwardSlash } from './glob';
@@ -28,6 +27,7 @@ import { type ParsedCoverage } from './test-parser/coverage-parser';
 import { parsePlanArtifacts, type TestCase } from './test-parser/index';
 import { type MutationReport, parseMutationReport } from './test-parser/mutation-parser';
 import { resolveStrykerConfig } from './test-parser/stryker-config';
+import { derivePlanId, findSuite, pathFilterFromPlan } from './test-plan';
 
 // ---------------------------------------------------------------------------
 // Types
@@ -97,39 +97,18 @@ function toPosixRelative(from: string, to: string): string {
   return posix === '' ? '.' : posix;
 }
 
-function suiteAbsCwdRelative(suite: TestSuite): string {
-  return path.posix.normalize(
-    path.posix.join(toForwardSlash(suite.root), toForwardSlash(suite.cwd ?? '.')),
-  );
-}
-
 /**
  * Resolve the suite's framework config path (absolute) for this plan entry.
  */
 function resolveUserConfigPath(entry: TestPlan, projectRoot: string): string | null {
   try {
     const config = readConfig(projectRoot);
-    const suites = config.tests ?? [];
-    const match = suites.find(
-      (s) =>
-        s.framework === entry.framework &&
-        suiteAbsCwdRelative(s) === toForwardSlash(entry.directory),
-    );
+    const match = findSuite(config, entry.framework, entry.root);
     if (!match?.config) return null;
     return path.resolve(projectRoot, match.root, match.config);
   } catch {
     return null;
   }
-}
-
-/**
- * Derive plan directory id (same algorithm as test-report.derivePlanId).
- * Inlined here to avoid a circular import with test-report.
- */
-function derivePlanId(directory: string, framework: string): string {
-  const sanitized = directory === '.' ? '' : directory.replace(/[\\/]/g, '_').replace(/\/$/, '');
-  const prefix = sanitized ? `${sanitized}_` : sanitized;
-  return `${prefix}${framework}`;
 }
 
 /**
@@ -247,15 +226,19 @@ function writeTempBunfig(
 
 /**
  * Expand {config_args} and path placeholders, then {files}/{directory}/{project_root}.
+ *
+ * `pathFilter` is suite root relative to cwd — used when `{files}` is empty and for go `{directory}`.
  */
 function expandCommandTemplate(
   cmd: string,
   prepared: PreparePlanArtifactsResult,
   files: string[],
   projectRoot: string,
-  scope: string,
+  pathFilter: string,
 ): string {
   let result = cmd;
+
+  result = result.replace(/\{project_root\}/g, projectRoot);
 
   if (prepared.configArgs) {
     result = result.replace(/\{config_args\}/g, prepared.configArgs);
@@ -277,13 +260,12 @@ function expandCommandTemplate(
   if (files && files.length > 0) {
     result = result.replace(/\{files\}/g, files.join(' '));
   } else {
-    const filesFallback = scope && scope !== '.' ? scope : '';
+    const filesFallback = pathFilter && pathFilter !== '.' ? pathFilter : '';
     result = result.replace(/\{files\}/g, filesFallback);
   }
 
-  const directoryArg = scope && scope !== '.' ? `./${scope}/...` : './...';
+  const directoryArg = pathFilter && pathFilter !== '.' ? `./${pathFilter}/...` : './...';
   result = result.replace(/\{directory\}/g, directoryArg);
-  result = result.replace(/\{project_root\}/g, projectRoot);
 
   return result;
 }
@@ -418,7 +400,7 @@ function resolveTestCommand(
     prepared,
     options.files ?? [],
     projectRoot,
-    entry.scope ?? '.',
+    pathFilterFromPlan(entry),
   );
 
   if (prepared.redirectStdoutToResults) {
@@ -502,7 +484,7 @@ function runPreparedPlanEntry(
     return emptyResult(entry.framework, startTime, 'Empty test command', planId, reportDir);
   }
 
-  console.log(`Executing test cmd: "${testCmd}"`);
+  console.log(`Executing test cmd: "${testCmd}" in "${absCwd}"`);
   const { exitCode, execError } = runCommand(testCmd, absCwd, options.timeout);
 
   return buildPlanExecutionResult(
@@ -535,9 +517,9 @@ export function executePlanEntry(
   options: ExecutePlanOptions,
 ): ExecutionResult {
   const startTime = Date.now();
-  const planId = derivePlanId(entry.directory, entry.framework);
+  const planId = derivePlanId(entry.root, entry.framework);
   const reportDir = path.join(options.reportsDir, planId);
-  const absCwd = path.resolve(projectRoot, entry.directory);
+  const absCwd = path.resolve(projectRoot, entry.cwd);
   const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
 
   let prepared: PreparePlanArtifactsResult | null = null;

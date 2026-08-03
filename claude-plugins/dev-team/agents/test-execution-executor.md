@@ -71,7 +71,7 @@ Read `reports/test/summary.json`. The report has the following structure:
     {
       "id": "plugins_dev-team_bin_vite-plus",
       "framework": "vite-plus",
-      "directory": "plugins/dev-team/bin",
+      "root": "plugins/dev-team/bin",
       "path": "openspec/changes/<change-name>/reports/test/plugins_dev-team_bin_vite-plus"
     }
   ]
@@ -82,7 +82,7 @@ Key fields to read:
 
 - `conclusion` — overall result: `"pass"`, `"fail"`, or `"error"`
 - `problems[]` — list of issues found during execution
-- `plans[]` — path index for each attempted plan (`id` / `framework` / `directory` / `path`); **no status fields**
+- `plans[]` — path index for each attempted plan (`id` / `framework` / `root` / `path`); **no status fields**
 - `coverage.pass` — whether coverage thresholds were met
 - `coverage.measured` — weighted average coverage across all frameworks
 - `coverage.overrides` — per-glob override coverage results
@@ -96,7 +96,7 @@ Check the following aspects of the report:
 1. **Required fields exist**: `phase`, `timestamp`, `total`, `passed`, `failed`, `skipped`, `conclusion`, `plans` MUST all be present
 2. **Count consistency**: `passed + failed + skipped` SHOULD equal `total`; if not, record a finding
 3. **conclusion consistency**: If `failed > 0`, `conclusion` SHOULD be `"fail"`. If `coverage` is non-null and `coverage.pass` is `false`, `conclusion` SHOULD be `"fail"` (even with zero test failures). If `mutation` is non-null and `mutation.pass` is `false`, `conclusion` SHOULD be `"fail"`. If `problems` contains `execution_error` entries, `conclusion` SHOULD be `"error"`. Otherwise `conclusion` SHOULD be `"pass"`.
-4. **plans index**: every attempted plan SHOULD appear in `plans[]` with `id`, `framework`, `directory`, and `path`
+4. **plans index**: every attempted plan SHOULD appear in `plans[]` with `id`, `framework`, `root`, and `path`
 
 If any validation check fails, record a finding but do NOT modify `conclusion` or other fields.
 

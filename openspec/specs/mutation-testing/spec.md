@@ -90,7 +90,7 @@
 
 | Aspect | Detail |
 |--------|--------|
-| rootPath / cwd | absCwd (`projectRoot / plan.directory`) |
+| rootPath / cwd | absCwd (`projectRoot / plan.cwd`) |
 | Temp artifacts | under absCwd（临时 config / `.stryker-tmp/`，用后删） |
 | Mutation JSON | `<reportDir>/mutation.json`（权威产物；非 absCwd `reports/mutation/`） |
 | mutate paths | relative to absCwd |
@@ -509,7 +509,7 @@ SHALL NOT 再依赖 `config.test.overrides[].file` + `overrides[].mutation` 作�
 
 **ID**: REQ-MT-CWD-1
 **Priority**: MUST
-**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 absCwd（即 `projectRoot / plan.directory`）。临时配置（`stryker.config.*`）、`.stryker-tmp/` SHALL 默认落在该 absCwd 下并在用后删除（与 C4 一致）。
+**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 absCwd（即 `projectRoot / plan.cwd`）。临时配置（`stryker.config.*`）、`.stryker-tmp/` SHALL 默认落在该 absCwd 下并在用后删除（与 C4 一致）。
 
 权威 mutation JSON 报告 SHALL 写入当前 plan 的 `reportDir/mutation.json`（通过配置 overlay `jsonReporter.fileName` 或等价），MUST NOT 以 absCwd 下 `reports/mutation/` 作为解析权威源。
 
@@ -517,7 +517,7 @@ SHALL NOT 再依赖 `config.test.overrides[].file` + `overrides[].mutation` 作�
 
 #### Scenario: mutation 在 suite absCwd 下执行
 
-**WHEN** plan entry `directory` 为 `"plugins/dev-team/bin"`
+**WHEN** plan entry `cwd` 为 `"plugins/dev-team/bin"`
 **AND** mutation 阶段启动
 **THEN** Stryker 命令的 cwd / rootPath SHALL 解析为 `projectRoot/plugins/dev-team/bin`
 **AND** 临时 `stryker.config.*` SHALL 创建于该目录下（当需要生成临时配置时）

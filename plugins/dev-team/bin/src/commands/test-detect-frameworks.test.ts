@@ -33,7 +33,7 @@ function createTempProject(configData: OpenSpecConfigInput): TempProject {
   };
 }
 
-describe('runTestDetectFrameworks — plan.directory / scope', () => {
+describe('runTestDetectFrameworks — plan.cwd / root', () => {
   it('root + cwd 解析为 absCwd 相对路径', () => {
     const project = createTempProject({
       schema: 'spec-driven',
@@ -42,8 +42,8 @@ describe('runTestDetectFrameworks — plan.directory / scope', () => {
     try {
       const result = runTestDetectFrameworks({ projectRoot: project.root });
       expect(result.plan).toHaveLength(1);
-      expect(result.plan[0].directory).toBe('a');
-      expect(result.plan[0].scope).toBe('b');
+      expect(result.plan[0].cwd).toBe('a');
+      expect(result.plan[0].root).toBe('a/b');
     } finally {
       project.cleanup();
     }

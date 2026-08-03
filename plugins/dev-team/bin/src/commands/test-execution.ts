@@ -12,8 +12,10 @@ import * as path from 'path';
 
 import { getGitDiffFiles } from '../lib/git';
 import { getProjectDir } from '../lib/project-root';
+import { resolvePlanFiles } from '../lib/test-plan';
 import { generateSubReport, generateSummaryReport } from '../lib/test-report';
 import { executePlanEntry } from '../lib/test-runner';
+import type { TestExecutionSubReport, TestPlan } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------
@@ -101,6 +103,39 @@ function logSummary(report: {
 }
 
 // ---------------------------------------------------------------------------
+// Per-plan execution
+// ---------------------------------------------------------------------------
+
+/**
+ * Run one plan entry. Returns null when explicit `--files` has no overlap with
+ * the suite root (skip — do not fall back to full-scope discovery).
+ */
+function runPlanEntry(
+  entry: TestPlan,
+  projectRoot: string,
+  options: TestExecutionOptions,
+  mutationDiffFiles: string[] | undefined,
+  reportsDir: string,
+): TestExecutionSubReport | null {
+  const planFiles = resolvePlanFiles(options.files, entry);
+  if (options.files !== undefined && (planFiles?.length ?? 0) === 0) {
+    console.log(`Skipping ${entry.framework} in ${entry.root}: no files under suite root`);
+    return null;
+  }
+
+  console.log(`Running ${entry.framework} tests in ${entry.cwd} (root: ${entry.root})...`);
+  const result = executePlanEntry(entry, projectRoot, {
+    files: planFiles,
+    noMutation: options.noMutation,
+    mutationDiffFiles,
+    reportsDir,
+  });
+  const subReport = generateSubReport(entry.framework, result, projectRoot, reportsDir, entry.root);
+  logResult(entry.framework, result);
+  return subReport;
+}
+
+// ---------------------------------------------------------------------------
 // Main handler
 // ---------------------------------------------------------------------------
 
@@ -123,30 +158,14 @@ export async function runTestExecution(options: TestExecutionOptions): Promise<n
   }
 
   const mutationDiffFiles = await resolveMutationDiffFiles(options.mutationDiffOnly, projectRoot);
-
   const reportsDir = resolveReportsDir(projectRoot, options.change);
   const subReports = [];
 
   for (const entry of planEntries) {
-    console.log(`Running ${entry.framework} tests in ${entry.directory}...`);
-    const planFiles = options.files
-      ?.map((filePath) => path.posix.relative(entry.directory, filePath))
-      .filter((filePath) => !filePath.startsWith('..'));
-    const result = executePlanEntry(entry, projectRoot, {
-      files: planFiles,
-      noMutation: options.noMutation,
-      mutationDiffFiles,
-      reportsDir,
-    });
-    const subReport = generateSubReport(
-      entry.framework,
-      result,
-      projectRoot,
-      reportsDir,
-      entry.directory,
-    );
-    logResult(entry.framework, result);
-    subReports.push(subReport);
+    const subReport = runPlanEntry(entry, projectRoot, options, mutationDiffFiles, reportsDir);
+    if (subReport) {
+      subReports.push(subReport);
+    }
   }
 
   const summaryReport = generateSummaryReport(subReports, projectRoot, reportsDir);

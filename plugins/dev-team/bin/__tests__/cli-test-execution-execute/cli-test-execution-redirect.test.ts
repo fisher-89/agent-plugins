@@ -61,7 +61,8 @@ describe('jest 原生文件通道', () => {
       });
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -105,7 +106,8 @@ describe('jest 原生文件通道', () => {
       });
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -140,7 +142,8 @@ describe('jest 原生文件通道', () => {
       );
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -190,7 +193,8 @@ describe('jest 原生文件通道', () => {
       });
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -245,7 +249,8 @@ describe('段级重定向框架（bun/go/pytest）', () => {
         });
         const result = executePlanEntry(
           {
-            directory: '.',
+            cwd: '.',
+            root: '.',
             framework,
             coverage_format: cfg.coverage_format,
             coverage_output: cfg.coverage_output,
@@ -279,7 +284,8 @@ describe('段级重定向框架（bun/go/pytest）', () => {
       });
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'bun',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,

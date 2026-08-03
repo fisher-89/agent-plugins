@@ -4,14 +4,11 @@ import { testFrameworkSchema } from './config/config.schema';
 import { projectRootSchema } from './public/project-root.schema';
 
 const testPlanSchema = z.object({
-  directory: z
+  cwd: z.string().describe('Working directory for command execution (relative to project root)'),
+  root: z
     .string()
-    .describe('Working directory for command execution (relative to project root)'),
-  scope: z
-    .string()
-    .optional()
     .describe(
-      'Suite root relative to directory (absCwd). CLI path filter when {files} is empty; "." when absRoot === absCwd',
+      'Suite test-tree root (relative to project root). File membership boundary; CLI path filter when {files} is empty is derived as root relative to cwd',
     ),
   framework: testFrameworkSchema.describe('Framework name'),
   coverage_format: z

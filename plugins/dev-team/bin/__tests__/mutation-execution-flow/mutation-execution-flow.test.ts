@@ -112,7 +112,8 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
 
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -173,7 +174,8 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       });
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -231,7 +233,8 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       });
       executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -292,7 +295,8 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       });
       const result = executePlanEntry(
         {
-          directory: '.',
+          cwd: '.',
+          root: '.',
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
@@ -321,7 +325,8 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       const reportsDir = path.join(project.root, 'reports', 'test');
       const cfg = getFrameworkConfig('vitest');
       const plan = {
-        directory: '.',
+        cwd: '.',
+        root: '.',
         framework: 'vitest' as const,
         coverage_format: cfg.coverage_format,
         coverage_output: cfg.coverage_output,

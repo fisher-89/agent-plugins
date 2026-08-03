@@ -441,7 +441,7 @@ describe('generateSubReport', () => {
 function createSubReport(overrides: Partial<TestExecutionSubReport> = {}): TestExecutionSubReport {
   return {
     framework: 'vitest',
-    directory: '.',
+    root: '.',
     timestamp: '2026-07-01T00:00:00.000Z',
     exit_code: 0,
     duration_ms: 500,
@@ -1177,7 +1177,7 @@ describe('generateSubReport / generateSummaryReport -- mutation 块', () => {
 
       const sub = createSubReport({
         framework: 'vitest',
-        directory: 'src/core',
+        root: 'src/core',
         source_files: [sfe('src/core/foo.ts'), sfe('src/utils/bar.ts')],
         mutation: {
           pass: true,
@@ -1499,7 +1499,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       // 匹配 default_glob 的测试文件可入 scope，mutation 阈值仍为 schema 默认 70
       const subTest = createSubReport({
         framework: 'vitest',
-        directory: 'src',
+        root: 'src',
         source_files: [sfe('src/foo.test.ts')],
         mutation: {
           pass: true,
@@ -1552,7 +1552,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       ]);
       const sub1 = createSubReport({
         framework: 'vitest',
-        directory: 'pkg-a',
+        root: 'pkg-a',
         source_files: [
           sfe('pkg-a/a.ts', {
             total_lines: 10,
@@ -1591,7 +1591,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       });
       const sub2 = createSubReport({
         framework: 'vite-plus',
-        directory: 'pkg-b',
+        root: 'pkg-b',
         source_files: [
           sfe('pkg-b/b.ts', {
             total_lines: 10,
@@ -1649,7 +1649,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       ]);
       const sub = createSubReport({
         framework: 'vitest',
-        directory: 'src',
+        root: 'src',
         source_files: [sfe('src/foo.ts')],
         coverage: {
           pass: true,
@@ -1790,7 +1790,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       ]);
       const sub = createSubReport({
         framework: 'vitest',
-        directory: 'src',
+        root: 'src',
         source_files: [sfe('src/foo.ts')],
         mutation: {
           pass: true,
@@ -1867,7 +1867,7 @@ describe('generateSubReport / generateSummaryReport — suite 阈值 (AC-5)', ()
       ]);
       const sub = createSubReport({
         framework: 'vitest',
-        directory: 'src',
+        root: 'src',
         source_files: [sfe('src/foo.ts')],
         mutation: {
           pass: true,
@@ -1921,7 +1921,7 @@ function expectPlanReportPath(
 }
 
 describe('derivePlanId (via generateSubReport)', () => {
-  it("directory='.' + framework='vitest' → 'vitest'（无前导 _、无 .json）", () => {
+  it("root='.' + framework='vitest' → 'vitest'（无前导 _、无 .json）", () => {
     const dir = createTempDir();
     try {
       const reportsDir = reportsTestDir(dir.root);
@@ -1933,7 +1933,7 @@ describe('derivePlanId (via generateSubReport)', () => {
     }
   });
 
-  it("directory='plugins/dev-team/bin' + framework='vite-plus' → 'plugins_dev-team_bin_vite-plus'", () => {
+  it("root='plugins/dev-team/bin' + framework='vite-plus' → 'plugins_dev-team_bin_vite-plus'", () => {
     const dir = createTempDir();
     try {
       expectPlanReportPath(
@@ -2179,7 +2179,7 @@ describe('generateSubReport / generateSummaryReport — 新报告布局', () => 
     }
   });
 
-  it('plans[] 每项含 id/framework/directory/path，无 status 字段', () => {
+  it('plans[] 每项含 id/framework/root/path，无 status 字段', () => {
     const dir = createTempDir();
     try {
       const reportsDir = reportsTestDir(dir.root);
@@ -2190,7 +2190,7 @@ describe('generateSubReport / generateSummaryReport — 新报告布局', () => 
       expect(plan).toEqual({
         id: 'vitest',
         framework: 'vitest',
-        directory: '.',
+        root: '.',
         path: expect.stringMatching(/reports\/test\/vitest$/),
       });
       expect(plan).not.toHaveProperty('status');
@@ -2678,7 +2678,7 @@ describe('generateSummaryReport -- suite 匹配', () => {
       expect(sub.coverage?.thresholds).toEqual({ lines: 55, branches: 55, functions: 55 });
 
       const summary = generateSummaryReport([sub], dir.root, reportsDir);
-      // summary 顶层阈值无 framework/directory → suites[0]（jest@pkg-a）
+      // summary 顶层阈值无 framework/root → suites[0]（jest@pkg-a）
       expect(summary.coverage?.thresholds.lines).toBe(91);
     } finally {
       dir.cleanup();
@@ -2749,7 +2749,7 @@ describe('generateSummaryReport -- formatCoverageFailure / raw override 杀变�
       ]);
       const sub = createSubReport({
         framework: 'vitest',
-        directory: '.',
+        root: '.',
         source_files: [
           sfe('src/a.ts', {
             total_lines: 100,
@@ -2796,7 +2796,7 @@ describe('generateSummaryReport -- formatCoverageFailure / raw override 杀变�
       ]);
       const sub = createSubReport({
         framework: 'vitest',
-        directory: '.',
+        root: '.',
         source_files: [
           sfe('src/a.ts', {
             total_lines: 100,
@@ -2841,7 +2841,7 @@ describe('generateSummaryReport -- formatCoverageFailure / raw override 杀变�
       ]);
       const sub = createSubReport({
         framework: 'vitest',
-        directory: '.',
+        root: '.',
         source_files: [
           sfe('src/a.ts', {
             total_lines: 100,
@@ -2886,7 +2886,7 @@ describe('generateSummaryReport -- formatCoverageFailure / raw override 杀变�
       ]);
       const sub = createSubReport({
         framework: 'vitest',
-        directory: 'pkg',
+        root: 'pkg',
         source_files: [
           sfe('pkg/zero.ts', {
             total_lines: 0,
@@ -2977,20 +2977,18 @@ describe('generateSummaryReport -- formatCoverageFailure / raw override 杀变�
     }
   });
 
-  it('framework+planDirectory 同时匹配 suite cwd 时阈值取该 suite（非仅 framework）', () => {
+  it('framework+planRoot 同时匹配 suite.root 时阈值取该 suite（非仅 framework）', () => {
     const dir = createTempDir();
     try {
       writeTestsConfig(dir.root, [
         {
-          root: 'apps',
-          cwd: 'web',
+          root: 'apps/web',
           framework: 'vitest',
           includes: ['**/*.ts'],
           coverage: { lines: 95, branches: 95, functions: 95 },
         },
         {
-          root: 'apps',
-          cwd: 'api',
+          root: 'apps/api',
           framework: 'vitest',
           includes: ['**/*.ts'],
           coverage: { lines: 60, branches: 60, functions: 60 },
