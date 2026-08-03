@@ -241,9 +241,9 @@ Suite 路径解析（`resolveSuite` / `resolveAllSuites`）与文件归属（`is
 **Priority**: MUST
 **Description**: Framework `test_execution` templates SHALL contain the placeholder `{config_args}` in each command segment that must receive the framework config flag（单命令框架一段即可；链式框架若将来支持则每段都含占位）。
 
-When a suite declares `config` and the framework's `FrameworkConfig.config_flag` is a nonempty string, plan/script generation at **execute**（经 `preparePlanArtifacts`）SHALL expand `{config_args}` to `` `${config_flag} ${relConfigPath}` `` where:
-- `absConfig = absRoot / suite.config`
-- `relConfigPath` = `path.relative(absCwd, absConfig)` 的 POSIX 形式（cwd=`"."` 时即为 `suite.config`）
+When a suite declares `config` and the framework's `FrameworkConfig.config_flag` is a nonempty string, plan/script generation at **execute**（经 `preparePlanArtifacts`）SHALL expand `{config_args}` to `` `${config_flag} "${absConfigPosix}"` `` where:
+- `absConfig = absRoot / suite.config`（绝对路径）
+- `absConfigPosix` = `absConfig` 的 POSIX 分隔符形式（`/`）；MUST NOT 再相对 `absCwd` 改写
 
 When suite 无 `config`，`{config_args}` SHALL expand to an empty string（保持框架自动发现行为）。
 
@@ -251,11 +251,12 @@ When suite 声明了 `config` 但框架 `config_flag` 为 `null`/缺省，plan/s
 
 SHALL NOT append `config_flag` + path to the end of the entire `test_execution` string（链式脚本如 pytest/rust 会只作用于最后一段或产生错误参数）。
 
-`script.shell` / `script.cmd` 仍先 `cd` 到 `plan.cwd`（非 `"."` 时），再执行已展开占位符的 test_execution。
+execute 以 `cwd=absCwd` 运行已展开占位符的 `test_execution`（detect 产出的 script 不烤死 `cd` 前缀）。
 
 **Changes from previous version**:
 - detect SHALL 保留 `{config_args}` / `{results_file}` / `{coverage_file}` / `{report_dir}` 等占位符，MUST NOT 在 detect 烤死 reportDir 相关路径
 - SHALL NOT 再向 script 注入 suite cwd 内 `coverage_cleanup`（`rm -rf coverage` 等）；跑前清空改为 execute 期清空该 plan 的 `reportDir`
+- `{config_args}` 展开为带引号的**绝对** POSIX config 路径（不再相对 absCwd）
 
 #### Scenario: vite-plus suite with config expands {config_args}
 
@@ -263,13 +264,14 @@ SHALL NOT append `config_flag` + path to the end of the entire `test_execution` 
 **AND** registry `config_flag` for vite-plus is `"--config"`
 **AND** the vite-plus template contains `{config_args}`
 **AND** execute 期完成占位符展开
-**THEN** 最终命令 SHALL contain `--config vite.config.ts`（或等价相对 cwd 路径）at the placeholder location
+**THEN** 最终命令 SHALL contain `--config "<absPosix>/vite.config.ts"`（绝对 POSIX 路径，带引号）at the placeholder location
 
-#### Scenario: parent cwd rewrites config path relative to absCwd
+#### Scenario: parent cwd still uses absolute config under absRoot
 
 **WHEN** suite is `{ root: "plugins/dev-team/bin/src", cwd: "..", framework: "vite-plus", config: "vite.config.ts" }`
-**THEN** absCwd is `plugins/dev-team/bin` and expanded config path SHALL be `"vite.config.ts"`（relative to absCwd）
-**AND** `script.shell` SHALL start with `cd plugins/dev-team/bin`（or equivalent）
+**THEN** absCwd is `plugins/dev-team/bin` and absRoot is `plugins/dev-team/bin/src`
+**AND** expanded `{config_args}` SHALL 指向 `absRoot/vite.config.ts` 的绝对 POSIX 路径（带引号），MUST NOT 仅展开为相对 absCwd 的 `"vite.config.ts"`
+**AND** execute SHALL 以 `cwd=absCwd` 运行命令
 
 #### Scenario: suite without config leaves {config_args} empty
 
@@ -299,19 +301,19 @@ SHALL NOT append `config_flag` + path to the end of the entire `test_execution` 
 
 **ID**: REQ-TDF-TEF-1
 **Priority**: MUST
-**Description**: 各框架 `test_execution` 模板 SHALL 按需包含文件通道占位符：`{results_file}`、`{coverage_file}`、`{report_dir}`、`{config_args}`（及 go 等需要的 `{coverprofile_file}` 等）。原生 outputFile 族模板 SHALL 将输出旗标指向这些占位符；无原生结果文件的测试段由 execute 条件追加 `>`，模板本身可不硬编码重定向。
+**Description**: 各框架 `test_execution` 模板 SHALL 按需包含文件通道占位符：`{results_file}`、`{coverage_file}`、`{report_dir}`、`{config_args}`（及 go 等需要的 `{coverprofile_file}` 等）。原生 outputFile 族模板 SHALL 将输出旗标指向这些占位符，且路径旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`、`--coverageDirectory="{report_dir}"`）；无原生结果文件的测试段由 execute 条件追加 `> "{results_file}"`，模板本身可不硬编码重定向。
 
 #### Scenario: jest template uses outputFile placeholder
 
 **WHEN** 读取 jest 的 `test_execution` 模板
-**THEN** 模板 SHALL 包含将 JSON 结果写到文件的旗标，且路径使用 `{results_file}`（或经 prepare 替换的等价占位）
-**AND** 模板 SHALL 将 coverage 目录/文件指向 `{report_dir}` / `{coverage_file}`
+**THEN** 模板 SHALL 包含将 JSON 结果写到文件的旗标，且路径使用带引号的 `{results_file}`（如 `--outputFile="{results_file}"`）
+**AND** 模板 SHALL 将 coverage 目录指向带引号的 `{report_dir}`（如 `--coverageDirectory="{report_dir}"`）
 
 #### Scenario: execute substitutes placeholders from preparePlanArtifacts
 
 **WHEN** execute 持有 `preparePlanArtifacts` 返回的 placeholders
 **THEN** SHALL 替换 script 中的 `{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` 等
-**AND** 替换后的路径 SHALL 落在该 plan 的 `reportDir` 内（或指向其内文件）
+**AND** 替换后的 report 相关路径 SHALL 为指向该 plan `reportDir`（或其内文件）的**绝对** POSIX 路径
 
 ### Requirement: File-to-framework matching uses suite scope
 
@@ -363,7 +365,7 @@ SHALL NOT append `config_flag` + path to the end of the entire `test_execution` 
 | **Removed** | `normalizeFrameworks(framework, overrides)` 旧签名；`deriveWorkingDirectory` 作为 cwd 来源 |
 | **Plan fields** | `cwd`（absCwd 相对项目根）, `root`（absRoot 相对项目根）, `framework`, coverage 元数据（`coverage_output` 相对 reportDir；`coverage_format` 含 bun→`lcov`）, `mutation_framework`, `mutation_score`, `script: { shell, cmd }` |
 | **Shared lib** | `lib/test-plan.ts`：`resolveAllSuites` / `isInSuiteScope` / `derivePlanId` / `resolvePlanFiles` / `findSuite` |
-| **Script** | `cd` → `test_execution` with report/file-channel placeholders kept unexpanded at detect；`{config_args}` / report paths expanded at execute（not whole-string append）；不再注入 suite cwd `coverage_cleanup` |
+| **Script** | report/file-channel placeholders kept unexpanded at detect；execute 以 `cwd=absCwd` 展开 `{config_args}`（绝对 POSIX + 引号）与 report 路径占位符（绝对 POSIX）；不再注入 suite cwd `coverage_cleanup` |
 | **Behavior change** | detect 产出带 report 相关占位符的 script；不烤死 reportDir；不再注入 suite cwd `coverage_cleanup` |
 
 ### Function: buildPlanFromSuites（名称可调整）

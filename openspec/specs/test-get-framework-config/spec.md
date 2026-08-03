@@ -229,13 +229,13 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 
 **WHEN** framework 为 `jest` / `vitest` / `vite-plus`
 **AND** suite 提供 `config`
-**THEN** execute 展开后命令 SHALL 在 `{config_args}` 位置包含 `config_flag` 与相对 cwd 的 config 路径
+**THEN** execute 展开后命令 SHALL 在 `{config_args}` 位置包含 `config_flag` 与带引号的绝对 POSIX config 路径（如 `--config "<abs>/vite.config.ts"`）
 
 #### Scenario: bun supports config injection for plan artifacts
 
 **WHEN** framework 为 `bun`
 **AND** prepare 需要临时 bunfig
-**THEN** registry/prepare 路径 SHALL 允许将 `--config <temp>` 注入命令
+**THEN** registry/prepare 路径 SHALL 允许将 `--config "<absTempBunfig>"`（绝对 POSIX，带引号）注入命令
 **AND** 用户长期 bunfig SHALL 仅被只读 overlay，不被修改
 
 ### Requirement: Registry aligns coverage paths to reportDir file channel
@@ -244,7 +244,7 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 **Priority**: MUST
 **Description**: `FRAMEWORK_REGISTRY` 中各框架的 `coverage_output` SHALL 改为相对 **reportDir** 的垂直约定文件名（不再使用 suite cwd 下 `coverage/...` 旧路径）。`coverage_format` 枚举 SHALL 支持 `'lcov'`（供 bun）。`shell` / `cmd` 下的 `coverage_cleanup` 列表语义 SHALL 废弃（产物不再落 suite cwd；execute 清空 reportDir）。
 
-`test_execution` 模板 SHALL 含文件通道占位符（`{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` 等），并按框架选择原生文件输出旗标或交由 execute 条件 `>`。
+`test_execution` 模板 SHALL 含文件通道占位符（`{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` 等），并按框架选择原生文件输出旗标或交由 execute 条件 `>`。路径类旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`）。execute 展开后这些路径 SHALL 为绝对 POSIX 形式。
 
 #### Scenario: vitest coverage_output is reportDir-relative
 
@@ -256,7 +256,7 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 
 **WHEN** 读取 jest `shell.test_execution` / `cmd.test_execution` 模板字符串
 **THEN** 模板 SHALL 包含原生 JSON 文件输出旗标与 coverage 目录/reporter 旗标
-**AND** 路径位置 SHALL 使用 `{results_file}` / `{report_dir}`（或等价占位符）
+**AND** 路径位置 SHALL 使用带引号的 `{results_file}` / `{report_dir}`（如 `--outputFile="{results_file}"`、`--coverageDirectory="{report_dir}"`）
 
 ### Requirement: bun registry uses lcov and explicit config
 
@@ -303,7 +303,7 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 | File | `plugins/dev-team/bin/src/lib/test-framework.ts` |
 | coverage_format | 增加 `'lcov'`；bun 使用 `lcov` |
 | coverage_output | 相对 reportDir 的垂直文件名 |
-| templates | 含 `{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` |
+| templates | 含带引号路径占位的 `{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}`；execute 展开为绝对 POSIX |
 | coverage_cleanup | 语义废弃（不再驱动 suite cwd cleanup） |
 | bun config_flag | 支持显式 config / prepare 特化 |
 | Consumers | `commands/test-detect-frameworks.ts` / execute `preparePlanArtifacts` |

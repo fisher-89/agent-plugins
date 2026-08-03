@@ -131,10 +131,11 @@
 **Description**: `executePlanEntry` SHALL 在运行测试命令前调用 `preparePlanArtifacts`：
 1. 决议 `reportDir`；`mkdir`；清空**该** `reportDir` 内既有内容（不影响其他 plan）
 2. 返回 `configArgs`、`placeholders`（至少含 `report_dir`、`results_file`、`coverage_file`）、`redirectStdoutToResults`、`tempPaths`
-3. 展开占位符后，若 `redirectStdoutToResults === true`，SHALL 对测试结果段追加壳层 `> "{results_file}"`；若为 false（原生 outputFile 族），SHALL NOT 追加
-4. 执行结束后 best-effort 删除 `tempPaths`（失败不阻断报告）
+3. `placeholders` 中的路径 SHALL 为指向 `reportDir`（或其内文件）的**绝对** POSIX 路径（`/` 分隔）；`configArgs`（含用户 config 与 bun 临时 bunfig）SHALL 为 `` `${config_flag} "<absPosix>"` ``
+4. 展开占位符后，若 `redirectStdoutToResults === true`，SHALL 对测试结果段追加壳层 `> "{results_file}"`；若为 false（原生 outputFile 族），SHALL NOT 追加
+5. 执行结束后 best-effort 删除 `tempPaths`（失败不阻断报告）
 
-临时测试 config / bunfig SHALL 仅在 CLI 无法把产物指到 plan 目录时创建（默认仅 bun）；临时文件落在 suite cwd，用后删除；MUST NOT 修改用户长期 config / bunfig。
+临时测试 config / bunfig SHALL 仅在 CLI 无法把产物指到 plan 目录时创建（默认仅 bun）；临时文件落在 suite cwd，用后删除；MUST NOT 修改用户长期 config / bunfig。bun 临时 bunfig 的 `coverageDir` SHALL 使用绝对 POSIX `report_dir`。
 
 prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写 `report.json` 并进入 `plans[]`。
 
@@ -150,13 +151,20 @@ prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写
 **WHEN** framework 为 `jest`（或其它 `redirectStdoutToResults=false` 的框架）
 **AND** `preparePlanArtifacts` 返回后拼命令
 **THEN** 最终命令 SHALL NOT 以壳层 `> "{results_file}"` 追加测试结果段
-**AND** 命令 SHALL 含框架原生文件输出旗标指向 planDir 内垂直结果文件
+**AND** 命令 SHALL 含框架原生文件输出旗标，且路径为指向 planDir 内垂直结果文件的绝对 POSIX 值（模板侧带引号）
+
+#### Scenario: placeholders and configArgs use absolute POSIX paths
+
+**WHEN** `preparePlanArtifacts` 为任一框架返回 placeholders / configArgs
+**THEN** `report_dir` / `results_file` / `coverage_file`（及适用的 `coverprofile_file`）SHALL 为绝对 POSIX 路径
+**AND** 若注入 `--config`，路径 SHALL 为带引号的绝对 POSIX 路径
+**AND** MUST NOT 将上述路径展开为相对 absCwd 的形式（避免 jest/vitest 等按 config root 二次解析产生歧义）
 
 #### Scenario: redirect frameworks append shell redirect
 
 **WHEN** framework 为 `bun` / `go` / `node-test` 等无原生结果文件输出的测试段
 **AND** `redirectStdoutToResults` 为 `true`
-**THEN** 最终命令的测试结果段 SHALL 追加 `> "{results_file}"`（或 Windows cmd 等价重定向）
+**THEN** 最终命令的测试结果段 SHALL 追加 `> "{results_file}"`（或 Windows cmd 等价重定向；`results_file` 为绝对 POSIX）
 
 #### Scenario: temp files cleaned up after execute
 
