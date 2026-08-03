@@ -90,9 +90,9 @@ describe('getGitDiffFiles', () => {
     const files = await getGitDiffFiles(PROJECT_ROOT);
 
     expect(files).toEqual(['new.ts', 'other.ts']);
-    expect(mockGit.add).toHaveBeenCalledWith(['-N', 'new.ts', 'other.ts']);
+    expect(mockGit.add).toHaveBeenCalledWith(['-N', ':/new.ts', ':/other.ts']);
     expect(mockGit.diffSummary).toHaveBeenCalledWith(['HEAD', '--name-only', '--relative']);
-    expect(mockGit.reset).toHaveBeenCalledWith(['new.ts', 'other.ts']);
+    expect(mockGit.reset).toHaveBeenCalledWith([':/new.ts', ':/other.ts']);
     expect(mockGit.add.mock.invocationCallOrder[0]).toBeLessThan(
       mockGit.diffSummary.mock.invocationCallOrder[0],
     );
@@ -106,8 +106,8 @@ describe('getGitDiffFiles', () => {
     mockGit.diffSummary.mockRejectedValue(new Error('diff failed'));
 
     await expect(getGitDiffFiles(PROJECT_ROOT)).rejects.toThrow('diff failed');
-    expect(mockGit.add).toHaveBeenCalledWith(['-N', 'new.ts']);
-    expect(mockGit.reset).toHaveBeenCalledWith(['new.ts']);
+    expect(mockGit.add).toHaveBeenCalledWith(['-N', ':/new.ts']);
+    expect(mockGit.reset).toHaveBeenCalledWith([':/new.ts']);
   });
 
   it('simpleGit 同步抛异常时应向外抛出', async () => {

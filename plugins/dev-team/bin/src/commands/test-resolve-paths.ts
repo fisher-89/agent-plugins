@@ -8,6 +8,7 @@ import { readConfig } from '../lib/config';
 import { toForwardSlash } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded } from '../lib/test-exclude';
+import { deriveUnitTestPath, isSourceFile, isTestFile } from '../lib/test-path-naming';
 import { isInSuiteScope } from '../lib/test-plan';
 import type { OpenSpecConfig, unitTestEntrySchema } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
@@ -37,24 +38,6 @@ export interface TestResolvePathsInput {
   modules: string[] | 'git-change';
   project_root?: string | null;
 }
-
-// ---------------------------------------------------------------------------
-// Constants
-// ---------------------------------------------------------------------------
-
-const SOURCE_EXTENSIONS = new Set([
-  '.ts',
-  '.tsx',
-  '.js',
-  '.jsx',
-  '.mjs',
-  '.cjs',
-  '.py',
-  '.go',
-  '.rs',
-]);
-
-const JS_TS_EXTENSIONS = new Set(['.ts', '.tsx', '.js', '.jsx', '.mjs', '.cjs']);
 
 // ---------------------------------------------------------------------------
 // Pure helpers
@@ -98,50 +81,6 @@ function isWithinProjectRoot(projectRoot: string, inputPath: string): boolean {
     : path.resolve(resolvedRoot, inputPath);
   const relative = path.relative(resolvedRoot, resolvedPath);
   return !relative.startsWith('..') && !path.isAbsolute(relative);
-}
-
-/** Detect existing test files by naming convention. */
-function isTestFile(filePath: string): boolean {
-  const base = path.posix.basename(filePath.replace(/\\/g, '/'));
-  if (/\.test\./.test(base)) return true;
-  if (/^test_.*\.py$/.test(base)) return true;
-  if (/.*_test\.go$/.test(base)) return true;
-  if (/.*_tests?\.rs$/.test(base)) return true;
-  return false;
-}
-
-/** Return true when the file extension is in the testable source set (excludes test files). */
-function isSourceFile(filePath: string): boolean {
-  if (isTestFile(filePath)) return false;
-  const ext = path.posix.extname(filePath.replace(/\\/g, '/')).toLowerCase();
-  return SOURCE_EXTENSIONS.has(ext);
-}
-
-/**
- * Derive the colocated unit test path for a source file.
- * Rules align with test-gen-generator colocated naming table.
- */
-function deriveUnitTestPath(sourcePath: string): string {
-  const posix = sourcePath.replace(/\\/g, '/');
-  const dir = path.posix.dirname(posix);
-  const base = path.posix.basename(posix);
-  const ext = path.posix.extname(base);
-  const basename = base.slice(0, base.length - ext.length);
-
-  let testName: string;
-  if (JS_TS_EXTENSIONS.has(ext)) {
-    testName = `${basename}.test${ext}`;
-  } else if (ext === '.py') {
-    testName = `test_${basename}.py`;
-  } else if (ext === '.go') {
-    testName = `${basename}_test.go`;
-  } else if (ext === '.rs') {
-    testName = `${basename}_test.rs`;
-  } else {
-    testName = base;
-  }
-
-  return dir === '.' ? testName : `${dir}/${testName}`;
 }
 
 // ---------------------------------------------------------------------------

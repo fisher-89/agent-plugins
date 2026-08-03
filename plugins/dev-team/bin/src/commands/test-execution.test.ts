@@ -1530,6 +1530,57 @@ describe('runTestExecution — mutationDiffOnly 路径过滤', () => {
     }
   });
 
+  it('mutationDiffOnly: true 且 diff 仅含测试文件时，mutationDiffFiles 含反推源文件', async () => {
+    const project = createTempProject();
+    try {
+      mockDetectFrameworks.mockReturnValue({
+        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
+        plan: [makePlanEntry()],
+      });
+      mockGetGitDiffFiles.mockResolvedValue([
+        'src/foo.test.ts',
+        'src/bar_test.go',
+        'openspec/x.md',
+      ]);
+      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+      mockGenerateSubReport.mockReturnValue(makeSubReport());
+      mockGenerateSummaryReport.mockReturnValue({
+        phase: 'test-execution',
+        command: 'dev-team test-execution',
+        timestamp: '2026-07-01T00:00:00.000Z',
+        duration_seconds: 1,
+        total: 1,
+        passed: 1,
+        failed: 0,
+        skipped: 0,
+        conclusion: 'pass',
+        problems: [],
+        coverage: null,
+      });
+
+      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
+
+      const abs = (rel: string) => path.resolve(project.root, rel).replace(/\\/g, '/');
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({
+          mutationDiffFiles: expect.arrayContaining([
+            abs('src/foo.test.ts'),
+            abs('src/foo.ts'),
+            abs('src/bar_test.go'),
+            abs('src/bar.go'),
+            abs('openspec/x.md'),
+          ]),
+        }),
+      );
+      const passed = mockExecutePlanEntry.mock.calls[0][2].mutationDiffFiles as string[];
+      expect(passed).toHaveLength(5);
+    } finally {
+      project.cleanup();
+    }
+  });
+
   it('mutationDiffOnly: true 时 stdout 含精确前缀 --mutation-diff-only: 与文件数量', async () => {
     const project = createTempProject();
     const logs: string[] = [];

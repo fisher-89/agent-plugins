@@ -32,7 +32,7 @@ export async function getGitDiffFiles(projectRoot: string): Promise<string[]> {
     }
 
     const status = await git.status();
-    untrackedFiles = status.not_added;
+    untrackedFiles = status.not_added.map((filePath) => `:/${filePath}`);
 
     if (untrackedFiles.length > 0) {
       await git.add(['-N', ...untrackedFiles]);

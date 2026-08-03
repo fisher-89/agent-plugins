@@ -12,6 +12,7 @@ import * as path from 'path';
 
 import { getGitDiffFiles } from '../lib/git';
 import { getProjectDir } from '../lib/project-root';
+import { deriveSourcePathFromTestFile } from '../lib/test-path-naming';
 import { resolvePlanFiles } from '../lib/test-plan';
 import { generateSubReport, generateSummaryReport } from '../lib/test-report';
 import { executePlanEntry } from '../lib/test-runner';
@@ -49,7 +50,26 @@ function resolveReportsDir(projectRoot: string, change?: string): string {
 // ---------------------------------------------------------------------------
 
 /**
+ * Expand mutation-diff paths so test-file entries also contribute their
+ * colocated sources (via test-path-naming reverse mapping).
+ */
+function expandMutationDiffWithInferredSources(files: string[]): string[] {
+  const result = new Set<string>();
+  for (const file of files) {
+    const posix = file.replace(/\\/g, '/');
+    result.add(posix);
+    const source = deriveSourcePathFromTestFile(posix);
+    if (source) {
+      result.add(source);
+    }
+  }
+  return Array.from(result);
+}
+
+/**
  * Resolve git diff file list when --mutation-diff-only is enabled.
+ * Test-file diffs are reverse-mapped to colocated sources so those sources
+ * enter the mutation intersection.
  * Returns undefined when the option is not active.
  */
 async function resolveMutationDiffFiles(
@@ -61,7 +81,8 @@ async function resolveMutationDiffFiles(
   console.log(
     `--mutation-diff-only: ${files.length} files in working tree diff (${files.slice(0, 5).join(', ')})`,
   );
-  return files.map((file) => path.resolve(projectRoot, file).replace(/\\/g, '/'));
+  const absolute = files.map((file) => path.resolve(projectRoot, file).replace(/\\/g, '/'));
+  return expandMutationDiffWithInferredSources(absolute);
 }
 
 // ---------------------------------------------------------------------------
