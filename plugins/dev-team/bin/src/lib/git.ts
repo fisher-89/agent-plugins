@@ -38,7 +38,7 @@ export async function getGitDiffFiles(projectRoot: string): Promise<string[]> {
       await git.add(['-N', ...untrackedFiles]);
     }
 
-    const { files } = await git.diffSummary(['HEAD', '--name-only']);
+    const { files } = await git.diffSummary(['HEAD', '--name-only', '--relative']);
 
     return files.map(({ file }) => file);
   } finally {

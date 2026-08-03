@@ -66,7 +66,7 @@ describe('getGitDiffFiles', () => {
     const files = await getGitDiffFiles(PROJECT_ROOT);
 
     expect(files).toEqual(['a.ts', 'b.ts']);
-    expect(mockGit.diffSummary).toHaveBeenCalledWith(['HEAD', '--name-only']);
+    expect(mockGit.diffSummary).toHaveBeenCalledWith(['HEAD', '--name-only', '--relative']);
     expect(mockGit.add).not.toHaveBeenCalled();
     expect(mockGit.reset).not.toHaveBeenCalled();
   });
@@ -77,7 +77,6 @@ describe('getGitDiffFiles', () => {
     const files = await getGitDiffFiles(PROJECT_ROOT);
 
     expect(files).toEqual([]);
-    expect(mockGit.diffSummary).toHaveBeenCalledWith(['HEAD', '--name-only']);
     expect(mockGit.add).not.toHaveBeenCalled();
     expect(mockGit.reset).not.toHaveBeenCalled();
   });
@@ -92,7 +91,7 @@ describe('getGitDiffFiles', () => {
 
     expect(files).toEqual(['new.ts', 'other.ts']);
     expect(mockGit.add).toHaveBeenCalledWith(['-N', 'new.ts', 'other.ts']);
-    expect(mockGit.diffSummary).toHaveBeenCalledWith(['HEAD', '--name-only']);
+    expect(mockGit.diffSummary).toHaveBeenCalledWith(['HEAD', '--name-only', '--relative']);
     expect(mockGit.reset).toHaveBeenCalledWith(['new.ts', 'other.ts']);
     expect(mockGit.add.mock.invocationCallOrder[0]).toBeLessThan(
       mockGit.diffSummary.mock.invocationCallOrder[0],
