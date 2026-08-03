@@ -141,7 +141,8 @@ describe('executePlanEntry', () => {
       });
       executePlanEntry(makePlan({ framework: 'bun' }), dir.root, { reportsDir });
       const cmd = capturedCmd();
-      expect(cmd).toContain('--config');
+      const absRoot = path.resolve(dir.root).replace(/\\/g, '/');
+      expect(cmd).toContain(`--config "${absRoot}/bunfig.dev-team-`);
       expect(cmd).toMatch(/>\s*"/);
       expect(seenTempBunfig).toBeTruthy();
       expect(fs.existsSync(seenTempBunfig!)).toBe(false);
@@ -263,6 +264,27 @@ describe('executePlanEntry', () => {
       expect(cmd).toContain('--outputFile=');
       expect(cmd).toContain('results.json');
       expect(cmd).not.toMatch(/>\s*"/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('jest --coverageDirectory / --outputFile 使用带引号的绝对路径', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'jest');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(planDir);
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'jest' }), dir.root, { reportsDir });
+      const cmd = capturedCmd();
+      const absPlanDir = path.resolve(planDir).replace(/\\/g, '/');
+      const absResults = `${absPlanDir}/results.json`;
+      expect(cmd).toContain(`--coverageDirectory="${absPlanDir}"`);
+      expect(cmd).toContain(`--outputFile="${absResults}"`);
+      expect(cmd).not.toMatch(/--coverageDirectory="?reports\//);
     } finally {
       dir.cleanup();
     }
@@ -567,12 +589,12 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
     vi.restoreAllMocks();
   });
 
-  it('捕获 cmd：results_file/report_dir/coverage_file/coverprofile_file 已替换为相对 absCwd 的 POSIX 路径', () => {
+  it('捕获 cmd：results_file/coverage_file/coverprofile_file 已替换为带引号的绝对 POSIX 路径', () => {
     const dir = createTempDir();
     try {
       const reportsDir = path.join(dir.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'go');
       mockExecSync.mockImplementation(() => {
-        const planDir = path.join(reportsDir, 'go');
         fs.mkdirSync(planDir, { recursive: true });
         fs.writeFileSync(
           path.join(planDir, 'results.ndjson'),
@@ -585,14 +607,14 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         reportsDir,
       });
       const cmd = capturedCmd();
+      const absPlan = path.resolve(planDir).replace(/\\/g, '/');
       expect(cmd).not.toContain('{results_file}');
-      expect(cmd).not.toContain('{report_dir}');
       expect(cmd).not.toContain('{coverage_file}');
       expect(cmd).not.toContain('{coverprofile_file}');
-      expect(cmd).toContain('results.ndjson');
-      expect(cmd).toContain('func-summary.txt');
-      expect(cmd).toContain('coverage.out');
-      expect(cmd).toMatch(/reports\/test\/go|reports\\test\\go/);
+      expect(cmd).toContain(`-coverprofile="${absPlan}/coverage.out"`);
+      expect(cmd).toContain(`-func="${absPlan}/coverage.out"`);
+      expect(cmd).toContain(`> "${absPlan}/func-summary.txt"`);
+      expect(cmd).toContain(`> "${absPlan}/results.ndjson"`);
     } finally {
       dir.cleanup();
     }
@@ -702,8 +724,8 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
         return '';
       });
       executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
-      expect(capturedCmd()).toContain('--config');
-      expect(capturedCmd()).toContain('vitest.config.ts');
+      const absConfig = path.resolve(dir.root, 'vitest.config.ts').replace(/\\/g, '/');
+      expect(capturedCmd()).toContain(`--config "${absConfig}"`);
 
       mockExecSync.mockReset();
       mockExecSync.mockImplementation(() => {
@@ -778,7 +800,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
       executePlanEntry(makePlan({ framework: 'pytest' }), dir.root, { reportsDir });
       const pyCmd = capturedCmd();
       expect(pyCmd).toMatch(/pytest[\s\S]*?>\s*"[^"]*results\.txt"/);
-      expect(pyCmd).toContain('--cov-report=json:');
+      expect(pyCmd).toContain('--cov-report="json:');
       const redir = pyCmd.search(/>\s*"[^"]*results\.txt"/);
       const cov = pyCmd.indexOf('--cov');
       expect(cov).toBeGreaterThan(redir);
@@ -1500,7 +1522,7 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
     }
   });
 
-  it('无 config 时剥离 {config_args} 不留双空格；有 config 时替换为 --config <path>', () => {
+  it('无 config 时剥离 {config_args} 不留双空格；有 config 时替换为 --config "<绝对路径>"', () => {
     const dir = createTempDir();
     try {
       const reportsDir = path.join(dir.root, 'reports', 'test');
@@ -1537,7 +1559,8 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
         reportsDir,
       });
       const withCfg = String(mockExecSync.mock.calls[0]?.[0] ?? '');
-      expect(withCfg).toMatch(/--config\s+\S*vite\.config\.ts/);
+      const absConfig = path.resolve(dir.root, 'vite.config.ts').replace(/\\/g, '/');
+      expect(withCfg).toContain(`--config "${absConfig}"`);
       expect(withCfg).not.toContain('{config_args}');
     } finally {
       dir.cleanup();

@@ -43,12 +43,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'npx jest --version',
     shell: {
       test_execution: (version) =>
-        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile={results_file} --silent --coverage --coverageDirectory={report_dir} --coverageReporters=json-summary {config_args} {files}`,
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
       test_execution: (version) =>
-        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile={results_file} --silent --coverage --coverageDirectory={report_dir} --coverageReporters=json-summary {config_args} {files}`,
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
       mutation_execution: 'npx stryker run "{config}"',
     },
     coverage_format: 'istanbul',
@@ -62,12 +62,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'npx vitest --version',
     shell: {
       test_execution: () =>
-        'npx vitest run --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+        'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
       test_execution: () =>
-        'npx vitest run --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+        'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: 'npx stryker run "{config}"',
     },
     coverage_format: 'istanbul',
@@ -81,12 +81,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'vp --version',
     shell: {
       test_execution: () =>
-        'vp test --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+        'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: 'npx stryker run "{config}"',
     },
     cmd: {
       test_execution: () =>
-        'vp test --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+        'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: 'npx stryker run "{config}"',
     },
     coverage_format: 'istanbul',
@@ -115,11 +115,11 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'cargo --version',
     shell: {
       test_execution: () =>
-        'cargo test; _X=$?; cargo llvm-cov --json --output-path {coverage_file}; exit $_X',
+        'cargo test; _X=$?; cargo llvm-cov --json --output-path "{coverage_file}"; exit $_X',
     },
     cmd: {
       test_execution: () =>
-        'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path {coverage_file} & exit /b %_X%',
+        'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path "{coverage_file}" & exit /b %_X%',
     },
     coverage_format: 'llvm-cov',
     coverage_output: 'coverage-summary.json',
@@ -147,11 +147,11 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'go version',
     shell: {
       test_execution: () =>
-        'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory}; _X=$?; go tool cover -func={coverprofile_file} > {coverage_file}; exit $_X',
+        'go test -json -coverprofile="{coverprofile_file}" -covermode=atomic {directory}; _X=$?; go tool cover -func="{coverprofile_file}" > "{coverage_file}"; exit $_X',
     },
     cmd: {
       test_execution: () =>
-        'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory} & if errorlevel 1 set _X=%errorlevel% & go tool cover -func={coverprofile_file} > {coverage_file} & exit /b %_X%',
+        'go test -json -coverprofile="{coverprofile_file}" -covermode=atomic {directory} & if errorlevel 1 set _X=%errorlevel% & go tool cover -func="{coverprofile_file}" > "{coverage_file}" & exit /b %_X%',
     },
     coverage_format: 'go-cover',
     coverage_output: 'func-summary.txt',
@@ -164,11 +164,11 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'pytest --version',
     shell: {
       test_execution: () =>
-        'pytest -v {files}; pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+        'pytest -v {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
     },
     cmd: {
       test_execution: () =>
-        'pytest -v {files} && pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+        'pytest -v {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
     },
     coverage_format: 'coverage-py',
     coverage_output: 'coverage.json',

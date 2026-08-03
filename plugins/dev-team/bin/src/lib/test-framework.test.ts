@@ -135,10 +135,10 @@ describe('getFrameworkConfig -- 模板字面量', () => {
       expect(cmd).toContain('--randomize');
       expect(cmd).toContain('--no-verbose');
       expect(cmd).toContain('--json');
-      expect(cmd).toContain('--outputFile={results_file}');
+      expect(cmd).toContain('--outputFile="{results_file}"');
       expect(cmd).toContain('--silent');
       expect(cmd).toContain('--coverage');
-      expect(cmd).toContain('--coverageDirectory={report_dir}');
+      expect(cmd).toContain('--coverageDirectory="{report_dir}"');
       expect(cmd).toContain('--coverageReporters=json-summary');
       expect(cmd).toContain('{config_args}');
       expect(cmd).toContain('{files}');
@@ -153,8 +153,8 @@ describe('getFrameworkConfig -- 模板字面量', () => {
       expect(cmd).toContain('npx vitest run');
       expect(cmd).toContain('--sequence.shuffle');
       expect(cmd).toContain('--reporter=json');
-      expect(cmd).toContain('--outputFile={results_file}');
-      expect(cmd).toContain('--coverage.reportsDirectory={report_dir}');
+      expect(cmd).toContain('--outputFile="{results_file}"');
+      expect(cmd).toContain('--coverage.reportsDirectory="{report_dir}"');
       expect(cmd).toContain('--coverage.reporter=json-summary');
     }
 
@@ -164,8 +164,8 @@ describe('getFrameworkConfig -- 模板字面量', () => {
       expect(cmd).toContain('vp test');
       expect(cmd).toContain('--sequence.shuffle');
       expect(cmd).toContain('--reporter=json');
-      expect(cmd).toContain('--outputFile={results_file}');
-      expect(cmd).toContain('--coverage.reportsDirectory={report_dir}');
+      expect(cmd).toContain('--outputFile="{results_file}"');
+      expect(cmd).toContain('--coverage.reportsDirectory="{report_dir}"');
       expect(cmd).toContain('--coverage.reporter=json-summary');
     }
   });
@@ -180,38 +180,38 @@ describe('getFrameworkConfig -- 模板字面量', () => {
     const cfg = getFrameworkConfig('go');
     const shell = te(cfg.shell.test_execution);
     expect(shell).toContain(
-      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory}',
+      'go test -json -coverprofile="{coverprofile_file}" -covermode=atomic {directory}',
     );
-    expect(shell).toContain('go tool cover -func={coverprofile_file} > {coverage_file}');
+    expect(shell).toContain('go tool cover -func="{coverprofile_file}" > "{coverage_file}"');
     expect(shell).toContain('; _X=$?;');
     expect(shell).toContain('exit $_X');
 
     const cmd = te(cfg.cmd.test_execution);
     expect(cmd).toContain(
-      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory}',
+      'go test -json -coverprofile="{coverprofile_file}" -covermode=atomic {directory}',
     );
     expect(cmd).toContain('& if errorlevel 1 set _X=%errorlevel%');
-    expect(cmd).toContain('go tool cover -func={coverprofile_file} > {coverage_file}');
+    expect(cmd).toContain('go tool cover -func="{coverprofile_file}" > "{coverage_file}"');
     expect(cmd).toContain('exit /b %_X%');
   });
 
   it('rust shell 含 cargo test; 与 llvm-cov；pytest shell 用 ;、cmd 用 &&', () => {
     const rustShell = te(getFrameworkConfig('rust').shell.test_execution);
     expect(rustShell).toContain('cargo test;');
-    expect(rustShell).toContain('cargo llvm-cov --json --output-path {coverage_file}');
+    expect(rustShell).toContain('cargo llvm-cov --json --output-path "{coverage_file}"');
 
     const rustCmd = te(getFrameworkConfig('rust').cmd.test_execution);
     expect(rustCmd).toContain('cargo test &');
-    expect(rustCmd).toContain('cargo llvm-cov --json --output-path {coverage_file}');
+    expect(rustCmd).toContain('cargo llvm-cov --json --output-path "{coverage_file}"');
     expect(rustCmd).toContain('exit /b %_X%');
 
     const pyShell = te(getFrameworkConfig('pytest').shell.test_execution);
     expect(pyShell).toBe(
-      'pytest -v {files}; pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+      'pytest -v {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
     );
     const pyCmd = te(getFrameworkConfig('pytest').cmd.test_execution);
     expect(pyCmd).toBe(
-      'pytest -v {files} && pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+      'pytest -v {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
     );
   });
 
@@ -386,17 +386,17 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
     expect(typeof jestCfg.shell.test_execution).toBe('function');
     expect(typeof jestCfg.cmd.test_execution).toBe('function');
     expect(jestCfg.shell.test_execution('29.5.0')).toBe(
-      'npx jest --randomize --no-verbose --json --outputFile={results_file} --silent --coverage --coverageDirectory={report_dir} --coverageReporters=json-summary {config_args} {files}',
+      'npx jest --randomize --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}',
     );
     expect(jestCfg.shell.test_execution('29.4.9')).toBe(
-      'npx jest --no-verbose --json --outputFile={results_file} --silent --coverage --coverageDirectory={report_dir} --coverageReporters=json-summary {config_args} {files}',
+      'npx jest --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}',
     );
     expect(jestCfg.cmd.test_execution('29.5.0')).toBe(jestCfg.shell.test_execution('29.5.0'));
     expect(jestCfg.cmd.test_execution('29.4.9')).toBe(jestCfg.shell.test_execution('29.4.9'));
 
     const vitestCfg = getFrameworkConfig('vitest');
     expect(vitestCfg.shell.test_execution('1.0.0')).toBe(
-      'npx vitest run --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+      'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );
     expect(vitestCfg.cmd.test_execution('1.0.0')).toBe(vitestCfg.shell.test_execution('1.0.0'));
     expect(vitestCfg.shell.mutation_execution).toBe('npx stryker run "{config}"');
@@ -404,7 +404,7 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
     const vp = getFrameworkConfig('vite-plus');
     expect(vp.version_command).toBe('vp --version');
     expect(vp.shell.test_execution('1.0.0')).toBe(
-      'vp test --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+      'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );
     expect(vp.cmd.test_execution('1.0.0')).toBe(vp.shell.test_execution('1.0.0'));
 
@@ -416,10 +416,10 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
 
     const rust = getFrameworkConfig('rust');
     expect(rust.shell.test_execution('1.0.0')).toBe(
-      'cargo test; _X=$?; cargo llvm-cov --json --output-path {coverage_file}; exit $_X',
+      'cargo test; _X=$?; cargo llvm-cov --json --output-path "{coverage_file}"; exit $_X',
     );
     expect(rust.cmd.test_execution('1.0.0')).toBe(
-      'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path {coverage_file} & exit /b %_X%',
+      'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path "{coverage_file}" & exit /b %_X%',
     );
 
     const nodeTest = getFrameworkConfig('node-test');
@@ -430,18 +430,18 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
 
     const go = getFrameworkConfig('go');
     expect(go.shell.test_execution('1.0.0')).toBe(
-      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory}; _X=$?; go tool cover -func={coverprofile_file} > {coverage_file}; exit $_X',
+      'go test -json -coverprofile="{coverprofile_file}" -covermode=atomic {directory}; _X=$?; go tool cover -func="{coverprofile_file}" > "{coverage_file}"; exit $_X',
     );
     expect(go.cmd.test_execution('1.0.0')).toBe(
-      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory} & if errorlevel 1 set _X=%errorlevel% & go tool cover -func={coverprofile_file} > {coverage_file} & exit /b %_X%',
+      'go test -json -coverprofile="{coverprofile_file}" -covermode=atomic {directory} & if errorlevel 1 set _X=%errorlevel% & go tool cover -func="{coverprofile_file}" > "{coverage_file}" & exit /b %_X%',
     );
 
     const py = getFrameworkConfig('pytest');
     expect(py.shell.test_execution('1.0.0')).toBe(
-      'pytest -v {files}; pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+      'pytest -v {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
     );
     expect(py.cmd.test_execution('1.0.0')).toBe(
-      'pytest -v {files} && pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+      'pytest -v {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
     );
   });
 
