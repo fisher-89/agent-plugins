@@ -1,0 +1,399 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Proposal eval PASS. R1–R11 all pass: clear mutation-score gap (7 files <60), scope split (impl/test/dont-touch), risks with concrete mitigations, testable AC-1..9, decisions with rejected alts, CLAUDE.md-aligned (no test-only exports), no TODOs, capability mutation-score-gap-fill ↔ specs/mutation-score-gap-fill/spec.md ADDED, no logic conflicts.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节给出归档 mutation.json、阈值 low:60、7 文件分数表（11.49–58.85）及 Survived/NoCoverage 动机，非泛泛改进。"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（条件最小修复清单）、### 测试文件（7 个 colocated .test.ts 非空）、### 不要修改（≥60 文件、阈值、版本 bump、test-only export 等）。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "5 项风险均有具体缓解：等价变异体标注+拉分支、按 mutator 分批、负向正则用例、最小 bugfix、mutate 收窄验证。"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-1..7：各目标文件 Stryker score≥60；AC-8 回归/colocated/无 test-only export；AC-9 生产边界；分数公式与证据路径已定义。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "决策表 4 行均有理由与被拒备选（如拒绝为测而 export、拒绝改 mutation-testing 能力条文、拒绝抬到 70/80）。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "明确禁止 test-only export、默认不改生产、无交付时不 bump 版本，符合 No test-only exports 与 surgical/test-only 约定。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal/specs 全文无 TODO、TBD、placeholder、{{...}}。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有实质内容，非空壳。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 / ### 新增能力 含 mutation-score-gap-fill；修改的能力为（无）。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "能力 mutation-score-gap-fill ↔ specs/mutation-score-gap-fill/spec.md；无孤立 spec。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "新增能力与 ADDED Requirements 一致；AC 对应 per-file≥60/colocated/无 test-only export；7 文件清单与 scenarios 一致。"
+      }
+    ],
+    "timestamp": "2026-07-31T10:21:47.865Z"
+  },
+  {
+    "phase": "code-analyze",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "CA pass: design.md lists 10 components (职责/依赖/技术/路径), change list with 7 test files + API signatures, AC-1..9 mapped, aligns with test-only/no test-only exports, all template sections filled, no test-strategy chapter, no tasks.md.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表10行均有职责/依赖/技术/文件路径；技术为TypeScript等非TBD；生产模块路径具体至.test.ts对应源文件"
+      },
+      {
+        "item": "变更清单条目完整且有具体信息",
+        "pass": true,
+        "evidence": "修改文件表7个colocated测试路径+说明；公共API表含签名；类型/配置声明无新增、既有类型可核验"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "验收映射覆盖AC-1..AC-9，分别对应七文件补测、无test-only export、生产改动边界"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "test-only默认不改生产；D4/AC-8禁止test-only export，符合CLAUDE.md knip约定"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件、变更清单、数据模型、路由/API、依赖、待决问题均有实质内容"
+      },
+      {
+        "item": "不包含测试策略章节",
+        "pass": true,
+        "evidence": "design.md无测试策略/测试架构专章"
+      },
+      {
+        "item": "不包含 tasks.md",
+        "pass": true,
+        "evidence": "openspec/changes/mutation-score-below-60/ 下无 tasks.md"
+      }
+    ],
+    "timestamp": "2026-07-31T10:24:44.124Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL T3: generateSubReport has no 异常 cases (only 正向/边界). executePlanEntry timeout covers omit/1234 only—missing int edges 0/-1/MAX_INT per mapping. Other T1–T2/T4–T8 OK: AC-1..9 mapped; 7 unit sections + 2 integrations; mocks for exec/fs; format matches template; scope aligned; report 幂等二次写入.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-9 all appear in test-design ## 验收范围 rows (AC-1..7 per-file score, AC-8 colocated/regression, AC-9 process gate)."
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "Unit ACs AC-1..7 each have ### source->test; AC-8 covered by those + ## 集成测试. Integration 关联AC (AC-2,7,8 / AC-2,3,8) exist in 验收范围; AC-8 集成测试 appears in both relations."
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": false,
+        "evidence": "generateSubReport rows are only 正向/边界—no 异常. executePlanEntry timeout: only omit + 1234; missing int edges 0/-1/MAX_INT (and Optional None already only via omit). Systematic Parameter Type mapping incomplete for number params."
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal/design cite execCommand/execSync/fs; per-file Mock策略 covers execCommand, execSync, tmp fs, detectFrameworkVersion; parsers document 无外部依赖."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围 filled; 7 unit sections each with 待测功能/用例/Mock策略; 2 integration relations with scenes; 不可测试项 lists AC score/AC-9/equivalents/private helpers."
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "Only 7 <60 files + optional __tests__; out_of_scope ≥60 parsers/CLI/threshold/version bump not given dedicated tests; AC-9 in 不可测试项."
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "Proposal is test-only (no new write API/DB). Report writes covered: test-report Mock策略 asserts 落盘 JSON 与返回值一致（幂等二次写入）."
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1..U5: ### path->path, 待测功能 list, 用例/Mock columns. T8-I1..I8: → test file, 涉及模块≥2, 关联AC, 关系描述, 场景+用例 columns. T8-G1: 验收范围 4-col header matches template."
+      }
+    ],
+    "timestamp": "2026-07-31T10:28:14.529Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS T1–T8. AC-1..9 mapped; 7 unit ### source->test + 2 IT relations (关联AC AC-2/3/7/8); each API has 异常+边界 incl. generateSubReport 异常 & timeout 0/-1/MAX/omit; Mock for exec/fs; sections filled; scope=7 files only; report 幂等二次写入; T8 format OK.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-9 all appear in test-design ## 验收范围 (AC-1..7 per-file score≥60, AC-8 colocated/regression, AC-9 process gate)."
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "Unit AC-1..7 each have ### source->test; AC-8 via 7 colocated + ## 集成测试. IT 关联AC (AC-2,7,8 / AC-2,3,8) exist in 验收范围; AC-8 集成测试 appears in both."
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "Each API has ≥1 异常. Prior gaps fixed: generateSubReport 异常 (执行失败/error_cases/coverage/写盘); timeout edges 0/-1/MAX_SAFE_INTEGER/omit/1234. Lists []/单元素/超大; strings 空/超长/emoji where relevant."
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Per-file Mock策略: execCommand, execSync, tmp fs, detectFrameworkVersion, getProjectDir; parsers document 无外部依赖; IT mocks execSync."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围 filled; 7 unit sections each with 待测功能/用例/Mock策略; 2 IT relations with 场景+用例; 不可测试项 covers score/AC-9/equivalents/private helpers."
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "Only 7 <60 files + optional __tests__; out_of_scope ≥60 parsers/CLI/threshold/version bump not targeted; AC-9 in 不可测试项."
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "test-only change; report writes: Mock策略 asserts 落盘 JSON 与返回值一致（幂等二次写入）; temp stryker/bunfig cleanup covered."
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1..U5: ### path->path, 待测功能 list, 用例/Mock columns. T8-I1..I8: → test file, 涉及模块≥2, 关联AC, 关系描述, 场景+用例. T8-G1: 验收范围 columns match template."
+      }
+    ],
+    "timestamp": "2026-07-31T10:30:31.514Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL: 7 colocated unit *.test.ts updated (+2023/-88) cover most unit rows, but integration 新增 skeletons not generated (diff empty on both __tests__ files; missing config_flag abort, stryker non-0+cleanup, noMutation/exclude). Unit gaps: detect projectRoot/getProjectDir, global exclude, summary mutation denom=0.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "七公开API均有共存测试：test-framework/runner/report/stryker-config/go-parser/text-parser/test-detect-frameworks 的 *.test.ts"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "全部为 *.test.ts 且与源文件同目录；git diff 仅触及这7个 colocated 文件"
+      },
+      {
+        "item": "单元测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "缺：detect projectRoot/getProjectDir；全局exclude+suite.excludes（仅suite.excludes）；summary mutation分母为0；absConfig异常未生成"
+      },
+      {
+        "item": "集成测试 > 用例 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "两集成文件无diff。缺：config_flag失败不进execute；stryker非0且临时config清理；noMutation/exclude不生成临时config"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "execCommand spyOn+restore；execSync vi.mock；console.log spy；fs临时目录+afterEach；detectFrameworkVersion全局spy沿用"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "均 from 'vite-plus/test'（describe/it/expect/vi/beforeEach/afterEach），与test-design框架一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "未覆盖：省略projectRoot→getProjectDir；mutation聚合分母0；集成边界noMutation/exclude不生成临时config"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach vi.restoreAllMocks；project/dir.cleanup()；stryker临时config unlinkSync；detectFrameworkVersion spy还原"
+      },
+      {
+        "item": "迭代类型 = 废弃 的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design用例表无迭代类型=废弃行；新增describe/it均对应新增条目"
+      }
+    ],
+    "timestamp": "2026-07-31T10:39:58.178Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "FAIL G3: missing skeletons for (1) generateSummaryReport suite match fallbacks (framework-only / suites[0]); (2) executePlanEntry exitCode=0 empty results → parser error. Other G1–G2/G4–G9 OK: 7 colocated *.test.ts + 2 integration files, vite-plus/test, mocks/cleanup present, no 废弃 rows.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "七个公开 API 均有 colocated *.test.ts：test-framework/runner/report、stryker-config/go-parser/text-parser、test-detect-frameworks"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "全部为 *.test.ts 且与源码同目录；集成测试在设计指定的 __tests__/ 路径"
+      },
+      {
+        "item": "`单元测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "缺：suite 匹配「仅 framework / suites[0]」回退 it；executePlanEntry「exitCode=0 空结果 parser 透传」半条件无 it。其余新增行基本已有 describe/it"
+      },
+      {
+        "item": "`集成测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "placeholders：detect→execute 正向/config_flag 异常/bunfig 边界；mutation-flow：score 正向/非0 异常/noMutation|exclude 边界均有 it"
+      },
+      {
+        "item": "`Mock策略` 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "execCommand spy、execSync vi.mock、console.log spy、detectFrameworkVersion/getProjectDir spy、临时 fs；SHELL 为「需要时」可省略"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "均从 vite-plus/test 导入 describe/it/expect/vi，与 test-design 框架一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "jest 版本门控、timeout 0/-1/MAX、路径归一、空输入、近失配、files:[]、planId 等边界均有骨架"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach vi.restoreAllMocks；临时目录 cleanup()/project.cleanup()；stryker 临时 config unlink"
+      },
+      {
+        "item": "`迭代类型 = 废弃` 的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design 无「废弃」行；diff 未出现对应废弃用例"
+      }
+    ],
+    "timestamp": "2026-07-31T10:43:46.909Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "PASS G1-G9. 9 colocated *.test.ts (+2 __tests__) cover all 新增 unit/integration rows: framework/runner/stryker/report/go/text/detect + placeholders/mutation-flow. Mocks: execCommand spy, execSync vi.mock, console/tmpdir/getProjectDir. vite-plus/test imports; afterEach/finally cleanup; no 废弃 rows.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "七公开API均有同居测试：test-framework/runner/report/stryker-config/go-parser/text-parser/test-detect-frameworks 的 *.test.ts 均在 git diff 中"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "全部为 *.test.ts；单元测与源码同目录；集成测在约定 __tests__/cli-test-execution-execute 与 mutation-execution-flow"
+      },
+      {
+        "item": "单元测试用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "对照 test-design 全部迭代类型=新增行：describe/it 出现在对应 *.test.ts（含合并 it 覆盖 timeout/字面量/近失配等）；既有用例保留并补强 mutation-score 块"
+      },
+      {
+        "item": "集成测试用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "placeholders：正向 execute 展开、异常 config_flag、边界 bunfig；mutation-flow：正向 score、异常非0清理、边界 noMutation/exclude；关联 AC-2/3/7/8"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "execCommand spyOn；child_process.execSync vi.mock；console.log spy；mkdtemp/openspec 夹具；detectFrameworkVersion/getProjectDir spy；stryker 真实 fs+afterEach"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "生成/改动文件均 from 'vite-plus/test' 导入 describe/it/expect/vi，与 test-design 框架=vite-plus 一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "边界骨架齐：jest 版本门控、timeout 0/-1/MAX、路径归一、空输入、近失配 regex、auto-scan 排除目录、mutation 分母0、Elapsed/空 files 等；无单独类型映射表"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "runner/framework/placeholders/mutation-flow：afterEach restoreAllMocks；stryker afterEach cleanup；各处 try/finally rmSync 临时目录"
+      },
+      {
+        "item": "迭代类型=废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design 无迭代类型=废弃行；diff 未引入对应废弃 describe/it"
+      }
+    ],
+    "timestamp": "2026-07-31T10:47:34.414Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 1193 个测试通过。覆盖率达标: lines=95.47%, branches=86.22%, functions=98.37%。AC 七目标文件 mutation 均≥60（72.41/62.78/76.92/63.69/83.80/66.49/76.04）。suite 聚合 67.9%<config 70% 因 --mutation-diff-only 仅变异这七文件，非 AC 失败。",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "test-execution.json 含 phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds，类型正确；coverage.measured 非 null"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=1193, passed=1193, skipped=0"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=95.47%, branches=86.22%, functions=98.37%（thresholds 80/70/75；coverage.pass=true）"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需失败诊断；自动通过"
+      }
+    ],
+    "timestamp": "2026-07-31T11:13:48.958Z"
+  }
+]

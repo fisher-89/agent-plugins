@@ -1,9 +1,12 @@
 /**
- * Tests for lib/test-framework — registry placeholders, coverage_output, bun lcov.
+ * Tests for lib/test-framework — registry literals, version gating, detectFrameworkVersion.
+ * Strengthened for mutation-score-below-60 (AC-1).
  */
 
-import { describe, expect, it } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import * as execCommandMod from './exec-command';
+import * as testFramework from './test-framework';
 import { getFrameworkConfig } from './test-framework';
 
 type TestExecutionBuilder = ReturnType<typeof getFrameworkConfig>['shell']['test_execution'];
@@ -22,127 +25,473 @@ const ALL_EIGHT = [
   'pytest',
 ] as const;
 
-describe('getFrameworkConfig -- known frameworks', () => {
-  it('istanbul 族框架 coverage_format 为 istanbul', () => {
-    for (const fw of ['jest', 'vitest', 'vite-plus'] as const) {
-      expect(getFrameworkConfig(fw).coverage_format).toBe('istanbul');
+const VERSION_COMMANDS: Record<(typeof ALL_EIGHT)[number], string> = {
+  jest: 'npx jest --version',
+  vitest: 'npx vitest --version',
+  'vite-plus': 'vp --version',
+  bun: 'bun --version',
+  rust: 'cargo --version',
+  'node-test': 'node --version',
+  go: 'go version',
+  pytest: 'pytest --version',
+};
+
+const COVERAGE_FORMATS: Record<(typeof ALL_EIGHT)[number], string> = {
+  jest: 'istanbul',
+  vitest: 'istanbul',
+  'vite-plus': 'istanbul',
+  bun: 'lcov',
+  rust: 'llvm-cov',
+  'node-test': 'node-test',
+  go: 'go-cover',
+  pytest: 'coverage-py',
+};
+
+const COVERAGE_OUTPUTS: Record<(typeof ALL_EIGHT)[number], string> = {
+  jest: 'coverage-summary.json',
+  vitest: 'coverage-summary.json',
+  'vite-plus': 'coverage-summary.json',
+  bun: 'lcov.info',
+  rust: 'coverage-summary.json',
+  'node-test': 'results.txt',
+  go: 'func-summary.txt',
+  pytest: 'coverage.json',
+};
+
+const DEFAULT_GLOBS: Record<(typeof ALL_EIGHT)[number], string> = {
+  jest: '**/*.{test,spec}.{js,ts,jsx,tsx}',
+  vitest: '**/*.{test,spec}.{js,ts,jsx,tsx}',
+  'vite-plus': '**/*.{test,spec}.{js,ts,jsx,tsx}',
+  bun: '**/*.{test,spec}.{js,ts,jsx,tsx}',
+  rust: '**/tests/**/*.rs',
+  'node-test': '**/*.test.{mjs,js,cjs}',
+  go: '**/*_test.go',
+  pytest: '**/test_*.py',
+};
+
+const MUTATION_FRAMEWORKS: Record<(typeof ALL_EIGHT)[number], string | null> = {
+  jest: 'stryker-js',
+  vitest: 'stryker-js',
+  'vite-plus': 'stryker-js',
+  bun: null,
+  rust: null,
+  'node-test': null,
+  go: null,
+  pytest: null,
+};
+
+const CONFIG_FLAGS: Record<(typeof ALL_EIGHT)[number], string | null> = {
+  jest: '--config',
+  vitest: '--config',
+  'vite-plus': '--config',
+  bun: '--config',
+  rust: null,
+  'node-test': null,
+  go: null,
+  pytest: null,
+};
+
+describe('getFrameworkConfig -- 字面量杀伤', () => {
+  it('八框架 version_command 精确等于约定命令', () => {
+    for (const fw of ALL_EIGHT) {
+      expect(getFrameworkConfig(fw).version_command).toBe(VERSION_COMMANDS[fw]);
     }
   });
 
-  it('bun coverage_format 为 lcov', () => {
-    expect(getFrameworkConfig('bun').coverage_format).toBe('lcov');
+  it('八框架 coverage_format / coverage_output / default_glob / mutation_framework / config_flag 精确断言', () => {
+    for (const fw of ALL_EIGHT) {
+      const cfg = getFrameworkConfig(fw);
+      expect(cfg.coverage_format).toBe(COVERAGE_FORMATS[fw]);
+      expect(cfg.coverage_output).toBe(COVERAGE_OUTPUTS[fw]);
+      expect(cfg.default_glob).toBe(DEFAULT_GLOBS[fw]);
+      expect(cfg.mutation_framework).toBe(MUTATION_FRAMEWORKS[fw]);
+      expect(cfg.config_flag).toBe(CONFIG_FLAGS[fw]);
+      expect(cfg.framework).toBe(fw);
+    }
   });
 
-  it('应返回所有框架的 coverage_output', () => {
-    for (const fw of ALL_EIGHT) {
-      expect(getFrameworkConfig(fw).coverage_output).toBeTruthy();
+  it('jest/vitest/vite-plus 的 shell 与 cmd mutation_execution 精确为 npx stryker run "{config}"', () => {
+    for (const fw of ['jest', 'vitest', 'vite-plus'] as const) {
+      const cfg = getFrameworkConfig(fw);
+      expect(cfg.shell.mutation_execution).toBe('npx stryker run "{config}"');
+      expect(cfg.cmd.mutation_execution).toBe('npx stryker run "{config}"');
+    }
+  });
+
+  it('bun/rust/go/pytest/node-test 无 mutation_execution', () => {
+    for (const fw of ['bun', 'rust', 'go', 'pytest', 'node-test'] as const) {
+      const cfg = getFrameworkConfig(fw);
+      expect(cfg.shell.mutation_execution).toBeUndefined();
+      expect(cfg.cmd.mutation_execution).toBeUndefined();
     }
   });
 });
 
-describe('getFrameworkConfig -- 未知框架', () => {
-  it('未知框架名抛错且错误信息列出八框架', () => {
-    expect(() => getFrameworkConfig('unknown')).toThrow(/Unknown framework/);
-    try {
-      getFrameworkConfig('unknown');
-    } catch (e) {
-      const msg = (e as Error).message;
-      for (const fw of ALL_EIGHT) {
-        expect(msg).toContain(fw);
+describe('getFrameworkConfig -- 模板字面量', () => {
+  it('jest shell/cmd 在 version=29.5.0 时含完整片段', () => {
+    const cfg = getFrameworkConfig('jest');
+    for (const builder of [cfg.shell.test_execution, cfg.cmd.test_execution]) {
+      const cmd = te(builder, '29.5.0');
+      expect(cmd).toContain('--randomize');
+      expect(cmd).toContain('--no-verbose');
+      expect(cmd).toContain('--json');
+      expect(cmd).toContain('--outputFile={results_file}');
+      expect(cmd).toContain('--silent');
+      expect(cmd).toContain('--coverage');
+      expect(cmd).toContain('--coverageDirectory={report_dir}');
+      expect(cmd).toContain('--coverageReporters=json-summary');
+      expect(cmd).toContain('{config_args}');
+      expect(cmd).toContain('{files}');
+      expect(cmd.startsWith('npx jest')).toBe(true);
+    }
+  });
+
+  it('vitest / vite-plus shell 与 cmd 精确含 shuffle / reporter / coverage 片段', () => {
+    const vitestShell = te(getFrameworkConfig('vitest').shell.test_execution);
+    const vitestCmd = te(getFrameworkConfig('vitest').cmd.test_execution);
+    for (const cmd of [vitestShell, vitestCmd]) {
+      expect(cmd).toContain('npx vitest run');
+      expect(cmd).toContain('--sequence.shuffle');
+      expect(cmd).toContain('--reporter=json');
+      expect(cmd).toContain('--outputFile={results_file}');
+      expect(cmd).toContain('--coverage.reportsDirectory={report_dir}');
+      expect(cmd).toContain('--coverage.reporter=json-summary');
+    }
+
+    const vpShell = te(getFrameworkConfig('vite-plus').shell.test_execution);
+    const vpCmd = te(getFrameworkConfig('vite-plus').cmd.test_execution);
+    for (const cmd of [vpShell, vpCmd]) {
+      expect(cmd).toContain('vp test');
+      expect(cmd).toContain('--sequence.shuffle');
+      expect(cmd).toContain('--reporter=json');
+      expect(cmd).toContain('--outputFile={results_file}');
+      expect(cmd).toContain('--coverage.reportsDirectory={report_dir}');
+      expect(cmd).toContain('--coverage.reporter=json-summary');
+    }
+  });
+
+  it('bun shell/cmd 精确为 bun {config_args} test --coverage {files}', () => {
+    const cfg = getFrameworkConfig('bun');
+    expect(te(cfg.shell.test_execution)).toBe('bun {config_args} test --coverage {files}');
+    expect(te(cfg.cmd.test_execution)).toBe('bun {config_args} test --coverage {files}');
+  });
+
+  it('go shell 含 coverprofile 链；cmd 含 & / exit /b 链', () => {
+    const cfg = getFrameworkConfig('go');
+    const shell = te(cfg.shell.test_execution);
+    expect(shell).toContain(
+      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory}',
+    );
+    expect(shell).toContain('go tool cover -func={coverprofile_file} > {coverage_file}');
+    expect(shell).toContain('; _X=$?;');
+    expect(shell).toContain('exit $_X');
+
+    const cmd = te(cfg.cmd.test_execution);
+    expect(cmd).toContain(
+      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory}',
+    );
+    expect(cmd).toContain('& if errorlevel 1 set _X=%errorlevel%');
+    expect(cmd).toContain('go tool cover -func={coverprofile_file} > {coverage_file}');
+    expect(cmd).toContain('exit /b %_X%');
+  });
+
+  it('rust shell 含 cargo test; 与 llvm-cov；pytest shell 用 ;、cmd 用 &&', () => {
+    const rustShell = te(getFrameworkConfig('rust').shell.test_execution);
+    expect(rustShell).toContain('cargo test;');
+    expect(rustShell).toContain('cargo llvm-cov --json --output-path {coverage_file}');
+
+    const rustCmd = te(getFrameworkConfig('rust').cmd.test_execution);
+    expect(rustCmd).toContain('cargo test &');
+    expect(rustCmd).toContain('cargo llvm-cov --json --output-path {coverage_file}');
+    expect(rustCmd).toContain('exit /b %_X%');
+
+    const pyShell = te(getFrameworkConfig('pytest').shell.test_execution);
+    expect(pyShell).toBe(
+      'pytest -v {files}; pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+    );
+    const pyCmd = te(getFrameworkConfig('pytest').cmd.test_execution);
+    expect(pyCmd).toBe(
+      'pytest -v {files} && pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+    );
+  });
+
+  it('node-test shell/cmd 精确含 node --test --experimental-test-coverage {files}', () => {
+    const cfg = getFrameworkConfig('node-test');
+    expect(te(cfg.shell.test_execution)).toBe('node --test --experimental-test-coverage {files}');
+    expect(te(cfg.cmd.test_execution)).toBe('node --test --experimental-test-coverage {files}');
+  });
+});
+
+describe('getFrameworkConfig -- jest 版本门控', () => {
+  it('version=29.5.0 → 含 --randomize；29.4.9 / 29.4.0 / 空 / 非法 / 仅 major → 不含', () => {
+    const builder = getFrameworkConfig('jest').shell.test_execution;
+    expect(te(builder, '29.5.0')).toContain('--randomize');
+    for (const v of ['29.4.9', '29.4.0', '', 'not-a-version', '29'] as const) {
+      expect(te(builder, v)).not.toContain('--randomize');
+    }
+  });
+
+  it('version=30.0.0 / 29.5.1 → 含 --randomize；major 更大时仍注入', () => {
+    const builder = getFrameworkConfig('jest').shell.test_execution;
+    expect(te(builder, '30.0.0')).toContain('--randomize');
+    expect(te(builder, '29.5.1')).toContain('--randomize');
+    expect(te(builder, '100.0.0')).toContain('--randomize');
+    // patch 边界：29.5.0 恰好含；同 major/minor 更小 patch 不含
+    expect(te(builder, '29.5.0')).toContain('--randomize');
+    expect(te(builder, '29.4.99')).not.toContain('--randomize');
+  });
+
+  it('cmd.test_execution 与 shell 对同一 version 的 --randomize 行为一致', () => {
+    const cfg = getFrameworkConfig('jest');
+    expect(te(cfg.cmd.test_execution, '29.5.0')).toContain('--randomize');
+    expect(te(cfg.cmd.test_execution, '29.4.9')).not.toContain('--randomize');
+  });
+});
+
+describe('getFrameworkConfig -- 未知框架与浅拷贝', () => {
+  it("getFrameworkConfig('unknown') / '' / 'jest ' 抛错，message 含 Unknown framework 且完整列出八键名", () => {
+    for (const bad of ['unknown', '', 'jest '] as const) {
+      expect(() => getFrameworkConfig(bad)).toThrow(/Unknown framework/);
+      try {
+        getFrameworkConfig(bad);
+      } catch (e) {
+        const msg = (e as Error).message;
+        expect(msg).toContain('Unknown framework');
+        for (const fw of ALL_EIGHT) {
+          expect(msg).toContain(fw);
+        }
+        expect(msg).toContain(', ');
       }
     }
   });
+
+  it('修改返回对象的 coverage_output 不影响再次 getFrameworkConfig 的值', () => {
+    const a = getFrameworkConfig('bun');
+    a.coverage_output = 'mutated.info';
+    expect(getFrameworkConfig('bun').coverage_output).toBe('lcov.info');
+  });
 });
 
-describe('getFrameworkConfig -- 模板占位符与 coverage 约定', () => {
-  it('jest 模板含 --json --outputFile={results_file} 与 --coverageDirectory={report_dir}', () => {
-    const cfg = getFrameworkConfig('jest');
-    const cmd = te(cfg.shell.test_execution);
-    expect(cmd).toContain('--json');
-    expect(cmd).toContain('--outputFile={results_file}');
-    expect(cmd).toContain('--coverageDirectory={report_dir}');
-    expect(cfg.coverage_output).toBe('coverage-summary.json');
+describe('detectFrameworkVersion', () => {
+  type ExecReturn = ReturnType<typeof execCommandMod.execCommand>;
+
+  function stubExec(result: Partial<ExecReturn>): void {
+    vi.spyOn(execCommandMod, 'execCommand').mockReturnValue({
+      status: 0,
+      stdout: '',
+      stderr: '',
+      pid: 1,
+      output: ['', '', ''],
+      signal: null,
+      ...result,
+    } as ExecReturn);
+  }
+
+  beforeEach(() => {
+    // 解除全局 spy，直接测生产 detectFrameworkVersion
+    vi.mocked(testFramework.detectFrameworkVersion).mockRestore();
   });
 
-  it('vitest/vite-plus 模板含 {results_file} / {report_dir}', () => {
-    for (const fw of ['vitest', 'vite-plus'] as const) {
-      const cmd = te(getFrameworkConfig(fw).shell.test_execution);
-      expect(cmd).toContain('{results_file}');
-      expect(cmd).toContain('{report_dir}');
-      expect(getFrameworkConfig(fw).coverage_output).toBe('coverage-summary.json');
-    }
+  afterEach(() => {
+    vi.spyOn(execCommandMod, 'execCommand').mockRestore();
   });
 
-  it("bun：coverage_format='lcov'；coverage_output='lcov.info'；config_flag='--config'", () => {
-    const cfg = getFrameworkConfig('bun');
-    expect(cfg.coverage_format).toBe('lcov');
-    expect(cfg.coverage_output).toBe('lcov.info');
-    expect(cfg.config_flag).toBe('--config');
+  it('status=0、stdout=1.2.3 → 返回 1.2.3；调用含 version_command、cwd、timeout:30000', () => {
+    stubExec({ status: 0, stdout: '1.2.3', stderr: '' });
+
+    expect(testFramework.detectFrameworkVersion('jest', '/tmp/proj')).toBe('1.2.3');
+    expect(execCommandMod.execCommand).toHaveBeenCalledWith('npx jest --version', {
+      cwd: '/tmp/proj',
+      timeout: 30_000,
+    });
   });
 
-  it('go：coverage_output 为相对 reportDir 的 func-summary.txt；模板含 coverprofile 占位符', () => {
-    const cfg = getFrameworkConfig('go');
-    expect(cfg.coverage_output).toBe('func-summary.txt');
-    const cmd = te(cfg.shell.test_execution);
-    expect(cmd).toMatch(/\{coverprofile_file\}|\{coverage_file\}/);
+  it('semver 在 stderr（stdout 空）→ 仍抽取；stdout/stderr 拼接后取首个 x.y.z', () => {
+    stubExec({ status: 0, stdout: '', stderr: 'vitest/1.0.0 node' });
+    expect(testFramework.detectFrameworkVersion('vitest', '/cwd')).toBe('1.0.0');
+
+    stubExec({ status: 0, stdout: 'first 2.3.4 then', stderr: 'also 9.9.9' });
+    expect(testFramework.detectFrameworkVersion('bun', '/cwd')).toBe('2.3.4');
   });
 
-  it('rust：llvm-cov --output-path={coverage_file}', () => {
-    const cmd = te(getFrameworkConfig('rust').shell.test_execution);
-    expect(cmd).toContain('--output-path');
-    expect(cmd).toContain('{coverage_file}');
-    expect(getFrameworkConfig('rust').coverage_output).toBe('coverage-summary.json');
+  it('status≠0 → 空串；status=0 但无 semver → 空串', () => {
+    stubExec({ status: 1, stdout: '1.2.3', stderr: '' });
+    expect(testFramework.detectFrameworkVersion('go', '/cwd')).toBe('');
+
+    stubExec({ status: 0, stdout: 'no version here', stderr: 'still none' });
+    expect(testFramework.detectFrameworkVersion('go', '/cwd')).toBe('');
   });
 
-  it("pytest：--cov-report=json:{coverage_file}；coverage_output='coverage.json'", () => {
-    const cfg = getFrameworkConfig('pytest');
-    expect(te(cfg.shell.test_execution)).toContain('--cov-report=json:{coverage_file}');
-    expect(cfg.coverage_output).toBe('coverage.json');
+  it('stdout=v29.5.0-beta → 29.5.0；空输出 → 空串；超长噪声夹带 0.0.1 → 抽取', () => {
+    stubExec({ status: 0, stdout: 'v29.5.0-beta', stderr: '' });
+    expect(testFramework.detectFrameworkVersion('jest', '/cwd')).toBe('29.5.0');
+
+    stubExec({ status: 0, stdout: '', stderr: '' });
+    expect(testFramework.detectFrameworkVersion('jest', '/cwd')).toBe('');
+
+    const noise = `${'x'.repeat(1200)}0.0.1${'y'.repeat(200)}`;
+    stubExec({ status: 0, stdout: noise, stderr: '' });
+    expect(testFramework.detectFrameworkVersion('pytest', '/cwd')).toBe('0.0.1');
   });
 
-  it('node-test：模板支持 {files}；coverage_output 为 results.txt', () => {
-    const cfg = getFrameworkConfig('node-test');
-    expect(te(cfg.shell.test_execution)).toContain('{files}');
-    expect(cfg.coverage_output).toBe('results.txt');
+  it('未知 framework → 抛错且不调用 exec', () => {
+    const spy = vi.spyOn(execCommandMod, 'execCommand');
+    expect(() => testFramework.detectFrameworkVersion('unknown', '/cwd')).toThrow(
+      /Unknown framework/,
+    );
+    expect(spy).not.toHaveBeenCalled();
   });
 
-  it('coverage_cleanup 字段已删除且不再驱动 suite cwd 清理', () => {
-    for (const fw of ALL_EIGHT) {
-      const cfg = getFrameworkConfig(fw) as unknown as Record<string, unknown>;
-      expect(cfg).not.toHaveProperty('coverage_cleanup');
-      expect(cfg.shell as object).not.toHaveProperty('coverage_cleanup');
-      expect(cfg.cmd as object).not.toHaveProperty('coverage_cleanup');
-    }
+  it('stdout/stderr 为 null/undefined 时按空串合并不抛', () => {
+    stubExec({
+      status: 0,
+      stdout: null as unknown as string,
+      stderr: undefined as unknown as string,
+    });
+    expect(testFramework.detectFrameworkVersion('rust', '/cwd')).toBe('');
+  });
+});
+
+/**
+ * Static registry mutants are only attributed to importers at module-load time.
+ * Re-import after resetModules so literal/object/arrow mutants are covered by these tests.
+ */
+describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
+  afterEach(() => {
+    vi.resetModules();
+    vi.restoreAllMocks();
   });
 
-  it('八框架 shell/cmd.test_execution 均含报告相关占位符或可由 runner 追加 >', () => {
-    const reportPlaceholders = [
-      '{results_file}',
-      '{coverage_file}',
-      '{report_dir}',
-      '{coverprofile_file}',
-      '{config_args}',
-    ];
-    for (const fw of ALL_EIGHT) {
-      const shell = te(getFrameworkConfig(fw).shell.test_execution);
-      const cmd = te(getFrameworkConfig(fw).cmd.test_execution);
-      const hasPlaceholder = reportPlaceholders.some((p) => shell.includes(p) || cmd.includes(p));
-      expect(hasPlaceholder || shell.includes('{files}') || shell.includes('{config_args}')).toBe(
-        true,
-      );
-    }
+  async function loadGetConfig() {
+    vi.resetModules();
+    const mod = await import('./test-framework');
+    return mod.getFrameworkConfig;
+  }
+
+  it('八框架 registry 字段与 shell/cmd 模板经动态 import 精确相等', async () => {
+    const getFrameworkConfig = await loadGetConfig();
+
+    const jestCfg = getFrameworkConfig('jest');
+    expect(jestCfg).toMatchObject({
+      framework: 'jest',
+      version_command: 'npx jest --version',
+      coverage_format: 'istanbul',
+      coverage_output: 'coverage-summary.json',
+      default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
+      mutation_framework: 'stryker-js',
+      config_flag: '--config',
+    });
+    expect(jestCfg.shell.mutation_execution).toBe('npx stryker run "{config}"');
+    expect(jestCfg.cmd.mutation_execution).toBe('npx stryker run "{config}"');
+    expect(typeof jestCfg.shell.test_execution).toBe('function');
+    expect(typeof jestCfg.cmd.test_execution).toBe('function');
+    expect(jestCfg.shell.test_execution('29.5.0')).toBe(
+      'npx jest --randomize --no-verbose --json --outputFile={results_file} --silent --coverage --coverageDirectory={report_dir} --coverageReporters=json-summary {config_args} {files}',
+    );
+    expect(jestCfg.shell.test_execution('29.4.9')).toBe(
+      'npx jest --no-verbose --json --outputFile={results_file} --silent --coverage --coverageDirectory={report_dir} --coverageReporters=json-summary {config_args} {files}',
+    );
+    expect(jestCfg.cmd.test_execution('29.5.0')).toBe(jestCfg.shell.test_execution('29.5.0'));
+    expect(jestCfg.cmd.test_execution('29.4.9')).toBe(jestCfg.shell.test_execution('29.4.9'));
+
+    const vitestCfg = getFrameworkConfig('vitest');
+    expect(vitestCfg.shell.test_execution('1.0.0')).toBe(
+      'npx vitest run --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+    );
+    expect(vitestCfg.cmd.test_execution('1.0.0')).toBe(vitestCfg.shell.test_execution('1.0.0'));
+    expect(vitestCfg.shell.mutation_execution).toBe('npx stryker run "{config}"');
+
+    const vp = getFrameworkConfig('vite-plus');
+    expect(vp.version_command).toBe('vp --version');
+    expect(vp.shell.test_execution('1.0.0')).toBe(
+      'vp test --sequence.shuffle --reporter=json --outputFile={results_file} --silent --coverage --coverage.reportsDirectory={report_dir} --coverage.reporter=json-summary {config_args} {files}',
+    );
+    expect(vp.cmd.test_execution('1.0.0')).toBe(vp.shell.test_execution('1.0.0'));
+
+    const bun = getFrameworkConfig('bun');
+    expect(bun.shell.test_execution('1.0.0')).toBe('bun {config_args} test --coverage {files}');
+    expect(bun.cmd.test_execution('1.0.0')).toBe(bun.shell.test_execution('1.0.0'));
+    expect(bun.shell.mutation_execution).toBeUndefined();
+    expect(bun.mutation_framework).toBeNull();
+
+    const rust = getFrameworkConfig('rust');
+    expect(rust.shell.test_execution('1.0.0')).toBe(
+      'cargo test; _X=$?; cargo llvm-cov --json --output-path {coverage_file}; exit $_X',
+    );
+    expect(rust.cmd.test_execution('1.0.0')).toBe(
+      'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path {coverage_file} & exit /b %_X%',
+    );
+
+    const nodeTest = getFrameworkConfig('node-test');
+    expect(nodeTest.shell.test_execution('1.0.0')).toBe(
+      'node --test --experimental-test-coverage {files}',
+    );
+    expect(nodeTest.cmd.test_execution('1.0.0')).toBe(nodeTest.shell.test_execution('1.0.0'));
+
+    const go = getFrameworkConfig('go');
+    expect(go.shell.test_execution('1.0.0')).toBe(
+      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory}; _X=$?; go tool cover -func={coverprofile_file} > {coverage_file}; exit $_X',
+    );
+    expect(go.cmd.test_execution('1.0.0')).toBe(
+      'go test -json -coverprofile={coverprofile_file} -covermode=atomic {directory} & if errorlevel 1 set _X=%errorlevel% & go tool cover -func={coverprofile_file} > {coverage_file} & exit /b %_X%',
+    );
+
+    const py = getFrameworkConfig('pytest');
+    expect(py.shell.test_execution('1.0.0')).toBe(
+      'pytest -v {files}; pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+    );
+    expect(py.cmd.test_execution('1.0.0')).toBe(
+      'pytest -v {files} && pytest --cov=. --cov-report=json:{coverage_file} --cov-branch -q',
+    );
   });
 
-  it('bun 模板不含 post-copy / 不写死用户 bunfig 路径', () => {
-    const shell = te(getFrameworkConfig('bun').shell.test_execution);
-    expect(shell).not.toMatch(/bunfig\.toml/);
-    expect(shell).not.toMatch(/post-?copy/i);
-    expect(shell).not.toContain('cp ');
-  });
+  it('jest 版本门控：双位数 minor/patch 与 major/minor/patch 分支', async () => {
+    const getFrameworkConfig = await loadGetConfig();
+    const builder = getFrameworkConfig('jest').shell.test_execution;
 
-  it('coverage_output 均不以 suite cwd 旧路径 coverage/ 为前缀', () => {
-    for (const fw of ALL_EIGHT) {
-      expect(getFrameworkConfig(fw).coverage_output.startsWith('coverage/')).toBe(false);
-    }
+    // 双位 minor：杀 /(\d+)\.(\d)\.(\d+)/ 只吃一位 minor（误解析成 29.1.0 会丢 --randomize）
+    expect(builder('29.10.0')).toContain('--randomize');
+    // 双位 patch：杀 /(\d+)\.(\d+)\.(\d)/ 只吃一位 patch
+    expect(builder('29.5.10')).toContain('--randomize');
+
+    // major 相等走 minor：29.6.0 ≥ 29.5.0；若 if(aMaj!==bMaj) 被逼成 true 会误判
+    expect(builder('29.6.0')).toContain('--randomize');
+    expect(builder('29.4.0')).not.toContain('--randomize');
+
+    // minor 相等走 patch：29.5.1 ≥；29.5.0 恰等于；若跳过 minor 分支会用 patch 误判 29.6.0 vs 29.5.1
+    expect(builder('29.5.1')).toContain('--randomize');
+    expect(builder('29.5.0')).toContain('--randomize');
+    // patch 不足：杀 return true
+    expect(builder('29.4.99')).not.toContain('--randomize');
+    // 同 major/minor、更小 patch（相对 29.5.0 门槛）
+    expect(builder('29.5.0').includes('--randomize')).toBe(true);
+    // 用 detect 路径验证 extractSemver 双位
+    vi.resetModules();
+    vi.doMock('./exec-command', () => ({
+      execCommand: () => ({
+        status: 0,
+        stdout: '29.10.0',
+        stderr: '',
+        pid: 1,
+        output: ['', '29.10.0', ''],
+        signal: null,
+      }),
+    }));
+    const mod = await import('./test-framework');
+    expect(mod.detectFrameworkVersion('jest', '/cwd')).toBe('29.10.0');
+
+    vi.resetModules();
+    vi.doMock('./exec-command', () => ({
+      execCommand: () => ({
+        status: 0,
+        stdout: '1.2.34-beta',
+        stderr: '',
+        pid: 1,
+        output: ['', '1.2.34-beta', ''],
+        signal: null,
+      }),
+    }));
+    const mod2 = await import('./test-framework');
+    expect(mod2.detectFrameworkVersion('vitest', '/cwd')).toBe('1.2.34');
   });
 });

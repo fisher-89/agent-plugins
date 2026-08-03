@@ -2276,3 +2276,747 @@ describe('generateSubReport / generateSummaryReport — 新报告布局', () => 
     }
   });
 });
+
+describe('generateSubReport / generateSummaryReport — mutation-score 补强', () => {
+  it('混合 passed/failed/skipped → summary 四计数精确；error_cases 仅含失败/错误', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const report = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          testCases: [
+            { name: 'p', status: 'passed', durationMs: 1 },
+            {
+              name: 'f',
+              status: 'failed',
+              errorMessage: 'boom',
+              errorType: 'Error',
+              stackTrace: 'stack',
+            },
+            { name: 's', status: 'skipped' },
+            { name: 'e', status: 'failed', errorMessage: 'err2' },
+          ],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(report.summary).toMatchObject({ total: 4, passed: 1, failed: 2, skipped: 1 });
+      // error_cases 排除 passed，保留 failed/skipped
+      expect(report.error_cases).toHaveLength(3);
+      expect(report.error_cases.every((c) => c.status !== 'passed')).toBe(true);
+      expect(report.error_cases.filter((c) => c.status === 'failed')).toHaveLength(2);
+      expect(report.error_cases.find((c) => c.name === 'f')).toMatchObject({
+        errorMessage: 'boom',
+        errorType: 'Error',
+        stackTrace: 'stack',
+      });
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('result.error 有值 → findings===[error]；无 error → findings 缺省', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const withErr = generateSubReport(
+        'vitest',
+        makeExecutionResult({ error: 'prepare failed', testCases: [] }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(withErr.findings).toEqual(['prepare failed']);
+      const noErr = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          testCases: [{ name: 'ok', status: 'passed' }],
+          error: undefined,
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(noErr.findings === undefined || noErr.findings.length === 0).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('存在 execution_error problem → conclusion===error（优先于 fail）', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const sub = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          exitCode: 1,
+          error: 'Missing or unparseable results file',
+          testCases: [],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      // 同时构造一个失败用例的旁路仍应被 execution_error 压成 error
+      const failedSub = generateSubReport(
+        'jest',
+        makeExecutionResult({
+          framework: 'jest',
+          planId: 'jest',
+          exitCode: 1,
+          testCases: [{ name: 't', status: 'failed', errorMessage: 'x' }],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const summary = generateSummaryReport([sub, failedSub], dir.root, reportsDir);
+      expect(summary.problems.some((p) => p.type === 'execution_error')).toBe(true);
+      expect(summary.conclusion).toBe('error');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('failed>0 或 coverage.pass=false 或 mutation.pass=false → conclusion===fail', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: '.', framework: 'vitest', coverage: { lines: 90 } }],
+        }),
+        'utf-8',
+      );
+      const failTests = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          testCases: [{ name: 'f', status: 'failed', errorMessage: 'x' }],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(generateSummaryReport([failTests], dir.root, reportsDir).conclusion).toBe('fail');
+
+      const lowCov = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          testCases: [{ name: 'p', status: 'passed' }],
+          coverage: {
+            lines: 10,
+            branches: 10,
+            functions: 10,
+            fileCoverage: [
+              {
+                file: 'src/a.ts',
+                lines: 10,
+                branches: 10,
+                functions: 10,
+                total_lines: 100,
+                covered_lines: 10,
+                total_branches: 10,
+                covered_branches: 1,
+                total_functions: 10,
+                covered_functions: 1,
+              },
+            ],
+          },
+          sourceFiles: ['src/a.ts'],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(generateSummaryReport([lowCov], dir.root, reportsDir).conclusion).toBe('fail');
+
+      const lowMut = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          testCases: [{ name: 'p', status: 'passed' }],
+          mutation: {
+            pass: false,
+            score: 10,
+            threshold: 70,
+            measured: {
+              killed: 1,
+              survived: 9,
+              timeout: 0,
+              noCoverage: 0,
+              compileError: 0,
+              runtimeError: 0,
+              ignored: 0,
+              total: 10,
+              detected: 1,
+              undetected: 9,
+            },
+          },
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(generateSummaryReport([lowMut], dir.root, reportsDir).conclusion).toBe('fail');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('多 subReports duration 求和；duration_seconds 为毫秒和四舍五入到秒', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const a = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          durationMs: 1499,
+          testCases: [{ name: 'a', status: 'passed' }],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const b = generateSubReport(
+        'jest',
+        makeExecutionResult({
+          framework: 'jest',
+          planId: 'jest',
+          durationMs: 500,
+          testCases: [{ name: 'b', status: 'passed' }],
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const summary = generateSummaryReport([a, b], dir.root, reportsDir);
+      expect(summary.duration_seconds).toBe(2); // 1999ms → 2s
+      expect(summary.total).toBe(2);
+      expect(summary.passed).toBe(2);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('failed cases 超过 10 时 problems 截断为前 10 条 test_failure', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const cases = Array.from({ length: 15 }, (_, i) => ({
+        name: `fail_${i}`,
+        status: 'failed' as const,
+        errorMessage: `e${i}`,
+      }));
+      const sub = generateSubReport(
+        'vitest',
+        makeExecutionResult({ testCases: cases }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const summary = generateSummaryReport([sub], dir.root, reportsDir);
+      const failures = summary.problems.filter((p) => p.type === 'test_failure');
+      expect(failures).toHaveLength(10);
+      expect(failures[0].message).toContain('fail_0');
+      expect(failures[9].message).toContain('fail_9');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('sourceFiles 有路径但无 fileCoverage → 条目仅 file；有匹配则挂 coverage', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const report = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          testCases: [{ name: 'p', status: 'passed' }],
+          sourceFiles: ['src/a.ts', 'src/b.ts'],
+          coverage: {
+            lines: 50,
+            branches: null,
+            functions: null,
+            fileCoverage: [
+              {
+                file: 'src/a.ts',
+                lines: 80,
+                branches: null,
+                functions: null,
+                total_lines: 10,
+                covered_lines: 8,
+                total_branches: null,
+                covered_branches: null,
+                total_functions: null,
+                covered_functions: null,
+              },
+              {
+                file: 'src/unrelated.ts',
+                lines: 10,
+                branches: null,
+                functions: null,
+                total_lines: 10,
+                covered_lines: 1,
+                total_branches: null,
+                covered_branches: null,
+                total_functions: null,
+                covered_functions: null,
+              },
+            ],
+          },
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      const a = report.source_files.find((f) => f.file === 'src/a.ts');
+      const b = report.source_files.find((f) => f.file === 'src/b.ts');
+      expect(a?.coverage?.total_lines).toBe(10);
+      expect(b?.coverage === undefined || b?.coverage?.total_lines == null).toBe(true);
+      expect(report.source_files.some((f) => f.file === 'src/unrelated.ts')).toBe(false);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('mutation 分母为 0（total 全被 ignored/compileError/runtimeError 剔除）→ score 安全回落为 100', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = reportsTestDir(dir.root);
+      const sub = createSubReport({
+        framework: 'vitest',
+        source_files: [sfe('src/foo.ts')],
+        mutation: {
+          pass: true,
+          score: 0,
+          threshold: 70,
+          measured: {
+            killed: 0,
+            survived: 0,
+            timeout: 0,
+            noCoverage: 0,
+            compileError: 3,
+            runtimeError: 2,
+            ignored: 5,
+            total: 10,
+            detected: 0,
+            undetected: 0,
+          },
+        },
+      });
+      // validMutants = 10 - 5 - 3 - 2 = 0 → computeMutationScoreFromCounts 回落 100
+      const summary = generateSummaryReport([sub], dir.root, reportsDir);
+      expect(summary.mutation).not.toBeNull();
+      expect(summary.mutation!.score).toBe(100);
+      expect(summary.mutation!.measured.total).toBe(10);
+      expect(summary.mutation!.measured.ignored).toBe(5);
+      expect(summary.mutation!.measured.compileError).toBe(3);
+      expect(summary.mutation!.measured.runtimeError).toBe(2);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// generateSummaryReport -- suite 匹配
+// ===========================================================================
+
+describe('generateSummaryReport -- suite 匹配', () => {
+  function writeTestsConfig(root: string, tests: Array<Record<string, unknown>>): void {
+    const openspecDir = path.join(root, 'openspec');
+    fs.mkdirSync(openspecDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(openspecDir, 'config.json'),
+      JSON.stringify({ schema: 'spec-driven', tests }),
+      'utf-8',
+    );
+  }
+
+  function coverageResult(): ExecutionResult['coverage'] {
+    return {
+      lines: 90,
+      branches: 90,
+      functions: 90,
+      fileCoverage: null,
+    };
+  }
+
+  it('仅 framework 命中次之：directory 未匹配时子报告阈值取同 framework 的 suite', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'pkg-a',
+          framework: 'jest',
+          coverage: { lines: 91, branches: 91, functions: 91 },
+        },
+        {
+          root: 'pkg-b',
+          framework: 'vitest',
+          coverage: { lines: 55, branches: 55, functions: 55 },
+        },
+      ]);
+      const reportsDir = reportsTestDir(dir.root);
+      // planDirectory 与任一 suite cwd 均不匹配 → 回落 framework-only（vitest@pkg-b）
+      const sub = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          testCases: [{ name: 'ok', status: 'passed' }],
+          coverage: coverageResult(),
+        }),
+        dir.root,
+        reportsDir,
+        'unmatched-dir',
+      );
+      expect(sub.coverage?.thresholds).toEqual({ lines: 55, branches: 55, functions: 55 });
+
+      const summary = generateSummaryReport([sub], dir.root, reportsDir);
+      // summary 顶层阈值无 framework/directory → suites[0]（jest@pkg-a）
+      expect(summary.coverage?.thresholds.lines).toBe(91);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('否则 suites[0]：framework 未命中时 summary 阈值取首个 suite', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'pkg-a',
+          framework: 'jest',
+          coverage: { lines: 91, branches: 91, functions: 91 },
+        },
+        {
+          root: 'pkg-b',
+          framework: 'vitest',
+          coverage: { lines: 55, branches: 55, functions: 55 },
+        },
+      ]);
+      const reportsDir = reportsTestDir(dir.root);
+      // bun 不在 suites 中 → generateSubReport 阈值亦回落 suites[0]
+      const sub = generateSubReport(
+        'bun',
+        makeExecutionResult({
+          framework: 'bun',
+          planId: 'bun',
+          testCases: [{ name: 'ok', status: 'passed' }],
+          coverage: coverageResult(),
+        }),
+        dir.root,
+        reportsDir,
+        '.',
+      );
+      expect(sub.coverage?.thresholds).toEqual({ lines: 91, branches: 91, functions: 91 });
+
+      const summary = generateSummaryReport([sub], dir.root, reportsDir);
+      expect(summary.coverage).not.toBeNull();
+      expect(summary.coverage!.thresholds).toEqual({ lines: 91, branches: 91, functions: 91 });
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+describe('generateSummaryReport -- formatCoverageFailure / raw override 杀变异', () => {
+  function writeTestsConfig(root: string, tests: Array<Record<string, unknown>>): void {
+    const openspecDir = path.join(root, 'openspec');
+    fs.mkdirSync(openspecDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(openspecDir, 'config.json'),
+      JSON.stringify({ tests }, null, 2),
+      'utf-8',
+    );
+  }
+
+  it('仅 lines 不足时 problems 消息只含 lines，不含已达标的 branches/functions', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: '.',
+          framework: 'vitest',
+          includes: ['**/*.ts'],
+          coverage: { lines: 80, branches: 70, functions: 75 },
+        },
+      ]);
+      const sub = createSubReport({
+        framework: 'vitest',
+        directory: '.',
+        source_files: [
+          sfe('src/a.ts', {
+            total_lines: 100,
+            covered_lines: 50,
+            lines: 50,
+            total_branches: 100,
+            covered_branches: 90,
+            branches: 90,
+            total_functions: 100,
+            covered_functions: 90,
+            functions: 90,
+          }),
+        ],
+        coverage: {
+          pass: false,
+          measured: { lines: 50, branches: 90, functions: 90 },
+          thresholds: { lines: 80, branches: 70, functions: 75 },
+        },
+        summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+        error_cases: [],
+      });
+      const summary = generateSummaryReport([sub], dir.root, reportsTestDir(dir.root));
+      expect(summary.coverage?.pass).toBe(false);
+      const msg = summary.problems.find((p) => p.type === 'coverage_failure')?.message ?? '';
+      expect(msg).toMatch(/Coverage below threshold/);
+      expect(msg).toMatch(/lines 50\.0% < 80%/);
+      expect(msg).not.toMatch(/branches/);
+      expect(msg).not.toMatch(/functions/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('仅 branches 不足时消息只含 branches；lines 高于阈值不得出现', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: '.',
+          framework: 'vitest',
+          includes: ['**/*.ts'],
+          coverage: { lines: 80, branches: 70, functions: 75 },
+        },
+      ]);
+      const sub = createSubReport({
+        framework: 'vitest',
+        directory: '.',
+        source_files: [
+          sfe('src/a.ts', {
+            total_lines: 100,
+            covered_lines: 90,
+            lines: 90,
+            total_branches: 100,
+            covered_branches: 40,
+            branches: 40,
+            total_functions: 100,
+            covered_functions: 90,
+            functions: 90,
+          }),
+        ],
+        coverage: {
+          pass: false,
+          measured: { lines: 90, branches: 40, functions: 90 },
+          thresholds: { lines: 80, branches: 70, functions: 75 },
+        },
+        summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+        error_cases: [],
+      });
+      const summary = generateSummaryReport([sub], dir.root, reportsTestDir(dir.root));
+      const msg = summary.problems.find((p) => p.type === 'coverage_failure')?.message ?? '';
+      expect(msg).toMatch(/branches 40\.0% < 70%/);
+      expect(msg).not.toMatch(/lines /);
+      expect(msg).not.toMatch(/functions/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('仅 functions 不足时消息只含 functions', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: '.',
+          framework: 'vitest',
+          includes: ['**/*.ts'],
+          coverage: { lines: 80, branches: 70, functions: 75 },
+        },
+      ]);
+      const sub = createSubReport({
+        framework: 'vitest',
+        directory: '.',
+        source_files: [
+          sfe('src/a.ts', {
+            total_lines: 100,
+            covered_lines: 90,
+            lines: 90,
+            total_branches: 100,
+            covered_branches: 90,
+            branches: 90,
+            total_functions: 100,
+            covered_functions: 50,
+            functions: 50,
+          }),
+        ],
+        coverage: {
+          pass: false,
+          measured: { lines: 90, branches: 90, functions: 50 },
+          thresholds: { lines: 80, branches: 70, functions: 75 },
+        },
+        summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+        error_cases: [],
+      });
+      const summary = generateSummaryReport([sub], dir.root, reportsTestDir(dir.root));
+      const msg = summary.problems.find((p) => p.type === 'coverage_failure')?.message ?? '';
+      expect(msg).toMatch(/functions 50\.0% < 75%/);
+      expect(msg).not.toMatch(/lines /);
+      expect(msg).not.toMatch(/branches/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('total_*=0 的文件不计入 raw override 加权；与正计数文件混合时 measured 仅来自正计数', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'pkg',
+          framework: 'vitest',
+          includes: ['**/*.ts'],
+          coverage: { lines: 80, branches: 70, functions: 75 },
+        },
+      ]);
+      const sub = createSubReport({
+        framework: 'vitest',
+        directory: 'pkg',
+        source_files: [
+          sfe('pkg/zero.ts', {
+            total_lines: 0,
+            covered_lines: 0,
+            lines: 0,
+            total_branches: 0,
+            covered_branches: 0,
+            branches: 0,
+            total_functions: 0,
+            covered_functions: 0,
+            functions: 0,
+          }),
+          sfe('pkg/ok.ts', {
+            total_lines: 100,
+            covered_lines: 100,
+            lines: 100,
+            total_branches: 50,
+            covered_branches: 50,
+            branches: 100,
+            total_functions: 20,
+            covered_functions: 20,
+            functions: 100,
+          }),
+        ],
+        coverage: {
+          pass: true,
+          measured: { lines: 100, branches: 100, functions: 100 },
+          thresholds: { lines: 80, branches: 70, functions: 75 },
+        },
+        summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+        error_cases: [],
+      });
+      const summary = generateSummaryReport([sub], dir.root, reportsTestDir(dir.root));
+      expect(summary.coverage?.measured.lines).toBe(100);
+      expect(summary.coverage?.measured.branches).toBe(100);
+      expect(summary.coverage?.measured.functions).toBe(100);
+      const ov = summary.coverage?.overrides?.find((o) => o.glob === 'pkg');
+      expect(ov).toBeDefined();
+      expect(ov!.measured.lines).toBe(100);
+      expect(ov!.file_count).toBe(2);
+      // zero-total → all-null measured → computeCoveragePass 为 true，仍计入 passed_count
+      expect(ov!.passed_count).toBe(2);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('exit_code≠0 且 findings 非空 → execution_error 消息取 findings[0]', () => {
+    const dir = createTempDir();
+    try {
+      const sub = createSubReport({
+        framework: 'vitest',
+        exit_code: 2,
+        summary: { total: 0, passed: 0, failed: 0, skipped: 0 },
+        error_cases: [],
+        findings: ['prepare blew up'],
+        coverage: null,
+      });
+      const summary = generateSummaryReport([sub], dir.root, reportsTestDir(dir.root));
+      expect(summary.conclusion).toBe('error');
+      expect(summary.problems.some((p) => p.type === 'execution_error')).toBe(true);
+      expect(summary.problems.find((p) => p.type === 'execution_error')?.message).toBe(
+        'prepare blew up',
+      );
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('exit_code=0、failed=0 但 findings 非空 → 仍产生 execution_error', () => {
+    const dir = createTempDir();
+    try {
+      const sub = createSubReport({
+        framework: 'vitest',
+        exit_code: 0,
+        summary: { total: 1, passed: 1, failed: 0, skipped: 0 },
+        error_cases: [],
+        findings: ['parse warning'],
+        coverage: null,
+      });
+      const summary = generateSummaryReport([sub], dir.root, reportsTestDir(dir.root));
+      expect(summary.problems.some((p) => p.type === 'execution_error')).toBe(true);
+      expect(summary.problems.find((p) => p.type === 'execution_error')?.message).toBe(
+        'parse warning',
+      );
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('framework+planDirectory 同时匹配 suite cwd 时阈值取该 suite（非仅 framework）', () => {
+    const dir = createTempDir();
+    try {
+      writeTestsConfig(dir.root, [
+        {
+          root: 'apps',
+          cwd: 'web',
+          framework: 'vitest',
+          includes: ['**/*.ts'],
+          coverage: { lines: 95, branches: 95, functions: 95 },
+        },
+        {
+          root: 'apps',
+          cwd: 'api',
+          framework: 'vitest',
+          includes: ['**/*.ts'],
+          coverage: { lines: 60, branches: 60, functions: 60 },
+        },
+      ]);
+      const reportsDir = reportsTestDir(dir.root);
+      const sub = generateSubReport(
+        'vitest',
+        makeExecutionResult({
+          framework: 'vitest',
+          planId: 'apps_api_vitest',
+          testCases: [{ name: 'ok', status: 'passed' }],
+          coverage: {
+            lines: 100,
+            branches: 100,
+            functions: 100,
+            fileCoverage: null,
+          },
+        }),
+        dir.root,
+        reportsDir,
+        'apps/api',
+      );
+      expect(sub.coverage?.thresholds).toEqual({ lines: 60, branches: 60, functions: 60 });
+    } finally {
+      dir.cleanup();
+    }
+  });
+});

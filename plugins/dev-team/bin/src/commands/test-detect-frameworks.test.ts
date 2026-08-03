@@ -1,16 +1,14 @@
 /**
  * 单元测试: test-detect-frameworks — 占位符延迟展开、coverage 约定、版本探测
- *
- * detectFrameworkVersion 默认由 bin/__tests__/test-setup.ts 全局 spy 为 '99.0.0'；
- * 本文件仅在需要断言调用或改返回值时操作该 spy。
  */
 
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 
+import * as projectRootLib from '../lib/project-root';
 import * as testFramework from '../lib/test-framework';
 import { type OpenSpecConfigInput } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
@@ -34,11 +32,6 @@ function createTempProject(configData: OpenSpecConfigInput): TempProject {
     cleanup: () => fs.rmSync(tmpDir, { recursive: true, force: true }),
   };
 }
-
-beforeEach(() => {
-  vi.mocked(testFramework.detectFrameworkVersion).mockClear();
-  vi.mocked(testFramework.detectFrameworkVersion).mockReturnValue('99.0.0');
-});
 
 describe('runTestDetectFrameworks — plan.directory / scope', () => {
   it('root + cwd 解析为 absCwd 相对路径', () => {
@@ -254,6 +247,379 @@ describe('runTestDetectFrameworks — detectFrameworkVersion', () => {
         path.resolve(project.root, 'a'),
       );
     } finally {
+      project.cleanup();
+    }
+  });
+});
+
+describe('runTestDetectFrameworks — mutation-score 补强', () => {
+  it('显式 files 命中 suite → detected.framework 正确且 plan 含对应 framework', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'jest', includes: ['**/*.test.ts'] }],
+    });
+    try {
+      fs.mkdirSync(path.join(project.root, 'pkg'), { recursive: true });
+      const result = runTestDetectFrameworks({
+        projectRoot: project.root,
+        files: ['pkg/a.test.ts'],
+      });
+      expect(result.detected[0].framework).toBe('jest');
+      expect(result.detected[0].file.replace(/\\/g, '/')).toContain('pkg/a.test.ts');
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].framework).toBe('jest');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('files: [] → { detected: [], plan: [] }（即使有 suites）', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest' }],
+    });
+    try {
+      const result = runTestDetectFrameworks({ projectRoot: project.root, files: [] });
+      expect(result).toEqual({ detected: [], plan: [] });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('省略 files → auto-scan 收集命中 includes 的文件', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest', includes: ['**/*.test.ts'] }],
+    });
+    try {
+      fs.mkdirSync(path.join(project.root, 'pkg'), { recursive: true });
+      fs.writeFileSync(path.join(project.root, 'pkg', 'hit.test.ts'), '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'pkg', 'miss.ts'), '', 'utf-8');
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(
+        result.detected.some(
+          (d) => d.file.replace(/\\/g, '/').endsWith('pkg/hit.test.ts') && d.framework === 'vitest',
+        ),
+      ).toBe(true);
+      expect(result.detected.some((d) => d.file.endsWith('miss.ts'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('auto-scan 不进入 node_modules/.git/dist/build/target/.vp/coverage/.nyc_output/.claude', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest', includes: ['**/*.test.ts'] }],
+    });
+    try {
+      fs.mkdirSync(path.join(project.root, 'pkg'), { recursive: true });
+      const banned = [
+        'node_modules',
+        '.git',
+        'dist',
+        'build',
+        'target',
+        '.vp',
+        'coverage',
+        '.nyc_output',
+        '.claude',
+      ];
+      for (const d of banned) {
+        const dir = path.join(project.root, 'pkg', d);
+        fs.mkdirSync(dir, { recursive: true });
+        fs.writeFileSync(path.join(dir, 'secret.test.ts'), '', 'utf-8');
+      }
+      fs.writeFileSync(path.join(project.root, 'pkg', 'ok.test.ts'), '', 'utf-8');
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(
+        result.detected.some((d) => d.file.replace(/\\/g, '/').endsWith('pkg/ok.test.ts')),
+      ).toBe(true);
+      for (const d of banned) {
+        expect(
+          result.detected.some(
+            (x) => x.file.includes(`${path.sep}${d}${path.sep}`) || x.file.includes(`/${d}/`),
+          ),
+        ).toBe(false);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('两 suite 均可匹配时数组顺序前者胜出', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [
+        { root: 'pkg', framework: 'jest', includes: ['**/*.test.ts'] },
+        { root: 'pkg', framework: 'vitest', includes: ['**/*.test.ts'] },
+      ],
+    });
+    try {
+      const result = runTestDetectFrameworks({
+        projectRoot: project.root,
+        files: ['pkg/x.test.ts'],
+      });
+      expect(result.detected[0].framework).toBe('jest');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('suite.excludes 命中的文件不出现在 detected', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [
+        {
+          root: 'pkg',
+          framework: 'vitest',
+          includes: ['**/*.test.ts'],
+          excludes: ['skip/**'],
+        },
+      ],
+    });
+    try {
+      fs.mkdirSync(path.join(project.root, 'pkg', 'skip'), { recursive: true });
+      fs.writeFileSync(path.join(project.root, 'pkg', 'skip', 'a.test.ts'), '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'pkg', 'keep.test.ts'), '', 'utf-8');
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(result.detected.some((d) => d.file.includes('keep.test.ts'))).toBe(true);
+      expect(
+        result.detected.some(
+          (d) => d.file.includes(`${path.sep}skip${path.sep}`) || d.file.includes('/skip/'),
+        ),
+      ).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('显式 files 未匹配 → unknown；auto-scan 未匹配则省略', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest', includes: ['**/*.test.ts'] }],
+    });
+    try {
+      const explicit = runTestDetectFrameworks({
+        projectRoot: project.root,
+        files: ['readme.md'],
+      });
+      expect(explicit.detected[0].framework).toBe('unknown');
+
+      fs.mkdirSync(path.join(project.root, 'pkg'), { recursive: true });
+      fs.writeFileSync(path.join(project.root, 'pkg', 'readme.md'), '', 'utf-8');
+      const scanned = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(scanned.detected.some((d) => d.file.endsWith('readme.md'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('无 tests / tests=[]：显式 files → 全 unknown 且 plan=[]；auto-scan → detected=[]', () => {
+    for (const tests of [undefined, []] as const) {
+      const project = createTempProject(
+        tests === undefined ? { schema: 'spec-driven' } : { schema: 'spec-driven', tests: [] },
+      );
+      try {
+        const explicit = runTestDetectFrameworks({
+          projectRoot: project.root,
+          files: ['a.ts'],
+        });
+        expect(explicit.detected).toEqual([{ file: expect.any(String), framework: 'unknown' }]);
+        expect(explicit.plan).toEqual([]);
+
+        fs.writeFileSync(path.join(project.root, 'a.ts'), '', 'utf-8');
+        const scanned = runTestDetectFrameworks({ projectRoot: project.root });
+        expect(scanned.detected).toEqual([]);
+        expect(scanned.plan).toEqual([]);
+      } finally {
+        project.cleanup();
+      }
+    }
+  });
+
+  it('suite 声明 config 但 framework config_flag===null（go）→ 抛错含 does not support config injection', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: '.', framework: 'go', config: 'go.mod' }],
+    });
+    try {
+      expect(() => runTestDetectFrameworks({ projectRoot: project.root })).toThrow(
+        /does not support config injection/,
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('script.shell/cmd 仍含占位符，无 cd 前缀、无已展开 reports 绝对路径', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: '.', framework: 'vite-plus' }],
+    });
+    try {
+      const plan = runTestDetectFrameworks({ projectRoot: project.root }).plan[0];
+      expect(plan.script.shell).toContain('{results_file}');
+      expect(plan.script.shell).toContain('{report_dir}');
+      expect(plan.script.shell).toContain('{config_args}');
+      expect(plan.script.cmd).toContain('{results_file}');
+      expect(plan.script.shell).not.toMatch(/^cd\s/);
+      expect(plan.script.cmd).not.toMatch(/^cd\s/);
+      expect(plan.script.shell).not.toContain(project.root);
+      expect(plan.script.shell).not.toMatch(/reports[/\\]test[/\\]/);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('coverage_format/output、mutation_framework 来自 registry；mutation_score 来自 suite 或缺省 null', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [
+        { root: '.', framework: 'vitest', mutation: { score: 66 } },
+        { root: 'go-pkg', framework: 'go' },
+      ],
+    });
+    try {
+      const plans = runTestDetectFrameworks({ projectRoot: project.root }).plan;
+      const vitest = plans.find((p) => p.framework === 'vitest')!;
+      const go = plans.find((p) => p.framework === 'go')!;
+      expect(vitest.coverage_format).toBe('istanbul');
+      expect(vitest.coverage_output).toBe('coverage-summary.json');
+      expect(vitest.mutation_framework).toBe('stryker-js');
+      expect(vitest.mutation_score).toBe(66);
+      expect(go.coverage_format).toBe('go-cover');
+      expect(go.mutation_framework).toBeNull();
+      // schema 对 suite.mutation.score 有默认 70；未显式声明时仍可能得到默认值
+      expect(go.mutation_score === null || go.mutation_score === 70).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('两 suite 解析到相同 directory+framework → plan 仅一条', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [
+        { root: '.', framework: 'vitest', includes: ['a/**'] },
+        { root: '.', framework: 'vitest', includes: ['b/**'] },
+      ],
+    });
+    try {
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(result.plan).toHaveLength(1);
+      expect(result.plan[0].framework).toBe('vitest');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('suite 无 includes → 使用 framework default_glob；自定义 includes 覆盖默认', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [
+        { root: 'def', framework: 'pytest' },
+        { root: 'custom', framework: 'pytest', includes: ['**/special_*.py'] },
+      ],
+    });
+    try {
+      fs.mkdirSync(path.join(project.root, 'def'), { recursive: true });
+      fs.mkdirSync(path.join(project.root, 'custom'), { recursive: true });
+      fs.writeFileSync(path.join(project.root, 'def', 'test_default.py'), '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'custom', 'special_x.py'), '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'custom', 'test_ignored.py'), '', 'utf-8');
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(
+        result.detected.some((d) => d.file.includes('test_default.py') && d.framework === 'pytest'),
+      ).toBe(true);
+      expect(
+        result.detected.some((d) => d.file.includes('special_x.py') && d.framework === 'pytest'),
+      ).toBe(true);
+      expect(result.detected.some((d) => d.file.includes('test_ignored.py'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('全局 exclude（任一 suite.excludes）与 suite.excludes 命中的文件不出现在 detected', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [
+        {
+          root: 'pkg',
+          framework: 'vitest',
+          includes: ['**/*.test.ts'],
+          excludes: ['legacy/**'],
+        },
+        {
+          root: 'other',
+          framework: 'jest',
+          includes: ['**/*.test.ts'],
+          excludes: ['**/vendor.test.ts'],
+        },
+      ],
+    });
+    try {
+      fs.mkdirSync(path.join(project.root, 'pkg', 'legacy'), { recursive: true });
+      fs.mkdirSync(path.join(project.root, 'other'), { recursive: true });
+      fs.writeFileSync(path.join(project.root, 'pkg', 'legacy', 'old.test.ts'), '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'pkg', 'keep.test.ts'), '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'other', 'vendor.test.ts'), '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'other', 'ok.test.ts'), '', 'utf-8');
+
+      const scanned = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(scanned.detected.some((d) => d.file.includes('keep.test.ts'))).toBe(true);
+      expect(scanned.detected.some((d) => d.file.includes('ok.test.ts'))).toBe(true);
+      expect(scanned.detected.some((d) => d.file.includes('legacy'))).toBe(false);
+      expect(scanned.detected.some((d) => d.file.includes('vendor.test.ts'))).toBe(false);
+
+      // 显式 files 同样受全局 isFileExcluded 过滤（不进入 detected）
+      const explicit = runTestDetectFrameworks({
+        projectRoot: project.root,
+        files: ['pkg/legacy/old.test.ts', 'other/vendor.test.ts', 'pkg/keep.test.ts'],
+      });
+      expect(explicit.detected).toHaveLength(1);
+      expect(explicit.detected[0].file.replace(/\\/g, '/')).toContain('pkg/keep.test.ts');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('省略 projectRoot 时走 getProjectDir；绝对/相对 files 均可', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: 'pkg', framework: 'vitest', includes: ['**/*.test.ts'] }],
+    });
+    const spy = vi.spyOn(projectRootLib, 'getProjectDir').mockReturnValue(project.root);
+    try {
+      fs.mkdirSync(path.join(project.root, 'pkg'), { recursive: true });
+      const absFile = path.join(project.root, 'pkg', 'abs.test.ts');
+      fs.writeFileSync(absFile, '', 'utf-8');
+      fs.writeFileSync(path.join(project.root, 'pkg', 'rel.test.ts'), '', 'utf-8');
+
+      spy.mockClear();
+      const omitted = runTestDetectFrameworks({
+        files: ['pkg/rel.test.ts', absFile],
+      });
+      expect(spy).toHaveBeenCalled();
+      expect(omitted.detected).toHaveLength(2);
+      expect(omitted.detected.every((d) => d.framework === 'vitest')).toBe(true);
+      expect(
+        omitted.detected.some((d) => d.file.replace(/\\/g, '/').endsWith('pkg/rel.test.ts')),
+      ).toBe(true);
+      expect(omitted.detected.some((d) => path.resolve(d.file) === path.resolve(absFile))).toBe(
+        true,
+      );
+
+      spy.mockClear();
+      const withRoot = runTestDetectFrameworks({
+        projectRoot: project.root,
+        files: ['pkg/rel.test.ts'],
+      });
+      expect(spy).not.toHaveBeenCalled();
+      expect(withRoot.detected[0].framework).toBe('vitest');
+    } finally {
+      spy.mockRestore();
       project.cleanup();
     }
   });

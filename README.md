@@ -41,7 +41,7 @@ claude plugin install dev-team@wps-ai
 /phase-test-design            # 测试设计（产物 test-design.md)
 /phase-implement              # 实现功能代码
 /phase-test-gen               # 生成测试代码
-/phase-test-execution         # 执行测试（产物 reports/test-execution.json）
+/phase-test-execution         # 执行测试（产物 reports/test/summary.json）
 /phase-code-review            # 代码审查
 /phase-acceptance             # 流程验收
 

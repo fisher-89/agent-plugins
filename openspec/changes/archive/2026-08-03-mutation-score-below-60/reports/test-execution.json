@@ -1,0 +1,90 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-07-31T11:12:19.650Z",
+  "duration_seconds": 302,
+  "total": 1193,
+  "passed": 1193,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "fail",
+  "problems": [
+    {
+      "framework": "all",
+      "type": "coverage_failure",
+      "message": "Mutation score 67.9% < threshold 70%"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 95.47,
+      "branches": 86.22,
+      "functions": 98.37
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 34,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": false,
+    "score": 67.9,
+    "threshold": 70,
+    "measured": {
+      "killed": 1339,
+      "survived": 569,
+      "timeout": 0,
+      "noCoverage": 64,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 15,
+      "total": 1987,
+      "detected": 1339,
+      "undetected": 633
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 67.90060851926978,
+        "threshold": 70,
+        "pass": false,
+        "file_count": 34,
+        "passed_count": 0
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "directory": "plugins/dev-team",
+      "path": "openspec/changes/mutation-score-below-60/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "Validation: required fields present; counts consistent (1193=1193+0+0); conclusion=fail is consistent with mutation.pass=false (aggregate 67.9% < suite threshold 70%) despite zero test failures and coverage.pass=true.",
+    "Per-file mutation scores for AC targets (killed/(killed+survived+noCoverage)): test-framework 72.41, test-runner 62.78, stryker-config 76.92, test-report 63.69, go-parser 83.80, text-parser 66.49, test-detect-frameworks 76.04 — all ≥ 60.",
+    "Aggregate mutation still fails config threshold (67.9% < 70%) because this run mutated only the seven gap files via --mutation-diff-only; suite-level threshold remains 70 in openspec/config.json. AC acceptance is per-file ≥ 60, which is met.",
+    "Earlier null mutation was caused by --mutation-diff-only intersecting only *.test.ts/openspec diffs with covered sources; temporary source markers were used to scope Stryker to the seven targets, then reverted."
+  ]
+}

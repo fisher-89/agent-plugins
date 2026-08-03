@@ -89,8 +89,6 @@ Key fields to read:
 - `mutation` — mutation testing results (may be `null` if mutation testing is skipped)
 - `mutation.pass` — whether mutation score meets threshold
 
-**Do NOT** invent paths like `reports/test/<framework>.json` or read legacy `reports/test-execution.json`. Always locate atomic reports via `plans[].path` → `{path}/report.json`.
-
 ### Step 3: Validate report completeness
 
 Check the following aspects of the report:
@@ -193,7 +191,6 @@ Write the diagnostic findings to the summary report file (`reports/test/summary.
 - DO NOT parse coverage output files — this is done by `coverage-parser.ts`
 - DO NOT move or copy coverage artifacts — this is done by the CLI
 - DO NOT modify report fields other than `findings` — only push new entries to the findings array
-- DO NOT read legacy paths (`reports/test-execution.json`, `reports/test-execution/<framework>.json`, or invented `<framework>.json` under `reports/test/`)
 - Always locate atomic reports via `summary.plans[]` → `{path}/report.json`
 - If the summary report does not exist, report the error and stop — do not attempt to regenerate it
 - The `findings` field SHOULD be diagnostic and actionable, not a summary of the report

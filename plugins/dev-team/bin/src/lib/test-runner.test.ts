@@ -550,3 +550,1079 @@ describe('executePlanEntry', () => {
     }
   });
 });
+
+// ===========================================================================
+// mutation-score-below-60 补强：占位符 / 重定向 / timeout / mutation 开关
+// ===========================================================================
+
+describe('executePlanEntry -- 占位符展开与重定向', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('捕获 cmd：results_file/report_dir/coverage_file/coverprofile_file 已替换为相对 absCwd 的 POSIX 路径', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'TestA' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go', directory: '.', scope: '.' }), dir.root, {
+        reportsDir,
+      });
+      const cmd = capturedCmd();
+      expect(cmd).not.toContain('{results_file}');
+      expect(cmd).not.toContain('{report_dir}');
+      expect(cmd).not.toContain('{coverage_file}');
+      expect(cmd).not.toContain('{coverprofile_file}');
+      expect(cmd).toContain('results.ndjson');
+      expect(cmd).toContain('func-summary.txt');
+      expect(cmd).toContain('coverage.out');
+      expect(cmd).toMatch(/reports\/test\/go|reports\\test\\go/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it("files=['a.test.ts','b.test.ts'] → {files} 展开；省略且 scope=src → 回落 src；scope='.' → 空串", () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest', scope: 'src' }), dir.root, {
+        reportsDir,
+        files: ['a.test.ts', 'b.test.ts'],
+      });
+      expect(capturedCmd()).toContain('a.test.ts b.test.ts');
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest', scope: 'src' }), dir.root, { reportsDir });
+      expect(capturedCmd()).toMatch(/\bsrc\b/);
+      expect(capturedCmd()).not.toContain('{files}');
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      const plan = makePlan({ framework: 'vitest', scope: '.' });
+      // 用可观测模板锁定空 files 回落：末尾 {files} 被替换为空
+      plan.script.shell = 'npx vitest run --outputFile={results_file} {files}';
+      plan.script.cmd = plan.script.shell;
+      executePlanEntry(plan, dir.root, { reportsDir });
+      const cmd = capturedCmd();
+      expect(cmd).not.toContain('{files}');
+      expect(cmd.trimEnd().endsWith('results.json') || /results\.json\s*$/.test(cmd)).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it("go：scope='.' → {directory}=./...；scope=pkg → ./pkg/...", () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go', scope: '.' }), dir.root, { reportsDir });
+      expect(capturedCmd()).toContain('./...');
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go', scope: 'pkg' }), dir.root, { reportsDir });
+      expect(capturedCmd()).toContain('./pkg/...');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('suite 声明 config 且有 config_flag → cmd 含 --config；无 config → {config_args} 剥离无残留空位', () => {
+    const dir = createTempDir();
+    try {
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [
+            {
+              root: '.',
+              framework: 'vitest',
+              config: 'vitest.config.ts',
+              includes: ['**/*.ts'],
+            },
+          ],
+        }),
+        'utf-8',
+      );
+      fs.writeFileSync(path.join(dir.root, 'vitest.config.ts'), 'export default {}', 'utf-8');
+
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(capturedCmd()).toContain('--config');
+      expect(capturedCmd()).toContain('vitest.config.ts');
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      // 无 suite config：剥离 {config_args}
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: '.', framework: 'vitest', includes: ['**/*.ts'] }],
+        }),
+        'utf-8',
+      );
+      executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      const cmd = capturedCmd();
+      expect(cmd).not.toContain('{config_args}');
+      expect(cmd).not.toMatch(/--config\s+--/);
+      expect(cmd).not.toMatch(/\s{2,}/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('go：重定向插在 go test 与链分隔符之间，coverage 段不被吞掉', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go' }), dir.root, { reportsDir });
+      const cmd = capturedCmd();
+      expect(cmd).toMatch(/go test[\s\S]*?>\s*"[^"]*results\.ndjson"/);
+      expect(cmd).toContain('go tool cover');
+      // coverage 段仍在重定向之后
+      const redirectIdx = cmd.search(/>\s*"[^"]*results\.ndjson"/);
+      const coverIdx = cmd.indexOf('go tool cover');
+      expect(redirectIdx).toBeGreaterThanOrEqual(0);
+      expect(coverIdx).toBeGreaterThan(redirectIdx);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('rust：cargo test > 后仍保留 llvm-cov；pytest：仅第一段后插入 >', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalTextResults(path.join(reportsDir, 'rust'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'rust' }), dir.root, { reportsDir });
+      const rustCmd = capturedCmd();
+      expect(rustCmd).toMatch(/cargo test\s+>\s*"/);
+      expect(rustCmd).toContain('llvm-cov');
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalTextResults(path.join(reportsDir, 'pytest'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'pytest' }), dir.root, { reportsDir });
+      const pyCmd = capturedCmd();
+      expect(pyCmd).toMatch(/pytest[\s\S]*?>\s*"[^"]*results\.txt"/);
+      expect(pyCmd).toContain('--cov-report=json:');
+      const redir = pyCmd.search(/>\s*"[^"]*results\.txt"/);
+      const cov = pyCmd.indexOf('--cov');
+      expect(cov).toBeGreaterThan(redir);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+describe('executePlanEntry -- 空命令 / 解析失败 / timeout / planId', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('script.shell/cmd 为空或仅空白 → exitCode=-1、error 含 Empty test command、不调用 execSync', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const result = executePlanEntry(
+        makePlan({
+          framework: 'vitest',
+          script: { shell: '   ', cmd: '' },
+        }),
+        dir.root,
+        { reportsDir },
+      );
+      expect(result.exitCode).toBe(-1);
+      expect(result.error).toMatch(/Empty test command/);
+      expect(mockExecSync).not.toHaveBeenCalled();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('exitCode≠0 且 planDir 无结果文件 → error 含 Missing or unparseable results file', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        // 空 message → execError 为假值，透出 parseError
+        const err = new Error('') as Error & { status: number };
+        err.status = 2;
+        throw err;
+      });
+      const result = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(result.exitCode).toBe(2);
+      expect(result.error).toMatch(/Missing or (?:empty|unparseable) results file/);
+      expect(result.mutation).toBeNull();
+      expect(result.testCases).toEqual([]);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('exitCode=0 但空结果 → parser 错误透传', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        // 命令成功但写入空 results.json → parsePlanArtifacts 返回 parser error
+        const planDir = path.join(reportsDir, 'vitest');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(path.join(planDir, 'results.json'), '   \n', 'utf-8');
+        return '';
+      });
+      const result = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(result.exitCode).toBe(0);
+      expect(result.error).toMatch(/Missing or empty results file/);
+      expect(result.testCases).toEqual([]);
+      expect(result.mutation).toBeNull();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('传入 timeout:1234 → execSync options.timeout 为 1234；省略 → 60000；0/-1/MAX 原样传递', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const cases: Array<{ timeout?: number; expected: number }> = [
+        { timeout: 1234, expected: 1234 },
+        { expected: 60000 },
+        { timeout: 0, expected: 0 },
+        { timeout: -1, expected: -1 },
+        { timeout: Number.MAX_SAFE_INTEGER, expected: Number.MAX_SAFE_INTEGER },
+      ];
+      for (const c of cases) {
+        mockExecSync.mockReset();
+        mockExecSync.mockImplementation(() => {
+          writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+          return '';
+        });
+        const opts: { reportsDir: string; timeout?: number } = { reportsDir };
+        if (c.timeout !== undefined) opts.timeout = c.timeout;
+        executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, opts);
+        expect(mockExecSync.mock.calls[0][1]).toMatchObject({ timeout: c.expected });
+      }
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it("directory='.' → planId=framework；含斜杠/反斜杠目录归一为下划线", () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      expect(
+        executePlanEntry(makePlan({ framework: 'vitest', directory: '.' }), dir.root, {
+          reportsDir,
+        }).planId,
+      ).toBe('vitest');
+
+      const nestedId = 'plugins_dev-team_bin_vitest';
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, nestedId));
+        return '';
+      });
+      const nestedDir = path.join(dir.root, 'plugins', 'dev-team', 'bin');
+      fs.mkdirSync(nestedDir, { recursive: true });
+      expect(
+        executePlanEntry(
+          makePlan({ framework: 'vitest', directory: 'plugins/dev-team/bin' }),
+          dir.root,
+          { reportsDir },
+        ).planId,
+      ).toBe(nestedId);
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, nestedId));
+        return '';
+      });
+      expect(
+        executePlanEntry(
+          makePlan({ framework: 'vitest', directory: 'plugins\\dev-team\\bin' }),
+          dir.root,
+          { reportsDir },
+        ).planId,
+      ).toBe(nestedId);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('exec 抛错且 stdout/stderr 为 Buffer → 仍能解析 planDir 文件并设置 exitCode', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
+        const err = new Error('boom') as Error & {
+          status: number;
+          stdout: Buffer;
+          stderr: Buffer;
+        };
+        err.status = 1;
+        err.stdout = Buffer.from('noise');
+        err.stderr = Buffer.from('err');
+        throw err;
+      });
+      const result = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(result.exitCode).toBe(1);
+      expect(result.testCases.length).toBeGreaterThan(0);
+      expect(result.testCases.some((t) => t.status === 'failed')).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+describe('executePlanEntry -- mutation 开关', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  function writePassingJsWithSource(
+    planDir: string,
+    projectRoot: string,
+    opts: { relativeTestName?: boolean } = {},
+  ): void {
+    fs.mkdirSync(planDir, { recursive: true });
+    fs.mkdirSync(path.join(projectRoot, 'src'), { recursive: true });
+    fs.writeFileSync(path.join(projectRoot, 'src', 'foo.ts'), 'export const x=1\n', 'utf-8');
+    const testName = opts.relativeTestName
+      ? 'src/foo.test.ts'
+      : path.join(projectRoot, 'src', 'foo.test.ts');
+    fs.writeFileSync(
+      path.join(planDir, 'results.json'),
+      JSON.stringify({
+        testResults: [
+          {
+            name: testName,
+            assertionResults: [
+              { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+            ],
+          },
+        ],
+      }),
+      'utf-8',
+    );
+  }
+
+  it('mutation_framework 有值、全通过、mock stryker 写 mutation.json → score/threshold/pass；临时 config 删除', () => {
+    const dir = createTempDir();
+    try {
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: '.', framework: 'vitest', includes: ['**/*.ts'] }],
+        }),
+        'utf-8',
+      );
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const seenConfigs: string[] = [];
+      mockExecSync.mockImplementation((cmd: unknown) => {
+        const planDir = path.join(reportsDir, 'vitest');
+        if (String(cmd).includes('stryker')) {
+          const m = String(cmd).match(/stryker\.config\.[a-f0-9]+\.json/);
+          if (m) {
+            const cfgPath = path.join(dir.root, m[0]);
+            seenConfigs.push(cfgPath);
+            expect(fs.existsSync(cfgPath)).toBe(true);
+          }
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify({
+              files: {
+                'src/foo.ts': {
+                  mutants: [
+                    { id: '1', status: 'Killed', mutatorName: 'x', replacement: 'y', location: {} },
+                    { id: '2', status: 'Killed', mutatorName: 'x', replacement: 'y', location: {} },
+                  ],
+                },
+              },
+            }),
+            'utf-8',
+          );
+          return '';
+        }
+        writePassingJsWithSource(planDir, dir.root);
+        return '';
+      });
+      const result = executePlanEntry(
+        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js', mutation_score: 50 }),
+        dir.root,
+        { reportsDir },
+      );
+      expect(result.mutation).not.toBeNull();
+      expect(result.mutation!.score).toBe(100);
+      expect(result.mutation!.threshold).toBe(50);
+      expect(result.mutation!.pass).toBe(true);
+      for (const c of seenConfigs) {
+        expect(fs.existsSync(c)).toBe(false);
+      }
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('noMutation:true / mutation_framework 空 / 有 failed → 跳过 stryker、mutation===null', () => {
+    const dir = createTempDir();
+    try {
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: '.', framework: 'vitest', includes: ['**/*.ts'] }],
+        }),
+        'utf-8',
+      );
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+
+      mockExecSync.mockImplementation(() => {
+        writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
+        return '';
+      });
+      const noMut = executePlanEntry(
+        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
+        dir.root,
+        { reportsDir, noMutation: true },
+      );
+      expect(noMut.mutation).toBeNull();
+      expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
+        return '';
+      });
+      const nullFw = executePlanEntry(
+        makePlan({ framework: 'vitest', mutation_framework: null }),
+        dir.root,
+        { reportsDir },
+      );
+      expect(nullFw.mutation).toBeNull();
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
+        return '';
+      });
+      const failed = executePlanEntry(
+        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
+        dir.root,
+        { reportsDir },
+      );
+      expect(failed.mutation).toBeNull();
+      expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('mutationDiffFiles 无交集 / suite excludes 过滤全部 sourceFiles → 跳过 stryker', () => {
+    const dir = createTempDir();
+    try {
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      // suite.root=src 时 excludes 可稳定匹配相对 sourceFiles
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [
+            {
+              root: 'src',
+              framework: 'vitest',
+              includes: ['**/*.ts'],
+              excludes: ['**/*'],
+            },
+          ],
+        }),
+        'utf-8',
+      );
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root, {
+          relativeTestName: true,
+        });
+        return '';
+      });
+      const excluded = executePlanEntry(
+        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
+        dir.root,
+        { reportsDir },
+      );
+      expect(excluded.mutation).toBeNull();
+      expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
+
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: '.', framework: 'vitest', includes: ['**/*.ts'] }],
+        }),
+        'utf-8',
+      );
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root, {
+          relativeTestName: true,
+        });
+        return '';
+      });
+      const noIntersect = executePlanEntry(
+        makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
+        dir.root,
+        { reportsDir, mutationDiffFiles: ['other/unrelated.ts'] },
+      );
+      expect(noIntersect.mutation).toBeNull();
+      expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('stryker exit≠0 或缺少 mutation.json → mutation===null 且不抛；不读 reports/mutation/ 旧路径', () => {
+    const dir = createTempDir();
+    try {
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: '.', framework: 'vitest', includes: ['**/*.ts'] }],
+        }),
+        'utf-8',
+      );
+      const oldDir = path.join(dir.root, 'reports', 'mutation');
+      fs.mkdirSync(oldDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(oldDir, 'mutation.json'),
+        JSON.stringify({
+          files: {
+            'src/foo.ts': {
+              mutants: [
+                { id: '1', status: 'Killed', mutatorName: 'x', replacement: 'y', location: {} },
+              ],
+            },
+          },
+        }),
+        'utf-8',
+      );
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+
+      mockExecSync.mockImplementation((cmd: unknown) => {
+        if (String(cmd).includes('stryker')) {
+          const err = new Error('stryker fail') as Error & { status: number };
+          err.status = 1;
+          throw err;
+        }
+        writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
+        return '';
+      });
+      expect(
+        executePlanEntry(
+          makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
+          dir.root,
+          { reportsDir },
+        ).mutation,
+      ).toBeNull();
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation((cmd: unknown) => {
+        if (String(cmd).includes('stryker')) {
+          // 成功但不写 mutation.json
+          return '';
+        }
+        writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
+        return '';
+      });
+      expect(
+        executePlanEntry(
+          makePlan({ framework: 'vitest', mutation_framework: 'stryker-js' }),
+          dir.root,
+          { reportsDir },
+        ).mutation,
+      ).toBeNull();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('存在用户 bunfig.toml 时临时 overlay 前缀含原内容且含 coverageDir/lcov；用户文件不变；结束后 temp 删除', () => {
+    const dir = createTempDir();
+    try {
+      const userBunfig = path.join(dir.root, 'bunfig.toml');
+      const userContent = '[test]\npreload = ["keep-me"]\n';
+      fs.writeFileSync(userBunfig, userContent, 'utf-8');
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      let overlay = '';
+      let tempPath = '';
+      mockExecSync.mockImplementation((cmd: unknown) => {
+        const m = String(cmd).match(/bunfig\.dev-team-[a-f0-9]+\.toml/);
+        if (m) {
+          tempPath = path.join(dir.root, m[0]);
+          overlay = fs.readFileSync(tempPath, 'utf-8');
+        }
+        writeMinimalTextResults(path.join(reportsDir, 'bun'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'bun' }), dir.root, { reportsDir });
+      expect(overlay.startsWith(userContent)).toBe(true);
+      expect(overlay).toContain('coverageDir');
+      expect(overlay).toContain('coverageReporter = ["lcov"]');
+      expect(fs.readFileSync(userBunfig, 'utf-8')).toBe(userContent);
+      expect(tempPath).toBeTruthy();
+      expect(fs.existsSync(tempPath)).toBe(false);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () => {
+  const prevShell = process.env.SHELL;
+
+  beforeEach(() => {
+    mockExecSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    // Force shell-template path even on Windows so go/pytest `;` redirect regex is covered
+    process.env.SHELL = '/bin/bash';
+  });
+
+  afterEach(() => {
+    if (prevShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = prevShell;
+    vi.restoreAllMocks();
+  });
+
+  it('SHELL 存在时 go 使用 shell 模板：重定向在 `go test…;` 段内且精确匹配', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go' }), dir.root, { reportsDir });
+      const cmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      // Unix chain uses `;` — must keep `go test … > "results" ; … cover`
+      expect(cmd).toMatch(/^go test\b.*?>\s*"[^"]*results\.ndjson"\s*;/);
+      expect(cmd).toContain('; _X=$?;');
+      expect(cmd).toContain('go tool cover -func=');
+      expect(cmd).not.toContain('errorlevel');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('SHELL 存在时 pytest 使用 shell 模板：重定向在第一段 `;` 之前', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalTextResults(path.join(reportsDir, 'pytest'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'pytest' }), dir.root, { reportsDir });
+      const cmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      // 精确：redirect 后必须是「空白*;空白*」才能匹配原正则；弱化空白/锚点的变异会插错位置
+      expect(cmd).toMatch(/^pytest -v\s+> "[^"]*results\.txt"\s*;\s*pytest --cov=/);
+      expect(cmd.indexOf('> "')).toBeLessThan(cmd.indexOf('; pytest --cov='));
+      expect(cmd).not.toContain('&&');
+      // 第二段 pytest 前保留 `;` 两侧空白（杀 \s*;\s → \s*;\S 等）
+      expect(cmd).toMatch(/results\.txt" ; pytest --cov=|results\.txt"\s+;\s+pytest --cov=/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('scope 非 `.` 时 {files} 回落为 scope；directory 为 ./scope/...', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        writeIstanbulCoverage(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest', scope: 'pkg' }), dir.root, { reportsDir });
+      const cmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(cmd).toMatch(/\spkg(\s|$)/);
+      expect(cmd).not.toContain('{files}');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('go scope=pkg 时 {directory} 为 ./pkg/...（非 ./...）', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go', scope: 'pkg' }), dir.root, { reportsDir });
+      const cmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(cmd).toContain('./pkg/...');
+      expect(cmd).not.toContain('./...;');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('exitCode≠0（无抛错）且空用例 → parseError 与 mutation 跳过', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      // execSync 不抛错但 status 无法表达非零；用抛错且 message 空/缺省，让 parseError 成为 error
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'vitest');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({ testResults: [{ name: 'a.test.ts', assertionResults: [] }] }),
+          'utf-8',
+        );
+        const err = new Error('') as Error & { status: number; message: string };
+        err.status = 2;
+        err.message = '';
+        throw err;
+      });
+      const result = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(result.exitCode).toBe(2);
+      expect(result.testCases).toEqual([]);
+      // execError 为空串时 || 回落到 parseError
+      expect(result.error).toMatch(/Missing or unparseable results file/);
+      expect(result.mutation).toBeNull();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('execSync 抛错且 stdout/stderr 为 Buffer → 仍设置 exitCode 与 error', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
+        const err = new Error('cmd failed') as Error & {
+          status: number;
+          stdout: Buffer;
+          stderr: Buffer;
+        };
+        err.status = 1;
+        err.stdout = Buffer.from('out');
+        err.stderr = Buffer.from('err');
+        throw err;
+      });
+      const result = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(result.exitCode).toBe(1);
+      expect(result.error).toMatch(/cmd failed/);
+      expect(result.testCases.some((t) => t.status === 'failed')).toBe(true);
+      expect(result.mutation).toBeNull();
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('exitCode≠0 且已有 failed 用例 → 不得误标 Missing results；error 为 exec 消息', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
+        const err = new Error('tests failed') as Error & { status: number };
+        err.status = 1;
+        throw err;
+      });
+      const result = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(result.exitCode).toBe(1);
+      expect(result.testCases.length).toBeGreaterThan(0);
+      expect(result.error).toBe('tests failed');
+      expect(result.error).not.toMatch(/Missing or unparseable/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it("scope='.' 时 go directory 为 ./... 而非 ././...；scope=pkg 前缀为 ./", () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go', scope: '.' }), dir.root, { reportsDir });
+      const rootCmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(rootCmd).toContain('./...');
+      expect(rootCmd).not.toContain('././...');
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go', scope: 'pkg' }), dir.root, { reportsDir });
+      const pkgCmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(pkgCmd).toContain('./pkg/...');
+      expect(pkgCmd).not.toMatch(/(?:^|[^/])pkg\/\.\.\./); // 必须带 ./ 前缀
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('无 config 时剥离 {config_args} 不留双空格；有 config 时替换为 --config <path>', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        writeIstanbulCoverage(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      const noCfg = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(noCfg).not.toContain('{config_args}');
+      expect(noCfg).not.toMatch(/\s{2,}/);
+
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(path.join(dir.root, 'vite.config.ts'), 'export default {}', 'utf-8');
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [
+            { root: '.', framework: 'vitest', config: 'vite.config.ts', includes: ['**/*.ts'] },
+          ],
+        }),
+        'utf-8',
+      );
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        writeIstanbulCoverage(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest', directory: '.' }), dir.root, { reportsDir });
+      const withCfg = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(withCfg).toMatch(/--config\s+\S*vite\.config\.ts/);
+      expect(withCfg).not.toContain('{config_args}');
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
+describe('executePlanEntry -- win32 cmd redirect / resolveShell', () => {
+  const prevShell = process.env.SHELL;
+  const prevComspec = process.env.COMSPEC;
+
+  beforeEach(() => {
+    mockExecSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+    delete process.env.SHELL; // force isWinCmd on win32
+  });
+
+  afterEach(() => {
+    if (prevShell === undefined) delete process.env.SHELL;
+    else process.env.SHELL = prevShell;
+    if (prevComspec === undefined) delete process.env.COMSPEC;
+    else process.env.COMSPEC = prevComspec;
+    vi.restoreAllMocks();
+  });
+
+  it('无 SHELL 时 go/pytest 走 cmd 链（& / &&）且重定向位置正确', () => {
+    if (process.platform !== 'win32') return;
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'go' }), dir.root, { reportsDir });
+      const goCmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(goCmd).toMatch(/^go test\b.*?>\s*"[^"]*results\.ndjson"\s*&/);
+      expect(goCmd).toContain('errorlevel');
+      expect(goCmd).not.toContain('; _X=$?');
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalTextResults(path.join(reportsDir, 'pytest'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'pytest' }), dir.root, { reportsDir });
+      const pyCmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
+      expect(pyCmd).toMatch(/^pytest\b.*?>\s*"[^"]*results\.txt"\s+&&\s+/);
+      expect(pyCmd).toContain('&& pytest --cov=');
+      expect(pyCmd).not.toMatch(/; pytest/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('win32 且无 SHELL/COMSPEC 时 execSync shell 回落 cmd.exe', () => {
+    if (process.platform !== 'win32') return;
+    delete process.env.COMSPEC;
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        writeIstanbulCoverage(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      const opts = mockExecSync.mock.calls[0]?.[1] as { shell?: string };
+      expect(opts.shell).toBe('cmd.exe');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('win32 优先 SHELL，其次 COMSPEC', () => {
+    if (process.platform !== 'win32') return;
+    process.env.COMSPEC = 'C:\\\\Windows\\\\System32\\\\cmd.exe';
+    process.env.SHELL = 'C:\\\\Git\\\\bin\\\\bash.exe';
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'));
+        writeIstanbulCoverage(path.join(reportsDir, 'vitest'));
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      const opts = mockExecSync.mock.calls[0]?.[1] as { shell?: string };
+      expect(opts.shell).toBe('C:\\\\Git\\\\bin\\\\bash.exe');
+    } finally {
+      dir.cleanup();
+    }
+  });
+});

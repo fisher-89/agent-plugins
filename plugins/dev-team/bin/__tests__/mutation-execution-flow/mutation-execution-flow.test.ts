@@ -253,4 +253,158 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       project.cleanup();
     }
   });
+
+  it('stryker 非 0 退出 → mutation null 且临时 config 仍被清理', () => {
+    const project = createTempProject();
+    try {
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const cfg = getFrameworkConfig('vitest');
+      let configPathSeen = '';
+      mockExecSync.mockImplementation((cmd: unknown) => {
+        const planDir = path.join(reportsDir, 'vitest');
+        if (String(cmd).includes('stryker')) {
+          const configs = fs
+            .readdirSync(project.root)
+            .filter((n) => n.startsWith('stryker.config.') && n.endsWith('.json'));
+          configPathSeen = configs[0] ? path.join(project.root, configs[0]) : '';
+          expect(configPathSeen).not.toBe('');
+          expect(fs.existsSync(configPathSeen)).toBe(true);
+          const err = new Error('stryker failed') as Error & { status: number };
+          err.status = 1;
+          throw err;
+        }
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+      const result = executePlanEntry(
+        {
+          directory: '.',
+          framework: 'vitest',
+          coverage_format: cfg.coverage_format,
+          coverage_output: cfg.coverage_output,
+          mutation_framework: 'stryker-js',
+          mutation_score: 50,
+          script: {
+            shell: cfg.shell.test_execution('99.0.0'),
+            cmd: cfg.cmd.test_execution('99.0.0'),
+          },
+        },
+        project.root,
+        { reportsDir },
+      );
+      expect(result.mutation).toBeNull();
+      expect(configPathSeen).not.toBe('');
+      expect(fs.existsSync(configPathSeen)).toBe(false);
+      expect(fs.existsSync(path.join(project.root, '.stryker-tmp'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('noMutation:true 或 sourceFiles 被 exclude 清空 → 不生成临时 stryker config', () => {
+    const project = createTempProject();
+    try {
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const cfg = getFrameworkConfig('vitest');
+      const plan = {
+        directory: '.',
+        framework: 'vitest' as const,
+        coverage_format: cfg.coverage_format,
+        coverage_output: cfg.coverage_output,
+        mutation_framework: 'stryker-js' as const,
+        mutation_score: 50,
+        script: {
+          shell: cfg.shell.test_execution('99.0.0'),
+          cmd: cfg.cmd.test_execution('99.0.0'),
+        },
+      };
+
+      const listTempConfigs = () =>
+        fs
+          .readdirSync(project.root)
+          .filter((n) => n.startsWith('stryker.config.') && n.endsWith('.json'));
+
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'vitest');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+
+      const noMut = executePlanEntry(plan, project.root, { reportsDir, noMutation: true });
+      expect(noMut.mutation).toBeNull();
+      expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
+      expect(listTempConfigs()).toHaveLength(0);
+
+      // exclude 清空全部 sourceFiles → 跳过 resolveStrykerConfig
+      fs.writeFileSync(
+        path.join(project.root, 'openspec', 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [
+            {
+              root: 'src',
+              framework: 'vitest',
+              includes: ['**/*.ts'],
+              excludes: ['**/*'],
+            },
+          ],
+        }),
+        'utf-8',
+      );
+      mockExecSync.mockClear();
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'vitest');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: 'src/foo.test.ts',
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+      const excluded = executePlanEntry(plan, project.root, { reportsDir });
+      expect(excluded.mutation).toBeNull();
+      expect(mockExecSync.mock.calls.every((c) => !String(c[0]).includes('stryker'))).toBe(true);
+      expect(listTempConfigs()).toHaveLength(0);
+    } finally {
+      project.cleanup();
+    }
+  });
 });

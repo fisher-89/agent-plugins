@@ -8,20 +8,10 @@ import * as path from 'path';
 
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type * as TestFrameworkDefault from '../../src/lib/test-framework';
-
 const mockExecSync = vi.fn();
 vi.mock('child_process', () => ({
   execSync: (...args: unknown[]) => mockExecSync(...args),
 }));
-
-vi.mock('../../src/lib/test-framework', async (importOriginal) => {
-  const actual = await importOriginal<typeof TestFrameworkDefault>();
-  return {
-    ...actual,
-    detectFrameworkVersion: () => '99.0.0',
-  };
-});
 
 import { runTestDetectFrameworks } from '../../src/commands/test-detect-frameworks';
 import { executePlanEntry } from '../../src/lib/test-runner';
@@ -57,14 +47,18 @@ describe('占位符延迟展开', () => {
     }
   });
 
-  it('execute 后命令中占位符已被相对 absCwd 路径替换', () => {
+  it('detect plan → execute：cmd 不含未替换占位符，planDir 含 results 文件', () => {
     const project = createTempProject('jest');
     try {
       const plan = runTestDetectFrameworks({ projectRoot: project.root }).plan[0];
+      expect(plan.script.shell).toContain('{results_file}');
+      expect(plan.script.shell).toContain('{report_dir}');
       const reportsDir = path.join(project.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'jest');
       mockExecSync.mockImplementation(() => {
+        fs.mkdirSync(planDir, { recursive: true });
         fs.writeFileSync(
-          path.join(reportsDir, 'jest', 'results.json'),
+          path.join(planDir, 'results.json'),
           JSON.stringify({
             testResults: [
               {
@@ -77,11 +71,35 @@ describe('占位符延迟展开', () => {
         );
         return '';
       });
-      executePlanEntry(plan, project.root, { reportsDir });
+      const result = executePlanEntry(plan, project.root, { reportsDir });
       const cmd = String(mockExecSync.mock.calls[0][0]);
       expect(cmd).not.toContain('{results_file}');
       expect(cmd).not.toContain('{report_dir}');
+      expect(cmd).not.toContain('{config_args}');
       expect(cmd).toContain('results.json');
+      expect(fs.existsSync(path.join(planDir, 'results.json'))).toBe(true);
+      expect(result.reportDir.replace(/\\/g, '/')).toContain('reports/test/jest');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('detect 因 config_flag 校验失败抛错时不进入 execute', () => {
+    const project = createTempProject('go');
+    try {
+      // go 的 config_flag===null，声明 config 时 detect 应抛错
+      fs.writeFileSync(
+        path.join(project.root, 'openspec', 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: '.', framework: 'go', config: 'go.mod' }],
+        }),
+        'utf-8',
+      );
+      expect(() => runTestDetectFrameworks({ projectRoot: project.root })).toThrow(
+        /does not support config injection/,
+      );
+      expect(mockExecSync).not.toHaveBeenCalled();
     } finally {
       project.cleanup();
     }
