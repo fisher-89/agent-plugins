@@ -60,11 +60,7 @@ function generateTempConfig(
   const configPath = path.resolve(rootPath, `stryker.config.${randomSuffix}.json`);
   const tempDirPath = path.resolve(rootPath, '.stryker-tmp');
   const normalizedSources = normalizeSourceFilesForStryker(rootPath, sourceFiles);
-
-  // jsonReporter.fileName resolved relative to sandbox root → must land in reportDir
-  const mutationFileRel = path
-    .relative(rootPath, path.join(reportDir, 'mutation.json'))
-    .replace(/\\/g, '/');
+  const mutationFileAbs = path.resolve(reportDir, 'mutation.json').replace(/\\/g, '/');
 
   const config = {
     $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
@@ -74,7 +70,7 @@ function generateTempConfig(
     ...buildRunnerConfigOverlay(rootPath, testRunner, frameworkConfigPath),
     ignoreStatic: true,
     reporters: ['json', 'html'],
-    jsonReporter: { fileName: mutationFileRel },
+    jsonReporter: { fileName: mutationFileAbs },
     timeoutMS: 10000,
   };
 
@@ -91,9 +87,9 @@ function generateTempConfig(
  *
  * Always generates a temporary configuration in the mutation sandbox root
  * (`rootPath`, typically suite root — not suite cwd) with
- * `jsonReporter.fileName` pointing at `{reportDir}/mutation.json`. The temp
- * config is deleted by the caller after the run; user long-lived Stryker
- * configs are never modified.
+ * `jsonReporter.fileName` as an absolute path to `{reportDir}/mutation.json`.
+ * The temp config is deleted by the caller after the run; user long-lived
+ * Stryker configs are never modified.
  *
  * @param rootPath - Absolute mutation sandbox root (suite root when cwd is under root)
  * @param sourceFiles - Array of source file paths (relative to rootPath, or absolute)

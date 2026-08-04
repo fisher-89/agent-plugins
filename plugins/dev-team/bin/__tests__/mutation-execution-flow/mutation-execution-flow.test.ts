@@ -68,8 +68,8 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
         reportDir,
       );
       const config = JSON.parse(fs.readFileSync(configPath, 'utf-8'));
-      expect(path.resolve(project.root, config.jsonReporter.fileName)).toBe(
-        path.resolve(reportDir, 'mutation.json'),
+      expect(config.jsonReporter.fileName).toBe(
+        path.resolve(reportDir, 'mutation.json').replace(/\\/g, '/'),
       );
       expect(config.jsonReporter.fileName).not.toContain('reports/mutation/');
       fs.unlinkSync(configPath);

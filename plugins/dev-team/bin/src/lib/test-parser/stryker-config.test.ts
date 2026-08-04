@@ -44,11 +44,7 @@ describe('resolveStrykerConfig', () => {
   it('传入 reportDir 后临时配置中 jsonReporter.fileName 指向该目录下 mutation.json', () => {
     const result = resolveStrykerConfig(project.root, ['src/foo.ts'], 'vitest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    const expectedRel = path
-      .relative(project.root, path.join(reportDir, 'mutation.json'))
-      .replace(/\\/g, '/');
-    expect(config.jsonReporter.fileName).toBe(expectedRel);
-    expect(config.jsonReporter.fileName).toContain('mutation.json');
+    expect(config.jsonReporter.fileName).toBe(absPosix(reportDir, 'mutation.json'));
     expect(config.jsonReporter.fileName).not.toContain('reports/mutation/');
     fs.unlinkSync(result.configPath);
   });
@@ -84,15 +80,13 @@ describe('resolveStrykerConfig', () => {
     const absReport = path.resolve(reportDir);
     const resultAbs = resolveStrykerConfig(project.root, ['a.ts'], 'jest', absReport);
     const cfgAbs = JSON.parse(fs.readFileSync(resultAbs.configPath, 'utf-8'));
-    expect(path.resolve(project.root, cfgAbs.jsonReporter.fileName)).toBe(
-      path.resolve(absReport, 'mutation.json'),
-    );
+    expect(cfgAbs.jsonReporter.fileName).toBe(absPosix(absReport, 'mutation.json'));
     fs.unlinkSync(resultAbs.configPath);
 
     const relReport = path.relative(project.root, reportDir) || '.';
     const resultRel = resolveStrykerConfig(project.root, ['a.ts'], 'vite-plus', relReport);
     const cfgRel = JSON.parse(fs.readFileSync(resultRel.configPath, 'utf-8'));
-    expect(cfgRel.jsonReporter.fileName.replace(/\\/g, '/')).toContain('mutation.json');
+    expect(cfgRel.jsonReporter.fileName).toBe(absPosix(relReport, 'mutation.json'));
     fs.unlinkSync(resultRel.configPath);
   });
 
@@ -204,9 +198,11 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
   it('jsonReporter.fileName 绝对路径等于 reportDir/mutation.json；不含 reports/mutation/', () => {
     const result = resolveStrykerConfig(project.root, ['a.ts'], 'vitest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(path.resolve(project.root, config.jsonReporter.fileName)).toBe(
-      path.join(reportDir, 'mutation.json'),
+    expect(config.jsonReporter.fileName).toBe(absPosix(reportDir, 'mutation.json'));
+    expect(path.isAbsolute(config.jsonReporter.fileName) || /^[A-Za-z]:/.test(config.jsonReporter.fileName)).toBe(
+      true,
     );
+    expect(config.jsonReporter.fileName).not.toContain('\\');
     expect(config.jsonReporter.fileName).not.toContain('reports/mutation/');
     fs.unlinkSync(result.configPath);
   });
