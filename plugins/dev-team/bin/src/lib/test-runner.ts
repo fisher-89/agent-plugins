@@ -412,6 +412,30 @@ function resolveTestCommand(
   return testCmd;
 }
 
+/**
+ * Sandbox root for Stryker: the path that contains both suite root and suite cwd.
+ * - cwd under root (e.g. root=pkg, cwd=jest) → absRoot (package + sources)
+ * - root under cwd (e.g. cwd=..) → absCwd (package root above the test tree)
+ * - equal → either
+ */
+function resolveMutationSandboxRoot(absRoot: string, absCwd: string): string {
+  const root = path.resolve(absRoot);
+  const cwd = path.resolve(absCwd);
+  if (root === cwd) return root;
+
+  const cwdRelToRoot = path.relative(root, cwd);
+  if (cwdRelToRoot !== '' && !cwdRelToRoot.startsWith('..') && !path.isAbsolute(cwdRelToRoot)) {
+    return root;
+  }
+
+  const rootRelToCwd = path.relative(cwd, root);
+  if (rootRelToCwd !== '' && !rootRelToCwd.startsWith('..') && !path.isAbsolute(rootRelToCwd)) {
+    return cwd;
+  }
+
+  return root;
+}
+
 function buildPlanExecutionResult(
   entry: TestPlan,
   projectRoot: string,
@@ -436,10 +460,12 @@ function buildPlanExecutionResult(
       ? 'Missing or unparseable results file in plan directory'
       : undefined);
 
+  const absRoot = path.resolve(projectRoot, entry.root);
+  const mutationSandboxRoot = resolveMutationSandboxRoot(absRoot, absCwd);
   const mutationFiles = restrictMutationScope(parsed.sourceFiles, options.mutationDiffFiles);
   const mutation =
     parsed.failed === 0
-      ? runMutationPhase(entry, projectRoot, absCwd, reportDir, options, mutationFiles)
+      ? runMutationPhase(entry, projectRoot, mutationSandboxRoot, reportDir, options, mutationFiles)
       : null;
 
   return {
@@ -559,7 +585,7 @@ export function executePlanEntry(
 function runMutationPhase(
   entry: TestPlan,
   projectRoot: string,
-  absCwd: string,
+  mutationSandboxRoot: string,
   reportDir: string,
   options: { noMutation?: boolean },
   sourceFiles: string[],
@@ -588,7 +614,7 @@ function runMutationPhase(
   try {
     return executeStrykerMutation(
       entry,
-      absCwd,
+      mutationSandboxRoot,
       reportDir,
       sourcesAbsolute,
       resolveUserConfigPath(entry, projectRoot),
@@ -601,13 +627,13 @@ function runMutationPhase(
 
 function executeStrykerMutation(
   entry: TestPlan,
-  absCwd: string,
+  mutationSandboxRoot: string,
   reportDir: string,
   filteredSources: string[],
   frameworkConfigPath: string | null,
 ): MutationBlock | null {
   const { configPath, tempDirPath } = resolveStrykerConfig(
-    absCwd,
+    mutationSandboxRoot,
     filteredSources,
     entry.framework,
     reportDir,
@@ -615,9 +641,11 @@ function executeStrykerMutation(
   );
 
   const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
-  console.log(`Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${absCwd})...`);
+  console.log(
+    `Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${mutationSandboxRoot})...`,
+  );
   const strykerStart = Date.now();
-  const cmdResult = runCommand(strykerCmd, absCwd, 1200000);
+  const cmdResult = runCommand(strykerCmd, mutationSandboxRoot, 1200000);
   const strykerDuration = (Date.now() - strykerStart) / 1000;
 
   if (cmdResult.exitCode !== 0) {

@@ -53,7 +53,7 @@ describe('resolveStrykerConfig', () => {
     fs.unlinkSync(result.configPath);
   });
 
-  it('临时配置落在 absCwd，不改用户长期 config', () => {
+  it('临时配置落在 sandbox root，不改用户长期 config', () => {
     const userConfig = path.join(project.root, 'stryker.config.json');
     fs.writeFileSync(userConfig, JSON.stringify({ mutate: ['keep.ts'] }), 'utf-8');
     const before = fs.readFileSync(userConfig, 'utf-8');

@@ -29,7 +29,7 @@ function normalizeSourceFilesForStryker(rootPath: string, sourceFiles: string[])
 
 /**
  * Build jest/vitest runner overlay with absolute configFile when suite.config is set.
- * Relative paths resolve against rootPath (absCwd).
+ * Relative paths resolve against rootPath (mutation sandbox root).
  */
 function buildRunnerConfigOverlay(
   rootPath: string,
@@ -61,7 +61,7 @@ function generateTempConfig(
   const tempDirPath = path.resolve(rootPath, '.stryker-tmp');
   const normalizedSources = normalizeSourceFilesForStryker(rootPath, sourceFiles);
 
-  // jsonReporter.fileName resolved relative to absCwd → must land in reportDir
+  // jsonReporter.fileName resolved relative to sandbox root → must land in reportDir
   const mutationFileRel = path
     .relative(rootPath, path.join(reportDir, 'mutation.json'))
     .replace(/\\/g, '/');
@@ -89,13 +89,14 @@ function generateTempConfig(
 /**
  * Resolve the StrykerJS configuration for a project.
  *
- * Always generates a temporary configuration in absCwd (rootPath) with
+ * Always generates a temporary configuration in the mutation sandbox root
+ * (`rootPath`, typically suite root — not suite cwd) with
  * `jsonReporter.fileName` pointing at `{reportDir}/mutation.json`. The temp
  * config is deleted by the caller after the run; user long-lived Stryker
  * configs are never modified.
  *
- * @param rootPath - Absolute path to the suite cwd (absCwd)
- * @param sourceFiles - Array of source file paths (relative to rootPath / absCwd, or absolute)
+ * @param rootPath - Absolute mutation sandbox root (suite root when cwd is under root)
+ * @param sourceFiles - Array of source file paths (relative to rootPath, or absolute)
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
  * @param reportDir  - Absolute plan report directory (mutation.json lands here)
  * @param frameworkConfigPath - Absolute (or resolvable) path to suite `tests[].config`, if any

@@ -1090,6 +1090,139 @@ describe('executePlanEntry -- mutation 开关', () => {
     }
   });
 
+  it('cwd 为 root 子目录时，stryker 在 absRoot 执行（沙箱根=root 非 cwd）', () => {
+    const dir = createTempDir();
+    try {
+      const pkgRoot = path.join(dir.root, 'pkg');
+      const jestCwd = path.join(pkgRoot, 'jest');
+      fs.mkdirSync(jestCwd, { recursive: true });
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: 'pkg', cwd: 'jest', framework: 'vitest', includes: ['**/*.ts'] }],
+        }),
+        'utf-8',
+      );
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'pkg_vitest');
+      const strykerCwds: string[] = [];
+      const seenConfigs: string[] = [];
+
+      mockExecSync.mockImplementation((cmd: unknown, opts?: { cwd?: string }) => {
+        if (String(cmd).includes('stryker')) {
+          strykerCwds.push(opts?.cwd ?? '');
+          const m = String(cmd).match(/stryker\.config\.[a-f0-9]+\.json/);
+          if (m && opts?.cwd) {
+            const cfgPath = path.join(opts.cwd, m[0]);
+            seenConfigs.push(cfgPath);
+            expect(fs.existsSync(cfgPath)).toBe(true);
+          }
+          fs.mkdirSync(planDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify({
+              files: {
+                'src/foo.ts': {
+                  mutants: [
+                    { id: '1', status: 'Killed', mutatorName: 'x', replacement: 'y', location: {} },
+                  ],
+                },
+              },
+            }),
+            'utf-8',
+          );
+          return '';
+        }
+        writePassingJsWithSource(planDir, pkgRoot);
+        return '';
+      });
+
+      const result = executePlanEntry(
+        makePlan({
+          framework: 'vitest',
+          root: 'pkg',
+          cwd: 'pkg/jest',
+          mutation_score: 50,
+        }),
+        dir.root,
+        { reportsDir },
+      );
+
+      expect(result.mutation).not.toBeNull();
+      expect(strykerCwds).toEqual([path.resolve(pkgRoot)]);
+      expect(strykerCwds[0]).not.toBe(path.resolve(jestCwd));
+      for (const c of seenConfigs) {
+        expect(path.dirname(c)).toBe(path.resolve(pkgRoot));
+        expect(fs.existsSync(c)).toBe(false);
+      }
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('cwd 为 root 父目录时，stryker 仍在 absCwd（包根）执行', () => {
+    const dir = createTempDir();
+    try {
+      const pkgRoot = path.join(dir.root, 'pkg');
+      const srcRoot = path.join(pkgRoot, 'src');
+      fs.mkdirSync(srcRoot, { recursive: true });
+      const openspec = path.join(dir.root, 'openspec');
+      fs.mkdirSync(openspec, { recursive: true });
+      fs.writeFileSync(
+        path.join(openspec, 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [{ root: 'pkg/src', cwd: '..', framework: 'vitest', includes: ['**/*.ts'] }],
+        }),
+        'utf-8',
+      );
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'pkg_src_vitest');
+      const strykerCwds: string[] = [];
+
+      mockExecSync.mockImplementation((cmd: unknown, opts?: { cwd?: string }) => {
+        if (String(cmd).includes('stryker')) {
+          strykerCwds.push(opts?.cwd ?? '');
+          fs.mkdirSync(planDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify({
+              files: {
+                'src/foo.ts': {
+                  mutants: [
+                    { id: '1', status: 'Killed', mutatorName: 'x', replacement: 'y', location: {} },
+                  ],
+                },
+              },
+            }),
+            'utf-8',
+          );
+          return '';
+        }
+        writePassingJsWithSource(planDir, pkgRoot);
+        return '';
+      });
+
+      executePlanEntry(
+        makePlan({
+          framework: 'vitest',
+          root: 'pkg/src',
+          cwd: 'pkg',
+          mutation_score: 50,
+        }),
+        dir.root,
+        { reportsDir },
+      );
+
+      expect(strykerCwds).toEqual([path.resolve(pkgRoot)]);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
   it('noMutation:true / 无 mutation_execution 的框架 / 有 failed → 跳过 stryker、mutation===null', () => {
     const dir = createTempDir();
     try {
