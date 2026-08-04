@@ -18,9 +18,9 @@ type TestExecutionBuilder = (version: string) => string;
 
 /** Presence of mutation_execution is the capability gate; omit for unsupported frameworks. */
 const MUTATION_EXECUTION_JEST =
-  'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/jest-runner@9 stryker run "{config}"';
+  'npx -y -p @stryker-mutator/core@7.2.0 -p @stryker-mutator/jest-runner@7.2.0 stryker run "{config}"';
 const MUTATION_EXECUTION_VITEST =
-  'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/vitest-runner@9 stryker run "{config}"';
+  'npx -y -p @stryker-mutator/core@8 -p @stryker-mutator/vitest-runner@8 stryker run "{config}"';
 
 export interface FrameworkConfig {
   framework: TestFramework;

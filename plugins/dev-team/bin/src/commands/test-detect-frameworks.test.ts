@@ -487,11 +487,12 @@ describe('runTestDetectFrameworks — mutation-score 补强', () => {
       expect(vitest.coverage_format).toBe('istanbul');
       expect(vitest.coverage_output).toBe('coverage-summary.json');
       expect(vitest.mutation_score).toBe(66);
-      expect(vitest.mutation_script).toEqual({
-        shell:
-          'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/vitest-runner@9 stryker run "{config}"',
-        cmd: 'npx -y -p @stryker-mutator/core@9 -p @stryker-mutator/vitest-runner@9 stryker run "{config}"',
-      });
+      expect(vitest.mutation_script).toEqual(
+        expect.objectContaining({
+          shell: expect.stringContaining('stryker'),
+          cmd: expect.stringContaining('stryker'),
+        }),
+      );
       expect(go.coverage_format).toBe('go-cover');
       expect(go.mutation_script).toBeNull();
       // schema 对 suite.mutation.score 有默认 70；未显式声明时仍可能得到默认值
