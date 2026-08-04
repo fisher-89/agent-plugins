@@ -23,6 +23,10 @@ function createTempProject(): TempProject {
   };
 }
 
+function absPosix(...parts: string[]): string {
+  return path.resolve(...parts).replace(/\\/g, '/');
+}
+
 describe('resolveStrykerConfig', () => {
   let project: TempProject;
   let reportDir: string;
@@ -149,51 +153,50 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     fs.unlinkSync(result.configPath);
   });
 
-  it('相对路径 src/foo.ts → mutate 为正斜杠相对路径', () => {
+  it('相对路径 src/foo.ts → mutate 为正斜杠绝对路径', () => {
     const result = resolveStrykerConfig(project.root, ['src/foo.ts'], 'vitest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(config.mutate).toEqual(['src/foo.ts']);
+    expect(config.mutate).toEqual([absPosix(project.root, 'src/foo.ts')]);
     fs.unlinkSync(result.configPath);
   });
 
-  it('绝对路径位于 root 下 → 相对 POSIX；Windows 反斜杠输入 → 输出仅 /', () => {
+  it('绝对路径位于 root 下 → 绝对 POSIX；Windows 反斜杠输入 → 输出仅 /', () => {
     const abs = path.join(project.root, 'src', 'bar.ts');
     const result = resolveStrykerConfig(project.root, [abs, 'src\\baz.ts'], 'vitest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(config.mutate[0]).toBe('src/bar.ts');
-    expect(config.mutate[1]).toBe('src/baz.ts');
+    expect(config.mutate[0]).toBe(absPosix(project.root, 'src', 'bar.ts'));
+    expect(config.mutate[1]).toBe(absPosix(project.root, 'src/baz.ts'));
     for (const m of config.mutate as string[]) {
       expect(m).not.toContain('\\');
+      expect(path.isAbsolute(m) || /^[A-Za-z]:/.test(m)).toBe(true);
     }
     fs.unlinkSync(result.configPath);
   });
 
-  it("绝对路径等于 root → mutate 条目为 '.'", () => {
+  it('绝对路径等于 root → mutate 条目为 root 绝对路径', () => {
     const result = resolveStrykerConfig(project.root, [project.root], 'vitest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(config.mutate).toEqual(['.']);
+    expect(config.mutate).toEqual([absPosix(project.root)]);
     fs.unlinkSync(result.configPath);
   });
 
-  it('盘符绝对路径落在 root 下相对化；落在 root 外为 path.relative 的 POSIX', () => {
+  it('盘符绝对路径保持绝对 POSIX；落在 root 外亦为绝对路径', () => {
     const inside = path.resolve(project.root, 'src', 'in.ts');
     const outside = path.resolve(project.root, '..', 'outside-only.ts');
     const result = resolveStrykerConfig(project.root, [inside, outside], 'jest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(config.mutate[0]).toBe('src/in.ts');
-    expect(config.mutate[1].replace(/\\/g, '/')).toBe(
-      path.relative(project.root, outside).replace(/\\/g, '/'),
-    );
+    expect(config.mutate[0]).toBe(absPosix(inside));
+    expect(config.mutate[1]).toBe(absPosix(outside));
     expect(config.mutate[1]).not.toContain('\\');
     fs.unlinkSync(result.configPath);
   });
 
-  it('相对路径误带 root 绝对前缀字符串 → 剥离；空字符串路径仍写出配置不抛', () => {
+  it('相对路径误带 root 绝对前缀字符串 → 仍归一为绝对路径；空字符串路径仍写出配置不抛', () => {
     const normalizedRoot = path.resolve(project.root).replace(/\\/g, '/');
     const prefixed = `${normalizedRoot}/src/accidental.ts`;
     const result = resolveStrykerConfig(project.root, [prefixed, ''], 'vitest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
-    expect(config.mutate[0]).toBe('src/accidental.ts');
+    expect(config.mutate[0]).toBe(absPosix(project.root, 'src/accidental.ts'));
     expect(config.mutate[1]).toBe('');
     fs.unlinkSync(result.configPath);
   });
@@ -222,17 +225,61 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     }
   });
 
-  it('多 sourceFiles（单元素、>100）顺序保留且全部归一', () => {
+  it('多 sourceFiles（单元素、>100）顺序保留且全部归一为绝对路径', () => {
     const many = Array.from({ length: 120 }, (_, i) => `src/f${i}.ts`);
     const result = resolveStrykerConfig(project.root, many, 'vitest', reportDir);
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
     expect(config.mutate).toHaveLength(120);
-    expect(config.mutate[0]).toBe('src/f0.ts');
-    expect(config.mutate[119]).toBe('src/f119.ts');
+    expect(config.mutate[0]).toBe(absPosix(project.root, 'src/f0.ts'));
+    expect(config.mutate[119]).toBe(absPosix(project.root, 'src/f119.ts'));
     fs.unlinkSync(result.configPath);
 
     const one = resolveStrykerConfig(project.root, ['only.ts'], 'jest', reportDir);
-    expect(JSON.parse(fs.readFileSync(one.configPath, 'utf-8')).mutate).toEqual(['only.ts']);
+    expect(JSON.parse(fs.readFileSync(one.configPath, 'utf-8')).mutate).toEqual([
+      absPosix(project.root, 'only.ts'),
+    ]);
     fs.unlinkSync(one.configPath);
+  });
+
+  it('传入 frameworkConfigPath 时按 runner 写入绝对 configFile；未传则无 jest/vitest 块', () => {
+    const vitestCfg = path.join(project.root, 'vitest.config.ts');
+    const jestCfg = path.join(project.root, 'jest.config.js');
+
+    const vitestResult = resolveStrykerConfig(
+      project.root,
+      ['a.ts'],
+      'vitest',
+      reportDir,
+      vitestCfg,
+    );
+    const vitestJson = JSON.parse(fs.readFileSync(vitestResult.configPath, 'utf-8'));
+    expect(vitestJson.vitest).toEqual({ configFile: absPosix(vitestCfg) });
+    expect(vitestJson.jest).toBeUndefined();
+    fs.unlinkSync(vitestResult.configPath);
+
+    const vitePlusResult = resolveStrykerConfig(
+      project.root,
+      ['a.ts'],
+      'vite-plus',
+      reportDir,
+      'vite.config.ts',
+    );
+    const vitePlusJson = JSON.parse(fs.readFileSync(vitePlusResult.configPath, 'utf-8'));
+    expect(vitePlusJson.vitest).toEqual({
+      configFile: absPosix(project.root, 'vite.config.ts'),
+    });
+    fs.unlinkSync(vitePlusResult.configPath);
+
+    const jestResult = resolveStrykerConfig(project.root, ['a.ts'], 'jest', reportDir, jestCfg);
+    const jestJson = JSON.parse(fs.readFileSync(jestResult.configPath, 'utf-8'));
+    expect(jestJson.jest).toEqual({ configFile: absPosix(jestCfg) });
+    expect(jestJson.vitest).toBeUndefined();
+    fs.unlinkSync(jestResult.configPath);
+
+    const none = resolveStrykerConfig(project.root, ['a.ts'], 'vitest', reportDir, null);
+    const noneJson = JSON.parse(fs.readFileSync(none.configPath, 'utf-8'));
+    expect(noneJson.vitest).toBeUndefined();
+    expect(noneJson.jest).toBeUndefined();
+    fs.unlinkSync(none.configPath);
   });
 });

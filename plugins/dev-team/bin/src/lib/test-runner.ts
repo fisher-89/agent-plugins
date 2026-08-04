@@ -580,13 +580,19 @@ function runMutationPhase(
     return null;
   }
 
-  const sourcesRelativeToCwd = filteredSources.map((f) => {
+  const sourcesAbsolute = filteredSources.map((f) => {
     const abs = path.isAbsolute(f) ? path.resolve(f) : path.resolve(projectRoot, f);
-    return path.relative(absCwd, abs).replace(/\\/g, '/');
+    return abs.replace(/\\/g, '/');
   });
 
   try {
-    return executeStrykerMutation(entry, absCwd, reportDir, sourcesRelativeToCwd);
+    return executeStrykerMutation(
+      entry,
+      absCwd,
+      reportDir,
+      sourcesAbsolute,
+      resolveUserConfigPath(entry, projectRoot),
+    );
   } catch (e) {
     console.log(`  Mutation testing skipped: ${e instanceof Error ? e.message : 'Unknown error'}`);
     return null;
@@ -598,12 +604,14 @@ function executeStrykerMutation(
   absCwd: string,
   reportDir: string,
   filteredSources: string[],
+  frameworkConfigPath: string | null,
 ): MutationBlock | null {
   const { configPath, tempDirPath } = resolveStrykerConfig(
     absCwd,
     filteredSources,
     entry.framework,
     reportDir,
+    frameworkConfigPath,
   );
 
   const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
