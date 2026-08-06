@@ -17,8 +17,6 @@ import { execCommand } from './exec-command';
 type TestExecutionBuilder = (version: string) => string;
 
 /** Presence of mutation_execution is the capability gate; omit for unsupported frameworks. */
-const MUTATION_EXECUTION_JEST =
-  'npx -y -p @stryker-mutator/core@7.2.0 -p @stryker-mutator/jest-runner@7.2.0 stryker run "{config}"';
 const MUTATION_EXECUTION_VITEST =
   'npx -y -p @stryker-mutator/core@8 -p @stryker-mutator/vitest-runner@8 stryker run "{config}"';
 
@@ -28,11 +26,11 @@ export interface FrameworkConfig {
   version_command: string;
   shell: {
     test_execution: TestExecutionBuilder;
-    mutation_execution?: string;
+    mutation_execution?: TestExecutionBuilder;
   };
   cmd: {
     test_execution: TestExecutionBuilder;
-    mutation_execution?: string;
+    mutation_execution?: TestExecutionBuilder;
   };
   coverage_format: 'istanbul' | 'llvm-cov' | 'node-test' | 'go-cover' | 'coverage-py' | 'lcov';
   /** Coverage artifact file name relative to the plan report directory (reportDir). */
@@ -49,12 +47,14 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     shell: {
       test_execution: (version) =>
         `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
-      mutation_execution: MUTATION_EXECUTION_JEST,
+      mutation_execution: () =>
+        `npx -y -p @stryker-mutator/core@7.2.0 -p @stryker-mutator/jest-runner@7.2.0 -p @stryker-mutator/typescript-checker@7.2.0 -p typescript@5.1.6 stryker run "{config}"`,
     },
     cmd: {
       test_execution: (version) =>
         `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
-      mutation_execution: MUTATION_EXECUTION_JEST,
+      mutation_execution: () =>
+        `npx -y -p @stryker-mutator/core@7.2.0 -p @stryker-mutator/jest-runner@7.2.0 -p @stryker-mutator/typescript-checker@7.2.0 -p typescript@5.1.6 stryker run "{config}"`,
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
@@ -67,12 +67,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     shell: {
       test_execution: () =>
         'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION_VITEST,
     },
     cmd: {
       test_execution: () =>
         'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION_VITEST,
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
@@ -85,12 +85,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     shell: {
       test_execution: () =>
         'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION_VITEST,
     },
     cmd: {
       test_execution: () =>
         'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION_VITEST,
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',

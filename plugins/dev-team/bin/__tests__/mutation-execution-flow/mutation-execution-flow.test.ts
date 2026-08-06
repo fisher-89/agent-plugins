@@ -63,6 +63,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       fs.mkdirSync(reportDir, { recursive: true });
       const { configPath } = resolveStrykerConfig(
         project.root,
+        '.',
         ['src/foo.ts'],
         'vitest',
         reportDir,
@@ -119,8 +120,10 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           coverage_output: cfg.coverage_output,
           mutation_script: cfg.shell.mutation_execution
             ? {
-                shell: cfg.shell.mutation_execution,
-                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+                shell: cfg.shell.mutation_execution('99.0.0'),
+                cmd: cfg.cmd.mutation_execution
+                  ? cfg.cmd.mutation_execution('99.0.0')
+                  : cfg.shell.mutation_execution('99.0.0'),
               }
             : null,
           mutation_score: 50,
@@ -186,8 +189,10 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           coverage_output: cfg.coverage_output,
           mutation_script: cfg.shell.mutation_execution
             ? {
-                shell: cfg.shell.mutation_execution,
-                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+                shell: cfg.shell.mutation_execution('99.0.0'),
+                cmd: cfg.cmd.mutation_execution
+                  ? cfg.cmd.mutation_execution('99.0.0')
+                  : cfg.shell.mutation_execution('99.0.0'),
               }
             : null,
           mutation_score: 50,
@@ -250,8 +255,10 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           coverage_output: cfg.coverage_output,
           mutation_script: cfg.shell.mutation_execution
             ? {
-                shell: cfg.shell.mutation_execution,
-                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+                shell: cfg.shell.mutation_execution('99.0.0'),
+                cmd: cfg.cmd.mutation_execution
+                  ? cfg.cmd.mutation_execution('99.0.0')
+                  : cfg.shell.mutation_execution('99.0.0'),
               }
             : null,
           mutation_score: 50,
@@ -317,8 +324,10 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           coverage_output: cfg.coverage_output,
           mutation_script: cfg.shell.mutation_execution
             ? {
-                shell: cfg.shell.mutation_execution,
-                cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+                shell: cfg.shell.mutation_execution('99.0.0'),
+                cmd: cfg.cmd.mutation_execution
+                  ? cfg.cmd.mutation_execution('99.0.0')
+                  : cfg.shell.mutation_execution('99.0.0'),
               }
             : null,
           mutation_score: 50,
@@ -352,8 +361,10 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
         coverage_output: cfg.coverage_output,
         mutation_script: cfg.shell.mutation_execution
           ? {
-              shell: cfg.shell.mutation_execution,
-              cmd: cfg.cmd.mutation_execution ?? cfg.shell.mutation_execution,
+              shell: cfg.shell.mutation_execution('99.0.0'),
+              cmd: cfg.cmd.mutation_execution
+                ? cfg.cmd.mutation_execution('99.0.0')
+                : cfg.shell.mutation_execution('99.0.0'),
             }
           : null,
         mutation_score: 50,

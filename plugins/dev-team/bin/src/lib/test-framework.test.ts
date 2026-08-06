@@ -100,13 +100,15 @@ describe('getFrameworkConfig -- 字面量杀伤', () => {
 
   it('jest/vitest/vite-plus 的 shell 与 cmd mutation_execution 精确为 @stryker-mutator 包命令', () => {
     const jestCfg = getFrameworkConfig('jest');
-    expect(jestCfg.shell.mutation_execution).toEqual(expect.stringContaining('stryker'));
-    expect(jestCfg.cmd.mutation_execution).toEqual(expect.stringContaining('stryker'));
+    expect(jestCfg.shell.mutation_execution?.('99.0.0')).toEqual(
+      expect.stringContaining('stryker'),
+    );
+    expect(jestCfg.cmd.mutation_execution?.('99.0.0')).toEqual(expect.stringContaining('stryker'));
 
     for (const fw of ['vitest', 'vite-plus'] as const) {
       const cfg = getFrameworkConfig(fw);
-      expect(cfg.shell.mutation_execution).toEqual(expect.stringContaining('stryker'));
-      expect(cfg.cmd.mutation_execution).toEqual(expect.stringContaining('stryker'));
+      expect(cfg.shell.mutation_execution?.('99.0.0')).toEqual(expect.stringContaining('stryker'));
+      expect(cfg.cmd.mutation_execution?.('99.0.0')).toEqual(expect.stringContaining('stryker'));
     }
   });
 
@@ -372,10 +374,14 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
       default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
       config_flag: '--config',
     });
-    expect(jestCfg.shell.mutation_execution).toEqual(expect.stringContaining('stryker'));
-    expect(jestCfg.cmd.mutation_execution).toEqual(expect.stringContaining('stryker'));
+    expect(jestCfg.shell.mutation_execution?.('99.0.0')).toEqual(
+      expect.stringContaining('stryker'),
+    );
+    expect(jestCfg.cmd.mutation_execution?.('99.0.0')).toEqual(expect.stringContaining('stryker'));
     expect(typeof jestCfg.shell.test_execution).toBe('function');
     expect(typeof jestCfg.cmd.test_execution).toBe('function');
+    expect(typeof jestCfg.shell.mutation_execution).toBe('function');
+    expect(typeof jestCfg.cmd.mutation_execution).toBe('function');
     expect(jestCfg.shell.test_execution('29.5.0')).toBe(
       'npx jest --randomize --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}',
     );
@@ -390,7 +396,9 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
       'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );
     expect(vitestCfg.cmd.test_execution('1.0.0')).toBe(vitestCfg.shell.test_execution('1.0.0'));
-    expect(vitestCfg.shell.mutation_execution).toEqual(expect.stringContaining('stryker'));
+    expect(vitestCfg.shell.mutation_execution?.('99.0.0')).toEqual(
+      expect.stringContaining('stryker'),
+    );
 
     const vp = getFrameworkConfig('vite-plus');
     expect(vp.version_command).toBe('vp --version');

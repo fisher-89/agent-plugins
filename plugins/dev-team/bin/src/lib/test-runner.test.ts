@@ -74,7 +74,12 @@ function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
     coverage_format: cfg.coverage_format,
     coverage_output: cfg.coverage_output,
     mutation_script: mutationShell
-      ? { shell: mutationShell, cmd: cfg.cmd.mutation_execution ?? mutationShell }
+      ? {
+          shell: mutationShell('99.0.0'),
+          cmd: cfg.cmd.mutation_execution
+            ? cfg.cmd.mutation_execution('99.0.0')
+            : mutationShell('99.0.0'),
+        }
       : null,
     script: {
       shell: cfg.shell.test_execution('29.5.0'),
@@ -1090,7 +1095,7 @@ describe('executePlanEntry -- mutation 开关', () => {
     }
   });
 
-  it('cwd 为 root 子目录时，stryker 在 absRoot 执行（沙箱根=root 非 cwd）', () => {
+  it('cwd 为 root 子目录时，stryker 在 projectRoot 执行（非 suite cwd）', () => {
     const dir = createTempDir();
     try {
       const pkgRoot = path.join(dir.root, 'pkg');
@@ -1152,10 +1157,10 @@ describe('executePlanEntry -- mutation 开关', () => {
       );
 
       expect(result.mutation).not.toBeNull();
-      expect(strykerCwds).toEqual([path.resolve(pkgRoot)]);
+      expect(strykerCwds).toEqual([path.resolve(dir.root)]);
       expect(strykerCwds[0]).not.toBe(path.resolve(jestCwd));
       for (const c of seenConfigs) {
-        expect(path.dirname(c)).toBe(path.resolve(pkgRoot));
+        expect(path.dirname(c)).toBe(path.resolve(dir.root));
         expect(fs.existsSync(c)).toBe(false);
       }
     } finally {
@@ -1163,7 +1168,7 @@ describe('executePlanEntry -- mutation 开关', () => {
     }
   });
 
-  it('cwd 为 root 父目录时，stryker 仍在 absCwd（包根）执行', () => {
+  it('cwd 为 root 父目录时，stryker 仍在 projectRoot 执行', () => {
     const dir = createTempDir();
     try {
       const pkgRoot = path.join(dir.root, 'pkg');
@@ -1217,7 +1222,7 @@ describe('executePlanEntry -- mutation 开关', () => {
         { reportsDir },
       );
 
-      expect(strykerCwds).toEqual([path.resolve(pkgRoot)]);
+      expect(strykerCwds).toEqual([path.resolve(dir.root)]);
     } finally {
       dir.cleanup();
     }

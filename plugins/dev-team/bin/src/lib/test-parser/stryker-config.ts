@@ -14,7 +14,7 @@ import * as path from 'path';
 // Temporary config generation
 // ---------------------------------------------------------------------------
 
-/** Normalize source paths to forward-slash absolute paths (resolved against rootPath). */
+/** Normalize source paths to forward-slash paths relative to projectRoot. */
 function normalizeSourceFilesForStryker(rootPath: string, sourceFiles: string[]): string[] {
   const absRoot = path.resolve(rootPath);
   return sourceFiles.map((f) => {
@@ -23,43 +23,50 @@ function normalizeSourceFilesForStryker(rootPath: string, sourceFiles: string[])
     }
     const abs =
       path.isAbsolute(f) || /^[A-Za-z]:/.test(f) ? path.resolve(f) : path.resolve(absRoot, f);
-    return abs.replace(/\\/g, '/');
+    return path.relative(absRoot, abs).replace(/\\/g, '/');
   });
 }
 
 /**
- * Build jest/vitest runner overlay with absolute configFile when suite.config is set.
- * Relative paths resolve against rootPath (mutation sandbox root).
+ * Build jest/vitest runner overlay with projectRoot-relative configFile when
+ * suite.config is set. Relative paths resolve against projectRoot.
  */
 function buildRunnerConfigOverlay(
-  rootPath: string,
+  projectRoot: string,
+  planRoot: string,
   testRunner: string,
   frameworkConfigPath: string | null | undefined,
-): Record<string, { configFile: string }> {
+): Record<string, { configFile: string; enableFindRelatedTests?: boolean; config: unknown }> {
   if (!frameworkConfigPath) {
     return {};
   }
-  const absConfig = (
+  const absConfig =
     path.isAbsolute(frameworkConfigPath) || /^[A-Za-z]:/.test(frameworkConfigPath)
       ? path.resolve(frameworkConfigPath)
-      : path.resolve(rootPath, frameworkConfigPath)
-  ).replace(/\\/g, '/');
+      : path.resolve(projectRoot, frameworkConfigPath);
   return {
-    [testRunner]: { configFile: absConfig },
+    [testRunner]: {
+      configFile: path.relative(projectRoot, absConfig).replace(/\\/g, '/'),
+      enableFindRelatedTests: testRunner === 'jest' ? false : undefined,
+      config: {
+        testMatch: [`**/${planRoot.replace(/^\.\//, '')}/**/*.test.ts?(x)`],
+      },
+    },
   };
 }
 
 function generateTempConfig(
-  rootPath: string,
+  projectRoot: string,
+  planRoot: string,
   sourceFiles: string[],
   testRunner: string,
   reportDir: string,
   frameworkConfigPath?: string | null,
 ): { configPath: string; tempDirPath: string } {
   const randomSuffix = crypto.randomBytes(4).toString('hex');
-  const configPath = path.resolve(rootPath, `stryker.config.${randomSuffix}.json`);
-  const tempDirPath = path.resolve(rootPath, '.stryker-tmp');
-  const normalizedSources = normalizeSourceFilesForStryker(rootPath, sourceFiles);
+  const configPath = path.resolve(projectRoot, `stryker.config.${randomSuffix}.json`);
+  const tempDirPath = path.resolve(projectRoot, '.stryker-tmp');
+  const normalizedSources = normalizeSourceFilesForStryker(projectRoot, sourceFiles);
   const mutationFileAbs = path.resolve(reportDir, 'mutation.json').replace(/\\/g, '/');
 
   const config = {
@@ -67,7 +74,7 @@ function generateTempConfig(
     mutate: normalizedSources,
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
-    ...buildRunnerConfigOverlay(rootPath, testRunner, frameworkConfigPath),
+    ...buildRunnerConfigOverlay(projectRoot, planRoot, testRunner, frameworkConfigPath),
     ignoreStatic: true,
     reporters: ['json', 'html'],
     jsonReporter: { fileName: mutationFileAbs },
@@ -85,21 +92,22 @@ function generateTempConfig(
 /**
  * Resolve the StrykerJS configuration for a project.
  *
- * Always generates a temporary configuration in the mutation sandbox root
- * (`rootPath`, typically suite root — not suite cwd) with
+ * Always generates a temporary configuration in `projectRoot` with
  * `jsonReporter.fileName` as an absolute path to `{reportDir}/mutation.json`.
  * The temp config is deleted by the caller after the run; user long-lived
  * Stryker configs are never modified.
  *
- * @param rootPath - Absolute mutation sandbox root (suite root when cwd is under root)
- * @param sourceFiles - Array of source file paths (relative to rootPath, or absolute)
+ * @param projectRoot - Absolute project root (Stryker cwd / config location)
+ * @param planRoot - Suite root relative to projectRoot (drives testMatch)
+ * @param sourceFiles - Source file paths (absolute or projectRoot-relative)
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
  * @param reportDir  - Absolute plan report directory (mutation.json lands here)
  * @param frameworkConfigPath - Absolute (or resolvable) path to suite `tests[].config`, if any
  * @throws {Error} If the framework is not supported by StrykerJS
  */
 export function resolveStrykerConfig(
-  rootPath: string,
+  projectRoot: string,
+  planRoot: string,
   sourceFiles: string[],
   framework: string,
   reportDir: string,
@@ -107,7 +115,8 @@ export function resolveStrykerConfig(
 ): { configPath: string; tempDirPath: string } {
   const testRunner = resolveTestRunner(framework);
   const { configPath, tempDirPath } = generateTempConfig(
-    rootPath,
+    projectRoot,
+    planRoot,
     sourceFiles,
     testRunner,
     reportDir,
