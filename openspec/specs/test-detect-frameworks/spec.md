@@ -174,7 +174,7 @@ The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top o
 
 **ID**: REQ-TDF-SUITE-1
 **Priority**: MUST
-**Description**: `runTestDetectFrameworks` SHALL read `config.tests`（而非 `config.test.framework` / `config.test.overrides`）构建执行计划。每个 suite 产生一条 `plan` 条目（去重策略可保留：同一 absCwd + framework 可合并，但不得再使用 `deriveWorkingDirectory(glob)`）。
+**Description**: `runTestDetectFrameworks` SHALL read `config.tests`（而非 `config.test.framework` / `config.test.overrides`）构建执行计划。`plan` 与 `config.tests` **一一对应**：每个 suite 产生一条 `plan` 条目，不得因相同 `cwd` / `framework` 合并；不得再使用 `deriveWorkingDirectory(glob)`。调用方 SHALL 保证各 suite 测试范围互不重叠（重叠属配置错误，本模块不检测、不合并）。
 
 对每个 suite：
 1. `absRoot = projectRoot / suite.root`
@@ -206,6 +206,16 @@ Suite 路径解析（`resolveSuite` / `resolveAllSuites`）与文件归属（`is
 **AND** `runTestDetectFrameworks({})` is called
 **THEN** `plan[0].cwd` SHALL be `"plugins/dev-team/bin"`
 **AND** `plan[0].root` SHALL be `"plugins/dev-team/bin/src"`
+
+#### Scenario: same cwd and framework with different roots yields two plans
+
+**WHEN** config has `tests: [{ root: "pkg/a", cwd: "..", framework: "jest" }, { root: "pkg/b", cwd: "..", framework: "jest" }]`
+**AND** `runTestDetectFrameworks({})` is called
+**THEN** `plan` SHALL have length 2
+**AND** `plan[0].cwd` and `plan[1].cwd` SHALL both be `"pkg"`
+**AND** `plan[0].framework` and `plan[1].framework` SHALL both be `"jest"`
+**AND** `plan[0].root` SHALL be `"pkg/a"`
+**AND** `plan[1].root` SHALL be `"pkg/b"`
 
 #### Scenario: omitted files falls back to pathFilter under parent cwd
 

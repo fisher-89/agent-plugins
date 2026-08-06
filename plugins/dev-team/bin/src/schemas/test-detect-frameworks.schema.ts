@@ -83,7 +83,7 @@ export const testDetectFrameworksOutputSchema = z.object({
   ),
   plan: z
     .array(testPlanSchema)
-    .describe('Execution plan: one entry per configured framework mapping'),
+    .describe('Execution plan: one entry per config.tests suite (no merge)'),
 });
 
 export type TestDetectFrameworksResult = z.infer<typeof testDetectFrameworksOutputSchema>;

@@ -169,18 +169,12 @@ function buildMutationScript(
 // Plan and detection helpers
 // ---------------------------------------------------------------------------
 
-/** Build plan from already-resolved suites (dedupe by cwd + framework). */
+/** Build plan from already-resolved suites (one plan entry per suite; no merge). */
 function buildPlanFromSuites(resolvedSuites: ResolvedSuite[]): TestPlan[] {
   const plan: TestPlan[] = [];
-  const seen = new Set<string>();
 
   for (const resolved of resolvedSuites) {
     const { suite, frameworkConfig } = resolved;
-    const dedupeKey = `${resolved.cwd}::${suite.framework}`;
-    if (seen.has(dedupeKey)) {
-      continue;
-    }
-    seen.add(dedupeKey);
 
     validateSuiteConfig(suite, frameworkConfig, resolved.absConfig);
     const version = detectFrameworkVersion(suite.framework, resolved.absCwd);

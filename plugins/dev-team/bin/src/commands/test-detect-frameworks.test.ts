@@ -48,6 +48,28 @@ describe('runTestDetectFrameworks — plan.cwd / root', () => {
       project.cleanup();
     }
   });
+
+  it('同 cwd + framework、不同 root 时各出一条 plan（不折叠）', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [
+        { root: 'pkg/a', cwd: '..', framework: 'jest' },
+        { root: 'pkg/b', cwd: '..', framework: 'jest' },
+      ],
+    });
+    try {
+      const result = runTestDetectFrameworks({ projectRoot: project.root });
+      expect(result.plan).toHaveLength(2);
+      expect(result.plan[0].cwd).toBe('pkg');
+      expect(result.plan[1].cwd).toBe('pkg');
+      expect(result.plan[0].framework).toBe('jest');
+      expect(result.plan[1].framework).toBe('jest');
+      expect(result.plan[0].root).toBe('pkg/a');
+      expect(result.plan[1].root).toBe('pkg/b');
+    } finally {
+      project.cleanup();
+    }
+  });
 });
 
 describe('runTestDetectFrameworks — 占位符延迟展开 (AC-7)', () => {
@@ -502,7 +524,7 @@ describe('runTestDetectFrameworks — mutation-score 补强', () => {
     }
   });
 
-  it('两 suite 解析到相同 directory+framework → plan 仅一条', () => {
+  it('两 suite 解析到相同 directory+framework → 仍各出一条 plan（不折叠）', () => {
     const project = createTempProject({
       schema: 'spec-driven',
       tests: [
@@ -512,8 +534,11 @@ describe('runTestDetectFrameworks — mutation-score 补强', () => {
     });
     try {
       const result = runTestDetectFrameworks({ projectRoot: project.root });
-      expect(result.plan).toHaveLength(1);
+      expect(result.plan).toHaveLength(2);
       expect(result.plan[0].framework).toBe('vitest');
+      expect(result.plan[1].framework).toBe('vitest');
+      expect(result.plan[0].root).toBe('.');
+      expect(result.plan[1].root).toBe('.');
     } finally {
       project.cleanup();
     }
