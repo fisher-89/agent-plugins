@@ -1,11 +1,11 @@
 ---
 name: test-execution-executor
 description: |
-  【use proactively】Executes tests via the `dev-team test-execution` CLI command, then reads the generated report, validates completeness, and applies a diagnostic decision tree to populate findings.
+  【use proactively】Executes tests via the `dev-team test-execution` CLI command, then reads the generated report, fixes blocking execution errors when possible, validates completeness, and applies a diagnostic decision tree to populate findings.
 model: sonnet-4.6
 ---
 
-The CLI handles all test execution, coverage parsing, and report generation — this agent focuses on CLI execution, report validation, and diagnostic analysis.
+The CLI handles all test execution, coverage parsing, and report generation — this agent focuses on CLI execution, fixing blocking environment/tooling errors from the report, report validation, and diagnostic analysis.
 
 ## Process
 
@@ -32,9 +32,25 @@ If the file does NOT exist:
 - Write an error report with `conclusion: "error"` and a findings message about the missing report
 - STOP
 
+### Step 1b: Fix blocking execution errors (then re-run)
+
+Read `reports/test/summary.json`. If `conclusion === "error"` OR `problems[]` contains any `type: "execution_error"`, attempt to fix **blocking** issues yourself before diagnostics:
+
+1. For each `execution_error`, inspect `message` (and matching `plans[]` / `{path}/report.json` `findings` when needed)
+2. Apply a concrete fix when the error is actionable, especially:
+   - Missing Stryker / `@stryker-mutator` / `stryker` command → install project-local deps in the suite package that owns `plans[].root` (or nearest `package.json`):
+     - jest → `@stryker-mutator/core` + `@stryker-mutator/jest-runner`
+     - vitest / vite-plus → `@stryker-mutator/core` + `@stryker-mutator/vitest-runner`
+   - Other missing CLI/tooling deps clearly named in the error → install/repair the named dependency the same way
+3. Record what you fixed in a short note (later append to `findings`)
+4. Re-run Step 0 **once** after a successful fix attempt, then continue from Step 1 with the new report
+5. If the error is not safely fixable (test logic failure, unclear root cause, or fix already attempted once), do **not** loop forever — continue to Step 2 with the current report
+
+Do not edit production source or test files in this step; only environment/tooling fixes (dependency install / config required to run the CLI).
+
 ### Step 2: Read the summary report
 
-Read `reports/test/summary.json`. The report has the following structure:
+Read `reports/test/summary.json` (use the latest report after any Step 1b re-run). The report has the following structure:
 
 ```json
 {
@@ -106,12 +122,12 @@ Apply the following decision tree based on the report content:
 
 #### 4a. If conclusion is "error"
 
-The CLI itself encountered an error, or a framework exited with a non-zero code without test failures. Read the `problems[]` array, filtering for `type: "execution_error"`:
+Blocking `execution_error`s should already have been handled in Step 1b. If `conclusion` is still `"error"` after that attempt, diagnose the remaining failures:
 
 - If `problems` is empty, record finding: "CLI returned error conclusion but no problems listed"
-- If `problems` contains `execution_error` entries, summarize which frameworks failed to execute in `findings`
+- If `problems` contains `execution_error` entries, summarize which frameworks still failed and why the Step 1b fix was insufficient or not applicable
 - If `problems` contains `test_failure` or `coverage_failure` entries alongside `execution_error`, mention them but note that the error took priority
-- DO NOT re-run the CLI — the workflow orchestrator handles retry decisions
+- DO NOT re-run the CLI again in this step — Step 1b already allowed one fix+re-run cycle
 
 #### 4b. If conclusion is "fail" and problems contain `type: "test_failure"`
 
@@ -185,13 +201,14 @@ Write the diagnostic findings to the summary report file (`reports/test/summary.
 
 ## Constraints
 
-- DO NOT modify any source code or test files
-- DO NOT execute any test commands (`npm test`, `npx vitest`, `go test`, `pytest`, etc.)
+- DO NOT modify production source code or test files (Step 1b may only install/repair tooling deps required to run the CLI)
+- DO NOT execute ad-hoc test commands (`npm test`, `npx vitest`, `go test`, `pytest`, etc.) — only the `dev-team test-execution` CLI in Step 0 / Step 1b re-run
 - DO NOT call `test_detect_frameworks` MCP tool — framework detection is done by the CLI
 - DO NOT parse coverage output files — this is done by `coverage-parser.ts`
 - DO NOT move or copy coverage artifacts — this is done by the CLI
 - DO NOT modify report fields other than `findings` — only push new entries to the findings array
 - Always locate atomic reports via `summary.plans[]` → `{path}/report.json`
 - If the summary report does not exist, report the error and stop — do not attempt to regenerate it
+- At most one Step 1b fix + CLI re-run cycle per invocation
 - The `findings` field SHOULD be diagnostic and actionable, not a summary of the report
 - Report file MUST use valid JSON — validate before writing

@@ -16,9 +16,9 @@ import { execCommand } from './exec-command';
 /** Build a test_execution command template from a detected framework version. */
 type TestExecutionBuilder = (version: string) => string;
 
-/** Presence of mutation_execution is the capability gate; omit for unsupported frameworks. */
-const MUTATION_EXECUTION_VITEST =
-  'npx -y -p @stryker-mutator/core@8 -p @stryker-mutator/vitest-runner@8 stryker run "{config}"';
+/** Presence of mutation_execution is the capability gate; omit for unsupported frameworks.
+ * Uses project-local Stryker (no `npx -p` auto-install). Missing deps surface as execution errors. */
+const MUTATION_EXECUTION = 'npx stryker run "{config}"';
 
 export interface FrameworkConfig {
   framework: TestFramework;
@@ -47,14 +47,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     shell: {
       test_execution: (version) =>
         `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
-      mutation_execution: () =>
-        `npx -y -p @stryker-mutator/core@7.2.0 -p @stryker-mutator/jest-runner@7.2.0 -p @stryker-mutator/typescript-checker@7.2.0 -p typescript@5.1.6 stryker run "{config}"`,
+      mutation_execution: () => MUTATION_EXECUTION,
     },
     cmd: {
       test_execution: (version) =>
         `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
-      mutation_execution: () =>
-        `npx -y -p @stryker-mutator/core@7.2.0 -p @stryker-mutator/jest-runner@7.2.0 -p @stryker-mutator/typescript-checker@7.2.0 -p typescript@5.1.6 stryker run "{config}"`,
+      mutation_execution: () => MUTATION_EXECUTION,
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
@@ -67,12 +65,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     shell: {
       test_execution: () =>
         'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: () => MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION,
     },
     cmd: {
       test_execution: () =>
         'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: () => MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION,
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
@@ -85,12 +83,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     shell: {
       test_execution: () =>
         'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: () => MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION,
     },
     cmd: {
       test_execution: () =>
         'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
-      mutation_execution: () => MUTATION_EXECUTION_VITEST,
+      mutation_execution: () => MUTATION_EXECUTION,
     },
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',

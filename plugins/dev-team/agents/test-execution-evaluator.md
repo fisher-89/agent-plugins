@@ -50,7 +50,21 @@ If `total === 0`:
 - `skipped`: `true`
 - `report`: `"未发现测试文件，阶段跳过"`
 
-### Step 3: All-pass check
+### Step 3: Execution / mutation error check
+
+Before treating the run as all-pass, inspect `conclusion` and `problems[]`:
+
+- If `conclusion === "error"` OR any `problems[]` entry has `type: "execution_error"`:
+  - Set `verdict`: `"fail"`
+  - Set `report` to a concise summary of each `execution_error` message (include framework)
+  - Note that `test-execution-executor` is responsible for fixing blocking execution errors before evaluation; remaining errors mean the fix failed or was not applicable
+  - Proceed directly to phase_log (skip remaining Step 3 sub-checks and Step 4–6 diagnostics)
+- If `mutation` is non-null and `mutation.pass === false`:
+  - Set `verdict`: `"fail"`
+  - Set `report` to `"Mutation score ${mutation.score}% < threshold ${mutation.threshold}%"`
+  - Proceed directly to phase_log
+
+### Step 3b: All-pass check
 
 If `failed === 0` and `total > 0`:
 

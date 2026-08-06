@@ -1336,7 +1336,7 @@ describe('executePlanEntry -- mutation 开关', () => {
     }
   });
 
-  it('stryker exit≠0 或缺少 mutation.json → mutation===null 且不抛；不读 reports/mutation/ 旧路径', () => {
+  it('stryker exit≠0 或缺少 mutation.json → mutation===null 且 error 描述失败；不读旧路径', () => {
     const dir = createTempDir();
     try {
       const openspec = path.join(dir.root, 'openspec');
@@ -1368,16 +1368,20 @@ describe('executePlanEntry -- mutation 开关', () => {
 
       mockExecSync.mockImplementation((cmd: unknown) => {
         if (String(cmd).includes('stryker')) {
-          const err = new Error('stryker fail') as Error & { status: number };
+          const err = new Error('stryker fail') as Error & { status: number; stderr?: string };
           err.status = 1;
+          err.stderr = 'Cannot find module @stryker-mutator/core';
           throw err;
         }
         writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
         return '';
       });
-      expect(
-        executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir }).mutation,
-      ).toBeNull();
+      const failedCmd = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+      });
+      expect(failedCmd.mutation).toBeNull();
+      expect(failedCmd.error).toMatch(/Mutation testing failed/);
+      expect(failedCmd.exitCode).toBe(0);
 
       mockExecSync.mockReset();
       mockExecSync.mockImplementation((cmd: unknown) => {
@@ -1388,9 +1392,11 @@ describe('executePlanEntry -- mutation 开关', () => {
         writePassingJsWithSource(path.join(reportsDir, 'vitest'), dir.root);
         return '';
       });
-      expect(
-        executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir }).mutation,
-      ).toBeNull();
+      const missingReport = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+      });
+      expect(missingReport.mutation).toBeNull();
+      expect(missingReport.error).toMatch(/mutation report not found or invalid/);
     } finally {
       dir.cleanup();
     }

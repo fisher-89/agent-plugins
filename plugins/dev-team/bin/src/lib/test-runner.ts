@@ -48,6 +48,12 @@ export interface ExecutionResult {
   resultsFile?: string;
 }
 
+type MutationPhaseResult = {
+  mutation: MutationBlock | null;
+  /** Surfaced as ExecutionResult.error → summary problems (execution_error) for agent fix. */
+  error?: string;
+};
+
 interface PlanPlaceholders {
   report_dir: string;
   results_file: string;
@@ -436,21 +442,21 @@ function buildPlanExecutionResult(
       : undefined);
 
   const mutationFiles = restrictMutationScope(parsed.sourceFiles, options.mutationDiffFiles);
-  const mutation =
+  const mutationOutcome: MutationPhaseResult =
     parsed.failed === 0
       ? runMutationPhase(entry, projectRoot, reportDir, options, mutationFiles)
-      : null;
+      : { mutation: null };
 
   return {
     framework: entry.framework,
     exitCode,
     testCases: parsed.testCases,
     coverage: parsed.coverage,
-    mutation,
+    mutation: mutationOutcome.mutation,
     durationMs: Date.now() - startTime,
     testFiles: parsed.testFiles,
     sourceFiles: parsed.sourceFiles,
-    error: execError || parseError,
+    error: execError || parseError || mutationOutcome.error,
     planId,
     reportDir,
     resultsFile,
@@ -560,21 +566,21 @@ function runMutationPhase(
   reportDir: string,
   options: { noMutation?: boolean },
   sourceFiles: string[],
-): MutationBlock | null {
+): MutationPhaseResult {
   if (!entry.mutation_script || options.noMutation) {
-    return null;
+    return { mutation: null };
   }
 
   let projectConfig: OpenSpecConfig;
   try {
     projectConfig = readConfig(projectRoot);
   } catch {
-    return null;
+    return { mutation: null };
   }
 
   const filteredSources = sourceFiles.filter((f) => !isFileExcluded(f, projectConfig));
   if (filteredSources.length === 0) {
-    return null;
+    return { mutation: null };
   }
 
   const sourcesAbsolute = filteredSources.map((f) => {
@@ -591,8 +597,9 @@ function runMutationPhase(
       resolveUserConfigPath(entry, projectRoot),
     );
   } catch (e) {
-    console.log(`  Mutation testing skipped: ${e instanceof Error ? e.message : 'Unknown error'}`);
-    return null;
+    const message = e instanceof Error ? e.message : 'Unknown mutation error';
+    console.log(`  Mutation testing failed: ${message}`);
+    return { mutation: null, error: `Mutation testing failed: ${message}` };
   }
 }
 
@@ -602,7 +609,7 @@ function executeStrykerMutation(
   reportDir: string,
   absoluteSourceFiles: string[],
   frameworkConfigPath: string | null,
-): MutationBlock | null {
+): MutationPhaseResult {
   const { configPath, tempDirPath } = resolveStrykerConfig(
     projectRoot,
     entry.root,
@@ -621,7 +628,10 @@ function executeStrykerMutation(
   if (cmdResult.exitCode !== 0) {
     logCommandFailure(cmdResult, strykerDuration);
     cleanupMutationArtifacts(configPath, tempDirPath);
-    return null;
+    return {
+      mutation: null,
+      error: formatMutationCommandError(cmdResult, strykerDuration),
+    };
   }
 
   const mutationBlock = buildMutationBlockFromReport(entry, reportDir);
@@ -629,14 +639,31 @@ function executeStrykerMutation(
 
   if (!mutationBlock) {
     logMissingReport(cmdResult);
-    return null;
+    return {
+      mutation: null,
+      error: 'Mutation testing failed: mutation report not found or invalid under plan reportDir',
+    };
   }
 
   console.log(
     `  Mutation score: ${mutationBlock.score.toFixed(1)}% (threshold: ${mutationBlock.threshold}%, took ${strykerDuration.toFixed(1)}s)`,
   );
 
-  return mutationBlock;
+  return { mutation: mutationBlock };
+}
+
+function formatMutationCommandError(
+  result: { exitCode: number; stderr: string; execError?: string },
+  durationS: number,
+): string {
+  const detail =
+    result.execError?.trim() ||
+    result.stderr
+      .trim()
+      .split(/\r?\n/)
+      .find((line) => line.trim().length > 0) ||
+    `StrykerJS exited with code ${result.exitCode}`;
+  return `Mutation testing failed (${durationS.toFixed(1)}s): ${detail}`;
 }
 
 function genStrykerCommand(entry: TestPlan, configPath: string): string {

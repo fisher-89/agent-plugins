@@ -279,7 +279,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
     }
   });
 
-  it('stryker 非 0 退出 → mutation null 且临时 config 仍被清理', () => {
+  it('stryker 非 0 退出 → mutation null、error 有值，且临时 config 仍被清理', () => {
     const project = createTempProject();
     try {
       const reportsDir = path.join(project.root, 'reports', 'test');
@@ -294,8 +294,9 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           configPathSeen = configs[0] ? path.join(project.root, configs[0]) : '';
           expect(configPathSeen).not.toBe('');
           expect(fs.existsSync(configPathSeen)).toBe(true);
-          const err = new Error('stryker failed') as Error & { status: number };
+          const err = new Error('stryker failed') as Error & { status: number; stderr?: string };
           err.status = 1;
+          err.stderr = 'stryker: command not found';
           throw err;
         }
         fs.mkdirSync(planDir, { recursive: true });
@@ -340,6 +341,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
         { reportsDir },
       );
       expect(result.mutation).toBeNull();
+      expect(result.error).toMatch(/Mutation testing failed/);
       expect(configPathSeen).not.toBe('');
       expect(fs.existsSync(configPathSeen)).toBe(false);
       expect(fs.existsSync(path.join(project.root, '.stryker-tmp'))).toBe(false);
