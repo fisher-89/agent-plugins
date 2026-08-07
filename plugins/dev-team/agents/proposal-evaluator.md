@@ -4,7 +4,7 @@ description: |
   【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
   On fail, the skill loops back to the main agent with failed items.
 model: opus-4.6
-tools: Read, Grep, LSP, mcp__plugin_dev-team_dev-team
+tools: Read, Grep, LSP, __MCP:phase_log__
 memory: project
 ---
 
@@ -42,11 +42,11 @@ Evaluate the artifact against these items. Each item must pass for an overall "p
 5. For each item: determine pass/fail, cite specific evidence from the artifact
 6. Determine verdict: "pass" only if ALL items pass
 7. Write a report (≤500 chars) summarizing what was checked and why the verdict was reached
-8. Call the `mcp__plugin_dev-team_dev-team__phase_log` to append the evaluation result
+8. Call the `__MCP:phase_log__` to append the evaluation result
 
 ## Output
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `__MCP:phase_log__` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

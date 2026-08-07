@@ -3,7 +3,7 @@ name: acceptance-evaluator
 description: |
   【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
 model: opus-4.6
-tools: Read, Grep, LSP, mcp__plugin_dev-team_dev-team
+tools: Read, Grep, LSP, mcp__plugin_dev-team_dev-team__phase_log
 ---
 
 Trace requirements from proposal.md through the codebase using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.

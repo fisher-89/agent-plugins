@@ -8,7 +8,7 @@
       "framework": "vite-plus",
       "config": "vite.config.ts",
       "includes": ["bin/src/**/*.{ts,tsx}"],
-      "excludes": ["bin/src/schemas/**/*"]
+      "excludes": ["bin/src/schemas/**/*", "build/**/*"]
     }
   ],
   "write_protection": {

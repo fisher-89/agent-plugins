@@ -1,5 +1,5 @@
 ---
-name: phase-test-execution
+name: __SKILL:phase-test-execution__
 description: Test-execution-executor runs tests and generates structured report, then evaluator checks. Loops on fail.
 disable-model-invocation: true
 ---
@@ -9,18 +9,18 @@ Test execution phase — Executor runs tests, Evaluator diagnoses failures.
 ## Usage
 
 ```
-/dev-team:phase-test-execution [change-name]
+__SKILL_SLASH:phase-test-execution__ [change-name]
 ```
 
 ## Process
 
 ### Detect active change
 
-Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
+Call `__MCP:change_list__` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
 
 ### Phase Check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state.
+Call `__MCP:phase_next__(change=<change-name>)` to get workflow state.
 
 If `next_phase` is "test-execution" continue to `### Run Executor`.
 
@@ -36,7 +36,7 @@ Otherwise, follow the table bellow:
 **Backtrack**
 
 ```
-mcp__plugin_dev-team_dev-team__backtrack({
+__MCP:backtrack__({
   change: "<change-name>",
   phase: "<last_result.phase>",
   backtrack_to: "test-execution",
@@ -44,7 +44,7 @@ mcp__plugin_dev-team_dev-team__backtrack({
 })
 ```
 
-If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Executor`.
+If response `modified` is true, recall `__MCP:phase_next__(change=<name>)`, continue to `### Run Executor`.
 
 ### Run Executor
 
@@ -73,7 +73,7 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
+result = __MCP:phase_next__(change=<change-name>)
 
 if result.last_result is null:
   → 错误：Evaluator 未正确写入 eval.json，停止

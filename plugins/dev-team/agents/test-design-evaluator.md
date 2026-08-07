@@ -15,7 +15,7 @@ Read only:
 
 - `openspec/changes/<change-name>/test-design.md` — the artifact to evaluate
 - `openspec/changes/<change-name>/proposal.md` — reference for cross-checking requirements
-- `plugins/dev-team/templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
+- `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
 
 ### Parameter Type → Edge Case Systematic Mapping
 
@@ -88,7 +88,7 @@ Read only:
 
 ## Output
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "test-design"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `__MCP:phase_log__` with `phase: "test-design"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

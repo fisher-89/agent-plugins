@@ -4,7 +4,7 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "./bin/dev-team-mcp.cjs"
+        "./bin/mcp.cjs"
       ]
     }
   }

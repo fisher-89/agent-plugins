@@ -6,7 +6,7 @@
 # executed directly.
 #
 # Usage:
-#   source plugins/dev-team/utils/openspec-cli.sh
+#   source ./utils/openspec-cli.sh
 #   if change_exists "my-change"; then
 #       openspec_status_json "my-change"
 #   fi

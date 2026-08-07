@@ -1,0 +1,82 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-08-07T02:04:31.046Z",
+  "duration_seconds": 212,
+  "total": 1356,
+  "passed": 1356,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 92.63,
+      "branches": 84.63,
+      "functions": 96.01
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 36,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 76.39,
+    "threshold": 70,
+    "measured": {
+      "killed": 781,
+      "survived": 213,
+      "timeout": 2,
+      "noCoverage": 29,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 223,
+      "total": 1248,
+      "detected": 783,
+      "undetected": 242
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 76.39024390243902,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 36,
+        "passed_count": 36
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/cursor-home-image/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "All tests passed and coverage thresholds met (lines 92.63%, branches 84.63%, functions 96.01% vs 80/70/75).",
+    "Mutation score 76.39% meets threshold 70% (781 killed, 213 survived, 29 noCoverage of 1248 mutants)."
+  ]
+}

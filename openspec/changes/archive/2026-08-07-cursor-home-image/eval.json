@@ -1,0 +1,865 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Proposal+4 specs evaluated (R1–R11). Clear problem (userLocal=false; need ~/.cursor home image; pack×1+assemble×3). Scope/AC/risks/decisions complete. Caps map 1:1 to specs (cursor-home-image ADDED; dual-platform/multi-plugin/protect-files MODIFIED). No TODO/TBD. Build verification via manual build per scope; not a gap. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题: userLocal=false 致 cursor-plugins 不可装；缺 ~/.cursor 第三产物；SUPPORT_AGENTS×3 与硬编码限定名阻碍 home 组装。"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（vite/build/hooks/skills/bin/三产物等）、### 测试文件（hooks.test 等；明确不做全量 build 产物自动化）、### 不要修改。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "8 项风险均有具体缓解（实机钉死前缀、构建断言、manifest 托管、重跑 install、文档平台预期等），非空泛监控。"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-1..7 均有对象+条件；构建/产物靠手动 build 检查（额外说明：自动化 build 验证 out of scope，非缺口）；AC-6 单测可测。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "决策表每行含理由与备选（如手拷/目录命名空间/倍增 pack/skill() 等）及拒绝依据。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "升版+重建产物；扩展为三产物并更新 CLAUDE.md；不违背 slim/hooks/agents/OpenSpec 约定。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal/specs 无 TODO/TBD/{{…}}；文中 placeholder 指 __KIND:id__ 技术占位符体系，非未填模板。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题/提案/变更范围/验收标准/风险均有实质内容，无空壳。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力：新增 cursor-home-image；修改 dual-platform-plugin-build、multi-plugin-layout、protect-files-hook。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "四能力对应 specs/{cursor-home-image,dual-platform-plugin-build,multi-plugin-layout,protect-files-hook}/spec.md；无多余 spec。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "新增/修改类型与 ADDED/MODIFIED 一致；AC-1..7 在 specs scenarios 有对应；env/hooksProfile/前缀与范围无矛盾。"
+      }
+    ],
+    "timestamp": "2026-08-06T10:46:38.445Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "dev-design PASS. design.md has components (D1), data models (D2), AC-1..7 coverage (D3), filled sections (D8), deps (D6), CLAUDE.md-aligned (D7). tasks.md staged 1–6 with checkboxes, concrete ops, valid deps (D4/D5). No unit/integration test tasks; manual build/install checks OK per scope (D9). Change list ↔ proposal 实现文件 ↔ tasks consistent (D10).",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "架构组件表含职责/文件位置/依赖/技术四列；无 TBD；路径指向具体文件或产物树（如 env.ts、assemble.ts、vite.config.ts）"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "数据模型表含 ProductEnv、HooksCanonical、HomeManifest 等；每行有字段与持久化列"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1 pack+assemble×3；AC-2 token/env；AC-3 hooksProfile；AC-4 镜像布局；AC-5 install.mjs；AC-6 hooks.ts Shell/StrReplace；AC-7 gitignore/commit；单测属测试阶段"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md 分阶段1–6；env/token→hooks→assemble→占位符→protect-files→文档/build；前置不依赖后续；均有 - [ ]"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "任务写明新增/修改路径与具体操作（如 applyEnvTokens、buildHooksFile、Shell/StrReplace），非空泛「实现功能」"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节列出 Node 内置、现有插件依赖、vite-plus；注明无新增 npm 运行时依赖"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "保留 vp pack；升版后重建三产物；不嵌入 skills；与 slim plugin + 双产物扩展一致"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件/变更清单(新增+修改)/数据模型/依赖/待决问题均有实质内容；路由/API 因无 HTTP 已注明省略"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "无测试策略章节；tasks 无单测/集成测任务；阶段6为手动 build/install 验收（构建产物验证按范围允许）"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "变更清单覆盖 proposal 实现文件；tasks 引用文件均在清单中；新增公共函数与新增文件子表一致"
+      }
+    ],
+    "timestamp": "2026-08-06T10:49:44.252Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS. T1–T8 all pass. AC-1..7 mapped; unit suites cover hooks/tokens/env/hooksProfile/assert/scan/home-install merge with 异常+边界; mocks for stdin/fs/temp fixtures; assemble×3/product-tree left as intentional 手动验收 (AC-1/4/5/7) per strategy—not a gap. Format matches template; no out_of_scope coverage.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-7 each appear in test-design ## 验收范围 with matching 验收条件 text."
+      },
+      {
+        "item": "验收范围与测试章节互相对应",
+        "pass": true,
+        "evidence": "Unit-test ACs (AC-2/3/5/6) map to ### source->test headings; AC-1/4/7 are 手动验收 only. No ## 集成测试 relations; no 集成测试-typed ACs—intentional per strategy."
+      },
+      {
+        "item": "单元测试充分覆盖异常和边界",
+        "pass": true,
+        "evidence": "Each suite has ≥1 异常; string/object/list/enum edges per mapping (e.g. Shell/StrReplace empty/long/special; applyEnvTokens null/\"\"/long; getEnv enum+illegal; merge {}/null/extra fields)."
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "hooks mocks stdin/fs/stdout; assert/scan use mkdtemp fixtures; home-install uses in-memory JSON; pure token fns mark 无 mock; no real ~/.cursor/assemble tree."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围 filled; each unit ### has 待测功能/用例/Mock策略; 集成测试 optional empty with rationale; 不可测试项 details AC-1/4/5/7 manual steps."
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "In-scope ACs covered via unit+manual; out_of_scope (workspace .cursor, marketplace replace, build tree automation) not tested; matches proposal 不要设计产物树自动化."
+      },
+      {
+        "item": "写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "mergeManagedHooks upsert/update; mergeManagedMcp 再次安装更新 without duplicating user servers—reinstall idempotent upsert semantics for AC-5 writes."
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-G1 4-col 验收范围; T8-U1..U5 ### path->path + 待测功能/用例/Mock策略 order & columns; no integration ### so T8-I N/A."
+      }
+    ],
+    "timestamp": "2026-08-06T10:54:03.312Z",
+    "stale": true
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS. Build core (env/applyEnvTokens/assemble/hooksProfile/assert/scan/home-install), vite staging pack→assemble×3, canonical hooks, tokenized sources, protect-files Shell/StrReplace, three product trees (mcp/cli/hooks.cjs + prefixed home), CLAUDE/version/.gitignore align with design. Tasks all [x]. No HTTP routes. Build-tree tests intentionally absent.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "Components present: vite.config.ts staging pack; build/env.ts, apply-env-tokens.ts, assemble.ts, hooks-profile.ts, assert-no-tokens.ts, scan-files.ts, home-install.mjs; hooks.canonical.json; hooks.ts Shell/StrReplace; tokenized skills/agents; cursor-home-image/dev-team/** + claude/cursor plugin outs."
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "New build modules + hooks.canonical + home-install; deleted build-agent-artifacts.ts & source hooks.json; vite/index/package/CLAUDE/.gitignore updated; products refreshed with mcp.cjs/cli.cjs/hooks.cjs and home prefixes; public APIs/types match design."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS modules under plugins/dev-team/build/; node:fs/path imports; singleQuote/type imports style; install.mjs zero npm deps; version bump 2.10.24."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "N/A — design omits HTTP routes; public build APIs (getEnv, applyEnvTokens, assemble/assembleAll, buildHooksFile, assertNoNameTokens) implemented and exported from build/index.ts."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "openspec/changes/cursor-home-image/tasks.md: all phase 1–6 checkboxes are [x]; no unchecked `- [ ]` items."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff/untracked files map to design change list (build pipeline, tokens, products, docs). Explore→change artifact moves are change lifecycle, not drive-by. No unrelated feature work."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "No SUPPORT_AGENTS pack multiply; tokens applied in assemble not pack; cursorHome keeps path tokens (hooks.json/mcp.dev-team.json); hooks from canonical not Claude JSON rewrite; home prefix/bin rename; plugin MCP key dev-team; install managed merge + Reload tip."
+      }
+    ],
+    "timestamp": "2026-08-06T11:02:48.603Z",
+    "stale": true
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS. Unit skeletons for hooks Shell/StrReplace, applyEnvTokens, getEnv, buildHooksFile, assertNoNameTokens, scanTextFiles, home-install pure fns match test-design 新增 rows; colocated *.test.ts/.mjs; vite-plus + build/** include; mocks/cleanup present. No integration suite (intentional). No 废弃 rows.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "hooks.ts→hooks.test.ts; apply-env-tokens/env/hooks-profile/assert-no-tokens/scan-files each have colocated *.test.ts; home-install.mjs→home-install.test.mjs. assemble.ts excluded per design."
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "*.test.ts beside TS sources under bin/src and build/; home-install.test.mjs beside home-install.mjs."
+      },
+      {
+        "item": "单元测试用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "All 新增 rows covered: Shell/StrReplace/既有工具名 describes in hooks.test.ts:~1841+; applyEnvTokens 17 its; getEnv/PRODUCT_ENV_KEYS; buildHooksFile 12 its; assertNoNameTokens 9; scanTextFiles 8; expand/mergeHooks/mergeMcp 17."
+      },
+      {
+        "item": "集成测试用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design 集成测试 section empty by design (assemble×3/product trees manual). No 新增 integration rows to generate."
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "hooks: vi.mock node:fs+readConfig, stdout spy; token/env/hooks-profile use getEnv fixtures; assert/scan mkdtemp; home-install in-memory JSON. No product-tree fixtures."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All import from vite-plus/test; vite.config test.include adds build/**/*.test.ts and build/**/*.test.mjs."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "Empty/null/undefined, >1000 chars, special chars, mixed path seps, empty dirs, exclude binaries, unknown tool_name, empty canonical arrays all have it skeletons."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "hooks beforeEach resetMocks; assert-no-tokens/scan-files afterEach rmSync tempDirs; hooks temp roots cleaned in finally."
+      },
+      {
+        "item": "迭代类型废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "No 迭代类型=废弃 rows in test-design unit/integration tables."
+      }
+    ],
+    "timestamp": "2026-08-06T11:08:22.079Z",
+    "stale": true
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS. Unit suites colocated for hooks+build helpers; phase-next/workflow expect __AGENT:*__; no assemble×3 suite; mocks/cleanup/boundaries match design; integration N/A by design.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "In-scope: hooks.test.ts + build/{apply-env-tokens,env,hooks-profile,assert-no-tokens,scan-files,home-install}.test.*; assemble.ts intentionally untested per design."
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "*.test.ts / *.test.mjs colocated; vite.config include has build/**/*.test.ts|.mjs."
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "All 新增 rows have describe/it in hooks.test.ts and build/* tests; path types covered."
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "No automated integration rows; assemble×3 absent by design."
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "hooks: vi.mock fs/config + stdout capture; build helpers use getEnv fixtures / mkdtemp; no product-tree mocks."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All new/updated suites import from vite-plus/test."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "Empty/null/long/special-char boundaries present across Shell/StrReplace and build helper suites."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "hooks beforeEach resetMocks; assert-no-tokens/scan-files afterEach rmSync; pure helpers need no teardown."
+      },
+      {
+        "item": "迭代类型=废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "No 废弃 rows in test-design; no obsolete describes added."
+      }
+    ],
+    "timestamp": "2026-08-06T11:13:56.614Z",
+    "stale": true
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "Mutation score 57.35% < threshold 70% (survived 515, noCoverage 184). Unit/integration 1302/1302 passed; line/branch/function coverage met.",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确；mutation 字段完整"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed === 0 且 total === 1302（passed 1302, skipped 0）"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": false,
+        "evidence": "行/分支/函数覆盖率达标（lines=92.63%, branches=84.39%, functions=96.01%），但 mutation.pass=false：score 57.35% < threshold 70%（killed 938, survived 515, noCoverage 184, undetected 699/1750）"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed===0 自动通过；门禁失败根因明确为 mutation_gate：变异得分不足，非执行错误/非用例失败"
+      }
+    ],
+    "timestamp": "2026-08-06T11:37:55.897Z",
+    "stale": true
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "Mutation score 69.96% < threshold 70% (survived 290, noCoverage 32, ignored 176). Unit/integration 1302/1302 passed; line/branch/function coverage met (92.63/84.39/96.01).",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确；mutation 字段完整；conclusion=fail 与 mutation.pass=false 一致"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed === 0 且 total === 1302（passed 1302, skipped 0）；无 execution_error"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": false,
+        "evidence": "行/分支/函数覆盖率达标（lines=92.63%, branches=84.39%, functions=96.01%），但 mutation.pass=false：score 69.96% < threshold 70%（killed 748, survived 290, noCoverage 32, timeout 2, ignored 176, undetected 322/1248）"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed===0 自动通过；门禁失败根因唯一为 mutation_gate：变异得分 69.96% 严格低于阈值 70%（CLI 显示可四舍五入为 70.0%），非执行错误/非用例失败/非行覆盖不足"
+      }
+    ],
+    "backtrack_to": "test-design",
+    "backtrack_reason": "Mutation score 69.96% < 70%; strengthen test design to kill survivors (~0.04pp gap), then re-run test-gen and test-execution",
+    "timestamp": "2026-08-07T01:16:51.556Z",
+    "stale": true
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS. Kill-focused unit cases present for hooks/workflow/test-runner/stryker-config/phase-next (mutation ~0.04pp gap). AC-1..7 mapped; assemble×3/product-tree automation intentionally absent (manual). build/** unit tests retained outside mutate scope. T1–T8 pass.",
+    "checklist": [
+      {
+        "item": "proposal验收标准均在验收范围中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-7 均出现在 test-design「验收范围」表（L39–47），条件与 proposal「验收标准」一致。"
+      },
+      {
+        "item": "验收范围与测试章节互相对应",
+        "pass": true,
+        "evidence": "含单元测试的 AC-2/3/5/6 均有对应 ### 源->测 章节；无测试类型=集成测试的 AC；## 集成测试仅注释说明不自动化，无关联AC缺口。"
+      },
+      {
+        "item": "单元测试充分覆盖异常和边界",
+        "pass": true,
+        "evidence": "hooks/workflow/test-runner/stryker-config/phase-next 均含异常+边界；含空串/超长/特殊字符/数组/null 等；kill 向用例覆盖正则/agent_type/redirect/盘符等存活体。"
+      },
+      {
+        "item": "存在外部依赖时描述了Mock策略",
+        "pass": true,
+        "evidence": "hooks: stdin/fs/readConfig/stdout；test-runner: execSync/fs；phase-next: eval.json；build 用夹具/temp；产物树改手动故无 assemble Mock。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围/单元测试（每文件含待测功能·用例·Mock策略）/不可测试项已填；集成测试可选且明示省略。"
+      },
+      {
+        "item": "测试设计与proposal范围一致",
+        "pass": true,
+        "evidence": "out_of_scope「不要为完整build产物树写自动化」落实于策略说明与不可测试项；in_scope AC 均有单元或手动覆盖；assemble×3 缺席为刻意。"
+      },
+      {
+        "item": "写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal 无 API/DB 写接口；install merge 为文件托管更新，由 home-install 单测+AC-5 手动覆盖，非 API/DB 幂等强制场景。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U/G：### `源 -> 测`、待测功能列表、用例/Mock 列名正确；验收范围四列齐全；无集成关系章节故 T8-I 不适用。"
+      }
+    ],
+    "timestamp": "2026-08-07T01:24:44.369Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "PASS. Kill-focused 新增 cases generated for hooks/workflow/test-runner/stryker-config/phase-next (Shell/StrReplace, agent tokens, clearDirectory/ExecError, drive/overlay, interpolate/done/backtrack). Build unit tests present (mutation out of scope). No assemble×3/integration suites — intentional per design. Framework vite-plus; mocks+cleanup OK. G1–G9 all pass.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "hooks/workflow/test-runner/stryker-config/phase-next + build/{apply-env-tokens,env,hooks-profile,assert-no-tokens,scan-files,home-install} 均有共存 *.test.ts/.mjs；assemble.ts 按设计不测"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "均为 *.test.ts 或 home-install.test.mjs，与源码同目录（bin/src/**、build/**）"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "hooks Shell/StrReplace/PowerShell/isRecord；workflow agent tokens+getDependents；test-runner clearDirectory/placeholders/ExecError/redirect；stryker 空串/盘符/overlay；phase-next interpolate/done/backtrack/retry；build 回归用例均有 describe/it"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design 明确无自动化集成用例（assemble×3/产物树手动）；无应生成的集成骨架"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "hooks: vi.mock fs/readConfig/runStaticAnalysis + stdout spy；test-runner: execSync+tempdir；phase-next: readEvalJson spy+restore；stryker/build: mkdtemp；workflow 无 mock"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "vite-plus/test + vitest vi.mock/spyOn；与 test-design 框架一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "空串/超长/特殊字符/null/未知 tool/空 workspace_roots/timeout/files/scope/空 sourceFiles 等边界 it 均存在"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "resetMocks/afterEach restoreAllMocks/dir.cleanup/unlinkSync/spy.mockRestore/captureStderr restore"
+      },
+      {
+        "item": "迭代类型=废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design 无迭代类型=废弃行；未出现废弃用例"
+      }
+    ],
+    "timestamp": "2026-08-07T01:32:51.913Z",
+    "stale": true
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "所有 1356 个测试通过；覆盖率达标: lines=92.63%, branches=84.63%, functions=96.01%；Mutation score 73.04% ≥ 70%",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=1356, passed=1356, conclusion=pass"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=92.63%, branches=84.63%, functions=96.01% (thresholds: 80/70/75); coverage.pass=true"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-08-07T01:38:52.663Z",
+    "stale": true
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL C3: design requires assemble copy schema to products (design.md:70); assemble.ts:19 STATIC_BIN_FILES omits it; products lack bin/dev-team-config.schema.json while manifest lists it (assemble.ts:153, manifest.json:22). Also build/index.ts omits env/applyEnvTokens exports (design.md:68). C1/C2/C4–C7 pass: no secrets/injection; hooks+install input guards; Shell/StrReplace; env/hooksProfile/tokens OK; build verify manual.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No hardcoded secrets; install.mjs path.resolve/--root only; hooks.ts:298-331 JSON/tool_input type-checked, no eval/exec of user cmd; mergeHooks/Mcp scoped to dev-team_ prefix"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "hooks.ts:298-328 validates stdin JSON/tool_name/file_path/command; home-install parseArgs/--root + expandHomePathTokens type checks; merge* typeof/Array.isArray; zero-dep install (no zod) per design"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": false,
+        "evidence": "design.md:70 schema→assemble copy to products; assemble.ts:19,43-46 omit schema (products missing file). design.md:68 index exports env/applyEnvTokens; build/index.ts only assemble+schema. Core pack×1+assemble×3/env/hooks OK"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "getEnv unknown key throws (env.ts:72-77); evaluateToolAccess empty/invalid fail-open (hooks.ts:299-315); mergeManagedHooks/Mcp null-safe (home-install.mjs:130-170); --root requires value"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "build-agent-artifacts.ts removed; SUPPORT_AGENTS gone; new build modules referenced by vite assembleAll + tests; no unreachable branches found in reviewed paths"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Matches existing TS/Node style; ProductEnv/HooksCanonical typed; hooks.canonical.json + hooks-profile split clear; tests colocated under build/** and hooks.test.ts"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Reuses ProductEnv (env.ts), HooksCanonical (hooks-profile.ts), HomeManifest (assemble.ts), package.json version import; no ad-hoc external DTO remapping"
+      }
+    ],
+    "backtrack_to": "implement",
+    "backtrack_reason": "C3: assemble omits bin/dev-team-config.schema.json from STATIC_BIN_FILES (manifest still lists it); build/index.ts omits designed env/applyEnvTokens re-exports",
+    "timestamp": "2026-08-07T01:41:09.532Z",
+    "stale": true
+  },
+  {
+    "phase": "implement",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS after C3 backtrack fix. Schema in STATIC_BIN_FILES (assemble.ts:19-24) and present in claude/cursor/cursorHome bin/; manifest lists it. index.ts re-exports assemble, applyEnvTokens, env, schema. Components/env/hooksProfile/pack×1+assemble×3/tokens/hooks Shell|StrReplace OK. All tasks [x].",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "env.ts, apply-env-tokens.ts, assemble.ts, hooks-profile.ts, hooks.canonical.json, hooks.ts Shell/StrReplace, home-install.mjs→install.mjs, vite staging pack, three product trees all present"
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "New build modules + deleted build-agent-artifacts/hooks.json; index.ts exports assemble/applyEnvTokens/env/schema; STATIC_BIN copies schema; products refreshed; package version 2.10.24; CLAUDE.md/gitignore updated"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS modules under plugins/dev-team/build/; vite-plus pack+build:done; Node fs patterns match prior build style; colocated naming"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "N/A: design.md omits HTTP routes/API section"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–6: all checkboxes [x]"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff maps to design components/tasks (build pipe, tokens, hooks, products, docs). Test/stryker tweaks support same change test phases"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Single pack→staging; assemble×3; cursorHome pathTokens deferred; schema copied via STATIC_BIN_FILES; index re-exports env/applyEnvTokens; hooksProfile fork; namePrefix bins"
+      }
+    ],
+    "timestamp": "2026-08-07T01:43:50.206Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "PASS. After C3 fix (schema STATIC_BIN + index re-exports), generator added no new tests — assemble remains manual; existing kill-focused suites for hooks/workflow/test-runner/stryker/phase-next + build helpers still match test-design 新增 rows. Integration N/A. G1–G9 pass.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "hooks/workflow/test-runner/stryker-config/phase-next + build/{apply-env-tokens,env,hooks-profile,assert-no-tokens,scan-files,home-install} 均有共存 *.test.*; assemble.ts 按设计不测"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "均为 *.test.ts 或 home-install.test.mjs，与源码同目录（bin/src/**、build/**）"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "hooks Shell/StrReplace/PowerShell/isRecord；workflow agent tokens+getDependents；test-runner clearDirectory/ExecError/redirect；stryker 盘符/overlay；phase-next interpolate/done/backtrack；build 回归均有 describe/it；本轮无新增 diff"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design 明确无自动化集成用例（assemble×3/产物树手动）；无应生成的集成骨架"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "hooks: vi.mock fs/readConfig/runStaticAnalysis+stdout；test-runner: execSync+tempdir；phase-next: eval fixtures；stryker/build: mkdtemp；workflow 无 mock"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "全部从 vite-plus/test 导入；与 test-design 框架一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "空串/超长/特殊字符/null/未知 tool/空 workspace_roots/timeout/files/scope/空 sourceFiles 等边界 it 均存在"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "hooks beforeEach resetMocks；assert/scan afterEach rmSync；test-runner dir.cleanup；phase-next spy restore"
+      },
+      {
+        "item": "迭代类型=废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design 无迭代类型=废弃行；未出现废弃用例"
+      }
+    ],
+    "timestamp": "2026-08-07T01:45:33.532Z",
+    "stale": true
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 4,
+    "verdict": "fail",
+    "report": "1/1356 failed: phase-next empty backtrack_to expected next=dev-design got code-analyze. Root cause: incomplete fs mocks (existsSync=true without pinning readFileSync/workflow_type); under --sequence.shuffle leftover test-only workflow mock makes getWorkflowType()=test-only. Fix test via next() helper or pin requirement workflow.json. coverage/mutation null skipped.",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "summary.json 含 phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds；coverage=null 合法；problems[0].type=test_failure"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": false,
+        "evidence": "failed=1 total=1356；phase-next.test.ts「最新条目 backtrack_to: '' 视为无回溯」AssertionError: expected 'code-analyze' to be 'dev-design'"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率检查未配置或生成失败，跳过（coverage===null）"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "唯一根因=测试隔离缺陷：该用例仅 mock existsSync=true，未固定 readFileSync→workflow_type；shuffle 下残留 test-only mock 导致 post-proposal next=code-analyze。非产品逻辑、非设计冲突。"
+      }
+    ],
+    "backtrack_to": "test-gen",
+    "backtrack_reason": "phase-next empty backtrack_to case flakes under shuffle: incomplete fs mocks leave test-only workflow; pin requirement via next() or explicit workflow.json mock",
+    "timestamp": "2026-08-07T01:49:39.647Z",
+    "stale": true
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 5,
+    "verdict": "pass",
+    "report": "pass: empty backtrack_to pins requirement via next([],'test-change','requirement')+readEvalJson spy/restore; Shell/StrReplace, workflow tokens, test-runner/stryker, build suites intact; G1–G9 ok; no integration/废弃 rows.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "hooks/workflow/test-runner/stryker-config/phase-next + build apply-env-tokens/env/hooks-profile/assert-no-tokens/scan-files/home-install 均有共存 *.test.ts|.mjs"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "均为 *.test.ts 或 home-install.test.mjs，与源码同目录（bin/src、bin/src/lib、bin/src/commands、build）"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "hooks Shell/StrReplace/isRecord；workflow agent tokens/getDependents；test-runner clearDirectory/ExecError；stryker normalize/overlay；phase-next interpolate/done/backtrack（含 next(...,'requirement')）；build 各模块 describe/it 齐全"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "test-design 明确无自动化集成用例（手动验收）；无新增集成骨架需求"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "hooks: vi.mock fs/readConfig/runStaticAnalysis+stdout；test-runner: execSync+mkdtemp；phase-next: fs mock+spyOn(readEvalJson)；stryker/build: mkdtemp fixture"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "均 from 'vite-plus/test'（describe/it/expect/vi），与 test-detect vite-plus 一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "空串/超长/特殊字符/盘符/空数组/timeout 0|-1 等边界 it 均存在于对应测试文件"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach cleanup；phase-next empty backtrack finally spy.mockRestore；dir.cleanup()/rmSync；captureStderr restore"
+      },
+      {
+        "item": "迭代类型 = 废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "test-design 无「废弃」行；未见对应废弃 describe/it"
+      }
+    ],
+    "timestamp": "2026-08-07T01:55:54.090Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 5,
+    "verdict": "pass",
+    "report": "所有 1356 个测试通过；覆盖率达标: lines=92.63%, branches=84.63%, functions=96.01%；Mutation score 76.39% ≥ 70%",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 字段齐全且类型正确"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=1356, passed=1356, skipped=0, conclusion=pass"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=92.63%, branches=84.63%, functions=96.01% (阈值 80/70/75); coverage.pass=true"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需失败诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-08-07T02:06:18.542Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS. Prior C3 fixed: index.ts re-exports env/applyEnvTokens/assemble/schema; design schema stays in source bin/ (not product STATIC_BIN). pack×1→staging+assemble×3, env/hooksProfile/tokens, Shell|StrReplace, home path tokens retained, install merge scoped. C1–C7 pass.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No secrets/eval/exec; hooks.ts:298-331 type-checks stdin JSON/tool_input only; home-install.mjs mergeHooks/Mcp scoped to namePrefix (129-183); no cmd injection of user input"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "hooks.ts:299-328 validates tool_name/file_path/command; home-install parseArgs/--root + expandHomePathTokens type guards (46-57); merge* Array.isArray/typeof; zero-dep install per design"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "vite.ts:60-88 staging pack+assembleAll; env.ts:27-70 three envs; hooks-profile+canonical; hooks.ts:313-322 Shell/StrReplace; index.ts exports; schema→source bin/ (design:70); home hooks/mcp keep __DEV_TEAM_*__"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "getEnv unknown throws (env.ts:72-77); evaluateToolAccess empty/invalid fail-open (hooks.ts:299-315); mergeManaged* null-safe (home-install.mjs:141-183); --root requires value; missing managed path throws"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "build-agent-artifacts.ts deleted; SUPPORT_AGENTS gone; new build modules used by vite assembleAll + tests; no unreachable branches in reviewed paths"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "TS modules under build/; ProductEnv/HooksCanonical typed; hooks.canonical.json + profile split; colocated *.test.ts/.mjs; matches existing Node fs/vite-plus style"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Reuses ProductEnv, HooksCanonical, HomeManifest, package.json version import; no ad-hoc external DTO remapping for MCP/hooks payloads"
+      }
+    ],
+    "timestamp": "2026-08-07T03:51:12.267Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Acceptance PASS. AC-1..7 evidenced: pack×1+assemble×3, env/tokens, hooksProfile, home layout+install merge/--root, Shell/StrReplace tests, home not gitignored. tasks.md all [x]. No scope creep; out_of_scope absent. Risk mitigations in assert/merge/env/matchers/--root.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1: vite.config.ts:60-88 pack→.pack-staging + assembleAll; pkgs 2.10.24; staging has __AGENT:; home no name tokens, path tokens remain. AC-2: skills/agents __KIND:id__; env.ts:56-68 home mcp__user-dev-team_mcp__/dev-team_; acceptance-evaluator tools __MCP:phase_log__. AC-3: hooks.canonical.json + hooks-profile.ts; claude/cursor hooks/hooks.json nested; home root hooks.json cursorNative. AC-4: cursor-home-image layout+manifest+install+mcp.dev-team.json. AC-5: install.mjs merge/--root; temp --root kept UserTool/other server, absolutized paths, Reload msg. AC-6: hooks.ts:305-314 + hooks.test.ts Shell/StrReplace. AC-7: .gitignore only .pack-staging; home tracked."
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Changes match in_scope: env/assemble/hooks.canonical/home-install/tokens/hooks.ts/three products/CLAUDE.md version bump. No workspace .cursor installer, no marketplace retarget, no refs.catalog, still vp pack."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "build/env|apply-env-tokens|scan-files|assert-no-tokens|hooks-profile|assemble|home-install; hooks.canonical.json; source tokens; vite pack×1; three outDirs; install.mjs; protect-files Shell/StrReplace; tasks.md all [x]."
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "No workspace-.cursor install target; no refs.catalog.json; no SUPPORT_AGENTS×N; no bundle-time token define; cursor-plugins retained; marketplace not pointed at home."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "env.ts locks user MCP prefix; assertNoNameTokens; hooks matchers namePrefix+id; manifest+mergeManaged*; install --root; staging retains tokens under minify:true. Windows: openspec.cmd shipped alongside .sh."
+      }
+    ],
+    "timestamp": "2026-08-07T06:30:53.707Z"
+  }
+]

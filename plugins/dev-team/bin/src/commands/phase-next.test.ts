@@ -21,6 +21,7 @@ vi.mock('fs', async (importOriginal) => {
 
 import { runPhaseNext } from '../commands/phase-next';
 import { getChangeDir } from '../lib/change';
+import * as evalJson from '../lib/eval-json';
 import { type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable } from '../lib/workflow';
 
@@ -170,12 +171,12 @@ describe('runPhaseNext — First Run (empty eval.json)', () => {
 
   it('should return proposal-planner as executor agent_type', () => {
     const result = next([]);
-    expect(result.executor!.agent_type).toBe('dev-team:proposal-planner');
+    expect(result.executor!.agent_type).toBe('__AGENT:proposal-planner__');
   });
 
   it('should return proposal-evaluator as evaluator agent_type', () => {
     const result = next([]);
-    expect(result.evaluator!.agent_type).toBe('dev-team:proposal-evaluator');
+    expect(result.evaluator!.agent_type).toBe('__AGENT:proposal-evaluator__');
   });
 
   it('should set round to 1 on first call', () => {
@@ -257,7 +258,7 @@ describe('runPhaseNext — Normal Progression', () => {
     ]);
     expect(result.next_phase).toBe('code-review');
     expect(result.executor).toBeNull();
-    expect(result.evaluator!.agent_type).toBe('dev-team:code-review-evaluator');
+    expect(result.evaluator!.agent_type).toBe('__AGENT:code-review-evaluator__');
   });
 
   it('should return acceptance with executor: null (EVAL-ONLY)', () => {
@@ -416,8 +417,8 @@ describe('runPhaseNext — Backtrack', () => {
       passEntry('dev-design'),
       backtrackEntry('dev-design', 'proposal'),
     ]);
-    expect(result.executor!.agent_type).toBe('dev-team:proposal-planner');
-    expect(result.evaluator!.agent_type).toBe('dev-team:proposal-evaluator');
+    expect(result.executor!.agent_type).toBe('__AGENT:proposal-planner__');
+    expect(result.evaluator!.agent_type).toBe('__AGENT:proposal-evaluator__');
   });
 
   it('should handle backtrack from a later phase to mid-chain', () => {
@@ -1455,5 +1456,180 @@ describe('phase_next — allowed_backtrack_phases', () => {
     expect(result.next_phase).toBe('proposal');
     // proposal is the first phase → no preceding phases
     expect(result.allowed_backtrack_phases).toEqual([]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// interpolate / done / backtrack / retry（mutation 补强）
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext / agent tokens 与 interpolate（突变补强）', () => {
+  it('首跑 executor/evaluator agent_type 精确为 __AGENT:proposal-planner/evaluator__', () => {
+    const result = next([]);
+    expect(result.executor!.agent_type).toBe('__AGENT:proposal-planner__');
+    expect(result.evaluator!.agent_type).toBe('__AGENT:proposal-evaluator__');
+  });
+
+  it('executor/evaluator prompt 中 <change>/<phase> 被替换且无残留', () => {
+    const result = next([], 'my-feature-change');
+    expect(result.executor!.prompt).toContain('my-feature-change');
+    expect(result.executor!.prompt).not.toContain('<change>');
+    expect(result.evaluator!.prompt).toContain('my-feature-change');
+    expect(result.evaluator!.prompt).toContain('proposal');
+    expect(result.evaluator!.prompt).not.toContain('<change>');
+    expect(result.evaluator!.prompt).not.toContain('<phase>');
+  });
+
+  it('proposal executor prompt 含 explore.md 与 merge 语义', () => {
+    const result = next([], 'chg');
+    expect(result.executor!.prompt).toContain('explore.md');
+    expect(result.executor!.prompt).toMatch(/merge/i);
+    expect(result.executor!.prompt).toContain('Do not expect inline EXPLORE_CONTEXT_SUMMARY');
+  });
+});
+
+describe('runPhaseNext / done（突变补强）', () => {
+  it('全部 phase pass 时 done=true，message 精确等于 Ready for archiving 文案', () => {
+    const entries = getPhaseTable('requirement').map((p) => passEntry(p.id));
+    const result = next(entries);
+    expect(result.done).toBe(true);
+    expect(result.message).toBe('All phases have passed evaluation. Ready for archiving.');
+  });
+
+  it('done 响应 error 为 null 且未提供时 last_result 可为最新条目快照', () => {
+    const entries = getPhaseTable('requirement').map((p) => passEntry(p.id));
+    const result = next(entries);
+    expect(result.done).toBe(true);
+    expect(result.error).toBeNull();
+    expect(result.last_result).not.toBeNull();
+    expect(result.last_result!.phase).toBe('acceptance');
+  });
+
+  it('空 entries 首跑 last_result 为 null 且 error 为 null', () => {
+    const result = next([]);
+    expect(result.done).toBe(false);
+    expect(result.error).toBeNull();
+    expect(result.last_result).toBeNull();
+  });
+});
+
+describe('runPhaseNext / error 与 backtrack（突变补强）', () => {
+  it('max retries 时 done 为 false（非 true）、error 为 max_retries_exceeded', () => {
+    const result = next([
+      passEntry('proposal'),
+      failEntry('dev-design', 1),
+      failEntry('dev-design', 2),
+      failEntry('dev-design', 3),
+      failEntry('dev-design', 4),
+      failEntry('dev-design', 5),
+    ]);
+    expect(result.done).toBe(false);
+    expect(result.done).not.toBe(true);
+    expect(result.error).toBe('max_retries_exceeded');
+  });
+
+  it("最新条目 backtrack_to: '' 视为无回溯，继续正常推进", () => {
+    // Zod 拒绝空串；stub readEvalJson 以覆盖 getLatestBacktrackInfo 的 !== '' 分支。
+    // 经 next(..., 'requirement') 固定 workflow.json，避免 shuffle 下残留 test-only fs mock。
+    const spy = vi.spyOn(evalJson, 'readEvalJson').mockReturnValue([
+      passEntry('proposal'),
+      {
+        ...failEntry('dev-design', 1),
+        backtrack_to: '' as unknown as string,
+      },
+    ]);
+    try {
+      const result = next([], 'test-change', 'requirement');
+      expect(result.error).toBeNull();
+      expect(result.next_phase).toBe('dev-design');
+      expect(result.executor!.prompt).not.toContain('⚠️ 回溯原因');
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it("backtrack_reason: null / 缺失 / '' 不拼 ⚠️；空白 reason 仍拼接", () => {
+    const noField = next([passEntry('proposal'), backtrackEntry('dev-design', 'proposal', 1)]);
+    expect(noField.executor!.prompt).not.toContain('⚠️ 回溯原因');
+
+    const nullReason = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: null }),
+    ]);
+    expect(nullReason.executor!.prompt).not.toContain('⚠️ 回溯原因');
+
+    const emptyReason = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: '' }),
+    ]);
+    // 当前 truthy 语义：'' 为 falsy → 不拼接；若改为 != null 则会误拼
+    expect(emptyReason.executor!.prompt).not.toContain('⚠️ 回溯原因');
+
+    const spaceReason = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: ' ' }),
+    ]);
+    expect(spaceReason.executor!.prompt).toContain('⚠️ 回溯原因:  ');
+  });
+
+  it('无效 backtrack 目标 → invalid_backtrack_target，message 含目标 JSON', () => {
+    const result = next([
+      passEntry('proposal'),
+      failEntry('dev-design', 1, { backtrack_to: 'not-a-phase' }),
+    ]);
+    expect(result.error).toBe('invalid_backtrack_target');
+    expect(result.message).toContain('not-a-phase');
+    expect(result.message).toContain(JSON.stringify('not-a-phase'));
+  });
+
+  it('连续 5 次同 phase fail 触发 max retries；同 phase 的 pass 不计入 fail 次数', () => {
+    const withPass = next([
+      passEntry('proposal'),
+      failEntry('dev-design', 1),
+      failEntry('dev-design', 2),
+      failEntry('dev-design', 3),
+      failEntry('dev-design', 4),
+      passEntry('dev-design', 5),
+      failEntry('test-design', 1),
+    ]);
+    // 已通过 dev-design，应进入 test-design（或其后），不得因 4 次 fail 误触 max retries
+    expect(withPass.error).toBeNull();
+    expect(withPass.next_phase).toBe('test-design');
+
+    const fiveFails = next([
+      passEntry('proposal'),
+      failEntry('dev-design', 1),
+      failEntry('dev-design', 2),
+      failEntry('dev-design', 3),
+      failEntry('dev-design', 4),
+      failEntry('dev-design', 5),
+    ]);
+    expect(fiveFails.error).toBe('max_retries_exceeded');
+  });
+});
+
+describe('runPhaseNext / hasPhasePassed 与边界（突变补强）', () => {
+  it('skipped:true 且非 stale 视为已通过；stale:true 的 pass 忽略', () => {
+    const skipped = next([skippedEntry('proposal')]);
+    expect(skipped.next_phase).toBe('dev-design');
+
+    const stale = next([staleEntry('proposal'), passEntry('dev-design')]);
+    expect(stale.next_phase).toBe('proposal');
+  });
+
+  it("options.change 为 '' 时抛错", () => {
+    expect(() => runPhaseNext({ change: '', project_root: FIXTURE_PROJECT_ROOT })).toThrow(
+      /Missing required parameter: change/,
+    );
+  });
+
+  it('回溯 reason 长度 500 时 prompt 完整包含', () => {
+    const longReason = 'R'.repeat(500);
+    const result = next([
+      passEntry('proposal'),
+      backtrackEntry('dev-design', 'proposal', 1, { backtrack_reason: longReason }),
+    ]);
+    expect(result.executor!.prompt).toContain(`⚠️ 回溯原因: ${longReason}`);
+    expect(result.evaluator!.prompt).toContain(longReason);
   });
 });

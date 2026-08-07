@@ -1697,6 +1697,165 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
   });
 });
 
+describe('executePlanEntry -- clearDirectory / ExecError / placeholders（突变补强）', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('planDir 原本不存在时仍 mkdirSync 成功且可写结果', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'vitest');
+      expect(fs.existsSync(planDir)).toBe(false);
+      mockExecSync.mockImplementation(() => {
+        expect(fs.existsSync(planDir)).toBe(true);
+        writeMinimalJsResults(planDir);
+        return '';
+      });
+      const result = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(result.reportDir).toBe(planDir);
+      expect(fs.existsSync(path.join(planDir, 'results.json'))).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('既有 planDir 含旧文件时执行前被清空；兄弟 plan 目录不受影响', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      const sibling = path.join(reportsDir, 'jest');
+      const target = path.join(reportsDir, 'vitest');
+      fs.mkdirSync(path.join(target, 'nested'), { recursive: true });
+      fs.writeFileSync(path.join(target, 'nested', 'old.txt'), 'old', 'utf-8');
+      fs.mkdirSync(sibling, { recursive: true });
+      fs.writeFileSync(path.join(sibling, 'keep.txt'), 'keep', 'utf-8');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(target);
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, { reportsDir });
+      expect(fs.existsSync(path.join(target, 'nested', 'old.txt'))).toBe(false);
+      expect(fs.existsSync(path.join(sibling, 'keep.txt'))).toBe(true);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('捕获 cmd：results/coverage/coverprofile/mutation/report_dir 均为非空绝对 POSIX 且文件名精确', () => {
+    const prevShell = process.env.SHELL;
+    process.env.SHELL = '/bin/bash'; // 强制 shell 模板 + `;` 重定向
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        const planDir = path.join(reportsDir, 'go');
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.ndjson'),
+          `${JSON.stringify({ Action: 'pass', Test: 'T' })}\n`,
+          'utf-8',
+        );
+        return '';
+      });
+      const plan = makePlan({ framework: 'go' });
+      // 追加占位符以观测 mutation_file / report_dir 展开（默认 go 模板不含二者）
+      plan.script.shell = `${plan.script.shell} # {mutation_file} {report_dir}`;
+      plan.script.cmd = plan.script.shell;
+      executePlanEntry(plan, dir.root, { reportsDir });
+      const cmd = capturedCmd();
+      const absPlan = path.resolve(path.join(reportsDir, 'go')).replace(/\\/g, '/');
+      expect(absPlan.length).toBeGreaterThan(1);
+      expect(cmd).toContain(`${absPlan}/coverage.out`);
+      expect(cmd).toContain(`${absPlan}/mutation.json`);
+      expect(cmd).toContain(absPlan);
+      expect(cmd).toMatch(/>\s*"[^"]*results\.ndjson"/);
+      expect(cmd).not.toContain('{results_file}');
+      expect(cmd).not.toContain('{coverprofile_file}');
+      expect(cmd).not.toContain('{mutation_file}');
+      expect(cmd).not.toContain('{report_dir}');
+      expect(cmd).toMatch(/mutation\.json/);
+      expect(cmd).toMatch(/coverage\.out/);
+      expect(cmd).toMatch(/results\.ndjson/);
+    } finally {
+      if (prevShell === undefined) delete process.env.SHELL;
+      else process.env.SHELL = prevShell;
+      dir.cleanup();
+    }
+  });
+
+  it('execSync 抛 null / 原始字符串 / {stdout:Buffer,stderr:Buffer,status:1} 时均不崩溃', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
+        throw null;
+      });
+      const nullResult = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+      });
+      expect(nullResult.exitCode).toBe(-1);
+      expect(nullResult.error).toMatch(/Command execution failed|Missing/);
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
+        throw 'raw-string-error';
+      });
+      const strResult = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+      });
+      expect(strResult.exitCode).toBe(-1);
+
+      mockExecSync.mockReset();
+      mockExecSync.mockImplementation(() => {
+        writeMinimalJsResults(path.join(reportsDir, 'vitest'), false);
+        throw {
+          stdout: Buffer.from('out-buf'),
+          stderr: Buffer.from('err-buf'),
+          status: 1,
+          message: 'obj-exec',
+        };
+      });
+      const objResult = executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, {
+        reportsDir,
+      });
+      expect(objResult.exitCode).toBe(1);
+      expect(objResult.error).toMatch(/obj-exec/);
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('rust：cargo test > "…" 后仍保留 llvm-cov 段', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalTextResults(path.join(reportsDir, 'rust'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'rust' }), dir.root, { reportsDir });
+      const cmd = capturedCmd();
+      expect(cmd).toMatch(/cargo test\b[\s\S]*?>\s*"[^"]*results\.txt"/);
+      expect(cmd).toContain('llvm-cov');
+      const redir = cmd.search(/>\s*"[^"]*results\.txt"/);
+      const cov = cmd.indexOf('llvm-cov');
+      expect(cov).toBeGreaterThan(redir);
+    } finally {
+      dir.cleanup();
+    }
+  });
+});
+
 describe('executePlanEntry -- win32 cmd redirect / resolveShell', () => {
   const prevShell = process.env.SHELL;
   const prevComspec = process.env.COMSPEC;

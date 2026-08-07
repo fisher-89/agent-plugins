@@ -15,7 +15,7 @@ Read only:
 
 - `openspec/changes/<change-name>/test-design.md` — the artifact to evaluate
 - `openspec/changes/<change-name>/proposal.md` — reference for cross-checking requirements
-- `plugins/dev-team/templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
+- `./templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
 
 ### Parameter Type → Edge Case Systematic Mapping
 

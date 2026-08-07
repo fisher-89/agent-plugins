@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "dev-team_mcp": {
+      "type": "stdio",
+      "command": "node",
+      "args": [
+        "__DEV_TEAM_RUNTIME_ROOT__/bin/dev-team_mcp.cjs"
+      ]
+    }
+  }
+}

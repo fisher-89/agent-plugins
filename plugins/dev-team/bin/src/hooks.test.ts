@@ -1833,3 +1833,486 @@ describe('hooks — 子命令调度（异常补强）', () => {
     }
   });
 });
+
+// ============================================================================
+// Cursor 工具名路由 — Shell / StrReplace（AC-6）
+// ============================================================================
+
+describe('runProtectFiles / Shell', () => {
+  const protectedEval = 'openspec/changes/test/eval.json';
+
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('tool_name 为 Shell 且 command 含重定向到受保护路径时 deny，与同等 Bash 一致', () => {
+    const command = `echo "[]" > ${protectedEval}`;
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Shell', tool_input: { command } }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Bash', tool_input: { command } }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('Shell 且 >> 追加到受保护路径时 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Shell',
+        tool_input: { command: `echo x >> ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('Shell 且 command 以 > 受保护路径开头（无前置命令）时 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Shell',
+        tool_input: { command: `> ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('Shell 且 echo x >| 受保护路径（noclobber）时 deny；reason 含路径与 detected via', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Shell',
+        tool_input: { command: `echo x >| ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+    const reason = parsed.hookSpecificOutput.permissionDecisionReason as string;
+    expect(reason).toContain(protectedEval);
+    expect(reason).toContain('detected via');
+    expect(reason.length).toBeGreaterThan(0);
+  });
+
+  it('Shell 且 echo x | tee -a 受保护路径时 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Shell',
+        tool_input: { command: `echo x | tee -a ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('Shell 且 echo x >& 受保护路径（零或多个空白）时 deny', () => {
+    for (const command of [`echo x >& ${protectedEval}`, `echo x >&${protectedEval}`]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'Shell', tool_input: { command } }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+    }
+  });
+
+  it('tool_name 为 Shell 且 command 为只读时返回 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Shell',
+        tool_input: { command: `cat ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('tool_name 为 Shell 且 command 以 python/python3/node 开头写入受保护路径时返回 allow', () => {
+    for (const command of [
+      `python script.py > ${protectedEval}`,
+      `python3 script.py > ${protectedEval}`,
+      `node scripts/write.js > ${protectedEval}`,
+    ]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'Shell', tool_input: { command } }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('tool_name 为 Shell 但 command 缺失或非字符串时 fail-open 返回 allow', () => {
+    for (const tool_input of [{}, { command: 123 }, { command: null }]) {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ tool_name: 'Shell', tool_input }));
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('tool_name 为 Shell 且 command 为空字符串时返回 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Shell', tool_input: { command: '' } }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('tool_name 为 Shell 且超长 command 含受保护路径重定向时仍 deny 且不崩溃', () => {
+    const padding = 'x'.repeat(1200);
+    const command = `echo ${padding} > ${protectedEval}`;
+    expect(() => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'Shell', tool_input: { command } }),
+      );
+      runProtectFiles();
+    }).not.toThrow();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('tool_name 为 Shell 且 command 含特殊字符与受保护路径时行为与 Bash 一致', () => {
+    const command = `echo "emoji🙂\nline" > ${protectedEval}`;
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Shell', tool_input: { command } }),
+    );
+    runProtectFiles();
+    const shellDecision = JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision;
+
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Bash', tool_input: { command } }),
+    );
+    runProtectFiles();
+    const bashDecision = JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision;
+    expect(shellDecision).toBe(bashDecision);
+    expect(shellDecision).toBe('deny');
+  });
+
+  it('Shell 且 command 为 echo x>path（> 后无空白）时 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Shell',
+        tool_input: { command: `echo x>${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('Shell 且 command 含 -> 受保护路径（箭头而非重定向）时 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Shell',
+        tool_input: { command: `foo -> ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('runProtectFiles / StrReplace', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('tool_name 为 StrReplace 且 file_path 为受保护路径时 deny，与同等 Edit 一致；reason 含字面量 StrReplace', () => {
+    const file_path = 'openspec/changes/test/eval.json';
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'StrReplace', tool_input: { file_path } }),
+    );
+    runProtectFiles();
+    const strReplaceOut = JSON.parse(getLastStdout());
+    expect(strReplaceOut.hookSpecificOutput.permissionDecision).toBe('deny');
+    expect(strReplaceOut.hookSpecificOutput.permissionDecisionReason).toContain('StrReplace');
+
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Edit', tool_input: { file_path } }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('tool_name 为 StrReplace 且 file_path 为未受保护路径时返回 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'StrReplace',
+        tool_input: { file_path: 'src/helper.ts' },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('tool_name 为 StrReplace 但缺失 file_path 或非字符串时 fail-open 返回 allow', () => {
+    for (const tool_input of [{}, { file_path: 42 }, { file_path: null }]) {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ tool_name: 'StrReplace', tool_input }));
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('tool_name 为 StrReplace 且 file_path 为空字符串时返回 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'StrReplace', tool_input: { file_path: '' } }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('file_path 为超长路径且匹配保护 glob 时仍 deny 且不崩溃', () => {
+    const longMid = `${'a/'.repeat(400)}eval.json`;
+    const file_path = `openspec/changes/test/${longMid}`;
+    expect(() => {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'StrReplace', tool_input: { file_path } }),
+      );
+      runProtectFiles();
+    }).not.toThrow();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('file_path 含反斜杠与正斜杠混用时匹配行为与 Edit 一致', () => {
+    const file_path = 'openspec\\changes/test\\eval.json';
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'StrReplace', tool_input: { file_path } }),
+    );
+    runProtectFiles();
+    const strReplaceDecision = JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision;
+
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: 'Edit', tool_input: { file_path } }),
+    );
+    runProtectFiles();
+    const editDecision = JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision;
+    expect(strReplaceDecision).toBe(editDecision);
+    expect(strReplaceDecision).toBe('deny');
+  });
+});
+
+describe('runProtectFiles / isRecord 与 evaluateToolAccess（突变补强）', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('tool_input 为数组且挂上 file_path 属性指向受保护路径时仍 allow', () => {
+    // JSON 数组即使语义上带 path，isRecord 也必须因 Array.isArray 而拒绝
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'StrReplace',
+        tool_input: ['openspec/changes/test/eval.json'],
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+
+  it('tool_input 为 null / 原始字符串 / 数字时 allow', () => {
+    for (const tool_input of [null, 'openspec/config.json', 42]) {
+      mockReadFileSync.mockReturnValue(JSON.stringify({ tool_name: 'Write', tool_input }));
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('stdin 为仅空白 / 仅制表换行时 allow', () => {
+    for (const raw of ['   ', '\t\n', ' \n\t ']) {
+      mockReadFileSync.mockReturnValue(raw);
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('tool_name 为 0 / false 等非字符串时 allow', () => {
+    for (const tool_name of [0, false]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({
+          tool_name,
+          tool_input: { file_path: 'openspec/config.json' },
+        }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('readConfig 无 write_protection.files（undefined）时仅内置 glob 生效', () => {
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'custom/not-builtin.txt' },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'openspec/config.json' },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+});
+
+describe('runProtectFiles / PowerShell 与路由（突变补强）', () => {
+  const protectedEval = 'openspec/changes/test/eval.json';
+
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('PowerShell 且 2> / *> 写入受保护路径时 deny', () => {
+    for (const command of [`echo x 2> ${protectedEval}`, `echo x *> ${protectedEval}`]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'PowerShell', tool_input: { command } }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+    }
+  });
+
+  it('PowerShell python3/node 行首豁免；非行首 python 不豁免', () => {
+    for (const command of [
+      `python3 script.py > ${protectedEval}`,
+      `node script.js > ${protectedEval}`,
+    ]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'PowerShell', tool_input: { command } }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: { command: `echo hi; python script.py > ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('未知 tool_name 且 command 为 PowerShell 写受保护路径时仍 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'NotPowerShell',
+        tool_input: { command: `Set-Content -Path ${protectedEval} -Value x` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('runProtectFiles / 既有工具名', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  it('既有 Write / Edit / Bash / PowerShell 受保护用例仍为 deny；Write config reason 含内置中文模板', () => {
+    const cases = [
+      { tool_name: 'Write', tool_input: { file_path: 'openspec/config.json' } },
+      { tool_name: 'Edit', tool_input: { file_path: 'openspec/changes/test/eval.json' } },
+      {
+        tool_name: 'Bash',
+        tool_input: { command: 'echo x > openspec/changes/test/eval.json' },
+      },
+      {
+        tool_name: 'PowerShell',
+        tool_input: { command: 'Set-Content -Path openspec/changes/test/eval.json -Value "[]"' },
+      },
+    ];
+    for (const input of cases) {
+      mockReadFileSync.mockReturnValue(JSON.stringify(input));
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+    }
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'Write',
+        tool_input: { file_path: 'openspec/config.json' },
+      }),
+    );
+    runProtectFiles();
+    const reason = JSON.parse(getLastStdout()).hookSpecificOutput
+      .permissionDecisionReason as string;
+    expect(reason).toContain('该文件受写入保护');
+    expect(reason).toContain('自行操作');
+    expect(reason).toContain('detected via');
+    expect(reason).toContain('Write');
+  });
+
+  it('tool_name 为未知字符串时 fail-open 返回 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'UnknownTool',
+        tool_input: { file_path: 'openspec/config.json' },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('runStaticCheck / parseWorkspaceRoot 与 captureStderr（突变补强）', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+    mockRunStaticAnalysis.mockReturnValue(0);
+  });
+
+  it('workspace_roots 为盘符路径时使用该 root（POSIX 化）调用分析', () => {
+    mockReadFileSync.mockReturnValue(JSON.stringify({ workspace_roots: ['D:\\proj'] }));
+    runStaticCheck();
+    expect(mockRunStaticAnalysis).toHaveBeenCalledWith(
+      expect.objectContaining({ projectRoot: expect.stringMatching(/D:.*proj|D\/proj|proj/) }),
+    );
+    const passed = (mockRunStaticAnalysis.mock.calls[0] as [{ projectRoot: string }])[0]
+      .projectRoot;
+    expect(passed).not.toContain('\\');
+  });
+
+  it('workspace_roots 为 [] / 非数组 / [123] 时回退 getProjectDir', () => {
+    const fallback = '/fallback-root';
+    for (const roots of [[], 'not-array', [123]] as unknown[]) {
+      mockRunStaticAnalysis.mockClear();
+      mockGetProjectDir.mockClear();
+      mockGetProjectDir.mockReturnValue(fallback);
+      mockReadFileSync.mockReturnValue(JSON.stringify({ workspace_roots: roots }));
+      runStaticCheck();
+      expect(mockGetProjectDir).toHaveBeenCalled();
+      expect(mockRunStaticAnalysis).toHaveBeenCalledWith(
+        expect.objectContaining({ projectRoot: fallback }),
+      );
+    }
+  });
+
+  it("workspace_roots 为 [''] 时 firstRoot 为字符串：不回退 getProjectDir（杀 length/类型守卫）", () => {
+    mockGetProjectDir.mockClear();
+    mockReadFileSync.mockReturnValue(JSON.stringify({ workspace_roots: [''] }));
+    runStaticCheck();
+    expect(mockGetProjectDir).not.toHaveBeenCalled();
+    expect(mockRunStaticAnalysis).toHaveBeenCalled();
+  });
+
+  it('captureStderr 写入 string 与 Uint8Array 后 getCaptured 拼接完整文本；restore 后不再捕获', () => {
+    const [getCaptured, restore] = captureStderr();
+    process.stderr.write('hello');
+    process.stderr.write(new Uint8Array(Buffer.from('世界')));
+    expect(getCaptured()).toBe('hello世界');
+    restore();
+    const before = getCaptured();
+    process.stderr.write('after-restore');
+    expect(getCaptured()).toBe(before);
+  });
+});

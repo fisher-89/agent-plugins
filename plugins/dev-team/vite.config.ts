@@ -1,14 +1,11 @@
 import { defineConfig, type UserConfig } from 'vite-plus';
 
-import {
-  type AgentType,
-  buildAgentArtifacts,
-  getOutputPathByAgent,
-  generateConfigJsonSchema,
-} from './build';
+import { assembleAll, generateConfigJsonSchema } from './build';
 
-const SUPPORT_AGENTS: AgentType[] = ['cursor', 'claude'];
 const NO_OXC_FILES = ['bin/openspec-bundled.js', 'bin/dev-team-config.schema.json', '*.md'];
+const BIN_ENTRIES = ['mcp', 'cli', 'hooks'] as const;
+
+type PackConfig = NonNullable<Exclude<UserConfig['pack'], Array<unknown>>>;
 
 export default defineConfig({
   lint: {
@@ -33,7 +30,7 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ['*.test.ts', '*.spec.ts'],
+        files: ['*.test.ts', '*.test.mjs'],
         rules: {
           'max-lines-per-function': 'off',
           'typescript/no-non-null-assertion': 'off',
@@ -47,60 +44,46 @@ export default defineConfig({
     singleQuote: true,
     sortImports: true,
   },
-  pack: [...makeBinPackConfigs()],
+  pack: makeStagingPacks(),
   test: {
-    include: ['bin/src/**/*.test.ts', 'bin/__tests__/**/*.test.ts'],
+    include: [
+      'bin/src/**/*.test.ts',
+      'bin/__tests__/**/*.test.ts',
+      'build/**/*.test.ts',
+      'build/**/*.test.mjs',
+    ],
     setupFiles: ['bin/__tests__/test-setup.ts'],
     silent: 'passed-only',
   },
 });
 
-function makeBinPackConfigs(): Extract<UserConfig['pack'], Array<unknown>> {
-  const packs = SUPPORT_AGENTS.flatMap((agent) => {
-    return [
-      {
-        ...toSingleFilePack(agent, 'mcp'),
-        clean: [getOutputPathByAgent(agent)],
-        hooks: {
-          'build:done': async () => {
-            await buildAgentArtifacts(agent);
-          },
-        },
-      },
-      toSingleFilePack(agent, 'cli'),
-      toSingleFilePack(agent, 'hooks'),
-    ];
-  });
+function makeStagingPacks(): PackConfig[] {
+  let pending = BIN_ENTRIES.length;
+  const onDone = async (): Promise<void> => {
+    pending -= 1;
+    if (pending > 0) return;
+    generateConfigJsonSchema();
+    await assembleAll();
+  };
 
-  const noHookPack = packs.find((item) => !item.hooks);
-  if (noHookPack) {
-    noHookPack.hooks = {
-      'build:done': () => generateConfigJsonSchema(),
-    };
-  }
-
-  return packs;
-}
-
-function toSingleFilePack(
-  agent: AgentType,
-  entry: string,
-): NonNullable<Exclude<UserConfig['pack'], Array<unknown>>> {
-  return {
-    name: entry,
+  return BIN_ENTRIES.map((id, index) => ({
+    name: id,
     platform: 'node',
-    entry: `bin/src/${entry}.ts`,
+    entry: `bin/src/${id}.ts`,
     outputOptions: {
-      file: getOutputPathByAgent(agent, `bin/dev-team-${entry}.cjs`),
+      file: `.pack-staging/bin/${id}.cjs`,
       format: 'cjs',
       minify: true,
       sourcemap: true,
-      cleanDir: false,
+      cleanDir: index === 0,
       codeSplitting: false,
     },
     deps: {
       alwaysBundle: [/.*/],
     },
     dts: false,
-  };
+    hooks: {
+      'build:done': onDone,
+    },
+  }));
 }

@@ -1,5 +1,5 @@
 ---
-name: workflow-requirement
+name: __SKILL:workflow-requirement__
 description: |
   Full PGE workflow orchestrator.
   No hardcoded phase knowledge. Uses phase_next for all orchestration decisions.
@@ -21,7 +21,7 @@ disable-model-invocation: true
 
 ### Step 0: Resolve the target change
 
-Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
+Call `__MCP:change_list__()` to get active changes.
 
 **Decision tree based on user input and change list:**
 
@@ -69,7 +69,7 @@ Write `openspec/changes/<change-name>/workflow.json`:
 ```
 LOOP:
   -- Phase Check --
-  gate = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
+  gate = __MCP:phase_next__(change=<change-name>)
 
   if gate.error:
     报告: "Workflow error [{gate.error}]: {gate.message}"
@@ -85,7 +85,7 @@ LOOP:
     三叉决策分支：
       - retry：continue with gate.last_result.phase
       - backtrack：
-        mcp__plugin_dev-team_dev-team__backtrack({
+        __MCP:backtrack__({
           change: "<change-name>",
           phase: "<gate.last_result.phase>",
           backtrack_to: "<从 report 分析出的目标 phase，必须在gate.allowed_backtrack_phases中>",
@@ -135,6 +135,6 @@ LOOP:
 All phases have passed evaluation.
 
 1. 显示完成摘要：Done: all phases passed / Total phases: {total_phases} / Total rounds: {round}
-2. PushNotification("Workflow for change '{change-name}' completed. Please verify and run /dev-team:openspec-archive-change")
+2. PushNotification("Workflow for change '{change-name}' completed. Please verify and run __SKILL_SLASH:openspec-archive-change__")
 3. **Do NOT auto-archive.**
-4. 完成提示: "All phases completed. Please review the results and run `/dev-team:openspec-archive-change` to finalize."
+4. 完成提示: "All phases completed. Please review the results and run `__SKILL_SLASH:openspec-archive-change__` to finalize."

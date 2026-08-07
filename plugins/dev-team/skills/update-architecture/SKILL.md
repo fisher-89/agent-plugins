@@ -1,5 +1,5 @@
 ---
-name: update-architecture
+name: __SKILL:update-architecture__
 description: Update the C4 architecture model.
 disable-model-invocation: true
 license: MIT
@@ -10,7 +10,7 @@ Route architecture requests to the dedicated architecture subagent.
 ## Usage
 
 ```
-/dev-team:update-architecture
+__SKILL_SLASH:update-architecture__
 ```
 
 ## Process
@@ -20,7 +20,7 @@ Use the Agent tool to spawn the architecture subagent:
 ```
 Agent({
   description: "...",
-  subagent_type: "dev-team:architecture",
+  subagent_type: "__AGENT:architecture__",
   prompt: "Propose architecture changes: <user request>"
 })
 ```

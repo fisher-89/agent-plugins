@@ -14,7 +14,7 @@ Write a comprehensive design.md and tasks.md based on the proposal.
 Read:
 
 - `openspec/changes/<change-name>/proposal.md` — requirements and acceptance criteria
-- `plugins/dev-team/templates/artifacts/design.md.template` — suggested structure
+- `./templates/artifacts/design.md.template` — suggested structure
 - `openspec/changes/<change-name>/design.md` if exist — previous design
 - The project's CLAUDE.md and existing codebase for context
 

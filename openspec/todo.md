@@ -55,4 +55,5 @@
 - [ ] phase-next的round limit设计目的是避免LOOP陷入死循环，实际workflow可能拆分为多个session执行。调整round的计算方式，仅在workflow-*命令中限制总轮次。
 - [x] config中指定test运行的cwd和配置文件
 - [ ] 优化write_protection配置结构
-- [ ] test-execution清理文件，workflow.ts列出文件清单，使用node执行
+- [x] test-execution清理文件，test-framework.ts列出文件清单，使用node执行
+- [ ] 将工具名称也纳入环境变量，适配不同AGENT

@@ -198,8 +198,8 @@ describe('getPhaseTable — test-only', () => {
 
   it('should use code-analyze agents for code-analyze (AC-3)', () => {
     const phase = getPhaseTable('test-only').find((p) => p.id === 'code-analyze');
-    expect(phase?.executor?.agent_type).toBe('dev-team:code-analyze-planner');
-    expect(phase?.evaluator?.agent_type).toBe('dev-team:code-analyze-evaluator');
+    expect(phase?.executor?.agent_type).toBe('__AGENT:code-analyze-planner__');
+    expect(phase?.evaluator?.agent_type).toBe('__AGENT:code-analyze-evaluator__');
   });
 });
 
@@ -360,5 +360,176 @@ describe('PHASE_TEST_ONLY — code-analyze prompt 不含 WORKFLOW_CONTEXT', () =
     const prompt = getPhaseTable('test-only').find((p) => p.id === 'code-analyze')!.evaluator!
       .prompt;
     expect(prompt).not.toMatch(/WORKFLOW_CONTEXT/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// agent tokens / DEFAULT_WORKFLOW / 依赖表精确断言（mutation 补强）
+// ---------------------------------------------------------------------------
+
+const AGENT_TOKEN = /^__AGENT:[a-z0-9-]+__$/;
+
+function collectAgentTypes(workflowType: string): string[] {
+  const types: string[] = [];
+  for (const phase of getPhaseTable(workflowType)) {
+    if (phase.executor) types.push(phase.executor.agent_type);
+    if (phase.evaluator) types.push(phase.evaluator.agent_type);
+  }
+  return types;
+}
+
+describe('getPhaseTable / agent tokens（突变补强）', () => {
+  it('requirement 全阶段非 null 的 agent_type 精确等于 __AGENT:<logical-id>__ 清单', () => {
+    const expected: Record<string, { executor?: string; evaluator?: string }> = {
+      proposal: {
+        executor: '__AGENT:proposal-planner__',
+        evaluator: '__AGENT:proposal-evaluator__',
+      },
+      'dev-design': {
+        executor: '__AGENT:dev-design-planner__',
+        evaluator: '__AGENT:dev-design-evaluator__',
+      },
+      'test-design': {
+        executor: '__AGENT:test-design-planner__',
+        evaluator: '__AGENT:test-design-evaluator__',
+      },
+      implement: {
+        executor: '__AGENT:implementation-generator__',
+        evaluator: '__AGENT:implementation-evaluator__',
+      },
+      'test-gen': {
+        executor: '__AGENT:test-gen-generator__',
+        evaluator: '__AGENT:test-gen-evaluator__',
+      },
+      'test-execution': {
+        executor: '__AGENT:test-execution-executor__',
+        evaluator: '__AGENT:test-execution-evaluator__',
+      },
+      'code-review': { evaluator: '__AGENT:code-review-evaluator__' },
+      acceptance: { evaluator: '__AGENT:acceptance-evaluator__' },
+    };
+    for (const phase of getPhaseTable('requirement')) {
+      const exp = expected[phase.id];
+      expect(exp).toBeDefined();
+      if (phase.executor) {
+        expect(phase.executor.agent_type).toBe(exp.executor);
+      } else {
+        expect(exp.executor).toBeUndefined();
+      }
+      if (phase.evaluator) {
+        expect(phase.evaluator.agent_type).toBe(exp.evaluator);
+      }
+    }
+  });
+
+  it('test-only 的 code-analyze / test-design / test-gen / test-execution agent_type 精确匹配', () => {
+    const table = getPhaseTable('test-only');
+    const byId = Object.fromEntries(table.map((p) => [p.id, p]));
+    expect(byId['code-analyze'].executor!.agent_type).toBe('__AGENT:code-analyze-planner__');
+    expect(byId['code-analyze'].evaluator!.agent_type).toBe('__AGENT:code-analyze-evaluator__');
+    expect(byId['test-design'].executor!.agent_type).toBe('__AGENT:test-design-planner__');
+    expect(byId['test-design'].evaluator!.agent_type).toBe('__AGENT:test-design-evaluator__');
+    expect(byId['test-gen'].executor!.agent_type).toBe('__AGENT:test-gen-generator__');
+    expect(byId['test-gen'].evaluator!.agent_type).toBe('__AGENT:test-gen-evaluator__');
+    expect(byId['test-execution'].executor!.agent_type).toBe('__AGENT:test-execution-executor__');
+    expect(byId['test-execution'].evaluator!.agent_type).toBe('__AGENT:test-execution-evaluator__');
+  });
+
+  it('bug-fix / refactor 各阶段 agent_type 全部匹配 /^__AGENT:[a-z0-9-]+__$/', () => {
+    for (const wf of ['bug-fix', 'refactor'] as const) {
+      for (const agentType of collectAgentTypes(wf)) {
+        expect(agentType).toMatch(AGENT_TOKEN);
+        expect(agentType.length).toBeGreaterThan(0);
+      }
+    }
+  });
+
+  it('requirement 与 test-only 的 proposal executor prompt 同时包含 explore.md、merge、Do not expect inline EXPLORE_CONTEXT_SUMMARY', () => {
+    for (const wf of ['requirement', 'test-only'] as const) {
+      const prompt = getPhaseTable(wf).find((p) => p.id === 'proposal')!.executor!.prompt;
+      expect(prompt).toContain('explore.md');
+      expect(prompt).toMatch(/merge/i);
+      expect(prompt).toContain('Do not expect inline EXPLORE_CONTEXT_SUMMARY');
+    }
+  });
+
+  it("getPhaseTable('UNKNOWN') / getPhaseTable('') 的 phase id 与 agent_type 深度等于 requirement", () => {
+    const req = getPhaseTable('requirement');
+    for (const key of ['UNKNOWN', ''] as const) {
+      const table = getPhaseTable(key);
+      expect(table.map((p) => p.id)).toEqual(req.map((p) => p.id));
+      expect(collectAgentTypes(key)).toEqual(collectAgentTypes('requirement'));
+    }
+  });
+
+  it('四张表 key 均非空；refactor id 序列等于 requirement', () => {
+    for (const key of ['requirement', 'bug-fix', 'refactor', 'test-only'] as const) {
+      expect(getPhaseTable(key).length).toBeGreaterThan(0);
+    }
+    expect(getPhaseTable('refactor').map((p) => p.id)).toEqual(
+      getPhaseTable('requirement').map((p) => p.id),
+    );
+  });
+});
+
+describe('getDependents / 依赖表精确断言（突变补强）', () => {
+  it('requirement：proposal/dev-design/test-design/implement/叶子依赖精确', () => {
+    expect(getDependents('proposal', 'requirement')).toEqual([
+      'dev-design',
+      'test-design',
+      'acceptance',
+    ]);
+    expect(getDependents('dev-design', 'requirement')).toEqual([
+      'test-design',
+      'implement',
+      'acceptance',
+    ]);
+    expect(getDependents('test-design', 'requirement')).toEqual(['test-gen']);
+    expect(getDependents('implement', 'requirement')).toEqual(
+      expect.arrayContaining(['test-gen', 'test-execution', 'code-review', 'acceptance']),
+    );
+    expect(getDependents('implement', 'requirement')).toHaveLength(4);
+    for (const leaf of ['test-execution', 'code-review', 'acceptance'] as const) {
+      expect(getDependents(leaf, 'requirement')).toEqual([]);
+    }
+  });
+
+  it('bug-fix：proposal→含 dev-design；implement→含 test-execution/code-review；acceptance 依赖链含 code-review', () => {
+    expect(getDependents('proposal', 'bug-fix')).toContain('dev-design');
+    expect(getDependents('implement', 'bug-fix')).toEqual(
+      expect.arrayContaining(['test-execution', 'code-review']),
+    );
+    expect(getDependents('code-review', 'bug-fix')).toEqual(['acceptance']);
+  });
+
+  it('test-only：proposal/code-analyze/test-design/test-gen 下游精确', () => {
+    expect(getDependents('proposal', 'test-only')).toEqual(['code-analyze', 'test-design']);
+    expect(getDependents('code-analyze', 'test-only')).toEqual(['test-design']);
+    expect(getDependents('test-design', 'test-only')).toEqual(['test-gen']);
+    expect(getDependents('test-gen', 'test-only')).toEqual(['test-execution']);
+  });
+
+  it('未知 / 空 phase → []；空/UNKNOWN workflowType 回落 requirement', () => {
+    expect(getDependents('nope', 'requirement')).toEqual([]);
+    expect(getDependents('', 'requirement')).toEqual([]);
+    expect(getDependents('proposal', '')).toEqual(getDependents('proposal', 'requirement'));
+    expect(getDependents('proposal', 'UNKNOWN')).toEqual(getDependents('proposal', 'requirement'));
+  });
+
+  it('对 requirement 每个 phase id，用逆映射重算 prerequisites 与表一致', () => {
+    const expectedPrereqs: Record<string, string[]> = {
+      proposal: [],
+      'dev-design': ['proposal'],
+      'test-design': ['proposal', 'dev-design'],
+      'test-gen': ['test-design', 'implement'],
+      implement: ['dev-design'],
+      'test-execution': ['test-gen', 'implement'],
+      'code-review': ['test-gen', 'implement'],
+      acceptance: ['proposal', 'dev-design', 'implement'],
+    };
+    for (const phaseId of Object.keys(expectedPrereqs)) {
+      const inferred = inferPrerequisites(phaseId, 'requirement');
+      expect(inferred.sort()).toEqual([...expectedPrereqs[phaseId]].sort());
+    }
   });
 });

@@ -13,7 +13,7 @@ Reverse-engineer the architecture of already-implemented code and write design.m
 Read:
 
 - `openspec/changes/<change-name>/proposal.md` — test coverage scope and acceptance criteria
-- `plugins/dev-team/templates/artifacts/design.md.template` — suggested structure
+- `./templates/artifacts/design.md.template` — suggested structure
 - The project's CLAUDE.md and existing codebase for context
 
 ## Process

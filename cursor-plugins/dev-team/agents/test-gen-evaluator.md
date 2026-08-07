@@ -28,7 +28,7 @@ Evaluate the Generator's test code output against test-design.md using this stat
 Read:
 
 - `openspec/changes/<change-name>/test-design.md` — the design reference
-- `plugins/dev-team/templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
+- `./templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
 
 Run:
 

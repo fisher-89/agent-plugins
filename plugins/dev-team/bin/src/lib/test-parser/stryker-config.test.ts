@@ -299,7 +299,7 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     fs.unlinkSync(one.configPath);
   });
 
-  it('传入 frameworkConfigPath 时按 runner 写入相对 configFile + testMatch；未传则无 jest/vitest 块', () => {
+  it('传入 frameworkConfigPath 时 vitest 含 configFile+dir；jest 另写 testMatch；未传则无块', () => {
     const vitestCfg = path.join(project.root, 'vitest.config.ts');
     const jestCfg = path.join(project.root, 'jest.config.js');
     const testMatch = [`**/${PLAN_ROOT}/**/*.test.ts?(x)`];
@@ -315,10 +315,30 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     const vitestJson = JSON.parse(fs.readFileSync(vitestResult.configPath, 'utf-8'));
     expect(vitestJson.vitest).toEqual({
       configFile: relPosix(project.root, 'vitest.config.ts'),
-      config: { testMatch },
+      dir: '.',
     });
+    expect(vitestJson.vitest.config).toBeUndefined();
     expect(vitestJson.jest).toBeUndefined();
     fs.unlinkSync(vitestResult.configPath);
+
+    const nestedCfg = path.join(project.root, 'plugins', 'dev-team', 'vite.config.ts');
+    fs.mkdirSync(path.dirname(nestedCfg), { recursive: true });
+    fs.writeFileSync(nestedCfg, 'export default {}', 'utf-8');
+    const nestedResult = resolveStrykerConfig(
+      project.root,
+      'plugins/dev-team',
+      ['a.ts'],
+      'vitest',
+      reportDir,
+      nestedCfg,
+    );
+    const nestedJson = JSON.parse(fs.readFileSync(nestedResult.configPath, 'utf-8'));
+    expect(nestedJson.vitest).toEqual({
+      configFile: relPosix(project.root, 'plugins/dev-team/vite.config.ts'),
+      dir: 'plugins/dev-team',
+    });
+    expect(nestedJson.vitest.config).toBeUndefined();
+    fs.unlinkSync(nestedResult.configPath);
 
     const vitePlusResult = resolveStrykerConfig(
       project.root,
@@ -331,8 +351,9 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     const vitePlusJson = JSON.parse(fs.readFileSync(vitePlusResult.configPath, 'utf-8'));
     expect(vitePlusJson.vitest).toEqual({
       configFile: relPosix(project.root, 'vite.config.ts'),
-      config: { testMatch },
+      dir: '.',
     });
+    expect(vitePlusJson.vitest.config).toBeUndefined();
     fs.unlinkSync(vitePlusResult.configPath);
 
     const jestResult = resolveStrykerConfig(
@@ -357,5 +378,148 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     expect(noneJson.vitest).toBeUndefined();
     expect(noneJson.jest).toBeUndefined();
     fs.unlinkSync(none.configPath);
+  });
+});
+
+describe('resolveStrykerConfig -- 盘符 / 空路径 / overlay（突变补强）', () => {
+  let project: TempProject;
+  let reportDir: string;
+
+  beforeEach(() => {
+    project = createTempProject();
+    reportDir = path.join(project.root, 'reports', 'test', 'vitest');
+    fs.mkdirSync(reportDir, { recursive: true });
+  });
+
+  afterEach(() => {
+    project.cleanup();
+  });
+
+  it("sourceFiles 含 '' 时 mutate 保留空串条目且不抛", () => {
+    const result = resolveStrykerConfig(
+      project.root,
+      PLAN_ROOT,
+      ['src/a.ts', '', 'src/b.ts'],
+      'vitest',
+      reportDir,
+    );
+    const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
+    expect(config.mutate).toEqual([
+      relPosix(project.root, 'src/a.ts'),
+      '',
+      relPosix(project.root, 'src/b.ts'),
+    ]);
+    fs.unlinkSync(result.configPath);
+  });
+
+  it('形如 C:/abs/file.ts 的盘符路径走盘符分支并相对化', () => {
+    // 在非 win 上 path.isAbsolute('C:/…') 可能为 false，依赖 /^[A-Za-z]:/ 分支
+    const driveAbs = `C:/abs/under-root/file.ts`;
+    const rooted = path.resolve(project.root, 'src', 'drive.ts').replace(/\\/g, '/');
+    // 若当前平台是 win，用真实盘符绝对路径；否则用 C: 前缀字符串覆盖 || 分支
+    const driveLike =
+      process.platform === 'win32'
+        ? path.resolve(project.root, 'src', 'win-drive.ts').replace(/\\/g, '/')
+        : driveAbs;
+
+    const result = resolveStrykerConfig(
+      project.root,
+      PLAN_ROOT,
+      [driveLike, rooted],
+      'vitest',
+      reportDir,
+    );
+    const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
+    expect(config.mutate).toHaveLength(2);
+    for (const m of config.mutate as string[]) {
+      expect(m).not.toContain('\\');
+    }
+    // 位于 root 下的路径应相对化
+    expect(config.mutate[1]).toBe(relPosix(project.root, 'src', 'drive.ts'));
+    if (process.platform === 'win32') {
+      expect(config.mutate[0]).toBe(relPosix(project.root, 'src', 'win-drive.ts'));
+    } else {
+      // 非 win：C:/abs/... 相对化后含 .. 或保留相对片段，且不得原样抛错
+      expect(typeof config.mutate[0]).toBe('string');
+      expect(config.mutate[0]).not.toMatch(/\\/);
+    }
+    fs.unlinkSync(result.configPath);
+  });
+
+  it('frameworkConfigPath 为盘符绝对路径时 vitest overlay 含 configFile+dir（相对 root、正斜杠）', () => {
+    fs.writeFileSync(path.join(project.root, 'vitest.config.ts'), 'export default {}', 'utf-8');
+    const absCfg = path.resolve(project.root, 'vitest.config.ts');
+    const result = resolveStrykerConfig(
+      project.root,
+      PLAN_ROOT,
+      ['a.ts'],
+      'vitest',
+      reportDir,
+      absCfg,
+    );
+    const json = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
+    expect(json.vitest).toEqual({
+      configFile: relPosix(project.root, 'vitest.config.ts'),
+      dir: '.',
+    });
+    expect(json.vitest.config).toBeUndefined();
+    expect(json.vitest.configFile).not.toContain('\\');
+    expect(json.vitest.dir).not.toContain('\\');
+    fs.unlinkSync(result.configPath);
+
+    // 非 win：C: 前缀在 path.isAbsolute 为 false 时仍走盘符分支
+    if (process.platform !== 'win32') {
+      const drivePath = `C:${absCfg.replace(/\\/g, '/')}`;
+      const driveResult = resolveStrykerConfig(
+        project.root,
+        PLAN_ROOT,
+        ['a.ts'],
+        'vitest',
+        reportDir,
+        drivePath,
+      );
+      const driveJson = JSON.parse(fs.readFileSync(driveResult.configPath, 'utf-8'));
+      expect(driveJson.vitest).toHaveProperty('configFile');
+      expect(driveJson.vitest.configFile).not.toContain('\\');
+      fs.unlinkSync(driveResult.configPath);
+    }
+  });
+
+  it("jest + planRoot '.' → **/*.test.ts?(x)；'src' → **/src/**；'./pkg' 先剥 ./", () => {
+    const jestCfg = path.join(project.root, 'jest.config.js');
+    fs.writeFileSync(jestCfg, 'module.exports={}', 'utf-8');
+
+    const cases: Array<{ planRoot: string; testMatch: string }> = [
+      { planRoot: '.', testMatch: '**/*.test.ts?(x)' },
+      { planRoot: 'src', testMatch: '**/src/**/*.test.ts?(x)' },
+      { planRoot: './pkg', testMatch: '**/pkg/**/*.test.ts?(x)' },
+    ];
+    for (const c of cases) {
+      const result = resolveStrykerConfig(
+        project.root,
+        c.planRoot,
+        ['a.ts'],
+        'jest',
+        reportDir,
+        jestCfg,
+      );
+      const json = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
+      expect(json.jest.config.testMatch).toEqual([c.testMatch]);
+      expect(json.jest.enableFindRelatedTests).toBe(false);
+      fs.unlinkSync(result.configPath);
+    }
+  });
+
+  it('未传 frameworkConfigPath → 无 vitest/jest 块；ignoreStatic/timeoutMS/jsonReporter 精确', () => {
+    const result = resolveStrykerConfig(project.root, '.', ['src/foo.ts'], 'vitest', reportDir);
+    const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
+    expect(config.vitest).toBeUndefined();
+    expect(config.jest).toBeUndefined();
+    expect(config.ignoreStatic).toBe(true);
+    expect(config.timeoutMS).toBe(10000);
+    expect(config.jsonReporter.fileName).toBe(absPosix(reportDir, 'mutation.json'));
+    const roundTrip = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
+    expect(roundTrip.mutate).toEqual([relPosix(project.root, 'src/foo.ts')]);
+    fs.unlinkSync(result.configPath);
   });
 });

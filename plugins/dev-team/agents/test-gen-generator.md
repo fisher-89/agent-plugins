@@ -11,7 +11,7 @@ model: sonnet-4.6
 Read:
 
 - `openspec/changes/<change-name>/test-design.md` — test levels, coverage map, forward ACs, reverse ACs, strategy, boundary cases
-- `plugins/dev-team/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
+- `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
 - Source code files for the affected modules — read directly to extract method signatures, parameter types, return types, and implementation logic
 - The project's existing test files and patterns (Grep/Glob to find them)
 - The project's CLAUDE.md for conventions
@@ -23,7 +23,7 @@ Read:
 Call the MCP tool `test_detect_frameworks` to detect the project's test framework(s):
 
 ```
-mcp__plugin_dev-team_dev-team__test_detect_frameworks({files:[<test files>]})
+__MCP:test_detect_frameworks__({files:[<test files>]})
 ```
 
 Collect the `detected` list from the result to select the correct test syntax for test generation. Otherwise, fall back to file-extension heuristics:
@@ -113,5 +113,5 @@ Write test files colocated with their corresponding source files in the same dir
 - For untyped parameters, inferred types must be marked P2 with a TODO comment
 - Test files SHALL be written to the same directory as the source file they test, NOT under `openspec/changes/<name>/tests/`
 - Test descriptions (describe/it/test block names) MUST be written in Chinese, e.g., `describe('用户登录模块')`, `it('应在输入无效时返回 400')`
-- Use the tool `mcp__plugin_dev-team_dev-team__test_detect_frameworks` to detect the project test framework(s)
+- Use the tool `__MCP:test_detect_frameworks__` to detect the project test framework(s)
 - Avoid using `import()` (dynamic import) in JS/TS test code — use static `import` statements at the top of the file instead

@@ -30,8 +30,8 @@ The model uses four element kinds in a strict hierarchy:
 - **ADRs**: `openspec/architecture/decisions/*.md` — Architecture Decision Records
 - **Reports**: `openspec/changes/<name>/reports/architecture-validate-*.json` — validation reports (per-change); `openspec/architecture/reports/` as global fallback
 - **Python utilities**:
-  - `plugins/dev-team/utils/archi-decide.py` — create, list, update ADRs
-- **MCP tools** (under `mcp__plugin_dev-team_dev-team__`):
+  - `__DEV_TEAM_ROOT__/utils/archi-decide.py` — create, list, update ADRs
+- **MCP tools** (prefix e.g. call `archi_query` with `__MCP:archi_query__`):
   - `archi_query` — query model structure (optional `element` filter)
   - `archi_validate` — validate DSL syntax (optional `source` text)
   - `archi_write` — validate and write model files (requires `path`, `source`)
@@ -70,28 +70,28 @@ Elements use simple names. Hierarchy is expressed via `extend <parent> { ... }` 
 ```
 model {
   package DevTeamPlugin {
-    metadata { path ['./plugins/dev-team/'] }
+    metadata { path ['./__DEV_TEAM_ROOT__/'] }
   }
 
   extend DevTeamPlugin {
     domain Hooks {
-      metadata { path ['./plugins/dev-team/hooks/'] }
+      metadata { path ['./__DEV_TEAM_ROOT__/hooks/'] }
     }
 
     domain Skills {
-      metadata { path ['./plugins/dev-team/skills/'] }
+      metadata { path ['./__DEV_TEAM_ROOT__/skills/'] }
     }
   }
 
   extend DevTeamPlugin.Hooks {
     module CommitGates {
-      metadata { path ['./plugins/dev-team/hooks/commit-gates/'] }
+      metadata { path ['./__DEV_TEAM_ROOT__/hooks/commit-gates/'] }
     }
   }
 
   extend DevTeamPlugin.Hooks.CommitGates {
     component QualityGate {
-      metadata { path ['./plugins/dev-team/hooks/commit-gates/quality.py'] }
+      metadata { path ['./__DEV_TEAM_ROOT__/hooks/commit-gates/quality.py'] }
     }
   }
 }
@@ -158,30 +158,30 @@ When the user asks to add, modify, or update architecture elements:
 1. **Read current state**: Read all `openspec/architecture/models/*.c4` files to understand the existing model.
 2. **Explore the code**: Use Grep/Glob to find relevant code files that the model changes should reference (e.g., `metadata.path` targets).
 3. **Draft the DSL**: Prepare the proposed DSL change — either a new file in `models/` or edits to an existing one. Use the domain/module/component hierarchy.
-4. **Validate**: Call `mcp__plugin_dev-team_dev-team__archi_validate` with `source`="<dsl>" — or validate the aggregated model if changes span files.
+4. **Validate**: Call `__MCP:archi_validate__` with `source`="<dsl>" — or validate the aggregated model if changes span files.
 5. **Present the diff**: Show the user the DSL changes with a plain-language explanation of what's being added/modified and why.
 6. **Wait for confirmation**: Do NOT write until the user confirms.
 
 When the user confirms, call:
 
 ```
-mcp__plugin_dev-team_dev-team__archi_write({path: "models/XX-name.c4", source: "<dsl>"})
+__MCP:archi_write__({path: "models/XX-name.c4", source: "<dsl>"})
 ```
 
 ### VALIDATE mode
 
 When the user asks to validate architecture or check code against the model:
 
-1. Call `mcp__plugin_dev-team_dev-team__archi_check` on staged files:
+1. Call `__MCP:archi_check__` on staged files:
 
    ```
-   mcp__plugin_dev-team_dev-team__archi_check({staged: true})
+   __MCP:archi_check__({staged: true})
    ```
 
    Or on specific files:
 
    ```
-   mcp__plugin_dev-team_dev-team__archi_check({files: "file1.ts,file2.ts"})
+   __MCP:archi_check__({files: "file1.ts,file2.ts"})
    ```
 
 2. Interpret the results in plain language:
@@ -199,18 +199,18 @@ When the user asks to create, list, or update an ADR:
 1. **Create**: Gather background, decision, consequences, alternatives, and scope from the user. Then run:
 
    ```
-   python plugins/dev-team/utils/archi-decide.py create --title "..." --background "..." --decision "..." --consequences "..." --alternatives "[...]" --scope "elem1, elem2"
+   python __DEV_TEAM_ROOT__/utils/archi-decide.py create --title "..." --background "..." --decision "..." --consequences "..." --alternatives "[...]" --scope "elem1, elem2"
    ```
 
 2. **List**: Run:
 
    ```
-   python plugins/dev-team/utils/archi-decide.py list [--status accepted|proposed|deprecated|superseded]
+   python __DEV_TEAM_ROOT__/utils/archi-decide.py list [--status accepted|proposed|deprecated|superseded]
    ```
 
 3. **Update**: Run:
    ```
-   python plugins/dev-team/utils/archi-decide.py update --file "YYYY-MM-DD-slug.md" --status "accepted" [--superseded-by "new-adr.md"]
+   python __DEV_TEAM_ROOT__/utils/archi-decide.py update --file "YYYY-MM-DD-slug.md" --status "accepted" [--superseded-by "new-adr.md"]
    ```
 
 ### REVIEW mode
@@ -236,7 +236,7 @@ When the user asks to review the architecture model quality:
 If no model exists and the user wants to create one:
 
 ```
-mcp__plugin_dev-team_dev-team__archi_write({path: "models/01-core.c4", source: "specification {
+__MCP:archi_write__({path: "models/01-core.c4", source: "specification {
   element package
   element domain
   element module

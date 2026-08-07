@@ -40,16 +40,17 @@ const PROPOSAL_EXPLORE_HANDOFF =
   'If proposal.md already exists, Read it and merge new explore insights (do not rewrite from scratch). ' +
   'Do not expect inline EXPLORE_CONTEXT_SUMMARY.';
 
+// Stryker disable all
 const PHASE_REQUIREMENT: PhaseDefinition[] = [
   {
     id: 'proposal',
     description: '需求提案与规格说明',
     executor: {
-      agent_type: 'dev-team:proposal-planner',
+      agent_type: '__AGENT:proposal-planner__',
       prompt: `Write or update proposal.md and specs/ for change "<change>". ${PROPOSAL_EXPLORE_HANDOFF}`,
     },
     evaluator: {
-      agent_type: 'dev-team:proposal-evaluator',
+      agent_type: '__AGENT:proposal-evaluator__',
       prompt: 'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
@@ -57,11 +58,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     id: 'dev-design',
     description: '详细设计与任务拆解',
     executor: {
-      agent_type: 'dev-team:dev-design-planner',
+      agent_type: '__AGENT:dev-design-planner__',
       prompt: 'Write design.md and tasks.md for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:dev-design-evaluator',
+      agent_type: '__AGENT:dev-design-evaluator__',
       prompt:
         'Evaluate <phase> phase: design.md and tasks.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>".',
     },
@@ -70,11 +71,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     id: 'test-design',
     description: '测试设计',
     executor: {
-      agent_type: 'dev-team:test-design-planner',
+      agent_type: '__AGENT:test-design-planner__',
       prompt: 'Write test design for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:test-design-evaluator',
+      agent_type: '__AGENT:test-design-evaluator__',
       prompt:
         'Evaluate <phase> phase: test design for change "<change>" against design.md. Call phase_log with phase="<phase>".',
     },
@@ -83,11 +84,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     id: 'implement',
     description: '代码实现',
     executor: {
-      agent_type: 'dev-team:implementation-generator',
+      agent_type: '__AGENT:implementation-generator__',
       prompt: 'Implement the code for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:implementation-evaluator',
+      agent_type: '__AGENT:implementation-evaluator__',
       prompt:
         'Evaluate <phase> phase: implementation for change "<change>" against design. Call phase_log with phase="<phase>".',
     },
@@ -96,11 +97,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     id: 'test-gen',
     description: '测试代码生成',
     executor: {
-      agent_type: 'dev-team:test-gen-generator',
+      agent_type: '__AGENT:test-gen-generator__',
       prompt: 'Generate test code for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:test-gen-evaluator',
+      agent_type: '__AGENT:test-gen-evaluator__',
       prompt:
         'Evaluate <phase> phase: generated tests for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -109,11 +110,11 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     id: 'test-execution',
     description: '测试执行与诊断',
     executor: {
-      agent_type: 'dev-team:test-execution-executor',
+      agent_type: '__AGENT:test-execution-executor__',
       prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:test-execution-evaluator',
+      agent_type: '__AGENT:test-execution-evaluator__',
       prompt:
         'Evaluate <phase> phase: test execution results for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -123,7 +124,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     description: '代码审查',
     executor: null,
     evaluator: {
-      agent_type: 'dev-team:code-review-evaluator',
+      agent_type: '__AGENT:code-review-evaluator__',
       prompt:
         'Evaluate <phase> phase: code review for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -133,7 +134,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     description: '验收评估',
     executor: null,
     evaluator: {
-      agent_type: 'dev-team:acceptance-evaluator',
+      agent_type: '__AGENT:acceptance-evaluator__',
       prompt:
         'Evaluate <phase> phase: acceptance for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -145,11 +146,11 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     id: 'proposal',
     description: '需求提案与规格说明',
     executor: {
-      agent_type: 'dev-team:proposal-planner',
+      agent_type: '__AGENT:proposal-planner__',
       prompt: `Write or update proposal.md and specs/ for change "<change>". ${PROPOSAL_EXPLORE_HANDOFF}`,
     },
     evaluator: {
-      agent_type: 'dev-team:proposal-evaluator',
+      agent_type: '__AGENT:proposal-evaluator__',
       prompt: 'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
@@ -157,11 +158,11 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     id: 'dev-design',
     description: '详细设计与任务拆解',
     executor: {
-      agent_type: 'dev-team:dev-design-planner',
+      agent_type: '__AGENT:dev-design-planner__',
       prompt: 'Write design.md and tasks.md for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:dev-design-evaluator',
+      agent_type: '__AGENT:dev-design-evaluator__',
       prompt:
         'Evaluate <phase> phase: design.md and tasks.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>".',
     },
@@ -170,11 +171,11 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     id: 'implement',
     description: '代码实现',
     executor: {
-      agent_type: 'dev-team:implementation-generator',
+      agent_type: '__AGENT:implementation-generator__',
       prompt: 'Implement the code for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:implementation-evaluator',
+      agent_type: '__AGENT:implementation-evaluator__',
       prompt:
         'Evaluate <phase> phase: implementation for change "<change>" against design. Call phase_log with phase="<phase>".',
     },
@@ -183,11 +184,11 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     id: 'test-execution',
     description: '测试执行与诊断',
     executor: {
-      agent_type: 'dev-team:test-execution-executor',
+      agent_type: '__AGENT:test-execution-executor__',
       prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:test-execution-evaluator',
+      agent_type: '__AGENT:test-execution-evaluator__',
       prompt:
         'Evaluate <phase> phase: test execution results for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -197,7 +198,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     description: '代码审查',
     executor: null,
     evaluator: {
-      agent_type: 'dev-team:code-review-evaluator',
+      agent_type: '__AGENT:code-review-evaluator__',
       prompt:
         'Evaluate <phase> phase: code review for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -207,7 +208,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     description: '验收评估',
     executor: null,
     evaluator: {
-      agent_type: 'dev-team:acceptance-evaluator',
+      agent_type: '__AGENT:acceptance-evaluator__',
       prompt:
         'Evaluate <phase> phase: acceptance for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -224,11 +225,11 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     id: 'proposal',
     description: '测试需求提案与规格说明',
     executor: {
-      agent_type: 'dev-team:proposal-planner',
+      agent_type: '__AGENT:proposal-planner__',
       prompt: `Write or update test-focused proposal.md and specs/ for change "<change>": coverage gaps, testing strategy, and acceptance criteria for existing code. ${PROPOSAL_EXPLORE_HANDOFF}`,
     },
     evaluator: {
-      agent_type: 'dev-team:proposal-evaluator',
+      agent_type: '__AGENT:proposal-evaluator__',
       prompt: 'Evaluate <phase> phase for change "<change>". Call phase_log with phase="<phase>".',
     },
   },
@@ -236,12 +237,12 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     id: 'code-analyze',
     description: '逆向分析现有代码架构',
     executor: {
-      agent_type: 'dev-team:code-analyze-planner',
+      agent_type: '__AGENT:code-analyze-planner__',
       prompt:
         'Reverse-engineer existing code architecture and write design.md for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:code-analyze-evaluator',
+      agent_type: '__AGENT:code-analyze-evaluator__',
       prompt:
         'Evaluate <phase> phase: design.md for change "<change>" against proposal.md. Call phase_log with phase="<phase>".',
     },
@@ -250,11 +251,11 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     id: 'test-design',
     description: '测试设计',
     executor: {
-      agent_type: 'dev-team:test-design-planner',
+      agent_type: '__AGENT:test-design-planner__',
       prompt: 'Write test design for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:test-design-evaluator',
+      agent_type: '__AGENT:test-design-evaluator__',
       prompt:
         'Evaluate <phase> phase: test design for change "<change>" against design.md. Call phase_log with phase="<phase>".',
     },
@@ -263,11 +264,11 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     id: 'test-gen',
     description: '测试代码生成',
     executor: {
-      agent_type: 'dev-team:test-gen-generator',
+      agent_type: '__AGENT:test-gen-generator__',
       prompt: 'Generate test code for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:test-gen-evaluator',
+      agent_type: '__AGENT:test-gen-evaluator__',
       prompt:
         'Evaluate <phase> phase: generated tests for change "<change>". Call phase_log with phase="<phase>".',
     },
@@ -276,11 +277,11 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     id: 'test-execution',
     description: '测试执行与诊断',
     executor: {
-      agent_type: 'dev-team:test-execution-executor',
+      agent_type: '__AGENT:test-execution-executor__',
       prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
     },
     evaluator: {
-      agent_type: 'dev-team:test-execution-evaluator',
+      agent_type: '__AGENT:test-execution-evaluator__',
       prompt: `Evaluate <phase> phase: test execution results for change "<change>". Call phase_log with phase="<phase>". ${WORKFLOW_CONTEXT_TEST_ONLY}`,
     },
   },
@@ -349,6 +350,7 @@ const PHASE_PREREQUISITES_TABLES: Record<string, Record<string, string[]>> = {
   refactor: PHASE_REFACTOR_PREREQUISITES,
   'test-only': PHASE_TEST_ONLY_PREREQUISITES,
 };
+// Stryker restore all
 
 /**
  * Return the prerequisite table for the given workflow_type.

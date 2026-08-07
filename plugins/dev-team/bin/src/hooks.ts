@@ -1,12 +1,4 @@
 // hooks.ts — Entry point for dev-team hooks (protect-files, static-check)
-//
-// Bundled as CJS via vite-plus (dev-team-hooks.cjs), invoked as:
-//   node dev-team-hooks.cjs protect-files   (PreToolUse hook — stdin: PreToolUse event JSON)
-//   node dev-team-hooks.cjs static-check    (SubagentStop hook — stdin: SubagentStop event JSON)
-//
-// Architecture notes:
-//   - protect-files uses matchGlob (picomatch) instead of hand-written globToRegex
-//   - static-check calls runStaticAnalysis in-process instead of spawnSync
 
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
@@ -310,13 +302,13 @@ function evaluateToolAccess(raw: string, patterns: ProtectedPattern[]): string |
 
   const toolInput = isRecord(parsed.tool_input) ? parsed.tool_input : undefined;
 
-  if (toolName === 'Write' || toolName === 'Edit') {
+  if (toolName === 'Write' || toolName === 'Edit' || toolName === 'StrReplace') {
     const filePath = toolInput?.file_path;
     if (!filePath || typeof filePath !== 'string') return null;
     return matchProtectedPath(filePath, patterns, toolName);
   }
 
-  if (toolName === 'Bash') {
+  if (toolName === 'Bash' || toolName === 'Shell') {
     const command = toolInput?.command;
     if (!command || typeof command !== 'string') return null;
     return checkBashCommand(command, patterns);

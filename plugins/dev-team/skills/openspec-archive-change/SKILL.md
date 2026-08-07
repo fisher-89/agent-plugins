@@ -1,5 +1,5 @@
 ---
-name: openspec-archive-change
+name: __SKILL:openspec-archive-change__
 description: Archive a completed change in the experimental workflow. Use when the user wants to finalize and archive a change after implementation is complete.
 license: MIT
 compatibility: Requires openspec CLI.
@@ -17,7 +17,7 @@ Archive a completed change in the experimental workflow.
 
 1. **If no change name provided, prompt for selection**
 
-   Call `mcp__plugin_dev-team_dev-team__change_list` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Call `__MCP:change_list__` to get available changes. Use the **AskUserQuestion tool** to let the user select.
 
    Show only active changes (not already archived).
    Include the schema used for each change if available.
@@ -39,7 +39,7 @@ Archive a completed change in the experimental workflow.
 
 3. **Check phase evaluation status**
 
-   Call `mcp__plugin_dev-team_dev-team__phase_check` with change="<name>" and phase="acceptance" to validate the PGE eval chain.
+   Call `__MCP:phase_check__` with change="<name>" and phase="acceptance" to validate the PGE eval chain.
 
    Parse the result to check:
    - `passed`: Overall evaluation status

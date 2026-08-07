@@ -30,8 +30,8 @@ The model uses four element kinds in a strict hierarchy:
 - **ADRs**: `openspec/architecture/decisions/*.md` — Architecture Decision Records
 - **Reports**: `openspec/changes/<name>/reports/architecture-validate-*.json` — validation reports (per-change); `openspec/architecture/reports/` as global fallback
 - **Python utilities**:
-  - `plugins/dev-team/utils/archi-decide.py` — create, list, update ADRs
-- **MCP tools** (under `mcp__plugin_dev-team_dev-team__`):
+  - `./utils/archi-decide.py` — create, list, update ADRs
+- **MCP tools** (prefix e.g. call `archi_query` with `mcp__plugin_dev-team_dev-team__archi_query`):
   - `archi_query` — query model structure (optional `element` filter)
   - `archi_validate` — validate DSL syntax (optional `source` text)
   - `archi_write` — validate and write model files (requires `path`, `source`)
@@ -70,28 +70,28 @@ Elements use simple names. Hierarchy is expressed via `extend <parent> { ... }` 
 ```
 model {
   package DevTeamPlugin {
-    metadata { path ['./plugins/dev-team/'] }
+    metadata { path ['././'] }
   }
 
   extend DevTeamPlugin {
     domain Hooks {
-      metadata { path ['./plugins/dev-team/hooks/'] }
+      metadata { path ['././hooks/'] }
     }
 
     domain Skills {
-      metadata { path ['./plugins/dev-team/skills/'] }
+      metadata { path ['././skills/'] }
     }
   }
 
   extend DevTeamPlugin.Hooks {
     module CommitGates {
-      metadata { path ['./plugins/dev-team/hooks/commit-gates/'] }
+      metadata { path ['././hooks/commit-gates/'] }
     }
   }
 
   extend DevTeamPlugin.Hooks.CommitGates {
     component QualityGate {
-      metadata { path ['./plugins/dev-team/hooks/commit-gates/quality.py'] }
+      metadata { path ['././hooks/commit-gates/quality.py'] }
     }
   }
 }
@@ -199,18 +199,18 @@ When the user asks to create, list, or update an ADR:
 1. **Create**: Gather background, decision, consequences, alternatives, and scope from the user. Then run:
 
    ```
-   python plugins/dev-team/utils/archi-decide.py create --title "..." --background "..." --decision "..." --consequences "..." --alternatives "[...]" --scope "elem1, elem2"
+   python ./utils/archi-decide.py create --title "..." --background "..." --decision "..." --consequences "..." --alternatives "[...]" --scope "elem1, elem2"
    ```
 
 2. **List**: Run:
 
    ```
-   python plugins/dev-team/utils/archi-decide.py list [--status accepted|proposed|deprecated|superseded]
+   python ./utils/archi-decide.py list [--status accepted|proposed|deprecated|superseded]
    ```
 
 3. **Update**: Run:
    ```
-   python plugins/dev-team/utils/archi-decide.py update --file "YYYY-MM-DD-slug.md" --status "accepted" [--superseded-by "new-adr.md"]
+   python ./utils/archi-decide.py update --file "YYYY-MM-DD-slug.md" --status "accepted" [--superseded-by "new-adr.md"]
    ```
 
 ### REVIEW mode

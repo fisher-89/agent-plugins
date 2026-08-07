@@ -10,6 +10,24 @@ import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as path from 'path';
 
+type RunnerConfigOverlay =
+  | {
+      vitest: {
+        configFile: string;
+        dir?: string;
+      };
+    }
+  | {
+      jest: {
+        configFile: string;
+        enableFindRelatedTests?: boolean;
+        config?: object;
+      };
+    }
+  | {
+      [key: string]: { configFile: string };
+    };
+
 // ---------------------------------------------------------------------------
 // Temporary config generation
 // ---------------------------------------------------------------------------
@@ -30,13 +48,16 @@ function normalizeSourceFilesForStryker(rootPath: string, sourceFiles: string[])
 /**
  * Build jest/vitest runner overlay with projectRoot-relative configFile when
  * suite.config is set. Relative paths resolve against projectRoot.
+ *
+ * Vitest runner schema only allows `configFile` (no `config` / `testMatch`).
+ * Jest keeps `config.testMatch` + `enableFindRelatedTests: false`.
  */
 function buildRunnerConfigOverlay(
   projectRoot: string,
   planRoot: string,
   testRunner: string,
   frameworkConfigPath: string | null | undefined,
-): Record<string, { configFile: string; enableFindRelatedTests?: boolean; config: unknown }> {
+): RunnerConfigOverlay {
   if (!frameworkConfigPath) {
     return {};
   }
@@ -44,15 +65,35 @@ function buildRunnerConfigOverlay(
     path.isAbsolute(frameworkConfigPath) || /^[A-Za-z]:/.test(frameworkConfigPath)
       ? path.resolve(frameworkConfigPath)
       : path.resolve(projectRoot, frameworkConfigPath);
-  return {
-    [testRunner]: {
-      configFile: path.relative(projectRoot, absConfig).replace(/\\/g, '/'),
-      enableFindRelatedTests: testRunner === 'jest' ? false : undefined,
-      config: {
-        testMatch: [`**/${planRoot.replace(/^\.\//, '')}/**/*.test.ts?(x)`],
+  const configFile = path.relative(projectRoot, absConfig).replace(/\\/g, '/');
+
+  if (testRunner === 'vitest') {
+    return {
+      vitest: {
+        configFile,
+        dir: path.dirname(configFile),
       },
-    },
-  };
+    };
+  }
+
+  if (testRunner === 'jest') {
+    const normalizedPlan = planRoot.replace(/^\.\//, '').replace(/\\/g, '/');
+    const testMatchGlob =
+      !normalizedPlan || normalizedPlan === '.'
+        ? '**/*.test.ts?(x)'
+        : `**/${normalizedPlan}/**/*.test.ts?(x)`;
+    return {
+      jest: {
+        configFile,
+        enableFindRelatedTests: false,
+        config: {
+          testMatch: [testMatchGlob],
+        },
+      },
+    };
+  }
+
+  return { [testRunner]: { configFile } };
 }
 
 function generateTempConfig(
@@ -97,9 +138,9 @@ function generateTempConfig(
  * The temp config is deleted by the caller after the run; user long-lived
  * Stryker configs are never modified.
  *
- * @param projectRoot - Absolute project root (Stryker cwd / config location)
- * @param planRoot - Suite root relative to projectRoot (drives testMatch)
- * @param sourceFiles - Source file paths (absolute or projectRoot-relative)
+ * @param projectRoot - Absolute project root
+ * @param planRoot - Suite root relative to projectRoot (drives jest testMatch)
+ * @param sourceFiles - Source file paths (absolute or projectRoot-relative; normalized to projectRoot-relative POSIX)
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
  * @param reportDir  - Absolute plan report directory (mutation.json lands here)
  * @param frameworkConfigPath - Absolute (or resolvable) path to suite `tests[].config`, if any

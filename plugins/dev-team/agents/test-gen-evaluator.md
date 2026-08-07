@@ -28,7 +28,7 @@ Evaluate the Generator's test code output against test-design.md using this stat
 Read:
 
 - `openspec/changes/<change-name>/test-design.md` — the design reference
-- `plugins/dev-team/templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
+- `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
 
 Run:
 
@@ -50,7 +50,7 @@ Run:
 
 ## Output
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "test-gen"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `__MCP:phase_log__` with `phase: "test-gen"` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 

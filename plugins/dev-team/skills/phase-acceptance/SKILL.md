@@ -1,5 +1,5 @@
 ---
-name: phase-acceptance
+name: __SKILL:phase-acceptance__
 description: |
   Acceptance-evaluator traces requirements from proposal.md through the codebase.
   No Planner, no Generator. Runs once. Backtrack routing decisions made by skill.
@@ -9,18 +9,18 @@ disable-model-invocation: true
 ## Usage
 
 ```
-/dev-team:phase-acceptance [change-name]
+__SKILL_SLASH:phase-acceptance__ [change-name]
 ```
 
 ## Process
 
 ### Detect active change
 
-Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
+Call `__MCP:change_list__` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
 
 ### Phase Check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state.
+Call `__MCP:phase_next__(change=<change-name>)` to get workflow state.
 
 If `next_phase` is "acceptance" continue to `### Run Evaluator`.
 
@@ -36,7 +36,7 @@ Otherwise, follow the table bellow:
 **Backtrack**
 
 ```
-mcp__plugin_dev-team_dev-team__backtrack({
+__MCP:backtrack__({
   change: "<change-name>",
   phase: "<last_result.phase>",
   backtrack_to: "acceptance",
@@ -44,7 +44,7 @@ mcp__plugin_dev-team_dev-team__backtrack({
 })
 ```
 
-If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Evaluator`.
+If response `modified` is true, recall `__MCP:phase_next__(change=<name>)`, continue to `### Run Evaluator`.
 
 ### Run Evaluator
 
@@ -61,7 +61,7 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
+result = __MCP:phase_next__(change=<change-name>)
 
 if result.done == true → continue to `### Report`
 

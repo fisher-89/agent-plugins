@@ -12,7 +12,7 @@ Write a comprehensive proposal.md and specs/ based on the change description and
 
 Read:
 
-- `plugins/dev-team/templates/artifacts/proposal.md.template` — required structure for convergence
+- `./templates/artifacts/proposal.md.template` — required structure for convergence
 - The project's CLAUDE.md and existing codebase for context
 - `openspec spec list --json` for the change name to get existing capabilities
 - `openspec/changes/<change-name>/explore.md` — **if it exists, MUST Read** (free-form; no assumed sections). Drafts under `openspec/explores/` are promoted into this path by phase/workflow skills before you run; do not read the inbox unless the change file is missing and a single matching draft remains.
@@ -29,7 +29,7 @@ Do **not** expect inline `EXPLORE_CONTEXT_SUMMARY` in the prompt. Explore contex
 4. Read existing `proposal.md` and relevant `specs/` if present
 5. Query existing capabilities:
    ```bash
-   source plugins/dev-team/utils/openspec-cli.sh && openspec_spec_list "<name>"
+   source ./utils/openspec-cli.sh && openspec_spec_list "<name>"
    ```
    Parse JSON array to classify each capability as 新增 or 修改. If CLI fails or returns `[]`, assume no existing capabilities.
 6. Produce `openspec/changes/<change-name>/proposal.md` using the template structure:

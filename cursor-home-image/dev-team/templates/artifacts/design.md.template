@@ -1,0 +1,103 @@
+# 设计: {{change_name}}
+
+> **变更**: {{change_name}}
+> **日期**: {{date}}
+
+---
+
+## 架构组件
+
+| 组件 | 职责 | 文件位置 | 依赖 | 技术 |
+|------|------|----------|------|------|
+| {{component}} | {{responsibility}} | {{file_path}} | {{dependencies}} | {{technology}} |
+
+---
+
+## 变更清单
+
+<!--
+  以文件为入口逐层展开，实现阶段以此清单为边界。
+  子表按需填写，不涉及的子表整段省略并以 HTML 注释标注原因。
+  公共函数仅列模块级导出函数、CLI 子命令、HTTP 端点，私有函数不列入。
+  签名格式：Python → create_adr(title: str, status: str = "proposed") -> dict；TS → function parseImports(file: string): Import[]
+-->
+
+### 新增文件
+
+| 文件路径 | 说明 |
+|----------|------|
+| {{file_path}} | {{description}} |
+
+<!-- 如无新增文件，省略此子节 -->
+
+### 修改文件
+
+| 文件路径 | 修改内容 | 说明 |
+|----------|----------|------|
+| {{file_path}} | {{modification}} | {{description}} |
+
+<!-- 如无修改文件，省略此子节 -->
+
+### 公共函数 / API
+
+| 标识符 | 所在文件 | 类型 | 签名 | 说明 |
+|--------|----------|------|------|------|
+| {{identifier}} | {{file}} | 新增/修改 | {{signature}} | {{description}} |
+
+<!-- 如无公共函数/API 变更，省略此子节 -->
+
+### 类型定义
+
+<!-- 含 interface、type alias、enum、公共 API class -->
+
+| 类型名 | 所在文件 | 类型 | 说明 |
+|--------|----------|------|------|
+| {{type_name}} | {{file}} | 新增/修改 | {{description}} |
+
+<!-- 如无类型变更，省略此子节 -->
+
+### 配置
+
+<!-- 含 plugin.json、config.json、hooks.json、settings.json 等配置文件的键变更 -->
+
+| 配置键 | 所在文件 | 类型 | 默认值 | 说明 |
+|--------|----------|------|--------|------|
+| {{config_key}} | {{file}} | 新增/修改 | {{type}} | {{default}} | {{description}} |
+
+<!-- 如无配置变更，省略此子节 -->
+
+---
+
+## 数据模型
+
+| 模型 | 字段 | 关系 | 持久化 |
+|------|------|------|--------|
+| {{model}} | {{fields}} | {{relationships}} | {{persistence}} |
+
+---
+
+## 路由/API 设计
+
+<!-- 如本变更不涉及 HTTP API，省略此节 -->
+
+| 方法 | 路径 | 描述 | 输入 | 输出 | 认证 |
+|------|------|------|------|------|------|
+| {{method}} | {{path}} | {{description}} | {{input}} | {{output}} | {{auth}} |
+
+---
+
+## 依赖
+
+### 运行时依赖
+
+- {{dependency}} — {{purpose}}
+
+### 构建/测试依赖
+
+- {{dependency}} — {{purpose}}
+
+---
+
+## 待决问题
+
+- {{question}}

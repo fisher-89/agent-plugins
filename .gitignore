@@ -8,5 +8,6 @@ node_modules
 
 plugins/*/coverage
 plugins/*/reports
+plugins/*/.pack-staging/
 
 */dev-team/bin/*.cjs.map

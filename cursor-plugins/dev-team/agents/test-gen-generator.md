@@ -11,7 +11,7 @@ model: sonnet-4.6
 Read:
 
 - `openspec/changes/<change-name>/test-design.md` — test levels, coverage map, forward ACs, reverse ACs, strategy, boundary cases
-- `plugins/dev-team/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
+- `./templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
 - Source code files for the affected modules — read directly to extract method signatures, parameter types, return types, and implementation logic
 - The project's existing test files and patterns (Grep/Glob to find them)
 - The project's CLAUDE.md for conventions

@@ -1,5 +1,5 @@
 {
-  "description": "dev-team 插件 hooks：PreToolUse 保护 eval.json 不被 agent 直接写入；subagentStop 在 implementation-generator 结束时自动执行 static_analysis 静态检查。",
+  "description": "dev-team hooks：PreToolUse 保护受保护文件；SubagentStop 在 generator 结束时执行 static-check。",
   "hooks": {
     "PreToolUse": [
       {
@@ -7,7 +7,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" protect-files"
+            "command": "node \"./bin/hooks.cjs\" protect-files"
           }
         ]
       },
@@ -16,7 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" protect-files"
+            "command": "node \"./bin/hooks.cjs\" protect-files"
           }
         ]
       },
@@ -25,7 +25,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" protect-files"
+            "command": "node \"./bin/hooks.cjs\" protect-files"
           }
         ]
       }
@@ -37,7 +37,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" static-check"
+            "command": "node \"./bin/hooks.cjs\" static-check"
           }
         ]
       },
@@ -47,7 +47,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs\" static-check"
+            "command": "node \"./bin/hooks.cjs\" static-check"
           }
         ]
       }

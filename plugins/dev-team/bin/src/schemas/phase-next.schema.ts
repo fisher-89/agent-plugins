@@ -16,7 +16,7 @@ export const phaseNextInputSchema = z.object({
  * Phase agent definition — which agent type and prompt to use.
  */
 const phaseAgentSchema = z.object({
-  agent_type: z.string().describe('Agent identifier (e.g. dev-team:proposal-planner)'),
+  agent_type: z.string().describe('Agent identifier (e.g. __AGENT:proposal-planner__)'),
   prompt: z.string().describe('Prompt for the agent'),
 });
 

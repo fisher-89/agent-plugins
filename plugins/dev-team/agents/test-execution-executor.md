@@ -14,7 +14,7 @@ The CLI handles all test execution, coverage parsing, and report generation — 
 Run the `dev-team test-execution` CLI command to generate the execution report:
 
 ```bash
-node plugins/dev-team/bin/dev-team-cli.cjs test-execution --change <change-name> --mutation-diff-only
+node __DEV_TEAM_ROOT__/bin/__BIN:cli__ test-execution --change <change-name> --mutation-diff-only
 ```
 
 Wait for the command to complete. The CLI handles framework detection, test execution, coverage measurement, and report generation — writing the summary report to `openspec/changes/<change-name>/reports/test/summary.json`.
@@ -87,7 +87,7 @@ Read `reports/test/summary.json` (use the latest report after any Step 1b re-run
     {
       "id": "plugins_dev-team_bin_vite-plus",
       "framework": "vite-plus",
-      "root": "plugins/dev-team/bin",
+      "root": "__DEV_TEAM_ROOT__/bin",
       "path": "openspec/changes/<change-name>/reports/test/plugins_dev-team_bin_vite-plus"
     }
   ]

@@ -1,5 +1,5 @@
 ---
-name: phase-code-review
+name: __SKILL:phase-code-review__
 description: |
   Code-review-evaluator inspects code diff against design.md.
   No Planner, no Generator. Runs once. Backtrack routing decisions made by skill.
@@ -9,18 +9,18 @@ disable-model-invocation: true
 ## Usage
 
 ```
-/dev-team:phase-code-review [change-name]
+__SKILL_SLASH:phase-code-review__ [change-name]
 ```
 
 ## Process
 
 ### Detect active change
 
-Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
+Call `__MCP:change_list__` to get active changes. If <change-name> is provided, use it. Otherwise, select the only one change or prompt user to select.
 
 ### Phase Check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state.
+Call `__MCP:phase_next__(change=<change-name>)` to get workflow state.
 
 If `next_phase` is "code-review" continue to `### Run Evaluator`.
 
@@ -36,7 +36,7 @@ Otherwise, follow the table bellow:
 **Backtrack**
 
 ```
-mcp__plugin_dev-team_dev-team__backtrack({
+__MCP:backtrack__({
   change: "<change-name>",
   phase: "<last_result.phase>",
   backtrack_to: "code-review",
@@ -44,7 +44,7 @@ mcp__plugin_dev-team_dev-team__backtrack({
 })
 ```
 
-If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Run Evaluator`.
+If response `modified` is true, recall `__MCP:phase_next__(change=<name>)`, continue to `### Run Evaluator`.
 
 ### Run Evaluator
 
@@ -61,7 +61,7 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
+result = __MCP:phase_next__(change=<change-name>)
 
 if result.last_result is null:
   → 错误：Evaluator 未正确写入 eval.json，停止

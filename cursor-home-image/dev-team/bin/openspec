@@ -1,0 +1,5 @@
+#!/usr/bin/env bash
+# Wrapper for embedded openspec CLI (standalone bundle)
+set -e
+SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
+exec node "$SCRIPT_DIR/openspec-bundled.js" "$@"

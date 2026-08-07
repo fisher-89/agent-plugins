@@ -84,7 +84,7 @@ If `failed === 0` and `total > 0`:
 
 ### Step 4: Append to eval.json
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` with `phase: "test-execution"` to write the evaluation result. Map each checklist item (T1-T4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
+Call `__MCP:phase_log__` with `phase: "test-execution"` to write the evaluation result. Map each checklist item (T1-T4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
 
 If the phase was skipped (total=0), pass `skipped: true` with an empty checklist.
 

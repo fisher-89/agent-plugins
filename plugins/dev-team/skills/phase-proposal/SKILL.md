@@ -1,5 +1,5 @@
 ---
-name: phase-proposal
+name: __SKILL:phase-proposal__
 description: Proposal-planner writes proposal.md + specs/, then evaluator checks. Loops on fail.
 disable-model-invocation: true
 ---
@@ -8,7 +8,7 @@ disable-model-invocation: true
 
 ### Resolve the target change
 
-Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
+Call `__MCP:change_list__()` to get active changes.
 
 **Decision tree based on user input and change list:**
 
@@ -66,7 +66,7 @@ Check if `openspec/changes/<name>/workflow.json` exists:
 
 ### Phase Check
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)` to get workflow state.
+Call `__MCP:phase_next__(change=<change-name>)` to get workflow state.
 
 If `next_phase` is "proposal" continue to `### Explore handoff`.
 
@@ -82,7 +82,7 @@ Otherwise, follow the table bellow:
 **Backtrack**
 
 ```
-mcp__plugin_dev-team_dev-team__backtrack({
+__MCP:backtrack__({
   change: "<change-name>",
   phase: "<last_result.phase>",
   backtrack_to: "proposal",
@@ -90,7 +90,7 @@ mcp__plugin_dev-team_dev-team__backtrack({
 })
 ```
 
-If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>)`, continue to `### Explore handoff`.
+If response `modified` is true, recall `__MCP:phase_next__(change=<name>)`, continue to `### Explore handoff`.
 
 ### Explore handoff
 
@@ -140,7 +140,7 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>)
+result = __MCP:phase_next__(change=<change-name>)
 
 if result.last_result is null:
   → 错误：Evaluator 未正确写入 eval.json，停止
