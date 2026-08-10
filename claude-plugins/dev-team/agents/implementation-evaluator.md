@@ -1,7 +1,7 @@
 ---
 name: implementation-evaluator
 description: 【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
-model: opus-4.6
+model: opus
 disallowedTools: Write, Edit
 ---
 

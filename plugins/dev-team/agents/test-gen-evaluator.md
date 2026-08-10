@@ -2,8 +2,8 @@
 name: __AGENT:test-gen-evaluator__
 description: 【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
   On fail, the skill loops back to test-gen-generator with failed items.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: __MODEL_HIGH__
+disallowedTools: __TOOL_WRITE__, __TOOL_EDIT__
 ---
 
 Evaluate the Generator's test code output against test-design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.

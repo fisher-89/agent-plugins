@@ -1,7 +1,7 @@
 ---
 name: __AGENT:acceptance-evaluator__
 description: 【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
-model: opus-4.6
+model: __MODEL_HIGH__
 tools: Read, Grep, LSP, __MCP:phase_log__
 ---
 

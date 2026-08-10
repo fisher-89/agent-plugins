@@ -1,7 +1,7 @@
 ---
 name: code-analyze-planner
 description: 【use proactively】Reverse-engineers existing code architecture and writes design.md for test-only workflows.
-model: opus-4.6
+model: opus
 memory: project
 ---
 

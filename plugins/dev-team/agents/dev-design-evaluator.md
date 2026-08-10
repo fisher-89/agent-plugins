@@ -1,8 +1,8 @@
 ---
 name: __AGENT:dev-design-evaluator__
 description: 【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: __MODEL_HIGH__
+disallowedTools: __TOOL_WRITE__, __TOOL_EDIT__
 ---
 
 Evaluate design.md against this static checklist and invoke the dev-team MCP phase_log tool to write the result.

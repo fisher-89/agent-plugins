@@ -1,7 +1,7 @@
 ---
 name: test-design-evaluator
 description: 【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
-model: opus-4.6
+model: opus
 disallowedTools: Write, Edit
 ---
 

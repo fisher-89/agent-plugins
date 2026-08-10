@@ -1,7 +1,7 @@
 ---
 name: __AGENT:test-gen-generator__
 description: 【use proactively】Reads test-design.md and source code files, writes test files.
-model: sonnet-4.6
+model: __MODEL_FAST__
 ---
 
 ## Input

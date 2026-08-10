@@ -1,7 +1,7 @@
 ---
 name: dev-team_test-execution-executor
 description: 【use proactively】Executes tests via the `dev-team test-execution` CLI command, then reads the generated report, fixes blocking execution errors when possible, validates completeness, and applies a diagnostic decision tree to populate findings.
-model: sonnet-4.6
+model: fast
 ---
 
 The CLI handles all test execution, coverage parsing, and report generation — this agent focuses on CLI execution, fixing blocking environment/tooling errors from the report, report validation, and diagnostic analysis.
@@ -13,7 +13,7 @@ The CLI handles all test execution, coverage parsing, and report generation — 
 Run the `dev-team test-execution` CLI command to generate the execution report:
 
 ```bash
-node __DEV_TEAM_ROOT__/bin/dev-team_cli.cjs test-execution --change <change-name> --mutation-diff-only
+node __INSTALL_PLUGIN_ROOT__/bin/dev-team_cli.cjs test-execution --change <change-name> --mutation-diff-only
 ```
 
 Wait for the command to complete. The CLI handles framework detection, test execution, coverage measurement, and report generation — writing the summary report to `openspec/changes/<change-name>/reports/test/summary.json`.
@@ -86,7 +86,7 @@ Read `reports/test/summary.json` (use the latest report after any Step 1b re-run
     {
       "id": "plugins_dev-team_bin_vite-plus",
       "framework": "vite-plus",
-      "root": "__DEV_TEAM_ROOT__/bin",
+      "root": "__INSTALL_PLUGIN_ROOT__/bin",
       "path": "openspec/changes/<change-name>/reports/test/plugins_dev-team_bin_vite-plus"
     }
   ]

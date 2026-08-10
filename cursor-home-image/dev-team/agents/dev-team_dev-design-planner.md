@@ -1,7 +1,7 @@
 ---
 name: dev-team_dev-design-planner
 description: 【use proactively】Reads proposal.md and writes design.md and tasks.md.
-model: opus-4.6
+model: inherit
 memory: project
 ---
 
@@ -12,7 +12,7 @@ Write a comprehensive design.md and tasks.md based on the proposal.
 Read:
 
 - `openspec/changes/<change-name>/proposal.md` — requirements and acceptance criteria
-- `__DEV_TEAM_ROOT__/templates/artifacts/design.md.template` — suggested structure
+- `__INSTALL_PLUGIN_ROOT__/templates/artifacts/design.md.template` — suggested structure
 - `openspec/changes/<change-name>/design.md` if exist — previous design
 - The project's CLAUDE.md and existing codebase for context
 

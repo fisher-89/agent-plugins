@@ -13,8 +13,8 @@ disable-model-invocation: true
 
 **除下文Steps指定步骤外，禁止直接执行以下操作：**
 
-- **禁止**改代码（Write / Edit）
-- **禁止**执行测试或运行 shell 命令（Bash）
+- **禁止**改代码（Write / StrReplace）
+- **禁止**执行测试或运行 shell 命令（Shell）
 - **禁止**调用 phase_log（应由 evaluator subagent 负责）
 
 ## Steps
@@ -31,15 +31,15 @@ Call `mcp__plugin_dev-team_dev-team__change_list()` to get active changes.
    - If **active changes exist**, judge whether the description semantically relates to an existing change.
      - **Confident it matches an existing change** → use that change, skip to Step 2.
      - **Confident it is unrelated to any existing change** → treat as a new change. Derive a kebab-case name and proceed to Step 1.
-     - **Uncertain** → use `AskUserQuestion` to present the potentially matching change(s) plus a "Create a new change" option.
+     - **Uncertain** → use `AskQuestion` to present the potentially matching change(s) plus a "Create a new change" option.
 3. **No parameter provided AND exactly one active change exists** → auto-select that change, skip to Step 2.
-4. **No parameter provided AND multiple active changes exist** → use `AskUserQuestion` to present the list plus "Other — describe a new change".
+4. **No parameter provided AND multiple active changes exist** → use `AskQuestion` to present the list plus "Other — describe a new change".
 5. **No parameter provided AND zero active changes exist**:
    - List `openspec/explores/*.md` (topic-named drafts).
      - **Exactly one draft** → use its stem as the change name (confirm if unclear), proceed to Step 1.
-     - **Multiple drafts** → `AskUserQuestion` to pick a draft or describe a new change.
+     - **Multiple drafts** → `AskQuestion` to pick a draft or describe a new change.
      - **No drafts** but conversation has **explore signals** → derive kebab-case name from topic, proceed to Step 1.
-     - **Otherwise** → `AskUserQuestion`: "What change do you want to work on?"
+     - **Otherwise** → `AskQuestion`: "What change do you want to work on?"
 
 **IMPORTANT**: Do NOT proceed without a resolved change name.
 
@@ -61,7 +61,7 @@ Write `openspec/changes/<change-name>/workflow.json`:
 
 1. Under `openspec/explores/`, find a file whose stem matches `<change-name>` or clearly matches the topic.
 2. One match and change `explore.md` missing → move to `openspec/changes/<change-name>/explore.md`.
-3. Multiple candidates → `AskUserQuestion` which to promote (or skip).
+3. Multiple candidates → `AskQuestion` which to promote (or skip).
 4. No draft → continue without change `explore.md`.
 
 ### Step 2: Orchestration loop
@@ -91,7 +91,7 @@ LOOP:
           backtrack_to: "<从 report 分析出的目标 phase，必须在gate.allowed_backtrack_phases中>",
           backtrack_reason: "<从 report 提取的原因>"
         })
-      - ask-user：AskUserQuestion 请求用户选择：
+      - ask-user：AskQuestion 请求用户选择：
         - 重试（继续 LOOP）
         - 回溯到指定 phase
         - 停止
@@ -102,7 +102,7 @@ LOOP:
     inbox = openspec/explores/<topic-kebab>.md  (explore-owned drafts)
     if target missing:
       promote matching draft from inbox (stem == change name or single obvious match) via move
-      if multiple candidates → AskUserQuestion
+      if multiple candidates → AskQuestion
     else if target exists and conversation has new insights not in file → Append (default)
     Do NOT invent a full first draft from conversation when it should live in openspec/explores/ first
     CRITICAL: Do NOT append explore body / EXPLORE_CONTEXT_SUMMARY to gate.executor.prompt

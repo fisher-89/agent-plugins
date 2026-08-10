@@ -46,16 +46,8 @@ describe('applyEnvTokens', () => {
 
   it('plugin env 默认展开路径 token 为 contentRoot / runtimeRoot', () => {
     const env = getEnv('claude');
-    const text = 'root=__DEV_TEAM_ROOT__; runtime=__DEV_TEAM_RUNTIME_ROOT__';
-    expect(applyEnvTokens(text, env)).toBe(`root=${env.contentRoot}; runtime=${env.runtimeRoot}`);
-  });
-
-  it('cursorHome + pathTokens:false 时展开名称 token 并保留路径 token', () => {
-    const env = getEnv('cursorHome');
-    const text = '__SKILL:explore__ @ __DEV_TEAM_ROOT__/bin/__BIN:hooks__';
-    expect(applyEnvTokens(text, env, { pathTokens: false })).toBe(
-      'dev-team_explore @ __DEV_TEAM_ROOT__/bin/dev-team_hooks.cjs',
-    );
+    const text = 'root=__DEV_TEAM_ROOT__;';
+    expect(applyEnvTokens(text, env)).toBe(`root=${env.pluginRoot};`);
   });
 
   it('text 为 null / undefined 时抛错', () => {
@@ -114,23 +106,9 @@ describe('applyEnvTokens', () => {
     );
   });
 
-  it('options 为 {} / undefined 时路径行为遵循 pathReplacePhase 默认', () => {
-    const plugin = getEnv('claude');
+  it('强制展开路径 token（安装期）', () => {
     const home = getEnv('cursorHome');
-    const text = '__DEV_TEAM_ROOT__';
-    expect(applyEnvTokens(text, plugin, {})).toBe(plugin.contentRoot);
-    expect(applyEnvTokens(text, plugin)).toBe(plugin.contentRoot);
-    expect(applyEnvTokens(text, home, {})).toBe('__DEV_TEAM_ROOT__');
-    expect(applyEnvTokens(text, home)).toBe('__DEV_TEAM_ROOT__');
-  });
-
-  it('options.pathTokens:true 强制展开路径 token（安装期）', () => {
-    const home = getEnv('cursorHome');
-    expect(applyEnvTokens('__DEV_TEAM_ROOT__/x', home, { pathTokens: true })).toBe(
-      `${home.contentRoot}/x`,
-    );
-    expect(applyEnvTokens('__DEV_TEAM_RUNTIME_ROOT__/y', home, { pathTokens: true })).toBe(
-      `${home.runtimeRoot}/y`,
-    );
+    expect(applyEnvTokens('__DEV_TEAM_ROOT__/x', home)).toBe(`${home.pluginRoot}/x`);
+    expect(applyEnvTokens('__DEV_TEAM_ROOT__/y', home)).toBe(`${home.pluginRoot}/y`);
   });
 });

@@ -1,7 +1,7 @@
 ---
 name: implementation-generator
 description: 【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
-model: sonnet-4.6
+model: sonnet
 ---
 
 Implement pending tasks by writing code changes directly to disk.

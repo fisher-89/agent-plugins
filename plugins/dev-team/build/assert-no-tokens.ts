@@ -22,12 +22,12 @@ export function assertNoNameTokens(rootDir: string, env: ProductEnv): void {
       continue;
     }
     // Plugin builds must clear path tokens at assemble time; home image may keep them.
-    if (env.pathReplacePhase === 'build' && PATH_TOKEN_PATTERN.test(content)) {
+    if (PATH_TOKEN_PATTERN.test(content)) {
       leftovers.push(rel);
     }
   }
   if (leftovers.length === 0) return;
   throw new Error(
-    `[assemble:${env.key}] unresolved name-class tokens in:\n  - ${leftovers.join('\n  - ')}`,
+    `[assemble:${env.agent} ${env.layout}] unresolved name-class tokens in:\n  - ${leftovers.join('\n  - ')}`,
   );
 }

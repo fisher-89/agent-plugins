@@ -17,7 +17,7 @@ Archive a completed change in the experimental workflow.
 
 1. **If no change name provided, prompt for selection**
 
-   Call `mcp__plugin_dev-team_dev-team__change_list` to get available changes. Use the **AskUserQuestion tool** to let the user select.
+   Call `mcp__plugin_dev-team_dev-team__change_list` to get available changes. Use the `AskUserQuestion` to let the user select.
 
    Show only active changes (not already archived).
    Include the schema used for each change if available.
@@ -34,7 +34,7 @@ Archive a completed change in the experimental workflow.
 
    **If any artifacts are not `done`:**
    - Display warning listing incomplete artifacts
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
+   - Use `AskUserQuestion` to confirm user wants to proceed
    - Proceed if user confirms
 
 3. **Check phase evaluation status**
@@ -48,7 +48,7 @@ Archive a completed change in the experimental workflow.
 
    **If eval check fails:**
    - Display warning with the eval check failure message
-   - Use **AskUserQuestion tool** to confirm user wants to proceed
+   - Use `AskUserQuestion` to confirm user wants to proceed
    - Proceed if user confirms
 
    **If eval.json not found:** Proceed without eval-related warning.

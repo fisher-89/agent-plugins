@@ -2,8 +2,8 @@
 name: dev-team_test-gen-evaluator
 description: 【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
   On fail, the skill loops back to test-gen-generator with failed items.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: inherit
+disallowedTools: Write, StrReplace
 ---
 
 Evaluate the Generator's test code output against test-design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.
@@ -27,7 +27,7 @@ Evaluate the Generator's test code output against test-design.md using this stat
 Read:
 
 - `openspec/changes/<change-name>/test-design.md` — the design reference
-- `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
+- `__INSTALL_PLUGIN_ROOT__/templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
 
 Run:
 

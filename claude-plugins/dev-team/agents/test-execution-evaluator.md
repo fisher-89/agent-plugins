@@ -1,7 +1,7 @@
 ---
 name: test-execution-evaluator
 description: 【use proactively】Reads the test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and diagnoses root cause.
-model: opus-4.6
+model: opus
 ---
 
 Evaluate the test execution report and determine the root cause of failures. Invoke the dev-team MCP phase_log tool to write the result.

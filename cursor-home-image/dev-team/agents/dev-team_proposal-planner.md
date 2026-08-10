@@ -1,7 +1,7 @@
 ---
 name: dev-team_proposal-planner
 description: 【use proactively】Reads project context and writes proposal.md and specs/ artifacts.
-model: opus-4.6
+model: inherit
 memory: project
 ---
 
@@ -11,7 +11,7 @@ Write a comprehensive proposal.md and specs/ based on the change description and
 
 Read:
 
-- `__DEV_TEAM_ROOT__/templates/artifacts/proposal.md.template` — required structure for convergence
+- `__INSTALL_PLUGIN_ROOT__/templates/artifacts/proposal.md.template` — required structure for convergence
 - The project's CLAUDE.md and existing codebase for context
 - `openspec spec list --json` for the change name to get existing capabilities
 - `openspec/changes/<change-name>/explore.md` — **if it exists, MUST Read** (free-form; no assumed sections). Drafts under `openspec/explores/` are promoted into this path by phase/workflow skills before you run; do not read the inbox unless the change file is missing and a single matching draft remains.
@@ -28,7 +28,7 @@ Do **not** expect inline `EXPLORE_CONTEXT_SUMMARY` in the prompt. Explore contex
 4. Read existing `proposal.md` and relevant `specs/` if present
 5. Query existing capabilities:
    ```bash
-   source __DEV_TEAM_ROOT__/utils/openspec-cli.sh && openspec_spec_list "<name>"
+   source __INSTALL_PLUGIN_ROOT__/utils/openspec-cli.sh && openspec_spec_list "<name>"
    ```
    Parse JSON array to classify each capability as 新增 or 修改. If CLI fails or returns `[]`, assume no existing capabilities.
 6. Produce `openspec/changes/<change-name>/proposal.md` using the template structure:

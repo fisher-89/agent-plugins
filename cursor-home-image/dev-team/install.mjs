@@ -78,7 +78,7 @@ function expandHomePathTokens(text, absoluteRoot) {
 }
 function expandPathTokens(text, absoluteRoot) {
 	const normalized = absoluteRoot.replace(/\\/g, "/");
-	return text.replaceAll("__DEV_TEAM_ROOT__", normalized).replaceAll("__DEV_TEAM_RUNTIME_ROOT__", normalized);
+	return text.replaceAll("__INSTALL_PLUGIN_ROOT__", normalized);
 }
 function writeExpanded(srcFile, destFile, absoluteRoot) {
 	mkdirSync(path.dirname(destFile), { recursive: true });

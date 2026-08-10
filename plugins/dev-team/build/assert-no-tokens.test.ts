@@ -33,12 +33,6 @@ describe('assertNoNameTokens', () => {
     expect(() => assertNoNameTokens(root, getEnv('claude'))).not.toThrow();
   });
 
-  it('cursorHome env 下文件仍含路径 token 时不抛错', () => {
-    const root = makeTempDir();
-    writeFileSync(join(root, 'hooks.md'), 'node "__DEV_TEAM_ROOT__/bin/dev-team_hooks.cjs"\n');
-    expect(() => assertNoNameTokens(root, getEnv('cursorHome'))).not.toThrow();
-  });
-
   it('任意 env 下文件含名称类 token 残留时抛错', () => {
     const root = makeTempDir();
     writeFileSync(join(root, 'bad.md'), 'call __MCP:phase_log__\n');

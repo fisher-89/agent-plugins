@@ -104,9 +104,7 @@ export function expandHomePathTokens(text: unknown, absoluteRoot: unknown): stri
 
 function expandPathTokens(text: string, absoluteRoot: string): string {
   const normalized = absoluteRoot.replace(/\\/g, '/');
-  return text
-    .replaceAll('__DEV_TEAM_ROOT__', normalized)
-    .replaceAll('__DEV_TEAM_RUNTIME_ROOT__', normalized);
+  return text.replaceAll('__INSTALL_PLUGIN_ROOT__', normalized);
 }
 
 function writeExpanded(srcFile: string, destFile: string, absoluteRoot: string): void {

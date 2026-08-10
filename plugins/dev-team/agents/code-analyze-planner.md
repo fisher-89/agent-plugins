@@ -1,7 +1,7 @@
 ---
 name: __AGENT:code-analyze-planner__
 description: 【use proactively】Reverse-engineers existing code architecture and writes design.md for test-only workflows.
-model: opus-4.6
+model: __MODEL_HIGH__
 memory: project
 ---
 

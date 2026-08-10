@@ -1,7 +1,7 @@
 ---
 name: dev-team_test-design-planner
 description: 【use proactively】Reads proposal.md and design.md, greps source code for real API signatures, writes test-design.md following the test-design template.
-model: opus-4.6
+model: inherit
 memory: project
 ---
 
@@ -10,7 +10,7 @@ memory: project
 1. Determine the active change name
 2. **Read** `openspec/changes/<change-name>/proposal.md` to understand 变更范围、验收标准
 3. **Read** `openspec/changes/<change-name>/design.md` to understand 架构组件、决策、依赖
-4. **Read** `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` to learn structure
+4. **Read** `__INSTALL_PLUGIN_ROOT__/templates/artifacts/test-design.md.template` to learn structure
 5. **Read** `openspec/changes/<change-name>/test-design.md` if exist to understand previous test design
 6. **Grep** source code to extract existing test files and **Read** all test files relevant to the current change
 7. 从 design.md 的变更范围与 Grep 结果汇总**精确模块列表**（文件路径或目录路径，相对于项目根目录）

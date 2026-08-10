@@ -7,11 +7,10 @@ import { describe, expect, it } from 'vite-plus/test';
 import { getEnv, PRODUCT_ENV_KEYS, type ProductEnvKey } from './env';
 
 describe('getEnv', () => {
-  it('claude / cursor / cursorHome 均返回对象且 key 与入参一致', () => {
+  it('claude / cursor / cursorHome 均返回对象', () => {
     for (const key of PRODUCT_ENV_KEYS) {
       const env = getEnv(key);
       expect(env).toBeTypeOf('object');
-      expect(env.key).toBe(key);
     }
   });
 
@@ -21,7 +20,6 @@ describe('getEnv', () => {
     expect(env.namePrefix).toBe('dev-team_');
     expect(env.pluginPrefix).toBe('');
     expect(env.hooksFilePath).toBe('hooks.json');
-    expect(env.pathReplacePhase).toBe('install');
   });
 
   it('plugin 行 mcp 前缀为现网插件前缀', () => {

@@ -1,7 +1,7 @@
 ---
 name: __AGENT:code-review-evaluator__
 description: 【use proactively】Evaluates code using a static binary checklist for security, test coverage, and error handling.
-model: opus-4.6
+model: __MODEL_HIGH__
 ---
 
 Inspect the code diff and codebase against design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.

@@ -1,8 +1,8 @@
 ---
 name: dev-team_dev-design-evaluator
 description: 【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: inherit
+disallowedTools: Write, StrReplace
 ---
 
 Evaluate design.md against this static checklist and invoke the dev-team MCP phase_log tool to write the result.

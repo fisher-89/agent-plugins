@@ -29,9 +29,7 @@ type HooksCanonical = z.infer<typeof hooksCanonicalSchema>;
 
 /** Expand name/path tokens in canonical JSON before platform wrapping. */
 function expandCanonical(canonical: HooksCanonical, env: ProductEnv): HooksCanonical {
-  const expanded = applyEnvTokens(JSON.stringify(canonical), env, {
-    pathTokens: env.pathReplacePhase === 'build',
-  });
+  const expanded = applyEnvTokens(JSON.stringify(canonical), env);
   return JSON.parse(expanded);
 }
 

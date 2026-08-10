@@ -95,11 +95,10 @@ function copyStagingBins(env: ProductEnv): string[] {
 }
 
 function applyTokensInTree(env: ProductEnv): void {
-  const pathTokens = env.pathReplacePhase === 'build';
   for (const rel of scanTextFiles(env.outDir)) {
     const filePath = join(env.outDir, rel);
     const before = readFileSync(filePath, 'utf-8');
-    const after = applyEnvTokens(before, env, { pathTokens });
+    const after = applyEnvTokens(before, env);
     if (after !== before) writeFileSync(filePath, after, 'utf-8');
   }
 }
@@ -115,10 +114,8 @@ function writeHooks(env: ProductEnv): void {
 
 function writeMcp(env: ProductEnv): void {
   const serverKey = env.layout === 'home-image' ? 'dev-team_mcp' : 'dev-team';
-  const binName = applyEnvTokens('__BIN:mcp__', env, { pathTokens: false });
-  const argsPath = applyEnvTokens(`__DEV_TEAM_RUNTIME_ROOT__/bin/${binName}`, env, {
-    pathTokens: env.pathReplacePhase === 'build',
-  }).replace(/\\/g, '/');
+  const binName = applyEnvTokens('__BIN:mcp__', env);
+  const argsPath = applyEnvTokens(`__DEV_TEAM_ROOT__/bin/${binName}`, env).replace(/\\/g, '/');
   const doc = {
     mcpServers: {
       [serverKey]: {
@@ -134,7 +131,7 @@ function writeMcp(env: ProductEnv): void {
 async function writePluginManifest(env: ProductEnv): Promise<void> {
   if (env.layout !== 'plugin') return;
   const { version } = await import('../package.json');
-  const rel = env.key === 'claude' ? '.claude-plugin/plugin.json' : '.cursor-plugin/plugin.json';
+  const rel = env.agent === 'claude' ? '.claude-plugin/plugin.json' : '.cursor-plugin/plugin.json';
   const doc = {
     name: 'dev-team',
     description: 'A plugin for enhancing development workflow with OpenSpec integration',

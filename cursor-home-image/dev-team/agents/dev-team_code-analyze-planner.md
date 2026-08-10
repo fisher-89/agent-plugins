@@ -1,7 +1,7 @@
 ---
 name: dev-team_code-analyze-planner
 description: 【use proactively】Reverse-engineers existing code architecture and writes design.md for test-only workflows.
-model: opus-4.6
+model: inherit
 memory: project
 ---
 
@@ -12,7 +12,7 @@ Reverse-engineer the architecture of already-implemented code and write design.m
 Read:
 
 - `openspec/changes/<change-name>/proposal.md` — test coverage scope and acceptance criteria
-- `__DEV_TEAM_ROOT__/templates/artifacts/design.md.template` — suggested structure
+- `__INSTALL_PLUGIN_ROOT__/templates/artifacts/design.md.template` — suggested structure
 - The project's CLAUDE.md and existing codebase for context
 
 ## Process

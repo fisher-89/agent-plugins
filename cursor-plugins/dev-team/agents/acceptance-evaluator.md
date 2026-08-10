@@ -1,7 +1,7 @@
 ---
 name: acceptance-evaluator
 description: 【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
-model: opus-4.6
+model: inherit
 tools: Read, Grep, LSP, mcp__plugin_dev-team_dev-team__phase_log
 ---
 

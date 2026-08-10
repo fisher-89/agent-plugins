@@ -16,11 +16,11 @@ const FIXTURE = {
   preToolUse: [
     {
       matchers: { claude: 'Write|Edit', cursor: 'Write|StrReplace' },
-      commandTemplate: 'node "__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__" protect-files',
+      commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" protect-files',
     },
     {
       matchers: { claude: 'Bash', cursor: 'Shell' },
-      commandTemplate: 'node "__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__" protect-files',
+      commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" protect-files',
     },
   ],
   subagentStop: [
@@ -30,7 +30,7 @@ const FIXTURE = {
         cursor: '__AGENT:implementation-generator__',
       },
       loop_limit: 5,
-      commandTemplate: 'node "__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__" static-check',
+      commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" static-check',
     },
   ],
 };
@@ -109,11 +109,11 @@ describe('buildHooksFile', () => {
     expect(home.hooks.preToolUse[0]?.command).toContain('dev-team_hooks.cjs');
   });
 
-  it('cursorHome 下路径 token 可仍保留在 command 中', () => {
+  it('cursorHome 下路径 token 已替换', () => {
     const home = JSON.parse(buildHooksFile(FIXTURE, getEnv('cursorHome'))) as {
       hooks: { preToolUse: Array<{ command: string }> };
     };
-    expect(home.hooks.preToolUse[0]?.command).toContain('__DEV_TEAM_RUNTIME_ROOT__');
+    expect(home.hooks.preToolUse[0]?.command).not.toContain('__DEV_TEAM_ROOT__');
   });
 
   it('canonical 事件数组为空时产出合法最小 JSON 且不崩溃', () => {

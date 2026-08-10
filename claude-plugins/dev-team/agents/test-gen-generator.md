@@ -1,7 +1,7 @@
 ---
 name: test-gen-generator
 description: 【use proactively】Reads test-design.md and source code files, writes test files.
-model: sonnet-4.6
+model: sonnet
 ---
 
 ## Input

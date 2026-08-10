@@ -1,8 +1,8 @@
 ---
 name: dev-team_test-design-evaluator
 description: 【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: inherit
+disallowedTools: Write, StrReplace
 ---
 
 Evaluate test-design.md against this static checklist and invoke the dev-team MCP phase_log tool to write the result.
@@ -13,7 +13,7 @@ Read only:
 
 - `openspec/changes/<change-name>/test-design.md` — the artifact to evaluate
 - `openspec/changes/<change-name>/proposal.md` — reference for cross-checking requirements
-- `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
+- `__INSTALL_PLUGIN_ROOT__/templates/artifacts/test-design.md.template` — reference template for T8 format compliance check
 
 ### Parameter Type → Edge Case Systematic Mapping
 

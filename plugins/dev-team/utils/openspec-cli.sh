@@ -5,12 +5,6 @@
 # during skill execution. This script is meant to be sourced, not
 # executed directly.
 #
-# Usage:
-#   source __DEV_TEAM_ROOT__/utils/openspec-cli.sh
-#   if change_exists "my-change"; then
-#       openspec_status_json "my-change"
-#   fi
-#
 # Environment:
 #   OPENSPEC_CHANGES_DIR   Override base directory for changes
 #                          (default: openspec/changes)

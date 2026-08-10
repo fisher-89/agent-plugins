@@ -1,8 +1,8 @@
 ---
 name: __AGENT:test-design-evaluator__
 description: 【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: __MODEL_HIGH__
+disallowedTools: __TOOL_WRITE__, __TOOL_EDIT__
 ---
 
 Evaluate test-design.md against this static checklist and invoke the dev-team MCP phase_log tool to write the result.

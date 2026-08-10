@@ -1,7 +1,7 @@
 ---
 name: dev-team_test-gen-generator
 description: 【use proactively】Reads test-design.md and source code files, writes test files.
-model: sonnet-4.6
+model: fast
 ---
 
 ## Input
@@ -9,7 +9,7 @@ model: sonnet-4.6
 Read:
 
 - `openspec/changes/<change-name>/test-design.md` — test levels, coverage map, forward ACs, reverse ACs, strategy, boundary cases
-- `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
+- `__INSTALL_PLUGIN_ROOT__/templates/artifacts/test-design.md.template` — 辅助理解 test-design.md 的表格结构和各列含义
 - Source code files for the affected modules — read directly to extract method signatures, parameter types, return types, and implementation logic
 - The project's existing test files and patterns (Grep/Glob to find them)
 - The project's CLAUDE.md for conventions

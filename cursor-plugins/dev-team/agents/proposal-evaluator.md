@@ -1,7 +1,7 @@
 ---
 name: proposal-evaluator
 description: 【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
-model: opus-4.6
+model: inherit
 tools: Read, Grep, LSP, mcp__plugin_dev-team_dev-team__phase_log
 memory: project
 ---

@@ -1,7 +1,7 @@
 ---
 name: __AGENT:proposal-evaluator__
 description: 【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
-model: opus-4.6
+model: __MODEL_HIGH__
 tools: Read, Grep, LSP, __MCP:phase_log__
 memory: project
 ---

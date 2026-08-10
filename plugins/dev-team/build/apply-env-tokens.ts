@@ -1,10 +1,5 @@
 import type { ProductEnv } from './env';
 
-export interface ApplyEnvTokensOptions {
-  /** When false, leave path tokens untouched. Default: expand when pathReplacePhase==='build'. */
-  pathTokens?: boolean;
-}
-
 const NAME_TOKEN_REPLACERS: Array<{
   pattern: RegExp;
   resolve: (env: ProductEnv, id: string) => string;
@@ -35,26 +30,21 @@ const NAME_TOKEN_REPLACERS: Array<{
   },
 ];
 
-function shouldExpandPathTokens(env: ProductEnv, options?: ApplyEnvTokensOptions): boolean {
-  if (options?.pathTokens === false) return false;
-  if (options?.pathTokens === true) return true;
-  return env.pathReplacePhase === 'build';
-}
-
-export function applyEnvTokens(
-  text: string,
-  env: ProductEnv,
-  options?: ApplyEnvTokensOptions,
-): string {
+export function applyEnvTokens(text: string, env: ProductEnv): string {
   let result = text;
   for (const { pattern, resolve } of NAME_TOKEN_REPLACERS) {
     pattern.lastIndex = 0;
     result = result.replace(pattern, (_match, id: string) => resolve(env, id));
   }
-  if (shouldExpandPathTokens(env, options)) {
-    result = result
-      .replaceAll('__DEV_TEAM_ROOT__', env.contentRoot)
-      .replaceAll('__DEV_TEAM_RUNTIME_ROOT__', env.runtimeRoot);
-  }
+  result = result
+    .replaceAll('__DEV_TEAM_ROOT__', env.pluginRoot)
+    .replaceAll('__MODEL_HIGH__', env.modelHigh)
+    .replaceAll('__MODEL_FAST__', env.modelFast)
+    .replaceAll('__TOOL_WRITE__', env.toolWrite)
+    .replaceAll('__TOOL_EDIT__', env.toolEdit)
+    .replaceAll('__TOOL_BASH__', env.toolBash)
+    .replaceAll('__TOOL_CMD__', env.toolCmd)
+    .replaceAll('__TOOL_ASK_USER__', env.toolAskUser)
+    .replaceAll('__AGENT_GENERAL_PURPOSE__', env.agentGeneralPurpose);
   return result;
 }

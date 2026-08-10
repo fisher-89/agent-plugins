@@ -1,7 +1,7 @@
 ---
 name: dev-design-planner
 description: 【use proactively】Reads proposal.md and writes design.md and tasks.md.
-model: opus-4.6
+model: inherit
 memory: project
 ---
 

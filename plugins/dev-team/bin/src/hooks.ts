@@ -308,7 +308,13 @@ function evaluateToolAccess(raw: string, patterns: ProtectedPattern[]): string |
     return matchProtectedPath(filePath, patterns, toolName);
   }
 
-  if (toolName === 'Bash' || toolName === 'Shell') {
+  if (toolName === 'Shell') {
+    const command = toolInput?.command;
+    if (!command || typeof command !== 'string') return null;
+    return checkBashCommand(command, patterns) ?? checkPowerShellCommand(command, patterns);
+  }
+
+  if (toolName === 'Bash') {
     const command = toolInput?.command;
     if (!command || typeof command !== 'string') return null;
     return checkBashCommand(command, patterns);

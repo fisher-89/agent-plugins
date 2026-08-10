@@ -18,15 +18,15 @@ Call `mcp__user-dev-team_mcp__change_list()` to get active changes.
    - If **active changes exist**, judge whether the description semantically relates to an existing change (e.g., the description refines, extends, or refers to the same topic as an existing change name).
      - **Confident it matches an existing change** → use that change, skip to `### Confirm workflow type`.
      - **Confident it is unrelated to any existing change** → treat as a new change. Derive a kebab-case name and proceed to `### Create the change directory`.
-     - **Uncertain** → use `AskUserQuestion` to present the potentially matching change(s) plus a "Create a new change" option. Let the user decide.
+     - **Uncertain** → use `AskQuestion` to present the potentially matching change(s) plus a "Create a new change" option. Let the user decide.
 3. **No parameter provided AND exactly one active change exists** → auto-select that change, skip to `### Confirm workflow type`.
-4. **No parameter provided AND multiple active changes exist** → use `AskUserQuestion` to present the list of active changes (plus an "Other — describe a new change" option). If the user picks an existing change, skip to `### Confirm workflow type`. If the user describes a new change, derive a kebab-case name and proceed to `### Create the change directory`.
+4. **No parameter provided AND multiple active changes exist** → use `AskQuestion` to present the list of active changes (plus an "Other — describe a new change" option). If the user picks an existing change, skip to `### Confirm workflow type`. If the user describes a new change, derive a kebab-case name and proceed to `### Create the change directory`.
 5. **No parameter provided AND zero active changes exist**:
    - List `openspec/explores/*.md` (topic-named drafts).
      - **Exactly one draft** → use its stem as the kebab-case change name (confirm with user if unclear), proceed to `### Create the change directory`.
-     - **Multiple drafts** → `AskUserQuestion` to pick a draft (or "Other — describe a new change").
+     - **Multiple drafts** → `AskQuestion` to pick a draft (or "Other — describe a new change").
      - **No drafts** but conversation has **explore signals** → derive a kebab-case name from the explore topic and proceed to `### Create the change directory`.
-     - **Otherwise** → use `AskUserQuestion` (open-ended) to ask: "What change do you want to work on?" Derive a kebab-case name and proceed to `### Create the change directory`.
+     - **Otherwise** → use `AskQuestion` (open-ended) to ask: "What change do you want to work on?" Derive a kebab-case name and proceed to `### Create the change directory`.
 
 **IMPORTANT**: Do NOT proceed without a resolved change name.
 
@@ -42,7 +42,7 @@ Then **promote explore draft** (mechanical move, not rewrite):
 
 1. Look under `openspec/explores/` for a file whose stem matches `<name>` or clearly matches the topic.
 2. If **one** match and `openspec/changes/<name>/explore.md` does not exist → move that file to `openspec/changes/<name>/explore.md`.
-3. If **multiple** candidates → `AskUserQuestion` which draft to promote (or skip).
+3. If **multiple** candidates → `AskQuestion` which draft to promote (or skip).
 4. If **no** draft → leave change without `explore.md` for now (handoff may still append later).
 
 ### Confirm workflow type
@@ -50,7 +50,7 @@ Then **promote explore draft** (mechanical move, not rewrite):
 Check if `openspec/changes/<name>/workflow.json` exists:
 
 - **Already exists** → skip to `### Phase Check`.
-- **Does not exist** → use `AskUserQuestion` to confirm:
+- **Does not exist** → use `AskQuestion` to confirm:
 
   **Options:**
   - `requirement` — full development + test pipeline
@@ -103,7 +103,7 @@ Draft inbox: `openspec/explores/<topic-kebab>.md` (owned by explore; this skill 
 1. **Promote** (if change `explore.md` missing):
    - Find matching draft under `openspec/explores/` (stem equals change name, or single obvious topic match).
    - One match → **move** to `openspec/changes/<change-name>/explore.md`.
-   - Multiple → `AskUserQuestion` which to promote.
+   - Multiple → `AskQuestion` which to promote.
    - None → continue (planner can run without explore notes).
 2. **Append** only when change `explore.md` already exists and the conversation has **new** insights not in the file (default append; rewrite only if user asks). Prefer that explore itself wrote those notes; do not invent a full first draft from conversation when a draft file should have been captured in `openspec/explores/` instead.
 3. **Do NOT** paste explore body, conversation dumps, or `EXPLORE_CONTEXT_SUMMARY` into the subagent `prompt`.

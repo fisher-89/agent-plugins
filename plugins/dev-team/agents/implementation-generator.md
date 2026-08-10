@@ -1,7 +1,7 @@
 ---
 name: __AGENT:implementation-generator__
 description: 【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
-model: sonnet-4.6
+model: __MODEL_FAST__
 ---
 
 Implement pending tasks by writing code changes directly to disk.

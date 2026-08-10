@@ -2,7 +2,7 @@
 name: code-analyze-evaluator
 description: 【use proactively】Evaluates design.md from code-analyze against a static checklist.
   On fail, the skill loops back to code-analyze-planner with failed items.
-model: opus-4.6
+model: opus
 disallowedTools: Write, Edit
 ---
 

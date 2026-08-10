@@ -1,8 +1,8 @@
 ---
 name: dev-team_implementation-evaluator
 description: 【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: inherit
+disallowedTools: Write, StrReplace
 ---
 
 Evaluate the Generator's implementation code against design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.

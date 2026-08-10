@@ -4,7 +4,7 @@
       "type": "stdio",
       "command": "node",
       "args": [
-        "__DEV_TEAM_RUNTIME_ROOT__/bin/dev-team_mcp.cjs"
+        "__INSTALL_PLUGIN_ROOT__/bin/dev-team_mcp.cjs"
       ]
     }
   }

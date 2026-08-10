@@ -1,7 +1,7 @@
 ---
 name: dev-design-evaluator
 description: 【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
-model: opus-4.6
+model: opus
 disallowedTools: Write, Edit
 ---
 

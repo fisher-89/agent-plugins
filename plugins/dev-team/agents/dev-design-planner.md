@@ -1,7 +1,7 @@
 ---
 name: __AGENT:dev-design-planner__
 description: 【use proactively】Reads proposal.md and writes design.md and tasks.md.
-model: opus-4.6
+model: __MODEL_HIGH__
 memory: project
 ---
 

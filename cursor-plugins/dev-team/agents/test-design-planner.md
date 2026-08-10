@@ -1,7 +1,7 @@
 ---
 name: test-design-planner
 description: 【use proactively】Reads proposal.md and design.md, greps source code for real API signatures, writes test-design.md following the test-design template.
-model: opus-4.6
+model: inherit
 memory: project
 ---
 

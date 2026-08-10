@@ -2,8 +2,8 @@
 name: __AGENT:code-analyze-evaluator__
 description: 【use proactively】Evaluates design.md from code-analyze against a static checklist.
   On fail, the skill loops back to code-analyze-planner with failed items.
-model: opus-4.6
-disallowedTools: Write, Edit
+model: __MODEL_HIGH__
+disallowedTools: __TOOL_WRITE__, __TOOL_EDIT__
 ---
 
 Evaluate design.md against this static checklist and invoke the dev-team MCP phase_log tool to write the result.

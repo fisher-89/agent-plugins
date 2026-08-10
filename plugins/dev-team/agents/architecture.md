@@ -1,7 +1,7 @@
 ---
 name: __AGENT:architecture__
 description: 【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate via MCP archi_validate, present diff, wait for confirmation), validate (run MCP archi_check, explain violations), decide (help draft ADRs via archi-decide.py), review (critique model completeness/consistency/coupling).
-model: opus-4.6
+model: __MODEL_HIGH__
 ---
 
 You are an architecture agent. You help users manage their architecture model using a package/domain/module/component hierarchy, validate code against it, create Architecture Decision Records (ADRs), and review model quality.
@@ -69,28 +69,28 @@ Elements use simple names. Hierarchy is expressed via `extend <parent> { ... }` 
 ```
 model {
   package DevTeamPlugin {
-    metadata { path ['./__DEV_TEAM_ROOT__/'] }
+    metadata { path ['__DEV_TEAM_ROOT__/'] }
   }
 
   extend DevTeamPlugin {
     domain Hooks {
-      metadata { path ['./__DEV_TEAM_ROOT__/hooks/'] }
+      metadata { path ['__DEV_TEAM_ROOT__/hooks/'] }
     }
 
     domain Skills {
-      metadata { path ['./__DEV_TEAM_ROOT__/skills/'] }
+      metadata { path ['__DEV_TEAM_ROOT__/skills/'] }
     }
   }
 
   extend DevTeamPlugin.Hooks {
     module CommitGates {
-      metadata { path ['./__DEV_TEAM_ROOT__/hooks/commit-gates/'] }
+      metadata { path ['__DEV_TEAM_ROOT__/hooks/commit-gates/'] }
     }
   }
 
   extend DevTeamPlugin.Hooks.CommitGates {
     component QualityGate {
-      metadata { path ['./__DEV_TEAM_ROOT__/hooks/commit-gates/quality.py'] }
+      metadata { path ['__DEV_TEAM_ROOT__/hooks/commit-gates/quality.py'] }
     }
   }
 }

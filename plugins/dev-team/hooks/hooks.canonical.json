@@ -6,21 +6,21 @@
         "claude": "Write|Edit",
         "cursor": "Write|StrReplace"
       },
-      "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" protect-files"
+      "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" protect-files"
     },
     {
       "matchers": {
         "claude": "Bash",
         "cursor": "Shell"
       },
-      "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" protect-files"
+      "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" protect-files"
     },
     {
       "matchers": {
         "claude": "PowerShell",
         "cursor": null
       },
-      "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" protect-files"
+      "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" protect-files"
     }
   ],
   "subagentStop": [
@@ -30,7 +30,7 @@
         "cursor": "__AGENT:implementation-generator__"
       },
       "loop_limit": 5,
-      "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" static-check"
+      "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" static-check"
     },
     {
       "matchers": {
@@ -38,7 +38,7 @@
         "cursor": "__AGENT:test-gen-generator__"
       },
       "loop_limit": 5,
-      "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" static-check"
+      "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" static-check"
     }
   ]
 }
