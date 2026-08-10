@@ -7,7 +7,7 @@ disable-model-invocation: true
 ## Usage
 
 ```
-__SKILL_SLASH:phase-test-design__ [change-name]
+__CALL_SKILL:phase-test-design__ [change-name]
 ```
 
 ## Process

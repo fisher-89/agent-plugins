@@ -7,7 +7,7 @@ disable-model-invocation: true
 ## Usage
 
 ```
-/dev-team:phase-test-design [change-name]
+dev-team:phase-test-design [change-name]
 ```
 
 ## Process

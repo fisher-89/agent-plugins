@@ -19,15 +19,15 @@ describe('getEnv', () => {
     const env = getEnv('cursorHome');
     expect(env.mcpToolPrefix).toBe('mcp__user-dev-team_mcp__');
     expect(env.namePrefix).toBe('dev-team_');
-    expect(env.hooksProfile).toBe('cursorNative');
+    expect(env.pluginPrefix).toBe('');
+    expect(env.hooksFilePath).toBe('hooks.json');
     expect(env.pathReplacePhase).toBe('install');
   });
 
-  it('plugin 行 mcp 前缀为现网插件前缀且 hooksProfile 为 claudeNested', () => {
+  it('plugin 行 mcp 前缀为现网插件前缀', () => {
     for (const key of ['claude', 'cursor'] as const) {
       const env = getEnv(key);
       expect(env.mcpToolPrefix).toBe('mcp__plugin_dev-team_dev-team__');
-      expect(env.hooksProfile).toBe('claudeNested');
       expect(env.namePrefix).toBe('');
     }
   });

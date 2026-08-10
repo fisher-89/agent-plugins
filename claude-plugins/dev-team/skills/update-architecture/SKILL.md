@@ -10,7 +10,7 @@ Route architecture requests to the dedicated architecture subagent.
 ## Usage
 
 ```
-/dev-team:update-architecture
+dev-team:update-architecture
 ```
 
 ## Process

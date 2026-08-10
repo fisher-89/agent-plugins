@@ -90,10 +90,13 @@ Supported name-class kinds and bindings:
 | KIND | Expansion |
 |------|-----------|
 | `SKILL` | `namePrefix + id` |
-| `AGENT` | `agentRefPrefix + id` |
+| `CALL_SKILL` | `pluginPrefix + namePrefix + id` |
+| `AGENT` | `namePrefix + id` |
+| `CALL_AGENT` | `pluginPrefix + namePrefix + id` |
 | `MCP` | `mcpToolPrefix + id` (tool id REQUIRED) |
-| `SKILL_SLASH` | `skillSlashPrefix + id` |
 | `BIN` | `namePrefix + id + '.cjs'` (derived from `namePrefix`, not a separate rule) |
+
+`SKILL` / `AGENT` bind disk/frontmatter identity (filename / `name:`). `CALL_SKILL` / `CALL_AGENT` bind invoke/qualified references (plugin marketplace: `dev-team:<id>`; home image: `dev-team_<id>` via `namePrefix` with empty `pluginPrefix`).
 
 Path tokens `__DEV_TEAM_ROOT__` / `__DEV_TEAM_RUNTIME_ROOT__` bind to `contentRoot` / `runtimeRoot`. For `claude` / `cursor`, path tokens SHALL be expanded at assemble time. For `cursorHome`, path tokens SHALL remain until install.
 
@@ -108,6 +111,22 @@ On-disk skill/agent/bin filenames SHALL be derived from `namePrefix` (plugin env
 - **THEN** the written text SHALL contain `phase-proposal`
 - **AND** when assemble runs for `cursorHome` with `namePrefix='dev-team_'`
 - **THEN** the written text SHALL contain `dev-team_phase-proposal`
+
+#### Scenario: Assemble expands call-skill token per env
+
+- **WHEN** source contains `__CALL_SKILL:propose__`
+- **AND** assemble runs for `claude` or `cursor` with `pluginPrefix='dev-team:'` and `namePrefix=''`
+- **THEN** the written text SHALL contain `dev-team:propose`
+- **AND** when assemble runs for `cursorHome` with `pluginPrefix=''` and `namePrefix='dev-team_'`
+- **THEN** the written text SHALL contain `dev-team_propose`
+
+#### Scenario: Assemble expands agent and call-agent tokens per env
+
+- **WHEN** source contains `__AGENT:proposal-planner__` and `__CALL_AGENT:proposal-planner__`
+- **AND** assemble runs for `cursor` (`namePrefix=''`, `pluginPrefix='dev-team:'`)
+- **THEN** `__AGENT:…__` SHALL become `proposal-planner` and `__CALL_AGENT:…__` SHALL become `dev-team:proposal-planner`
+- **AND** when assemble runs for `cursorHome` (`namePrefix='dev-team_'`, `pluginPrefix=''`)
+- **THEN** both SHALL become `dev-team_proposal-planner`
 
 #### Scenario: MCP token requires tool id
 
@@ -125,7 +144,7 @@ On-disk skill/agent/bin filenames SHALL be derived from `namePrefix` (plugin env
 #### Scenario: Build asserts no leftover name-class tokens
 
 - **WHEN** assemble finishes for a product env
-- **THEN** that product tree MUST NOT contain unresolved `__SKILL:`, `__AGENT:`, `__MCP:`, `__SKILL_SLASH:`, or `__BIN:` tokens
+- **THEN** that product tree MUST NOT contain unresolved `__SKILL:`, `__CALL_SKILL:`, `__AGENT:`, `__CALL_AGENT:`, `__MCP:`, or `__BIN:` tokens
 - **AND** for `cursorHome`, path tokens MAY still remain
 
 ### Requirement: hooksProfile assembles platform hook formats from canonical metadata
@@ -187,20 +206,21 @@ Each env SHALL declare an explicit `outDir`. The build MUST NOT derive product d
 | `contentRoot` / `runtimeRoot` | `${CLAUDE_PLUGIN_ROOT}` | `.` | 镜像保留；安装期绝对路径 |
 | `mcpToolPrefix` | `mcp__plugin_dev-team_dev-team__` | 同左（现网） | `mcp__user-dev-team_mcp__` |
 | `namePrefix` | `''` | `''` | `dev-team_` |
-| `agentRefPrefix` | `dev-team:` | `dev-team:` | `dev-team_` |
-| `skillSlashPrefix` | `/dev-team:` | `/dev-team:` | `/dev-team_` |
-| `hooksProfile` | `claudeNested` | `claudeNested`（现网） | `cursorNative` |
+| `pluginPrefix` | `dev-team:` | `dev-team:` | `''` |
+| `hooksFilePath` | `hooks/hooks.json` | `hooks/hooks.json` | `hooks.json` |
+| `mcpFilePath` | `.mcp.json` | `mcp.json` | `mcp.json` |
 | `outDir` | `../../claude-plugins/dev-team` | `../../cursor-plugins/dev-team` | `../../cursor-home-image/dev-team` |
 | `pathReplacePhase` | `build` | `build` | `install` |
 
-### Function: `applyEnvTokens(text, env)`
+### Function: `applyEnvTokens(text, env, options?)`
 
 | 方面 | 描述 |
 |------|------|
 | **用途** | 对 md/json/脚本/CJS 文本统一展开名称与（按阶段）路径 token |
-| **输入** | 源文本 + env 行 |
+| **输入** | 源文本 + env 行；可选 `{ pathTokens?: boolean }`（默认跟随 `pathReplacePhase`） |
 | **输出** | 展开后文本 |
-| **禁止** | 函数形占位符；无 tool id 的 MCP server token |
+| **名称 token** | `__SKILL:` / `__CALL_SKILL:` / `__AGENT:` / `__CALL_AGENT:` / `__MCP:` / `__BIN:` |
+| **禁止** | 函数形占位符；无 tool id 的 MCP server token；已废弃的 `__SKILL_SLASH:` |
 
 ### CLI: 构建入口（更新）
 

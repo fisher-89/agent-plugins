@@ -1,5 +1,5 @@
 ---
-name: test-gen-evaluator
+name: __AGENT:test-gen-evaluator__
 description: |
   【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
   On fail, the skill loops back to test-gen-generator with failed items.

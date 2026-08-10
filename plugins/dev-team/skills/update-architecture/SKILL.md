@@ -10,7 +10,7 @@ Route architecture requests to the dedicated architecture subagent.
 ## Usage
 
 ```
-__SKILL_SLASH:update-architecture__
+__CALL_SKILL:update-architecture__
 ```
 
 ## Process
@@ -20,7 +20,7 @@ Use the Agent tool to spawn the architecture subagent:
 ```
 Agent({
   description: "...",
-  subagent_type: "__AGENT:architecture__",
+  subagent_type: "__CALL_AGENT:architecture__",
   prompt: "Propose architecture changes: <user request>"
 })
 ```

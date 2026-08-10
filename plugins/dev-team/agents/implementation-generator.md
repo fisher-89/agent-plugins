@@ -1,5 +1,5 @@
 ---
-name: implementation-generator
+name: __AGENT:implementation-generator__
 description: |
   【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
 model: sonnet-4.6

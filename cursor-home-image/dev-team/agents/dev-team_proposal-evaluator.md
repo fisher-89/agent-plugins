@@ -1,5 +1,5 @@
 ---
-name: proposal-evaluator
+name: dev-team_proposal-evaluator
 description: |
   【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
   On fail, the skill loops back to the main agent with failed items.

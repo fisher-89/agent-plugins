@@ -9,7 +9,7 @@ Test execution phase — Executor runs tests, Evaluator diagnoses failures.
 ## Usage
 
 ```
-__SKILL_SLASH:phase-test-execution__ [change-name]
+__CALL_SKILL:phase-test-execution__ [change-name]
 ```
 
 ## Process

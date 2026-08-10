@@ -9,7 +9,7 @@ Test generation phase — Generator writes test files, Evaluator inspects.
 ## Usage
 
 ```
-__SKILL_SLASH:phase-test-gen__ [change-name]
+__CALL_SKILL:phase-test-gen__ [change-name]
 ```
 
 ## Process

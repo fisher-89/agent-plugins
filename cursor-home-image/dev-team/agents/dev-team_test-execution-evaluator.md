@@ -1,5 +1,5 @@
 ---
-name: test-execution-evaluator
+name: dev-team_test-execution-evaluator
 description: |
   【use proactively】Reads the test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and diagnoses root cause.
 model: opus-4.6

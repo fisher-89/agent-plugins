@@ -1,5 +1,5 @@
 ---
-name: architecture
+name: dev-team_architecture
 description: |
   【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate via MCP archi_validate, present diff, wait for confirmation), validate (run MCP archi_check, explain violations), decide (help draft ADRs via archi-decide.py), review (critique model completeness/consistency/coupling).
 model: opus-4.6

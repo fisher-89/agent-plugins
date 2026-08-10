@@ -32,8 +32,7 @@
     ],
     "SubagentStop": [
       {
-        "matcher": "implementation-generator",
-        "loop_limit": 5,
+        "matcher": "dev-team:implementation-generator",
         "hooks": [
           {
             "type": "command",
@@ -42,8 +41,7 @@
         ]
       },
       {
-        "matcher": "test-gen-generator",
-        "loop_limit": 5,
+        "matcher": "dev-team:test-gen-generator",
         "hooks": [
           {
             "type": "command",

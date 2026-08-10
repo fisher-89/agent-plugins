@@ -27,7 +27,7 @@ Source content intended for cross-product delivery SHALL use `__<KIND>:<id>__` p
 #### Scenario: Source uses placeholders instead of single-product literals
 
 - **WHEN** examining cross-product references in `plugins/dev-team` skills, agents, or bin TypeScript strings after this change
-- **THEN** those references SHALL use `__SKILL:`, `__AGENT:`, `__MCP:`, `__SKILL_SLASH:`, or `__BIN:` tokens (as applicable)
+- **THEN** those references SHALL use `__SKILL:`, `__CALL_SKILL:`, `__AGENT:`, `__CALL_AGENT:`, `__MCP:`, or `__BIN:` tokens (as applicable)
 - **AND** they MUST NOT hard-code only the marketplace plugin qualified names when the same source feeds `cursorHome`
 
 ### Requirement: Plugin manifest contains plugin name

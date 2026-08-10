@@ -1,5 +1,5 @@
 ---
-name: proposal-planner
+name: dev-team_proposal-planner
 description: |
   【use proactively】Reads project context and writes proposal.md and specs/ artifacts.
 model: opus-4.6

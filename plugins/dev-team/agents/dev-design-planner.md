@@ -1,5 +1,5 @@
 ---
-name: dev-design-planner
+name: __AGENT:dev-design-planner__
 description: |
   【use proactively】Reads proposal.md and writes design.md and tasks.md.
   Produces two .md artifacts: design and tasks.

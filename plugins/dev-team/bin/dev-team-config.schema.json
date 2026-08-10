@@ -8,6 +8,7 @@
     },
     "schema": {
       "description": "@deprecated 模式标识，固定为 spec-driven",
+      "default": "spec-driven",
       "type": "string",
       "const": "spec-driven"
     },
@@ -33,8 +34,7 @@
             "type": "string"
           }
         }
-      },
-      "additionalProperties": false
+      }
     },
     "static_analysis": {
       "description": "静态分析工具配置（如 ESLint、Prettier）",
@@ -42,6 +42,7 @@
     },
     "tests": {
       "description": "测试 suite 配置列表",
+      "default": [],
       "type": "array",
       "items": {
         "type": "object",
@@ -67,6 +68,7 @@
           },
           "cwd": {
             "description": "执行目录（相对 root，默认 \".\"）",
+            "default": ".",
             "type": "string"
           },
           "config": {
@@ -90,59 +92,51 @@
           },
           "coverage": {
             "description": "覆盖率阈值",
+            "default": {},
             "type": "object",
             "properties": {
               "lines": {
                 "description": "行覆盖率阈值（百分比，默认 80）",
+                "default": 80,
                 "type": "number",
                 "minimum": 0,
                 "maximum": 100
               },
               "branches": {
                 "description": "分支覆盖率阈值（百分比，默认 70）",
+                "default": 70,
                 "type": "number",
                 "minimum": 0,
                 "maximum": 100
               },
               "functions": {
                 "description": "函数覆盖率阈值（百分比，默认 75）",
+                "default": 75,
                 "type": "number",
                 "minimum": 0,
                 "maximum": 100
               }
-            },
-            "required": [
-              "lines",
-              "branches",
-              "functions"
-            ],
-            "additionalProperties": false
+            }
           },
           "mutation": {
             "description": "变异测试配置",
+            "default": {},
             "type": "object",
             "properties": {
               "score": {
                 "description": "变异测试得分阈值（百分比，默认 70）",
+                "default": 70,
                 "type": "number",
                 "minimum": 0,
                 "maximum": 100
               }
-            },
-            "required": [
-              "score"
-            ],
-            "additionalProperties": false
+            }
           }
         },
         "required": [
           "root",
-          "framework",
-          "cwd",
-          "coverage",
-          "mutation"
+          "framework"
         ],
-        "additionalProperties": false,
         "description": "测试 suite 配置"
       }
     },
@@ -166,17 +160,11 @@
                 "type": "string"
               }
             },
-            "additionalProperties": false,
             "description": "单条写入保护规则"
           }
         }
-      },
-      "additionalProperties": false
+      }
     }
   },
-  "required": [
-    "schema",
-    "tests"
-  ],
   "additionalProperties": {}
 }

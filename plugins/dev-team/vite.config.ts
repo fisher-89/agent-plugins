@@ -7,6 +7,36 @@ const BIN_ENTRIES = ['mcp', 'cli', 'hooks'] as const;
 
 type PackConfig = NonNullable<Exclude<UserConfig['pack'], Array<unknown>>>;
 
+interface StagingPackSpec {
+  name: string;
+  entry: string;
+  file: string;
+  format: 'cjs' | 'esm';
+  minify: boolean;
+  sourcemap: boolean;
+  banner?: string;
+}
+
+const STAGING_PACKS: StagingPackSpec[] = [
+  ...BIN_ENTRIES.map<StagingPackSpec>((id) => ({
+    name: id,
+    entry: `bin/src/${id}.ts`,
+    file: `.pack-staging/bin/${id}.cjs`,
+    format: 'cjs',
+    minify: true,
+    sourcemap: true,
+  })),
+  {
+    name: 'home-install',
+    entry: 'home-install.ts',
+    file: '.pack-staging/install.mjs',
+    format: 'esm',
+    minify: false,
+    sourcemap: false,
+    banner: '#!/usr/bin/env node\n',
+  },
+];
+
 export default defineConfig({
   lint: {
     ignorePatterns: NO_OXC_FILES,
@@ -30,7 +60,7 @@ export default defineConfig({
     },
     overrides: [
       {
-        files: ['*.test.ts', '*.test.mjs'],
+        files: ['*.test.ts'],
         rules: {
           'max-lines-per-function': 'off',
           'typescript/no-non-null-assertion': 'off',
@@ -46,19 +76,14 @@ export default defineConfig({
   },
   pack: makeStagingPacks(),
   test: {
-    include: [
-      'bin/src/**/*.test.ts',
-      'bin/__tests__/**/*.test.ts',
-      'build/**/*.test.ts',
-      'build/**/*.test.mjs',
-    ],
+    include: ['bin/src/**/*.test.ts', 'bin/__tests__/**/*.test.ts', 'build/**/*.test.ts'],
     setupFiles: ['bin/__tests__/test-setup.ts'],
     silent: 'passed-only',
   },
 });
 
 function makeStagingPacks(): PackConfig[] {
-  let pending = BIN_ENTRIES.length;
+  let pending = STAGING_PACKS.length;
   const onDone = async (): Promise<void> => {
     pending -= 1;
     if (pending > 0) return;
@@ -66,15 +91,16 @@ function makeStagingPacks(): PackConfig[] {
     await assembleAll();
   };
 
-  return BIN_ENTRIES.map((id, index) => ({
-    name: id,
+  return STAGING_PACKS.map((spec, index) => ({
+    name: spec.name,
     platform: 'node',
-    entry: `bin/src/${id}.ts`,
+    entry: spec.entry,
+    banner: spec.banner,
     outputOptions: {
-      file: `.pack-staging/bin/${id}.cjs`,
-      format: 'cjs',
-      minify: true,
-      sourcemap: true,
+      file: spec.file,
+      format: spec.format,
+      minify: spec.minify,
+      sourcemap: spec.sourcemap,
       cleanDir: index === 0,
       codeSplitting: false,
     },

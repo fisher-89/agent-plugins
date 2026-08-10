@@ -9,7 +9,7 @@ Test generation phase — Generator writes test files, Evaluator inspects.
 ## Usage
 
 ```
-/dev-team_phase-test-gen [change-name]
+dev-team_phase-test-gen [change-name]
 ```
 
 ## Process

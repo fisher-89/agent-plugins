@@ -12,7 +12,7 @@ import { dirname, join } from 'node:path';
 import { applyEnvTokens } from './apply-env-tokens';
 import { assertNoNameTokens } from './assert-no-tokens';
 import { PRODUCT_ENV_KEYS, getEnv, type ProductEnv, type ProductEnvKey } from './env';
-import { buildHooksFile, hooksCanonicalSchema, type HooksCanonical } from './hooks-profile';
+import { buildHooksFile } from './hooks-profile';
 import { scanTextFiles } from './scan-files';
 
 const STAGING_BIN = '.pack-staging/bin';
@@ -27,8 +27,15 @@ export interface HomeManifest {
 }
 
 function rmOutDir(outDir: string): void {
-  if (existsSync(outDir)) rmSync(outDir, { recursive: true, force: true });
-  mkdirSync(outDir, { recursive: true });
+  if (existsSync(outDir)) {
+    // Clear children instead of removing the directory: on Windows an IDE/file
+    // watcher may hold a handle that makes rmSync(dir) fail with EPERM.
+    for (const entry of readdirSync(outDir)) {
+      rmSync(join(outDir, entry), { recursive: true, force: true });
+    }
+  } else {
+    mkdirSync(outDir, { recursive: true });
+  }
 }
 
 function writeText(filePath: string, content: string): void {
@@ -83,8 +90,6 @@ function copyStagingBins(env: ProductEnv): string[] {
     const destName = `${env.namePrefix}${file}`;
     cpSync(src, join(env.outDir, 'bin', destName));
     managed.push(`bin/${destName}`);
-    const mapSrc = `${src}.map`;
-    if (existsSync(mapSrc)) cpSync(mapSrc, join(env.outDir, 'bin', `${destName}.map`));
   }
   return managed;
 }
@@ -99,16 +104,13 @@ function applyTokensInTree(env: ProductEnv): void {
   }
 }
 
-function readCanonicalHooks(): HooksCanonical {
-  return hooksCanonicalSchema.parse(
-    JSON.parse(readFileSync('hooks/hooks.canonical.json', 'utf-8')),
-  );
+function readCanonicalHooks(): object {
+  return JSON.parse(readFileSync('hooks/hooks.canonical.json', 'utf-8'));
 }
 
 function writeHooks(env: ProductEnv): void {
   const content = buildHooksFile(readCanonicalHooks(), env);
-  const rel = env.hooksProfile === 'claudeNested' ? 'hooks/hooks.json' : 'hooks.json';
-  writeText(join(env.outDir, rel), content);
+  writeText(join(env.outDir, env.hooksFilePath), content);
 }
 
 function writeMcp(env: ProductEnv): void {
@@ -126,7 +128,7 @@ function writeMcp(env: ProductEnv): void {
       },
     },
   };
-  writeText(join(env.outDir, env.mcpOut), `${JSON.stringify(doc, null, 2)}\n`);
+  writeText(join(env.outDir, env.mcpFilePath), `${JSON.stringify(doc, null, 2)}\n`);
 }
 
 async function writePluginManifest(env: ProductEnv): Promise<void> {
@@ -146,14 +148,14 @@ async function writePluginManifest(env: ProductEnv): Promise<void> {
 async function writeHomeExtras(env: ProductEnv, managedPaths: string[]): Promise<void> {
   if (env.layout !== 'home-image') return;
   const { version } = await import('../package.json');
-  cpSync('build/home-install.mjs', join(env.outDir, 'install.mjs'));
+  cpSync('.pack-staging/install.mjs', join(env.outDir, 'install.mjs'));
   const extraManaged = [
     ...managedPaths,
     'bin/openspec',
     'bin/openspec-bundled.js',
     'bin/openspec.cmd',
     'hooks.json',
-    'mcp.dev-team.json',
+    'mcp.json',
     'install.mjs',
     'manifest.json',
   ];
@@ -168,7 +170,7 @@ async function writeHomeExtras(env: ProductEnv, managedPaths: string[]): Promise
     version,
     namePrefix: env.namePrefix,
     managedPaths: [...new Set(extraManaged)].sort(),
-    mcpFragment: 'mcp.dev-team.json',
+    mcpFragment: 'mcp.json',
     hooksFile: 'hooks.json',
   };
   writeText(join(env.outDir, 'manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`);

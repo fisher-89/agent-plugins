@@ -1,5 +1,5 @@
 ---
-name: test-design-evaluator
+name: __AGENT:test-design-evaluator__
 description: |
   【use proactively】Evaluates test-design.md against a static binary checklist for completeness and coverage of proposal.md.
   On fail, the skill loops back to test-design-planner with failed items.

@@ -1,5 +1,5 @@
 ---
-name: code-analyze-evaluator
+name: __AGENT:code-analyze-evaluator__
 description: |
   【use proactively】Evaluates design.md from code-analyze against a static checklist.
   On fail, the skill loops back to code-analyze-planner with failed items.

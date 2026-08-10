@@ -171,12 +171,12 @@ describe('runPhaseNext — First Run (empty eval.json)', () => {
 
   it('should return proposal-planner as executor agent_type', () => {
     const result = next([]);
-    expect(result.executor!.agent_type).toBe('__AGENT:proposal-planner__');
+    expect(result.executor!.agent_type).toBe('__CALL_AGENT:proposal-planner__');
   });
 
   it('should return proposal-evaluator as evaluator agent_type', () => {
     const result = next([]);
-    expect(result.evaluator!.agent_type).toBe('__AGENT:proposal-evaluator__');
+    expect(result.evaluator!.agent_type).toBe('__CALL_AGENT:proposal-evaluator__');
   });
 
   it('should set round to 1 on first call', () => {
@@ -258,7 +258,7 @@ describe('runPhaseNext — Normal Progression', () => {
     ]);
     expect(result.next_phase).toBe('code-review');
     expect(result.executor).toBeNull();
-    expect(result.evaluator!.agent_type).toBe('__AGENT:code-review-evaluator__');
+    expect(result.evaluator!.agent_type).toBe('__CALL_AGENT:code-review-evaluator__');
   });
 
   it('should return acceptance with executor: null (EVAL-ONLY)', () => {
@@ -417,8 +417,8 @@ describe('runPhaseNext — Backtrack', () => {
       passEntry('dev-design'),
       backtrackEntry('dev-design', 'proposal'),
     ]);
-    expect(result.executor!.agent_type).toBe('__AGENT:proposal-planner__');
-    expect(result.evaluator!.agent_type).toBe('__AGENT:proposal-evaluator__');
+    expect(result.executor!.agent_type).toBe('__CALL_AGENT:proposal-planner__');
+    expect(result.evaluator!.agent_type).toBe('__CALL_AGENT:proposal-evaluator__');
   });
 
   it('should handle backtrack from a later phase to mid-chain', () => {
@@ -1464,10 +1464,10 @@ describe('phase_next — allowed_backtrack_phases', () => {
 // ---------------------------------------------------------------------------
 
 describe('runPhaseNext / agent tokens 与 interpolate（突变补强）', () => {
-  it('首跑 executor/evaluator agent_type 精确为 __AGENT:proposal-planner/evaluator__', () => {
+  it('首跑 executor/evaluator agent_type 精确为 __CALL_AGENT:proposal-planner/evaluator__', () => {
     const result = next([]);
-    expect(result.executor!.agent_type).toBe('__AGENT:proposal-planner__');
-    expect(result.evaluator!.agent_type).toBe('__AGENT:proposal-evaluator__');
+    expect(result.executor!.agent_type).toBe('__CALL_AGENT:proposal-planner__');
+    expect(result.evaluator!.agent_type).toBe('__CALL_AGENT:proposal-evaluator__');
   });
 
   it('executor/evaluator prompt 中 <change>/<phase> 被替换且无残留', () => {

@@ -1,5 +1,5 @@
 ---
-name: dev-design-planner
+name: dev-team_dev-design-planner
 description: |
   【use proactively】Reads proposal.md and writes design.md and tasks.md.
   Produces two .md artifacts: design and tasks.

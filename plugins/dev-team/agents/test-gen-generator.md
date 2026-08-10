@@ -1,5 +1,5 @@
 ---
-name: test-gen-generator
+name: __AGENT:test-gen-generator__
 description: |
   【use proactively】Reads test-design.md and source code files, writes test files
   colocated with the source code directly to disk.

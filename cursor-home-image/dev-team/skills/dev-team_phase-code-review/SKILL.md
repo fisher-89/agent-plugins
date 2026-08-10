@@ -9,7 +9,7 @@ disable-model-invocation: true
 ## Usage
 
 ```
-/dev-team_phase-code-review [change-name]
+dev-team_phase-code-review [change-name]
 ```
 
 ## Process

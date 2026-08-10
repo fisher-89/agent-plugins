@@ -9,7 +9,7 @@ disable-model-invocation: true
 ## Usage
 
 ```
-/dev-team_phase-acceptance [change-name]
+dev-team_phase-acceptance [change-name]
 ```
 
 ## Process

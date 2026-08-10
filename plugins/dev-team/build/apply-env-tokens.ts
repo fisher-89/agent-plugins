@@ -14,12 +14,16 @@ const NAME_TOKEN_REPLACERS: Array<{
     resolve: (env, id) => `${env.namePrefix}${id}`,
   },
   {
-    pattern: /__AGENT:([a-z0-9-]+)__/g,
-    resolve: (env, id) => `${env.agentRefPrefix}${id}`,
+    pattern: /__CALL_SKILL:([a-z0-9-]+)__/g,
+    resolve: (env, id) => `${env.pluginPrefix}${env.namePrefix}${id}`,
   },
   {
-    pattern: /__SKILL_SLASH:([a-z0-9-]+)__/g,
-    resolve: (env, id) => `${env.skillSlashPrefix}${id}`,
+    pattern: /__AGENT:([a-z0-9-]+)__/g,
+    resolve: (env, id) => `${env.namePrefix}${id}`,
+  },
+  {
+    pattern: /__CALL_AGENT:([a-z0-9-]+)__/g,
+    resolve: (env, id) => `${env.pluginPrefix}${env.namePrefix}${id}`,
   },
   {
     pattern: /__MCP:([a-z0-9_]+)__/g,

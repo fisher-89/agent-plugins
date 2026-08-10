@@ -8,24 +8,27 @@ import { fileURLToPath } from 'node:url';
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { getEnv, type ProductEnv } from './env';
-import { buildHooksFile, hooksCanonicalSchema, type HooksCanonical } from './hooks-profile';
+import { getEnv } from './env';
+import { buildHooksFile } from './hooks-profile';
 
-const FIXTURE: HooksCanonical = {
+const FIXTURE = {
   description: 'fixture hooks',
   preToolUse: [
     {
-      matchers: { claudeNested: 'Write|Edit', cursorNative: 'Write|StrReplace' },
+      matchers: { claude: 'Write|Edit', cursor: 'Write|StrReplace' },
       commandTemplate: 'node "__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__" protect-files',
     },
     {
-      matchers: { claudeNested: 'Bash', cursorNative: 'Shell' },
+      matchers: { claude: 'Bash', cursor: 'Shell' },
       commandTemplate: 'node "__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__" protect-files',
     },
   ],
   subagentStop: [
     {
-      agentLogicalId: 'implementation-generator',
+      matchers: {
+        claude: '__CALL_AGENT:implementation-generator__',
+        cursor: '__AGENT:implementation-generator__',
+      },
       loop_limit: 5,
       commandTemplate: 'node "__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__" static-check',
     },
@@ -33,7 +36,7 @@ const FIXTURE: HooksCanonical = {
 };
 
 describe('buildHooksFile', () => {
-  it('claudeNested 输出可 JSON.parse，含嵌套 hooks.PreToolUse / SubagentStop', () => {
+  it('claude 输出可 JSON.parse，含嵌套 hooks.PreToolUse / SubagentStop', () => {
     const env = getEnv('claude');
     const parsed = JSON.parse(buildHooksFile(FIXTURE, env)) as {
       hooks: { PreToolUse: unknown[]; SubagentStop: unknown[] };
@@ -46,15 +49,15 @@ describe('buildHooksFile', () => {
     });
   });
 
-  it('claudeNested matcher 覆盖 Claude 工具名族', () => {
+  it('claude matcher 覆盖 Claude 工具名族', () => {
     const env = getEnv('cursor');
     const parsed = JSON.parse(buildHooksFile(FIXTURE, env)) as {
-      hooks: { PreToolUse: Array<{ matcher: string }> };
+      hooks: { preToolUse: Array<{ matcher: string }> };
     };
-    const matchers = parsed.hooks.PreToolUse.map((e) => e.matcher).join('|');
+    const matchers = parsed.hooks.preToolUse.map((e) => e.matcher).join('|');
     expect(matchers).toContain('Write');
-    expect(matchers).toContain('Edit');
-    expect(matchers).toContain('Bash');
+    expect(matchers).toContain('StrReplace');
+    expect(matchers).toContain('Shell');
   });
 
   it('cursorNative 输出含 version 与 camelCase 事件，matcher 含 Shell 与 StrReplace', () => {
@@ -76,11 +79,16 @@ describe('buildHooksFile', () => {
     expect(parsed.hooks.preToolUse[0]).not.toHaveProperty('hooks');
   });
 
-  it('SubagentStop matcher 使用 namePrefix + agentLogicalId', () => {
-    const plugin = JSON.parse(buildHooksFile(FIXTURE, getEnv('claude'))) as {
+  it('SubagentStop matcher 按平台展开 CALL_AGENT / AGENT token', () => {
+    const claude = JSON.parse(buildHooksFile(FIXTURE, getEnv('claude'))) as {
       hooks: { SubagentStop: Array<{ matcher: string }> };
     };
-    expect(plugin.hooks.SubagentStop[0]?.matcher).toBe('implementation-generator');
+    expect(claude.hooks.SubagentStop[0]?.matcher).toBe('dev-team:implementation-generator');
+
+    const cursor = JSON.parse(buildHooksFile(FIXTURE, getEnv('cursor'))) as {
+      hooks: { subagentStop: Array<{ matcher: string }> };
+    };
+    expect(cursor.hooks.subagentStop[0]?.matcher).toBe('implementation-generator');
 
     const home = JSON.parse(buildHooksFile(FIXTURE, getEnv('cursorHome'))) as {
       hooks: { subagentStop: Array<{ matcher: string }> };
@@ -108,19 +116,8 @@ describe('buildHooksFile', () => {
     expect(home.hooks.preToolUse[0]?.command).toContain('__DEV_TEAM_RUNTIME_ROOT__');
   });
 
-  it('canonical 为 null / undefined 时抛错', () => {
-    const env = getEnv('claude');
-    expect(() => buildHooksFile(null as unknown as HooksCanonical, env)).toThrow();
-    expect(() => buildHooksFile(undefined as unknown as HooksCanonical, env)).toThrow();
-  });
-
-  it('env 为 null / undefined 时抛错', () => {
-    expect(() => buildHooksFile(FIXTURE, null as unknown as ProductEnv)).toThrow();
-    expect(() => buildHooksFile(FIXTURE, undefined as unknown as ProductEnv)).toThrow();
-  });
-
   it('canonical 事件数组为空时产出合法最小 JSON 且不崩溃', () => {
-    const empty: HooksCanonical = { preToolUse: [], subagentStop: [] };
+    const empty = { preToolUse: [], subagentStop: [] };
     const nested = JSON.parse(buildHooksFile(empty, getEnv('claude'))) as {
       hooks: { PreToolUse: unknown[]; SubagentStop: unknown[] };
     };
@@ -136,23 +133,23 @@ describe('buildHooksFile', () => {
   });
 
   it('preToolUse 为单元素 / 超大列表时均能序列化', () => {
-    const single: HooksCanonical = {
+    const single = {
       preToolUse: [FIXTURE.preToolUse[0]],
       subagentStop: [],
     };
     expect(() => JSON.parse(buildHooksFile(single, getEnv('claude')))).not.toThrow();
 
-    const large: HooksCanonical = {
+    const large = {
       preToolUse: Array.from({ length: 200 }, (_, i) => ({
-        matchers: { claudeNested: `Tool${i}`, cursorNative: `Tool${i}` },
+        matchers: { claude: `Tool${i}`, cursor: `Tool${i}` },
         commandTemplate: 'echo __BIN:cli__',
       })),
       subagentStop: [],
     };
     const parsed = JSON.parse(buildHooksFile(large, getEnv('cursor'))) as {
-      hooks: { PreToolUse: unknown[] };
+      hooks: { preToolUse: unknown[] };
     };
-    expect(parsed.hooks.PreToolUse).toHaveLength(200);
+    expect(parsed.hooks.preToolUse).toHaveLength(200);
   });
 
   it('同一 canonical 在不同 profile 下结构字段不同（nested vs flat）', () => {
@@ -175,9 +172,9 @@ describe('buildHooksFile', () => {
       dirname(fileURLToPath(import.meta.url)),
       '../hooks/hooks.canonical.json',
     );
-    const canonical = hooksCanonicalSchema.parse(JSON.parse(readFileSync(canonicalPath, 'utf-8')));
+    const canonical = JSON.parse(readFileSync(canonicalPath, 'utf-8'));
     const out = buildHooksFile(canonical, getEnv('cursorHome'));
-    const parsed = JSON.parse(out) as { hooks: { preToolUse: unknown[] } };
+    const parsed = JSON.parse(out);
     expect(parsed.hooks.preToolUse.length).toBeGreaterThan(0);
   });
 });

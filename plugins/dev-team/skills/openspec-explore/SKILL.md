@@ -103,7 +103,7 @@ Explore owns note-taking. Free-form Markdown, **no template / no required sectio
 - **Append by default**; whole-file rewrite only if the user asks.
 - Create `openspec/explores/` as needed. One topic → one file; new topic → new file.
 - Do **not** invent a change directory solely to dump notes.
-- When the user starts `__SKILL_SLASH:phase-proposal__` or a workflow, that skill **promotes** the matching draft into `openspec/changes/<name>/explore.md` (move). You do not need to copy it yourself.
+- When the user starts `__CALL_SKILL:phase-proposal__` or a workflow, that skill **promotes** the matching draft into `openspec/changes/<name>/explore.md` (move). You do not need to copy it yourself.
 
 ### When no change exists
 
@@ -132,16 +132,16 @@ If the user mentions a change or you detect one is relevant:
    | Insight Type | Where to Capture |
    |--------------|------------------|
    | Thinking / comparisons / open questions /补探索细节 | Append `openspec/changes/<name>/explore.md` (create if missing) |
-   | New requirement discovered | Prefer: append change `explore.md`, then guide `__SKILL_SLASH:phase-proposal__` |
-   | Requirement changed | Prefer: append change `explore.md`, then `__SKILL_SLASH:phase-proposal__` (backtrack if proposal already passed) |
+   | New requirement discovered | Prefer: append change `explore.md`, then guide `__CALL_SKILL:phase-proposal__` |
+   | Requirement changed | Prefer: append change `explore.md`, then `__CALL_SKILL:phase-proposal__` (backtrack if proposal already passed) |
    | Design decision made | `design.md` |
-   | Scope / AC / capability changes that must enter formal proposal | Append change `explore.md`, then **re-run** `__SKILL_SLASH:phase-proposal__` — do **not** treat direct edits to `proposal.md` as the default path |
+   | Scope / AC / capability changes that must enter formal proposal | Append change `explore.md`, then **re-run** `__CALL_SKILL:phase-proposal__` — do **not** treat direct edits to `proposal.md` as the default path |
    | New work identified | `tasks.md` |
    | Assumption invalidated | Relevant artifact + usually append change `explore.md` |
 
    Example offers:
    - "要把这轮补充记到 explore.md 吗？"
-   - "这会影响验收/范围的话，记到 explore.md 后建议再跑 `__SKILL_SLASH:phase-proposal__` 做收敛和评估。"
+   - "这会影响验收/范围的话，记到 explore.md 后建议再跑 `__CALL_SKILL:phase-proposal__` 做收敛和评估。"
    - "That's a design decision. Capture it in design.md?"
 
 4. **The user decides** - Offer and move on. Don't pressure. Don't auto-capture.
@@ -149,7 +149,7 @@ If the user mentions a change or you detect one is relevant:
 5. **Re-explore after proposal**
    - Always Read existing `proposal.md` + change `explore.md` before digging into gaps.
    - Append new notes to change `explore.md` (do not overwrite prior notes unless the user asks to rewrite).
-   - If the new conclusions should change formal requirements (范围 / 验收 / 能力 / specs): tell the user to run `__SKILL_SLASH:phase-proposal__` again (backtrack first if proposal already passed). Appending `explore.md` alone does **not** update `proposal.md`.
+   - If the new conclusions should change formal requirements (范围 / 验收 / 能力 / specs): tell the user to run `__CALL_SKILL:phase-proposal__` again (backtrack first if proposal already passed). Appending `explore.md` alone does **not** update `proposal.md`.
    - If the notes only deepen understanding and do not change the formal proposal: stop after appending `explore.md`.
 
 ---

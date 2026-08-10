@@ -14,5 +14,5 @@
     "resolveJsonModule": true,
     "types": ["vite-plus", "node"]
   },
-  "include": ["src/**/*", "__tests__/**/*"]
+  "include": ["bin/src/**/*", "bin/__tests__/**/*", "build/**/*", "home-install.ts"]
 }

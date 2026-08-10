@@ -106,7 +106,6 @@ plugins/dev-team/.pack-staging/bin/{mcp,cli,hooks}.cjs  （仍含 token；gitign
 | 类型名 | 所在文件 | 类型 | 说明 |
 |--------|----------|------|------|
 | `ProductEnvKey` | `plugins/dev-team/build/env.ts` | 新增 | `'claude' \| 'cursor' \| 'cursorHome'` |
-| `HooksProfile` | `plugins/dev-team/build/env.ts` | 新增 | `'claudeNested' \| 'cursorNative'` |
 | `ProductLayout` | `plugins/dev-team/build/env.ts` | 新增 | `'plugin' \| 'home-image'` |
 | `PathReplacePhase` | `plugins/dev-team/build/env.ts` | 新增 | `'build' \| 'install'` |
 | `ProductEnv` | `plugins/dev-team/build/env.ts` | 新增 | 见数据模型「Env 行」字段 |

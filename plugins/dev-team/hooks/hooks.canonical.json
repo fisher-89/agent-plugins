@@ -3,34 +3,40 @@
   "preToolUse": [
     {
       "matchers": {
-        "claudeNested": "Write|Edit",
-        "cursorNative": "Write|StrReplace"
+        "claude": "Write|Edit",
+        "cursor": "Write|StrReplace"
       },
       "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" protect-files"
     },
     {
       "matchers": {
-        "claudeNested": "Bash",
-        "cursorNative": "Shell"
+        "claude": "Bash",
+        "cursor": "Shell"
       },
       "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" protect-files"
     },
     {
       "matchers": {
-        "claudeNested": "PowerShell",
-        "cursorNative": "PowerShell"
+        "claude": "PowerShell",
+        "cursor": null
       },
       "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" protect-files"
     }
   ],
   "subagentStop": [
     {
-      "agentLogicalId": "implementation-generator",
+      "matchers": {
+        "claude": "__CALL_AGENT:implementation-generator__",
+        "cursor": "__AGENT:implementation-generator__"
+      },
       "loop_limit": 5,
       "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" static-check"
     },
     {
-      "agentLogicalId": "test-gen-generator",
+      "matchers": {
+        "claude": "__CALL_AGENT:test-gen-generator__",
+        "cursor": "__AGENT:test-gen-generator__"
+      },
       "loop_limit": 5,
       "commandTemplate": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/__BIN:hooks__\" static-check"
     }

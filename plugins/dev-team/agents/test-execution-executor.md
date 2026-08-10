@@ -1,5 +1,5 @@
 ---
-name: test-execution-executor
+name: __AGENT:test-execution-executor__
 description: |
   【use proactively】Executes tests via the `dev-team test-execution` CLI command, then reads the generated report, fixes blocking execution errors when possible, validates completeness, and applies a diagnostic decision tree to populate findings.
 model: sonnet-4.6

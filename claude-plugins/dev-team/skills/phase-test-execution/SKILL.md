@@ -9,7 +9,7 @@ Test execution phase — Executor runs tests, Evaluator diagnoses failures.
 ## Usage
 
 ```
-/dev-team:phase-test-execution [change-name]
+dev-team:phase-test-execution [change-name]
 ```
 
 ## Process

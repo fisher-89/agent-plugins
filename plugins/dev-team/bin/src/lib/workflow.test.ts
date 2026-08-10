@@ -198,8 +198,8 @@ describe('getPhaseTable — test-only', () => {
 
   it('should use code-analyze agents for code-analyze (AC-3)', () => {
     const phase = getPhaseTable('test-only').find((p) => p.id === 'code-analyze');
-    expect(phase?.executor?.agent_type).toBe('__AGENT:code-analyze-planner__');
-    expect(phase?.evaluator?.agent_type).toBe('__AGENT:code-analyze-evaluator__');
+    expect(phase?.executor?.agent_type).toBe('__CALL_AGENT:code-analyze-planner__');
+    expect(phase?.evaluator?.agent_type).toBe('__CALL_AGENT:code-analyze-evaluator__');
   });
 });
 
@@ -367,7 +367,7 @@ describe('PHASE_TEST_ONLY — code-analyze prompt 不含 WORKFLOW_CONTEXT', () =
 // agent tokens / DEFAULT_WORKFLOW / 依赖表精确断言（mutation 补强）
 // ---------------------------------------------------------------------------
 
-const AGENT_TOKEN = /^__AGENT:[a-z0-9-]+__$/;
+const AGENT_TOKEN = /^__CALL_AGENT:[a-z0-9-]+__$/;
 
 function collectAgentTypes(workflowType: string): string[] {
   const types: string[] = [];
@@ -379,34 +379,34 @@ function collectAgentTypes(workflowType: string): string[] {
 }
 
 describe('getPhaseTable / agent tokens（突变补强）', () => {
-  it('requirement 全阶段非 null 的 agent_type 精确等于 __AGENT:<logical-id>__ 清单', () => {
+  it('requirement 全阶段非 null 的 agent_type 精确等于 __CALL_AGENT:<logical-id>__ 清单', () => {
     const expected: Record<string, { executor?: string; evaluator?: string }> = {
       proposal: {
-        executor: '__AGENT:proposal-planner__',
-        evaluator: '__AGENT:proposal-evaluator__',
+        executor: '__CALL_AGENT:proposal-planner__',
+        evaluator: '__CALL_AGENT:proposal-evaluator__',
       },
       'dev-design': {
-        executor: '__AGENT:dev-design-planner__',
-        evaluator: '__AGENT:dev-design-evaluator__',
+        executor: '__CALL_AGENT:dev-design-planner__',
+        evaluator: '__CALL_AGENT:dev-design-evaluator__',
       },
       'test-design': {
-        executor: '__AGENT:test-design-planner__',
-        evaluator: '__AGENT:test-design-evaluator__',
+        executor: '__CALL_AGENT:test-design-planner__',
+        evaluator: '__CALL_AGENT:test-design-evaluator__',
       },
       implement: {
-        executor: '__AGENT:implementation-generator__',
-        evaluator: '__AGENT:implementation-evaluator__',
+        executor: '__CALL_AGENT:implementation-generator__',
+        evaluator: '__CALL_AGENT:implementation-evaluator__',
       },
       'test-gen': {
-        executor: '__AGENT:test-gen-generator__',
-        evaluator: '__AGENT:test-gen-evaluator__',
+        executor: '__CALL_AGENT:test-gen-generator__',
+        evaluator: '__CALL_AGENT:test-gen-evaluator__',
       },
       'test-execution': {
-        executor: '__AGENT:test-execution-executor__',
-        evaluator: '__AGENT:test-execution-evaluator__',
+        executor: '__CALL_AGENT:test-execution-executor__',
+        evaluator: '__CALL_AGENT:test-execution-evaluator__',
       },
-      'code-review': { evaluator: '__AGENT:code-review-evaluator__' },
-      acceptance: { evaluator: '__AGENT:acceptance-evaluator__' },
+      'code-review': { evaluator: '__CALL_AGENT:code-review-evaluator__' },
+      acceptance: { evaluator: '__CALL_AGENT:acceptance-evaluator__' },
     };
     for (const phase of getPhaseTable('requirement')) {
       const exp = expected[phase.id];
@@ -425,17 +425,23 @@ describe('getPhaseTable / agent tokens（突变补强）', () => {
   it('test-only 的 code-analyze / test-design / test-gen / test-execution agent_type 精确匹配', () => {
     const table = getPhaseTable('test-only');
     const byId = Object.fromEntries(table.map((p) => [p.id, p]));
-    expect(byId['code-analyze'].executor!.agent_type).toBe('__AGENT:code-analyze-planner__');
-    expect(byId['code-analyze'].evaluator!.agent_type).toBe('__AGENT:code-analyze-evaluator__');
-    expect(byId['test-design'].executor!.agent_type).toBe('__AGENT:test-design-planner__');
-    expect(byId['test-design'].evaluator!.agent_type).toBe('__AGENT:test-design-evaluator__');
-    expect(byId['test-gen'].executor!.agent_type).toBe('__AGENT:test-gen-generator__');
-    expect(byId['test-gen'].evaluator!.agent_type).toBe('__AGENT:test-gen-evaluator__');
-    expect(byId['test-execution'].executor!.agent_type).toBe('__AGENT:test-execution-executor__');
-    expect(byId['test-execution'].evaluator!.agent_type).toBe('__AGENT:test-execution-evaluator__');
+    expect(byId['code-analyze'].executor!.agent_type).toBe('__CALL_AGENT:code-analyze-planner__');
+    expect(byId['code-analyze'].evaluator!.agent_type).toBe(
+      '__CALL_AGENT:code-analyze-evaluator__',
+    );
+    expect(byId['test-design'].executor!.agent_type).toBe('__CALL_AGENT:test-design-planner__');
+    expect(byId['test-design'].evaluator!.agent_type).toBe('__CALL_AGENT:test-design-evaluator__');
+    expect(byId['test-gen'].executor!.agent_type).toBe('__CALL_AGENT:test-gen-generator__');
+    expect(byId['test-gen'].evaluator!.agent_type).toBe('__CALL_AGENT:test-gen-evaluator__');
+    expect(byId['test-execution'].executor!.agent_type).toBe(
+      '__CALL_AGENT:test-execution-executor__',
+    );
+    expect(byId['test-execution'].evaluator!.agent_type).toBe(
+      '__CALL_AGENT:test-execution-evaluator__',
+    );
   });
 
-  it('bug-fix / refactor 各阶段 agent_type 全部匹配 /^__AGENT:[a-z0-9-]+__$/', () => {
+  it('bug-fix / refactor 各阶段 agent_type 全部匹配 /^__CALL_AGENT:[a-z0-9-]+__$/', () => {
     for (const wf of ['bug-fix', 'refactor'] as const) {
       for (const agentType of collectAgentTypes(wf)) {
         expect(agentType).toMatch(AGENT_TOKEN);

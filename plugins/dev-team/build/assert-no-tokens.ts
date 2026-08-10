@@ -4,7 +4,7 @@ import { join } from 'node:path';
 import type { ProductEnv } from './env';
 import { scanTextFiles } from './scan-files';
 
-const NAME_TOKEN_PATTERN = /__(?:SKILL|AGENT|MCP|SKILL_SLASH|BIN):[a-z0-9_-]+__/;
+const NAME_TOKEN_PATTERN = /__(?:CALL_SKILL|CALL_AGENT|SKILL|AGENT|MCP|BIN):[a-z0-9_-]+__/;
 const PATH_TOKEN_PATTERN = /__DEV_TEAM_(?:ROOT|RUNTIME_ROOT)__/;
 
 export function assertNoNameTokens(rootDir: string, env: ProductEnv): void {

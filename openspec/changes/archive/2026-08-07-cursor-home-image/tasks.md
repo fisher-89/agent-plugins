@@ -7,7 +7,7 @@
 
 ## 阶段 1：构建核心（env / token / pack）
 
-- [x] 新增 `plugins/dev-team/build/env.ts`：定义 `ProductEnvKey` / `ProductEnv` / `HooksProfile` 等类型与三行 env 常量（含显式 `outDir`、cursorHome 用户级前缀）
+- [x] 新增 `plugins/dev-team/build/env.ts`：定义 `ProductEnvKey` / `ProductEnv` 等类型与三行 env 常量（含显式 `outDir`、cursorHome 用户级前缀）
 - [x] 新增 `plugins/dev-team/build/apply-env-tokens.ts`：实现 `applyEnvTokens(text, env, options?)`（名称类五种 token + 可控路径 token）
 - [x] 新增 `plugins/dev-team/build/scan-files.ts`：宽 include / 窄 exclude 枚举待处理文本文件
 - [x] 新增 `plugins/dev-team/build/assert-no-tokens.ts`：实现 `assertNoNameTokens`（cursorHome 允许路径 token 残留）

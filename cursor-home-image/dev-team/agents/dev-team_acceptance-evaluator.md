@@ -1,5 +1,5 @@
 ---
-name: acceptance-evaluator
+name: dev-team_acceptance-evaluator
 description: |
   【use proactively】Evaluates codebase against proposal.md acceptance criteria using a static binary checklist.
 model: opus-4.6

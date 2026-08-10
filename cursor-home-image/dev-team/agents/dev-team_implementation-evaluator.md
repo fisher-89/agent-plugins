@@ -1,5 +1,5 @@
 ---
-name: implementation-evaluator
+name: dev-team_implementation-evaluator
 description: |
   【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
   On fail, the skill loops back to implementation-generator with failed items.

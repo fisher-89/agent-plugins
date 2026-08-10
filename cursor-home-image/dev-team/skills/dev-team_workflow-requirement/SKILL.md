@@ -135,6 +135,6 @@ LOOP:
 All phases have passed evaluation.
 
 1. 显示完成摘要：Done: all phases passed / Total phases: {total_phases} / Total rounds: {round}
-2. PushNotification("Workflow for change '{change-name}' completed. Please verify and run /dev-team_openspec-archive-change")
+2. PushNotification("Workflow for change '{change-name}' completed. Please verify and run dev-team_openspec-archive-change")
 3. **Do NOT auto-archive.**
-4. 完成提示: "All phases completed. Please review the results and run `/dev-team_openspec-archive-change` to finalize."
+4. 完成提示: "All phases completed. Please review the results and run `dev-team_openspec-archive-change` to finalize."

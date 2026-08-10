@@ -1,5 +1,5 @@
 ---
-name: implementation-generator
+name: dev-team_implementation-generator
 description: |
   【use proactively】Reads design.md and tasks.md, writes implementation code directly to disk.
 model: sonnet-4.6

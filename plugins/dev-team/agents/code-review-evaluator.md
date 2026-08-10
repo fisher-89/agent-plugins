@@ -1,5 +1,5 @@
 ---
-name: code-review-evaluator
+name: __AGENT:code-review-evaluator__
 description: |
   【use proactively】Evaluates code using a static binary checklist for security, test coverage, and error handling.
 model: opus-4.6

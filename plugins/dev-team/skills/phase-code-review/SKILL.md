@@ -9,7 +9,7 @@ disable-model-invocation: true
 ## Usage
 
 ```
-__SKILL_SLASH:phase-code-review__ [change-name]
+__CALL_SKILL:phase-code-review__ [change-name]
 ```
 
 ## Process

@@ -9,10 +9,6 @@
       {
         "matcher": "Shell",
         "command": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/dev-team_hooks.cjs\" protect-files"
-      },
-      {
-        "matcher": "PowerShell",
-        "command": "node \"__DEV_TEAM_RUNTIME_ROOT__/bin/dev-team_hooks.cjs\" protect-files"
       }
     ],
     "subagentStop": [

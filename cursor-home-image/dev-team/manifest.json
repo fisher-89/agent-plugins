@@ -1,5 +1,5 @@
 {
-  "version": "2.10.24",
+  "version": "2.10.25",
   "namePrefix": "dev-team_",
   "managedPaths": [
     "agents/dev-team_acceptance-evaluator.md",
@@ -31,7 +31,7 @@
     "hooks.json",
     "install.mjs",
     "manifest.json",
-    "mcp.dev-team.json",
+    "mcp.json",
     "skills/dev-team_openspec-archive-change",
     "skills/dev-team_openspec-explore",
     "skills/dev-team_phase-acceptance",
@@ -56,6 +56,6 @@
     "utils/archi-decide.py",
     "utils/openspec-cli.sh"
   ],
-  "mcpFragment": "mcp.dev-team.json",
+  "mcpFragment": "mcp.json",
   "hooksFile": "hooks.json"
 }

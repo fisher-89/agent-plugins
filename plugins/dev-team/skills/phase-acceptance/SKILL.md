@@ -9,7 +9,7 @@ disable-model-invocation: true
 ## Usage
 
 ```
-__SKILL_SLASH:phase-acceptance__ [change-name]
+__CALL_SKILL:phase-acceptance__ [change-name]
 ```
 
 ## Process

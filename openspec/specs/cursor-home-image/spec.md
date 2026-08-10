@@ -48,7 +48,7 @@ Skill and agent **names** in the image SHALL carry the `dev-team_` prefix (e.g. 
 
 ### Requirement: Path tokens remain until install
 
-For the `cursorHome` product, assemble SHALL expand all name-class tokens (`__SKILL:`, `__AGENT:`, `__MCP:`, `__SKILL_SLASH:`, `__BIN:`) and SHALL leave `__DEV_TEAM_ROOT__` / `__DEV_TEAM_RUNTIME_ROOT__` in the image for install-time absolute-path substitution. The installer SHALL replace both path tokens with the same resolved absolute install root.
+For the `cursorHome` product, assemble SHALL expand all name-class tokens (`__SKILL:`, `__CALL_SKILL:`, `__AGENT:`, `__CALL_AGENT:`, `__MCP:`, `__BIN:`) and SHALL leave `__DEV_TEAM_ROOT__` / `__DEV_TEAM_RUNTIME_ROOT__` in the image for install-time absolute-path substitution. The installer SHALL replace both path tokens with the same resolved absolute install root.
 
 #### Scenario: Image retains path tokens
 
@@ -116,20 +116,21 @@ The `cursorHome` env SHALL use the following user-level prefixes (pinned by real
 | MCP server key | `dev-team_mcp` |
 | `mcpToolPrefix` | `mcp__user-dev-team_mcp__` |
 | `namePrefix` | `dev-team_` |
-| `agentRefPrefix` | `dev-team_` |
-| `skillSlashPrefix` | `/dev-team_` |
+| `pluginPrefix` | `''` |
 
-`__MCP:<tool>__` SHALL expand to `mcp__user-dev-team_mcp__<tool>`. Source and frontmatter MUST NOT use server-level MCP allowlist strings without a tool id.
+`__MCP:<tool>__` SHALL expand to `mcp__user-dev-team_mcp__<tool>`. `__CALL_SKILL:` / `__CALL_AGENT:` SHALL expand to `namePrefix + id` (empty `pluginPrefix`). Source and frontmatter MUST NOT use server-level MCP allowlist strings without a tool id.
 
 #### Scenario: Home MCP tool token expansion
 
 - **WHEN** assemble expands `__MCP:phase_next__` for `cursorHome`
 - **THEN** the result SHALL be `mcp__user-dev-team_mcp__phase_next`
 
-#### Scenario: Home skill slash token expansion
+#### Scenario: Home call-skill / call-agent token expansion
 
-- **WHEN** assemble expands `__SKILL_SLASH:phase-proposal__` for `cursorHome`
-- **THEN** the result SHALL be `/dev-team_phase-proposal`
+- **WHEN** assemble expands `__CALL_SKILL:phase-proposal__` for `cursorHome`
+- **THEN** the result SHALL be `dev-team_phase-proposal`
+- **AND** when assemble expands `__CALL_AGENT:proposal-planner__` for `cursorHome`
+- **THEN** the result SHALL be `dev-team_proposal-planner`
 
 #### Scenario: No server-level MCP reference in source
 
@@ -171,6 +172,6 @@ The `cursorHome` env SHALL use the following user-level prefixes (pinned by real
 | `layout` | `home-image` |
 | `hooksProfile` | `cursorNative` |
 | `pathReplacePhase` | `install`（仅路径两列） |
-| `namePrefix` / `agentRefPrefix` | `dev-team_` |
+| `namePrefix` | `dev-team_` |
+| `pluginPrefix` | `''` |
 | `mcpToolPrefix` | `mcp__user-dev-team_mcp__` |
-| `skillSlashPrefix` | `/dev-team_` |

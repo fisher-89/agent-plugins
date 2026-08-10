@@ -30,16 +30,18 @@ describe('applyEnvTokens', () => {
     expect(applyEnvTokens('__BIN:mcp__', env)).toBe('dev-team_mcp.cjs');
   });
 
-  it('plugin env 展开 __BIN:hooks__ 与 __SKILL_SLASH:propose__', () => {
+  it('plugin env 展开 __BIN:hooks__ 与 __CALL_SKILL:propose__', () => {
     const env = getEnv('cursor');
     expect(applyEnvTokens('__BIN:hooks__', env)).toBe('hooks.cjs');
-    expect(applyEnvTokens('__SKILL_SLASH:propose__', env)).toBe('/dev-team:propose');
+    expect(applyEnvTokens('__CALL_SKILL:propose__', env)).toBe('dev-team:propose');
   });
 
-  it('cursorHome 展开 __AGENT: 与 __SKILL_SLASH: 带下划线前缀', () => {
+  it('cursorHome 展开 __AGENT: 与 __CALL_AGENT: 带下划线前缀', () => {
     const env = getEnv('cursorHome');
     expect(applyEnvTokens('__AGENT:proposal-planner__', env)).toBe('dev-team_proposal-planner');
-    expect(applyEnvTokens('__SKILL_SLASH:propose__', env)).toBe('/dev-team_propose');
+    expect(applyEnvTokens('__CALL_AGENT:proposal-planner__', env)).toBe(
+      'dev-team_proposal-planner',
+    );
   });
 
   it('plugin env 默认展开路径 token 为 contentRoot / runtimeRoot', () => {

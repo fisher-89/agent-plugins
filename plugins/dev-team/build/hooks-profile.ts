@@ -4,8 +4,8 @@ import { applyEnvTokens } from './apply-env-tokens';
 import type { ProductEnv } from './env';
 
 const hooksCanonicalMatcherSchema = z.object({
-  claudeNested: z.string(),
-  cursorNative: z.string(),
+  claude: z.string().nullable(),
+  cursor: z.string().nullable(),
 });
 
 const hooksCanonicalPreToolUseSchema = z.object({
@@ -14,63 +14,69 @@ const hooksCanonicalPreToolUseSchema = z.object({
 });
 
 const hooksCanonicalSubagentStopSchema = z.object({
-  agentLogicalId: z.string(),
+  matchers: hooksCanonicalMatcherSchema,
   loop_limit: z.number().optional(),
   commandTemplate: z.string(),
 });
 
-export const hooksCanonicalSchema = z.object({
+const hooksCanonicalSchema = z.object({
   description: z.string().optional(),
   preToolUse: z.array(hooksCanonicalPreToolUseSchema),
   subagentStop: z.array(hooksCanonicalSubagentStopSchema),
 });
 
-export type HooksCanonical = z.infer<typeof hooksCanonicalSchema>;
+type HooksCanonical = z.infer<typeof hooksCanonicalSchema>;
 
-function expandCommand(template: string, env: ProductEnv): string {
-  return applyEnvTokens(template, env, {
+/** Expand name/path tokens in canonical JSON before platform wrapping. */
+function expandCanonical(canonical: HooksCanonical, env: ProductEnv): HooksCanonical {
+  const expanded = applyEnvTokens(JSON.stringify(canonical), env, {
     pathTokens: env.pathReplacePhase === 'build',
   });
+  return JSON.parse(expanded);
 }
 
-function buildClaudeNested(canonical: HooksCanonical, env: ProductEnv): unknown {
+/** Wrap already-expanded canonical into Claude Code plugin hooks.json shape. */
+function buildClaudeNested(canonical: HooksCanonical): unknown {
   return {
     description: canonical.description,
     hooks: {
-      PreToolUse: canonical.preToolUse.map((entry) => ({
-        matcher: entry.matchers.claudeNested,
-        hooks: [{ type: 'command', command: expandCommand(entry.commandTemplate, env) }],
-      })),
+      PreToolUse: canonical.preToolUse
+        .filter((entry) => entry.matchers.claude)
+        .map((entry) => ({
+          matcher: entry.matchers.claude,
+          hooks: [{ type: 'command', command: entry.commandTemplate }],
+        })),
       SubagentStop: canonical.subagentStop.map((entry) => ({
-        matcher: `${env.namePrefix}${entry.agentLogicalId}`,
-        loop_limit: entry.loop_limit,
-        hooks: [{ type: 'command', command: expandCommand(entry.commandTemplate, env) }],
+        matcher: entry.matchers.claude,
+        hooks: [{ type: 'command', command: entry.commandTemplate }],
       })),
     },
   };
 }
 
-function buildCursorNative(canonical: HooksCanonical, env: ProductEnv): unknown {
+/** Wrap already-expanded canonical into Cursor native/plugin hooks.json shape. */
+function buildCursorNative(canonical: HooksCanonical): unknown {
   return {
     version: 1,
     hooks: {
-      preToolUse: canonical.preToolUse.map((entry) => ({
-        matcher: entry.matchers.cursorNative,
-        command: expandCommand(entry.commandTemplate, env),
-      })),
+      preToolUse: canonical.preToolUse
+        .filter((entry) => entry.matchers.cursor)
+        .map((entry) => ({
+          matcher: entry.matchers.cursor,
+          command: entry.commandTemplate,
+        })),
       subagentStop: canonical.subagentStop.map((entry) => ({
-        matcher: `${env.namePrefix}${entry.agentLogicalId}`,
+        matcher: entry.matchers.cursor,
         loop_limit: entry.loop_limit,
-        command: expandCommand(entry.commandTemplate, env),
+        command: entry.commandTemplate,
       })),
     },
   };
 }
 
-export function buildHooksFile(canonical: HooksCanonical, env: ProductEnv): string {
-  const doc =
-    env.hooksProfile === 'claudeNested'
-      ? buildClaudeNested(canonical, env)
-      : buildCursorNative(canonical, env);
+export function buildHooksFile(canonical: object, env: ProductEnv): string {
+  const parsed = hooksCanonicalSchema.parse(canonical);
+  const expanded = expandCanonical(parsed, env);
+  const doc = env.agent === 'claude' ? buildClaudeNested(expanded) : buildCursorNative(expanded);
   return `${JSON.stringify(doc, null, 2)}\n`;
 }

@@ -150,6 +150,6 @@ LOOP:
 All phases have passed evaluation.
 
 1. 显示完成摘要：Done / Total phases: {total_phases} / Total rounds: {round} / Note: discovering implementation bugs via tests also fulfills the test-only workflow purpose
-2. PushNotification("Test-only workflow for change '{change-name}' completed. Please verify and run __SKILL_SLASH:openspec-archive-change__")
+2. PushNotification("Test-only workflow for change '{change-name}' completed. Please verify and run __CALL_SKILL:openspec-archive-change__")
 3. **Do NOT auto-archive.**
-4. 完成提示: "All test-only phases completed. Please review the results and run `__SKILL_SLASH:openspec-archive-change__` to finalize."
+4. 完成提示: "All test-only phases completed. Please review the results and run `__CALL_SKILL:openspec-archive-change__` to finalize."

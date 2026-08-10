@@ -7,7 +7,7 @@ disable-model-invocation: true
 ## Usage
 
 ```
-__SKILL_SLASH:phase-implement__ [change-name]
+__CALL_SKILL:phase-implement__ [change-name]
 ```
 
 ## Process
