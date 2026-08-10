@@ -1,7 +1,6 @@
 ---
 name: dev-team_test-gen-evaluator
-description: |
-  【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
+description: 【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
   On fail, the skill loops back to test-gen-generator with failed items.
 model: opus-4.6
 disallowedTools: Write, Edit

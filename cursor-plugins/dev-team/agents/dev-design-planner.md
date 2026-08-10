@@ -1,8 +1,6 @@
 ---
 name: dev-design-planner
-description: |
-  【use proactively】Reads proposal.md and writes design.md and tasks.md.
-  Produces two .md artifacts: design and tasks.
+description: 【use proactively】Reads proposal.md and writes design.md and tasks.md.
 model: opus-4.6
 memory: project
 ---

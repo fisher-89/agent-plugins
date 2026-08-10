@@ -1,8 +1,6 @@
 ---
 name: dev-team_test-gen-generator
-description: |
-  【use proactively】Reads test-design.md and source code files, writes test files
-  colocated with the source code directly to disk.
+description: 【use proactively】Reads test-design.md and source code files, writes test files.
 model: sonnet-4.6
 ---
 

@@ -1,8 +1,6 @@
 ---
 name: dev-team_proposal-evaluator
-description: |
-  【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
-  On fail, the skill loops back to the main agent with failed items.
+description: 【use proactively】Evaluates proposal.md against a static binary checklist for completeness, clarity, and coverage.
 model: opus-4.6
 tools: Read, Grep, LSP, mcp__user-dev-team_mcp__phase_log
 memory: project

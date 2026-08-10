@@ -1,8 +1,6 @@
 ---
 name: __AGENT:implementation-evaluator__
-description: |
-  【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
-  On fail, the skill loops back to implementation-generator with failed items.
+description: 【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
 model: opus-4.6
 disallowedTools: Write, Edit
 ---

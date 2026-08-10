@@ -1,8 +1,6 @@
 ---
 name: dev-team_dev-design-evaluator
-description: |
-  【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
-  On fail, the skill loops back to dev-design-planner with failed items.
+description: 【use proactively】Evaluates design.md against a static binary checklist for completeness and decision quality.
 model: opus-4.6
 disallowedTools: Write, Edit
 ---
