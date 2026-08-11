@@ -459,7 +459,9 @@ export function runStaticCheck(): void {
 
   const captured = getCaptured();
   const reason = FOLLOWUP_PREFIX + captured;
-  process.stdout.write(`${JSON.stringify({ decision: 'block', reason })}\n`);
+  process.stdout.write(
+    `${JSON.stringify({ decision: 'block', reason, followup_message: reason })}\n`,
+  );
 }
 
 // ---------------------------------------------------------------------------

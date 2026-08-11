@@ -622,7 +622,7 @@ function executeStrykerMutation(
   const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
   console.log(`Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${projectRoot})...`);
   const strykerStart = Date.now();
-  const cmdResult = runCommand(strykerCmd, projectRoot, 1200000);
+  const cmdResult = runCommand(strykerCmd, projectRoot, 3600000);
   const strykerDuration = (Date.now() - strykerStart) / 1000;
 
   if (cmdResult.exitCode !== 0) {
