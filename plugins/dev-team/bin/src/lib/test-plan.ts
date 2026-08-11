@@ -12,13 +12,15 @@ import { type FrameworkConfig, getFrameworkConfig } from './test-framework';
 /** Suite paths and framework config resolved against projectRoot. */
 export interface ResolvedSuite {
   suite: TestSuite;
-  absRoot: string;
   absCwd: string;
   absConfig: string | null;
+
   /** absCwd relative to projectRoot (POSIX) */
   cwd: string;
   /** absRoot relative to projectRoot (POSIX) */
   root: string;
+  /** 执行突变测试相对projectRoot的路径 */
+  mutationCwd: string;
   frameworkConfig: FrameworkConfig;
 }
 
@@ -34,18 +36,20 @@ function toPosixRelative(from: string, to: string): string {
 function resolveSuite(suite: TestSuite, projectRoot: string): ResolvedSuite {
   const frameworkConfig = getFrameworkConfig(suite.framework);
   const absRoot = path.resolve(projectRoot, suite.root);
-  const absCwd = path.resolve(absRoot, suite.cwd ?? '.');
+  const absCwd = path.resolve(absRoot, suite.cwd);
+  const absMutationCwd = path.resolve(absRoot, suite.mutation.cwd ?? suite.cwd);
   const absConfig = suite.config ? path.resolve(absRoot, suite.config) : null;
   const cwd = toPosixRelative(projectRoot, absCwd);
   const root = toPosixRelative(projectRoot, absRoot);
+  const mutationCwd = toPosixRelative(projectRoot, absMutationCwd);
 
   return {
     suite,
-    absRoot,
     absCwd,
     absConfig,
     cwd,
     root,
+    mutationCwd,
     frameworkConfig,
   };
 }

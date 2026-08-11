@@ -38,7 +38,7 @@ export interface ExecutionResult {
   exitCode: number;
   testCases: TestCase[];
   coverage: ParsedCoverage | null;
-  mutation?: MutationBlock | null;
+  mutation: MutationBlock | null;
   durationMs: number;
   testFiles: string[];
   sourceFiles: string[];
@@ -591,7 +591,7 @@ function runMutationPhase(
   try {
     return executeStrykerMutation(
       entry,
-      projectRoot,
+      entry.mutation_cwd,
       reportDir,
       sourcesAbsolute,
       resolveUserConfigPath(entry, projectRoot),
@@ -605,13 +605,13 @@ function runMutationPhase(
 
 function executeStrykerMutation(
   entry: TestPlan,
-  projectRoot: string,
+  strykerRoot: string,
   reportDir: string,
   absoluteSourceFiles: string[],
   frameworkConfigPath: string | null,
 ): MutationPhaseResult {
   const { configPath, tempDirPath } = resolveStrykerConfig(
-    projectRoot,
+    strykerRoot,
     entry.root,
     absoluteSourceFiles,
     entry.framework,
@@ -620,9 +620,9 @@ function executeStrykerMutation(
   );
 
   const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
-  console.log(`Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${projectRoot})...`);
+  console.log(`Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${strykerRoot})...`);
   const strykerStart = Date.now();
-  const cmdResult = runCommand(strykerCmd, projectRoot, 3600000);
+  const cmdResult = runCommand(strykerCmd, strykerRoot, 3600000);
   const strykerDuration = (Date.now() - strykerStart) / 1000;
 
   if (cmdResult.exitCode !== 0) {

@@ -178,12 +178,14 @@ The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top o
 
 对每个 suite：
 1. `absRoot = projectRoot / suite.root`
-2. `absCwd = absRoot / (suite.cwd ?? ".")`
-3. `plan.cwd` = absCwd 相对于 `projectRoot` 的 POSIX 相对路径（运行目录）
-4. `plan.root` = absRoot 相对于 `projectRoot` 的 POSIX 相对路径（测试范围根）
-5. `framework` / coverage 元数据 / mutation_framework 来自 `FRAMEWORK_REGISTRY`
-6. `mutation_score` 来自该 suite 解析后的 `mutation.score`
-7. include 匹配 glob = `suite.includes` 若存在，否则为框架 `default_glob`；匹配时相对 `suite.root`（实现可将 glob 拼为 projectRoot 相对形式 `root/includes`）
+2. `absCwd = absRoot / suite.cwd`
+3. `absMutationCwd = absRoot / (suite.mutation.cwd ?? suite.cwd)`
+4. `plan.cwd` = absCwd 相对于 `projectRoot` 的 POSIX 相对路径（运行目录）
+5. `plan.root` = absRoot 相对于 `projectRoot` 的 POSIX 相对路径（测试范围根）
+6. `plan.mutation_cwd` = absMutationCwd 相对于 `projectRoot` 的 POSIX 相对路径（Stryker sandbox / 临时 config 根）
+7. `framework` / coverage 元数据 / mutation_framework 来自 `FRAMEWORK_REGISTRY`
+8. `mutation_score` 来自该 suite 解析后的 `mutation.score`
+9. include 匹配 glob = `suite.includes` 若存在，否则为框架 `default_glob`；匹配时相对 `suite.root`（实现可将 glob 拼为 projectRoot 相对形式 `root/includes`）
 
 模块 SHALL 删除或停止调用 `deriveWorkingDirectory` 作为 cwd 来源。
 
@@ -373,7 +375,7 @@ execute 以 `cwd=absCwd` 运行已展开占位符的 `test_execution`（detect �
 |--------|--------|
 | **Config source** | `config.tests: Suite[]` |
 | **Removed** | `normalizeFrameworks(framework, overrides)` 旧签名；`deriveWorkingDirectory` 作为 cwd 来源 |
-| **Plan fields** | `cwd`（absCwd 相对项目根）, `root`（absRoot 相对项目根）, `framework`, coverage 元数据（`coverage_output` 相对 reportDir；`coverage_format` 含 bun→`lcov`）, `mutation_framework`, `mutation_score`, `script: { shell, cmd }` |
+| **Plan fields** | `cwd`（absCwd 相对项目根）, `root`（absRoot 相对项目根）, `framework`, coverage 元数据（`coverage_output` 相对 reportDir；`coverage_format` 含 bun→`lcov`）, `mutation_cwd`（突变执行根，相对项目根；默认 `suite.mutation.cwd ?? suite.cwd`）, `mutation_framework`, `mutation_score`, `script: { shell, cmd }` |
 | **Shared lib** | `lib/test-plan.ts`：`resolveAllSuites` / `isInSuiteScope` / `derivePlanId` / `resolvePlanFiles` / `findSuite` |
 | **Script** | report/file-channel placeholders kept unexpanded at detect；execute 以 `cwd=absCwd` 展开 `{config_args}`（绝对 POSIX + 引号）与 report 路径占位符（绝对 POSIX）；不再注入 suite cwd `coverage_cleanup` |
 | **Behavior change** | detect 产出带 report 相关占位符的 script；不烤死 reportDir；不再注入 suite cwd `coverage_cleanup` |

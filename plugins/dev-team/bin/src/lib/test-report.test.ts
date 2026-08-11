@@ -55,6 +55,7 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
       { name: 'test2', status: 'failed', durationMs: 200, errorMessage: 'Error: fail' },
     ],
     coverage: null,
+    mutation: null,
     durationMs: 500,
     testFiles: ['src/foo.test.ts'],
     sourceFiles: ['src/foo.ts'],

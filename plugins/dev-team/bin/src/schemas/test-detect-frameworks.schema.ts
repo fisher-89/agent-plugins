@@ -17,6 +17,7 @@ const testPlanSchema = z.object({
   coverage_output: z
     .string()
     .describe('Coverage output file name relative to the plan report directory (reportDir)'),
+  mutation_cwd: z.string().describe('执行突变测试的根目录，Stryker基于这个目录生成sandbox'),
   mutation_config: z
     .object({
       score: z.number().describe('Mutation score threshold for this plan entry'),

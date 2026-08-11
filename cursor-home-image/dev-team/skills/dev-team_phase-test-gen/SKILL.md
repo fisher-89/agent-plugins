@@ -20,7 +20,9 @@ Call `mcp__user-dev-team_mcp__change_list` to get active changes. If <change-nam
 
 ### Phase Check
 
-Call `mcp__user-dev-team_mcp__phase_next(change=<change-name>)` to get workflow state.
+At the start of this turn, generate a new non-empty opaque `run_id` (e.g. UUID). Pass the same `run_id` to every `phase_next` call in this turn (Phase Check, backtrack recall, Verdict Phase Result).
+
+Call `mcp__user-dev-team_mcp__phase_next(change=<change-name>, run_id=<run_id>)` to get workflow state.
 
 If `next_phase` is "test-gen" continue to `### Run Executor`.
 
@@ -44,7 +46,7 @@ mcp__user-dev-team_mcp__backtrack({
 })
 ```
 
-If response `modified` is true, recall `mcp__user-dev-team_mcp__phase_next(change=<name>)`, continue to `### Run Executor`.
+If response `modified` is true, recall `mcp__user-dev-team_mcp__phase_next(change=<name>, run_id=<run_id>)`, continue to `### Run Executor`.
 
 ### Run Executor
 
@@ -73,7 +75,7 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = mcp__user-dev-team_mcp__phase_next(change=<change-name>)
+result = mcp__user-dev-team_mcp__phase_next(change=<change-name>, run_id=<run_id>)
 
 if result.last_result is null:
   → 错误：Evaluator 未正确写入 eval.json，停止

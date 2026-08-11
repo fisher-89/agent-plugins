@@ -16,7 +16,7 @@ The schema SHALL define the following top-level fields:
   - `includes` (optional `string[]`): include globs relative to `root`；when omitted, consumers SHALL treat the suite includes as the framework `default_glob`（not a schema-injected glob string）
   - `excludes` (optional `string[]`): exclude globs relative to `root`
   - `coverage` (optional object): `lines` / `branches` / `functions` numbers in `[0, 100]`，各字段缺省为 schema 目录常量（默认 80 / 70 / 75）
-  - `mutation` (optional object): `score` number in `[0, 100]`，缺省为 schema 目录常量（默认 70）
+  - `mutation` (optional object): `cwd`（optional string，相对 `root`，缺省等于 suite `cwd`）与 `score` number in `[0, 100]`（缺省为 schema 目录常量，默认 70）
 - The schema SHALL NOT define a top-level `test` object with `framework` / `overrides` / global `coverage` / `mutation` / `exclude` as the supported configuration model
 
 Coverage / mutation numeric defaults SHALL be imported from a dedicated constants module under `plugins/dev-team/bin/src/schemas/config/`（例如 `defaults.ts`），不得在消费者中手写级联默认值。
@@ -61,6 +61,14 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 - **AND** parsed suite `cwd` SHALL be `"."`
 - **AND** parsed suite `coverage.lines` / `branches` / `functions` SHALL equal schema defaults 80 / 70 / 75
 - **AND** parsed suite `mutation.score` SHALL equal schema default 70
+- **AND** parsed suite `mutation.cwd` SHALL be omitted（消费者默认使用 suite `cwd`）
+
+#### Scenario: Schema accepts suite mutation.cwd
+
+- **WHEN** a config object `{"tests": [{"root": "pkg", "framework": "vitest", "cwd": "jest", "mutation": {"cwd": ".", "score": 50}}]}` is validated
+- **THEN** validation succeeds
+- **AND** parsed suite `mutation.cwd` SHALL be `"."`
+- **AND** parsed suite `mutation.score` SHALL be `50`
 
 #### Scenario: Schema rejects root containing glob wildcards
 
@@ -211,7 +219,7 @@ The TypeScript type `OpenSpecConfig` (inferred from `configSchema`) SHALL includ
 |----------|-------------|
 | **Module** | `schemas/config/config.schema.ts` |
 | **Definition** | `z.output<typeof configSchema>` |
-| **Key path** | `tests: Array<{ root, framework, cwd, config?, includes?, excludes?, coverage, mutation }>` |
+| **Key path** | `tests: Array<{ root, framework, cwd, config?, includes?, excludes?, coverage, mutation: { cwd?, score } }>` |
 
 ### Schema: configSchema (write_protection field)
 

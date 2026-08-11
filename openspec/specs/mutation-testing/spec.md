@@ -16,12 +16,12 @@
 | Property | Description |
 |----------|-------------|
 | **File** | `plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts` |
-| **Exports** | `resolveStrykerConfig(projectRoot: string, options: StrykerConfigOptions): StrykerConfigResult` |
-| **Input** | `projectRoot` — 项目根目录；`StrykerConfigOptions` — `{ framework: string, sourceFiles: string[], testFiles: string[], mutationScore?: number }` |
+| **Exports** | `resolveStrykerConfig(strykerRoot, planRoot, absoluteSourceFiles, framework, reportDir, frameworkConfigPath?): { configPath, tempDirPath }` |
+| **Input** | `strykerRoot` — Stryker 执行 cwd（即 plan `mutation_cwd`）；其余为 suite root、绝对源文件、框架名、plan reportDir、可选框架配置路径 |
 | **Output** | `StrykerConfigResult`: `{ configPath: string, cleanup: boolean }` — `configPath` 是最终使用的 StrykerJS 配置文件路径；`cleanup` 标记是否需要执行后清理 |
 | **Strategy** | 1) 检查 `stryker.config.{json,mjs,cjs}` 是否存在；2) 存在则直接使用（`cleanup = false`）；3) 不存在则从内置模板生成临时文件（`cleanup = true`） |
-| **Change** | overlay `jsonReporter.fileName` → `<reportDir>/mutation.json`；临时 config 仍在 absCwd，用后删 |
-| **Side Effects** | 可能创建临时文件到 absCwd |
+| **Change** | overlay `jsonReporter.fileName` → `<reportDir>/mutation.json`；临时 config 落在 mutation_cwd，用后删 |
+| **Side Effects** | 可能创建临时文件到 mutation_cwd |
 
 ### Module: lib/test-parser/mutation-parser.ts (NEW — StrykerJS JSON Report Parser)
 
@@ -86,14 +86,14 @@
 | **Pass Logic** | `measured.score >= thresholds.score` → pass；suite 分组的 score >= 其阈值 → 额外 pass 条件 |
 | **Conclusion** | mutation 不达标（`mutation.pass === false`）时，添加 `mutation_failure` 类型 problem |
 
-### Module: lib/test-runner.ts / stryker-config.ts (absCwd)
+### Module: lib/test-runner.ts / stryker-config.ts (mutation_cwd)
 
 | Aspect | Detail |
 |--------|--------|
-| rootPath / cwd | absCwd (`projectRoot / plan.cwd`) |
-| Temp artifacts | under absCwd（临时 config / `.stryker-tmp/`，用后删） |
-| Mutation JSON | `<reportDir>/mutation.json`（权威产物；非 absCwd `reports/mutation/`） |
-| mutate paths | relative to absCwd |
+| rootPath / cwd | `entry.mutation_cwd`（detect 产出为相对 projectRoot 的 POSIX 路径；默认 `suite.mutation.cwd ?? suite.cwd`，再相对 root 解析） |
+| Temp artifacts | under mutation_cwd（临时 config / `.stryker-tmp/`，用后删） |
+| Mutation JSON | `<reportDir>/mutation.json`（权威产物；非 mutation_cwd `reports/mutation/`） |
+| mutate paths | relative to mutation_cwd |
 
 ### Module: cli.ts (CLI Entry — --no-mutation Flag)
 
@@ -155,14 +155,15 @@
 3. `testFiles` 数组非空
 
 执行流程：
-1. 调用 `resolveStrykerConfig`（工作目录仍为 absCwd；可将 `jsonReporter.fileName` overlay 到当前 plan 的 `reportDir/mutation.json`）
-2. 执行 `npx stryker run --config <configPath>`（cwd = absCwd）
+1. 调用 `resolveStrykerConfig`（工作目录为 `entry.mutation_cwd`；可将 `jsonReporter.fileName` overlay 到当前 plan 的 `reportDir/mutation.json`）
+2. 执行 `npx stryker run --config <configPath>`（cwd = `entry.mutation_cwd`）
 3. 调用 `parseMutationReport("<reportDir>/mutation.json")`（路径为当前 plan 产物目录）
 4. 如果需要清理，best-effort 删除临时配置文件；MUST NOT 依赖或清理 suite cwd 旧 `reports/mutation/` 作为权威产物
 5. 将解析结果存入 `ExecutionResult.mutation`
 
 **Changes from previous version**:
-- 权威 mutation 报告路径：`reports/mutation/mutation.json`（相对 absCwd）→ `<reportDir>/mutation.json`
+- 权威 mutation 报告路径：`reports/mutation/mutation.json` → `<reportDir>/mutation.json`
+- Stryker cwd：`projectRoot` / suite `absCwd` → `entry.mutation_cwd`
 - 解析 MUST NOT 回退读取旧路径
 
 #### Scenario: 支持的框架执行 StrykerJS
@@ -210,7 +211,7 @@
 **WHEN** StrykerJS 成功完成
 **THEN** mutation JSON SHALL 存在于当前 plan 的 `reportDir/mutation.json`
 **AND** `parseMutationReport` SHALL 读取该路径
-**AND** SHALL NOT 以 absCwd 下 `reports/mutation/mutation.json` 作为权威来源
+**AND** SHALL NOT 以 mutation_cwd 下 `reports/mutation/mutation.json` 作为权威来源
 
 ### Requirement: StrykerJS JSON 报告解析
 
@@ -505,28 +506,29 @@ SHALL NOT 再依赖 `config.test.overrides[].file` + `overrides[].mutation` 作�
 **THEN** 报告仍可按 suite/plan 展示 mutation 结果
 **AND** MUST NOT 要求旧 overrides 数组存在
 
-### Requirement: Stryker 工作目录与产物落在 absCwd
+### Requirement: Stryker 工作目录与产物落在 mutation_cwd
 
 **ID**: REQ-MT-CWD-1
 **Priority**: MUST
-**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 absCwd（即 `projectRoot / plan.cwd`）。临时配置（`stryker.config.*`）、`.stryker-tmp/` SHALL 默认落在该 absCwd 下并在用后删除（与 C4 一致）。
+**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 `mutation_cwd`（detect：`toPosixRelative(projectRoot, resolve(absRoot, suite.mutation.cwd ?? suite.cwd))`；缺省等于 suite cwd 相对 projectRoot 的路径）。临时配置（`stryker.config.*`）、`.stryker-tmp/` SHALL 默认落在该 mutation_cwd 下并在用后删除。
 
-权威 mutation JSON 报告 SHALL 写入当前 plan 的 `reportDir/mutation.json`（通过配置 overlay `jsonReporter.fileName` 或等价），MUST NOT 以 absCwd 下 `reports/mutation/` 作为解析权威源。
+权威 mutation JSON 报告 SHALL 写入当前 plan 的 `reportDir/mutation.json`（通过配置 overlay `jsonReporter.fileName` 或等价），MUST NOT 以 mutation_cwd 下 `reports/mutation/` 作为解析权威源。
 
-传入 `resolveStrykerConfig` 的 `mutate` / sourceFiles 路径 SHALL 重写为相对 absCwd 的 POSIX 路径。
+传入 `resolveStrykerConfig` 的 `mutate` / sourceFiles 路径 SHALL 重写为相对 mutation_cwd 的 POSIX 路径。
 
-#### Scenario: mutation 在 suite absCwd 下执行
+#### Scenario: mutation 在 mutation_cwd 下执行
 
-**WHEN** plan entry `cwd` 为 `"plugins/dev-team/bin"`
+**WHEN** plan entry `mutation_cwd` 为 `"plugins/dev-team/bin"`
 **AND** mutation 阶段启动
-**THEN** Stryker 命令的 cwd / rootPath SHALL 解析为 `projectRoot/plugins/dev-team/bin`
+**THEN** Stryker 命令的 cwd / rootPath SHALL 为 `plugins/dev-team/bin`（即 `entry.mutation_cwd` 原样）
 **AND** 临时 `stryker.config.*` SHALL 创建于该目录下（当需要生成临时配置时）
+**AND** MUST NOT 强制改用 `projectRoot` 或 suite `cwd`（二者可与 `mutation_cwd` 不同）
 
-#### Scenario: mutate 路径相对 absCwd
+#### Scenario: mutate 路径相对 mutation_cwd
 
-**WHEN** sourceFiles 含项目相对路径 `"plugins/dev-team/bin/src/foo.ts"`
-**AND** absCwd 为 `plugins/dev-team/bin`
-**THEN** 写入 Stryker 配置的 mutate 条目 SHALL 为 `"src/foo.ts"`（相对 absCwd）
+**WHEN** sourceFiles 含绝对路径指向 `plugins/dev-team/bin/src/foo.ts`
+**AND** mutation_cwd 为 `plugins/dev-team/bin`
+**THEN** 写入 Stryker 配置的 mutate 条目 SHALL 为 `"src/foo.ts"`（相对 mutation_cwd）
 
 #### Scenario: jsonReporter targets plan reportDir
 

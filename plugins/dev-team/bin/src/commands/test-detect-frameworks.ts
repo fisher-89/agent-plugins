@@ -185,8 +185,9 @@ function buildPlanFromSuites(resolvedSuites: ResolvedSuite[]): TestPlan[] {
       framework: frameworkConfig.framework,
       coverage_format: frameworkConfig.coverage_format,
       coverage_output: frameworkConfig.coverage_output,
+      mutation_cwd: resolved.mutationCwd,
       mutation_config: null,
-      mutation_score: suite.mutation?.score ?? null,
+      mutation_score: suite.mutation.score,
       mutation_script: buildMutationScript(frameworkConfig, version),
       script: {
         shell: generateShellScript(frameworkConfig, version),

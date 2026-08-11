@@ -6,7 +6,7 @@ import * as path from 'path';
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { OpenSpecConfig, TestSuite } from '../schemas';
+import { configSchema, type OpenSpecConfig, type TestSuite } from '../schemas';
 import {
   derivePlanId,
   findSuite,
@@ -17,11 +17,16 @@ import {
 } from './test-plan';
 
 function suite(overrides: Partial<TestSuite> & Pick<TestSuite, 'root' | 'framework'>): TestSuite {
-  return { cwd: '.', ...overrides } as TestSuite;
+  return {
+    cwd: '.',
+    coverage: { lines: 80, branches: 70, functions: 75 },
+    mutation: { score: 70 },
+    ...overrides,
+  };
 }
 
 function config(tests: TestSuite[]): OpenSpecConfig {
-  return { schema: 'spec-driven', tests } as OpenSpecConfig;
+  return configSchema.parse({ schema: 'spec-driven', tests });
 }
 
 describe('derivePlanId', () => {

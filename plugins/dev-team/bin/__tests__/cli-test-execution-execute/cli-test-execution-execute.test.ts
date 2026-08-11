@@ -41,6 +41,7 @@ function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
     framework: 'vitest',
     coverage_format: 'istanbul',
     coverage_output: 'coverage-summary.json',
+    mutation_cwd: '.',
     mutation_script: null,
     script: {
       shell: 'npx vitest run --outputFile={results_file} {files}',
@@ -56,6 +57,7 @@ function makeResult(overrides: Partial<ExecutionResult> = {}): ExecutionResult {
     exitCode: 0,
     testCases: [{ name: 't1', status: 'passed', durationMs: 10 }],
     coverage: null,
+    mutation: null,
     durationMs: 100,
     testFiles: ['a.test.ts'],
     sourceFiles: ['a.ts'],

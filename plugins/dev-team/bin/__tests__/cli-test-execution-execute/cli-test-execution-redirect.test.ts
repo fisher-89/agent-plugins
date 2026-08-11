@@ -66,6 +66,7 @@ describe('jest 原生文件通道', () => {
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
           mutation_script: null,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -112,6 +113,7 @@ describe('jest 原生文件通道', () => {
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
           mutation_script: null,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -149,6 +151,7 @@ describe('jest 原生文件通道', () => {
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
           mutation_script: null,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -201,6 +204,7 @@ describe('jest 原生文件通道', () => {
           framework: 'jest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
           mutation_script: null,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -258,6 +262,7 @@ describe('段级重定向框架（bun/go/pytest）', () => {
             framework,
             coverage_format: cfg.coverage_format,
             coverage_output: cfg.coverage_output,
+            mutation_cwd: '.',
             mutation_script: null,
             script: {
               shell: cfg.shell.test_execution('99.0.0'),
@@ -294,6 +299,7 @@ describe('段级重定向框架（bun/go/pytest）', () => {
           framework: 'bun',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
           mutation_script: null,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),

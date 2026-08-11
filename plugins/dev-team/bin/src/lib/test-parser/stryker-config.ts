@@ -46,14 +46,14 @@ function normalizeSourceFilesForStryker(rootPath: string, sourceFiles: string[])
 }
 
 /**
- * Build jest/vitest runner overlay with projectRoot-relative configFile when
- * suite.config is set. Relative paths resolve against projectRoot.
+ * Build jest/vitest runner overlay with stryker-cwd-relative configFile when
+ * suite.config is set.
  *
  * Vitest runner schema only allows `configFile` (no `config` / `testMatch`).
  * Jest keeps `config.testMatch` + `enableFindRelatedTests: false`.
  */
 function buildRunnerConfigOverlay(
-  projectRoot: string,
+  strykerRoot: string,
   planRoot: string,
   testRunner: string,
   frameworkConfigPath: string | null | undefined,
@@ -64,8 +64,8 @@ function buildRunnerConfigOverlay(
   const absConfig =
     path.isAbsolute(frameworkConfigPath) || /^[A-Za-z]:/.test(frameworkConfigPath)
       ? path.resolve(frameworkConfigPath)
-      : path.resolve(projectRoot, frameworkConfigPath);
-  const configFile = path.relative(projectRoot, absConfig).replace(/\\/g, '/');
+      : path.resolve(strykerRoot, frameworkConfigPath);
+  const configFile = path.relative(strykerRoot, absConfig).replace(/\\/g, '/');
 
   if (testRunner === 'vitest') {
     return {
@@ -97,7 +97,7 @@ function buildRunnerConfigOverlay(
 }
 
 function generateTempConfig(
-  projectRoot: string,
+  strykerRoot: string,
   planRoot: string,
   sourceFiles: string[],
   testRunner: string,
@@ -105,9 +105,9 @@ function generateTempConfig(
   frameworkConfigPath?: string | null,
 ): { configPath: string; tempDirPath: string } {
   const randomSuffix = crypto.randomBytes(4).toString('hex');
-  const configPath = path.resolve(projectRoot, `stryker.config.${randomSuffix}.json`);
-  const tempDirPath = path.resolve(projectRoot, '.stryker-tmp');
-  const normalizedSources = normalizeSourceFilesForStryker(projectRoot, sourceFiles);
+  const configPath = path.resolve(strykerRoot, `stryker.config.${randomSuffix}.json`);
+  const tempDirPath = path.resolve(strykerRoot, '.stryker-tmp');
+  const normalizedSources = normalizeSourceFilesForStryker(strykerRoot, sourceFiles);
   const mutationFileAbs = path.resolve(reportDir, 'mutation.json').replace(/\\/g, '/');
 
   const config = {
@@ -115,7 +115,7 @@ function generateTempConfig(
     mutate: normalizedSources,
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
-    ...buildRunnerConfigOverlay(projectRoot, planRoot, testRunner, frameworkConfigPath),
+    ...buildRunnerConfigOverlay(strykerRoot, planRoot, testRunner, frameworkConfigPath),
     ignoreStatic: true,
     reporters: ['json', 'html'],
     jsonReporter: { fileName: mutationFileAbs },
@@ -133,32 +133,27 @@ function generateTempConfig(
 /**
  * Resolve the StrykerJS configuration for a project.
  *
- * Always generates a temporary configuration in `projectRoot` with
- * `jsonReporter.fileName` as an absolute path to `{reportDir}/mutation.json`.
- * The temp config is deleted by the caller after the run; user long-lived
- * Stryker configs are never modified.
- *
- * @param projectRoot - Absolute project root
+ * @param strykerRoot - Stryker executing cwd
  * @param planRoot - Suite root relative to projectRoot (drives jest testMatch)
- * @param sourceFiles - Source file paths (absolute or projectRoot-relative; normalized to projectRoot-relative POSIX)
+ * @param absoluteSourceFiles - Absolute source file paths
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
  * @param reportDir  - Absolute plan report directory (mutation.json lands here)
  * @param frameworkConfigPath - Absolute (or resolvable) path to suite `tests[].config`, if any
  * @throws {Error} If the framework is not supported by StrykerJS
  */
 export function resolveStrykerConfig(
-  projectRoot: string,
+  strykerRoot: string,
   planRoot: string,
-  sourceFiles: string[],
+  absoluteSourceFiles: string[],
   framework: string,
   reportDir: string,
   frameworkConfigPath?: string | null,
 ): { configPath: string; tempDirPath: string } {
   const testRunner = resolveTestRunner(framework);
   const { configPath, tempDirPath } = generateTempConfig(
-    projectRoot,
+    strykerRoot,
     planRoot,
-    sourceFiles,
+    absoluteSourceFiles,
     testRunner,
     reportDir,
     frameworkConfigPath,

@@ -126,6 +126,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
                   : cfg.shell.mutation_execution('99.0.0'),
               }
             : null,
+          mutation_cwd: '.',
           mutation_score: 50,
           script: {
             shell: cfg.shell.test_execution('99.0.0'),
@@ -187,6 +188,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
           mutation_script: cfg.shell.mutation_execution
             ? {
                 shell: cfg.shell.mutation_execution('99.0.0'),
@@ -214,15 +216,16 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
     const project = createTempProject();
     try {
       const reportsDir = path.join(project.root, 'reports', 'test');
+      const mutationCwd = project.root;
       const cfg = getFrameworkConfig('vitest');
       let configPathSeen = '';
       mockExecSync.mockImplementation((cmd: unknown) => {
         const planDir = path.join(reportsDir, 'vitest');
         if (String(cmd).includes('stryker')) {
           const configs = fs
-            .readdirSync(project.root)
+            .readdirSync(mutationCwd)
             .filter((n) => n.startsWith('stryker.config.') && n.endsWith('.json'));
-          configPathSeen = configs[0] ? path.join(project.root, configs[0]) : '';
+          configPathSeen = configs[0] ? path.join(mutationCwd, configs[0]) : '';
           fs.writeFileSync(
             path.join(planDir, 'mutation.json'),
             JSON.stringify(MUTATION_REPORT),
@@ -253,6 +256,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: mutationCwd,
           mutation_script: cfg.shell.mutation_execution
             ? {
                 shell: cfg.shell.mutation_execution('99.0.0'),
@@ -270,10 +274,9 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
         project.root,
         { reportsDir },
       );
-      if (configPathSeen) {
-        expect(fs.existsSync(configPathSeen)).toBe(false);
-      }
-      expect(fs.existsSync(path.join(project.root, '.stryker-tmp'))).toBe(false);
+      expect(configPathSeen).not.toBe('');
+      expect(fs.existsSync(configPathSeen)).toBe(false);
+      expect(fs.existsSync(path.join(mutationCwd, '.stryker-tmp'))).toBe(false);
     } finally {
       project.cleanup();
     }
@@ -283,15 +286,16 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
     const project = createTempProject();
     try {
       const reportsDir = path.join(project.root, 'reports', 'test');
+      const mutationCwd = project.root;
       const cfg = getFrameworkConfig('vitest');
       let configPathSeen = '';
       mockExecSync.mockImplementation((cmd: unknown) => {
         const planDir = path.join(reportsDir, 'vitest');
         if (String(cmd).includes('stryker')) {
           const configs = fs
-            .readdirSync(project.root)
+            .readdirSync(mutationCwd)
             .filter((n) => n.startsWith('stryker.config.') && n.endsWith('.json'));
-          configPathSeen = configs[0] ? path.join(project.root, configs[0]) : '';
+          configPathSeen = configs[0] ? path.join(mutationCwd, configs[0]) : '';
           expect(configPathSeen).not.toBe('');
           expect(fs.existsSync(configPathSeen)).toBe(true);
           const err = new Error('stryker failed') as Error & { status: number; stderr?: string };
@@ -323,6 +327,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
           framework: 'vitest',
           coverage_format: cfg.coverage_format,
           coverage_output: cfg.coverage_output,
+          mutation_cwd: mutationCwd,
           mutation_script: cfg.shell.mutation_execution
             ? {
                 shell: cfg.shell.mutation_execution('99.0.0'),
@@ -344,7 +349,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       expect(result.error).toMatch(/Mutation testing failed/);
       expect(configPathSeen).not.toBe('');
       expect(fs.existsSync(configPathSeen)).toBe(false);
-      expect(fs.existsSync(path.join(project.root, '.stryker-tmp'))).toBe(false);
+      expect(fs.existsSync(path.join(mutationCwd, '.stryker-tmp'))).toBe(false);
     } finally {
       project.cleanup();
     }
@@ -361,6 +366,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
         framework: 'vitest' as const,
         coverage_format: cfg.coverage_format,
         coverage_output: cfg.coverage_output,
+        mutation_cwd: '.',
         mutation_script: cfg.shell.mutation_execution
           ? {
               shell: cfg.shell.mutation_execution('99.0.0'),

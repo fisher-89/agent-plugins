@@ -40,6 +40,7 @@ const testCoverageSchema = z
 
 const mutationConfigSchema = z
   .object({
+    cwd: z.string().optional().describe('突变执行目录（相对 root，默认等于cwd）'),
     score: z
       .number()
       .min(0)

@@ -123,6 +123,10 @@
             "default": {},
             "type": "object",
             "properties": {
+              "cwd": {
+                "description": "突变执行目录（相对 root，默认等于cwd）",
+                "type": "string"
+              },
               "score": {
                 "description": "变异测试得分阈值（百分比，默认 70）",
                 "default": 70,

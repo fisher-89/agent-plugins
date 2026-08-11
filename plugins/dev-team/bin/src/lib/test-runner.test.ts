@@ -73,6 +73,7 @@ function makePlan(overrides: Partial<TestPlan> = {}): TestPlan {
     framework: fw,
     coverage_format: cfg.coverage_format,
     coverage_output: cfg.coverage_output,
+    mutation_cwd: '.',
     mutation_script: mutationShell
       ? {
           shell: mutationShell('99.0.0'),
@@ -205,6 +206,7 @@ describe('executePlanEntry', () => {
           framework: 'unknown-fw' as TestPlan['framework'],
           coverage_format: 'istanbul',
           coverage_output: 'coverage-summary.json',
+          mutation_cwd: '.',
           mutation_script: null,
           script: { shell: 'echo hi', cmd: 'echo hi' },
         },
@@ -1049,13 +1051,14 @@ describe('executePlanEntry -- mutation 开关', () => {
         'utf-8',
       );
       const reportsDir = path.join(dir.root, 'reports', 'test');
+      const mutationCwd = dir.root;
       const seenConfigs: string[] = [];
       mockExecSync.mockImplementation((cmd: unknown) => {
         const planDir = path.join(reportsDir, 'vitest');
         if (String(cmd).includes('stryker')) {
           const m = String(cmd).match(/stryker\.config\.[a-f0-9]+\.json/);
           if (m) {
-            const cfgPath = path.join(dir.root, m[0]);
+            const cfgPath = path.join(mutationCwd, m[0]);
             seenConfigs.push(cfgPath);
             expect(fs.existsSync(cfgPath)).toBe(true);
           }
@@ -1079,7 +1082,7 @@ describe('executePlanEntry -- mutation 开关', () => {
         return '';
       });
       const result = executePlanEntry(
-        makePlan({ framework: 'vitest', mutation_score: 50 }),
+        makePlan({ framework: 'vitest', mutation_score: 50, mutation_cwd: mutationCwd }),
         dir.root,
         { reportsDir },
       );
@@ -1095,11 +1098,12 @@ describe('executePlanEntry -- mutation 开关', () => {
     }
   });
 
-  it('cwd 为 root 子目录时，stryker 在 projectRoot 执行（非 suite cwd）', () => {
+  it('stryker 在 mutation_cwd 执行（可不同于 suite cwd）', () => {
     const dir = createTempDir();
     try {
       const pkgRoot = path.join(dir.root, 'pkg');
       const jestCwd = path.join(pkgRoot, 'jest');
+      const mutationCwd = pkgRoot;
       fs.mkdirSync(jestCwd, { recursive: true });
       const openspec = path.join(dir.root, 'openspec');
       fs.mkdirSync(openspec, { recursive: true });
@@ -1107,7 +1111,15 @@ describe('executePlanEntry -- mutation 开关', () => {
         path.join(openspec, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          tests: [{ root: 'pkg', cwd: 'jest', framework: 'vitest', includes: ['**/*.ts'] }],
+          tests: [
+            {
+              root: 'pkg',
+              cwd: 'jest',
+              framework: 'vitest',
+              includes: ['**/*.ts'],
+              mutation: { cwd: '.' },
+            },
+          ],
         }),
         'utf-8',
       );
@@ -1150,6 +1162,7 @@ describe('executePlanEntry -- mutation 开关', () => {
           framework: 'vitest',
           root: 'pkg',
           cwd: 'pkg/jest',
+          mutation_cwd: mutationCwd,
           mutation_score: 50,
         }),
         dir.root,
@@ -1157,10 +1170,10 @@ describe('executePlanEntry -- mutation 开关', () => {
       );
 
       expect(result.mutation).not.toBeNull();
-      expect(strykerCwds).toEqual([path.resolve(dir.root)]);
+      expect(strykerCwds).toEqual([mutationCwd]);
       expect(strykerCwds[0]).not.toBe(path.resolve(jestCwd));
       for (const c of seenConfigs) {
-        expect(path.dirname(c)).toBe(path.resolve(dir.root));
+        expect(path.dirname(c)).toBe(path.resolve(mutationCwd));
         expect(fs.existsSync(c)).toBe(false);
       }
     } finally {
@@ -1168,25 +1181,23 @@ describe('executePlanEntry -- mutation 开关', () => {
     }
   });
 
-  it('cwd 为 root 父目录时，stryker 仍在 projectRoot 执行', () => {
+  it('mutation_cwd 为相对路径时按原样传给 stryker cwd', () => {
     const dir = createTempDir();
     try {
-      const pkgRoot = path.join(dir.root, 'pkg');
-      const srcRoot = path.join(pkgRoot, 'src');
-      fs.mkdirSync(srcRoot, { recursive: true });
       const openspec = path.join(dir.root, 'openspec');
       fs.mkdirSync(openspec, { recursive: true });
       fs.writeFileSync(
         path.join(openspec, 'config.json'),
         JSON.stringify({
           schema: 'spec-driven',
-          tests: [{ root: 'pkg/src', cwd: '..', framework: 'vitest', includes: ['**/*.ts'] }],
+          tests: [{ root: '.', framework: 'vitest', includes: ['**/*.ts'] }],
         }),
         'utf-8',
       );
       const reportsDir = path.join(dir.root, 'reports', 'test');
-      const planDir = path.join(reportsDir, 'pkg_src_vitest');
+      const planDir = path.join(reportsDir, 'vitest');
       const strykerCwds: string[] = [];
+      const mutationCwd = '.';
 
       mockExecSync.mockImplementation((cmd: unknown, opts?: { cwd?: string }) => {
         if (String(cmd).includes('stryker')) {
@@ -1207,22 +1218,21 @@ describe('executePlanEntry -- mutation 开关', () => {
           );
           return '';
         }
-        writePassingJsWithSource(planDir, pkgRoot);
+        writePassingJsWithSource(planDir, dir.root);
         return '';
       });
 
       executePlanEntry(
         makePlan({
           framework: 'vitest',
-          root: 'pkg/src',
-          cwd: 'pkg',
+          mutation_cwd: mutationCwd,
           mutation_score: 50,
         }),
         dir.root,
         { reportsDir },
       );
 
-      expect(strykerCwds).toEqual([path.resolve(dir.root)]);
+      expect(strykerCwds).toEqual([mutationCwd]);
     } finally {
       dir.cleanup();
     }
