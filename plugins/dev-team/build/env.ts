@@ -1,7 +1,6 @@
-export type AgentType = 'claude' | 'cursor';
+type AgentType = 'claude' | 'cursor';
 export type ProductEnvKey = 'claude' | 'cursor' | 'cursorHome';
-export type ProductLayout = 'plugin' | 'home-image';
-export type PathReplacePhase = 'build' | 'install';
+type ProductLayout = 'plugin' | 'home-image';
 
 export interface ProductEnv extends ModelEnv, ToolEnv, SubAgentEnv {
   /** 适配agent */
@@ -109,4 +108,11 @@ export function getEnv(key: ProductEnvKey): ProductEnv {
     throw new Error(`Unknown product env key: ${String(key)}`);
   }
   return env;
+}
+
+/** Reject null/undefined/empty env objects missing required ProductEnv fields. */
+export function requireProductEnv(env: ProductEnv): void {
+  if (env == null || typeof env !== 'object' || !('agent' in env) || env.agent == null) {
+    throw new Error('env is required');
+  }
 }

@@ -93,6 +93,14 @@ Infer parameter types from parameter names (e.g., `username`→`str`, `count`→
 
 > For nested generic types (e.g., `List[Dict[str, int]]`), combine outer container boundary values (empty, single-element, large, None) with inner type boundary values. Each combination exercises a different nesting depth.
 
+Before finishing, you MUST pass static analysis via Shell:
+
+```
+node "./bin/cli.cjs" run_static_analysis
+```
+
+If the command exits non-zero, fix the issues and re-run until exit 0. You MUST NOT finish this agent until static analysis passes.
+
 ## Output
 
 Write test files colocated with their corresponding source files in the same directory.

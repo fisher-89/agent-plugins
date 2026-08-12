@@ -1,7 +1,7 @@
 import { z } from 'zod/v4';
 
 import { applyEnvTokens } from './apply-env-tokens';
-import type { ProductEnv } from './env';
+import { requireProductEnv, type ProductEnv } from './env';
 
 const hooksCanonicalMatcherSchema = z.object({
   claude: z.string().nullable(),
@@ -35,44 +35,64 @@ function expandCanonical(canonical: HooksCanonical, env: ProductEnv): HooksCanon
 
 /** Wrap already-expanded canonical into Claude Code plugin hooks.json shape. */
 function buildClaudeNested(canonical: HooksCanonical): unknown {
-  return {
-    description: canonical.description,
-    hooks: {
-      PreToolUse: canonical.preToolUse
-        .filter((entry) => entry.matchers.claude)
-        .map((entry) => ({
-          matcher: entry.matchers.claude,
-          hooks: [{ type: 'command', command: entry.commandTemplate }],
-        })),
-      SubagentStop: canonical.subagentStop.map((entry) => ({
+  const hooks: Record<string, unknown> = {
+    PreToolUse: canonical.preToolUse
+      .filter((entry) => entry.matchers.claude)
+      .map((entry) => ({
         matcher: entry.matchers.claude,
         hooks: [{ type: 'command', command: entry.commandTemplate }],
       })),
-    },
+  };
+
+  const subagentStop = canonical.subagentStop
+    .filter((entry) => entry.matchers.claude)
+    .map((entry) => ({
+      matcher: entry.matchers.claude,
+      hooks: [{ type: 'command', command: entry.commandTemplate }],
+    }));
+  if (subagentStop.length > 0) {
+    hooks.SubagentStop = subagentStop;
+  }
+
+  return {
+    description: canonical.description,
+    hooks,
   };
 }
 
 /** Wrap already-expanded canonical into Cursor native/plugin hooks.json shape. */
 function buildCursorNative(canonical: HooksCanonical): unknown {
+  const hooks: Record<string, unknown> = {};
+
+  const preToolUse = canonical.preToolUse
+    .filter((entry) => entry.matchers.cursor)
+    .map((entry) => ({
+      matcher: entry.matchers.cursor,
+      command: entry.commandTemplate,
+    }));
+  if (preToolUse.length > 0) {
+    hooks.preToolUse = preToolUse;
+  }
+
+  const subagentStop = canonical.subagentStop
+    .filter((entry) => entry.matchers.cursor)
+    .map((entry) => ({
+      matcher: entry.matchers.cursor,
+      loop_limit: entry.loop_limit,
+      command: entry.commandTemplate,
+    }));
+  if (subagentStop.length > 0) {
+    hooks.subagentStop = subagentStop;
+  }
+
   return {
     version: 1,
-    hooks: {
-      preToolUse: canonical.preToolUse
-        .filter((entry) => entry.matchers.cursor)
-        .map((entry) => ({
-          matcher: entry.matchers.cursor,
-          command: entry.commandTemplate,
-        })),
-      subagentStop: canonical.subagentStop.map((entry) => ({
-        matcher: entry.matchers.cursor,
-        loop_limit: entry.loop_limit,
-        command: entry.commandTemplate,
-      })),
-    },
+    hooks,
   };
 }
 
 export function buildHooksFile(canonical: object, env: ProductEnv): string {
+  requireProductEnv(env);
   const parsed = hooksCanonicalSchema.parse(canonical);
   const expanded = expandCanonical(parsed, env);
   const doc = env.agent === 'claude' ? buildClaudeNested(expanded) : buildCursorNative(expanded);

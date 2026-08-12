@@ -57,5 +57,6 @@
 - [ ] 优化write_protection配置结构
 - [x] test-execution清理文件，test-framework.ts列出文件清单，使用node执行
 - [x] 将工具名称也纳入环境变量，适配不同AGENT
-- [ ] 构建cursor时，不生成subAgentStop hook；作为替代，在cursor产物对应agent的prompt加入执行static_check并修复问题；
+- [x] 构建cursor生态产物时，不生成subAgentStop hook（规避cursor bug）；作为替代，在cursor产物对应agent的上下文加入步骤“执行static_check并修复问题”；
 - [ ] 怀疑test-report未记录突变耗时；改为在mutation下单独记录时间；
+- [ ] 禁止test-gen js使用`process.chdir、process.setuid、process.setgid、process.umask`，stryker使用worker环境运行，出现上述api会报错

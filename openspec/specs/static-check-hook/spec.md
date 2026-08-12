@@ -1,38 +1,74 @@
-## MODIFIED Requirements
+# static-check-hook Specification
+
+## Purpose
+Claude SubagentStop static-check gating for implementation/test-gen generators, with Cursor products omitting `subagentStop` and relying on include-based soft gates.
+
+## Requirements
 
 ### Requirement: hooks.json 声明 subagentStop hook 匹配 implementation-generator (command 路径更新)
 
-`plugins/dev-team/hooks/hooks.json` SHALL 在 `hooks` 对象中包含 `subagentStop` 数组，包含一项 hook 配置，保持以下配置不变：
+Canonical 源 `plugins/dev-team/hooks/hooks.canonical.json` SHALL 继续声明两条 `subagentStop` 条目，分别匹配 `implementation-generator` 与 `test-gen-generator`，`commandTemplate` 指向 `static-check` 子命令，并保留 `loop_limit: 5`。
 
-- `matcher`: `"implementation-generator"` — 仅匹配 implementation-generator subagent 的结束事件
-- `hooks[0].type`: `"command"`
-- `loop_limit`: `5` — 最多允许 5 次 followup 循环
+对 **Claude** 产物（`buildClaudeNested` → `claude-plugins/dev-team/hooks/hooks.json`）：
 
-`hooks[0].command` 字段 SHALL 从 `node "${CLAUDE_PLUGIN_ROOT}/hooks/scripts/static-check.mjs"` 变更为 `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs" static-check`。
+- `hooks.SubagentStop` SHALL 包含上述两项
+- matcher SHALL 使用 Claude 侧 agent 引用形式（经 token 展开后的 `__CALL_AGENT:…__` 结果）
+- 每项内层 `hooks[0].type` SHALL 为 `"command"`
+- `hooks[0].command` SHALL 调用 hooks 二进制的 `static-check` 子命令（经 `__BIN:hooks__` / 路径 token 展开）
 
-`test-gen-generator` 对应的 subagentStop hook SHALL 同步更新 command 路径。
+当 followup 循环次数达到 `loop_limit` 时，Claude hook 框架 SHALL 停止阻止 subagent 结束，允许 generator 在静态检查仍未通过的情况下结束（降级策略，行为不变）。
 
-当 followup 循环次数达到 `loop_limit` 时，hook 框架 SHALL 停止阻止 subagent 结束，允许 `implementation-generator` 在静态检查仍未通过的情况下结束（降级策略，行为不变）。
+对 **Cursor** 产物（`cursor` 与 `cursorHome`）：本 requirement 的 `subagentStop` / `SubagentStop` 发射要求 **不适用**——见 ADDED「Cursor 产物省略 subagentStop」。canonical 中对应条目的 `matchers.cursor` SHALL 为 `null`。
 
-顶层 `description` 字段 SHALL 仍说明静态检查 hook 用途。
+顶层 `description` 字段 SHALL 仍说明静态检查 hook 用途（可注明主要作用于 Claude SubagentStop）。
 
-#### Scenario: subagentStop hook 配置中 command 指向 dev-team-hooks.cjs
+#### Scenario: Claude 产物 subagentStop hook 配置中 command 指向 hooks 二进制 static-check
 
-**WHEN** `plugins/dev-team/hooks/hooks.json` 被 `JSON.parse()` 解析
-**THEN** 对象包含 `hooks.subagentStop` 数组，至少包含一项
-**AND** 该项的 `hooks[0].command` 包含 `bin/dev-team-hooks.cjs" static-check`
+**WHEN** `claude-plugins/dev-team/hooks/hooks.json` 被 `JSON.parse()` 解析
+**THEN** 对象包含 `hooks.SubagentStop` 数组，至少包含两项（implementation-generator 与 test-gen-generator）
+**AND** 各项的内层 `hooks[0].command` 包含 hooks 二进制名与 `static-check`
 
 #### Scenario: 其他 subagent 结束时不触发静态检查 hook（不变）
 
-**WHEN** `proposal-planner` 或其他非 `implementation-generator` 的 subagent 尝试结束
+**WHEN** `proposal-planner` 或其他非目标 matcher 的 subagent 在 Claude 侧尝试结束
 **THEN** `static-check` hook 不被触发
 **AND** subagent 正常结束
 
 #### Scenario: loop_limit 耗尽后允许 subagent 结束（不变）
 
-**WHEN** `implementation-generator` 连续 5 次尝试结束且静态检查均失败
+**WHEN** Claude 侧 `implementation-generator` 连续 5 次尝试结束且静态检查均失败
 **THEN** 第 5 次 followup 循环后，hook 框架不再阻止 subagent 结束
 **AND** `implementation-generator` 被允许结束，即使静态检查仍未通过
+
+#### Scenario: Cursor canonical matcher 为 null
+
+**WHEN** 读取 `plugins/dev-team/hooks/hooks.canonical.json` 的 `subagentStop` 条目
+**THEN** 每条的 `matchers.cursor` SHALL 为 `null`
+**AND** `matchers.claude` SHALL 仍为非 null 的 generator 引用
+
+### Requirement: Cursor 产物省略 subagentStop 整键
+
+`buildCursorNative`（及由此产生的 `cursor-plugins/dev-team` 与 `cursor-home-image/dev-team` hooks 文件）SHALL NOT 在 `hooks` 对象下写入 `subagentStop` 键。
+
+过滤规则 SHALL 与 `preToolUse` 对齐：`matchers.cursor == null` 的条目不发射；若过滤后 `subagentStop` 列表为空，MUST 省略该键（MUST NOT 写 `subagentStop: []`）。
+
+Cursor 侧静态检查门禁改由 agent 正文 `__INCLUDE:static-analysis-gate__` 软约束承担（见能力 `include-fragments` / `phase-agents`），本能力 MUST NOT 要求 Cursor 上 hook 硬阻断与 Claude 同强度。
+
+#### Scenario: marketplace cursor hooks 无 subagentStop 键
+
+**WHEN** 解析 `cursor-plugins/dev-team/hooks/hooks.json`
+**THEN** `hooks` 对象 MUST NOT 拥有 `subagentStop` 属性
+
+#### Scenario: cursorHome hooks 无 subagentStop 键
+
+**WHEN** 解析 `cursor-home-image/dev-team/hooks.json`
+**THEN** `hooks` 对象 MUST NOT 拥有 `subagentStop` 属性
+
+#### Scenario: 空列表不写成空数组
+
+**WHEN** canonical 中全部 `subagentStop` 的 `matchers.cursor` 为 `null`
+**AND** `buildCursorNative` 生成 hooks 文档
+**THEN** 输出 JSON 的 `hooks` MUST NOT 包含键 `subagentStop`
 
 ### Requirement: static-check 子命令进程内调用替代 spawnSync
 
@@ -104,29 +140,29 @@
 
 ## Module Contract
 
-### Hook 声明：`plugins/dev-team/hooks/hooks.json`
+### Hook 声明：canonical → 产物
 
-| 字段 | 类型 | 描述 | 变更 |
+| 字段 / 产物 | 类型 | 描述 | 变更 |
 |------|------|------|------|
-| `hooks.subagentStop` | `object[]` | subagentStop hook 配置数组 | 不变 |
-| `hooks.subagentStop[0].matcher` | `string` | `"implementation-generator"` | 不变 |
-| `hooks.subagentStop[0].loop_limit` | `number` | `5` | 不变 |
-| `hooks.subagentStop[0].hooks[0].type` | `string` | `"command"` | 不变 |
-| `hooks.subagentStop[0].hooks[0].command` | `string` | `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs" static-check` | 从 `.mjs` 变更为 `dev-team-hooks.cjs` |
-| `hooks.subagentStop[1].matcher` | `string` | `"test-gen-generator"` | 不变 |
-| `hooks.subagentStop[1].hooks[0].command` | `string` | `node "${CLAUDE_PLUGIN_ROOT}/bin/dev-team-hooks.cjs" static-check` | 从 `.mjs` 变更为 `dev-team-hooks.cjs` |
+| `hooks.canonical.json` `subagentStop[].matchers.claude` | `string` | Claude matcher（CALL_AGENT token） | 保留 |
+| `hooks.canonical.json` `subagentStop[].matchers.cursor` | `null` | Cursor 不发射 | 改为 null |
+| `hooks.canonical.json` `subagentStop[].loop_limit` | `number` | `5`（Claude 侧有效） | 保留 |
+| `hooks.canonical.json` `subagentStop[].commandTemplate` | `string` | hooks 二进制 + `static-check` | 保留 |
+| Claude 产物 `hooks.SubagentStop` | `object[]` | nested command hooks | 保留发射 |
+| Cursor / cursorHome `hooks.subagentStop` | — | 不存在该键 | 省略整键 |
 
-### Hook 子命令：`plugins/dev-team/bin/dev-team-hooks.cjs static-check`
+### Hook 子命令：`static-check`（不变摘要）
 
 | 方面 | 描述 |
 |------|------|
-| **运行时** | Node.js CJS bundle，通过 `node` 调用 |
-| **输入** | stdin JSON（subagentStop 事件，从中提取 `workspace_roots[0]`） |
-| **执行方式** | 进程内 `import { runStaticAnalysis } from './commands/run-static-analysis'`（替代 spawnSync） |
+| **运行时** | Node.js CJS hooks 包 |
+| **输入** | stdin JSON（SubagentStop 事件） |
+| **执行** | 进程内 `runStaticAnalysis` |
+| **适用范围** | Claude 产物 hook 路径；Cursor 不再经此事件触发 |
 | **projectRoot 来源** | stdin 事件 JSON 的 `workspace_roots[0]` |
 | **通过** | stdout `{}`，exit `0` |
-| **失败** | stdout `{"decision": "block", "reason": "<错误输出 + 修复指令>"}`，exit `0` |
-| **异常安全** | 顶层 try-catch，任何异常转为 `{ decision: "block", reason }` |
+| **失败** | stdout 含 `followup_message` 的 JSON，exit `0` |
+| **异常安全** | 顶层 try-catch，任何异常转为 followup JSON |
 | **报告** | 不生成任何 report 文件 |
 
 ### vite.config.ts（新增 hooks 打包项）

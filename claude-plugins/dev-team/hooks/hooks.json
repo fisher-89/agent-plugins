@@ -1,5 +1,5 @@
 {
-  "description": "dev-team hooks：PreToolUse 保护受保护文件；SubagentStop 在 generator 结束时执行 static-check。",
+  "description": "dev-team hooks：PreToolUse 保护受保护文件；SubagentStop static-check 主要作用于 Claude（Cursor 经 agent include 软门禁）。",
   "hooks": {
     "PreToolUse": [
       {

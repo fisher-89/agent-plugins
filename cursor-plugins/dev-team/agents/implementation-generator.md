@@ -29,6 +29,14 @@ Read:
 5. For each task, write the implementation code directly to the appropriate files
 6. Mark completed tasks as `[x]` in tasks.md, continue until all tasks is finished
 
+Before finishing, you MUST pass static analysis via Shell:
+
+```
+node "./bin/cli.cjs" run_static_analysis
+```
+
+If the command exits non-zero, fix the issues and re-run until exit 0. You MUST NOT finish this agent until static analysis passes.
+
 ## Output
 
 Write implementation code directly to disk.

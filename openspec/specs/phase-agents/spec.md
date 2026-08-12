@@ -1,8 +1,9 @@
-## 权威边界
+# phase-agents Specification
 
-Agent 文件内容、phase ID、报告路径。回溯路由见 `pipeline-backtrack`（决议 C3=A：evaluator 不设 `backtrack_to`，由 skill 调 `backtrack`）。
+## Purpose
+Phase agent file content, phase IDs, and report paths. Backtrack routing lives in `pipeline-backtrack` (decision C3=A: evaluators do not set `backtrack_to`; skills call `backtrack`).
 
-## MODIFIED Requirements
+## Requirements
 
 ### Requirement: Evaluator / Executor 使用 consolidated phase ID
 
@@ -23,14 +24,9 @@ Agent 文件内容、phase ID、报告路径。回溯路由见 `pipeline-backtra
 
 ### Requirement: test-execution agents 报告路径
 
-**ID**: REQ-PA-TEF-1  
+`test-execution-executor.md` 与 `test-execution-evaluator.md` SHALL 读取聚合 `reports/test/summary.json`（有 change 时：`openspec/changes/<change-name>/reports/test/summary.json`）与经 `summary.plans[].path` 定位的 `<path>/report.json`。MUST NOT 要求 `reports/test-execution.json` 或 `reports/test-execution/<framework>.json` 作为权威路径。
 
-`test-execution-executor.md` 与 `test-execution-evaluator.md` SHALL 读取：
-
-- 聚合：`reports/test/summary.json`（有 change 时：`openspec/changes/<change-name>/reports/test/summary.json`）
-- 原子：经 `summary.plans[].path` 定位的 `<path>/report.json`
-
-MUST NOT 要求 `reports/test-execution.json` 或 `reports/test-execution/<framework>.json` 作为权威路径。
+**ID**: REQ-PA-TEF-1
 
 #### Scenario: 路径更新
 
@@ -41,9 +37,60 @@ MUST NOT 要求 `reports/test-execution.json` 或 `reports/test-execution/<frame
 
 `test-execution-evaluator`（及其它 evaluator）SHALL 只做诊断并写入 report；MUST NOT 设置 `backtrack_to`。允许的回溯目标语义由 skill 层按 `pipeline-backtrack` 决定（常见目标：`test-gen`、`implement`、`test-design`、`dev-design`；不含 `integration-test`）。
 
+#### Scenario: evaluator 不设 backtrack_to
+
+- **WHEN** 读 `test-execution-evaluator.md` 及其它 evaluator 指令
+- **THEN** SHALL NOT 要求设置 `backtrack_to`
+- **AND** 回溯由 skill 按 `pipeline-backtrack` 决定
+
+### Requirement: generator Process 结束前引用 static-analysis-gate include
+
+源文件 `plugins/dev-team/agents/implementation-generator.md` 与 `plugins/dev-team/agents/test-gen-generator.md` SHALL 在各自 `## Process` 结束前（全部既有步骤之后）包含字面量：
+
+```
+__INCLUDE:static-analysis-gate__
+```
+
+该引用 SHALL 作为构建期片段注入点，而非在源文件中手写平台分支正文。Claude 组装后该处展开为空；Cursor / cursorHome 组装后展开为 `run_static_analysis` 软门禁（见 `include-fragments`）。
+
+两 generator MUST NOT 在源正文中再次嵌入与 Claude `SubagentStop` hook 重复的硬编码静态检查步骤清单（避免 Claude 双重要求）；门禁差异仅通过 include 的平台档实现。
+
+#### Scenario: implementation-generator 源含 include
+
+**WHEN** 读取 `plugins/dev-team/agents/implementation-generator.md`
+**THEN** `## Process` 区域内 SHALL 包含 `__INCLUDE:static-analysis-gate__`
+**AND** 该标记位于既有 Process 步骤之后
+
+#### Scenario: test-gen-generator 源含 include
+
+**WHEN** 读取 `plugins/dev-team/agents/test-gen-generator.md`
+**THEN** `## Process` 区域内 SHALL 包含 `__INCLUDE:static-analysis-gate__`
+**AND** 该标记位于既有 Process 步骤之后
+
+#### Scenario: Claude 组装后 generator 无软门禁步骤
+
+**WHEN** assemble 完成 `claude` 产物
+**AND** 读取产物中对应 implementation-generator / test-gen-generator 文件
+**THEN** 文件 SHALL NOT 因该 include 含有 `run_static_analysis` 结束前门禁段落
+
+#### Scenario: Cursor 组装后 generator 含软门禁步骤
+
+**WHEN** assemble 完成 `cursor` 或 `cursorHome` 产物
+**AND** 读取产物中对应 implementation-generator / test-gen-generator 文件（含 `namePrefix` 重命名后的文件名）
+**THEN** 文件 SHALL 含结束前执行 `run_static_analysis` 并在未通过时不得结束的说明
+
 ## Module Contract
 
 | Agent | Model | Phase | Input | Backtrack |
 |-------|-------|-------|-------|-----------|
 | test-execution-executor | sonnet-4.6 | test-execution | `reports/test/summary.json` + `plans[]` | n/a（执行器） |
 | test-execution-evaluator | sonnet（系统定义） | test-execution | `reports/test/summary.json` | skill 决策；evaluator 不设 `backtrack_to` |
+
+### Agent 源：`implementation-generator` / `test-gen-generator`
+
+| 方面 | 描述 |
+|------|------|
+| **注入点** | `## Process` 末尾 `__INCLUDE:static-analysis-gate__` |
+| **Claude 行为** | include → 空；硬门禁仍由 `SubagentStop` + `static-check` |
+| **Cursor 行为** | include → 软门禁文案；无 `subagentStop` hook |
+| **禁止** | 源文件手写双端重复静态检查长文；多 fragments 根 |

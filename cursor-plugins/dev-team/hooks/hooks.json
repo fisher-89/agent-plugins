@@ -10,18 +10,6 @@
         "matcher": "Shell",
         "command": "node \"./bin/hooks.cjs\" protect-files"
       }
-    ],
-    "subagentStop": [
-      {
-        "matcher": "implementation-generator",
-        "loop_limit": 5,
-        "command": "node \"./bin/hooks.cjs\" static-check"
-      },
-      {
-        "matcher": "test-gen-generator",
-        "loop_limit": 5,
-        "command": "node \"./bin/hooks.cjs\" static-check"
-      }
     ]
   }
 }

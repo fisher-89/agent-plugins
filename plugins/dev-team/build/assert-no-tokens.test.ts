@@ -48,15 +48,19 @@ describe('assertNoNameTokens', () => {
   });
 
   it('rootDir / env 为 null / undefined 时抛错', () => {
-    expect(() => assertNoNameTokens(null as unknown as string, getEnv('claude'))).toThrow();
-    expect(() => assertNoNameTokens(undefined as unknown as string, getEnv('claude'))).toThrow();
+    expect(() => assertNoNameTokens(null as unknown as string, getEnv('claude'))).toThrow(
+      'rootDir is required',
+    );
+    expect(() => assertNoNameTokens(undefined as unknown as string, getEnv('claude'))).toThrow(
+      'rootDir is required',
+    );
     const root = makeTempDir();
     expect(() => assertNoNameTokens(root, null as unknown as ProductEnv)).toThrow();
     expect(() => assertNoNameTokens(root, undefined as unknown as ProductEnv)).toThrow();
   });
 
   it('rootDir 为空字符串时抛错或拒绝', () => {
-    expect(() => assertNoNameTokens('', getEnv('claude'))).toThrow();
+    expect(() => assertNoNameTokens('', getEnv('claude'))).toThrow('rootDir is required');
   });
 
   it('空目录不抛错', () => {
@@ -78,5 +82,48 @@ describe('assertNoNameTokens', () => {
     writeFileSync(join(root, 'bin', 'hooks.cjs'), 'const r = "__DEV_TEAM_ROOT__";\n');
     expect(() => assertNoNameTokens(root, getEnv('claude'))).toThrow(/unresolved/);
     expect(() => assertNoNameTokens(root, getEnv('cursor'))).toThrow(/unresolved/);
+  });
+
+  it('文件含合法残留 __INCLUDE:static-analysis-gate__ 时抛错且 message 可定位文件', () => {
+    const root = makeTempDir();
+    writeFileSync(join(root, 'agent.md'), 'step __INCLUDE:static-analysis-gate__\n');
+    expect(() => assertNoNameTokens(root, getEnv('claude'))).toThrow(
+      /unresolved name-class tokens[\s\S]*agent\.md/,
+    );
+  });
+
+  it('文件仅含子串 __INCLUDE:（非法/残缺 token）时亦抛错', () => {
+    const root = makeTempDir();
+    writeFileSync(join(root, 'broken.md'), 'partial __INCLUDE: token\n');
+    expect(() => assertNoNameTokens(root, getEnv('cursor'))).toThrow(
+      /unresolved name-class tokens/,
+    );
+  });
+
+  it('env={}（空对象，缺失必填字段）时抛错', () => {
+    const root = makeTempDir();
+    writeFileSync(join(root, 'ok.md'), 'clean');
+    expect(() => assertNoNameTokens(root, {} as ProductEnv)).toThrow();
+  });
+
+  it('超长文件（>1000 chars）末尾残留 __INCLUDE: 仍能检出', () => {
+    const root = makeTempDir();
+    const padding = 'x'.repeat(1000);
+    writeFileSync(join(root, 'long.md'), `${padding}__INCLUDE:tail__`);
+    expect(() => assertNoNameTokens(root, getEnv('claude'))).toThrow(/long\.md/);
+  });
+
+  it('多文件仅一处残留时抛错列表包含该相对路径', () => {
+    const root = makeTempDir();
+    writeFileSync(join(root, 'clean.md'), 'ok');
+    writeFileSync(join(root, 'dirty.md'), '__INCLUDE:bad__');
+    expect(() => assertNoNameTokens(root, getEnv('cursorHome'))).toThrow(/dirty\.md/);
+  });
+
+  it('env 含多余字段时无残留 token 的目录仍不抛错', () => {
+    const root = makeTempDir();
+    writeFileSync(join(root, 'ok.md'), 'expanded content');
+    const env = { ...getEnv('claude'), extra: true } as ProductEnv;
+    expect(() => assertNoNameTokens(root, env)).not.toThrow();
   });
 });

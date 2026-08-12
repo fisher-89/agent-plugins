@@ -1,0 +1,482 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "Checked R1–R11 on proposal.md + 4 specs. Problem/motivation clear (Cursor subagentStop unreliable; Claude keep hard gate). Scope has 实现/测试/不要修改. Risks have concrete mitigations. AC-1..8 testable. Decisions list rejected alternatives. Aligns CLAUDE.md (version bump). No TODO/TBD/placeholders. 能力: include-fragments + 3 modified; specs 1:1, no conflicts. Verdict: pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节具体说明 Cursor subagentStop→static-check 不可靠、Claude 保留硬门禁、仅 Cursor 平台例外，及缺少片段机制动机"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（canonical/hooks-profile/assemble/_fragments/generators 等）、### 测试文件（hooks-profile.test + include 单测）、### 不要修改（均非空）"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "五项风险均有非泛化缓解：文案强制+不伪装同强度、缺文件/环显式失败+单测、copy 排除+AC-7、同步修 dual-platform 描述、明确仅 Cursor 例外"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-1..AC-8 均有对象+条件（如 hooks 无 subagentStop 键、Claude 含 SubagentStop+loop_limit、expandIncludes 顺序、产物无 _fragments）"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "决策表每行有备选：空数组[]、双端改 agent、硬编码 token/INCLUDE_IF、多 fragments 根等，并说明拒绝原因"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "含 package.json version bump 与重建产物；保留 hooks/agents 瘦插件架构；不改 Claude SubagentStop 语义，无架构矛盾"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal.md 全文无 TODO/TBD/placeholder/{{...}}；待决问题为明确延后项非模板占位"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有可执行实质内容，非空壳"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 下 ### 新增能力含 include-fragments；### 修改的能力含 static-check-hook、dual-platform-plugin-build、phase-agents"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "四能力对应 specs/include-fragments、static-check-hook、dual-platform-plugin-build、phase-agents/spec.md；无多余 spec"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "新增/修改类型与 ADDED/MODIFIED 一致；AC-1..7 在 specs scenarios 有对应；省略整键/软门禁/展开顺序与变更范围一致"
+      }
+    ],
+    "timestamp": "2026-08-12T02:46:41.235Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "dev-design PASS. design.md covers hooks omit + __INCLUDE pipeline + soft gate; tasks.md phased 1–6 with checkboxes, no unit/integration tests. All ACs 1–7 mapped; AC-8 deferred to test phase (D9). Change list matches proposal 实现文件 and tasks.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表8行均含职责/依赖/技术/路径；技术非TBD；路径为 hooks.canonical.json、hooks-profile.ts、expand-includes.ts、assemble.ts 等具体路径"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "数据模型表含 IncludeToken、FragmentFile、ExpandStack、HooksCanonical.subagentStop[] 等，均填字段与持久化列"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1..7 在变更清单/数据流/assemble约束/tasks 阶段6自检均有对应；AC-8 单测属测试阶段，设计注明不展开（符合D9）"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md 分阶段1–6；hooks→expand→assemble→fragments→bump重建→自检，无后置依赖前置"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "任务含具体操作：matcher=null、省略空键、实现 resolveFragment/expandIncludes、管道顺序、fragment正文、version bump等"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节：无新增runtime npm；复用fs/path/zod；构建用vp pack/assembleAll；测试框架注明vite-plus/test"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "符合 slim plugin+hooks/agents；含 package.json patch bump 与重建三产物树，与CLAUDE.md Upgrade插件版本约定一致"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件、变更清单(新增+修改)、数据模型、依赖、待决问题均有实质内容；路由/API注明不适用省略"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design无测试策略章节；tasks无单测/集成测任务，阶段6为产物AC自检且标明不含写测试"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "变更清单覆盖proposal实现文件全部条目；公共函数含resolveFragment/expandIncludes；tasks引用文件均在清单且有对应任务"
+      }
+    ],
+    "timestamp": "2026-08-12T02:48:44.539Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL: T3 incomplete. Unit objects have 异常, but param edges miss mapping minima: depth lacks -1/MAX_INT; stack lacks 超大列表; env/canonical object lack {}/多余字段. T1/T2/T4–T8 pass (AC-1..8 mapped; UT/IT crosswalk; mocks; template sections; scope; N/A idempotency; format OK).",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-8（验收标准表）均出现在 test-design ## 验收范围，条件文案一致。"
+      },
+      {
+        "item": "验收范围与测试章节互相对应",
+        "pass": true,
+        "evidence": "单元：AC-3/4/5/8 对应 expand-includes/hooks-profile/assert-no-tokens/assemble 四个 ### source->test；集成：关联AC∈验收范围，且 AC-1/2/3/5/6/7 均出现在某关系关联AC。"
+      },
+      {
+        "item": "单元测试充分覆盖异常和边界",
+        "pass": false,
+        "evidence": "各对象有异常，但未达类型映射下限：expandIncludes.depth 缺 -1/MAX_INT；stack 缺超大列表；env/canonical 对象缺 {} 与多余字段边界。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal 涉及文件系统/_fragments/canonical；各 UT 有 Mock策略表；IT 有临时目录/outDir spy 或注释说明无需跨进程 Mock。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "含验收范围、单元测试（每文件待测功能/用例/Mock策略）、集成测试三关系、不可测试项，均为实质内容。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope（hooks 省略、include、软门禁、assemble）有覆盖；out_of_scope（上游 bug、workflow static_check、P1 fragments）未测或列入不可测试项。"
+      },
+      {
+        "item": "写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal 无 API/DB 写操作；assemble 为构建产物文件写入，T7 条件（API/DB）不适用，判定通过。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8：UT 标题含->且子节顺序/列名正确；IT 标题含→测试文件、涉及模块≥2行、关联AC/关系描述/场景/用例列名符合；验收范围列名与模板一致。"
+      }
+    ],
+    "timestamp": "2026-08-12T02:51:24.011Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "T1–T8 all pass. Prior T3 gaps fixed: expandIncludes now has depth=-1/MAX_SAFE_INTEGER, stack超大列表, env={}/多余字段; resolveFragment/buildHooksFile/assertNoNameTokens cover object {}/多余字段. AC-1..8 mapped; unit↔integration correspondence OK; Mock strategies present; format matches template; out_of_scope in 不可测试项.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "proposal AC-1..AC-8 (lines 82-89) each appear in test-design 验收范围 table (lines 9-17) with matching 验收条件."
+      },
+      {
+        "item": "验收范围与测试章节互相对应",
+        "pass": true,
+        "evidence": "Unit ACs map to ### expand-includes/hooks-profile/assert-no-tokens/assemble headings. Integration ACs AC-1/2/3→hooks-platform; AC-5→include-assemble-pipeline; AC-6/7→static-analysis-gate-assemble; all 关联AC IDs exist in 验收范围."
+      },
+      {
+        "item": "单元测试充分覆盖异常和边界",
+        "pass": true,
+        "evidence": "Prior gaps fixed: depth=-1/MAX_SAFE_INTEGER (L69-70), stack超大列表(L64), env={}(L42/55/103-104/138) and 多余字段(L46/73/109-110/143). Each 测试对象 has ≥1 异常; string/list/number/object edges per mapping."
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Unit sections mock _fragments FS, fixtures, outDir (L76-81,114-119,145-150,173-179). Integration documents mkdtemp/spy outDir or <!-- 无跨进程 Mock --> (L216-218)."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围 filled; 4 unit sections each have 待测功能/用例/Mock策略; 3 integration relations with scenes; 不可测试项 lists 4 justified items."
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "In-scope hooks omit/include/soft-gate/assemble covered. Out-of-scope Cursor upstream bug, model soft-gate efficacy, todo/version bump, marketplace doc drift listed under 不可测试项 (L299-304)."
+      },
+      {
+        "item": "写操作测试包含幂等性验证",
+        "pass": true,
+        "evidence": "Proposal has no API/DB CRUD write surface; assemble is build artifact generation. T7 N/A; no idempotency requirement for this change."
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1..U5: ### path->path, 待测功能→用例→Mock策略, list + correct columns. T8-I1..I8: → test file, 涉及模块≥2, 关联AC, 关系描述, 场景+用例 columns. T8-G1: 验收范围 4 named cols match template."
+      }
+    ],
+    "timestamp": "2026-08-12T02:53:15.829Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS. All design components present: expand-includes.ts (resolve/expand/cycle/depth16/trim), _fragments gate files, hooks.canonical cursor null + hooks-profile omit empty keys, assemble include→tokens→assert, generators INCLUDE, v2.10.28 rebuild (Cursor no subagentStop; Claude SubagentStop+static-check; soft gate in Cursor agents). tasks.md all [x].",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "8 components covered: hooks.canonical.json (cursor null), hooks-profile.ts (omit empty keys), expand-includes.ts new, assemble.ts pipeline, assert-no-tokens.ts __INCLUDE:, _fragments/*.md, generator INCLUDE refs, rebuilt claude/cursor/cursor-home products"
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "New: expand-includes.ts + gate.md/cursor.md. Mods: canonical, hooks-profile, assemble, assert-no-tokens, both generators, package 2.10.28, three product trees, todo.md [x]. APIs resolveFragment/expandIncludes exported; INCLUDE_MAX_DEPTH=16"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "TS modules use node:fs/path, ProductEnv from env.ts, scanTextFiles/assert patterns match siblings; agent INCLUDE placement after Process mirrors design"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "N/A — design omits HTTP/MCP/CLI routes; no new endpoints required"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–6: zero unchecked `- [ ]` boxes; all items `[x]`"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff scoped to hooks/include/assemble/fragments/generators/version/products + todo; explore move into change folder is workflow-related"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Cursor omit subagentStop key (not []); Claude SubagentStop kept; expand→applyEnvTokens→assert; fragments from source _fragments only (absent in outDirs); embed trim; soft gate run_static_analysis wording"
+      }
+    ],
+    "timestamp": "2026-08-12T02:55:06.170Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL G3: hooks-profile missing env={} throw it; assert-no-tokens env={} expects not.toThrow (design: 异常抛错). G1/G2/G4-G9 pass: co-located *.test.ts + 3 integration files; mocks (mkdtemp/chdir/vi.mock getEnv); vite-plus/test; boundaries; afterEach cleanup; deprecated Cursor subagentStop asserts removed.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "resolveFragment/expandIncludes→expand-includes.test.ts; buildHooksFile→hooks-profile.test.ts; assertNoNameTokens→assert-no-tokens.test.ts; assembleAll→assemble.test.ts (all under plugins/dev-team/build/)"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "Unit: *.test.ts co-located with sources. Integration: __tests__/{hooks-platform-subagent-stop,include-assemble-pipeline,static-analysis-gate-assemble}/*.test.ts per design paths"
+      },
+      {
+        "item": "`单元测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "hooks-profile: missing 异常 `env={}` 抛错 it. assert-no-tokens: design 异常 `env={}` 抛错 but generated it('env={}…仍可扫描') expects .not.toThrow() — wrong path/condition. Other 新增 rows present across expand/hooks/assert/assemble"
+      },
+      {
+        "item": "`集成测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "hooks-platform-subagent-stop: 5 its; include-assemble-pipeline: 5 its; static-analysis-gate-assemble: 6 its — all 新增 rows with matching describe/it and AC-linked scenarios"
+      },
+      {
+        "item": "`Mock策略` 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "expand: mkdtemp+_fragments+chdir; hooks: in-memory FIXTURE_CURSOR_NULL_SUBAGENT+readFileSync canonical; assert: mkdtemp; assemble/gate: vi.mock getEnv outDir; pipeline: mkdtemp+chdir; ProductEnv via getEnv"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All new/changed tests import describe/it/expect(/vi) from 'vite-plus/test', matching existing build suite"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "expand-includes covers id/text/stack/depth boundaries; hooks loop_limit/empty/partial null; assert long-file/multi-file/exclusions; assemble _fragments exclude + fail-fast"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach: process.chdir(savedCwd); rmSync tempRoots; assemble/gate also vi.clearAllMocks / beforeEach outBase"
+      },
+      {
+        "item": "`迭代类型 = 废弃` 的条目未生成新测试",
+        "pass": true,
+        "evidence": "Deprecated Cursor subagentStop-defined asserts removed/renamed in hooks-profile.test.ts diff; no new its reasserting old Cursor subagentStop presence"
+      }
+    ],
+    "timestamp": "2026-08-12T03:00:25.895Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS. Prior G3 fixed: hooks-profile it env={} throws; assert-no-tokens env={} expects toThrow. All 新增 unit/IT skeletons present; mocks (mkdtemp/chdir/vi.mock getEnv); vite-plus/test; boundaries; afterEach cleanup; deprecated Cursor subagentStop asserts absent.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "resolveFragment/expandIncludes→expand-includes.test.ts; buildHooksFile→hooks-profile.test.ts; assertNoNameTokens→assert-no-tokens.test.ts; assembleAll→assemble.test.ts under plugins/dev-team/build/"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "Unit *.test.ts co-located with sources. Integration under __tests__/{hooks-platform-subagent-stop,include-assemble-pipeline,static-analysis-gate-assemble}/*.test.ts per design"
+      },
+      {
+        "item": "`单元测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "Prior gaps fixed: hooks-profile L227 env={} toThrow; assert-no-tokens L99 env={} toThrow. expand/hooks/assert/assemble 新增 rows have describe/it matching 测试对象/条件/路径类型"
+      },
+      {
+        "item": "`集成测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "hooks-platform-subagent-stop 5 its; include-assemble-pipeline 5 its; static-analysis-gate-assemble 6 its — all 新增 with matching describe/it"
+      },
+      {
+        "item": "`Mock策略` 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "expand: mkdtemp+_fragments+chdir; hooks: FIXTURE_CURSOR_NULL_SUBAGENT+readFileSync canonical; assert: mkdtemp; assemble/gate: vi.mock getEnv outDir; pipeline: mkdtemp+chdir"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All tests import describe/it/expect(/vi/afterEach) from 'vite-plus/test', consistent with build suite"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "expand id/text/stack/depth edges; hooks empty/partial-null/loop_limit; assert long/multi-file/exclusions; assemble _fragments exclude + fail-fast"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach: process.chdir(savedCwd); rmSync tempRoots; assemble/gate beforeEach outBase + vi mock lifecycle"
+      },
+      {
+        "item": "`迭代类型 = 废弃` 的条目未生成新测试",
+        "pass": true,
+        "evidence": "Deprecated Cursor subagentStop-defined asserts removed/renamed in hooks-profile.test.ts; no new its reasserting old presence"
+      }
+    ],
+    "timestamp": "2026-08-12T03:03:15.098Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 1500 个测试通过；覆盖率达标: lines=95.88%, branches=87.74%, functions=98.55%；mutation score 80.69% >= 70%",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "必需字段均存在且类型正确: phase, command, timestamp, total=1500, passed=1500, failed=0, skipped=0, coverage(object), duration_seconds=497"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=1500, conclusion=pass, problems=[], mutation.pass=true (score 80.69% >= threshold 70%)"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=95.88%, branches=87.74%, functions=98.55% (阈值 lines=90%, branches=85%, functions=90%); coverage.pass=true"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需失败诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-08-12T03:45:34.557Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "C1–C7 pass. Cursor omit subagentStop + __INCLUDE expand match design: id regex + path root block traversal; zod/requireProductEnv/INCLUDE assert validate inputs; assemble expand→tokens→assert; empty/cycle/depth handled; tests cover hooks/include/assemble. No design contradictions.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "expand-includes.ts:8-18 id限[a-z0-9-]+，片段仅读_fragments/，无路径穿越；无eval/硬编码密钥；hooks命令与既有token模板一致"
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "hooks-profile.ts:6-26,94-96 zod parse + requireProductEnv；expand-includes.ts:8-18/34-45 id/深度/环校验；assert-no-tokens.ts:10-20 残留__INCLUDE:失败"
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "canonical cursor matcher null；buildCursorNative省略空键(hooks-profile.ts:77-86)；assemble.ts:106-107 expand→apply；generators含INCLUDE；产物无_fragments、Cursor无subagentStop、Claude保留SubagentStop+static-check"
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "depth>16/环/缺fragment抛错(expand-includes.ts:34-45,23-25)；rootDir空校验(assert-no-tokens.ts:13-15)；空default fragment展开为空串；filter(null matcher)正确"
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "新增API均被assemble/测试引用；无未使用导入；内层VALID_ID为防御性与捕获组一致，非死分支污染"
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "命名/sourcePath/ProductEnv/zod模式与build/既有模块一致；错误信息可定位cycle/depth/missing fragment"
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "复用ProductEnv(env.ts)；HooksCanonical为zod infer(hooks-profile.ts:28)；无自定义中间DTO映射canonical/fragment"
+      }
+    ],
+    "timestamp": "2026-08-12T03:46:37.848Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS. tasks.md all [x]. AC-1..8 evidenced: cursor/home hooks omit subagentStop; Claude SubagentStop+static-check; canonical cursor null+loop_limit:5; expand-includes resolve/cycle/depth; assemble expand→tokens→assert; Cursor generators run_static_analysis, Claude empty; no outDir _fragments; 1500 tests pass. No scope creep; OOS absent; risks mitigated.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1 cursor-plugins/.../hooks.json:3-14 仅 preToolUse、无 subagentStop；cursor-home-image 同。AC-2 claude hooks.json:33-52 SubagentStop 两 generator+static-check；canonical:32,40 loop_limit:5。AC-3 canonical:30,38 cursor:null。AC-4 expand-includes.ts:19-25 平台优先。AC-5 assemble.ts:106-108 + assert-no-tokens.ts:10,20。AC-6 cursor agents 含 run_static_analysis；claude 无。AC-7 outDir 无 _fragments。AC-8 summary.json 1500/1500 pass"
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "变更限于 hooks.canonical/hooks-profile/expand-includes/assemble/assert-no-tokens/_fragments/两 generator/package 2.10.28/三平台产物/specs 漂移修正与单测；无 __INCLUDE_IF、多 fragments 根、workflow 入口 static_check 或 Cursor 上游 bug 修复"
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "canonical cursor null；buildCursorNative 省略空键(hooks-profile.ts:77-86)；expand-includes+assemble 顺序；assert __INCLUDE:；空 default+cursor gate fragment；两 generator INCLUDE；version 2.10.28；产物重建；todo.md:60 [x]；hooks-profile/include 单测齐全"
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "无 __INCLUDE_IF；无多 fragments 根；Claude SubagentStop/static-check 未改语义；todo.md:61 workflow static_check 仍 [ ]；无 P1 重复块迁 _fragments"
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "软门禁文案 MUST NOT：static-analysis-gate.cursor.md；缺文件/环/深度/残留失败：expand-includes.ts:23-45,34-35 + assert-no-tokens.ts:10,20；_fragments 不拷贝：assemble copyAgents/Skills/Static 未含；spec nested→native 已修；description 注明仅 Claude SubagentStop"
+      }
+    ],
+    "timestamp": "2026-08-12T03:47:46.838Z"
+  }
+]

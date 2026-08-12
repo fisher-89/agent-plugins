@@ -8,7 +8,8 @@
       "framework": "vite-plus",
       "config": "vite.config.ts",
       "includes": ["bin/src/**/*.{ts,tsx}"],
-      "excludes": ["bin/src/schemas/**/*", "home-install.ts"]
+      "excludes": ["bin/src/schemas/**/*", "home-install.ts"],
+      "coverage": { "lines": 90, "branches": 85, "functions": 90 }
     }
   ],
   "write_protection": {

@@ -1,5 +1,5 @@
 {
-  "description": "dev-team hooks：PreToolUse 保护受保护文件；SubagentStop 在 generator 结束时执行 static-check。",
+  "description": "dev-team hooks：PreToolUse 保护受保护文件；SubagentStop static-check 主要作用于 Claude（Cursor 经 agent include 软门禁）。",
   "preToolUse": [
     {
       "matchers": {
@@ -27,7 +27,7 @@
     {
       "matchers": {
         "claude": "__CALL_AGENT:implementation-generator__",
-        "cursor": "__AGENT:implementation-generator__"
+        "cursor": null
       },
       "loop_limit": 5,
       "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" static-check"
@@ -35,7 +35,7 @@
     {
       "matchers": {
         "claude": "__CALL_AGENT:test-gen-generator__",
-        "cursor": "__AGENT:test-gen-generator__"
+        "cursor": null
       },
       "loop_limit": 5,
       "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" static-check"

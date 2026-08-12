@@ -12,13 +12,18 @@ import { dirname, join } from 'node:path';
 import { applyEnvTokens } from './apply-env-tokens';
 import { assertNoNameTokens } from './assert-no-tokens';
 import { PRODUCT_ENV_KEYS, getEnv, type ProductEnv, type ProductEnvKey } from './env';
+import { expandIncludes } from './expand-includes';
 import { buildHooksFile } from './hooks-profile';
 import { scanTextFiles } from './scan-files';
 
 const STAGING_BIN = '.pack-staging/bin';
 const STATIC_BIN_FILES = ['bin/openspec', 'bin/openspec-bundled.js', 'bin/openspec.cmd'];
 
-export interface HomeManifest {
+function sourcePath(...segments: string[]): string {
+  return join(process.cwd(), ...segments);
+}
+
+interface HomeManifest {
   version: string;
   namePrefix: string;
   managedPaths: string[];
@@ -45,21 +50,21 @@ function writeText(filePath: string, content: string): void {
 
 function copyStaticAssets(env: ProductEnv): void {
   for (const dir of ['templates', 'utils']) {
-    cpSync(dir, join(env.outDir, dir), { recursive: true });
+    cpSync(sourcePath(dir), join(env.outDir, dir), { recursive: true });
   }
   for (const file of STATIC_BIN_FILES) {
-    if (!existsSync(file)) continue;
-    cpSync(file, join(env.outDir, file));
+    if (!existsSync(sourcePath(file))) continue;
+    cpSync(sourcePath(file), join(env.outDir, file));
   }
 }
 
 function copySkills(env: ProductEnv): string[] {
   const managed: string[] = [];
   const skillsRoot = 'skills';
-  if (!existsSync(skillsRoot)) return managed;
+  if (!existsSync(sourcePath(skillsRoot))) return managed;
   mkdirSync(join(env.outDir, 'skills'), { recursive: true });
-  for (const logicalId of readdirSync(skillsRoot)) {
-    const src = join(skillsRoot, logicalId);
+  for (const logicalId of readdirSync(sourcePath(skillsRoot))) {
+    const src = sourcePath(skillsRoot, logicalId);
     const destName = `${env.namePrefix}${logicalId}`;
     cpSync(src, join(env.outDir, 'skills', destName), { recursive: true });
     managed.push(`skills/${destName}`);
@@ -70,13 +75,13 @@ function copySkills(env: ProductEnv): string[] {
 function copyAgents(env: ProductEnv): string[] {
   const managed: string[] = [];
   const agentsRoot = 'agents';
-  if (!existsSync(agentsRoot)) return managed;
+  if (!existsSync(sourcePath(agentsRoot))) return managed;
   mkdirSync(join(env.outDir, 'agents'), { recursive: true });
-  for (const file of readdirSync(agentsRoot)) {
+  for (const file of readdirSync(sourcePath(agentsRoot))) {
     if (!file.endsWith('.md')) continue;
     const logicalId = file.slice(0, -3);
     const destName = `${env.namePrefix}${logicalId}.md`;
-    cpSync(join(agentsRoot, file), join(env.outDir, 'agents', destName));
+    cpSync(sourcePath(agentsRoot, file), join(env.outDir, 'agents', destName));
     managed.push(`agents/${destName}`);
   }
   return managed;
@@ -85,8 +90,8 @@ function copyAgents(env: ProductEnv): string[] {
 function copyStagingBins(env: ProductEnv): string[] {
   const managed: string[] = [];
   mkdirSync(join(env.outDir, 'bin'), { recursive: true });
-  for (const file of readdirSync(STAGING_BIN)) {
-    const src = join(STAGING_BIN, file);
+  for (const file of readdirSync(sourcePath(STAGING_BIN))) {
+    const src = sourcePath(STAGING_BIN, file);
     const destName = `${env.namePrefix}${file}`;
     cpSync(src, join(env.outDir, 'bin', destName));
     managed.push(`bin/${destName}`);
@@ -98,13 +103,14 @@ function applyTokensInTree(env: ProductEnv): void {
   for (const rel of scanTextFiles(env.outDir)) {
     const filePath = join(env.outDir, rel);
     const before = readFileSync(filePath, 'utf-8');
-    const after = applyEnvTokens(before, env);
+    const expanded = expandIncludes(before, env);
+    const after = applyEnvTokens(expanded, env);
     if (after !== before) writeFileSync(filePath, after, 'utf-8');
   }
 }
 
 function readCanonicalHooks(): object {
-  return JSON.parse(readFileSync('hooks/hooks.canonical.json', 'utf-8'));
+  return JSON.parse(readFileSync(sourcePath('hooks/hooks.canonical.json'), 'utf-8'));
 }
 
 function writeHooks(env: ProductEnv): void {
@@ -145,7 +151,7 @@ async function writePluginManifest(env: ProductEnv): Promise<void> {
 async function writeHomeExtras(env: ProductEnv, managedPaths: string[]): Promise<void> {
   if (env.layout !== 'home-image') return;
   const { version } = await import('../package.json');
-  cpSync('.pack-staging/install.mjs', join(env.outDir, 'install.mjs'));
+  cpSync(sourcePath('.pack-staging/install.mjs'), join(env.outDir, 'install.mjs'));
   const extraManaged = [
     ...managedPaths,
     'bin/openspec',

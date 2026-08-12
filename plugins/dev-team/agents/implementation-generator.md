@@ -29,6 +29,8 @@ Read:
 5. For each task, write the implementation code directly to the appropriate files
 6. Mark completed tasks as `[x]` in tasks.md, continue until all tasks is finished
 
+__INCLUDE:static-analysis-gate__
+
 ## Output
 
 Write implementation code directly to disk.

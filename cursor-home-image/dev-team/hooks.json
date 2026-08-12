@@ -10,18 +10,6 @@
         "matcher": "Shell",
         "command": "node \"__INSTALL_PLUGIN_ROOT__/bin/dev-team_hooks.cjs\" protect-files"
       }
-    ],
-    "subagentStop": [
-      {
-        "matcher": "dev-team_implementation-generator",
-        "loop_limit": 5,
-        "command": "node \"__INSTALL_PLUGIN_ROOT__/bin/dev-team_hooks.cjs\" static-check"
-      },
-      {
-        "matcher": "dev-team_test-gen-generator",
-        "loop_limit": 5,
-        "command": "node \"__INSTALL_PLUGIN_ROOT__/bin/dev-team_hooks.cjs\" static-check"
-      }
     ]
   }
 }
