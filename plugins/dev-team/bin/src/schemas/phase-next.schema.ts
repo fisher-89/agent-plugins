@@ -10,6 +10,11 @@ import { projectRootSchema } from './public/project-root.schema';
 export const phaseNextInputSchema = z.object({
   project_root: projectRootSchema,
   change: z.string().min(1).describe('Change name (corresponds to openspec/changes/<name>)'),
+  run_id: z
+    .string()
+    .trim()
+    .min(1)
+    .describe('Session window identifier; caller generates a new opaque id per agent turn'),
 });
 
 /**
@@ -54,5 +59,8 @@ export const phaseNextOutputSchema = z.object({
     .describe('Latest eval entry snapshot (null if no entries exist)'),
   total_phases: z.number().int().describe('Total number of phases in this workflow'),
   phase_index: z.number().int().describe('1-based index of the current phase'),
-  round: z.number().int().describe('Current workflow round (1-based)'),
+  round: z
+    .number()
+    .int()
+    .describe('Current session window round (1-based); not change lifetime cumulative'),
 });

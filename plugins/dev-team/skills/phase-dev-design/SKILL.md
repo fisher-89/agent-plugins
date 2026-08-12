@@ -18,7 +18,9 @@ Call `__MCP:change_list__` to get active changes. If <change-name> is provided, 
 
 ### Phase Check
 
-Call `__MCP:phase_next__(change=<change-name>)` to get workflow state.
+At the start of this turn, generate a new non-empty opaque `run_id` (e.g. UUID). Pass the same `run_id` to every `phase_next` call in this turn (Phase Check, backtrack recall, Verdict Phase Result).
+
+Call `__MCP:phase_next__(change=<change-name>, run_id=<run_id>)` to get workflow state.
 
 If `next_phase` is "dev-design" continue to `### Run Executor`.
 
@@ -42,7 +44,7 @@ __MCP:backtrack__({
 })
 ```
 
-If response `modified` is true, recall `__MCP:phase_next__(change=<name>)`, continue to `### Run Executor`.
+If response `modified` is true, recall `__MCP:phase_next__(change=<name>, run_id=<run_id>)`, continue to `### Run Executor`.
 
 ### Run Executor
 
@@ -71,7 +73,7 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = __MCP:phase_next__(change=<change-name>)
+result = __MCP:phase_next__(change=<change-name>, run_id=<run_id>)
 
 if result.last_result is null:
   → 错误：Evaluator 未正确写入 eval.json，停止

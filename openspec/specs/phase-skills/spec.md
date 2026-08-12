@@ -1,110 +1,68 @@
+## 权威边界
+
+用户可调用的 `phase-*` skill 清单与 agent 链。门禁/`run_id` 引擎语义见 `pge-workflow-engine`；fail 后三叉决策见 `pipeline-backtrack`。本文件不复述 phase 前置依赖表。
+
+门禁工具统一为 `phase_next`（决议 C4=A）。不使用 `phase_check`。
+
+## ADDED Requirements
+
+### Requirement: phase skill 调用 phase_next 时必须传入 run_id
+
+所有 `phase-*` skill（proposal / dev-design / test-design / implement / test-gen / test-execution / code-review / acceptance）SHALL：
+
+1. 在本 turn 入口生成非空 `run_id`
+2. 本 turn 内每一次 `phase_next`（含 backtrack 后 recall）传入同一 `run_id`
+3. 不得省略（省略 → 引擎 `missing_run_id`）
+
+**用户反馈的任意消息**（含 AskUser 回复、中断后继续、闲聊后再开）MUST 生成新的 `run_id`，MUST NOT 复用上一值（决议 C9）。
+
+独立调用时 MUST 自行生成 `run_id`，MUST NOT 依赖 workflow 注入。
+
+```
+__MCP:phase_next__(change=<change-name>, run_id=<run_id>)
+```
+
+#### Scenario: 独立 phase skill 传入 run_id
+
+- **WHEN** 用户直接调用任一上述 `phase-*` skill
+- **THEN** 初始 gate 与 backtrack 后 recall 的 `phase_next` SHALL 均携带本 turn 的 `run_id`
+
+#### Scenario: 用户任意新消息换 run_id
+
+- **WHEN** 用户发送任意新消息（含对 AskUserQuestion 的回复）
+- **THEN** skill SHALL 生成新的 `run_id` 再调用 `phase_next`
+
 ## MODIFIED Requirements
 
-### Requirement: phase-unit-test skill renamed to phase-test-execution
+### Requirement: Eight user-triggered phase skills
 
-The system SHALL provide `dev-team:phase-test-execution` skill at `skills/phase-test-execution/SKILL.md` with name `phase-test-execution`. The `phase-unit-test` skill at `skills/phase-unit-test/` SHALL be removed (deleted or renamed).
+系统 SHALL 提供 8 个 phase skill（原 9：`phase-unit-test`→`phase-test-execution`，`phase-integration-test` 删除并入前者）：
 
-The skill SHALL follow the EXEC P→E pattern:
-- **Executor**: `test-execution-executor` sub-agent runs tests via CLI and produces execution report
-- **Evaluator**: `test-execution-evaluator` sub-agent evaluates against checklist, appends to eval.json via MCP phase_log
+| # | Skill | MCP | Planner / Executor | Evaluator |
+|---|-------|-----|--------------------|-----------|
+| 1 | phase-proposal | phase_next (+ phase_log via evaluator) | proposal-planner | proposal-evaluator |
+| 2 | phase-dev-design | phase_next | dev-design-planner | dev-design-evaluator |
+| 3 | phase-test-design | phase_next | test-design-planner | test-design-evaluator |
+| 4 | phase-test-gen | phase_next | test-gen-generator | test-gen-evaluator |
+| 5 | phase-implement | phase_next | implementation-generator | implementation-evaluator |
+| 6 | phase-test-execution | phase_next + phase_log | test-execution-executor | test-execution-evaluator |
+| 7 | phase-code-review | phase_next | (none) | code-review-evaluator |
+| 8 | phase-acceptance | phase_next | (none) | acceptance-evaluator |
 
-Gate check phase ID: `test-execution`.
+门禁：调用 `phase_next(change, run_id)`，以返回的 `next_phase` / 错误决定是否可执行本 phase。`phase-test-execution` 另经 executor/evaluator 使用 `phase_log`；读 verdict 使用 `phase_next` 的 `last_result` / `next_phase`（与其它 skill 相同）。
 
-#### Scenario: phase-test-execution executes EXEC loop
-- **WHEN** user invokes `/dev-team:phase-test-execution <change-name>`
-- **THEN** the skill runs gate check `mcp__plugin_dev-team_dev-team__phase_check` with phase `test-execution`
-- **AND** invokes `test-execution-executor` sub-agent
-- **AND** after executor completes, invokes `test-execution-evaluator` sub-agent
-- **AND** reads eval.json to determine verdict
+#### Scenario: phase-test-execution EXEC 循环
 
-#### Scenario: phase-test-execution skill file exists at new path
-- **WHEN** reading `skills/phase-test-execution/SKILL.md`
-- **THEN** the `name` frontmatter is `phase-test-execution`
-- **AND** the gate check references `test-execution` (not `unit-test` or `06-unit-test`)
+- **WHEN** 用户调用 `/dev-team:phase-test-execution <change-name>`
+- **THEN** skill 以 `phase_next(change, run_id)` 做门禁（期望 `next_phase` 为 `test-execution` 或可继续）
+- **AND** 依次调用 `test-execution-executor`、`test-execution-evaluator`
+- **AND** fail 时按 `pipeline-backtrack` 决策（非 evaluator 设 `backtrack_to`）
 
-### Requirement: phase-integration-test skill removed
+#### Scenario: 旧 skill 路径不存在
 
-The `dev-team:phase-integration-test` skill at `skills/phase-integration-test/` SHALL be deleted entirely. Integration test execution is now handled by the consolidated `test-execution` phase.
-
-#### Scenario: phase-integration-test directory removed
-- **WHEN** checking `skills/phase-integration-test/SKILL.md`
-- **THEN** the file SHALL NOT exist (the directory is deleted)
-
-### Requirement: phase skills use result.next_phase for verdict reading (no change)
-
-All individual phase SKILL.md files SHALL read eval.json verdict entries using the phase ID returned by `mcp__plugin_dev-team_dev-team__phase_next` (i.e., `result.next_phase`). This behavior is unchanged for unaffected skills. The test-execution skill follows the same pattern.
-
-#### Scenario: phase-test-execution reads verdict from result.next_phase
-- **WHEN** reading `skills/phase-test-execution/SKILL.md`
-- **THEN** the verdict reading step references `result.next_phase`
-
-### Requirement: Seven user-triggered phase skills (was nine)
-
-The system SHALL provide 7 phase skills (down from 9). Updated skill list:
-
-| # | Skill | MCP Tools Used | Agent (Planner) | Agent (Evaluator) |
-|---|-------|----------------|-----------------|-------------------|
-| 1 | dev-team:phase-proposal | phase_check | proposal-planner | proposal-evaluator |
-| 2 | dev-team:phase-dev-design | phase_check | dev-design-planner | dev-design-evaluator |
-| 3 | dev-team:phase-test-design | phase_check | test-design-planner | test-design-evaluator |
-| 4 | dev-team:phase-test-gen | phase_check | test-gen-generator | test-gen-evaluator |
-| 5 | dev-team:phase-implement | phase_check | implementation-generator | implementation-evaluator |
-| 6 | dev-team:phase-test-execution | phase_log | test-execution-executor | test-execution-evaluator |
-| 7 | dev-team:phase-code-review | phase_check | (none) | code-review-evaluator |
-| 8 | dev-team:phase-acceptance | phase_check | (none) | acceptance-evaluator |
-
-Removed skills:
-- `dev-team:phase-unit-test` — replaced by `phase-test-execution`
-- `dev-team:phase-integration-test` — removed (merged into `phase-test-execution`)
-
-#### Scenario: phase-test-execution is an EXEC loop
-- **WHEN** user invokes `dev-team:phase-test-execution`
-- **THEN** the skill first calls `mcp__plugin_dev-team_dev-team__phase_check` with `change` and `phase="test-execution"`
-- **AND** invokes test-execution-executor sub-agent with one-line prompt
-- **AND** then invokes test-execution-evaluator sub-agent
-- **AND** the skill reads the latest eval.json entry to determine verdict
-- **AND** loops back to Executor if verdict is "fail" (up to max attempts)
-
-## REMOVED Requirements
-
-### Requirement: Nine user-triggered phase skills (tool name update)
-**Reason**: Reduced from 9 to 7 skills. `phase-unit-test` renamed to `phase-test-execution`; `phase-integration-test` deleted.
-
-**Migration**: Skills list updated to 7 entries. Workflow skills that referenced these phases will dynamically resolve them via phase_next.
-
-### Requirement: phase-unit-test (ID update references)
-**Reason**: Skill file moved from `skills/phase-unit-test/` to `skills/phase-test-execution/`.
-
-**Migration**: MCP tools, gate check phase, and evaluator references updated from `unit-test` to `test-execution`.
-
-### Requirement: phase-integration-test (ID update references)
-**Reason**: Skill file deleted entirely.
-
-**Migration**: Integration test execution is now handled by `phase-test-execution`.
-
-### Requirement: openspec-archive-change skill (no change needed)
-**Reason**: The archive skill checks for `acceptance` phase pass, which is unaffected by this change.
+- **WHEN** 检查 `skills/phase-unit-test/` 或 `skills/phase-integration-test/`
+- **THEN** 目录 SHALL NOT 存在；功能由 `phase-test-execution` 承担
 
 ## Module Contract
 
-### Skill Files (`plugins/dev-team/skills/`)
-
-| Skill | MCP Tools Used | Agent (Planner) | Agent (Evaluator) | Contract |
-|-------|----------------|-----------------|-------------------|----------|
-| phase-proposal | phase_check | proposal-planner | proposal-evaluator | P→E loop, phase `proposal` |
-| phase-dev-design | phase_check | dev-design-planner | dev-design-evaluator | P→E loop, phase `dev-design` |
-| phase-test-design | phase_check | test-design-planner | test-design-evaluator | P→E loop, phase `test-design` |
-| phase-test-gen | phase_check | test-gen-generator | test-gen-evaluator | G→E loop, phase `test-gen` |
-| phase-implement | phase_check | implementation-generator | implementation-evaluator | G→E + AUTO, phase `implement` |
-| phase-test-execution | phase_log | test-execution-executor | test-execution-evaluator | EXEC loop, phase `test-execution` |
-| phase-code-review | phase_check | (none) | code-review-evaluator | EVAL-ONLY, phase `code-review` |
-| phase-acceptance | phase_check | (none) | acceptance-evaluator | EVAL-ONLY, phase `acceptance` |
-
-### Skill Changes
-
-| Skill | Change | Details |
-|-------|--------|---------|
-| phase-unit-test | RENAMED → `phase-test-execution` | Skill directory relocated: `skills/phase-unit-test/` → `skills/phase-test-execution/`. Phase ID updated to `test-execution`. Agents updated. |
-| phase-integration-test | DELETED | Entire directory at `skills/phase-integration-test/` removed. Functionality merged into `phase-test-execution`. |
-| workflow-requirement | MODIFIED | References to `integration-test` in progress output removed. |
-| workflow-test-only | MODIFIED | Phase table references updated — test-only has 5 phases (removed integration-test). |
+路径：`plugins/dev-team/skills/`。Agent 映射同上表。归档 skill（`openspec-archive-change`）检查 `acceptance` pass，本变更不改其契约。

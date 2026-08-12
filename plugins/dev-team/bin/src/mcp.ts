@@ -168,6 +168,7 @@ const MCP_TOOLS = [
         const result = runPhaseNext({
           project_root: args.project_root,
           change: args.change,
+          run_id: args.run_id,
         });
         return jsonContent(phaseNextOutputSchema, result);
       }),

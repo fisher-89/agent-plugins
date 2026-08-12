@@ -32,6 +32,23 @@ export type PhaseNextResult = z.output<typeof phaseNextOutputSchema>;
 
 const MAX_RETRY_TIMES = 5;
 
+/** Process-local session anchors: (change, run_id) → entries.length at first sight. */
+const sessionAnchors = new Map<string, number>();
+
+function makeSessionKey(change: string, runId: string): string {
+  return `${change}\0${runId}`;
+}
+
+function getOrCreateAnchor(change: string, runId: string, entriesLength: number): number {
+  const key = makeSessionKey(change, runId);
+  const existing = sessionAnchors.get(key);
+  if (existing !== undefined) {
+    return existing;
+  }
+  sessionAnchors.set(key, entriesLength);
+  return entriesLength;
+}
+
 /**
  * Replace '<change>' and '<phase>' placeholders in a prompt string with
  * the actual change name and phase ID.
@@ -170,11 +187,11 @@ function buildErrorResponse(
 // ---------------------------------------------------------------------------
 
 /**
- * Compute the current round number from eval.json entries.
- * Round = total entries + 1 (next round to execute).
+ * Compute the current session round from window entries.
+ * Round = window length + 1 (next round to execute in this session).
  */
-function computeRound(entries: EvalEntry[]): number {
-  return entries.length + 1;
+function computeRound(window: EvalEntry[]): number {
+  return window.length + 1;
 }
 
 /**
@@ -362,6 +379,7 @@ interface ResolvePhaseNextOptions {
   change: string;
   entries: EvalEntry[];
   workflowType: string;
+  anchor: number;
 }
 
 interface ResolvePhaseNextResult {
@@ -373,6 +391,7 @@ interface ResolvePhaseNextResult {
  */
 function resolveDefaultPhase(
   entries: EvalEntry[],
+  window: EvalEntry[],
   phaseTable: PhaseDefinition[],
   round: number,
   change: string,
@@ -387,7 +406,7 @@ function resolveDefaultPhase(
   const nextPhaseIndex = phaseTable.findIndex((p) => !hasPhasePassed(entries, p.id));
   const nextPhaseDef = phaseTable[nextPhaseIndex];
 
-  const retryResult = checkRetryLimit(entries, nextPhaseDef, round, totalPhases, lastResult);
+  const retryResult = checkRetryLimit(window, nextPhaseDef, round, totalPhases, lastResult);
   if (retryResult) {
     return retryResult;
   }
@@ -406,9 +425,10 @@ function resolveDefaultPhase(
 }
 
 function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult {
-  const { change, entries, workflowType } = opts;
+  const { change, entries, workflowType, anchor } = opts;
   const phaseTable = getPhaseTable(workflowType);
-  const round = computeRound(entries);
+  const window = entries.slice(anchor);
+  const round = computeRound(window);
   const lastResult = getLatestEntry(entries);
 
   const roundLimitResult = checkRoundLimit(round, phaseTable.length, lastResult);
@@ -417,7 +437,7 @@ function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult
   const backtrackResult = handleBacktrack(entries, phaseTable, change, round, lastResult);
   if (backtrackResult) return backtrackResult;
 
-  return resolveDefaultPhase(entries, phaseTable, round, change, lastResult);
+  return resolveDefaultPhase(entries, window, phaseTable, round, change, lastResult);
 }
 
 /**
@@ -432,6 +452,11 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
   // -- Input validation --
   if (!options.change || options.change === '') {
     throw new Error('Missing required parameter: change');
+  }
+
+  const runId = typeof options.run_id === 'string' ? options.run_id.trim() : '';
+  if (!runId) {
+    return buildErrorResponse('missing_run_id', 'Missing required parameter: run_id', 0, 0, null);
   }
 
   const change = options.change;
@@ -451,10 +476,13 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
     throw new Error(`Failed to read eval.json: ${msg}`);
   }
 
+  const anchor = getOrCreateAnchor(change, runId, entries.length);
+
   const { result } = resolvePhaseNext({
     change,
     entries,
     workflowType,
+    anchor,
   });
 
   return result;

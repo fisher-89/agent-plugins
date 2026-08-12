@@ -472,7 +472,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
             : name === 'change_list'
               ? {}
               : name === 'phase_next'
-                ? { change: 'c' }
+                ? { change: 'c', run_id: 'test-run' }
                 : name === 'phase_log'
                   ? {
                       change: 'c',
@@ -845,7 +845,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
               checklist: [{ item: 'i', pass: true, evidence: 'e' }],
             },
           },
-          { name: 'phase_next', args: { change: changeName } },
+          { name: 'phase_next', args: { change: changeName, run_id: 'test-run' } },
           {
             name: 'backtrack',
             args: {
@@ -921,7 +921,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
             checklist: [{ item: 'i', pass: true, evidence: 'e' }],
           },
         },
-        { name: 'phase_next', args: { change: 'x' } },
+        { name: 'phase_next', args: { change: 'x', run_id: 'test-run' } },
         {
           name: 'backtrack',
           args: { change: 'x', phase: 'proposal', backtrack_to: 'explore', backtrack_reason: 'r' },
@@ -1047,7 +1047,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       try {
         const result = await client.callTool({
           name: 'phase_next',
-          arguments: withProjectRoot({ change: changeName }),
+          arguments: withProjectRoot({ change: changeName, run_id: 'test-run' }),
         });
         expect(isToolError(result)).toBe(false);
         expect(JSON.parse(extractText(result))).toHaveProperty('next_phase');
@@ -1092,6 +1092,176 @@ describe('MCP Server (via InMemoryTransport)', () => {
         });
         expect(querySpy).toHaveBeenCalledWith(dir, 'sys');
       } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe('MCP schema — phase_next run_id (AC-1)', () => {
+    it('phaseNextInputSchema.shape 含 run_id', () => {
+      expect(Object.keys(phaseNextInputSchema.shape)).toContain('run_id');
+    });
+
+    it('listTools 中 phase_next.inputSchema.required 含 run_id', async () => {
+      const schema = await getToolInputSchema(client, 'phase_next');
+      expect(schema).toBeDefined();
+      const required = schema?.required;
+      if (Array.isArray(required)) {
+        expect(required).toContain('run_id');
+      }
+    });
+
+    it('safeParse 缺 run_id → success === false', () => {
+      const parsed = phaseNextInputSchema.safeParse({
+        project_root: mockResolve.root,
+        change: 'c',
+      });
+      expect(parsed.success).toBe(false);
+    });
+
+    it('safeParse run_id 为空或仅空白 → success === false', () => {
+      for (const runId of ['', '   ']) {
+        const parsed = phaseNextInputSchema.safeParse({
+          project_root: mockResolve.root,
+          change: 'c',
+          run_id: runId,
+        });
+        expect(parsed.success).toBe(false);
+      }
+    });
+
+    it('safeParse run_id 非法类型 → success === false', () => {
+      for (const runId of [123, null, {}]) {
+        const parsed = phaseNextInputSchema.safeParse({
+          project_root: mockResolve.root,
+          change: 'c',
+          run_id: runId,
+        });
+        expect(parsed.success).toBe(false);
+      }
+    });
+
+    it('run_id 超长 / 含 \\n / emoji 且非空 → schema 通过', () => {
+      for (const runId of ['x'.repeat(1001), 'a\nb', 'emoji-🧪']) {
+        const parsed = phaseNextInputSchema.safeParse({
+          project_root: mockResolve.root,
+          change: 'c',
+          run_id: runId,
+        });
+        expect(parsed.success).toBe(true);
+      }
+    });
+  });
+
+  describe('MCP 工具调用 — phase_next run_id 接线 (AC-1, AC-7)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('callTool 带非空 run_id 成功且 runPhaseNext spy 收到同一 run_id', async () => {
+      const { dir, cleanup } = setupTempProject();
+      const changeName = 'run-id-wire';
+      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
+      try {
+        const result = await client.callTool({
+          name: 'phase_next',
+          arguments: withProjectRoot({ change: changeName, run_id: 'wire-run-1' }),
+        });
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            change: changeName,
+            run_id: 'wire-run-1',
+            project_root: dir,
+          }),
+        );
+      } finally {
+        spy.mockRestore();
+        cleanup();
+      }
+    });
+
+    it('callTool 省略 run_id → isError 且 runPhaseNext spy 次数为 0', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
+      spy.mockClear();
+      const result = await client.callTool({
+        name: 'phase_next',
+        arguments: withProjectRoot({ change: 'c' }),
+      });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it('callTool run_id 仅空白 → schema 失败且 spy 次数为 0', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
+      spy.mockClear();
+      const result = await client.callTool({
+        name: 'phase_next',
+        arguments: withProjectRoot({ change: 'c', run_id: '   ' }),
+      });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it('callTool run_id 非法类型 → schema 失败且 spy 次数为 0', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
+      spy.mockClear();
+      const result = await client.callTool({
+        name: 'phase_next',
+        arguments: withProjectRoot({ change: 'c', run_id: 123 as unknown as string }),
+      });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it('返回下一阶段信息路径传入空 run_id → 工具失败', async () => {
+      const { dir, cleanup } = setupTempProject();
+      const changeName = 'run-id-empty';
+      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
+      try {
+        const result = await client.callTool({
+          name: 'phase_next',
+          arguments: withProjectRoot({ change: changeName, run_id: '' }),
+        });
+        expect(isToolError(result)).toBe(true);
+        expect(spy).toHaveBeenCalledTimes(0);
+      } finally {
+        spy.mockRestore();
+        cleanup();
+      }
+    });
+
+    it('全 11 handler 中 phase_next 故意省略 run_id → 该条 isError', async () => {
+      const { dir, cleanup } = setupTempProject({
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
+      });
+      const changeName = 'handler-omit-run-id';
+      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
+      spy.mockClear();
+      try {
+        const result = await client.callTool({
+          name: 'phase_next',
+          arguments: withProjectRoot({ change: changeName }),
+        });
+        expect(isToolError(result)).toBe(true);
+        expect(spy).toHaveBeenCalledTimes(0);
+      } finally {
+        spy.mockRestore();
         cleanup();
       }
     });

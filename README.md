@@ -16,13 +16,27 @@ claude plugin marketplace add https://github.com/fisher-89/agent-plugins.git
 claude plugin install dev-team@wps-ai
 ```
 
-### Cursor 本地安装
+### Cursor 安装
 
-进入Cursor Desktop，输入：
+#### 方式一：Marketplace 插件（推荐）
+
+进入 Cursor Desktop，输入：
 
 ```
 /add-plugin fisher-89/agent-plugins/cursor-plugins/dev-team
 ```
+
+#### 方式二：Home 镜像（团队禁用插件通道时）
+
+当 Cursor 策略关闭第三方 / 本地插件（`userLocal=false`）时，改用用户级 `~/.cursor` 镜像安装：
+
+```bash
+git clone https://github.com/fisher-89/agent-plugins.git
+cd agent-plugins
+node cursor-home-image/dev-team/install.mjs
+```
+
+安装完成后在 Cursor 执行 **Developer: Reload Window**，以加载 skills / agents / hooks / mcp。
 
 ## 使用插件
 

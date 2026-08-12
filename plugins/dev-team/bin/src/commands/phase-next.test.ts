@@ -26,6 +26,7 @@ import { type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable } from '../lib/workflow';
 
 const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
+const DEFAULT_RUN_ID = 'test-run';
 
 // ---------------------------------------------------------------------------
 // Mock helpers — construct eval.json entries for test scenarios
@@ -125,7 +126,12 @@ function staleEntry(
 // Note: the counter is intentionally not reset between tests — relative
 // ordering within each test case is all that matters.
 
-function next(entries: MockEntry[], change: string = 'test-change', workflowType?: string) {
+function next(
+  entries: MockEntry[],
+  change: string = 'test-change',
+  workflowType?: string,
+  runId: string = DEFAULT_RUN_ID,
+) {
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
     const p = String(filePath);
     if (p === getChangeDir(change, FIXTURE_PROJECT_ROOT)) {
@@ -154,7 +160,15 @@ function next(entries: MockEntry[], change: string = 'test-change', workflowType
       return '';
     },
   );
-  return runPhaseNext({ change, project_root: FIXTURE_PROJECT_ROOT });
+  return runPhaseNext({ change, project_root: FIXTURE_PROJECT_ROOT, run_id: runId });
+}
+
+function buildLongHistory(count: number, phase: EvalEntry['phase'] = 'proposal'): MockEntry[] {
+  const entries: MockEntry[] = [];
+  for (let i = 0; i < count; i++) {
+    entries.push(passEntry(phase, i + 1));
+  }
+  return entries;
 }
 
 // ---------------------------------------------------------------------------
@@ -338,51 +352,75 @@ describe('runPhaseNext — Skip Passed Phases (AC-6)', () => {
 // Retry Logic — AC-7
 // ---------------------------------------------------------------------------
 
-describe('runPhaseNext — Retry Logic (AC-7)', () => {
-  it('should return same phase for first retry after fail', () => {
-    const result = next([passEntry('proposal'), failEntry('dev-design')]);
+describe('runPhaseNext — Retry Logic (session window)', () => {
+  it('窗内首次 fail 后仍返回同一 phase', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'retry-s1');
+    const result = next(
+      [passEntry('proposal'), failEntry('dev-design')],
+      'test-change',
+      undefined,
+      'retry-s1',
+    );
     expect(result.next_phase).toBe('dev-design');
     expect(result.error).toBeNull();
   });
 
-  it('should return same phase on 4th consecutive fail (attempt 5)', () => {
-    const result = next([
-      passEntry('proposal'),
-      failEntry('dev-design', 1),
-      failEntry('dev-design', 2),
-      failEntry('dev-design', 3),
-      failEntry('dev-design', 4),
-    ]);
+  it('窗内 4 次 fail 仍返回该 phase', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'retry-s2');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+      ],
+      'test-change',
+      undefined,
+      'retry-s2',
+    );
     expect(result.next_phase).toBe('dev-design');
     expect(result.error).toBeNull();
   });
 
-  it('should return max_retries_exceeded error on 5th consecutive fail', () => {
-    const result = next([
-      passEntry('proposal'),
-      failEntry('dev-design', 1),
-      failEntry('dev-design', 2),
-      failEntry('dev-design', 3),
-      failEntry('dev-design', 4),
-      failEntry('dev-design', 5),
-    ]);
+  it('窗内 5 次 fail 返回 max_retries_exceeded', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'retry-s3');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+        failEntry('dev-design', 5),
+      ],
+      'test-change',
+      undefined,
+      'retry-s3',
+    );
     expect(result.error).toBe('max_retries_exceeded');
     expect(result.next_phase).toBeNull();
   });
 
-  it('should return error message in Chinese for max retries', () => {
-    const result = next([
-      passEntry('proposal'),
-      failEntry('dev-design', 1),
-      failEntry('dev-design', 2),
-      failEntry('dev-design', 3),
-      failEntry('dev-design', 4),
-      failEntry('dev-design', 5),
-    ]);
+  it('max_retries_exceeded 时 message 含中文超过最大重试次数', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'retry-s4');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+        failEntry('dev-design', 5),
+      ],
+      'test-change',
+      undefined,
+      'retry-s4',
+    );
     expect(result.message).toContain('超过最大重试次数');
   });
 
-  it('should reset retry count after a pass (then fail, then pass, then fail)', () => {
+  it('pass 后 fail 不计入先前 fail 预算', () => {
     const result = next([
       passEntry('proposal', 1),
       passEntry('dev-design', 1),
@@ -772,46 +810,39 @@ describe('runPhaseNext — Dependency-Graph Driven (AC-5, AC-6, AC-7)', () => {
 // Round Limit
 // ---------------------------------------------------------------------------
 
-describe('runPhaseNext — Round Limit (AC-10)', () => {
-  it('should return round_limit_exceeded error when round > 20', () => {
-    // Construct 21 rounds of entries
-    const entries = [];
+describe('runPhaseNext — Round Limit (session window)', () => {
+  it('同 run_id 窗内 21 条 entries 应返回 round_limit_exceeded', () => {
+    next([], 'test-change', undefined, 'round-limit-s1');
+    const windowEntries: MockEntry[] = [];
     for (let i = 0; i < 21; i++) {
-      entries.push(passEntry('proposal', i + 1));
+      windowEntries.push(passEntry('proposal', i + 1));
     }
-    const result = next(entries);
+    const result = next(windowEntries, 'test-change', undefined, 'round-limit-s1');
     expect(result.error).toBe('round_limit_exceeded');
+    expect(result.done).toBe(false);
   });
 
-  it('should return Chinese error message for round limit', () => {
-    const entries = [];
-    for (let i = 0; i < 21; i++) {
-      entries.push(passEntry('proposal', i + 1));
-    }
-    const result = next(entries);
+  it('round_limit_exceeded 时 message 含 20 轮中文提示', () => {
+    next([], 'test-change', undefined, 'round-limit-s2');
+    const windowEntries = buildLongHistory(21);
+    const result = next(windowEntries, 'test-change', undefined, 'round-limit-s2');
     expect(result.message).toContain('20 轮');
   });
 
-  it('should NOT error at exactly round 20 with all pass', () => {
-    // 20 entries = round 21, which exceeds limit
-    // Actually round = entries.length + 1, so round === 20 when entries.length === 19
-    const entries = [];
-    const testPhases: EvalEntry['phase'][] = ['proposal', 'dev-design', 'test-design'];
-    for (let i = 0; i < 19; i++) {
-      entries.push(passEntry(testPhases[i % 3], i + 1));
-    }
-    // At 19 entries, round = 20. We should still be able to process.
-    const result = next(entries);
-    // round = 20, should not error (threshold is > 20)
+  it('同 run_id 窗内 19 条 entries 时 round===20 且 error 为 null', () => {
+    next([], 'test-change', undefined, 'round-limit-s3');
+    const windowEntries = buildLongHistory(19);
+    const result = next(windowEntries, 'test-change', undefined, 'round-limit-s3');
+    expect(result.round).toBe(20);
     expect(result.error).toBeNull();
   });
 
-  it('should detect round limit via backtrack cycles', () => {
-    // Simulate 21+ rounds caused by repeated backtrack
-    const entries: MockEntry[] = [];
+  it('同 run_id 窗内回溯循环堆满 21 条仍触发 round_limit_exceeded', () => {
+    next([], 'test-change', undefined, 'round-limit-s4');
+    const windowEntries: MockEntry[] = [];
     for (let i = 0; i < 21; i++) {
       const phase = i % 2 === 0 ? 'proposal' : 'dev-design';
-      const entry: MockEntry = {
+      windowEntries.push({
         phase,
         verdict: 'fail',
         attempt: Math.floor(i / 2) + 1,
@@ -819,10 +850,9 @@ describe('runPhaseNext — Round Limit (AC-10)', () => {
         backtrack_to: i % 2 === 1 ? 'proposal' : null,
         report: '',
         checklist: [],
-      };
-      entries.push(entry);
+      });
     }
-    const result = next(entries);
+    const result = next(windowEntries, 'test-change', undefined, 'round-limit-s4');
     expect(result.error).toBe('round_limit_exceeded');
   });
 });
@@ -1097,7 +1127,11 @@ describe('runPhaseNext — workflow.json default', () => {
         return '';
       },
     );
-    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: DEFAULT_RUN_ID,
+    });
     expect(result.total_phases).toBe(8);
   });
 });
@@ -1206,17 +1240,452 @@ describe('runPhaseNext — Input Validation', () => {
   });
 
   it('change 参数为空字符串时应抛出 Error', () => {
-    // 直接调用 runPhaseNext 验证空 change 抛错
-    expect(() => runPhaseNext({ change: '', project_root: FIXTURE_PROJECT_ROOT })).toThrow(
-      'Missing required parameter: change',
-    );
+    expect(() =>
+      runPhaseNext({ change: '', project_root: FIXTURE_PROJECT_ROOT, run_id: DEFAULT_RUN_ID }),
+    ).toThrow('Missing required parameter: change');
   });
 
   it('change 不存在时应抛出 Error', () => {
     vi.mocked(fs.existsSync).mockReturnValue(false);
     expect(() =>
-      runPhaseNext({ change: 'non-existent-change', project_root: FIXTURE_PROJECT_ROOT }),
+      runPhaseNext({
+        change: 'non-existent-change',
+        project_root: FIXTURE_PROJECT_ROOT,
+        run_id: DEFAULT_RUN_ID,
+      }),
     ).toThrow(/Change "non-existent-change" does not exist/);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// run_id — missing_run_id (AC-1)
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — missing_run_id (AC-1)', () => {
+  it('省略 run_id 时返回 missing_run_id 结构化错误', () => {
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+    } as Parameters<typeof runPhaseNext>[0]);
+    expect(result.error).toBe('missing_run_id');
+    expect(result.done).toBe(false);
+    expect(result.next_phase).toBeNull();
+    expect(result.round).toBe(0);
+  });
+
+  it('run_id 为空字符串时返回 missing_run_id', () => {
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: '',
+    });
+    expect(result.error).toBe('missing_run_id');
+    expect(result.next_phase).toBeNull();
+  });
+
+  it('run_id 仅空白时返回 missing_run_id', () => {
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: '   ',
+    });
+    expect(result.error).toBe('missing_run_id');
+  });
+
+  it('run_id 为 null / undefined 时返回 missing_run_id', () => {
+    for (const runId of [null, undefined]) {
+      const result = runPhaseNext({
+        change: 'test-change',
+        project_root: FIXTURE_PROJECT_ROOT,
+        run_id: runId,
+      } as unknown as Parameters<typeof runPhaseNext>[0]);
+      expect(result.error).toBe('missing_run_id');
+    }
+  });
+
+  it('生涯 25 条 entries 且缺 run_id 仍为 missing_run_id，不得 round_limit_exceeded', () => {
+    const entries = buildLongHistory(25);
+    next(entries);
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+    } as Parameters<typeof runPhaseNext>[0]);
+    expect(result.error).toBe('missing_run_id');
+    expect(result.error).not.toBe('round_limit_exceeded');
+  });
+
+  it('run_id 为非 string 类型时返回 missing_run_id', () => {
+    for (const runId of [123, {}, []]) {
+      const result = runPhaseNext({
+        change: 'test-change',
+        project_root: FIXTURE_PROJECT_ROOT,
+        run_id: runId,
+      } as Parameters<typeof runPhaseNext>[0]);
+      expect(result.error).toBe('missing_run_id');
+    }
+  });
+
+  it('run_id 超长字符串且非空时按正常 session 接受', () => {
+    const longRunId = 'r'.repeat(1001);
+    const result = next([], 'test-change', undefined, longRunId);
+    expect(result.error).toBeNull();
+    expect(result.round).toBe(1);
+  });
+
+  it('run_id 含换行与 emoji 时接受且视为独立 key', () => {
+    const specialA = 'run-\n-🧪';
+    const specialB = 'run-emoji-🧪';
+    const resultA = next([], 'test-change', undefined, specialA);
+    const resultB = next([], 'test-change', undefined, specialB);
+    expect(resultA.error).toBeNull();
+    expect(resultB.error).toBeNull();
+    expect(resultA.round).toBe(1);
+    expect(resultB.round).toBe(1);
+  });
+
+  it('run_id 为 "0" 或单字符时合法可建立 anchor', () => {
+    for (const runId of ['0', 'x']) {
+      const result = next([], 'test-change', undefined, runId);
+      expect(result.error).toBeNull();
+      expect(result.round).toBe(1);
+    }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session round (AC-2)
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — session round (AC-2)', () => {
+  it('entries 已有 12 条时首次 run_id s1 → round===1', () => {
+    const prior = buildLongHistory(12);
+    const result = next(prior, 'test-change', undefined, 's1');
+    expect(result.round).toBe(1);
+    expect(result.error).toBeNull();
+  });
+
+  it('同 run_id s1 下 entries 增至 15 后再调用 → round===4', () => {
+    const prior = buildLongHistory(12);
+    next(prior, 'test-change', undefined, 's1');
+    const grown = [
+      ...prior,
+      passEntry('proposal', 13),
+      passEntry('proposal', 14),
+      passEntry('proposal', 15),
+    ];
+    const result = next(grown, 'test-change', undefined, 's1');
+    expect(result.round).toBe(4);
+  });
+
+  it('同 run_id 空窗首次 round===1；追加 1 条后 round===2', () => {
+    next([], 'test-change', undefined, 's1-empty');
+    const first = next([], 'test-change', undefined, 's1-empty');
+    expect(first.round).toBe(1);
+    const second = next([passEntry('proposal')], 'test-change', undefined, 's1-empty');
+    expect(second.round).toBe(2);
+  });
+
+  it('窗内 skipped 条目每条仍计 1 round', () => {
+    next([], 'test-change', undefined, 's1-skip');
+    const windowEntries = Array.from({ length: 20 }, (_, i) =>
+      i % 2 === 0 ? skippedEntry('proposal', i + 1) : passEntry('proposal', i + 1),
+    );
+    const result = next(windowEntries, 'test-change', undefined, 's1-skip');
+    expect(result.round).toBe(21);
+    expect(result.error).toBe('round_limit_exceeded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// session max_retries (AC-3)
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — session max_retries (AC-3)', () => {
+  it('同 window 内目标 phase 5 条 fail → max_retries_exceeded', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'fail-s1');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+        failEntry('dev-design', 5),
+      ],
+      'test-change',
+      undefined,
+      'fail-s1',
+    );
+    expect(result.error).toBe('max_retries_exceeded');
+  });
+
+  it('同 window 内目标 phase 仅 4 条 fail 仍返回 next_phase', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'fail-s2');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+      ],
+      'test-change',
+      undefined,
+      'fail-s2',
+    );
+    expect(result.next_phase).toBe('dev-design');
+    expect(result.error).toBeNull();
+  });
+
+  it('生涯 fail 在 anchor 之前时新 run_id 不触发 max_retries_exceeded', () => {
+    const career = [
+      passEntry('proposal'),
+      failEntry('dev-design', 1),
+      failEntry('dev-design', 2),
+      failEntry('dev-design', 3),
+      failEntry('dev-design', 4),
+      failEntry('dev-design', 5),
+    ];
+    const result = next(career, 'test-change', undefined, 'fresh-run');
+    expect(result.error).not.toBe('max_retries_exceeded');
+    expect(result.next_phase).toBe('dev-design');
+  });
+
+  it('窗内 5 条 fail 分属不同 phase 时仅按 next_phase 计数', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'fail-s3');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('test-design', 1),
+        failEntry('implement', 1),
+        failEntry('test-gen', 1),
+        failEntry('test-execution', 1),
+      ],
+      'test-change',
+      undefined,
+      'fail-s3',
+    );
+    expect(result.next_phase).toBe('dev-design');
+    expect(result.error).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 新 session 重置 (AC-4)
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — 新 session 重置 (AC-4)', () => {
+  it('生涯 25 条 + 新 run_id 首次调用 round===1 且非 round_limit_exceeded', () => {
+    const career = buildLongHistory(25);
+    const result = next(career, 'test-change', undefined, 'new-session');
+    expect(result.round).toBe(1);
+    expect(result.error).not.toBe('round_limit_exceeded');
+    expect(result.next_phase).not.toBeNull();
+    expect(result.done).toBe(false);
+  });
+
+  it('耗尽 fail 预算后换 run_id 可继续该 phase', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 's1-exhaust');
+    const career = [
+      passEntry('proposal'),
+      failEntry('dev-design', 1),
+      failEntry('dev-design', 2),
+      failEntry('dev-design', 3),
+      failEntry('dev-design', 4),
+      failEntry('dev-design', 5),
+    ];
+    const exhausted = next(career, 'test-change', undefined, 's1-exhaust');
+    expect(exhausted.error).toBe('max_retries_exceeded');
+    const reset = next(career, 'test-change', undefined, 's2-reset');
+    expect(reset.error).toBeNull();
+    expect(reset.next_phase).toBe('dev-design');
+  });
+
+  it('已建立 session 后换空 run_id → missing_run_id', () => {
+    next([], 'test-change', undefined, 's1-valid');
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: '',
+    });
+    expect(result.error).toBe('missing_run_id');
+  });
+
+  it('换 run_id 重置后在同窗再堆满 21 条仍 round_limit_exceeded', () => {
+    next([], 'test-change', undefined, 's2-limit');
+    const windowEntries = buildLongHistory(21);
+    const result = next(windowEntries, 'test-change', undefined, 's2-limit');
+    expect(result.error).toBe('round_limit_exceeded');
+  });
+
+  it('更换 run_id 后 anchor 取当前 entries.length', () => {
+    const career = buildLongHistory(10);
+    next(career, 'test-change', undefined, 'old-run');
+    const result = next(
+      [...career, passEntry('proposal', 11)],
+      'test-change',
+      undefined,
+      'new-run',
+    );
+    expect(result.round).toBe(1);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// map 隔离与易失 (AC-5)
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — map 隔离与易失 (AC-5)', () => {
+  it('change A/B 同 run_id 各自使用自身 entries.length 为 anchor', () => {
+    next(buildLongHistory(8), 'change-a', undefined, 'shared-s1');
+    const resultB = next(buildLongHistory(3), 'change-b', undefined, 'shared-s1');
+    expect(resultB.round).toBe(1);
+    const resultA = next(buildLongHistory(10), 'change-a', undefined, 'shared-s1');
+    expect(resultA.round).toBe(3);
+  });
+
+  it('change A 不得读到 change B 的 session window', () => {
+    next([], 'change-a', undefined, 'iso-s1');
+    next(buildLongHistory(21), 'change-b', undefined, 'iso-s1');
+    const resultA = next([], 'change-a', undefined, 'iso-s1');
+    expect(resultA.error).not.toBe('round_limit_exceeded');
+    expect(resultA.round).toBe(1);
+  });
+
+  it('同一 import 内连续同 (change, run_id) 复用 anchor', () => {
+    next([], 'anchor-reuse', undefined, 'reuse-s1');
+    const first = next([passEntry('proposal')], 'anchor-reuse', undefined, 'reuse-s1');
+    const second = next(
+      [passEntry('proposal'), passEntry('proposal', 2)],
+      'anchor-reuse',
+      undefined,
+      'reuse-s1',
+    );
+    expect(first.round).toBe(2);
+    expect(second.round).toBe(3);
+  });
+
+  it('vi.resetModules 后同一 run_id 在长历史上 round===1', async () => {
+    const career = buildLongHistory(30);
+    next(career, 'reset-change', undefined, 'reset-s1');
+    vi.resetModules();
+    const { runPhaseNext: freshRunPhaseNext } = await import('./phase-next');
+    vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
+      const p = String(filePath);
+      return p === getChangeDir('reset-change', FIXTURE_PROJECT_ROOT) || p.endsWith('eval.json');
+    });
+    vi.mocked(fs.readFileSync).mockImplementation(
+      (
+        path: fs.PathOrFileDescriptor,
+        _options?: BufferEncoding | fs.ObjectEncodingOptions | null,
+      ): string => {
+        const p = String(path);
+        if (p.endsWith('eval.json')) {
+          return JSON.stringify(career);
+        }
+        if (p.endsWith('workflow.json')) {
+          return JSON.stringify({ workflow_type: 'requirement' });
+        }
+        return '';
+      },
+    );
+    const result = freshRunPhaseNext({
+      change: 'reset-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: 'reset-s1',
+    });
+    expect(result.round).toBe(1);
+  });
+
+  it('resetModules 后 run_id 为空仍 missing_run_id', async () => {
+    vi.resetModules();
+    const { runPhaseNext: freshRunPhaseNext } = await import('./phase-next');
+    const result = freshRunPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: '',
+    });
+    expect(result.error).toBe('missing_run_id');
+  });
+
+  it('run_id 含内嵌 \\0 与 change 拼接仍按独立 key 隔离', () => {
+    const runId = 's1\0suffix';
+    next([], 'change-a', undefined, runId);
+    const result = next(buildLongHistory(21), 'change-b', undefined, runId);
+    expect(result.round).toBe(1);
+    expect(result.error).not.toBe('round_limit_exceeded');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 回归 (AC-7) — 同一 run_id 下推进/backtrack/done 不变
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — 回归 (AC-7)', () => {
+  const runId = 'regression-run';
+
+  it('空 eval → next_phase proposal、round===1', () => {
+    const result = next([], 'test-change', undefined, runId);
+    expect(result.next_phase).toBe('proposal');
+    expect(result.round).toBe(1);
+  });
+
+  it('proposal pass → next_phase dev-design', () => {
+    const result = next([passEntry('proposal')], 'test-change', undefined, runId);
+    expect(result.next_phase).toBe('dev-design');
+  });
+
+  it('全部 phase pass → done===true', () => {
+    const entries = getPhaseTable('requirement').map((p) => passEntry(p.id));
+    const result = next(entries, 'test-change', undefined, runId);
+    expect(result.done).toBe(true);
+  });
+
+  it('最新 entry 含 backtrack_to 时返回目标 phase 且无 updatedEntries', () => {
+    const entries = [
+      passEntry('proposal'),
+      passEntry('dev-design'),
+      backtrackEntry('test-design', 'proposal'),
+    ];
+    const result = next(entries, 'test-change', undefined, runId);
+    expect(result.next_phase).toBe('proposal');
+    expect(result).not.toHaveProperty('updatedEntries');
+  });
+
+  it('窗内 round>20 仍停止于 round_limit_exceeded', () => {
+    next([], 'test-change', undefined, 'regression-round-limit-s1');
+    const result = next(
+      buildLongHistory(21),
+      'test-change',
+      undefined,
+      'regression-round-limit-s1',
+    );
+    expect(result.error).toBe('round_limit_exceeded');
+  });
+
+  it('窗内 5 fail 仍停止于 max_retries_exceeded', () => {
+    next([passEntry('proposal')], 'test-change', undefined, 'regression-max-retry-s1');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+        failEntry('dev-design', 5),
+      ],
+      'test-change',
+      undefined,
+      'regression-max-retry-s1',
+    );
+    expect(result.error).toBe('max_retries_exceeded');
+  });
+
+  it('mid-phase 中断仍返回未完成 phase', () => {
+    const result = next([passEntry('proposal')], 'test-change', undefined, runId);
+    expect(result.next_phase).toBe('dev-design');
+    expect(result.done).toBe(false);
   });
 });
 
@@ -1335,19 +1804,19 @@ describe('phase_next Output Schema', () => {
   });
 
   it('should return valid JSON on error', () => {
-    const entries: MockEntry[] = [];
-    for (let i = 0; i < 5; i++) {
-      entries.push(failEntry('proposal', i + 1));
-    }
-    entries.push(failEntry('proposal', 6)); // 6 attempts = 5 fails + 1 = max retries
-    // Actually 5 fails (attempts 1-5) should trigger max_retries
-    const result = next([
-      failEntry('proposal', 1),
-      failEntry('proposal', 2),
-      failEntry('proposal', 3),
-      failEntry('proposal', 4),
-      failEntry('proposal', 5),
-    ]);
+    next([], 'test-change', undefined, 'output-error-s1');
+    const result = next(
+      [
+        failEntry('proposal', 1),
+        failEntry('proposal', 2),
+        failEntry('proposal', 3),
+        failEntry('proposal', 4),
+        failEntry('proposal', 5),
+      ],
+      'test-change',
+      undefined,
+      'output-error-s1',
+    );
     expect(result.error).toBe('max_retries_exceeded');
     expect(result.next_phase).toBeNull();
     expect(result.executor).toBeNull();
@@ -1417,14 +1886,19 @@ describe('phase_next — allowed_backtrack_phases', () => {
   });
 
   it('should have empty allowed_backtrack_phases on error', () => {
-    const entries = [
-      failEntry('proposal', 1),
-      failEntry('proposal', 2),
-      failEntry('proposal', 3),
-      failEntry('proposal', 4),
-      failEntry('proposal', 5),
-    ];
-    const result = next(entries, 'test-change');
+    next([], 'test-change', undefined, 'backtrack-error-s1');
+    const result = next(
+      [
+        failEntry('proposal', 1),
+        failEntry('proposal', 2),
+        failEntry('proposal', 3),
+        failEntry('proposal', 4),
+        failEntry('proposal', 5),
+      ],
+      'test-change',
+      undefined,
+      'backtrack-error-s1',
+    );
     expect(result.error).toBe('max_retries_exceeded');
     expect(result.allowed_backtrack_phases).toEqual([]);
   });
@@ -1515,14 +1989,20 @@ describe('runPhaseNext / done（突变补强）', () => {
 
 describe('runPhaseNext / error 与 backtrack（突变补强）', () => {
   it('max retries 时 done 为 false（非 true）、error 为 max_retries_exceeded', () => {
-    const result = next([
-      passEntry('proposal'),
-      failEntry('dev-design', 1),
-      failEntry('dev-design', 2),
-      failEntry('dev-design', 3),
-      failEntry('dev-design', 4),
-      failEntry('dev-design', 5),
-    ]);
+    next([passEntry('proposal')], 'test-change', undefined, 'mut-max-retry-s1');
+    const result = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+        failEntry('dev-design', 5),
+      ],
+      'test-change',
+      undefined,
+      'mut-max-retry-s1',
+    );
     expect(result.done).toBe(false);
     expect(result.done).not.toBe(true);
     expect(result.error).toBe('max_retries_exceeded');
@@ -1596,14 +2076,20 @@ describe('runPhaseNext / error 与 backtrack（突变补强）', () => {
     expect(withPass.error).toBeNull();
     expect(withPass.next_phase).toBe('test-design');
 
-    const fiveFails = next([
-      passEntry('proposal'),
-      failEntry('dev-design', 1),
-      failEntry('dev-design', 2),
-      failEntry('dev-design', 3),
-      failEntry('dev-design', 4),
-      failEntry('dev-design', 5),
-    ]);
+    next([passEntry('proposal')], 'test-change', undefined, 'mut-five-fail-s1');
+    const fiveFails = next(
+      [
+        passEntry('proposal'),
+        failEntry('dev-design', 1),
+        failEntry('dev-design', 2),
+        failEntry('dev-design', 3),
+        failEntry('dev-design', 4),
+        failEntry('dev-design', 5),
+      ],
+      'test-change',
+      undefined,
+      'mut-five-fail-s1',
+    );
     expect(fiveFails.error).toBe('max_retries_exceeded');
   });
 });
@@ -1618,9 +2104,9 @@ describe('runPhaseNext / hasPhasePassed 与边界（突变补强）', () => {
   });
 
   it("options.change 为 '' 时抛错", () => {
-    expect(() => runPhaseNext({ change: '', project_root: FIXTURE_PROJECT_ROOT })).toThrow(
-      /Missing required parameter: change/,
-    );
+    expect(() =>
+      runPhaseNext({ change: '', project_root: FIXTURE_PROJECT_ROOT, run_id: DEFAULT_RUN_ID }),
+    ).toThrow(/Missing required parameter: change/);
   });
 
   it('回溯 reason 长度 500 时 prompt 完整包含', () => {

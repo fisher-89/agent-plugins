@@ -1,0 +1,84 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-08-11T10:54:36.755Z",
+  "duration_seconds": 92,
+  "total": 1412,
+  "passed": 1412,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 95.69,
+      "branches": 87.55,
+      "functions": 98.48
+    },
+    "thresholds": {
+      "lines": 80,
+      "branches": 70,
+      "functions": 75
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 80,
+          "branches": 70,
+          "functions": 75
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 36,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 86.69,
+    "threshold": 70,
+    "measured": {
+      "killed": 228,
+      "survived": 28,
+      "timeout": 0,
+      "noCoverage": 7,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 62,
+      "total": 325,
+      "detected": 228,
+      "undetected": 35
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 86.69201520912547,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 36,
+        "passed_count": 36
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/phase-next-session-round/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "All 1412 vite-plus unit tests passed with no failures or skipped cases.",
+    "Coverage thresholds met (lines 95.7%, branches 87.6%, functions 98.5% vs 80/70/75 thresholds).",
+    "Mutation testing passed at 86.7% (threshold 70%); Stryker ran from suite cwd plugins/dev-team, resolving the prior 'No tests were executed' ConfigError.",
+    "Report validation: required fields present, counts consistent (1412+0+0=1412), conclusion matches pass state."
+  ]
+}

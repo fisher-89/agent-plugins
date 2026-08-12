@@ -1,69 +1,57 @@
+## 权威边界
+
+proposal 阶段模块边界契约。执行主体为 `proposal-planner`（决议：与 `phase-skills` 命名对齐）。
+
 ## ADDED Requirements
 
-### Requirement: requirements 阶段识别受影响的模块目录
-requirements-planner SHALL 在生成 proposal.md 和 specs/ 时，分析当前变更涉及的文件变更集合，识别出所有受影响的模块目录。
-每个模块目录 SHALL 被分配一个唯一的模块标识符（如 `module:user-auth`、`module:data-pipeline`）。
-模块目录的识别规则 SHALL 以项目根目录下的 CLAUDE.md 中的模块定义为依据；如果 CLAUDE.md 中无模块定义，以 `src/` 或 `packages/` 等源码顶层目录的子目录为模块单位。
+### Requirement: proposal 阶段识别受影响的模块目录
 
-#### Scenario: requirements 阶段识别变更涉及的模块
-- **WHEN** requirements-planner 分析当前变更涉及的文件变更集合
-- **THEN** 它遍历变更路径列表，提取所有非重复的顶层模块目录路径
-- **AND** 为每个模块目录生成唯一模块标识符
+`proposal-planner` SHALL 在生成 proposal.md 和 specs/ 时，分析当前变更涉及的文件变更集合，识别所有受影响的模块目录。
+每个模块目录 SHALL 分配唯一模块标识符（如 `module:user-auth`）。
+识别规则以项目根 `CLAUDE.md` 模块定义为准；若无，则以 `src/` / `packages/` 等顶层源码子目录为单位。
 
-### Requirement: requirements 阶段定义模块的 public/export 函数签名
-对于每个受影响的模块，requirements-planner SHALL 定义该模块的 public/export 函数的接口契约。
-每个函数条目 SHALL 包含：函数名、参数列表（名称 + 类型 + 是否必需 + 默认值）、返回值类型、简要功能描述。
-参数和返回值的类型 SHALL 使用 TypeScript 风格的类型注解或语言对应的类型表示法。
-函数签名条目 SHALL 以结构化表格形式写入 specs/ 目录下对应 capability 的 spec.md 文件中。
+#### Scenario: 识别变更涉及的模块
 
-#### Scenario: 函数签名契约写入 spec 文件
-- **WHEN** requirements-planner 定义了模块的 public 函数签名
-- **THEN** 它在 `openspec/changes/<name>/specs/<capability-name>/spec.md` 的 `## ADDED Requirements` 下插入函数签名契约表格
-- **AND** 表格包含列：函数名、参数（名称:类型）、返回值、描述
+- **WHEN** `proposal-planner` 分析变更路径集合
+- **THEN** 提取非重复顶层模块目录并生成唯一标识符
 
-#### Scenario: 无 public export 的模块
-- **WHEN** 受影响的模块没有 public/export 函数（如纯数据配置变更）
-- **THEN** 模块边界契约中注明 "此模块无可导出函数"，不生成空表格
+### Requirement: proposal 阶段定义模块的 public/export 函数签名
 
-### Requirement: requirements 阶段定义模块的 API 接口
-对于每个受影响的模块，requirements-planner SHALL 定义该模块对外暴露的 API 接口契约。
-每个 API 条目 SHALL 包含：method（GET/POST/PUT/DELETE/PATCH）、path（相对于 API 根路径）、request schema（参数名 + 类型 + 位置）、response schema（状态码 + 返回体结构）。
-API 接口条目 SHALL 以结构化表格形式写入 specs/ 目录下对应 capability 的 spec.md 文件中。
+对每个受影响模块，`proposal-planner` SHALL 定义 public/export 函数契约：函数名、参数（名称+类型+必需+默认值）、返回类型、简要描述；以表格写入对应 capability 的 `spec.md`。
 
-#### Scenario: API 接口契约写入 spec 文件
-- **WHEN** requirements-planner 定义了模块的 API 接口
-- **THEN** 它在 `openspec/changes/<name>/specs/<capability-name>/spec.md` 中插入 API 接口契约表格
-- **AND** 表格包含列：方法、路径、请求参数、响应状态码、响应体结构
+#### Scenario: 函数签名写入 spec
 
-#### Scenario: 无 API 接口的模块
-- **WHEN** 受影响的模块不暴露 API 接口（如纯后端工具函数模块）
-- **THEN** 模块边界契约中注明 "此模块无 API 接口"，不生成空表格
+- **WHEN** 定义了 public 函数签名
+- **THEN** 写入 `openspec/changes/<name>/specs/<capability>/spec.md` 的 `## ADDED Requirements`，含函数名、参数、返回值、描述列
 
-### Requirement: requirements 阶段定义模块的 CLI 命令
-对于每个受影响的模块，requirements-planner SHALL 定义该模块对外暴露的 CLI 命令契约。
-每个 CLI 条目 SHALL 包含：命令名、参数列表（名称 + 类型 + 必需）、flags（名称 + 缩写 + 类型 + 默认值）、使用示例。
-CLI 命令条目 SHALL 以结构化表格形式写入 specs/ 目录下对应 capability 的 spec.md 文件中。
+#### Scenario: 无 public export
 
-#### Scenario: CLI 命令契约写入 spec 文件
-- **WHEN** requirements-planner 定义了模块的 CLI 命令
-- **THEN** 它在 `openspec/changes/<name>/specs/<capability-name>/spec.md` 中插入 CLI 命令契约表格
-- **AND** 表格包含列：命令名、参数、flags、示例
+- **WHEN** 模块无可导出函数
+- **THEN** 注明「无可导出函数」，不生成空表
 
-#### Scenario: 无 CLI 命令的模块
-- **WHEN** 受影响的模块不暴露 CLI 命令
-- **THEN** 模块边界契约中注明 "此模块无 CLI 命令"，不生成空表格
+### Requirement: proposal 阶段定义模块的 API 接口
 
-### Requirement: requirements 阶段定义前端组件的 props & events
-对于前端项目中的受影响模块，requirements-planner SHALL 定义该模块的 Vue/React 组件接口契约。
-每个组件条目 SHALL 包含：组件名、props（名称 + 类型 + 是否必需 + 默认值）、events（事件名 + payload 类型）。
-组件接口条目 SHALL 以结构化表格形式写入 specs/ 目录下对应 capability 的 spec.md 文件中。
-如果当前项目不是前端项目，此条目不适用。
+对每个受影响模块，定义 API 契约：method、path、request/response schema；写入对应 `spec.md`。无 API 则注明并跳过空表。
 
-#### Scenario: 前端组件契约写入 spec 文件
-- **WHEN** requirements-planner 确认当前项目包含前端代码（检测到 `.vue`、`.tsx`、`.jsx` 文件）
-- **THEN** 它为受影响的前端模块生成组件 props & events 契约表格
-- **AND** 表格包含列：组件名、props（名称:类型:必需）、events（事件名:payload）
+#### Scenario: API 契约写入 / 无 API 跳过
 
-#### Scenario: 非前端项目跳过组件契约
-- **WHEN** requirements-planner 确认当前项目无前端代码
-- **THEN** 模块边界契约中注明 "此项目无前端组件定义"，不生成组件表格
+- **WHEN** 模块暴露或未暴露 API
+- **THEN** 分别写入表格或注明「无 API 接口」
+
+### Requirement: proposal 阶段定义模块的 CLI 命令
+
+对每个受影响模块，定义 CLI 契约：命令名、参数、flags、示例；写入对应 `spec.md`。无 CLI 则注明并跳过空表。
+
+#### Scenario: CLI 契约写入 / 无 CLI 跳过
+
+- **WHEN** 模块暴露或未暴露 CLI
+- **THEN** 分别写入表格或注明「无 CLI 命令」
+
+### Requirement: proposal 阶段定义前端组件的 props & events
+
+若项目含前端（检测到 `.vue`/`.tsx`/`.jsx`），对受影响前端模块定义组件契约：组件名、props、events；写入对应 `spec.md`。非前端项目则注明并跳过。
+
+#### Scenario: 前端 / 非前端
+
+- **WHEN** 有或无前端代码
+- **THEN** 分别生成组件表或注明「无前端组件定义」

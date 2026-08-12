@@ -51,7 +51,7 @@ Only reached when starting a **new** change.
 openspec new change "<change-name>"
 ```
 
-Write `openspec/changes/<change-name>/workflow.json`:
+Write `openspec/changes/<change-name>/workflow.json` without BOM:
 
 ```json
 { "workflow_type": "requirement" }
@@ -66,10 +66,12 @@ Write `openspec/changes/<change-name>/workflow.json`:
 
 ### Step 2: Orchestration loop
 
+At the start of this turn (before entering the LOOP), generate a new non-empty opaque `run_id` (e.g. UUID). Use the same `run_id` for every `phase_next` call within this turn. Each new user message (including replies after `ask-user`) MUST generate a fresh `run_id`.
+
 ```
 LOOP:
   -- Phase Check --
-  gate = __MCP:phase_next__(change=<change-name>)
+  gate = __MCP:phase_next__(change=<change-name>, run_id=<run_id>)
 
   if gate.error:
     报告: "Workflow error [{gate.error}]: {gate.message}"
@@ -124,7 +126,7 @@ LOOP:
       prompt: gate.evaluator.prompt
     })
 
-  输出: "[Round {gate.round}/20] [Phase {gate.phase_index}/{gate.total_phases}] {gate.next_phase}: executed"
+  输出: "[Round {gate.round}/20] [Phase {gate.phase_index}/{gate.total_phases}] {gate.next_phase}: executed"  # gate.round is session-scoped for this turn
   PushNotification("Workflow {change-name}: Phase {gate.next_phase} completed ({gate.phase_index}/{gate.total_phases})")
 
   继续 LOOP
@@ -134,7 +136,7 @@ LOOP:
 
 All phases have passed evaluation.
 
-1. 显示完成摘要：Done: all phases passed / Total phases: {total_phases} / Total rounds: {round}
+1. 显示完成摘要：Done: all phases passed / Total phases: {total_phases} / Total rounds: {round} (session round for this turn, from gate.round)
 2. PushNotification("Workflow for change '{change-name}' completed. Please verify and run __CALL_SKILL:openspec-archive-change__")
 3. **Do NOT auto-archive.**
 4. 完成提示: "All phases completed. Please review the results and run `__CALL_SKILL:openspec-archive-change__` to finalize."

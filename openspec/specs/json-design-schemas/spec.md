@@ -1,39 +1,44 @@
+## 权威边界
+
+Planner 模板与共享 eval/checklist schema 形状。Agent 命名以 `phase-skills` 为准；回溯写入以 `pipeline-backtrack` 为准（决议 C1 命名对齐、C3=A）。
+
 ## ADDED Requirements
 
 ### Requirement: Markdown templates for Planner artifacts
-The system SHALL provide suggested .md templates in `templates/artifacts/` for Planner outputs:
-- `proposal.md.template` — sections: Problem, Scope (in_scope / out_of_scope), Risks (with mitigations), Acceptance Criteria (with validation method)
-- `test-design.md.template` — sections: Test Levels (level, scope, framework), Coverage Map (requirement_id → test_file), Test Strategy, Boundary Cases
-- `design.md.template` — sections: Architecture Components, Change Inventory, Data Model, Route/API Design, Dependencies, Open Questions
 
-Templates are suggestions, not enforced schemas — Planners may add or restructure sections as needed. Evaluators check content quality, not section ordering.
+系统 SHALL 在 `templates/artifacts/` 提供建议模板（非强制结构）：
 
-#### Scenario: Planner follows template structure
-- **WHEN** requirements-planner writes proposal.md
-- **THEN** the output covers all suggested sections: Problem, Scope, Risks, Acceptance Criteria
+- `proposal.md.template` — Problem, Scope, Risks, Acceptance Criteria
+- `test-design.md.template` — Test Levels, Coverage Map, Test Strategy, Boundary Cases
+- `design.md.template` — Architecture Components, Change Inventory, Data Model, Route/API, Dependencies, Open Questions
 
-#### Scenario: Template is advisory, not enforced
-- **WHEN** a Planner adds an additional section beyond the template
-- **THEN** the Evaluator evaluates the content against its checklist criteria, not against template section conformance
+Evaluators 检查内容质量，不强制章节顺序。
+
+#### Scenario: proposal-planner 覆盖建议章节
+
+- **WHEN** `proposal-planner` 写 proposal.md
+- **THEN** 输出覆盖 Problem、Scope、Risks、Acceptance Criteria（可增删章节）
 
 ### Requirement: Shared JSON schemas for evaluation
-The system SHALL define JSON schemas for shared evaluation artifacts:
 
-- `eval.schema.json`: `phase` (string, e.g. "01-requirements"), `timestamp` (ISO 8601 string), `attempt` (int, 1-based), `verdict` ("pass"|"fail"), `report` (string, max 500 chars — evaluator's summary of what was checked and why the verdict was reached), `items` (array of {item, pass, evidence, notes}), `backtrack_to` (string|null), `schema_version` (string). All evaluators append entries to a single `eval.json` array — no per-phase eval files.
-- `checklist.schema.json`: reference format `{id: string, criterion: string, required: boolean, evidence_hint: string}` — used to document checklist item structure, not as a generated artifact
+系统 SHALL 定义共享 schema：
 
-#### Scenario: Eval entry conforms to shared schema
-- **WHEN** any Evaluator appends an entry to eval.json
-- **THEN** the entry conforms to eval.schema.json regardless of which phase produced it
+- `eval.schema.json`：`phase`（无前缀 ID，如 `"proposal"`）、`timestamp`、`attempt`、`verdict`、`report`、`items`、可选 `backtrack_to` / `backtrack_reason` / `stale`、`schema_version` 等。单文件 `eval.json` 数组，无 per-phase 文件。
+- `checklist.schema.json`：`{id, criterion, required, evidence_hint}` 参考格式
 
-#### Scenario: eval.json is append-only
-- **WHEN** a phase re-evaluates after a fail verdict
-- **THEN** the new result is appended to eval.json — previous entries for the same phase are preserved, not overwritten
+**写入方**：新条目由 `phase_log` 追加时 MUST NOT 带 `backtrack_to`/`backtrack_reason`；这两字段仅由 `backtrack` 工具写入（schema 保留 optional 以解析旧文件与回溯后状态）。
 
-#### Scenario: Latest entry per phase identified by timestamp
-- **WHEN** eval check script reads eval.json
-- **THEN** it groups entries by phase and selects the entry with the maximum timestamp as the latest result
+#### Scenario: 条目符合 schema
 
-#### Scenario: Checklist items follow reference format
-- **WHEN** an Evaluator's static checklist is documented
-- **THEN** each item follows the checklist.schema.json format with id, criterion, required, and evidence_hint fields
+- **WHEN** 任意 evaluator 经 `phase_log` 追加条目
+- **THEN** 条目符合 `eval.schema.json`，且创建时无回溯字段
+
+#### Scenario: eval.json 只追加
+
+- **WHEN** 同 phase 在 fail 后再次评估
+- **THEN** 新结果追加；旧条目保留
+
+#### Scenario: 按 timestamp 取最新
+
+- **WHEN** 校验或 `phase_next` 需要某 phase 最新结果
+- **THEN** 按 `phase` 分组取最大 `timestamp`（并尊重 stale 规则，见引擎/回溯规格）

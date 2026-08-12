@@ -59,6 +59,7 @@ function makeExecutionResult(overrides: Partial<ExecutionResult> = {}): Executio
     exitCode: 0,
     testCases: [{ name: 't1', status: 'passed', durationMs: 100 }],
     coverage: null,
+    mutation: null,
     durationMs: 500,
     testFiles: ['src/foo.test.ts'],
     sourceFiles: ['src/foo.ts'],

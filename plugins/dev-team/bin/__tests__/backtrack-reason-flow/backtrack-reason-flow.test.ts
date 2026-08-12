@@ -43,6 +43,7 @@ import { runPhaseLog } from '../../src/commands/phase-log';
 import { runPhaseNext } from '../../src/commands/phase-next';
 
 const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
+const DEFAULT_RUN_ID = 'test-run';
 
 const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'none' }];
 const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
@@ -124,7 +125,11 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
     });
 
     // Step 3: phase_next should return proposal with reason in prompt
-    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: DEFAULT_RUN_ID,
+    });
 
     expect(result.next_phase).toBe('proposal');
     expect(result.error).toBeNull();
@@ -169,7 +174,11 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
       backtrack_reason: '第一阶段回溯：范围定义不清',
     });
 
-    let result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
+    let result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: DEFAULT_RUN_ID,
+    });
     expect(result.next_phase).toBe('proposal');
     expect(result.executor!.prompt).toContain('第一阶段回溯：范围定义不清');
 
@@ -201,7 +210,11 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
       backtrack_reason: '第二阶段回溯：代码分析不充分',
     });
 
-    result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
+    result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: DEFAULT_RUN_ID,
+    });
     expect(result.next_phase).toBe('proposal');
     expect(result.executor!.prompt).toContain('第二阶段回溯：代码分析不充分');
     expect(result.executor!.prompt).not.toContain('第一阶段回溯');
@@ -234,7 +247,11 @@ describe('backtrack-reason-flow — 回溯原因传播', () => {
       backtrack_reason: '需重新审视 proposal',
     });
 
-    const result = runPhaseNext({ change: 'test-change', project_root: FIXTURE_PROJECT_ROOT });
+    const result = runPhaseNext({
+      change: 'test-change',
+      project_root: FIXTURE_PROJECT_ROOT,
+      run_id: DEFAULT_RUN_ID,
+    });
 
     expect(result.executor!.prompt).toMatch(/⚠️ 回溯原因:/);
     expect(result.evaluator!.prompt).toMatch(/⚠️ 回溯原因:/);

@@ -27,7 +27,7 @@
 - [x] phase-next返回allowed_backtracks
 - [x] fix: code-review未指定backtrack_to
 - [x] 移除scripts/parse-node-test-coverage.mjs，将适配逻辑整合到mcp或cli
-- [ ] 分离evaluator agent的eval_log和output，允许通知主agent
+- ~~[ ] 分离evaluator agent的eval_log和output，允许通知主agent~~
 - [x] 根据test配置决定哪些目录可以单测
 - [x] 根据test配置提供mcp，自动执行测试，生成统一格式报告
 - [x] PowerShell Set-Content可以绕过不让编辑eval.json的禁令
@@ -52,8 +52,10 @@
 - ~~[ ] 整合implement和test-gen~~
 - [x] 单元测试设计模板，改为`### <源文件> -> <测试文件>`，每个文件章节下包含独立的`#### 待测功能`、`#### 用例`、`#### Mock策略`，方便人工审查
 - [x] fix:phase-proposal 和 workflow-* 的prompt没有说明如何读取explore的报告，且explore生成的大段上下文经过subagent传递容易失真
-- [ ] phase-next的round limit设计目的是避免LOOP陷入死循环，实际workflow可能拆分为多个session执行。调整round的计算方式，仅在workflow-*命令中限制总轮次。
+- [x] phase-next的round limit设计目的是避免LOOP陷入死循环，实际workflow可能拆分为多个session执行。调整round的计算方式，仅在workflow-*命令中限制总轮次。
 - [x] config中指定test运行的cwd和配置文件
 - [ ] 优化write_protection配置结构
 - [x] test-execution清理文件，test-framework.ts列出文件清单，使用node执行
-- [ ] 将工具名称也纳入环境变量，适配不同AGENT
+- [x] 将工具名称也纳入环境变量，适配不同AGENT
+- [ ] 构建cursor时，不生成subAgentStop hook；作为替代，在cursor产物对应agent的prompt加入执行static_check并修复问题；
+- [ ] 怀疑test-report未记录突变耗时；改为在mutation下单独记录时间；
