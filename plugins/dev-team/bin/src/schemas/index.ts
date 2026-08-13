@@ -8,6 +8,7 @@ export { archiQueryInputSchema, archiQueryOutputSchema } from './archi-query.sch
 export { archiValidateInputSchema, archiValidateOutputSchema } from './archi-validate.schema';
 export { archiWriteInputSchema, archiWriteOutputSchema } from './archi-write.schema';
 export { archiCheckInputSchema, archiCheckOutputSchema } from './archi-check.schema';
+export { archiDecideInputSchema, archiDecideOutputSchema } from './archi-decide.schema';
 export { phaseNextInputSchema, phaseNextOutputSchema } from './phase-next.schema';
 export { configGetInputSchema, configGetOutputSchema } from './config-get.schema';
 export {

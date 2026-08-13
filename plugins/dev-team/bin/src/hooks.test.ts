@@ -9,6 +9,9 @@
  * - AC-5: static-check 功能等价迁移
  */
 
+import type * as NodeFs from 'node:fs';
+import { fileURLToPath } from 'node:url';
+
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
 import type * as ProjectRoot from './lib/project-root';
@@ -747,18 +750,6 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
 
   // ---- 边界: detectPowerShellWrite ----
 
-  it('detectPowerShellWrite python 命令豁免返回 allow', () => {
-    mockReadFileSync.mockReturnValue(
-      JSON.stringify({
-        tool_name: 'PowerShell',
-        tool_input: { command: 'python plugins/dev-team/utils/archi-decide.py list' },
-      }),
-    );
-    runProtectFiles();
-    const parsed = JSON.parse(getLastStdout());
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
-  });
-
   it('detectPowerShellWrite node 命令豁免返回 allow', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
@@ -985,6 +976,67 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     runProtectFiles();
     const parsed = JSON.parse(getLastStdout());
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('detectPowerShellWrite python 豁免 (AC-10)', () => {
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it('fixture 命令改为非 archi-decide.py 的 python 脚本路径时仍返回 allow', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: { command: 'python scripts/process.py' },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
+  });
+});
+
+describe('python 豁免回归', () => {
+  const protectedEval = 'openspec/changes/test/eval.json';
+
+  beforeEach(() => {
+    resetMocks();
+  });
+
+  it('行首 python/python3/node 写入受保护路径仍 allow', () => {
+    for (const command of [
+      `python script.py > ${protectedEval}`,
+      `python3 script.py > ${protectedEval}`,
+      `node script.js > ${protectedEval}`,
+    ]) {
+      mockReadFileSync.mockReturnValue(
+        JSON.stringify({ tool_name: 'PowerShell', tool_input: { command } }),
+      );
+      runProtectFiles();
+      expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('python3x（无空格粘连）不得误豁免，写入受保护路径仍 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: { command: `python3x script.py > ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+});
+
+describe('fixture 路径断言 (AC-10)', () => {
+  it('hooks.ts 源码中不再出现 archi-decide.py 路径字面量', async () => {
+    const { readFileSync: realReadFileSync } = await vi.importActual<typeof NodeFs>('node:fs');
+    const hooksFile = fileURLToPath(new URL('./hooks.ts', import.meta.url));
+    const source = realReadFileSync(hooksFile, 'utf-8');
+    const banned = ['archi', 'decide.py'].join('-');
+    expect(source.includes(banned)).toBe(false);
   });
 });
 
@@ -2178,6 +2230,17 @@ describe('runProtectFiles / PowerShell 与路由（突变补强）', () => {
       runProtectFiles();
       expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
     }
+  });
+
+  it('PowerShell python3x（无空格粘连）不得误豁免，写入受保护路径仍 deny (AC-10)', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: { command: `python3x script.py > ${protectedEval}` },
+      }),
+    );
+    runProtectFiles();
+    expect(JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
   it('PowerShell python3/node 行首豁免；非行首 python 不豁免', () => {

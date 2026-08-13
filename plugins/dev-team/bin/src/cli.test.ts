@@ -214,6 +214,37 @@ describe('dev-team run_static_analysis -- 异常', () => {
 // 边界测试: run_static_analysis
 // ===========================================================================
 
+describe('既有命令回归', () => {
+  it('test-execution 与 run_static_analysis 仍正常注册且 action 可调用', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+    mockRunStaticAnalysis.mockReturnValue(0);
+
+    const testExec = getTestExecCommand();
+    const staticAnalysis = getStaticAnalysisCommand();
+    expect(testExec).toBeDefined();
+    expect(staticAnalysis).toBeDefined();
+
+    await testExec.commandAction!({ projectRoot: '/test/project' });
+    staticAnalysis.commandAction!({ projectRoot: '/test/project' });
+
+    expect(mockRunTestExecution).toHaveBeenCalled();
+    expect(mockRunStaticAnalysis).toHaveBeenCalled();
+    exitSpy.mockRestore();
+  });
+});
+
+describe('help 文本边界', () => {
+  it('help 输出字符串中不包含 archi-decide 或 archi decide 子串', () => {
+    const helpSpy = vi.spyOn(process.stdout, 'write').mockImplementation(() => true);
+    cli.outputHelp();
+    const helpText = helpSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(helpText).not.toContain('archi-decide');
+    expect(helpText).not.toContain('archi decide');
+    helpSpy.mockRestore();
+  });
+});
+
 describe('dev-team run_static_analysis -- 边界', () => {
   it('--project-root 值为空字符串时使用默认 project dir', () => {
     const exitSpy = spyOnProcessExit();

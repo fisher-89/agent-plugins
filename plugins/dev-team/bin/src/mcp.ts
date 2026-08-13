@@ -28,6 +28,8 @@ import {
   archiWriteOutputSchema,
   archiCheckInputSchema,
   archiCheckOutputSchema,
+  archiDecideInputSchema,
+  archiDecideOutputSchema,
   phaseNextInputSchema,
   phaseNextOutputSchema,
   configGetInputSchema,
@@ -45,6 +47,14 @@ function jsonContent<S extends ZodType>(_outputSchema: S, data: z.output<S>) {
     content: [{ type: 'text' as const, text: JSON.stringify(data) }],
     structuredContent: data,
   };
+}
+
+function archiDecideJsonContent(data: z.output<typeof archiDecideOutputSchema>) {
+  const parsed = archiDecideOutputSchema.safeParse(data);
+  if (!parsed.success) {
+    throw new Error(`archi_decide output validation failed: ${parsed.error.message}`);
+  }
+  return jsonContent(archiDecideOutputSchema, parsed.data);
 }
 
 type McpOutput<Output extends ZodType> = {
@@ -152,6 +162,48 @@ const MCP_TOOLS = [
             files,
           });
           return jsonContent(archiCheckOutputSchema, result);
+        },
+      ),
+  },
+  {
+    name: 'archi_decide',
+    description:
+      'Create, list, and update Architecture Decision Records (ADRs) under openspec/architecture/decisions/. Use action create, list, or update.',
+    inputSchema: archiDecideInputSchema,
+    handler: async (
+      args: z.input<typeof archiDecideInputSchema>,
+    ): Promise<McpOutput<typeof archiDecideOutputSchema>> =>
+      withResolvedProjectRoot(
+        'archi_decide',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const { createAdr, listAdrs, updateAdr } = await import('./lib/archi-decide');
+          switch (args.action) {
+            case 'create': {
+              const result = createAdr(projectRoot, {
+                title: args.title,
+                background: args.background,
+                decision: args.decision,
+                consequences: args.consequences,
+                alternatives: args.alternatives,
+                scope: args.scope,
+                status: args.status,
+              });
+              return archiDecideJsonContent({ action: 'create', ...result });
+            }
+            case 'list': {
+              const result = listAdrs(projectRoot, args.status);
+              return archiDecideJsonContent({ action: 'list', ...result });
+            }
+            case 'update': {
+              const result = updateAdr(projectRoot, {
+                file: args.file,
+                status: args.status,
+                superseded_by: args.superseded_by,
+              });
+              return archiDecideJsonContent({ action: 'update', ...result });
+            }
+          }
         },
       ),
   },

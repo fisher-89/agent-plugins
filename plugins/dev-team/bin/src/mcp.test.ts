@@ -21,6 +21,7 @@ import {
   it,
   vi,
 } from 'vite-plus/test';
+import { toJSONSchema } from 'zod/v4';
 
 import * as backtrackCmd from './commands/backtrack';
 import * as changeListCmd from './commands/change-list';
@@ -38,6 +39,8 @@ import * as c4CrossRef from './lib/c4-cross-ref';
 import type { ArchiCheckResult, ArchiQueryResult, ArchiValidateResult } from './lib/c4-types';
 import {
   archiCheckInputSchema,
+  archiDecideInputSchema,
+  archiDecideOutputSchema,
   archiQueryInputSchema,
   archiValidateInputSchema,
   archiWriteInputSchema,
@@ -156,6 +159,7 @@ import { collectProjectRootCandidates, withResolvedProjectRoot } from './lib/pro
 /** Exact tool names registered by mcp.ts (sorted). */
 const EXPECTED_TOOL_NAMES = [
   'archi_check',
+  'archi_decide',
   'archi_query',
   'archi_validate',
   'archi_write',
@@ -178,6 +182,8 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
     'Validate and write a C4 architecture model file to the models/ directory. Validates DSL before writing.',
   archi_check:
     'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files.',
+  archi_decide:
+    'Create, list, and update Architecture Decision Records (ADRs) under openspec/architecture/decisions/. Use action create, list, or update.',
   phase_next:
     'Return the next phase to execute in a PGE workflow. Handles gate check, skip passed phases, retry, backtrack, round limit, and mid-phase interruption. Returns the phase identifier and planner/evaluator agent config for the skill to execute.',
   config_get:
@@ -202,6 +208,7 @@ const ALL_INPUT_SCHEMAS = [
   ['archi_validate', archiValidateInputSchema],
   ['archi_write', archiWriteInputSchema],
   ['archi_check', archiCheckInputSchema],
+  ['archi_decide', archiDecideInputSchema],
   ['test_detect_frameworks', testDetectFrameworksInputSchema],
   ['test_resolve_paths', testResolvePathsInputSchema],
 ] as const;
@@ -241,6 +248,22 @@ vi.mock('./lib/c4-parser', () => ({
     valid: true,
   })),
 }));
+vi.mock('./lib/archi-decide', () => ({
+  createAdr: vi.fn(() => ({
+    success: true,
+    path: '/mock/decisions/mock.md',
+    filename: 'mock.md',
+  })),
+  listAdrs: vi.fn(() => ({ adrs: [], count: 0 })),
+  updateAdr: vi.fn(() => ({
+    success: true,
+    path: '/mock/decisions/mock.md',
+    old_status: 'proposed',
+    new_status: 'accepted',
+  })),
+}));
+
+import * as archiDecide from './lib/archi-decide';
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -389,11 +412,11 @@ describe('MCP Server (via InMemoryTransport)', () => {
     });
   });
 
-  describe('MCP 注册 — 工具 name 精确断言', () => {
-    it('listTools() name 集合经 sort 后严格等于预期 11 个 name', async () => {
+  describe('listTools — archi_decide (AC-01)', () => {
+    it('listTools() name 集合经 sort 后严格等于预期 12 个 name', async () => {
       const names = (await getRegisteredToolNames(client)).slice().sort();
       expect(names).toEqual([...EXPECTED_TOOL_NAMES]);
-      expect(names).toHaveLength(11);
+      expect(names).toHaveLength(12);
     });
 
     it('不得包含 list_changed / camelCase 别名', async () => {
@@ -403,10 +426,28 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('name 集合长度恰好 11；无重复 name', async () => {
+    it('name 集合长度恰好 12；无重复 name', async () => {
       const names = await getRegisteredToolNames(client);
-      expect(names).toHaveLength(11);
-      expect(new Set(names).size).toBe(11);
+      expect(names).toHaveLength(12);
+      expect(new Set(names).size).toBe(12);
+    });
+
+    it('listTools 含 archi_decide 且无斜杠名 archi/decide', async () => {
+      const names = await getRegisteredToolNames(client);
+      expect(names).toContain('archi_decide');
+      expect(names).not.toContain('archi/decide');
+      expect(names).not.toContain('archiDecide');
+      expect(names).not.toContain('archi-decide');
+    });
+  });
+
+  describe('name 边界', () => {
+    it('注册名严格等于 archi_decide（禁止 archiDecide / archi-decide）', async () => {
+      const names = await getRegisteredToolNames(client);
+      expect(names).toContain('archi_decide');
+      expect(names).not.toContain('archiDecide');
+      expect(names).not.toContain('archi-decide');
+      expect(names).not.toContain('archi/decide');
     });
   });
 
@@ -446,6 +487,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       'archi_validate',
       'archi_write',
       'archi_check',
+      'archi_decide',
       'test_detect_frameworks',
       'test_resolve_paths',
     ];
@@ -454,8 +496,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
       for (const name of toolsWithProjectRoot) {
         const schema = await getToolInputSchema(client, name);
         expect(schema).toBeDefined();
-        const props = (schema?.properties ?? {}) as Record<string, unknown>;
-        expect(props).toHaveProperty('project_root');
+        if (name !== 'archi_decide') {
+          const props = (schema?.properties ?? {}) as Record<string, unknown>;
+          expect(props).toHaveProperty('project_root');
+        }
         const required = schema?.required;
         if (Array.isArray(required)) {
           expect(required).toContain('project_root');
@@ -465,7 +509,9 @@ describe('MCP Server (via InMemoryTransport)', () => {
 
     it('直接 import 各 *InputSchema：shape 含 project_root；safeParse 省略该字段时 success === false (AC-2)', () => {
       for (const [name, schema] of ALL_INPUT_SCHEMAS) {
-        expect(Object.keys(schema.shape)).toContain('project_root');
+        if ('shape' in schema) {
+          expect(Object.keys(schema.shape)).toContain('project_root');
+        }
         const parsed = schema.safeParse(
           name === 'config_get'
             ? { key: 'schema' }
@@ -489,9 +535,11 @@ describe('MCP Server (via InMemoryTransport)', () => {
                       }
                     : name === 'test_resolve_paths'
                       ? { modules: [] }
-                      : name === 'archi_write'
-                        ? { source: 'm', path: 'models/x.likec4' }
-                        : {},
+                      : name === 'archi_decide'
+                        ? { action: 'list' }
+                        : name === 'archi_write'
+                          ? { source: 'm', path: 'models/x.likec4' }
+                          : {},
         );
         expect(parsed.success).toBe(false);
       }
@@ -796,12 +844,12 @@ describe('MCP Server (via InMemoryTransport)', () => {
     });
   });
 
-  describe('MCP 工具调用 — 全 11 handler', () => {
+  describe('MCP 工具调用 — 全 12 handler', () => {
     afterEach(() => {
       setResolvedRoot(process.cwd());
     });
 
-    it('resolve mock 成功时 11 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
+    it('resolve mock 成功时 12 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -828,6 +876,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         archi_validate: vi.spyOn(archiValidate, 'validateDsl'),
         archi_write: vi.spyOn(archiWrite, 'writeDsl'),
         archi_check: vi.spyOn(c4CrossRef, 'runCrossRefCheck'),
+        archi_decide: vi.spyOn(archiDecide, 'listAdrs'),
         config_get: vi.spyOn(configGetCmd, 'runConfigGet'),
         test_detect_frameworks: vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
         test_resolve_paths: vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
@@ -859,12 +908,13 @@ describe('MCP Server (via InMemoryTransport)', () => {
           { name: 'archi_validate', args: { source: 'model m' } },
           { name: 'archi_write', args: { source: 'model m', path: 'models/x.likec4' } },
           { name: 'archi_check', args: { staged: false } },
+          { name: 'archi_decide', args: { action: 'list' } },
           { name: 'config_get', args: { key: 'schema' } },
           { name: 'test_detect_frameworks', args: {} },
           { name: 'test_resolve_paths', args: { modules: ['src/foo.ts'] } },
           { name: 'change_list', args: {} },
         ];
-        expect(calls).toHaveLength(11);
+        expect(calls).toHaveLength(12);
 
         for (const { name, args } of calls) {
           const result = await client.callTool({
@@ -886,7 +936,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('resolve 抛 not_in_candidates 时 11 个 tool 均 isError 且 spy 次数 0', async () => {
+    it('resolve 抛 not_in_candidates 时 12 个 tool 均 isError 且 spy 次数 0', async () => {
       setResolveError(
         makeResolveError('not_in_candidates', 'x', {
           candidates: [],
@@ -902,6 +952,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         vi.spyOn(archiValidate, 'validateDsl'),
         vi.spyOn(archiWrite, 'writeDsl'),
         vi.spyOn(c4CrossRef, 'runCrossRefCheck'),
+        vi.spyOn(archiDecide, 'listAdrs'),
         vi.spyOn(configGetCmd, 'runConfigGet'),
         vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
         vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
@@ -930,6 +981,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         { name: 'archi_validate', args: { source: 'm' } },
         { name: 'archi_write', args: { source: 'm', path: 'models/x.likec4' } },
         { name: 'archi_check', args: { staged: true } },
+        { name: 'archi_decide', args: { action: 'list' } },
         { name: 'config_get', args: { key: 'schema' } },
         { name: 'test_detect_frameworks', args: {} },
         { name: 'test_resolve_paths', args: { modules: [] } },
@@ -954,7 +1006,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('11 个 tool 均传入相同合法 project_root 时接线一致', async () => {
+    it('12 个 tool 均传入相同合法 project_root 时接线一致', async () => {
       const { dir, cleanup } = setupTempProject();
       const withSep = dir.endsWith(path.sep) ? dir : dir + path.sep;
       setResolvedRoot(dir);
@@ -1241,7 +1293,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('全 11 handler 中 phase_next 故意省略 run_id → 该条 isError', async () => {
+    it('全 12 handler 中 phase_next 故意省略 run_id → 该条 isError', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -1266,6 +1318,314 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
   });
+
+  describe('listTools — description', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('archi_decide description 与注册字面量逐字节相等', async () => {
+      const desc = await getToolDescription(client, 'archi_decide');
+      expect(desc).toBe(EXPECTED_TOOL_DESCRIPTIONS.archi_decide);
+    });
+  });
+
+  describe('inputSchema — project_root (AC-06)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('archi_decide inputSchema.required 含 project_root 与 action', async () => {
+      const schema = await getToolInputSchema(client, 'archi_decide');
+      expect(schema).toBeDefined();
+      const required = schema?.required;
+      if (Array.isArray(required)) {
+        expect(required).toContain('project_root');
+        expect(required).toContain('action');
+      }
+    });
+  });
+
+  describe('inputSchema — action 判别', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('create 分支必填 title/background/decision；list 仅根+action；update 必填 file/status', () => {
+      expect(
+        archiDecideInputSchema.safeParse({ project_root: mockResolve.root, action: 'list' })
+          .success,
+      ).toBe(true);
+      expect(
+        archiDecideInputSchema.safeParse({
+          project_root: mockResolve.root,
+          action: 'create',
+          title: 't',
+          background: 'b',
+          decision: 'd',
+        }).success,
+      ).toBe(true);
+      expect(
+        archiDecideInputSchema.safeParse({
+          project_root: mockResolve.root,
+          action: 'update',
+          file: 'f.md',
+          status: 'accepted',
+        }).success,
+      ).toBe(true);
+      expect(
+        archiDecideInputSchema.safeParse({
+          project_root: mockResolve.root,
+          action: 'create',
+          background: 'b',
+          decision: 'd',
+        }).success,
+      ).toBe(false);
+      expect(
+        archiDecideInputSchema.safeParse({
+          project_root: mockResolve.root,
+          action: 'create',
+          file: 'f.md',
+          status: 'accepted',
+        }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe('inputSchema — discriminatedUnion (MCP SDK)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('archiDecideInputSchema 导出 JSON Schema 含 oneOf 三分支（MCP SDK 兼容）', () => {
+      const json = toJSONSchema(archiDecideInputSchema) as Record<string, unknown>;
+      const branches = (json.oneOf ?? json.anyOf) as Array<Record<string, unknown>> | undefined;
+      expect(branches?.length).toBe(3);
+      const actions = branches?.map((branch) => {
+        const props = branch.properties as Record<string, unknown> | undefined;
+        const action = props?.action as { const?: string; enum?: string[] } | undefined;
+        return action?.const ?? action?.enum?.[0];
+      });
+      expect(actions).toEqual(expect.arrayContaining(['create', 'list', 'update']));
+    });
+
+    it('archiDecideOutputSchema 各 action 分支 safeParse 通过', () => {
+      expect(
+        archiDecideOutputSchema.safeParse({ action: 'list', adrs: [], count: 0 }).success,
+      ).toBe(true);
+      expect(
+        archiDecideOutputSchema.safeParse({
+          action: 'create',
+          success: true,
+          path: '/p',
+          filename: 'a.md',
+        }).success,
+      ).toBe(true);
+      expect(
+        archiDecideOutputSchema.safeParse({
+          action: 'update',
+          success: false,
+          error: 'superseded_by required',
+        }).success,
+      ).toBe(true);
+    });
+
+    it('update 分支缺 file 时 inputSchema 拒参', () => {
+      expect(
+        archiDecideInputSchema.safeParse({
+          project_root: mockResolve.root,
+          action: 'update',
+          status: 'accepted',
+        }).success,
+      ).toBe(false);
+    });
+  });
+
+  describe('callTool — 分发到 lib', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('action 各值 callTool 一次时对应 lib spy 调用 1 次且入参含解析后的 project root', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        await client.callTool({
+          name: 'archi_decide',
+          arguments: withProjectRoot({
+            action: 'create',
+            title: 'T',
+            background: 'B',
+            decision: 'D',
+          }),
+        });
+        expect(archiDecide.createAdr).toHaveBeenCalledWith(
+          dir,
+          expect.objectContaining({ title: 'T', background: 'B', decision: 'D' }),
+        );
+
+        await client.callTool({
+          name: 'archi_decide',
+          arguments: withProjectRoot({ action: 'list' }),
+        });
+        expect(archiDecide.listAdrs).toHaveBeenCalledWith(dir, undefined);
+
+        await client.callTool({
+          name: 'archi_decide',
+          arguments: withProjectRoot({
+            action: 'update',
+            file: 'x.md',
+            status: 'accepted',
+          }),
+        });
+        expect(archiDecide.updateAdr).toHaveBeenCalledWith(
+          dir,
+          expect.objectContaining({ file: 'x.md', status: 'accepted' }),
+        );
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe('callTool — create 成功结构 (AC-02)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('lib 返回成功时 MCP 非 isError 且 structured 含 success 与 filename/path', async () => {
+      vi.mocked(archiDecide.createAdr).mockReturnValueOnce({
+        success: true,
+        path: '/mock/a.md',
+        filename: 'a.md',
+      });
+      setResolvedRoot(process.cwd());
+      const result = await client.callTool({
+        name: 'archi_decide',
+        arguments: withProjectRoot({
+          action: 'create',
+          title: 'T',
+          background: 'B',
+          decision: 'D',
+        }),
+      });
+      expect(isToolError(result)).toBe(false);
+      const body = JSON.parse(extractText(result));
+      expect(body).toMatchObject({
+        action: 'create',
+        success: true,
+        filename: 'a.md',
+        path: '/mock/a.md',
+      });
+    });
+  });
+
+  describe('withResolvedProjectRoot (AC-06)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('resolve 成功后 withResolvedProjectRoot 被调用，run 收到的根等于 mock resolve 根', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      vi.mocked(withResolvedProjectRoot).mockClear();
+      try {
+        await client.callTool({
+          name: 'archi_decide',
+          arguments: withProjectRoot({ action: 'list' }),
+        });
+        expect(withResolvedProjectRoot).toHaveBeenCalled();
+        const run = vi.mocked(withResolvedProjectRoot).mock.calls.at(-1)?.[2];
+        expect(run).toBeTypeOf('function');
+        expect(await run!(dir)).toBeDefined();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('resolve 抛错时返回 isError 且 lib spy 调用次数为 0', async () => {
+      setResolveError(makeResolveError('invalid_path', 'bad', { project_root: '' }));
+      vi.mocked(archiDecide.createAdr).mockClear();
+      const result = await client.callTool({
+        name: 'archi_decide',
+        arguments: withProjectRoot(
+          {
+            action: 'create',
+            title: 'T',
+            background: 'B',
+            decision: 'D',
+          },
+          '',
+        ),
+      });
+      expect(isToolError(result)).toBe(true);
+      expect(archiDecide.createAdr).toHaveBeenCalledTimes(0);
+    });
+  });
+
+  describe('callTool — Zod 拒参', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('缺 project_root / 缺 action / create 缺 title 时校验失败且不调用 lib', async () => {
+      vi.mocked(archiDecide.createAdr).mockClear();
+      for (const args of [
+        { action: 'list' },
+        { project_root: mockResolve.root },
+        {
+          project_root: mockResolve.root,
+          action: 'create',
+          background: 'b',
+          decision: 'd',
+        },
+      ]) {
+        const result = await client.callTool({ name: 'archi_decide', arguments: args });
+        expect(isToolError(result)).toBe(true);
+      }
+      expect(archiDecide.createAdr).toHaveBeenCalledTimes(0);
+    });
+  });
+
+  describe('callTool — 非法 action', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+      vi.mocked(archiDecide.createAdr).mockClear();
+      vi.mocked(archiDecide.listAdrs).mockClear();
+      vi.mocked(archiDecide.updateAdr).mockClear();
+    });
+
+    it('action 为 delete 或空串时校验失败', async () => {
+      for (const action of ['delete', '']) {
+        const parsed = archiDecideInputSchema.safeParse({
+          project_root: mockResolve.root,
+          action,
+        });
+        expect(parsed.success).toBe(false);
+      }
+    });
+  });
 });
 
 describe('MCP 注册 — registerTool spy 精确字面量', () => {
@@ -1275,6 +1635,7 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
     'archi_validate',
     'archi_write',
     'archi_check',
+    'archi_decide',
     'phase_next',
     'config_get',
     'test_detect_frameworks',
@@ -1283,7 +1644,7 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
     'backtrack',
   ] as const;
 
-  it('按注册顺序对每次调用断言 name/description；调用次数恰好 11', async () => {
+  it('按注册顺序对每次调用断言 name/description；调用次数恰好 12', async () => {
     mockResolve.root = process.cwd();
     mockResolve.throwError = null;
     const registerSpy = vi.spyOn(McpServer.prototype, 'registerTool');
@@ -1296,9 +1657,9 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
       client = new Client({ name: 'reg-spy', version: '1.0.0' }, { capabilities: {} });
       await client.connect(clientTransport);
 
-      expect(registerSpy).toHaveBeenCalledTimes(11);
+      expect(registerSpy).toHaveBeenCalledTimes(12);
       const names: string[] = [];
-      for (let i = 0; i < 11; i++) {
+      for (let i = 0; i < 12; i++) {
         const call = registerSpy.mock.calls[i];
         const name = call[0] as string;
         const config = call[1] as { description?: unknown };

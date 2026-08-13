@@ -1,5 +1,5 @@
 {
-  "version": "2.10.28",
+  "version": "2.10.29",
   "namePrefix": "dev-team_",
   "managedPaths": [
     "agents/dev-team_acceptance-evaluator.md",
@@ -53,7 +53,6 @@
     "templates/test-jest.js",
     "templates/test-pytest.py",
     "templates/test-rust.rs",
-    "utils/archi-decide.py",
     "utils/openspec-cli.sh"
   ],
   "mcpFragment": "mcp.json",

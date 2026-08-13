@@ -87,6 +87,7 @@ function buildRunnerConfigOverlay(
         configFile,
         enableFindRelatedTests: false,
         config: {
+          rootDir: path.dirname(configFile),
           testMatch: [testMatchGlob],
         },
       },

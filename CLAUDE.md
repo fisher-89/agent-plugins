@@ -16,7 +16,7 @@ The plugin follows a "slim" architecture:
 - **OpenSpec CLI** is the source of truth for skills (explore, propose, apply-change, archive-change)
 - **Plugin provides hooks** for report-driven workflow gates
 - **Plugin provides agents** for specialized, context-intensive work (code review)
-- **Plugin provides Python utilities** for deterministic, scriptable tasks (architecture validation, model management, ADRs)
+- **Plugin provides MCP tools** for architecture model query/validate/write/check and ADR management (`archi_decide`)
 - **No embedded skills** - skills are invoked via OpenSpec CLI directly; plugin skills are thin routing wrappers
 
 ## Coding Guidelines

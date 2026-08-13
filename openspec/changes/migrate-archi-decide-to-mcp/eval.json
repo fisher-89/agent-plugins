@@ -1,0 +1,896 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "Proposal FAIL: R1–R10 pass (clear problem, scoped files, risks+mitigations, testable ACs, decisions+alternatives, CLAUDE.md aligned, no stubs, 能力+3 specs 1:1). R11 fail: AC-03 (create default status=proposed) has no matching requirement/scenario in specs/; other ACs map to architecture-decisions / architecture-agent / mcp-project-root.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题 section: archi-decide.py remains Python island after other archi_* MCP migration; lists agent surface gap, shell escaping, CLI mismatch, template debt, contract dependency."
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "Has ### 实现文件 (archi-decide.ts, schema, mcp.ts, architecture.md, delete py, etc.), ### 测试文件 (archi-decide.test.ts, mcp.test.ts, hooks.test.ts), ### 不要修改 (cli.ts, ADR path/status, other archi_*). Both impl and test non-empty."
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "Each of 5 risks has concrete mitigation (e.g. contract-over-byte-parity; rebuild+grep products; sync hooks fixture; Zod discriminated union+tests; resolve via plugin root/__DEV_TEAM_ROOT__ with clear error)."
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-01..AC-11 each name object+condition (e.g. AC-02 create writes YYYY-MM-DD-slug.md with listed fields; AC-05 superseded without superseded_by fails)."
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "决策 table: keep+migrate vs cut; MCP-only vs CLI/dual; single tool+action vs three tools; use template vs hardcode; no scope/archi_query link — each with rejected alternative."
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "Follows version bump+rebuild rule; continues established archi_* MCP surface (already non-Python for query/validate/write/check); no CLI ADR entry; coding guidelines (surgical, no speculative scope linkage) respected."
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "No TODO/TBD/{{...}}. Only 'placeholders' appears in specs as descriptive template fill language (scope placeholders), not stub content."
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题/提案/变更范围/验收标准/风险 all substantive; 待决问题 are scoped design deferrals, not empty template slots."
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 with ### 修改的能力 listing architecture-decisions, architecture-agent, mcp-project-root (non-empty)."
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "specs/architecture-decisions|architecture-agent|mcp-project-root/spec.md match exactly the three modified capabilities; no orphan specs."
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": false,
+        "evidence": "AC-03 requires create default status=proposed when status omitted, but no requirement/scenario in any specs/ file states that default. Other ACs (MCP tool, create/list/update, template, agent, project_root, no CLI, py removal) align with delta specs."
+      }
+    ],
+    "timestamp": "2026-08-12T07:46:22.877Z"
+  },
+  {
+    "phase": "proposal",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "Checked proposal.md + 3 specs (architecture-decisions, architecture-agent, mcp-project-root). Problem/scope/risks/ACs/decisions filled; caps↔specs 1:1; ACs map to requirements; CLAUDE.md Python-ADR line explicitly updated. No TODO/TBD/placeholders. Verdict: pass (R1–R11).",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "问题节列出 archi-decide.py 为最后 Python 孤岛及 6 条具体断层（Agent 表面、shell 参数、CLI 职责、模板债、契约依赖、残留引用）"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（archi-decide.ts/mcp.ts/architecture.md 等）、### 测试文件（archi-decide.test.ts 等）、### 不要修改（cli.ts 等）；实现与测试均非空"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "5 条风险各有具体缓解：契约为准/rebuild+grep/改 hooks fixture/Zod 判别联合+单测/插件根解析失败不写半文件"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "AC-01–AC-11 均含对象+条件（如 AC-02 写路径与字段、AC-05 superseded 无 superseded_by 失败）"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "决策表 5 项均有理由与备选（砍能力、仅 CLI、双入口、三工具拆分、继续硬编码）；方案对比 A–D"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "符合 MCP archi_* 落点、package.json bump+build；变更范围显式同步 CLAUDE.md「Python utilities…ADRs」为 MCP 表述"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "全文无 TBD/placeholder/{{}}; 「todo.md」「待办」为既有文件/现状描述非占位；待决问题已 defer 至 design"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题/提案/变更范围/验收标准/风险均有实质内容，无空节或模板残留"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力下 ### 修改的能力列出 architecture-decisions、architecture-agent、mcp-project-root"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "三能力对应 specs/architecture-decisions|architecture-agent|mcp-project-root/spec.md；无多余 spec"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "修改类型与 ADDED/MODIFIED delta 一致；AC-01–09/11 在 specs 有对应 requirement/scenario；单工具+action/无 CLI/模板与范围一致"
+      }
+    ],
+    "timestamp": "2026-08-12T07:48:45.716Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "dev-design PASS. Components/schema/lib/MCP/agent covered; ADR data model + persist path set; AC-01–11 designed or deferred (AC-10→test); tasks phased Schema→lib→MCP→agent→retire py; deps unblocked; no test tasks; change list↔proposal↔tasks aligned.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表7行均含职责/依赖/技术/路径；技术均为 TypeScript/Markdown/构建输出，无 TBD；路径指向具体源文件或三端产物树"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "数据模型表含 ADR 文件、list 条目、插件模板；均填字段与持久化（decisions/*.md / 不持久化 / 只读模板）及关系"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-01–09/11 在组件、API、create/list/update 规则、agent、删 py、无 CLI 中覆盖；AC-10 按 D9  defer 测试阶段并在变更清单注释说明"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md 分阶段1–5：Schema→lib→MCP→agent/文档→下线 py+build；前置不依赖后续"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "任务含具体文件与操作（discriminatedUnion、createAdr 渲染规则、withResolvedProjectRoot、删 py、bump、build），非空泛「实现功能」"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "依赖节列出 zod、MCP SDK、node fs/path（已有）及 build 命令用途；无新增 npm"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "仅 MCP archi_*、withResolvedProjectRoot、不扩 CLI、版本 bump、对齐 CLAUDE Python ADR→MCP 表述，与既有 archi 迁移模式一致"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件/变更清单(新增+修改)/数据模型/依赖/待决问题均有实质内容；HTTP 路由不适用已注释，MCP API 在公共函数表"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design 无测试策略章且注明测试属测试阶段；tasks 无单测/集成测/执行测试任务"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "清单覆盖 proposal 实现文件全部条目；tasks 引用文件均在清单；createAdr/listAdrs/updateAdr/archi_decide 在公共函数子表"
+      }
+    ],
+    "timestamp": "2026-08-12T08:09:59.251Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS T1-T8. AC-01..11 all in 验收范围. Unit headings cover archi-decide/mcp/hooks/cli; IT 关联AC cover AC-01/02/05/06/07/08/09. Exceptions+edges for title/alts/scope/status/file. Mocks for fs/template/Date/lib/project-root. Sections filled; OOS (CLI add, py byte-eq, CLAUDE.md) untested. Write idempotency: create exists no overwrite; superseded no dup 取代者. Format matches template.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在`验收范围`中有映射",
+        "pass": true,
+        "evidence": "proposal AC-01..AC-11 each appear in test-design ## 验收范围 rows with matching criteria."
+      },
+      {
+        "item": "`验收范围`与测试章节互相对应",
+        "pass": true,
+        "evidence": "Unit ACs map to ### src->test (archi-decide/mcp/hooks/cli). IT 关联AC: AC-01/05/06, AC-02/03/07, AC-08/09; all 集成测试 ACs covered."
+      },
+      {
+        "item": "`单元测试`充分覆盖`异常`和`边界`",
+        "pass": true,
+        "evidence": "Each object has 异常 (illegal status, missing template/file, zod/resolve fail). Edges: title empty/long/special/null; alts/scope []; status enums+illegal; file traversal."
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "Mock tables cover temp fs, templates/adr.md, Date, fs errors, vi.mock lib/archi-decide, withResolvedProjectRoot, MCP transport, hooks stdin."
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围 filled; each unit ### has 待测功能/用例/Mock策略; 3 IT relations with scenes; 不可测试项 lists schema/host/CLAUDE.md."
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "In-scope MCP/lib/agent/retire/hooks covered. OOS: no CLI add (AC-11 neg), no py byte-eq & CLAUDE.md in 不可测试项; no archi_query scope link."
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "create 文件已存在→fail no overwrite; update superseded 已有取代者→不重复插入; superseded缺字段→文件字节不变."
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1..U5: ### path->path, 待测功能 list, 用例/Mock cols. T8-I1..I8: → test file, 模块|角色≥2, 关联AC, 关系描述, 场景+用例 cols. T8-G1 验收范围 4 named cols."
+      }
+    ],
+    "timestamp": "2026-08-12T08:11:43.700Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL: archi_decide MCP/lib/schema/agent/build mostly done (v2.10.29, py removed). createAdr loads templates/adr.md for heading checks but ignores content and hardcodes ADR via renderAdrContent — design requires render-from-template (I2/I7).",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "Lib/schema/barrel/mcp/agent/template/build present: archi-decide.ts, archi-decide.schema.ts, mcp.ts archi_decide, architecture.md, templates/adr.md, py deleted in 3 products"
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": false,
+        "evidence": "createAdr listed as 模板解析与渲染 / 渲染模板并写入; code loads template then unused (archi-decide.ts loadAdrTemplate+renderAdrContent); not template-fill"
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "zod/v4, projectRootSchema, withResolvedProjectRoot, jsonContent, dynamic import lib — matches other archi_* MCP tools in mcp.ts"
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "No HTTP routes; MCP archi_decide create/list/update registered in mcp.ts with schemas"
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–5: all checkboxes [x]"
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff = decide migration + build refresh (cli/hooks.cjs bundle) + openspec change artifacts; cli.ts untouched"
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": false,
+        "evidence": "Zod DU/scope[]/alts/no-CLI/template-root OK; create rule 从 templates/adr.md 渲染 not met — template string unused after validate"
+      }
+    ],
+    "timestamp": "2026-08-12T08:17:55.722Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "PASS: archi_decide lib/schema/MCP/agent/docs/build match design. createAdr/listAdrs/updateAdr + discriminatedUnion; py removed from source+3 products; version 2.10.30; all tasks [x]; no CLI; decisions (template walk-up, scope[], alternatives) honored.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "Components present: lib/archi-decide.ts (create/list/update), archi-decide.schema.ts, schemas/index.ts export, mcp.ts archi_decide, agents/architecture.md MCP decide, templates/adr.md unchanged (optional), py deleted in plugins+claude/cursor/home-image builds."
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "New lib+schema; mcp registration; architecture.md+CLAUDE.md; delete utils/archi-decide.py; package.json 2.10.28→2.10.30; createAdr/listAdrs/updateAdr APIs; Zod types/schemas; build products refreshed; manifest drops py path."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Matches archi_* pattern: zod/v4, projectRootSchema, withResolvedProjectRoot, jsonContent, dynamic import of lib in mcp.ts; types from schema module."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "N/A HTTP routes (design: MCP only). MCP archi_decide create/list/update implemented in mcp.ts with lib dispatch."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md phases 1–5: all checklist items marked [x]."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff scoped to ADR MCP migration, agent/docs, version/build artifacts, openspec change files; cli.ts untouched."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "discriminatedUnion+per-branch project_root; template walk-up resolveAdrTemplatePath; scope string[]; alternatives pros/cons union; no CLI; create/update failure rules (no half-file, superseded_by required)."
+      }
+    ],
+    "timestamp": "2026-08-12T08:20:34.629Z",
+    "stale": true
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "test-gen FAIL: G1/G2/G6/G7/G8/G9 pass (co-located *.test.ts, vite-plus, boundaries, cleanup, no abandoned archi-decide.py fixture). G3 fail: many 测试对象 not as describe; CLI missing `archi decide` unknown-cmd. G4 fail: MCP boundary tests consistent roots not mismatch; retirement skip has no reason. G5 fail: no fs OSError spy for list/update.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "createAdr/listAdrs/updateAdr→lib/archi-decide.test.ts; connectToServer/archi_decide→mcp.test.ts; hooks→hooks.test.ts; cli→cli.test.ts; IT under bin/__tests__/"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "Unit: *.test.ts co-located with src (archi-decide/mcp/hooks/cli). IT: __tests__/<name>/<name>.test.ts per test-design."
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "Many 测试对象 not distinct describes (e.g. createAdr—非法status under 异常路径; update superseded under 改状态). CLI: only archi-decide unknown-cmd, no `archi decide`; 既有命令/help lack own describes."
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "archi-decide-mcp: boundary it tests consistent roots (`一致时`) not design's mismatch resolve-root case. retirement: product/manifest absence uses silent continue/return, no skip reason (AC-09 边界)."
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": false,
+        "evidence": "mkdtemp/Date fake/vi.mock(archi-decide)/template doMock present. Missing: spy fs.readFileSync/writeFileSync throwing OSError for list bad-file / update read-fail (Mock策略 row)."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All new/edited tests import describe/it/expect/vi from vite-plus/test; matches test-design 框架."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "title/alternatives/scope/consequences/file/superseded_by/status/name/tool-count boundaries have it skeletons; ≥2 values per major param family."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach: project.cleanup, vi.useRealTimers, restoreEnv, client/server.close, mockRestore/mockClear on spies."
+      },
+      {
+        "item": "迭代类型 = 废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "废弃 row (python .../archi-decide.py list fixture) not present; replaced by scripts/process.py; no new describe/it for abandoned path."
+      }
+    ],
+    "timestamp": "2026-08-12T08:33:12.109Z",
+    "stale": true
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "test-gen PASS: G1–G9 all pass. Unit co-located *.test.ts for createAdr/listAdrs/updateAdr/mcp/hooks/cli; IT under __tests__/archi-decide-*. Distinct describes match 用例 rows (incl. CLI archi decide/help); MCP IT covers listTools/update/superseded/resolve mismatch; retirement ctx.skip with reason. Mocks: mkdtemp, Date fake, vi.mock(archi-decide), fs EACCES spy. vite-plus; cleanup/restore; 废弃 archi-decide.py fixture not regenerated.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "createAdr/listAdrs/updateAdr→lib/archi-decide.test.ts; connectToServer/archi_decide→mcp.test.ts; hooks→hooks.test.ts; cli→cli.test.ts; IT under bin/__tests__/archi-decide-*"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "Unit: *.test.ts co-located with src (archi-decide/mcp/hooks/cli). IT: __tests__/<suite>/<suite>.test.ts per test-design."
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "archi-decide: each 测试对象 is its own describe+it (非法status/superseded/file边界等). mcp: listTools/description/schema/callTool/withResolved/Zod/name边界+全12 handler. hooks AC-10/豁免回归/fixture断言. cli: 无archi-decide/未知命令含archi decide/既有命令/help边界."
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "archi-decide-mcp: listTools/缺project_root/空根; update accepted; superseded无superseded_by; resolve与args不一致. create-template: 真实模板/proposed/切断模板/空scope. retirement: architecture.md MCP契约+源码/产物/manifest; ctx.skip含原因."
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "mkdtemp projectRoot; Date fakeTimers; vi.mock(./lib/archi-decide); withResolvedProjectRoot/InMemoryTransport; fs.readFileSync EACCES via fsReadMock for list坏文件+update读失败; template existsSync doMock; hooks stdin/stdout mocks."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All new/edited tests import describe/it/expect/vi from vite-plus/test; matches test-design 框架 vite-plus/vp test."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "title/alternatives/scope/consequences/file/superseded_by/status/name/tool-count/empty project_root/scope空+alts空 boundaries have it skeletons; ≥2 values per major param family."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach: project.cleanup/rmSync, vi.useRealTimers, restoreEnv, client/server.close, fsReadMock.failPath=null, mockRestore/mockClear."
+      },
+      {
+        "item": "迭代类型 = 废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "废弃 python .../archi-decide.py list fixture removed; new fixture uses scripts/process.py; no new describe/it for abandoned path."
+      }
+    ],
+    "timestamp": "2026-08-12T08:41:32.543Z",
+    "stale": true
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 1572 个测试通过。覆盖率达标: lines=95.37%, branches=86.98%, functions=98.63%。Mutation score 71.17% >= 70%。",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=1572, passed=1572, conclusion=pass, problems=[]"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=95.37%, branches=86.98%, functions=98.63% (阈值 lines=90, branches=85, functions=90); coverage.pass=true"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-08-12T08:49:49.928Z",
+    "stale": true
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "FAIL C1/C3/C5. C1: updateAdr joins input.file with no containment check (archi-decide.ts:386) unlike archi-write.ts:27-35; ../ escapes decisions/. C3: design requires z.discriminatedUnion on action; code uses flat optional+superRefine (archi-decide.schema.ts:55-92). C5: voided dead _archiDecideListInputBranch (L36-42). C2/C4/C6/C7 pass.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": false,
+        "evidence": "updateAdr path.join(projectRoot, DECISIONS_DIR, input.file) at archi-decide.ts:386 lacks models-dir-style containment (cf archi-write.ts:27-35); file=../.. escapes decisions/ and can rewrite arbitrary files. Schema file is bare z.string() (archi-decide.schema.ts:47)."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "archiDecideInputSchema (archi-decide.schema.ts:55-92) + projectRootSchema; status via adrStatusSchema enum; create/update required fields via superRefine; alternatives nested zod object. Handler re-checks create/update requireds (mcp.ts:176-197)."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": false,
+        "evidence": "design.md:41 and types table require z.discriminatedUnion('action',…) per branch with project_root; exported schema is flat z.object + optional fields + superRefine (archi-decide.schema.ts:55-92), allowing cross-action optional串扰 design sought to avoid. MCP register/lib/agent/py delete/template/version otherwise align."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Missing template/dir/file, exists create, invalid status, superseded without superseded_by, empty list dir, read/write catch — handled in archi-decide.ts:193-214,249-251,302-303,379-389,311-328,224-227."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": false,
+        "evidence": "_archiDecideListInputBranch defined then voided unused (archi-decide.schema.ts:36-42). Create/update branch schemas used only for Omit types; list branch is pure dead code."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Mirrors other archi_* MCP registration (mcp.ts:160-210), lib under bin/src/lib, schemas barrel export, architecture.md Decide→MCP; naming/structure match codebase."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Lib types AdrStatus/ArchiDecide*Input/Result inferred from same Zod schemas (archi-decide.schema.ts:6,138-158); reuses projectRootSchema; no parallel hand-rolled DTO mapping."
+      }
+    ],
+    "backtrack_to": "implement",
+    "backtrack_reason": "C1: updateAdr joins input.file with no containment check (path traversal). C3: design requires z.discriminatedUnion on action; code uses flat optional+superRefine. C5: dead _archiDecideListInputBranch. Fix in implement.",
+    "timestamp": "2026-08-12T08:51:33.907Z",
+    "stale": true
+  },
+  {
+    "phase": "implement",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "PASS after backtrack: C1 resolveAdrFilePath containment; C3 z.discriminatedUnion('action'); C5 live list/create/update branches. Lib/MCP/agent/docs/build match design; py gone; v2.10.31; all tasks [x]; no CLI; template walk-up/scope[]/alts honored.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "lib/archi-decide.ts create/list/update; archi-decide.schema.ts; schemas/index.ts export; mcp.ts archi_decide; agents/architecture.md MCP decide; templates/adr.md kept; py deleted in plugins + 3 build products."
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "New lib+schema; mcp register; architecture.md+CLAUDE.md; delete utils/archi-decide.py; package.json→2.10.31; createAdr/listAdrs/updateAdr + Zod types; build refresh; resolveAdrFilePath on update."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "zod/v4, projectRootSchema, withResolvedProjectRoot, jsonContent, dynamic import lib — same pattern as other archi_* in mcp.ts; types from schema."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "No HTTP routes (design: MCP only). archi_decide create/list/update in mcp.ts with schema+lib dispatch."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–5: every checkbox marked [x]."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Diff scoped to ADR MCP migration, agent/docs, version/build, openspec change; cli.ts untouched."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Backtrack fixed: DU on action (schema.ts:53-57); update path containment (archi-decide.ts:370-380); no dead _archiDecideList*. Also template walk-up, scope[], alternatives union, no CLI."
+      }
+    ],
+    "timestamp": "2026-08-12T08:54:13.862Z",
+    "stale": true
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "test-gen PASS (G1–G9). Unit: archi-decide/mcp/hooks/cli *.test.ts co-located; all 新增 describes/its present incl. boundaries+mocks (mkdtemp/Date/fs/vi.mock). Integration: archi-decide-mcp|create-template|retirement under __tests__/ with AC-01/05–09 skeletons+cleanup. Deprecated archi-decide.py fixture removed (G9). vite-plus/test imports.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "createAdr/listAdrs/updateAdr→lib/archi-decide.test.ts; connectToServer/archi_decide→mcp.test.ts; runProtectFiles→hooks.test.ts; cli→cli.test.ts (同目录)"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "单元 *.test.ts 与源码同目录；集成按设计置于 bin/__tests__/archi-decide-*/"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "archi-decide 全部 create/list/update 正向/异常/边界 describe+it；mcp listTools/inputSchema/callTool/withResolved/Zod/name 边界；hooks AC-10；cli AC-11；11→12 字面量已更新"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "archi-decide-mcp (listTools/缺根/空根/accepted/superseded/resolve根)；create-template 4 its；retirement AC-08/09+产物 skip"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "mkdtemp projectRoot；Date fakeTimers；fs.readFileSync/existsSync spy；vi.mock('./lib/archi-decide')；withResolvedProjectRoot mock；InMemoryTransport；spyOnProcessExit"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "均 from 'vite-plus/test' (describe/it/expect/vi/beforeEach/afterEach)，与 test-design 框架一致"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "title/alternatives/scope/consequences/status/file/superseded_by 边界 its；mcp name/工具数12；hooks python3x；cli help 边界；retirement 产物缺失 skip"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach: project.cleanup/rmSync、useRealTimers、mockClear/mockRestore、restoreEnv、client/server.close"
+      },
+      {
+        "item": "迭代类型 = 废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "hooks 原 'python .../archi-decide.py list' fixture 已删除；无新 it 复用该命令路径"
+      }
+    ],
+    "timestamp": "2026-08-12T09:03:22.732Z",
+    "stale": true
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "所有 1577 个测试通过；覆盖率达标: lines=95.58%, branches=87.23%, functions=98.63%；mutation score 72.76% ≥ 70%",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "必需字段均存在且类型正确: phase, command, timestamp, total=1577, passed=1577, failed=0, skipped=0, coverage(object), duration_seconds=184"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0 且 total=1577 > 0；conclusion=pass；problems=[]"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=95.58%, branches=87.23%, functions=98.63%（阈值 lines=90%, branches=85%, functions=90%）；coverage.pass=true"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需失败诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-08-12T09:08:46.779Z",
+    "stale": true
+  },
+  {
+    "phase": "code-review",
+    "attempt": 2,
+    "verdict": "fail",
+    "report": "FAIL: listAdrs scope regex mistranslates Python \\Z to literal Z (archi-decide.ts:284), so final ##影响范围 never matches and scope[] is always []. Contradicts design list model. C1 path traversal OK (resolveAdrFilePath). Zod/MCP/agent/py removal otherwise match design.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No secrets/eval/exec. updateAdr path traversal guarded at archi-decide.ts:370-380 (resolve+relative check). create filename via slugify (L24-29) strips path chars."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "archi-decide.schema.ts:53-57 discriminatedUnion on action; projectRootSchema + adrStatusSchema; mcp.ts:177-209 withResolvedProjectRoot; lib re-validates status (L235-237,L388-390)."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": false,
+        "evidence": "design.md list model requires scope[] parsed from ADR; archi-decide.ts:284 uses (?=\\n##|Z) instead of Python \\Z/$, so last-section scope never parsed (empty []). MCP/schema/template/agent/py-delete otherwise align."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": false,
+        "evidence": "archi-decide.ts:284-294: regex fail → scope=[]; also truncates at letter Z in body. Empty title→'YYYY-MM-DD-.md' (L245) accepted. Missing **状态** handled (L350-352)."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "archi-decide.ts exports only createAdr/listAdrs/updateAdr; helpers private. mcp registers single archi_decide. Python util deleted. No unused imports in new modules."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Matches other archi_* lib/schema/mcp patterns; Chinese ADR headings; zod/v4; types from schema (archi-decide.ts:10-18)."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Lib uses ArchiDecide* types from archi-decide.schema.ts; MCP uses same Zod schemas; AdrStatus from z.infer not parallel enums."
+      }
+    ],
+    "backtrack_to": "implement",
+    "backtrack_reason": "listAdrs scope regex mistranslates Python \\Z to literal Z (archi-decide.ts:284), so final ##影响范围 never matches and scope[] is always []. Fix: (?=\\n##|Z) → (?=\\n##|$).",
+    "timestamp": "2026-08-12T09:09:56.758Z",
+    "stale": true
+  },
+  {
+    "phase": "implement",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "PASS after backtrack: listAdrs scope regex uses (?=\\n##|$) (archi-decide.ts:284 + 3 mcp bundles), not literal Z. Lib/schema/MCP/agent/docs/build match design; py gone; v2.10.32; tasks all [x]; no CLI; template walk-up, scope[], alternatives, DU honored.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "archi-decide.ts create/list/update; archi-decide.schema.ts; schemas/index.ts export; mcp.ts archi_decide+withResolvedProjectRoot; agents/architecture.md MCP decide; templates/adr.md kept; py deleted in plugins+claude/cursor/home-image."
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "New lib+schema; mcp register; architecture.md+CLAUDE.md; delete utils/archi-decide.py; package.json→2.10.32; createAdr/listAdrs/updateAdr+Zod types; build refresh; manifest no py."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "zod/v4, projectRootSchema, withResolvedProjectRoot, jsonContent/archiDecideJsonContent, dynamic import lib — same pattern as other archi_* in mcp.ts."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "No HTTP routes (design: MCP only). archi_decide create/list/update dispatched in mcp.ts:169-209."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md stages 1–5: every checkbox marked [x]."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "Core diff is ADR MCP migration, agent/docs, version/build products, openspec change artifacts; cli.ts has no archi_decide CLI."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Backtrack fix: parseAdrFile /## 影响范围...(?=\\n##|$) so trailing scope parses (ts:284; bundles match). Also DU on action, template walk-up, scope string[], alternatives union, no CLI."
+      }
+    ],
+    "timestamp": "2026-08-12T09:12:32.595Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 4,
+    "verdict": "pass",
+    "report": "PASS: archi-decide/mcp/hooks/cli unit skeletons + 3 IT suites match test-design 新增 rows; mocks (mkdtemp/Date/fs/vi.mock); vite-plus imports; boundaries; afterEach cleanup; deprecated archi-decide.py fixture removed.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "createAdr/listAdrs/updateAdr→lib/archi-decide.test.ts; connectToServer→mcp.test.ts; hooks→hooks.test.ts; cli→cli.test.ts"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "*.test.ts colocated under bin/src(/lib); ITs under bin/__tests__/archi-decide-* per design"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "archi-decide describes/its cover AC-02..05/07 + boundaries; mcp AC-01/06 + dispatch/Zod/12 tools; hooks AC-10; cli AC-11"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "archi-decide-mcp/create-template/retirement cover listTools/project_root/update/template/AC-08/09 + skip"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "mkdtemp roots; fake Date; fs read spy; vi.mock(archi-decide); withResolvedProjectRoot; InMemoryTransport"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All new/changed tests import describe/it/expect/vi from vite-plus/test"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "title/alternatives/scope/file/superseded_by/status enums; mcp name/tool-count 12; hooks python3x; cli help"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "afterEach: project.cleanup/rmSync, useRealTimers, restoreEnv, mockRestore/clear"
+      },
+      {
+        "item": "迭代类型 = 废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "Removed old python .../archi-decide.py list fixture; no new describe/it for that deprecated row"
+      }
+    ],
+    "timestamp": "2026-08-12T09:15:00.480Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "所有 1581 个测试通过；覆盖率达标: lines=95.73%, branches=87.4%, functions=98.63%；mutation score 71.14% >= 70%",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed=0, total=1581, passed=1581, skipped=0, conclusion=pass"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "覆盖率达标: lines=95.73%, branches=87.4%, functions=98.63%（阈值 lines=90, branches=85, functions=90）；coverage.pass=true"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed=0，无需失败诊断，自动通过"
+      }
+    ],
+    "timestamp": "2026-08-12T09:32:22.368Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 3,
+    "verdict": "pass",
+    "report": "PASS C1–C7. Path traversal guarded (resolveAdrFilePath:370-380); Zod discriminatedUnion + projectRootSchema; MCP withResolvedProjectRoot; design aligned (lib/schema/mcp/agent/py removed); empty dir/missing template/superseded_by handled; types from schema. Tests: archi-decide.test.ts, mcp.test.ts.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No eval/exec/secrets. updateAdr resolveAdrFilePath (archi-decide.ts:370-380) rejects .. traversal; create slugify strips path chars; tests cover ../../../etc/passwd (archi-decide.test.ts:1005-1016)."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "archi-decide.schema.ts:53-57 z.discriminatedUnion('action'); adrStatusSchema enum; alternatives/scope typed; projectRootSchema per branch; mcp.ts:172 inputSchema=archiDecideInputSchema; output safeParse in archiDecideJsonContent:52-57."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "createAdr/listAdrs/updateAdr + template walk-up (39-52); MCP archi_decide+withResolvedProjectRoot (mcp.ts:168-209); agent Decide→archi_decide; py deleted; no cli.ts change; scope string[]; alternatives pros/cons union."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Missing template no write (239-241); exists check (249-251); list empty dir (302-304); superseded requires superseded_by incl. '' (392-397); update missing file (404-406); read/write try/catch."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "New APIs used by mcp handler; schema exported via index.ts:11; omit outputSchema register only for archi_decide SDK quirk (336-338) with in-handler validation—not dead. No unused imports in lib/schema."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Mirrors other archi_* MCP tools; private helpers unexported; Zod v4 + projectRootSchema pattern; version bump in package.json; agent/docs aligned with CLAUDE.md MCP ADR wording."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Lib imports AdrStatus/CreateInput/Results from archi-decide.schema.ts (10-18); z.infer types; reuses projectRootSchema; no parallel DTO mapping layer."
+      }
+    ],
+    "timestamp": "2026-08-12T09:33:35.320Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "PASS: AC-01..11 evidenced. MCP archi_decide registered (mcp.ts:169) with withResolvedProjectRoot; create/list/update in lib/archi-decide.ts (template, proposed default, date-desc list, superseded_by gate); architecture.md MCP-only; py removed all products; tests+no CLI. tasks.md all [x]. No scope creep; out_of_scope (CLI/archi_query scope link) absent; risks mitigated (Zod DU, template walk-up, rebuild/retirement).",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-01 mcp.ts:169 archi_decide; AC-02/03/07 createAdr+template L230-269,234; AC-04 listAdrs L299-338; AC-05 updateAdr L392-396; AC-06 withResolvedProjectRoot L178+schema project_root; AC-08 architecture.md MCP-only; AC-09 py gone (0 files); AC-10 archi-decide.test.ts/mcp.test.ts/hooks.test.ts; AC-11 cli.ts no archi-decide."
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "Only lib/schema/mcp/agent/CLAUDE/delete-py/tests/build refresh per in_scope. No third tools, no CLI archi decide, no archi_query scope hard-link. resolveAdrFilePath path guard is within update."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "archi-decide.ts+schema+index export; mcp register; architecture.md+CLAUDE.md MCP; utils/archi-decide.py deleted; templates used; package.json 2.10.32; three build trees refreshed; tasks.md stages 1-5 all [x]."
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "cli.ts has no archi-decide (cli.test.ts AC-11); DECISIONS_DIR still openspec/architecture/decisions; no archi_query in archi-decide.ts; no byte-equality with old py claimed."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "Template≠old-py: AC-07 template path; agent/build py refs: rebuild+retirement IT; hooks fixture replaced; Zod discriminatedUnion; resolveAdrTemplatePath walk-up + error without write (L193-212,239-241)."
+      }
+    ],
+    "timestamp": "2026-08-12T09:34:22.352Z"
+  }
+]

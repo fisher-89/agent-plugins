@@ -1,6 +1,6 @@
 ---
 name: __AGENT:architecture__
-description: 【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate via MCP archi_validate, present diff, wait for confirmation), validate (run MCP archi_check, explain violations), decide (help draft ADRs via archi-decide.py), review (critique model completeness/consistency/coupling).
+description: 【use proactively】Architecture agent for proposing model changes, validating code against model, creating ADRs, and reviewing model quality. Supports four modes: propose (read models/code, draft DSL, validate via MCP archi_validate, present diff, wait for confirmation), validate (run MCP archi_check, explain violations), decide (help draft ADRs via MCP archi_decide), review (critique model completeness/consistency/coupling).
 model: __MODEL_HIGH__
 ---
 
@@ -28,13 +28,12 @@ The model uses four element kinds in a strict hierarchy:
 - **Model files**: `openspec/architecture/models/*.c4` — DSL files loaded in alphabetical order
 - **ADRs**: `openspec/architecture/decisions/*.md` — Architecture Decision Records
 - **Reports**: `openspec/changes/<name>/reports/architecture-validate-*.json` — validation reports (per-change); `openspec/architecture/reports/` as global fallback
-- **Python utilities**:
-  - `__DEV_TEAM_ROOT__/utils/archi-decide.py` — create, list, update ADRs
 - **MCP tools** (prefix e.g. call `archi_query` with `__MCP:archi_query__`):
   - `archi_query` — query model structure (optional `element` filter)
   - `archi_validate` — validate DSL syntax (optional `source` text)
   - `archi_write` — validate and write model files (requires `path`, `source`)
   - `archi_check` — cross-reference imports vs. model (optional `staged` flag, `files` list)
+  - `archi_decide` — create, list, update ADRs (`action`: `create` | `list` | `update`)
 
 ## DSL Syntax Quick Reference
 
@@ -195,22 +194,46 @@ When the user asks to validate architecture or check code against the model:
 
 When the user asks to create, list, or update an ADR:
 
-1. **Create**: Gather background, decision, consequences, alternatives, and scope from the user. Then run:
+1. **Create**: Gather background, decision, consequences, alternatives, and scope from the user. Then call:
 
    ```
-   python __DEV_TEAM_ROOT__/utils/archi-decide.py create --title "..." --background "..." --decision "..." --consequences "..." --alternatives "[...]" --scope "elem1, elem2"
+   __MCP:archi_decide__({
+     project_root: "<project root>",
+     action: "create",
+     title: "...",
+     background: "...",
+     decision: "...",
+     consequences: "...",
+     alternatives: [{ name: "...", description: "...", pros: "...", cons: "..." }],
+     scope: ["elem1", "elem2"]
+   })
    ```
 
-2. **List**: Run:
+2. **List**: Call:
 
    ```
-   python __DEV_TEAM_ROOT__/utils/archi-decide.py list [--status accepted|proposed|deprecated|superseded]
+   __MCP:archi_decide__({
+     project_root: "<project root>",
+     action: "list",
+     status: "accepted"
+   })
    ```
 
-3. **Update**: Run:
+   Omit `status` to list all ADRs (sorted by date descending).
+
+3. **Update**: Call:
+
    ```
-   python __DEV_TEAM_ROOT__/utils/archi-decide.py update --file "YYYY-MM-DD-slug.md" --status "accepted" [--superseded-by "new-adr.md"]
+   __MCP:archi_decide__({
+     project_root: "<project root>",
+     action: "update",
+     file: "YYYY-MM-DD-slug.md",
+     status: "accepted",
+     superseded_by: "new-adr.md"
+   })
    ```
+
+   `superseded_by` is required when `status` is `superseded`.
 
 ### REVIEW mode
 

@@ -1,0 +1,82 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-08-12T09:31:53.198Z",
+  "duration_seconds": 462,
+  "total": 1581,
+  "passed": 1581,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 95.73,
+      "branches": 87.4,
+      "functions": 98.63
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 37,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 71.14,
+    "threshold": 70,
+    "measured": {
+      "killed": 764,
+      "survived": 269,
+      "timeout": 10,
+      "noCoverage": 45,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 100,
+      "total": 1188,
+      "detected": 774,
+      "undetected": 314
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 71.13970588235294,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 37,
+        "passed_count": 37
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/migrate-archi-decide-to-mcp/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "All 1581 tests passed; coverage (lines 95.73%, branches 87.40%, functions 98.63%) and mutation score (71.14%) meet thresholds.",
+    "Initial run had a flaky assemble.test.ts failure (subagentStop/SubagentStop assertions) caused by parallel tests overwriting process.cwd(); fixed by pinning plugin root via import.meta.url and runAssembleAll() helper in assemble and static-analysis-gate-assemble tests."
+  ]
+}

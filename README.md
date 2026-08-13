@@ -74,3 +74,79 @@ node cursor-home-image/dev-team/install.mjs
 
 /openspec-archive-change      # 归档
 ```
+
+## 项目配置（`openspec/config.json`）
+
+在项目根目录创建 `openspec/config.json`，配好后，测试执行、静态分析、文件保护会更贴近你的仓库。
+
+可在文件顶部加上 `$schema`，编辑器会给出补全与校验：
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/fisher-89/agent-plugins/master/plugins/dev-team/bin/dev-team-config.schema.json"
+}
+```
+
+### 新手先配这几项
+
+| 字段 | 作用 | 要不要配 |
+|------|------|----------|
+| `tests` | 测试套件：框架、范围、覆盖率门槛 | 要跑测试时必配 |
+| `static_analysis` | 静态检查命令（lint / typecheck 等） | 按需 |
+| `write_protection` | 禁止 Agent 改写的文件 | 可选 |
+
+### 最小可用示例
+
+单包、Vitest 项目可以这样起步：
+
+```json
+{
+  "$schema": "https://raw.githubusercontent.com/fisher-89/agent-plugins/master/plugins/dev-team/bin/dev-team-config.schema.json",
+  "tests": [
+    {
+      "root": ".",
+      "framework": "vitest",
+      "config": "vitest.config.ts"
+    }
+  ],
+  "static_analysis": "pnpm lint"
+}
+```
+
+说明：
+
+- `tests[].root`：该套件覆盖的源码根目录（相对项目根，**不要**写 `*` 等通配符）
+- `tests[].framework`：常用值如 `vitest`、`jest`、`vite-plus`、`pytest`、`go`、`rust` 等
+- `tests[].config`：框架配置文件路径（相对 `root`）
+- 未写 `coverage` 时，默认门槛约为行 80% / 分支 70% / 函数 75%
+
+### 常用进阶（按需添加）
+
+**缩小测试范围、提高覆盖率门槛：**
+
+```json
+{
+  "tests": [
+    {
+      "root": "packages/api",
+      "framework": "vitest",
+      "config": "vitest.config.ts",
+      "includes": ["src/**/*.{ts,tsx}"],
+      "excludes": ["src/**/*.stories.ts"],
+      "coverage": { "lines": 90, "branches": 80, "functions": 85 }
+    }
+  ]
+}
+```
+
+**保护敏感或不希望被 Agent 改写的文件**（`openspec/config.json` 与各 change 下的 `eval.json` 已有内置保护，一般不用重复写）：
+
+```json
+{
+  "write_protection": {
+    "files": [{ "glob": "secrets/**" }]
+  }
+}
+```
+
+配好后保存即可；下次执行 `/phase-test-execution` 或相关 workflow 时会读取该配置。

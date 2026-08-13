@@ -4,19 +4,26 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite-plus/test';
 
 import * as envMod from './env';
 
 const tempRoots: string[] = [];
+const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 let outBase = '';
 let cwdSpy: Mock | undefined;
 
 function mockCwd(root: string): void {
   cwdSpy?.mockRestore();
   cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(root);
+}
+
+async function runAssembleAll(): Promise<void> {
+  mockCwd(pluginRoot);
+  await assembleAll();
 }
 
 function makeOutDir(key: envMod.ProductEnvKey): string {
@@ -91,6 +98,7 @@ function writeMinimalTree(root: string): void {
 beforeEach(() => {
   outBase = mkdtempSync(join(tmpdir(), 'assemble-out-'));
   tempRoots.push(outBase);
+  mockCwd(pluginRoot);
 });
 
 afterEach(() => {
@@ -105,7 +113,7 @@ afterEach(() => {
 
 describe('assembleAll', () => {
   it('三平台 outDir 均生成且无残留 __INCLUDE:', async () => {
-    await assembleAll();
+    await runAssembleAll();
     for (const key of envMod.PRODUCT_ENV_KEYS) {
       const outDir = makeOutDir(key);
       const env = envMod.getEnv(key);
@@ -124,7 +132,7 @@ describe('assembleAll', () => {
   });
 
   it('Cursor/cursorHome outDir 的 hooks JSON 无 subagentStop 键', async () => {
-    await assembleAll();
+    await runAssembleAll();
     for (const key of ['cursor', 'cursorHome'] as const) {
       const hooksPath = join(makeOutDir(key), envMod.getEnv(key).hooksFilePath);
       const parsed = JSON.parse(readFileSync(hooksPath, 'utf-8')) as {
@@ -135,7 +143,7 @@ describe('assembleAll', () => {
   });
 
   it('Claude outDir hooks 含 SubagentStop 且 command 含 static-check', async () => {
-    await assembleAll();
+    await runAssembleAll();
     const hooksPath = join(makeOutDir('claude'), envMod.getEnv('claude').hooksFilePath);
     const parsed = JSON.parse(readFileSync(hooksPath, 'utf-8')) as {
       hooks: { SubagentStop: Array<{ hooks: Array<{ command: string }> }> };
@@ -165,14 +173,14 @@ describe('assembleAll', () => {
   });
 
   it('_fragments/ 存在于源码树但不出现在任一 env.outDir', async () => {
-    await assembleAll();
+    await runAssembleAll();
     for (const key of envMod.PRODUCT_ENV_KEYS) {
       expect(existsSync(join(makeOutDir(key), '_fragments'))).toBe(false);
     }
   });
 
   it('Claude generator 无 run_static_analysis；Cursor 产物含该步骤', async () => {
-    await assembleAll();
+    await runAssembleAll();
     const claudeAgent = readFileSync(
       join(makeOutDir('claude'), 'agents/implementation-generator.md'),
       'utf-8',
@@ -190,7 +198,7 @@ describe('assembleAll', () => {
   });
 
   it('assemble 复制 templates 与 utils 静态资源到各 outDir', async () => {
-    await assembleAll();
+    await runAssembleAll();
     for (const key of envMod.PRODUCT_ENV_KEYS) {
       const outDir = makeOutDir(key);
       expect(existsSync(join(outDir, 'templates'))).toBe(true);

@@ -6,20 +6,26 @@
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
+import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite-plus/test';
 
 import * as envMod from '../../env';
 
 const tempRoots: string[] = [];
+const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '../../..');
 let outBase = '';
-const pluginRoot = process.cwd();
 let cwdSpy: Mock | undefined;
 
 function mockCwd(root: string): void {
   cwdSpy?.mockRestore();
   cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(root);
+}
+
+async function runAssembleAll(): Promise<void> {
+  mockCwd(pluginRoot);
+  await assembleAll();
 }
 
 function makeOutDir(key: envMod.ProductEnvKey): string {
@@ -44,6 +50,7 @@ const { assembleAll } = await import('../../assemble');
 beforeEach(() => {
   outBase = mkdtempSync(join(tmpdir(), 'gate-assemble-out-'));
   tempRoots.push(outBase);
+  mockCwd(pluginRoot);
 });
 
 afterEach(() => {
@@ -57,7 +64,7 @@ afterEach(() => {
 
 describe('三平台 generator 软门禁与 _fragments 排除', () => {
   it('cursor / cursorHome：implementation-generator 与 test-gen-generator 含 run_static_analysis', async () => {
-    await assembleAll();
+    await runAssembleAll();
     for (const key of ['cursor', 'cursorHome'] as const) {
       const prefix = key === 'cursorHome' ? 'dev-team_' : '';
       for (const agent of ['implementation-generator', 'test-gen-generator']) {
@@ -69,7 +76,7 @@ describe('三平台 generator 软门禁与 _fragments 排除', () => {
   });
 
   it('claude：两 generator 产物不含 Cursor 软门禁步骤', async () => {
-    await assembleAll();
+    await runAssembleAll();
     for (const agent of ['implementation-generator', 'test-gen-generator']) {
       const content = readFileSync(join(makeOutDir('claude'), `agents/${agent}.md`), 'utf-8');
       expect(content).not.toContain('run_static_analysis');
@@ -78,7 +85,7 @@ describe('三平台 generator 软门禁与 _fragments 排除', () => {
   });
 
   it('任一 outDir 不存在 _fragments/ 目录', async () => {
-    await assembleAll();
+    await runAssembleAll();
     for (const key of envMod.PRODUCT_ENV_KEYS) {
       expect(existsSync(join(makeOutDir(key), '_fragments'))).toBe(false);
     }
@@ -105,7 +112,7 @@ describe('三平台 generator 软门禁与 _fragments 排除', () => {
   });
 
   it('cursorHome 产物中 __BIN:cli__ / __DEV_TEAM_ROOT__ 已按 home env 展开', async () => {
-    await assembleAll();
+    await runAssembleAll();
     const agent = readFileSync(
       join(makeOutDir('cursorHome'), 'agents/dev-team_implementation-generator.md'),
       'utf-8',
@@ -118,7 +125,7 @@ describe('三平台 generator 软门禁与 _fragments 排除', () => {
 
   it('源码 _fragments 仍存在于包根，仅 outDir 排除', async () => {
     expect(existsSync(join(pluginRoot, '_fragments/static-analysis-gate.cursor.md'))).toBe(true);
-    await assembleAll();
+    await runAssembleAll();
     for (const key of envMod.PRODUCT_ENV_KEYS) {
       expect(existsSync(join(makeOutDir(key), '_fragments'))).toBe(false);
     }
