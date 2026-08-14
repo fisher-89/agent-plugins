@@ -1,3 +1,7 @@
+## Purpose
+
+Defines how the dev-team MCP server discovers workspace root candidates at connect time and resolves the `project_root` argument required by every file-touching MCP tool — rejecting non-candidate paths with a force-escape flow, converting `file://` URIs to local paths, and never falling back to `process.cwd()`.
+
 ## Requirements
 
 ### Requirement: Connect collects workspace root candidates
@@ -61,7 +65,7 @@ The server MUST NOT use `process.cwd()` as a candidate source for MCP. The serve
 
 ### Requirement: MCP tools require project_root and resolve against candidates
 
-Every MCP tool handler that reads or writes under the project tree (including `phase_log`, `phase_next`, `backtrack`, `change_list`, `config_get`, `archi_query`, `archi_validate`, `archi_write`, `archi_check`, `test_detect_frameworks`, and `test_resolve_paths`) SHALL:
+Every MCP tool handler that reads or writes under the project tree (including `phase_log`, `phase_next`, `backtrack`, `change_list`, `config_get`, `archi_query`, `archi_validate`, `archi_write`, `archi_check`, `archi_decide`, `test_detect_frameworks`, and `test_resolve_paths`) SHALL:
 
 1. Declare `project_root` as a **required** string field on the MCP input schema
 2. Resolve the effective root via a shared entry point using validation order:
@@ -146,6 +150,19 @@ MCP resolution MUST NOT use `process.cwd()`. Output fields MAY echo the effectiv
 - **WHEN** `runChangeList({ project_root: "/tmp/fixture" })` is invoked outside MCP tool dispatch
 - **THEN** the command helper MAY use `/tmp/fixture` as its project root
 - **AND** this SHALL NOT remove required `project_root` from the MCP input schema
+
+#### Scenario: archi_decide requires project_root like other archi tools
+
+- **WHEN** `archi_decide` is invoked without `project_root`
+- **THEN** input validation SHALL fail
+- **AND** no ADR file SHALL be written under `process.cwd()`
+
+#### Scenario: archi_decide resolves against candidates
+
+- **WHEN** candidates contain `/workspace/project`
+- **AND** `archi_decide` is invoked with `{"project_root": "/workspace/project", "action": "list"}`
+- **THEN** the tool SHALL list ADRs under `/workspace/project/openspec/architecture/decisions/`
+- **AND** pending SHALL be cleared if set
 
 ### Requirement: file URI to local path conversion for candidates
 
@@ -244,5 +261,5 @@ The conversion function SHALL produce normalized absolute paths suitable for use
 | `backtrack` | Required | candidates / force |
 | `change_list` | Required | candidates / force；output 可回显 |
 | `config_get` | Required | candidates / force |
-| `archi_query`, `archi_validate`, `archi_write`, `archi_check` | Required | candidates / force |
+| `archi_query`, `archi_validate`, `archi_write`, `archi_check`, `archi_decide` | Required | candidates / force |
 | `test_detect_frameworks`, `test_resolve_paths` | Required | candidates / force |

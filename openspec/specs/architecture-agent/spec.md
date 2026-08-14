@@ -1,5 +1,7 @@
-## ADDED Requirements
+## Purpose
 
+Defines the `architecture` subagent: an agent that helps operate on the C4 architecture model — proposing and validating DSL changes, checking staged files against the model, recording architectural decisions, and reviewing model quality.
+## Requirements
 ### Requirement: Agent definition exists
 
 The system SHALL provide an `architecture` subagent definition at `plugins/dev-team/agents/architecture.md` with model `opus`, tools `[Read, Bash, Write, Grep, Glob]`, and instructions covering four operational modes.
@@ -49,12 +51,20 @@ The architecture agent SHALL support a validate mode that runs `dev-team archi c
 
 ### Requirement: Decide mode
 
-The architecture agent SHALL support a decide mode that helps draft ADRs by gathering context and writing via `archi-decide.py create`.
+The architecture agent SHALL support a decide mode that helps draft ADRs by gathering context and writing via MCP tool `archi_decide` with `action` `create`.
+The agent prompt MUST NOT instruct callers to invoke `archi-decide.py` or any `python .../archi-decide.py` command.
+List and status-update flows in decide mode SHALL use `archi_decide` with `action` `list` or `update` as needed.
 
 #### Scenario: Create an ADR
 
 - **WHEN** the user asks to record an architectural decision
-- **THEN** the agent SHALL gather background from conversation, confirm scope, and invoke `archi-decide.py create` with the appropriate arguments
+- **THEN** the agent SHALL gather background from conversation, confirm scope, and invoke MCP `archi_decide` with `action` `create` and the appropriate arguments
+
+#### Scenario: Agent does not call Python ADR script
+
+- **WHEN** the architecture agent runs in decide mode
+- **THEN** it MUST NOT call `archi-decide.py`
+- **AND** ADR persistence SHALL go through MCP `archi_decide`
 
 ### Requirement: Review mode
 
@@ -64,3 +74,4 @@ The architecture agent SHALL support a review mode that reads all `models/*.c4`,
 
 - **WHEN** the user asks to review the architecture
 - **THEN** the agent SHALL read all `models/*.c4` files, identify elements without relationships, elements without `metadata.path`, and orphaned relationships, and present a structured critique
+
