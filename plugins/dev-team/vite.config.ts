@@ -12,8 +12,6 @@ interface StagingPackSpec {
   entry: string;
   file: string;
   format: 'cjs' | 'esm';
-  minify: boolean;
-  sourcemap: boolean;
   banner?: string;
 }
 
@@ -21,18 +19,14 @@ const STAGING_PACKS: StagingPackSpec[] = [
   ...BIN_ENTRIES.map<StagingPackSpec>((id) => ({
     name: id,
     entry: `bin/src/${id}.ts`,
-    file: `.pack-staging/bin/${id}.cjs`,
+    file: `bin/${id}.cjs`,
     format: 'cjs',
-    minify: true,
-    sourcemap: true,
   })),
   {
     name: 'home-install',
     entry: 'home-install.ts',
-    file: '.pack-staging/install.mjs',
+    file: 'install.mjs',
     format: 'esm',
-    minify: false,
-    sourcemap: false,
     banner: '#!/usr/bin/env node\n',
   },
 ];
@@ -91,21 +85,22 @@ function makeStagingPacks(): PackConfig[] {
     await assembleAll();
   };
 
-  return STAGING_PACKS.map((spec, index) => ({
+  return STAGING_PACKS.map((spec) => ({
     name: spec.name,
     platform: 'node',
     entry: spec.entry,
-    banner: spec.banner,
     outputOptions: {
-      file: spec.file,
+      dir: '.pack-staging',
+      entryFileNames: spec.file,
       format: spec.format,
-      minify: spec.minify,
-      sourcemap: spec.sourcemap,
-      cleanDir: index === 0,
+      banner: spec.banner,
+      minify: true,
+      sourcemap: false,
       codeSplitting: false,
     },
     deps: {
       alwaysBundle: [/.*/],
+      onlyBundle: false,
     },
     dts: false,
     hooks: {

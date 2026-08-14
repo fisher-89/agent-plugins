@@ -5,7 +5,7 @@
   "description": "dev-team CLI - eval-log command for OpenSpec workflow",
   "type": "module",
   "scripts": {
-    "build": "vp pack",
+    "build": "rimraf .pack-staging && vp pack",
     "start:likec4": "mcp-inspector npx -y @likec4/mcp@1.58.0",
     "test": "vp test --sequence.shuffle",
     "check": "vp check --fix && knip",
@@ -28,6 +28,7 @@
     "@vitest/coverage-v8": "^4.1.8",
     "@vitest/ui": "4.1.9",
     "knip": "^6.17.1",
+    "rimraf": "^6.1.3",
     "typescript": "^6.0.3",
     "vite-plus": "^0.2.1"
   }

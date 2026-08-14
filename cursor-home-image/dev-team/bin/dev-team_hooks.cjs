@@ -66,4 +66,3 @@ Set the \`cycles\` parameter to \`"ref"\` to resolve cyclical schemas with defs.
 `);return}let i=`静态检查未通过，请修复以下错误后重新提交：
 
 `+t();process.stdout.write(`${JSON.stringify({decision:`block`,reason:i,followup_message:i})}\n`)}function rs(){let e=process.argv[2];switch(e){case`protect-files`:$o();break;case`static-check`:ns();break;default:process.stderr.write(`Unknown subcommand: ${e}\n`),process.exit(1)}}try{rs()}catch(e){let t=e instanceof Error?e.message:String(e);process.stdout.write(`${JSON.stringify({decision:`block`,reason:t})}\n`),process.exit(1)}exports.captureStderr=es,exports.main=rs,exports.runProtectFiles=$o,exports.runStaticCheck=ns;
-//# sourceMappingURL=hooks.cjs.map

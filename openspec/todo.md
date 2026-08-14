@@ -6,7 +6,7 @@
 - [x] config统一指定测试框架（关联：plugins\dev-team\agents\test-gen-evaluator.md G5）
 - [x] 禁止直接写入eval.json
 - [x] unit-test生成覆盖度报告
-- [ ] 下线python脚本
+- [x] 下线python脚本
 - [ ] 下线openspec执行文件
 - [x] mcp工具改回下划线，避免claude code转义“/”导致找不到tools
 - [x] 明确测试文件的路径规则（test-design）
