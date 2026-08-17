@@ -19,7 +19,7 @@ vi.mock('fs', async (importOriginal) => {
   return { ...actual, existsSync: vi.fn(), readFileSync: vi.fn() };
 });
 
-import { runPhaseNext } from '../commands/phase-next';
+import { hasPhasePassed, runPhaseNext } from '../commands/phase-next';
 import { getChangeDir } from '../lib/change';
 import * as evalJson from '../lib/eval-json';
 import { type EvalEntry } from '../lib/eval-json';
@@ -2117,5 +2117,60 @@ describe('runPhaseNext / hasPhasePassed 与边界（突变补强）', () => {
     ]);
     expect(result.executor!.prompt).toContain(`⚠️ 回溯原因: ${longReason}`);
     expect(result.evaluator!.prompt).toContain(longReason);
+  });
+});
+
+// ===========================================================================
+// hasPhasePassed 导出函数 — 直接单元测试（export 变更，纯函数，无 fs 依赖）
+// ===========================================================================
+
+describe('hasPhasePassed — 导出函数（纯函数，无 fs 依赖）', () => {
+  it('已有非 stale 的 pass 条目时返回 true', () => {
+    expect(hasPhasePassed([passEntry('proposal')], 'proposal')).toBe(true);
+  });
+
+  it('已有非 stale 的 skipped 条目时返回 true', () => {
+    expect(hasPhasePassed([skippedEntry('proposal')], 'proposal')).toBe(true);
+  });
+
+  it('仅有 fail 条目时返回 false', () => {
+    expect(hasPhasePassed([failEntry('proposal')], 'proposal')).toBe(false);
+  });
+
+  it('仅有 stale 的 pass 条目时返回 false', () => {
+    expect(hasPhasePassed([staleEntry('proposal')], 'proposal')).toBe(false);
+  });
+
+  it('空 entries 数组返回 false', () => {
+    expect(hasPhasePassed([], 'proposal')).toBe(false);
+  });
+
+  it('混合 stale + 非 stale 条目时，非 stale 通过则返回 true', () => {
+    const entries = [staleEntry('proposal'), passEntry('proposal')];
+    expect(hasPhasePassed(entries, 'proposal')).toBe(true);
+  });
+
+  it('缺失 stale 字段的 pass 条目视为非 stale（向后兼容）返回 true', () => {
+    const entry = passEntry('proposal');
+    // 显式移除 stale 字段，模拟旧版 eval 条目
+    delete (entry as { stale?: boolean }).stale;
+    expect(entry.stale).toBeUndefined();
+    expect(hasPhasePassed([entry], 'proposal')).toBe(true);
+  });
+
+  it('不同 phase 的 pass 条目不匹配目标 phase（返回 false）', () => {
+    expect(hasPhasePassed([passEntry('dev-design')], 'proposal')).toBe(false);
+  });
+
+  it('多个 phase 条目混存时只匹配目标 phase 的非 stale pass', () => {
+    const entries = [
+      failEntry('proposal'),
+      staleEntry('dev-design'),
+      passEntry('proposal'),
+      skippedEntry('acceptance'),
+    ];
+    expect(hasPhasePassed(entries, 'proposal')).toBe(true);
+    expect(hasPhasePassed(entries, 'dev-design')).toBe(false);
+    expect(hasPhasePassed(entries, 'acceptance')).toBe(true);
   });
 });

@@ -13,7 +13,7 @@ Read:
 
 - `__INSTALL_PLUGIN_ROOT__/templates/artifacts/proposal.md.template` — required structure for convergence
 - The project's CLAUDE.md and existing codebase for context
-- `openspec spec list --json` for the change name to get existing capabilities
+- `mcp__user-dev-team_mcp__spec_list` for the change name to get existing capabilities
 - `openspec/changes/<change-name>/explore.md` — **if it exists, MUST Read** (free-form; no assumed sections). Drafts under `openspec/explores/` are promoted into this path by phase/workflow skills before you run; do not read the inbox unless the change file is missing and a single matching draft remains.
 - `openspec/changes/<change-name>/proposal.md` — **if it exists, MUST Read** before updating
 - Existing `openspec/changes/<change-name>/specs/**` when updating
@@ -27,10 +27,10 @@ Do **not** expect inline `EXPLORE_CONTEXT_SUMMARY` in the prompt. Explore contex
 3. Read `explore.md` if present (entire file, including any appended re-explore notes)
 4. Read existing `proposal.md` and relevant `specs/` if present
 5. Query existing capabilities:
-   ```bash
-   source __INSTALL_PLUGIN_ROOT__/utils/openspec-cli.sh && openspec_spec_list "<name>"
    ```
-   Parse JSON array to classify each capability as 新增 or 修改. If CLI fails or returns `[]`, assume no existing capabilities.
+   mcp__user-dev-team_mcp__spec_list
+   ```
+   Parse JSON array to classify each capability as 新增 or 修改. If MCP call fails or returns `[]`, assume no existing capabilities.
 6. Produce `openspec/changes/<change-name>/proposal.md` using the template structure:
    - **新建**（无已有 proposal）：从 explore 笔记（若有）+ 代码库提炼，填入模板各节
    - **增量更新**（已有 proposal）：合并 explore 中的新结论到既有文稿；保留未冲突的已定稿段落；**禁止**无视旧稿整篇另起

@@ -24,11 +24,13 @@ import {
 import { toJSONSchema } from 'zod/v4';
 
 import * as backtrackCmd from './commands/backtrack';
+import * as changeCreateCmd from './commands/change-create';
 import * as changeListCmd from './commands/change-list';
 import type { ConfigGetResult } from './commands/config-get';
 import * as configGetCmd from './commands/config-get';
 import * as phaseLogCmd from './commands/phase-log';
 import * as phaseNextCmd from './commands/phase-next';
+import * as specListCmd from './commands/spec-list';
 import * as testDetectFrameworksCmd from './commands/test-detect-frameworks';
 import type { ResolveTestPathsResult } from './commands/test-resolve-paths';
 import * as testResolvePathsCmd from './commands/test-resolve-paths';
@@ -37,6 +39,7 @@ import * as archiValidate from './lib/archi-validate';
 import * as archiWrite from './lib/archi-write';
 import * as c4CrossRef from './lib/c4-cross-ref';
 import type { ArchiCheckResult, ArchiQueryResult, ArchiValidateResult } from './lib/c4-types';
+import { getPhaseTable } from './lib/workflow';
 import {
   archiCheckInputSchema,
   archiDecideInputSchema,
@@ -45,11 +48,15 @@ import {
   archiValidateInputSchema,
   archiWriteInputSchema,
   backtrackInputSchema,
+  changeCreateInputSchema,
+  changeCreateOutputSchema,
   changeListInputSchema,
   changeListOutputSchema,
   configGetInputSchema,
   phaseLogInputSchema,
   phaseNextInputSchema,
+  specListInputSchema,
+  specListOutputSchema,
   testDetectFrameworksInputSchema,
   type TestDetectFrameworksResult,
   testResolvePathsInputSchema,
@@ -164,10 +171,12 @@ const EXPECTED_TOOL_NAMES = [
   'archi_validate',
   'archi_write',
   'backtrack',
+  'change_create',
   'change_list',
   'config_get',
   'phase_log',
   'phase_next',
+  'spec_list',
   'test_detect_frameworks',
   'test_resolve_paths',
 ] as const;
@@ -192,8 +201,12 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
     'Detect test framework(s) for given files based on config.json tests suite mappings. When files is omitted, auto-scan the project for files in suite scope. Returns per-file framework detection and a plan built from tests[].',
   test_resolve_paths:
     'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "git-change" — reads git diff HEAD --name-only to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
+  change_create:
+    'Create a new change directory under openspec/changes/ with a default workflow.json metadata file. Validates kebab-case name and rejects existing changes.',
   change_list:
     'List all active (non-archived) changes under openspec/changes/. Returns each change with its artifacts, task progress, and latest eval phase.',
+  spec_list:
+    'Scan openspec/specs/*/spec.md and return a flat list of capabilities with name, path, and description. Replaces the bundled openspec `spec list --json` CLI command.',
   backtrack:
     'Set backtrack target and reason for a phase entry in eval.json. This is the only way to modify backtrack state.',
 };
@@ -202,7 +215,9 @@ const ALL_INPUT_SCHEMAS = [
   ['phase_log', phaseLogInputSchema],
   ['phase_next', phaseNextInputSchema],
   ['backtrack', backtrackInputSchema],
+  ['change_create', changeCreateInputSchema],
   ['change_list', changeListInputSchema],
+  ['spec_list', specListInputSchema],
   ['config_get', configGetInputSchema],
   ['archi_query', archiQueryInputSchema],
   ['archi_validate', archiValidateInputSchema],
@@ -413,10 +428,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
   });
 
   describe('listTools — archi_decide (AC-01)', () => {
-    it('listTools() name 集合经 sort 后严格等于预期 12 个 name', async () => {
+    it('listTools() name 集合经 sort 后严格等于预期 14 个 name', async () => {
       const names = (await getRegisteredToolNames(client)).slice().sort();
       expect(names).toEqual([...EXPECTED_TOOL_NAMES]);
-      expect(names).toHaveLength(12);
+      expect(names).toHaveLength(14);
     });
 
     it('不得包含 list_changed / camelCase 别名', async () => {
@@ -426,10 +441,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('name 集合长度恰好 12；无重复 name', async () => {
+    it('name 集合长度恰好 14；无重复 name', async () => {
       const names = await getRegisteredToolNames(client);
-      expect(names).toHaveLength(12);
-      expect(new Set(names).size).toBe(12);
+      expect(names).toHaveLength(14);
+      expect(new Set(names).size).toBe(14);
     });
 
     it('listTools 含 archi_decide 且无斜杠名 archi/decide', async () => {
@@ -481,7 +496,9 @@ describe('MCP Server (via InMemoryTransport)', () => {
       'phase_log',
       'phase_next',
       'backtrack',
+      'change_create',
       'change_list',
+      'spec_list',
       'config_get',
       'archi_query',
       'archi_validate',
@@ -517,29 +534,33 @@ describe('MCP Server (via InMemoryTransport)', () => {
             ? { key: 'schema' }
             : name === 'change_list'
               ? {}
-              : name === 'phase_next'
-                ? { change: 'c', run_id: 'test-run' }
-                : name === 'phase_log'
-                  ? {
-                      change: 'c',
-                      phase: 'proposal',
-                      report: 'r',
-                      checklist: [{ item: 'i', pass: true, evidence: 'e' }],
-                    }
-                  : name === 'backtrack'
-                    ? {
-                        change: 'c',
-                        phase: 'proposal',
-                        backtrack_to: 'explore',
-                        backtrack_reason: 'r',
-                      }
-                    : name === 'test_resolve_paths'
-                      ? { modules: [] }
-                      : name === 'archi_decide'
-                        ? { action: 'list' }
-                        : name === 'archi_write'
-                          ? { source: 'm', path: 'models/x.likec4' }
-                          : {},
+              : name === 'change_create'
+                ? { name: 'my-change' }
+                : name === 'spec_list'
+                  ? {}
+                  : name === 'phase_next'
+                    ? { change: 'c', run_id: 'test-run' }
+                    : name === 'phase_log'
+                      ? {
+                          change: 'c',
+                          phase: 'proposal',
+                          report: 'r',
+                          checklist: [{ item: 'i', pass: true, evidence: 'e' }],
+                        }
+                      : name === 'backtrack'
+                        ? {
+                            change: 'c',
+                            phase: 'proposal',
+                            backtrack_to: 'explore',
+                            backtrack_reason: 'r',
+                          }
+                        : name === 'test_resolve_paths'
+                          ? { modules: [] }
+                          : name === 'archi_decide'
+                            ? { action: 'list' }
+                            : name === 'archi_write'
+                              ? { source: 'm', path: 'models/x.likec4' }
+                              : {},
         );
         expect(parsed.success).toBe(false);
       }
@@ -844,12 +865,12 @@ describe('MCP Server (via InMemoryTransport)', () => {
     });
   });
 
-  describe('MCP 工具调用 — 全 12 handler', () => {
+  describe('MCP 工具调用 — 全 14 handler', () => {
     afterEach(() => {
       setResolvedRoot(process.cwd());
     });
 
-    it('resolve mock 成功时 12 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
+    it('resolve mock 成功时 14 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -880,7 +901,9 @@ describe('MCP Server (via InMemoryTransport)', () => {
         config_get: vi.spyOn(configGetCmd, 'runConfigGet'),
         test_detect_frameworks: vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
         test_resolve_paths: vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
+        change_create: vi.spyOn(changeCreateCmd, 'runChangeCreate'),
         change_list: vi.spyOn(changeListCmd, 'runChangeList'),
+        spec_list: vi.spyOn(specListCmd, 'runSpecList'),
       };
 
       try {
@@ -912,9 +935,11 @@ describe('MCP Server (via InMemoryTransport)', () => {
           { name: 'config_get', args: { key: 'schema' } },
           { name: 'test_detect_frameworks', args: {} },
           { name: 'test_resolve_paths', args: { modules: ['src/foo.ts'] } },
+          { name: 'change_create', args: { name: 'handler-new-change' } },
           { name: 'change_list', args: {} },
+          { name: 'spec_list', args: {} },
         ];
-        expect(calls).toHaveLength(12);
+        expect(calls).toHaveLength(14);
 
         for (const { name, args } of calls) {
           const result = await client.callTool({
@@ -936,7 +961,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('resolve 抛 not_in_candidates 时 12 个 tool 均 isError 且 spy 次数 0', async () => {
+    it('resolve 抛 not_in_candidates 时 14 个 tool 均 isError 且 spy 次数 0', async () => {
       setResolveError(
         makeResolveError('not_in_candidates', 'x', {
           candidates: [],
@@ -956,7 +981,9 @@ describe('MCP Server (via InMemoryTransport)', () => {
         vi.spyOn(configGetCmd, 'runConfigGet'),
         vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
         vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
+        vi.spyOn(changeCreateCmd, 'runChangeCreate'),
         vi.spyOn(changeListCmd, 'runChangeList'),
+        vi.spyOn(specListCmd, 'runSpecList'),
       ];
       for (const spy of spies) {
         spy.mockClear();
@@ -985,7 +1012,9 @@ describe('MCP Server (via InMemoryTransport)', () => {
         { name: 'config_get', args: { key: 'schema' } },
         { name: 'test_detect_frameworks', args: {} },
         { name: 'test_resolve_paths', args: { modules: [] } },
+        { name: 'change_create', args: { name: 'x' } },
         { name: 'change_list', args: {} },
+        { name: 'spec_list', args: {} },
       ];
 
       try {
@@ -1006,7 +1035,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('12 个 tool 均传入相同合法 project_root 时接线一致', async () => {
+    it('全部 tool 均传入相同合法 project_root 时接线一致（以 change_list 为代表）', async () => {
       const { dir, cleanup } = setupTempProject();
       const withSep = dir.endsWith(path.sep) ? dir : dir + path.sep;
       setResolvedRoot(dir);
@@ -1143,6 +1172,458 @@ describe('MCP Server (via InMemoryTransport)', () => {
           arguments: withProjectRoot({ element: 'sys' }),
         });
         expect(querySpy).toHaveBeenCalledWith(dir, 'sys');
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe('MCP 注册 — change_create (AC-1)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('listTools 返回的 tool names 中包含 change_create，且 EXPECTED_TOOL_NAMES 扩展到 14 (AC-1)', async () => {
+      const names = await getRegisteredToolNames(client);
+      expect(names).toContain('change_create');
+      expect(names).toHaveLength(14);
+    });
+
+    it('change_create 的 inputSchema 包含 name 字段（z.string()）', async () => {
+      const schema = await getToolInputSchema(client, 'change_create');
+      expect(schema).toBeDefined();
+      const props = (schema?.properties ?? {}) as Record<string, unknown>;
+      expect(props).toHaveProperty('name');
+    });
+
+    it('changeCreateInputSchema：name 必填且 kebab-case；缺 name / 缺 project_root 时 safeParse 失败', () => {
+      expect(changeCreateInputSchema.safeParse({ name: 'my-change' }).success).toBe(false);
+      expect(changeCreateInputSchema.safeParse({ project_root: '/tmp/x' }).success).toBe(false);
+      expect(
+        changeCreateInputSchema.safeParse({ name: 'my-change', project_root: '/tmp/x' }).success,
+      ).toBe(true);
+      expect(
+        changeCreateInputSchema.safeParse({ name: 'MyChange', project_root: '/tmp/x' }).success,
+      ).toBe(false);
+    });
+
+    it('changeCreateInputSchema：workflow_type 可选，缺省时 prefault 为 "requirement"；非法值 safeParse 失败', () => {
+      const parsed = changeCreateInputSchema.safeParse({
+        name: 'my-change',
+        project_root: '/tmp/x',
+      });
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.workflow_type).toBe('requirement');
+      }
+      expect(
+        changeCreateInputSchema.safeParse({
+          name: 'my-change',
+          project_root: '/tmp/x',
+          workflow_type: 'test-only',
+        }).success,
+      ).toBe(true);
+      expect(
+        changeCreateInputSchema.safeParse({
+          name: 'my-change',
+          project_root: '/tmp/x',
+          workflow_type: 'unknown-type',
+        }).success,
+      ).toBe(false);
+    });
+
+    it('callTool({ name: "change_create", name: "my-change", project_root: dir }) 时 runChangeCreate spy 被调用且参数正确 (AC-1)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(changeCreateCmd, 'runChangeCreate');
+      try {
+        const result = await client.callTool({
+          name: 'change_create',
+          arguments: withProjectRoot({ name: 'my-change' }, dir),
+        });
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledWith('my-change', dir, 'requirement');
+        const data = JSON.parse(extractText(result));
+        expect(changeCreateOutputSchema.safeParse(data).success).toBe(true);
+        expect(data).toMatchObject({ name: 'my-change' });
+        expect(data.path).toBe(path.resolve(dir, 'openspec', 'changes', 'my-change'));
+      } finally {
+        spy.mockRestore();
+        cleanup();
+      }
+    });
+
+    it('callTool 省略 name → isError 且 runChangeCreate spy 次数为 0', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(changeCreateCmd, 'runChangeCreate');
+      spy.mockClear();
+      const result = await client.callTool({
+        name: 'change_create',
+        arguments: withProjectRoot({}),
+      });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it('callTool name 为空字符串 → isError 且 runChangeCreate spy 次数为 0', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(changeCreateCmd, 'runChangeCreate');
+      spy.mockClear();
+      const result = await client.callTool({
+        name: 'change_create',
+        arguments: withProjectRoot({ name: '' }),
+      });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+  });
+
+  describe('MCP 注册 — spec_list (AC-5)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('listTools 返回的 tool names 中包含 spec_list (AC-5)', async () => {
+      const names = await getRegisteredToolNames(client);
+      expect(names).toContain('spec_list');
+    });
+
+    it('spec_list 的 inputSchema 包含 project_root 字段', async () => {
+      const schema = await getToolInputSchema(client, 'spec_list');
+      expect(schema).toBeDefined();
+      const props = (schema?.properties ?? {}) as Record<string, unknown>;
+      expect(props).toHaveProperty('project_root');
+    });
+
+    it('specListInputSchema：缺 project_root 时 safeParse 失败；带 project_root 通过', () => {
+      expect(specListInputSchema.safeParse({}).success).toBe(false);
+      expect(specListInputSchema.safeParse({ project_root: '/tmp/x' }).success).toBe(true);
+    });
+
+    it('callTool({ name: "spec_list", project_root: dir }) 时 runSpecList spy 被调用且参数正确 (AC-5)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(specListCmd, 'runSpecList');
+      try {
+        const result = await client.callTool({
+          name: 'spec_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(spy).toHaveBeenCalledWith(dir);
+        const data = JSON.parse(extractText(result));
+        expect(specListOutputSchema.safeParse(data).success).toBe(true);
+        expect(data).toMatchObject({ project_root: dir, specs: [] });
+      } finally {
+        spy.mockRestore();
+        cleanup();
+      }
+    });
+
+    it('callTool 省略 project_root → isError 且 runSpecList spy 次数为 0', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(specListCmd, 'runSpecList');
+      spy.mockClear();
+      const result = await client.callTool({ name: 'spec_list', arguments: {} });
+      expect(isToolError(result)).toBe(true);
+      expect(spy).toHaveBeenCalledTimes(0);
+      spy.mockRestore();
+    });
+
+    it('spec_list 返回真实 capability 列表（fixture 目录中的 spec.md）', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        fs.mkdirSync(path.join(dir, 'openspec', 'specs', 'alpha'), { recursive: true });
+        fs.writeFileSync(
+          path.join(dir, 'openspec', 'specs', 'alpha', 'spec.md'),
+          '## alpha\n\nAlpha capability body.',
+          'utf-8',
+        );
+        const result = await client.callTool({
+          name: 'spec_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        expect(isToolError(result)).toBe(false);
+        const data = JSON.parse(extractText(result));
+        expect(specListOutputSchema.safeParse(data).success).toBe(true);
+        expect(data.specs).toHaveLength(1);
+        expect(data.specs[0]).toMatchObject({
+          name: 'alpha',
+          description: 'Alpha capability body.',
+        });
+        expect(data.specs[0].path).toBe(path.join(dir, 'openspec', 'specs', 'alpha', 'spec.md'));
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe('MCP 调用 — 所有 14 个 tool 各 callTool 一次均成功（含 change_create / spec_list）', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('在同一个 MCP server 上 14 个 tool 各调用一次均非 isError 且返回非空文本 (AC-1/AC-5)', async () => {
+      const { dir, cleanup } = setupTempProject({
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
+      });
+      const changeName = 'all-14-fixture';
+      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
+      fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
+      setResolvedRoot(dir);
+
+      const spies = {
+        phase_log: vi.spyOn(phaseLogCmd, 'runPhaseLog').mockReturnValue({
+          written: true,
+          phase: 'proposal',
+          attempt: 1,
+        }),
+        phase_next: vi.spyOn(phaseNextCmd, 'runPhaseNext'),
+        backtrack: vi.spyOn(backtrackCmd, 'runBacktrack').mockReturnValue({
+          modified: true,
+          phase: 'proposal',
+          target: 'explore',
+        }),
+        archi_query: vi.spyOn(archiQuery, 'queryModel'),
+        archi_validate: vi.spyOn(archiValidate, 'validateDsl'),
+        archi_write: vi.spyOn(archiWrite, 'writeDsl'),
+        archi_check: vi.spyOn(c4CrossRef, 'runCrossRefCheck'),
+        archi_decide: vi.spyOn(archiDecide, 'listAdrs'),
+        config_get: vi.spyOn(configGetCmd, 'runConfigGet'),
+        test_detect_frameworks: vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
+        test_resolve_paths: vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
+        change_create: vi.spyOn(changeCreateCmd, 'runChangeCreate'),
+        change_list: vi.spyOn(changeListCmd, 'runChangeList'),
+        spec_list: vi.spyOn(specListCmd, 'runSpecList'),
+      };
+
+      try {
+        const calls: Array<{ name: string; args: Record<string, unknown> }> = [
+          {
+            name: 'phase_log',
+            args: {
+              change: changeName,
+              phase: 'proposal',
+              report: 'r',
+              checklist: [{ item: 'i', pass: true, evidence: 'e' }],
+            },
+          },
+          { name: 'phase_next', args: { change: changeName, run_id: 'test-run' } },
+          {
+            name: 'backtrack',
+            args: {
+              change: changeName,
+              phase: 'proposal',
+              backtrack_to: 'explore',
+              backtrack_reason: 'r',
+            },
+          },
+          { name: 'archi_query', args: {} },
+          { name: 'archi_validate', args: { source: 'model m' } },
+          { name: 'archi_write', args: { source: 'model m', path: 'models/x.likec4' } },
+          { name: 'archi_check', args: { staged: false } },
+          { name: 'archi_decide', args: { action: 'list' } },
+          { name: 'config_get', args: { key: 'schema' } },
+          { name: 'test_detect_frameworks', args: {} },
+          { name: 'test_resolve_paths', args: { modules: ['src/foo.ts'] } },
+          { name: 'change_create', args: { name: 'new-change-14' } },
+          { name: 'change_list', args: {} },
+          { name: 'spec_list', args: {} },
+        ];
+        expect(calls).toHaveLength(14);
+
+        for (const { name, args } of calls) {
+          const result = await client.callTool({
+            name,
+            arguments: withProjectRoot(args, dir),
+          });
+          expect(isToolError(result)).toBe(false);
+          expect(extractText(result).length).toBeGreaterThan(0);
+        }
+
+        for (const spy of Object.values(spies)) {
+          expect(spy.mock.calls.length).toBeGreaterThanOrEqual(1);
+        }
+      } finally {
+        for (const spy of Object.values(spies)) {
+          spy.mockRestore();
+        }
+        cleanup();
+      }
+    });
+  });
+
+  describe('MCP 调用 — change_list workflow_done (AC-6)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    function writeDoneChange(
+      dir: string,
+      changeName: string,
+      options: { workflowJson?: Record<string, unknown>; evalEntries?: unknown[] },
+    ): void {
+      const changeDir = path.join(dir, 'openspec', 'changes', changeName);
+      fs.mkdirSync(changeDir, { recursive: true });
+      if (options.workflowJson !== undefined) {
+        fs.writeFileSync(
+          path.join(changeDir, 'workflow.json'),
+          JSON.stringify(options.workflowJson),
+          'utf-8',
+        );
+      }
+      if (options.evalEntries !== undefined) {
+        fs.writeFileSync(
+          path.join(changeDir, 'eval.json'),
+          JSON.stringify(options.evalEntries),
+          'utf-8',
+        );
+      }
+    }
+
+    function allPassEvalEntries(): unknown[] {
+      return getPhaseTable('requirement').map((phase) => ({
+        phase: phase.id,
+        verdict: 'pass',
+        attempt: 1,
+        timestamp: '2026-08-14T12:00:00.000Z',
+        report: 'test',
+        checklist: [],
+        backtrack_to: null,
+      }));
+    }
+
+    it('所有 phase 有非 stale pass 的 change，workflow_done 为 true (AC-6)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'done-change', {
+          workflowJson: { workflow_type: 'requirement' },
+          evalEntries: allPassEvalEntries(),
+        });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        expect(isToolError(result)).toBe(false);
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'done-change');
+        expect(entry.workflow_done).toBe(true);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('缺少 pass 的 change，workflow_done 为 false (AC-6)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'incomplete', {
+          workflowJson: { workflow_type: 'requirement' },
+          evalEntries: [
+            {
+              phase: 'proposal',
+              verdict: 'pass',
+              attempt: 1,
+              timestamp: '2026-08-14T12:00:00.000Z',
+              report: 'r',
+              checklist: [],
+              backtrack_to: null,
+            },
+          ],
+        });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'incomplete');
+        expect(entry.workflow_done).toBe(false);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('workflow_done 字段类型为 boolean，changeListOutputSchema 解析通过 (AC-6)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'typed-change', {
+          workflowJson: { workflow_type: 'requirement' },
+          evalEntries: allPassEvalEntries(),
+        });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        const data = JSON.parse(extractText(result));
+        const parsed = changeListOutputSchema.safeParse(data);
+        expect(parsed.success).toBe(true);
+        if (!parsed.success) return;
+        const entry = parsed.data.changes.find((c) => c.name === 'typed-change');
+        expect(typeof entry?.workflow_done).toBe('boolean');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('eval.json 缺失时 workflow_done 为 false，不崩溃', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'no-eval', { workflowJson: { workflow_type: 'requirement' } });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        expect(isToolError(result)).toBe(false);
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'no-eval');
+        expect(entry.workflow_done).toBe(false);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('空 eval.json（[]）时 workflow_done 为 false', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'empty-eval', {
+          workflowJson: { workflow_type: 'requirement' },
+          evalEntries: [],
+        });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'empty-eval');
+        expect(entry.workflow_done).toBe(false);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('无 workflow.json 时 workflow_done 为 false', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'no-workflow', { evalEntries: allPassEvalEntries() });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'no-workflow');
+        expect(entry.workflow_done).toBe(false);
       } finally {
         cleanup();
       }
@@ -1293,7 +1774,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('全 12 handler 中 phase_next 故意省略 run_id → 该条 isError', async () => {
+    it('全 14 handler 中 phase_next 故意省略 run_id → 该条 isError', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -1641,10 +2122,12 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
     'test_detect_frameworks',
     'test_resolve_paths',
     'change_list',
+    'change_create',
+    'spec_list',
     'backtrack',
   ] as const;
 
-  it('按注册顺序对每次调用断言 name/description；调用次数恰好 12', async () => {
+  it('按注册顺序对每次调用断言 name/description；调用次数恰好 14', async () => {
     mockResolve.root = process.cwd();
     mockResolve.throwError = null;
     const registerSpy = vi.spyOn(McpServer.prototype, 'registerTool');
@@ -1657,9 +2140,9 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
       client = new Client({ name: 'reg-spy', version: '1.0.0' }, { capabilities: {} });
       await client.connect(clientTransport);
 
-      expect(registerSpy).toHaveBeenCalledTimes(12);
+      expect(registerSpy).toHaveBeenCalledTimes(14);
       const names: string[] = [];
-      for (let i = 0; i < 12; i++) {
+      for (let i = 0; i < 14; i++) {
         const call = registerSpy.mock.calls[i];
         const name = call[0] as string;
         const config = call[1] as { description?: unknown };

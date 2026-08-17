@@ -1,7 +1,6 @@
 import { readdirSync, statSync } from 'node:fs';
 import { extname, join, relative } from 'node:path';
 
-const EXCLUDE_BASENAMES = new Set(['openspec-bundled.js']);
 const EXCLUDE_EXTENSIONS = new Set(['.map', '.png', '.jpg', '.jpeg', '.gif', '.webp', '.ico']);
 const TEXT_EXTENSIONS = new Set([
   '.md',
@@ -23,11 +22,10 @@ const TEXT_EXTENSIONS = new Set([
 
 function isTextFile(filePath: string): boolean {
   const base = filePath.replace(/\\/g, '/').split('/').pop() ?? '';
-  if (EXCLUDE_BASENAMES.has(base)) return false;
   const ext = extname(base).toLowerCase();
   if (EXCLUDE_EXTENSIONS.has(ext)) return false;
   if (ext === '') {
-    // extensionless scripts such as bin/openspec
+    // extensionless scripts (e.g. bash wrappers) are treated as text
     return !base.includes('.');
   }
   return TEXT_EXTENSIONS.has(ext);

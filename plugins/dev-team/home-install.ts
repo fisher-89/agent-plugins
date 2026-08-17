@@ -110,7 +110,7 @@ function expandPathTokens(text: string, absoluteRoot: string): string {
 function writeExpanded(srcFile: string, destFile: string, absoluteRoot: string): void {
   mkdirSync(path.dirname(destFile), { recursive: true });
   const base = path.basename(srcFile);
-  if (base === 'openspec-bundled.js' || base.endsWith('.map')) {
+  if (base.endsWith('.map')) {
     writeFileSync(destFile, readFileSync(srcFile));
     return;
   }

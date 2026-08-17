@@ -34,8 +34,16 @@ Call `mcp__user-dev-team_mcp__change_list()` to get active changes.
 
 Only reached when starting a **new** change (not resuming an existing one).
 
-```bash
-openspec new change "<name>"
+Use `AskQuestion` to confirm the workflow type (default `requirement`):
+
+**Options:**
+- `requirement` — full development + test pipeline
+- `bug-fix` — simplified fix pipeline
+- `refactor` — full pipeline for refactoring
+- `test-only` — supplement tests only
+
+```
+mcp__user-dev-team_mcp__change_create({ name: "<name>", workflow_type: "<choice>" })
 ```
 
 Then **promote explore draft** (mechanical move, not rewrite):

@@ -51,14 +51,8 @@ Call `__MCP:change_list__()` to get active changes.
 
 Only reached when starting a **new** change.
 
-```bash
-openspec new change "<change-name>"
 ```
-
-Write `openspec/changes/<change-name>/workflow.json` without BOM:
-
-```json
-{ "workflow_type": "test-only" }
+__MCP:change_create__({ name: "<change-name>", workflow_type: "test-only" })
 ```
 
 **Promote explore draft** (mechanical move):

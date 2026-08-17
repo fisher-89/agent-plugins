@@ -24,6 +24,12 @@ export {
 } from './test-resolve-paths.schema';
 export { changeListInputSchema, changeListOutputSchema } from './change-list.schema';
 export { backtrackInputSchema, backtrackOutputSchema } from './backtrack.schema';
+export {
+  changeCreateInputSchema,
+  changeCreateOutputSchema,
+  kebabCasePattern,
+} from './change-create.schema';
+export { specListInputSchema, specListOutputSchema } from './spec-list.schema';
 export { configSchema } from './config/config.schema';
 export type {
   OpenSpecConfig,

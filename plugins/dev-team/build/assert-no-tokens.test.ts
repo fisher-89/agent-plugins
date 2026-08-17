@@ -70,9 +70,9 @@ describe('assertNoNameTokens', () => {
 
   it('仅二进制 / 排除扩展名文件含疑似字节时不误报', () => {
     const root = makeTempDir();
-    writeFileSync(join(root, 'openspec-bundled.js'), '__MCP:phase_log__');
-    writeFileSync(join(root, 'x.map'), '__SKILL:explore__');
-    writeFileSync(join(root, 'pic.png'), Buffer.from('__AGENT:foo__'));
+    writeFileSync(join(root, 'x.map'), '__MCP:phase_log__');
+    writeFileSync(join(root, 'pic.png'), Buffer.from('__SKILL:explore__'));
+    writeFileSync(join(root, 'pic.gif'), Buffer.from('__AGENT:foo__'));
     expect(() => assertNoNameTokens(root, getEnv('claude'))).not.toThrow();
   });
 

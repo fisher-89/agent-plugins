@@ -2,7 +2,7 @@ import { defineConfig, type UserConfig } from 'vite-plus';
 
 import { assembleAll, generateConfigJsonSchema } from './build';
 
-const NO_OXC_FILES = ['bin/openspec-bundled.js', 'bin/dev-team-config.schema.json', '*.md'];
+const NO_OXC_FILES = ['bin/dev-team-config.schema.json', '*.md'];
 const BIN_ENTRIES = ['mcp', 'cli', 'hooks'] as const;
 
 type PackConfig = NonNullable<Exclude<UserConfig['pack'], Array<unknown>>>;

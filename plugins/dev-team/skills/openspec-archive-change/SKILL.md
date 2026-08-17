@@ -1,12 +1,6 @@
 ---
 name: __SKILL:openspec-archive-change__
 description: Archive a completed change in the experimental workflow. Use when the user wants to finalize and archive a change after implementation is complete.
-license: MIT
-compatibility: Requires openspec CLI.
-metadata:
-  author: openspec
-  version: "1.0"
-  generatedBy: "1.2.0"
 ---
 
 Archive a completed change in the experimental workflow.
@@ -15,45 +9,32 @@ Archive a completed change in the experimental workflow.
 
 **Steps**
 
-1. **If no change name provided, prompt for selection**
+1. **Resolve the change and check completion status**
 
-   Call `__MCP:change_list__` to get available changes. Use the `__TOOL_ASK_USER__` to let the user select.
+   Call `__MCP:change_list__` once to get all active changes (not archived).
 
-   Show only active changes (not already archived).
-   Include the schema used for each change if available.
+   **If a change name was provided** — find the entry whose `name` is `"<name>"`.
 
-   **IMPORTANT**: Do NOT guess or auto-select a change. Always let the user choose.
+   **If no change name was provided** — use `__TOOL_ASK_USER__` to let the user
+   select from the active changes. Include the schema used for each change if
+   available. **IMPORTANT**: Do NOT guess or auto-select a change. Always let
+   the user choose.
 
-2. **Check artifact completion status**
+   Parse the resolved entry to understand:
+   - `artifacts`: Present artifact filenames (e.g. proposal.md, design.md, tasks.md, eval.json)
+   - `workflow_done`: Whether all workflow phases have a non-stale pass/skipped entry
 
-   Run `openspec status --change "<name>" --json` to check artifact completion.
+   **If the change is missing from the result:**
+   - Display warning that the change was not found
+   - Use `__TOOL_ASK_USER__` to confirm user wants to proceed
+   - Proceed if user confirms
 
-   Parse the JSON to understand:
-   - `schemaName`: The workflow being used
-   - `artifacts`: List of artifacts with their status (`done` or other)
-
-   **If any artifacts are not `done`:**
+   **If any required artifacts are missing or `workflow_done` is `false`:**
    - Display warning listing incomplete artifacts
    - Use `__TOOL_ASK_USER__` to confirm user wants to proceed
    - Proceed if user confirms
 
-3. **Check phase evaluation status**
-
-   Call `__MCP:phase_check__` with change="<name>" and phase="acceptance" to validate the PGE eval chain.
-
-   Parse the result to check:
-   - `passed`: Overall evaluation status
-   - `passed`: Overall evaluation status (top-level)
-   - `details`: Structured phase validation details including gate, timestamp order, backtrack state
-
-   **If eval check fails:**
-   - Display warning with the eval check failure message
-   - Use `__TOOL_ASK_USER__` to confirm user wants to proceed
-   - Proceed if user confirms
-
-   **If eval.json not found:** Proceed without eval-related warning.
-
-4. **Assess delta spec sync state**
+2. **Assess delta spec sync state**
 
    Check for delta specs at `openspec/changes/<name>/specs/`. If none exist, proceed without sync prompt.
 
@@ -66,9 +47,32 @@ Archive a completed change in the experimental workflow.
    - If changes needed: "Sync now (recommended)", "Archive without syncing"
    - If already synced: "Archive now", "Sync anyway", "Cancel"
 
-   If user chooses sync, use Task tool (subagent_type: "__AGENT_GENERAL_PURPOSE__", prompt: "Use Skill tool to invoke openspec-sync-specs for change '<name>'. Delta spec analysis: <include the analyzed delta spec summary>"). Proceed to archive regardless of choice.
+   If user chooses sync, apply the delta specs to the main specs directly. For each
+   capability with a delta spec at `openspec/changes/<name>/specs/<capability>/spec.md`:
 
-5. **Perform the archive**
+   a. **Read the delta spec** and the main spec at `openspec/specs/<capability>/spec.md`
+      (the main spec may not exist yet).
+
+   b. **Apply each section intelligently** — the delta expresses *intent*, not a
+      wholesale replacement; preserve main-spec content the delta does not mention:
+
+      - **`## ADDED Requirements`** — add the requirement if absent; if it already
+        exists, update it to match.
+      - **`## MODIFIED Requirements`** — apply the increment only: add new scenarios,
+        modify listed scenarios, or change the description, without copying
+        existing scenarios.
+      - **`## REMOVED Requirements`** — remove the entire requirement block.
+      - **`## RENAMED Requirements`** — rename the `FROM:` requirement to `TO:`.
+
+   c. **Create the main spec** at `openspec/specs/<capability>/spec.md` if the
+      capability does not exist yet: add a brief `## Purpose` section (TBD is fine)
+      plus the ADDED requirements.
+
+   The merge SHOULD be idempotent (re-running produces the same result).
+
+   Proceed to archive regardless of choice.
+
+3. **Perform the archive**
 
    Create the archive directory if it doesn't exist:
    ```bash
@@ -85,7 +89,7 @@ Archive a completed change in the experimental workflow.
    mv openspec/changes/<name> openspec/changes/archive/YYYY-MM-DD-<name>
    ```
 
-6. **Display summary**
+4. **Display summary**
 
    Show archive completion summary including:
    - Change name
@@ -109,9 +113,6 @@ All artifacts complete. Eval chain passed.
 
 **Guardrails**
 - Always prompt for change selection if not provided
-- Use artifact graph (openspec status --json) for completion checking
+- Use `__MCP:change_list__` (`artifacts` + `workflow_done`) for completion checking
 - Don't block archive on warnings - just inform and confirm
-- Preserve .openspec.yaml when moving to archive (it moves with the directory)
-- Show clear summary of what happened
-- If sync is requested, use openspec-sync-specs approach (agent-driven)
 - If delta specs exist, always run the sync assessment and show the combined summary before prompting

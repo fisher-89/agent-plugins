@@ -2,7 +2,7 @@
  * 单元测试: scan-files.ts — 宽 include / 窄 exclude 文本枚举
  */
 
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 
@@ -71,16 +71,16 @@ describe('scanTextFiles', () => {
     expect(threw || result?.length === 0).toBe(true);
   });
 
-  it('排除 openspec-bundled.js、.map 与二进制扩展名', () => {
+  it('排除 .map 与二进制扩展名，但 .js 作为文本文件被枚举', () => {
     const root = makeTempDir();
     writeFileSync(join(root, 'keep.md'), 'ok');
-    writeFileSync(join(root, 'openspec-bundled.js'), 'bundle');
+    writeFileSync(join(root, 'app.js'), 'bundle');
     writeFileSync(join(root, 'x.map'), 'map');
     writeFileSync(join(root, 'pic.png'), Buffer.from([1, 2, 3]));
     writeFileSync(join(root, 'pic.jpg'), Buffer.from([1, 2, 3]));
 
     const files = scanTextFiles(root);
-    expect(files).toEqual(['keep.md']);
+    expect(files.sort()).toEqual(['app.js', 'keep.md'].sort());
   });
 
   it('空目录返回空列表', () => {
@@ -96,5 +96,61 @@ describe('scanTextFiles', () => {
     }
     const files = scanTextFiles(root);
     expect(files).toHaveLength(120);
+  });
+
+  it('openspec-bundled.js 不再被排除，scanTextFiles 返回结果中包含该文件', () => {
+    const root = makeTempDir();
+    writeFileSync(join(root, 'openspec-bundled.js'), 'bundle');
+    writeFileSync(join(root, 'keep.md'), 'ok');
+    const files = scanTextFiles(root);
+    expect(files).toContain('openspec-bundled.js');
+    expect(files).toContain('keep.md');
+  });
+
+  it('EXCLUDE_BASENAMES 集合为空，不基于文件名排除任何文本文件', () => {
+    const root = makeTempDir();
+    writeFileSync(join(root, 'config.json'), '{}');
+    writeFileSync(join(root, 'main.js'), 'x');
+    const files = scanTextFiles(root);
+    expect(files.sort()).toEqual(['config.json', 'main.js'].sort());
+  });
+
+  it('rootDir 指向文件而非目录时返回空数组（不抛错）', () => {
+    const root = makeTempDir();
+    const filePath = join(root, 'a.md');
+    writeFileSync(filePath, '# a');
+    expect(statSync(filePath).isDirectory()).toBe(false);
+    expect(scanTextFiles(filePath)).toEqual([]);
+  });
+
+  it('rootDir 含 emoji 与 unicode 非 ASCII 字符时按 OS 路径规则处理', () => {
+    const root = makeTempDir();
+    const sub = join(root, '技能-🚀');
+    mkdirSync(sub, { recursive: true });
+    writeFileSync(join(sub, '指南.md'), '文档');
+    const files = scanTextFiles(sub);
+    expect(files).toEqual(['指南.md']);
+    // 不存在的 unicode 路径按 statSync 语义抛 ENOENT
+    expect(() => scanTextFiles(join(root, '不存在-💥'))).toThrow();
+  });
+
+  it('rootDir 超长路径（>260 字符）不吞没 statSync 异常', () => {
+    const root = makeTempDir();
+    const longPath = join(root, 'x'.repeat(300));
+    const filePath = join(longPath, 'a.md');
+    let threw = false;
+    try {
+      mkdirSync(longPath, { recursive: true });
+      writeFileSync(filePath, 'x');
+    } catch {
+      threw = true;
+    }
+    // Windows MAX_PATH（260 字符）以上的绝对路径通常无法创建/访问
+    if (threw) {
+      expect(() => scanTextFiles(longPath)).toThrow();
+      return;
+    }
+    // 长路径可用的平台（如 \?\ 前缀或非 Windows）仍能正常扫描
+    expect(scanTextFiles(longPath)).toEqual(['a.md']);
   });
 });

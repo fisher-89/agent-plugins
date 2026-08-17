@@ -4,11 +4,54 @@ import * as path from 'path';
 import type z from 'zod/v4';
 
 import { readEvalJson } from '../lib/eval-json';
+import { getPhaseTable } from '../lib/workflow';
 import { type changeListOutputSchema } from '../schemas';
+import { isPlainObject } from '../utils';
+import { hasPhasePassed } from './phase-next';
 
 type ChangeListResult = z.output<typeof changeListOutputSchema>;
 
 const KNOWN_ARTIFACTS = ['proposal.md', 'design.md', 'tasks.md', 'test-design.md', 'eval.json'];
+const WORKFLOW_JSON = 'workflow.json';
+
+/**
+ * Read the `workflow_type` from `openspec/changes/<change>/workflow.json`.
+ * Returns `null` when the file is missing, unreadable, malformed, or lacks a
+ * usable `workflow_type` string — callers treat `null` as "workflow not done".
+ */
+function readWorkflowType(changeDir: string): string | null {
+  const filePath = path.join(changeDir, WORKFLOW_JSON);
+  if (!fs.existsSync(filePath)) return null;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
+  } catch {
+    return null;
+  }
+  if (!isPlainObject(parsed) || typeof parsed.workflow_type !== 'string') return null;
+  return parsed.workflow_type === '' ? null : parsed.workflow_type;
+}
+
+/**
+ * Compute whether the change's workflow is complete: every phase in the
+ * workflow's phase table has a non-stale pass/skipped entry in eval.json.
+ *
+ * Returns `false` (never throws) when workflow.json or eval.json is missing,
+ * malformed, or the eval entry set is incomplete.
+ */
+function computeWorkflowDone(changeDir: string): boolean {
+  const workflowType = readWorkflowType(changeDir);
+  if (workflowType === null) return false;
+
+  let entries: ReturnType<typeof readEvalJson>;
+  try {
+    entries = readEvalJson(changeDir);
+  } catch {
+    return false;
+  }
+
+  return getPhaseTable(workflowType).every((phase) => hasPhasePassed(entries, phase.id));
+}
 
 /**
  * Count total and completed tasks in a tasks.md file.
@@ -72,6 +115,7 @@ function processChangeEntry(
     artifacts,
     tasks,
     latest_phase: latestPhase,
+    workflow_done: computeWorkflowDone(changeDir),
   };
 }
 

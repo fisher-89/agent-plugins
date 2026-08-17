@@ -200,7 +200,7 @@ function computeRound(window: EvalEntry[]): number {
  * Entries with `stale: true` are ignored.
  * Entries without a `stale` field are treated as `stale: false` (backward compatible).
  */
-function hasPhasePassed(entries: EvalEntry[], phaseId: string): boolean {
+export function hasPhasePassed(entries: EvalEntry[], phaseId: string): boolean {
   return entries.some(
     (e) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true) && !e.stale,
   );

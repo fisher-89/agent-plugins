@@ -59,3 +59,4 @@
 - [x] 将工具名称也纳入环境变量，适配不同AGENT
 - [x] 构建cursor生态产物时，不生成subAgentStop hook（规避cursor bug）；作为替代，在cursor产物对应agent的上下文加入步骤“执行static_check并修复问题”；
 - [ ] 禁止test-gen js使用`process.chdir、process.setuid、process.setgid、process.umask`，stryker使用worker环境运行，出现上述api会报错
+- [ ] change目录管理新增/修改/删除的文件清单，避免强依赖git diff。后续基于清单做突变输入，检查测试范围是否有遗漏。

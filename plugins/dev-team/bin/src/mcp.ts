@@ -4,10 +4,12 @@ import { type Transport } from '@modelcontextprotocol/sdk/shared/transport';
 import { type z, type ZodType } from 'zod/v4';
 
 import { runBacktrack } from './commands/backtrack';
+import { runChangeCreate } from './commands/change-create';
 import { runChangeList } from './commands/change-list';
 import { runConfigGet } from './commands/config-get';
 import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
+import { runSpecList } from './commands/spec-list';
 import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
 import { runTestResolvePaths } from './commands/test-resolve-paths';
 import {
@@ -40,6 +42,10 @@ import {
   testResolvePathsOutputSchema,
   changeListInputSchema,
   changeListOutputSchema,
+  changeCreateInputSchema,
+  changeCreateOutputSchema,
+  specListInputSchema,
+  specListOutputSchema,
 } from './schemas';
 
 function jsonContent<S extends ZodType>(_outputSchema: S, data: z.output<S>) {
@@ -302,6 +308,38 @@ const MCP_TOOLS = [
           return jsonContent(changeListOutputSchema, result);
         },
       ),
+  },
+  {
+    name: 'change_create',
+    description:
+      'Create a new change directory under openspec/changes/ with a default workflow.json metadata file. Validates kebab-case name and rejects existing changes.',
+    inputSchema: changeCreateInputSchema,
+    outputSchema: changeCreateOutputSchema,
+    handler: async (
+      args: z.input<typeof changeCreateInputSchema>,
+    ): Promise<McpOutput<typeof changeCreateOutputSchema>> =>
+      withResolvedProjectRoot(
+        'change_create',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const result = runChangeCreate(args.name, projectRoot, args.workflow_type);
+          return jsonContent(changeCreateOutputSchema, result);
+        },
+      ),
+  },
+  {
+    name: 'spec_list',
+    description:
+      'Scan openspec/specs/*/spec.md and return a flat list of capabilities with name, path, and description. Replaces the bundled openspec `spec list --json` CLI command.',
+    inputSchema: specListInputSchema,
+    outputSchema: specListOutputSchema,
+    handler: async (
+      args: z.input<typeof specListInputSchema>,
+    ): Promise<McpOutput<typeof specListOutputSchema>> =>
+      withResolvedProjectRoot('spec_list', args as Record<string, unknown>, async (projectRoot) => {
+        const result = runSpecList(projectRoot);
+        return jsonContent(specListOutputSchema, result);
+      }),
   },
   {
     name: 'backtrack',

@@ -26,6 +26,7 @@ const changeEntrySchema = z.object({
     })
     .nullable()
     .describe('Latest eval.json entry summary, null if eval.json does not exist or is empty'),
+  workflow_done: z.boolean().describe('所有 phase 是否已完成（非 stale 的 pass/skipped）'),
 });
 
 export const changeListOutputSchema = z.object({

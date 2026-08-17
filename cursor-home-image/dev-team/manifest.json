@@ -1,5 +1,5 @@
 {
-  "version": "2.10.29",
+  "version": "2.10.30",
   "namePrefix": "dev-team_",
   "managedPaths": [
     "agents/dev-team_acceptance-evaluator.md",
@@ -22,9 +22,6 @@
     "bin/dev-team_cli.cjs",
     "bin/dev-team_hooks.cjs",
     "bin/dev-team_mcp.cjs",
-    "bin/openspec",
-    "bin/openspec-bundled.js",
-    "bin/openspec.cmd",
     "hooks.json",
     "install.mjs",
     "manifest.json",
@@ -49,8 +46,7 @@
     "templates/model.c4",
     "templates/test-jest.js",
     "templates/test-pytest.py",
-    "templates/test-rust.rs",
-    "utils/openspec-cli.sh"
+    "templates/test-rust.rs"
   ],
   "mcpFragment": "mcp.json",
   "hooksFile": "hooks.json"

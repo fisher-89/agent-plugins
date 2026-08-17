@@ -17,7 +17,6 @@ import { buildHooksFile } from './hooks-profile';
 import { scanTextFiles } from './scan-files';
 
 const STAGING_BIN = '.pack-staging/bin';
-const STATIC_BIN_FILES = ['bin/openspec', 'bin/openspec-bundled.js', 'bin/openspec.cmd'];
 
 function sourcePath(...segments: string[]): string {
   return join(process.cwd(), ...segments);
@@ -49,15 +48,8 @@ function writeText(filePath: string, content: string): void {
 }
 
 function copyStaticAssets(env: ProductEnv): void {
-  for (const dir of ['templates', 'utils']) {
-    cpSync(sourcePath(dir), join(env.outDir, dir), { recursive: true });
-  }
-  for (const file of STATIC_BIN_FILES) {
-    if (!existsSync(sourcePath(file))) continue;
-    cpSync(sourcePath(file), join(env.outDir, file));
-  }
+  cpSync(sourcePath('templates'), join(env.outDir, 'templates'), { recursive: true });
 }
-
 function copySkills(env: ProductEnv): string[] {
   const managed: string[] = [];
   const skillsRoot = 'skills';
@@ -152,21 +144,11 @@ async function writeHomeExtras(env: ProductEnv, managedPaths: string[]): Promise
   if (env.layout !== 'home-image') return;
   const { version } = await import('../package.json');
   cpSync(sourcePath('.pack-staging/install.mjs'), join(env.outDir, 'install.mjs'));
-  const extraManaged = [
-    ...managedPaths,
-    'bin/openspec',
-    'bin/openspec-bundled.js',
-    'bin/openspec.cmd',
-    'hooks.json',
-    'mcp.json',
-    'install.mjs',
-    'manifest.json',
-  ];
-  for (const dir of ['templates', 'utils']) {
-    const root = join(env.outDir, dir);
-    if (!existsSync(root)) continue;
-    for (const rel of scanTextFiles(root)) {
-      extraManaged.push(`${dir}/${rel}`);
+  const extraManaged = [...managedPaths, 'hooks.json', 'mcp.json', 'install.mjs', 'manifest.json'];
+  const templates = join(env.outDir, 'templates');
+  if (existsSync(templates)) {
+    for (const rel of scanTextFiles(templates)) {
+      extraManaged.push(`templates/${rel}`);
     }
   }
   const manifest: HomeManifest = {

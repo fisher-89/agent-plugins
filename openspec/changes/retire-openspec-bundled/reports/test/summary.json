@@ -1,0 +1,78 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-08-14T13:06:33.209Z",
+  "duration_seconds": 1005,
+  "total": 1668,
+  "passed": 1668,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 95.8,
+      "branches": 87.79,
+      "functions": 98.66
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 39,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 86.94,
+    "threshold": 70,
+    "measured": {
+      "killed": 492,
+      "survived": 64,
+      "timeout": 107,
+      "noCoverage": 26,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 108,
+      "total": 797,
+      "detected": 599,
+      "undetected": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 86.93759071117562,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 39,
+        "passed_count": 39
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/retire-openspec-bundled/reports/test/plugins_dev-team_vite-plus"
+    }
+  ]
+}

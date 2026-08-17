@@ -1,6 +1,6 @@
 {
   "name": "dev-team-cli",
-  "version": "2.10.29",
+  "version": "2.10.30",
   "private": true,
   "description": "dev-team CLI - eval-log command for OpenSpec workflow",
   "type": "module",
