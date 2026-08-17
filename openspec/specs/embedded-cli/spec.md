@@ -5,30 +5,6 @@ TBD - created by archiving change embed-openspec-remove-likec4. Update Purpose a
 
 ## Requirements
 
-### Requirement: Plugin bundles openspec CLI in bin directory
-The plugin SHALL include the `@fission-ai/openspec` npm package installed at `plugins/dev-team/bin/node_modules/@fission-ai/openspec/`, with a wrapper executable at `plugins/dev-team/bin/openspec` that forwards CLI arguments.
-
-#### Scenario: openspec wrapper forwards commands
-- **WHEN** the wrapper is invoked with arguments (e.g., `openspec list --json`)
-- **THEN** it SHALL execute `node <bin>/node_modules/@fission-ai/openspec/bin/openspec.js` with the same arguments
-- **AND** exit with the same exit code
-
-#### Scenario: openspec CLI not found triggers auto-install
-- **WHEN** `plugins/dev-team/bin/node_modules/@fission-ai/openspec/` does not exist
-- **THEN** the SessionStart hook SHALL attempt to run `npm install @fission-ai/openspec@<version>` in `plugins/dev-team/bin/`
-- **AND** report success or failure to the user
-
-### Requirement: SessionStart hook checks embedded openspec instead of global
-The SessionStart hook SHALL verify the embedded openspec at `plugins/dev-team/bin/node_modules/@fission-ai/openspec/` is available, rather than checking for a globally installed `openspec` command.
-
-#### Scenario: Embedded openspec is ready
-- **WHEN** the wrapper at `plugins/dev-team/bin/openspec` exists and is executable
-- **THEN** the hook SHALL pass without issuing any warning
-
-#### Scenario: Embedded openspec not found and auto-install fails
-- **WHEN** the embedded directory does not exist and `npm install` fails (network error, permission, etc.)
-- **THEN** the hook SHALL output a clear error message with manual installation instructions
-
 ### Requirement: CLI registers eval-check subcommand
 The TypeScript CLI SHALL register an `eval-check` subcommand via `registerEvalCheckCommand(cli)` in `bin/src/index.ts`.
 The subcommand SHALL be registered using the `cac` declarative API pattern consistent with `eval-log`:
@@ -133,7 +109,41 @@ The subcommand SHALL be registered using the `cac` declarative API pattern consi
 - **WHEN** 运行 `pnpm test` 在 `plugins/dev-team/bin/`
 - **THEN** mock 命令返回非零 exit code 时，测试断言 CLI exit 非 `0`
 
+### Requirement: Plugin no longer embeds openspec CLI
+
+The plugin SHALL NOT include `openspec-bundled.js`, `bin/openspec`, or `bin/openspec.cmd` in its source tree or build products. The three previously-embedded commands (`new change`, `status --json`, `spec list --json`) are replaced by MCP tools.
+
+#### Scenario: No openspec CLI files in source
+
+- **WHEN** examining `plugins/dev-team/bin/` after the change
+- **THEN** `openspec-bundled.js` SHALL NOT exist
+- **AND** `bin/openspec` and `bin/openspec.cmd` SHALL NOT exist
+- **AND** `utils/openspec-cli.sh` SHALL NOT exist
+
+#### Scenario: No openspec CLI files in build products
+
+- **WHEN** examining the build products (`claude-plugins/dev-team/`, `cursor-plugins/dev-team/`, `cursor-home-image/dev-team/`)
+- **THEN** `openspec-bundled.js` SHALL NOT exist in any `bin/` directory
+- **AND** `bin/openspec` and `bin/openspec.cmd` SHALL NOT exist
+
 ## Module Contract
+
+### 删除的文件
+
+| 文件 | 说明 |
+|------|------|
+| `plugins/dev-team/bin/openspec-bundled.js` | 2.7MB esbuild 打包的 @fission-ai/openspec 全量 |
+| `plugins/dev-team/bin/openspec` | bash wrapper |
+| `plugins/dev-team/bin/openspec.cmd` | Windows wrapper |
+| `plugins/dev-team/utils/openspec-cli.sh` | openspec CLI 的 shell 封装 |
+
+### 替代的 MCP 工具
+
+| 旧命令 | 新工具 |
+|--------|--------|
+| `openspec new change "<name>"` | `__MCP:change_create__` |
+| `openspec status --json` | `__MCP:change_list__`（含 `workflow_done`） |
+| `openspec spec list --json` | `__MCP:spec_list__` |
 
 ### CLI 入口：`plugins/dev-team/bin/src/cli.ts`
 

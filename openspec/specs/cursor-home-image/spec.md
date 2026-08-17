@@ -138,6 +138,16 @@ The `cursorHome` env SHALL use the following user-level prefixes (pinned by real
 - **THEN** entries MUST NOT be bare server namespaces such as `mcp__plugin_dev-team_dev-team` without a tool id
 - **AND** MCP tool references SHALL use `__MCP:<tool_id>__` form in source
 
+### Requirement: Installer no longer has openspec-bundled.js token expansion special case
+
+The `home-install.ts` SHALL NOT contain a special-case branch for `openspec-bundled.js` during token expansion. All files in the image tree SHALL go through the same token expansion path.
+
+#### Scenario: No special case for openspec-bundled.js
+
+- **WHEN** examining `home-install.ts`
+- **THEN** there SHALL be no `if (base === 'openspec-bundled.js')` or similar special case for openspec-bundled.js
+- **AND** all files SHALL follow the same token expansion logic
+
 ## Module Contract
 
 ### Product: `cursor-home-image/dev-team/`

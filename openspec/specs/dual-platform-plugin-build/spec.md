@@ -100,7 +100,7 @@ The repository `.gitignore` SHALL explicitly un-ignore `.cursor-plugin` (e.g. `!
 
 路径 token `__DEV_TEAM_ROOT__` / `__DEV_TEAM_RUNTIME_ROOT__` 绑定 `contentRoot` / `runtimeRoot`。对 `claude` / `cursor`，路径 token SHALL 在 assemble 期展开；对 `cursorHome`，路径 token SHALL 保留至安装期。
 
-逻辑 id SHALL 由文件系统发现（`skills/<id>/`、`agents/<id>.md`、staging `bin/{mcp,cli,hooks}.cjs`）——构建 MUST NOT 以手写 id 目录为权威。Token 替换 SHALL 使用宽扫描 include globs（skills/agents/hooks/templates/utils 文本、组装 JSON、staging `bin/*.cjs`）与窄排除（如 `openspec-bundled.js`、二进制、sourcemap）。
+逻辑 id SHALL 由文件系统发现（`skills/<id>/`、`agents/<id>.md`、staging `bin/{mcp,cli,hooks}.cjs`）——构建 MUST NOT 以手写 id 目录为权威。Token 替换 SHALL 使用宽扫描 include globs（skills/agents/hooks/templates/utils 文本、组装 JSON、staging `bin/*.cjs`）与窄排除（如二进制、sourcemap）。
 
 磁盘上 skill/agent/bin 文件名 SHALL 由 `namePrefix` 派生（plugin env → `mcp.cjs` / `cli.cjs` / `hooks.cjs`；`cursorHome` → `dev-team_mcp.cjs` 等）。
 
@@ -219,6 +219,16 @@ Each env SHALL declare an explicit `outDir`. The build MUST NOT derive product d
 - **WHEN** assemble runs for `cursorHome`
 - **THEN** outputs SHALL be written under `cursor-home-image/dev-team`
 - **AND** the path MUST NOT be invented by appending `-plugins` to an agent key
+
+### Requirement: Token narrow exclusion no longer mentions openspec-bundled.js
+
+The token scanning narrow exclusion list SHALL NOT include `openspec-bundled.js`, as that file no longer exists in the source tree.
+
+#### Scenario: No openspec-bundled.js exclusion in token scan
+
+- **WHEN** examining the token scanning exclusion list in `assemble.ts` or `scan-files.ts`
+- **THEN** `openspec-bundled.js` SHALL NOT appear in the exclusion list
+- **AND** the token scanning SHALL still exclude binary files and sourcemaps as before
 
 ## Module Contract
 
