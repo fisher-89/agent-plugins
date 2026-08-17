@@ -98,14 +98,16 @@ describe('getFrameworkConfig -- 字面量杀伤', () => {
     }
   });
 
-  it('jest/vitest/vite-plus 的 shell 与 cmd mutation_execution 精确为 npx stryker run（无 -p 自动安装）', () => {
-    const expected = 'npx stryker run "{config}"';
+  it('jest/vitest/vite-plus 的 shell 与 cmd mutation_execution 精确为 npx --prefix（无 -p 自动安装）', () => {
+    const expected = 'npx --prefix "{prefix}" stryker run "{config}"';
     for (const fw of ['jest', 'vitest', 'vite-plus'] as const) {
       const cfg = getFrameworkConfig(fw);
       expect(cfg.shell.mutation_execution?.('99.0.0')).toBe(expected);
       expect(cfg.cmd.mutation_execution?.('99.0.0')).toBe(expected);
       expect(cfg.shell.mutation_execution?.('99.0.0')).not.toMatch(/(^|\s)-p(\s|$)/);
       expect(cfg.cmd.mutation_execution?.('99.0.0')).not.toMatch(/(^|\s)-p(\s|$)/);
+      expect(cfg.shell.mutation_execution?.('99.0.0')).toContain('--prefix');
+      expect(cfg.shell.mutation_execution?.('99.0.0')).toContain('{prefix}');
     }
   });
 
@@ -263,6 +265,61 @@ describe('getFrameworkConfig -- 未知框架与浅拷贝', () => {
   });
 });
 
+describe('getFrameworkConfig -- mutation_execution 模板', () => {
+  const MUTATION_TEMPLATE = 'npx --prefix "{prefix}" stryker run "{config}"';
+
+  it('jest / vitest / vite-plus 的 shell 与 cmd mutation_execution 精确等于模板（AC-6）', () => {
+    for (const fw of ['jest', 'vitest', 'vite-plus'] as const) {
+      const cfg = getFrameworkConfig(fw);
+      expect(cfg.shell.mutation_execution?.('99.0.0')).toBe(MUTATION_TEMPLATE);
+      expect(cfg.cmd.mutation_execution?.('99.0.0')).toBe(MUTATION_TEMPLATE);
+    }
+  });
+
+  it('mutation 模板含 --prefix 不得被误判为 -p token（AC-6）', () => {
+    for (const fw of ['jest', 'vitest', 'vite-plus'] as const) {
+      const cfg = getFrameworkConfig(fw);
+      const shell = cfg.shell.mutation_execution?.('99.0.0') ?? '';
+      const cmd = cfg.cmd.mutation_execution?.('99.0.0') ?? '';
+      expect(shell).not.toMatch(/(^|\s)-p(\s|$)/);
+      expect(cmd).not.toMatch(/(^|\s)-p(\s|$)/);
+      expect(shell).toContain('--prefix');
+    }
+  });
+
+  it('framework 为 undefined / null 强转调用时抛错', () => {
+    for (const bad of [undefined, null] as const) {
+      expect(() => getFrameworkConfig(bad as unknown as string)).toThrow(/Unknown framework/);
+    }
+  });
+
+  it('framework 超长（>1000 chars）或含 \\n / emoji → 抛 Unknown framework', () => {
+    const long = `jest${'x'.repeat(1001)}`;
+    expect(() => getFrameworkConfig(long)).toThrow(/Unknown framework/);
+    expect(() => getFrameworkConfig('jest\n')).toThrow(/Unknown framework/);
+    expect(() => getFrameworkConfig('jest🧪')).toThrow(/Unknown framework/);
+  });
+
+  it('mutation_execution 传入 version 为空 / 0.0.0 / 99.0.0 → 返回值与 version 无关', () => {
+    for (const fw of ['jest', 'vitest', 'vite-plus'] as const) {
+      const cfg = getFrameworkConfig(fw);
+      const builder = cfg.shell.mutation_execution!;
+      expect(builder('')).toBe(MUTATION_TEMPLATE);
+      expect(builder('0.0.0')).toBe(MUTATION_TEMPLATE);
+      expect(builder('99.0.0')).toBe(MUTATION_TEMPLATE);
+    }
+  });
+
+  it('修改返回对象的 version_command 不影响再次 getFrameworkConfig 的 mutation 模板（浅拷贝）', () => {
+    const a = getFrameworkConfig('vitest');
+    a.version_command = 'mutated';
+    expect(getFrameworkConfig('vitest').shell.mutation_execution?.('99.0.0')).toBe(
+      MUTATION_TEMPLATE,
+    );
+    expect(getFrameworkConfig('vitest').version_command).toBe('npx vitest --version');
+  });
+});
+
 describe('detectFrameworkVersion', () => {
   type ExecReturn = ReturnType<typeof execCommandMod.execCommand>;
 
@@ -371,8 +428,12 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
       default_glob: '**/*.{test,spec}.{js,ts,jsx,tsx}',
       config_flag: '--config',
     });
-    expect(jestCfg.shell.mutation_execution?.('99.0.0')).toBe('npx stryker run "{config}"');
-    expect(jestCfg.cmd.mutation_execution?.('99.0.0')).toBe('npx stryker run "{config}"');
+    expect(jestCfg.shell.mutation_execution?.('99.0.0')).toBe(
+      'npx --prefix "{prefix}" stryker run "{config}"',
+    );
+    expect(jestCfg.cmd.mutation_execution?.('99.0.0')).toBe(
+      'npx --prefix "{prefix}" stryker run "{config}"',
+    );
     expect(typeof jestCfg.shell.test_execution).toBe('function');
     expect(typeof jestCfg.cmd.test_execution).toBe('function');
     expect(typeof jestCfg.shell.mutation_execution).toBe('function');
@@ -391,10 +452,19 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
       'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );
     expect(vitestCfg.cmd.test_execution('1.0.0')).toBe(vitestCfg.shell.test_execution('1.0.0'));
-    expect(vitestCfg.shell.mutation_execution?.('99.0.0')).toBe('npx stryker run "{config}"');
+    expect(vitestCfg.shell.mutation_execution?.('99.0.0')).toBe(
+      'npx --prefix "{prefix}" stryker run "{config}"',
+    );
+    expect(vitestCfg.cmd.mutation_execution?.('99.0.0')).toBe(
+      'npx --prefix "{prefix}" stryker run "{config}"',
+    );
+    expect(vitestCfg.shell.mutation_execution?.('99.0.0')).not.toMatch(/(^|\s)-p(\s|$)/);
 
     const vp = getFrameworkConfig('vite-plus');
     expect(vp.version_command).toBe('vp --version');
+    expect(vp.shell.mutation_execution?.('99.0.0')).toBe(
+      'npx --prefix "{prefix}" stryker run "{config}"',
+    );
     expect(vp.shell.test_execution('1.0.0')).toBe(
       'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );

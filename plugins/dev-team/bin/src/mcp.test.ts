@@ -935,7 +935,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
           { name: 'config_get', args: { key: 'schema' } },
           { name: 'test_detect_frameworks', args: {} },
           { name: 'test_resolve_paths', args: { modules: ['src/foo.ts'] } },
-          { name: 'change_create', args: { name: 'handler-new-change' } },
+          {
+            name: 'change_create',
+            args: { name: 'handler-new-change', workflow_type: 'requirement' },
+          },
           { name: 'change_list', args: {} },
           { name: 'spec_list', args: {} },
         ];
@@ -1197,20 +1200,35 @@ describe('MCP Server (via InMemoryTransport)', () => {
     });
 
     it('changeCreateInputSchema：name 必填且 kebab-case；缺 name / 缺 project_root 时 safeParse 失败', () => {
-      expect(changeCreateInputSchema.safeParse({ name: 'my-change' }).success).toBe(false);
-      expect(changeCreateInputSchema.safeParse({ project_root: '/tmp/x' }).success).toBe(false);
       expect(
-        changeCreateInputSchema.safeParse({ name: 'my-change', project_root: '/tmp/x' }).success,
+        changeCreateInputSchema.safeParse({ name: 'my-change', workflow_type: 'requirement' })
+          .success,
+      ).toBe(false);
+      expect(
+        changeCreateInputSchema.safeParse({ project_root: '/tmp/x', workflow_type: 'requirement' })
+          .success,
+      ).toBe(false);
+      expect(
+        changeCreateInputSchema.safeParse({
+          name: 'my-change',
+          project_root: '/tmp/x',
+          workflow_type: 'requirement',
+        }).success,
       ).toBe(true);
       expect(
-        changeCreateInputSchema.safeParse({ name: 'MyChange', project_root: '/tmp/x' }).success,
+        changeCreateInputSchema.safeParse({
+          name: 'MyChange',
+          project_root: '/tmp/x',
+          workflow_type: 'requirement',
+        }).success,
       ).toBe(false);
     });
 
-    it('changeCreateInputSchema：workflow_type 可选，缺省时 prefault 为 "requirement"；非法值 safeParse 失败', () => {
+    it('changeCreateInputSchema：workflow_type 必填；非法值 safeParse 失败', () => {
       const parsed = changeCreateInputSchema.safeParse({
         name: 'my-change',
         project_root: '/tmp/x',
+        workflow_type: 'requirement',
       });
       expect(parsed.success).toBe(true);
       if (parsed.success) {
@@ -1232,14 +1250,14 @@ describe('MCP Server (via InMemoryTransport)', () => {
       ).toBe(false);
     });
 
-    it('callTool({ name: "change_create", name: "my-change", project_root: dir }) 时 runChangeCreate spy 被调用且参数正确 (AC-1)', async () => {
+    it('callTool({ name: "change_create", name: "my-change", project_root: dir, workflow_type: "requirement" }) 时 runChangeCreate spy 被调用且参数正确 (AC-1)', async () => {
       const { dir, cleanup } = setupTempProject();
       setResolvedRoot(dir);
       const spy = vi.spyOn(changeCreateCmd, 'runChangeCreate');
       try {
         const result = await client.callTool({
           name: 'change_create',
-          arguments: withProjectRoot({ name: 'my-change' }, dir),
+          arguments: withProjectRoot({ name: 'my-change', workflow_type: 'requirement' }, dir),
         });
         expect(isToolError(result)).toBe(false);
         expect(spy).toHaveBeenCalledTimes(1);
@@ -1433,7 +1451,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
           { name: 'config_get', args: { key: 'schema' } },
           { name: 'test_detect_frameworks', args: {} },
           { name: 'test_resolve_paths', args: { modules: ['src/foo.ts'] } },
-          { name: 'change_create', args: { name: 'new-change-14' } },
+          { name: 'change_create', args: { name: 'new-change-14', workflow_type: 'requirement' } },
           { name: 'change_list', args: {} },
           { name: 'spec_list', args: {} },
         ];

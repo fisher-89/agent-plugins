@@ -1,0 +1,497 @@
+[
+  {
+    "phase": "proposal",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "Problem/scope/risks/decisions complete; 3 capabilities 1:1 with specs/, no conflicts. R4 fail: test-plan.ts lists clamp and cross-disk throw, but AC-1–AC-9 have no object+condition for “LCA above projectRoot → mutationCwd=.” or “cross-disk throw, not drive root”. Other items pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "「问题」说明 sandbox 只见 process cwd 树、npx 只向上找包、缺省 mutation.cwd=suite.cwd 时 config/root 探出看不到源码；引 resolveSuite 公式与 npx cwd 裂口；vite-plus dogfood 验不到抬根。非泛泛「改进X」。"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（test-plan.ts / test-framework.ts / test-runner.ts / config.schema.ts / schema.json）、### 测试文件（test-plan.test.ts 等，非空）、### 不要修改（openspec/config.json、层2、npx -p 等）。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "五条风险均有非泛化缓解：层2失败记 mutation.error 不阻塞退出码；prefix 用绝对 suite cwd 且单测锁无 -p；clamp 到 projectRoot/无共同祖先抛错；验收分层；显式字段跳过 LCA。"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": false,
+        "evidence": "test-plan.ts 特性含「clamp / 跨盘报错」，但验收表 AC-1–AC-9 无对应条目：缺「LCA 高于 projectRoot → mutationCwd 为 .」与「跨盘抛错且不得为盘符根」的对象+条件。测试文件仅提 clamp，未提跨盘。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "过程/决策 8 条均有备选与理由：不做层2 vs inPlace；保留 mutation.cwd vs 删除覆盖；绝对 prefix vs 相对 mutation_cwd；禁 -p；clamp vs 允许逃出/一律抛错；跨盘抛错 vs clamp；不拆 suite；不做真 nested fixture。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "与 CLAUDE.md 「No test-only exports」一致：spec 要求 LCA 不仅为测试额外 export，经 resolveAllSuites 公开 API 锁住。范围外科、不做层2 符合 Surgical / 无投机特性。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal.md 与 specs/ 搜索无 TODO、TBD、placeholder、{{...}}。{prefix}/{config} 为命令模板占位，非文档模板记号。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有具体行为与路径例子，无空章节。待决问题仅延后层2，属明确范围外。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 / ### 修改的能力 非空：test-detect-frameworks、mutation-testing、config-schema。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "三能力对应 specs/test-detect-frameworks/spec.md、specs/mutation-testing/spec.md、specs/config-schema/spec.md；无额外 spec 目录。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "三者均为修改能力，规约与 MODIFIED/ADDED 一致。AC-1–5→REQ-TDF-MUT-CWD-1；AC-6/7→REQ-MT-PREFIX-1；AC-8→REQ-CS-MUT-CWD-1。缺省 LCA、显式跳过、绝对 --prefix、禁 -p 与 spec 无矛盾。"
+      }
+    ],
+    "timestamp": "2026-08-17T08:09:17.856Z"
+  },
+  {
+    "phase": "proposal",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "Attempt 2: AC-10/AC-11 add object+condition for test-plan.ts clamp (LCA above projectRoot → mutationCwd=\".\") and cross-disk throw (not drive root); tests lock both. Problem/scope/risks/decisions complete; 3 modified capabilities 1:1 with specs/; AC-1–5/10/11→REQ-TDF-MUT-CWD-1, AC-6/7→REQ-MT-PREFIX-1, AC-8→REQ-CS-MUT-CWD-1; no TODO; CLAUDE.md aligned. All pass.",
+    "checklist": [
+      {
+        "item": "问题描述清晰，包含背景和动机",
+        "pass": true,
+        "evidence": "「问题」说明 sandbox 只见 process cwd 树、npx 只向上找包；缺省 mutation.cwd=suite.cwd 时 config/root 探出看不到源码/配置；引 resolveSuite 公式与 cd 父目录 && npx 找不到 @stryker-mutator/* 裂口；vite-plus dogfood 验不到抬根。非泛泛「改进X」。"
+      },
+      {
+        "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+        "pass": true,
+        "evidence": "含 ### 实现文件（test-plan.ts / test-framework.ts / test-runner.ts / config.schema.ts / schema.json）、### 测试文件（test-plan.test.ts 等，非空）、### 不要修改（openspec/config.json、层2、npx -p、mutate 重写等）。"
+      },
+      {
+        "item": "风险包含具体的缓解措施",
+        "pass": true,
+        "evidence": "五条风险均有非泛化缓解：层2失败记 mutation.error 不阻塞退出码；prefix 用绝对 suite cwd 且单测锁无 -p；clamp 到 projectRoot/无共同祖先抛错；验收分层；显式字段跳过 LCA。"
+      },
+      {
+        "item": "验收标准可测试",
+        "pass": true,
+        "evidence": "实现文件特性均有对象+条件：AC-1–5 人造 suite 锁 LCA/覆盖；AC-6/7 mock execSync 锁绝对 --prefix 与 mutation_cwd；AC-8 schema 文案；AC-10 对象 resolveAllSuites，LCA 高于 projectRoot → mutationCwd=\".\"；AC-11 跨盘抛错且不得为盘符根。"
+      },
+      {
+        "item": "关键决策包含理由和被拒绝的备选方案",
+        "pass": true,
+        "evidence": "过程/决策 8 条均有备选与理由：不做层2 vs inPlace；保留 mutation.cwd vs 删除覆盖；绝对 prefix vs 相对 mutation_cwd；禁 -p；clamp vs 允许逃出/一律抛错；跨盘抛错 vs clamp；不拆 suite；不做真 nested fixture。"
+      },
+      {
+        "item": "提案与项目 CLAUDE.md 约定一致",
+        "pass": true,
+        "evidence": "与 CLAUDE.md 「No test-only exports」一致：spec 要求 LCA 不仅为测试额外 export，经 resolveAllSuites 公开 API 锁住。范围外科、不做层2 符合 Surgical / 无投机特性。"
+      },
+      {
+        "item": "无占位符或 TODO 内容",
+        "pass": true,
+        "evidence": "proposal.md 与 specs/ 搜索无 TODO、TBD、placeholder、{{...}}。{prefix}/{config} 为命令模板占位，非文档模板记号。"
+      },
+      {
+        "item": "所有非能力的模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "问题、提案、变更范围、验收标准、风险均有具体行为与路径例子，无空章节。待决问题仅延后层2，属明确范围外。"
+      },
+      {
+        "item": "能力章节存在且至少有一个新增或修改条目",
+        "pass": true,
+        "evidence": "## 能力 / ### 修改的能力 非空：test-detect-frameworks、mutation-testing、config-schema。"
+      },
+      {
+        "item": "specs/ 文件与能力章节一一对应",
+        "pass": true,
+        "evidence": "三能力对应 specs/test-detect-frameworks/spec.md、specs/mutation-testing/spec.md、specs/config-schema/spec.md；无额外 spec 目录。"
+      },
+      {
+        "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+        "pass": true,
+        "evidence": "三者均为修改能力，规约为 MODIFIED+ADDED。AC-1–5/10/11→REQ-TDF-MUT-CWD-1；AC-6/7→REQ-MT-PREFIX-1；AC-8→REQ-CS-MUT-CWD-1。缺省 LCA、显式跳过、clamp/ 跨盘、绝对 --prefix、禁 -p 与 spec scenarios 无矛盾。"
+      }
+    ],
+    "timestamp": "2026-08-17T08:23:49.935Z"
+  },
+  {
+    "phase": "dev-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "design.md: 5 components with duty/deps/stack/paths; models TestSuite/LCA/TestPlan; AC-1–11 covered (LCA, override, clamp, cross-disk, --prefix, schema). tasks.md: 5 staged checkbox groups, no reverse deps, no test tasks. Change list covers proposal impl files plus package.json bump. Matches CLAUDE.md (no test-only export, surgical, version+build). All pass.",
+    "checklist": [
+      {
+        "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+        "pass": true,
+        "evidence": "组件表 5 行（Suite path resolver / Framework registry / Test runner / Config schema / Config JSON schema）均有职责、依赖、技术（TypeScript/JSON Schema，非 TBD）、具体文件（test-plan.ts / test-framework.ts / test-runner.ts / config.schema.ts / dev-team-config.schema.json）。"
+      },
+      {
+        "item": "数据模型已列出字段、关系和持久化",
+        "pass": true,
+        "evidence": "数据模型表 5 项：TestSuite、路径三元组、ResolvedSuite.mutationCwd/TestPlan.mutation_cwd、TestPlan.cwd、npx 命令；每项有字段与持久化（openspec/config.json / 内存 / 命令行）；关系列亦已填。"
+      },
+      {
+        "item": "设计覆盖 proposal.md 中每个验收标准",
+        "pass": true,
+        "evidence": "AC-1/2/3/5 缺省 LCA+对照表；AC-4 显式跳过 LCA；AC-6/7 {prefix} 绝对路径且 exec cwd 仍 mutation_cwd；AC-8 Zod/JSON describe；AC-9 套件不拆+模板展开；AC-10 clamp；AC-11 跨盘抛错。"
+      },
+      {
+        "item": "tasks.md 存在且所有任务遵循依赖顺序",
+        "pass": true,
+        "evidence": "tasks.md 分 5 阶段（Schema→LCA→npx 模板→genStrykerCommand→版本产物）；均为 - [ ]；阶段 4 依赖阶段 3 的 {prefix}；无后续任务作为先前任务依赖。"
+      },
+      {
+        "item": "任务具体且可执行",
+        "pass": true,
+        "evidence": "每条有具体操作：改 describe 文案、z.string().optional()、私有 directoryLca 算法步骤、精确 MUTATION_EXECUTION 字符串、genStrykerCommand 加 projectRoot、version 2.10.30→2.10.31、pnpm build；非「实现功能」。"
+      },
+      {
+        "item": "依赖项（运行时和构建/测试）已列出",
+        "pass": true,
+        "evidence": "运行时：无新增；Node path/child_process、既有 zod、@stryker-mutator/*（经 --prefix）。构建/测试：无新增；JSON Schema 仍由 generateConfigJsonSchema / vp pack 写入。"
+      },
+      {
+        "item": "设计与项目架构一致（CLAUDE.md）",
+        "pass": true,
+        "evidence": "符合 CLAUDE.md：LCA 不 export（No test-only exports/knip）；外科改既有 lib、不新增模块；源码变更后 package.json patch + pnpm build 刷新三个产物目录；层 2 延后无投机特性。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "架构组件、变更清单（修改文件 6 项）、数据模型、依赖、待决问题均有实质内容；无 HTTP 路由，路由/API 设计省略，公共函数表覆盖 resolveAllSuites/getFrameworkConfig/executePlanEntry。"
+      },
+      {
+        "item": "不包含测试步骤",
+        "pass": true,
+        "evidence": "design.md 无测试策略/测试架构章节；tasks.md 5 阶段仅 schema/LCA/模板/prefix 展开/升版构建，无单元测试、集成测试或执行测试任务。"
+      },
+      {
+        "item": "变更清单完整且与 tasks 一致",
+        "pass": true,
+        "evidence": "修改文件覆盖 proposal 实现文件 5 项 + package.json；无新增源文件（与私有 directoryLca 不 export 一致）；tasks 所改文件均在清单；公共函数均属修改文件。"
+      }
+    ],
+    "timestamp": "2026-08-17T08:37:35.851Z"
+  },
+  {
+    "phase": "test-design",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "test-design maps proposal AC-1–AC-11 (AC-9 不可测试). Unit headings cover test-plan/framework/runner; integration 关联AC AC-6/7. Each 测试对象 has 异常 plus string/array/bool/optional/enum edges. Mock execSync/fs. In-scope covered; 层2/config.json/CLI listed 不可测试. No API/DB writes (T7 N/A). T8 matches template. All pass.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都在验收范围中有映射",
+        "pass": true,
+        "evidence": "proposal ##验收标准 AC-1–AC-11 均出现在 test-design ##验收范围：AC-1–5/8/10/11→test-plan.ts；AC-6→framework+runner 单元+集成；AC-7→runner 单元+集成；AC-9 不可测试。无遗漏 AC。"
+      },
+      {
+        "item": "验收范围与测试章节互相对应",
+        "pass": true,
+        "evidence": "单元：验收范围中单元条目的 test-plan.ts / test-framework.ts / test-runner.ts 均有 ### src -> test heading；无多余 heading。集成：关系 **关联AC** AC-6,AC-7 均在验收范围；验收范围集成 AC-6/AC-7 均出现在该关系。"
+      },
+      {
+        "item": "单元测试充分覆盖异常和边界",
+        "pass": true,
+        "evidence": "每个测试对象均有异常。resolveAllSuites：suites []/单元素/超大/None；projectRoot ''/>1000/emoji/\\n/None。getFrameworkConfig：framework ''/超长/特殊/None 及八框架+非法。executePlanEntry：cwd 空/超长/特殊；mutation_cwd ''/'.'；noMutation T/F/None；execSync status=1。mutation.cwd Optional None/空串。"
+      },
+      {
+        "item": "存在外部依赖时描述了 Mock 策略",
+        "pass": true,
+        "evidence": "proposal 层 B 依赖 execSync/@stryker-mutator。test-runner 与集成：vi.mock execSync 捕获 cmd/cwd；mkdtempSync 临时 pkg/；不启动真实 Stryker。test-plan 声明无 FS/子进程 mock；跨盘按平台构造绝对路径。"
+      },
+      {
+        "item": "所有模板章节已填写实质性内容",
+        "pass": true,
+        "evidence": "验收范围、单元测试（三文件均有 待测功能/用例/Mock策略）、集成测试（关系+两场景）、不可测试项均有实质内容，无模板占位符。"
+      },
+      {
+        "item": "测试设计与 proposal 范围一致",
+        "pass": true,
+        "evidence": "in_scope 实现/测试文件均有对应用例。out_of_scope：openspec/config.json 不改、层2 inPlace/symlink、npx -p 安装、CLI LCA 集成、真 Stryker fixture 均在 ##不可测试项，无测试覆盖。"
+      },
+      {
+        "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+        "pass": true,
+        "evidence": "proposal 无 API/DB 写；缺省 LCA 为纯 path 计算。已有「同一输入连续调用两次 resolveAllSuites → mutationCwd 相同」。executePlanEntry 仅临时 stryker.config，非持久化写。T7 N/A 通过。"
+      },
+      {
+        "item": "产物结构与模板格式一致",
+        "pass": true,
+        "evidence": "T8-U1–U5：### src -> test；待测功能→用例→Mock策略；用例四列无测试文件列。T8-I1–I8：→ test.ts；涉及模块≥2；关联AC AC-6,7；关系描述段落；两场景各有叙事+三列用例。T8-G1 验收范围四列名与模板一致。"
+      }
+    ],
+    "timestamp": "2026-08-17T09:07:13.854Z"
+  },
+  {
+    "phase": "implement",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "All 5 components landed: test-plan.ts private directoryLca/clamp; MUTATION_EXECUTION with {prefix}; runner expands abs prefix and keeps exec cwd=mutation_cwd; Zod/JSON Schema describe synced. Change list 6 files + v2.10.31 + pack artifacts present. No HTTP routes; public API signatures unchanged. tasks.md 19 items all [x]. Diff has no openspec/config.json or detect-command edits. Decisions: explicit cwd skips LCA/clamp; cross-drive throws; no npx -p.",
+    "checklist": [
+      {
+        "item": "design.md 中每个架构组件都有实现代码",
+        "pass": true,
+        "evidence": "Suite path resolver: test-plan.ts resolveAbsMutationCwd/directoryLca/isInsideProjectRoot. Framework registry: test-framework.ts MUTATION_EXECUTION. Test runner: test-runner.ts genStrykerCommand. Config schema + JSON schema describe updated."
+      },
+      {
+        "item": "变更清单中的所有条目均有对应实现",
+        "pass": true,
+        "evidence": "Modified: test-plan.ts, test-framework.ts, test-runner.ts, config.schema.ts, dev-team-config.schema.json, package.json 2.10.31. Public APIs resolveAllSuites/getFrameworkConfig/executePlanEntry unchanged. Pack artifacts refreshed. LCA helpers not exported."
+      },
+      {
+        "item": "代码遵循项目现有规范",
+        "pass": true,
+        "evidence": "Private helpers in test-plan.ts (no export); platform path APIs; Zod optional().describe without cwd prefault; mutation object still prefault({}); existing FrameworkConfig/runCommand patterns kept."
+      },
+      {
+        "item": "design.md 中所有路由/API 均已实现",
+        "pass": true,
+        "evidence": "design.md specifies no HTTP routes. Public APIs keep signatures: resolveAllSuites(suites, projectRoot), getFrameworkConfig(framework), executePlanEntry(entry, projectRoot, options)."
+      },
+      {
+        "item": "tasks.md 中所有任务均标记 [x]（已完成）",
+        "pass": true,
+        "evidence": "tasks.md phases 1–5: all 19 checkboxes marked [x] (schema, LCA, --prefix template, genStrykerCommand, version/build, no openspec/config.json edit)."
+      },
+      {
+        "item": "没有与当前变更任务无关的代码",
+        "pass": true,
+        "evidence": "git diff is the 6 listed sources plus pack outputs (claude-plugins/cursor-plugins/cursor-home-image). No openspec/config.json, test-detect-frameworks.ts, or TestPlan schema file changes."
+      },
+      {
+        "item": "设计决策在实现中得到遵守",
+        "pass": true,
+        "evidence": "Explicit mutation.cwd skips LCA+clamp (resolveAbsMutationCwd). Default LCA then clamp via isInsideProjectRoot. Cross-drive Error mentions mutation_cwd. Template npx --prefix \"{prefix}\"; absPrefix=path.resolve(projectRoot, entry.cwd) no toForwardSlash; runCommand cwd=entry.mutation_cwd."
+      }
+    ],
+    "timestamp": "2026-08-17T09:18:55.529Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 1,
+    "verdict": "fail",
+    "report": "G3/G7 fail: test-plan.test.ts missing clamp boundary it for cwd=0; test-runner.test.ts missing exception it for projectRoot undefined/null under relative mutation_cwd. Other unit/integration skeletons, mocks, vite-plus imports, cleanup, and deprecated-row absence pass.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "Affected public APIs colocated: resolveAllSuites/findSuite/derivePlanId/pathFilterFromPlan/resolvePlanFiles/isInSuiteScope → test-plan.test.ts; getFrameworkConfig/detectFrameworkVersion → test-framework.test.ts; executePlanEntry → test-runner.test.ts. config.schema.ts colocated tests are 不可测试; AC-8 covered via configSchema in test-plan.test.ts."
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "Unit files are *.test.ts beside sources: plugins/dev-team/bin/src/lib/test-plan.test.ts, test-framework.test.ts, test-runner.test.ts. Integration uses project convention plugins/dev-team/bin/__tests__/mutation-execution-flow/mutation-execution-flow.test.ts."
+      },
+      {
+        "item": "`单元测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": false,
+        "evidence": "Missing 2 新增 rows: (1) test-plan.test.ts describe 'resolveAllSuites -- LCA 上沿 clamp' has no it for cwd=0 non-string; (2) test-runner.test.ts describe 'executePlanEntry -- 相对 mutation_cwd 时 prefix 仍绝对' has no it for projectRoot undefined/null. Other 新增 describes/its present."
+      },
+      {
+        "item": "`集成测试 > 用例` 表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "mutation-execution-flow.test.ts describe covers AC-6/AC-7: 正向 抬根 prefix→pkg/jest cwd=pkg; 异常 stryker status=1 +清理; 边界 no node_modules; 正向 mutation_cwd='.'; 异常 残缺{prefix}; 边界 cwd='src'. All 6 新增 rows have its."
+      },
+      {
+        "item": "`Mock策略` 表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "test-plan: real path + process.platform, no path mock, real configSchema.parse/toJSONSchema. test-framework: vi.resetModules+dynamic import. test-runner/flow: vi.mock('child_process') execSync capturing cmd/cwd, mkdtempSync pkg/+pkg/jest/, vi.spyOn(console,'log')."
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "All four generated/updated tests import {describe,expect,it,...} from 'vite-plus/test' matching project unit/integration framework."
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": false,
+        "evidence": "Clamp 边界 `cwd=0` 经 String/path.resolve 强转 has no skeleton in test-plan.test.ts. Other 边界 rows ([], empty string, >1000 chars, emoji/\\n, backslash, win32 prefix, noMutation, mutation.cwd='') are present."
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test-runner.test.ts and mutation-execution-flow.test.ts: afterEach vi.restoreAllMocks + finally rmSync temp dirs. test-framework.test.ts: afterEach resetModules/restore. test-plan.test.ts is pure path calc (no mocks/temps)."
+      },
+      {
+        "item": "`迭代类型 = 废弃` 的条目未生成新测试",
+        "pass": true,
+        "evidence": "Deprecated exact template `npx stryker run \"{config}\"` (no {prefix}) is not asserted as current production template. Remaining `npx stryker run \"{config}\"` is only the AC-7 异常 incomplete-template case in mutation-execution-flow.test.ts."
+      }
+    ],
+    "timestamp": "2026-08-17T09:36:55.689Z"
+  },
+  {
+    "phase": "test-gen",
+    "attempt": 2,
+    "verdict": "pass",
+    "report": "G1-G9 pass. Colocated *.test.ts cover public APIs; IT in mutation-execution-flow.test.ts. All 新增 unit/IT rows have describe/it. Mocks: vi.mock(execSync), console.spy, mkdtemp+rmSync; plan uses virtual path.resolve. vite-plus/test. Boundaries present. afterEach restore+cleanup(). Deprecated no-prefix template not asserted as production expect.",
+    "checklist": [
+      {
+        "item": "源码中每个公开方法在源码目录中有对应的测试文件",
+        "pass": true,
+        "evidence": "test-plan.ts 公开 API 在同目录 test-plan.test.ts；getFrameworkConfig/detectFrameworkVersion 在 test-framework.test.ts；executePlanEntry 在 test-runner.test.ts。config.schema.ts 为不可测试项，AC-8 经 configSchema.parse 放在 test-plan.test.ts。"
+      },
+      {
+        "item": "测试文件命名遵循语言规范且与源码共存于同一目录",
+        "pass": true,
+        "evidence": "单元测试为 *.test.ts 且与源码同目录（test-plan.test.ts / test-framework.test.ts / test-runner.test.ts）；集成测试路径与 test-design 指定的 __tests__/mutation-execution-flow/mutation-execution-flow.test.ts 一致。"
+      },
+      {
+        "item": "单元测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "resolveAllSuites 五个 describe（缺省LCA/显式覆盖/clamp/跨盘/configSchema）均有对应 it；getFrameworkConfig -- mutation_execution 模板及 resetModules/字面量杀伤/未知框架 覆盖全部新增行；executePlanEntry -- prefix 与 exec cwd / 相对 mutation_cwd 覆盖全部 it。"
+      },
+      {
+        "item": "集成测试 > 用例表格每行已生成对应测试骨架",
+        "pass": true,
+        "evidence": "mutation-execution-flow.test.ts L461 describe 覆盖两场景；6 条新增 it（L526 抬根正向 / L579 异常 / L630 无 node_modules / L680 AC-7 / L748 残缺模板 / L811 cwd=src）与表格一一对应，AC-6/AC-7 已标注。"
+      },
+      {
+        "item": "Mock策略表格中的 mock 已在测试代码中实现",
+        "pass": true,
+        "evidence": "test-plan 无 mock、用 path.resolve('/virtual-project-root')；framework 用 vi.resetModules+动态 import（L407-417）；runner/IT 用 vi.mock('child_process') 捕获 execSync + spyOn(console.log) + mkdtempSync。"
+      },
+      {
+        "item": "测试文件使用正确的框架和导入",
+        "pass": true,
+        "evidence": "test-plan.test.ts L7、test-framework.test.ts L6、test-runner.test.ts L6、mutation-execution-flow.test.ts L9 均从 'vite-plus/test' 导入 describe/it/expect（及 vi/hooks）。"
+      },
+      {
+        "item": "test-design.md 中的边界情况已覆盖",
+        "pass": true,
+        "evidence": "边界 it 已生成：suites=[]/超大列表/空串 cwd/超长/反斜杠/emoji/Optional None/win32 反斜杠 prefix/noMutation/mutation_cwd='' 等；每种参数类型至少 2 个边界值。"
+      },
+      {
+        "item": "测试代码包含清理/还原逻辑",
+        "pass": true,
+        "evidence": "test-runner.test.ts L1009-1010 afterEach restoreAllMocks + try/finally dir.cleanup；IT L466 afterEach + rmSync；framework resetModules afterEach L408-410；plan 为纯 path 计算无临时文件/无 mock。"
+      },
+      {
+        "item": "迭代类型 = 废弃的条目未生成新测试",
+        "pass": true,
+        "evidence": "废弃行「mutation 模板精确为 npx stryker run \"{config}\"（无 {prefix}）」未作为生产模板断言；仅 IT L748 异常路径手工残缺模板用于锁「模板与 runner 必须同时在场」。"
+      }
+    ],
+    "timestamp": "2026-08-17T09:46:37.661Z"
+  },
+  {
+    "phase": "test-execution",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "所有 1722 个测试通过。覆盖率达标: lines=95.94%, branches=88.06%, functions=98.67%。Mutation score 70.96% >= threshold 70%。",
+    "checklist": [
+      {
+        "item": "执行报告结构完整",
+        "pass": true,
+        "evidence": "summary.json 含必需字段 phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds，类型正确；total=1722, passed=1722, failed=0, skipped=0, duration_seconds=317; coverage 含 pass/measured/thresholds/overrides"
+      },
+      {
+        "item": "所有测试通过",
+        "pass": true,
+        "evidence": "failed===0 且 total=1722>0; conclusion=pass; problems=[] 无 execution_error; mutation.pass=true (score 70.96% >= threshold 70%)"
+      },
+      {
+        "item": "覆盖率达标",
+        "pass": true,
+        "evidence": "coverage.pass===true; 覆盖率达标: lines=95.94% (阈值 90%), branches=88.06% (阈值 85%), functions=98.67% (阈值 90%)"
+      },
+      {
+        "item": "失败诊断根因明确",
+        "pass": true,
+        "evidence": "failed===0，无失败用例需诊断，检查项自动通过"
+      }
+    ],
+    "timestamp": "2026-08-17T10:02:18.553Z"
+  },
+  {
+    "phase": "code-review",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "C1-C7 pass. LCA default + clamp + cross-drive throw (test-plan.ts:59-96); explicit mutation.cwd skips LCA (83-85). Template npx --prefix {prefix} (test-framework.ts:22); abs prefix via path.resolve(projectRoot, entry.cwd) (test-runner.ts:678-679); exec cwd is mutation_cwd (627). Schema describe override-LCA; version 2.10.31. Extra change-create.schema.ts prefault is out of file list, does not contradict design.",
+    "checklist": [
+      {
+        "item": "变更代码中无安全漏洞",
+        "pass": true,
+        "evidence": "No secrets/eval/SQL/XSS in changed files. Prefix is path.resolve(projectRoot, entry.cwd) inside quoted --prefix (test-runner.ts:678-679); execSync is existing trusted-config pattern (360). Cross-drive throw blocks drive-root sandbox (test-plan.ts:62-67). Explicit mutation.cwd may escape projectRoot by design."
+      },
+      {
+        "item": "所有外部输入都有格式检查",
+        "pass": true,
+        "evidence": "tests[].mutation.cwd is z.string().optional() with no string prefault (config.schema.ts:43-48); null/number rejected by Zod. Suite root/cwd/config remain schema strings; LCA inputs are path.resolve of those fields. JSON Schema description synced (dev-team-config.schema.json)."
+      },
+      {
+        "item": "实现与 design.md 意图一致",
+        "pass": true,
+        "evidence": "resolveAbsMutationCwd: explicit skip LCA (test-plan.ts:83-85), else LCA+clamp (88-96). MUTATION_EXECUTION exact template (test-framework.ts:22). {prefix}=path.resolve(projectRoot, entry.cwd) not relative to mutation_cwd (test-runner.ts:678-679); runCommand cwd is mutation_cwd (627). Schema describe override-LCA; package.json 2.10.31. change-create.schema.ts prefault is extra vs file list, does not contradict LCA/--prefix."
+      },
+      {
+        "item": "无空值/边界处理遗漏",
+        "pass": true,
+        "evidence": "Empty mutation.cwd is explicit override (test-plan.ts:83). null absConfig omitted from LCA (88-90). directoryLca throws on disjoint roots (62-67) and at fs root with no ancestor (50-54). LCA above projectRoot clamped (93-95). Missing mutation_script throws (test-runner.ts:673-675)."
+      },
+      {
+        "item": "无冗余或死代码",
+        "pass": true,
+        "evidence": "directoryLca/directoryLcaPair/isInsideProjectRoot/resolveAbsMutationCwd all used from resolveSuite (test-plan.ts:107). No unused imports. MUTATION_EXECUTION shared by jest/vitest/vite-plus. change-create.schema.ts is live schema, not dead code."
+      },
+      {
+        "item": "代码可读性良好且遵循项目规范",
+        "pass": true,
+        "evidence": "Private helpers keep resolveSuite under max-lines; comments match existing test-plan/test-framework style. Version bump 2.10.30→2.10.31 with plugin.json rebuild. {prefix} comments document no npx -p (test-framework.ts:19-21)."
+      },
+      {
+        "item": "外部数据尽量使用同来源的数据类型",
+        "pass": true,
+        "evidence": "Uses TestSuite/TestPlan from schemas, Node path, existing FrameworkConfig. No extra DTO for config paths. {prefix} is path.resolve string, not a custom Path type (test-runner.ts:678)."
+      }
+    ],
+    "timestamp": "2026-08-17T10:08:10.018Z"
+  },
+  {
+    "phase": "acceptance",
+    "attempt": 1,
+    "verdict": "pass",
+    "report": "tasks.md 19/19 [x]. AC-1–5/10/11: resolveAbsMutationCwd LCA+clamp+cross-drive throw (test-plan.ts:76-96). AC-4 skips LCA when mutation.cwd set (:83-84). AC-6/7: MUTATION_EXECUTION --prefix (test-framework.ts:22); genStrykerCommand abs prefix, exec cwd=mutation_cwd (test-runner.ts:624-679). AC-8: Zod/JSON optional describe (config.schema.ts:43-47). AC-9 optional: vite-plus shares template; dogfood mutation.pass. No inPlace/symlink/npx -p/suite split. Risks mitigated. All pass.",
+    "checklist": [
+      {
+        "item": "proposal.md 中每个验收标准都有实现证据",
+        "pass": true,
+        "evidence": "AC-1 pkg same-layer: test-plan.ts:87-96 + test-plan.test.ts:100-114. AC-2 config above cwd: :116-129. AC-3/5 LCA(root,cwd): :87-90,:131-138,:217-223. AC-4 explicit skip LCA: :83-84,:256-287. AC-6 abs --prefix no -p, exec cwd=mutation_cwd: test-framework.ts:22; test-runner.ts:624-627,671-679; test-runner.test.ts:1053-1096. AC-7 mutation_cwd='.' kept, prefix absolute: :1405-1425. AC-8 optional no prefault, describe override LCA: config.schema.ts:43-47; schema.json:126-128; test-plan.test.ts:503-531. AC-9 optional: vite-plus uses same template (:87-92); reports mutation.pass. AC-10 clamp: :93-95,:377-383. AC-11 throw not drive root: :50-66,:434-447."
+      },
+      {
+        "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+        "pass": true,
+        "evidence": "No new public API: resolveAllSuites/getFrameworkConfig/executePlanEntry signatures unchanged; directoryLca private (test-plan.ts:33-97). Changes stay in listed files (test-plan/framework/runner + schema + tests + v2.10.31 pack). No inPlace/symlink/new CLI LCA path."
+      },
+      {
+        "item": "proposal 中所有 in_scope 项均已实现",
+        "pass": true,
+        "evidence": "test-detect-frameworks: resolveSuite default LCA, explicit skip (test-plan.ts:76-96); detect still writes mutation_cwd (test-detect-frameworks.ts:188). mutation-testing: MUTATION_EXECUTION --prefix (test-framework.ts:19-22,51-92); genStrykerCommand abs prefix (test-runner.ts:671-679); exec cwd=mutation_cwd (:627). config-schema: mutation.cwd describe override LCA, z.string().optional() no string prefault (config.schema.ts:43-47; schema.json:126-128)."
+      },
+      {
+        "item": "proposal 中 out_of_scope 项未被实现",
+        "pass": true,
+        "evidence": "openspec/config.json vite-plus still root+config together, no cwd split (config.json:7-12). No inPlace/symlinkNodeModules in src. npx -p still forbidden (test-framework.ts:19-22). mutation.json still reportDir/mutation.json (test-runner.ts:685-686). bun/rust/go/pytest/node-test omit mutation_execution (test-framework.ts:99-107). Detect still one resolveAllSuites, no extra CLI LCA."
+      },
+      {
+        "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+        "pass": true,
+        "evidence": "L2 not done; mutation fail → error, test exitCode unchanged (test-runner.ts:600-604,445-459; test-runner.test.ts:1123-1126). Prefix=path.resolve(projectRoot,entry.cwd) (test-runner.ts:678-679); tests lock no -p. Clamp/throw (test-plan.ts:50-66,93-95). Explicit cwd skips LCA (:83-84). Dogfood layered via synthetic+mock tests."
+      }
+    ],
+    "timestamp": "2026-08-17T10:10:21.459Z"
+  }
+]

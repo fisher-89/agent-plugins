@@ -16,7 +16,7 @@ The schema SHALL define the following top-level fields:
   - `includes` (optional `string[]`): include globs relative to `root`；when omitted, consumers SHALL treat the suite includes as the framework `default_glob`（not a schema-injected glob string）
   - `excludes` (optional `string[]`): exclude globs relative to `root`
   - `coverage` (optional object): `lines` / `branches` / `functions` numbers in `[0, 100]`，各字段缺省为 schema 目录常量（默认 80 / 70 / 75）
-  - `mutation` (optional object): `cwd`（optional string，相对 `root`，缺省等于 suite `cwd`）与 `score` number in `[0, 100]`（缺省为 schema 目录常量，默认 70）
+  - `mutation` (optional object): `cwd`（optional string，相对 `root`；出现时覆盖自动 LCA；省略时消费者按 `LCA(absRoot, absCwd, dirname(absConfig)?)` 计算 `mutation_cwd`，MUST NOT 再默认等于 suite `cwd`）与 `score` number in `[0, 100]`（缺省为 schema 目录常量，默认 70）
 - The schema SHALL NOT define a top-level `test` object with `framework` / `overrides` / global `coverage` / `mutation` / `exclude` as the supported configuration model
 
 Coverage / mutation numeric defaults SHALL be imported from a dedicated constants module under `plugins/dev-team/bin/src/schemas/config/`（例如 `defaults.ts`），不得在消费者中手写级联默认值。
@@ -61,7 +61,7 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 - **AND** parsed suite `cwd` SHALL be `"."`
 - **AND** parsed suite `coverage.lines` / `branches` / `functions` SHALL equal schema defaults 80 / 70 / 75
 - **AND** parsed suite `mutation.score` SHALL equal schema default 70
-- **AND** parsed suite `mutation.cwd` SHALL be omitted（消费者默认使用 suite `cwd`）
+- **AND** parsed suite `mutation.cwd` SHALL be omitted（消费者缺省按 LCA 计算 `mutation_cwd`，MUST NOT 把省略当成 suite `cwd`）
 
 #### Scenario: Schema accepts suite mutation.cwd
 
@@ -104,6 +104,26 @@ A TypeScript type `OpenSpecConfig` SHALL be exported, derived from the schema us
 
 - **WHEN** a config object `{}` is validated
 - **THEN** the parsed output `tests` SHALL be `[]`
+
+### Requirement: mutation.cwd 文档描述为覆盖自动 LCA
+
+**ID**: REQ-CS-MUT-CWD-1
+**Priority**: MUST
+**Description**: Zod `mutationConfigSchema.cwd` 的 `.describe(...)` 与 `dev-team-config.schema.json` 中 `tests.items.properties.mutation.properties.cwd.description` SHALL 说明该字段为相对 `root` 的可选覆盖，用于覆盖 detect 侧自动 LCA（`LCA(absRoot, absCwd, dirname(absConfig)?)`）。SHALL NOT 再描述为「默认等于 cwd」。
+
+字段仍为 optional、无字符串 prefault：省略时 parse 结果不写入 `mutation.cwd`；消费者不得把「缺省等于 suite cwd」当作 schema 契约。
+
+#### Scenario: Zod describe 不再声称默认等于 cwd
+
+**WHEN** 读取 `config.schema.ts` 中 `mutation.cwd` 的 describe 文案
+**THEN** 文案 SHALL 表明该字段覆盖自动 LCA
+**AND** SHALL NOT 使用「默认等于cwd」或等价表述作为缺省语义
+
+#### Scenario: JSON schema description 与 Zod 一致
+
+**WHEN** `dev-team-config.schema.json` 被检查
+**THEN** `properties.tests.items.properties.mutation.properties.cwd.description` SHALL 表明覆盖自动 LCA
+**AND** SHALL NOT 描述为默认等于 suite `cwd`
 
 ### Requirement: config-schema defines write_protection sub-schema
 

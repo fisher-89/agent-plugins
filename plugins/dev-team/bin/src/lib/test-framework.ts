@@ -17,8 +17,9 @@ import { execCommand } from './exec-command';
 type TestExecutionBuilder = (version: string) => string;
 
 /** Presence of mutation_execution is the capability gate; omit for unsupported frameworks.
- * Uses project-local Stryker (no `npx -p` auto-install). Missing deps surface as execution errors. */
-const MUTATION_EXECUTION = 'npx stryker run "{config}"';
+ * Uses `npx --prefix` to locate project-local Stryker (NOT `npx -p` / `--package` auto-install).
+ * `--prefix` ≠ `-p`. Missing deps surface as execution errors. */
+const MUTATION_EXECUTION = 'npx --prefix "{prefix}" stryker run "{config}"';
 
 export interface FrameworkConfig {
   framework: TestFramework;

@@ -457,3 +457,421 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
     }
   });
 });
+
+describe('mutation_execution 模板 → execSync --prefix 与 mutation_cwd（AC-6 / AC-7）', () => {
+  beforeEach(() => {
+    mockExecSync.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+  afterEach(() => vi.restoreAllMocks());
+
+  function createPkgProject(): { root: string; cleanup: () => void } {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), 'mutation-prefix-'));
+    fs.mkdirSync(path.join(root, 'openspec'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'pkg'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'pkg', 'jest'), { recursive: true });
+    fs.mkdirSync(path.join(root, 'pkg', 'src'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'pkg', 'src', 'foo.ts'), 'export const x = 1;\n', 'utf-8');
+    fs.writeFileSync(
+      path.join(root, 'openspec', 'config.json'),
+      JSON.stringify({
+        schema: 'spec-driven',
+        tests: [
+          {
+            root: 'pkg',
+            cwd: 'jest',
+            framework: 'vitest',
+            includes: ['**/*.ts'],
+            mutation: { score: 50 },
+          },
+        ],
+      }),
+      'utf-8',
+    );
+    return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
+  }
+
+  function vitestPlan(
+    overrides: Partial<{
+      cwd: string;
+      mutation_cwd: string;
+      mutation_script: { shell: string; cmd: string } | null;
+    }> = {},
+  ) {
+    const cfg = getFrameworkConfig('vitest');
+    return {
+      cwd: 'pkg/jest',
+      root: 'pkg',
+      framework: 'vitest' as const,
+      coverage_format: cfg.coverage_format,
+      coverage_output: cfg.coverage_output,
+      mutation_cwd: 'pkg',
+      mutation_score: 50,
+      mutation_script: cfg.shell.mutation_execution
+        ? {
+            shell: cfg.shell.mutation_execution('99.0.0'),
+            cmd: cfg.cmd.mutation_execution
+              ? cfg.cmd.mutation_execution('99.0.0')
+              : cfg.shell.mutation_execution('99.0.0'),
+          }
+        : null,
+      script: {
+        shell: cfg.shell.test_execution('99.0.0'),
+        cmd: cfg.cmd.test_execution('99.0.0'),
+      },
+      ...overrides,
+    };
+  }
+
+  it('抬根时 prefix 指向 pkg/jest 绝对路径，exec cwd 为 pkg（AC-6）', () => {
+    const project = createPkgProject();
+    try {
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'pkg_vitest');
+      const expectedPrefix = path.resolve(project.root, 'pkg/jest');
+      const strykerCwds: string[] = [];
+
+      mockExecSync.mockImplementation((cmd: unknown, opts?: { cwd?: string }) => {
+        if (String(cmd).includes('stryker')) {
+          strykerCwds.push(opts?.cwd ?? '');
+          expect(String(cmd)).toContain(`--prefix "${expectedPrefix}"`);
+          expect(String(cmd)).not.toMatch(/(^|\s)-p(\s|$)/);
+          fs.mkdirSync(planDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify(MUTATION_REPORT),
+            'utf-8',
+          );
+          return '';
+        }
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'pkg', 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(project.root);
+      try {
+        const result = executePlanEntry(vitestPlan(), project.root, { reportsDir });
+        expect(result.mutation).not.toBeNull();
+        expect(strykerCwds).toEqual(['pkg']);
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('stryker 失败时命令仍含绝对 --prefix，临时 config 被清理（AC-6）', () => {
+    const project = createPkgProject();
+    try {
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'pkg_vitest');
+      const mutationCwd = path.join(project.root, 'pkg');
+      let configPathSeen = '';
+      let capturedCmd = '';
+
+      mockExecSync.mockImplementation((cmd: unknown) => {
+        if (String(cmd).includes('stryker')) {
+          capturedCmd = String(cmd);
+          const configs = fs
+            .readdirSync(mutationCwd)
+            .filter((n) => n.startsWith('stryker.config.') && n.endsWith('.json'));
+          configPathSeen = configs[0] ? path.join(mutationCwd, configs[0]) : '';
+          expect(capturedCmd).toContain('--prefix');
+          expect(capturedCmd).not.toMatch(/(^|\s)-p(\s|$)/);
+          const err = new Error('stryker fail') as Error & { status: number };
+          err.status = 1;
+          throw err;
+        }
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'pkg', 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+
+      const result = executePlanEntry(vitestPlan(), project.root, { reportsDir });
+      expect(result.mutation).toBeNull();
+      expect(result.error).toMatch(/Mutation testing failed/);
+      if (configPathSeen) {
+        expect(fs.existsSync(configPathSeen)).toBe(false);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('pkg/jest 无 node_modules 时 mock 仍只断言命令形态（边界）', () => {
+    const project = createPkgProject();
+    try {
+      expect(fs.existsSync(path.join(project.root, 'pkg', 'jest', 'node_modules'))).toBe(false);
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'pkg_vitest');
+
+      mockExecSync.mockImplementation((cmd: unknown, opts?: { cwd?: string }) => {
+        if (String(cmd).includes('stryker')) {
+          expect(opts?.cwd).toBe('pkg');
+          expect(String(cmd)).toContain('--prefix');
+          fs.mkdirSync(planDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify(MUTATION_REPORT),
+            'utf-8',
+          );
+          return '';
+        }
+        fs.mkdirSync(planDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'pkg', 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+
+      const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(project.root);
+      try {
+        const result = executePlanEntry(vitestPlan(), project.root, { reportsDir });
+        expect(result.mutation).not.toBeNull();
+      } finally {
+        cwdSpy.mockRestore();
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutation_cwd=.、cwd=. → exec cwd 为 .；--prefix 为绝对 projectRoot（AC-7）', () => {
+    const project = createTempProject();
+    try {
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'vitest');
+      const expectedPrefix = path.resolve(project.root, '.');
+
+      mockExecSync.mockImplementation((cmd: unknown, opts?: { cwd?: string }) => {
+        if (String(cmd).includes('stryker')) {
+          expect(opts?.cwd).toBe('.');
+          expect(String(cmd)).toContain(`--prefix "${expectedPrefix}"`);
+          expect(path.isAbsolute(expectedPrefix)).toBe(true);
+          fs.mkdirSync(planDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify(MUTATION_REPORT),
+            'utf-8',
+          );
+          return '';
+        }
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+
+      const cfg = getFrameworkConfig('vitest');
+      executePlanEntry(
+        {
+          cwd: '.',
+          root: '.',
+          framework: 'vitest',
+          coverage_format: cfg.coverage_format,
+          coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
+          mutation_score: 50,
+          mutation_script: cfg.shell.mutation_execution
+            ? {
+                shell: cfg.shell.mutation_execution('99.0.0'),
+                cmd: cfg.cmd.mutation_execution
+                  ? cfg.cmd.mutation_execution('99.0.0')
+                  : cfg.shell.mutation_execution('99.0.0'),
+              }
+            : null,
+          script: {
+            shell: cfg.shell.test_execution('99.0.0'),
+            cmd: cfg.cmd.test_execution('99.0.0'),
+          },
+        },
+        project.root,
+        { reportsDir },
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('残缺 mutation 模板无 {prefix} → 命令不含绝对 --prefix', () => {
+    const project = createTempProject();
+    try {
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'vitest');
+      let strykerCmd = '';
+
+      mockExecSync.mockImplementation((cmd: unknown) => {
+        if (String(cmd).includes('stryker')) {
+          strykerCmd = String(cmd);
+          fs.mkdirSync(planDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify(MUTATION_REPORT),
+            'utf-8',
+          );
+          return '';
+        }
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+
+      const cfg = getFrameworkConfig('vitest');
+      executePlanEntry(
+        {
+          cwd: '.',
+          root: '.',
+          framework: 'vitest',
+          coverage_format: cfg.coverage_format,
+          coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
+          mutation_score: 50,
+          mutation_script: {
+            shell: 'npx stryker run "{config}"',
+            cmd: 'npx stryker run "{config}"',
+          },
+          script: {
+            shell: cfg.shell.test_execution('99.0.0'),
+            cmd: cfg.cmd.test_execution('99.0.0'),
+          },
+        },
+        project.root,
+        { reportsDir },
+      );
+      expect(strykerCmd).not.toContain('--prefix');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutation_cwd=.、cwd=src → exec cwd 仍为 .；prefix 为 resolve(projectRoot, src)', () => {
+    const project = createTempProject();
+    try {
+      fs.mkdirSync(path.join(project.root, 'src'), { recursive: true });
+      const reportsDir = path.join(project.root, 'reports', 'test');
+      const planDir = path.join(reportsDir, 'vitest');
+      const expectedPrefix = path.resolve(project.root, 'src');
+
+      mockExecSync.mockImplementation((cmd: unknown, opts?: { cwd?: string }) => {
+        if (String(cmd).includes('stryker')) {
+          expect(opts?.cwd).toBe('.');
+          expect(String(cmd)).toContain(`--prefix "${expectedPrefix}"`);
+          expect(String(cmd)).not.toContain('--prefix "src"');
+          fs.mkdirSync(planDir, { recursive: true });
+          fs.writeFileSync(
+            path.join(planDir, 'mutation.json'),
+            JSON.stringify(MUTATION_REPORT),
+            'utf-8',
+          );
+          return '';
+        }
+        fs.writeFileSync(
+          path.join(planDir, 'results.json'),
+          JSON.stringify({
+            testResults: [
+              {
+                name: path.join(project.root, 'src', 'foo.test.ts'),
+                assertionResults: [
+                  { title: 't1', fullName: 't1', status: 'passed', failureMessages: [] },
+                ],
+              },
+            ],
+          }),
+          'utf-8',
+        );
+        return '';
+      });
+
+      const cfg = getFrameworkConfig('vitest');
+      executePlanEntry(
+        {
+          cwd: 'src',
+          root: '.',
+          framework: 'vitest',
+          coverage_format: cfg.coverage_format,
+          coverage_output: cfg.coverage_output,
+          mutation_cwd: '.',
+          mutation_score: 50,
+          mutation_script: cfg.shell.mutation_execution
+            ? {
+                shell: cfg.shell.mutation_execution('99.0.0'),
+                cmd: cfg.cmd.mutation_execution
+                  ? cfg.cmd.mutation_execution('99.0.0')
+                  : cfg.shell.mutation_execution('99.0.0'),
+              }
+            : null,
+          script: {
+            shell: cfg.shell.test_execution('99.0.0'),
+            cmd: cfg.cmd.test_execution('99.0.0'),
+          },
+        },
+        project.root,
+        { reportsDir },
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+});

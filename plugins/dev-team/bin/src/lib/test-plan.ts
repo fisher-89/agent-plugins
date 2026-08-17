@@ -19,7 +19,7 @@ export interface ResolvedSuite {
   cwd: string;
   /** absRoot relative to projectRoot (POSIX) */
   root: string;
-  /** 执行突变测试相对projectRoot的路径 */
+  /** absMutationCwd relative to projectRoot (POSIX); default is LCA(absRoot, absCwd, dirname(absConfig)?) */
   mutationCwd: string;
   frameworkConfig: FrameworkConfig;
 }
@@ -30,6 +30,72 @@ function toPosixRelative(from: string, to: string): string {
   return posix === '' ? '.' : posix;
 }
 
+/** Whether `absPath` is inside or equal to `projectRoot` (platform path). */
+function isInsideProjectRoot(absPath: string, projectRoot: string): boolean {
+  const rel = path.relative(path.resolve(projectRoot), path.resolve(absPath));
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/** Directory LCA of two absolute paths; throws when no common ancestor exists. */
+function directoryLcaPair(a: string, b: string): string {
+  let current = path.resolve(a);
+  const target = path.resolve(b);
+  const fsRoot = path.parse(current).root;
+
+  while (true) {
+    const rel = path.relative(current, target);
+    if (rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel))) {
+      return current;
+    }
+    if (current === fsRoot) {
+      throw new Error(
+        'Cannot compute mutation_cwd: paths have no common ancestor (cross-drive or disjoint)',
+      );
+    }
+    current = path.dirname(current);
+  }
+}
+
+/** Directory LCA of multiple paths; throws on cross-drive or no common ancestor. */
+function directoryLca(dirs: string[]): string {
+  const resolved = dirs.map((d) => path.resolve(d));
+  const roots = resolved.map((p) => path.parse(p).root);
+  if (roots.some((r, i) => i > 0 && r !== roots[0])) {
+    throw new Error(
+      'Cannot compute mutation_cwd: paths span multiple drive roots or have no common ancestor',
+    );
+  }
+
+  let lca = resolved[0];
+  for (let i = 1; i < resolved.length; i++) {
+    lca = directoryLcaPair(lca, resolved[i]);
+  }
+  return lca;
+}
+
+function resolveAbsMutationCwd(
+  suite: TestSuite,
+  absRoot: string,
+  absCwd: string,
+  absConfig: string | null,
+  projectRoot: string,
+): string {
+  if (suite.mutation.cwd !== undefined) {
+    return path.resolve(absRoot, suite.mutation.cwd);
+  }
+
+  const dirs = [absRoot, absCwd];
+  if (absConfig !== null) {
+    dirs.push(path.dirname(absConfig));
+  }
+
+  let absMutationCwd = directoryLca(dirs);
+  if (!isInsideProjectRoot(absMutationCwd, projectRoot)) {
+    absMutationCwd = path.resolve(projectRoot);
+  }
+  return absMutationCwd;
+}
+
 /**
  * Resolve suite.root / suite.cwd against projectRoot and load framework registry entry.
  */
@@ -37,8 +103,8 @@ function resolveSuite(suite: TestSuite, projectRoot: string): ResolvedSuite {
   const frameworkConfig = getFrameworkConfig(suite.framework);
   const absRoot = path.resolve(projectRoot, suite.root);
   const absCwd = path.resolve(absRoot, suite.cwd);
-  const absMutationCwd = path.resolve(absRoot, suite.mutation.cwd ?? suite.cwd);
   const absConfig = suite.config ? path.resolve(absRoot, suite.config) : null;
+  const absMutationCwd = resolveAbsMutationCwd(suite, absRoot, absCwd, absConfig, projectRoot);
   const cwd = toPosixRelative(projectRoot, absCwd);
   const root = toPosixRelative(projectRoot, absRoot);
   const mutationCwd = toPosixRelative(projectRoot, absMutationCwd);

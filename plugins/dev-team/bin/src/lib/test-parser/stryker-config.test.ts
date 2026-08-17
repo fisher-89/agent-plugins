@@ -368,7 +368,7 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     expect(jestJson.jest).toEqual({
       configFile: relPosix(project.root, 'jest.config.js'),
       enableFindRelatedTests: false,
-      config: { rootDir: '.', testMatch },
+      config: { testMatch },
     });
     expect(jestJson.vitest).toBeUndefined();
     fs.unlinkSync(jestResult.configPath);

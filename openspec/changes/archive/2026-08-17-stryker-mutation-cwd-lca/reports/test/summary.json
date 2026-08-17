@@ -1,0 +1,83 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-08-17T10:00:41.518Z",
+  "duration_seconds": 317,
+  "total": 1722,
+  "passed": 1722,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 95.94,
+      "branches": 88.06,
+      "functions": 98.67
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 39,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 70.96,
+    "threshold": 70,
+    "measured": {
+      "killed": 522,
+      "survived": 197,
+      "timeout": 1,
+      "noCoverage": 17,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 13,
+      "total": 750,
+      "detected": 523,
+      "undetected": 214
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 70.96336499321573,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 39,
+        "passed_count": 39
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/stryker-mutation-cwd-lca/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "Initial run: 5 MCP change_create tests failed because changeCreateInputSchema required workflow_type; fixed by adding .optional().prefault('requirement').",
+    "Stryker dry-run failed with 'process.chdir() is not supported in workers' from mutation_cwd integration tests; fixed by replacing process.chdir with vi.spyOn(process, 'cwd').mockReturnValue(projectRoot).",
+    "All 1722 unit/integration tests passed; coverage thresholds met (lines 95.9%, branches 88.1%, functions 98.7%); mutation score 71.0% meets 70% threshold."
+  ]
+}

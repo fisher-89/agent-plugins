@@ -40,7 +40,12 @@ const testCoverageSchema = z
 
 const mutationConfigSchema = z
   .object({
-    cwd: z.string().optional().describe('突变执行目录（相对 root，默认等于cwd）'),
+    cwd: z
+      .string()
+      .optional()
+      .describe(
+        '突变执行目录（相对 root；出现时覆盖 detect 侧自动 LCA(absRoot, absCwd, dirname(absConfig)?)；省略时由消费者按 LCA 计算 mutation_cwd）',
+      ),
     score: z
       .number()
       .min(0)

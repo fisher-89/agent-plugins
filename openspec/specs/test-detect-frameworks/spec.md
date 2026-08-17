@@ -179,7 +179,7 @@ The module SHALL import `isFileExcluded` from `../lib/test-exclude` at the top o
 对每个 suite：
 1. `absRoot = projectRoot / suite.root`
 2. `absCwd = absRoot / suite.cwd`
-3. `absMutationCwd = absRoot / (suite.mutation.cwd ?? suite.cwd)`
+3. `absMutationCwd`：若 `suite.mutation.cwd` 已出现，则为 `absRoot / suite.mutation.cwd`；否则为 `LCA(absRoot, absCwd, dirname(absConfig)?)`（无 `suite.config` 时省略第三元），再按 REQ-TDF-MUT-CWD-1 clamp / 报错
 4. `plan.cwd` = absCwd 相对于 `projectRoot` 的 POSIX 相对路径（运行目录）
 5. `plan.root` = absRoot 相对于 `projectRoot` 的 POSIX 相对路径（测试范围根）
 6. `plan.mutation_cwd` = absMutationCwd 相对于 `projectRoot` 的 POSIX 相对路径（Stryker sandbox / 临时 config 根）
@@ -246,6 +246,89 @@ Suite 路径解析（`resolveSuite` / `resolveAllSuites`）与文件归属（`is
 **THEN** `plan.length` SHALL be 2
 **AND** each entry's `cwd` SHALL reflect that suite's absCwd
 **AND** each entry's `root` SHALL reflect that suite's absRoot
+
+#### Scenario: default mutation_cwd follows LCA not suite cwd
+
+**WHEN** config has `tests: [{ root: "pkg/src", cwd: "..", framework: "vitest" }]` with no `mutation.cwd`
+**AND** `resolveAllSuites` / `runTestDetectFrameworks({})` is called
+**THEN** `plan[0].mutation_cwd` SHALL be `"pkg"`（`LCA(absRoot, absCwd)`）
+**AND** SHALL NOT equal `"pkg/src"` solely because that is `suite.root`
+
+### Requirement: 缺省 mutation_cwd 为 LCA(root, cwd, dirname(config))
+
+**ID**: REQ-TDF-MUT-CWD-1
+**Priority**: MUST
+**Description**: `lib/test-plan.ts` 的 `resolveSuite` SHALL 按下列规则计算 `absMutationCwd`，再经 `toPosixRelative(projectRoot, absMutationCwd)` 得到 `ResolvedSuite.mutationCwd` / plan `mutation_cwd`：
+
+1. `absRoot = path.resolve(projectRoot, suite.root)`
+2. `absCwd = path.resolve(absRoot, suite.cwd)`
+3. `absConfig = suite.config ? path.resolve(absRoot, suite.config) : null`
+4. **显式覆盖**：若 `suite.mutation.cwd` 字段已出现（schema 解析后为 string），`absMutationCwd = path.resolve(absRoot, suite.mutation.cwd)`，SHALL NOT 再计算 LCA
+5. **缺省 LCA**：否则 `absMutationCwd` SHALL 为目录 `absRoot`、`absCwd`、以及（当 `absConfig` 非 null）`path.dirname(absConfig)` 的最长共同祖先。无 config 时为 `LCA(absRoot, absCwd)`
+6. **上沿**（proposal AC-10）：若 LCA 结果不在 `projectRoot` 之内（`path.relative(projectRoot, lca)` 以 `..` 开头或为另一盘符绝对路径），SHALL clamp 到 `path.resolve(projectRoot)`，因此 `mutationCwd` SHALL 为 `"."`
+7. **跨盘**（proposal AC-11）：输入路径无共同祖先时 SHALL 抛错；MUST NOT 将盘符根（如 `C:\`）写入 `mutation_cwd`
+
+由构造可知：缺省 LCA 等于或高于 `absCwd`，SHALL NOT 落到 `absCwd` 的子目录。本规则由 `resolveAllSuites` 单测锁住即可；CLI 集成不必为 LCA 再挂一条。
+
+#### Scenario: 三者同层（本仓库同构）
+
+**WHEN** suite 为 `{ root: "pkg", cwd: ".", framework: "vitest", config: "vite.config.ts" }`
+**AND** 未设置 `mutation.cwd`
+**AND** `resolveAllSuites` 针对该 suite 被调用
+**THEN** `mutationCwd` SHALL 为 `"pkg"`
+
+#### Scenario: config 探出 cwd
+
+**WHEN** suite 为 `{ root: "pkg/src", cwd: ".", framework: "vitest", config: "../vitest.config.ts" }`
+**AND** 未设置 `mutation.cwd`
+**AND** `resolveAllSuites` 被调用
+**THEN** `mutationCwd` SHALL 为 `"pkg"`
+
+#### Scenario: cwd 在 root 之上且无 config
+
+**WHEN** suite 为 `{ root: "pkg/src", cwd: "..", framework: "vitest" }`
+**AND** 未设置 `config` 与 `mutation.cwd`
+**AND** `resolveAllSuites` 被调用
+**THEN** `mutationCwd` SHALL 为 `"pkg"`
+**AND** SHALL 等于 `LCA(absRoot, absCwd)`，不是 `"pkg/src"`
+
+#### Scenario: 显式 mutation.cwd 覆盖 LCA
+
+**WHEN** suite 为 `{ root: "pkg/src", cwd: "..", framework: "vitest", mutation: { cwd: "." } }`
+**AND** `resolveAllSuites` 被调用
+**THEN** `mutationCwd` SHALL 为 `"pkg/src"`（`path.resolve(absRoot, ".")`）
+**AND** SHALL NOT 为 LCA 结果 `"pkg"`
+
+#### Scenario: 显式 mutation.cwd 放大 sandbox
+
+**WHEN** suite 为 `{ root: "pkg/src", cwd: ".", framework: "vitest", mutation: { cwd: "../.." } }`
+**AND** `resolveAllSuites` 被调用
+**THEN** `mutationCwd` SHALL 为覆盖解析后相对 `projectRoot` 的 POSIX 路径
+**AND** SHALL NOT 被改写为 `LCA(absRoot, absCwd)`
+
+#### Scenario: 无 config 时 LCA(root, cwd)
+
+**WHEN** suite 仅含 `root` 与 `cwd`（无 `config`、无 `mutation.cwd`）
+**AND** `absRoot` 与 `absCwd` 不相同
+**AND** `resolveAllSuites` 被调用
+**THEN** `mutationCwd` SHALL 为二者目录 LCA 相对 `projectRoot` 的 POSIX 路径
+
+#### Scenario: LCA 高于 projectRoot 时 clamp 为 "."
+
+**WHEN** `projectRoot` 为某仓库根，suite 为 `{ root: ".", cwd: "..", framework: "vitest" }`（或缺省 LCA 绝对路径为 `projectRoot` 的父目录的等价人造 suite）
+**AND** 未设置 `mutation.cwd`
+**AND** `resolveAllSuites` 被调用
+**THEN** `absMutationCwd` SHALL 为 `path.resolve(projectRoot)`（clamp，不是父目录）
+**AND** `mutationCwd` SHALL 为 `"."`
+**AND** plan `mutation_cwd` SHALL NOT 为 `projectRoot` 之上的相对路径（如 `".."`）
+
+#### Scenario: 跨盘无共同祖先时抛错且不得为盘符根
+
+**WHEN** 缺省 LCA 的输入中 `absRoot` / `absCwd` / `dirname(absConfig)` 至少两者不在同一盘符（例如 `absRoot` 在 `C:\...`、`absCwd` 在 `D:\...`），或无法计算共同祖先
+**AND** 未设置 `suite.mutation.cwd`
+**AND** `resolveAllSuites` 被调用
+**THEN** SHALL 抛错（不得返回成功的 `ResolvedSuite` / plan）
+**AND** SHALL NOT 将盘符根（如 `C:\` 或 `D:\`）作为 `mutationCwd` / plan `mutation_cwd` 返回
 
 ### Requirement: Script generation injects optional framework config via template placeholder
 

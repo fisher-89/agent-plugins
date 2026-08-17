@@ -591,6 +591,7 @@ function runMutationPhase(
   try {
     return executeStrykerMutation(
       entry,
+      projectRoot,
       entry.mutation_cwd,
       reportDir,
       sourcesAbsolute,
@@ -605,6 +606,7 @@ function runMutationPhase(
 
 function executeStrykerMutation(
   entry: TestPlan,
+  projectRoot: string,
   strykerRoot: string,
   reportDir: string,
   absoluteSourceFiles: string[],
@@ -619,7 +621,7 @@ function executeStrykerMutation(
     frameworkConfigPath,
   );
 
-  const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'));
+  const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'), projectRoot);
   console.log(`Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${strykerRoot})...`);
   const strykerStart = Date.now();
   const cmdResult = runCommand(strykerCmd, strykerRoot, 3600000);
@@ -666,14 +668,15 @@ function formatMutationCommandError(
   return `Mutation testing failed (${durationS.toFixed(1)}s): ${detail}`;
 }
 
-function genStrykerCommand(entry: TestPlan, configPath: string): string {
+function genStrykerCommand(entry: TestPlan, configPath: string, projectRoot: string): string {
   const script = entry.mutation_script;
   if (!script) {
     throw new Error(`Framework "${entry.framework}" does not support mutation testing`);
   }
   const isWinCmd = process.platform === 'win32' && !process.env.SHELL;
   const mutationTemplate = isWinCmd ? script.cmd : script.shell;
-  return mutationTemplate.replace(/\{config\}/g, configPath);
+  const absPrefix = path.resolve(projectRoot, entry.cwd);
+  return mutationTemplate.replace(/\{prefix\}/g, absPrefix).replace(/\{config\}/g, configPath);
 }
 
 /**
