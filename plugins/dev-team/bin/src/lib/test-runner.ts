@@ -624,7 +624,7 @@ function executeStrykerMutation(
   const strykerCmd = genStrykerCommand(entry, configPath.replace(/\\/g, '/'), projectRoot);
   console.log(`Running StrykerJS mutation testing (cmd: ${strykerCmd}, cwd: ${strykerRoot})...`);
   const strykerStart = Date.now();
-  const cmdResult = runCommand(strykerCmd, strykerRoot, 3600000);
+  const cmdResult = runCommand(strykerCmd, strykerRoot, 10800000); // 突变耗时较长，timeout设置为3小时
   const strykerDuration = (Date.now() - strykerStart) / 1000;
 
   if (cmdResult.exitCode !== 0) {
