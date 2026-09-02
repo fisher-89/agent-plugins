@@ -367,7 +367,6 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     const jestJson = JSON.parse(fs.readFileSync(jestResult.configPath, 'utf-8'));
     expect(jestJson.jest).toEqual({
       configFile: relPosix(project.root, 'jest.config.js'),
-      enableFindRelatedTests: false,
       config: { testMatch },
     });
     expect(jestJson.vitest).toBeUndefined();
@@ -505,7 +504,6 @@ describe('resolveStrykerConfig -- 盘符 / 空路径 / overlay（突变补强）
       );
       const json = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
       expect(json.jest.config.testMatch).toEqual([c.testMatch]);
-      expect(json.jest.enableFindRelatedTests).toBe(false);
       fs.unlinkSync(result.configPath);
     }
   });

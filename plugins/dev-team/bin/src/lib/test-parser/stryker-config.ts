@@ -88,6 +88,7 @@ function buildRunnerConfigOverlay(
         enableFindRelatedTests: false,
         config: {
           testMatch: [testMatchGlob],
+          reporters: [],
         },
       },
     };
@@ -116,6 +117,7 @@ function generateTempConfig(
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
     ...buildRunnerConfigOverlay(strykerRoot, planRoot, testRunner, frameworkConfigPath),
+    disableTypeChecks: true,
     ignoreStatic: true,
     reporters: ['json', 'html'],
     jsonReporter: { fileName: mutationFileAbs },
