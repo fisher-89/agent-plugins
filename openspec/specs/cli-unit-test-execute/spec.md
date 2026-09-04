@@ -162,7 +162,7 @@ prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写
 
 #### Scenario: redirect frameworks append shell redirect
 
-**WHEN** framework 为 `bun` / `go` / `node-test` 等无原生结果文件输出的测试段
+**WHEN** framework 为 `bun` / `go` / `rust` / `pytest` 等无原生结果文件输出的测试段
 **AND** `redirectStdoutToResults` 为 `true`
 **THEN** 最终命令的测试结果段 SHALL 追加 `> "{results_file}"`（或 Windows cmd 等价重定向；`results_file` 为绝对 POSIX）
 
@@ -184,13 +184,13 @@ prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写
 
 | 框架 | 测试结果（示意） | 覆盖率（示意） | 采集 |
 |------|------------------|----------------|------|
-| jest | `results.json` | `coverage-summary.json` | 原生 outputFile / coverageDirectory |
-| vitest / vite-plus | `results.json` | `coverage-summary.json` | 原生 reporter/outputFile |
+| jest | `results.json` | `coverage-summary.json` | 原生 outputFile / coverageDirectory；`--reporters=default` 覆盖用户 reporter |
+| vitest / vite-plus | `results.json` | `coverage-summary.json` | 原生 reporter/outputFile；CLI `--reporter=json` 覆盖用户 reporter |
 | bun | `results.txt` | `lcov.info` | 测试 `>`；覆盖率临时 bunfig |
 | go | `results.ndjson` | `func-summary.txt` (+ `coverage.out`) | 测试 `>`；coverprofile 原生路径 |
 | rust | `results.txt` | `coverage-summary.json` | 测试 `>`；llvm-cov `--output-path` |
 | pytest | `results.txt` | `coverage.json` | 测试段 `>`；`--cov-report=json:path` |
-| node-test | `results.txt` | （可含于同一文本） | `>` |
+| node-test | `results.txt` | （可含于同一文本） | 原生 `--test-reporter-destination`（无段级 `>`） |
 
 横向 coverage-parser SHALL 保留为库函数，由垂直模块调用。
 
@@ -220,6 +220,20 @@ prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写
 **WHEN** 执行任一框架测试命令
 **THEN** runner SHALL NOT 实现 tee（同时写文件并保留完整实时 stdout 镜像）
 **AND** 失败诊断 SHALL 依赖 plan 目录产物与 `report.json`
+
+#### Scenario: node-test uses native reporter destination not shell redirect
+
+**WHEN** framework 为 `node-test`
+**AND** `preparePlanArtifacts` 返回后拼命令
+**THEN** `redirectStdoutToResults` SHALL 为 `false`
+**AND** 最终命令 SHALL 含原生 `--test-reporter-destination`（路径为 planDir 内 `results.txt` 的绝对 POSIX 值）
+**AND** SHALL NOT 以壳层 `> "{results_file}"` 追加测试结果段
+
+#### Scenario: CLI reporter flags override user-configured reporters
+
+**WHEN** 执行 `jest` / `vitest` / `vite-plus` plan
+**THEN** 最终命令 SHALL 显式指定 reporter，以覆盖用户框架配置中的 reporter（避免用户 html/junit 等仍触发）
+**AND** 结构化结果仍写入 planDir 约定文件（如 `results.json`）
 
 ### Requirement: ExecutionResult carries plan artifact fields
 

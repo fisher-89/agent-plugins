@@ -47,12 +47,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'npx jest --version',
     shell: {
       test_execution: (version) =>
-        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --reporters=default --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
       mutation_execution: () => MUTATION_EXECUTION,
     },
     cmd: {
       test_execution: (version) =>
-        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
+        `npx jest${isVersionAtLeast(version, '29.5.0') ? ' --randomize' : ''} --reporters=default --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}`,
       mutation_execution: () => MUTATION_EXECUTION,
     },
     coverage_format: 'istanbul',
@@ -65,12 +65,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'npx vitest --version',
     shell: {
       test_execution: () =>
-        'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
+        'npx vitest run --sequence.shuffle --reporter=json --outputFile.json="{results_file}" --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: () => MUTATION_EXECUTION,
     },
     cmd: {
       test_execution: () =>
-        'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
+        'npx vitest run --sequence.shuffle --reporter=json --outputFile.json="{results_file}" --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: () => MUTATION_EXECUTION,
     },
     coverage_format: 'istanbul',
@@ -83,12 +83,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'vp --version',
     shell: {
       test_execution: () =>
-        'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
+        'vp test --sequence.shuffle --reporter=json --outputFile.json="{results_file}" --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: () => MUTATION_EXECUTION,
     },
     cmd: {
       test_execution: () =>
-        'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
+        'vp test --sequence.shuffle --reporter=json --outputFile.json="{results_file}" --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
       mutation_execution: () => MUTATION_EXECUTION,
     },
     coverage_format: 'istanbul',
@@ -130,10 +130,12 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     framework: 'node-test',
     version_command: 'node --version',
     shell: {
-      test_execution: () => 'node --test --experimental-test-coverage {files}',
+      test_execution: () =>
+        'node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination="{results_file}" {files}',
     },
     cmd: {
-      test_execution: () => 'node --test --experimental-test-coverage {files}',
+      test_execution: () =>
+        'node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination="{results_file}" {files}',
     },
     coverage_format: 'node-test',
     coverage_output: 'results.txt',

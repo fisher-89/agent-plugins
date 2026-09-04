@@ -89,6 +89,22 @@ describe('runTestDetectFrameworks — 占位符延迟展开 (AC-7)', () => {
     }
   });
 
+  it('vitest 产出 script 用 CLI --reporter=json 覆盖用户配置', () => {
+    const project = createTempProject({
+      schema: 'spec-driven',
+      tests: [{ root: '.', framework: 'vitest' }],
+    });
+    try {
+      const plan = runTestDetectFrameworks({ projectRoot: project.root }).plan[0];
+      expect(plan.script.shell).toContain('--reporter=json');
+      expect(plan.script.shell).toContain('--outputFile.json="{results_file}"');
+      expect(plan.script.shell).not.toContain('--reporter=verbose');
+      expect(plan.script.shell).not.toContain('--silent');
+    } finally {
+      project.cleanup();
+    }
+  });
+
   it('coverage_output 为相对 reportDir 的垂直约定名', () => {
     const project = createTempProject({
       schema: 'spec-driven',

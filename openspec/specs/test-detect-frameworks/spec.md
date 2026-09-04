@@ -396,13 +396,26 @@ execute 以 `cwd=absCwd` 运行已展开占位符的 `test_execution`（detect �
 
 **ID**: REQ-TDF-TEF-1
 **Priority**: MUST
-**Description**: 各框架 `test_execution` 模板 SHALL 按需包含文件通道占位符：`{results_file}`、`{coverage_file}`、`{report_dir}`、`{config_args}`（及 go 等需要的 `{coverprofile_file}` 等）。原生 outputFile 族模板 SHALL 将输出旗标指向这些占位符，且路径旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`、`--coverageDirectory="{report_dir}"`）；无原生结果文件的测试段由 execute 条件追加 `> "{results_file}"`，模板本身可不硬编码重定向。
+**Description**: 各框架 `test_execution` 模板 SHALL 按需包含文件通道占位符：`{results_file}`、`{coverage_file}`、`{report_dir}`、`{config_args}`（及 go 等需要的 `{coverprofile_file}` 等）。原生 outputFile / reporter-destination 族模板 SHALL 将输出旗标指向这些占位符，且路径旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`、`--outputFile.json="{results_file}"`、`--coverageDirectory="{report_dir}"`、`--test-reporter-destination="{results_file}"`）；无原生结果文件的测试段由 execute 条件追加 `> "{results_file}"`，模板本身可不硬编码重定向。
 
 #### Scenario: jest template uses outputFile placeholder
 
 **WHEN** 读取 jest 的 `test_execution` 模板
 **THEN** 模板 SHALL 包含将 JSON 结果写到文件的旗标，且路径使用带引号的 `{results_file}`（如 `--outputFile="{results_file}"`）
 **AND** 模板 SHALL 将 coverage 目录指向带引号的 `{report_dir}`（如 `--coverageDirectory="{report_dir}"`）
+**AND** 模板 SHALL 含 `--reporters=default`
+
+#### Scenario: vitest template overrides reporters with json outputFile
+
+**WHEN** 读取 vitest 或 vite-plus 的 `test_execution` 模板
+**THEN** 模板 SHALL 含 `{results_file}`
+**AND** SHALL 用 CLI `--reporter=json` 覆盖用户 reporter 配置
+**AND** SHALL NOT 含 `{console_file}`
+
+#### Scenario: node-test template uses native destination
+
+**WHEN** 读取 node-test 的 `test_execution` 模板
+**THEN** 模板 SHALL 含 `--test-reporter-destination="{results_file}"`
 
 #### Scenario: execute substitutes placeholders from preparePlanArtifacts
 

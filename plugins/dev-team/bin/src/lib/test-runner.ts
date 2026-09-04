@@ -78,8 +78,8 @@ interface PreparePlanArtifactsResult {
   env?: Record<string, string>;
 }
 
-/** Frameworks that write test results via native CLI outputFile (no shell `>`). */
-const NATIVE_OUTPUT_FILE_FRAMEWORKS = new Set(['jest', 'vitest', 'vite-plus']);
+/** Frameworks that write test results via native CLI outputFile / reporter destination (no shell `>`). */
+const NATIVE_OUTPUT_FILE_FRAMEWORKS = new Set(['jest', 'vitest', 'vite-plus', 'node-test']);
 
 /** Vertical results file names under reportDir. */
 const RESULTS_FILE_BY_FRAMEWORK: Record<string, string> = {
@@ -305,7 +305,7 @@ function applyResultsRedirect(
       return cmd.replace(/^(pytest\b.*?)(\s*;\s*)/, `$1 ${redirect}$2`);
     }
     default:
-      // bun, node-test, and any other single-segment redirect framework
+      // bun, rust, and any other single-segment redirect framework
       return `${cmd} ${redirect}`;
   }
 }

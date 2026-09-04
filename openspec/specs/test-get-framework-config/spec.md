@@ -244,7 +244,9 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 **Priority**: MUST
 **Description**: `FRAMEWORK_REGISTRY` 中各框架的 `coverage_output` SHALL 改为相对 **reportDir** 的垂直约定文件名（不再使用 suite cwd 下 `coverage/...` 旧路径）。`coverage_format` 枚举 SHALL 支持 `'lcov'`（供 bun）。`shell` / `cmd` 下的 `coverage_cleanup` 列表语义 SHALL 废弃（产物不再落 suite cwd；execute 清空 reportDir）。
 
-`test_execution` 模板 SHALL 含文件通道占位符（`{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` 等），并按框架选择原生文件输出旗标或交由 execute 条件 `>`。路径类旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`）。execute 展开后这些路径 SHALL 为绝对 POSIX 形式。
+`test_execution` 模板 SHALL 含文件通道占位符（`{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` 等），并按框架选择原生文件输出旗标或交由 execute 条件 `>`。路径类旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`、`--outputFile.json="{results_file}"`）。execute 展开后这些路径 SHALL 为绝对 POSIX 形式。
+
+jest / vitest / vite-plus 模板 SHALL 用 CLI reporter 旗标覆盖用户配置中的 reporter（jest：`--reporters=default`；vitest / vite-plus：`--reporter=json`）。node-test 模板 SHALL 用 `--test-reporter-destination="{results_file}"`（原生落盘），MUST NOT 依赖 execute 段级 `>`。
 
 #### Scenario: vitest coverage_output is reportDir-relative
 
@@ -257,6 +259,20 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 **WHEN** 读取 jest `shell.test_execution` / `cmd.test_execution` 模板字符串
 **THEN** 模板 SHALL 包含原生 JSON 文件输出旗标与 coverage 目录/reporter 旗标
 **AND** 路径位置 SHALL 使用带引号的 `{results_file}` / `{report_dir}`（如 `--outputFile="{results_file}"`、`--coverageDirectory="{report_dir}"`）
+**AND** 模板 SHALL 含 `--reporters=default` 以覆盖用户 jest reporter 配置
+
+#### Scenario: vitest/vite-plus templates override reporters with json outputFile
+
+**WHEN** 读取 vitest 或 vite-plus 的 `test_execution` 模板
+**THEN** 模板 SHALL 含 `--reporter=json`
+**AND** JSON 路径 SHALL 使用带引号的 `{results_file}`（如 `--outputFile.json="{results_file}"`）
+**AND** SHALL NOT 含 `{console_file}` / `--reporter=verbose`
+
+#### Scenario: node-test template uses native reporter destination
+
+**WHEN** 读取 node-test 的 `test_execution` 模板
+**THEN** 模板 SHALL 含 `--test-reporter-destination="{results_file}"`
+**AND** SHALL NOT 依赖 execute 追加的段级 `>`
 
 ### Requirement: bun registry uses lcov and explicit config
 

@@ -125,7 +125,11 @@ describe('executePlanEntry', () => {
       executePlanEntry(makePlan({ framework: 'vite-plus' }), dir.root, { reportsDir });
       const cmd = capturedCmd();
       expect(cmd).toContain('results.json');
+      expect(cmd).toContain('--reporter=json');
+      expect(cmd).toContain('--outputFile.json=');
+      expect(cmd).not.toContain('--reporter=verbose');
       expect(cmd).not.toMatch(/>\s*"/);
+      expect(cmd).not.toContain('--silent');
     } finally {
       dir.cleanup();
     }
@@ -161,7 +165,7 @@ describe('executePlanEntry', () => {
     }
   });
 
-  it('go/rust/pytest/node-test：命令含段级 > 重定向', () => {
+  it('go/rust/pytest：命令含段级 > 重定向', () => {
     const dir = createTempDir();
     try {
       const reportsDir = path.join(dir.root, 'reports', 'test');
@@ -169,9 +173,8 @@ describe('executePlanEntry', () => {
         go: 'results.ndjson',
         rust: 'results.txt',
         pytest: 'results.txt',
-        'node-test': 'results.txt',
       };
-      for (const framework of ['go', 'rust', 'pytest', 'node-test'] as const) {
+      for (const framework of ['go', 'rust', 'pytest'] as const) {
         mockExecSync.mockReset();
         mockExecSync.mockImplementation(() => {
           const planDir = path.join(reportsDir, framework);
@@ -190,6 +193,25 @@ describe('executePlanEntry', () => {
         executePlanEntry(makePlan({ framework }), dir.root, { reportsDir });
         expect(capturedCmd()).toMatch(/>\s*"/);
       }
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('node-test：原生 --test-reporter-destination 指向 planDir，无段级 >', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalTextResults(path.join(reportsDir, 'node-test'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'node-test' }), dir.root, { reportsDir });
+      const cmd = capturedCmd();
+      expect(cmd).toContain('--test-reporter=spec');
+      expect(cmd).toContain('--test-reporter-destination=');
+      expect(cmd).toContain('results.txt');
+      expect(cmd).not.toMatch(/>\s*"/);
     } finally {
       dir.cleanup();
     }
@@ -273,9 +295,11 @@ describe('executePlanEntry', () => {
       });
       executePlanEntry(makePlan({ framework: 'jest' }), dir.root, { reportsDir });
       const cmd = capturedCmd();
+      expect(cmd).toContain('--reporters=default');
       expect(cmd).toContain('--outputFile=');
       expect(cmd).toContain('results.json');
       expect(cmd).not.toMatch(/>\s*"/);
+      expect(cmd).toContain('--silent');
     } finally {
       dir.cleanup();
     }

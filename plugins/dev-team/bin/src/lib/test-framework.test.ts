@@ -126,7 +126,7 @@ describe('getFrameworkConfig -- 模板字面量', () => {
     for (const builder of [cfg.shell.test_execution, cfg.cmd.test_execution]) {
       const cmd = te(builder, '29.5.0');
       expect(cmd).toContain('--randomize');
-      expect(cmd).toContain('--no-verbose');
+      expect(cmd).toContain('--reporters=default');
       expect(cmd).toContain('--json');
       expect(cmd).toContain('--outputFile="{results_file}"');
       expect(cmd).toContain('--silent');
@@ -146,7 +146,9 @@ describe('getFrameworkConfig -- 模板字面量', () => {
       expect(cmd).toContain('npx vitest run');
       expect(cmd).toContain('--sequence.shuffle');
       expect(cmd).toContain('--reporter=json');
-      expect(cmd).toContain('--outputFile="{results_file}"');
+      expect(cmd).toContain('--outputFile.json="{results_file}"');
+      expect(cmd).not.toContain('--reporter=verbose');
+      expect(cmd).not.toContain('--silent');
       expect(cmd).toContain('--coverage.reportsDirectory="{report_dir}"');
       expect(cmd).toContain('--coverage.reporter=json-summary');
     }
@@ -157,7 +159,9 @@ describe('getFrameworkConfig -- 模板字面量', () => {
       expect(cmd).toContain('vp test');
       expect(cmd).toContain('--sequence.shuffle');
       expect(cmd).toContain('--reporter=json');
-      expect(cmd).toContain('--outputFile="{results_file}"');
+      expect(cmd).toContain('--outputFile.json="{results_file}"');
+      expect(cmd).not.toContain('--reporter=verbose');
+      expect(cmd).not.toContain('--silent');
       expect(cmd).toContain('--coverage.reportsDirectory="{report_dir}"');
       expect(cmd).toContain('--coverage.reporter=json-summary');
     }
@@ -208,10 +212,12 @@ describe('getFrameworkConfig -- 模板字面量', () => {
     );
   });
 
-  it('node-test shell/cmd 精确含 node --test --experimental-test-coverage {files}', () => {
+  it('node-test shell/cmd 用原生 reporter destination 写 results_file', () => {
     const cfg = getFrameworkConfig('node-test');
-    expect(te(cfg.shell.test_execution)).toBe('node --test --experimental-test-coverage {files}');
-    expect(te(cfg.cmd.test_execution)).toBe('node --test --experimental-test-coverage {files}');
+    const expected =
+      'node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination="{results_file}" {files}';
+    expect(te(cfg.shell.test_execution)).toBe(expected);
+    expect(te(cfg.cmd.test_execution)).toBe(expected);
   });
 });
 
@@ -439,17 +445,17 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
     expect(typeof jestCfg.shell.mutation_execution).toBe('function');
     expect(typeof jestCfg.cmd.mutation_execution).toBe('function');
     expect(jestCfg.shell.test_execution('29.5.0')).toBe(
-      'npx jest --randomize --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}',
+      'npx jest --randomize --reporters=default --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}',
     );
     expect(jestCfg.shell.test_execution('29.4.9')).toBe(
-      'npx jest --no-verbose --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}',
+      'npx jest --reporters=default --json --outputFile="{results_file}" --silent --coverage --coverageDirectory="{report_dir}" --coverageReporters=json-summary {config_args} {files}',
     );
     expect(jestCfg.cmd.test_execution('29.5.0')).toBe(jestCfg.shell.test_execution('29.5.0'));
     expect(jestCfg.cmd.test_execution('29.4.9')).toBe(jestCfg.shell.test_execution('29.4.9'));
 
     const vitestCfg = getFrameworkConfig('vitest');
     expect(vitestCfg.shell.test_execution('1.0.0')).toBe(
-      'npx vitest run --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
+      'npx vitest run --sequence.shuffle --reporter=json --outputFile.json="{results_file}" --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );
     expect(vitestCfg.cmd.test_execution('1.0.0')).toBe(vitestCfg.shell.test_execution('1.0.0'));
     expect(vitestCfg.shell.mutation_execution?.('99.0.0')).toBe(
@@ -466,7 +472,7 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
       'npx --prefix "{prefix}" stryker run "{config}"',
     );
     expect(vp.shell.test_execution('1.0.0')).toBe(
-      'vp test --sequence.shuffle --reporter=json --outputFile="{results_file}" --silent --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
+      'vp test --sequence.shuffle --reporter=json --outputFile.json="{results_file}" --coverage --coverage.reportsDirectory="{report_dir}" --coverage.reporter=json-summary {config_args} {files}',
     );
     expect(vp.cmd.test_execution('1.0.0')).toBe(vp.shell.test_execution('1.0.0'));
 
@@ -485,7 +491,7 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
 
     const nodeTest = getFrameworkConfig('node-test');
     expect(nodeTest.shell.test_execution('1.0.0')).toBe(
-      'node --test --experimental-test-coverage {files}',
+      'node --test --experimental-test-coverage --test-reporter=spec --test-reporter-destination="{results_file}" {files}',
     );
     expect(nodeTest.cmd.test_execution('1.0.0')).toBe(nodeTest.shell.test_execution('1.0.0'));
 
