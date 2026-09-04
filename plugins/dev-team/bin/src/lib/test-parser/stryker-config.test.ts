@@ -58,6 +58,8 @@ describe('resolveStrykerConfig', () => {
     const config = JSON.parse(fs.readFileSync(result.configPath, 'utf-8'));
     expect(config.jsonReporter.fileName).toBe(absPosix(reportDir, 'mutation.json'));
     expect(config.jsonReporter.fileName).not.toContain('reports/mutation/');
+    expect(config.htmlReporter.fileName).toBe(absPosix(reportDir, 'mutation.html'));
+    expect(config.htmlReporter.fileName).not.toContain('reports/mutation/');
     fs.unlinkSync(result.configPath);
   });
 
@@ -158,7 +160,7 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     }
   });
 
-  it('写入 JSON 含 $schema 后缀、ignoreStatic=true、reporters、timeoutMS=10000、tempDirPath=.stryker-tmp', () => {
+  it('写入 JSON 含 $schema 后缀、ignoreStatic=true、reporters、htmlReporter、timeoutMS=10000、tempDirPath 在 reportDir', () => {
     const result = resolveStrykerConfig(
       project.root,
       PLAN_ROOT,
@@ -171,8 +173,10 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     expect(config.ignoreStatic).toBe(true);
     expect(config.reporters).toEqual(expect.arrayContaining(['json', 'html']));
     expect(config.reporters).toHaveLength(2);
+    expect(config.htmlReporter.fileName).toBe(absPosix(reportDir, 'mutation.html'));
     expect(config.timeoutMS).toBe(10000);
-    expect(result.tempDirPath).toBe(path.resolve(project.root, '.stryker-tmp'));
+    expect(result.tempDirPath).toBe(path.resolve(reportDir, '.stryker-tmp'));
+    expect(config.tempDirName).toBe(absPosix(reportDir, '.stryker-tmp'));
     expect(path.basename(result.configPath)).toMatch(/^stryker\.config\.[a-f0-9]+\.json$/);
     fs.unlinkSync(result.configPath);
   });
@@ -266,6 +270,9 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     ).toBe(true);
     expect(config.jsonReporter.fileName).not.toContain('\\');
     expect(config.jsonReporter.fileName).not.toContain('reports/mutation/');
+    expect(config.htmlReporter.fileName).toBe(absPosix(reportDir, 'mutation.html'));
+    expect(config.htmlReporter.fileName).not.toContain('\\');
+    expect(config.htmlReporter.fileName).not.toContain('reports/mutation/');
     fs.unlinkSync(result.configPath);
   });
 

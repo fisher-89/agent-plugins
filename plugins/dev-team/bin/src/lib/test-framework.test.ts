@@ -204,11 +204,11 @@ describe('getFrameworkConfig -- 模板字面量', () => {
 
     const pyShell = te(getFrameworkConfig('pytest').shell.test_execution);
     expect(pyShell).toBe(
-      'pytest -v {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
+      'pytest -v -o cache_dir="{report_dir}/.pytest_cache" {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q -o cache_dir="{report_dir}/.pytest_cache"',
     );
     const pyCmd = te(getFrameworkConfig('pytest').cmd.test_execution);
     expect(pyCmd).toBe(
-      'pytest -v {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
+      'pytest -v -o cache_dir="{report_dir}/.pytest_cache" {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q -o cache_dir="{report_dir}/.pytest_cache"',
     );
   });
 
@@ -505,10 +505,10 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
 
     const py = getFrameworkConfig('pytest');
     expect(py.shell.test_execution('1.0.0')).toBe(
-      'pytest -v {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
+      'pytest -v -o cache_dir="{report_dir}/.pytest_cache" {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q -o cache_dir="{report_dir}/.pytest_cache"',
     );
     expect(py.cmd.test_execution('1.0.0')).toBe(
-      'pytest -v {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
+      'pytest -v -o cache_dir="{report_dir}/.pytest_cache" {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q -o cache_dir="{report_dir}/.pytest_cache"',
     );
   });
 

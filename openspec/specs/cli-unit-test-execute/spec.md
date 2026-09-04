@@ -185,11 +185,11 @@ prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写
 | 框架 | 测试结果（示意） | 覆盖率（示意） | 采集 |
 |------|------------------|----------------|------|
 | jest | `results.json` | `coverage-summary.json` | 原生 outputFile / coverageDirectory；`--reporters=default` 覆盖用户 reporter |
-| vitest / vite-plus | `results.json` | `coverage-summary.json` | 原生 reporter/outputFile；CLI `--reporter=json` 覆盖用户 reporter |
+| vitest / vite-plus | `results.json` | `coverage-summary.json` | 原生 `--reporter=json --outputFile="{results_file}"`；coverage 目录指向 planDir |
 | bun | `results.txt` | `lcov.info` | 测试 `>`；覆盖率临时 bunfig |
 | go | `results.ndjson` | `func-summary.txt` (+ `coverage.out`) | 测试 `>`；coverprofile 原生路径 |
 | rust | `results.txt` | `coverage-summary.json` | 测试 `>`；llvm-cov `--output-path` |
-| pytest | `results.txt` | `coverage.json` | 测试段 `>`；`--cov-report=json:path` |
+| pytest | `results.txt` | `coverage.json` | 测试段 `>`；`--cov-report=json:path`；`COVERAGE_FILE` 与 `-o cache_dir` 指向 planDir |
 | node-test | `results.txt` | （可含于同一文本） | 原生 `--test-reporter-destination`（无段级 `>`） |
 
 横向 coverage-parser SHALL 保留为库函数，由垂直模块调用。
@@ -234,6 +234,22 @@ prepare 失败时该 plan SHALL 记为 `execution_error`（或等价），仍写
 **WHEN** 执行 `jest` / `vitest` / `vite-plus` plan
 **THEN** 最终命令 SHALL 显式指定 reporter，以覆盖用户框架配置中的 reporter（避免用户 html/junit 等仍触发）
 **AND** 结构化结果仍写入 planDir 约定文件（如 `results.json`）
+**AND** vitest / vite-plus 模板 SHALL 使用 `--outputFile="{results_file}"` 字符串形式（MUST NOT 仅 overlay `--outputFile.json=`）
+**AND** 此 CLI 覆盖 MUST NOT 被理解为可消除所有用户配置写盘：Vitest 对 reporter 数组可能仍合并；pytest `addopts` 中的额外 `--cov-report=html` 仍可能写到 suite cwd
+
+#### Scenario: pytest coverage data file and cache stay in planDir
+
+**WHEN** 执行 pytest plan
+**THEN** `execSync` 环境变量 SHALL 含 `COVERAGE_FILE` 指向该 plan `reportDir/.coverage`
+**AND** 命令 SHALL 含 `-o cache_dir="{report_dir}/.pytest_cache"`（展开后为绝对 POSIX planDir 路径）
+
+#### Scenario: Stryker html and json land in planDir
+
+**WHEN** mutation 阶段生成临时 Stryker 配置
+**THEN** `jsonReporter.fileName` SHALL 为 `reportDir/mutation.json`
+**AND** `htmlReporter.fileName` SHALL 为 `reportDir/mutation.html`
+**AND** Stryker `tempDirName` SHALL 为 `reportDir/.stryker-tmp`
+**AND** SHALL NOT 将 HTML 写到 mutation_cwd 下默认 `reports/mutation/`
 
 ### Requirement: ExecutionResult carries plan artifact fields
 

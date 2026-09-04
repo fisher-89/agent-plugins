@@ -181,11 +181,15 @@ function preparePlanArtifacts(input: PreparePlanArtifactsInput): PreparePlanArti
     configArgs = `${frameworkConfig.config_flag} "${toPosixAbsolute(userConfigPath)}"`;
   }
 
+  const env =
+    framework === 'pytest' ? { COVERAGE_FILE: path.resolve(reportDir, '.coverage') } : undefined;
+
   return {
     configArgs,
     redirectStdoutToResults,
     placeholders,
     tempPaths,
+    env,
   };
 }
 
@@ -355,6 +359,7 @@ function runCommand(
   cmd: string,
   cwd: string,
   timeout?: number,
+  extraEnv?: Record<string, string>,
 ): { stdout: string; stderr: string; exitCode: number; execError?: string } {
   try {
     const stdout = execSync(cmd, {
@@ -364,6 +369,7 @@ function runCommand(
       maxBuffer: 10 * 1024 * 1024,
       shell: resolveShell(),
       stdio: 'pipe',
+      env: { ...process.env, ...extraEnv },
     });
     return { stdout, stderr: '', exitCode: 0 };
   } catch (e: unknown) {
@@ -488,7 +494,7 @@ function runPreparedPlanEntry(
   }
 
   console.log(`Executing test cmd: "${testCmd}" in "${absCwd}"`);
-  const { exitCode, execError } = runCommand(testCmd, absCwd, options.timeout);
+  const { exitCode, execError } = runCommand(testCmd, absCwd, options.timeout, prepared.env);
 
   return buildPlanExecutionResult(
     entry,

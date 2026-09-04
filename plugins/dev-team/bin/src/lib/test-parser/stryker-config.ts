@@ -107,9 +107,11 @@ function generateTempConfig(
 ): { configPath: string; tempDirPath: string } {
   const randomSuffix = crypto.randomBytes(4).toString('hex');
   const configPath = path.resolve(strykerRoot, `stryker.config.${randomSuffix}.json`);
-  const tempDirPath = path.resolve(strykerRoot, '.stryker-tmp');
+  const tempDirPath = path.resolve(reportDir, '.stryker-tmp');
+  const tempDirName = tempDirPath.replace(/\\/g, '/');
   const normalizedSources = normalizeSourceFilesForStryker(strykerRoot, sourceFiles);
   const mutationFileAbs = path.resolve(reportDir, 'mutation.json').replace(/\\/g, '/');
+  const mutationHtmlAbs = path.resolve(reportDir, 'mutation.html').replace(/\\/g, '/');
 
   const config = {
     $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
@@ -121,6 +123,8 @@ function generateTempConfig(
     ignoreStatic: true,
     reporters: ['json', 'html'],
     jsonReporter: { fileName: mutationFileAbs },
+    htmlReporter: { fileName: mutationHtmlAbs },
+    tempDirName,
     timeoutMS: 10000,
   };
 
@@ -139,7 +143,7 @@ function generateTempConfig(
  * @param planRoot - Suite root relative to projectRoot (drives jest testMatch)
  * @param absoluteSourceFiles - Absolute source file paths
  * @param framework  - The test framework name ("jest", "vitest", or "vite-plus")
- * @param reportDir  - Absolute plan report directory (mutation.json lands here)
+ * @param reportDir  - Absolute plan report directory (mutation.json / mutation.html land here)
  * @param frameworkConfigPath - Absolute (or resolvable) path to suite `tests[].config`, if any
  * @throws {Error} If the framework is not supported by StrykerJS
  */

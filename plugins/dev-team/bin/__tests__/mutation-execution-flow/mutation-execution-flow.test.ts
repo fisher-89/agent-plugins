@@ -72,7 +72,11 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       expect(config.jsonReporter.fileName).toBe(
         path.resolve(reportDir, 'mutation.json').replace(/\\/g, '/'),
       );
+      expect(config.htmlReporter.fileName).toBe(
+        path.resolve(reportDir, 'mutation.html').replace(/\\/g, '/'),
+      );
       expect(config.jsonReporter.fileName).not.toContain('reports/mutation/');
+      expect(config.htmlReporter.fileName).not.toContain('reports/mutation/');
       fs.unlinkSync(configPath);
     } finally {
       project.cleanup();
@@ -277,6 +281,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       expect(configPathSeen).not.toBe('');
       expect(fs.existsSync(configPathSeen)).toBe(false);
       expect(fs.existsSync(path.join(mutationCwd, '.stryker-tmp'))).toBe(false);
+      expect(fs.existsSync(path.join(reportsDir, 'vitest', '.stryker-tmp'))).toBe(false);
     } finally {
       project.cleanup();
     }
@@ -350,6 +355,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       expect(configPathSeen).not.toBe('');
       expect(fs.existsSync(configPathSeen)).toBe(false);
       expect(fs.existsSync(path.join(mutationCwd, '.stryker-tmp'))).toBe(false);
+      expect(fs.existsSync(path.join(reportsDir, 'vitest', '.stryker-tmp'))).toBe(false);
     } finally {
       project.cleanup();
     }

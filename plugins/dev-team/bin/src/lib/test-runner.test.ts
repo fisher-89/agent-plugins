@@ -2120,11 +2120,29 @@ describe('executePlanEntry -- Unix redirect / shell / parseError 杀变异', () 
       executePlanEntry(makePlan({ framework: 'pytest' }), dir.root, { reportsDir });
       const cmd = String(mockExecSync.mock.calls[0]?.[0] ?? '');
       // 精确：redirect 后必须是「空白*;空白*」才能匹配原正则；弱化空白/锚点的变异会插错位置
-      expect(cmd).toMatch(/^pytest -v\s+> "[^"]*results\.txt"\s*;\s*pytest --cov=/);
+      expect(cmd).toMatch(
+        /^pytest -v -o cache_dir="[^"]*\.pytest_cache"\s+> "[^"]*results\.txt"\s*;\s*pytest --cov=/,
+      );
       expect(cmd.indexOf('> "')).toBeLessThan(cmd.indexOf('; pytest --cov='));
       expect(cmd).not.toContain('&&');
-      // 第二段 pytest 前保留 `;` 两侧空白（杀 \s*;\s → \s*;\S 等）
       expect(cmd).toMatch(/results\.txt" ; pytest --cov=|results\.txt"\s+;\s+pytest --cov=/);
+      expect(cmd).toContain('.pytest_cache');
+    } finally {
+      dir.cleanup();
+    }
+  });
+
+  it('pytest 执行时 COVERAGE_FILE 指向 planDir/.coverage', () => {
+    const dir = createTempDir();
+    try {
+      const reportsDir = path.join(dir.root, 'reports', 'test');
+      mockExecSync.mockImplementation(() => {
+        writeMinimalTextResults(path.join(reportsDir, 'pytest'), 'results.txt');
+        return '';
+      });
+      executePlanEntry(makePlan({ framework: 'pytest' }), dir.root, { reportsDir });
+      const opts = mockExecSync.mock.calls[0]?.[1] as { env?: Record<string, string> };
+      expect(opts.env?.COVERAGE_FILE).toBe(path.resolve(reportsDir, 'pytest', '.coverage'));
     } finally {
       dir.cleanup();
     }

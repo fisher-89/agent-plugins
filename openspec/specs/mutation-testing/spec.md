@@ -91,8 +91,9 @@
 | Aspect | Detail |
 |--------|--------|
 | rootPath / cwd | `entry.mutation_cwd`（detect 产出为相对 projectRoot 的 POSIX 路径；默认 `suite.mutation.cwd ?? suite.cwd`，再相对 root 解析） |
-| Temp artifacts | under mutation_cwd（临时 config / `.stryker-tmp/`，用后删） |
+| Temp artifacts | 临时 `stryker.config.*` 仍在 mutation_cwd（用后删）；`.stryker-tmp/` 在 plan `reportDir`（用后删） |
 | Mutation JSON | `<reportDir>/mutation.json`（权威产物；非 mutation_cwd `reports/mutation/`） |
+| Mutation HTML | `<reportDir>/mutation.html`（`htmlReporter.fileName`；非 mutation_cwd `reports/mutation/`） |
 | mutate paths | relative to mutation_cwd |
 
 ### Module: cli.ts (CLI Entry — --no-mutation Flag)
@@ -511,9 +512,9 @@ SHALL NOT 再依赖 `config.test.overrides[].file` + `overrides[].mutation` 作�
 
 **ID**: REQ-MT-CWD-1
 **Priority**: MUST
-**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 `mutation_cwd`（detect：`toPosixRelative(projectRoot, absMutationCwd)`，其中缺省 `absMutationCwd` 为 `LCA(absRoot, absCwd, dirname(absConfig)?)`，显式 `suite.mutation.cwd` 则 `resolve(absRoot, suite.mutation.cwd)`，见 test-detect-frameworks REQ-TDF-MUT-CWD-1）。临时配置（`stryker.config.*`）、`.stryker-tmp/` SHALL 默认落在该 mutation_cwd 下并在用后删除。
+**Description**: 变异阶段执行时，Stryker 的工作根（`rootPath` / `cwd`）SHALL 为当前 plan entry 的 `mutation_cwd`（detect：`toPosixRelative(projectRoot, absMutationCwd)`，其中缺省 `absMutationCwd` 为 `LCA(absRoot, absCwd, dirname(absConfig)?)`，显式 `suite.mutation.cwd` 则 `resolve(absRoot, suite.mutation.cwd)`，见 test-detect-frameworks REQ-TDF-MUT-CWD-1）。临时配置文件（`stryker.config.*`）SHALL 默认落在该 mutation_cwd 下并在用后删除。Stryker 沙箱 `.stryker-tmp/` SHALL 落在当前 plan 的 `reportDir` 下（配置 `tempDirName` 为该绝对路径）并在用后删除。
 
-权威 mutation JSON 报告 SHALL 写入当前 plan 的 `reportDir/mutation.json`（通过配置 overlay `jsonReporter.fileName` 或等价），MUST NOT 以 mutation_cwd 下 `reports/mutation/` 作为解析权威源。
+权威 mutation JSON 报告 SHALL 写入当前 plan 的 `reportDir/mutation.json`（`jsonReporter.fileName`）。HTML 报告 SHALL 写入同一 `reportDir/mutation.html`（`htmlReporter.fileName`）。MUST NOT 以 mutation_cwd 下 `reports/mutation/` 作为解析权威源或 HTML 落点。
 
 传入 `resolveStrykerConfig` 的 `mutate` / sourceFiles 路径 SHALL 重写为相对 mutation_cwd 的 POSIX 路径。
 
@@ -539,6 +540,15 @@ npx 解析 CLI / `@stryker-mutator/*` 的 `--prefix` SHALL 指向 suite cwd 的�
 **AND** 当前 plan 的 `reportDir` 已决议
 **THEN** 配置中的 JSON reporter 输出路径 SHALL 指向 `reportDir/mutation.json`
 **AND** 解析阶段 SHALL 只读取该路径
+
+#### Scenario: htmlReporter targets plan reportDir
+
+**WHEN** 生成临时 Stryker 配置
+**AND** 当前 plan 的 `reportDir` 已决议
+**THEN** 配置 SHALL 含 `reporters` 同时包括 `"json"` 与 `"html"`
+**AND** `htmlReporter.fileName` SHALL 指向 `reportDir/mutation.html`（绝对 POSIX）
+**AND** SHALL NOT 将 HTML 写到 mutation_cwd 下 `reports/mutation/`
+**AND** `tempDirName` / 清理用 `tempDirPath` SHALL 为 `reportDir/.stryker-tmp`
 
 ### Requirement: npx --prefix 使用 suite cwd 绝对路径
 

@@ -163,11 +163,11 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'pytest --version',
     shell: {
       test_execution: () =>
-        'pytest -v {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
+        'pytest -v -o cache_dir="{report_dir}/.pytest_cache" {files}; pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q -o cache_dir="{report_dir}/.pytest_cache"',
     },
     cmd: {
       test_execution: () =>
-        'pytest -v {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q',
+        'pytest -v -o cache_dir="{report_dir}/.pytest_cache" {files} && pytest --cov=. --cov-report="json:{coverage_file}" --cov-branch -q -o cache_dir="{report_dir}/.pytest_cache"',
     },
     coverage_format: 'coverage-py',
     coverage_output: 'coverage.json',

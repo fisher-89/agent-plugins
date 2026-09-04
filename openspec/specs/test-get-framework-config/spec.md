@@ -244,7 +244,7 @@ All eight framework entries are preserved: jest, vitest, vite-plus, bun, rust, n
 **Priority**: MUST
 **Description**: `FRAMEWORK_REGISTRY` 中各框架的 `coverage_output` SHALL 改为相对 **reportDir** 的垂直约定文件名（不再使用 suite cwd 下 `coverage/...` 旧路径）。`coverage_format` 枚举 SHALL 支持 `'lcov'`（供 bun）。`shell` / `cmd` 下的 `coverage_cleanup` 列表语义 SHALL 废弃（产物不再落 suite cwd；execute 清空 reportDir）。
 
-`test_execution` 模板 SHALL 含文件通道占位符（`{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` 等），并按框架选择原生文件输出旗标或交由 execute 条件 `>`。路径类旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`、`--outputFile.json="{results_file}"`）。execute 展开后这些路径 SHALL 为绝对 POSIX 形式。
+`test_execution` 模板 SHALL 含文件通道占位符（`{results_file}` / `{coverage_file}` / `{report_dir}` / `{config_args}` 等），并按框架选择原生文件输出旗标或交由 execute 条件 `>`。路径类旗标 SHALL 用引号包裹占位符（如 `--outputFile="{results_file}"`）。execute 展开后这些路径 SHALL 为绝对 POSIX 形式。
 
 jest / vitest / vite-plus 模板 SHALL 用 CLI reporter 旗标覆盖用户配置中的 reporter（jest：`--reporters=default`；vitest / vite-plus：`--reporter=json`）。node-test 模板 SHALL 用 `--test-reporter-destination="{results_file}"`（原生落盘），MUST NOT 依赖 execute 段级 `>`。
 
@@ -265,7 +265,8 @@ jest / vitest / vite-plus 模板 SHALL 用 CLI reporter 旗标覆盖用户配置
 
 **WHEN** 读取 vitest 或 vite-plus 的 `test_execution` 模板
 **THEN** 模板 SHALL 含 `--reporter=json`
-**AND** JSON 路径 SHALL 使用带引号的 `{results_file}`（如 `--outputFile.json="{results_file}"`）
+**AND** JSON 路径 SHALL 使用带引号的 `{results_file}`（如 `--outputFile="{results_file}"`）
+**AND** SHALL NOT 含 `--outputFile.json=`
 **AND** SHALL NOT 含 `{console_file}` / `--reporter=verbose`
 
 #### Scenario: node-test template uses native reporter destination
