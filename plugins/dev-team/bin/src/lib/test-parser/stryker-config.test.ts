@@ -175,8 +175,8 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     expect(config.reporters).toHaveLength(2);
     expect(config.htmlReporter.fileName).toBe(absPosix(reportDir, 'mutation.html'));
     expect(config.timeoutMS).toBe(10000);
-    expect(result.tempDirPath).toBe(path.resolve(reportDir, '.stryker-tmp'));
-    expect(config.tempDirName).toBe(absPosix(reportDir, '.stryker-tmp'));
+    expect(result.tempDirPath).toBe(path.resolve(reportDir, '_stryker-tmp'));
+    expect(config.tempDirName).toBe(absPosix(reportDir, '_stryker-tmp'));
     expect(path.basename(result.configPath)).toMatch(/^stryker\.config\.[a-f0-9]+\.json$/);
     fs.unlinkSync(result.configPath);
   });
@@ -374,7 +374,6 @@ describe('resolveStrykerConfig -- mutation-score 补强', () => {
     const jestJson = JSON.parse(fs.readFileSync(jestResult.configPath, 'utf-8'));
     expect(jestJson.jest).toEqual({
       configFile: relPosix(project.root, 'jest.config.js'),
-      enableFindRelatedTests: false,
       config: { testMatch, reporters: [] },
     });
     expect(jestJson.vitest).toBeUndefined();

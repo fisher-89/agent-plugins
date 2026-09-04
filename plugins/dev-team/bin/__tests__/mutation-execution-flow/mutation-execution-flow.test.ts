@@ -216,7 +216,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
     }
   });
 
-  it('临时配置与 .stryker-tmp 用后清理', () => {
+  it('临时配置与 _stryker-tmp 用后清理', () => {
     const project = createTempProject();
     try {
       const reportsDir = path.join(project.root, 'reports', 'test');
@@ -280,8 +280,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       );
       expect(configPathSeen).not.toBe('');
       expect(fs.existsSync(configPathSeen)).toBe(false);
-      expect(fs.existsSync(path.join(mutationCwd, '.stryker-tmp'))).toBe(false);
-      expect(fs.existsSync(path.join(reportsDir, 'vitest', '.stryker-tmp'))).toBe(false);
+      expect(fs.existsSync(path.join(reportsDir, '_stryker-tmp'))).toBe(false);
     } finally {
       project.cleanup();
     }
@@ -354,8 +353,7 @@ describe('mutation 报告落在 planDir (AC-9)', () => {
       expect(result.error).toMatch(/Mutation testing failed/);
       expect(configPathSeen).not.toBe('');
       expect(fs.existsSync(configPathSeen)).toBe(false);
-      expect(fs.existsSync(path.join(mutationCwd, '.stryker-tmp'))).toBe(false);
-      expect(fs.existsSync(path.join(reportsDir, 'vitest', '.stryker-tmp'))).toBe(false);
+      expect(fs.existsSync(path.join(reportsDir, '_stryker-tmp'))).toBe(false);
     } finally {
       project.cleanup();
     }

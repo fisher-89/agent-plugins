@@ -6,9 +6,10 @@
 // temporary configuration file based on built-in template parameters.
 // ---------------------------------------------------------------------------
 
-import * as crypto from 'crypto';
-import * as fs from 'fs';
-import * as path from 'path';
+import crypto from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
 
 type RunnerConfigOverlay =
   | {
@@ -85,7 +86,6 @@ function buildRunnerConfigOverlay(
     return {
       jest: {
         configFile,
-        enableFindRelatedTests: false,
         config: {
           testMatch: [testMatchGlob],
           reporters: [],
@@ -107,7 +107,7 @@ function generateTempConfig(
 ): { configPath: string; tempDirPath: string } {
   const randomSuffix = crypto.randomBytes(4).toString('hex');
   const configPath = path.resolve(strykerRoot, `stryker.config.${randomSuffix}.json`);
-  const tempDirPath = path.resolve(reportDir, '.stryker-tmp');
+  const tempDirPath = path.resolve(reportDir, '_stryker-tmp');
   const tempDirName = tempDirPath.replace(/\\/g, '/');
   const normalizedSources = normalizeSourceFilesForStryker(strykerRoot, sourceFiles);
   const mutationFileAbs = path.resolve(reportDir, 'mutation.json').replace(/\\/g, '/');
@@ -115,6 +115,7 @@ function generateTempConfig(
 
   const config = {
     $schema: 'node_modules/@stryker-mutator/core/schema/stryker-schema.json',
+    ignorePatterns: ['openspec/**/*'],
     mutate: normalizedSources,
     testRunner,
     plugins: [resolvePluginPackage(testRunner)],
@@ -125,6 +126,8 @@ function generateTempConfig(
     jsonReporter: { fileName: mutationFileAbs },
     htmlReporter: { fileName: mutationHtmlAbs },
     tempDirName,
+    concurrency: os.cpus().length / 2, // 本地突变仅占用一半内核，保障用户其他操作
+    timeoutFactor: 1.5,
     timeoutMS: 10000,
   };
 
