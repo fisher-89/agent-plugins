@@ -611,7 +611,7 @@ describe('executePlanEntry', () => {
 });
 
 // ===========================================================================
-// mutation-score-below-60 补强：占位符 / 重定向 / timeout / mutation 开关
+// mutation-score-below-60 补强：占位符 / 重定向 / mutation 开关
 // ===========================================================================
 
 describe('executePlanEntry -- 占位符展开与重定向', () => {
@@ -845,7 +845,7 @@ describe('executePlanEntry -- 占位符展开与重定向', () => {
   });
 });
 
-describe('executePlanEntry -- 空命令 / 解析失败 / timeout / planId', () => {
+describe('executePlanEntry -- 空命令 / 解析失败 / planId', () => {
   beforeEach(() => {
     mockExecSync.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
@@ -911,33 +911,6 @@ describe('executePlanEntry -- 空命令 / 解析失败 / timeout / planId', () =
       expect(result.error).toMatch(/Missing or empty results file/);
       expect(result.testCases).toEqual([]);
       expect(result.mutation).toBeNull();
-    } finally {
-      dir.cleanup();
-    }
-  });
-
-  it('传入 timeout:1234 → execSync options.timeout 为 1234；省略 → 60000；0/-1/MAX 原样传递', () => {
-    const dir = createTempDir();
-    try {
-      const reportsDir = path.join(dir.root, 'reports', 'test');
-      const cases: Array<{ timeout?: number; expected: number }> = [
-        { timeout: 1234, expected: 1234 },
-        { expected: 60000 },
-        { timeout: 0, expected: 0 },
-        { timeout: -1, expected: -1 },
-        { timeout: Number.MAX_SAFE_INTEGER, expected: Number.MAX_SAFE_INTEGER },
-      ];
-      for (const c of cases) {
-        mockExecSync.mockReset();
-        mockExecSync.mockImplementation(() => {
-          writeMinimalJsResults(path.join(reportsDir, 'vitest'));
-          return '';
-        });
-        const opts: { reportsDir: string; timeout?: number } = { reportsDir };
-        if (c.timeout !== undefined) opts.timeout = c.timeout;
-        executePlanEntry(makePlan({ framework: 'vitest' }), dir.root, opts);
-        expect(mockExecSync.mock.calls[0][1]).toMatchObject({ timeout: c.expected });
-      }
     } finally {
       dir.cleanup();
     }

@@ -471,7 +471,6 @@ function buildPlanExecutionResult(
 
 type ExecutePlanOptions = {
   files?: string[];
-  timeout?: number;
   noMutation?: boolean;
   mutationDiffFiles?: string[];
   reportsDir: string;
@@ -494,7 +493,7 @@ function runPreparedPlanEntry(
   }
 
   console.log(`Executing test cmd: "${testCmd}" in "${absCwd}"`);
-  const { exitCode, execError } = runCommand(testCmd, absCwd, options.timeout, prepared.env);
+  const { exitCode, execError } = runCommand(testCmd, absCwd, 600000, prepared.env);
 
   return buildPlanExecutionResult(
     entry,
