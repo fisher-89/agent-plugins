@@ -1,0 +1,54 @@
+specification {
+  element outer {
+    description '[系统外实体（例：用户、其他服务）]'
+    style {
+      color muted
+      size small
+    }
+  }
+  element project {
+    description '[系统工程根目录]'
+    style {
+      shape browser
+    }
+  }
+  element package {
+    description '[包（可独立构建）]'
+  }
+  element module {
+    description '[模块/组件]'
+  }
+
+  relationship dependency { // 依赖
+    line solid
+  }
+}
+model {
+  ROOT = project {
+    link ../../
+    // 此处拆分packages 或 module, 代码量较大时使用多个文件
+    cli = package {
+      description '命令行终端' // 描述，不超过100字
+      link ../../packages/cli // 路径
+
+      help = module {
+        description '帮助信息'
+        link ../../packages/cli/help
+      }
+    }
+  }
+  USER = outer {
+    -> ROOT 'use'
+  }
+}
+
+views {
+  view all of ROOT {
+    title 'all'
+    include *, ROOT.**
+  }
+  view top {
+    title 'top-only'
+    include ROOT.*
+  }
+}

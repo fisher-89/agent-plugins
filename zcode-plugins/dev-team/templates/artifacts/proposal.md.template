@@ -1,0 +1,77 @@
+# 提案: {{change_name}}
+
+> **变更**: {{change_name}}
+> **日期**: {{date}}
+> **状态**: {{status}}
+
+---
+
+## 问题
+
+{{problem_statement}}
+
+---
+
+## 提案
+
+{{proposed_solution}}
+
+---
+
+## 能力
+
+### 新增能力
+
+- {{capability_name}} — {{capability_description}}
+
+### 修改的能力
+
+- {{capability_name}} — {{modification_description}}
+
+---
+
+## 变更范围
+
+### 实现文件
+
+- {{in_scope_implementation_item}}
+
+### 测试文件
+
+- {{in_scope_test_item}}
+
+### 不要修改
+
+- {{out_of_scope_item}}
+
+---
+
+## 验收标准
+
+| ID | 变更实现 | 验收条件 |
+|----|---------|----------|
+| AC-{{n}} | {{in_scope_implementation}} | {{evidence}} |
+
+---
+
+## 风险
+
+| 风险 | 影响 | 概率 | 缓解措施 |
+|------|------|------|----------|
+| {{risk}} | {{impact}} | {{probability}} | {{mitigation}} |
+
+---
+
+## 过程
+
+### 决策
+
+| 问题 | 决策 | 理由 | 备选方案 |
+|----|------|------|----------|
+| {{question}} | {{decision}} | {{rationale}} | {{alternatives}} |
+
+### 待决问题
+
+- {{question}}
+
+---

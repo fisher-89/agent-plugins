@@ -45,6 +45,5 @@ export function applyEnvTokens(text: string, env: ProductEnv): string {
     .replaceAll('__TOOL_BASH__', env.toolBash)
     .replaceAll('__TOOL_CMD__', env.toolCmd)
     .replaceAll('__TOOL_ASK_USER__', env.toolAskUser)
-    .replaceAll('__AGENT_GENERAL_PURPOSE__', env.agentGeneralPurpose);
   return result;
 }

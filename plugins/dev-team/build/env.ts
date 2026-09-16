@@ -1,8 +1,8 @@
-type AgentType = 'claude' | 'cursor';
-export type ProductEnvKey = 'claude' | 'cursor' | 'cursorHome';
+type AgentType = 'claude' | 'cursor' | 'zcode';
+export type ProductEnvKey = 'claude' | 'cursor' | 'cursorHome' | 'zcode';
 type ProductLayout = 'plugin' | 'home-image';
 
-export interface ProductEnv extends ModelEnv, ToolEnv, SubAgentEnv {
+export interface ProductEnv extends ModelEnv, ToolEnv {
   /** 适配agent */
   agent: AgentType;
   /** 产物形态 */
@@ -15,6 +15,8 @@ export interface ProductEnv extends ModelEnv, ToolEnv, SubAgentEnv {
   mcpToolPrefix: string;
   /** 产物目录 */
   outDir: string;
+  /** 插件配置文件路径，（文件通常叫plugin.json) */
+  pluginFilePath: string;
   /** hooks文件相对路径 */
   hooksFilePath: string;
   /** mcp文件相对路径 */
@@ -36,20 +38,19 @@ interface ToolEnv {
   toolAskUser: string;
 }
 
-interface SubAgentEnv {
-  agentGeneralPurpose: string;
-}
+const PLUGIN_NAME = 'dev-team';
 
-export const PRODUCT_ENV_KEYS: ProductEnvKey[] = ['claude', 'cursor', 'cursorHome'];
+export const PRODUCT_ENV_KEYS: ProductEnvKey[] = ['claude', 'cursor', 'cursorHome', 'zcode'];
 
 const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
   claude: {
     agent: 'claude',
     layout: 'plugin',
-    pluginPrefix: 'dev-team:',
+    pluginPrefix: `${PLUGIN_NAME}:`,
     namePrefix: '',
-    mcpToolPrefix: 'mcp__plugin_dev-team_dev-team__',
+    mcpToolPrefix: `mcp__plugin_${PLUGIN_NAME}_dev-team__`,
     outDir: '../../claude-plugins/dev-team',
+    pluginFilePath: '.claude-plugin/plugin.json',
     hooksFilePath: 'hooks/hooks.json',
     mcpFilePath: '.mcp.json',
     pluginRoot: '${CLAUDE_PLUGIN_ROOT}',
@@ -60,15 +61,15 @@ const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
     toolBash: 'Bash',
     toolCmd: 'PowerShell',
     toolAskUser: 'AskUserQuestion',
-    agentGeneralPurpose: 'general-purpose',
   },
   cursor: {
     agent: 'cursor',
     layout: 'plugin',
-    pluginPrefix: 'dev-team:',
+    pluginPrefix: `${PLUGIN_NAME}:`,
     namePrefix: '',
-    mcpToolPrefix: 'mcp__plugin_dev-team_dev-team__',
+    mcpToolPrefix: `mcp__plugin_${PLUGIN_NAME}_dev-team__`,
     outDir: '../../cursor-plugins/dev-team',
+    pluginFilePath: '.cursor-plugin/plugin.json',
     hooksFilePath: 'hooks/hooks.json',
     mcpFilePath: 'mcp.json',
     pluginRoot: '.',
@@ -79,15 +80,15 @@ const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
     toolBash: 'Shell',
     toolCmd: 'Shell',
     toolAskUser: 'AskQuestion',
-    agentGeneralPurpose: 'generalPurpose',
   },
   cursorHome: {
     agent: 'cursor',
     layout: 'home-image',
     pluginPrefix: '',
-    namePrefix: 'dev-team_',
-    mcpToolPrefix: 'mcp__user-dev-team_mcp__',
+    namePrefix: `${PLUGIN_NAME}_`,
+    mcpToolPrefix: `mcp__user-${PLUGIN_NAME}_mcp__`,
     outDir: '../../cursor-home-image/dev-team',
+    pluginFilePath: '',
     hooksFilePath: 'hooks.json',
     mcpFilePath: 'mcp.json',
     pluginRoot: '__INSTALL_PLUGIN_ROOT__',
@@ -98,8 +99,26 @@ const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
     toolBash: 'Shell',
     toolCmd: 'Shell',
     toolAskUser: 'AskQuestion',
-    agentGeneralPurpose: 'generalPurpose',
   },
+  zcode: {
+    agent: 'zcode',
+    layout: 'plugin',
+    pluginPrefix: `${PLUGIN_NAME}:`,
+    namePrefix: '',
+    mcpToolPrefix: `mcp__plugin_${PLUGIN_NAME}_dev-team__`,
+    outDir: '../../zcode-plugins/dev-team',
+    pluginFilePath: '.zcode-plugin/plugin.json',
+    hooksFilePath: 'hooks/hooks.json',
+    mcpFilePath: '.mcp.json',
+    pluginRoot: '${CLAUDE_PLUGIN_ROOT}',
+    modelHigh: 'glm-5.3',
+    modelFast: 'glm-5.3-flash',
+    toolWrite: 'Write',
+    toolEdit: 'Edit',
+    toolBash: 'Bash',
+    toolCmd: '',
+    toolAskUser: 'AskUserQuestion',
+  }
 };
 
 export function getEnv(key: ProductEnvKey): ProductEnv {

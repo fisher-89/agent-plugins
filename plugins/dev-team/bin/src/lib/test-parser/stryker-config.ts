@@ -51,7 +51,6 @@ function normalizeSourceFilesForStryker(rootPath: string, sourceFiles: string[])
  * suite.config is set.
  *
  * Vitest runner schema only allows `configFile` (no `config` / `testMatch`).
- * Jest keeps `config.testMatch` + `enableFindRelatedTests: false`.
  */
 function buildRunnerConfigOverlay(
   strykerRoot: string,

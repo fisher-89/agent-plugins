@@ -129,7 +129,6 @@ function writeMcp(env: ProductEnv): void {
 async function writePluginManifest(env: ProductEnv): Promise<void> {
   if (env.layout !== 'plugin') return;
   const { version } = await import('../package.json');
-  const rel = env.agent === 'claude' ? '.claude-plugin/plugin.json' : '.cursor-plugin/plugin.json';
   const doc = {
     name: 'dev-team',
     description: 'A plugin for enhancing development workflow with OpenSpec integration',
@@ -137,7 +136,7 @@ async function writePluginManifest(env: ProductEnv): Promise<void> {
     bin: './bin',
     openspecVersion: '1.2.0',
   };
-  writeText(join(env.outDir, rel), `${JSON.stringify(doc, null, 2)}\n`);
+  writeText(join(env.outDir, env.pluginFilePath), `${JSON.stringify(doc, null, 2)}\n`);
 }
 
 async function writeHomeExtras(env: ProductEnv, managedPaths: string[]): Promise<void> {
