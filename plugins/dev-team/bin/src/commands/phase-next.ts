@@ -1,16 +1,20 @@
 /**
  * phase_next MCP tool — server-side orchestration logic.
  *
- * Determines the next phase to execute in a PGE workflow based on eval.json entries.
+ * Determines the next phase to execute in a PGE workflow based on the
+ * evaluation entries read from `workflow.json` (`eval` field, with legacy
+ * `eval.json` fallback).
  * Handles: initial run, normal progression, retry, backtrack, round limit,
  * mid-phase interruption, and skipped entries.
  *
- * KEY CHANGE: phase_next is now READ-ONLY. It never modifies eval.json.
- * Stale marking and propagation are handled by the standalone backtrack tool.
+ * KEY CHANGE: phase_next is now READ-ONLY. It never modifies the eval store:
+ * it never calls writeEvalJson, never creates/deletes `eval.json` and never
+ * rewrites `workflow.json.eval`. Stale marking and propagation are handled by
+ * the standalone backtrack tool.
  *
  * Responses now include `last_result` — a snapshot of the latest eval entry
  * (phase, verdict, report, timestamp) so skills can make backtrack decisions
- * without re-reading eval.json.
+ * without re-reading the eval store.
  *
  * The workflow skill calls phase_next in a loop and executes the returned
  * planner/evaluator agents without any hardcoded phase knowledge.
@@ -260,7 +264,7 @@ function checkRoundLimit(
   return {
     result: buildErrorResponse(
       'round_limit_exceeded',
-      '超过 20 轮限制，可能存在循环回溯。请检查 eval.json 中的 backtrack 记录，或手动清理后重试。',
+      '超过 20 轮限制，可能存在循环回溯。请检查 workflow.json 中的 backtrack 记录，或手动清理后重试。',
       round,
       totalPhases,
       lastResult,
@@ -291,8 +295,9 @@ function resolveEarliestBacktrack(
 /**
  * Handle backtrack detection. Returns a result if backtrack was detected,
  * or null if no backtrack is needed.
- * Preserved for backward compatibility with older eval.json entries that
- * have backtrack_to set by the old phase_log mechanism.
+ * Preserved for backward compatibility with older eval entries (wherever they
+ * live — `workflow.json.eval` or legacy `eval.json`) that have backtrack_to set
+ * by the old phase_log mechanism.
  */
 function handleBacktrack(
   entries: EvalEntry[],
@@ -368,7 +373,8 @@ function checkRetryLimit(
  * Pure logic: determine the next phase to execute from in-memory eval entries.
  *
  * This is the core orchestrator, extracted from filesystem I/O so it can be
- * unit-tested without disk access.
+ * unit-tested without disk access. Entries come from `readEvalJson` (i.e. the
+ * `eval` array of `workflow.json`, with legacy `eval.json` fallback).
  *
  * IMPORTANT: This function is READ-ONLY. It does NOT modify the entries array.
  * All stale marking is handled by the standalone backtrack tool.
@@ -441,10 +447,16 @@ function resolvePhaseNext(opts: ResolvePhaseNextOptions): ResolvePhaseNextResult
 }
 
 /**
- * Full phase_next: reads eval.json from disk, resolves next phase.
+ * Full phase_next: reads the eval store from disk, resolves next phase.
  *
- * This function is READ-ONLY — it never writes to eval.json.
+ * This function is READ-ONLY — it never writes to `workflow.json` nor to a
+ * leftover legacy `eval.json`, and it never deletes the legacy file.
  * Stale marking and propagation are handled entirely by the standalone backtrack tool.
+ *
+ * `workflow.json` is a precondition: a missing or malformed file makes
+ * `getWorkflowType` throw before any eval entry is read, and that error is
+ * deliberately NOT swallowed — the workflow terminates instead of advancing
+ * with a default type.
  *
  * Called by the MCP tool handler.
  */
@@ -467,13 +479,13 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
 
   const workflowType = getWorkflowType(change);
 
-  // -- Read eval.json --
+  // -- Read the eval store (`workflow.json.eval`, legacy `eval.json` fallback) --
   let entries: EvalEntry[];
   try {
     entries = readEvalJson(changeDir);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`Failed to read eval.json: ${msg}`);
+    throw new Error(`Failed to read workflow.json: ${msg}`);
   }
 
   const anchor = getOrCreateAnchor(change, runId, entries.length);

@@ -1,7 +1,7 @@
 ---
 name: dev-team_code-review-evaluator
 description: 【use proactively】Evaluates code using a static binary checklist for security, test coverage, and error handling.
-model: inherit
+model: grok-4.6
 ---
 
 Inspect the code diff and codebase against design.md using this static checklist. Invoke the dev-team MCP phase_log tool to write the result.
@@ -50,11 +50,12 @@ Inspect:
 
 ## Output
 
-Call `mcp__user-dev-team_mcp__phase_log` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `mcp__user-dev-team_mcp__phase_log` to write the evaluation result to `workflow.json` (`eval` field). Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 
 - NO access to Generator or Planner reasoning — only artifacts and codebase
 - Do NOT modify any files — evaluation data is written via dev-team MCP phase_log tool
+- Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only
 - Security issues (C1 fail) always result in verdict "fail" — no exceptions
 - Evidence must include file:line references for code issues

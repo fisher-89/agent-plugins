@@ -50,8 +50,9 @@ function loadPatterns(projectRoot: string): ProtectedPattern[] {
   // Add built-in patterns inline to ensure perTest coverage analysis
   // attributes mutations on these strings to each calling test
   patterns.push({
-    glob: '**/openspec/changes/**/eval.json',
-    reason: '该文件受写入保护：%s。detected via %t。请使用 phase_log MCP 工具替代。',
+    glob: '**/openspec/changes/**/workflow.json',
+    reason:
+      '该文件受写入保护：%s。detected via %t。请使用 phase_log / backtrack / change_create MCP 工具替代。',
   });
   patterns.push({
     glob: '**/openspec/config.json',

@@ -75,7 +75,8 @@ type McpOutput<Output extends ZodType> = {
 const MCP_TOOLS = [
   {
     name: 'phase_log',
-    description: 'Append an evaluation result entry to eval.json for a given workflow phase. ',
+    description:
+      'Append an evaluation result entry to the eval field of workflow.json for a given workflow phase. ',
     inputSchema: phaseLogInputSchema,
     outputSchema: phaseLogOutputSchema,
     handler: async (
@@ -312,7 +313,7 @@ const MCP_TOOLS = [
   {
     name: 'change_create',
     description:
-      'Create a new change directory under openspec/changes/ with a default workflow.json metadata file. Validates kebab-case name and rejects existing changes.',
+      'Create a new change directory under openspec/changes/. The sole creator of its workflow.json metadata file (workflow_type + created only), which phase_next / backtrack / phase_log require — they error out when the file is missing. Validates kebab-case name and rejects existing changes.',
     inputSchema: changeCreateInputSchema,
     outputSchema: changeCreateOutputSchema,
     handler: async (
@@ -344,7 +345,7 @@ const MCP_TOOLS = [
   {
     name: 'backtrack',
     description:
-      'Set backtrack target and reason for a phase entry in eval.json. This is the only way to modify backtrack state.',
+      'Set backtrack target and reason on the latest eval entry of a phase stored in workflow.json. This is the only way to modify backtrack state.',
     inputSchema: backtrackInputSchema,
     outputSchema: backtrackOutputSchema,
     handler: async (

@@ -4,7 +4,6 @@ import { projectRootSchema } from './public/project-root.schema';
 
 /**
  * Input schema for backtrack MCP tool.
- * Sets the backtrack target and reason for a phase entry in eval.json.
  */
 export const backtrackInputSchema = z.object({
   project_root: projectRootSchema,

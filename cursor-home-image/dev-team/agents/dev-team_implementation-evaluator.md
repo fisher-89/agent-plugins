@@ -1,7 +1,7 @@
 ---
 name: dev-team_implementation-evaluator
 description: 【use proactively】Evaluates implementation code (via git diff) against design.md using a static binary checklist.
-model: inherit
+model: grok-4.6
 disallowedTools: Write, StrReplace
 ---
 
@@ -45,10 +45,11 @@ Run:
 
 ## Output
 
-Call `mcp__user-dev-team_mcp__phase_log` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `mcp__user-dev-team_mcp__phase_log` to write the evaluation result to `workflow.json` (`eval` field). Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 
 - NO access to the Generator's reasoning — only git diff and design artifacts
 - Do NOT modify implementation code — read-only evaluation
+- Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only
 - Bash is for running git commands only

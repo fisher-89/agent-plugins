@@ -10,9 +10,10 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 
 import { getChangeDir } from '../lib/change';
+import { workflowFileSchema, type ChangeCreateInput } from '../schemas';
 import { runChangeCreate } from './change-create';
 
 // ---------------------------------------------------------------------------
@@ -62,18 +63,6 @@ describe('runChangeCreate — kebab-case 名称校验 (AC-3)', () => {
       expect(result.path).toBe(getChangeDir('my-change', project.root));
       expect(result.path).toBe(path.resolve(project.root, 'openspec', 'changes', 'my-change'));
       expect(path.isAbsolute(result.path)).toBe(true);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('传入 workflow_type 参数时写入对应 workflow_type 到 workflow.json', () => {
-    const project = createTempProject();
-    try {
-      for (const type of ['bug-fix', 'refactor', 'test-only']) {
-        const result = runChangeCreate(`wf-${type}`, project.root, type);
-        expect(readWorkflowJson(result.path).workflow_type).toBe(type);
-      }
     } finally {
       project.cleanup();
     }
@@ -202,6 +191,169 @@ describe('runChangeCreate — kebab-case 名称校验 (AC-3)', () => {
   });
 });
 
+describe('runChangeCreate — workflow.json 唯一创建者契约 (AC-6)', () => {
+  it('新建成功后 workflow.json 仅有 workflow_type 与 created，无 eval 键且不创建 eval.json', () => {
+    const project = createTempProject();
+    try {
+      const result = runChangeCreate('my-change', project.root, 'requirement');
+      const workflow = readWorkflowJson(result.path);
+
+      expect(Object.prototype.hasOwnProperty.call(workflow, 'eval')).toBe(false);
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created']);
+      expect(fs.existsSync(path.join(result.path, 'eval.json'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('4 值枚举逐一均可创建，且均无 eval 键、无 eval.json', () => {
+    const project = createTempProject();
+    try {
+      for (const workflowType of ['requirement', 'test-only', 'bug-fix', 'refactor'] as const) {
+        const result = runChangeCreate(`enum-${workflowType}`, project.root, workflowType);
+        const workflow = readWorkflowJson(result.path);
+
+        expect(workflow.workflow_type).toBe(workflowType);
+        expect(Object.prototype.hasOwnProperty.call(workflow, 'eval')).toBe(false);
+        expect(fs.existsSync(path.join(result.path, 'eval.json'))).toBe(false);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('产出文件可被 workflowFileSchema 解析（唯一创建者契约的读方视角）', () => {
+    const project = createTempProject();
+    try {
+      const result = runChangeCreate('schema-change', project.root, 'test-only');
+      const parsed = workflowFileSchema.safeParse(readWorkflowJson(result.path));
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.workflow_type).toBe('test-only');
+        expect(parsed.data.eval).toBeUndefined();
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('紧凑 JSON.stringify + 末尾换行的现行格式保留', () => {
+    const project = createTempProject();
+    try {
+      const result = runChangeCreate('format-change', project.root, 'requirement');
+      const raw = fs.readFileSync(path.join(result.path, 'workflow.json'), 'utf-8');
+
+      expect(raw.endsWith('\n')).toBe(true);
+      expect(raw.trimEnd()).not.toContain('\n');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('name 恰 128 字符时创建成功且仍无 eval 键', () => {
+    const project = createTempProject();
+    try {
+      const maxName = 'a'.repeat(128);
+      const result = runChangeCreate(maxName, project.root, 'requirement');
+
+      expect(Object.prototype.hasOwnProperty.call(readWorkflowJson(result.path), 'eval')).toBe(
+        false,
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('name 超长（>1000 chars）时长度校验失败，不创建目录', () => {
+    const project = createTempProject();
+    try {
+      expect(() => runChangeCreate('a'.repeat(1001), project.root, 'requirement')).toThrow(
+        /128 字符/,
+      );
+      expect(fs.existsSync(path.join(project.root, 'openspec'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('name 含 emoji / 含 \\n 时 kebab 校验失败，不创建目录', () => {
+    const project = createTempProject();
+    try {
+      for (const badName of ['chg-🧪', 'a\nb']) {
+        expect(() => runChangeCreate(badName, project.root, 'requirement')).toThrow(/kebab-case/);
+      }
+
+      expect(fs.existsSync(path.join(project.root, 'openspec'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('name 为 undefined / null 时抛错且不创建目录', () => {
+    const project = createTempProject();
+    try {
+      for (const badName of [undefined, null]) {
+        expect(() =>
+          runChangeCreate(badName as unknown as string, project.root, 'requirement'),
+        ).toThrow();
+      }
+
+      expect(fs.existsSync(path.join(project.root, 'openspec'))).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('projectRoot 为 undefined / null 时抛错', () => {
+    expect(() =>
+      runChangeCreate('some-change', undefined as unknown as string, 'requirement'),
+    ).toThrow();
+    expect(() =>
+      runChangeCreate('some-change', null as unknown as string, 'requirement'),
+    ).toThrow();
+  });
+
+  it("workflowType 为空串 '' 时命令层原样写入，不因此补 eval 键；该文件不被 workflowFileSchema 接受", () => {
+    const project = createTempProject();
+    try {
+      const result = runChangeCreate(
+        'empty-type-change',
+        project.root,
+        '' as ChangeCreateInput['workflow_type'],
+      );
+      const workflow = readWorkflowJson(result.path);
+
+      expect(workflow.workflow_type).toBe('');
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created']);
+      expect(workflowFileSchema.safeParse(workflow).success).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it("projectRoot 为空串 '' 时不崩溃（递归 mkdir 的相对路径行为）", () => {
+    const project = createTempProject();
+    // 空 projectRoot 由 `path.resolve('', …)` 相对 process.cwd() 解析。这里 mock
+    // process.cwd 而非调用 process.chdir：Stryker 的 vitest runner 强制 worker
+    // 线程池，worker 中 process.chdir 会抛 ERR_WORKER_UNSUPPORTED_OPERATION
+    //（同类约定见 run-static-analysis.test.ts 对 getProjectDir 的 mock）。
+    const cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(project.root);
+    try {
+      const result = runChangeCreate('relative-root-change', '', 'requirement');
+      const workflow = readWorkflowJson(result.path);
+
+      expect(result.path).toBe(
+        path.resolve(project.root, 'openspec', 'changes', 'relative-root-change'),
+      );
+      expect(Object.prototype.hasOwnProperty.call(workflow, 'eval')).toBe(false);
+    } finally {
+      cwdSpy.mockRestore();
+      project.cleanup();
+    }
+  });
+});
+
 describe('runChangeCreate — 拒绝已存在 change (AC-4)', () => {
   it('已存在的 change 目录名称抛出错误，且不覆盖已有目录内容 (AC-4)', () => {
     const project = createTempProject();
@@ -219,6 +371,9 @@ describe('runChangeCreate — 拒绝已存在 change (AC-4)', () => {
         '# original proposal',
       );
       expect(readWorkflowJson(first.path)).toEqual(originalWorkflow);
+      // 已存在目录永不被「修复」：不补 eval 键、不创建 eval.json（AC-6）
+      expect(Object.prototype.hasOwnProperty.call(originalWorkflow, 'eval')).toBe(false);
+      expect(fs.existsSync(path.join(first.path, 'eval.json'))).toBe(false);
     } finally {
       project.cleanup();
     }

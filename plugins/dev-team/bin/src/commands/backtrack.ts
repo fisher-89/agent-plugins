@@ -44,40 +44,48 @@ function findLatestPhaseEntry(entries: EvalEntry[], phase: string): EvalEntry {
     .sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime());
   if (phaseEntries.length === 0) {
     throw new Error(
-      `Phase "${phase}" 没有 eval.json 条目，无法设置回溯。请先执行该 phase 并记录评估结果。`,
+      `Phase "${phase}" 没有评估条目，无法设置回溯。请先执行该 phase 并记录评估结果。`,
     );
   }
   return phaseEntries[0];
 }
 
 /**
- * Read eval.json from the change directory, returning entries.
+ * Read the eval store from the change directory, returning entries
+ * (`workflow.json.eval`, with legacy `eval.json` fallback).
  */
 function readEvalEntries(changeDir: string): EvalEntry[] {
   try {
     return readEvalJson(changeDir);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`读取 eval.json 失败: ${msg}`);
+    throw new Error(`读取 workflow.json 失败: ${msg}`);
   }
 }
 
 /**
- * Persist the modified entries array to eval.json.
+ * Persist the modified entries array to `workflow.json.eval`.
+ * `writeEvalJson` preserves the other keys and deletes a leftover legacy
+ * `eval.json` — this path never writes `eval.json` itself.
  */
 function persistEvalJson(changeDir: string, entries: EvalEntry[]): void {
   try {
     writeEvalJson(changeDir, entries);
   } catch (e: unknown) {
     const msg = e instanceof Error ? e.message : String(e);
-    throw new Error(`写入 eval.json 失败: ${msg}`);
+    throw new Error(`写入 workflow.json 失败: ${msg}`);
   }
 }
 
 /**
  * Core logic for backtrack: set backtrack target and reason for a phase entry.
  *
- * This is the ONLY function that should modify backtrack state in eval.json.
+ * This is the ONLY function that should modify backtrack state in the eval
+ * store (`workflow.json.eval`).
+ *
+ * `workflow.json` is a precondition: a missing or malformed file makes
+ * `getWorkflowType` throw up front (its error is NOT swallowed), and persisting
+ * goes exclusively through `writeEvalJson` — this path never writes `eval.json`.
  */
 export function runBacktrack(options: BacktrackOptions): BacktrackResult {
   const { change, phase, backtrack_to, backtrack_reason, project_root } = options;

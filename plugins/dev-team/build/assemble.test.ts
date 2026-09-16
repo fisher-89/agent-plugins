@@ -1,18 +1,19 @@
 /**
  * 单元测试: assemble.ts — 多平台产物组装
+ *
+ * 每个用例都在临时目录中自行生成 assemble 所需的源码树（含 .pack-staging
+ * 构建产物），不读取仓库中的任何文件，因此不依赖先执行 pnpm build。
  */
 
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import { fileURLToPath } from 'node:url';
 
 import { afterEach, beforeEach, describe, expect, it, vi, type Mock } from 'vite-plus/test';
 
 import * as envMod from './env';
 
 const tempRoots: string[] = [];
-const pluginRoot = join(dirname(fileURLToPath(import.meta.url)), '..');
 let outBase = '';
 let cwdSpy: Mock | undefined;
 
@@ -21,9 +22,10 @@ function mockCwd(root: string): void {
   cwdSpy = vi.spyOn(process, 'cwd').mockReturnValue(root);
 }
 
-async function runAssembleAll(): Promise<void> {
-  mockCwd(pluginRoot);
-  await assembleAll();
+function makeTempRoot(prefix: string): string {
+  const root = mkdtempSync(join(tmpdir(), prefix));
+  tempRoots.push(root);
+  return root;
 }
 
 function makeOutDir(key: envMod.ProductEnvKey): string {
@@ -45,70 +47,77 @@ vi.mock('./env', async (importOriginal) => {
 
 const { assembleAll } = await import('./assemble');
 
-function writeMinimalCanonical(root: string): void {
-  mkdirSync(join(root, 'hooks'), { recursive: true });
-  writeFileSync(
-    join(root, 'hooks/hooks.canonical.json'),
-    JSON.stringify(
-      {
-        preToolUse: [
-          {
-            matchers: { claude: 'Write', cursor: 'Write' },
-            commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" protect-files',
-          },
-        ],
-        subagentStop: [
-          {
-            matchers: { claude: '__CALL_AGENT:implementation-generator__', cursor: null },
-            loop_limit: 5,
-            commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" static-check',
-          },
-        ],
-      },
-      null,
-      2,
-    ),
-  );
+function writeFixtureFile(root: string, rel: string, content: string): void {
+  const full = join(root, rel);
+  mkdirSync(dirname(full), { recursive: true });
+  writeFileSync(full, content, 'utf-8');
 }
 
-function writeMinimalStaging(root: string): void {
-  mkdirSync(join(root, '.pack-staging/bin'), { recursive: true });
-  writeFileSync(join(root, '.pack-staging/bin/cli.cjs'), '// stub\n');
-  writeFileSync(join(root, '.pack-staging/install.mjs'), 'export {};\n');
-}
+/** canonical hooks：一条两端通用的 preToolUse，一条仅 claude 生效的 subagentStop。 */
+const CANONICAL_HOOKS = {
+  preToolUse: [
+    {
+      matchers: { claude: 'Write', cursor: 'Write' },
+      commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" protect-files',
+    },
+  ],
+  subagentStop: [
+    {
+      matchers: { claude: '__CALL_AGENT:implementation-generator__', cursor: null },
+      loop_limit: 5,
+      commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" static-check',
+    },
+  ],
+};
 
-function writeMinimalTree(root: string): void {
-  writeMinimalCanonical(root);
-  writeMinimalStaging(root);
-  mkdirSync(join(root, 'templates'), { recursive: true });
-  mkdirSync(join(root, 'utils'), { recursive: true });
-  mkdirSync(join(root, 'agents'), { recursive: true });
-  mkdirSync(join(root, '_fragments'), { recursive: true });
-  writeFileSync(
-    join(root, '_fragments/static-analysis-gate.cursor.md'),
-    'run_static_analysis gate\n',
+/** 在 root 下生成 assemble 会从 cwd 读取的全部源码（含 .pack-staging 构建产物）。 */
+function seedSourceTree(root: string): void {
+  writeFixtureFile(root, 'hooks/hooks.canonical.json', JSON.stringify(CANONICAL_HOOKS, null, 2));
+  writeFixtureFile(root, '.pack-staging/bin/cli.cjs', '// stub\n');
+  writeFixtureFile(root, '.pack-staging/bin/hooks.cjs', '// stub\n');
+  writeFixtureFile(root, '.pack-staging/bin/mcp.cjs', '// stub\n');
+  writeFixtureFile(root, '.pack-staging/install.mjs', 'export {};\n');
+  writeFixtureFile(root, 'templates/adr.md', '# ADR\n');
+  writeFixtureFile(
+    root,
+    'skills/phase-proposal/SKILL.md',
+    '# proposal\n\n__SKILL:phase-proposal__\n',
   );
-  writeFileSync(join(root, '_fragments/static-analysis-gate.md'), '');
-  writeFileSync(
-    join(root, 'agents/implementation-generator.md'),
+  writeFixtureFile(
+    root,
+    'agents/implementation-generator.md',
     '# gen\n\n__INCLUDE:static-analysis-gate__\n',
   );
+  writeFixtureFile(root, '_fragments/static-analysis-gate.md', '');
+  writeFixtureFile(root, '_fragments/static-analysis-gate.cursor.md', 'run_static_analysis gate\n');
 }
 
-/** 种子 .pack-staging/bin 中的 openspec 产物，模拟已退役的静态 bin 文件存在。 */
+/** 在源码树中写入已退役的 openspec 静态 bin 文件，模拟它们仍留在仓库里。 */
+const RETIRED_PATHS = ['bin/openspec', 'bin/openspec-bundled.js', 'bin/openspec.cmd'];
+
 function seedRetiredStaticBins(root: string): void {
-  mkdirSync(join(root, 'bin'), { recursive: true });
-  for (const rel of ['bin/openspec', 'bin/openspec-bundled.js', 'bin/openspec.cmd']) {
-    writeFileSync(join(root, rel), '// retired stub\n');
+  for (const rel of RETIRED_PATHS) {
+    writeFixtureFile(root, rel, '// retired stub\n');
   }
 }
 
-const RETIRED_PATHS = ['bin/openspec', 'bin/openspec-bundled.js', 'bin/openspec.cmd'];
+/** 生成完整源码树并切换 cwd，返回临时根目录供用例继续改造。 */
+function makeSourceRoot(prefix: string): string {
+  const root = makeTempRoot(prefix);
+  seedSourceTree(root);
+  mockCwd(root);
+  return root;
+}
+
+async function runAssembleAll(prefix = 'assemble-src-'): Promise<void> {
+  makeSourceRoot(prefix);
+  await assembleAll();
+}
 
 beforeEach(() => {
-  outBase = mkdtempSync(join(tmpdir(), 'assemble-out-'));
-  tempRoots.push(outBase);
-  mockCwd(pluginRoot);
+  outBase = makeTempRoot('assemble-out-');
+  // 默认 cwd 指向空临时目录：用例忘写源码树时会直接失败，而不是回读仓库。
+  mockCwd(makeTempRoot('assemble-no-source-'));
 });
 
 afterEach(() => {
@@ -131,12 +140,14 @@ describe('assembleAll', () => {
       for (const key of envMod.PRODUCT_ENV_KEYS) {
         const outDir = makeOutDir(key);
         const env = envMod.getEnv(key);
-        const agentRel =
-          key === 'cursorHome'
-            ? 'agents/dev-team_implementation-generator.md'
-            : 'agents/implementation-generator.md';
+        const prefix = key === 'cursorHome' ? 'dev-team_' : '';
+        const paths = [
+          `agents/${prefix}implementation-generator.md`,
+          `skills/${prefix}phase-proposal/SKILL.md`,
+          env.hooksFilePath,
+        ];
         expect(existsSync(outDir)).toBe(true);
-        for (const rel of [agentRel, env.hooksFilePath]) {
+        for (const rel of paths) {
           const full = join(outDir, rel);
           expect(existsSync(full)).toBe(true);
           const content = readFileSync(full, 'utf-8');
@@ -179,11 +190,8 @@ describe('assembleAll', () => {
   it(
     'generator 引用缺失 fragment 时 assemble 失败',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-fixture-'));
-      tempRoots.push(root);
-      writeMinimalTree(root);
-      writeFileSync(join(root, 'agents/broken-agent.md'), '__INCLUDE:missing-fragment__\n');
-      mockCwd(root);
+      const root = makeSourceRoot('assemble-fixture-');
+      writeFixtureFile(root, 'agents/broken-agent.md', '__INCLUDE:missing-fragment__\n');
       await expect(assembleAll()).rejects.toThrow();
     },
     ASSEMBLE_TIMEOUT,
@@ -192,13 +200,10 @@ describe('assembleAll', () => {
   it(
     'fragment 环引用时 assemble 失败',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-cycle-'));
-      tempRoots.push(root);
-      writeMinimalTree(root);
-      writeFileSync(join(root, '_fragments/loop-a.md'), '__INCLUDE:loop-b__');
-      writeFileSync(join(root, '_fragments/loop-b.md'), '__INCLUDE:loop-a__');
-      writeFileSync(join(root, 'agents/cycle-agent.md'), '__INCLUDE:loop-a__\n');
-      mockCwd(root);
+      const root = makeSourceRoot('assemble-cycle-');
+      writeFixtureFile(root, '_fragments/loop-a.md', '__INCLUDE:loop-b__');
+      writeFixtureFile(root, '_fragments/loop-b.md', '__INCLUDE:loop-a__');
+      writeFixtureFile(root, 'agents/cycle-agent.md', '__INCLUDE:loop-a__\n');
       await expect(assembleAll()).rejects.toThrow(/Include cycle|Include depth/);
     },
     ASSEMBLE_TIMEOUT,
@@ -207,7 +212,9 @@ describe('assembleAll', () => {
   it(
     '_fragments/ 存在于源码树但不出现在任一 env.outDir',
     async () => {
-      await runAssembleAll();
+      const root = makeSourceRoot('assemble-fragments-');
+      expect(existsSync(join(root, '_fragments'))).toBe(true);
+      await assembleAll();
       for (const key of envMod.PRODUCT_ENV_KEYS) {
         expect(existsSync(join(makeOutDir(key), '_fragments'))).toBe(false);
       }
@@ -244,6 +251,7 @@ describe('assembleAll', () => {
       for (const key of envMod.PRODUCT_ENV_KEYS) {
         const outDir = makeOutDir(key);
         expect(existsSync(join(outDir, 'templates'))).toBe(true);
+        expect(existsSync(join(outDir, 'templates/adr.md'))).toBe(true);
       }
     },
     ASSEMBLE_TIMEOUT,
@@ -252,12 +260,9 @@ describe('assembleAll', () => {
   it(
     'PRODUCT_ENV_KEYS 单轮全量执行失败即抛错',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-fail-fast-'));
-      tempRoots.push(root);
-      writeMinimalTree(root);
+      const root = makeSourceRoot('assemble-fail-fast-');
       rmSync(join(root, '_fragments/static-analysis-gate.md'));
       rmSync(join(root, '_fragments/static-analysis-gate.cursor.md'));
-      mockCwd(root);
       await expect(assembleAll()).rejects.toThrow();
     },
     ASSEMBLE_TIMEOUT,
@@ -266,11 +271,8 @@ describe('assembleAll', () => {
   it(
     'STATIC_BIN_FILES 不再包含退役的 openspec 静态 bin 文件',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-static-bins-'));
-      tempRoots.push(root);
-      writeMinimalTree(root);
+      const root = makeSourceRoot('assemble-static-bins-');
       seedRetiredStaticBins(root);
-      mockCwd(root);
       await assembleAll();
       for (const key of envMod.PRODUCT_ENV_KEYS) {
         for (const rel of RETIRED_PATHS) {
@@ -284,13 +286,9 @@ describe('assembleAll', () => {
   it(
     '空 .pack-staging/bin 目录时 assembleAll 仍完成且各 outDir 生成',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-empty-staging-'));
-      tempRoots.push(root);
-      writeMinimalTree(root);
-      // 清空 .pack-staging/bin（仅保留空的 bin 目录与 install.mjs）
+      const root = makeSourceRoot('assemble-empty-staging-');
+      rmSync(join(root, '.pack-staging/bin'), { recursive: true, force: true });
       mkdirSync(join(root, '.pack-staging/bin'), { recursive: true });
-      writeFileSync(join(root, '.pack-staging/install.mjs'), 'export {};\n');
-      mockCwd(root);
       await expect(assembleAll()).resolves.toBeUndefined();
       for (const key of envMod.PRODUCT_ENV_KEYS) {
         expect(existsSync(makeOutDir(key))).toBe(true);
@@ -302,16 +300,8 @@ describe('assembleAll', () => {
   it(
     '缺少 .pack-staging/bin 目录时 assembleAll 拒绝而非静默部分执行',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-no-staging-bin-'));
-      tempRoots.push(root);
-      writeMinimalCanonical(root);
-      // 故意省略 .pack-staging/bin，只留 install.mjs
-      mkdirSync(join(root, '.pack-staging'), { recursive: true });
-      writeFileSync(join(root, '.pack-staging/install.mjs'), 'export {};\n');
-      mkdirSync(join(root, 'templates'), { recursive: true });
-      mkdirSync(join(root, 'utils'), { recursive: true });
-      mkdirSync(join(root, 'agents'), { recursive: true });
-      mockCwd(root);
+      const root = makeSourceRoot('assemble-no-staging-bin-');
+      rmSync(join(root, '.pack-staging/bin'), { recursive: true, force: true });
       await expect(assembleAll()).rejects.toThrow();
     },
     ASSEMBLE_TIMEOUT,
@@ -320,14 +310,8 @@ describe('assembleAll', () => {
   it(
     '缺少 hooks/hooks.canonical.json 时 assembleAll 拒绝而非静默部分执行',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-no-hooks-'));
-      tempRoots.push(root);
-      writeMinimalStaging(root);
-      // 故意省略 hooks/hooks.canonical.json
-      mkdirSync(join(root, 'templates'), { recursive: true });
-      mkdirSync(join(root, 'utils'), { recursive: true });
-      mkdirSync(join(root, 'agents'), { recursive: true });
-      mockCwd(root);
+      const root = makeSourceRoot('assemble-no-hooks-');
+      rmSync(join(root, 'hooks/hooks.canonical.json'));
       await expect(assembleAll()).rejects.toThrow();
     },
     ASSEMBLE_TIMEOUT,
@@ -336,7 +320,7 @@ describe('assembleAll', () => {
   it(
     'process.cwd 指向不存在路径时 assembleAll 抛出 ENOENT',
     async () => {
-      const missing = join(tmpdir(), 'assemble-missing-cwd-' + Date.now());
+      const missing = join(tmpdir(), `assemble-missing-cwd-${Date.now()}`);
       mockCwd(missing);
       await expect(assembleAll()).rejects.toThrow();
     },
@@ -346,14 +330,9 @@ describe('assembleAll', () => {
   it(
     '无 skills/ 与 agents/ 目录时 assembleAll 仍完成',
     async () => {
-      const root = mkdtempSync(join(tmpdir(), 'assemble-no-skills-agents-'));
-      tempRoots.push(root);
-      writeMinimalCanonical(root);
-      writeMinimalStaging(root);
-      mkdirSync(join(root, 'templates'), { recursive: true });
-      mkdirSync(join(root, 'utils'), { recursive: true });
-      // 故意省略 skills/ 与 agents/
-      mockCwd(root);
+      const root = makeSourceRoot('assemble-no-skills-agents-');
+      rmSync(join(root, 'skills'), { recursive: true, force: true });
+      rmSync(join(root, 'agents'), { recursive: true, force: true });
       await expect(assembleAll()).resolves.toBeUndefined();
       for (const key of envMod.PRODUCT_ENV_KEYS) {
         const outDir = makeOutDir(key);

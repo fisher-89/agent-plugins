@@ -155,7 +155,7 @@
             "type": "object",
             "properties": {
               "glob": {
-                "description": "文件路径 glob 模式（如 \"openspec/changes/**/eval.json\"）",
+                "description": "文件路径 glob 模式（如 \"openspec/changes/**/workflow.json\"）",
                 "type": "string",
                 "minLength": 1
               },

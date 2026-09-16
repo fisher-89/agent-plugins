@@ -2,25 +2,19 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 import { getChangeDir } from '../lib/change';
-import { kebabCasePattern } from '../schemas';
+import { type ChangeCreateInput, kebabCasePattern } from '../schemas';
 
 const MAX_NAME_LENGTH = 128;
 
 /**
- * Create a new change directory with a default workflow.json metadata file.
+ * Create a new change directory with its `workflow.json` metadata file.
  * Replaces `openspec new change` from the bundled openspec CLI.
- *
- * - Validates `name` is kebab-case (`^[a-z0-9][a-z0-9-]*$`, max 128 chars).
- * - Rejects the change if `openspec/changes/<name>/` already exists.
- * - Creates the directory and writes `workflow.json`.
- * - Does NOT write `.openspec.yaml`.
- *
  * Returns `{ name, path }` where `path` is the created change directory.
  */
 export function runChangeCreate(
-  name: string,
-  projectRoot: string,
-  workflowType: string,
+  name: ChangeCreateInput['name'],
+  projectRoot: ChangeCreateInput['project_root'],
+  workflowType: ChangeCreateInput['workflow_type'],
 ): {
   name: string;
   path: string;

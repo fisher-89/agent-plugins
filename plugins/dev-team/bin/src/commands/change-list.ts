@@ -5,19 +5,23 @@ import type z from 'zod/v4';
 
 import { readEvalJson } from '../lib/eval-json';
 import { getPhaseTable } from '../lib/workflow';
-import { type changeListOutputSchema } from '../schemas';
-import { isPlainObject } from '../utils';
+import { workflowFileSchema, type changeListOutputSchema } from '../schemas';
 import { hasPhasePassed } from './phase-next';
 
 type ChangeListResult = z.output<typeof changeListOutputSchema>;
 
-const KNOWN_ARTIFACTS = ['proposal.md', 'design.md', 'tasks.md', 'test-design.md', 'eval.json'];
+// `eval.json` is no longer an artifact: the evaluation history lives inside
+// `workflow.json.eval`, and `workflow.json` itself is metadata (almost every
+// change has it) rather than a completion artifact.
+const KNOWN_ARTIFACTS = ['proposal.md', 'design.md', 'tasks.md', 'test-design.md'];
 const WORKFLOW_JSON = 'workflow.json';
 
 /**
  * Read the `workflow_type` from `openspec/changes/<change>/workflow.json`.
- * Returns `null` when the file is missing, unreadable, malformed, or lacks a
- * usable `workflow_type` string — callers treat `null` as "workflow not done".
+ * Returns `null` when the file is missing, unreadable, or fails
+ * `workflowFileSchema` — callers treat `null` as "workflow not done".
+ * Unlike `getWorkflowType`, this never throws: a broken file must not remove
+ * the change from the list (AC-14).
  */
 function readWorkflowType(changeDir: string): string | null {
   const filePath = path.join(changeDir, WORKFLOW_JSON);
@@ -28,16 +32,17 @@ function readWorkflowType(changeDir: string): string | null {
   } catch {
     return null;
   }
-  if (!isPlainObject(parsed) || typeof parsed.workflow_type !== 'string') return null;
-  return parsed.workflow_type === '' ? null : parsed.workflow_type;
+  const result = workflowFileSchema.safeParse(parsed);
+  return result.success ? result.data.workflow_type : null;
 }
 
 /**
  * Compute whether the change's workflow is complete: every phase in the
- * workflow's phase table has a non-stale pass/skipped entry in eval.json.
+ * workflow's phase table has a non-stale pass/skipped entry in the eval store
+ * (`workflow.json.eval`, with legacy `eval.json` fallback via `readEvalJson`).
  *
- * Returns `false` (never throws) when workflow.json or eval.json is missing,
- * malformed, or the eval entry set is incomplete.
+ * Returns `false` (never throws) when the workflow type cannot be read or the
+ * eval entry set is missing, malformed, or incomplete.
  */
 function computeWorkflowDone(changeDir: string): boolean {
   const workflowType = readWorkflowType(changeDir);
@@ -92,6 +97,8 @@ function processChangeEntry(
     }
   }
 
+  // Latest eval entry comes from the eval store (`workflow.json.eval`, with
+  // legacy `eval.json` fallback); parse failures keep `latest_phase = null`.
   let latestPhase: ChangeListResult['changes'][number]['latest_phase'] = null;
   try {
     const evalEntries = readEvalJson(changeDir);
@@ -107,7 +114,7 @@ function processChangeEntry(
       };
     }
   } catch {
-    // eval.json parse error — treat as absent
+    // eval store parse error — treat as absent (change still listed)
   }
 
   return {

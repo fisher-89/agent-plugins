@@ -4,6 +4,7 @@ export {
   phaseLogInputSchema,
   phaseLogOutputSchema,
 } from './phase-log.schema';
+export { workflowEvalSchema, workflowFileSchema, type WorkflowFile } from './workflow.schema';
 export { archiQueryInputSchema, archiQueryOutputSchema } from './archi-query.schema';
 export { archiValidateInputSchema, archiValidateOutputSchema } from './archi-validate.schema';
 export { archiWriteInputSchema, archiWriteOutputSchema } from './archi-write.schema';
@@ -28,6 +29,7 @@ export {
   changeCreateInputSchema,
   changeCreateOutputSchema,
   kebabCasePattern,
+  type ChangeCreateInput,
 } from './change-create.schema';
 export { specListInputSchema, specListOutputSchema } from './spec-list.schema';
 export { configSchema } from './config/config.schema';

@@ -1,7 +1,7 @@
 ---
 name: proposal-planner
 description: 【use proactively】Reads project context and writes proposal.md and specs/ artifacts.
-model: inherit
+model: grok-4.6
 memory: project
 ---
 

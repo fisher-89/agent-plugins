@@ -95,7 +95,7 @@ const writeProtectionFileSchema = z
       .string()
       .nonempty()
       .optional()
-      .describe('文件路径 glob 模式（如 "openspec/changes/**/eval.json"）'),
+      .describe('文件路径 glob 模式（如 "openspec/changes/**/workflow.json"）'),
     reason: z
       .string()
       .optional()

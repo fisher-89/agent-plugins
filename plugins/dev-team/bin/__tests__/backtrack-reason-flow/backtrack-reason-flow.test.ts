@@ -4,6 +4,9 @@
  * 验证调用 backtrack MCP 工具写入 backtrack_to + backtrack_reason 后，
  * phase_next 返回的 prompt 包含回溯原因。
  *
+ * 评估历史存放在 `workflow.json.eval`；本用例用内存数组 stub 读写入口，
+ * `workflow.json` 只提供 `workflow_type`，夹具不再依赖磁盘上的独立 `eval.json`。
+ *
  * @see openspec/changes/refactor-backtrack-to-skill/design.md — backtrack tool
  */
 
@@ -48,6 +51,7 @@ const DEFAULT_RUN_ID = 'test-run';
 const FAILED_ITEMS = [{ item: 'test', pass: false, evidence: 'none' }];
 const VALID_ITEMS = [{ item: 'test', pass: true, evidence: 'ok' }];
 
+/** workflow.json 只提供 workflow_type（评估条目由内存 mock 提供）。 */
 function mockWorkflowType(workflowType: string): void {
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
     const p = String(filePath);
@@ -62,7 +66,7 @@ function mockWorkflowType(workflowType: string): void {
       _options?: BufferEncoding | fs.ObjectEncodingOptions | null,
     ): string => {
       if (String(path).endsWith('workflow.json')) {
-        return JSON.stringify({ workflow_type: workflowType });
+        return JSON.stringify({ workflow_type: workflowType, created: '2026-09-11' });
       }
       return '';
     },

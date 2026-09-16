@@ -1,7 +1,7 @@
 ---
 name: dev-team_dev-design-planner
 description: 【use proactively】Reads proposal.md and writes design.md and tasks.md.
-model: inherit
+model: grok-4.6
 memory: project
 ---
 

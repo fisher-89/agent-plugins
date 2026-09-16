@@ -21,7 +21,8 @@ Archive a completed change in the experimental workflow.
    the user choose.
 
    Parse the resolved entry to understand:
-   - `artifacts`: Present artifact filenames (e.g. proposal.md, design.md, tasks.md, eval.json)
+   - `artifacts`: Present artifact filenames (e.g. proposal.md, design.md, tasks.md) —
+     evaluation history is not an artifact; it lives in `workflow.json eval`
    - `workflow_done`: Whether all workflow phases have a non-stale pass/skipped entry
 
    **If the change is missing from the result:**
@@ -31,6 +32,10 @@ Archive a completed change in the experimental workflow.
 
    **If any required artifacts are missing or `workflow_done` is `false`:**
    - Display warning listing incomplete artifacts
+   - If the change lacks `workflow.json`, or the file is malformed, `workflow_done` is
+     also `false` — in that case point the user at `workflow.json`'s absolute path and
+     tell them it must be created/fixed via `mcp__user-dev-team_mcp__change_create` (or written by the
+     user to match `workflowFileSchema`); do NOT hand-write or repair it with Write/Edit
    - Use `AskQuestion` to confirm user wants to proceed
    - Proceed if user confirms
 

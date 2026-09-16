@@ -3,10 +3,12 @@ import * as path from 'path';
 
 import { type z } from 'zod/v4';
 
-import { phaseLogSchema } from '../schemas';
+import { phaseLogSchema, workflowEvalSchema, workflowFileSchema } from '../schemas';
+import { isPlainObject } from '../utils';
 import { getDependents } from './workflow';
 
-const EVAL_JSON_FILE = 'eval.json';
+const WORKFLOW_JSON_FILE = 'workflow.json';
+const LEGACY_EVAL_JSON_FILE = 'eval.json';
 
 export type EvalEntry = z.infer<typeof phaseLogSchema>;
 
@@ -16,12 +18,70 @@ export type BuildEntryParams = Pick<
 >;
 
 /**
- * Read eval.json from the change directory.
- * Returns an empty array if the file does not exist.
- * Throws an error if JSON parsing fails.
+ * Render Zod issues as `<field.path: message; …>`, mirroring the format used
+ * by `lib/change-config.ts`.
  */
-export function readEvalJson(changeDir: string): EvalEntry[] {
-  const filePath = path.join(changeDir, EVAL_JSON_FILE);
+function formatIssues(error: z.ZodError): string {
+  return error.issues
+    .map((issue) => `${issue.path.map((segment) => String(segment)).join('.')}: ${issue.message}`)
+    .join('; ');
+}
+
+/**
+ * Parse `workflow.json` and assert that the root is a plain object.
+ * Throws a readable error when JSON is invalid or the root is not an object.
+ * Field shapes are validated separately against `workflowFileSchema`.
+ */
+function parseWorkflowJson(raw: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw);
+  } catch (e: unknown) {
+    if (e instanceof SyntaxError) {
+      throw new Error(`workflow.json 解析失败: ${e.message}`);
+    }
+    throw e;
+  }
+  if (!isPlainObject(parsed)) {
+    throw new Error(`workflow.json 根元素必须是对象，但实际类型为 ${typeof parsed}`);
+  }
+  return parsed;
+}
+
+/**
+ * Read the authoritative `eval` array from `workflow.json`.
+ * Returns `null` when the file or the `eval` key is absent, so the caller can
+ * fall back to the legacy `eval.json`.
+ * Throws when the JSON is invalid, the root is not an object, or `eval` is
+ * present but not an array.
+ *
+ * Only the `eval` field is validated here (via `workflowEvalSchema`); the rest
+ * of the file is validated by the full-file readers (`getWorkflowType` /
+ * `writeEvalJson`) so that entry reads stay independent of `workflow_type`.
+ */
+function readWorkflowEval(changeDir: string): EvalEntry[] | null {
+  const filePath = path.join(changeDir, WORKFLOW_JSON_FILE);
+  if (!fs.existsSync(filePath)) {
+    return null;
+  }
+  const parsed = parseWorkflowJson(fs.readFileSync(filePath, 'utf-8'));
+  if (!Object.prototype.hasOwnProperty.call(parsed, 'eval')) {
+    return null;
+  }
+  const evalValue = parsed.eval;
+  if (!Array.isArray(evalValue)) {
+    throw new Error(`workflow.json.eval 必须是数组，但实际类型为 ${typeof evalValue}`);
+  }
+  return workflowEvalSchema.parse(evalValue);
+}
+
+/**
+ * Read a legacy `eval.json` array file (read-only fallback).
+ * Returns an empty array if the file does not exist.
+ * Throws an error if JSON parsing fails or the root is not an array.
+ */
+function readLegacyEvalJson(changeDir: string): EvalEntry[] {
+  const filePath = path.join(changeDir, LEGACY_EVAL_JSON_FILE);
   if (!fs.existsSync(filePath)) {
     return [];
   }
@@ -38,6 +98,26 @@ export function readEvalJson(changeDir: string): EvalEntry[] {
     }
     throw e;
   }
+}
+
+/**
+ * Read the evaluation entries of a change directory.
+ *
+ * Priority — the two sources are never merged:
+ * 1. `workflow.json` exists and its `eval` key is an array (including `[]`) →
+ *    return that array, ignoring any legacy `eval.json`.
+ * 2. Otherwise, a legacy `eval.json` exists → parse it with the legacy rules.
+ * 3. Otherwise → `[]`.
+ *
+ * Throws when `workflow.json` is invalid, has a non-object root, or stores a
+ * non-array `eval`; throws when a legacy `eval.json` root is not an array.
+ */
+export function readEvalJson(changeDir: string): EvalEntry[] {
+  const workflowEntries = readWorkflowEval(changeDir);
+  if (workflowEntries !== null) {
+    return workflowEntries;
+  }
+  return readLegacyEvalJson(changeDir);
 }
 
 /**
@@ -174,37 +254,72 @@ export function markPhaseStale(entries: EvalEntry[], phaseId: string, workflowTy
 }
 
 /**
- * Write the full entries array to eval.json in the given change directory.
- * Creates the directory if it does not exist.
- * Output uses 2-space indentation with trailing newline.
+ * Write the full entries array to the `eval` field of `workflow.json` in the
+ * given change directory.
+ *
+ * Preconditions — the file MUST already exist and MUST be a valid workflow
+ * file; `change_create` is its only creator, so this function never creates
+ * the directory, the file, or any default metadata:
+ *
+ * - missing file → throws (message carries the absolute path and the
+ *   `change_create` hint); MUST NOT `mkdirSync` nor create the file;
+ * - `JSON.parse` failure, non-object root, or `workflowFileSchema` failure →
+ *   throws and leaves the on-disk content untouched.
+ *
+ * On success:
+ * - `eval` is replaced by the complete `entries` array (never merged with a
+ *   legacy `eval.json`);
+ * - `workflow_type`, `created` and any unknown key are preserved as-is;
+ * - output uses 2-space indentation with a trailing newline;
+ * - a leftover legacy `eval.json` is deleted; it is NEVER written.
  */
 export function writeEvalJson(changeDir: string, entries: EvalEntry[]): void {
-  const filePath = path.join(changeDir, EVAL_JSON_FILE);
-  fs.mkdirSync(changeDir, { recursive: true });
-  fs.writeFileSync(
-    filePath,
-    JSON.stringify(entries, null, 2).replace(/(?<!\\)\n/g, '\n') + '\n',
-    'utf-8',
-  );
+  const filePath = path.join(changeDir, WORKFLOW_JSON_FILE);
+
+  if (!fs.existsSync(filePath)) {
+    throw new Error(
+      `workflow.json 不存在: ${filePath}，无法写入评估记录。请先通过 change_create 创建 change。`,
+    );
+  }
+
+  const doc = parseWorkflowJson(fs.readFileSync(filePath, 'utf-8'));
+
+  const validated = workflowFileSchema.safeParse(doc);
+  if (!validated.success) {
+    throw new Error(`workflow.json 格式非法 (${filePath}): ${formatIssues(validated.error)}`);
+  }
+
+  if (!Array.isArray(entries)) {
+    throw new Error(`workflow.json.eval 必须是数组，但实际类型为 ${typeof entries}`);
+  }
+
+  doc.eval = entries;
+
+  fs.writeFileSync(filePath, `${JSON.stringify(doc, null, 2)}\n`, 'utf-8');
+
+  const legacyPath = path.join(changeDir, LEGACY_EVAL_JSON_FILE);
+  if (fs.existsSync(legacyPath)) {
+    fs.unlinkSync(legacyPath);
+  }
 }
 
 /**
- * Append an entry to eval.json in the given change directory.
- * - Creates the directory if it does not exist.
- * - Creates eval.json with `[entry]` if it does not exist.
- * - Appends to the existing array otherwise.
+ * Append an entry to the evaluation history in the given change directory.
+ * - The directory and `workflow.json` MUST already exist (`change_create`
+ *   creates them); this function never creates either.
+ * - `entry` MUST be defined: a missing entry (null / undefined) would otherwise
+ *   be pushed as-is and persisted as a non-object hole in the `eval` array,
+ *   corrupting every later read — so it throws instead of writing. The value is
+ *   NOT re-parsed through `phaseLogSchema` (that would strip unknown keys).
+ * - Reads the current entries (authoritative `workflow.json.eval`, legacy
+ *   `eval.json` fallback), pushes the entry, and writes the whole array back.
  * - Output uses 2-space indentation with trailing newline.
  */
 export function appendEntry(changeDir: string, entry: EvalEntry): void {
-  const filePath = path.join(changeDir, EVAL_JSON_FILE);
-  let entries: EvalEntry[];
-
-  if (fs.existsSync(filePath)) {
-    entries = readEvalJson(changeDir);
-  } else {
-    entries = [];
+  if (entry === undefined || entry === null) {
+    throw new Error(`评估条目不能为空（收到 ${typeof entry}），无法追加到 workflow.json.eval`);
   }
-
+  const entries = readEvalJson(changeDir);
   entries.push(entry);
   writeEvalJson(changeDir, entries);
 }

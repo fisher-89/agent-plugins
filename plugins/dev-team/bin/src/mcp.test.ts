@@ -182,7 +182,8 @@ const EXPECTED_TOOL_NAMES = [
 ] as const;
 
 const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], string> = {
-  phase_log: 'Append an evaluation result entry to eval.json for a given workflow phase. ',
+  phase_log:
+    'Append an evaluation result entry to the eval field of workflow.json for a given workflow phase. ',
   archi_query:
     'Query C4 architecture model elements and relationships. Optionally filter by element fully-qualified name.',
   archi_validate:
@@ -202,13 +203,13 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
   test_resolve_paths:
     'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "git-change" — reads git diff HEAD --name-only to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
   change_create:
-    'Create a new change directory under openspec/changes/ with a default workflow.json metadata file. Validates kebab-case name and rejects existing changes.',
+    'Create a new change directory under openspec/changes/. The sole creator of its workflow.json metadata file (workflow_type + created only), which phase_next / backtrack / phase_log require — they error out when the file is missing. Validates kebab-case name and rejects existing changes.',
   change_list:
     'List all active (non-archived) changes under openspec/changes/. Returns each change with its artifacts, task progress, and latest eval phase.',
   spec_list:
     'Scan openspec/specs/*/spec.md and return a flat list of capabilities with name, path, and description. Replaces the bundled openspec `spec list --json` CLI command.',
   backtrack:
-    'Set backtrack target and reason for a phase entry in eval.json. This is the only way to modify backtrack state.',
+    'Set backtrack target and reason on the latest eval entry of a phase stored in workflow.json. This is the only way to modify backtrack state.',
 };
 
 const ALL_INPUT_SCHEMAS = [
@@ -357,6 +358,26 @@ function withProjectRoot(
   root: string = mockResolve.root,
 ): Record<string, unknown> {
   return { ...args, project_root: root };
+}
+
+/**
+ * Create `openspec/changes/<changeName>/` with a valid `workflow.json`.
+ * `workflow.json` is the precondition of `phase_next` / `backtrack` /
+ * `phase_log` — a directory without it now fails those tools by design.
+ */
+function setupChangeWithWorkflow(
+  dir: string,
+  changeName: string,
+  workflowType: string = 'requirement',
+): string {
+  const changeDir = path.join(dir, 'openspec', 'changes', changeName);
+  fs.mkdirSync(changeDir, { recursive: true });
+  fs.writeFileSync(
+    path.join(changeDir, 'workflow.json'),
+    JSON.stringify({ workflow_type: workflowType, created: '2026-09-11' }),
+    'utf-8',
+  );
+  return changeDir;
 }
 
 // ---------------------------------------------------------------------------
@@ -802,7 +823,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
       const { dir, cleanup } = setupTempProject();
       setResolvedRoot(dir);
       vi.mocked(withResolvedProjectRoot).mockClear();
-      vi.spyOn(phaseLogCmd, 'runPhaseLog').mockReturnValue({
+      // 该 spy 替换了 runPhaseLog 的实现，必须在本用例内恢复：本文件刻意不调用
+      // restoreAllMocks()，模块状态按测试顺序共享，未恢复会泄漏到后续依赖真实
+      // 落盘的 phase_log 用例（--sequence.shuffle 下顺序相关抖动）。
+      const phaseLogSpy = vi.spyOn(phaseLogCmd, 'runPhaseLog').mockReturnValue({
         written: true,
         phase: 'proposal',
         attempt: 1,
@@ -824,6 +848,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         // mock passes mockResolve.root into run
         expect(mockResolve.root).toBe(dir);
       } finally {
+        phaseLogSpy.mockRestore();
         cleanup();
       }
     });
@@ -876,7 +901,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
       });
       const changeName = 'handler-fixture';
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setupChangeWithWorkflow(dir, changeName);
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
       setResolvedRoot(dir);
@@ -1126,7 +1151,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
     it('phase_next 返回下一阶段信息', async () => {
       const { dir, cleanup } = setupTempProject();
       const changeName = 'phase-next-fixture';
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setupChangeWithWorkflow(dir, changeName);
       setResolvedRoot(dir);
       try {
         const result = await client.callTool({
@@ -1392,7 +1417,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
       });
       const changeName = 'all-14-fixture';
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setupChangeWithWorkflow(dir, changeName);
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
       setResolvedRoot(dir);
@@ -1483,24 +1508,29 @@ describe('MCP Server (via InMemoryTransport)', () => {
       setResolvedRoot(process.cwd());
     });
 
+    /**
+     * 布置一个 change 目录。评估历史是 `workflow.json.eval` 的一部分：
+     * `evalEntries` 与 `workflowJson` 合并进同一对象，避免后写的 `workflow.json`
+     * 覆盖权威数组；`workflowJson` 为字符串时按原文写入（非法形状用例）。
+     */
     function writeDoneChange(
       dir: string,
       changeName: string,
-      options: { workflowJson?: Record<string, unknown>; evalEntries?: unknown[] },
+      options: { workflowJson?: Record<string, unknown> | string; evalEntries?: unknown[] },
     ): void {
       const changeDir = path.join(dir, 'openspec', 'changes', changeName);
       fs.mkdirSync(changeDir, { recursive: true });
+
       if (options.workflowJson !== undefined) {
+        const content =
+          typeof options.workflowJson === 'string'
+            ? options.workflowJson
+            : JSON.stringify({ ...options.workflowJson, eval: options.evalEntries });
+        fs.writeFileSync(path.join(changeDir, 'workflow.json'), content, 'utf-8');
+      } else if (options.evalEntries !== undefined) {
         fs.writeFileSync(
           path.join(changeDir, 'workflow.json'),
-          JSON.stringify(options.workflowJson),
-          'utf-8',
-        );
-      }
-      if (options.evalEntries !== undefined) {
-        fs.writeFileSync(
-          path.join(changeDir, 'eval.json'),
-          JSON.stringify(options.evalEntries),
+          JSON.stringify({ workflow_type: 'requirement', eval: options.evalEntries }),
           'utf-8',
         );
       }
@@ -1592,7 +1622,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('eval.json 缺失时 workflow_done 为 false，不崩溃', async () => {
+    it('无评估条目（仅 workflow_type + created）时 workflow_done 为 false、latest_phase 为 null，不崩溃', async () => {
       const { dir, cleanup } = setupTempProject();
       setResolvedRoot(dir);
       try {
@@ -1605,6 +1635,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         const data = JSON.parse(extractText(result));
         const entry = data.changes.find((c: { name: string }) => c.name === 'no-eval');
         expect(entry.workflow_done).toBe(false);
+        expect(entry.latest_phase).toBeNull();
       } finally {
         cleanup();
       }
@@ -1630,20 +1661,281 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('无 workflow.json 时 workflow_done 为 false', async () => {
+    it('无 workflow.json 时 workflow_done 为 false，change 仍列出（AC-13 容错面）', async () => {
       const { dir, cleanup } = setupTempProject();
       setResolvedRoot(dir);
       try {
-        writeDoneChange(dir, 'no-workflow', { evalEntries: allPassEvalEntries() });
+        const changeDir = path.join(dir, 'openspec', 'changes', 'no-workflow');
+        fs.mkdirSync(changeDir, { recursive: true });
+        fs.writeFileSync(
+          path.join(changeDir, 'eval.json'),
+          JSON.stringify(allPassEvalEntries()),
+          'utf-8',
+        );
         const result = await client.callTool({
           name: 'change_list',
           arguments: withProjectRoot({}, dir),
         });
         const data = JSON.parse(extractText(result));
         const entry = data.changes.find((c: { name: string }) => c.name === 'no-workflow');
+        expect(entry).toBeDefined();
         expect(entry.workflow_done).toBe(false);
       } finally {
         cleanup();
+      }
+    });
+
+    it('workflow.json 非法 JSON 时 change_list 不崩溃，workflow_done 为 false、latest_phase 为 null（AC-14 容错面）', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'broken-json', { workflowJson: 'not json {' });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        expect(isToolError(result)).toBe(false);
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'broken-json');
+        expect(entry).toBeDefined();
+        expect(entry.workflow_done).toBe(false);
+        expect(entry.latest_phase).toBeNull();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('eval 非法（对象）时 change_list 仍返回该 change，workflow_done 为 false（AC-12）', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'object-eval', {
+          workflowJson: { workflow_type: 'requirement', eval: {} },
+        });
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        expect(isToolError(result)).toBe(false);
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'object-eval');
+        expect(entry).toBeDefined();
+        expect(entry.workflow_done).toBe(false);
+        expect(entry.latest_phase).toBeNull();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('全 phase pass 写在 workflow.json.eval 时 workflow_done 为 true，且目录内不产生 eval.json', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        writeDoneChange(dir, 'workflow-store-done', {
+          workflowJson: { workflow_type: 'requirement' },
+          evalEntries: allPassEvalEntries(),
+        });
+
+        const result = await client.callTool({
+          name: 'change_list',
+          arguments: withProjectRoot({}, dir),
+        });
+        const data = JSON.parse(extractText(result));
+        const entry = data.changes.find((c: { name: string }) => c.name === 'workflow-store-done');
+        expect(entry.workflow_done).toBe(true);
+        expect(
+          fs.existsSync(path.join(dir, 'openspec', 'changes', 'workflow-store-done', 'eval.json')),
+        ).toBe(false);
+      } finally {
+        cleanup();
+      }
+    });
+  });
+
+  describe('MCP 调用 — phase_log 落盘到 workflow.json.eval (AC-1, AC-10)', () => {
+    afterEach(() => {
+      setResolvedRoot(process.cwd());
+    });
+
+    it('经 MCP 调用 phase_log（已有 workflow.json）后条目落 workflow.json.eval，目录内不产生 eval.json（AC-1）', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const changeName = 'phase-log-store';
+        const changeDir = setupChangeWithWorkflow(dir, changeName);
+
+        const result = await client.callTool({
+          name: 'phase_log',
+          arguments: withProjectRoot({
+            change: changeName,
+            phase: 'proposal',
+            report: '提案通过',
+            checklist: [{ item: '范围明确', pass: true, evidence: 'ok' }],
+          }),
+        });
+
+        expect(isToolError(result)).toBe(false);
+        const data = JSON.parse(extractText(result));
+        expect(data.written).toBe(true);
+        expect(data.phase).toBe('proposal');
+
+        const doc = JSON.parse(
+          fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8'),
+        ) as Record<string, unknown>;
+        const entries = doc.eval as Record<string, unknown>[];
+        expect(entries).toHaveLength(1);
+        expect(entries[0].verdict).toBe('pass');
+        expect(doc.workflow_type).toBe('requirement');
+        expect(doc.created).toBe('2026-09-11');
+        expect(fs.existsSync(path.join(changeDir, 'eval.json'))).toBe(false);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('缺 workflow.json 时 phase_log 报错且不创建任何文件（AC-13）', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const changeName = 'phase-log-missing';
+        const changeDir = path.join(dir, 'openspec', 'changes', changeName);
+        fs.mkdirSync(changeDir, { recursive: true });
+
+        const result = await client.callTool({
+          name: 'phase_log',
+          arguments: withProjectRoot({
+            change: changeName,
+            phase: 'proposal',
+            report: 'ok',
+            checklist: [{ item: 'x', pass: true, evidence: 'ok' }],
+          }),
+        });
+
+        expect(isToolError(result)).toBe(true);
+        expect(extractText(result)).toContain('change_create');
+        expect(fs.existsSync(path.join(changeDir, 'workflow.json'))).toBe(false);
+        expect(fs.existsSync(path.join(changeDir, 'eval.json'))).toBe(false);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('phase_log 缺必填字段（checklist）时 Zod 拒参，不写盘', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const changeName = 'phase-log-invalid';
+        const changeDir = setupChangeWithWorkflow(dir, changeName);
+
+        const result = await client.callTool({
+          name: 'phase_log',
+          arguments: withProjectRoot({ change: changeName, phase: 'proposal', report: 'ok' }),
+        });
+
+        expect(isToolError(result)).toBe(true);
+        const doc = JSON.parse(
+          fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8'),
+        ) as Record<string, unknown>;
+        expect(doc).not.toHaveProperty('eval');
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('phase_log 的 tool_input 含 backtrack_to 时被 schema 忽略，写入的条目不含该字段', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const changeName = 'phase-log-strip';
+        const changeDir = setupChangeWithWorkflow(dir, changeName);
+
+        const result = await client.callTool({
+          name: 'phase_log',
+          arguments: withProjectRoot({
+            change: changeName,
+            phase: 'proposal',
+            report: 'ok',
+            checklist: [{ item: 'x', pass: true, evidence: 'ok' }],
+            backtrack_to: 'dev-design',
+          }),
+        });
+
+        expect(isToolError(result)).toBe(false);
+        const doc = JSON.parse(
+          fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8'),
+        ) as Record<string, unknown>;
+        const entry = (doc.eval as Record<string, unknown>[])[0];
+        expect(entry.backtrack_to).toBeUndefined();
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('change_create 传入非法枚举 workflow_type 时 Zod 拒参', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const result = await client.callTool({
+          name: 'change_create',
+          arguments: withProjectRoot({ name: 'bad-enum-change', workflow_type: 'unknown-flow' }),
+        });
+
+        expect(isToolError(result)).toBe(true);
+        expect(fs.existsSync(path.join(dir, 'openspec', 'changes', 'bad-enum-change'))).toBe(false);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('backtrack 缺必填字段（backtrack_reason）时 Zod 拒参', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setResolvedRoot(dir);
+      try {
+        const result = await client.callTool({
+          name: 'backtrack',
+          arguments: withProjectRoot({
+            change: 'some-change',
+            phase: 'test-execution',
+            backtrack_to: 'proposal',
+          }),
+        });
+
+        expect(isToolError(result)).toBe(true);
+      } finally {
+        cleanup();
+      }
+    });
+
+    it('backtrack 描述与注册串字节级相等，且提及 workflow.json 评估条目（AC-10）', async () => {
+      const listed = await client.listTools();
+      const tool = listed.tools.find((t) => t.name === 'backtrack');
+      expect(tool?.description).toBe(EXPECTED_TOOL_DESCRIPTIONS.backtrack);
+      expect(tool?.description).toContain('workflow.json');
+    });
+
+    it('change_create 描述含「唯一创建者 / 缺文件时读取方报错」契约（AC-10）', async () => {
+      const listed = await client.listTools();
+      const tool = listed.tools.find((t) => t.name === 'change_create');
+      expect(tool?.description).toBe(EXPECTED_TOOL_DESCRIPTIONS.change_create);
+      expect(tool?.description).toContain('sole creator');
+      expect(tool?.description).toContain('workflow.json');
+      expect(tool?.description).toMatch(/error out when the file is missing/);
+    });
+
+    it('phase_log 描述非空、含 workflow.json 且不以 eval.json 为写入目标（AC-10）', async () => {
+      const listed = await client.listTools();
+      const tool = listed.tools.find((t) => t.name === 'phase_log');
+      expect(tool?.description).toBe(EXPECTED_TOOL_DESCRIPTIONS.phase_log);
+      expect(tool?.description).not.toBe('');
+      expect(tool?.description).toContain('workflow.json');
+      expect(tool?.description).not.toContain('eval.json');
+    });
+
+    it('工具名集合仍含 phase_log / phase_next / backtrack / change_list / change_create，无重命名', async () => {
+      const listed = await client.listTools();
+      const names = listed.tools.map((t) => t.name);
+      for (const name of ['phase_log', 'phase_next', 'backtrack', 'change_list', 'change_create']) {
+        expect(names).toContain(name);
       }
     });
   });
@@ -1712,7 +2004,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
     it('callTool 带非空 run_id 成功且 runPhaseNext spy 收到同一 run_id', async () => {
       const { dir, cleanup } = setupTempProject();
       const changeName = 'run-id-wire';
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setupChangeWithWorkflow(dir, changeName);
       setResolvedRoot(dir);
       const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
       try {
@@ -1776,7 +2068,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
     it('返回下一阶段信息路径传入空 run_id → 工具失败', async () => {
       const { dir, cleanup } = setupTempProject();
       const changeName = 'run-id-empty';
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setupChangeWithWorkflow(dir, changeName);
       setResolvedRoot(dir);
       const spy = vi.spyOn(phaseNextCmd, 'runPhaseNext');
       try {
@@ -1798,7 +2090,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
       });
       const changeName = 'handler-omit-run-id';
-      fs.mkdirSync(path.join(dir, 'openspec', 'changes', changeName), { recursive: true });
+      setupChangeWithWorkflow(dir, changeName);
       fs.mkdirSync(path.join(dir, 'src'), { recursive: true });
       fs.writeFileSync(path.join(dir, 'src', 'foo.ts'), '', 'utf-8');
       setResolvedRoot(dir);

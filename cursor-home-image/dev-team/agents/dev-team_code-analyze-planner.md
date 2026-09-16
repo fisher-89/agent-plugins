@@ -1,7 +1,7 @@
 ---
 name: dev-team_code-analyze-planner
 description: 【use proactively】Reverse-engineers existing code architecture and writes design.md for test-only workflows.
-model: inherit
+model: grok-4.6
 memory: project
 ---
 

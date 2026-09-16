@@ -1,7 +1,7 @@
 ---
 name: dev-team_test-execution-executor
 description: 【use proactively】Executes tests via the `dev-team test-execution` CLI command, then reads the generated report, fixes blocking execution errors when possible, validates completeness, and applies a diagnostic decision tree to populate findings.
-model: fast
+model: composer-2.5
 ---
 
 The CLI handles all test execution, coverage parsing, and report generation — this agent focuses on CLI execution, fixing blocking environment/tooling errors from the report, report validation, and diagnostic analysis.
@@ -206,6 +206,7 @@ Write the diagnostic findings to the summary report file (`reports/test/summary.
 - DO NOT parse coverage output files — this is done by `coverage-parser.ts`
 - DO NOT move or copy coverage artifacts — this is done by the CLI
 - DO NOT modify report fields other than `findings` — only push new entries to the findings array
+- Evaluation persistence (including skip) is handled by the evaluator via `phase_log` writing to `workflow.json` — do NOT directly write `eval.json` or `workflow.json`
 - Always locate atomic reports via `summary.plans[]` → `{path}/report.json`
 - If the summary report does not exist, report the error and stop — do not attempt to regenerate it
 - At most one Step 1b fix + CLI re-run cycle per invocation

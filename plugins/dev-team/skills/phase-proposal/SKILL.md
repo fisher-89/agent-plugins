@@ -34,7 +34,7 @@ Call `__MCP:change_list__()` to get active changes.
 
 Only reached when starting a **new** change (not resuming an existing one).
 
-Use `__TOOL_ASK_USER__` to confirm the workflow type (default `requirement`):
+Use `__TOOL_ASK_USER__` to confirm the workflow type:
 
 **Options:**
 - `requirement` — full development + test pipeline
@@ -57,26 +57,26 @@ Then **promote explore draft** (mechanical move, not rewrite):
 
 Check if `openspec/changes/<name>/workflow.json` exists:
 
-- **Already exists** → skip to `### Phase Check`.
-- **Does not exist** → use `__TOOL_ASK_USER__` to confirm:
+- **Already exists** → skip type confirmation and continue to `### Phase Check`.
+- **Does not exist** → **STOP**. Do NOT call `phase_next` (`workflow.json` is a precondition of `phase_next` / `backtrack` and a missing file is an error, not a default), and **MUST NOT** use Write/Edit to create the file (the write-protection hook denies it, and no default type is assumed anymore).
 
-  **Options:**
-  - `requirement` — full development + test pipeline
-  - `bug-fix` — simplified fix pipeline
-  - `refactor` — full pipeline for refactoring
-  - `test-only` — supplement tests only
+  Present the two options below to the user via `__TOOL_ASK_USER__` and stop:
 
-  After confirmation, write `openspec/changes/<name>/workflow.json` without BOM:
+  (a) **Keep this directory** — the user writes `openspec/changes/<name>/workflow.json` themselves, matching `workflowFileSchema`:
 
   ```json
-  { "workflow_type": "<choice>" }
+  { "workflow_type": "<requirement|bug-fix|refactor|test-only>", "created": "<YYYY-MM-DD>" }
   ```
+
+  Then re-run this skill.
+
+  (b) **Re-create the change** — if the directory content can be discarded, run the matching `workflow-requirement` / `workflow-test-only` skill (or call `__MCP:change_create__({ name: "<change-name>", workflow_type: "<choice>" })` directly). `change_create` rejects an already existing directory, so the directory must be removed or a new name chosen first.
 
 ### Phase Check
 
 At the start of this turn, generate a new non-empty opaque `run_id` (e.g. UUID). Pass the same `run_id` to every `phase_next` call in this turn (Phase Check, backtrack recall, Verdict Phase Result).
 
-Call `__MCP:phase_next__(change=<change-name>, run_id=<run_id>)` to get workflow state.
+Call `__MCP:phase_next__({ change: "<change-name>", run_id: "<run_id>" })` to get workflow state.
 
 If `next_phase` is "proposal" continue to `### Explore handoff`.
 
@@ -100,7 +100,7 @@ __MCP:backtrack__({
 })
 ```
 
-If response `modified` is true, recall `__MCP:phase_next__(change=<name>, run_id=<run_id>)`, continue to `### Explore handoff`.
+If response `modified` is true, recall `__MCP:phase_next__({ change: "<change-name>", run_id: "<run_id>" })`, continue to `### Explore handoff`.
 
 ### Explore handoff
 
@@ -150,10 +150,10 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = __MCP:phase_next__(change=<change-name>, run_id=<run_id>)
+result = __MCP:phase_next__({ change: "<change-name>", run_id: "<run_id>" })
 
 if result.last_result is null:
-  → 错误：Evaluator 未正确写入 eval.json，停止
+  → 错误：Evaluator 未通过 phase_log 写入 workflow.json（或 phase_next.last_result 未更新），停止
 
 if result.last_result.verdict == "pass" → continue to `### Report`
 

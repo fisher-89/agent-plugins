@@ -5,7 +5,9 @@
  * retry logic, backtrack, round limit, mid-phase interruption, skipped entries,
  * workflow_type variants, input validation, and all boundary scenarios.
  *
- * Tests call runPhaseNext with mocked eval.json reads — no real filesystem access.
+ * Tests call runPhaseNext with mocked workflow.json reads (the `eval` field is
+ * the authoritative store, with a legacy `eval.json` fallback) — no real
+ * filesystem access.
  *
  * @see openspec/changes/add-workflow-requirement-skill/test-design.md
  */
@@ -16,20 +18,27 @@ import { describe, it, expect, vi } from 'vite-plus/test';
 
 vi.mock('fs', async (importOriginal) => {
   const actual = await importOriginal<typeof fs>();
-  return { ...actual, existsSync: vi.fn(), readFileSync: vi.fn() };
+  return {
+    ...actual,
+    existsSync: vi.fn(),
+    readFileSync: vi.fn(),
+    writeFileSync: vi.fn(),
+    unlinkSync: vi.fn(),
+  };
 });
 
 import { hasPhasePassed, runPhaseNext } from '../commands/phase-next';
 import { getChangeDir } from '../lib/change';
 import * as evalJson from '../lib/eval-json';
 import { type EvalEntry } from '../lib/eval-json';
+import { getProjectDir } from '../lib/project-root';
 import { getPhaseTable } from '../lib/workflow';
 
 const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
 const DEFAULT_RUN_ID = 'test-run';
 
 // ---------------------------------------------------------------------------
-// Mock helpers — construct eval.json entries for test scenarios
+// Mock helpers — construct evaluation entries for test scenarios
 // ---------------------------------------------------------------------------
 
 type MockEntry = EvalEntry;
@@ -126,22 +135,43 @@ function staleEntry(
 // Note: the counter is intentionally not reset between tests — relative
 // ordering within each test case is all that matters.
 
+/** 评估存储布置方式（默认把条目写进 `workflow.json.eval`）。 */
+interface NextStoreOptions {
+  /** 条目放到遗留 `eval.json`，`workflow.json` 不带 `eval` 键（回退用例）。 */
+  legacy?: boolean;
+  /** `workflow.json` 的原始文本（用于非法 JSON / 非法形状）。 */
+  workflowRaw?: string;
+  /** `workflow.json` 不存在（缺文件用例）。 */
+  missingWorkflow?: boolean;
+}
+
+/**
+ * Arrange the fs mock and call `runPhaseNext`.
+ *
+ * The evaluation history is sourced from `workflow.json.eval` by default —
+ * `eval.json` is only populated when `opts.legacy` is set, which exercises the
+ * read fallback.
+ */
 function next(
   entries: MockEntry[],
   change: string = 'test-change',
-  workflowType?: string,
+  workflowType: string = 'requirement',
   runId: string = DEFAULT_RUN_ID,
+  opts: NextStoreOptions = {},
 ) {
+  const changeDir = getChangeDir(change, FIXTURE_PROJECT_ROOT);
+  const useLegacy = opts.legacy === true;
+
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
     const p = String(filePath);
-    if (p === getChangeDir(change, FIXTURE_PROJECT_ROOT)) {
+    if (p === changeDir) {
       return true;
     }
     if (p.endsWith('workflow.json')) {
-      return workflowType !== undefined;
+      return opts.missingWorkflow !== true;
     }
     if (p.endsWith('eval.json')) {
-      return entries.length > 0;
+      return useLegacy;
     }
     return false;
   });
@@ -152,7 +182,13 @@ function next(
     ): string => {
       const p = String(path);
       if (p.endsWith('workflow.json')) {
-        return JSON.stringify({ workflow_type: workflowType ?? 'requirement' });
+        if (opts.workflowRaw !== undefined) {
+          return opts.workflowRaw;
+        }
+        if (useLegacy) {
+          return JSON.stringify({ workflow_type: workflowType });
+        }
+        return JSON.stringify({ workflow_type: workflowType, eval: entries });
       }
       if (p.endsWith('eval.json')) {
         return JSON.stringify(entries);
@@ -172,10 +208,112 @@ function buildLongHistory(count: number, phase: EvalEntry['phase'] = 'proposal')
 }
 
 // ---------------------------------------------------------------------------
-// First Run — Empty eval.json
+// 评估存储来源 — workflow.json.eval 优先 / 遗留 eval.json 回退 / 禁止合并
 // ---------------------------------------------------------------------------
 
-describe('runPhaseNext — First Run (empty eval.json)', () => {
+describe('runPhaseNext — 评估存储来源 (AC-3, AC-5, AC-12)', () => {
+  it('workflow.json.eval 为 [] 且无遗留文件时按 requirement 返回 first run proposal（AC-3）', () => {
+    const result = next([]);
+    expect(result.next_phase).toBe('proposal');
+    expect(result.last_result).toBeNull();
+    expect(result.round).toBe(1);
+  });
+
+  it('仅有遗留 eval.json（proposal 非 stale pass）且 workflow.json 无 eval 键时返回 dev-design（与合并前一致，AC-3）', () => {
+    const result = next([passEntry('proposal')], 'test-change', 'requirement', DEFAULT_RUN_ID, {
+      legacy: true,
+    });
+    expect(result.next_phase).toBe('dev-design');
+    expect(result.error).toBeNull();
+  });
+
+  it('workflow.json.eval 为 [] 且遗留 eval.json 含 proposal pass 时仍为 first run proposal（不合并两源，AC-5）', () => {
+    const result = next([], 'test-change', 'requirement', DEFAULT_RUN_ID, {
+      legacy: true,
+    });
+    expect(result.next_phase).toBe('proposal');
+    expect(result.last_result).toBeNull();
+  });
+
+  it('workflow.json.eval 含 proposal 非 stale pass 时返回 dev-design，last_result.phase 为 proposal', () => {
+    const result = next([passEntry('proposal', 1, { report: '提案通过' })]);
+    expect(result.next_phase).toBe('dev-design');
+    expect(result.last_result!.phase).toBe('proposal');
+    expect(result.last_result!.report).toBe('提案通过');
+  });
+
+  it('readEvalJson 抛错（eval 非数组）时 message 匹配 Failed to read workflow.json:（AC-12）', () => {
+    // `getWorkflowType` 会先做整文件校验，因此 `eval: {}` 在磁盘路径上先抛格式非法；
+    // 这里 stub readEvalJson 以覆盖读取失败的包装文案。
+    const spy = vi.spyOn(evalJson, 'readEvalJson').mockImplementationOnce(() => {
+      throw new Error('workflow.json.eval 必须是数组，但实际类型为 object');
+    });
+    try {
+      expect(() => next([])).toThrow(
+        /Failed to read workflow\.json: workflow\.json\.eval 必须是数组/,
+      );
+    } finally {
+      spy.mockRestore();
+    }
+  });
+
+  it('workflow.json.eval 为对象时 getWorkflowType 先以格式非法终止（AC-14）', () => {
+    expect(() =>
+      next([], 'test-change', 'requirement', DEFAULT_RUN_ID, {
+        workflowRaw: JSON.stringify({ workflow_type: 'requirement', eval: {} }),
+      }),
+    ).toThrow(/格式非法/);
+  });
+
+  it('成功路径只读：不调用 writeEvalJson，也不写 / 删任何文件', () => {
+    const writeSpy = vi.spyOn(evalJson, 'writeEvalJson');
+    try {
+      next([passEntry('proposal'), passEntry('dev-design')]);
+      expect(writeSpy).not.toHaveBeenCalled();
+      expect(vi.mocked(fs.writeFileSync)).not.toHaveBeenCalled();
+      expect(vi.mocked(fs.unlinkSync)).not.toHaveBeenCalled();
+    } finally {
+      writeSpy.mockRestore();
+    }
+  });
+
+  it('生涯已有多条（来自 workflow.json.eval）时窗口算法仍以 entries.length 为 anchor', () => {
+    next(buildLongHistory(30), 'test-change', 'requirement', 'anchor-from-workflow');
+    const result = next(buildLongHistory(33), 'test-change', 'requirement', 'anchor-from-workflow');
+    expect(result.round).toBe(4);
+    expect(result.error).toBeNull();
+  });
+
+  it('workflow.json 含未知键（note）时类型仍可解析并按 phase 表推进', () => {
+    const result = next([], 'test-change', 'requirement', DEFAULT_RUN_ID, {
+      workflowRaw: JSON.stringify({ workflow_type: 'requirement', note: 'x' }),
+    });
+    expect(result.next_phase).toBe('proposal');
+    expect(result.total_phases).toBe(8);
+  });
+
+  it('workflow.json 缺 created（Optional None）时正常解析并按 phase 表推进', () => {
+    const result = next([], 'test-change', 'requirement', DEFAULT_RUN_ID, {
+      workflowRaw: JSON.stringify({ workflow_type: 'requirement' }),
+    });
+    expect(result.next_phase).toBe('proposal');
+    expect(result.total_phases).toBe(8);
+  });
+
+  it('eval 键缺失且无遗留文件（Optional None）时按 first run 返回 proposal', () => {
+    const result = next([], 'test-change', 'requirement', DEFAULT_RUN_ID, {
+      workflowRaw: JSON.stringify({ workflow_type: 'requirement', created: '2026-09-11' }),
+    });
+    expect(result.next_phase).toBe('proposal');
+    expect(result.last_result).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// First Run — Empty evaluation history
+// ---------------------------------------------------------------------------
+
+describe('runPhaseNext — First Run (empty evaluation history)', () => {
   it('should return proposal as next_phase when entries is empty', () => {
     const result = next([]);
     expect(result.next_phase).toBe('proposal');
@@ -822,11 +960,13 @@ describe('runPhaseNext — Round Limit (session window)', () => {
     expect(result.done).toBe(false);
   });
 
-  it('round_limit_exceeded 时 message 含 20 轮中文提示', () => {
+  it('round_limit_exceeded 时 message 含 20 轮中文提示，指向 workflow.json 且不再提 eval.json', () => {
     next([], 'test-change', undefined, 'round-limit-s2');
     const windowEntries = buildLongHistory(21);
     const result = next(windowEntries, 'test-change', undefined, 'round-limit-s2');
     expect(result.message).toContain('20 轮');
+    expect(result.message).toContain('workflow.json');
+    expect(result.message).not.toContain('eval.json');
   });
 
   it('同 run_id 窗内 19 条 entries 时 round===20 且 error 为 null', () => {
@@ -1097,42 +1237,55 @@ describe('runPhaseNext — test-only Completion', () => {
   });
 });
 
-describe('runPhaseNext — workflow.json default', () => {
-  it('should use requirement table when workflow.json missing', () => {
-    const result = next([], 'test-change');
-    expect(result.total_phases).toBe(8);
+describe('runPhaseNext — workflow.json 严格前置条件 (AC-13, AC-14)', () => {
+  /** 捕获同步抛出的 Error，便于断言 message 内容。 */
+  function captureError(fn: () => unknown): Error {
+    try {
+      fn();
+    } catch (e: unknown) {
+      return e as Error;
+    }
+    throw new Error('expected the call to throw, but it returned normally');
+  }
+
+  it('workflow.json 缺失时 getWorkflowType 抛错直接终止，message 含绝对路径与 change_create 指引，不返回 proposal（AC-13）', () => {
+    const error = captureError(() =>
+      next([], 'test-change', 'requirement', DEFAULT_RUN_ID, { missingWorkflow: true }),
+    );
+
+    expect(error.message).toContain('workflow.json 不存在');
+    // `getWorkflowType` 用真实工程根拼接绝对路径
+    expect(error.message).toContain(getChangeDir('test-change', getProjectDir()));
+    expect(error.message).toContain('change_create');
   });
 
-  it('should use requirement table when workflow.json lacks workflow_type', () => {
-    vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
-      const p = String(filePath);
-      return (
-        p === getChangeDir('test-change', FIXTURE_PROJECT_ROOT) ||
-        p.endsWith('workflow.json') ||
-        p.endsWith('eval.json')
-      );
-    });
-    vi.mocked(fs.readFileSync).mockImplementation(
-      (
-        path: fs.PathOrFileDescriptor,
-        _options?: BufferEncoding | fs.ObjectEncodingOptions | null,
-      ): string => {
-        const p = String(path);
-        if (p.endsWith('workflow.json')) {
-          return '{}';
-        }
-        if (p.endsWith('eval.json')) {
-          return '[]';
-        }
-        return '';
-      },
+  it('workflow.json 缺 workflow_type 时抛错终止，不回退 requirement 表（AC-14）', () => {
+    const error = captureError(() =>
+      next([], 'test-change', 'requirement', DEFAULT_RUN_ID, { workflowRaw: '{}' }),
     );
-    const result = runPhaseNext({
-      change: 'test-change',
-      project_root: FIXTURE_PROJECT_ROOT,
-      run_id: DEFAULT_RUN_ID,
-    });
-    expect(result.total_phases).toBe(8);
+    expect(error.message).toContain('格式非法');
+    expect(error.message).toContain('workflow_type');
+  });
+
+  it('workflow.json JSON 非法 / 根为数组时抛错终止（AC-14）', () => {
+    expect(() =>
+      next([], 'test-change', 'requirement', DEFAULT_RUN_ID, { workflowRaw: '{ broken' }),
+    ).toThrow(/解析失败/);
+    expect(() =>
+      next([], 'test-change', 'requirement', DEFAULT_RUN_ID, { workflowRaw: '[1,2]' }),
+    ).toThrow(/根元素必须是对象/);
+  });
+
+  it('workflow_type 非枚举时抛错终止，不按 requirement 表推进（AC-14）', () => {
+    expect(() => next([], 'test-change', 'unknown-flow')).toThrow(/格式非法/);
+  });
+
+  it('created 为 2026/09/11 时抛错终止（AC-14）', () => {
+    expect(() =>
+      next([], 'test-change', 'requirement', DEFAULT_RUN_ID, {
+        workflowRaw: JSON.stringify({ workflow_type: 'requirement', created: '2026/09/11' }),
+      }),
+    ).toThrow(/格式非法/);
   });
 });
 
@@ -1573,7 +1726,9 @@ describe('runPhaseNext — map 隔离与易失 (AC-5)', () => {
     const { runPhaseNext: freshRunPhaseNext } = await import('./phase-next');
     vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
       const p = String(filePath);
-      return p === getChangeDir('reset-change', FIXTURE_PROJECT_ROOT) || p.endsWith('eval.json');
+      return (
+        p === getChangeDir('reset-change', FIXTURE_PROJECT_ROOT) || p.endsWith('workflow.json')
+      );
     });
     vi.mocked(fs.readFileSync).mockImplementation(
       (
@@ -1581,11 +1736,8 @@ describe('runPhaseNext — map 隔离与易失 (AC-5)', () => {
         _options?: BufferEncoding | fs.ObjectEncodingOptions | null,
       ): string => {
         const p = String(path);
-        if (p.endsWith('eval.json')) {
-          return JSON.stringify(career);
-        }
         if (p.endsWith('workflow.json')) {
-          return JSON.stringify({ workflow_type: 'requirement' });
+          return JSON.stringify({ workflow_type: 'requirement', eval: career });
         }
         return '';
       },

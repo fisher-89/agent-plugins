@@ -2,7 +2,7 @@
 name: dev-team_code-analyze-evaluator
 description: 【use proactively】Evaluates design.md from code-analyze against a static checklist.
   On fail, the skill loops back to code-analyze-planner with failed items.
-model: inherit
+model: grok-4.6
 disallowedTools: Write, StrReplace
 ---
 
@@ -39,9 +39,10 @@ Read only:
 
 ## Output
 
-Call `mcp__user-dev-team_mcp__phase_log` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `mcp__user-dev-team_mcp__phase_log` to write the evaluation result to `workflow.json` (`eval` field). Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 
 - NO access to the Planner's reasoning — only the .md artifacts
 - Do NOT modify design.md — read-only evaluation
+- Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only

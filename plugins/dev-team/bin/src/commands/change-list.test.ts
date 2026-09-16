@@ -62,6 +62,14 @@ function makeEvalEntry(
   };
 }
 
+/**
+ * 布置一个 change 目录。
+ *
+ * 评估历史是 `workflow.json.eval` 的一部分：`evalEntries` 与 `workflowJson`
+ * 同时给出时合并进**同一对象**，避免后写的 `workflow.json` 覆盖权威数组。
+ * `workflowJson: null` 表示不创建该文件；字符串表示手写原文（非法形状用例）。
+ * `invalidEvalJson` 仍写遗留 `eval.json`，用于回退路径的形状用例。
+ */
 function writeChange(
   changesDir: string,
   name: string,
@@ -70,7 +78,7 @@ function writeChange(
     tasksMd?: string;
     evalEntries?: EvalEntry[];
     invalidEvalJson?: string;
-    workflowJson?: string | Record<string, unknown>;
+    workflowJson?: string | Record<string, unknown> | null;
   },
 ): string {
   const changeDir = path.join(changesDir, name);
@@ -86,20 +94,26 @@ function writeChange(
     writeFile(path.join(changeDir, 'tasks.md'), options.tasksMd);
   }
 
-  if (options?.evalEntries !== undefined) {
+  const workflowPath = path.join(changeDir, 'workflow.json');
+  const explicit = options?.workflowJson;
+  if (explicit === undefined && options?.evalEntries !== undefined) {
+    // 权威存储走真实写入器（写方与读方同源）
+    writeFile(workflowPath, JSON.stringify({ workflow_type: 'requirement' }));
     writeEvalJson(changeDir, options.evalEntries);
+  } else if (explicit === null) {
+    // 显式要求不创建 workflow.json
+  } else if (typeof explicit === 'string') {
+    writeFile(workflowPath, explicit);
+  } else {
+    const doc: Record<string, unknown> = { ...(explicit ?? { workflow_type: 'requirement' }) };
+    if (options?.evalEntries !== undefined) {
+      doc.eval = options.evalEntries;
+    }
+    writeFile(workflowPath, JSON.stringify(doc));
   }
 
   if (options?.invalidEvalJson !== undefined) {
     writeFile(path.join(changeDir, 'eval.json'), options.invalidEvalJson);
-  }
-
-  if (options?.workflowJson !== undefined) {
-    const content =
-      typeof options.workflowJson === 'string'
-        ? options.workflowJson
-        : JSON.stringify(options.workflowJson);
-    writeFile(path.join(changeDir, 'workflow.json'), content);
   }
 
   return changeDir;
@@ -606,16 +620,40 @@ describe('runChangeList — workflow_done (AC-6)', () => {
     }
   });
 
-  it('workflow.json 缺失时，workflow_done 为 false（无法确定 workflow_type）', () => {
+  it('workflow.json 缺失且无任何评估来源时，workflow_done 为 false、latest_phase 为 null，change 仍列出（AC-13 容错面）', () => {
     const project = createTempProject();
     try {
-      writeChange(project.changesDir, 'no-workflow-change', {
-        evalEntries: makeAllPassEntries('requirement'),
-      });
+      writeChange(project.changesDir, 'no-workflow-change', { workflowJson: null });
 
       const result = runChangeList(project.root);
       const change = result.changes.find((c) => c.name === 'no-workflow-change')!;
+      expect(change).toBeDefined();
       expect(change.workflow_done).toBe(false);
+      expect(change.latest_phase).toBeNull();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('workflow.json 缺失但存在遗留 eval.json 时 workflow_done 为 false，latest_phase 经回退填出（AC-3 容错面）', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'no-workflow-legacy', {
+        workflowJson: null,
+        invalidEvalJson: JSON.stringify([
+          makeEvalEntry({
+            phase: 'proposal',
+            verdict: 'pass',
+            timestamp: '2026-06-18T09:00:00.000Z',
+          }),
+        ]),
+      });
+
+      const change = runChangeList(project.root).changes.find(
+        (c) => c.name === 'no-workflow-legacy',
+      )!;
+      expect(change.workflow_done).toBe(false);
+      expect(change.latest_phase).toEqual({ phase: 'proposal', verdict: 'pass' });
     } finally {
       project.cleanup();
     }
@@ -825,7 +863,7 @@ describe('runChangeList — workflow_done (AC-6)', () => {
     }
   });
 
-  it('未知 workflow_type 回退到 requirement 默认 phase table 计算 workflow_done', () => {
+  it('workflow_type 非 4 值枚举（mystery-flow）时 safeParse 失败 → workflow_done 为 false、latest_phase 为 null，change 仍列出', () => {
     const project = createTempProject();
     try {
       writeChange(project.changesDir, 'unknown-type-complete', {
@@ -838,15 +876,142 @@ describe('runChangeList — workflow_done (AC-6)', () => {
       });
 
       const result = runChangeList(project.root);
-      const complete = result.changes.find((c) => c.name === 'unknown-type-complete')!;
-      expect(complete.workflow_done).toBe(true);
-      const incomplete = result.changes.find((c) => c.name === 'unknown-type-incomplete')!;
-      expect(incomplete.workflow_done).toBe(false);
+      for (const name of ['unknown-type-complete', 'unknown-type-incomplete']) {
+        const change = result.changes.find((c) => c.name === name)!;
+        expect(change).toBeDefined();
+        expect(change.workflow_done).toBe(false);
+      }
     } finally {
       project.cleanup();
     }
   });
 
+  it('created 非 YYYY-MM-DD 时校验失败 → workflow_done 为 false，不崩溃（AC-14 容错面）', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'bad-created', {
+        workflowJson: { workflow_type: 'requirement', created: '2026/09/11' },
+        evalEntries: makeAllPassEntries('requirement'),
+      });
+
+      expect(() => runChangeList(project.root)).not.toThrow();
+      const change = runChangeList(project.root).changes.find((c) => c.name === 'bad-created')!;
+      expect(change).toBeDefined();
+      expect(change.workflow_done).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('workflow.json 无法解析（非法 JSON / 根非对象 / 根为 null）时 latest_phase 为 null 且不崩溃', () => {
+    const project = createTempProject();
+    try {
+      const unreadable: Record<string, string> = {
+        'unreadable-json': 'not json {',
+        'unreadable-array': JSON.stringify(['x']),
+        'unreadable-null': JSON.stringify(null),
+      };
+      for (const [name, raw] of Object.entries(unreadable)) {
+        writeChange(project.changesDir, name, {
+          workflowJson: raw,
+          invalidEvalJson: JSON.stringify(makeAllPassEntries('requirement')),
+        });
+      }
+
+      expect(() => runChangeList(project.root)).not.toThrow();
+      const listed = runChangeList(project.root).changes;
+      for (const name of Object.keys(unreadable)) {
+        const change = listed.find((c) => c.name === name)!;
+        expect(change).toBeDefined();
+        expect(change.workflow_done).toBe(false);
+        expect(change.latest_phase).toBeNull();
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('workflow.json.eval 为对象 {} 时不崩溃，workflow_done 为 false、latest_phase 为 null（AC-12）', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'object-eval', {
+        workflowJson: { workflow_type: 'requirement', eval: {} },
+      });
+
+      expect(() => runChangeList(project.root)).not.toThrow();
+      const change = runChangeList(project.root).changes.find((c) => c.name === 'object-eval')!;
+      expect(change.workflow_done).toBe(false);
+      expect(change.latest_phase).toBeNull();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('仅有 "eval": [] 时 workflow_done 为 false、latest_phase 为 null', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'empty-authoritative', {
+        workflowJson: { workflow_type: 'requirement', eval: [] },
+      });
+
+      const change = runChangeList(project.root).changes.find(
+        (c) => c.name === 'empty-authoritative',
+      )!;
+      expect(change.workflow_done).toBe(false);
+      expect(change.latest_phase).toBeNull();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('无 eval 键且无遗留文件时 workflow_done 为 false、latest_phase 为 null', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'no-eval-key', {
+        workflowJson: { workflow_type: 'requirement' },
+      });
+
+      const change = runChangeList(project.root).changes.find((c) => c.name === 'no-eval-key')!;
+      expect(change.workflow_done).toBe(false);
+      expect(change.latest_phase).toBeNull();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('created 缺失（Optional None）+ 未知键时正常计算 workflow_done', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'no-created', {
+        workflowJson: { workflow_type: 'requirement', note: 'x' },
+        evalEntries: makeAllPassEntries('requirement'),
+      });
+
+      const change = runChangeList(project.root).changes.find((c) => c.name === 'no-created')!;
+      expect(change.workflow_done).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('遗留 eval.json 为对象时吞错（不崩溃），workflow_done 为 false', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'legacy-object-root', {
+        workflowJson: { workflow_type: 'requirement' },
+        invalidEvalJson: JSON.stringify({ phase: 'proposal', verdict: 'pass' }),
+      });
+
+      expect(() => runChangeList(project.root)).not.toThrow();
+      const change = runChangeList(project.root).changes.find(
+        (c) => c.name === 'legacy-object-root',
+      )!;
+      expect(change.workflow_done).toBe(false);
+      expect(change.latest_phase).toBeNull();
+    } finally {
+      project.cleanup();
+    }
+  });
   it('workflow_done 字段类型严格为 boolean，changeListOutputSchema.safeParse 验证通过 (AC-6)', () => {
     const project = createTempProject();
     try {
@@ -859,7 +1024,7 @@ describe('runChangeList — workflow_done (AC-6)', () => {
         evalEntries: [makeEvalEntry({ phase: 'proposal', verdict: 'pass' })],
       });
       writeChange(project.changesDir, 'done-no-workflow', {
-        evalEntries: makeAllPassEntries('requirement'),
+        workflowJson: null,
       });
 
       const result = runChangeList(project.root);
@@ -903,5 +1068,119 @@ describe('runChangeList — workflow_done (AC-6)', () => {
     } finally {
       project.cleanup();
     }
+  });
+});
+
+// ===========================================================================
+// runChangeList — artifacts / latest_phase 来源 (AC-7)
+// ===========================================================================
+
+describe('runChangeList — artifacts 与 latest_phase 来源 (AC-7)', () => {
+  it('workflow.json.eval 非空且存在 proposal.md 时 artifacts 含 proposal.md、不含 eval.json，latest_phase 为 timestamp 最新条目', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'artifacts-change', {
+        artifacts: { 'proposal.md': '# proposal', 'test-design.md': '# td' },
+        evalEntries: [
+          makeEvalEntry({
+            phase: 'proposal',
+            verdict: 'pass',
+            timestamp: '2026-06-18T09:00:00.000Z',
+          }),
+          makeEvalEntry({
+            phase: 'dev-design',
+            verdict: 'fail',
+            timestamp: '2026-06-18T11:00:00.000Z',
+          }),
+        ],
+      });
+
+      const entry = runChangeList(project.root).changes.find((c) => c.name === 'artifacts-change')!;
+
+      expect(entry.artifacts).toContain('proposal.md');
+      expect(entry.artifacts).toContain('test-design.md');
+      expect(entry.artifacts).not.toContain('eval.json');
+      expect(entry.artifacts).not.toContain('workflow.json');
+      expect(entry.latest_phase).toEqual({ phase: 'dev-design', verdict: 'fail' });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('目录仍有遗留 eval.json 文件时 artifacts 仍不含它；latest_phase 可经回退填出（AC-7）', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'legacy-artifact', {
+        artifacts: { 'proposal.md': '# proposal' },
+        workflowJson: { workflow_type: 'requirement' },
+        invalidEvalJson: JSON.stringify([makeEvalEntry({ phase: 'proposal', verdict: 'pass' })]),
+      });
+
+      const entry = runChangeList(project.root).changes.find((c) => c.name === 'legacy-artifact')!;
+
+      expect(entry.artifacts).not.toContain('eval.json');
+      expect(entry.artifacts).toEqual(['proposal.md']);
+      expect(entry.latest_phase).toEqual({ phase: 'proposal', verdict: 'pass' });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('artifacts 仅为已知四文件之子集，workflow.json 自身不列入 artifacts', () => {
+    const project = createTempProject();
+    try {
+      writeChange(project.changesDir, 'subset-artifacts', {
+        artifacts: {
+          'proposal.md': '# p',
+          'design.md': '# d',
+          'tasks.md': '# t',
+          'test-design.md': '# td',
+          'notes.txt': 'ignored',
+        },
+        workflowJson: { workflow_type: 'requirement' },
+      });
+
+      const entry = runChangeList(project.root).changes.find((c) => c.name === 'subset-artifacts')!;
+
+      expect(new Set(entry.artifacts)).toEqual(
+        new Set(['proposal.md', 'design.md', 'tasks.md', 'test-design.md']),
+      );
+      expect(entry.artifacts).not.toContain('notes.txt');
+      expect(entry.artifacts).not.toContain('workflow.json');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('4 值枚举逐一按各自 phase table 计算 workflow_done', () => {
+    const project = createTempProject();
+    try {
+      for (const workflowType of ['requirement', 'bug-fix', 'refactor', 'test-only']) {
+        writeChange(project.changesDir, `enum-${workflowType}`, {
+          workflowJson: { workflow_type: workflowType },
+          evalEntries: makeAllPassEntries(workflowType),
+        });
+      }
+
+      const listed = runChangeList(project.root).changes;
+      for (const workflowType of ['requirement', 'bug-fix', 'refactor', 'test-only']) {
+        const change = listed.find((c) => c.name === `enum-${workflowType}`)!;
+        expect(change.workflow_done).toBe(true);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('projectRoot 为 undefined / null（None）时抛错而非崩溃进程', () => {
+    expect(() => runChangeList(undefined as unknown as string)).toThrow();
+    expect(() => runChangeList(null as unknown as string)).toThrow();
+  });
+
+  it('projectRoot 为空串时既有 project_root 契约仍成立（按相对路径扫描，count === 0）', () => {
+    const result0 = runChangeList('');
+
+    expect(result0.project_root).toBe('');
+    expect(result0.count).toBe(result0.changes.length);
   });
 });

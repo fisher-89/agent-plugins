@@ -1,7 +1,7 @@
 ---
 name: dev-team_test-design-planner
 description: 【use proactively】Reads proposal.md and design.md, greps source code for real API signatures, writes test-design.md following the test-design template.
-model: inherit
+model: grok-4.6
 memory: project
 ---
 
@@ -16,7 +16,7 @@ memory: project
 7. 从 design.md 的变更范围与 Grep 结果汇总**精确模块列表**（文件路径或目录路径，相对于项目根目录）
 8. **集成测试框架识别**：调用 `mcp__user-dev-team_mcp__test_detect_frameworks`，传入步骤 6 汇总的模块文件列表，识别项目使用的测试框架和测试区域。根据返回的框架信息（如 vitest、jest、mocha 等）确定集成测试文件的扩展名、断言库和测试运行器
 9. **识别跨模块交互并生成集成测试章节**：从 proposal.md / design.md 识别跨模块交互（涉及两个或以上模块的交互），对每个交互生成独立的集成测试章节：
-   a. 为交互生成自由命名的关系标题，建议使用 `→` 箭头链路格式描述交互方向（如 `CLI参数 → eval.json持久化`）
+   a. 为交互生成自由命名的关系标题，建议使用 `→` 箭头链路格式描述交互方向（如 `CLI参数 → workflow.json持久化`）
    b. 确定涉及模块（至少 2 个）及其角色 → 生成 `**涉及模块**` 表格（列：`模块 | 角色`，数据行 ≥2）
    c. 列出此交互覆盖的 AC-ID → 生成 `**关联AC**: AC-1, AC-2` 行
    d. 撰写交互描述 → 生成 `**关系描述**` 叙事段落（描述交互方式、测试价值、可能的出错模式）
@@ -56,7 +56,7 @@ Write a single file: `openspec/changes/<change-name>/test-design.md`
 
 ### 集成测试关系标题命名指南
 
-- 关系标题使用 `→` 箭头链路格式描述交互方向，如 `CLI参数 → eval.json持久化`
+- 关系标题使用 `→` 箭头链路格式描述交互方向，如 `CLI参数 → workflow.json持久化`
 - 标题应描述交互方向而非固定类型分类（不区分"数据关系/时序关系/逻辑关系"）
 - 同一关系下场景名需唯一，跨关系不强制唯一
 - 关系标题应能让审查者一眼理解交互的参与方和方向

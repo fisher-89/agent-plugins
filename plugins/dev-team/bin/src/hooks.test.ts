@@ -270,7 +270,7 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Edit',
-        tool_input: { file_path: 'openspec/changes/my-feature/eval.json' },
+        tool_input: { file_path: 'openspec/changes/my-feature/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -292,11 +292,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
 
   // ---- Bash 写入检测 ----
 
-  it('detectBashWrite — > 重定向到 eval.json 返回 deny', () => {
+  it('detectBashWrite — > 重定向到 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: 'echo "[]" > openspec/changes/test/eval.json' },
+        tool_input: { command: 'echo "[]" > openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -304,11 +304,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectBashWrite — >> 追加到 eval.json 返回 deny', () => {
+  it('detectBashWrite — >> 追加到 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: 'echo "x" >> openspec/changes/test/eval.json' },
+        tool_input: { command: 'echo "x" >> openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -316,11 +316,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectBashWrite — tee 写入 eval.json 返回 deny', () => {
+  it('detectBashWrite — tee 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: "echo '[]' | tee openspec/changes/test/eval.json" },
+        tool_input: { command: "echo '[]' | tee openspec/changes/test/workflow.json" },
       }),
     );
     runProtectFiles();
@@ -328,11 +328,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectBashWrite — heredoc 写入 eval.json 返回 deny', () => {
+  it('detectBashWrite — heredoc 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: 'cat > openspec/changes/test/eval.json <<EOF\n[]\nEOF' },
+        tool_input: { command: 'cat > openspec/changes/test/workflow.json <<EOF\n[]\nEOF' },
       }),
     );
     runProtectFiles();
@@ -340,11 +340,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectBashWrite — >& 重定向到 eval.json 返回 deny', () => {
+  it('detectBashWrite — >& 重定向到 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: 'echo "x" >& openspec/changes/test/eval.json' },
+        tool_input: { command: 'echo "x" >& openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -352,11 +352,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectBashWrite — >| noclobber 重定向到 eval.json 返回 deny', () => {
+  it('detectBashWrite — >| noclobber 重定向到 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: 'echo "x" >| openspec/changes/test/eval.json' },
+        tool_input: { command: 'echo "x" >| openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -366,24 +366,12 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
 
   // ---- PowerShell 写入检测 ----
 
-  it('detectPowerShellWrite — Set-Content 写入 eval.json 返回 deny', () => {
-    mockReadFileSync.mockReturnValue(
-      JSON.stringify({
-        tool_name: 'PowerShell',
-        tool_input: { command: 'Set-Content -Path openspec/changes/test/eval.json -Value "[]"' },
-      }),
-    );
-    runProtectFiles();
-    const parsed = JSON.parse(getLastStdout());
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-  });
-
-  it('detectPowerShellWrite — Out-File 写入 eval.json 返回 deny', () => {
+  it('detectPowerShellWrite — Set-Content 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
         tool_input: {
-          command: 'Out-File -FilePath openspec/changes/test/eval.json -InputObject "[]"',
+          command: 'Set-Content -Path openspec/changes/test/workflow.json -Value "[]"',
         },
       }),
     );
@@ -392,48 +380,12 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectPowerShellWrite — Add-Content 追加 eval.json 返回 deny', () => {
-    mockReadFileSync.mockReturnValue(
-      JSON.stringify({
-        tool_name: 'PowerShell',
-        tool_input: { command: 'Add-Content -Path openspec/changes/test/eval.json -Value "x"' },
-      }),
-    );
-    runProtectFiles();
-    const parsed = JSON.parse(getLastStdout());
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-  });
-
-  it('detectPowerShellWrite — Export-Csv 写入 eval.json 返回 deny', () => {
-    mockReadFileSync.mockReturnValue(
-      JSON.stringify({
-        tool_name: 'PowerShell',
-        tool_input: { command: 'Get-Process | Export-Csv openspec/changes/test/eval.json' },
-      }),
-    );
-    runProtectFiles();
-    const parsed = JSON.parse(getLastStdout());
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-  });
-
-  it('detectPowerShellWrite — Export-CliXml 写入 eval.json 返回 deny', () => {
-    mockReadFileSync.mockReturnValue(
-      JSON.stringify({
-        tool_name: 'PowerShell',
-        tool_input: { command: 'Get-Process | Export-CliXml openspec/changes/test/eval.json' },
-      }),
-    );
-    runProtectFiles();
-    const parsed = JSON.parse(getLastStdout());
-    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-  });
-
-  it('detectPowerShellWrite — Tee-Object 写入 eval.json 返回 deny', () => {
+  it('detectPowerShellWrite — Out-File 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
         tool_input: {
-          command: 'Get-Process | Tee-Object -FilePath openspec/changes/test/eval.json',
+          command: 'Out-File -FilePath openspec/changes/test/workflow.json -InputObject "[]"',
         },
       }),
     );
@@ -442,11 +394,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectPowerShellWrite — > 重定向到 eval.json 返回 deny', () => {
+  it('detectPowerShellWrite — Add-Content 追加 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
-        tool_input: { command: '"[]" > openspec/changes/test/eval.json' },
+        tool_input: { command: 'Add-Content -Path openspec/changes/test/workflow.json -Value "x"' },
       }),
     );
     runProtectFiles();
@@ -454,11 +406,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectPowerShellWrite — >> 追加到 eval.json 返回 deny', () => {
+  it('detectPowerShellWrite — Export-Csv 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
-        tool_input: { command: '"x" >> openspec/changes/test/eval.json' },
+        tool_input: { command: 'Get-Process | Export-Csv openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -466,11 +418,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectPowerShellWrite — *> 合并流到 eval.json 返回 deny', () => {
+  it('detectPowerShellWrite — Export-CliXml 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
-        tool_input: { command: 'cmd *> openspec/changes/test/eval.json' },
+        tool_input: { command: 'Get-Process | Export-CliXml openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -478,12 +430,12 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectPowerShellWrite — [System.IO.File]::WriteAllText 写入 eval.json 返回 deny', () => {
+  it('detectPowerShellWrite — Tee-Object 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
         tool_input: {
-          command: '[System.IO.File]::WriteAllText("openspec/changes/test/eval.json", "[]")',
+          command: 'Get-Process | Tee-Object -FilePath openspec/changes/test/workflow.json',
         },
       }),
     );
@@ -492,12 +444,62 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectPowerShellWrite — [System.IO.File]::AppendAllText 追加 eval.json 返回 deny', () => {
+  it('detectPowerShellWrite — > 重定向到 workflow.json 返回 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: { command: '"[]" > openspec/changes/test/workflow.json' },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('detectPowerShellWrite — >> 追加到 workflow.json 返回 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: { command: '"x" >> openspec/changes/test/workflow.json' },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('detectPowerShellWrite — *> 合并流到 workflow.json 返回 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: { command: 'cmd *> openspec/changes/test/workflow.json' },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('detectPowerShellWrite — [System.IO.File]::WriteAllText 写入 workflow.json 返回 deny', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
         tool_input: {
-          command: '[System.IO.File]::AppendAllText("openspec/changes/test/eval.json", "x")',
+          command: '[System.IO.File]::WriteAllText("openspec/changes/test/workflow.json", "[]")',
+        },
+      }),
+    );
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout());
+    expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
+  });
+
+  it('detectPowerShellWrite — [System.IO.File]::AppendAllText 追加 workflow.json 返回 deny', () => {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({
+        tool_name: 'PowerShell',
+        tool_input: {
+          command: '[System.IO.File]::AppendAllText("openspec/changes/test/workflow.json", "x")',
         },
       }),
     );
@@ -656,11 +658,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('openspec/config.json');
   });
 
-  it('内置保护模式匹配 eval.json 时返回 deny，reason 含 phase_log MCP 工具提示', () => {
+  it('内置保护模式匹配 workflow.json 时返回 deny，reason 含 phase_log MCP 工具提示', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: 'openspec/changes/test/eval.json' },
+        tool_input: { file_path: 'openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -716,7 +718,7 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: 'git log --oneline -> openspec/changes/test/eval.json' },
+        tool_input: { command: 'git log --oneline -> openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -736,11 +738,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
   });
 
-  it('detectBashWrite cat 只读 eval.json 返回 allow', () => {
+  it('detectBashWrite cat 只读 workflow.json 返回 allow', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
-        tool_input: { command: 'cat openspec/changes/test/eval.json' },
+        tool_input: { command: 'cat openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -762,11 +764,11 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
   });
 
-  it('detectPowerShellWrite eval.json 出现在非路径上下文中不应误报', () => {
+  it('detectPowerShellWrite workflow.json 出现在非路径上下文中不应误报', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
-        tool_input: { command: 'Write-Host "The file is called eval.json"' },
+        tool_input: { command: 'Write-Host "The file is called workflow.json"' },
       }),
     );
     runProtectFiles();
@@ -778,7 +780,7 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
-        tool_input: { command: 'Get-Content openspec/changes/test/eval.json' },
+        tool_input: { command: 'Get-Content openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -788,12 +790,13 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
 
   // ---- dotnet 方法扩展覆盖 ----
 
-  it('detectPowerShellWrite [System.IO.File]::WriteAllLines 写入 eval.json 返回 deny (覆盖扩展)', () => {
+  it('detectPowerShellWrite [System.IO.File]::WriteAllLines 写入 workflow.json 返回 deny (覆盖扩展)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
         tool_input: {
-          command: '[System.IO.File]::WriteAllLines("openspec/changes/test/eval.json", @("[]"))',
+          command:
+            '[System.IO.File]::WriteAllLines("openspec/changes/test/workflow.json", @("[]"))',
         },
       }),
     );
@@ -802,13 +805,13 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
   });
 
-  it('detectPowerShellWrite [System.IO.File]::WriteAllBytes 写入 eval.json 返回 deny (覆盖扩展)', () => {
+  it('detectPowerShellWrite [System.IO.File]::WriteAllBytes 写入 workflow.json 返回 deny (覆盖扩展)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'PowerShell',
         tool_input: {
           command:
-            '[System.IO.File]::WriteAllBytes("openspec/changes/test/eval.json", [byte[]]@())',
+            '[System.IO.File]::WriteAllBytes("openspec/changes/test/workflow.json", [byte[]]@())',
         },
       }),
     );
@@ -913,7 +916,7 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
   });
 
-  it('loadPatterns 用户配置 files 为空时内置模式仍可匹配 eval.json (边界)', () => {
+  it('loadPatterns 用户配置 files 为空时内置模式仍可匹配 workflow.json (边界)', () => {
     mockReadConfig.mockReturnValue({
       schema: 'spec-driven',
       write_protection: { files: [] },
@@ -921,7 +924,7 @@ describe('protect-files 功能等价迁移 (AC-2)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: 'openspec/changes/my-feature/eval.json' },
+        tool_input: { file_path: 'openspec/changes/my-feature/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -998,7 +1001,7 @@ describe('detectPowerShellWrite python 豁免 (AC-10)', () => {
 });
 
 describe('python 豁免回归', () => {
-  const protectedEval = 'openspec/changes/test/eval.json';
+  const protectedEval = 'openspec/changes/test/workflow.json';
 
   beforeEach(() => {
     resetMocks();
@@ -1054,11 +1057,11 @@ describe('protect-files 复用 picomatch (AC-3)', () => {
     });
   });
 
-  it('isProtected 使用 matchGlob 进行匹配，对 eval.json 模式返回 denied', () => {
+  it('isProtected 使用 matchGlob 进行匹配，对 workflow.json 模式返回 denied', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: 'openspec/changes/test/eval.json' },
+        tool_input: { file_path: 'openspec/changes/test/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -1090,12 +1093,12 @@ describe('protect-files 复用 picomatch (AC-3)', () => {
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('allow');
   });
 
-  it('超长路径前缀 + eval.json 仍应匹配', () => {
+  it('超长路径前缀 + workflow.json 仍应匹配', () => {
     const longPrefix = 'a/b/c/d/e/f/g/h/i/j/k/l/m/n/o/p/q/r/s/t/u/v/w/x/y/z';
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: `openspec/changes/test/${longPrefix}/eval.json` },
+        tool_input: { file_path: `openspec/changes/test/${longPrefix}/workflow.json` },
       }),
     );
     runProtectFiles();
@@ -1107,7 +1110,7 @@ describe('protect-files 复用 picomatch (AC-3)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: 'openspec\\changes\\test\\eval.json' },
+        tool_input: { file_path: 'openspec\\changes\\test\\workflow.json' },
       }),
     );
     runProtectFiles();
@@ -1119,7 +1122,7 @@ describe('protect-files 复用 picomatch (AC-3)', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: 'openspec/changes/测试 项目 (1)/eval.json' },
+        tool_input: { file_path: 'openspec/changes/测试 项目 (1)/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -1531,17 +1534,20 @@ describe('hooks — 内置保护字面量', () => {
     mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
   });
 
-  it('Write openspec/changes/x/eval.json → deny；reason 同时含 phase_log MCP 与 glob 语义', () => {
+  it('Write openspec/changes/x/workflow.json → deny；reason 同时含 phase_log MCP 与 glob 语义', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: 'openspec/changes/x/eval.json' },
+        tool_input: { file_path: 'openspec/changes/x/workflow.json' },
       }),
     );
     runProtectFiles();
     const parsed = JSON.parse(getLastStdout());
     expect(parsed.hookSpecificOutput.permissionDecision).toBe('deny');
-    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('phase_log MCP');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('phase_log');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('backtrack');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('change_create');
+    expect(parsed.hookSpecificOutput.permissionDecisionReason).toContain('MCP');
   });
 
   it('Write openspec/config.json → deny；reason 含自行操作或 config 保护文案', () => {
@@ -1557,11 +1563,11 @@ describe('hooks — 内置保护字面量', () => {
     expect(parsed.hookSpecificOutput.permissionDecisionReason).toMatch(/自行操作|config/);
   });
 
-  it('对 openspec/changes/foo/eval.json deny、对 openspec/changes/foo/proposal.md allow', () => {
+  it('对 openspec/changes/foo/workflow.json deny、对 openspec/changes/foo/proposal.md allow', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Write',
-        tool_input: { file_path: 'openspec/changes/foo/eval.json' },
+        tool_input: { file_path: 'openspec/changes/foo/workflow.json' },
       }),
     );
     runProtectFiles();
@@ -1593,14 +1599,14 @@ describe('hooks — 内置保护字面量', () => {
 });
 
 describe('hooks — detectBashWrite 正则判别（补强）', () => {
-  const protectedEval = 'openspec/changes/test/eval.json';
+  const protectedEval = 'openspec/changes/test/workflow.json';
 
   beforeEach(() => {
     resetMocks();
     mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
   });
 
-  it('tee -a / >& / >| 等写入受保护 eval.json → 均 deny', () => {
+  it('tee -a / >& / >| 等写入受保护 workflow.json → 均 deny', () => {
     for (const command of [
       `echo x > ${protectedEval}`,
       `echo x >> ${protectedEval}`,
@@ -1617,7 +1623,7 @@ describe('hooks — detectBashWrite 正则判别（补强）', () => {
     }
   });
 
-  it('foo -> openspec/changes/test/eval.json（箭头，非重定向）→ allow', () => {
+  it('foo -> openspec/changes/test/workflow.json（箭头，非重定向）→ allow', () => {
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'Bash',
@@ -1891,7 +1897,7 @@ describe('hooks — 子命令调度（异常补强）', () => {
 // ============================================================================
 
 describe('runProtectFiles / Shell', () => {
-  const protectedEval = 'openspec/changes/test/eval.json';
+  const protectedEval = 'openspec/changes/test/workflow.json';
 
   beforeEach(() => {
     resetMocks();
@@ -2072,7 +2078,7 @@ describe('runProtectFiles / StrReplace', () => {
   });
 
   it('tool_name 为 StrReplace 且 file_path 为受保护路径时 deny，与同等 Edit 一致；reason 含字面量 StrReplace', () => {
-    const file_path = 'openspec/changes/test/eval.json';
+    const file_path = 'openspec/changes/test/workflow.json';
     mockReadFileSync.mockReturnValue(
       JSON.stringify({ tool_name: 'StrReplace', tool_input: { file_path } }),
     );
@@ -2116,7 +2122,7 @@ describe('runProtectFiles / StrReplace', () => {
   });
 
   it('file_path 为超长路径且匹配保护 glob 时仍 deny 且不崩溃', () => {
-    const longMid = `${'a/'.repeat(400)}eval.json`;
+    const longMid = `${'a/'.repeat(400)}workflow.json`;
     const file_path = `openspec/changes/test/${longMid}`;
     expect(() => {
       mockReadFileSync.mockReturnValue(
@@ -2128,7 +2134,7 @@ describe('runProtectFiles / StrReplace', () => {
   });
 
   it('file_path 含反斜杠与正斜杠混用时匹配行为与 Edit 一致', () => {
-    const file_path = 'openspec\\changes/test\\eval.json';
+    const file_path = 'openspec\\changes/test\\workflow.json';
     mockReadFileSync.mockReturnValue(
       JSON.stringify({ tool_name: 'StrReplace', tool_input: { file_path } }),
     );
@@ -2156,7 +2162,7 @@ describe('runProtectFiles / isRecord 与 evaluateToolAccess（突变补强）', 
     mockReadFileSync.mockReturnValue(
       JSON.stringify({
         tool_name: 'StrReplace',
-        tool_input: ['openspec/changes/test/eval.json'],
+        tool_input: ['openspec/changes/test/workflow.json'],
       }),
     );
     runProtectFiles();
@@ -2215,7 +2221,7 @@ describe('runProtectFiles / isRecord 与 evaluateToolAccess（突变补强）', 
 });
 
 describe('runProtectFiles / PowerShell 与路由（突变补强）', () => {
-  const protectedEval = 'openspec/changes/test/eval.json';
+  const protectedEval = 'openspec/changes/test/workflow.json';
 
   beforeEach(() => {
     resetMocks();
@@ -2285,14 +2291,16 @@ describe('runProtectFiles / 既有工具名', () => {
   it('既有 Write / Edit / Bash / PowerShell 受保护用例仍为 deny；Write config reason 含内置中文模板', () => {
     const cases = [
       { tool_name: 'Write', tool_input: { file_path: 'openspec/config.json' } },
-      { tool_name: 'Edit', tool_input: { file_path: 'openspec/changes/test/eval.json' } },
+      { tool_name: 'Edit', tool_input: { file_path: 'openspec/changes/test/workflow.json' } },
       {
         tool_name: 'Bash',
-        tool_input: { command: 'echo x > openspec/changes/test/eval.json' },
+        tool_input: { command: 'echo x > openspec/changes/test/workflow.json' },
       },
       {
         tool_name: 'PowerShell',
-        tool_input: { command: 'Set-Content -Path openspec/changes/test/eval.json -Value "[]"' },
+        tool_input: {
+          command: 'Set-Content -Path openspec/changes/test/workflow.json -Value "[]"',
+        },
       },
     ];
     for (const input of cases) {
@@ -2377,5 +2385,255 @@ describe('runStaticCheck / parseWorkspaceRoot 与 captureStderr（突变补强�
     const before = getCaptured();
     process.stderr.write('after-restore');
     expect(getCaptured()).toBe(before);
+  });
+});
+
+// ============================================================================
+// 内置 glob 集合 — workflow.json 受保护 / eval.json 放行 (AC-8, AC-9)
+// ============================================================================
+
+describe('内置 glob 集合 (AC-8, AC-9)', () => {
+  beforeEach(() => {
+    resetMocks();
+    // 无 write_protection：仅内置集合生效
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  /** 通过 stdin 提交一次工具调用并返回解析后的 hook 输出。 */
+  function runHook(payload: Record<string, unknown>): {
+    permissionDecision: string;
+    permissionDecisionReason: string;
+  } {
+    mockReadFileSync.mockReturnValue(JSON.stringify(payload));
+    runProtectFiles();
+    const parsed = JSON.parse(getLastStdout()) as {
+      hookSpecificOutput: { permissionDecision: string; permissionDecisionReason: string };
+    };
+    return parsed.hookSpecificOutput;
+  }
+
+  // ---- workflow.json 仍被内置规则拦截 ----
+
+  it('Write openspec/changes/test/workflow.json、无 write_protection 时 deny，reason 指向 phase_log / backtrack / change_create（AC-8）', () => {
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/changes/test/workflow.json' },
+    });
+
+    expect(output.permissionDecision).toBe('deny');
+    expect(output.permissionDecisionReason).toContain('workflow.json');
+    expect(output.permissionDecisionReason).toContain('phase_log');
+    expect(output.permissionDecisionReason).toContain('backtrack');
+    expect(output.permissionDecisionReason).toContain('change_create');
+  });
+
+  it('Edit / StrReplace 同一 workflow.json 路径同样 deny，reason 含工具名', () => {
+    for (const toolName of ['Edit', 'StrReplace']) {
+      const output = runHook({
+        tool_name: toolName,
+        tool_input: { file_path: 'openspec/changes/test/workflow.json' },
+      });
+
+      expect(output.permissionDecision).toBe('deny');
+      expect(output.permissionDecisionReason).toContain(toolName);
+    }
+  });
+
+  it('Bash 以 > / >> / tee / heredoc / >| / >& 写 workflow.json 时 deny', () => {
+    const commands = [
+      'echo "{}" > openspec/changes/x/workflow.json',
+      'echo "{}" >> openspec/changes/x/workflow.json',
+      'echo "{}" | tee openspec/changes/x/workflow.json',
+      'cat <<EOF > openspec/changes/x/workflow.json',
+      'echo "{}" >| openspec/changes/x/workflow.json',
+      'echo "{}" >& openspec/changes/x/workflow.json',
+    ];
+
+    for (const command of commands) {
+      const output = runHook({ tool_name: 'Bash', tool_input: { command } });
+      expect(output.permissionDecision).toBe('deny');
+      expect(output.permissionDecisionReason).toContain('workflow.json');
+    }
+  });
+
+  it('PowerShell 以 Set-Content / Out-File / Add-Content / Export-Csv / Export-CliXml / Tee-Object / > / >> / *> / .NET 方法写 workflow.json 时 deny', () => {
+    const target = 'openspec/changes/x/workflow.json';
+    const commands = [
+      `Set-Content -Path ${target} -Value "{}"`,
+      `Out-File -FilePath ${target}`,
+      `Add-Content ${target} "{}"`,
+      `Export-Csv ${target}`,
+      `Export-CliXml ${target}`,
+      `Tee-Object ${target}`,
+      `echo "{}" > ${target}`,
+      `echo "{}" >> ${target}`,
+      `echo "{}" *> ${target}`,
+      `[System.IO.File]::WriteAllText("${target}", "{}")`,
+    ];
+
+    for (const command of commands) {
+      const output = runHook({ tool_name: 'PowerShell', tool_input: { command } });
+      expect(output.permissionDecision).toBe('deny');
+      expect(output.permissionDecisionReason).toContain('workflow.json');
+    }
+  });
+
+  it('Write openspec/config.json 仍 deny，reason 含 config.json 语义（AC-8）', () => {
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/config.json' },
+    });
+
+    expect(output.permissionDecision).toBe('deny');
+    expect(output.permissionDecisionReason).toContain('openspec/config.json');
+  });
+
+  // ---- eval.json 不再被内置规则拦截 ----
+
+  it('Write openspec/changes/test/eval.json、无 write_protection 时内置 glob 不单独 deny（AC-9）', () => {
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/changes/test/eval.json' },
+    });
+
+    expect(output.permissionDecision).not.toBe('deny');
+    expect(output.permissionDecision).toBe('allow');
+  });
+
+  it('Bash > eval.json / PowerShell Set-Content eval.json 时 allow（内置集合不含该文件）（AC-9）', () => {
+    const bashOutput = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'echo "[]" > openspec/changes/x/eval.json' },
+    });
+    expect(bashOutput.permissionDecision).toBe('allow');
+
+    const psOutput = runHook({
+      tool_name: 'PowerShell',
+      tool_input: { command: 'Set-Content openspec/changes/x/eval.json "[]"' },
+    });
+    expect(psOutput.permissionDecision).toBe('allow');
+  });
+
+  it('Edit / StrReplace eval.json 亦 allow（内置集合整体不含 eval.json）', () => {
+    for (const toolName of ['Edit', 'StrReplace']) {
+      const output = runHook({
+        tool_name: toolName,
+        tool_input: { file_path: 'openspec/changes/test/eval.json' },
+      });
+      expect(output.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('Write openspec/changes/test/proposal.md 时 allow（内置 glob 不单独 deny）', () => {
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/changes/test/proposal.md' },
+    });
+
+    expect(output.permissionDecision).toBe('allow');
+  });
+
+  it('write_protection.files 含 glob openspec/changes/*/eval.json 时同一路径 deny（用户可自行保护）', () => {
+    mockReadConfig.mockReturnValue({
+      schema: 'spec-driven',
+      write_protection: {
+        files: [{ glob: 'openspec/changes/*/eval.json', reason: '用户保护：%s（%t）' }],
+      },
+    });
+
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/changes/x/eval.json' },
+    });
+
+    expect(output.permissionDecision).toBe('deny');
+    expect(output.permissionDecisionReason).toContain('用户保护');
+  });
+
+  // ---- 边界 ----
+
+  it('file_path 超长（>1000 chars）且以 /workflow.json 结尾并匹配 glob 时 deny', () => {
+    const longPath = `openspec/changes/${'a'.repeat(1001)}/workflow.json`;
+    const output = runHook({ tool_name: 'Write', tool_input: { file_path: longPath } });
+
+    expect(output.permissionDecision).toBe('deny');
+    expect(output.permissionDecisionReason).toContain('workflow.json');
+  });
+
+  it('路径含 emoji 的 change 名 + workflow.json 时仍按 glob 匹配 deny', () => {
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/changes/chg-🧪/workflow.json' },
+    });
+
+    expect(output.permissionDecision).toBe('deny');
+  });
+
+  it('Write 缺 file_path / file_path 为 null / 数字时 allow（fail-open）', () => {
+    for (const filePath of [undefined, null, 42]) {
+      const output = runHook({ tool_name: 'Write', tool_input: { file_path: filePath } });
+      expect(output.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('Bash cat / PowerShell Get-Content 只读 workflow.json 时 allow', () => {
+    const bashOutput = runHook({
+      tool_name: 'Bash',
+      tool_input: { command: 'cat openspec/changes/x/workflow.json' },
+    });
+    expect(bashOutput.permissionDecision).toBe('allow');
+
+    const psOutput = runHook({
+      tool_name: 'PowerShell',
+      tool_input: { command: 'Get-Content openspec/changes/x/workflow.json' },
+    });
+    expect(psOutput.permissionDecision).toBe('allow');
+  });
+
+  it('行首 python / node 写受保护路径仍豁免 allow（既有豁免不因新 glob 取消）', () => {
+    for (const command of [
+      'python scripts/write.py openspec/changes/x/workflow.json',
+      'node scripts/write.mjs openspec/changes/x/workflow.json',
+    ]) {
+      const output = runHook({ tool_name: 'Bash', tool_input: { command } });
+      expect(output.permissionDecision).toBe('allow');
+    }
+  });
+
+  it('reason 中 %s / %t 被替换，序列化结果可 JSON.parse', () => {
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/changes/x/workflow.json' },
+    });
+
+    expect(output.permissionDecisionReason).toContain('openspec/changes/x/workflow.json');
+    expect(output.permissionDecisionReason).toContain('Write');
+    expect(output.permissionDecisionReason).not.toContain('%s');
+    expect(output.permissionDecisionReason).not.toContain('%t');
+    expect(() => JSON.parse(getLastStdout())).not.toThrow();
+  });
+
+  it('write_protection.files 为空数组时内置 workflow.json / config.json 仍生效', () => {
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven', write_protection: { files: [] } });
+
+    expect(
+      runHook({ tool_name: 'Write', tool_input: { file_path: 'openspec/changes/x/workflow.json' } })
+        .permissionDecision,
+    ).toBe('deny');
+    expect(
+      runHook({ tool_name: 'Write', tool_input: { file_path: 'openspec/config.json' } })
+        .permissionDecision,
+    ).toBe('deny');
+  });
+
+  // ---- 废弃：过渡期的 eval.json 保护语义 ----
+
+  it('Write openspec/changes/test/eval.json 在内置规则下不再 deny（旧「过渡期保护遗留文件」语义已废弃）', () => {
+    const output = runHook({
+      tool_name: 'Write',
+      tool_input: { file_path: 'openspec/changes/test/eval.json' },
+    });
+
+    expect(output.permissionDecision).not.toBe('deny');
   });
 });

@@ -1,15 +1,17 @@
 /**
- * 单元测试: backtrack.ts — 新的 backtrack MCP 工具核心实现。
+ * 单元测试: backtrack.ts — backtrack MCP 工具核心实现。
  *
  * 测试覆盖:
  * - 正常回溯操作（AC-2、AC-3）
  * - 目标合法性验证
+ * - 严格前置条件（缺文件 / 格式非法即终止）
  * - 幂等性
  *
- * @see openspec/changes/refactor-backtrack-to-skill/test-design.md
+ * 评估历史存放在 `workflow.json.eval`；本命令只经 `writeEvalJson` 持久化，
+ * 从不直接写 `eval.json`。
  */
 
-import type * as fs from 'fs';
+import * as fs from 'fs';
 
 import { describe, it, expect, vi, beforeEach } from 'vite-plus/test';
 
@@ -21,6 +23,7 @@ vi.mock('fs', async (importOriginal) => {
     readFileSync: vi.fn(),
     writeFileSync: vi.fn(),
     mkdirSync: vi.fn(),
+    unlinkSync: vi.fn(),
   };
 });
 
@@ -43,12 +46,13 @@ vi.mock('../lib/change-config', () => ({
 
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, writeEvalJson, type EvalEntry } from '../lib/eval-json';
+import { backtrackInputSchema } from '../schemas';
 import { runBacktrack } from './backtrack';
 
 const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
 
 // ---------------------------------------------------------------------------
-// Helpers — construct eval.json entries for test scenarios
+// Helpers
 // ---------------------------------------------------------------------------
 
 function makePassEntry(
@@ -94,10 +98,19 @@ const defaultEntries: EvalEntry[] = [
   makeFailEntry('test-execution', 1),
 ];
 
+/** 断言本命令没有直接写 / 删磁盘上的 `eval.json`（迁移由 writeEvalJson 负责）。 */
+function expectNoLegacyWrite(): void {
+  for (const call of vi.mocked(fs.writeFileSync).mock.calls) {
+    expect(String(call[0]).endsWith('eval.json')).toBe(false);
+  }
+  expect(vi.mocked(fs.unlinkSync)).not.toHaveBeenCalled();
+}
+
 beforeEach(() => {
   vi.clearAllMocks();
-  vi.mocked(readEvalJson).mockReturnValue(defaultEntries);
-  vi.mocked(getWorkflowType).mockReturnValue('requirement');
+  vi.mocked(readEvalJson).mockReset().mockReturnValue(defaultEntries);
+  vi.mocked(writeEvalJson).mockReset();
+  vi.mocked(getWorkflowType).mockReset().mockReturnValue('requirement');
 });
 
 // ---------------------------------------------------------------------------
@@ -123,7 +136,7 @@ describe('runBacktrack — 正常回溯操作', () => {
     expect(testExecEntry.backtrack_reason).toBe('语法错误');
   });
 
-  it('修改后 entry 的 backtrack_to 和 backtrack_reason 字段值正确', () => {
+  it('调用 writeEvalJson 一次且数组长度不变；不出现对 eval.json 的直接写入（AC-4）', () => {
     runBacktrack({
       project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
@@ -132,10 +145,9 @@ describe('runBacktrack — 正常回溯操作', () => {
       backtrack_reason: '语法错误',
     });
 
-    const writtenEntries = vi.mocked(writeEvalJson).mock.calls[0][1];
-    const testExecEntry = writtenEntries.find((e) => e.phase === 'test-execution')!;
-    expect(testExecEntry.backtrack_to).toBe('test-gen');
-    expect(testExecEntry.backtrack_reason).toBe('语法错误');
+    expect(writeEvalJson).toHaveBeenCalledTimes(1);
+    expect(vi.mocked(writeEvalJson).mock.calls[0][1]).toHaveLength(defaultEntries.length);
+    expectNoLegacyWrite();
   });
 
   it('返回 { modified: true, phase, target }', () => {
@@ -265,7 +277,7 @@ describe('runBacktrack — 目标合法性验证', () => {
     expect(testExecEntry.backtrack_reason).toBe('重新执行当前 phase');
   });
 
-  it('backtrack_to 在当前 phase 之后时抛出错误（AC-3）', () => {
+  it('backtrack_to 在当前 phase 之后时抛出错误且不写盘（AC-3）', () => {
     expect(() =>
       runBacktrack({
         project_root: FIXTURE_PROJECT_ROOT,
@@ -275,9 +287,11 @@ describe('runBacktrack — 目标合法性验证', () => {
         backtrack_reason: 'acceptance 在 test-gen 之后',
       }),
     ).toThrow(/无效的回溯目标 phase/);
+
+    expect(writeEvalJson).not.toHaveBeenCalled();
   });
 
-  it('backtrack_to 不在 phase 表中时抛出错误', () => {
+  it('backtrack_to 不在 phase 表中时抛出错误且不写盘', () => {
     expect(() =>
       runBacktrack({
         project_root: FIXTURE_PROJECT_ROOT,
@@ -287,25 +301,11 @@ describe('runBacktrack — 目标合法性验证', () => {
         backtrack_reason: '不存在的 phase',
       }),
     ).toThrow(/不包含 phase/);
+
+    expect(writeEvalJson).not.toHaveBeenCalled();
   });
 
-  it('change 不存在时抛出错误', () => {
-    vi.mocked(readEvalJson).mockImplementation(() => {
-      throw new Error('读取 eval.json 失败: 目录不存在');
-    });
-
-    expect(() =>
-      runBacktrack({
-        project_root: FIXTURE_PROJECT_ROOT,
-        change: 'non-existent-change',
-        phase: 'test-execution',
-        backtrack_to: 'test-gen',
-        backtrack_reason: '不存在',
-      }),
-    ).toThrow(/读取 eval.json 失败/);
-  });
-
-  it('phase 不在 phase 表中时抛出错误', () => {
+  it('phase 不在 phase 表中时抛出错误且不写盘', () => {
     expect(() =>
       runBacktrack({
         project_root: FIXTURE_PROJECT_ROOT,
@@ -315,6 +315,30 @@ describe('runBacktrack — 目标合法性验证', () => {
         backtrack_reason: '不存在的 phase',
       }),
     ).toThrow(/不包含 phase/);
+
+    expect(writeEvalJson).not.toHaveBeenCalled();
+  });
+
+  it('该 phase 无任何评估条目时抛错，message 含「没有评估条目」且不含 eval.json（AC-4）', () => {
+    vi.mocked(readEvalJson).mockReturnValue([makePassEntry('proposal', 1)]);
+
+    let captured: Error | null = null;
+    try {
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'proposal',
+        backtrack_reason: 'no entry',
+      });
+    } catch (e: unknown) {
+      captured = e as Error;
+    }
+
+    expect(captured).not.toBeNull();
+    expect(captured!.message).toContain('没有评估条目');
+    expect(captured!.message).not.toContain('eval.json');
+    expect(writeEvalJson).not.toHaveBeenCalled();
   });
 
   it('目标 phase 无任何 entry 时不报错（markPhaseStale 是 no-op）', () => {
@@ -341,7 +365,7 @@ describe('runBacktrack — 目标合法性验证', () => {
     expect(testExecEntry.backtrack_reason).toBe('目标无 entry');
   });
 
-  it('目标 phase 有 entry 但无 pass entry 时抛出错误（无 pass 可标记 stale）', () => {
+  it('目标 phase 有 entry 但无 pass entry 时 markPhaseStale 为 no-op，不抛错', () => {
     const entries: EvalEntry[] = [
       makePassEntry('proposal', 1),
       makePassEntry('dev-design', 1),
@@ -350,8 +374,6 @@ describe('runBacktrack — 目标合法性验证', () => {
     ];
     vi.mocked(readEvalJson).mockReturnValue(entries);
 
-    // 回溯到 test-gen 时，没有 pass entry 可标记 stale，但不应是错误
-    // markPhaseStale 对无 pass entry 的情况是 no-op
     const result = runBacktrack({
       project_root: FIXTURE_PROJECT_ROOT,
       change: 'test-change',
@@ -365,6 +387,262 @@ describe('runBacktrack — 目标合法性验证', () => {
     const testGenEntry = writtenEntries.find((e) => e.phase === 'test-gen')!;
     // markPhaseStale 是 no-op，但不应抛错
     expect(testGenEntry.stale).toBeUndefined();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 严格前置条件与错误包装
+// ---------------------------------------------------------------------------
+
+describe('runBacktrack — 严格前置条件 (AC-13, AC-14)', () => {
+  it('getWorkflowType 因 workflow.json 缺失抛错时原样透出，message 含 change_create 指引且不写盘（AC-13）', () => {
+    vi.mocked(getWorkflowType).mockImplementation(() => {
+      throw new Error(
+        'workflow.json 不存在: /tmp/test-change/workflow.json。该文件由 change_create 建立，是工作流的前置条件；请通过 change_create 或 workflow-* skill 创建 change，不要手写该文件。',
+      );
+    });
+
+    let captured: Error | null = null;
+    try {
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'test-gen',
+        backtrack_reason: '语法错误',
+      });
+    } catch (e: unknown) {
+      captured = e as Error;
+    }
+
+    expect(captured).not.toBeNull();
+    expect(captured!.message).toContain('workflow.json 不存在');
+    expect(captured!.message).toContain('change_create');
+    expect(writeEvalJson).not.toHaveBeenCalled();
+    expect(readEvalJson).not.toHaveBeenCalled();
+  });
+
+  it('getWorkflowType 因 JSON 非法 / 根非对象 / workflow_type 非枚举抛错时原样透出，不写盘（AC-14）', () => {
+    for (const message of [
+      'workflow.json 解析失败: Unexpected token',
+      'workflow.json 根元素必须是对象，但实际类型为 object',
+      'workflow.json 格式非法 (/tmp/test-change/workflow.json): workflow_type: Invalid input',
+    ]) {
+      vi.mocked(getWorkflowType).mockImplementation(() => {
+        throw new Error(message);
+      });
+
+      expect(() =>
+        runBacktrack({
+          project_root: FIXTURE_PROJECT_ROOT,
+          change: 'test-change',
+          phase: 'test-execution',
+          backtrack_to: 'test-gen',
+          backtrack_reason: '语法错误',
+        }),
+      ).toThrow(message);
+      expect(writeEvalJson).not.toHaveBeenCalled();
+    }
+  });
+
+  it('readEvalJson 抛错时包装为「读取 workflow.json 失败:」+ 原因', () => {
+    vi.mocked(readEvalJson).mockImplementation(() => {
+      throw new Error('workflow.json.eval 必须是数组，但实际类型为 object');
+    });
+
+    expect(() =>
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'test-gen',
+        backtrack_reason: '语法错误',
+      }),
+    ).toThrow(/读取 workflow\.json 失败: workflow\.json\.eval 必须是数组/);
+
+    expect(writeEvalJson).not.toHaveBeenCalled();
+  });
+
+  it('writeEvalJson 抛错时包装为「写入 workflow.json 失败:」+ 原因', () => {
+    vi.mocked(writeEvalJson).mockImplementation(() => {
+      throw new Error('workflow.json 格式非法 (/tmp/test-change/workflow.json): eval: 未知');
+    });
+
+    expect(() =>
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'test-gen',
+        backtrack_reason: '语法错误',
+      }),
+    ).toThrow(/写入 workflow\.json 失败: workflow\.json 格式非法/);
+  });
+
+  it('writeEvalJson 因文件缺失拒绝时抛错且不创建任何文件（AC-13）', () => {
+    vi.mocked(writeEvalJson).mockImplementation(() => {
+      throw new Error(
+        'workflow.json 不存在: /tmp/test-change/workflow.json，无法写入评估记录。请先通过 change_create 创建 change。',
+      );
+    });
+
+    let captured: Error | null = null;
+    try {
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'test-gen',
+        backtrack_reason: '语法错误',
+      });
+    } catch (e: unknown) {
+      captured = e as Error;
+    }
+
+    expect(captured).not.toBeNull();
+    expect(captured!.message).toContain('写入 workflow.json 失败:');
+    expect(captured!.message).toContain('change_create');
+    expect(vi.mocked(fs.writeFileSync)).not.toHaveBeenCalled();
+    expect(vi.mocked(fs.mkdirSync)).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 输入边界（schema 与命令层）
+// ---------------------------------------------------------------------------
+
+describe('runBacktrack — 输入边界', () => {
+  it('backtrack_reason 为空串时 backtrackInputSchema 接受，命令层原样写出', () => {
+    expect(
+      backtrackInputSchema.safeParse({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'test-gen',
+        backtrack_reason: '',
+      }).success,
+    ).toBe(true);
+
+    runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'test-execution',
+      backtrack_to: 'test-gen',
+      backtrack_reason: '',
+    });
+
+    const writtenEntries = vi.mocked(writeEvalJson).mock.calls[0][1];
+    expect(writtenEntries.find((e) => e.phase === 'test-execution')!.backtrack_reason).toBe('');
+  });
+
+  it('backtrack_reason 恰 500 字符时 schema 接受；501 字符被 schema 拒绝', () => {
+    const base = {
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'test-execution',
+      backtrack_to: 'test-gen',
+    };
+    expect(
+      backtrackInputSchema.safeParse({ ...base, backtrack_reason: 'R'.repeat(500) }).success,
+    ).toBe(true);
+    expect(
+      backtrackInputSchema.safeParse({ ...base, backtrack_reason: 'R'.repeat(501) }).success,
+    ).toBe(false);
+  });
+
+  it('backtrack_to 为 null / undefined 时 schema min(1) 拒绝且命令层不写盘', () => {
+    for (const backtrackTo of [null, undefined]) {
+      expect(
+        backtrackInputSchema.safeParse({
+          project_root: FIXTURE_PROJECT_ROOT,
+          change: 'test-change',
+          phase: 'test-execution',
+          backtrack_to: backtrackTo,
+          backtrack_reason: 'r',
+        }).success,
+      ).toBe(false);
+
+      expect(() =>
+        runBacktrack({
+          project_root: FIXTURE_PROJECT_ROOT,
+          change: 'test-change',
+          phase: 'test-execution',
+          backtrack_to: backtrackTo as unknown as string,
+          backtrack_reason: 'r',
+        }),
+      ).toThrow(/不包含 phase/);
+    }
+
+    expect(writeEvalJson).not.toHaveBeenCalled();
+  });
+
+  it('phase 为空串时 schema min(1) 拒绝且命令层不写盘', () => {
+    expect(
+      backtrackInputSchema.safeParse({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: '',
+        backtrack_to: 'test-gen',
+        backtrack_reason: 'r',
+      }).success,
+    ).toBe(false);
+
+    expect(() =>
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: '',
+        backtrack_to: 'test-gen',
+        backtrack_reason: 'r',
+      }),
+    ).toThrow(/不包含 phase/);
+
+    expect(writeEvalJson).not.toHaveBeenCalled();
+  });
+
+  it('无条目错误文案不再匹配「没有 eval.json 条目」，读失败文案不再匹配「读取 eval.json 失败」', () => {
+    vi.mocked(readEvalJson).mockReturnValue([makePassEntry('proposal', 1)]);
+    expect(() =>
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'proposal',
+        backtrack_reason: 'r',
+      }),
+    ).not.toThrow(/没有 eval\.json 条目/);
+
+    vi.mocked(readEvalJson).mockImplementation(() => {
+      throw new Error('eval.json 根元素必须是数组，但实际类型为 object');
+    });
+    expect(() =>
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'test-gen',
+        backtrack_reason: 'r',
+      }),
+    ).not.toThrow(/读取 eval\.json 失败/);
+  });
+
+  it('缺 workflow.json 时不再被「写时自动补建」掩盖：getWorkflowType 抛错即终止（AC-13）', () => {
+    vi.mocked(getWorkflowType).mockImplementation(() => {
+      throw new Error('workflow.json 不存在: /tmp/test-change/workflow.json');
+    });
+
+    expect(() =>
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: 'test-gen',
+        backtrack_reason: 'r',
+      }),
+    ).toThrow(/workflow\.json 不存在/);
+
+    expect(writeEvalJson).not.toHaveBeenCalled();
+    expect(vi.mocked(fs.writeFileSync)).not.toHaveBeenCalled();
   });
 });
 

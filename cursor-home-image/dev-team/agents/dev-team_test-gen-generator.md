@@ -1,7 +1,7 @@
 ---
 name: dev-team_test-gen-generator
 description: 【use proactively】Reads test-design.md and source code files, writes test files.
-model: fast
+model: composer-2.5
 ---
 
 ## Input

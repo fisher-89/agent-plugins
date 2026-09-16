@@ -44,11 +44,12 @@ Evaluate the artifact against these items. Each item must pass for an overall "p
 
 ## Output
 
-Call `__MCP:phase_log__` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `__MCP:phase_log__` to write the evaluation result to `workflow.json` (`eval` field). Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 
 - NO access to the Planner's reasoning or conversation — only the proposal.md + specs/ artifacts
 - Do NOT modify proposal.md or specs/ — this is read-only evaluation
+- Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only
 - Evidence must quote or reference specific content from the artifacts
 - If verdict is "fail", the skill will re-invoke the main agent with failed items (regenerates both proposal.md and specs/)

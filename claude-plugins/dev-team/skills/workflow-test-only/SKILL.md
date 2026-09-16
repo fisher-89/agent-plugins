@@ -11,7 +11,7 @@ disable-model-invocation: true
 
 ## Evaluator 约定
 
-Evaluator agent 内部调用 `mcp__plugin_dev-team_dev-team__phase_log` 将 verdict/report/checklist 写入 eval.json。Skill 通过 `phase_next` 的 `last_result` 字段读取 verdict。
+Evaluator agent 内部调用 `mcp__plugin_dev-team_dev-team__phase_log` 将 verdict/report/checklist 写入 `workflow.json`（`eval` 字段）。Skill 通过 `phase_next` 的 `last_result` 字段读取 verdict。
 
 ## Constraint
 
@@ -55,6 +55,11 @@ Only reached when starting a **new** change.
 mcp__plugin_dev-team_dev-team__change_create({ name: "<change-name>", workflow_type: "test-only" })
 ```
 
+`change_create` is the ONLY creator of `workflow.json`; the file it writes is the
+precondition of `phase_next` / `backtrack` (a missing or malformed file is an
+error, not a default), so do NOT hand-write or edit it. Evaluator results land in
+`workflow.json.eval` through `mcp__plugin_dev-team_dev-team__phase_log` — never by writing the file directly.
+
 **Promote explore draft** (mechanical move):
 
 1. Under `openspec/explores/`, find a file whose stem matches `<change-name>` or clearly matches the topic.
@@ -69,7 +74,7 @@ At the start of this turn (before entering the LOOP), generate a new non-empty o
 ```
 LOOP:
   -- Phase Check --
-  gate = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>, run_id=<run_id>)
+  gate = mcp__plugin_dev-team_dev-team__phase_next({change: "<change-name>", run_id: "<run_id>"})
 
   if gate.error:
     报告: "Workflow error [{gate.error}]: {gate.message}"

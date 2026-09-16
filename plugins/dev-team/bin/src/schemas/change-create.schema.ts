@@ -1,6 +1,7 @@
 import { z } from 'zod/v4';
 
 import { projectRootSchema } from './public/project-root.schema';
+import { workflowTypeSchema } from './workflow.schema';
 
 /**
  * kebab-case: lowercase letters/digits with single hyphens.
@@ -17,11 +18,11 @@ export const changeCreateInputSchema = z.object({
       kebabCasePattern,
       'name 必须为 kebab-case（小写字母/数字，可用 `-` 连接，最长 128 字符）',
     ),
-  workflow_type: z
-    .enum(['requirement', 'bug-fix', 'refactor', 'test-only'])
-    .describe('PGE workflow type'),
+  workflow_type: workflowTypeSchema,
   project_root: projectRootSchema,
 });
+
+export type ChangeCreateInput = z.input<typeof changeCreateInputSchema>;
 
 export const changeCreateOutputSchema = z.object({
   name: z.string().describe('Created change directory name (kebab-case)'),

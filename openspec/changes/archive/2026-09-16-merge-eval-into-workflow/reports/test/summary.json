@@ -1,0 +1,88 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-16T03:22:38.057Z",
+  "duration_seconds": 207,
+  "total": 1956,
+  "passed": 1956,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 96.55,
+      "branches": 88.68,
+      "functions": 98.88
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 39,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 80.5,
+    "threshold": 70,
+    "measured": {
+      "killed": 923,
+      "survived": 207,
+      "timeout": 2,
+      "noCoverage": 17,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 81,
+      "total": 1230,
+      "detected": 925,
+      "undetected": 224
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 80.5047867711053,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 39,
+        "passed_count": 39
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/merge-eval-into-workflow/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "FRESH RUN, FIRST CLEAN RESULT IN THREE ROUNDS: 1956/1956 passed, 0 failed/0 skipped, exit_code 0, under --sequence.shuffle (the flag that previously exposed the leaked runPhaseLog spy). All three test-side fixes verified present on this tree — mcp.test.ts restores phaseLogSpy in its finally at :850-851, no live process.chdir( remains in bin/src, bin/__tests__ or build (only explanatory comments), and all 5 eval-store suites plus change-create.test.ts use project-root mocking / process.cwd spying. No production code was weakened to reach green; report completeness also validated (all required fields present, 1956 = 1956+0+0, conclusion pass consistent with failed=0, coverage.pass=true, mutation.pass=true, empty problems[], single plan fully indexed).",
+    "COVERAGE VERDICT (first real measurement recorded): pass — lines 96.55% (2775/2874), branches 88.68% (1576/1777), functions 98.88% (533/539) against thresholds 90/85/90, i.e. 5-9 points of headroom on every dimension.",
+    "MUTATION VERDICT (first real measurement recorded): pass — score 80.5% (925 detected of 1230 mutants, threshold 70%), completed in 178.7s, no timeout and no execution block. Ignored 81, compileError 0, runtimeError 0.",
+    "MUTATION DRAG IS CONCENTRATED IN ONE FILE (actionable, though the score passes): build/assemble.ts contributes 88 of the 224 undetected mutants (81 survived + 7 noCoverage out of 140 mutants, ~39% of all undetected) and scores ~37% on its own, while the overall margin above threshold is only 10.5 points. Next-largest contributors: bin/src/hooks.ts 50/322 undetected (+2 timeout), bin/src/commands/phase-next.ts 25/221, bin/src/lib/eval-json.ts 23/180, bin/src/commands/change-list.ts 18/90 — strengthening assertion depth in these five files is the highest-leverage way to restore headroom.",
+    "lint failed CONFIRMED AS FIXTURE DATA, NOT A GATE FAILURE (mechanism now proven rather than inferred): bin/src/commands/run-static-analysis.ts:34 writes the merged stdout+stderr of a non-zero-exit static-analysis command to process.stderr, and bin/src/commands/run-static-analysis.test.ts:200/202 mocks execCommand to return status 1 with stderr/output \"lint failed\" without spying on process.stderr — so the literal is test-authored and necessarily reaches the suite stderr. Corroborating: exit_code 0 and 1956/1956 pass, the file is unmodified (git status --porcelain empty), a repo-wide source grep finds the string only at those two lines, and openspec/changes/archive/2026-06-23-workflow-test-only/reports/unit-test-execution.json:58 recorded the identical conclusion.",
+    "PROVENANCE CAVEAT: this report was produced by the installed CLI 2.10.30 (C:/Users/wps/.claude/plugins/cache/wps-ai/dev-team/2.10.30/bin/cli.cjs), not the repo 2.10.36 build; the adapter runs the test command through execSync with stdio pipe and does not echo its stderr on the success path, which is why this run summary shows no lint failed line. The repo-side timeout constants from f455fbfa9dac (3h Stryker) and 5d3ba5da4c97 (10-min exec) are absent from that binary but were never reached (207s / 178.7s), so the verdicts stand. Treat this as evidence about the repo tests, not about the 2.10.36 CLI artifact.",
+    "COVERAGE OVERRIDE IS A VACUOUS PASS: the single override group plugins/dev-team reports pass true with measured {lines:null, branches:null, functions:null} and passed_count 0 of file_count 39, so thresholds are enforced only at aggregate level and this entry provides no independent per-group verification. Not a failure, but it should not be read as a passing per-glob gate.",
+    "EVALUATOR NOTE (as requested): the CLAUDE_PROJECT_DIR/WORKSPACE_FOLDER_PATHS save/clear/restore retained in the 4 eval-store suites (change-create, persist, read-priority, strict-workflow) is now redundant because lib/project-root.ts is fully auto-mocked, but it is harmless defense-in-depth against env leakage across suites; archi-decide-mcp.test.ts:111-115 still depends on it meaningfully since that suite does not mock project-root."
+  ]
+}

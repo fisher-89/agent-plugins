@@ -22,7 +22,7 @@ Call `mcp__plugin_dev-team_dev-team__change_list` to get active changes. If <cha
 
 At the start of this turn, generate a new non-empty opaque `run_id` (e.g. UUID). Pass the same `run_id` to every `phase_next` call in this turn (Phase Check, backtrack recall, Verdict Phase Result).
 
-Call `mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>, run_id=<run_id>)` to get workflow state.
+Call `mcp__plugin_dev-team_dev-team__phase_next({change: "<change-name>", run_id: "<run_id>"})` to get workflow state.
 
 If `next_phase` is "acceptance" continue to `### Run Evaluator`.
 
@@ -46,7 +46,7 @@ mcp__plugin_dev-team_dev-team__backtrack({
 })
 ```
 
-If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next(change=<name>, run_id=<run_id>)`, continue to `### Run Evaluator`.
+If response `modified` is true, recall `mcp__plugin_dev-team_dev-team__phase_next({change: "<change-name>", run_id: "<run_id>"})`, continue to `### Run Evaluator`.
 
 ### Run Evaluator
 
@@ -63,12 +63,12 @@ Agent({
 ### Verdict Phase Result
 
 ```
-result = mcp__plugin_dev-team_dev-team__phase_next(change=<change-name>, run_id=<run_id>)
+result = mcp__plugin_dev-team_dev-team__phase_next({change: "<change-name>", run_id: "<run_id>"})
 
 if result.done == true → continue to `### Report`
 
 if result.done == false and result.last_result is null:
-  → 错误：Evaluator 未正确写入 eval.json，停止
+  → 错误：Evaluator 未通过 phase_log 写入 workflow.json（或 phase_next.last_result 未更新），停止
 
 if result.last_result.verdict == "fail" → stop with backtrack suggestion to one of `allowed_backtrack_phases[].id`
 ```

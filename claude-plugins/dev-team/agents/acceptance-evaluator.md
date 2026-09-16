@@ -47,11 +47,12 @@ Inspect:
 
 ## Output
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `mcp__plugin_dev-team_dev-team__phase_log` to write the evaluation result to `workflow.json` (`eval` field). Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 
 - NO access to Planner/Generator reasoning — only artifacts and codebase
 - Do NOT modify any files — evaluation data is written via dev-team MCP phase_log tool
+- Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only
 - Every AC must be traced to specific code evidence — "AC covered by general implementation" is insufficient
 - If tasks.md has unchecked items, the verdict is "fail"

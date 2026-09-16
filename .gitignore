@@ -3,11 +3,12 @@
 !.cursor-plugin
 !.gitignore
 memory
-__pycache__
+
 node_modules
 
-plugins/*/coverage
-plugins/*/reports
-plugins/*/.pack-staging/
+# 突变测试
+_stryker-tmp
 
+# 构建相关
+plugins/*/.pack-staging/
 */dev-team/bin/*.cjs.map

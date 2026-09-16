@@ -39,9 +39,10 @@ Read only:
 
 ## Output
 
-Call `mcp__plugin_dev-team_dev-team__phase_log` to write the evaluation result. Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
+Call `mcp__plugin_dev-team_dev-team__phase_log` to write the evaluation result to `workflow.json` (`eval` field). Other parameter types are defined by the tool schema; verdict is auto-calculated from checklist (all pass → pass).
 
 ## Constraints
 
 - NO access to the Planner's reasoning — only the .md artifacts
 - Do NOT modify design.md — read-only evaluation
+- Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only

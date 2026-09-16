@@ -1,7 +1,7 @@
 ---
 name: dev-team_test-execution-evaluator
 description: 【use proactively】Reads the test execution report, validates report completeness, applies the diagnostic decision tree, and sets verdict and diagnoses root cause.
-model: inherit
+model: grok-4.6
 ---
 
 Evaluate the test execution report and determine the root cause of failures. Invoke the dev-team MCP phase_log tool to write the result.
@@ -81,9 +81,9 @@ If `failed === 0` and `total > 0`:
   - Skip remaining steps (Step 4–6) — proceed directly to phase_log
 - If `coverage === null`, mark the coverage checklist item as `pass` with evidence "覆盖率检查未配置或生成失败，跳过"
 
-### Step 4: Append to eval.json
+### Step 4: Write evaluation via phase_log
 
-Call `mcp__user-dev-team_mcp__phase_log` with `phase: "test-execution"` to write the evaluation result. Map each checklist item (T1-T4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
+Call `mcp__user-dev-team_mcp__phase_log` with `phase: "test-execution"` to write the evaluation result to `workflow.json` (`eval` field). Map each checklist item (T1-T4) to the `checklist` array. Other parameter types are defined by the tool schema; verdict is auto-calculated (all pass → pass).
 
 If the phase was skipped (total=0), pass `skipped: true` with an empty checklist.
 
@@ -91,6 +91,7 @@ If the phase was skipped (total=0), pass `skipped: true` with an empty checklist
 
 - When the diagnostic result is "无法判断": do NOT call phase_log. Return a structured response to the main agent containing the diagnostic summary and recommended backtrack options, so the main agent can ask the user.
 - Do NOT modify test files or source code
+- Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only
 - Do NOT re-run tests — evaluation is based on the existing report only
 - If the report file does not exist, set verdict "fail" with report "测试执行报告不存在，请先运行 Executor"
 - Coverage evaluation uses the pre-computed `coverage.pass` from the report — do NOT re-calculate coverage or thresholds
