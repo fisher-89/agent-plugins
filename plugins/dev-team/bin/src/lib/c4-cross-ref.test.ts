@@ -18,13 +18,31 @@
  * @see plugins/dev-team/bin/src/lib/c4-cross-ref.ts
  */
 
+import type * as LegacyChildProcess from 'child_process';
 import * as fs from 'fs';
+import type * as NodeChildProcess from 'node:child_process';
 import * as os from 'os';
 import * as path from 'path';
 
-import { describe, it, expect } from 'vite-plus/test';
+import { describe, it, expect, vi } from 'vite-plus/test';
 
 import { runCrossRefCheck } from './c4-cross-ref';
+
+// ---------------------------------------------------------------------------
+// git 退场 / staged 废弃防回归：child_process 全程 spy（仅作 not-called 断言）
+// ---------------------------------------------------------------------------
+
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual<typeof NodeChildProcess>('node:child_process');
+  return { ...actual, execSync: vi.fn(actual.execSync), execFileSync: vi.fn(actual.execFileSync) };
+});
+
+vi.mock('child_process', async () => {
+  const actual = await vi.importActual<typeof LegacyChildProcess>('child_process');
+  return { ...actual, execSync: vi.fn(actual.execSync), execFileSync: vi.fn(actual.execFileSync) };
+});
+
+import { execSync as spiedExecSync } from 'node:child_process';
 
 // ===========================================================================
 // 工具函数
@@ -1109,6 +1127,188 @@ model {
       expect(result.status).toBe('clean');
       expect(result.unmatched_files).toContain('src/lib/util.ts');
       expect(result.matched).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runCrossRefCheck — 清单模式（change → files.written 直通）与 staged 废弃 (AC-9)
+// ===========================================================================
+
+describe('runCrossRefCheck — 清单模式与 staged 废弃 (AC-9)', () => {
+  /** 在临时项目内写 change 的 workflow.json（files 为 undefined 时模拟机制前旧 change）。 */
+  function writeChangeInventory(
+    root: string,
+    name: string,
+    files: { written: string[]; deleted: string[] } | undefined,
+  ): void {
+    const changeDir = path.join(root, 'openspec', 'changes', name);
+    fs.mkdirSync(changeDir, { recursive: true });
+    const doc: Record<string, unknown> =
+      files === undefined
+        ? { workflow_type: 'requirement', created: '2026-09-17' }
+        : { workflow_type: 'requirement', created: '2026-09-17', files };
+    fs.writeFileSync(path.join(changeDir, 'workflow.json'), JSON.stringify(doc), 'utf-8');
+  }
+
+  /** 带模型与清单直通文件的标准 fixture。 */
+  function createInventoryProject(options: {
+    written?: string[];
+    changeName?: string;
+    omitInventory?: boolean;
+  }): [string, () => void] {
+    const [root, cleanup] = createProject({
+      models: {
+        'spec.c4': `specification {
+  element package
+}
+model {
+  package Core {
+    metadata { path './src/core/' }
+  }
+}`,
+      },
+      files: {
+        'src/core/a.ts': `export const a = 1;`,
+        'src/wild/unmapped.ts': `export const y = 2;`,
+      },
+    });
+    if (!options.omitInventory) {
+      writeChangeInventory(root, options.changeName ?? 'inv', {
+        written: options.written ?? ['src/core/a.ts', 'src/wild/unmapped.ts'],
+        deleted: [],
+      });
+    }
+    return [root, cleanup];
+  }
+
+  it('传 change → 被查文件集 = files.written 直通（不做 test config 过滤），matched / unmatched_files 按模型映射产出 (AC-9)', async () => {
+    const [root, cleanup] = createInventoryProject({});
+    try {
+      const result = await runCrossRefCheck(root, { change: 'inv' });
+
+      // 直通集合：测试文件等条目也不被过滤——这里 written 同时含已建模与未建模文件
+      expect(result.matched).toEqual([{ element_id: 'Core', files: ['src/core/a.ts'] }]);
+      expect(result.unmatched_files).toEqual(['src/wild/unmapped.ts']);
+      expect(result.status).toBe('clean');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('显式 files 与 change 同传 → files 优先（优先级契约：清单不被读取）', async () => {
+    // change 指向机制前旧 change（若被读取会硬报错），files 优先时不受影响
+    const [root, cleanup] = createInventoryProject({ omitInventory: false });
+    writeChangeInventory(root, 'legacy', undefined);
+    try {
+      const result = await runCrossRefCheck(root, {
+        files: ['src/core/a.ts'],
+        change: 'legacy',
+      });
+
+      expect(result.matched).toEqual([{ element_id: 'Core', files: ['src/core/a.ts'] }]);
+      expect(result.unmatched_files).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('staged: true → 直接抛错（staged 模式已由清单模式替代），且不产生任何 git 子进程调用 (AC-9)', async () => {
+    const [root, cleanup] = createInventoryProject({});
+    try {
+      await expect(runCrossRefCheck(root, { staged: true })).rejects.toThrow(
+        /staged 模式已由清单模式替代/,
+      );
+      expect(vi.mocked(spiedExecSync)).not.toHaveBeenCalled();
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('change 清单模式 + workflow.json 无 files → 硬报错指引重建（非静默降级，AC-9）', async () => {
+    const [root, cleanup] = createInventoryProject({ omitInventory: false });
+    writeChangeInventory(root, 'legacy', undefined);
+    try {
+      await expect(runCrossRefCheck(root, { change: 'legacy' })).rejects.toThrow(
+        /该 change 创建于文件清单机制之前，请重建/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('change 不存在 → 报错（workflow.json 不存在 + change_create 指引）', async () => {
+    const [root, cleanup] = createInventoryProject({});
+    try {
+      await expect(runCrossRefCheck(root, { change: 'ghost' })).rejects.toThrow(
+        /workflow\.json 不存在/,
+      );
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('files.written 为空数组 → status no_changes (AC-9)', async () => {
+    const [root, cleanup] = createInventoryProject({ written: [] });
+    try {
+      const result = await runCrossRefCheck(root, { change: 'inv' });
+      expect(result.status).toBe('no_changes');
+      expect(result.violations).toEqual([]);
+      expect(result.matched).toEqual([]);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('清单中文件无对应模型元素 → unmatched_files 含之（直通不过滤的可见后果）；模型文件不进被查文件集', async () => {
+    const [root, cleanup] = createInventoryProject({
+      written: ['src/wild/unmapped.ts', 'src/notes.txt'],
+    });
+    try {
+      const result = await runCrossRefCheck(root, { change: 'inv' });
+
+      expect(result.unmatched_files).toEqual(['src/wild/unmapped.ts', 'src/notes.txt']);
+      // openspec/architecture/** 模型文件仅作参照系，绝不出现在被查文件集中
+      expect(result.unmatched_files.some((f) => f.includes('openspec/architecture'))).toBe(false);
+      expect(result.matched.some((m) => m.files.some((f) => f.includes('openspec')))).toBe(false);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('清单直通文件间的 import 关系参与交叉引用：未建模依赖 → violations_found (AC-9)', async () => {
+    const [root, cleanup] = createProject({
+      models: {
+        'spec.c4': `specification {
+  element package
+}
+model {
+  package Frontend {
+    metadata { path './src/frontend/' }
+  }
+  package Backend {
+    metadata { path './src/backend/' }
+  }
+  // 故意不声明 Frontend -> Backend
+}`,
+      },
+      files: {
+        'src/frontend/app.ts': `import { api } from '../backend/api';`,
+        'src/backend/api.ts': `export const api = () => {};`,
+      },
+    });
+    writeChangeInventory(root, 'inv', {
+      written: ['src/frontend/app.ts', 'src/backend/api.ts'],
+      deleted: [],
+    });
+    try {
+      const result = await runCrossRefCheck(root, { change: 'inv' });
+      expect(result.status).toBe('violations_found');
+      expect(result.violations[0].type).toBe('unmodeled_dependency');
+      expect(result.violations[0].source).toBe('Frontend');
+      expect(result.violations[0].target).toBe('Backend');
     } finally {
       cleanup();
     }

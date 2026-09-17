@@ -4,8 +4,17 @@ import { projectRootSchema } from './public/project-root.schema';
 
 export const archiCheckInputSchema = z.object({
   project_root: projectRootSchema,
-  staged: z.boolean().optional().describe('Check git staged files'),
+  staged: z
+    .boolean()
+    .optional()
+    .describe('已废弃：staged 模式已由清单模式替代，传 true 将显式报错'),
   files: z.string().optional().describe('Comma-separated file list to check'),
+  change: z
+    .string()
+    .optional()
+    .describe(
+      'Target change name; checks the file inventory (workflow.json `files.written`) of the change',
+    ),
 });
 
 export const archiCheckOutputSchema = z.object({

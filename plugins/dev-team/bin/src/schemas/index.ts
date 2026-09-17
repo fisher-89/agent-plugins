@@ -4,7 +4,12 @@ export {
   phaseLogInputSchema,
   phaseLogOutputSchema,
 } from './phase-log.schema';
-export { workflowEvalSchema, workflowFileSchema, type WorkflowFile } from './workflow.schema';
+export {
+  workflowEvalSchema,
+  workflowFileSchema,
+  workflowFilesSchema,
+  type WorkflowFile,
+} from './workflow.schema';
 export { archiQueryInputSchema, archiQueryOutputSchema } from './archi-query.schema';
 export { archiValidateInputSchema, archiValidateOutputSchema } from './archi-validate.schema';
 export { archiWriteInputSchema, archiWriteOutputSchema } from './archi-write.schema';
@@ -24,6 +29,12 @@ export {
   unitTestEntrySchema,
 } from './test-resolve-paths.schema';
 export { changeListInputSchema, changeListOutputSchema } from './change-list.schema';
+export {
+  changeFilesInputSchema,
+  changeFilesOutputSchema,
+  type ChangeFilesInput,
+  type ChangeFilesOutput,
+} from './change-files.schema';
 export { backtrackInputSchema, backtrackOutputSchema } from './backtrack.schema';
 export {
   changeCreateInputSchema,

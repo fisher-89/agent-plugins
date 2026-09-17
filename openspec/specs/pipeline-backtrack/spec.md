@@ -88,6 +88,30 @@ fail → 分析 report → retry | backtrack(...) | AskUserQuestion
 - **WHEN** 上述 evaluator 判定 fail
 - **THEN** 条目无 `backtrack_to`；verdict 为 fail；report 含证据
 
+### Requirement: backtrack 不修改文件清单
+
+`runBacktrack` MUST NOT 读取或改写 `workflow.json` 的 `files` 清单——回溯对清单完全中立，只改写评估条目（`backtrack_to` / `backtrack_reason`）并传播 stale。既有校验链（change 存在 → `workflow.json` 合法 → phase 表 → 目标索引 → 最新条目）与 `writeEvalJson` 写回通道不变。
+
+回退遗留（被丢弃方案写入、新方案未声明的文件）由 redo 轮对冲兜住：遗留 HEAD 已有文件 → redo 轮 `git restore <path>`（revert 折叠为净 untouched）；遗留旧方案新建文件 → redo 轮删除（折叠入 `deleted`，对账按「自建自删」良性放行）；未被对冲的路径由 implementation-evaluator 三态对账「actual 有、计划无」打回清理（见 `workflow-file-inventory`「backtrack 保持清单，遗留由 redo 轮对冲」与 `phase-agents` 的处置语义）。
+
+#### Scenario: 回溯到 implement 清单不变
+
+- **WHEN** 某 change 的 `files.written` 含 3 个路径、`deleted` 含 1 个路径
+- **AND** 调用 `backtrack(phase: "test-execution", backtrack_to: "implement", backtrack_reason: <非空>)`
+- **THEN** 写回后 `files` 与回溯前逐项一致（含 `source` 审计映射）
+- **AND** `eval` 的 backtrack 标记与 stale 传播行为不变
+
+#### Scenario: 回溯到 test-gen 清单不变
+
+- **WHEN** 调用 `backtrack(backtrack_to: "test-gen", ...)`
+- **THEN** `files` 内容不变
+
+#### Scenario: 机制前旧 change 可回溯
+
+- **WHEN** 目标 change 的 `workflow.json` 无 `files` 字段（机制前旧 change）
+- **AND** 调用合法 `backtrack`
+- **THEN** 评估条目正常改写、回溯成功（`backtrack` 不消费清单，无需硬报错）
+
 ## MODIFIED Requirements
 
 ### Requirement: 回溯目标使用现行 phase ID

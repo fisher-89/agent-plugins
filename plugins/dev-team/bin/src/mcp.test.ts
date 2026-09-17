@@ -25,6 +25,7 @@ import { toJSONSchema } from 'zod/v4';
 
 import * as backtrackCmd from './commands/backtrack';
 import * as changeCreateCmd from './commands/change-create';
+import * as changeFilesCmd from './commands/change-files';
 import * as changeListCmd from './commands/change-list';
 import type { ConfigGetResult } from './commands/config-get';
 import * as configGetCmd from './commands/config-get';
@@ -50,6 +51,8 @@ import {
   backtrackInputSchema,
   changeCreateInputSchema,
   changeCreateOutputSchema,
+  changeFilesInputSchema,
+  changeFilesOutputSchema,
   changeListInputSchema,
   changeListOutputSchema,
   configGetInputSchema,
@@ -172,6 +175,7 @@ const EXPECTED_TOOL_NAMES = [
   'archi_write',
   'backtrack',
   'change_create',
+  'change_files',
   'change_list',
   'config_get',
   'phase_log',
@@ -191,7 +195,7 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
   archi_write:
     'Validate and write a C4 architecture model file to the models/ directory. Validates DSL before writing.',
   archi_check:
-    'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files.',
+    'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files. The checked file set comes from an explicit files list or the target change file inventory (workflow.json files.written).',
   archi_decide:
     'Create, list, and update Architecture Decision Records (ADRs) under openspec/architecture/decisions/. Use action create, list, or update.',
   phase_next:
@@ -201,7 +205,9 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
   test_detect_frameworks:
     'Detect test framework(s) for given files based on config.json tests suite mappings. When files is omitted, auto-scan the project for files in suite scope. Returns per-file framework detection and a plan built from tests[].',
   test_resolve_paths:
-    'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "git-change" — reads git diff HEAD --name-only to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
+    'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "change" (with the required `change` argument) — reads the change file inventory (workflow.json `files.written`) to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
+  change_files:
+    'Merge paths into or overwrite the change file inventory (the `files` net state in workflow.json). op="append" folds paths into the net state to record file operations the PostToolUse hook missed (manual fallback for hook-invisible operations); op="set" wholesale-overwrites the provided buckets to explicitly correct the net state (e.g. after restores the hook cannot see). Returns the net state after the operation.',
   change_create:
     'Create a new change directory under openspec/changes/. The sole creator of its workflow.json metadata file (workflow_type + created only), which phase_next / backtrack / phase_log require — they error out when the file is missing. Validates kebab-case name and rejects existing changes.',
   change_list:
@@ -217,6 +223,7 @@ const ALL_INPUT_SCHEMAS = [
   ['phase_next', phaseNextInputSchema],
   ['backtrack', backtrackInputSchema],
   ['change_create', changeCreateInputSchema],
+  ['change_files', changeFilesInputSchema],
   ['change_list', changeListInputSchema],
   ['spec_list', specListInputSchema],
   ['config_get', configGetInputSchema],
@@ -239,13 +246,20 @@ vi.mock('./lib/archi-write', () => ({
   writeDsl: vi.fn(async () => ({ success: true, path: 'models/x.likec4' })),
 }));
 vi.mock('./lib/c4-cross-ref', () => ({
-  runCrossRefCheck: vi.fn(async () => ({
-    violations: [],
-    warnings: [],
-    matched: [],
-    unmatched_files: [],
-    status: 'clean' as const,
-  })),
+  runCrossRefCheck: vi.fn(async (_root: string, options?: { staged?: boolean }) => {
+    if (options?.staged) {
+      throw new Error(
+        'staged 模式已由清单模式替代：请传 change（读取文件清单）或 files（显式文件列表）。',
+      );
+    }
+    return {
+      violations: [],
+      warnings: [],
+      matched: [],
+      unmatched_files: [],
+      status: 'clean' as const,
+    };
+  }),
 }));
 vi.mock('./lib/c4-parser', () => ({
   readAllModels: vi.fn(() => null),
@@ -374,7 +388,11 @@ function setupChangeWithWorkflow(
   fs.mkdirSync(changeDir, { recursive: true });
   fs.writeFileSync(
     path.join(changeDir, 'workflow.json'),
-    JSON.stringify({ workflow_type: workflowType, created: '2026-09-11' }),
+    JSON.stringify({
+      workflow_type: workflowType,
+      created: '2026-09-11',
+      files: { written: [], deleted: [] },
+    }),
     'utf-8',
   );
   return changeDir;
@@ -449,10 +467,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
   });
 
   describe('listTools — archi_decide (AC-01)', () => {
-    it('listTools() name 集合经 sort 后严格等于预期 14 个 name', async () => {
+    it('listTools() name 集合经 sort 后严格等于预期 15 个 name', async () => {
       const names = (await getRegisteredToolNames(client)).slice().sort();
       expect(names).toEqual([...EXPECTED_TOOL_NAMES]);
-      expect(names).toHaveLength(14);
+      expect(names).toHaveLength(15);
     });
 
     it('不得包含 list_changed / camelCase 别名', async () => {
@@ -462,10 +480,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('name 集合长度恰好 14；无重复 name', async () => {
+    it('name 集合长度恰好 15；无重复 name', async () => {
       const names = await getRegisteredToolNames(client);
-      expect(names).toHaveLength(14);
-      expect(new Set(names).size).toBe(14);
+      expect(names).toHaveLength(15);
+      expect(new Set(names).size).toBe(15);
     });
 
     it('listTools 含 archi_decide 且无斜杠名 archi/decide', async () => {
@@ -518,6 +536,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       'phase_next',
       'backtrack',
       'change_create',
+      'change_files',
       'change_list',
       'spec_list',
       'config_get',
@@ -557,31 +576,33 @@ describe('MCP Server (via InMemoryTransport)', () => {
               ? {}
               : name === 'change_create'
                 ? { name: 'my-change' }
-                : name === 'spec_list'
-                  ? {}
-                  : name === 'phase_next'
-                    ? { change: 'c', run_id: 'test-run' }
-                    : name === 'phase_log'
-                      ? {
-                          change: 'c',
-                          phase: 'proposal',
-                          report: 'r',
-                          checklist: [{ item: 'i', pass: true, evidence: 'e' }],
-                        }
-                      : name === 'backtrack'
+                : name === 'change_files'
+                  ? { change: 'c', op: 'append', written: ['src/a.ts'] }
+                  : name === 'spec_list'
+                    ? {}
+                    : name === 'phase_next'
+                      ? { change: 'c', run_id: 'test-run' }
+                      : name === 'phase_log'
                         ? {
                             change: 'c',
                             phase: 'proposal',
-                            backtrack_to: 'explore',
-                            backtrack_reason: 'r',
+                            report: 'r',
+                            checklist: [{ item: 'i', pass: true, evidence: 'e' }],
                           }
-                        : name === 'test_resolve_paths'
-                          ? { modules: [] }
-                          : name === 'archi_decide'
-                            ? { action: 'list' }
-                            : name === 'archi_write'
-                              ? { source: 'm', path: 'models/x.likec4' }
-                              : {},
+                        : name === 'backtrack'
+                          ? {
+                              change: 'c',
+                              phase: 'proposal',
+                              backtrack_to: 'explore',
+                              backtrack_reason: 'r',
+                            }
+                          : name === 'test_resolve_paths'
+                            ? { modules: [] }
+                            : name === 'archi_decide'
+                              ? { action: 'list' }
+                              : name === 'archi_write'
+                                ? { source: 'm', path: 'models/x.likec4' }
+                                : {},
         );
         expect(parsed.success).toBe(false);
       }
@@ -890,12 +911,12 @@ describe('MCP Server (via InMemoryTransport)', () => {
     });
   });
 
-  describe('MCP 工具调用 — 全 14 handler', () => {
+  describe('MCP 工具调用 — 全 15 handler', () => {
     afterEach(() => {
       setResolvedRoot(process.cwd());
     });
 
-    it('resolve mock 成功时 14 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
+    it('resolve mock 成功时 15 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -927,6 +948,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         test_detect_frameworks: vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
         test_resolve_paths: vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
         change_create: vi.spyOn(changeCreateCmd, 'runChangeCreate'),
+        change_files: vi.spyOn(changeFilesCmd, 'runChangeFiles'),
         change_list: vi.spyOn(changeListCmd, 'runChangeList'),
         spec_list: vi.spyOn(specListCmd, 'runSpecList'),
       };
@@ -964,10 +986,14 @@ describe('MCP Server (via InMemoryTransport)', () => {
             name: 'change_create',
             args: { name: 'handler-new-change', workflow_type: 'requirement' },
           },
+          {
+            name: 'change_files',
+            args: { change: changeName, op: 'append', written: ['src/new.ts'] },
+          },
           { name: 'change_list', args: {} },
           { name: 'spec_list', args: {} },
         ];
-        expect(calls).toHaveLength(14);
+        expect(calls).toHaveLength(15);
 
         for (const { name, args } of calls) {
           const result = await client.callTool({
@@ -989,7 +1015,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('resolve 抛 not_in_candidates 时 14 个 tool 均 isError 且 spy 次数 0', async () => {
+    it('resolve 抛 not_in_candidates 时 15 个 tool 均 isError 且 spy 次数 0', async () => {
       setResolveError(
         makeResolveError('not_in_candidates', 'x', {
           candidates: [],
@@ -1010,6 +1036,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
         vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
         vi.spyOn(changeCreateCmd, 'runChangeCreate'),
+        vi.spyOn(changeFilesCmd, 'runChangeFiles'),
         vi.spyOn(changeListCmd, 'runChangeList'),
         vi.spyOn(specListCmd, 'runSpecList'),
       ];
@@ -1041,6 +1068,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         { name: 'test_detect_frameworks', args: {} },
         { name: 'test_resolve_paths', args: { modules: [] } },
         { name: 'change_create', args: { name: 'x' } },
+        { name: 'change_files', args: { change: 'x', op: 'append', written: ['a.ts'] } },
         { name: 'change_list', args: {} },
         { name: 'spec_list', args: {} },
       ];
@@ -1211,10 +1239,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
       setResolvedRoot(process.cwd());
     });
 
-    it('listTools 返回的 tool names 中包含 change_create，且 EXPECTED_TOOL_NAMES 扩展到 14 (AC-1)', async () => {
+    it('listTools 返回的 tool names 中包含 change_create，且 EXPECTED_TOOL_NAMES 扩展到 15 (AC-1)', async () => {
       const names = await getRegisteredToolNames(client);
       expect(names).toContain('change_create');
-      expect(names).toHaveLength(14);
+      expect(names).toHaveLength(15);
     });
 
     it('change_create 的 inputSchema 包含 name 字段（z.string()）', async () => {
@@ -1406,12 +1434,12 @@ describe('MCP Server (via InMemoryTransport)', () => {
     });
   });
 
-  describe('MCP 调用 — 所有 14 个 tool 各 callTool 一次均成功（含 change_create / spec_list）', () => {
+  describe('MCP 调用 — 所有 15 个 tool 各 callTool 一次均成功（含 change_create / change_files / spec_list）', () => {
     afterEach(() => {
       setResolvedRoot(process.cwd());
     });
 
-    it('在同一个 MCP server 上 14 个 tool 各调用一次均非 isError 且返回非空文本 (AC-1/AC-5)', async () => {
+    it('在同一个 MCP server 上 15 个 tool 各调用一次均非 isError 且返回非空文本 (AC-1/AC-5)', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -1443,6 +1471,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
         test_detect_frameworks: vi.spyOn(testDetectFrameworksCmd, 'runTestDetectFrameworks'),
         test_resolve_paths: vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths'),
         change_create: vi.spyOn(changeCreateCmd, 'runChangeCreate'),
+        change_files: vi.spyOn(changeFilesCmd, 'runChangeFiles'),
         change_list: vi.spyOn(changeListCmd, 'runChangeList'),
         spec_list: vi.spyOn(specListCmd, 'runSpecList'),
       };
@@ -1477,10 +1506,14 @@ describe('MCP Server (via InMemoryTransport)', () => {
           { name: 'test_detect_frameworks', args: {} },
           { name: 'test_resolve_paths', args: { modules: ['src/foo.ts'] } },
           { name: 'change_create', args: { name: 'new-change-14', workflow_type: 'requirement' } },
+          {
+            name: 'change_files',
+            args: { change: changeName, op: 'append', written: ['src/new.ts'] },
+          },
           { name: 'change_list', args: {} },
           { name: 'spec_list', args: {} },
         ];
-        expect(calls).toHaveLength(14);
+        expect(calls).toHaveLength(15);
 
         for (const { name, args } of calls) {
           const result = await client.callTool({
@@ -2433,11 +2466,12 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
     'test_resolve_paths',
     'change_list',
     'change_create',
+    'change_files',
     'spec_list',
     'backtrack',
   ] as const;
 
-  it('按注册顺序对每次调用断言 name/description；调用次数恰好 14', async () => {
+  it('按注册顺序对每次调用断言 name/description；调用次数恰好 15', async () => {
     mockResolve.root = process.cwd();
     mockResolve.throwError = null;
     const registerSpy = vi.spyOn(McpServer.prototype, 'registerTool');
@@ -2450,9 +2484,9 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
       client = new Client({ name: 'reg-spy', version: '1.0.0' }, { capabilities: {} });
       await client.connect(clientTransport);
 
-      expect(registerSpy).toHaveBeenCalledTimes(14);
+      expect(registerSpy).toHaveBeenCalledTimes(15);
       const names: string[] = [];
-      for (let i = 0; i < 14; i++) {
+      for (let i = 0; i < 15; i++) {
         const call = registerSpy.mock.calls[i];
         const name = call[0] as string;
         const config = call[1] as { description?: unknown };
@@ -2468,5 +2502,315 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
       await client?.close();
       await server?.close();
     }
+  });
+
+  it('test_resolve_paths 描述不再含 git diff 圈定语义；archi_check 描述指向清单来源（schema description 驱动 MCP 元数据）', async () => {
+    mockResolve.root = process.cwd();
+    mockResolve.throwError = null;
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const { connectToServer } = await import('./mcp');
+    const s = await connectToServer(serverTransport);
+    const c = new Client({ name: 'desc-client', version: '1.0.0' }, { capabilities: {} });
+    await c.connect(clientTransport);
+    try {
+      const resolveDesc = await getToolDescription(c, 'test_resolve_paths');
+      expect(resolveDesc).not.toContain('git diff');
+      expect(resolveDesc).not.toContain('git-change');
+      expect(resolveDesc).toContain('files.written');
+
+      const checkDesc = await getToolDescription(c, 'archi_check');
+      expect(checkDesc).toContain('change file inventory');
+    } finally {
+      await c.close();
+      await s.close();
+    }
+  });
+});
+
+// ===========================================================================
+// MCP 注册 — change_files / archi_check change / test_resolve_paths 清单模式
+// (AC-8, AC-9, AC-10)
+// ===========================================================================
+
+describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)', () => {
+  let server: McpServer;
+  let client: Client;
+
+  beforeAll(async () => {
+    mockResolve.root = process.cwd();
+    mockResolve.throwError = null;
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const { connectToServer } = await import('./mcp');
+    server = await connectToServer(serverTransport);
+    client = new Client({ name: 'inventory-client', version: '1.0.0' }, { capabilities: {} });
+    await client.connect(clientTransport);
+  });
+
+  afterAll(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  afterEach(() => {
+    setResolvedRoot(process.cwd());
+  });
+
+  describe('change_files 注册 (AC-10)', () => {
+    it('tools/list 含 change_files；inputSchema 与 changeFilesInputSchema 的 JSON Schema 形状一致（change 必填、op 枚举 append/set）', async () => {
+      const names = await getRegisteredToolNames(client);
+      expect(names).toContain('change_files');
+
+      const schema = await getToolInputSchema(client, 'change_files');
+      expect(schema).toBeDefined();
+      const props = (schema?.properties ?? {}) as Record<
+        string,
+        { type?: string; enum?: string[] }
+      >;
+      expect(props).toHaveProperty('change');
+      expect(props).toHaveProperty('op');
+      expect(props).toHaveProperty('written');
+      expect(props).toHaveProperty('deleted');
+      expect(props.op?.enum).toEqual(['append', 'set']);
+      expect(schema?.required).toContain('change');
+      expect(schema?.required).toContain('project_root');
+    });
+
+    it('changeFilesInputSchema：written 与 deleted 均缺省 → refine 拒绝；至少其一通过', () => {
+      const base = { change: 'c', op: 'append' as const, project_root: '/tmp/x' };
+      expect(changeFilesInputSchema.safeParse(base).success).toBe(false);
+      expect(changeFilesInputSchema.safeParse({ ...base, written: ['src/a.ts'] }).success).toBe(
+        true,
+      );
+      expect(
+        changeFilesInputSchema.safeParse({ ...base, op: 'set', deleted: ['src/a.ts'] }).success,
+      ).toBe(true);
+    });
+
+    it('tools/call append → 委托 runChangeFiles（注入 project_root）并返回操作后净状态 { written, deleted } (AC-10)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      const changeName = 'cf-append';
+      setupChangeWithWorkflow(dir, changeName);
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(changeFilesCmd, 'runChangeFiles');
+      try {
+        const result = await client.callTool({
+          name: 'change_files',
+          arguments: withProjectRoot(
+            { change: changeName, op: 'append', written: ['src/foo.ts'] },
+            dir,
+          ),
+        });
+
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledWith({
+          change: changeName,
+          op: 'append',
+          written: ['src/foo.ts'],
+          project_root: dir,
+        });
+        const data = JSON.parse(extractText(result));
+        expect(changeFilesOutputSchema.safeParse(data).success).toBe(true);
+        expect(data).toEqual({ written: ['src/foo.ts'], deleted: [] });
+      } finally {
+        spy.mockRestore();
+        cleanup();
+      }
+    });
+
+    it('tools/call set → 覆写指定桶并返回净状态 (AC-10)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      const changeName = 'cf-set';
+      setupChangeWithWorkflow(dir, changeName);
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(changeFilesCmd, 'runChangeFiles');
+      try {
+        const result = await client.callTool({
+          name: 'change_files',
+          arguments: withProjectRoot(
+            { change: changeName, op: 'set', written: [], deleted: ['src/gone.ts'] },
+            dir,
+          ),
+        });
+
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledWith({
+          change: changeName,
+          op: 'set',
+          written: [],
+          deleted: ['src/gone.ts'],
+          project_root: dir,
+        });
+        expect(JSON.parse(extractText(result))).toEqual({
+          written: [],
+          deleted: ['src/gone.ts'],
+        });
+      } finally {
+        spy.mockRestore();
+        cleanup();
+      }
+    });
+
+    it('非法输入（缺 change / op 非法 / written 与 deleted 均缺省）→ 工具层参数错误且 runChangeFiles 次数 0', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(changeFilesCmd, 'runChangeFiles');
+      spy.mockClear();
+      try {
+        for (const args of [
+          { op: 'append', written: ['src/a.ts'] },
+          { change: 'c', op: 'merge', written: ['src/a.ts'] },
+          { change: 'c', op: 'append' },
+        ]) {
+          const result = await client.callTool({
+            name: 'change_files',
+            arguments: withProjectRoot(args as Record<string, unknown>),
+          });
+          expect(isToolError(result)).toBe(true);
+        }
+        expect(spy).toHaveBeenCalledTimes(0);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('对穿越 / 绝对路径 / 反斜杠 / 空串路径拒绝入清单（schema 校验层拦截，AC-10）', () => {
+      const base = { change: 'c', op: 'append' as const, project_root: '/tmp/x' };
+      for (const bad of [['../outside.ts'], ['/abs/x.ts'], ['src\\x.ts'], ['']]) {
+        expect(changeFilesInputSchema.safeParse({ ...base, written: bad }).success).toBe(false);
+      }
+      // 合法 POSIX 相对路径通过
+      expect(changeFilesInputSchema.safeParse({ ...base, written: ['src/ok.ts'] }).success).toBe(
+        true,
+      );
+    });
+  });
+
+  describe('archi_check — change 传参与 staged 显式报错 (AC-9)', () => {
+    it('tools/call 传 change → runCrossRefCheck 收到 change 传参 (AC-9)', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(c4CrossRef, 'runCrossRefCheck');
+      try {
+        const result = await client.callTool({
+          name: 'archi_check',
+          arguments: withProjectRoot({ change: 'my-change' }),
+        });
+
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledWith(process.cwd(), {
+          staged: undefined,
+          files: undefined,
+          change: 'my-change',
+        });
+        expect(JSON.parse(extractText(result)).status).toBe('clean');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('tools/call 传 files → 拆分逗号分隔列表并透传 (AC-9)', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(c4CrossRef, 'runCrossRefCheck');
+      try {
+        await client.callTool({
+          name: 'archi_check',
+          arguments: withProjectRoot({ files: ' src/a.ts , src/b.ts ,' }),
+        });
+
+        expect(spy).toHaveBeenCalledWith(process.cwd(), {
+          staged: undefined,
+          files: ['src/a.ts', 'src/b.ts'],
+          change: undefined,
+        });
+      } finally {
+        spy.mockRestore();
+      }
+    });
+
+    it('staged: true → 工具调用返回错误（显式废弃别名，AC-9）', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(c4CrossRef, 'runCrossRefCheck');
+      spy.mockClear();
+      try {
+        const result = await client.callTool({
+          name: 'archi_check',
+          arguments: withProjectRoot({ staged: true }),
+        });
+
+        expect(isToolError(result)).toBe(true);
+        expect(spy).toHaveBeenCalledTimes(1);
+        expect(extractText(result)).toContain('staged 模式已由清单模式替代');
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
+  describe('test_resolve_paths — 清单模式接线 (AC-8)', () => {
+    it('tools/call modules="change" + change → runTestResolvePaths 收到新入参形态 (AC-8)', async () => {
+      const { dir, cleanup } = setupTempProject();
+      setupChangeWithWorkflow(dir, 'tr-change');
+      setResolvedRoot(dir);
+      const spy = vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths');
+      try {
+        const result = await client.callTool({
+          name: 'test_resolve_paths',
+          arguments: withProjectRoot({ modules: 'change', change: 'tr-change' }, dir),
+        });
+
+        expect(isToolError(result)).toBe(false);
+        expect(spy).toHaveBeenCalledWith({
+          modules: 'change',
+          change: 'tr-change',
+          project_root: dir,
+        });
+        const data = JSON.parse(extractText(result));
+        expect(data).toHaveProperty('unit_tests');
+        expect(data).toHaveProperty('errors');
+      } finally {
+        spy.mockRestore();
+        cleanup();
+      }
+    });
+
+    it('modules="change" 缺 change → schema refine 校验拒绝（AC-8）', async () => {
+      setResolvedRoot(process.cwd());
+      const spy = vi.spyOn(testResolvePathsCmd, 'runTestResolvePaths');
+      spy.mockClear();
+      try {
+        const result = await client.callTool({
+          name: 'test_resolve_paths',
+          arguments: withProjectRoot({ modules: 'change' }),
+        });
+
+        expect(isToolError(result)).toBe(true);
+        expect(spy).toHaveBeenCalledTimes(0);
+      } finally {
+        spy.mockRestore();
+      }
+    });
+  });
+
+  describe('工具清单回归 — change_files 为纯新增', () => {
+    it('既有工具注册名称不变且总数为 15', async () => {
+      const names = await getRegisteredToolNames(client);
+      for (const name of [
+        'phase_log',
+        'phase_next',
+        'backtrack',
+        'change_create',
+        'change_list',
+        'spec_list',
+        'config_get',
+        'archi_check',
+        'archi_query',
+        'archi_validate',
+        'archi_write',
+        'archi_decide',
+        'test_detect_frameworks',
+        'test_resolve_paths',
+      ]) {
+        expect(names).toContain(name);
+      }
+      expect(names).toHaveLength(15);
+    });
   });
 });

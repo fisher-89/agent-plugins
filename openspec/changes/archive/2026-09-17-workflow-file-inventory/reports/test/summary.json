@@ -1,0 +1,83 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-17T07:02:34.463Z",
+  "duration_seconds": 703,
+  "total": 2095,
+  "passed": 2095,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 96.87,
+      "branches": 89.02,
+      "functions": 99.32
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 41,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 78.68,
+    "threshold": 70,
+    "measured": {
+      "killed": 1450,
+      "survived": 362,
+      "timeout": 4,
+      "noCoverage": 32,
+      "compileError": 0,
+      "runtimeError": 2,
+      "ignored": 262,
+      "total": 2112,
+      "detected": 1454,
+      "undetected": 394
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 78.67965367965368,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 41,
+        "passed_count": 41
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/workflow-file-inventory/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "All 2095 vite-plus tests passed (0 failed, 0 skipped) with no execution errors; conclusion pass is consistent with counts, coverage.pass, and mutation.pass, so no fixes were required.",
+    "Coverage thresholds met: lines 96.87/90, branches 89.02/85, functions 99.32/90. Note: coverage.overrides[0] (plugins/dev-team) reports measured all-null with passed_count 0/41 while pass=true; null means not evaluated (not a shortfall), so the aggregate measured values are authoritative.",
+    "Mutation score 78.68% clears the 70% threshold (1450 killed, 362 survived, 4 timeout, 32 noCoverage, 2 runtimeError out of 2112 mutants); survivors and no-coverage mutants are improvement opportunities, not gate failures."
+  ]
+}

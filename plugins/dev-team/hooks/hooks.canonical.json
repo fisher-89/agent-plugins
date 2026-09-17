@@ -1,5 +1,5 @@
 {
-  "description": "dev-team hooks：PreToolUse 保护受保护文件；SubagentStop static-check 主要作用于 Claude（Cursor 经 agent include 软门禁）。",
+  "description": "dev-team hooks：PreToolUse 保护受保护文件（写/删保护与批量还原拦截）；PostToolUse record-files 将文件操作归账到当前 change 的文件清单（Claude 与 Cursor，Cursor 工具集为 Write/StrReplace/Shell）；SubagentStop static-check 主要作用于 Claude（Cursor 经 agent include 软门禁）。",
   "preToolUse": [
     {
       "matchers": {
@@ -21,6 +21,15 @@
         "cursor": null
       },
       "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" protect-files"
+    }
+  ],
+  "postToolUse": [
+    {
+      "matchers": {
+        "claude": "Write|Edit|NotebookEdit|Bash|PowerShell|__MCP:phase_next__",
+        "cursor": "Write|StrReplace|Shell|__MCP:phase_next__"
+      },
+      "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" record-files"
     }
   ],
   "subagentStop": [

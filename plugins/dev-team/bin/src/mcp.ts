@@ -5,6 +5,7 @@ import { type z, type ZodType } from 'zod/v4';
 
 import { runBacktrack } from './commands/backtrack';
 import { runChangeCreate } from './commands/change-create';
+import { runChangeFiles } from './commands/change-files';
 import { runChangeList } from './commands/change-list';
 import { runConfigGet } from './commands/config-get';
 import { runPhaseLog } from './commands/phase-log';
@@ -44,6 +45,8 @@ import {
   changeListOutputSchema,
   changeCreateInputSchema,
   changeCreateOutputSchema,
+  changeFilesInputSchema,
+  changeFilesOutputSchema,
   specListInputSchema,
   specListOutputSchema,
 } from './schemas';
@@ -147,7 +150,7 @@ const MCP_TOOLS = [
   {
     name: 'archi_check',
     description:
-      'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files.',
+      'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files. The checked file set comes from an explicit files list or the target change file inventory (workflow.json files.written).',
     inputSchema: archiCheckInputSchema,
     outputSchema: archiCheckOutputSchema,
     handler: async (
@@ -165,8 +168,9 @@ const MCP_TOOLS = [
                 .filter(Boolean)
             : undefined;
           const result = await runCrossRefCheck(projectRoot, {
-            staged: !!args.staged,
+            staged: args.staged,
             files,
+            change: args.change,
           });
           return jsonContent(archiCheckOutputSchema, result);
         },
@@ -277,7 +281,7 @@ const MCP_TOOLS = [
   {
     name: 'test_resolve_paths',
     description:
-      'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "git-change" — reads git diff HEAD --name-only to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
+      'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "change" (with the required `change` argument) — reads the change file inventory (workflow.json `files.written`) to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
     inputSchema: testResolvePathsInputSchema,
     outputSchema: testResolvePathsOutputSchema,
     handler: async (
@@ -325,6 +329,24 @@ const MCP_TOOLS = [
         async (projectRoot) => {
           const result = runChangeCreate(args.name, projectRoot, args.workflow_type);
           return jsonContent(changeCreateOutputSchema, result);
+        },
+      ),
+  },
+  {
+    name: 'change_files',
+    description:
+      'Merge paths into or overwrite the change file inventory (the `files` net state in workflow.json). op="append" folds paths into the net state to record file operations the PostToolUse hook missed (manual fallback for hook-invisible operations); op="set" wholesale-overwrites the provided buckets to explicitly correct the net state (e.g. after restores the hook cannot see). Returns the net state after the operation.',
+    inputSchema: changeFilesInputSchema,
+    outputSchema: changeFilesOutputSchema,
+    handler: async (
+      args: z.input<typeof changeFilesInputSchema>,
+    ): Promise<McpOutput<typeof changeFilesOutputSchema>> =>
+      withResolvedProjectRoot(
+        'change_files',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const result = runChangeFiles({ ...args, project_root: projectRoot });
+          return jsonContent(changeFilesOutputSchema, result);
         },
       ),
   },

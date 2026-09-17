@@ -1,5 +1,5 @@
-type AgentType = 'claude' | 'cursor' | 'zcode';
-export type ProductEnvKey = 'claude' | 'cursor' | 'cursorHome' | 'zcode';
+type AgentType = 'claude' | 'cursor';
+export type ProductEnvKey = 'claude' | 'cursor' | 'cursorHome';
 type ProductLayout = 'plugin' | 'home-image';
 
 export interface ProductEnv extends ModelEnv, ToolEnv {
@@ -40,7 +40,7 @@ interface ToolEnv {
 
 const PLUGIN_NAME = 'dev-team';
 
-export const PRODUCT_ENV_KEYS: ProductEnvKey[] = ['claude', 'cursor', 'cursorHome', 'zcode'];
+export const PRODUCT_ENV_KEYS: ProductEnvKey[] = ['claude', 'cursor', 'cursorHome'];
 
 const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
   claude: {
@@ -49,7 +49,7 @@ const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
     pluginPrefix: `${PLUGIN_NAME}:`,
     namePrefix: '',
     mcpToolPrefix: `mcp__plugin_${PLUGIN_NAME}_dev-team__`,
-    outDir: '../../claude-plugins/dev-team',
+    outDir: '../../dist/claude-plugins/dev-team',
     pluginFilePath: '.claude-plugin/plugin.json',
     hooksFilePath: 'hooks/hooks.json',
     mcpFilePath: '.mcp.json',
@@ -68,7 +68,7 @@ const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
     pluginPrefix: `${PLUGIN_NAME}:`,
     namePrefix: '',
     mcpToolPrefix: `mcp__plugin_${PLUGIN_NAME}_dev-team__`,
-    outDir: '../../cursor-plugins/dev-team',
+    outDir: '../../dist/cursor-plugins/dev-team',
     pluginFilePath: '.cursor-plugin/plugin.json',
     hooksFilePath: 'hooks/hooks.json',
     mcpFilePath: 'mcp.json',
@@ -87,7 +87,7 @@ const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
     pluginPrefix: '',
     namePrefix: `${PLUGIN_NAME}_`,
     mcpToolPrefix: `mcp__user-${PLUGIN_NAME}_mcp__`,
-    outDir: '../../cursor-home-image/dev-team',
+    outDir: '../../dist/cursor-home-image/dev-team',
     pluginFilePath: '',
     hooksFilePath: 'hooks.json',
     mcpFilePath: 'mcp.json',
@@ -100,25 +100,6 @@ const ENV_TABLE: Record<ProductEnvKey, ProductEnv> = {
     toolCmd: 'Shell',
     toolAskUser: 'AskQuestion',
   },
-  zcode: {
-    agent: 'zcode',
-    layout: 'plugin',
-    pluginPrefix: `${PLUGIN_NAME}:`,
-    namePrefix: '',
-    mcpToolPrefix: `mcp__plugin_${PLUGIN_NAME}_dev-team__`,
-    outDir: '../../zcode-plugins/dev-team',
-    pluginFilePath: '.zcode-plugin/plugin.json',
-    hooksFilePath: 'hooks/hooks.json',
-    mcpFilePath: '.mcp.json',
-    pluginRoot: '${CLAUDE_PLUGIN_ROOT}',
-    modelHigh: 'glm-5.3',
-    modelFast: 'glm-5.3-flash',
-    toolWrite: 'Write',
-    toolEdit: 'Edit',
-    toolBash: 'Bash',
-    toolCmd: '',
-    toolAskUser: 'AskUserQuestion',
-  }
 };
 
 export function getEnv(key: ProductEnvKey): ProductEnv {

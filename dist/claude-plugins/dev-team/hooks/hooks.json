@@ -1,0 +1,65 @@
+{
+  "description": "dev-team hooks：PreToolUse 保护受保护文件（写/删保护与批量还原拦截）；PostToolUse record-files 将文件操作归账到当前 change 的文件清单（Claude 与 Cursor，Cursor 工具集为 Write/StrReplace/Shell）；SubagentStop static-check 主要作用于 Claude（Cursor 经 agent include 软门禁）。",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Write|Edit",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" protect-files"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" protect-files"
+          }
+        ]
+      },
+      {
+        "matcher": "PowerShell",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" protect-files"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|mcp__plugin_dev-team_dev-team__phase_next",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" record-files"
+          }
+        ]
+      }
+    ],
+    "SubagentStop": [
+      {
+        "matcher": "dev-team:implementation-generator",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" static-check"
+          }
+        ]
+      },
+      {
+        "matcher": "dev-team:test-gen-generator",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" static-check"
+          }
+        ]
+      }
+    ]
+  }
+}

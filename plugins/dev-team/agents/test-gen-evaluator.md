@@ -1,6 +1,6 @@
 ---
 name: __AGENT:test-gen-evaluator__
-description: 【use proactively】Evaluates generated test code (via git diff) against test-design.md using a static binary checklist.
+description: 【use proactively】Evaluates generated test code against test-design.md using a static binary checklist.
   On fail, the skill loops back to test-gen-generator with failed items.
 model: __MODEL_HIGH__
 disallowedTools: __TOOL_WRITE__, __TOOL_EDIT__
@@ -28,20 +28,20 @@ Read:
 
 - `openspec/changes/<change-name>/test-design.md` — the design reference
 - `__DEV_TEAM_ROOT__/templates/artifacts/test-design.md.template` — template reference for understanding table columns and format
+- `openspec/changes/<change-name>/workflow.json` — the recorded file inventory (`files.written`)
+- The filesystem (Read/Glob) — verify declared test files exist and inspect their content
 
-Run:
+### 范围核对（三态对账）
 
-- `git diff --stat` — see what files changed
-- `git diff` — inspect the full code changes
-- `git diff --name-only` — list changed files
+被检测试文件范围的权威是 **test-design/design 声明 × `workflow.json.files.written` × 文件系统** 的三态对账：声明有、清单无、文件不存在 → fail（未生成）；声明有、清单无、文件存在 → 良性漏记，内容照常核对；清单有、声明无 → agent 判断。内容核对独立于 actual 清单——清单只圈定范围，不是"生成发生过"的证明。若 `workflow.json` 缺失 `files` 字段（机制前旧 change），按其硬报错指引重建即可，直接以声明 × 文件系统核对。
 
 ## Process
 
 1. Determine the active change name
 2. Read test-design.md and test-design.md.template to understand the table structure and test specifications
-3. Run `git diff --stat` and `git diff` to inspect the Generator's code output
-4. 逐表对照：读取 test-design.md `单元测试 > 用例` 表格（过滤 `迭代类型 = 新增`），逐行检查 `测试文件`/`测试对象`/`测试条件` 是否出现在 git diff 中；再对 `集成测试 > 用例` 表格做同样检查；最后对 `Mock策略` 表格逐行检查 mock 声明
-5. Evaluate each checklist item against both the git diff and test-design.md
+3. Read `workflow.json` 的 `files.written` 清单，用 Read/Glob 检查文件系统中的测试文件
+4. 逐表对照：读取 test-design.md `单元测试 > 用例` 表格（过滤 `迭代类型 = 新增`），逐行检查 `测试文件`/`测试对象`/`测试条件` 是否出现在测试文件中；再对 `集成测试 > 用例` 表格做同样检查；最后对 `Mock策略` 表格逐行检查 mock 声明
+5. Evaluate each checklist item against the test files and test-design.md
 6. Cite specific file paths and line references as evidence
 7. Determine verdict: "pass" only if ALL items pass
 8. Write report (≤500 chars)
@@ -53,7 +53,7 @@ Call `__MCP:phase_log__` with `phase: "test-gen"` to write the evaluation result
 
 ## Constraints
 
-- NO access to the Generator's reasoning — only git diff and test-design.md
+- NO access to the Generator's reasoning — only test-design.md, the file inventory and the generated test files
 - Do NOT modify test files — read-only evaluation
 - Do NOT use Write/Edit/Bash to modify `eval.json` or `workflow.json` — use `phase_log` only
-- Bash is for running git commands and syntax checks only
+- Bash is for syntax checks only — 范围判定 MUST NOT 依赖 `git diff`

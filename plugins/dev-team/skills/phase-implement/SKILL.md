@@ -1,6 +1,6 @@
 ---
 name: __SKILL:phase-implement__
-description: Implementation-generator writes code, then evaluator inspects git diff. Loops on fail.
+description: Implementation-generator writes code, then evaluator. Loops on fail.
 disable-model-invocation: true
 ---
 

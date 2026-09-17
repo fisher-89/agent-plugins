@@ -10,7 +10,6 @@
  * Ported from Python archi-validate.py.
  */
 
-import { execSync } from 'child_process';
 import * as fs from 'fs';
 import * as path from 'path';
 
@@ -22,6 +21,8 @@ import type {
   CrossRefViolation,
   ArchiCheckResult,
 } from './c4-types';
+import { getChangeDir } from './change';
+import { readFileInventory } from './file-inventory';
 
 // Python stdlib modules for filtering
 const PYTHON_STDLIB = new Set([
@@ -96,31 +97,35 @@ function normalizePath(p: string): string {
 }
 
 /**
- * Get changed files from git diff --cached (staged) or a provided file list.
+ * Resolve the file set to check. Priority:
+ * 1. explicit `files` list — used as-is (and skips the inventory read);
+ * 2. change inventory mode — the change's `workflow.json` `files.written`
+ *    pass through unchanged (no test-config filtering); a legacy change
+ *    without `files` throws the rebuild-guidance hard error;
+ * 3. otherwise empty.
+ *
+ * `staged: true` is a deprecated alias that throws: the git staged mode was
+ * replaced by the inventory mode, and no implicit `git diff --cached`
+ * fallback exists. Model files (`openspec/architecture/**`) only serve as
+ * the reference frame — they never enter the check set (the recorder excludes
+ * `openspec/**` from the inventory by construction).
  */
 function getChangedFiles(
   projectRoot: string,
-  options: { staged?: boolean; files?: string[] } = {},
+  options: { staged?: boolean; files?: string[]; change?: string } = {},
 ): string[] {
+  if (options.staged) {
+    throw new Error(
+      'staged 模式已由清单模式替代：请传 change（读取文件清单）或 files（显式文件列表）。',
+    );
+  }
+
   if (options.files && options.files.length > 0) {
     return options.files;
   }
 
-  if (options.staged) {
-    try {
-      const result = execSync('git diff --cached --name-only', {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        timeout: 10000,
-        stdio: 'pipe',
-      });
-      return result
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean);
-    } catch {
-      return [];
-    }
+  if (options.change) {
+    return readFileInventory(getChangeDir(options.change, projectRoot)).written;
   }
 
   return [];
@@ -491,7 +496,7 @@ function buildMatchedList(
  */
 export async function runCrossRefCheck(
   projectRoot: string,
-  options: { staged?: boolean; files?: string[] } = {},
+  options: { staged?: boolean; files?: string[]; change?: string } = {},
 ): Promise<ArchiCheckResult> {
   const model = await loadModel(projectRoot);
 

@@ -13,6 +13,11 @@ const hooksCanonicalPreToolUseSchema = z.object({
   commandTemplate: z.string(),
 });
 
+const hooksCanonicalPostToolUseSchema = z.object({
+  matchers: hooksCanonicalMatcherSchema,
+  commandTemplate: z.string(),
+});
+
 const hooksCanonicalSubagentStopSchema = z.object({
   matchers: hooksCanonicalMatcherSchema,
   loop_limit: z.number().optional(),
@@ -22,6 +27,7 @@ const hooksCanonicalSubagentStopSchema = z.object({
 const hooksCanonicalSchema = z.object({
   description: z.string().optional(),
   preToolUse: z.array(hooksCanonicalPreToolUseSchema),
+  postToolUse: z.array(hooksCanonicalPostToolUseSchema).default([]),
   subagentStop: z.array(hooksCanonicalSubagentStopSchema),
 });
 
@@ -43,6 +49,16 @@ function buildClaudeNested(canonical: HooksCanonical): unknown {
         hooks: [{ type: 'command', command: entry.commandTemplate }],
       })),
   };
+
+  const postToolUse = canonical.postToolUse
+    .filter((entry) => entry.matchers.claude)
+    .map((entry) => ({
+      matcher: entry.matchers.claude,
+      hooks: [{ type: 'command', command: entry.commandTemplate }],
+    }));
+  if (postToolUse.length > 0) {
+    hooks.PostToolUse = postToolUse;
+  }
 
   const subagentStop = canonical.subagentStop
     .filter((entry) => entry.matchers.claude)
@@ -72,6 +88,16 @@ function buildCursorNative(canonical: HooksCanonical): unknown {
     }));
   if (preToolUse.length > 0) {
     hooks.preToolUse = preToolUse;
+  }
+
+  const postToolUse = canonical.postToolUse
+    .filter((entry) => entry.matchers.cursor)
+    .map((entry) => ({
+      matcher: entry.matchers.cursor,
+      command: entry.commandTemplate,
+    }));
+  if (postToolUse.length > 0) {
+    hooks.postToolUse = postToolUse;
   }
 
   const subagentStop = canonical.subagentStop

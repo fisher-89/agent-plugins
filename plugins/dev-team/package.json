@@ -1,6 +1,6 @@
 {
   "name": "dev-team-cli",
-  "version": "2.10.36",
+  "version": "2.10.37",
   "private": true,
   "description": "dev-team CLI - eval-log command for OpenSpec workflow",
   "type": "module",
@@ -15,7 +15,6 @@
     "@likec4/language-services": "^1.57.0",
     "cac": "^6.7.14",
     "picomatch": "^4.0.4",
-    "simple-git": "^3.27.0",
     "zod": "^4.4.3"
   },
   "devDependencies": {

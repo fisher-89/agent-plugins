@@ -48,11 +48,14 @@ The tool SHALL create `openspec/changes/<name>/` directory and write `workflow.j
 
 The tool SHALL NOT create `eval.json`. The tool SHALL NOT write an `eval` key (including `"eval": []`) on the new `workflow.json`.
 
+`change_create` SHALL 在新建的 `workflow.json` 中写入初始文件清单 `files: { written: [], deleted: [] }`（两个空数组），使 `workflow-file-inventory` 的消费方可依赖该字段存在；缺失 `files` 的 change 一律视为机制前旧 change 并被消费方硬报错。初始 `files` MUST NOT 预填任何路径。
+
 #### Scenario: Default workflow.json is created
 
 - **WHEN** `change_create` is called with `name: "my-change"`
 - **THEN** a directory `openspec/changes/my-change/` SHALL exist
 - **AND** `openspec/changes/my-change/workflow.json` SHALL contain `workflow_type` 与 `created`
+- **AND** `workflow.json` 的 `files` SHALL 等于 `{ "written": [], "deleted": [] }`
 - **AND** `workflow.json` SHALL NOT contain key `eval`
 - **AND** `openspec/changes/my-change/eval.json` SHALL NOT exist
 - **AND** `openspec/changes/my-change/.openspec.yaml` SHALL NOT exist
@@ -63,6 +66,7 @@ The tool SHALL NOT create `eval.json`. The tool SHALL NOT write an `eval` key (i
 - **AND** `openspec/changes/my-change/` already exists
 - **THEN** the tool SHALL return an error
 - **AND** SHALL NOT create `eval.json` or add `eval` to an existing `workflow.json`
+- **AND** SHALL NOT 覆写既有 change 的 `files`
 
 ### Requirement: change_create rejects existing change
 

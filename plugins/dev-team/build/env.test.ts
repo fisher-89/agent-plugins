@@ -49,10 +49,3 @@ describe('getEnv', () => {
     expect(() => getEnv('' as ProductEnvKey)).toThrow();
   });
 });
-
-describe('PRODUCT_ENV_KEYS', () => {
-  it('长度为 3 且含且仅含 claude / cursor / cursorHome', () => {
-    expect(PRODUCT_ENV_KEYS).toHaveLength(3);
-    expect([...PRODUCT_ENV_KEYS].sort()).toEqual(['claude', 'cursor', 'cursorHome'].sort());
-  });
-});

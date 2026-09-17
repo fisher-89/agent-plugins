@@ -1,6 +1,6 @@
 ---
 name: __SKILL:phase-test-gen__
-description: Test-gen-generator writes test files, then evaluator checks via git diff against test-design.md. Loops on fail.
+description: Test-gen-generator writes test files, then evaluator reconciles them against test-design.md and the change file inventory. Loops on fail.
 disable-model-invocation: true
 ---
 

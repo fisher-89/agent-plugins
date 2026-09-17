@@ -1,10 +1,11 @@
-import { execSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 
 import { type z } from 'zod/v4';
 
+import { getChangeDir } from '../lib/change';
 import { readConfig } from '../lib/config';
+import { readFileInventory } from '../lib/file-inventory';
 import { toForwardSlash } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded } from '../lib/test-exclude';
@@ -26,7 +27,8 @@ interface ResolveError {
 
 interface ResolveTestPathsParams {
   projectRoot: string;
-  modules: string[] | 'git-change';
+  modules: string[] | 'change';
+  change?: string;
 }
 
 export interface ResolveTestPathsResult {
@@ -35,7 +37,8 @@ export interface ResolveTestPathsResult {
 }
 
 export interface TestResolvePathsInput {
-  modules: string[] | 'git-change';
+  modules: string[] | 'change';
+  change?: string;
   project_root?: string | null;
 }
 
@@ -151,7 +154,7 @@ function addUnitTest(unitTests: Map<string, UnitTestEntry>, sourcePath: string):
  * Step 1 of resolveTestPaths: determine effective modules list.
  *
  * Returns either the resolved module list or an early-return result (when
- * git-change mode produces no changes or encounters an error).
+ * change-inventory mode produces no written files or encounters an error).
  */
 function resolveEffectiveModules(
   params: ResolveTestPathsParams,
@@ -160,26 +163,28 @@ function resolveEffectiveModules(
 ): { modules: string[] } | { earlyReturn: ResolveTestPathsResult } {
   let effectiveModules: string[];
 
-  if (params.modules === 'git-change') {
-    try {
-      const stdout = execSync('git diff HEAD --name-only', {
-        cwd: projectRoot,
-        encoding: 'utf-8',
-        timeout: 10000,
-        stdio: 'pipe',
+  if (params.modules === 'change') {
+    if (!params.change) {
+      errors.push({
+        path: 'change',
+        message: 'modules 为 "change" 时必须提供 change 参数',
       });
-      effectiveModules = stdout
-        .split('\n')
-        .map((s) => s.trim())
-        .filter(Boolean);
-      if (effectiveModules.length === 0) {
-        return {
-          earlyReturn: { unit_tests: [], errors },
-        };
-      }
+      return {
+        earlyReturn: { unit_tests: [], errors },
+      };
+    }
+    try {
+      // Missing change dir / workflow.json / invalid JSON / no `files` all
+      // throw with rebuild guidance — collected as an error entry, never fatal.
+      effectiveModules = readFileInventory(getChangeDir(params.change, projectRoot)).written;
     } catch (e: unknown) {
-      const msg = extractErrorMessage(e, 'git diff HEAD --name-only failed');
-      errors.push({ path: 'git', message: msg });
+      const msg = extractErrorMessage(e, '读取 change 文件清单失败');
+      errors.push({ path: params.change, message: msg });
+      return {
+        earlyReturn: { unit_tests: [], errors },
+      };
+    }
+    if (effectiveModules.length === 0) {
       return {
         earlyReturn: { unit_tests: [], errors },
       };
@@ -323,7 +328,9 @@ function processEmptyModules(
  * Resolve unit test paths from a module list.
  *
  * Three modes:
- * 1. modules === "git-change" → run git diff HEAD --name-only to discover files
+ * 1. modules === "change" → read the target change file inventory
+ *    (`workflow.json.files.written`) as the module list; inventory read
+ *    failures are collected as error entries (with rebuild guidance)
  * 2. modules is non-empty array → filter through test config via runTestDetectFrameworks
  * 3. modules is empty array → config-driven directory scan via runTestDetectFrameworks plan
  *
@@ -376,5 +383,6 @@ export function runTestResolvePaths(args: TestResolvePathsInput): ResolveTestPat
   return resolveTestPaths({
     projectRoot,
     modules: args.modules,
+    change: args.change,
   });
 }

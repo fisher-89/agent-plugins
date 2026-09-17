@@ -8,9 +8,12 @@
 //   4. Generate summary report via generateSummaryReport
 // ---------------------------------------------------------------------------
 
+import { execFileSync } from 'node:child_process';
+import * as fs from 'node:fs';
 import * as path from 'path';
 
-import { getGitDiffFiles } from '../lib/git';
+import { getChangeDir } from '../lib/change';
+import { readFileInventory } from '../lib/file-inventory';
 import { getProjectDir } from '../lib/project-root';
 import { deriveSourcePathFromTestFile } from '../lib/test-path-naming';
 import { resolvePlanFiles } from '../lib/test-plan';
@@ -24,14 +27,18 @@ import { runTestDetectFrameworks } from './test-detect-frameworks';
 // ---------------------------------------------------------------------------
 
 export interface TestExecutionOptions {
+  /**
+   * Change name. Locates the reports directory AND selects the mutation
+   * scope: when set (and mutation is not skipped), the scope comes from the
+   * change file inventory (`workflow.json.files.written`) with the net-zero
+   * denoise filter applied. No dedicated scope option exists.
+   */
   change?: string;
   projectRoot?: string;
   /** test files to run */
   files?: string[];
   framework?: string;
   noMutation?: boolean;
-  /** Only mutate files changed in git diff (mutation scope restricted to working tree changes) */
-  mutationDiffOnly?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -46,11 +53,11 @@ function resolveReportsDir(projectRoot: string, change?: string): string {
 }
 
 // ---------------------------------------------------------------------------
-// Mutation diff file resolution
+// Mutation scope resolution (change file inventory)
 // ---------------------------------------------------------------------------
 
 /**
- * Expand mutation-diff paths so test-file entries also contribute their
+ * Expand inventory paths so test-file entries also contribute their
  * colocated sources (via test-path-naming reverse mapping).
  */
 function expandMutationDiffWithInferredSources(files: string[]): string[] {
@@ -67,22 +74,67 @@ function expandMutationDiffWithInferredSources(files: string[]): string[] {
 }
 
 /**
- * Resolve git diff file list when --mutation-diff-only is enabled.
- * Test-file diffs are reverse-mapped to colocated sources so those sources
- * enter the mutation intersection.
- * Returns undefined when the option is not active.
+ * Return the `HEAD` version of a file, or null when HEAD has no such file or
+ * the read fails — the caller then keeps the file (overstate direction only).
  */
-async function resolveMutationDiffFiles(
-  mutationDiffOnly: boolean | undefined,
-  projectRoot: string,
-): Promise<string[] | undefined> {
-  if (!mutationDiffOnly) return undefined;
-  const files = await getGitDiffFiles(projectRoot);
+function headFileContent(projectRoot: string, file: string): string | null {
+  try {
+    return execFileSync('git', ['show', `HEAD:${file}`], {
+      cwd: projectRoot,
+      encoding: 'utf-8',
+      timeout: 10000,
+      stdio: ['ignore', 'pipe', 'ignore'],
+    });
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Net-zero denoise: drop files whose working-tree content is identical to
+ * their HEAD version (written then reverted in place) — mutating them is pure
+ * noise. The filter is an optimization only, never the scope authority;
+ * correctness of filtered files stays with the evaluator content check.
+ * Unreadable working-tree files and HEAD-less (new) files are kept.
+ */
+function filterNetZeroFiles(files: string[], projectRoot: string): string[] {
+  const kept: string[] = [];
+  let excluded = 0;
+  for (const file of files) {
+    let working: string | null = null;
+    try {
+      working = fs.readFileSync(path.resolve(projectRoot, file), 'utf-8');
+    } catch {
+      kept.push(file);
+      continue;
+    }
+    const head = headFileContent(projectRoot, file);
+    if (head !== null && head === working) {
+      excluded += 1;
+      continue;
+    }
+    kept.push(file);
+  }
+  if (excluded > 0) {
+    console.log(
+      `mutation denoise: ${excluded} net-zero files excluded (content identical to HEAD)`,
+    );
+  }
+  return kept;
+}
+
+/**
+ * Resolve the mutation scope from the change file inventory.
+ */
+function resolveMutationDiffFiles(change: string, projectRoot: string): string[] | undefined {
+  const changeDir = getChangeDir(change, projectRoot);
+  const written = readFileInventory(changeDir).written;
+  const expanded = expandMutationDiffWithInferredSources(written);
+  const scoped = filterNetZeroFiles(expanded, projectRoot);
   console.log(
-    `--mutation-diff-only: ${files.length} files in working tree diff (${files.slice(0, 5).join(', ')})`,
+    `mutation scope (change inventory): ${scoped.length} files (${scoped.slice(0, 5).join(', ')})`,
   );
-  const absolute = files.map((file) => path.resolve(projectRoot, file).replace(/\\/g, '/'));
-  return expandMutationDiffWithInferredSources(absolute);
+  return scoped.map((file) => path.resolve(projectRoot, file).replace(/\\/g, '/'));
 }
 
 // ---------------------------------------------------------------------------
@@ -178,7 +230,10 @@ export async function runTestExecution(options: TestExecutionOptions): Promise<n
     return 0;
   }
 
-  const mutationDiffFiles = await resolveMutationDiffFiles(options.mutationDiffOnly, projectRoot);
+  const mutationDiffFiles =
+    options.change && !options.noMutation
+      ? resolveMutationDiffFiles(options.change, projectRoot)
+      : undefined;
   const reportsDir = resolveReportsDir(projectRoot, options.change);
   const subReports = [];
 

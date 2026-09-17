@@ -1,7 +1,6 @@
 .*/
 !.claude-plugin
 !.cursor-plugin
-!.zcode-plugin
 !.gitignore
 memory
 

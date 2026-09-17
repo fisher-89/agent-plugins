@@ -32,7 +32,7 @@ The model uses four element kinds in a strict hierarchy:
   - `archi_query` — query model structure (optional `element` filter)
   - `archi_validate` — validate DSL syntax (optional `source` text)
   - `archi_write` — validate and write model files (requires `path`, `source`)
-  - `archi_check` — cross-reference imports vs. model (optional `staged` flag, `files` list)
+  - `archi_check` — cross-reference imports vs. model (change inventory mode via `change`, or explicit `files` list)
   - `archi_decide` — create, list, update ADRs (`action`: `create` | `list` | `update`)
 
 ## DSL Syntax Quick Reference
@@ -170,13 +170,13 @@ __MCP:archi_write__({path: "models/XX-name.c4", source: "<dsl>"})
 
 When the user asks to validate architecture or check code against the model:
 
-1. Call `__MCP:archi_check__` on staged files:
+1. Call `__MCP:archi_check__` on the active change's file inventory (the recorded `files.written` in `workflow.json`):
 
    ```
-   __MCP:archi_check__({staged: true})
+   __MCP:archi_check__({change: "<change-name>"})
    ```
 
-   Or on specific files:
+   Or, when there is no change context, on specific files:
 
    ```
    __MCP:archi_check__({files: "file1.ts,file2.ts"})

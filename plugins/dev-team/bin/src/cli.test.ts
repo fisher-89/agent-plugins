@@ -131,7 +131,7 @@ describe('dev-team test-execution -- 边界', () => {
 
   it('同时传递多个选项时不影响 test-execution 命令正常注册', () => {
     const cmd = getTestExecCommand();
-    // --change, --project-root, --files, --framework, --skip-mutation, --mutation-diff-only
+    // --change, --project-root, --files, --framework, --skip-mutation
     expect(cmd.options.length).toBeGreaterThanOrEqual(4);
   });
 });
@@ -258,5 +258,106 @@ describe('dev-team run_static_analysis -- 边界', () => {
       expect.objectContaining({ projectRoot: '' }),
     );
     exitSpy.mockRestore();
+  });
+});
+
+// ===========================================================================
+// dev-team test-execution — 选项面 (AC-7)：--change 兼作清单突变 scope 入口
+// ===========================================================================
+
+describe('dev-team test-execution — 选项面 (AC-7)', () => {
+  it('action 收到的 options 不含 mutationDiffOnly 字段（--mutation-diff-only 已删除，不残留透传）', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+    try {
+      const cmd = getTestExecCommand();
+      await cmd.commandAction!({ projectRoot: '/test/project' });
+
+      const callArgs = mockRunTestExecution.mock.calls.at(-1)!;
+      expect(callArgs[0]).not.toHaveProperty('mutationDiffOnly');
+      const optionNames = cmd.options.map((o) => (o as unknown as { name: string }).name);
+      expect(optionNames).not.toContain('mutationDiffOnly');
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('--change 传值经 action 映射至 runTestExecution options.change（兼作突变 scope 入口，透传不破坏）', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+    try {
+      const cmd = getTestExecCommand();
+      await cmd.commandAction!({ projectRoot: '/test/project', change: 'my-change' });
+
+      expect(mockRunTestExecution).toHaveBeenCalledWith(
+        expect.objectContaining({ change: 'my-change' }),
+      );
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('--files 逗号分隔解析、trim 与空段过滤后透传；缺省时为 undefined', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+    try {
+      const cmd = getTestExecCommand();
+      await cmd.commandAction!({
+        projectRoot: '/test/project',
+        files: ' src/a.test.ts , src/b.test.ts ,',
+      });
+
+      expect(mockRunTestExecution).toHaveBeenCalledWith(
+        expect.objectContaining({ files: ['src/a.test.ts', 'src/b.test.ts'] }),
+      );
+
+      await cmd.commandAction!({ projectRoot: '/test/project' });
+      const callArgs = mockRunTestExecution.mock.calls.at(-1)!;
+      expect(callArgs[0].files).toBeUndefined();
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('--framework 透传到 runTestExecution options.framework', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+    try {
+      const cmd = getTestExecCommand();
+      await cmd.commandAction!({ projectRoot: '/test/project', framework: 'vitest' });
+
+      expect(mockRunTestExecution).toHaveBeenCalledWith(
+        expect.objectContaining({ framework: 'vitest' }),
+      );
+    } finally {
+      exitSpy.mockRestore();
+    }
+  });
+
+  it('全部选项集中传参时命令注册与 action 调用正常（多选项组合回归）', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+    try {
+      const cmd = getTestExecCommand();
+      expect(cmd).toBeDefined();
+      await cmd.commandAction!({
+        change: 'combo-change',
+        projectRoot: '/test/project',
+        files: 'src/x.test.ts',
+        framework: 'vitest',
+        skipMutation: true,
+      });
+
+      expect(mockRunTestExecution).toHaveBeenCalledWith({
+        change: 'combo-change',
+        projectRoot: '/test/project',
+        files: ['src/x.test.ts'],
+        framework: 'vitest',
+        noMutation: true,
+      });
+      expect(exitSpy).toHaveBeenCalledWith(0);
+    } finally {
+      exitSpy.mockRestore();
+    }
   });
 });

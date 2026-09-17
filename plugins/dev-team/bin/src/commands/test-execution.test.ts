@@ -54,7 +54,8 @@ const mockDetectFrameworks = vi.fn();
 const mockExecutePlanEntry = vi.fn();
 const mockGenerateSubReport = vi.fn();
 const mockGenerateSummaryReport = vi.fn();
-const mockGetGitDiffFiles = vi.fn();
+const mockReadFileInventory = vi.fn();
+const mockExecFileSync = vi.fn();
 
 vi.mock('./test-detect-frameworks', () => ({
   runTestDetectFrameworks: (...args: unknown[]) => mockDetectFrameworks(...args),
@@ -69,9 +70,21 @@ vi.mock('../lib/test-report', () => ({
   generateSummaryReport: (...args: unknown[]) => mockGenerateSummaryReport(...args),
 }));
 
-vi.mock('../lib/git', () => ({
-  getGitDiffFiles: (...args: unknown[]) => mockGetGitDiffFiles(...args),
-}));
+vi.mock('../lib/file-inventory', async () => {
+  const actual = await vi.importActual('../lib/file-inventory');
+  return { ...actual, readFileInventory: (...args: unknown[]) => mockReadFileInventory(...args) };
+});
+
+vi.mock('node:child_process', async () => {
+  const actual = await vi.importActual('node:child_process');
+  return { ...actual, execFileSync: (...args: unknown[]) => mockExecFileSync(...args) };
+});
+
+// 清单通道默认合法空净状态；HEAD 内容对比（只读 git 子进程）默认不触发。
+beforeEach(() => {
+  mockReadFileInventory.mockReset().mockReturnValue({ written: [], deleted: [] });
+  mockExecFileSync.mockReset();
+});
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -164,7 +177,6 @@ describe('runTestExecution -- 正向 (AC-1)', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -394,7 +406,6 @@ describe('runTestExecution -- 异常', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -490,7 +501,6 @@ describe('runTestExecution -- 边界', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -551,7 +561,6 @@ describe('runTestExecution -- 幂等性', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -634,7 +643,6 @@ describe('runTestExecution -- noMutation 透传', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -745,76 +753,100 @@ describe('runTestExecution -- noMutation 透传', () => {
 });
 
 // ===========================================================================
-// mutationDiffOnly 透传
+// runTestExecution — 清单突变 scope (AC-7)：--change 兼作清单突变 scope 入口
 // ===========================================================================
 
-describe('runTestExecution -- mutationDiffOnly 透传', () => {
+describe('runTestExecution — 清单突变 scope (AC-7)', () => {
   beforeEach(() => {
     mockDetectFrameworks.mockReset();
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it('mutationDiffOnly 为 true 时调用 getGitDiffFiles 获取变更文件', async () => {
+  function stubHappyPath(): void {
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 1,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'pass',
+      problems: [],
+      coverage: null,
+    });
+  }
+
+  function abs(root: string, rel: string): string {
+    return path.resolve(root, rel).replace(/\\/g, '/');
+  }
+
+  it('传 change → readFileInventory(changeDir).written 经反推后作为 mutationDiffFiles 传入 executePlanEntry (AC-7)', async () => {
     const project = createTempProject();
     try {
-      mockDetectFrameworks.mockReturnValue({
-        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        plan: [makePlanEntry()],
-      });
-      mockGetGitDiffFiles.mockResolvedValue(['src/a.ts', 'src/b.ts']);
-      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-      mockGenerateSubReport.mockReturnValue(makeSubReport());
-      mockGenerateSummaryReport.mockReturnValue({
-        phase: 'test-execution',
-        command: 'dev-team test-execution',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        duration_seconds: 1,
-        total: 1,
-        passed: 1,
-        failed: 0,
-        skipped: 0,
-        conclusion: 'pass',
-        problems: [],
-        coverage: null,
+      stubHappyPath();
+      mockReadFileInventory.mockReturnValue({
+        written: ['src/foo.ts', 'src/bar.ts'],
+        deleted: [],
       });
 
-      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
+      await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
-      expect(mockGetGitDiffFiles).toHaveBeenCalledWith(project.root);
+      expect(mockReadFileInventory).toHaveBeenCalledWith(
+        path.resolve(project.root, 'openspec', 'changes', 'inv-change'),
+      );
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({
+          mutationDiffFiles: [abs(project.root, 'src/foo.ts'), abs(project.root, 'src/bar.ts')],
+        }),
+      );
     } finally {
       project.cleanup();
     }
   });
 
-  it('mutationDiffOnly 为 true 且 git diff 为空时透传空数组', async () => {
+  it('stdout 诊断行改为清单来源前缀（mutation scope (change inventory): N files），不再出现 --mutation-diff-only: 前缀', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    try {
+      stubHappyPath();
+      mockReadFileInventory.mockReturnValue({ written: ['src/a.ts', 'src/b.ts'], deleted: [] });
+
+      await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
+
+      expect(logs.some((l) => l.includes('mutation scope (change inventory): 2 files'))).toBe(true);
+      expect(logs.some((l) => l.includes('--mutation-diff-only:'))).toBe(false);
+    } finally {
+      vi.spyOn(console, 'log').mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('去噪：written 文件工作区内容 == HEAD 内容 → 从 scope 剔除（净归零去噪，AC-7）', async () => {
     const project = createTempProject();
     try {
-      mockDetectFrameworks.mockReturnValue({
-        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        plan: [makePlanEntry()],
-      });
-      mockGetGitDiffFiles.mockResolvedValue([]);
-      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-      mockGenerateSubReport.mockReturnValue(makeSubReport());
-      mockGenerateSummaryReport.mockReturnValue({
-        phase: 'test-execution',
-        command: 'dev-team test-execution',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        duration_seconds: 1,
-        total: 1,
-        passed: 1,
-        failed: 0,
-        skipped: 0,
-        conclusion: 'pass',
-        problems: [],
-        coverage: null,
-      });
+      stubHappyPath();
+      mockReadFileInventory.mockReturnValue({ written: ['src/noisy.ts'], deleted: [] });
+      // 工作区文件与 HEAD 内容一致 → 剔除
+      fs.writeFileSync(path.join(project.root, 'src-noisy-placeholder'), '', 'utf-8');
+      const noisyAbs = path.join(project.root, 'src', 'noisy.ts');
+      fs.mkdirSync(path.dirname(noisyAbs), { recursive: true });
+      fs.writeFileSync(noisyAbs, 'HEAD CONTENT\n', 'utf-8');
+      mockExecFileSync.mockReturnValue('HEAD CONTENT\n');
 
-      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
+      await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
@@ -826,62 +858,90 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
     }
   });
 
-  it('mutationDiffOnly 为 false 时不调用 getGitDiffFiles', async () => {
+  it('去噪边界：HEAD 无该文件（新建文件）→ 保留（漏斗只向 overstate 方向，AC-7）', async () => {
     const project = createTempProject();
     try {
-      mockDetectFrameworks.mockReturnValue({
-        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        plan: [makePlanEntry()],
-      });
-      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-      mockGenerateSubReport.mockReturnValue(makeSubReport());
-      mockGenerateSummaryReport.mockReturnValue({
-        phase: 'test-execution',
-        command: 'dev-team test-execution',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        duration_seconds: 1,
-        total: 1,
-        passed: 1,
-        failed: 0,
-        skipped: 0,
-        conclusion: 'pass',
-        problems: [],
-        coverage: null,
+      stubHappyPath();
+      mockReadFileInventory.mockReturnValue({ written: ['src/brand-new.ts'], deleted: [] });
+      const newAbs = path.join(project.root, 'src', 'brand-new.ts');
+      fs.mkdirSync(path.dirname(newAbs), { recursive: true });
+      fs.writeFileSync(newAbs, 'worktree only\n', 'utf-8');
+      // git show HEAD:<file> 失败（HEAD 无该文件）
+      mockExecFileSync.mockImplementation(() => {
+        throw new Error('fatal: path does not exist in HEAD');
       });
 
-      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: false });
+      await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
-      expect(mockGetGitDiffFiles).not.toHaveBeenCalled();
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({
+          mutationDiffFiles: [abs(project.root, 'src/brand-new.ts')],
+        }),
+      );
     } finally {
       project.cleanup();
     }
   });
 
-  it('mutationDiffOnly 为 false 时透传 undefined 到 executePlanEntry 的 mutationDiffFiles', async () => {
+  it('去噪边界：HEAD 内容读取失败 → 保留（overstate 方向，AC-7）', async () => {
     const project = createTempProject();
     try {
-      mockDetectFrameworks.mockReturnValue({
-        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        plan: [makePlanEntry()],
-      });
-      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-      mockGenerateSubReport.mockReturnValue(makeSubReport());
-      mockGenerateSummaryReport.mockReturnValue({
-        phase: 'test-execution',
-        command: 'dev-team test-execution',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        duration_seconds: 1,
-        total: 1,
-        passed: 1,
-        failed: 0,
-        skipped: 0,
-        conclusion: 'pass',
-        problems: [],
-        coverage: null,
+      stubHappyPath();
+      mockReadFileInventory.mockReturnValue({ written: ['src/maybe-equal.ts'], deleted: [] });
+      const fileAbs = path.join(project.root, 'src', 'maybe-equal.ts');
+      fs.mkdirSync(path.dirname(fileAbs), { recursive: true });
+      fs.writeFileSync(fileAbs, 'some content\n', 'utf-8');
+      mockExecFileSync.mockImplementation(() => {
+        throw new Error('git died');
       });
 
-      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: false });
+      await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({
+          mutationDiffFiles: [abs(project.root, 'src/maybe-equal.ts')],
+        }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('惰性解析：noMutation=true 且传 change → 不读清单、不执行 HEAD 内容对比', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+
+      await runTestExecution({
+        projectRoot: project.root,
+        change: 'legacy-change',
+        noMutation: true,
+      });
+
+      expect(mockReadFileInventory).not.toHaveBeenCalled();
+      expect(mockExecFileSync).not.toHaveBeenCalled();
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ mutationDiffFiles: undefined, noMutation: true }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('惰性解析：未传 change → 突变不限圈（现状默认语义），mutationDiffFiles 为 undefined 且不读清单', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockReadFileInventory).not.toHaveBeenCalled();
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
         project.root,
@@ -892,51 +952,123 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
     }
   });
 
-  it('mutationDiffOnly 为 undefined 时不调用 getGitDiffFiles（等价于 false）', async () => {
+  it('异常：change 的 workflow.json 缺 files → 硬报错「该 change 创建于文件清单机制之前，请重建」(AC-7)', async () => {
     const project = createTempProject();
     try {
-      mockDetectFrameworks.mockReturnValue({
-        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        plan: [makePlanEntry()],
-      });
-      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-      mockGenerateSubReport.mockReturnValue(makeSubReport());
-      mockGenerateSummaryReport.mockReturnValue({
-        phase: 'test-execution',
-        command: 'dev-team test-execution',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        duration_seconds: 1,
-        total: 1,
-        passed: 1,
-        failed: 0,
-        skipped: 0,
-        conclusion: 'pass',
-        problems: [],
-        coverage: null,
+      stubHappyPath();
+      mockReadFileInventory.mockImplementation(() => {
+        throw new Error(
+          'workflow.json 缺少 files 字段：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
+        );
       });
 
-      await runTestExecution({ projectRoot: project.root });
-
-      expect(mockGetGitDiffFiles).not.toHaveBeenCalled();
+      await expect(
+        runTestExecution({ projectRoot: project.root, change: 'legacy-change' }),
+      ).rejects.toThrow(/该 change 创建于文件清单机制之前，请重建/);
+      expect(mockExecutePlanEntry).not.toHaveBeenCalled();
     } finally {
       project.cleanup();
     }
   });
 
-  it('多 framework 时每个 plan entry 收到相同的 mutationDiffFiles', async () => {
+  it('异常：change 不存在 → 报错且不执行任何 plan entry', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      mockReadFileInventory.mockImplementation(() => {
+        throw new Error('workflow.json 不存在: ...。该文件由 change_create 建立。');
+      });
+
+      await expect(
+        runTestExecution({ projectRoot: project.root, change: 'ghost-change' }),
+      ).rejects.toThrow(/workflow.json 不存在/);
+      expect(mockExecutePlanEntry).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('边界：files.written 为空数组 → 空 scope，不回退任何 git diff 发现路径', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      mockReadFileInventory.mockReturnValue({ written: [], deleted: [] });
+
+      await runTestExecution({ projectRoot: project.root, change: 'empty-inv' });
+
+      expect(mockExecFileSync).not.toHaveBeenCalled();
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ mutationDiffFiles: [] }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('边界：written 含测试文件路径 → 反推同位源文件并入 scope（expandMutationDiffWithInferredSources 保留语义）', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      // 测试文件不在磁盘上 → 工作区读取失败 → 保留（overstate 方向）
+      mockReadFileInventory.mockReturnValue({ written: ['src/foo.test.ts'], deleted: [] });
+
+      await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({
+          mutationDiffFiles: [
+            abs(project.root, 'src/foo.test.ts'),
+            abs(project.root, 'src/foo.ts'),
+          ],
+        }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('--skip-mutation（noMutation）跳过突变阶段既有语义保留；报告目录仍指向 change 专属 reports/test (AC-7)', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+
+      await runTestExecution({
+        projectRoot: project.root,
+        change: 'my-feature',
+        noMutation: true,
+      });
+
+      const expectedReportsDir = path
+        .resolve(project.root, 'openspec', 'changes', 'my-feature', 'reports', 'test')
+        .replace(/\\/g, '/');
+      const subReportsDir = mockGenerateSubReport.mock.calls[0][3].replace(/\\/g, '/');
+      const summaryReportsDir = mockGenerateSummaryReport.mock.calls[0][2].replace(/\\/g, '/');
+      expect(subReportsDir).toBe(expectedReportsDir);
+      expect(summaryReportsDir).toBe(expectedReportsDir);
+      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
+        expect.any(Object),
+        project.root,
+        expect.objectContaining({ mutationDiffFiles: undefined, noMutation: true }),
+      );
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('多 framework 时每个 plan entry 收到相同的清单来源 mutationDiffFiles', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
-        detected: [
-          { file: 'src/foo.test.ts', framework: 'vitest' },
-          { file: 'tests/test_basic.py', framework: 'pytest' },
-        ],
+        detected: [],
         plan: [
           makePlanEntry({ framework: 'vitest' }),
           makePlanEntry({ framework: 'pytest', cwd: 'tests', root: 'tests' }),
         ],
       });
-      mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
       mockExecutePlanEntry
         .mockReturnValueOnce(makeExecutionResult({ framework: 'vitest' }))
         .mockReturnValueOnce(makeExecutionResult({ framework: 'pytest' }));
@@ -956,42 +1088,39 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
         problems: [],
         coverage: null,
       });
+      mockReadFileInventory.mockReturnValue({ written: ['src/a.ts'], deleted: [] });
 
-      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
+      await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
-      const expectedDiffFiles = [path.resolve(project.root, 'src/a.ts').replace(/\\/g, '/')];
+      const expected = [abs(project.root, 'src/a.ts')];
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
       expect(mockExecutePlanEntry).toHaveBeenNthCalledWith(
         1,
         expect.objectContaining({ framework: 'vitest' }),
         project.root,
-        expect.objectContaining({ mutationDiffFiles: expectedDiffFiles }),
+        expect.objectContaining({ mutationDiffFiles: expected }),
       );
       expect(mockExecutePlanEntry).toHaveBeenNthCalledWith(
         2,
         expect.objectContaining({ framework: 'pytest' }),
         project.root,
-        expect.objectContaining({ mutationDiffFiles: expectedDiffFiles }),
+        expect.objectContaining({ mutationDiffFiles: expected }),
       );
     } finally {
       project.cleanup();
     }
   });
 
-  it('--framework 过滤时仅匹配的 framework 执行，且仍收到 mutationDiffFiles', async () => {
+  it('--framework 过滤时仅匹配的 framework 执行，且仍收到清单来源 mutationDiffFiles', async () => {
     const project = createTempProject();
     try {
       mockDetectFrameworks.mockReturnValue({
-        detected: [
-          { file: 'src/foo.test.ts', framework: 'vitest' },
-          { file: 'tests/test_basic.py', framework: 'pytest' },
-        ],
+        detected: [],
         plan: [
           makePlanEntry({ framework: 'vitest' }),
           makePlanEntry({ framework: 'pytest', cwd: 'tests', root: 'tests' }),
         ],
       });
-      mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
       mockExecutePlanEntry.mockReturnValue(makeExecutionResult({ framework: 'vitest' }));
       mockGenerateSubReport.mockReturnValue(makeSubReport({ framework: 'vitest' }));
       mockGenerateSummaryReport.mockReturnValue({
@@ -1007,10 +1136,11 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
         problems: [],
         coverage: null,
       });
+      mockReadFileInventory.mockReturnValue({ written: ['src/a.ts'], deleted: [] });
 
       await runTestExecution({
         projectRoot: project.root,
-        mutationDiffOnly: true,
+        change: 'inv-change',
         framework: 'vitest',
       });
 
@@ -1019,56 +1149,7 @@ describe('runTestExecution -- mutationDiffOnly 透传', () => {
         expect.objectContaining({ framework: 'vitest' }),
         project.root,
         expect.objectContaining({
-          mutationDiffFiles: [path.resolve(project.root, 'src/a.ts').replace(/\\/g, '/')],
-        }),
-      );
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('mutationDiffOnly + --change 时报告写入 change 专属目录，且透传 mutationDiffFiles', async () => {
-    const project = createTempProject();
-    try {
-      mockDetectFrameworks.mockReturnValue({
-        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        plan: [makePlanEntry()],
-      });
-      mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
-      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-      mockGenerateSubReport.mockReturnValue(makeSubReport());
-      mockGenerateSummaryReport.mockReturnValue({
-        phase: 'test-execution',
-        command: 'dev-team test-execution',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        duration_seconds: 1,
-        total: 1,
-        passed: 1,
-        failed: 0,
-        skipped: 0,
-        conclusion: 'pass',
-        problems: [],
-        coverage: null,
-      });
-
-      await runTestExecution({
-        projectRoot: project.root,
-        mutationDiffOnly: true,
-        change: 'my-feature',
-      });
-
-      const expectedReportsDir = path
-        .resolve(project.root, 'openspec', 'changes', 'my-feature', 'reports', 'test')
-        .replace(/\\/g, '/');
-      const subReportsDir = mockGenerateSubReport.mock.calls[0][3].replace(/\\/g, '/');
-      const summaryReportsDir = mockGenerateSummaryReport.mock.calls[0][2].replace(/\\/g, '/');
-      expect(subReportsDir).toBe(expectedReportsDir);
-      expect(summaryReportsDir).toBe(expectedReportsDir);
-      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
-        expect.any(Object),
-        project.root,
-        expect.objectContaining({
-          mutationDiffFiles: [path.resolve(project.root, 'src/a.ts').replace(/\\/g, '/')],
+          mutationDiffFiles: [abs(project.root, 'src/a.ts')],
         }),
       );
     } finally {
@@ -1087,7 +1168,6 @@ describe('runTestExecution — 无配置提示引导 tests (AC-6)', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
   });
 
   it('plan.length === 0 时日志包含配置 tests 的引导文案，返回 0', async () => {
@@ -1177,7 +1257,6 @@ describe('runTestExecution -- 正向异常路径 (AC-1)', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -1231,7 +1310,6 @@ describe('runTestExecution — projectRoot / getProjectDir', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
@@ -1290,7 +1368,6 @@ describe('runTestExecution — logResult 状态计数文案', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
   });
 
   function stubHappySummary(): void {
@@ -1401,7 +1478,6 @@ describe('runTestExecution — logSummary 文案', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
   });
 
   it("conclusion: 'pass' 时 stdout 含 Summary: PASS 与 Total/Passed/Failed/Skipped/Duration 精确标签", async () => {
@@ -1481,26 +1557,24 @@ describe('runTestExecution — logSummary 文案', () => {
 });
 
 // ===========================================================================
-// runTestExecution — mutationDiffOnly 路径过滤
+// runTestExecution — files 过滤与反推（清单 scope 下的路径处理）
 // ===========================================================================
 
-describe('runTestExecution — mutationDiffOnly 路径过滤', () => {
+describe('runTestExecution — files 过滤与反推（清单 scope 下的路径处理）', () => {
   beforeEach(() => {
     mockDetectFrameworks.mockReset();
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 
-  it("mutationDiffOnly: true 且 options.files 含 ../x.ts：传给 executePlanEntry 的 files 过滤掉 startsWith('..') 项", async () => {
+  it('options.files 含 ../x.ts：传给 executePlanEntry 的 files 过滤掉 startsWith("..") 项', async () => {
     const project = createTempProject();
     mockDetectFrameworks.mockReturnValue({
       detected: [],
       plan: [makePlanEntry()],
     });
-    mockGetGitDiffFiles.mockResolvedValue(['src/a.ts']);
     mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
     mockGenerateSubReport.mockReturnValue(makeSubReport());
     mockGenerateSummaryReport.mockReturnValue({
@@ -1519,7 +1593,6 @@ describe('runTestExecution — mutationDiffOnly 路径过滤', () => {
     try {
       await runTestExecution({
         projectRoot: project.root,
-        mutationDiffOnly: true,
         files: ['../x.ts', 'src/keep.ts'],
       });
       expect(mockExecutePlanEntry).toHaveBeenCalled();
@@ -1528,88 +1601,6 @@ describe('runTestExecution — mutationDiffOnly 路径过滤', () => {
       expect(opts.files!.every((f: string) => !f.startsWith('..'))).toBe(true);
       expect(opts.files).toContain('src/keep.ts');
       expect(opts.files).not.toContain('../x.ts');
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('mutationDiffOnly: true 且 diff 仅含测试文件时，mutationDiffFiles 含反推源文件', async () => {
-    const project = createTempProject();
-    try {
-      mockDetectFrameworks.mockReturnValue({
-        detected: [{ file: 'src/foo.test.ts', framework: 'vitest' }],
-        plan: [makePlanEntry()],
-      });
-      mockGetGitDiffFiles.mockResolvedValue([
-        'src/foo.test.ts',
-        'src/bar_test.go',
-        'openspec/x.md',
-      ]);
-      mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-      mockGenerateSubReport.mockReturnValue(makeSubReport());
-      mockGenerateSummaryReport.mockReturnValue({
-        phase: 'test-execution',
-        command: 'dev-team test-execution',
-        timestamp: '2026-07-01T00:00:00.000Z',
-        duration_seconds: 1,
-        total: 1,
-        passed: 1,
-        failed: 0,
-        skipped: 0,
-        conclusion: 'pass',
-        problems: [],
-        coverage: null,
-      });
-
-      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
-
-      const abs = (rel: string) => path.resolve(project.root, rel).replace(/\\/g, '/');
-      expect(mockExecutePlanEntry).toHaveBeenCalledWith(
-        expect.any(Object),
-        project.root,
-        expect.objectContaining({
-          mutationDiffFiles: expect.arrayContaining([
-            abs('src/foo.test.ts'),
-            abs('src/foo.ts'),
-            abs('src/bar_test.go'),
-            abs('src/bar.go'),
-            abs('openspec/x.md'),
-          ]),
-        }),
-      );
-      const passed = mockExecutePlanEntry.mock.calls[0][2].mutationDiffFiles as string[];
-      expect(passed).toHaveLength(5);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('mutationDiffOnly: true 时 stdout 含精确前缀 --mutation-diff-only: 与文件数量', async () => {
-    const project = createTempProject();
-    const logs: string[] = [];
-    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
-      logs.push(args.map(String).join(' '));
-    });
-    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
-    mockGetGitDiffFiles.mockResolvedValue(['a.ts', 'b.ts']);
-    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
-    mockGenerateSubReport.mockReturnValue(makeSubReport());
-    mockGenerateSummaryReport.mockReturnValue({
-      phase: 'test-execution',
-      command: 'dev-team test-execution',
-      timestamp: '2026-07-01T00:00:00.000Z',
-      duration_seconds: 1,
-      total: 1,
-      passed: 1,
-      failed: 0,
-      skipped: 0,
-      conclusion: 'pass',
-      problems: [],
-      coverage: null,
-    });
-    try {
-      await runTestExecution({ projectRoot: project.root, mutationDiffOnly: true });
-      expect(logs.some((l) => l.startsWith('--mutation-diff-only:') && l.includes('2'))).toBe(true);
     } finally {
       project.cleanup();
     }
@@ -1626,7 +1617,6 @@ describe('runTestExecution — 无配置 / framework 过滤', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
   });
 
   it('plan 空：日志含 Configure tests in openspec/config.json（精确）；返回 0', async () => {
@@ -1670,7 +1660,6 @@ describe('runTestExecution — reportsDir 新布局 (AC-1)', () => {
     mockExecutePlanEntry.mockReset();
     mockGenerateSubReport.mockReset();
     mockGenerateSummaryReport.mockReset();
-    mockGetGitDiffFiles.mockReset();
     vi.spyOn(console, 'log').mockImplementation(() => {});
   });
 

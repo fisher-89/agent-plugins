@@ -1,0 +1,21 @@
+{
+  "version": 1,
+  "hooks": {
+    "preToolUse": [
+      {
+        "matcher": "Write|StrReplace",
+        "command": "node \"./bin/hooks.cjs\" protect-files"
+      },
+      {
+        "matcher": "Shell",
+        "command": "node \"./bin/hooks.cjs\" protect-files"
+      }
+    ],
+    "postToolUse": [
+      {
+        "matcher": "Write|StrReplace|Shell|mcp__plugin_dev-team_dev-team__phase_next",
+        "command": "node \"./bin/hooks.cjs\" record-files"
+      }
+    ]
+  }
+}

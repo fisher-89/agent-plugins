@@ -29,7 +29,8 @@ Read:
 
 Inspect:
 
-- `git diff --stat` and `git diff` — staged/unstaged changes
+- The change scope comes from the design/proposal declaration × the change file inventory (`workflow.json.files`) × the filesystem
+- `git diff --stat` and `git diff` as an observation aid only — view modification and deleted content to assess quality; scope judgment MUST NOT rely on it
 - Grep for security patterns (hardcoded keys, unsafe functions)
 - Glob for test files corresponding to changed modules
 - Read changed files for error handling and null checks
@@ -38,7 +39,7 @@ Inspect:
 
 1. Determine the active change name
 2. Read design.md and proposal.md for context
-3. Run `git diff` to inspect all changes
+3. Read `workflow.json` 的 `files` 清单圈定审查范围；run `git diff` to view the modification content
 4. Grep for security patterns: `password`, `secret`, `token`, `api_key`, `eval(`, `exec(`, `system(`
 5. Glob for test files matching changed module names
 6. Read changed files to check error handling and null safety

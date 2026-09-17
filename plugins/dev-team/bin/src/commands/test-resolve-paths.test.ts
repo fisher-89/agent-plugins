@@ -14,6 +14,8 @@ import * as path from 'path';
 
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
+import { readFileInventory } from '../lib/file-inventory';
+import { testResolvePathsInputSchema } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 import { runTestResolvePaths } from './test-resolve-paths';
 
@@ -43,12 +45,23 @@ vi.mock('child_process', async () => {
   };
 });
 
+vi.mock('../lib/file-inventory', async () => {
+  const actual = await vi.importActual<{
+    readFileInventory: typeof readFileInventory;
+  }>('../lib/file-inventory');
+  return {
+    ...actual,
+    readFileInventory: vi.fn(actual.readFileInventory),
+  };
+});
+
 // Capture the original pass-through implementations at module-init time
 // (before any test's mockImplementation can replace them).
 // These are used by the top-level beforeEach to restore clean state for
 // every test, regardless of shuffle order.
 const _detectFrameworksPassthrough = vi.mocked(runTestDetectFrameworks).getMockImplementation();
 const _execSyncPassthrough = vi.mocked(execSync).getMockImplementation();
+const _readFileInventoryPassthrough = vi.mocked(readFileInventory).getMockImplementation();
 
 // Restore pass-through implementations before every test so that mock
 // state from one group never leaks into another when --sequence.shuffle
@@ -61,6 +74,9 @@ beforeEach(() => {
   }
   if (_execSyncPassthrough) {
     vi.mocked(execSync).mockImplementation(_execSyncPassthrough);
+  }
+  if (_readFileInventoryPassthrough) {
+    vi.mocked(readFileInventory).mockImplementation(_readFileInventoryPassthrough);
   }
 });
 
@@ -849,23 +865,48 @@ describe('runTestResolvePaths -- config-driven 过滤', () => {
 });
 
 // ===========================================================================
-// runTestResolvePaths -- git-change 模式 (AC-5)
-// @see openspec/changes/test-resolve-paths-config-dirs/test-design.md
+// runTestResolvePaths — 清单模式 (AC-8)
+//
+// modules: "change" 读取目标 change 的文件清单（workflow.json files.written）作为
+// effectiveModules 进入既有 test config 过滤管线；清单读取失败进 errors 并
+// earlyReturn（不抛出）。git-change 分支已随 lib/git.ts 一起删除。
 // ===========================================================================
 
-describe('runTestResolvePaths -- git-change 模式', () => {
-  beforeEach(() => {
-    vi.mocked(execSync).mockClear();
-    vi.mocked(runTestDetectFrameworks).mockClear();
-  });
+describe('runTestResolvePaths — 清单模式 (AC-8)', () => {
+  function writeChange(dir: string, name: string, files: unknown): string {
+    const changeDir = path.join(dir, 'openspec', 'changes', name);
+    fs.mkdirSync(changeDir, { recursive: true });
+    const doc: Record<string, unknown> =
+      files === undefined
+        ? { workflow_type: 'requirement', created: '2026-09-17' }
+        : { workflow_type: 'requirement', created: '2026-09-17', files };
+    fs.writeFileSync(path.join(changeDir, 'workflow.json'), JSON.stringify(doc), 'utf-8');
+    return changeDir;
+  }
 
-  it('modules: "git-change" 且 git diff 返回变更文件时，返回对应 unit_tests (AC-5)', () => {
+  function writeSuiteConfig(dir: string): void {
+    fs.mkdirSync(path.join(dir, 'openspec'), { recursive: true });
+    fs.writeFileSync(
+      path.join(dir, 'openspec', 'config.json'),
+      JSON.stringify({
+        schema: 'spec-driven',
+        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*.{ts,tsx}'] }],
+      }),
+      'utf-8',
+    );
+  }
+
+  it('modules: "change" + change 名 → unit_tests 来自 files.written 经 test config 过滤的推导结果 (AC-8)', () => {
     const project = createTempProject();
     try {
-      vi.mocked(execSync).mockReturnValue('src/foo.ts\nsrc/bar.ts\n');
+      writeSuiteConfig(project.root);
+      writeChange(project.root, 'inv', {
+        written: ['src/foo.ts', 'src/bar.ts'],
+        deleted: [],
+      });
       vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
-        const detected = opts.files!.map((f) => ({
-          file: path.resolve(opts.projectRoot!, f),
+        const detected = (opts.files ?? []).map((f) => ({
+          file: path.resolve(opts.projectRoot ?? project.root, f),
           framework: 'vitest' as const,
         }));
         return { detected, plan: [] };
@@ -873,13 +914,10 @@ describe('runTestResolvePaths -- git-change 模式', () => {
 
       const result = runTestResolvePaths({
         project_root: project.root,
-        modules: 'git-change',
+        modules: 'change',
+        change: 'inv',
       });
 
-      expect(execSync).toHaveBeenCalledWith(
-        'git diff HEAD --name-only',
-        expect.objectContaining({ cwd: project.root }),
-      );
       expect(result.unit_tests).toContainEqual({
         source: 'src/foo.ts',
         test_file: 'src/foo.test.ts',
@@ -888,130 +926,65 @@ describe('runTestResolvePaths -- git-change 模式', () => {
         source: 'src/bar.ts',
         test_file: 'src/bar.test.ts',
       });
+      expect(result.errors).toEqual([]);
     } finally {
       project.cleanup();
     }
   });
 
-  it('modules: "git-change" 且 git 命令失败时（非 git 仓库），errors 包含错误消息 (AC-5)', () => {
+  it('清单中文件经 exclude 过滤：命中 exclude 的条目在 detected 阶段被剔除 → Not in test config scope', () => {
     const project = createTempProject();
     try {
-      vi.mocked(execSync).mockImplementation(() => {
-        throw new Error('Not a git repository');
-      });
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: 'git-change',
-      });
-
-      expect(result.errors.some((e) => e.path === 'git')).toBe(true);
-      expect(result.unit_tests).toEqual([]);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('modules: "git-change" 返回的变更文件均不在 test config 范围内时 unit_tests 为空 (AC-5)', () => {
-    const project = createTempProject();
-    try {
-      vi.mocked(execSync).mockReturnValue('outside/foo.ts\n');
-      vi.mocked(runTestDetectFrameworks).mockReturnValue({
-        detected: [],
-        plan: [],
-      });
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: 'git-change',
-      });
-
-      expect(result.unit_tests).toEqual([]);
-      expect(result.errors.some((e) => e.message === 'Not in test config scope')).toBe(true);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('modules: "git-change" 且 git diff 返回空（无变更）时 unit_tests 为空 (AC-5)', () => {
-    const project = createTempProject();
-    try {
-      vi.mocked(execSync).mockReturnValue('');
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: 'git-change',
-      });
-
-      expect(result.unit_tests).toEqual([]);
-      expect(result.errors).toHaveLength(0);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('modules: "git-change" 且 stderr 的 toString 抛出时 extractErrorMessage 的 catch 分支被覆盖 (AC-5)', () => {
-    const project = createTempProject();
-    try {
-      // execSync 抛出含 throws-on-stringify stderr 的对象时
-      // String(stderr) 抛出错误，触发 extractErrorMessage 中 try/catch 的 catch 分支
-      vi.mocked(execSync).mockImplementation(() => {
-        const err = {
-          stderr: {
-            toString() {
-              throw new Error('cannot stringify');
+      fs.mkdirSync(path.join(project.root, 'openspec'), { recursive: true });
+      fs.writeFileSync(
+        path.join(project.root, 'openspec', 'config.json'),
+        JSON.stringify({
+          schema: 'spec-driven',
+          tests: [
+            {
+              root: 'src',
+              framework: 'vitest',
+              includes: ['**/*.{ts,tsx}'],
+              excludes: ['**/excluded.ts'],
             },
-          },
-        };
-        throw err;
+          ],
+        }),
+        'utf-8',
+      );
+      writeChange(project.root, 'inv', {
+        written: ['src/kept.ts', 'src/excluded.ts'],
+        deleted: [],
       });
 
       const result = runTestResolvePaths({
         project_root: project.root,
-        modules: 'git-change',
+        modules: 'change',
+        change: 'inv',
       });
 
-      expect(result.errors.some((e) => e.path === 'git')).toBe(true);
-      expect(result.errors[0].message).toBe('git diff HEAD --name-only failed');
-      expect(result.unit_tests).toEqual([]);
+      expect(result.unit_tests).toContainEqual({
+        source: 'src/kept.ts',
+        test_file: 'src/kept.test.ts',
+      });
+      expect(result.unit_tests.some((u) => u.source === 'src/excluded.ts')).toBe(false);
+      expect(result.errors.some((e) => e.path === 'src/excluded.ts')).toBe(true);
     } finally {
       project.cleanup();
     }
   });
 
-  it('modules: "git-change" 且 execSync 抛出带 stderr 的非 Error 对象时 errors 包含错误消息 (AC-5)', () => {
+  it('written 含测试文件 → errors "Path is already a test file"；非源文件 → "Not a testable source file"（既有管线语义不变）', () => {
     const project = createTempProject();
     try {
-      // execSync 可能抛出非 Error 但包含 stderr 的对象（如 child_process 底层错误）
-      vi.mocked(execSync).mockImplementation(() => {
-        const err: { stderr: string; message: string } = {
-          stderr: 'fatal: not a git repository',
-          message: 'Command failed',
-        };
-        throw err;
+      writeSuiteConfig(project.root);
+      writeChange(project.root, 'inv', {
+        written: ['src/spec.test.ts', 'notes.md'],
+        deleted: [],
       });
-
-      const result = runTestResolvePaths({
-        project_root: project.root,
-        modules: 'git-change',
-      });
-
-      expect(result.errors.some((e) => e.path === 'git')).toBe(true);
-      expect(result.errors[0].message).toContain('fatal: not a git repository');
-      expect(result.unit_tests).toEqual([]);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('modules: "git-change" 且 git diff 返回大量文件（100+）时不应抛错 (AC-5)', () => {
-    const project = createTempProject();
-    try {
-      const files = Array.from({ length: 150 }, (_, i) => `src/file${i}.ts`);
-      vi.mocked(execSync).mockReturnValue(files.join('\n') + '\n');
+      // 模拟管线把两类条目都送进 detected（与真实 files-mode 探测一致）
       vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
-        const detected = opts.files!.map((f) => ({
-          file: path.resolve(opts.projectRoot!, f),
+        const detected = (opts.files ?? []).map((f) => ({
+          file: path.resolve(opts.projectRoot ?? project.root, f),
           framework: 'vitest' as const,
         }));
         return { detected, plan: [] };
@@ -1019,10 +992,175 @@ describe('runTestResolvePaths -- git-change 模式', () => {
 
       const result = runTestResolvePaths({
         project_root: project.root,
-        modules: 'git-change',
+        modules: 'change',
+        change: 'inv',
       });
 
-      expect(result.unit_tests).toHaveLength(150);
+      expect(result.errors.some((e) => e.path === 'src/spec.test.ts')).toBe(true);
+      expect(
+        result.errors.some(
+          (e) => e.path === 'src/spec.test.ts' && e.message === 'Path is already a test file',
+        ),
+      ).toBe(true);
+      expect(result.errors.some((e) => e.path === 'notes.md')).toBe(true);
+      expect(
+        result.errors.some(
+          (e) => e.path === 'notes.md' && e.message === 'Not a testable source file',
+        ),
+      ).toBe(true);
+      expect(result.unit_tests).toEqual([]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('files.written 为空数组 → unit_tests=[] 且无致命 errors（不触发 config 全库扫描）', () => {
+    const project = createTempProject();
+    try {
+      writeSuiteConfig(project.root);
+      writeChange(project.root, 'inv', { written: [], deleted: [] });
+      // 项目里布置可扫描文件，证明未发生全库扫描
+      writeFile(project.root, 'src/planted.ts', '');
+      writeFile(project.root, 'planted-root.ts', '');
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'inv',
+      });
+
+      expect(result.unit_tests).toEqual([]);
+      expect(result.errors).toEqual([]);
+      // earlyReturn 发生在管线之前：探测（auto-scan 入口）未被调用
+      expect(runTestDetectFrameworks).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('written 含越出项目根路径 → errors "Path is outside project root"', () => {
+    const project = createTempProject();
+    try {
+      writeSuiteConfig(project.root);
+      writeChange(project.root, 'inv', { written: ['../outside.ts'], deleted: [] });
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const detected = (opts.files ?? []).map((f) => ({
+          file: path.resolve(opts.projectRoot ?? project.root, f),
+          framework: 'vitest' as const,
+        }));
+        return { detected, plan: [] };
+      });
+
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'inv',
+      });
+
+      expect(
+        result.errors.some(
+          (e) => e.path === '../outside.ts' && e.message === 'Path is outside project root',
+        ),
+      ).toBe(true);
+      expect(result.unit_tests).toEqual([]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('change 不存在 / workflow.json 缺失非法 / 无 files → errors 增含「请重建」指引条目并 earlyReturn（不抛出，AC-8）', () => {
+    const project = createTempProject();
+    try {
+      writeSuiteConfig(project.root);
+      writeFile(project.root, 'src/planted.ts', '');
+
+      // change 不存在
+      const missing = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'ghost',
+      });
+      expect(missing.unit_tests).toEqual([]);
+      expect(missing.errors).toHaveLength(1);
+      expect(missing.errors[0].path).toBe('ghost');
+      expect(missing.errors[0].message).toContain('workflow.json 不存在');
+
+      // 无 files 字段（机制前旧 change）
+      writeChange(project.root, 'legacy', undefined);
+      const legacy = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'legacy',
+      });
+      expect(legacy.unit_tests).toEqual([]);
+      expect(legacy.errors[0].message).toContain('该 change 创建于文件清单机制之前，请重建');
+
+      // workflow.json 非法 JSON
+      const brokenDir = writeChange(project.root, 'broken', { written: [], deleted: [] });
+      fs.writeFileSync(path.join(brokenDir, 'workflow.json'), '{broken', 'utf-8');
+      const broken = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'broken',
+      });
+      expect(broken.unit_tests).toEqual([]);
+      expect(broken.errors[0].message).toContain('解析失败');
+
+      expect(runTestDetectFrameworks).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('modules: "change" 缺 change 参数 → 命令层以 errors 条目呈现；schema refine 拒绝（MCP 层）', () => {
+    const project = createTempProject();
+    try {
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+      });
+
+      expect(result.unit_tests).toEqual([]);
+      expect(result.errors).toEqual([
+        { path: 'change', message: 'modules 为 "change" 时必须提供 change 参数' },
+      ]);
+
+      expect(
+        testResolvePathsInputSchema.safeParse({ project_root: project.root, modules: 'change' })
+          .success,
+      ).toBe(false);
+      expect(
+        testResolvePathsInputSchema.safeParse({
+          project_root: project.root,
+          modules: 'change',
+          change: 'inv',
+        }).success,
+      ).toBe(true);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('全链路以 spy 断言无任何 git 子进程调用（git 退场防回归，AC-8）', () => {
+    const project = createTempProject();
+    try {
+      writeSuiteConfig(project.root);
+      writeChange(project.root, 'inv', { written: ['src/foo.ts'], deleted: [] });
+      vi.mocked(runTestDetectFrameworks).mockImplementation((opts) => {
+        const detected = (opts.files ?? []).map((f) => ({
+          file: path.resolve(opts.projectRoot ?? project.root, f),
+          framework: 'vitest' as const,
+        }));
+        return { detected, plan: [] };
+      });
+
+      runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'inv',
+      });
+
+      expect(execSync).not.toHaveBeenCalled();
     } finally {
       project.cleanup();
     }
@@ -1802,7 +1940,7 @@ describe('runTestResolvePaths — project_root 注入与 getProjectDir 回退', 
     const spy = vi.spyOn(projectRootLib, 'getProjectDir').mockReturnValue(project.root);
     try {
       for (const input of [
-        { modules: ['src/b.ts'] as string[] | 'git-change' },
+        { modules: ['src/b.ts'] as string[] | 'change' },
         { modules: ['src/b.ts'] as string[], project_root: null },
         { modules: ['src/b.ts'] as string[], project_root: '' },
       ]) {
@@ -1935,58 +2073,62 @@ describe('runTestResolvePaths — isTestFile 正则判别', () => {
 });
 
 // ===========================================================================
-// runTestResolvePaths — extractErrorMessage stderr
+// runTestResolvePaths — extractErrorMessage stderr（清单读取失败消息提取）
 // ===========================================================================
 
-describe('runTestResolvePaths — extractErrorMessage stderr', () => {
-  function writeConfig(root: string): void {
-    fs.mkdirSync(path.join(root, 'openspec'), { recursive: true });
-    fs.writeFileSync(
-      path.join(root, 'openspec', 'config.json'),
-      JSON.stringify({
-        schema: 'spec-driven',
-        tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
-      }),
-      'utf-8',
-    );
-  }
+describe('runTestResolvePaths — extractErrorMessage stderr（清单读取失败消息提取）', () => {
+  beforeEach(() => {
+    // 由文件级 beforeEach 恢复 passthrough，这里再显式兜底一次
+    if (_readFileInventoryPassthrough) {
+      vi.mocked(readFileInventory).mockImplementation(_readFileInventoryPassthrough);
+    }
+  });
 
-  it('modules: "git-change" 且 execSync 抛 Error：errors.message === error.message', () => {
+  it('readFileInventory 抛 Error：errors.message === error.message', () => {
     const project = createTempProject();
-    writeConfig(project.root);
-    vi.mocked(execSync).mockImplementation(() => {
-      throw new Error('exact-git-error');
+    vi.mocked(readFileInventory).mockImplementation(() => {
+      throw new Error('exact-inventory-error');
     });
     try {
-      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
-      expect(result.errors.some((e) => e.message === 'exact-git-error')).toBe(true);
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'inv',
+      });
+      expect(result.errors.some((e) => e.message === 'exact-inventory-error')).toBe(true);
     } finally {
       project.cleanup();
     }
   });
 
-  it("抛非 Error 但 { stderr: '  boom  ' }：errors.message === 'boom'（trim 后）", () => {
+  it('抛非 Error 但 { stderr: "  boom  " }：errors.message === "boom"（trim 后）', () => {
     const project = createTempProject();
-    writeConfig(project.root);
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(readFileInventory).mockImplementation(() => {
       throw { stderr: '  boom  ' };
     });
     try {
-      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'inv',
+      });
       expect(result.errors.some((e) => e.message === 'boom')).toBe(true);
     } finally {
       project.cleanup();
     }
   });
 
-  it("抛 { stderr: '   ' }（仅空白）：errors.message === fallback 非空串", () => {
+  it('抛 { stderr: "   " }（仅空白）：errors.message === fallback 非空串', () => {
     const project = createTempProject();
-    writeConfig(project.root);
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(readFileInventory).mockImplementation(() => {
       throw { stderr: '   ' };
     });
     try {
-      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'inv',
+      });
       expect(result.errors.length).toBeGreaterThan(0);
       expect(result.errors[0].message.trim().length).toBeGreaterThan(0);
       expect(result.errors[0].message).not.toBe('   ');
@@ -1997,18 +2139,21 @@ describe('runTestResolvePaths — extractErrorMessage stderr', () => {
 
   it('抛 { stderr: { toString() { throw } } }：走 catch 后仍有非空 fallback', () => {
     const project = createTempProject();
-    writeConfig(project.root);
-    vi.mocked(execSync).mockImplementation(() => {
+    vi.mocked(readFileInventory).mockImplementation(() => {
       throw {
         stderr: {
-          toString() {
+          toString(): string {
             throw new Error('x');
           },
         },
       };
     });
     try {
-      const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+      const result = runTestResolvePaths({
+        project_root: project.root,
+        modules: 'change',
+        change: 'inv',
+      });
       expect(result.errors[0].message.length).toBeGreaterThan(0);
     } finally {
       project.cleanup();
@@ -2017,16 +2162,23 @@ describe('runTestResolvePaths — extractErrorMessage stderr', () => {
 
   it('抛 null / 数字 / 无 stderr 对象：使用 fallback，不抛未捕获异常', () => {
     const project = createTempProject();
-    writeConfig(project.root);
     try {
       for (const thrown of [null, 42, { message: 'no-stderr' }]) {
-        vi.mocked(execSync).mockImplementation(() => {
+        vi.mocked(readFileInventory).mockImplementation(() => {
           throw thrown;
         });
         expect(() =>
-          runTestResolvePaths({ modules: 'git-change', project_root: project.root }),
+          runTestResolvePaths({
+            project_root: project.root,
+            modules: 'change',
+            change: 'inv',
+          }),
         ).not.toThrow();
-        const result = runTestResolvePaths({ modules: 'git-change', project_root: project.root });
+        const result = runTestResolvePaths({
+          project_root: project.root,
+          modules: 'change',
+          change: 'inv',
+        });
         expect(result.errors[0].message.length).toBeGreaterThan(0);
       }
     } finally {

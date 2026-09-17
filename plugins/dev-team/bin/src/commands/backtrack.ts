@@ -3,7 +3,7 @@ import { type z } from 'zod/v4';
 import { getChangeDir } from '../lib/change';
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, markPhaseStale, writeEvalJson, type EvalEntry } from '../lib/eval-json';
-import { getPhaseTable, type PhaseDefinition } from '../lib/workflow';
+import { getPhaseTable } from '../lib/workflow';
 import { type backtrackInputSchema, type backtrackOutputSchema } from '../schemas';
 
 type BacktrackOptions = z.input<typeof backtrackInputSchema>;
@@ -14,11 +14,7 @@ type BacktrackResult = z.output<typeof backtrackOutputSchema>;
  * Validate that the phase and backtrack_to exist in the phase table and that
  * backtrack_to appears before phase. Returns the phase table indices.
  */
-function validatePhaseTarget(
-  phase: string,
-  backtrackTo: string,
-  workflowType: string,
-): { phaseIdx: number; phaseTable: PhaseDefinition[] } {
+function validatePhaseTarget(phase: string, backtrackTo: string, workflowType: string): void {
   const phaseTable = getPhaseTable(workflowType);
   const phaseIdx = phaseTable.findIndex((p) => p.id === phase);
   if (phaseIdx === -1) {
@@ -31,7 +27,7 @@ function validatePhaseTarget(
   if (targetIdx > phaseIdx) {
     throw new Error(`无效的回溯目标 phase: "${backtrackTo}"。不支持回溯到未来 phase。`);
   }
-  return { phaseIdx, phaseTable };
+  return;
 }
 
 /**

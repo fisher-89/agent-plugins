@@ -192,14 +192,14 @@ describe('runChangeCreate — kebab-case 名称校验 (AC-3)', () => {
 });
 
 describe('runChangeCreate — workflow.json 唯一创建者契约 (AC-6)', () => {
-  it('新建成功后 workflow.json 仅有 workflow_type 与 created，无 eval 键且不创建 eval.json', () => {
+  it('新建成功后 workflow.json 仅有 workflow_type、created、files 三键，无 eval 键且不创建 eval.json (AC-1)', () => {
     const project = createTempProject();
     try {
       const result = runChangeCreate('my-change', project.root, 'requirement');
       const workflow = readWorkflowJson(result.path);
 
       expect(Object.prototype.hasOwnProperty.call(workflow, 'eval')).toBe(false);
-      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created']);
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'files']);
       expect(fs.existsSync(path.join(result.path, 'eval.json'))).toBe(false);
     } finally {
       project.cleanup();
@@ -325,7 +325,7 @@ describe('runChangeCreate — workflow.json 唯一创建者契约 (AC-6)', () =>
       const workflow = readWorkflowJson(result.path);
 
       expect(workflow.workflow_type).toBe('');
-      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created']);
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'files']);
       expect(workflowFileSchema.safeParse(workflow).success).toBe(false);
     } finally {
       project.cleanup();
@@ -389,6 +389,98 @@ describe('runChangeCreate — 拒绝已存在 change (AC-4)', () => {
 
       expect(fs.existsSync(first.path)).toBe(true);
       expect(readWorkflowJson(first.path)).toEqual(firstWorkflow);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runChangeCreate — files 初始化 (AC-1)
+// ===========================================================================
+
+describe('runChangeCreate — files 初始化 (AC-1)', () => {
+  it('新建 workflow.json 含 files: { written: [], deleted: [] } 初始空净状态 (AC-1)', () => {
+    const project = createTempProject();
+    try {
+      const result = runChangeCreate('inventory-init', project.root, 'requirement');
+      const workflow = readWorkflowJson(result.path);
+
+      expect(workflow.files).toEqual({ written: [], deleted: [] });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('键序为 workflow_type → created → files（JSON.stringify 插入序断言）(AC-1)', () => {
+    const project = createTempProject();
+    try {
+      const result = runChangeCreate('key-order', project.root, 'bug-fix');
+      const raw = fs.readFileSync(path.join(result.path, 'workflow.json'), 'utf-8');
+      const workflow = readWorkflowJson(result.path);
+
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'files']);
+      // 原始文本顺序同样契约化
+      const typeIdx = raw.indexOf('"workflow_type"');
+      const createdIdx = raw.indexOf('"created"');
+      const filesIdx = raw.indexOf('"files"');
+      expect(typeIdx).toBeGreaterThan(-1);
+      expect(createdIdx).toBeGreaterThan(typeIdx);
+      expect(filesIdx).toBeGreaterThan(createdIdx);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('产出可被 workflowFileSchema 解析，files 字段合法且 source 缺省 (AC-1)', () => {
+    const project = createTempProject();
+    try {
+      const result = runChangeCreate('schema-files', project.root, 'refactor');
+      const parsed = workflowFileSchema.safeParse(readWorkflowJson(result.path));
+
+      expect(parsed.success).toBe(true);
+      if (parsed.success) {
+        expect(parsed.data.files).toEqual({ written: [], deleted: [] });
+        expect(Object.prototype.hasOwnProperty.call(parsed.data.files, 'source')).toBe(false);
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('4 值 workflow_type 枚举（requirement/bug-fix/refactor/test-only）逐一创建均含 files (AC-1)', () => {
+    const project = createTempProject();
+    try {
+      for (const workflowType of ['requirement', 'bug-fix', 'refactor', 'test-only'] as const) {
+        const result = runChangeCreate(`files-${workflowType}`, project.root, workflowType);
+        const workflow = readWorkflowJson(result.path);
+
+        expect(workflow.workflow_type).toBe(workflowType);
+        expect(workflow.files).toEqual({ written: [], deleted: [] });
+      }
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('已存在 change 拒绝时不覆写、不修补已有 files（幂等回归扩展，AC-1）', () => {
+    const project = createTempProject();
+    try {
+      const first = runChangeCreate('no-patch', project.root, 'requirement');
+      // 把已有 change 退化成机制前旧形态（无 files），模拟历史目录
+      const workflowPath = path.join(first.path, 'workflow.json');
+      fs.writeFileSync(
+        workflowPath,
+        JSON.stringify({ workflow_type: 'requirement', created: '2025-01-01' }),
+        'utf-8',
+      );
+      const before = fs.readFileSync(workflowPath, 'utf-8');
+
+      expect(() => runChangeCreate('no-patch', project.root, 'requirement')).toThrow(/已存在/);
+
+      // 拒绝路径绝不「顺手修补」files
+      expect(fs.readFileSync(workflowPath, 'utf-8')).toBe(before);
+      expect(readWorkflowJson(first.path).files).toBeUndefined();
     } finally {
       project.cleanup();
     }

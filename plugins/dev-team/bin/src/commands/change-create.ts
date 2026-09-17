@@ -35,7 +35,8 @@ export function runChangeCreate(
 
   fs.mkdirSync(changeDir, { recursive: true });
   const created = new Date().toISOString().slice(0, 10);
-  const workflow = { workflow_type: workflowType, created };
+  // Key order contract: workflow_type → created → files; `eval` is NOT written here.
+  const workflow = { workflow_type: workflowType, created, files: { written: [], deleted: [] } };
   fs.writeFileSync(path.join(changeDir, 'workflow.json'), `${JSON.stringify(workflow)}\n`, 'utf-8');
 
   return { name, path: changeDir };

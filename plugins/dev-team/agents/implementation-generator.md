@@ -42,5 +42,6 @@ Write implementation code directly to disk.
 - Reuse existing utilities and patterns where applicable
 - Write valid, compilable/parseable code
 - Include necessary imports and wiring (register new modules, update indexes, etc.)
+- **规范还原动作**：撤销某个文件的修改用 `git restore <path>`（PostToolUse 记录器识别为 revert 并折叠为净 untouched）。MUST NOT 通过把文件内容重写回原样来"还原"——该形态会被折叠为 written，只能靠内容核对去噪
 - **测试目录黑名单: 禁止读取以下目录中的任何文件** (测试文件应当只由 test-gen-generator 处理):
   - `tests/`, `__tests__/`, `test/` 目录下的所有文件

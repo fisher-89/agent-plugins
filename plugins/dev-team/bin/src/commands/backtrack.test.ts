@@ -6,6 +6,7 @@
  * - 目标合法性验证
  * - 严格前置条件（缺文件 / 格式非法即终止）
  * - 幂等性
+ * - 文件清单中立（backtrack 不读不写 `workflow.json.files`）
  *
  * 评估历史存放在 `workflow.json.eval`；本命令只经 `writeEvalJson` 持久化，
  * 从不直接写 `eval.json`。
@@ -36,6 +37,15 @@ vi.mock('../lib/eval-json', async () => {
   };
 });
 
+vi.mock('../lib/file-inventory', async () => {
+  const actual = await vi.importActual('../lib/file-inventory');
+  return {
+    ...actual,
+    readFileInventory: vi.fn(),
+    writeFileInventory: vi.fn(),
+  };
+});
+
 vi.mock('../lib/change', () => ({
   getChangeDir: vi.fn(() => '/tmp/test-change'),
 }));
@@ -46,6 +56,7 @@ vi.mock('../lib/change-config', () => ({
 
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, writeEvalJson, type EvalEntry } from '../lib/eval-json';
+import { readFileInventory, writeFileInventory } from '../lib/file-inventory';
 import { backtrackInputSchema } from '../schemas';
 import { runBacktrack } from './backtrack';
 
@@ -111,6 +122,9 @@ beforeEach(() => {
   vi.mocked(readEvalJson).mockReset().mockReturnValue(defaultEntries);
   vi.mocked(writeEvalJson).mockReset();
   vi.mocked(getWorkflowType).mockReset().mockReturnValue('requirement');
+  // files 清单 mock 仅作回归哨兵：backtrack 不消费清单，下方断言捕获重新引入的调用
+  vi.mocked(readFileInventory).mockReset().mockReturnValue({ written: [], deleted: [] });
+  vi.mocked(writeFileInventory).mockReset();
 });
 
 // ---------------------------------------------------------------------------
@@ -682,5 +696,115 @@ describe('runBacktrack — 幂等性', () => {
     expect(secondExecEntry.backtrack_reason).toBe('第二次回溯原因（覆盖）');
     // 两次写入的条目总数一致
     expect(firstWritten.length).toBe(secondWritten.length);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 文件清单中立（backtrack 不读不写 files）
+// ---------------------------------------------------------------------------
+
+describe('runBacktrack — 文件清单中立（不读不写 files）', () => {
+  it('backtrack 到 implement → 清单读写均不被调用，eval 正常改写', () => {
+    runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'test-execution',
+      backtrack_to: 'implement',
+      backtrack_reason: '实现方案推翻',
+    });
+
+    expect(readFileInventory).not.toHaveBeenCalled();
+    expect(writeFileInventory).not.toHaveBeenCalled();
+    expect(writeEvalJson).toHaveBeenCalledTimes(1);
+
+    const written = vi.mocked(writeEvalJson).mock.calls[0][1];
+    expect(written.length).toBe(defaultEntries.length);
+    const execEntry = written.find((e) => e.phase === 'test-execution')!;
+    expect(execEntry.backtrack_to).toBe('implement');
+    expect(execEntry.backtrack_reason).toBe('实现方案推翻');
+  });
+
+  it('任意回溯目标（proposal / dev-design / test-gen / test-execution）→ 清单读写均不被调用', () => {
+    for (const target of ['proposal', 'dev-design', 'test-gen', 'test-execution'] as const) {
+      vi.mocked(readFileInventory).mockClear();
+      vi.mocked(writeFileInventory).mockClear();
+      vi.mocked(writeEvalJson).mockClear();
+
+      runBacktrack({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'test-execution',
+        backtrack_to: target,
+        backtrack_reason: `回溯到 ${target}`,
+      });
+
+      expect(readFileInventory).not.toHaveBeenCalled();
+      expect(writeFileInventory).not.toHaveBeenCalled();
+      expect(writeEvalJson).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it('目标 phase 恰为 implement（索引相等，等号语义仍合法）→ eval 改写正常且清单零调用', () => {
+    const entries: EvalEntry[] = [
+      makePassEntry('proposal', 1),
+      makePassEntry('dev-design', 1),
+      makePassEntry('implement', 1),
+      makeFailEntry('implement', 2),
+    ];
+    vi.mocked(readEvalJson).mockReturnValue(entries);
+
+    runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'implement',
+      backtrack_to: 'implement',
+      backtrack_reason: '重做实现',
+    });
+
+    expect(writeEvalJson).toHaveBeenCalledTimes(1);
+    expect(readFileInventory).not.toHaveBeenCalled();
+    expect(writeFileInventory).not.toHaveBeenCalled();
+  });
+
+  it('机制前旧 change（清单读取即抛「请重建」）→ backtrack 不消费清单，回溯成功（行为中立，不再硬报错）', () => {
+    vi.mocked(readFileInventory).mockImplementation(() => {
+      throw new Error(
+        'workflow.json 缺少 files 字段 (/tmp/test-change/workflow.json)：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
+      );
+    });
+
+    const result = runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'test-execution',
+      backtrack_to: 'implement',
+      backtrack_reason: '旧 change',
+    });
+
+    expect(result.modified).toBe(true);
+    expect(writeEvalJson).toHaveBeenCalledTimes(1);
+  });
+
+  it('test-only 工作流（phase 表无 implement）→ 回溯成功且清单零调用', () => {
+    vi.mocked(getWorkflowType).mockReturnValue('test-only');
+    const entries: EvalEntry[] = [
+      makePassEntry('proposal', 1),
+      makePassEntry('code-analyze', 1),
+      makePassEntry('test-design', 1),
+      makePassEntry('test-gen', 1),
+      makeFailEntry('test-execution', 1),
+    ];
+    vi.mocked(readEvalJson).mockReturnValue(entries);
+
+    runBacktrack({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'test-execution',
+      backtrack_to: 'test-gen',
+      backtrack_reason: '测试需重写',
+    });
+
+    expect(readFileInventory).not.toHaveBeenCalled();
+    expect(writeFileInventory).not.toHaveBeenCalled();
   });
 });

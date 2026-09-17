@@ -18,15 +18,14 @@ cli
     'test-execution',
     'Run all automated tests (unit + integration) with coverage and generate execution report',
   )
-  .option('--change <name>', 'Change name (reports written to openspec/changes/<name>/reports/)')
+  .option(
+    '--change <name>',
+    'Change name (reports written to openspec/changes/<name>/reports/; also selects the mutation scope from the change file inventory)',
+  )
   .option('--project-root <path>', 'Override project root directory')
   .option('--files <files>', 'Comma-separated list of test files to run, relative to project root')
   .option('--framework <name>', 'Only run tests for the specified framework')
   .option('--skip-mutation', 'Skip mutation testing phase')
-  .option(
-    '--mutation-diff-only',
-    'Only mutate files changed in git diff (mutation scope restricted to working tree changes)',
-  )
   .action(
     async (options: {
       change?: string;
@@ -34,7 +33,6 @@ cli
       files?: string;
       framework?: string;
       skipMutation?: boolean;
-      mutationDiffOnly?: boolean;
     }) => {
       const files = options.files
         ? options.files
@@ -48,7 +46,6 @@ cli
         files,
         framework: options.framework,
         noMutation: options.skipMutation,
-        mutationDiffOnly: options.mutationDiffOnly,
       });
       process.exit(exitCode);
     },

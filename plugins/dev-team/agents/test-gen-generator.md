@@ -99,7 +99,7 @@ __INCLUDE:static-analysis-gate__
 
 Write test files colocated with their corresponding source files in the same directory.
 
-**The git diff of these uncommitted changes IS the artifact.** No JSON report, no summary file — the code is the ground truth.
+**The written test files themselves ARE the artifact.** No JSON report, no summary file — the code is the ground truth. The generated scope is reconciled against the test-design / design declarations and the change file inventory (`workflow.json.files.written`), not against git.
 
 ## Constraints
 

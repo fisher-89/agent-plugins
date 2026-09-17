@@ -188,6 +188,18 @@ describe('CLI 新报告布局 — 有 change', () => {
   it('change 专属 …/reports/test/summary.json；plans[].path 含前缀', async () => {
     const project = createTempProject();
     try {
+      // --change 现在兼作突变 scope 入口：读取 change 文件清单（清单为空 scope）
+      const changeDir = path.join(project.root, 'openspec', 'changes', 'foo');
+      fs.mkdirSync(changeDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(changeDir, 'workflow.json'),
+        JSON.stringify({
+          workflow_type: 'requirement',
+          created: '2026-09-17',
+          files: { written: [], deleted: [] },
+        }),
+        'utf-8',
+      );
       mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlan()] });
       mockExecutePlanEntry.mockImplementation((_e, _r, options) =>
         makeResult({ reportDir: path.join(options.reportsDir, 'vitest') }),

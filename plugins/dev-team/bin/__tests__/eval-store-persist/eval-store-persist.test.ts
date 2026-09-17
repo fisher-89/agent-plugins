@@ -233,7 +233,11 @@ describe('双文件并存时写入迁移', () => {
   });
 
   it('backtrack 后遗留文件删除，eval 长度不变且最新条目含 backtrack_to（AC-4）', () => {
-    writeWorkflow({ workflow_type: 'requirement', created: '2026-09-11' });
+    writeWorkflow({
+      workflow_type: 'requirement',
+      created: '2026-09-11',
+      files: { written: [], deleted: [] },
+    });
     writeLegacy([
       makeEntry({ phase: 'proposal', verdict: 'pass' }),
       makeEntry({ phase: 'dev-design', verdict: 'fail' }),

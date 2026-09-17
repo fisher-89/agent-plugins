@@ -1,7 +1,0 @@
-{
-  "name": "dev-team",
-  "description": "A plugin for enhancing development workflow with OpenSpec integration",
-  "version": "2.10.36",
-  "bin": "./bin",
-  "openspecVersion": "1.2.0"
-}

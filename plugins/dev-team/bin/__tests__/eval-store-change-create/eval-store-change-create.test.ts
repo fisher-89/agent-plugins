@@ -113,7 +113,7 @@ describe('新建 change 无评估历史', () => {
     expect(doc.workflow_type).toBe('requirement');
     expect(doc.created).toMatch(/^\d{4}-\d{2}-\d{2}$/);
     expect(Object.prototype.hasOwnProperty.call(doc, 'eval')).toBe(false);
-    expect(Object.keys(doc).sort()).toEqual(['created', 'workflow_type']);
+    expect(Object.keys(doc).sort()).toEqual(['created', 'files', 'workflow_type']);
     expect(fs.existsSync(legacyPath())).toBe(false);
     expect(readEvalJson(changeDir())).toEqual([]);
   });
