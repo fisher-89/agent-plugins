@@ -1,7 +1,8 @@
 /**
  * file-inventory.ts — change file inventory (`workflow.json.files`) shared
  * library under `modules/workflow` (the module boundary for `workflow.json`
- * operation logic; everything exports via `workflow/index.ts`).
+ * operation logic; the public surface re-exports via `workflow/index.ts`,
+ * persistence primitives stay module-internal).
  *
  * The inventory is the net state of file operations recorded for a change:
  * `written` / `deleted` path lists (relative to project root, POSIX style)
@@ -17,8 +18,8 @@ import * as path from 'path';
 
 import { type z } from 'zod/v4';
 
-import { workflowFileSchema, type workflowFilesSchema } from '../../schemas';
-import { isPlainObject } from '../../utils';
+import { workflowFileSchema, type workflowFilesSchema } from '../../../schemas';
+import { isPlainObject } from '../../../utils';
 
 const WORKFLOW_JSON_FILE = 'workflow.json';
 
@@ -199,4 +200,84 @@ export function writeFileInventory(changeDir: string, files: FileInventory): voi
   doc.files = files;
 
   fs.writeFileSync(filePath, `${JSON.stringify(doc, null, 2)}\n`, 'utf-8');
+}
+
+/** Dedupe a path list preserving first-seen order. */
+function dedupe(paths: string[]): string[] {
+  return Array.from(new Set(paths));
+}
+
+/**
+ * append semantics (read-modify-write): bucket-wise merge following the
+ * recorder fold rules — each appended written path folds as
+ * `written += P ; deleted -= P`, each appended deleted path as
+ * `deleted += P ; written -= P`.
+ *
+ * Deliberately NOT implemented via `foldFileOps`: a fold op without
+ * `agentType` clears the path's `source` entry, while append must keep the
+ * existing audit source untouched — deduped paths that are already in the
+ * inventory keep their source; newly merged paths carry none (manual entries
+ * have no subagent source). This file never applies gitignore filtering:
+ * `change_files` is the manual backfill / correction channel.
+ */
+export function appendFileOps(
+  changeDir: string,
+  paths: { written?: string[]; deleted?: string[] },
+): FileInventory {
+  const inventory = readFileInventory(changeDir);
+  const writtenSet = new Set(inventory.written);
+  const deletedSet = new Set(inventory.deleted);
+
+  for (const p of dedupe(paths.written ?? [])) {
+    deletedSet.delete(p);
+    writtenSet.add(p);
+  }
+  for (const p of dedupe(paths.deleted ?? [])) {
+    writtenSet.delete(p);
+    deletedSet.add(p);
+  }
+
+  const result: FileInventory = {
+    written: Array.from(writtenSet),
+    deleted: Array.from(deletedSet),
+  };
+  if (inventory.source && Object.keys(inventory.source).length > 0) {
+    result.source = { ...inventory.source };
+  }
+  writeFileInventory(changeDir, result);
+  return result;
+}
+
+/**
+ * set semantics (read-modify-write): wholesale overwrite of the provided
+ * buckets (untouched buckets stay as-is), no append folding. Overwritten
+ * entries become human-curated — their source entries are cleared — and
+ * source entries of paths no longer present in the net state are dropped.
+ * No gitignore filtering, same reason as `appendFileOps`.
+ */
+export function setFileBuckets(
+  changeDir: string,
+  paths: { written?: string[]; deleted?: string[] },
+): FileInventory {
+  const inventory = readFileInventory(changeDir);
+
+  const finalWritten = paths.written !== undefined ? dedupe(paths.written) : inventory.written;
+  const finalDeleted = paths.deleted !== undefined ? dedupe(paths.deleted) : inventory.deleted;
+
+  const provided = new Set([...(paths.written ?? []), ...(paths.deleted ?? [])]);
+  const members = new Set([...finalWritten, ...finalDeleted]);
+
+  const source: Record<string, string> = {};
+  for (const [p, agentType] of Object.entries(inventory.source ?? {})) {
+    if (members.has(p) && !provided.has(p)) {
+      source[p] = agentType;
+    }
+  }
+
+  const result: FileInventory = { written: finalWritten, deleted: finalDeleted };
+  if (Object.keys(source).length > 0) {
+    result.source = source;
+  }
+  writeFileInventory(changeDir, result);
+  return result;
 }

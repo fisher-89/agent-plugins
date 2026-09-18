@@ -54,7 +54,7 @@
 - [x] fix:phase-proposal 和 workflow-* 的prompt没有说明如何读取explore的报告，且explore生成的大段上下文经过subagent传递容易失真
 - [x] phase-next的round limit设计目的是避免LOOP陷入死循环，实际workflow可能拆分为多个session执行。调整round的计算方式，仅在workflow-*命令中限制总轮次。
 - [x] config中指定test运行的cwd和配置文件
-- [ ] 优化write_protection配置结构
+- [ ] 优化write_protection配置结构，重新思考命名，值使用数组即可
 - [x] test-execution清理文件，test-framework.ts列出文件清单，使用node执行
 - [x] 将工具名称也纳入环境变量，适配不同AGENT
 - [x] 构建cursor生态产物时，不生成subAgentStop hook（规避cursor bug）；作为替代，在cursor产物对应agent的上下文加入步骤“执行static_check并修复问题”；
@@ -65,6 +65,11 @@
 - [ ] design、code-analyze、test-design遇到js export class时，应将所有public方法视为公共api
 - [x] 补充cursor postToolUse记录修改文件的能力
 - [x] mcp提供api，查询指定change变更的文件（读取workflow.json，聚合变更记录，输出文件清单），agent使用api代替直接读取workflow.json
-- [ ] 将“写入workflow.json files”的代码实现移入modules/workflow
-- [ ] 记录变更文件时，排除gitignore文件
-- [ ] 仅测试modules/workflow/index.ts，覆盖整合模块
+- [x] 将“写入workflow.json files”的代码实现移入modules/workflow
+- [x] 记录变更文件时，排除gitignore文件
+- [ ] 【模块边界】仅测试modules/workflow/index.ts，覆盖整合模块
+- [ ] 使用环境变量替换openspec目录，方便修改
+- [ ] 【Platform】检测支持的agent，以及是否安装plugin dev-team
+- [ ] 【Platform】workspace配置
+- [ ] 【Platform】workspace基线设计（模块结构、spec）
+- [ ] 【Platform】多任务预约，worktree隔离

@@ -1,4 +1,4 @@
-import { resolveChangeDir } from '../../lib/change';
+import { resolveChangeDir } from '../../../lib/change';
 import { readFileInventory } from './file-inventory';
 
 type ChangedFiles = { written: string[]; deleted: string[] };

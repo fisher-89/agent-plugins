@@ -1,11 +1,14 @@
 /**
  * 单元测试: commands/change-files.ts — change_files 核心逻辑（append / set）
  *
- * 覆盖范围（openspec/changes/workflow-file-inventory/test-design.md AC-10、AC-13）:
- * - append：按折叠规则逐路径合并（去重、保留既有来源、新路径无来源）
- * - set：整体覆写指定桶并清理被覆写路径的 source 条目
- * - 前置校验：change 存在且 workflow.json 合法且含 files（缺失硬报错指引重建）
- * - changeFilesInputSchema：op 枚举、相对项目根 POSIX 路径、written/deleted 至少其一
+ * 覆盖范围:
+ * - openspec/changes/workflow-file-inventory/test-design.md AC-10、AC-13:
+ *   append 按折叠规则逐路径合并（去重、保留既有来源、新路径无来源）、set 整体覆写
+ *   指定桶并清理被覆写路径的 source 条目、前置校验（缺失硬报错指引重建）、
+ *   changeFilesInputSchema 校验行为
+ * - openspec/changes/move-files-write-into-workflow-module/test-design.md AC-5:
+ *   change_files 通道不过滤——临时项目根存在 .gitignore 时 ignored 路径仍照常入桶
+ *   （记录器会过滤的同一路径，人工补录通道放行）
  *
  * 文件系统不 mock：临时项目内 runChangeCreate 创建 fixture change（真盘模式）。
  */
@@ -16,6 +19,7 @@ import * as path from 'path';
 
 import { describe, expect, it } from 'vite-plus/test';
 
+import { recordFileOps } from '../modules/workflow';
 import { changeFilesInputSchema } from '../schemas';
 import { runChangeCreate } from './change-create';
 import { runChangeFiles, type ChangeFilesOptions } from './change-files';
@@ -387,6 +391,67 @@ describe('runChangeFiles — 边界（schema 校验行为）', () => {
     try {
       const result = runChangeFiles(appendOptions(fx.root, { written: ['src/a.ts'] }));
       expect(Object.keys(result).sort()).toEqual(['deleted', 'written']);
+    } finally {
+      fx.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runChangeFiles — change_files 通道不过滤 (AC-5)
+// ===========================================================================
+
+describe('runChangeFiles — change_files 通道不过滤 (AC-5)', () => {
+  /** 建立带根 .gitignore（含 .claude/，与记录器过滤同一实样）的 fixture。 */
+  function createFilteredFixture(files: Record<string, unknown>): ReturnType<typeof createFixture> {
+    const fx = createFixture(files);
+    fs.writeFileSync(path.join(fx.root, '.gitignore'), '.claude/\n', 'utf-8');
+    return fx;
+  }
+
+  it('项目根 .gitignore 含 .claude/ 时 append written 被忽略路径 → 仍入桶并落盘、返回净状态含之（记录器会过滤的同一路径，人工补录通道放行）', () => {
+    const fx = createFilteredFixture({ written: [], deleted: [] });
+    try {
+      const result = runChangeFiles(appendOptions(fx.root, { written: ['.claude/memory.md'] }));
+
+      expect(result.written).toEqual(['.claude/memory.md']);
+      const files = readWorkflow(fx).files as { written: string[] };
+      expect(files.written).toEqual(['.claude/memory.md']);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('同前置下 set written 含 ignored 路径 → 整桶覆写照常生效', () => {
+    const fx = createFilteredFixture({ written: ['src/a.ts'], deleted: [] });
+    try {
+      const result = runChangeFiles(
+        appendOptions(fx.root, { op: 'set', written: ['.claude/memory.md', 'src/b.ts'] }),
+      );
+
+      expect(result.written).toEqual(['.claude/memory.md', 'src/b.ts']);
+      const files = readWorkflow(fx).files as { written: string[] };
+      expect(files.written).toEqual(['.claude/memory.md', 'src/b.ts']);
+    } finally {
+      fx.cleanup();
+    }
+  });
+
+  it('边界：ignored 路径 append 入桶后，记录器管线折叠无关路径 → 净状态符合折叠规则、补录条目无过滤干预痕迹', () => {
+    const fx = createFilteredFixture({ written: [], deleted: [] });
+    try {
+      // 人工补录通道：ignored 路径入桶
+      runChangeFiles(appendOptions(fx.root, { written: ['.claude/memory.md'] }));
+
+      // 记录器管线归账无关路径（其自身过滤只作用于本次增量 op，不回溯清洗存量）
+      recordFileOps(
+        path.join(fx.root, 'openspec', 'changes', 'my-change'),
+        [{ op: 'write', path: 'src/a.ts' }],
+        { projectRoot: fx.root },
+      );
+
+      const files = readWorkflow(fx).files as { written: string[] };
+      expect(files.written).toEqual(['.claude/memory.md', 'src/a.ts']);
     } finally {
       fx.cleanup();
     }

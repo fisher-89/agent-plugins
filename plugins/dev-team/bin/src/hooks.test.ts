@@ -1,12 +1,19 @@
 /**
- * 单元测试: hooks.ts — hooks 单入口（protect-files / static-check）
+ * 单元测试: hooks.ts — hooks 单入口（protect-files / record-files / static-check）
  *
  * 覆盖范围:
- * - AC-1: hooks 子命令调度
- * - AC-2: protect-files 功能等价迁移
- * - AC-3: protect-files 复用 picomatch
- * - AC-4: static-check 进程内调用
- * - AC-5: static-check 功能等价迁移
+ * - 既有 AC-1~AC-13（protect-files / static-check 各组，保持不变）
+ * - openspec/changes/move-files-write-into-workflow-module/test-design.md:
+ *   AC-2 gitignore 过滤接入（命中路径不入清单、未忽略路径透明通过、全无
+ *   .gitignore 行为不变且 hook 不阻塞、fail-open）；AC-4 归账管线内移后的
+ *   持久化观察点改造（净状态以临时项目内真实 workflow.json 为准——管线内部
+ *   IO 不再经 workflow barrel，barrel mock 不再截获）
+ *
+ * Mock 面（进程边界）: node:fs.readFileSync 按参数分流（fd 0 返回事件 JSON、
+ * 字符串路径转发真实读取，供管线装载 .gitignore / workflow.json）、
+ * ./lib/session-registry、./lib/config、./commands/run-static-analysis、
+ * process.stderr.write / process.exit / process.stdout.write spy。
+ * 模块间调用不 mock。
  */
 
 import * as NodeFs from 'node:fs';
@@ -29,25 +36,25 @@ const {
   mockRunStaticAnalysis,
   mockGetProjectDir,
   actualGetProjectDirRef,
+  realReadFileSyncRef,
   mockBindSession,
   mockLookupChange,
-  mockReadFileInventory,
-  mockWriteFileInventory,
 } = vi.hoisted(() => ({
   mockReadFileSync: vi.fn(),
   mockReadConfig: vi.fn(),
   mockRunStaticAnalysis: vi.fn(),
   mockGetProjectDir: vi.fn(),
   actualGetProjectDirRef: { current: null as null | (() => string) },
+  realReadFileSyncRef: { current: null as null | ((...args: unknown[]) => string) },
   mockBindSession: vi.fn(),
   mockLookupChange: vi.fn(),
-  mockReadFileInventory: vi.fn(),
-  mockWriteFileInventory: vi.fn(),
 }));
 
 // vi.mock 被提升到文件顶部，在静态 import 之前执行
 vi.mock('node:fs', async (importOriginal) => {
   const actual: Record<string, unknown> = await importOriginal();
+  // 捕获真实 readFileSync：stdin 分流时转发字符串路径（.gitignore / workflow.json 装载）
+  realReadFileSyncRef.current = actual.readFileSync as (...args: unknown[]) => string;
   return { ...actual, readFileSync: mockReadFileSync };
 });
 
@@ -59,15 +66,6 @@ vi.mock('./lib/session-registry', () => ({
   bindSession: mockBindSession,
   lookupChange: mockLookupChange,
 }));
-
-vi.mock('./modules/workflow', async (importOriginal) => {
-  const actual = await importOriginal<Record<string, unknown>>();
-  return {
-    ...actual,
-    readFileInventory: mockReadFileInventory,
-    writeFileInventory: mockWriteFileInventory,
-  };
-});
 
 vi.mock('./commands/run-static-analysis', () => ({
   runStaticAnalysis: mockRunStaticAnalysis,
@@ -109,27 +107,66 @@ function resetMocks(): void {
   }
   mockBindSession.mockReset();
   mockLookupChange.mockReset();
-  mockReadFileInventory.mockReset();
-  mockWriteFileInventory.mockReset();
   exitMock.mockClear();
   stdoutWriteMock.mockClear();
 }
 
-/** record-files 归账测试：以内存 store 模拟「读清单 → 折叠 → 写清单」的持久化。 */
-function bindInventoryStore(initial: {
+/**
+ * record-files 场景的 stdin 分流：fd 0 返回事件 JSON；字符串路径转发真实
+ * readFileSync——归账管线经 node:fs 读 .gitignore 与 workflow.json（缺失抛
+ * ENOENT → 该层无规则），分流避免过滤器读到事件 JSON 文本。
+ */
+function stubRecordStdin(event: Record<string, unknown>): void {
+  mockReadFileSync.mockImplementation((...args: unknown[]) => {
+    if (args[0] === 0) return JSON.stringify(event);
+    return realReadFileSyncRef.current?.(args[0], args[1]);
+  });
+}
+
+/** 在临时项目内创建 change 目录与合法 workflow.json（真盘 fixture），返回 changeDir。 */
+function createRecordChangeFixture(root: string, files: unknown, changeName = 'change-a'): string {
+  const changeDir = path.join(root, 'openspec', 'changes', changeName);
+  NodeFs.mkdirSync(changeDir, { recursive: true });
+  NodeFs.writeFileSync(
+    path.join(changeDir, 'workflow.json'),
+    `${JSON.stringify(
+      {
+        workflow_type: 'requirement',
+        created: '2026-09-18',
+        eval: [],
+        unknown_key: { keep: true },
+        files,
+      },
+      null,
+      2,
+    )}\n`,
+    'utf-8',
+  );
+  return changeDir;
+}
+
+/** 经真实 readFileSync 读回磁盘 workflow.json 原文（绕开 stdin 分流 mock 面）。 */
+function readRecordWorkflowRaw(changeDir: string): string {
+  const read = realReadFileSyncRef.current;
+  if (!read) throw new Error('真实 readFileSync 未就绪（node:fs mock 工厂未执行）');
+  return read(path.join(changeDir, 'workflow.json'), 'utf-8');
+}
+
+/**
+ * 读回临时项目内真实 workflow.json 的 files 净状态。
+ * （迁移后「读 → 折叠 → 写」在 modules/workflow/files/record.ts 内部经
+ * ./file-inventory 直接导入完成，净状态观察点为真盘而非 mock 调用参数。）
+ */
+function readRecordedFiles(changeDir: string): {
   written: string[];
   deleted: string[];
   source?: Record<string, string>;
-}): void {
-  let store = JSON.parse(JSON.stringify(initial)) as {
-    written: string[];
-    deleted: string[];
-    source?: Record<string, string>;
+} {
+  const doc = JSON.parse(readRecordWorkflowRaw(changeDir)) as {
+    files?: { written: string[]; deleted: string[]; source?: Record<string, string> };
   };
-  mockReadFileInventory.mockImplementation(() => JSON.parse(JSON.stringify(store)));
-  mockWriteFileInventory.mockImplementation((_changeDir: unknown, files: typeof store) => {
-    store = JSON.parse(JSON.stringify(files));
-  });
+  if (!doc.files) throw new Error('workflow.json 无 files 字段');
+  return doc.files;
 }
 
 /** 从 stdout spy calls 中提取最后写入的字符串 */
@@ -2690,11 +2727,13 @@ describe('内置 glob 集合 (AC-8, AC-9)', () => {
 
 describe('record-files — phase_next 建绑 (AC-3)', () => {
   let tempRoot = '';
+  let changeDir = '';
 
   beforeEach(() => {
     resetMocks();
     tempRoot = NodeFs.mkdtempSync(path.join(os.tmpdir(), 'hooks-record-bind-'));
     mockGetProjectDir.mockReturnValue(tempRoot);
+    changeDir = createRecordChangeFixture(tempRoot, { written: ['src/keep.ts'], deleted: [] });
   });
 
   afterEach(() => {
@@ -2714,8 +2753,8 @@ describe('record-files — phase_next 建绑 (AC-3)', () => {
     });
 
     expect(mockBindSession).toHaveBeenCalledWith(tempRoot, 'S1', 'change-a');
-    expect(mockReadFileInventory).not.toHaveBeenCalled();
-    expect(mockWriteFileInventory).not.toHaveBeenCalled();
+    // 不产生清单 IO（真盘观察：净状态不变）
+    expect(readRecordedFiles(changeDir)).toEqual({ written: ['src/keep.ts'], deleted: [] });
     expect(stdoutWriteMock).not.toHaveBeenCalled();
     expect(exitMock).not.toHaveBeenCalled();
   });
@@ -2732,6 +2771,7 @@ describe('record-files — phase_next 建绑 (AC-3)', () => {
   });
 
   it('phase_next 事件缺 tool_input.change → 不建立绑定、不写清单、不抛错（exit 0 语义）', () => {
+    const before = readRecordWorkflowRaw(changeDir);
     for (const toolInput of [{}, { change: '' }, { change: 42 }, undefined]) {
       mockBindSession.mockClear();
       runRecord({
@@ -2741,26 +2781,25 @@ describe('record-files — phase_next 建绑 (AC-3)', () => {
       });
 
       expect(mockBindSession).not.toHaveBeenCalled();
-      expect(mockWriteFileInventory).not.toHaveBeenCalled();
+      expect(readRecordWorkflowRaw(changeDir)).toBe(before);
       expect(exitMock).not.toHaveBeenCalled();
     }
   });
 
   it('stdin 非法 JSON / 空输入 → 静默丢弃、exit 0、不产生任何写副作用', () => {
+    const before = readRecordWorkflowRaw(changeDir);
     for (const raw of ['{not json', '', '   ', '[1,2]', '"str"']) {
       mockBindSession.mockClear();
-      mockReadFileInventory.mockClear();
-      mockWriteFileInventory.mockClear();
       mockReadFileSync.mockReturnValue(raw);
       expect(() => runRecordFiles()).not.toThrow();
       expect(mockBindSession).not.toHaveBeenCalled();
-      expect(mockReadFileInventory).not.toHaveBeenCalled();
-      expect(mockWriteFileInventory).not.toHaveBeenCalled();
+      expect(readRecordWorkflowRaw(changeDir)).toBe(before);
       expect(exitMock).not.toHaveBeenCalled();
     }
   });
 
   it('非 MCP 全名的 phase_next 变体不建立绑定：无 mcp__ 前缀 / 后缀不符均按普通事件走查表路径（匹配精确性，AC-3）', () => {
+    const before = readRecordWorkflowRaw(changeDir);
     for (const toolName of ['phase_next', 'mcp__plugin_dev-team_dev-team__phase_next_v2']) {
       mockBindSession.mockClear();
       mockLookupChange.mockReturnValue('change-a');
@@ -2769,25 +2808,28 @@ describe('record-files — phase_next 建绑 (AC-3)', () => {
         tool_input: { change: 'sneaky' },
         session_id: 'S1',
       });
-      // 未走建绑分支
+      // 未走建绑分支；该形态不产生任何清单 IO
       expect(mockBindSession).not.toHaveBeenCalled();
+      expect(readRecordWorkflowRaw(changeDir)).toBe(before);
     }
   });
 });
 
 // ============================================================================
-// record-files — 归账写清单 (AC-2, AC-4, AC-13)
+// record-files — 归账写清单（持久化观察点改造：真盘 workflow.json 读回）
+// (AC-2, AC-4, AC-13)
 // ============================================================================
 
-describe('record-files — 归账写清单 (AC-2, AC-4, AC-13)', () => {
+describe('record-files — 归账写清单（持久化观察点改造）(AC-2, AC-4, AC-13)', () => {
   let tempRoot = '';
+  let changeDir = '';
 
   beforeEach(() => {
     resetMocks();
     tempRoot = NodeFs.mkdtempSync(path.join(os.tmpdir(), 'hooks-record-fold-'));
     mockGetProjectDir.mockReturnValue(tempRoot);
     mockLookupChange.mockReturnValue('change-a');
-    bindInventoryStore({ written: [], deleted: [] });
+    changeDir = createRecordChangeFixture(tempRoot, { written: [], deleted: [] });
   });
 
   afterEach(() => {
@@ -2795,54 +2837,38 @@ describe('record-files — 归账写清单 (AC-2, AC-4, AC-13)', () => {
   });
 
   function runRecord(event: Record<string, unknown>): void {
-    mockReadFileSync.mockReturnValue(JSON.stringify(event));
+    stubRecordStdin(event);
     runRecordFiles();
   }
 
-  function expectedChangeDir(): string {
-    return path.resolve(tempRoot, 'openspec', 'changes', 'change-a');
-  }
-
-  function lastWrittenFiles(): {
-    written: string[];
-    deleted: string[];
-    source?: Record<string, string>;
-  } {
-    expect(mockWriteFileInventory).toHaveBeenCalled();
-    const call = mockWriteFileInventory.mock.calls.at(-1)!;
-    expect(call[0]).toBe(expectedChangeDir());
-    return call[1];
-  }
-
-  it('已绑定 session 的 Write 事件 file_path=src/foo.ts → 清单 written 含 src/foo.ts（相对项目根 POSIX 风格，AC-2）', () => {
+  it('已绑定 session 的 Write 事件 file_path=src/foo.ts → 清单 written 含 src/foo.ts（相对项目根 POSIX 风格，读回真盘 workflow.json，AC-2）', () => {
     runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/foo.ts' }, session_id: 'S1' });
 
-    expect(lastWrittenFiles().written).toEqual(['src/foo.ts']);
+    expect(readRecordedFiles(changeDir).written).toEqual(['src/foo.ts']);
   });
 
   it('Edit 事件 file_path / NotebookEdit 事件 notebook_path → 同归账语义 (AC-2)', () => {
     runRecord({ tool_name: 'Edit', tool_input: { file_path: 'src/edited.ts' }, session_id: 'S1' });
-    expect(lastWrittenFiles().written).toContain('src/edited.ts');
+    expect(readRecordedFiles(changeDir).written).toContain('src/edited.ts');
 
     runRecord({
       tool_name: 'NotebookEdit',
       tool_input: { notebook_path: 'src/nb.ipynb' },
       session_id: 'S1',
     });
-    expect(lastWrittenFiles().written).toContain('src/nb.ipynb');
+    expect(readRecordedFiles(changeDir).written).toContain('src/nb.ipynb');
   });
 
   it('Bash rm src/old.ts → deleted 含 src/old.ts；PowerShell Remove-Item 同语义 (AC-2)', () => {
     runRecord({ tool_name: 'Bash', tool_input: { command: 'rm src/old.ts' }, session_id: 'S1' });
-    expect(lastWrittenFiles().deleted).toEqual(['src/old.ts']);
+    expect(readRecordedFiles(changeDir).deleted).toEqual(['src/old.ts']);
 
-    bindInventoryStore({ written: [], deleted: [] });
     runRecord({
       tool_name: 'PowerShell',
       tool_input: { command: 'Remove-Item src/old.ts' },
       session_id: 'S1',
     });
-    expect(lastWrittenFiles().deleted).toEqual(['src/old.ts']);
+    expect(readRecordedFiles(changeDir).deleted).toEqual(['src/old.ts']);
   });
 
   it('Bash git restore src/foo.ts → 折叠为净 untouched（written/deleted 均无该路径，AC-4）', () => {
@@ -2853,7 +2879,7 @@ describe('record-files — 归账写清单 (AC-2, AC-4, AC-13)', () => {
       session_id: 'S1',
     });
 
-    const files = lastWrittenFiles();
+    const files = readRecordedFiles(changeDir);
     expect(files.written).toEqual([]);
     expect(files.deleted).toEqual([]);
   });
@@ -2863,7 +2889,7 @@ describe('record-files — 归账写清单 (AC-2, AC-4, AC-13)', () => {
     runRecord({ tool_name: 'Bash', tool_input: { command: 'rm src/foo.ts' }, session_id: 'S1' });
     runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/foo.ts' }, session_id: 'S1' });
 
-    const files = lastWrittenFiles();
+    const files = readRecordedFiles(changeDir);
     expect(files.written).toEqual(['src/foo.ts']);
     expect(files.deleted).toEqual([]);
   });
@@ -2875,51 +2901,82 @@ describe('record-files — 归账写清单 (AC-2, AC-4, AC-13)', () => {
       session_id: 'S1',
       agent_type: 'dev-team:implementation-generator',
     });
-    expect(lastWrittenFiles().source).toEqual({
+    expect(readRecordedFiles(changeDir).source).toEqual({
       'src/foo.ts': 'dev-team:implementation-generator',
     });
 
     runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/foo.ts' }, session_id: 'S1' });
-    const files = lastWrittenFiles();
+    const files = readRecordedFiles(changeDir);
     expect(files.written).toEqual(['src/foo.ts']);
     expect(files.source).toBeUndefined();
   });
 
   it('未绑定 session 的写事件 → 静默丢弃，workflow.json 不变（stderr 诊断，AC-3 前置语义）', () => {
     mockLookupChange.mockReturnValue(null);
-    const stderrSpy = vi.spyOn(process.stderr, 'write');
-    stderrSpy.mockClear();
+    const [getCaptured, restore] = captureStderr();
+    const before = readRecordWorkflowRaw(changeDir);
+    try {
+      runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/foo.ts' }, session_id: 'S9' });
 
-    runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/foo.ts' }, session_id: 'S9' });
-
-    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('未绑定'))).toBe(true);
-    expect(mockReadFileInventory).not.toHaveBeenCalled();
-    expect(mockWriteFileInventory).not.toHaveBeenCalled();
-    expect(exitMock).not.toHaveBeenCalled();
-    stderrSpy.mockRestore();
+      expect(getCaptured()).toContain('未绑定');
+      expect(readRecordWorkflowRaw(changeDir)).toBe(before);
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
   });
 
-  it('目标 change 缺 workflow.json / 无 files → 静默（stderr 诊断、exit 0），不产生半写状态', () => {
-    mockReadFileInventory.mockImplementation(() => {
-      throw new Error(
-        'workflow.json 缺少 files 字段：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
-      );
-    });
-    const stderrSpy = vi.spyOn(process.stderr, 'write');
-    stderrSpy.mockClear();
+  it('目标 change 缺 workflow.json / 无 files（legacy）→ 静默（stderr 诊断、exit 0），磁盘无半写状态', () => {
+    // 变体一：change 目录存在但无 workflow.json
+    const ghostDir = path.join(tempRoot, 'openspec', 'changes', 'ghost-change');
+    NodeFs.mkdirSync(ghostDir, { recursive: true });
+    mockLookupChange.mockReturnValue('ghost-change');
+    const [getCaptured1, restore1] = captureStderr();
+    try {
+      expect(() =>
+        runRecord({
+          tool_name: 'Write',
+          tool_input: { file_path: 'src/foo.ts' },
+          session_id: 'S1',
+        }),
+      ).not.toThrow();
+      expect(getCaptured1()).toContain('record-files:');
+      expect(getCaptured1()).toContain('workflow.json 不存在');
+      expect(NodeFs.existsSync(path.join(ghostDir, 'workflow.json'))).toBe(false);
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      restore1();
+    }
 
-    expect(() =>
-      runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/foo.ts' }, session_id: 'S1' }),
-    ).not.toThrow();
-
-    expect(
-      stderrSpy.mock.calls.some(
-        (c) => String(c[0]).includes('record-files:') && String(c[0]).includes('请重建'),
-      ),
-    ).toBe(true);
-    expect(mockWriteFileInventory).not.toHaveBeenCalled();
-    expect(exitMock).not.toHaveBeenCalled();
-    stderrSpy.mockRestore();
+    // 变体二：workflow.json 存在但无 files（机制前旧 change）
+    const legacyDir = createRecordChangeFixture(
+      tempRoot,
+      { written: [], deleted: [] },
+      'legacy-change',
+    );
+    NodeFs.writeFileSync(
+      path.join(legacyDir, 'workflow.json'),
+      JSON.stringify({ workflow_type: 'requirement', created: '2026-09-18' }),
+      'utf-8',
+    );
+    const legacyBefore = readRecordWorkflowRaw(legacyDir);
+    mockLookupChange.mockReturnValue('legacy-change');
+    const [getCaptured2, restore2] = captureStderr();
+    try {
+      expect(() =>
+        runRecord({
+          tool_name: 'Write',
+          tool_input: { file_path: 'src/foo.ts' },
+          session_id: 'S1',
+        }),
+      ).not.toThrow();
+      expect(getCaptured2()).toContain('record-files:');
+      expect(getCaptured2()).toContain('请重建');
+      expect(readRecordWorkflowRaw(legacyDir)).toBe(legacyBefore);
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      restore2();
+    }
   });
 
   it('绝对路径（含 Windows 反斜杠）相对 getProjectDir() 归一化为 POSIX 相对路径', () => {
@@ -2929,17 +2986,18 @@ describe('record-files — 归账写清单 (AC-2, AC-4, AC-13)', () => {
       session_id: 'S1',
     });
 
-    expect(lastWrittenFiles().written).toEqual(['src/deep/foo.ts']);
+    expect(readRecordedFiles(changeDir).written).toEqual(['src/deep/foo.ts']);
   });
 
-  it('路径越出项目根（../outside.ts）→ 丢弃不入清单（不读写清单）', () => {
+  it('路径越出项目根（../outside.ts）→ 丢弃不入清单（不读写清单，磁盘逐字节不变）', () => {
+    const before = readRecordWorkflowRaw(changeDir);
     runRecord({ tool_name: 'Write', tool_input: { file_path: '../outside.ts' }, session_id: 'S1' });
 
-    expect(mockReadFileInventory).not.toHaveBeenCalled();
-    expect(mockWriteFileInventory).not.toHaveBeenCalled();
+    expect(readRecordWorkflowRaw(changeDir)).toBe(before);
   });
 
-  it('openspec/** 路径与 workflow.json 自身路径 → 排除不入清单（自污染排除，AC-2）', () => {
+  it('openspec/** 路径与 workflow.json 自身路径 → 排除不入清单（自污染排除，磁盘逐字节不变，AC-2）', () => {
+    const before = readRecordWorkflowRaw(changeDir);
     for (const filePath of [
       'openspec/changes/change-a/proposal.md',
       'openspec/config.json',
@@ -2949,26 +3007,136 @@ describe('record-files — 归账写清单 (AC-2, AC-4, AC-13)', () => {
       runRecord({ tool_name: 'Write', tool_input: { file_path: filePath }, session_id: 'S1' });
     }
 
-    expect(mockReadFileInventory).not.toHaveBeenCalled();
-    expect(mockWriteFileInventory).not.toHaveBeenCalled();
+    expect(readRecordWorkflowRaw(changeDir)).toBe(before);
   });
 
-  it('归账全程任何内部异常 → exit 0 且 stdout 无阻塞决策输出（不阻塞工具调用）', () => {
-    mockReadFileInventory.mockImplementation(() => {
-      throw new Error('boom-in-recorder');
-    });
-    const stderrSpy = vi.spyOn(process.stderr, 'write');
-    stderrSpy.mockClear();
+  it('归账全程任何内部异常（workflow.json 非法）→ exit 0 且 stdout 无阻塞决策输出（不阻塞工具调用）', () => {
+    NodeFs.writeFileSync(path.join(changeDir, 'workflow.json'), '{broken', 'utf-8');
+    stdoutWriteMock.mockClear();
+    const [getCaptured, restore] = captureStderr();
+    try {
+      expect(() =>
+        runRecord({
+          tool_name: 'Bash',
+          tool_input: { command: 'rm src/a.ts' },
+          session_id: 'S1',
+        }),
+      ).not.toThrow();
+
+      expect(exitMock).not.toHaveBeenCalled();
+      expect(stdoutWriteMock).not.toHaveBeenCalled();
+      expect(getCaptured()).toContain('record-files:');
+      expect(getCaptured()).toContain('解析失败');
+    } finally {
+      restore();
+    }
+  });
+});
+
+// ============================================================================
+// record-files — gitignore 过滤接入 (AC-2)
+// ============================================================================
+
+describe('record-files — gitignore 过滤接入 (AC-2)', () => {
+  let tempRoot = '';
+  let changeDir = '';
+
+  beforeEach(() => {
+    resetMocks();
+    tempRoot = NodeFs.mkdtempSync(path.join(os.tmpdir(), 'hooks-record-gitignore-'));
+    mockGetProjectDir.mockReturnValue(tempRoot);
+    mockLookupChange.mockReturnValue('change-a');
+    changeDir = createRecordChangeFixture(tempRoot, { written: [], deleted: [] });
+  });
+
+  afterEach(() => {
+    NodeFs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  function runRecord(event: Record<string, unknown>): void {
+    stubRecordStdin(event);
+    runRecordFiles();
+  }
+
+  it('已绑定 session，根 .gitignore 含 .claude/，Write .claude/agent-memory/x.md → 清单 written 不含该路径且其余净状态不变（exit 0、stdout 无输出、stderr 无诊断，AC-2）', () => {
+    NodeFs.writeFileSync(path.join(tempRoot, '.gitignore'), '.claude/\n', 'utf-8');
     stdoutWriteMock.mockClear();
 
-    expect(() =>
-      runRecord({ tool_name: 'Bash', tool_input: { command: 'rm src/a.ts' }, session_id: 'S1' }),
-    ).not.toThrow();
+    runRecord({
+      tool_name: 'Write',
+      tool_input: { file_path: '.claude/agent-memory/x.md' },
+      session_id: 'S1',
+    });
 
-    expect(exitMock).not.toHaveBeenCalled();
-    expect(stdoutWriteMock).not.toHaveBeenCalled();
-    expect(stderrSpy.mock.calls.some((c) => String(c[0]).includes('boom-in-recorder'))).toBe(true);
-    stderrSpy.mockRestore();
+    const [getCaptured, restore] = captureStderr();
+    try {
+      expect(readRecordedFiles(changeDir)).toEqual({ written: [], deleted: [] });
+      expect(stdoutWriteMock).not.toHaveBeenCalled();
+      expect(getCaptured()).toBe('');
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('同前置 Bash rm .claude/x.md → deleted 桶不含该路径（过滤对 delete 统一生效）', () => {
+    NodeFs.writeFileSync(path.join(tempRoot, '.gitignore'), '.claude/\n', 'utf-8');
+
+    runRecord({ tool_name: 'Bash', tool_input: { command: 'rm .claude/x.md' }, session_id: 'S1' });
+
+    expect(readRecordedFiles(changeDir)).toEqual({ written: [], deleted: [] });
+  });
+
+  it('同前置 Write src/a.ts → 照常入清单（未忽略路径透明通过）', () => {
+    NodeFs.writeFileSync(path.join(tempRoot, '.gitignore'), '.claude/\n', 'utf-8');
+
+    runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/a.ts' }, session_id: 'S1' });
+
+    expect(readRecordedFiles(changeDir).written).toEqual(['src/a.ts']);
+  });
+
+  it('净状态中已存在的历史 ignored 路径（预置入桶）在后续无关事件归账后原样保留（过滤不回溯清洗存量）', () => {
+    NodeFs.writeFileSync(path.join(tempRoot, '.gitignore'), '.claude/\n', 'utf-8');
+    changeDir = createRecordChangeFixture(tempRoot, { written: ['.claude/old.md'], deleted: [] });
+
+    runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/a.ts' }, session_id: 'S1' });
+
+    expect(readRecordedFiles(changeDir).written).toEqual(['.claude/old.md', 'src/a.ts']);
+  });
+
+  it('临时项目祖先链全无 .gitignore → 归账行为与现状一致（照常入桶），hook exit 0、stdout 无阻塞输出（AC-2 现状回归）', () => {
+    stdoutWriteMock.mockClear();
+    const [getCaptured, restore] = captureStderr();
+    try {
+      runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/a.ts' }, session_id: 'S1' });
+
+      expect(readRecordedFiles(changeDir).written).toEqual(['src/a.ts']);
+      expect(getCaptured()).toBe('');
+      expect(stdoutWriteMock).not.toHaveBeenCalled();
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
+  });
+
+  it('.gitignore 读取失败（目录形态 fail-open）→ 路径保留入清单，stderr 出现 record-files: 前缀诊断，hook exit 0 不阻塞', () => {
+    // 根 .gitignore 为目录：existsSync 命中、readFileSync 抛错（读取失败形态）
+    NodeFs.mkdirSync(path.join(tempRoot, '.gitignore'), { recursive: true });
+    stdoutWriteMock.mockClear();
+    const [getCaptured, restore] = captureStderr();
+    try {
+      expect(() =>
+        runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/a.ts' }, session_id: 'S1' }),
+      ).not.toThrow();
+
+      expect(readRecordedFiles(changeDir).written).toEqual(['src/a.ts']);
+      expect(getCaptured()).toContain('record-files:');
+      expect(getCaptured()).toContain('.gitignore');
+      expect(stdoutWriteMock).not.toHaveBeenCalled();
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      restore();
+    }
   });
 });
 
@@ -3058,6 +3226,125 @@ describe('protect-files — 扩拦截：git stash / clean / restore / rm / mv (A
     expect(decision('python -c "import os; os.remove(\'openspec/config.json\')"')).toBe('allow');
     expect(decision('python3 script.py > openspec/changes/x/workflow.json')).toBe('allow');
     expect(decision('node script.js > openspec/changes/x/workflow.json')).toBe('allow');
+  });
+});
+
+// ============================================================================
+// protect-files — 引号与 heredoc 内容不参与判定（提取器掩盖治理）
+// ============================================================================
+
+describe('protect-files — 引号与 heredoc 内容不参与判定', () => {
+  beforeEach(() => {
+    resetMocks();
+    mockReadConfig.mockReturnValue({ schema: 'spec-driven' });
+  });
+
+  function decision(command: string, toolName: 'Bash' | 'PowerShell' = 'Bash'): string {
+    mockReadFileSync.mockReturnValue(
+      JSON.stringify({ tool_name: toolName, tool_input: { command } }),
+    );
+    runProtectFiles();
+    return JSON.parse(getLastStdout()).hookSpecificOutput.permissionDecision as string;
+  }
+
+  it('引号字符串内的 git stash 文本不再误拦（echo "run git stash pop" → allow）', () => {
+    expect(decision('echo "run git stash pop"')).toBe('allow');
+    // 未被引号包裹的真实 stash 仍拦
+    expect(decision('git stash pop')).toBe('deny');
+  });
+
+  it('引号字符串内的 git restore 建议文本 → allow；引号包裹路径的真实 git restore → 仍 deny（双向锁定）', () => {
+    expect(decision("echo 'please git restore openspec/changes/x/design.md'")).toBe('allow');
+    expect(decision("git restore 'openspec/changes/x/design.md'")).toBe('deny');
+  });
+
+  it('heredoc 正文中的 rm 保护路径 → allow（内容非命令）；header 行引号重定向目标 → 仍 deny', () => {
+    expect(decision('cat > out.log <<EOF\nrm openspec/config.json\nEOF')).toBe('allow');
+    expect(decision("cat > 'openspec/changes/x/workflow.json' <<EOF\nx\nEOF")).toBe('deny');
+  });
+
+  it('引号包裹的重定向 / tee 保护路径 → 仍 deny（掩盖不得放行真实写入）', () => {
+    expect(decision("echo '{}' > 'openspec/config.json'")).toBe('deny');
+    expect(decision("tee 'openspec/changes/x/workflow.json'")).toBe('deny');
+  });
+
+  it('引号包裹的 rm 保护路径 → 仍 deny（最坏回归防线：掩盖只作用于命令名定位）', () => {
+    expect(decision("rm 'openspec/config.json'")).toBe('deny');
+  });
+
+  it('git clean -fd $DIR 现状锁定：非 flag 路径非空且不命中 openspec → allow（$ 过滤不进 tokenize）', () => {
+    expect(decision('git clean -fd $DIR')).toBe('allow');
+  });
+});
+
+// ============================================================================
+// record-files — 引号与 heredoc 内容不入清单（提取器掩盖治理）
+// ============================================================================
+
+describe('record-files — 引号与 heredoc 内容不入清单', () => {
+  let tempRoot = '';
+  let changeDir = '';
+
+  beforeEach(() => {
+    resetMocks();
+    tempRoot = NodeFs.mkdtempSync(path.join(os.tmpdir(), 'hooks-record-mask-'));
+    mockGetProjectDir.mockReturnValue(tempRoot);
+    mockLookupChange.mockReturnValue('change-a');
+    changeDir = createRecordChangeFixture(tempRoot, { written: [], deleted: [] });
+  });
+
+  afterEach(() => {
+    NodeFs.rmSync(tempRoot, { recursive: true, force: true });
+  });
+
+  function runRecord(event: Record<string, unknown>): void {
+    stubRecordStdin(event);
+    runRecordFiles();
+  }
+
+  it('heredoc 驱动脚本实况：仅记 header 写目标，正文 rm/引号碎片全部不入清单', () => {
+    runRecord({
+      tool_name: 'Bash',
+      tool_input: {
+        command:
+          "cat > driver.mjs <<'EOF'\n" +
+          "event('Bash rm .claude/y.md src/b.ts (mixed delete)', ev({ tool_name: 'Bash', tool_input: { command: 'rm .claude/y.md src/b.ts' } }));\n" +
+          'EOF',
+      },
+      session_id: 'S1',
+    });
+
+    expect(readRecordedFiles(changeDir)).toEqual({ written: ['driver.mjs'], deleted: [] });
+  });
+
+  it('node -e 箭头函数事件：清单不变（=> path.join 不再入 written）', () => {
+    runRecord({
+      tool_name: 'Bash',
+      tool_input: { command: 'node -e "const p = (...segs) => path.join(proj, ...segs);"' },
+      session_id: 'S1',
+    });
+
+    expect(readRecordedFiles(changeDir)).toEqual({ written: [], deleted: [] });
+  });
+
+  it('未展开 $TMP 不入 deleted；同命令真实路径照常入桶', () => {
+    runRecord({
+      tool_name: 'Bash',
+      tool_input: { command: 'rm -rf "$TMP" src/keep.ts' },
+      session_id: 'S1',
+    });
+
+    expect(readRecordedFiles(changeDir)).toEqual({ written: [], deleted: ['src/keep.ts'] });
+  });
+
+  it('真实重定向与引号内 rm 文本并存：只记真实写目标', () => {
+    runRecord({
+      tool_name: 'Bash',
+      tool_input: { command: 'echo "{}" > src/a.ts && echo "rm src/b.ts"' },
+      session_id: 'S1',
+    });
+
+    expect(readRecordedFiles(changeDir)).toEqual({ written: ['src/a.ts'], deleted: [] });
   });
 });
 

@@ -1,11 +1,12 @@
 /**
  * 单元测试: modules/workflow/file-inventory.ts — change 文件清单（workflow.json.files）共享库
  *
- * 覆盖范围（openspec/changes/workflow-file-inventory/test-design.md）:
- * - AC-1: change_create 初始净状态可被 workflowFileSchema 解析
- * - AC-2 / AC-4: readFileInventory 读取与校验、foldFileOps 三条对称折叠规则
- * - AC-6: writeFileInventory 空净状态写回（记录器空折叠共用通道）
- * - AC-13: source 旁挂来源维护（last-writer-wins / 重写清除 / 折叠联动）
+ * 覆盖范围:
+ * - openspec/changes/workflow-file-inventory/test-design.md:
+ *   AC-1 初始净状态可解析、AC-2/AC-4 读取与折叠、AC-6 空净状态写回、AC-13 source 维护
+ * - openspec/changes/move-files-write-into-workflow-module/test-design.md:
+ *   appendFileOps / setFileBuckets 迁入后的 append/set 读改写语义（桶内折叠合并去重、
+ *   source 保留与清理、异常前置）；本文件不接 gitignore 过滤（AC-5 的结构性保障）
  *
  * 文件系统不 mock：mkdtempSync 临时目录 + 真实读写（同 change-create.test.ts 模式）。
  */
@@ -17,10 +18,12 @@ import * as path from 'path';
 import { describe, expect, it } from 'vite-plus/test';
 
 import {
+  appendFileOps,
   type FileInventory,
   type FileOp,
   foldFileOps,
   readFileInventory,
+  setFileBuckets,
   writeFileInventory,
 } from './file-inventory';
 
@@ -656,6 +659,247 @@ describe('writeFileInventory — 写回纪律', () => {
       const doc = JSON.parse(readWorkflowJsonRaw(changeDir)) as Record<string, unknown>;
       expect(doc.files).toEqual({ written: [], deleted: [] });
       expect(doc.eval).toEqual([evalEntry('proposal')]);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// appendFileOps — append 读改写（move-files-write-into-workflow-module 迁入）
+// ===========================================================================
+
+describe('appendFileOps — append 读改写', () => {
+  it('空净状态 append written 新路径 → 入桶并落盘，返回净状态与磁盘一致，无 source 键', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+
+      const result = appendFileOps(changeDir, { written: ['src/foo.ts'] });
+
+      expect(result).toEqual({ written: ['src/foo.ts'], deleted: [] });
+      expect(Object.prototype.hasOwnProperty.call(result, 'source')).toBe(false);
+      // 返回净状态与磁盘一致
+      expect(readFileInventory(changeDir)).toEqual(result);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('已存在路径（带 source）再次 append → 去重不重复且既有 source 原样保留（锁定「append 不复用 foldFileOps」的 source 保留差异，防实现漂移）', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(
+        changeDir,
+        validWorkflowDoc({
+          written: ['src/foo.ts'],
+          deleted: [],
+          source: { 'src/foo.ts': 'dev-team:implementation-generator' },
+        }),
+      );
+
+      const result = appendFileOps(changeDir, { written: ['src/foo.ts'] });
+
+      expect(result.written).toEqual(['src/foo.ts']);
+      expect(result.written).toHaveLength(1);
+      expect(result.source).toEqual({ 'src/foo.ts': 'dev-team:implementation-generator' });
+      const files = JSON.parse(readWorkflowJsonRaw(changeDir)) as {
+        files: { source?: Record<string, string> };
+      };
+      expect(files.files.source).toEqual({ 'src/foo.ts': 'dev-team:implementation-generator' });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('append deleted → 该路径移出 written 进入 deleted（折叠合并语义）', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(changeDir, validWorkflowDoc({ written: ['src/foo.ts'], deleted: [] }));
+
+      const result = appendFileOps(changeDir, { deleted: ['src/foo.ts'] });
+
+      expect(result).toEqual({ written: [], deleted: ['src/foo.ts'] });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('同批重复路径去重（first-seen 顺序稳定）；written/deleted 传空数组 → 净状态不变', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(
+        changeDir,
+        validWorkflowDoc({ written: ['src/a.ts'], deleted: ['src/b.ts'] }),
+      );
+
+      const result = appendFileOps(changeDir, {
+        written: ['src/n1.ts', 'src/n0.ts', 'src/n1.ts'],
+        deleted: [],
+      });
+
+      expect(result.written).toEqual(['src/a.ts', 'src/n1.ts', 'src/n0.ts']);
+      expect(result.deleted).toEqual(['src/b.ts']);
+
+      // 空数组批次：净状态不变
+      const unchanged = appendFileOps(changeDir, { written: [], deleted: [] });
+      expect(unchanged).toEqual(result);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('100+ 路径批量 append → 全部入桶且去重稳定', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      const paths = Array.from({ length: 150 }, (_, i) => `src/batch/file${i}.ts`);
+      const withDupes = [...paths, paths[0], paths[7]];
+
+      const result = appendFileOps(changeDir, { written: withDupes });
+
+      expect(result.written).toHaveLength(150);
+      expect(new Set(result.written).size).toBe(150);
+      expect(result.written).toEqual(expect.arrayContaining(paths));
+      expect(readFileInventory(changeDir).written).toHaveLength(150);
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// setFileBuckets — set 读改写（move-files-write-into-workflow-module 迁入）
+// ===========================================================================
+
+describe('setFileBuckets — set 读改写', () => {
+  it('提供桶整桶覆写、未提供桶保持原样', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(
+        changeDir,
+        validWorkflowDoc({
+          written: ['src/a.ts', 'src/b.ts'],
+          deleted: ['src/old.ts'],
+        }),
+      );
+
+      const result = setFileBuckets(changeDir, { written: ['src/c.ts'] });
+
+      expect(result).toEqual({ written: ['src/c.ts'], deleted: ['src/old.ts'] });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('覆写条目清除 source；净状态中已不存在路径的 source 条目删除；未提供且仍在净状态的路径 source 保留', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(
+        changeDir,
+        validWorkflowDoc({
+          written: ['src/a.ts', 'src/b.ts'],
+          deleted: ['src/c.ts'],
+          source: {
+            'src/a.ts': 'dev-team:x',
+            'src/b.ts': 'dev-team:y',
+            'src/c.ts': 'dev-team:z',
+          },
+        }),
+      );
+
+      // 仅覆写 written（提供 src/a.ts）：a 被覆写清 source，b 移出净状态删 source，
+      // c 未提供且仍在净状态（deleted 桶）保留 source
+      const result = setFileBuckets(changeDir, { written: ['src/a.ts'] });
+
+      expect(result).toEqual({
+        written: ['src/a.ts'],
+        deleted: ['src/c.ts'],
+        source: { 'src/c.ts': 'dev-team:z' },
+      });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('written: [] → 该桶显式清空、deleted 桶不动', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(
+        changeDir,
+        validWorkflowDoc({ written: ['src/a.ts'], deleted: ['src/b.ts'] }),
+      );
+
+      const result = setFileBuckets(changeDir, { written: [] });
+
+      expect(result).toEqual({ written: [], deleted: ['src/b.ts'] });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('written 与 deleted 全部提供 → 旧 source 条目全清（覆写条目成为人工修正、无审计来源）', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(
+        changeDir,
+        validWorkflowDoc({
+          written: ['src/a.ts'],
+          deleted: ['src/b.ts'],
+          source: { 'src/a.ts': 'dev-team:x', 'src/b.ts': 'dev-team:y' },
+        }),
+      );
+
+      const result = setFileBuckets(changeDir, { written: ['src/n.ts'], deleted: ['src/m.ts'] });
+
+      expect(result).toEqual({ written: ['src/n.ts'], deleted: ['src/m.ts'] });
+      expect(result.source).toBeUndefined();
+      const files = JSON.parse(readWorkflowJsonRaw(changeDir)) as {
+        files: { source?: Record<string, string> };
+      };
+      expect(Object.prototype.hasOwnProperty.call(files.files, 'source')).toBe(false);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('changeDir 无 workflow.json / 文件非法 / 缺 files → 抛错且磁盘内容不变（复用 readFileInventory 前置）', () => {
+    const project = createTempProject();
+    try {
+      // 无 workflow.json
+      const missingDir = path.join(project.root, 'openspec', 'changes', 'missing');
+      expect(() => setFileBuckets(missingDir, { written: ['src/a.ts'] })).toThrow(
+        /workflow\.json 不存在/,
+      );
+      expect(fs.existsSync(missingDir)).toBe(false);
+
+      // 文件非法（截断 JSON）
+      const changeDir = createChangeDir(project);
+      const broken = '{"workflow_type": "requirement",';
+      fs.writeFileSync(path.join(changeDir, 'workflow.json'), broken, 'utf-8');
+      expect(() => setFileBuckets(changeDir, { written: ['src/a.ts'] })).toThrow(/解析失败/);
+      expect(fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8')).toBe(broken);
+
+      // 缺 files（机制前旧 change）
+      fs.writeFileSync(
+        path.join(changeDir, 'workflow.json'),
+        JSON.stringify({ workflow_type: 'requirement', created: '2026-09-18' }),
+        'utf-8',
+      );
+      const before = fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8');
+      expect(() => setFileBuckets(changeDir, { written: ['src/a.ts'] })).toThrow(
+        /该 change 创建于文件清单机制之前，请重建/,
+      );
+      expect(fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8')).toBe(before);
     } finally {
       project.cleanup();
     }

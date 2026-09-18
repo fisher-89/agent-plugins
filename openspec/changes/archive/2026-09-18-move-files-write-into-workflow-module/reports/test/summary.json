@@ -1,0 +1,84 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-18T05:51:11.126Z",
+  "duration_seconds": 138,
+  "total": 2179,
+  "passed": 2177,
+  "failed": 0,
+  "skipped": 2,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 96.98,
+      "branches": 89.12,
+      "functions": 99.5
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 45,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 90.16,
+    "threshold": 70,
+    "measured": {
+      "killed": 220,
+      "survived": 22,
+      "timeout": 0,
+      "noCoverage": 2,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 0,
+      "total": 244,
+      "detected": 220,
+      "undetected": 24
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 90.1639344262295,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 45,
+        "passed_count": 45
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/move-files-write-into-workflow-module/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "All 2179 tests (vite-plus suite, unit + integration) passed: 2177 passed, 0 failed. The 2 skipped cases are pre-existing environment-gated integration assertions in plugins/dev-team/bin/__tests__/archi-decide-retirement/archi-decide-retirement.test.ts (AC-09) that skip by design because the claude-plugins/cursor-plugins/cursor-home-image build-product directories do not exist; unrelated to this change and no fix required.",
+    "Coverage passes with margin: lines 96.98 (threshold 90), branches 89.12 (85), functions 99.5 (90); values verified against the plan coverage-summary.json totals.",
+    "Mutation score 90.16% vs threshold 70 (220 killed, 22 survived, 2 noCoverage of 244) - gate met.",
+    "Data-quality note: coverage.overrides[\"plugins/dev-team\"] reports measured null and passed_count 0/45 while pass=true, yet the same glob resolves 45/45 files in mutation.overrides and top-level coverage.measured is fully populated - the per-file coverage-to-glob mapping produced no data for the override group. No gate impact (overall coverage came from the plan-level summary), but the override group currently provides no coverage signal."
+  ]
+}

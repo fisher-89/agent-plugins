@@ -1,19 +1,14 @@
-// record-files.ts — PostToolUse hook: attribute file ops to the session-bound
-// change and fold them into the workflow.json file inventory.
+// record-files.ts — PostToolUse hook protocol adapter: parse the hook event,
+// resolve the session-bound change and delegate attribution to the workflow
+// module's recording pipeline (the sole owner of the inventory write path).
 
 import { readFileSync } from 'node:fs';
-import * as path from 'node:path';
 
 import { resolveChangeDir } from '../lib/change';
 import { getProjectDir } from '../lib/project-root';
 import { bindSession, lookupChange } from '../lib/session-registry';
 import { extractFileOps } from '../lib/shell-file-ops';
-import {
-  type FileOp,
-  foldFileOps,
-  readFileInventory,
-  writeFileInventory,
-} from '../modules/workflow';
+import { type FileOp, recordFileOps } from '../modules/workflow';
 import { isPlainObject } from '../utils';
 
 // ---------------------------------------------------------------------------
@@ -60,34 +55,6 @@ function extractOpsFromToolInput(
 }
 
 /**
- * Convert an extracted path to a project-root-relative POSIX path.
- * Returns null when the path resolves outside the project root (event dropped).
- */
-function normalizeRecordedPath(inputPath: string, projectRoot: string): string | null {
-  if (!inputPath) return null;
-  const abs = path.isAbsolute(inputPath)
-    ? path.resolve(inputPath)
-    : path.resolve(projectRoot, inputPath);
-  const rel = path.relative(projectRoot, abs);
-  if (!rel || rel.startsWith('..') || path.isAbsolute(rel)) return null;
-  return rel.replace(/\\/g, '/');
-}
-
-/**
- * Self-pollution exclusion: `openspec/**` workflow artifacts (proposal /
- * design / reports / architecture models) and `workflow.json` itself never
- * enter the inventory.
- */
-function isExcludedFromInventory(relPath: string): boolean {
-  return (
-    relPath === 'openspec' ||
-    relPath.startsWith('openspec/') ||
-    relPath === 'workflow.json' ||
-    relPath.endsWith('/workflow.json')
-  );
-}
-
-/**
  * Bind `session_id → change` from a `phase_next` MCP call event. The binding
  * refreshes on every agent turn's `phase_next` call, so a lost registry
  * self-heals at the cost of one turn's recording window.
@@ -104,34 +71,12 @@ function bindFromPhaseNextCall(
 }
 
 /**
- * Normalize, filter (self-pollution exclusion + project-root guard) and stamp
- * the event's `agent_type` onto the extracted ops.
- */
-function collectRecordedOps(
-  ops: FileOp[],
-  projectRoot: string,
-  agentType: string | undefined,
-): FileOp[] {
-  const recorded: FileOp[] = [];
-  for (const op of ops) {
-    const rel = normalizeRecordedPath(op.path, projectRoot);
-    if (!rel || isExcludedFromInventory(rel)) continue;
-    const entry: FileOp = { op: op.op, path: rel };
-    if (agentType !== undefined) {
-      entry.agentType = agentType;
-    }
-    recorded.push(entry);
-  }
-  return recorded;
-}
-
-/**
  * Attribute one PostToolUse event to the session-bound change.
  *
  * Flow: a `phase_next` MCP call event binds `session_id → change` (from
  * `tool_input.change`) and records nothing; every other event looks up the
- * binding, extracts paths, filters self-pollution and out-of-root targets,
- * folds the ops into the inventory net state and writes `workflow.json`.
+ * binding, extracts raw ops and hands them to the module recording pipeline
+ * (normalization, exclusions, filtering, folding and persistence live there).
  */
 function recordFilesEvent(stdinRaw: string): void {
   if (!stdinRaw || !stdinRaw.trim()) return;
@@ -167,14 +112,13 @@ function recordFilesEvent(stdinRaw: string): void {
   }
 
   const ops = extractOpsFromToolInput(toolName, toolInput);
-  const recorded = collectRecordedOps(ops, projectRoot, agentType);
-  if (recorded.length === 0) return;
+  if (ops.length === 0) return;
 
   const changeDir = resolveChangeDir(change, projectRoot);
-  // A legacy change (no `files`) throws here — swallowed by runRecordFiles'
-  // catch-all (stderr diagnostic, exit 0); the change must be recreated.
-  const inventory = readFileInventory(changeDir);
-  writeFileInventory(changeDir, foldFileOps(inventory, recorded));
+  // A legacy change (no `files`) throws inside the pipeline — swallowed by
+  // runRecordFiles' catch-all (stderr diagnostic, exit 0); the change must be
+  // recreated.
+  recordFileOps(changeDir, ops, { projectRoot, agentType });
 }
 
 /**

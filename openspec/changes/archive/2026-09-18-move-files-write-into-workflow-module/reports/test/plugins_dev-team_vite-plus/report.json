@@ -1,0 +1,303 @@
+{
+  "framework": "vite-plus",
+  "root": "plugins/dev-team",
+  "timestamp": "2026-09-18T05:51:11.121Z",
+  "exit_code": 0,
+  "duration_ms": 138431,
+  "summary": {
+    "total": 2179,
+    "passed": 2177,
+    "failed": 0,
+    "skipped": 2
+  },
+  "error_cases": [
+    {
+      "name": "Python 脚本与 manifest 下线 (AC-09) 已构建时三端插件目录均无 utils/archi-decide.py",
+      "duration_ms": 0.17840000000001055,
+      "status": "skipped"
+    },
+    {
+      "name": "Python 脚本与 manifest 下线 (AC-09) manifest.json 无 archi-decide.py 条目",
+      "duration_ms": 0.5705000000000382,
+      "status": "skipped"
+    }
+  ],
+  "test_files": [
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/assemble.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/js-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/archi-decide-mcp/archi-decide-mcp.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/__tests__/hooks-post-tool-use-registry/hooks-post-tool-use-registry.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-execution-flow/mutation-execution-flow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/gitignore.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/hooks-profile.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-redirect.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mcp-workspace-root/mcp-workspace-root.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/spec-list.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/index.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/backtrack-reason-compat/backtrack-reason-compat.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/archi-decide-retirement/archi-decide-retirement.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/tests-array-suite-scope/tests-array-suite-scope.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-scope-inventory/mutation-scope-inventory.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/archi-decide.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-placeholders.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/dedup/dedup.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/inventory-test-path-resolution/inventory-test-path-resolution.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/eval-store-read-priority/eval-store-read-priority.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/__tests__/include-assemble-pipeline/include-assemble-pipeline.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/inventory-backtrack-preserve/inventory-backtrack-preserve.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/eval-store-change-create/eval-store-change-create.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/phase_log workflow-aware backtrack rejection/phase_log workflow-aware backtrack rejection.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/file-inventory-recording/file-inventory-recording.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/mutation-report-format/mutation-report-format.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/file-inventory.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-files.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-filter/config-driven-filter.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/scan-files.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/config-get.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/no-test-config/no-test-config.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/assert-no-tokens.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-cross-ref.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/record.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/apply-env-tokens.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/__tests__/hooks-platform-subagent-stop/hooks-platform-subagent-stop.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-plan.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/archi-check-inventory/archi-check-inventory.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-execute.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/eval-store-persist/eval-store-persist.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/files-query.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/backtrack.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/eval-store-strict-workflow/eval-store-strict-workflow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/archi-decide-create-template/archi-decide-create-template.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/expand-includes.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/non-zero-exit-code/non-zero-exit-code.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-path-naming.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/build/env.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/type-check.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/eval-store-skill-copy/eval-store-skill-copy.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-exclude.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/exec-command.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-create.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/config-driven-auto-scan/config-driven-auto-scan.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/backtrack-reason-flow/backtrack-reason-flow.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/eval-store-hook-vs-fs/eval-store-hook-vs-fs.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.test.ts",
+    "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/session-registry.test.ts"
+  ],
+  "source_files": [
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/cli.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/backtrack.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-create.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-files.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/change-list.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/config-get.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-log.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/phase-next.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/run-static-analysis.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/spec-list.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-detect-frameworks.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-execution.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/commands/test-resolve-paths.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/hooks.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/archi-decide.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-cross-ref.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/c4-parser.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change-config.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/change.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/eval-json.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/exec-command.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/glob.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/project-root.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/session-registry.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-exclude.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-framework.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/coverage-parser.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/go-parser.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/index.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/js-parser.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/mutation-parser.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/stryker-config.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-parser/text-parser.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-path-naming.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-plan.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-report.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/test-runner.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/lib/workflow.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/mcp.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/file-inventory.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/files-query.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/gitignore.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/files/record.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/modules/workflow/index.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/src/utils/type-check.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/build/apply-env-tokens.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/build/assemble.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/build/assert-no-tokens.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/build/env.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/build/expand-includes.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/build/hooks-profile.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/plugins/dev-team/build/scan-files.ts"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 96.98,
+      "branches": 89.12,
+      "functions": 99.5
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    }
+  },
+  "mutation": {
+    "pass": true,
+    "score": 90.1639344262295,
+    "threshold": 70,
+    "measured": {
+      "killed": 220,
+      "survived": 22,
+      "timeout": 0,
+      "noCoverage": 2,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 0,
+      "total": 244,
+      "detected": 220,
+      "undetected": 24
+    }
+  }
+}

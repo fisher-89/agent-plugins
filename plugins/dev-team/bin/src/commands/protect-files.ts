@@ -7,7 +7,14 @@ import * as path from 'node:path';
 import { readConfig } from '../lib/config';
 import { matchGlob } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
-import { extractFileOps, extractGitOps, isFlag, tokenize } from '../lib/shell-file-ops';
+import {
+  extractFileOps,
+  extractGitOps,
+  isFlag,
+  maskHeredocs,
+  maskQuotedAndHeredoc,
+  tokenize,
+} from '../lib/shell-file-ops';
 import { isPlainObject } from '../utils';
 
 // ---------------------------------------------------------------------------
@@ -165,11 +172,17 @@ function checkExtractedOps(
  *   artifacts → deny; source-code targets → allow (recorded as revert).
  */
 function checkBulkRevert(cmd: string, toolName: string): string | null {
+  // `git stash` / `git clean` mentions inside quoted strings or heredoc bodies
+  // are data, not commands: names are located on variant B (masked) and args
+  // sliced from variant A (quotes preserved) — see shell-file-ops masking.
+  const nameText = maskQuotedAndHeredoc(cmd);
+  const argText = maskHeredocs(cmd);
   const stashRe = /\bgit\s+stash\b([^\n;&|]*)/gi;
   stashRe.lastIndex = 0;
   let m: RegExpExecArray | null;
-  while ((m = stashRe.exec(cmd)) !== null) {
-    const args = m[1].trim();
+  while ((m = stashRe.exec(nameText)) !== null) {
+    const argsStart = m.index + m[0].length - m[1].length;
+    const args = argText.slice(argsStart, m.index + m[0].length).trim();
     if (!/^(list|show)\b/.test(args)) {
       return buildBulkRevertDenyReason(toolName, 'git stash 会批量改写工作区');
     }
@@ -177,8 +190,9 @@ function checkBulkRevert(cmd: string, toolName: string): string | null {
 
   const cleanRe = /\bgit\s+clean\b([^\n;&|]*)/gi;
   cleanRe.lastIndex = 0;
-  while ((m = cleanRe.exec(cmd)) !== null) {
-    const tokens = tokenize(m[1]);
+  while ((m = cleanRe.exec(nameText)) !== null) {
+    const argsStart = m.index + m[0].length - m[1].length;
+    const tokens = tokenize(argText.slice(argsStart, m.index + m[0].length));
     const isDryRun = tokens.some((t) => t === '--dry-run' || /^-[^-]*n/.test(t));
     if (isDryRun) continue;
     const paths = tokens.filter((t) => !isFlag(t));
