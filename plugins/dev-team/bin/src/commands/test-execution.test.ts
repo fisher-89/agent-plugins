@@ -70,8 +70,8 @@ vi.mock('../lib/test-report', () => ({
   generateSummaryReport: (...args: unknown[]) => mockGenerateSummaryReport(...args),
 }));
 
-vi.mock('../lib/file-inventory', async () => {
-  const actual = await vi.importActual('../lib/file-inventory');
+vi.mock('../modules/workflow', async () => {
+  const actual = await vi.importActual('../modules/workflow');
   return { ...actual, readFileInventory: (...args: unknown[]) => mockReadFileInventory(...args) };
 });
 

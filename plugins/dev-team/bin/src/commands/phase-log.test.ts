@@ -35,7 +35,7 @@ vi.mock('../lib/eval-json', async () => {
 });
 
 vi.mock('../lib/change', () => ({
-  getChangeDir: vi.fn(() => '/tmp/test-change'),
+  resolveChangeDir: vi.fn(() => '/tmp/test-change'),
 }));
 
 import { appendEntry, readEvalJson, writeEvalJson } from '../lib/eval-json';

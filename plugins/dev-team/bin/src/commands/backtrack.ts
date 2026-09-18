@@ -1,6 +1,6 @@
 import { type z } from 'zod/v4';
 
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, markPhaseStale, writeEvalJson, type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable } from '../lib/workflow';
@@ -86,7 +86,7 @@ function persistEvalJson(changeDir: string, entries: EvalEntry[]): void {
 export function runBacktrack(options: BacktrackOptions): BacktrackResult {
   const { change, phase, backtrack_to, backtrack_reason, project_root } = options;
 
-  const changeDir = getChangeDir(change, project_root);
+  const changeDir = resolveChangeDir(change, project_root);
   const workflowType = getWorkflowType(change);
 
   // Validate phase and target positions in the workflow

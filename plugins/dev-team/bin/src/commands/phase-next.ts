@@ -24,7 +24,7 @@ import * as fs from 'fs';
 
 import { type z } from 'zod/v4';
 
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, type EvalEntry } from '../lib/eval-json';
 import { getPhaseTable, type PhaseDefinition } from '../lib/workflow';
@@ -472,7 +472,7 @@ export function runPhaseNext(options: PhaseNextOptions): PhaseNextResult {
   }
 
   const change = options.change;
-  const changeDir = getChangeDir(change, options.project_root);
+  const changeDir = resolveChangeDir(change, options.project_root);
   if (!fs.existsSync(changeDir)) {
     throw new Error(`Change "${change}" does not exist: ${changeDir}`);
   }

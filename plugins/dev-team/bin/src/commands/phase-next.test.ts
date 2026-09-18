@@ -28,7 +28,7 @@ vi.mock('fs', async (importOriginal) => {
 });
 
 import { hasPhasePassed, runPhaseNext } from '../commands/phase-next';
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
 import * as evalJson from '../lib/eval-json';
 import { type EvalEntry } from '../lib/eval-json';
 import { getProjectDir } from '../lib/project-root';
@@ -159,7 +159,7 @@ function next(
   runId: string = DEFAULT_RUN_ID,
   opts: NextStoreOptions = {},
 ) {
-  const changeDir = getChangeDir(change, FIXTURE_PROJECT_ROOT);
+  const changeDir = resolveChangeDir(change, FIXTURE_PROJECT_ROOT);
   const useLegacy = opts.legacy === true;
 
   vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
@@ -1255,7 +1255,7 @@ describe('runPhaseNext — workflow.json 严格前置条件 (AC-13, AC-14)', () 
 
     expect(error.message).toContain('workflow.json 不存在');
     // `getWorkflowType` 用真实工程根拼接绝对路径
-    expect(error.message).toContain(getChangeDir('test-change', getProjectDir()));
+    expect(error.message).toContain(resolveChangeDir('test-change', getProjectDir()));
     expect(error.message).toContain('change_create');
   });
 
@@ -1727,7 +1727,7 @@ describe('runPhaseNext — map 隔离与易失 (AC-5)', () => {
     vi.mocked(fs.existsSync).mockImplementation((filePath: fs.PathLike) => {
       const p = String(filePath);
       return (
-        p === getChangeDir('reset-change', FIXTURE_PROJECT_ROOT) || p.endsWith('workflow.json')
+        p === resolveChangeDir('reset-change', FIXTURE_PROJECT_ROOT) || p.endsWith('workflow.json')
       );
     });
     vi.mocked(fs.readFileSync).mockImplementation(

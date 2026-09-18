@@ -64,5 +64,7 @@
 - [ ] 使用github hook完成构建，本地git忽略构建产物
 - [ ] design、code-analyze、test-design遇到js export class时，应将所有public方法视为公共api
 - [x] 补充cursor postToolUse记录修改文件的能力
-- [ ] mcp提供api，查询指定change变更的文件；读取workflow.json，聚合变更记录，输出文件清单；
-- [ ] 分离独立模块，保证“记录change files”仅一处代码实现
+- [x] mcp提供api，查询指定change变更的文件（读取workflow.json，聚合变更记录，输出文件清单），agent使用api代替直接读取workflow.json
+- [ ] 将“写入workflow.json files”的代码实现移入modules/workflow
+- [ ] 记录变更文件时，排除gitignore文件
+- [ ] 仅测试modules/workflow/index.ts，覆盖整合模块

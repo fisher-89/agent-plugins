@@ -19,7 +19,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { runBacktrack } from '../../src/commands/backtrack';
 import { type EvalEntry } from '../../src/lib/eval-json';
-import { readFileInventory } from '../../src/lib/file-inventory';
+import { readFileInventory } from '../../src/modules/workflow';
 
 const CHANGE = 'inventory-change';
 

@@ -256,8 +256,8 @@ The conversion function SHALL produce normalized absolute paths suitable for use
 
 | Tool | project_root input | Resolution path |
 |------|--------------------|-----------------|
-| `phase_log` | Required | candidates / force → `getChangeDir()` |
-| `phase_next` | Required | candidates / force → `getChangeDir()` |
+| `phase_log` | Required | candidates / force → `resolveChangeDir()` |
+| `phase_next` | Required | candidates / force → `resolveChangeDir()` |
 | `backtrack` | Required | candidates / force |
 | `change_list` | Required | candidates / force；output 可回显 |
 | `config_get` | Required | candidates / force |

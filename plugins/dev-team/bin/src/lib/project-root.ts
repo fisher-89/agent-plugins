@@ -117,7 +117,7 @@ const candidatesByKey = new Map<string, string>();
 /** Most recent pending force key (`toolName\\n` + stableStringify(args)), or null. */
 let pendingKey: string | null = null;
 
-/** Call-scoped root injected for the duration of a tool handler (phase_* → getChangeDir). */
+/** Call-scoped root injected for the duration of a tool handler (phase_* → resolveChangeDir). */
 let callScopedProjectRoot: string | null = null;
 
 /** Convert a `file://` URI to a platform-local absolute path. */

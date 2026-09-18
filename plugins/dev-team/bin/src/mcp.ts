@@ -18,6 +18,7 @@ import {
   getProjectRootCandidates,
   withResolvedProjectRoot,
 } from './lib/project-root';
+import * as workflow from './modules/workflow';
 import {
   phaseLogInputSchema,
   phaseLogOutputSchema,
@@ -47,6 +48,8 @@ import {
   changeCreateOutputSchema,
   changeFilesInputSchema,
   changeFilesOutputSchema,
+  workflowFilesInputSchema,
+  workflowFilesOutputSchema,
   specListInputSchema,
   specListOutputSchema,
 } from './schemas';
@@ -347,6 +350,24 @@ const MCP_TOOLS = [
         async (projectRoot) => {
           const result = runChangeFiles({ ...args, project_root: projectRoot });
           return jsonContent(changeFilesOutputSchema, result);
+        },
+      ),
+  },
+  {
+    name: 'workflow_files',
+    description:
+      'Read-only query of the change file inventory (the `files` net state in workflow.json) for a given change. Returns the net `{ written, deleted }` path lists (relative to project root, POSIX style); the `source` audit map is never exposed. Strictly read-only — never modifies workflow.json; to record or correct the inventory use the write channel `change_files` instead. Hard-errors (no git diff fallback, no silent repair) when workflow.json is missing, unparseable, fails schema validation, or lacks the `files` field (a pre-inventory change must be recreated via change_create).',
+    inputSchema: workflowFilesInputSchema,
+    outputSchema: workflowFilesOutputSchema,
+    handler: async (
+      args: z.input<typeof workflowFilesInputSchema>,
+    ): Promise<McpOutput<typeof workflowFilesOutputSchema>> =>
+      withResolvedProjectRoot(
+        'workflow_files',
+        args as Record<string, unknown>,
+        async (projectRoot) => {
+          const result = workflow.getChangedFiles(args.change, projectRoot);
+          return jsonContent(workflowFilesOutputSchema, result);
         },
       ),
   },

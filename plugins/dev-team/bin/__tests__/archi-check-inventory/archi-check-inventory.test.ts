@@ -3,7 +3,7 @@
  *
  * 真实链路（模型解析与清单读取全为真实实现，不 mock）:
  * - `bin/src/lib/c4-cross-ref.ts` — 检查方（被查文件集组装与交叉引用）
- * - `bin/src/lib/file-inventory.ts` — 清单来源（真实 workflow.json 读盘）
+ * - `bin/src/modules/workflow.ts` — 清单来源（真实 workflow.json 读盘）
  * - `bin/src/lib/c4-parser.ts` — 模型参照系（真实 openspec/architecture/models/*.c4 解析管线）
  * - `bin/src/commands/change-create.ts` — change fixture 的真实创建通道
  *
@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { runChangeCreate } from '../../src/commands/change-create';
 import { runCrossRefCheck } from '../../src/lib/c4-cross-ref';
-import { writeFileInventory } from '../../src/lib/file-inventory';
+import { writeFileInventory } from '../../src/modules/workflow';
 
 // ---------------------------------------------------------------------------
 // git 退场 / staged 废弃防回归：child_process 全程 spy（仅作 not-called 断言）

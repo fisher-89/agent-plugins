@@ -1,7 +1,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
 import { type ChangeCreateInput, kebabCasePattern } from '../schemas';
 
 const MAX_NAME_LENGTH = 128;
@@ -28,7 +28,7 @@ export function runChangeCreate(
     throw new Error(`name 长度超过 ${MAX_NAME_LENGTH} 字符限制（当前 ${name.length} 字符）`);
   }
 
-  const changeDir = getChangeDir(name, projectRoot);
+  const changeDir = resolveChangeDir(name, projectRoot);
   if (fs.existsSync(changeDir)) {
     throw new Error(`change "${name}" 已存在: ${changeDir}`);
   }

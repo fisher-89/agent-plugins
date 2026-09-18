@@ -37,8 +37,8 @@ vi.mock('../lib/eval-json', async () => {
   };
 });
 
-vi.mock('../lib/file-inventory', async () => {
-  const actual = await vi.importActual('../lib/file-inventory');
+vi.mock('../modules/workflow', async () => {
+  const actual = await vi.importActual('../modules/workflow');
   return {
     ...actual,
     readFileInventory: vi.fn(),
@@ -47,7 +47,7 @@ vi.mock('../lib/file-inventory', async () => {
 });
 
 vi.mock('../lib/change', () => ({
-  getChangeDir: vi.fn(() => '/tmp/test-change'),
+  resolveChangeDir: vi.fn(() => '/tmp/test-change'),
 }));
 
 vi.mock('../lib/change-config', () => ({
@@ -56,7 +56,7 @@ vi.mock('../lib/change-config', () => ({
 
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, writeEvalJson, type EvalEntry } from '../lib/eval-json';
-import { readFileInventory, writeFileInventory } from '../lib/file-inventory';
+import { readFileInventory, writeFileInventory } from '../modules/workflow';
 import { backtrackInputSchema } from '../schemas';
 import { runBacktrack } from './backtrack';
 

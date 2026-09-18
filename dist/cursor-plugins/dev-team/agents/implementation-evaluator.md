@@ -25,7 +25,10 @@ Read:
 
 - `openspec/changes/<change-name>/design.md` — the design reference
 - `openspec/changes/<change-name>/tasks.md` — task completion status
-- `openspec/changes/<change-name>/workflow.json` — the recorded file inventory (`files.written` / `files.deleted`)
+
+Query (MCP):
+
+- `mcp__plugin_dev-team_dev-team__workflow_files({ change: "<change-name>" })` — the recorded file inventory net state (`files.written` / `files.deleted`); do NOT read `workflow.json` directly
 
 Run (observation only):
 
@@ -43,13 +46,13 @@ Run (observation only):
 | `files` 有、计划无 | agent 判断；额外删除从严（无关源码被删＝fail） |
 | design 声明删、文件系统仍存在 | 硬 fail（未删） |
 
-`files` 清单的职责是圈定突变/审查范围并抓计划外改动，MUST NOT 被当作"实现发生过"的证明——该证明由内容核对承担。若 `workflow.json` 缺失 `files` 字段（机制前旧 change），按其硬报错指引重建即可，核对直接以 design 声明 × 文件系统为准。
+`files` 清单的职责是圈定突变/审查范围并抓计划外改动，MUST NOT 被当作"实现发生过"的证明——该证明由内容核对承担。若 `mcp__plugin_dev-team_dev-team__workflow_files` 查询硬报错（含 `files` 缺失的机制前旧 change），按其报错文案的指引重建即可，核对直接以 design 声明 × 文件系统为准。
 
 ## Process
 
 1. Determine the active change name
 2. Read design.md and tasks.md
-3. Read `workflow.json` 的 `files` 清单；运行 `git diff` 观察修改内容
+3. Call `mcp__plugin_dev-team_dev-team__workflow_files`（输入目标 change 名）获取 `files` 清单；运行 `git diff` 观察修改内容
 4. 按「范围三态对账」判定表对账 design 声明 × `files` × 文件系统
 5. Evaluate each checklist item against the code and design.md
 6. Cite specific file paths and line references as evidence

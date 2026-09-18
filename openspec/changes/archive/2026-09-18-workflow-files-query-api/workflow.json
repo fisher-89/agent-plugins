@@ -1,0 +1,427 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-17",
+  "files": {
+    "written": [
+      ".claude/agent-memory/dev-team-proposal-planner/project_workflow_module_convention.md",
+      ".claude/agent-memory/dev-team-proposal-planner/MEMORY.md",
+      ".claude/agent-memory/dev-team-proposal-evaluator/feedback_evaluator_notes.md",
+      ".claude/agent-memory/dev-team-proposal-evaluator/eval_workflow_files_query_api.md",
+      ".claude/agent-memory/dev-team-proposal-evaluator/MEMORY.md",
+      "plugins/dev-team/bin/src/schemas/workflow-files.schema.ts",
+      "plugins/dev-team/bin/src/schemas/index.ts",
+      "plugins/dev-team/bin/src/modules/workflow/file-inventory.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files-query.ts",
+      "plugins/dev-team/bin/src/modules/workflow/index.ts",
+      "plugins/dev-team/bin/src/lib/c4-cross-ref.ts",
+      "plugins/dev-team/bin/src/lib/shell-file-ops.ts",
+      "plugins/dev-team/bin/src/commands/change-files.ts",
+      "plugins/dev-team/bin/src/commands/record-files.ts",
+      "plugins/dev-team/bin/src/commands/test-execution.ts",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+      "plugins/dev-team/bin/src/mcp.ts",
+      "plugins/dev-team/agents/implementation-evaluator.md",
+      "plugins/dev-team/agents/code-review-evaluator.md",
+      "plugins/dev-team/agents/acceptance-evaluator.md",
+      "plugins/dev-team/package.json",
+      "plugins/dev-team/bin/src/commands/backtrack.test.ts",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "plugins/dev-team/bin/src/hooks.test.ts",
+      "plugins/dev-team/bin/src/commands/test-execution.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/file-inventory.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/index.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files-query.test.ts",
+      "plugins/dev-team/bin/src/mcp.test.ts",
+      "plugins/dev-team/bin/__tests__/file-inventory-recording/file-inventory-recording.test.ts"
+    ],
+    "deleted": [
+      "plugins/dev-team/bin/src/lib/file-inventory.ts",
+      "plugins/dev-team/bin/src/lib/file-inventory.test.ts"
+    ],
+    "source": {
+      ".claude/agent-memory/dev-team-proposal-planner/project_workflow_module_convention.md": "dev-team:proposal-planner",
+      ".claude/agent-memory/dev-team-proposal-planner/MEMORY.md": "dev-team:proposal-planner",
+      ".claude/agent-memory/dev-team-proposal-evaluator/feedback_evaluator_notes.md": "dev-team:proposal-evaluator",
+      ".claude/agent-memory/dev-team-proposal-evaluator/eval_workflow_files_query_api.md": "dev-team:proposal-evaluator",
+      ".claude/agent-memory/dev-team-proposal-evaluator/MEMORY.md": "dev-team:proposal-evaluator",
+      "plugins/dev-team/bin/src/schemas/workflow-files.schema.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/schemas/index.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/file-inventory.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files-query.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/index.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/lib/c4-cross-ref.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/change-files.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/record-files.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/test-execution.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/lib/file-inventory.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/mcp.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/agents/implementation-evaluator.md": "dev-team:implementation-generator",
+      "plugins/dev-team/agents/code-review-evaluator.md": "dev-team:implementation-generator",
+      "plugins/dev-team/agents/acceptance-evaluator.md": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/backtrack.test.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/lib/file-inventory.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/hooks.test.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/test-execution.test.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/file-inventory.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/modules/workflow/index.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files-query.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/mcp.test.ts": "dev-team:test-gen-generator"
+    }
+  },
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 pass. 问题引 3 个 evaluator 文件+3 具体痛点；范围 实现文件(9)/测试文件(4)/不要修改(8)；5 风险均有具体缓解；AC-1..6 含对象+条件+验证方式；5 决策均含被拒备选；版本提升+build 符合 CLAUDE.md；grep 无 TODO/TBD/placeholder/{{；能力 change-files+phase-agents 与 2 个 spec 1:1；工具名/输入输出/硬报错/模块导出在 proposal 与 specs 间一致。判定: pass.",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-23: 读通道缺失背景 + 引用 3 个 evaluator 文件原文（L13-15），列出 3 个具体问题（绕过 schema 校验、可能读 source 禁读字段、逻辑分散），动机明确非泛泛改进。"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L58-90: 「### 实现文件」9 条、「### 测试文件」L71-76 共 4 条均非空，「### 不要修改」L82-90 共 8 条。"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L109-115 五项风险均有具体措施：L111「mcp.test.ts listTools 名称断言 + md 占位符 grep 校验同入 AC」、L112「tsc 全量编译 + 既有单测与 2 个集成测试回归」、L114「删除旧文件、不做 re-export shim」，无泛化「监控并调整」。"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L96-103 AC-1..AC-6 均为对象+条件+验证方式：如 AC-2「返回 {written,deleted} 净状态；输出不含 source；调用前后 workflow.json 逐字节不变（files-query.test.ts）」；AC-4「仓库内 grep 无 lib/file-inventory 导入残留」。"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L123-129 决策表 5 行均有理由+被拒备选：L125 独立工具 vs 被拒「change_files 增 op:query」；L129 命名 workflow_files vs 被拒「change_files_query（三段不符两段惯例）、files_query」。"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L39/L69/AC-6 遵循 CLAUDE.md 规则：提升 plugins/dev-team/package.json version + pnpm -C plugins/dev-team run build 刷新三产物目录；L32/L114 不做 re-export shim 避免 knip dead export，与项目 knip 指南一致。"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "对 openspec/changes/workflow-files-query-api/ 全目录 grep（TODO|TBD|placeholder|\\{\\{，忽略大小写）零匹配；L111「占位符 __MCP:workflow_files__」指 agent 提示中的工具调用标记，是设计元素非未填模板。"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9-23)/提案(L27-39 四项编号方案)/变更范围(L56-90)/验收标准(L94-103)/风险(L107-115)/决策与待决问题(L121-135)均有实质性内容。"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L43-52: 「## 能力」存在；「### 新增能力」显式写「无」，「### 修改的能力」含 2 条非空条目：change-files、phase-agents。"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力章节列出 change-files、phase-agents 两个修改能力；specs/ 下恰有 specs/change-files/spec.md 与 specs/phase-agents/spec.md，1:1 对应，无孤儿 spec、无缺 spec 能力。"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "工具名 workflow_files、输入 {change, project_root?}、输出 {written,deleted} 无 source、硬报错四态、modules/workflow 导出（readFileInventory/foldFileOps/writeFileInventory/runWorkflowFiles）、__MCP:workflow_files__ 切换在 proposal 与两 spec 间一致；AC-1..AC-5 均有对应 spec requirement/scenario；spec 用 ADDED Requirements 表达对既有能力的扩展，与「修改的能力」声明不矛盾。"
+        }
+      ],
+      "timestamp": "2026-09-17T10:41:09.154Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "design.md 10/10 通过：组件表7行含职责/依赖/技术/路径无TBD；数据模型3模型齐字段/关系/持久化；AC-1~6逐项对齐且有落点；tasks五阶段依赖序无逆序、任务均具体到文件与操作；依赖分运行时/构建测试已列；符合CLAUDE.md升级与MCP命名约定；章节齐全无测试步骤；proposal实现文件全入清单且与tasks 17文件一一对应，公共函数/类型子表无矛盾。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "组件表7行均填职责/文件位置/依赖/技术，技术为具体值(TypeScript+MCP SDK、zod v4、Markdown)，无TBD，路径指向具体文件"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表3个模型(FileInventory/WorkflowFilesOutput/硬报错四态)，字段、关系、持久化三列均有实质内容"
+        },
+        {
+          "item": "D3 设计覆盖proposal每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐节逐项列AC-1~AC-6落点：mcp.ts注册、files-query投影无source、四态硬报错、barrel迁移+grep、3个evaluator md、版本+build"
+        },
+        {
+          "item": "D4 tasks.md存在且遵循依赖顺序",
+          "pass": true,
+          "evidence": "存在且全为- [ ]复选框；五阶段序：schema→模块迁移→导入切换/删除→MCP注册→提示切换→门禁产物；删除在导入方改道后，build在最后，无逆序依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每条任务指名具体文件与操作(逐字迁移、具体导入路径改道值、导出符号名、grep验证项)，无空泛条目"
+        },
+        {
+          "item": "D6 运行时和构建测试依赖已列出",
+          "pass": true,
+          "evidence": "依赖节分运行时(zod/MCP SDK/node fs+path，无新增)与构建测试(typescript/vite-plus/knip/stryker)并列用途"
+        },
+        {
+          "item": "D7 与项目架构(CLAUDE.md)一致",
+          "pass": true,
+          "evidence": "含CLAUDE.md升级规则(version提升+rebuild三产物目录)、MCP xx_yy命名约定、无re-export shim避免knip dead export，与瘦身插件架构无矛盾"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质内容",
+          "pass": true,
+          "evidence": "架构组件、变更清单(新增4+修改11+删除1)、数据模型、依赖、待决问题(3条)齐全；路由/API不适用由公共函数表与数据模型承载"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design无测试策略章节，测试文件影响节为信息性并移交test-design/test-gen；tasks无单元/集成测试任务，check/knip为质量门禁、grep为验证"
+        },
+        {
+          "item": "D10 变更清单完整且与tasks一致",
+          "pass": true,
+          "evidence": "proposal实现文件10条全落入清单；tasks引用17个文件均在清单且每个清单文件有对应任务；runWorkflowFiles等函数入公共函数表，类型入类型定义表，子表无矛盾"
+        }
+      ],
+      "timestamp": "2026-09-17T10:53:40.918Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "T1-T8 全部通过。T1: proposal AC-1~AC-6 全部映射至验收范围（AC-4 含单元+集成两行）。T2: 单元 AC 对应 12 个「源->测试」章节且均锚定 AC；关系 1-5 关联 AC 均在验收范围，AC-4 集成行由关系 2-5 覆盖。T3: files-query 覆盖四态硬报错/无效 project_root 异常与空净状态、空串/超长/emoji、缺省回退、逐字节只读等边界；mcp 覆盖 change 缺失/空串/非 string；迁移章节整段保留既有异常用例。T4: Mock 策略齐备（env stub、project-root mock、child_process、stdin），FS 不 mock 有理由。T5: 全部章节实质填写。T6: 不修改项无测试，schemas 目录排除有依据。T7: 只读不变量 + 重复 op 去重 + 写读闭环。T8: 格式合规。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md 验收标准 AC-1~AC-6（96-103 行）逐条对应 test-design.md 验收范围表 12-20 行（AC-1/2/3/5/6 各一行，AC-4 单元 17 行 + 集成 18 行），无缺失"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相映射",
+          "pass": true,
+          "evidence": "单元方向：AC-1→mcp.test.ts(123 行)、AC-2/3→files-query.test.ts(31 行)、AC-4→index/file-inventory/test-resolve-paths/test-execution/change-files/c4-cross-ref/backtrack/hooks 各章节均存在；集成方向：关系1 关联AC-1,2,3、关系2 AC-2,4、关系3-5 AC-4 均在验收范围，AC-4 集成行 4 个测试文件由关系 1-5 覆盖"
+        },
+        {
+          "item": "T3 异常与边界覆盖充分",
+          "pass": true,
+          "evidence": "files-query：四态硬报错（51-56 行）+ project_root 无目录（48 行）异常；空净状态/空串超长中文 emoji 路径（44-45 行）/缺省与空串回退（46-47 行）/逐字节只读（49-50 行）边界；mcp：change 缺失/空串/非 string（139 行）+ resolve 错误映射（141 行）；file-inventory 迁移含异常行（108、113 行）"
+        }
+      ],
+      "timestamp": "2026-09-17T11:12:00.702Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "I1-I7 全过。7组件齐：mcp.ts:357 workflow_files 紧邻change_files且在Stryker区内；files-query只读投影排除source、无git回退；file-inventory逐字迁移(仅头注释+导入路径)；barrel/schema出口/3个evaluator md均按design。三态对账：声明删已删、grep零残留；5个测试文件导入刷新为design信息性说明所需；3个__tests__文件漏记但同因(良性)；written含幽灵条目\"1\"(磁盘不存在,无害)。version 2.10.38+三产物已rebuild。tasks 22/22 [x]。判定: pass。",
+      "checklist": [
+        {
+          "item": "I1 design.md 中每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "7组件全落地：mcp.ts:353-372 workflow_files(inputSchema/outputSchema/withResolvedProjectRoot→runWorkflowFiles→jsonContent)；files-query.ts:27-34 只读投影；file-inventory.ts 迁移；index.ts barrel 导出4函数2类型；workflow-files.schema.ts+index.ts 出口；3个 evaluator md 已切换"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现（范围三态对账）",
+          "pass": true,
+          "evidence": "新增4文件均在盘；11个修改文件diff与清单逐条吻合；lib/file-inventory.ts 已删。files有计划无：5个测试文件导入刷新属design信息性说明必需项(判可接受)；3个__tests__集成文件同因漏记(良性)；written含幽灵条目\"1\"(磁盘不存在,无害)"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "workflow-files.schema.ts 仿 change-files.schema.ts(zod/v4+projectRootSchema+中文describe)；WorkflowFilesOptions 仿 ChangeFilesOptions 模式；barrel 字母序导出；文件头注释风格一致"
+        },
+        {
+          "item": "I4 design 中所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "无HTTP路由；MCP API：workflow_files 已注册于 MCP_TOOLS(紧邻change_files:339→357)，inputSchema 必填 change，命名符合 xx_yy 两段规则，位于既有 Stryker disable 区块(80-403)内"
+        },
+        {
+          "item": "I5 tasks.md 所有任务均标记 [x]",
+          "pass": true,
+          "evidence": "tasks.md 阶段一至五共22个复选框全部为 [x]"
+        },
+        {
+          "item": "I6 没有与当前变更任务无关的代码",
+          "pass": true,
+          "evidence": "全部改动可溯源至设计清单或移动删除的必然伴随(测试导入刷新)；无无关删除；dist/ 三产物为 CLAUDE.md 规定的 build 产物；openspec/changes/ 目录为本变更自身"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "runWorkflowFiles 无fs写/无git回退/结构性排除source；四态硬报错经readFileInventory复用；旧文件删除零shim(grep lib/file-inventory 零残留)；__MCP:workflow_files__ 占位符与注册名逐字一致且提示词未引用source；version 2.10.37→2.10.38，三产物目录已rebuild含新工具"
+        }
+      ],
+      "timestamp": "2026-09-17T11:33:51.264Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "G1-G9 全过。三态对账：test-design 13 个测试文件全在盘（lib/file-inventory.test.ts 已删）；change-files/c4-cross-ref/3个__tests__ 共5文件良性漏记（零改动或同因改道），内容已照常核对；written 含幽灵条目\"1\"（磁盘不存在，无害）。files-query 15 行、index 4 行、file-inventory 7 describe 组、mcp 9 行 + 集成关系1（3+5）+ 关系2（3）逐行落位；Mock 策略全部落地；边界与清理齐备；无废弃条目误生成。判定: pass。",
+      "checklist": [
+        {
+          "item": "G1 源码公开方法均有对应共存测试文件",
+          "pass": true,
+          "evidence": "runWorkflowFiles→files-query.test.ts；barrel 4 函数→index.test.ts；readFileInventory/foldFileOps/writeFileInventory→file-inventory.test.ts；connectToServer→mcp.test.ts；test-resolve-paths/test-execution/change-files/c4-cross-ref/backtrack/hooks 各有共存套件。record-files/shell-file-ops 无 colocated 为 test-design 显式声明（集成套件承接），schemas 目录为 config 排除且经 mcp.test.ts L67 直接断言。"
+        },
+        {
+          "item": "G2 测试文件命名合规且与源码同目录",
+          "pass": true,
+          "evidence": "全部 *.test.ts 与源文件同目录：modules/workflow/{file-inventory,files-query,index}.test.ts、mcp.test.ts、commands/*.test.ts、hooks.test.ts；集成套件沿用 bin/__tests__/<name>/ 既有约定；导入均来自 vite-plus/test。"
+        },
+        {
+          "item": "G3 单元用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "files-query 15/15（L105/131/149/164/252/268/287/191/218/307/325/349/371/385/418，路径类型分类正确）；index 4/4（L25/32/45/61）；file-inventory 7 组（L90/190/298/400/469/530 含异常 it）；mcp 9/9（L496+499+509、2724、2748、2491-2535、560+576+594-638+243、2737、959-1047+1049-1125、2827、3208）；改道文件 5 个仅导入/mock 路径变更（test-resolve-paths L17+48、test-execution L73-74、backtrack L40+59、hooks L63-70），change-files/c4-cross-ref 零改动套件完整。"
+        },
+        {
+          "item": "G4 集成用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "关系1场景一 3/3（mcp.test.ts L2760 正向含 source 无泄漏、L2794 空净状态、L2811 缺 change isError+spy0）；场景二 5/5（L2858/2876/2894/2911 四态 + L2934 不落盘无 git diff 字样）；关系2 3/3（L2996 append 闭环、L3030 source 隔离、L3067 set 覆写）；关系3-5 既有套件改道回归（archi-check L30、backtrack-preserve L22、recording 头注释已刷新）。AC 关联与设计一致。"
+        },
+        {
+          "item": "G5 Mock策略表已实现",
+          "pass": true,
+          "evidence": "files-query FS 不 mock（mkdtempSync 真读写）+ vi.stubEnv('CLAUDE_PROJECT_DIR') 且 afterEach unstubAllEnvs（L248-250）；index 无 mock；mcp 沿用 vi.mock('./lib/project-root', importOriginal)（L129）+ vi.spyOn(workflowFilesCmd,'runWorkflowFiles')（L44 同一模块实例，用例内 mockRestore）+ FS 不 mock；test-execution/hooks vi.mock 改道保留 actual 展开（L73-74/L63-70 复用 vi.hoisted 实例）；集成套件 stdin/tmpdir/getProjectDir 沿用。"
+        },
+        {
+          "item": "G6 框架与导入正确",
+          "pass": true,
+          "evidence": "全部测试文件从 vite-plus/test 导入 describe/expect/it/vi（files-query L20、index L12、file-inventory L17）；mcp.test.ts L44 经 './modules/workflow' barrel 导入 workflowFilesCmd/workflowFilesInputSchema 与 mcp.ts 静态导入同源；file-inventory.test.ts 同目录 './file-inventory' 导入。"
+        },
+        {
+          "item": "G7 边界情况覆盖",
+          "pass": true,
+          "evidence": "files-query：空净状态、空串路径、>1000 超长、空格/中文/emoji 透传（L164，5 个边界值）、缺省 project_root 回退、空串 project_root；mcp：change 缺失/空串/非 string 三边界（L2737-2745）；每参数类型 ≥2 边界值满足。"
+        },
+        {
+          "item": "G8 清理/还原逻辑",
+          "pass": true,
+          "evidence": "files-query 每用例 try/finally project.cleanup() + afterEach vi.unstubAllEnvs；mcp.test.ts cleanup() 与 spy.mockRestore() 均 finally 内（L2789-2791、L2822-2824 等）；spy 套件 restore 在 finally（L1041-1046、L1120-1124）；index 无 mock 无需清理。"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "test-design 全部用例行 迭代类型=新增，无废弃行；被删 lib/file-inventory.ts 与 lib/file-inventory.test.ts 已不在盘（Glob 确认），未生成任何指向旧路径的新测试，grep 无 lib/file-inventory 导入残留。"
+        }
+      ],
+      "timestamp": "2026-09-17T12:00:39.468Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 2129 个测试通过（passed=2127, failed=0, skipped=2），无执行错误，mutation 78.75% ≥ 70%。覆盖率达标: lines=96.93%, branches=89.05%, functions=99.49%。2 个跳过用例为遗留产品根断言（archi-decide-retirement），非本变更清单文件；plugins/dev-team override 空维度按 pass=true 采信。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total=2129/passed=2127/failed=0/skipped=2/coverage/duration_seconds=546 均存在且类型正确"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "conclusion=pass, problems=[]，无 execution_error；failed=0 且 total=2129>0；mutation.pass=true (78.75% ≥ 70%)"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；lines=96.93% (阈值 90%), branches=89.05% (阈值 85%), functions=99.49% (阈值 90%)；plugins/dev-team override 实测维度为 null 但 pass=true，空维度不判失败（按预计算 coverage.pass 采信）"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，根因诊断自动通过"
+        }
+      ],
+      "timestamp": "2026-09-17T12:14:14.076Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1-C7 全过。C1: 无硬编码密钥/eval/exec；路径经 path.resolve 与 change_files 同信任模型。C2: inputSchema(change min1+projectRootSchema)+withResolvedProjectRoot+workflowFileSchema 四态校验。C3: 迁移逐字(diff 证实仅头注释+相对导入深度)；barrel/描述要点/3 evaluator md/版本 2.10.38+三产物含 workflow_files 全符设计；lib/file-inventory 删除无 shim。C4: 四态硬报错+project_root 回退。C5: src 无 lib/file-inventory 残留。C6: 仿 change-files.schema/handler 模式。C7: 类型全由 zod 派生。备注: written 幽灵条目\"1\"为清单数据非代码；test-gen-evaluator.md:42 直读指令越界未改。判定: pass。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "新模块 grep password|secret|token|api_key|eval(|exec(|system( 零匹配；getChangeDir 用 path.resolve 拼接 openspec/changes/<change>，change 输入约束 z.string().min(1) 与既有写工具 change_files.schema.ts:25 完全一致，未引入新攻击面；无 SQL/XSS/反序列化场景"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "workflow-files.schema.ts:8-11 change min(1)+projectRootSchema；mcp.ts:366 经 withResolvedProjectRoot 注入已解析根；文件内容经 workflowFileSchema safeParse 四态硬报错(file-inventory.ts:56-91)，校验逻辑与写通道共用同一套"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "git diff 证实 file-inventory.ts 迁移逐字(仅头注释+相对导入深度，design 明示允许)；mcp.ts:357-372 workflow_files 紧邻 change_files 且 handler 仿照之，description 含只读/不改文件/无 source/四态硬报错/补录用 change_files 全部要点；3 个 evaluator md 已切换 __MCP:workflow_files__；version 2.10.38，dist mcp.cjs 含 workflow_files、plugin.json 2.10.38；lib/file-inventory.ts 已删无 shim"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "readFileInventory 四态齐备：文件缺失(L59)/JSON 非法(L69-71)/根非对象(L75)/schema 不过(L79-81)/缺 files(L84-87)均带重建指引；files-query.ts:28 project_root || getProjectDir() 回退；空净状态返回空数组有测试覆盖"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "grep lib/file-inventory 在 src 下零残留(仅命中本变更文档与 archive)；旧文件删除未留 re-export shim；迁移文件与原版 diff 仅头注释+导入路径，无多余逻辑；无未使用导出——barrel 4 函数 2 类型均有消费方"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "workflow-files.schema.ts 仿 change-files.schema.ts(中文 .describe())；index.ts barrel 字母序导出+模块边界注释；mcp.ts handler 与 change_files 逐行同构；JSDoc 风格与 lib/eval-json.ts 引用一致"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "WorkflowFilesInput=z.input(workflowFilesInputSchema)、WorkflowFilesOutput=z.output(workflowFilesOutputSchema)、FileInventory=z.infer(workflowFilesSchema)；WorkflowFilesOptions 由 Omit<WorkflowFilesInput> 派生(files-query.ts:11-13)，无自定义中间类型重复映射"
+        }
+      ],
+      "timestamp": "2026-09-17T12:18:26.277Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "AC-1..6 全过。AC-1 mcp.ts:357-373 注册 workflow_files+只读 description，mcp.test.ts:496/2723-2756 断言；AC-2 files-query.ts:27-34 投影 {written,deleted} 结构性排除 source，测试 L105/191/218；AC-3 四态硬报错测试 L307/325/349/371+不落盘 L385+无 git 回退 L418；AC-4 barrel 导出 4 函数 2 类型，lib/file-inventory 全仓零残留且旧文件已删；AC-5 三 evaluator md 均指 __MCP:workflow_files__ 无直读指令；AC-6 2.10.37→2.10.38+三 dist 产物刷新。范围三态对账无蔓延，out_of_scope 未触碰，5 风险缓解均可见，tasks 22/22 [x]。判定: pass.",
+      "checklist": [
+        {
+          "item": "A1 proposal 每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1: mcp.ts:357-373 注册(change 必填 schema:9)+只读 description:358-359，mcp.test.ts:496 listTools/2723-2756 注册与文案断言。AC-2: files-query.ts:27-34 仅投影 written/deleted，files-query.test.ts:105 无 source 键/191 逐字节不变/218 盘上 source 保留。AC-3: 四态测试 files-query.test.ts:307/325/349/371 含重建指引、385 错误不落盘、418 无 git diff 回退。AC-4: modules/workflow/index.ts:9-16 导出 4 函数 2 类型，lib/file-inventory.ts 已删(Read 确认不存在)，plugins/dev-team 全仓 grep lib/file-inventory 零残留。AC-5: implementation-evaluator.md:31,55、code-review-evaluator.md:32,42、acceptance-evaluator.md:32 均指 __MCP:workflow_files__ 且无直读指令(31 行明写 do NOT read workflow.json directly)。AC-6: package.json:3 version 2.10.38，dist/claude-plugins+cursor-plugins plugin.json 与 cursor-home-image manifest.json 均 2.10.38，三产物 mcp.cjs 含 workflow_files。"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "盘点 workflow.json files 净状态：全部改动溯源至 proposal 实现文件(9)+测试文件(4)与 design 信息性说明的 vi.mock 刷新(hooks.test.ts:63、test-execution.test.ts:73-74)及 test-gen 承接的 index.test.ts；无新增功能/API/组件。written 中幽灵条目 \"1\" 为清单数据噪声(盘上不存在，implement/code-review 已判无害)。"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "提案 4 项全落地：①workflow_files 工具(mcp.ts:357)；②modules/workflow 模块(index.ts/file-inventory.ts/files-query.ts)，6 个声明导入方全部改道(change-files.ts:3、record-files.ts:16、test-execution.ts:21、test-resolve-paths.ts:13、c4-cross-ref.ts:16、shell-file-ops.ts:4)；③三 evaluator md 切换；④版本+build。tasks.md 22/22 [x]。"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "lib/workflow.ts 无 workflow_files/modules-workflow 引用(未触碰)；backtrack/change-create/phase_log 源码未迁入 modules/workflow(commands 下仅 change-files/record-files/test-execution/test-resolve-paths 源文件导入，backtrack.test.ts 为 proposal 声明的测试导入刷新)；schemas/workflow.schema.ts source 字段原样(数据模型未变)；agents/architecture.md:173 仍指 __MCP:archi_check__。"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "占位符不一致→mcp.test.ts:496 名称断言+md 占位符与 mcp.ts:357 逐字一致；迁移回归→test-execution eval 2129 测试全过、mutation 78.75%≥70%；语义混淆→mcp.ts:359 description 明示只读并指向 change_files 补录；knip/Stryker 逃逸→旧文件删除零 shim+全仓零残留 grep；eval 未迁移→modules/workflow/index.ts:2-6 头注释固化「后续逻辑从 workflow/index.ts 导出」约定。"
+        }
+      ],
+      "timestamp": "2026-09-17T12:23:18.086Z"
+    }
+  ]
+}

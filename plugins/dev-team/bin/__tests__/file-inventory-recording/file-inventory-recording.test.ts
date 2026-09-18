@@ -5,7 +5,7 @@
  * - `bin/src/commands/change-create.ts` — workflow.json 创建方（fixture）
  * - `bin/src/hooks.ts` — PostToolUse 记录器（runRecordFiles: 事件解析 / 归一化 / 自污染过滤 / 折叠编排）
  * - `bin/src/lib/session-registry.ts` — session 绑定注册表（落盘于隔离 tmpdir）
- * - `bin/src/lib/file-inventory.ts` — 清单读取 / foldFileOps / 保留键写回（真盘读写）
+ * - `bin/src/modules/workflow.ts` — 清单读取 / foldFileOps / 保留键写回（真盘读写）
  *
  * 只 mock 边界: stdin（node:fs 与 fs 两种拼写的 readFileSync 的 fd 0 分支）、
  * getProjectDir（指向临时项目根，不用 process.chdir）、os.tmpdir（隔离注册表落盘）。
@@ -394,6 +394,45 @@ describe('场景: 条目来源审计（agent_type）', () => {
     const files = readFiles('change-a');
     expect(files.written).toEqual(['src/revert.ts']);
     expect(files.source).toEqual({ 'src/revert.ts': 'dev-team:test-gen-generator' });
+  });
+});
+
+// ============================================================================
+// 场景: fd 复制重定向不误记账（2>&1）
+// ============================================================================
+
+describe('场景: fd 复制重定向不误记账（2>&1）', () => {
+  it('含 2>&1 / 1>&2 / >&2 的命令不产生任何文件条目（回归: written 曾记入 "1"）', () => {
+    runChangeCreate('change-a', projectRoot, 'requirement');
+    recordEvent(phaseNextEvent('S1', 'change-a'));
+
+    recordEvent(bashEvent('pnpm run check 2>&1 | tail -60', 'S1'));
+    recordEvent(bashEvent('node cli.js 1>&2', 'S1'));
+    recordEvent(shellEvent('pwsh script.ps1 >&2', 'S1'));
+
+    const files = readFiles('change-a');
+    expect(files.written).toEqual([]);
+    expect(files.deleted).toEqual([]);
+    expect(files.source).toBeUndefined();
+  });
+
+  it('同一命令中真实重定向照常归账，仅 fd 复制目标被忽略', () => {
+    runChangeCreate('change-a', projectRoot, 'requirement');
+    recordEvent(phaseNextEvent('S1', 'change-a'));
+
+    recordEvent(bashEvent('pnpm run test > test-output.log 2>&1', 'S1'));
+
+    expect(readFiles('change-a').written).toEqual(['test-output.log']);
+  });
+
+  it('非纯数字的 >&file 目标仍归账（legacy 重定向不误伤）', () => {
+    runChangeCreate('change-a', projectRoot, 'requirement');
+    recordEvent(phaseNextEvent('S1', 'change-a'));
+
+    recordEvent(bashEvent('cat a.txt >&outfile', 'S1'));
+    recordEvent(bashEvent('cmd >&2.log', 'S1'));
+
+    expect([...readFiles('change-a').written].sort()).toEqual(['2.log', 'outfile']);
   });
 });
 

@@ -1,6 +1,6 @@
-import { getChangeDir } from '../lib/change';
-import { type FileInventory, readFileInventory, writeFileInventory } from '../lib/file-inventory';
+import { resolveChangeDir } from '../lib/change';
 import { getProjectDir } from '../lib/project-root';
+import { type FileInventory, readFileInventory, writeFileInventory } from '../modules/workflow';
 import { type ChangeFilesInput, type ChangeFilesOutput } from '../schemas';
 
 /**
@@ -94,7 +94,7 @@ function applySet(
  */
 export function runChangeFiles(options: ChangeFilesOptions): ChangeFilesOutput {
   const projectRoot = options.project_root || getProjectDir();
-  const changeDir = getChangeDir(options.change, projectRoot);
+  const changeDir = resolveChangeDir(options.change, projectRoot);
 
   const inventory = readFileInventory(changeDir);
 

@@ -1,6 +1,6 @@
 import type z from 'zod/v4';
 
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
 import {
   readEvalJson,
   validateVerdict,
@@ -47,7 +47,7 @@ export function runPhaseLog(options: PhaseLogOptions): PhaseLogResult {
   validateVerdict(verdict, options.skipped === true);
   validateReportLength(options.report);
 
-  const changeDir = getChangeDir(options.change, options.project_root);
+  const changeDir = resolveChangeDir(options.change, options.project_root);
 
   let entries: EvalEntry[];
   try {

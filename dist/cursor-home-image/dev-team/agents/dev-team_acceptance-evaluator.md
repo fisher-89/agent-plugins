@@ -29,7 +29,7 @@ Read:
 
 Inspect:
 
-- Full codebase via Grep, Glob, Read for requirement traceability — the scope authority is the proposal/design declaration × the change file inventory (`workflow.json.files`) × the filesystem
+- Full codebase via Grep, Glob, Read for requirement traceability — the scope authority is the proposal/design declaration × the change file inventory fetched via `mcp__user-dev-team_mcp__workflow_files` × the filesystem
 - `git diff` as an observation aid only (view modification content); scope judgment MUST NOT rely on it
 
 ## Process

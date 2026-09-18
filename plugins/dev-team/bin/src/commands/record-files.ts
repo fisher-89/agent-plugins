@@ -4,16 +4,16 @@
 import { readFileSync } from 'node:fs';
 import * as path from 'node:path';
 
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
+import { getProjectDir } from '../lib/project-root';
+import { bindSession, lookupChange } from '../lib/session-registry';
+import { extractFileOps } from '../lib/shell-file-ops';
 import {
   type FileOp,
   foldFileOps,
   readFileInventory,
   writeFileInventory,
-} from '../lib/file-inventory';
-import { getProjectDir } from '../lib/project-root';
-import { bindSession, lookupChange } from '../lib/session-registry';
-import { extractFileOps } from '../lib/shell-file-ops';
+} from '../modules/workflow';
 import { isPlainObject } from '../utils';
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,7 @@ function recordFilesEvent(stdinRaw: string): void {
   const recorded = collectRecordedOps(ops, projectRoot, agentType);
   if (recorded.length === 0) return;
 
-  const changeDir = getChangeDir(change, projectRoot);
+  const changeDir = resolveChangeDir(change, projectRoot);
   // A legacy change (no `files`) throws here — swallowed by runRecordFiles'
   // catch-all (stderr diagnostic, exit 0); the change must be recreated.
   const inventory = readFileInventory(changeDir);

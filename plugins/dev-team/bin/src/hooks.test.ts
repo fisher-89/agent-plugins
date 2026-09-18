@@ -60,7 +60,7 @@ vi.mock('./lib/session-registry', () => ({
   lookupChange: mockLookupChange,
 }));
 
-vi.mock('./lib/file-inventory', async (importOriginal) => {
+vi.mock('./modules/workflow', async (importOriginal) => {
   const actual = await importOriginal<Record<string, unknown>>();
   return {
     ...actual,

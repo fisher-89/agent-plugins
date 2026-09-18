@@ -29,7 +29,7 @@ Read:
 
 Inspect:
 
-- The change scope comes from the design/proposal declaration × the change file inventory (`workflow.json.files`) × the filesystem
+- The change scope comes from the design/proposal declaration × the change file inventory fetched via `mcp__user-dev-team_mcp__workflow_files` × the filesystem
 - `git diff --stat` and `git diff` as an observation aid only — view modification and deleted content to assess quality; scope judgment MUST NOT rely on it
 - Grep for security patterns (hardcoded keys, unsafe functions)
 - Glob for test files corresponding to changed modules
@@ -39,7 +39,7 @@ Inspect:
 
 1. Determine the active change name
 2. Read design.md and proposal.md for context
-3. Read `workflow.json` 的 `files` 清单圈定审查范围；run `git diff` to view the modification content
+3. Call `mcp__user-dev-team_mcp__workflow_files({ change: "<change-name>" })` 获取 `files` 清单圈定审查范围；run `git diff` to view the modification content
 4. Grep for security patterns: `password`, `secret`, `token`, `api_key`, `eval(`, `exec(`, `system(`
 5. Glob for test files matching changed module names
 6. Read changed files to check error handling and null safety

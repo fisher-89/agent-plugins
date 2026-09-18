@@ -14,7 +14,7 @@ import * as path from 'path';
 
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import { readFileInventory } from '../lib/file-inventory';
+import { readFileInventory } from '../modules/workflow';
 import { testResolvePathsInputSchema } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 import { runTestResolvePaths } from './test-resolve-paths';
@@ -45,10 +45,10 @@ vi.mock('child_process', async () => {
   };
 });
 
-vi.mock('../lib/file-inventory', async () => {
+vi.mock('../modules/workflow', async () => {
   const actual = await vi.importActual<{
     readFileInventory: typeof readFileInventory;
-  }>('../lib/file-inventory');
+  }>('../modules/workflow');
   return {
     ...actual,
     readFileInventory: vi.fn(actual.readFileInventory),

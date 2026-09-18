@@ -1,7 +1,7 @@
 // shell-file-ops.ts — Shell command → FileOp extraction (write / delete / revert),
 // shared by the protect-files (PreToolUse) and record-files (PostToolUse) hooks.
 
-import { type FileOp } from './file-inventory';
+import { type FileOp } from '../modules/workflow';
 
 // ---------------------------------------------------------------------------
 // Argument Tokenizing
@@ -112,8 +112,9 @@ function extractBashRedirectWriteOps(cmd: string): FileOp[] {
     />\|\s+['"]?([^\s;|`$&()'"]+)['"]?/g,
     // tee (possibly with -a or other flags)
     /(?:^|[\s;|&(])\s*tee\s+(?:-[a-zA-Z]+\s+)?['"]?([^\s;|`$&()'"]+)['"]?/g,
-    // >& redirect
-    />&\s*['"]?([^\s;|`$&()'"]+)['"]?/g,
+    // >& redirect (legacy `>&file`); the lookahead skips bare-integer targets —
+    // fd duplication (`2>&1`, `1>&2`, `>&2`) names a descriptor, not a file
+    />&\s*['"]?(?!\d+(?:$|[\s;|`$&()'"]))([^\s;|`$&()'"]+)['"]?/g,
   ];
   for (const re of writeRegexes) {
     re.lastIndex = 0;
@@ -198,7 +199,8 @@ function extractMoveOps(cmd: string): FileOp[] {
  * Extract file operations from a shell command (bash and PowerShell dialects
  * in one pass) as write / delete / revert ops:
  *
- * - write: `>` / `>>` / `>|` / `tee` / `>&`, PowerShell redirects and file-writing
+ * - write: `>` / `>>` / `>|` / `tee` / `>&` (bare-integer targets — fd
+ *   duplication like `2>&1` — are skipped), PowerShell redirects and file-writing
  *   cmdlets (Set-Content / Out-File / Add-Content / Export-Csv / Export-CliXml /
  *   Tee-Object), `[System.IO.File]::WriteAll*`, `git restore --source=<commit>`,
  *   `git checkout <commit> -- <paths>`;

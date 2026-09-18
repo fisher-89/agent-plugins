@@ -5,7 +5,7 @@ import { type z } from 'zod/v4';
 
 import { workflowFileSchema, type WorkflowFile } from '../schemas';
 import { isPlainObject } from '../utils';
-import { getChangeDir } from './change';
+import { resolveChangeDir } from './change';
 import { getProjectDir } from './project-root';
 
 const WORKFLOW_JSON = 'workflow.json';
@@ -35,7 +35,7 @@ function formatIssues(error: z.ZodError): string {
  *    present — MUST be an entry array; unknown keys are allowed).
  */
 function readWorkflowFile(change: string): WorkflowFile {
-  const filePath = path.join(getChangeDir(change, getProjectDir()), WORKFLOW_JSON);
+  const filePath = path.join(resolveChangeDir(change, getProjectDir()), WORKFLOW_JSON);
 
   if (!fs.existsSync(filePath)) {
     throw new Error(

@@ -38,7 +38,7 @@ vi.mock('../../src/lib/eval-json', async () => {
 });
 
 vi.mock('../../src/lib/change', () => ({
-  getChangeDir: vi.fn(() => '/tmp/test-change'),
+  resolveChangeDir: vi.fn(() => '/tmp/test-change'),
 }));
 
 import { runBacktrack } from '../../src/commands/backtrack';

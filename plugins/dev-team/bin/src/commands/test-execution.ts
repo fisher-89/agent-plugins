@@ -12,13 +12,13 @@ import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'path';
 
-import { getChangeDir } from '../lib/change';
-import { readFileInventory } from '../lib/file-inventory';
+import { resolveChangeDir } from '../lib/change';
 import { getProjectDir } from '../lib/project-root';
 import { deriveSourcePathFromTestFile } from '../lib/test-path-naming';
 import { resolvePlanFiles } from '../lib/test-plan';
 import { generateSubReport, generateSummaryReport } from '../lib/test-report';
 import { executePlanEntry } from '../lib/test-runner';
+import { readFileInventory } from '../modules/workflow';
 import type { TestExecutionSubReport, TestPlan } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
@@ -127,7 +127,7 @@ function filterNetZeroFiles(files: string[], projectRoot: string): string[] {
  * Resolve the mutation scope from the change file inventory.
  */
 function resolveMutationDiffFiles(change: string, projectRoot: string): string[] | undefined {
-  const changeDir = getChangeDir(change, projectRoot);
+  const changeDir = resolveChangeDir(change, projectRoot);
   const written = readFileInventory(changeDir).written;
   const expanded = expandMutationDiffWithInferredSources(written);
   const scoped = filterNetZeroFiles(expanded, projectRoot);

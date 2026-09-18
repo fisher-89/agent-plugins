@@ -1,14 +1,15 @@
 /**
  * file-inventory.ts — change file inventory (`workflow.json.files`) shared
- * library.
+ * library under `modules/workflow` (the module boundary for `workflow.json`
+ * operation logic; everything exports via `workflow/index.ts`).
  *
  * The inventory is the net state of file operations recorded for a change:
  * `written` / `deleted` path lists (relative to project root, POSIX style)
  * plus an optional side-map `source` (path → subagent `agent_type`) used for
  * audit only — no consumer may depend on it.
  *
- * Consumed by the PostToolUse recorder, `change_files`, `test-execution`,
- * `test-resolve-paths` and `c4-cross-ref`.
+ * Consumed by the PostToolUse recorder, `change_files`, `workflow_files`,
+ * `test-execution`, `test-resolve-paths` and `c4-cross-ref`.
  */
 
 import * as fs from 'fs';
@@ -16,8 +17,8 @@ import * as path from 'path';
 
 import { type z } from 'zod/v4';
 
-import { workflowFileSchema, type workflowFilesSchema } from '../schemas';
-import { isPlainObject } from '../utils';
+import { workflowFileSchema, type workflowFilesSchema } from '../../schemas';
+import { isPlainObject } from '../../utils';
 
 const WORKFLOW_JSON_FILE = 'workflow.json';
 

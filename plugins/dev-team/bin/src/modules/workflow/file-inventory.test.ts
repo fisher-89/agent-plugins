@@ -1,5 +1,5 @@
 /**
- * 单元测试: lib/file-inventory.ts — change 文件清单（workflow.json.files）共享库
+ * 单元测试: modules/workflow/file-inventory.ts — change 文件清单（workflow.json.files）共享库
  *
  * 覆盖范围（openspec/changes/workflow-file-inventory/test-design.md）:
  * - AC-1: change_create 初始净状态可被 workflowFileSchema 解析

@@ -3,14 +3,14 @@ import * as path from 'node:path';
 
 import { type z } from 'zod/v4';
 
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
 import { readConfig } from '../lib/config';
-import { readFileInventory } from '../lib/file-inventory';
 import { toForwardSlash } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded } from '../lib/test-exclude';
 import { deriveUnitTestPath, isSourceFile, isTestFile } from '../lib/test-path-naming';
 import { isInSuiteScope } from '../lib/test-plan';
+import { readFileInventory } from '../modules/workflow';
 import type { OpenSpecConfig, unitTestEntrySchema } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
@@ -176,7 +176,7 @@ function resolveEffectiveModules(
     try {
       // Missing change dir / workflow.json / invalid JSON / no `files` all
       // throw with rebuild guidance — collected as an error entry, never fatal.
-      effectiveModules = readFileInventory(getChangeDir(params.change, projectRoot)).written;
+      effectiveModules = readFileInventory(resolveChangeDir(params.change, projectRoot)).written;
     } catch (e: unknown) {
       const msg = extractErrorMessage(e, '读取 change 文件清单失败');
       errors.push({ path: params.change, message: msg });

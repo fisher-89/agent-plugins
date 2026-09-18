@@ -13,6 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
+import { readFileInventory } from '../modules/workflow';
 import { readAllModels, parseC4Dsl } from './c4-parser';
 import type {
   C4Element,
@@ -21,8 +22,7 @@ import type {
   CrossRefViolation,
   ArchiCheckResult,
 } from './c4-types';
-import { getChangeDir } from './change';
-import { readFileInventory } from './file-inventory';
+import { resolveChangeDir } from './change';
 
 // Python stdlib modules for filtering
 const PYTHON_STDLIB = new Set([
@@ -125,7 +125,7 @@ function getChangedFiles(
   }
 
   if (options.change) {
-    return readFileInventory(getChangeDir(options.change, projectRoot)).written;
+    return readFileInventory(resolveChangeDir(options.change, projectRoot)).written;
   }
 
   return [];

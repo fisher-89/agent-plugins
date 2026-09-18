@@ -12,7 +12,7 @@ import * as path from 'path';
 
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import { getChangeDir } from '../lib/change';
+import { resolveChangeDir } from '../lib/change';
 import { workflowFileSchema, type ChangeCreateInput } from '../schemas';
 import { runChangeCreate } from './change-create';
 
@@ -60,7 +60,7 @@ describe('runChangeCreate — kebab-case 名称校验 (AC-3)', () => {
     try {
       const result = runChangeCreate('my-change', project.root, 'requirement');
       expect(result.name).toBe('my-change');
-      expect(result.path).toBe(getChangeDir('my-change', project.root));
+      expect(result.path).toBe(resolveChangeDir('my-change', project.root));
       expect(result.path).toBe(path.resolve(project.root, 'openspec', 'changes', 'my-change'));
       expect(path.isAbsolute(result.path)).toBe(true);
     } finally {

@@ -24,7 +24,7 @@ vi.mock('./change', async (importOriginal) => {
   const actual = await importOriginal<typeof ChangeModule>();
   return {
     ...actual,
-    getChangeDir: vi.fn((changeName: string) =>
+    resolveChangeDir: vi.fn((changeName: string) =>
       path.resolve('/tmp/test-root', 'openspec', 'changes', changeName),
     ),
   };

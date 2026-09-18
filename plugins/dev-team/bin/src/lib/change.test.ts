@@ -1,5 +1,5 @@
 /**
- * 单元测试: getChangeDir 路径拼接
+ * 单元测试: resolveChangeDir 路径拼接
  *
  * 覆盖 call-scoped / CLAUDE_PROJECT_DIR 经 getProjectDir 的路径解析。
  *
@@ -41,10 +41,10 @@ function clearProjectEnv(): void {
 }
 
 // ===========================================================================
-// getChangeDir — 无 MCP 缓存时回退
+// resolveChangeDir — 无 MCP 缓存时回退
 // ===========================================================================
 
-describe('getChangeDir — 无 MCP 缓存时回退', () => {
+describe('resolveChangeDir — 无 MCP 缓存时回退', () => {
   let savedEnv: ReturnType<typeof saveEnv>;
   let tempRoot: string | undefined;
 
@@ -62,13 +62,13 @@ describe('getChangeDir — 无 MCP 缓存时回退', () => {
     }
   });
 
-  it('无 MCP 缓存、设置 CLAUDE_PROJECT_DIR 时 getChangeDir 基于 env 根目录拼接', async () => {
+  it('无 MCP 缓存、设置 CLAUDE_PROJECT_DIR 时 resolveChangeDir 基于 env 根目录拼接', async () => {
     tempRoot = fs.mkdtempSync(path.join(os.tmpdir(), 'change-env-root-'));
     process.env.CLAUDE_PROJECT_DIR = tempRoot;
 
-    const { getChangeDir } = await import('./change');
+    const { resolveChangeDir } = await import('./change');
 
-    expect(getChangeDir('my-change', tempRoot)).toBe(
+    expect(resolveChangeDir('my-change', tempRoot)).toBe(
       path.resolve(tempRoot, 'openspec', 'changes', 'my-change'),
     );
   });

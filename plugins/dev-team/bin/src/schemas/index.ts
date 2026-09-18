@@ -35,6 +35,7 @@ export {
   type ChangeFilesInput,
   type ChangeFilesOutput,
 } from './change-files.schema';
+export { workflowFilesInputSchema, workflowFilesOutputSchema } from './workflow-files.schema';
 export { backtrackInputSchema, backtrackOutputSchema } from './backtrack.schema';
 export {
   changeCreateInputSchema,

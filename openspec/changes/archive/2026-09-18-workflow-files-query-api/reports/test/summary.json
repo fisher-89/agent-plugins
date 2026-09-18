@@ -1,0 +1,84 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-17T12:11:06.894Z",
+  "duration_seconds": 546,
+  "total": 2129,
+  "passed": 2127,
+  "failed": 0,
+  "skipped": 2,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 96.93,
+      "branches": 89.05,
+      "functions": 99.49
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 43,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 78.75,
+    "threshold": 70,
+    "measured": {
+      "killed": 704,
+      "survived": 176,
+      "timeout": 0,
+      "noCoverage": 14,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 132,
+      "total": 1026,
+      "detected": 704,
+      "undetected": 190
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 78.74720357941834,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 43,
+        "passed_count": 43
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/workflow-files-query-api/reports/test/plugins_dev-team_vite-plus"
+    }
+  ],
+  "findings": [
+    "All 2127 active tests passed (0 failed, 2 skipped); coverage gates met with margin (lines 96.93/90, branches 89.05/85, functions 99.49/90) and mutation score 78.75 clears its threshold of 70.",
+    "The 2 skipped tests are the archi-decide-retirement product assertions: they hardcode legacy product roots (claude-plugins/, cursor-plugins/, cursor-home-image/ at repo root) that no longer exist because products now build under dist/ - the AC-09 artifact guard is silently a no-op and should be repointed at dist/ (file outside this change inventory).",
+    "Mutation headroom: lib/c4-cross-ref.ts accounts for 121 of 176 survivors (~59% kill rate, 8 noCoverage); new change code is well defended (files-query.ts 5/5 killed, file-inventory.ts 70/81 killed) so the gap is pre-existing coverage debt, not a regression of this change.",
+    "Report anomaly (non-blocking): coverage.overrides[0] (plugins/dev-team) reports measured=null and passed_count=0 with pass=true - per-glob override measurements were not populated though the global aggregates are present and passing."
+  ]
+}
