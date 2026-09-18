@@ -120,7 +120,7 @@ model {
     }
   });
 
-  it('不传 files 且不传 staged 时应返回 no_changes (getChangedFiles 返回空)', async () => {
+  it('不传 files 且不传 staged 时应返回 no_changes (resolveCheckFiles 返回空)', async () => {
     const [root, cleanup] = createProject({
       models: {
         'spec.c4': `specification {
@@ -1079,7 +1079,7 @@ model {
 // ===========================================================================
 
 describe('runCrossRefCheck — staged mode', () => {
-  it('staged=false 且无 files 时 getChangedFiles 返回空数组 → no_changes', async () => {
+  it('staged=false 且无 files 时 resolveCheckFiles 返回空数组 → no_changes', async () => {
     const [root, cleanup] = createProject({
       models: {
         'spec.c4': `specification {
@@ -1149,7 +1149,24 @@ describe('runCrossRefCheck — 清单模式与 staged 废弃 (AC-9)', () => {
     const doc: Record<string, unknown> =
       files === undefined
         ? { workflow_type: 'requirement', created: '2026-09-17' }
-        : { workflow_type: 'requirement', created: '2026-09-17', files };
+        : {
+            workflow_type: 'requirement',
+            created: '2026-09-17',
+            file_log: [
+              ...files.written.map((p) => ({
+                op: 'write',
+                scope: 'workflow',
+                path: p,
+                at: '2026-09-17T00:00:00.000Z',
+              })),
+              ...files.deleted.map((p) => ({
+                op: 'delete',
+                scope: 'workflow',
+                path: p,
+                at: '2026-09-17T00:00:00.000Z',
+              })),
+            ],
+          };
     fs.writeFileSync(path.join(changeDir, 'workflow.json'), JSON.stringify(doc), 'utf-8');
   }
 

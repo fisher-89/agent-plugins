@@ -54,7 +54,7 @@ const mockDetectFrameworks = vi.fn();
 const mockExecutePlanEntry = vi.fn();
 const mockGenerateSubReport = vi.fn();
 const mockGenerateSummaryReport = vi.fn();
-const mockReadFileInventory = vi.fn();
+const mockGetChangedFiles = vi.fn();
 const mockExecFileSync = vi.fn();
 
 vi.mock('./test-detect-frameworks', () => ({
@@ -72,7 +72,7 @@ vi.mock('../lib/test-report', () => ({
 
 vi.mock('../modules/workflow', async () => {
   const actual = await vi.importActual('../modules/workflow');
-  return { ...actual, readFileInventory: (...args: unknown[]) => mockReadFileInventory(...args) };
+  return { ...actual, getChangedFiles: (...args: unknown[]) => mockGetChangedFiles(...args) };
 });
 
 vi.mock('node:child_process', async () => {
@@ -82,13 +82,18 @@ vi.mock('node:child_process', async () => {
 
 // 清单通道默认合法空净状态；HEAD 内容对比（只读 git 子进程）默认不触发。
 beforeEach(() => {
-  mockReadFileInventory.mockReset().mockReturnValue({ written: [], deleted: [] });
+  mockGetChangedFiles.mockReset().mockReturnValue({ written: [], deleted: [] });
   mockExecFileSync.mockReset();
 });
 
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
+
+/** 由 written 路径列表构造派生净状态（清单 mock 的标准形态）。 */
+function workflowNetState(written: string[]): { written: string[]; deleted: string[] } {
+  return { written, deleted: [] };
+}
 
 interface TempProject {
   root: string;
@@ -788,20 +793,15 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     return path.resolve(root, rel).replace(/\\/g, '/');
   }
 
-  it('传 change → readFileInventory(changeDir).written 经反推后作为 mutationDiffFiles 传入 executePlanEntry (AC-7)', async () => {
+  it('传 change → getChangedFiles(change, projectRoot).written 经反推后作为 mutationDiffFiles 传入 executePlanEntry (AC-7)', async () => {
     const project = createTempProject();
     try {
       stubHappyPath();
-      mockReadFileInventory.mockReturnValue({
-        written: ['src/foo.ts', 'src/bar.ts'],
-        deleted: [],
-      });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/foo.ts', 'src/bar.ts']));
 
       await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
-      expect(mockReadFileInventory).toHaveBeenCalledWith(
-        path.resolve(project.root, 'openspec', 'changes', 'inv-change'),
-      );
+      expect(mockGetChangedFiles).toHaveBeenCalledWith('inv-change', project.root);
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
         project.root,
@@ -822,7 +822,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     });
     try {
       stubHappyPath();
-      mockReadFileInventory.mockReturnValue({ written: ['src/a.ts', 'src/b.ts'], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/a.ts', 'src/b.ts']));
 
       await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
@@ -838,7 +838,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     const project = createTempProject();
     try {
       stubHappyPath();
-      mockReadFileInventory.mockReturnValue({ written: ['src/noisy.ts'], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/noisy.ts']));
       // 工作区文件与 HEAD 内容一致 → 剔除
       fs.writeFileSync(path.join(project.root, 'src-noisy-placeholder'), '', 'utf-8');
       const noisyAbs = path.join(project.root, 'src', 'noisy.ts');
@@ -862,7 +862,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     const project = createTempProject();
     try {
       stubHappyPath();
-      mockReadFileInventory.mockReturnValue({ written: ['src/brand-new.ts'], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/brand-new.ts']));
       const newAbs = path.join(project.root, 'src', 'brand-new.ts');
       fs.mkdirSync(path.dirname(newAbs), { recursive: true });
       fs.writeFileSync(newAbs, 'worktree only\n', 'utf-8');
@@ -889,7 +889,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     const project = createTempProject();
     try {
       stubHappyPath();
-      mockReadFileInventory.mockReturnValue({ written: ['src/maybe-equal.ts'], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/maybe-equal.ts']));
       const fileAbs = path.join(project.root, 'src', 'maybe-equal.ts');
       fs.mkdirSync(path.dirname(fileAbs), { recursive: true });
       fs.writeFileSync(fileAbs, 'some content\n', 'utf-8');
@@ -922,7 +922,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
         noMutation: true,
       });
 
-      expect(mockReadFileInventory).not.toHaveBeenCalled();
+      expect(mockGetChangedFiles).not.toHaveBeenCalled();
       expect(mockExecFileSync).not.toHaveBeenCalled();
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
@@ -941,7 +941,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
 
       await runTestExecution({ projectRoot: project.root });
 
-      expect(mockReadFileInventory).not.toHaveBeenCalled();
+      expect(mockGetChangedFiles).not.toHaveBeenCalled();
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
         project.root,
@@ -956,9 +956,9 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     const project = createTempProject();
     try {
       stubHappyPath();
-      mockReadFileInventory.mockImplementation(() => {
+      mockGetChangedFiles.mockImplementation(() => {
         throw new Error(
-          'workflow.json 缺少 files 字段：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
+          'workflow.json 缺少 file_log 字段 (workflow.json)：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
         );
       });
 
@@ -975,7 +975,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     const project = createTempProject();
     try {
       stubHappyPath();
-      mockReadFileInventory.mockImplementation(() => {
+      mockGetChangedFiles.mockImplementation(() => {
         throw new Error('workflow.json 不存在: ...。该文件由 change_create 建立。');
       });
 
@@ -992,7 +992,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     const project = createTempProject();
     try {
       stubHappyPath();
-      mockReadFileInventory.mockReturnValue({ written: [], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState([]));
 
       await runTestExecution({ projectRoot: project.root, change: 'empty-inv' });
 
@@ -1012,7 +1012,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     try {
       stubHappyPath();
       // 测试文件不在磁盘上 → 工作区读取失败 → 保留（overstate 方向）
-      mockReadFileInventory.mockReturnValue({ written: ['src/foo.test.ts'], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/foo.test.ts']));
 
       await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
@@ -1088,7 +1088,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
         problems: [],
         coverage: null,
       });
-      mockReadFileInventory.mockReturnValue({ written: ['src/a.ts'], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/a.ts']));
 
       await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
@@ -1136,7 +1136,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
         problems: [],
         coverage: null,
       });
-      mockReadFileInventory.mockReturnValue({ written: ['src/a.ts'], deleted: [] });
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/a.ts']));
 
       await runTestExecution({
         projectRoot: project.root,

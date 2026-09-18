@@ -1,16 +1,16 @@
 /**
  * 单元测试: commands/change-files.ts — change_files 核心逻辑（append / set）
  *
- * 覆盖范围:
- * - openspec/changes/workflow-file-inventory/test-design.md AC-10、AC-13:
- *   append 按折叠规则逐路径合并（去重、保留既有来源、新路径无来源）、set 整体覆写
- *   指定桶并清理被覆写路径的 source 条目、前置校验（缺失硬报错指引重建）、
- *   changeFilesInputSchema 校验行为
- * - openspec/changes/move-files-write-into-workflow-module/test-design.md AC-5:
- *   change_files 通道不过滤——临时项目根存在 .gitignore 时 ignored 路径仍照常入桶
- *   （记录器会过滤的同一路径，人工补录通道放行）
+ * 覆盖范围（openspec/changes/phase-lifecycle-file-log/test-design.md）:
+ * - AC-8: append → workflow scope 按 path upsert（phase 审计记录保留）；set →
+ *   删除涉及 path 全部记录 + 追加 workflow 记录，未涉及 path 不动
+ * - ignored 路径不过滤（人工补录通道契约回归，迁移保留）；同批重复路径去重
+ * - 异常: change 不存在 / workflow.json 非法 / 缺 file_log → 硬报错含「重建 change」指引
+ * - 边界: 输出仅含 written/deleted 两字段（形状契约回归）；written 与 deleted
+ *   均缺省 → schema 拒绝
  *
- * 文件系统不 mock：临时项目内 runChangeCreate 创建 fixture change（真盘模式）。
+ * 文件系统不 mock：mkdtempSync 临时项目 + 含 file_log（可含 phase 条目）的
+ * workflow.json fixture 真盘（同 file-inventory.test.ts 模式）。
  */
 
 import * as fs from 'fs';
@@ -19,7 +19,6 @@ import * as path from 'path';
 
 import { describe, expect, it } from 'vite-plus/test';
 
-import { recordFileOps } from '../modules/workflow';
 import { changeFilesInputSchema } from '../schemas';
 import { runChangeCreate } from './change-create';
 import { runChangeFiles, type ChangeFilesOptions } from './change-files';
@@ -45,25 +44,39 @@ interface Fixture {
   root: string;
   changeDir: string;
   workflowPath: string;
+  cleanup: () => void;
 }
 
-/** 创建项目 + change，并把 workflow.json.files 置为指定净状态。 */
-function createFixture(
-  files: Record<string, unknown>,
-  extraWorkflow: Record<string, unknown> = {},
-): Fixture & { cleanup: () => void } {
+/** 构造一条 file_log 条目（workflow scope 缺省无 attempt）。 */
+function logEntry(
+  op: 'write' | 'delete' | 'revert',
+  target: string,
+  scope: string = 'workflow',
+  attempt?: number,
+): Record<string, unknown> {
+  return attempt === undefined
+    ? { op, scope, path: target, at: '2026-09-18T00:00:00.000Z' }
+    : { op, scope, attempt, path: target, at: '2026-09-18T00:00:00.000Z' };
+}
+
+/** 创建项目 + change，并把 workflow.json 的 file_log 置为指定条目列表。 */
+function createFixture(fileLog: unknown[], extraWorkflow: Record<string, unknown> = {}): Fixture {
   const project = createTempProject();
   const created = runChangeCreate('my-change', project.root, 'requirement');
   const workflowPath = path.join(created.path, 'workflow.json');
   fs.writeFileSync(
     workflowPath,
-    JSON.stringify({
-      workflow_type: 'requirement',
-      created: '2026-09-17',
-      unknown_key: { keep: true },
-      ...extraWorkflow,
-      files,
-    }),
+    `${JSON.stringify(
+      {
+        workflow_type: 'requirement',
+        created: '2026-09-17',
+        unknown_key: { keep: true },
+        ...extraWorkflow,
+        file_log: fileLog,
+      },
+      null,
+      2,
+    )}\n`,
     'utf-8',
   );
   return {
@@ -86,77 +99,63 @@ function appendOptions(
 }
 
 // ===========================================================================
-// runChangeFiles — append
+// runChangeFiles — append (AC-8)
 // ===========================================================================
 
-describe('runChangeFiles — append', () => {
-  it('append written 新路径 → 返回净状态含之且 workflow.json 落盘 (AC-10)', () => {
-    const fx = createFixture({ written: [], deleted: [] });
+describe('runChangeFiles — append (AC-8)', () => {
+  it('append written/deleted → 追加 workflow scope 记录，返回派生净状态，与磁盘一致 (AC-8)', () => {
+    const fx = createFixture([]);
     try {
-      const result = runChangeFiles(appendOptions(fx.root, { written: ['src/foo.ts'] }));
+      const result = runChangeFiles(
+        appendOptions(fx.root, { written: ['src/foo.ts'], deleted: ['src/gone.ts'] }),
+      );
 
-      expect(result).toEqual({ written: ['src/foo.ts'], deleted: [] });
-      const doc = readWorkflow(fx);
-      expect(doc.files).toEqual({ written: ['src/foo.ts'], deleted: [] });
-      // 其他键保留（持久化走 writeFileInventory 通道）
-      expect(doc.workflow_type).toBe('requirement');
-      expect(doc.unknown_key).toEqual({ keep: true });
+      expect(result).toEqual({ written: ['src/foo.ts'], deleted: ['src/gone.ts'] });
+      const log = readWorkflow(fx).file_log as Array<Record<string, unknown>>;
+      expect(log).toHaveLength(2);
+      expect(log[0]).toMatchObject({ op: 'write', scope: 'workflow', path: 'src/foo.ts' });
+      expect(log[1]).toMatchObject({ op: 'delete', scope: 'workflow', path: 'src/gone.ts' });
+      // workflow 条目无 attempt 字段
+      for (const entry of log) {
+        expect(Object.prototype.hasOwnProperty.call(entry, 'attempt')).toBe(false);
+      }
     } finally {
       fx.cleanup();
     }
   });
 
-  it('append 已存在路径 → 去重不重复且既有 source 保留 (AC-13)', () => {
-    const fx = createFixture({
-      written: ['src/foo.ts'],
-      deleted: [],
-      source: { 'src/foo.ts': 'dev-team:implementation-generator' },
-    });
-    try {
-      const result = runChangeFiles(appendOptions(fx.root, { written: ['src/foo.ts'] }));
-
-      expect(result.written).toEqual(['src/foo.ts']);
-      expect(result.written).toHaveLength(1);
-      const files = readWorkflow(fx).files as Record<string, unknown>;
-      expect(files.source).toEqual({ 'src/foo.ts': 'dev-team:implementation-generator' });
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  it('append deleted 路径 → written 移除 + deleted 加入（折叠语义合并）(AC-10)', () => {
-    const fx = createFixture({ written: ['src/foo.ts'], deleted: [] });
+  it('已有 phase scope 审计记录同 path → upsert 仅覆盖 workflow 命名空间，phase 记录保留 (AC-8)', () => {
+    const fx = createFixture([
+      logEntry('write', 'src/foo.ts', 'implement', 1),
+      logEntry('write', 'src/foo.ts'),
+    ]);
     try {
       const result = runChangeFiles(appendOptions(fx.root, { deleted: ['src/foo.ts'] }));
 
+      const log = readWorkflow(fx).file_log as Array<Record<string, unknown>>;
+      expect(log).toHaveLength(2);
+      // phase 审计记录逐字保留
+      expect(log[0]).toEqual(logEntry('write', 'src/foo.ts', 'implement', 1));
+      // workflow 命名空间原位覆盖
+      expect(log[1]).toMatchObject({ op: 'delete', scope: 'workflow', path: 'src/foo.ts' });
       expect(result).toEqual({ written: [], deleted: ['src/foo.ts'] });
     } finally {
       fx.cleanup();
     }
   });
 
-  it('append deleted 路径把该路径从 written 折叠进 deleted，同批 written 新路径不写 source 键 (AC-13)', () => {
-    const fx = createFixture({ written: [], deleted: [] });
+  it('ignored 路径不过滤照常入 log（人工补录通道契约回归）；同批重复路径去重（迁移保留）', () => {
+    const fx = createFixture([]);
+    fs.writeFileSync(path.join(fx.root, '.gitignore'), '.claude/\n', 'utf-8');
     try {
       const result = runChangeFiles(
-        appendOptions(fx.root, { written: ['src/new.ts'], deleted: ['src/gone.ts'] }),
+        appendOptions(fx.root, { written: ['.claude/memory.md', 'src/a.ts', 'src/a.ts'] }),
       );
 
-      expect(result).toEqual({ written: ['src/new.ts'], deleted: ['src/gone.ts'] });
-      const files = readWorkflow(fx).files as Record<string, unknown>;
-      // 手动补录无来源：不新增 source 键
-      expect(Object.prototype.hasOwnProperty.call(files, 'source')).toBe(false);
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  it('append 同批重复路径去重（dedupe 稳定）', () => {
-    const fx = createFixture({ written: [], deleted: [] });
-    try {
-      const result = runChangeFiles(appendOptions(fx.root, { written: ['src/a.ts', 'src/a.ts'] }));
-
-      expect(result.written).toEqual(['src/a.ts']);
+      expect(result.written).toEqual(['.claude/memory.md', 'src/a.ts']);
+      const log = readWorkflow(fx).file_log as Array<Record<string, unknown>>;
+      expect(log).toHaveLength(2);
+      expect(log.map((e) => e.path)).toEqual(['.claude/memory.md', 'src/a.ts']);
     } finally {
       fx.cleanup();
     }
@@ -164,70 +163,62 @@ describe('runChangeFiles — append', () => {
 });
 
 // ===========================================================================
-// runChangeFiles — set
+// runChangeFiles — set (AC-8)
 // ===========================================================================
 
-describe('runChangeFiles — set', () => {
-  it('set written 覆写 → 指定桶整体替换、被移除路径的 source 条目清理 (AC-10)', () => {
-    const fx = createFixture({
-      written: ['src/a.ts', 'src/b.ts'],
-      deleted: [],
-      source: { 'src/a.ts': 'dev-team:x', 'src/b.ts': 'dev-team:y' },
-    });
+describe('runChangeFiles — set (AC-8)', () => {
+  it('set → log 中涉及 provided path 的全部记录（任意 scope/attempt/op）删除 + 末尾追加 workflow 记录；未涉及 path 不动 (AC-8)', () => {
+    const fx = createFixture([
+      logEntry('write', 'src/a.ts', 'implement', 1),
+      logEntry('delete', 'src/a.ts', 'implement', 2),
+      logEntry('delete', 'src/a.ts'),
+      logEntry('write', 'src/keep.ts', 'implement', 3),
+    ]);
     try {
       const result = runChangeFiles(appendOptions(fx.root, { op: 'set', written: ['src/a.ts'] }));
 
-      expect(result).toEqual({ written: ['src/a.ts'], deleted: [] });
-      const files = readWorkflow(fx).files as Record<string, unknown>;
-      // src/b.ts 不再在净状态中，其 source 条目被清理
-      expect(files.source).toBeUndefined();
+      const log = readWorkflow(fx).file_log as Array<Record<string, unknown>>;
+      expect(log).toHaveLength(2);
+      // 未涉及 path 的 phase 审计记录逐字保留、顺序不变
+      expect(log[0]).toEqual(logEntry('write', 'src/keep.ts', 'implement', 3));
+      // 末尾追加 workflow 记录
+      expect(log[1]).toMatchObject({ op: 'write', scope: 'workflow', path: 'src/a.ts' });
+      expect(result).toEqual({ written: ['src/keep.ts', 'src/a.ts'], deleted: [] });
     } finally {
       fx.cleanup();
     }
   });
 
-  it('set deleted 覆写 → written 不动、deleted 整体替换、未被提供的路径 source 保留 (AC-10)', () => {
-    const fx = createFixture({
-      written: ['src/a.ts', 'src/b.ts'],
-      deleted: ['src/old1.ts'],
-      source: { 'src/a.ts': 'dev-team:x' },
-    });
+  it('同 path 出现在 written 与 deleted 两桶 → deleted 胜（追加顺序 written 先、deleted 后）', () => {
+    const fx = createFixture([logEntry('write', 'src/keep.ts')]);
     try {
       const result = runChangeFiles(
-        appendOptions(fx.root, { op: 'set', deleted: ['src/old2.ts', 'src/old2.ts'] }),
+        appendOptions(fx.root, { op: 'set', written: ['src/a.ts'], deleted: ['src/a.ts'] }),
       );
 
-      expect(result).toEqual({
-        written: ['src/a.ts', 'src/b.ts'],
-        deleted: ['src/old2.ts'],
-      });
-      const files = readWorkflow(fx).files as Record<string, unknown>;
-      // src/a.ts 仍在净状态且未被提供 → source 保留
-      expect(files.source).toEqual({ 'src/a.ts': 'dev-team:x' });
+      expect(result).toEqual({ written: ['src/keep.ts'], deleted: ['src/a.ts'] });
+      const log = readWorkflow(fx).file_log as Array<Record<string, unknown>>;
+      // set 追加顺序 written 先、deleted 后（不去重）→ 派生后条胜 deleted
+      expect(log).toHaveLength(3);
+      expect(log[0]).toMatchObject({ op: 'write', scope: 'workflow', path: 'src/keep.ts' });
+      expect(log[1]).toMatchObject({ op: 'write', scope: 'workflow', path: 'src/a.ts' });
+      expect(log[2]).toMatchObject({ op: 'delete', scope: 'workflow', path: 'src/a.ts' });
     } finally {
       fx.cleanup();
     }
   });
 
-  it('set written: [] → 清空该桶（净状态显式修正通道）', () => {
-    const fx = createFixture({ written: ['src/a.ts'], deleted: ['src/b.ts'] });
-    try {
-      const result = runChangeFiles(appendOptions(fx.root, { op: 'set', written: [] }));
-
-      expect(result).toEqual({ written: [], deleted: ['src/b.ts'] });
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  it('set 只提供 deleted 时 written 桶保持原状（未提供的桶不动）', () => {
-    const fx = createFixture({ written: ['src/keep.ts'], deleted: ['src/gone.ts'] });
+  it('set 语义修正通道：先前 deleted 的路径 set 回 written 后派生净状态移出 deleted', () => {
+    const fx = createFixture([logEntry('delete', 'src/gone.ts')]);
     try {
       const result = runChangeFiles(
-        appendOptions(fx.root, { op: 'set', deleted: ['src/other.ts'] }),
+        appendOptions(fx.root, { op: 'set', written: ['src/gone.ts'] }),
       );
 
-      expect(result).toEqual({ written: ['src/keep.ts'], deleted: ['src/other.ts'] });
+      expect(result).toEqual({ written: ['src/gone.ts'], deleted: [] });
+      const log = readWorkflow(fx).file_log as Array<Record<string, unknown>>;
+      expect(log).toHaveLength(1);
+      expect(log[0]).toMatchObject({ op: 'write', scope: 'workflow', path: 'src/gone.ts' });
     } finally {
       fx.cleanup();
     }
@@ -235,11 +226,11 @@ describe('runChangeFiles — set', () => {
 });
 
 // ===========================================================================
-// runChangeFiles — 异常
+// runChangeFiles — 异常（硬报错，不回退 git）
 // ===========================================================================
 
 describe('runChangeFiles — 异常', () => {
-  it('change 不存在 → 抛错', () => {
+  it('change 不存在 → 抛「workflow.json 不存在」', () => {
     const project = createTempProject();
     try {
       expect(() => runChangeFiles(appendOptions(project.root, { written: ['src/a.ts'] }))).toThrow(
@@ -250,7 +241,7 @@ describe('runChangeFiles — 异常', () => {
     }
   });
 
-  it('workflow.json 非法 → 硬报错', () => {
+  it('workflow.json 非法 → 硬报错「解析失败」', () => {
     const project = createTempProject();
     try {
       const changeDir = path.join(project.root, 'openspec', 'changes', 'my-change');
@@ -265,18 +256,39 @@ describe('runChangeFiles — 异常', () => {
     }
   });
 
-  it('workflow.json 缺 files 字段 → 硬报错含「该 change 创建于文件清单机制之前，请重建」指引', () => {
-    const fx = createFixture(undefined as unknown as Record<string, unknown>);
-    // 手工覆盖为无 files 的旧形态
-    fs.writeFileSync(
-      fx.workflowPath,
-      JSON.stringify({ workflow_type: 'requirement', created: '2026-09-17' }),
-      'utf-8',
-    );
+  it('workflow.json 缺 file_log 字段 → 硬报错含「该 change 创建于文件清单机制之前，请重建」指引', () => {
+    const project = createTempProject();
     try {
-      expect(() => runChangeFiles(appendOptions(fx.root, { written: ['src/a.ts'] }))).toThrow(
+      const changeDir = path.join(project.root, 'openspec', 'changes', 'my-change');
+      fs.mkdirSync(changeDir, { recursive: true });
+      fs.writeFileSync(
+        path.join(changeDir, 'workflow.json'),
+        JSON.stringify({ workflow_type: 'requirement', created: '2026-09-17' }),
+        'utf-8',
+      );
+
+      expect(() => runChangeFiles(appendOptions(project.root, { written: ['src/a.ts'] }))).toThrow(
         /该 change 创建于文件清单机制之前，请重建/,
       );
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runChangeFiles — 边界（形状契约与 schema 校验行为）
+// ===========================================================================
+
+describe('runChangeFiles — 边界（形状契约与 schema 校验行为）', () => {
+  it('append / set 输出仅含 written 与 deleted 两个字段（changeFilesOutput 形状契约回归）', () => {
+    const fx = createFixture([]);
+    try {
+      const appended = runChangeFiles(appendOptions(fx.root, { written: ['src/a.ts'] }));
+      expect(Object.keys(appended).sort()).toEqual(['deleted', 'written']);
+
+      const set = runChangeFiles(appendOptions(fx.root, { op: 'set', written: ['src/b.ts'] }));
+      expect(Object.keys(set).sort()).toEqual(['deleted', 'written']);
     } finally {
       fx.cleanup();
     }
@@ -301,39 +313,7 @@ describe('runChangeFiles — 异常', () => {
     ).toBe(false);
   });
 
-  it('路径命中受保护范围（workflow.json 自身 / openspec/config.json / 自污染排除范围）→ 现状实现不拒绝、照常入清单（AC-10 偏差记录：本命令与 schema 均无受保护范围判断，仅校验路径形态；写入拦截由 PreToolUse 保护层、openspec 排除由记录器 hook 层承载）', () => {
-    const protectedPaths = [
-      'openspec/config.json',
-      'openspec/changes/my-change/workflow.json',
-      'openspec/changes/my-change/design.md',
-    ];
-    const fx = createFixture({ written: [], deleted: [] });
-    try {
-      // schema 层：均为相对项目根 POSIX 形态 → 形态校验通过，不做受保护范围判断
-      for (const p of protectedPaths) {
-        expect(
-          changeFilesInputSchema.safeParse(appendOptions(fx.root, { written: [p] })).success,
-        ).toBe(true);
-      }
-
-      // 命令层：同样不拒绝，照常折叠入净状态并落盘（按实际行为断言）
-      const result = runChangeFiles(appendOptions(fx.root, { written: protectedPaths }));
-
-      expect(result.written).toEqual(protectedPaths);
-      const files = readWorkflow(fx).files as { written: string[] };
-      expect(files.written).toEqual(protectedPaths);
-    } finally {
-      fx.cleanup();
-    }
-  });
-});
-
-// ===========================================================================
-// runChangeFiles — 边界（changeFilesInputSchema 校验行为）
-// ===========================================================================
-
-describe('runChangeFiles — 边界（schema 校验行为）', () => {
-  it('op 为非法枚举值（如 merge）→ schema 拒绝', () => {
+  it('op 为非法枚举值（如 merge）→ schema 拒绝（迁移保留）', () => {
     expect(
       changeFilesInputSchema.safeParse({
         change: 'my-change',
@@ -344,7 +324,7 @@ describe('runChangeFiles — 边界（schema 校验行为）', () => {
     ).toBe(false);
   });
 
-  it('路径为空字符串 / 绝对路径 / 反斜杠 / .. 穿越形态 → schema 拒绝（相对项目根 POSIX 风格契约，受保护与自污染范围由此挡在清单外）', () => {
+  it('路径为空字符串 / 绝对路径 / 反斜杠 / .. 穿越形态 → schema 拒绝（迁移保留）', () => {
     const base = { change: 'my-change', op: 'append' as const, project_root: '/tmp/x' };
     for (const bad of [
       '',
@@ -359,17 +339,15 @@ describe('runChangeFiles — 边界（schema 校验行为）', () => {
         changeFilesInputSchema.safeParse({ ...base, written: ['src/ok.ts', bad] }).success,
       ).toBe(false);
     }
-    // 合法 POSIX 相对路径通过
     expect(changeFilesInputSchema.safeParse({ ...base, written: ['src/ok.ts'] }).success).toBe(
       true,
     );
   });
 
-  it('批量 100+ 路径一次性 append → 全部入净状态且去重稳定（超大列表）', () => {
-    const fx = createFixture({ written: [], deleted: [] });
+  it('批量 100+ 路径一次性 append → 全部入 log 且去重稳定（超大列表，迁移保留）', () => {
+    const fx = createFixture([]);
     try {
       const paths = Array.from({ length: 150 }, (_, i) => `src/generated/file${i}.ts`);
-      // 注入重复项验证去重
       const withDupes = [...paths, paths[0], paths[7]];
 
       const result = runChangeFiles(appendOptions(fx.root, { written: withDupes }));
@@ -382,76 +360,21 @@ describe('runChangeFiles — 边界（schema 校验行为）', () => {
     }
   });
 
-  it('append / set 输出仅含 written 与 deleted 两个字段（changeFilesOutput 形状契约）', () => {
-    const fx = createFixture({
-      written: [],
-      deleted: [],
-      source: { 'src/a.ts': 'dev-team:x' },
-    });
+  it('路径命中 openspec/** / workflow.json（自污染范围）→ 现状实现不拒绝、照常入 log（schema 与命令层均无受保护范围判断，迁移保留）', () => {
+    const protectedPaths = ['openspec/config.json', 'openspec/changes/my-change/workflow.json'];
+    const fx = createFixture([]);
     try {
-      const result = runChangeFiles(appendOptions(fx.root, { written: ['src/a.ts'] }));
-      expect(Object.keys(result).sort()).toEqual(['deleted', 'written']);
-    } finally {
-      fx.cleanup();
-    }
-  });
-});
+      for (const p of protectedPaths) {
+        expect(
+          changeFilesInputSchema.safeParse(appendOptions(fx.root, { written: [p] })).success,
+        ).toBe(true);
+      }
 
-// ===========================================================================
-// runChangeFiles — change_files 通道不过滤 (AC-5)
-// ===========================================================================
+      const result = runChangeFiles(appendOptions(fx.root, { written: protectedPaths }));
 
-describe('runChangeFiles — change_files 通道不过滤 (AC-5)', () => {
-  /** 建立带根 .gitignore（含 .claude/，与记录器过滤同一实样）的 fixture。 */
-  function createFilteredFixture(files: Record<string, unknown>): ReturnType<typeof createFixture> {
-    const fx = createFixture(files);
-    fs.writeFileSync(path.join(fx.root, '.gitignore'), '.claude/\n', 'utf-8');
-    return fx;
-  }
-
-  it('项目根 .gitignore 含 .claude/ 时 append written 被忽略路径 → 仍入桶并落盘、返回净状态含之（记录器会过滤的同一路径，人工补录通道放行）', () => {
-    const fx = createFilteredFixture({ written: [], deleted: [] });
-    try {
-      const result = runChangeFiles(appendOptions(fx.root, { written: ['.claude/memory.md'] }));
-
-      expect(result.written).toEqual(['.claude/memory.md']);
-      const files = readWorkflow(fx).files as { written: string[] };
-      expect(files.written).toEqual(['.claude/memory.md']);
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  it('同前置下 set written 含 ignored 路径 → 整桶覆写照常生效', () => {
-    const fx = createFilteredFixture({ written: ['src/a.ts'], deleted: [] });
-    try {
-      const result = runChangeFiles(
-        appendOptions(fx.root, { op: 'set', written: ['.claude/memory.md', 'src/b.ts'] }),
-      );
-
-      expect(result.written).toEqual(['.claude/memory.md', 'src/b.ts']);
-      const files = readWorkflow(fx).files as { written: string[] };
-      expect(files.written).toEqual(['.claude/memory.md', 'src/b.ts']);
-    } finally {
-      fx.cleanup();
-    }
-  });
-
-  it('边界：ignored 路径 append 入桶后，记录器管线折叠无关路径 → 净状态符合折叠规则、补录条目无过滤干预痕迹', () => {
-    const fx = createFilteredFixture({ written: [], deleted: [] });
-    try {
-      // 人工补录通道：ignored 路径入桶
-      runChangeFiles(appendOptions(fx.root, { written: ['.claude/memory.md'] }));
-
-      // 记录器管线归账无关路径（其自身过滤只作用于本次增量 op，不回溯清洗存量）
-      recordFileOps(
-        path.join(fx.root, 'openspec', 'changes', 'my-change'),
-        [{ op: 'write', path: 'src/a.ts' }],
-        { projectRoot: fx.root },
-      );
-
-      const files = readWorkflow(fx).files as { written: string[] };
-      expect(files.written).toEqual(['.claude/memory.md', 'src/a.ts']);
+      expect(result.written).toEqual(protectedPaths);
+      const log = readWorkflow(fx).file_log as Array<Record<string, unknown>>;
+      expect(log.map((e) => e.path)).toEqual(protectedPaths);
     } finally {
       fx.cleanup();
     }

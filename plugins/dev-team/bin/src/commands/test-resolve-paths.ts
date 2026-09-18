@@ -3,14 +3,13 @@ import * as path from 'node:path';
 
 import { type z } from 'zod/v4';
 
-import { resolveChangeDir } from '../lib/change';
 import { readConfig } from '../lib/config';
 import { toForwardSlash } from '../lib/glob';
 import { getProjectDir } from '../lib/project-root';
 import { isFileExcluded } from '../lib/test-exclude';
 import { deriveUnitTestPath, isSourceFile, isTestFile } from '../lib/test-path-naming';
 import { isInSuiteScope } from '../lib/test-plan';
-import { readFileInventory } from '../modules/workflow';
+import { getChangedFiles } from '../modules/workflow';
 import type { OpenSpecConfig, unitTestEntrySchema } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
@@ -174,9 +173,9 @@ function resolveEffectiveModules(
       };
     }
     try {
-      // Missing change dir / workflow.json / invalid JSON / no `files` all
+      // Missing change dir / workflow.json / invalid JSON / no `file_log` all
       // throw with rebuild guidance — collected as an error entry, never fatal.
-      effectiveModules = readFileInventory(resolveChangeDir(params.change, projectRoot)).written;
+      effectiveModules = getChangedFiles(params.change, projectRoot).written;
     } catch (e: unknown) {
       const msg = extractErrorMessage(e, '读取 change 文件清单失败');
       errors.push({ path: params.change, message: msg });
@@ -329,7 +328,8 @@ function processEmptyModules(
  *
  * Three modes:
  * 1. modules === "change" → read the target change file inventory
- *    (`workflow.json.files.written`) as the module list; inventory read
+ *    (`workflow.json.file_log` derived written set) as the module list;
+ *    inventory read
  *    failures are collected as error entries (with rebuild guidance)
  * 2. modules is non-empty array → filter through test config via runTestDetectFrameworks
  * 3. modules is empty array → config-driven directory scan via runTestDetectFrameworks plan

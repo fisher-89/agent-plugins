@@ -123,7 +123,9 @@ Then continue to `### Run Executor`.
 
 ### Run Executor
 
-Call `Agent` with response of `phase_next`:
+Call `__MCP:phase_start__({ change: "<change-name>", phase: "<next_phase>" })` once to open the phase running state (per-attempt timing archive and file-attribution gate). Repeat this call before every executor rerun (retry after fail, backtrack recall); the `phase_next` call in `### Verdict Phase Result` never triggers one.
+
+Then call `Agent` with response of `phase_next`:
 
 ```
 Agent({

@@ -1,24 +1,30 @@
 /**
  * 单元测试: modules/workflow/files/record.ts — PostToolUse 归账管线
  *
- * 覆盖范围（openspec/changes/move-files-write-into-workflow-module/test-design.md）:
- * - AC-2（管线层）: gitignore 过滤接入（命中路径不入桶、write/delete/revert 统一生效、
- *   不回溯清洗存量、全无 .gitignore 时行为与现状一致）
- * - AC-4（迁移语义回归）: 规范化（项目根相对化、越界丢弃、POSIX 化）、自污染排除
- *   （openspec/** 与 workflow.json）、agentType 盖章 / last-writer-wins / 清除、
- *   持久化保留键纪律、legacy 报错向上传播、fail-open 不阻塞
+ * 覆盖范围（openspec/changes/phase-lifecycle-file-log/test-design.md）:
+ * - AC-6/AC-4（管线层）: 记录上下文由 scope 决定——phase scope（phase id + attempt）
+ *   与 workflow scope（'workflow' 命名空间、无 attempt 字段）盖章落盘
+ * - 规范化回归（迁移保留）: 绝对路径 / Windows 反斜杠 → 项目根相对 POSIX 化、越界丢弃
+ * - 自污染排除与 gitignore 过滤回归（迁移保留）: openspec/** 与 workflow.json 不入 log、
+ *   ignored 路径 write/delete/revert 三态统一过滤、不回溯清洗既有条目、
+ *   无 .gitignore 时无 stderr 副作用、fail-open 诊断
+ * - revert 事件照常过滤并作为 revert 记录入 log（AC-6）
+ * - 空批次 / 全越界 → 不读不写 workflow.json（磁盘逐字节不变）
+ * - legacy change（缺 file_log）→ 抛错向上传播，文件不被半写
+ * - 落盘纪律: workflow_type / created / eval / active_phase / interrupted / 未知键保留、
+ *   2 空格缩进 + 尾换行
  *
- * 文件系统不 mock：mkdtempSync 临时项目 + validWorkflowDoc fixture（真盘读写，
- * 同 file-inventory.test.ts 模式）。process.stderr.write 经 vi.spyOn 捕获诊断。
+ * 文件系统不 mock：mkdtempSync 临时项目 + 真盘读写（同 file-inventory.test.ts 模式）。
+ * Mock 面：vi.setSystemTime 固定 at 断言、process.stderr.write spy 捕获诊断。
  */
 
 import * as fs from 'node:fs';
 import * as os from 'node:os';
 import * as path from 'node:path';
 
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { afterAll, beforeAll, describe, expect, it, vi } from 'vite-plus/test';
 
-import { type FileOp } from './file-inventory';
+import { type FileLogEntry, type FileOp } from './file-inventory';
 import { recordFileOps } from './record';
 
 // ---------------------------------------------------------------------------
@@ -52,17 +58,9 @@ function readWorkflowJsonRaw(changeDir: string): string {
   return fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8');
 }
 
-/** 读回 workflow.json 的 files 净状态（真盘观察点）。 */
-function readRecordedFiles(changeDir: string): {
-  written: string[];
-  deleted: string[];
-  source?: Record<string, string>;
-} {
-  const doc = JSON.parse(readWorkflowJsonRaw(changeDir)) as {
-    files?: { written: string[]; deleted: string[]; source?: Record<string, string> };
-  };
-  if (!doc.files) throw new Error('workflow.json 无 files 字段');
-  return doc.files;
+/** 直接从磁盘读 file_log 原始条目（断言真实落盘形态，不经被测读通道）。 */
+function readLogFromDisk(changeDir: string): FileLogEntry[] {
+  return (JSON.parse(readWorkflowJsonRaw(changeDir)) as { file_log: FileLogEntry[] }).file_log;
 }
 
 /** 构造一条能通过 phaseLogSchema 校验的 eval 条目（workflowFileSchema 要求）。 */
@@ -78,9 +76,9 @@ function evalEntry(phase: string): Record<string, unknown> {
   };
 }
 
-/** 合法 workflow.json 文档（含 eval / 未知键 / files）。 */
+/** 合法 workflow.json 文档（含 eval / 未知键 / file_log；运行态字段可注入）。 */
 function validWorkflowDoc(
-  files: unknown,
+  fileLog: unknown,
   extra: Record<string, unknown> = {},
 ): Record<string, unknown> {
   return {
@@ -89,7 +87,7 @@ function validWorkflowDoc(
     eval: [evalEntry('proposal')],
     unknown_key: { keep: true },
     ...extra,
-    files,
+    file_log: fileLog,
   };
 }
 
@@ -102,99 +100,118 @@ function captureStderrWrite(): { lines: () => string[]; restore: () => void } {
   };
 }
 
+// 系统时钟固定（条目 at 字段断言）
+const FIXED_NOW = '2026-09-18T08:30:00.000Z';
+
+beforeAll(() => {
+  vi.setSystemTime(new Date(FIXED_NOW));
+});
+
+afterAll(() => {
+  vi.useRealTimers();
+});
+
 // ===========================================================================
-// recordFileOps — 管线正序
+// recordFileOps — scope 盖章与管线正序
 // ===========================================================================
 
-describe('recordFileOps — 管线正序', () => {
-  it('ops 含绝对路径（含 Windows 反斜杠形态）→ 相对项目根 POSIX 化后入桶（normalizeRecordedPath 迁移语义保持）', () => {
+describe('recordFileOps — scope 盖章 (AC-6/AC-4 管线层)', () => {
+  it('scope={kind:"phase", phase:"implement", attempt:2} → 落盘条目 scope="implement"、attempt=2、at 为固定 ISO 时刻', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
+
+      recordFileOps(changeDir, [{ op: 'write', path: 'src/a.ts' }], {
+        projectRoot: project.root,
+        scope: { kind: 'phase', phase: 'implement', attempt: 2 },
+      });
+
+      expect(readLogFromDisk(changeDir)).toEqual([
+        { op: 'write', scope: 'implement', attempt: 2, path: 'src/a.ts', at: FIXED_NOW },
+      ]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('scope={kind:"workflow"} → 落盘条目 scope="workflow" 且无 attempt 字段（主 agent 分支的记录形态）', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
+
+      recordFileOps(changeDir, [{ op: 'write', path: 'src/b.ts' }], {
+        projectRoot: project.root,
+        scope: { kind: 'workflow' },
+      });
+
+      const log = readLogFromDisk(changeDir);
+      expect(log).toHaveLength(1);
+      expect(log[0].scope).toBe('workflow');
+      expect(Object.prototype.hasOwnProperty.call(log[0], 'attempt')).toBe(false);
+      expect(log[0].at).toBe(FIXED_NOW);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('op:"revert" 事件照常过滤并作为 revert 记录入 log（与 gitignore 过滤叠加：ignored 的 revert 被丢弃）', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
+      fs.writeFileSync(path.join(project.root, '.gitignore'), '.claude/\n', 'utf-8');
+
+      recordFileOps(
+        changeDir,
+        [
+          { op: 'revert', path: 'src/c.ts' },
+          { op: 'revert', path: '.claude/ignored.md' },
+        ],
+        { projectRoot: project.root, scope: { kind: 'workflow' } },
+      );
+
+      expect(readLogFromDisk(changeDir)).toEqual([
+        { op: 'revert', scope: 'workflow', path: 'src/c.ts', at: FIXED_NOW },
+      ]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('规范化回归：绝对路径（含 Windows 反斜杠形态）→ 项目根相对 POSIX 化后入 log（迁移保留）', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
 
       const ops: FileOp[] = [
         { op: 'write', path: path.join(project.root, 'src', 'deep', 'a.ts') },
         { op: 'write', path: 'src\\backslash.ts' },
       ];
-      recordFileOps(changeDir, ops, { projectRoot: project.root });
+      recordFileOps(changeDir, ops, { projectRoot: project.root, scope: { kind: 'workflow' } });
 
-      expect(readRecordedFiles(changeDir).written).toEqual(['src/deep/a.ts', 'src/backslash.ts']);
+      expect(readLogFromDisk(changeDir).map((e) => e.path)).toEqual([
+        'src/deep/a.ts',
+        'src/backslash.ts',
+      ]);
     } finally {
       project.cleanup();
     }
   });
 
-  it('op 携带 agentType / context 携带 agentType → source[path]=agent_type 盖章，沿用 fold 的 last-writer-wins 与无 agentType 清除语义', () => {
+  it('全部路径越界（../outside.ts）→ 无候选路径，不读不写 workflow.json（磁盘逐字节不变，迁移保留）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
-
-      // op 携带 agentType → 盖章
-      recordFileOps(
-        changeDir,
-        [{ op: 'write', path: 'src/a.ts', agentType: 'dev-team:implementation-generator' }],
-        { projectRoot: project.root },
-      );
-      expect(readRecordedFiles(changeDir).source).toEqual({
-        'src/a.ts': 'dev-team:implementation-generator',
-      });
-
-      // 主会话重写（op 与 context 均无 agentType）→ source 清除
-      recordFileOps(changeDir, [{ op: 'write', path: 'src/a.ts' }], {
-        projectRoot: project.root,
-      });
-      const afterClear = readRecordedFiles(changeDir);
-      expect(afterClear.source).toBeUndefined();
-      expect(Object.prototype.hasOwnProperty.call(afterClear, 'source')).toBe(false);
-
-      // context.agentType 兜底（op 未携带）→ 以 context 值盖章（last-writer-wins）
-      recordFileOps(changeDir, [{ op: 'write', path: 'src/b.ts' }], {
-        projectRoot: project.root,
-        agentType: 'dev-team:context-agent',
-      });
-      expect(readRecordedFiles(changeDir).source).toEqual({
-        'src/b.ts': 'dev-team:context-agent',
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('write / delete / revert 三类 op 各按折叠规则入桶并落盘', () => {
-    const project = createTempProject();
-    try {
-      const changeDir = createChangeDir(project);
-      writeWorkflowJson(
-        changeDir,
-        validWorkflowDoc({ written: ['src/b.ts', 'src/c.ts'], deleted: ['src/d.ts'] }),
-      );
-
-      const ops: FileOp[] = [
-        { op: 'write', path: 'src/a.ts' },
-        { op: 'delete', path: 'src/b.ts' },
-        { op: 'revert', path: 'src/c.ts' },
-      ];
-      recordFileOps(changeDir, ops, { projectRoot: project.root });
-
-      expect(readRecordedFiles(changeDir)).toEqual({
-        written: ['src/a.ts'],
-        deleted: ['src/d.ts', 'src/b.ts'],
-      });
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('ops=[] → 不读不写 workflow.json（空批次提前返回，磁盘逐字节不变）', () => {
-    const project = createTempProject();
-    try {
-      const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: ['src/keep.ts'], deleted: [] }));
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
       const before = readWorkflowJsonRaw(changeDir);
 
-      recordFileOps(changeDir, [], { projectRoot: project.root });
+      recordFileOps(changeDir, [{ op: 'write', path: '../outside.ts' }], {
+        projectRoot: project.root,
+        scope: { kind: 'workflow' },
+      });
 
       expect(readWorkflowJsonRaw(changeDir)).toBe(before);
     } finally {
@@ -202,16 +219,14 @@ describe('recordFileOps — 管线正序', () => {
     }
   });
 
-  it('全部路径越界（../outside.ts）→ 无候选路径，不读不写清单（磁盘逐字节不变）', () => {
+  it('ops=[] → 不读不写 workflow.json（空批次提前返回，磁盘逐字节不变，迁移保留）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
       const before = readWorkflowJsonRaw(changeDir);
 
-      recordFileOps(changeDir, [{ op: 'write', path: '../outside.ts' }], {
-        projectRoot: project.root,
-      });
+      recordFileOps(changeDir, [], { projectRoot: project.root, scope: { kind: 'workflow' } });
 
       expect(readWorkflowJsonRaw(changeDir)).toBe(before);
     } finally {
@@ -221,15 +236,15 @@ describe('recordFileOps — 管线正序', () => {
 });
 
 // ===========================================================================
-// recordFileOps — 自污染排除与 gitignore 过滤叠加
+// recordFileOps — 自污染排除与 gitignore 过滤叠加（迁移保留）
 // ===========================================================================
 
 describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
-  it('openspec/** 与 workflow.json（含嵌套形态）路径被排除、不入桶不触发读取（迁移语义保持）', () => {
+  it('openspec/** 与 workflow.json（含嵌套形态）路径被排除、不入 log 不触发读取（迁移保留）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
       const before = readWorkflowJsonRaw(changeDir);
 
       const ops: FileOp[] = [
@@ -240,7 +255,7 @@ describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
         { op: 'write', path: path.join(changeDir, 'workflow.json') },
         { op: 'write', path: 'sub/dir/workflow.json' },
       ];
-      recordFileOps(changeDir, ops, { projectRoot: project.root });
+      recordFileOps(changeDir, ops, { projectRoot: project.root, scope: { kind: 'workflow' } });
 
       expect(readWorkflowJsonRaw(changeDir)).toBe(before);
     } finally {
@@ -248,54 +263,33 @@ describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
     }
   });
 
-  it('项目根 .gitignore 含 .claude/ 时，op .claude/x.md 被过滤丢弃、同批 src/a.ts 照常入桶 (AC-2 管线层)', () => {
+  it('项目根 .gitignore 含 .claude/ 时，ignored 路径 write / delete / revert 三态统一过滤丢弃（迁移保留）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
       fs.writeFileSync(path.join(project.root, '.gitignore'), '.claude/\n', 'utf-8');
 
       const ops: FileOp[] = [
         { op: 'write', path: '.claude/x.md' },
+        { op: 'delete', path: '.claude/y.md' },
+        { op: 'revert', path: '.claude/z.md' },
         { op: 'write', path: 'src/a.ts' },
       ];
-      recordFileOps(changeDir, ops, { projectRoot: project.root });
+      recordFileOps(changeDir, ops, { projectRoot: project.root, scope: { kind: 'workflow' } });
 
-      const files = readRecordedFiles(changeDir);
-      expect(files.written).toEqual(['src/a.ts']);
-      expect(files.written).not.toContain('.claude/x.md');
+      const log = readLogFromDisk(changeDir);
+      expect(log.map((e) => e.path)).toEqual(['src/a.ts']);
     } finally {
       project.cleanup();
     }
   });
 
-  it('gitignore 过滤对 write / delete / revert 统一生效：被忽略路径的 delete op 不入 deleted 桶', () => {
+  it('ignored 路径（.claude/）与 openspec/（自污染排除）同批出现 → 均不入 log（两类过滤叠加，磁盘逐字节不变）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
-      fs.writeFileSync(path.join(project.root, '.gitignore'), '.claude/\n', 'utf-8');
-
-      const ops: FileOp[] = [
-        { op: 'delete', path: '.claude/x.md' },
-        { op: 'revert', path: '.claude/y.md' },
-        { op: 'write', path: 'src/a.ts' },
-      ];
-      recordFileOps(changeDir, ops, { projectRoot: project.root });
-
-      const files = readRecordedFiles(changeDir);
-      expect(files.deleted).toEqual([]);
-      expect(files.written).toEqual(['src/a.ts']);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('.claude/（gitignore 命中）与 openspec/（自污染排除）同批出现 → 均不入桶（两类过滤叠加，磁盘逐字节不变）', () => {
-    const project = createTempProject();
-    try {
-      const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
       fs.writeFileSync(path.join(project.root, '.gitignore'), '.claude/\n', 'utf-8');
       const before = readWorkflowJsonRaw(changeDir);
 
@@ -303,7 +297,7 @@ describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
         { op: 'write', path: '.claude/x.md' },
         { op: 'delete', path: 'openspec/changes/my-change/proposal.md' },
       ];
-      recordFileOps(changeDir, ops, { projectRoot: project.root });
+      recordFileOps(changeDir, ops, { projectRoot: project.root, scope: { kind: 'workflow' } });
 
       expect(readWorkflowJsonRaw(changeDir)).toBe(before);
     } finally {
@@ -311,23 +305,25 @@ describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
     }
   });
 
-  it('净状态中已存在的历史 ignored 路径不被回溯清理：过滤只作用于本次增量 op，既有桶内条目原样保留', () => {
+  it('不回溯清洗既有条目：过滤只作用于本次增量 op，log 中既有 ignored 条目原样保留（迁移保留）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
       writeWorkflowJson(
         changeDir,
-        validWorkflowDoc({ written: ['.claude/old.md', 'src/keep.ts'], deleted: [] }),
+        validWorkflowDoc([
+          { op: 'write', scope: 'workflow', path: '.claude/old.md', at: FIXED_NOW },
+        ]),
       );
       fs.writeFileSync(path.join(project.root, '.gitignore'), '.claude/\n', 'utf-8');
 
       recordFileOps(changeDir, [{ op: 'write', path: 'src/new.ts' }], {
         projectRoot: project.root,
+        scope: { kind: 'workflow' },
       });
 
-      expect(readRecordedFiles(changeDir).written).toEqual([
+      expect(readLogFromDisk(changeDir).map((e) => e.path)).toEqual([
         '.claude/old.md',
-        'src/keep.ts',
         'src/new.ts',
       ]);
     } finally {
@@ -335,11 +331,11 @@ describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
     }
   });
 
-  it('项目根及祖先链全无 .gitignore → 行为与现状一致（候选路径全量入桶），过滤器惰性构建不产生副作用（无 stderr 诊断）', () => {
+  it('项目根及祖先链全无 .gitignore → 候选路径全量入 log，过滤器惰性构建不产生副作用（无 stderr 诊断，迁移保留）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
 
       const stderr = captureStderrWrite();
       try {
@@ -347,17 +343,46 @@ describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
           { op: 'write', path: 'src/a.ts' },
           { op: 'delete', path: 'src/deep/b.ts' },
         ];
-        recordFileOps(changeDir, ops, { projectRoot: project.root });
+        recordFileOps(changeDir, ops, { projectRoot: project.root, scope: { kind: 'workflow' } });
       } finally {
         const lines = stderr.lines();
         stderr.restore();
         expect(lines.some((l) => l.includes('record-files:'))).toBe(false);
       }
 
-      expect(readRecordedFiles(changeDir)).toEqual({
-        written: ['src/a.ts'],
-        deleted: ['src/deep/b.ts'],
-      });
+      expect(readLogFromDisk(changeDir).map((e) => `${e.op}:${e.path}`)).toEqual([
+        'write:src/a.ts',
+        'delete:src/deep/b.ts',
+      ]);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('.gitignore 读取失败（fail-open）→ 路径保留入 log，诊断经 process.stderr.write 输出且带 record-files: 前缀，不抛错（迁移保留）', () => {
+    const project = createTempProject();
+    try {
+      const changeDir = createChangeDir(project);
+      writeWorkflowJson(changeDir, validWorkflowDoc([]));
+      // 根 .gitignore 为目录 → existsSync 命中、readFileSync 抛错（读取失败形态）
+      fs.mkdirSync(path.join(project.root, '.gitignore'), { recursive: true });
+
+      const stderr = captureStderrWrite();
+      let lines: string[] = [];
+      try {
+        expect(() =>
+          recordFileOps(changeDir, [{ op: 'write', path: 'src/a.ts' }], {
+            projectRoot: project.root,
+            scope: { kind: 'workflow' },
+          }),
+        ).not.toThrow();
+      } finally {
+        lines = stderr.lines();
+        stderr.restore();
+      }
+
+      expect(readLogFromDisk(changeDir).map((e) => e.path)).toEqual(['src/a.ts']);
+      expect(lines.some((l) => l.includes('record-files:') && l.includes('.gitignore'))).toBe(true);
     } finally {
       project.cleanup();
     }
@@ -369,14 +394,21 @@ describe('recordFileOps — 自污染排除与 gitignore 过滤叠加', () => {
 // ===========================================================================
 
 describe('recordFileOps — 持久化与异常', () => {
-  it('落盘后 workflow_type / created / eval / 未知键保留、2 空格缩进 + 尾换行（经 writeFileInventory 纪律）', () => {
+  it('落盘后 workflow_type / created / eval / active_phase / interrupted / 未知键保留、2 空格缩进 + 尾换行（doc-io 纪律）', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
+      writeWorkflowJson(
+        changeDir,
+        validWorkflowDoc([], {
+          active_phase: { phase: 'implement', attempt: 2, start_at: FIXED_NOW },
+          interrupted: [{ phase: 'implement', attempt: 1, start_at: FIXED_NOW, end_at: FIXED_NOW }],
+        }),
+      );
 
       recordFileOps(changeDir, [{ op: 'write', path: 'src/a.ts' }], {
         projectRoot: project.root,
+        scope: { kind: 'workflow' },
       });
 
       const raw = readWorkflowJsonRaw(changeDir);
@@ -385,16 +417,19 @@ describe('recordFileOps — 持久化与异常', () => {
       expect(doc.created).toBe('2026-09-18');
       expect(doc.eval).toEqual([evalEntry('proposal')]);
       expect(doc.unknown_key).toEqual({ keep: true });
-      expect(doc.files).toEqual({ written: ['src/a.ts'], deleted: [] });
+      expect(doc.active_phase).toEqual({ phase: 'implement', attempt: 2, start_at: FIXED_NOW });
+      expect(doc.interrupted).toEqual([
+        { phase: 'implement', attempt: 1, start_at: FIXED_NOW, end_at: FIXED_NOW },
+      ]);
       expect(raw.endsWith('\n')).toBe(true);
       expect(raw).toContain('\n  "workflow_type"');
-      expect(raw).toContain('\n      "src/a.ts"');
+      expect(raw).toContain('\n      "path": "src/a.ts"');
     } finally {
       project.cleanup();
     }
   });
 
-  it('legacy change（workflow.json 无 files）→ 抛错向上传播（由命令层 catch-all 兜底），文件不被半写', () => {
+  it('legacy change（workflow.json 缺 file_log）→ 抛错向上传播（文案为重建 change 指引），文件不被半写', () => {
     const project = createTempProject();
     try {
       const changeDir = createChangeDir(project);
@@ -405,37 +440,10 @@ describe('recordFileOps — 持久化与异常', () => {
       expect(() =>
         recordFileOps(changeDir, [{ op: 'write', path: 'src/a.ts' }], {
           projectRoot: project.root,
+          scope: { kind: 'workflow' },
         }),
       ).toThrow(/该 change 创建于文件清单机制之前，请重建/);
       expect(readWorkflowJsonRaw(changeDir)).toBe(before);
-    } finally {
-      project.cleanup();
-    }
-  });
-
-  it('.gitignore 读取失败（fail-open）→ 路径保留入清单，诊断经 process.stderr.write 输出且带 record-files: 前缀，不抛错', () => {
-    const project = createTempProject();
-    try {
-      const changeDir = createChangeDir(project);
-      writeWorkflowJson(changeDir, validWorkflowDoc({ written: [], deleted: [] }));
-      // 根 .gitignore 为目录 → existsSync 命中、readFileSync 抛错（读取失败形态）
-      fs.mkdirSync(path.join(project.root, '.gitignore'), { recursive: true });
-
-      const stderr = captureStderrWrite();
-      let lines: string[] = [];
-      try {
-        expect(() =>
-          recordFileOps(changeDir, [{ op: 'write', path: 'src/a.ts' }], {
-            projectRoot: project.root,
-          }),
-        ).not.toThrow();
-      } finally {
-        lines = stderr.lines();
-        stderr.restore();
-      }
-
-      expect(readRecordedFiles(changeDir).written).toEqual(['src/a.ts']);
-      expect(lines.some((l) => l.includes('record-files:') && l.includes('.gitignore'))).toBe(true);
     } finally {
       project.cleanup();
     }

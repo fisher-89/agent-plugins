@@ -196,7 +196,7 @@ describe('CLI 新报告布局 — 有 change', () => {
         JSON.stringify({
           workflow_type: 'requirement',
           created: '2026-09-17',
-          files: { written: [], deleted: [] },
+          file_log: [],
         }),
         'utf-8',
       );

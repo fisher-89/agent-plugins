@@ -5,11 +5,19 @@ export {
   phaseLogOutputSchema,
 } from './phase-log.schema';
 export {
+  activePhaseSchema,
+  fileLogSchema,
+  interruptedEntrySchema,
   workflowEvalSchema,
   workflowFileSchema,
-  workflowFilesSchema,
   type WorkflowFile,
 } from './workflow.schema';
+export {
+  phaseStartInputSchema,
+  phaseStartOutputSchema,
+  type PhaseStartOptions,
+  type PhaseStartResult,
+} from './phase-start.schema';
 export { archiQueryInputSchema, archiQueryOutputSchema } from './archi-query.schema';
 export { archiValidateInputSchema, archiValidateOutputSchema } from './archi-validate.schema';
 export { archiWriteInputSchema, archiWriteOutputSchema } from './archi-write.schema';

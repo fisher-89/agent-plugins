@@ -39,6 +39,7 @@ const {
   realReadFileSyncRef,
   mockBindSession,
   mockLookupChange,
+  mockRunSweepPhase,
 } = vi.hoisted(() => ({
   mockReadFileSync: vi.fn(),
   mockReadConfig: vi.fn(),
@@ -48,6 +49,7 @@ const {
   realReadFileSyncRef: { current: null as null | ((...args: unknown[]) => string) },
   mockBindSession: vi.fn(),
   mockLookupChange: vi.fn(),
+  mockRunSweepPhase: vi.fn(),
 }));
 
 // vi.mock 被提升到文件顶部，在静态 import 之前执行
@@ -71,6 +73,10 @@ vi.mock('./commands/run-static-analysis', () => ({
   runStaticAnalysis: mockRunStaticAnalysis,
 }));
 
+vi.mock('./commands/sweep-phase', () => ({
+  runSweepPhase: mockRunSweepPhase,
+}));
+
 vi.mock('./lib/project-root', async (importOriginal) => {
   const actual = await importOriginal<typeof ProjectRoot>();
   actualGetProjectDirRef.current = actual.getProjectDir;
@@ -86,7 +92,7 @@ const exitMock = vi.spyOn(process, 'exit').mockImplementation(() => undefined as
 vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
 
 // 动态 import — vi.mock 已生效，process 拦截已就位
-const { main, runProtectFiles, runRecordFiles, runStaticCheck, captureStderr } =
+const { main, runProtectFiles, runRecordFiles, runSweepPhase, runStaticCheck, captureStderr } =
   await import('./hooks');
 
 // 模块加载完成后设置 stdout spy（auto-execution 未写 stdout）
@@ -107,6 +113,7 @@ function resetMocks(): void {
   }
   mockBindSession.mockReset();
   mockLookupChange.mockReset();
+  mockRunSweepPhase.mockReset();
   exitMock.mockClear();
   stdoutWriteMock.mockClear();
 }
@@ -123,10 +130,27 @@ function stubRecordStdin(event: Record<string, unknown>): void {
   });
 }
 
+/** 门②默认开启的运行态（gate 3 归一匹配 implement executor 用）。 */
+const RECORD_ACTIVE_PHASE = {
+  phase: 'implement',
+  attempt: 1,
+  start_at: '2026-09-18T08:00:00.000Z',
+};
+
 /** 在临时项目内创建 change 目录与合法 workflow.json（真盘 fixture），返回 changeDir。 */
-function createRecordChangeFixture(root: string, files: unknown, changeName = 'change-a'): string {
+function createRecordChangeFixture(
+  root: string,
+  files: { written: string[]; deleted?: string[] },
+  changeName = 'change-a',
+  options: { activePhase?: Record<string, unknown> | null } = {},
+): string {
   const changeDir = path.join(root, 'openspec', 'changes', changeName);
   NodeFs.mkdirSync(changeDir, { recursive: true });
+  const at = '2026-09-18T00:00:00.000Z';
+  const fileLog = [
+    ...files.written.map((p) => ({ op: 'write', scope: 'workflow', path: p, at })),
+    ...(files.deleted ?? []).map((p) => ({ op: 'delete', scope: 'workflow', path: p, at })),
+  ];
   NodeFs.writeFileSync(
     path.join(changeDir, 'workflow.json'),
     `${JSON.stringify(
@@ -135,7 +159,8 @@ function createRecordChangeFixture(root: string, files: unknown, changeName = 'c
         created: '2026-09-18',
         eval: [],
         unknown_key: { keep: true },
-        files,
+        active_phase: options.activePhase === undefined ? RECORD_ACTIVE_PHASE : options.activePhase,
+        file_log: fileLog,
       },
       null,
       2,
@@ -153,20 +178,37 @@ function readRecordWorkflowRaw(changeDir: string): string {
 }
 
 /**
- * 读回临时项目内真实 workflow.json 的 files 净状态。
- * （迁移后「读 → 折叠 → 写」在 modules/workflow/files/record.ts 内部经
- * ./file-inventory 直接导入完成，净状态观察点为真盘而非 mock 调用参数。）
+ * 读回临时项目内真实 workflow.json 的 file_log 派生净状态。
+ * （记录管线写 file_log 条目；观察点按 deriveNetState 语义在测试内重放。）
  */
-function readRecordedFiles(changeDir: string): {
-  written: string[];
-  deleted: string[];
-  source?: Record<string, string>;
-} {
+function readRecordedFiles(changeDir: string): { written: string[]; deleted: string[] } {
+  const { written, deleted } = readRecordLog(changeDir).reduce(
+    (acc, entry) => {
+      if (entry.op === 'write') {
+        acc.deleted.delete(entry.path);
+        acc.written.add(entry.path);
+      } else if (entry.op === 'delete') {
+        acc.written.delete(entry.path);
+        acc.deleted.add(entry.path);
+      } else {
+        acc.written.delete(entry.path);
+        acc.deleted.delete(entry.path);
+      }
+      return acc;
+    },
+    { written: new Set<string>(), deleted: new Set<string>() },
+  );
+  return { written: Array.from(written), deleted: Array.from(deleted) };
+}
+
+/** 读回盘上 file_log 原始条目（scope/attempt 断言用）。 */
+function readRecordLog(
+  changeDir: string,
+): Array<{ op: string; scope: string; attempt?: number; path: string; at: string }> {
   const doc = JSON.parse(readRecordWorkflowRaw(changeDir)) as {
-    files?: { written: string[]; deleted: string[]; source?: Record<string, string> };
+    file_log?: Array<{ op: string; scope: string; attempt?: number; path: string; at: string }>;
   };
-  if (!doc.files) throw new Error('workflow.json 无 files 字段');
-  return doc.files;
+  return doc.file_log ?? [];
 }
 
 /** 从 stdout spy calls 中提取最后写入的字符串 */
@@ -2894,21 +2936,27 @@ describe('record-files — 归账写清单（持久化观察点改造）(AC-2, A
     expect(files.deleted).toEqual([]);
   });
 
-  it('事件携带 agent_type → 清单 source[path]=agent_type；随后被无 agent_type 的主会话事件重写 → source 清除 (AC-13)', () => {
+  it('事件携带匹配 executor 的 agent_type → phase scope 记录（scope=phase、attempt=active_phase.attempt）；随后无 agent_type 的主会话事件 → workflow scope', () => {
     runRecord({
       tool_name: 'Write',
       tool_input: { file_path: 'src/foo.ts' },
       session_id: 'S1',
       agent_type: 'dev-team:implementation-generator',
     });
-    expect(readRecordedFiles(changeDir).source).toEqual({
-      'src/foo.ts': 'dev-team:implementation-generator',
+    expect(readRecordLog(changeDir)[0]).toMatchObject({
+      op: 'write',
+      scope: 'implement',
+      attempt: 1,
+      path: 'src/foo.ts',
     });
 
     runRecord({ tool_name: 'Write', tool_input: { file_path: 'src/foo.ts' }, session_id: 'S1' });
     const files = readRecordedFiles(changeDir);
     expect(files.written).toEqual(['src/foo.ts']);
-    expect(files.source).toBeUndefined();
+    // 同 path 跨 scope 属跨 key：追加新记录，日志保留全部来源轨迹
+    const log = readRecordLog(changeDir);
+    expect(log).toHaveLength(2);
+    expect(log[1]).toMatchObject({ op: 'write', scope: 'workflow', path: 'src/foo.ts' });
   });
 
   it('未绑定 session 的写事件 → 静默丢弃，workflow.json 不变（stderr 诊断，AC-3 前置语义）', () => {
@@ -2948,7 +2996,8 @@ describe('record-files — 归账写清单（持久化观察点改造）(AC-2, A
       restore1();
     }
 
-    // 变体二：workflow.json 存在但无 files（机制前旧 change）
+    // 变体二：workflow.json 存在但无 file_log（机制前旧 change，带 active_phase
+    // 以穿过门②抵达记录管线）
     const legacyDir = createRecordChangeFixture(
       tempRoot,
       { written: [], deleted: [] },
@@ -2956,7 +3005,11 @@ describe('record-files — 归账写清单（持久化观察点改造）(AC-2, A
     );
     NodeFs.writeFileSync(
       path.join(legacyDir, 'workflow.json'),
-      JSON.stringify({ workflow_type: 'requirement', created: '2026-09-18' }),
+      JSON.stringify({
+        workflow_type: 'requirement',
+        created: '2026-09-18',
+        active_phase: RECORD_ACTIVE_PHASE,
+      }),
       'utf-8',
     );
     const legacyBefore = readRecordWorkflowRaw(legacyDir);
@@ -3397,5 +3450,22 @@ describe('main — record-files 子命令分发', () => {
       stderrSpy.mockRestore();
       process.argv = origArgv;
     }
+  });
+
+  it("argv[2]='sweep-phase' → 分发执行 runSweepPhase（AC-10 分发接线），不阻塞、不退出", () => {
+    const origArgv = process.argv;
+    process.argv = ['node', 'hooks.ts', 'sweep-phase'];
+    mockReadFileSync.mockReturnValue(JSON.stringify({ session_id: 'S1' }));
+    try {
+      main();
+      expect(mockRunSweepPhase).toHaveBeenCalledTimes(1);
+      expect(exitMock).not.toHaveBeenCalled();
+    } finally {
+      process.argv = origArgv;
+    }
+  });
+
+  it('导出面：hooks 模块导出含 runSweepPhase 且为 function（knip entry-export 面回归）', () => {
+    expect(typeof runSweepPhase).toBe('function');
   });
 });

@@ -1,14 +1,16 @@
 // hooks.ts — Gateway: subcommand registration & dispatch for dev-team hooks
-// (protect-files, record-files, static-check). Implementations live in
-// commands/; the shared shell-command op extractor lives in lib/shell-file-ops.
+// (protect-files, record-files, sweep-phase, static-check). Implementations
+// live in commands/; the shared shell-command op extractor lives in
+// lib/shell-file-ops.
 
 import { runProtectFiles } from './commands/protect-files';
 import { runRecordFiles } from './commands/record-files';
 import { runStaticCheck } from './commands/static-check';
+import { runSweepPhase } from './commands/sweep-phase';
 
 // Entry export surface (knip entry-exempt): keeps the established import path
 // for tests and integrations.
-export { runProtectFiles, runRecordFiles, runStaticCheck };
+export { runProtectFiles, runRecordFiles, runSweepPhase, runStaticCheck };
 export { captureStderr } from './commands/static-check';
 
 /**
@@ -24,6 +26,9 @@ export function main(): void {
       break;
     case 'record-files':
       runRecordFiles();
+      break;
+    case 'sweep-phase':
+      runSweepPhase();
       break;
     case 'static-check':
       runStaticCheck();

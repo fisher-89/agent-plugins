@@ -1,205 +1,201 @@
 /**
- * file-inventory.ts — change file inventory (`workflow.json.files`) shared
- * library under `modules/workflow` (the module boundary for `workflow.json`
- * operation logic; the public surface re-exports via `workflow/index.ts`,
- * persistence primitives stay module-internal).
+ * file-inventory.ts — log-structured change file inventory
+ * (`workflow.json.file_log`) shared library under `modules/workflow` (the
+ * module boundary for `workflow.json` operation logic; the public surface
+ * re-exports via `workflow/index.ts`).
  *
- * The inventory is the net state of file operations recorded for a change:
- * `written` / `deleted` path lists (relative to project root, POSIX style)
- * plus an optional side-map `source` (path → subagent `agent_type`) used for
- * audit only — no consumer may depend on it.
+ * The inventory is an append-only log of recorded file operations; the net
+ * state consumed by readers (`workflow_files`, `test-execution`,
+ * `test-resolve-paths`, `c4-cross-ref`) is DERIVED from the log (same path,
+ * later entry wins) and never persisted. Readers reach it through the
+ * barrel's single read channel `getChangedFiles` (`files-query`); the
+ * changeDir-level `readNetState` seam, the raw-log read and the pure
+ * derivation below are module-internal.
+ *
+ * Each entry carries its recording scope — a phase id (with `attempt`) for
+ * executor writes, `'workflow'` for everything else — so the log doubles as
+ * the per-phase touch audit. Dedupe key for appends is
+ * (scope namespace, attempt?, path): same key overwrites in place, cross-key
+ * appends at the tail.
  *
  * Consumed by the PostToolUse recorder, `change_files`, `workflow_files`,
- * `test-execution`, `test-resolve-paths` and `c4-cross-ref`.
+ * `test-execution`, `test-resolve-paths` and `c4-cross-ref`. Persistence
+ * primitives come from `../doc-io` (module root, shared with
+ * `phase/phase-state.ts`).
  */
 
-import * as fs from 'fs';
-import * as path from 'path';
+import { fileLogSchema } from '../../../schemas';
+import { getWorkflowJsonPath, loadWorkflowDoc, saveWorkflowDoc } from '../doc-io';
 
-import { type z } from 'zod/v4';
-
-import { workflowFileSchema, type workflowFilesSchema } from '../../../schemas';
-import { isPlainObject } from '../../../utils';
-
-const WORKFLOW_JSON_FILE = 'workflow.json';
-
-/** Net state of the change file inventory stored in `workflow.json.files`. */
-export type FileInventory = z.infer<typeof workflowFilesSchema>;
+/** One file_log entry as persisted in `workflow.json.file_log`. */
+export interface FileLogEntry {
+  op: 'write' | 'delete' | 'revert';
+  /** Recording context: a phase id, or `'workflow'` for non-executor writes. */
+  scope: string;
+  /** Attempt number; present only for phase-scoped entries. */
+  attempt?: number;
+  /** Project-root-relative POSIX path. */
+  path: string;
+  /** Record timestamp (ISO 8601). */
+  at: string;
+}
 
 /** One observed file operation, as extracted by the hooks extractor. */
 export interface FileOp {
   op: 'write' | 'delete' | 'revert';
   path: string;
-  /** Subagent `agent_type` carried by the hook event; absent for main-session ops. */
-  agentType?: string;
 }
 
 /**
- * Render Zod issues as `<field.path: message; …>`, mirroring the format used
- * by `lib/eval-json.ts`.
+ * Recording context resolved by the recorder gate: phase-scoped when the
+ * event's agent matches the running phase's executor, workflow-scoped
+ * otherwise. Shared by the recorder and the manual `change_files` channel.
  */
-function formatIssues(error: z.ZodError): string {
-  return error.issues
-    .map((issue) => `${issue.path.map((segment) => String(segment)).join('.')}: ${issue.message}`)
-    .join('; ');
-}
+export type RecordScope = { kind: 'phase'; phase: string; attempt: number } | { kind: 'workflow' };
+
+/** Derived net state of the log (virtual view, never persisted). */
+export type NetFileState = { written: string[]; deleted: string[] };
 
 /**
- * Read and validate the change file inventory from `<changeDir>/workflow.json`.
- *
- * Hard-errors — no git fallback — when:
- * 1. the file does not exist;
- * 2. the JSON is invalid or the root is not an object;
- * 3. the file fails `workflowFileSchema`;
- * 4. the `files` field is missing (a change created before the inventory
- *    mechanism — the message carries the rebuild guidance).
+ * Build the dedupe key for a log entry:
+ * - phase scope → `(phase id, attempt, path)`;
+ * - workflow scope → `('workflow', path)` (no attempt, per the log keying
+ *   contract). `'workflow'` is not a valid phase id, so the namespaces
+ *   cannot collide.
  */
-export function readFileInventory(changeDir: string): FileInventory {
-  const filePath = path.join(changeDir, WORKFLOW_JSON_FILE);
-
-  if (!fs.existsSync(filePath)) {
-    throw new Error(
-      `workflow.json 不存在: ${filePath}。该文件由 change_create 建立；请通过 change_create 创建 change。`,
-    );
+function logKey(entry: FileLogEntry): string {
+  if (entry.scope === 'workflow') {
+    return `workflow\0${entry.path}`;
   }
+  return `${entry.scope}\0${entry.attempt ?? ''}\0${entry.path}`;
+}
 
-  let parsed: unknown;
-  try {
-    parsed = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch (e: unknown) {
-    if (e instanceof SyntaxError) {
-      throw new Error(`workflow.json 解析失败: ${e.message}`);
+/**
+ * True when the validated document lacks the `file_log` field — a change
+ * created before the log mechanism. The message carries the rebuild
+ * guidance; callers never fall back to git.
+ */
+function isFileLogMissing(doc: Record<string, unknown>): boolean {
+  return !Object.prototype.hasOwnProperty.call(doc, 'file_log');
+}
+
+function missingFileLogError(changeDir: string): Error {
+  return new Error(
+    `workflow.json 缺少 file_log 字段 (${getWorkflowJsonPath(changeDir)})：该 change 创建于文件清单机制之前，请重建该 change（change_create）。`,
+  );
+}
+
+/**
+ * Read the change file log from `<changeDir>/workflow.json` (module-internal
+ * read primitive behind `readNetState`).
+ *
+ * Hard-errors — no git fallback — when the file does not exist, the JSON is
+ * invalid, the root is not an object, the file fails `workflowFileSchema`,
+ * or the `file_log` field is missing (a change created before the log
+ * mechanism — the message carries the rebuild guidance). Entry shapes are
+ * guaranteed by the schema validation inside `loadWorkflowDoc`.
+ */
+function readFileLog(changeDir: string): FileLogEntry[] {
+  const doc = loadWorkflowDoc(changeDir);
+  if (isFileLogMissing(doc)) {
+    throw missingFileLogError(changeDir);
+  }
+  // Schema-parse instead of a cast: `loadWorkflowDoc` already validated the
+  // document, so this never throws — it only narrows the raw value.
+  return fileLogSchema.array().parse(doc.file_log);
+}
+
+/**
+ * Read-modify-write the log with a single load/save round trip: validate +
+ * load once, apply `update`, persist. `update` receives the current log
+ * (safe to mutate in place) and returns the next log.
+ */
+function updateLog(
+  changeDir: string,
+  update: (log: FileLogEntry[]) => FileLogEntry[],
+): FileLogEntry[] {
+  const doc = loadWorkflowDoc(changeDir);
+  if (isFileLogMissing(doc)) {
+    throw missingFileLogError(changeDir);
+  }
+  const next = update(fileLogSchema.array().parse(doc.file_log));
+  doc.file_log = next;
+  saveWorkflowDoc(changeDir, doc);
+  return next;
+}
+
+/**
+ * Append log entries with (scope namespace, attempt?, path) keying: an entry
+ * whose key already exists overwrites it in place (keeping the original
+ * array position, last writer wins — including scope flips across
+ * attempts); any other entry is appended at the tail. Returns the log as
+ * persisted.
+ */
+export function appendLogEntries(changeDir: string, entries: FileLogEntry[]): FileLogEntry[] {
+  if (entries.length === 0) {
+    return readFileLog(changeDir);
+  }
+  return updateLog(changeDir, (log) => {
+    const indexByKey = new Map<string, number>();
+    log.forEach((entry, index) => indexByKey.set(logKey(entry), index));
+    for (const entry of entries) {
+      const existing = indexByKey.get(logKey(entry));
+      if (existing !== undefined) {
+        log[existing] = entry;
+      } else {
+        indexByKey.set(logKey(entry), log.length);
+        log.push(entry);
+      }
     }
-    throw e;
-  }
-
-  if (!isPlainObject(parsed)) {
-    throw new Error(`workflow.json 根元素必须是对象，但实际类型为 ${typeof parsed}`);
-  }
-
-  const validated = workflowFileSchema.safeParse(parsed);
-  if (!validated.success) {
-    throw new Error(`workflow.json 格式非法 (${filePath}): ${formatIssues(validated.error)}`);
-  }
-
-  if (validated.data.files === undefined) {
-    throw new Error(
-      `workflow.json 缺少 files 字段 (${filePath})：该 change 创建于文件清单机制之前，请重建该 change（change_create）。`,
-    );
-  }
-
-  return validated.data.files;
+    return log;
+  });
 }
 
 /**
- * Maintain the `source` audit map for a write/delete op: an op carrying
- * `agentType` overwrites the entry (last-writer-wins), an op without one
- * clears it (main-session ops and manual append carry no subagent source).
- */
-function setSource(source: Record<string, string>, target: string, agentType?: string): void {
-  if (agentType !== undefined) {
-    source[target] = agentType;
-  } else {
-    delete source[target];
-  }
-}
-
-/**
- * Fold a batch of observed file operations into the inventory net state
- * (pure function; returns a new inventory).
- *
- * Symmetric rules — folding only overstates, never underrecords dangerous
- * operations:
+ * Derive the net state from the log (pure function). Symmetric rules —
+ * replaying only overstates, never underrecords dangerous operations:
  * ```
  * write(P)   →  deleted -= P ;  written += P
  * delete(P)  →  written -= P ;  deleted  += P
  * revert(P)  →  written -= P ;  deleted -= P
  * ```
- *
- * `source` maintenance: an op carrying `agentType` overwrites the entry
- * (last-writer-wins); an op without `agentType` clears it; removing a path
- * from both buckets (revert) removes its source too. An empty `source` map is
- * dropped from the result.
+ * Equivalent to replaying the log through the former `foldFileOps` rules:
+ * a path's net op is decided by its latest entry.
  */
-export function foldFileOps(inventory: FileInventory, ops: FileOp[]): FileInventory {
-  const written = new Set(inventory.written);
-  const deleted = new Set(inventory.deleted);
-  const source: Record<string, string> = { ...inventory.source };
+function deriveNetState(log: FileLogEntry[]): NetFileState {
+  const written = new Set<string>();
+  const deleted = new Set<string>();
 
-  for (const op of ops) {
-    const target = op.path;
-    switch (op.op) {
+  for (const entry of log) {
+    switch (entry.op) {
       case 'write':
-        deleted.delete(target);
-        written.add(target);
-        setSource(source, target, op.agentType);
+        deleted.delete(entry.path);
+        written.add(entry.path);
         break;
       case 'delete':
-        written.delete(target);
-        deleted.add(target);
-        setSource(source, target, op.agentType);
+        written.delete(entry.path);
+        deleted.add(entry.path);
         break;
       case 'revert':
-        written.delete(target);
-        deleted.delete(target);
-        delete source[target];
+        written.delete(entry.path);
+        deleted.delete(entry.path);
         break;
     }
   }
 
-  const result: FileInventory = {
-    written: Array.from(written),
-    deleted: Array.from(deleted),
-  };
-  if (Object.keys(source).length > 0) {
-    result.source = source;
-  }
-  return result;
+  return { written: Array.from(written), deleted: Array.from(deleted) };
 }
 
 /**
- * Write the inventory net state back to the `files` field of
- * `<changeDir>/workflow.json`.
- *
- * Write discipline mirrors `lib/eval-json.ts`:
- * - the file MUST already exist (`change_create` is its only creator) — a
- *   missing file throws and this function never creates the file or directory;
- * - the on-disk content MUST be valid JSON with a plain-object root passing
- *   `workflowFileSchema` — otherwise it throws and leaves the file untouched;
- * - `workflow_type`, `created`, `eval` and unknown keys are preserved as-is;
- * - output uses 2-space indentation with a trailing newline.
+ * The changeDir-level combined read (module-internal seam behind
+ * `getChangedFiles`, imported only by `files-query` — not part of the barrel
+ * surface): read the change file log and derive its net state in one step.
+ * Hard-error semantics are the raw read's — missing / invalid
+ * `workflow.json` or a missing `file_log` field throws with the rebuild
+ * guidance; no git fallback.
  */
-export function writeFileInventory(changeDir: string, files: FileInventory): void {
-  const filePath = path.join(changeDir, WORKFLOW_JSON_FILE);
-
-  if (!fs.existsSync(filePath)) {
-    throw new Error(
-      `workflow.json 不存在: ${filePath}，无法写入文件清单。请先通过 change_create 创建 change。`,
-    );
-  }
-
-  let doc: unknown;
-  try {
-    doc = JSON.parse(fs.readFileSync(filePath, 'utf-8'));
-  } catch (e: unknown) {
-    if (e instanceof SyntaxError) {
-      throw new Error(`workflow.json 解析失败: ${e.message}`);
-    }
-    throw e;
-  }
-
-  if (!isPlainObject(doc)) {
-    throw new Error(`workflow.json 根元素必须是对象，但实际类型为 ${typeof doc}`);
-  }
-
-  const validated = workflowFileSchema.safeParse(doc);
-  if (!validated.success) {
-    throw new Error(`workflow.json 格式非法 (${filePath}): ${formatIssues(validated.error)}`);
-  }
-
-  doc.files = files;
-
-  fs.writeFileSync(filePath, `${JSON.stringify(doc, null, 2)}\n`, 'utf-8');
+export function readNetState(changeDir: string): NetFileState {
+  return deriveNetState(readFileLog(changeDir));
 }
 
 /** Dedupe a path list preserving first-seen order. */
@@ -207,77 +203,59 @@ function dedupe(paths: string[]): string[] {
   return Array.from(new Set(paths));
 }
 
-/**
- * append semantics (read-modify-write): bucket-wise merge following the
- * recorder fold rules — each appended written path folds as
- * `written += P ; deleted -= P`, each appended deleted path as
- * `deleted += P ; written -= P`.
- *
- * Deliberately NOT implemented via `foldFileOps`: a fold op without
- * `agentType` clears the path's `source` entry, while append must keep the
- * existing audit source untouched — deduped paths that are already in the
- * inventory keep their source; newly merged paths carry none (manual entries
- * have no subagent source). This file never applies gitignore filtering:
- * `change_files` is the manual backfill / correction channel.
- */
-export function appendFileOps(
-  changeDir: string,
-  paths: { written?: string[]; deleted?: string[] },
-): FileInventory {
-  const inventory = readFileInventory(changeDir);
-  const writtenSet = new Set(inventory.written);
-  const deletedSet = new Set(inventory.deleted);
-
-  for (const p of dedupe(paths.written ?? [])) {
-    deletedSet.delete(p);
-    writtenSet.add(p);
-  }
-  for (const p of dedupe(paths.deleted ?? [])) {
-    writtenSet.delete(p);
-    deletedSet.add(p);
-  }
-
-  const result: FileInventory = {
-    written: Array.from(writtenSet),
-    deleted: Array.from(deletedSet),
-  };
-  if (inventory.source && Object.keys(inventory.source).length > 0) {
-    result.source = { ...inventory.source };
-  }
-  writeFileInventory(changeDir, result);
-  return result;
+/** Build one workflow-scoped log entry. */
+function workflowEntry(op: FileLogEntry['op'], path: string, at: string): FileLogEntry {
+  const parsed = fileLogSchema.parse({ op, scope: 'workflow', path, at });
+  return parsed as FileLogEntry;
 }
 
 /**
- * set semantics (read-modify-write): wholesale overwrite of the provided
- * buckets (untouched buckets stay as-is), no append folding. Overwritten
- * entries become human-curated — their source entries are cleared — and
- * source entries of paths no longer present in the net state are dropped.
- * No gitignore filtering, same reason as `appendFileOps`.
+ * append semantics (read-modify-write): append one workflow-scoped record
+ * per path (`written` → write, `deleted` → delete). Within the workflow
+ * namespace the path is the dedupe key, so a path already recorded at
+ * workflow scope is upserted in place; phase-scoped audit records are never
+ * touched. A path present in both buckets resolves to delete (appended
+ * later, same key). This file never applies gitignore filtering:
+ * `change_files` is the manual backfill / correction channel.
  */
-export function setFileBuckets(
+export function appendWorkflowFiles(
   changeDir: string,
   paths: { written?: string[]; deleted?: string[] },
-): FileInventory {
-  const inventory = readFileInventory(changeDir);
+): NetFileState {
+  const at = new Date().toISOString();
+  const entries = [
+    ...dedupe(paths.written ?? []).map((p) => workflowEntry('write', p, at)),
+    ...dedupe(paths.deleted ?? []).map((p) => workflowEntry('delete', p, at)),
+  ];
+  const log = appendLogEntries(changeDir, entries);
+  return deriveNetState(log);
+}
 
-  const finalWritten = paths.written !== undefined ? dedupe(paths.written) : inventory.written;
-  const finalDeleted = paths.deleted !== undefined ? dedupe(paths.deleted) : inventory.deleted;
-
+/**
+ * set semantics (read-modify-write): every log record touching a provided
+ * path (any scope, attempt or op) is removed from the log, then
+ * workflow-scoped records are appended at the tail in bucket order
+ * (`written` first, then `deleted` — a path in both buckets resolves to
+ * delete). Records for untouched paths (including phase audit entries) are
+ * preserved verbatim. No gitignore filtering, same reason as
+ * `appendWorkflowFiles`.
+ */
+export function setWorkflowFiles(
+  changeDir: string,
+  paths: { written?: string[]; deleted?: string[] },
+): NetFileState {
   const provided = new Set([...(paths.written ?? []), ...(paths.deleted ?? [])]);
-  const members = new Set([...finalWritten, ...finalDeleted]);
+  const at = new Date().toISOString();
 
-  const source: Record<string, string> = {};
-  for (const [p, agentType] of Object.entries(inventory.source ?? {})) {
-    if (members.has(p) && !provided.has(p)) {
-      source[p] = agentType;
+  const log = updateLog(changeDir, (current) => {
+    const kept = current.filter((entry) => !provided.has(entry.path));
+    for (const p of dedupe(paths.written ?? [])) {
+      kept.push(workflowEntry('write', p, at));
     }
-  }
-
-  const result: FileInventory = { written: finalWritten, deleted: finalDeleted };
-  if (Object.keys(source).length > 0) {
-    result.source = source;
-  }
-  writeFileInventory(changeDir, result);
-  return result;
+    for (const p of dedupe(paths.deleted ?? [])) {
+      kept.push(workflowEntry('delete', p, at));
+    }
+    return kept;
+  });
+  return deriveNetState(log);
 }

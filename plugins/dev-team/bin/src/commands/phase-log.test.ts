@@ -38,7 +38,17 @@ vi.mock('../lib/change', () => ({
   resolveChangeDir: vi.fn(() => '/tmp/test-change'),
 }));
 
+vi.mock('../modules/workflow', async () => {
+  const actual = await vi.importActual('../modules/workflow');
+  return {
+    ...actual,
+    readActivePhase: vi.fn(() => null),
+    clearActivePhase: vi.fn(),
+  };
+});
+
 import { appendEntry, readEvalJson, writeEvalJson } from '../lib/eval-json';
+import { clearActivePhase, readActivePhase } from '../modules/workflow';
 import { runPhaseLog } from './phase-log';
 
 const FIXTURE_PROJECT_ROOT = '/tmp/fixture-project';
@@ -59,6 +69,8 @@ beforeEach(() => {
   vi.mocked(readEvalJson).mockReset().mockReturnValue([]);
   vi.mocked(appendEntry).mockReset();
   vi.mocked(writeEvalJson).mockReset();
+  vi.mocked(readActivePhase).mockReset().mockReturnValue(null);
+  vi.mocked(clearActivePhase).mockReset();
 });
 
 // ===========================================================================
@@ -399,5 +411,179 @@ describe('runPhaseLog — 边界', () => {
         checklist: VALID_ITEMS,
       }),
     ).toThrow(/写入 workflow\.json 失败:/);
+  });
+});
+
+// ===========================================================================
+// 盖章与清场 — active_phase 运行态消费 (AC-3)
+// ===========================================================================
+
+describe('runPhaseLog — 盖章与清场 (AC-3)', () => {
+  it('active_phase.phase === 本次 phase → 落盘条目含 start_at === active_phase.start_at，且 active_phase 被清空（clearActivePhase 恰一次）', () => {
+    vi.mocked(readActivePhase).mockReturnValue({
+      phase: 'implement',
+      attempt: 2,
+      start_at: '2026-09-18T08:00:00.000Z',
+    });
+
+    const result = runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'implement',
+      report: 'ok',
+      checklist: VALID_ITEMS,
+    });
+
+    const entry = vi.mocked(appendEntry).mock.calls[0][1];
+    expect(entry.start_at).toBe('2026-09-18T08:00:00.000Z');
+    expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+    expect(clearActivePhase).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ written: true, phase: 'implement', attempt: 1 });
+  });
+
+  it('无 active_phase（null）→ 条目无 start_at 键且清场不被调用', () => {
+    vi.mocked(readActivePhase).mockReturnValue(null);
+
+    runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'proposal',
+      report: 'ok',
+      checklist: VALID_ITEMS,
+    });
+
+    const entry = vi.mocked(appendEntry).mock.calls[0][1];
+    expect(Object.prototype.hasOwnProperty.call(entry, 'start_at')).toBe(false);
+    expect(clearActivePhase).not.toHaveBeenCalled();
+  });
+
+  it('active_phase.phase 不匹配（他 phase 运行态）→ 条目无 start_at 且 active_phase 原样保留（不清场）', () => {
+    vi.mocked(readActivePhase).mockReturnValue({
+      phase: 'test-gen',
+      attempt: 1,
+      start_at: '2026-09-18T08:00:00.000Z',
+    });
+
+    runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'implement',
+      report: 'ok',
+      checklist: VALID_ITEMS,
+    });
+
+    const entry = vi.mocked(appendEntry).mock.calls[0][1];
+    expect(Object.prototype.hasOwnProperty.call(entry, 'start_at')).toBe(false);
+    expect(clearActivePhase).not.toHaveBeenCalled();
+  });
+
+  it('attempt 推导不受盖章影响：匹配 active_phase 时条目 attempt 仍来自 eval 历史', () => {
+    vi.mocked(readActivePhase).mockReturnValue({
+      phase: 'implement',
+      attempt: 3,
+      start_at: '2026-09-18T08:00:00.000Z',
+    });
+    vi.mocked(readEvalJson).mockReturnValue([
+      {
+        phase: 'implement',
+        verdict: 'fail',
+        attempt: 1,
+        timestamp: '2026-09-11T10:00:00.000Z',
+        report: '',
+        checklist: [],
+        backtrack_to: null,
+      },
+    ]);
+
+    const result = runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'implement',
+      report: 'retry',
+      checklist: VALID_ITEMS,
+    });
+
+    expect(result.attempt).toBe(2);
+    const entry = vi.mocked(appendEntry).mock.calls[0][1];
+    expect(entry.attempt).toBe(2);
+    expect(entry.start_at).toBe('2026-09-18T08:00:00.000Z');
+  });
+});
+
+// ===========================================================================
+// 清场时序与吞错（无双录，AC-3/design 决议）
+// ===========================================================================
+
+describe('runPhaseLog — 清场时序与吞错', () => {
+  it('appendEntry 失败 → 不清空 active_phase（盖章在落盘前、清场在成功后的时序防回归），错误照常包装抛出', () => {
+    vi.mocked(readActivePhase).mockReturnValue({
+      phase: 'implement',
+      attempt: 1,
+      start_at: '2026-09-18T08:00:00.000Z',
+    });
+    vi.mocked(appendEntry).mockImplementation(() => {
+      throw new Error('workflow.json 不存在: /tmp/test-change/workflow.json');
+    });
+
+    expect(() =>
+      runPhaseLog({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'implement',
+        report: 'ok',
+        checklist: VALID_ITEMS,
+      }),
+    ).toThrow(/写入 workflow\.json 失败:/);
+
+    expect(clearActivePhase).not.toHaveBeenCalled();
+  });
+
+  it('清场（clearActivePhase）抛错 → 仅 stderr 诊断，不抛错，仍返回 {written, phase, attempt}，条目已落盘（吞错收尾无双录）', () => {
+    vi.mocked(readActivePhase).mockReturnValue({
+      phase: 'implement',
+      attempt: 1,
+      start_at: '2026-09-18T08:00:00.000Z',
+    });
+    vi.mocked(clearActivePhase).mockImplementation(() => {
+      throw new Error('EACCES: 模拟清场失败');
+    });
+    const stderrSpy = vi.spyOn(process.stderr, 'write').mockImplementation(() => true);
+
+    let result: { written: boolean; phase: string; attempt: number } | undefined;
+    expect(() => {
+      result = runPhaseLog({
+        project_root: FIXTURE_PROJECT_ROOT,
+        change: 'test-change',
+        phase: 'implement',
+        report: 'ok',
+        checklist: VALID_ITEMS,
+      });
+    }).not.toThrow();
+
+    expect(appendEntry).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ written: true, phase: 'implement', attempt: 1 });
+    const stderrText = stderrSpy.mock.calls.map((c) => String(c[0])).join('');
+    expect(stderrText).toContain('phase-log:');
+    expect(stderrText).toContain('清理 active_phase 失败');
+    expect(stderrText).toContain('EACCES');
+    stderrSpy.mockRestore();
+  });
+
+  it('输出形状契约：返回对象键恰为 written / phase / attempt（回归）', () => {
+    vi.mocked(readActivePhase).mockReturnValue({
+      phase: 'implement',
+      attempt: 1,
+      start_at: '2026-09-18T08:00:00.000Z',
+    });
+
+    const result = runPhaseLog({
+      project_root: FIXTURE_PROJECT_ROOT,
+      change: 'test-change',
+      phase: 'implement',
+      report: 'ok',
+      checklist: VALID_ITEMS,
+    });
+
+    expect(Object.keys(result).sort()).toEqual(['attempt', 'phase', 'written']);
   });
 });

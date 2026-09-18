@@ -160,17 +160,21 @@ function createGitProject(): GitProject {
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 }
 
-/** 直接写 change 的 workflow.json;files 缺省时构造机制前旧 change。 */
+/** 直接写 change 的 workflow.json；fileLog 缺省时构造机制前旧 change。 */
 function writeWorkflowJson(
   root: string,
   change: string,
-  files?: { written: string[]; deleted: string[] },
+  fileLog?: { written: string[]; deleted: string[] },
 ): void {
   const changeDir = path.join(root, 'openspec', 'changes', change);
   fs.mkdirSync(changeDir, { recursive: true });
   const doc: Record<string, unknown> = { workflow_type: 'requirement', created: '2026-09-17' };
-  if (files !== undefined) {
-    doc.files = files;
+  if (fileLog !== undefined) {
+    const at = '2026-09-17T00:00:00.000Z';
+    doc.file_log = [
+      ...fileLog.written.map((p) => ({ op: 'write', scope: 'workflow', path: p, at })),
+      ...fileLog.deleted.map((p) => ({ op: 'delete', scope: 'workflow', path: p, at })),
+    ];
   }
   fs.writeFileSync(
     path.join(changeDir, 'workflow.json'),

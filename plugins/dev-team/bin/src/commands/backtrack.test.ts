@@ -41,14 +41,13 @@ vi.mock('../modules/workflow', async () => {
   const actual = await vi.importActual('../modules/workflow');
   return {
     ...actual,
-    // 回归哨兵：barrel 的全部运行时导出（读通道 readFileInventory / getChangedFiles，
-    // 写通道 appendFileOps / recordFileOps / setFileBuckets）都替换为 mock，
+    // 回归哨兵：barrel 的全部运行时导出（读通道 getChangedFiles，
+    // 写通道 appendWorkflowFiles / recordFileOps / setWorkflowFiles）都替换为 mock，
     // 下方断言捕获 backtrack 重新引入的清单调用
-    appendFileOps: vi.fn(),
+    appendWorkflowFiles: vi.fn(),
     getChangedFiles: vi.fn(),
-    readFileInventory: vi.fn(),
     recordFileOps: vi.fn(),
-    setFileBuckets: vi.fn(),
+    setWorkflowFiles: vi.fn(),
   };
 });
 
@@ -63,11 +62,10 @@ vi.mock('../lib/change-config', () => ({
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, writeEvalJson, type EvalEntry } from '../lib/eval-json';
 import {
-  appendFileOps,
+  appendWorkflowFiles,
   getChangedFiles,
-  readFileInventory,
   recordFileOps,
-  setFileBuckets,
+  setWorkflowFiles,
 } from '../modules/workflow';
 import { backtrackInputSchema } from '../schemas';
 import { runBacktrack } from './backtrack';
@@ -131,20 +129,18 @@ function expectNoLegacyWrite(): void {
 
 /** 断言 backtrack 全程未经 workflow barrel 触碰 files 清单（读 / 写通道零调用）。 */
 function expectNoInventoryAccess(): void {
-  expect(readFileInventory).not.toHaveBeenCalled();
   expect(getChangedFiles).not.toHaveBeenCalled();
-  expect(appendFileOps).not.toHaveBeenCalled();
+  expect(appendWorkflowFiles).not.toHaveBeenCalled();
   expect(recordFileOps).not.toHaveBeenCalled();
-  expect(setFileBuckets).not.toHaveBeenCalled();
+  expect(setWorkflowFiles).not.toHaveBeenCalled();
 }
 
 /** 清空清单哨兵 mock 的调用记录（保留 beforeEach 铺设的返回值）。 */
 function clearInventoryMocks(): void {
-  vi.mocked(readFileInventory).mockClear();
   vi.mocked(getChangedFiles).mockClear();
-  vi.mocked(appendFileOps).mockClear();
+  vi.mocked(appendWorkflowFiles).mockClear();
   vi.mocked(recordFileOps).mockClear();
-  vi.mocked(setFileBuckets).mockClear();
+  vi.mocked(setWorkflowFiles).mockClear();
 }
 
 beforeEach(() => {
@@ -153,11 +149,10 @@ beforeEach(() => {
   vi.mocked(writeEvalJson).mockReset();
   vi.mocked(getWorkflowType).mockReset().mockReturnValue('requirement');
   // files 清单 mock 仅作回归哨兵：backtrack 不消费清单，下方断言捕获重新引入的调用
-  vi.mocked(readFileInventory).mockReset().mockReturnValue({ written: [], deleted: [] });
   vi.mocked(getChangedFiles).mockReset().mockReturnValue({ written: [], deleted: [] });
-  vi.mocked(appendFileOps).mockReset().mockReturnValue({ written: [], deleted: [] });
+  vi.mocked(appendWorkflowFiles).mockReset().mockReturnValue({ written: [], deleted: [] });
   vi.mocked(recordFileOps).mockReset();
-  vi.mocked(setFileBuckets).mockReset().mockReturnValue({ written: [], deleted: [] });
+  vi.mocked(setWorkflowFiles).mockReset().mockReturnValue({ written: [], deleted: [] });
 });
 
 // ---------------------------------------------------------------------------
@@ -796,9 +791,9 @@ describe('runBacktrack — 文件清单中立（不读不写 files）', () => {
   });
 
   it('机制前旧 change（清单读取即抛「请重建」）→ backtrack 不消费清单，回溯成功（行为中立，不再硬报错）', () => {
-    vi.mocked(readFileInventory).mockImplementation(() => {
+    vi.mocked(getChangedFiles).mockImplementation(() => {
       throw new Error(
-        'workflow.json 缺少 files 字段 (/tmp/test-change/workflow.json)：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
+        'workflow.json 缺少 file_log 字段 (/tmp/test-change/workflow.json)：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
       );
     });
 

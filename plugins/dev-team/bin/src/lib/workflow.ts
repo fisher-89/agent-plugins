@@ -405,3 +405,71 @@ export function getPhaseTable(workflowType: string): PhaseDefinition[] {
   const key = workflowType.toLowerCase();
   return PHASE_TABLES[key] || PHASE_TABLES[DEFAULT_WORKFLOW];
 }
+
+// ---------------------------------------------------------------------------
+// Eval-sequence predicates & agent-name resolution
+// ---------------------------------------------------------------------------
+
+/**
+ * Check if a phase has passed (has a pass or skipped entry) that is NOT stale.
+ *
+ * Entries with `stale: true` are ignored.
+ * Entries without a `stale` field are treated as `stale: false` (backward compatible).
+ *
+ * Sunk verbatim from `commands/phase-next.ts` so the MCP server and the hooks
+ * entry share one implementation; the parameter is a structural entry shape
+ * (instead of `EvalEntry`) to keep this module free of a `lib/eval-json`
+ * dependency.
+ */
+export function hasPhasePassed(
+  entries: ReadonlyArray<{ phase: string; verdict: string; skipped?: boolean; stale?: boolean }>,
+  phaseId: string,
+): boolean {
+  return entries.some(
+    (e) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true) && !e.stale,
+  );
+}
+
+const CALL_AGENT_TOKEN_PATTERN = /^__CALL_AGENT:([a-z0-9-]+)__$/;
+
+/**
+ * Agent name prefixes the build stamps onto resolved agent types
+ * (`build/env.ts`): plugin products use `dev-team:<id>`, the
+ * cursor-home-image product uses `dev-team_<id>`.
+ */
+const AGENT_NAME_PREFIXES = ['dev-team:', 'dev-team_'];
+
+/**
+ * Normalize an agent reference to its bare id:
+ * - `__CALL_AGENT:<id>__` token (phase table form) → `<id>`;
+ * - `dev-team:<id>` / `dev-team_<id>` (platform event form) → `<id>`;
+ * - anything else passes through unchanged.
+ */
+function extractAgentName(agentRef: string): string {
+  const token = CALL_AGENT_TOKEN_PATTERN.exec(agentRef);
+  if (token) {
+    return token[1];
+  }
+  for (const prefix of AGENT_NAME_PREFIXES) {
+    if (agentRef.startsWith(prefix)) {
+      return agentRef.slice(prefix.length);
+    }
+  }
+  return agentRef;
+}
+
+/**
+ * Gate 3 resolution: does the hook event's `agent_type` belong to the running
+ * phase's `executor.agent_type`? Both sides are normalized via
+ * `extractAgentName` and compared as bare ids, so the three build-time product
+ * prefixes collapse. A missing side never matches.
+ */
+export function matchesExecutorAgent(
+  eventAgentType: string | undefined,
+  executorAgentType: string | null | undefined,
+): boolean {
+  if (!eventAgentType || !executorAgentType) {
+    return false;
+  }
+  return extractAgentName(eventAgentType) === extractAgentName(executorAgentType);
+}

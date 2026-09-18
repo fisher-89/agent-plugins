@@ -35,8 +35,10 @@ export function runChangeCreate(
 
   fs.mkdirSync(changeDir, { recursive: true });
   const created = new Date().toISOString().slice(0, 10);
-  // Key order contract: workflow_type → created → files; `eval` is NOT written here.
-  const workflow = { workflow_type: workflowType, created, files: { written: [], deleted: [] } };
+  // Key order contract: workflow_type → created → file_log; `eval` is NOT
+  // written here. `file_log` MUST be initialized: every inventory consumer
+  // hard-errors when the field is missing (a change without it is legacy).
+  const workflow = { workflow_type: workflowType, created, file_log: [] };
   fs.writeFileSync(path.join(changeDir, 'workflow.json'), `${JSON.stringify(workflow)}\n`, 'utf-8');
 
   return { name, path: changeDir };

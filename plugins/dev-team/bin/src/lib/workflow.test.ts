@@ -1,6 +1,6 @@
 import { describe, it, expect } from 'vite-plus/test';
 
-import { getPhaseTable, getDependents } from './workflow';
+import { getPhaseTable, getDependents, hasPhasePassed, matchesExecutorAgent } from './workflow';
 
 function requirementPhaseIndex(phase: string): number {
   return getPhaseTable('requirement').findIndex((p) => p.id === phase);
@@ -537,5 +537,126 @@ describe('getDependents / 依赖表精确断言（突变补强）', () => {
       const inferred = inferPrerequisites(phaseId, 'requirement');
       expect(inferred.sort()).toEqual([...expectedPrereqs[phaseId]].sort());
     }
+  });
+});
+
+// ===========================================================================
+// 门归一 — extractAgentName 为模块内私有，不为其添加 test-only export，
+// 经公共 API matchesExecutorAgent 以「裸 id 参照侧」等价验证归一语义
+// （phase-lifecycle-file-log AC-4）
+// ===========================================================================
+
+describe('门归一（经 matchesExecutorAgent 等价验证）', () => {
+  it('正向：__CALL_AGENT:<id>__ token 与 dev-team:<id> / dev-team_<id> 前缀均归一为裸 id，与裸 id 参照侧相等 (AC-4)', () => {
+    expect(matchesExecutorAgent('__CALL_AGENT:proposal-planner__', 'proposal-planner')).toBe(true);
+    expect(
+      matchesExecutorAgent('__CALL_AGENT:implementation-generator__', 'implementation-generator'),
+    ).toBe(true);
+    expect(
+      matchesExecutorAgent('dev-team:implementation-generator', 'implementation-generator'),
+    ).toBe(true);
+    expect(
+      matchesExecutorAgent('dev-team_implementation-generator', 'implementation-generator'),
+    ).toBe(true);
+  });
+
+  it('边界：无前缀无 token 的形态原样参与比较 —— 自等 true，剥离形态不相等（自研提取层契约）', () => {
+    expect(matchesExecutorAgent('implementation-generator', 'implementation-generator')).toBe(true);
+    expect(matchesExecutorAgent('some:other:form', 'some:other:form')).toBe(true);
+    expect(matchesExecutorAgent('some:other:form', 'other:form')).toBe(false);
+    expect(matchesExecutorAgent('dev-team', 'dev-team')).toBe(true);
+    expect(matchesExecutorAgent('dev-team', 'team')).toBe(false);
+  });
+
+  it('异常：空串 → false（与 matchesExecutorAgent 的缺失判定衔接）', () => {
+    expect(matchesExecutorAgent('', '')).toBe(false);
+  });
+
+  it('边界：__CALL_AGENT__ 内非 [a-z0-9-] 字符（大写/下划线）不匹配 token 模式 → 原样参与比较', () => {
+    expect(matchesExecutorAgent('__CALL_AGENT:Bad_Agent__', '__CALL_AGENT:Bad_Agent__')).toBe(true);
+    expect(matchesExecutorAgent('__CALL_AGENT:Bad_Agent__', 'Bad_Agent')).toBe(false);
+  });
+});
+
+// ===========================================================================
+// matchesExecutorAgent — 门判定（AC-4）
+// ===========================================================================
+
+describe('matchesExecutorAgent — 门判定', () => {
+  it('正向：dev-team:implementation-generator vs __CALL_AGENT:implementation-generator__ → true（跨平台产物形态归一相等）', () => {
+    expect(
+      matchesExecutorAgent(
+        'dev-team:implementation-generator',
+        '__CALL_AGENT:implementation-generator__',
+      ),
+    ).toBe(true);
+  });
+
+  it('正向：双方同为裸 id 且相等 → true', () => {
+    expect(matchesExecutorAgent('test-gen-generator', 'test-gen-generator')).toBe(true);
+  });
+
+  it('异常：任一为 undefined / null / 空串 → false（缺失不误判）', () => {
+    expect(matchesExecutorAgent(undefined, '__CALL_AGENT:implementation-generator__')).toBe(false);
+    expect(matchesExecutorAgent('dev-team:implementation-generator', undefined)).toBe(false);
+    expect(matchesExecutorAgent('dev-team:implementation-generator', null)).toBe(false);
+    expect(matchesExecutorAgent('', '__CALL_AGENT:implementation-generator__')).toBe(false);
+    expect(matchesExecutorAgent('dev-team:implementation-generator', '')).toBe(false);
+  });
+
+  it('异常：executor 为 null（code-review / acceptance 无 executor）→ false', () => {
+    expect(matchesExecutorAgent('dev-team:code-review-evaluator', null)).toBe(false);
+  });
+
+  it('边界：归一后不相等（不同 agent）→ false', () => {
+    expect(
+      matchesExecutorAgent(
+        'dev-team:test-gen-generator',
+        '__CALL_AGENT:implementation-generator__',
+      ),
+    ).toBe(false);
+  });
+});
+
+// ===========================================================================
+// hasPhasePassed — 下沉实现（commands/phase-next re-export 同一引用，AC-12）
+// ===========================================================================
+
+describe('hasPhasePassed — 下沉实现', () => {
+  type Entry = { phase: string; verdict: string; skipped?: boolean; stale?: boolean };
+
+  it('正向：非 stale 的 pass 条目 → true；skipped 条目视为通过', () => {
+    const entries: Entry[] = [
+      { phase: 'implement', verdict: 'fail' },
+      { phase: 'implement', verdict: 'pass' },
+    ];
+    expect(hasPhasePassed(entries, 'implement')).toBe(true);
+
+    expect(
+      hasPhasePassed([{ phase: 'test-gen', verdict: 'pass', skipped: true }], 'test-gen'),
+    ).toBe(true);
+  });
+
+  it('边界：stale pass 条目被忽略 → false', () => {
+    expect(
+      hasPhasePassed([{ phase: 'implement', verdict: 'pass', stale: true }], 'implement'),
+    ).toBe(false);
+  });
+
+  it('边界：空数组 → false；多 phase 混存时仅匹配目标 phase', () => {
+    expect(hasPhasePassed([], 'implement')).toBe(false);
+    const entries: Entry[] = [
+      { phase: 'proposal', verdict: 'pass' },
+      { phase: 'implement', verdict: 'fail' },
+    ];
+    expect(hasPhasePassed(entries, 'implement')).toBe(false);
+    expect(hasPhasePassed(entries, 'proposal')).toBe(true);
+  });
+});
+
+describe('hasPhasePassed — re-export 引用一致性 (AC-12)', () => {
+  it('commands/phase-next 的 re-export 与 lib/workflow 导出为同一函数引用（toBe）', async () => {
+    const phaseNext = await import('../commands/phase-next');
+    expect(phaseNext.hasPhasePassed).toBe(hasPhasePassed);
   });
 });

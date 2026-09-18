@@ -192,14 +192,14 @@ describe('runChangeCreate — kebab-case 名称校验 (AC-3)', () => {
 });
 
 describe('runChangeCreate — workflow.json 唯一创建者契约 (AC-6)', () => {
-  it('新建成功后 workflow.json 仅有 workflow_type、created、files 三键，无 eval 键且不创建 eval.json (AC-1)', () => {
+  it('新建成功后 workflow.json 仅有 workflow_type、created、file_log 三键，无 eval 键且不创建 eval.json (AC-1)', () => {
     const project = createTempProject();
     try {
       const result = runChangeCreate('my-change', project.root, 'requirement');
       const workflow = readWorkflowJson(result.path);
 
       expect(Object.prototype.hasOwnProperty.call(workflow, 'eval')).toBe(false);
-      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'files']);
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'file_log']);
       expect(fs.existsSync(path.join(result.path, 'eval.json'))).toBe(false);
     } finally {
       project.cleanup();
@@ -325,7 +325,7 @@ describe('runChangeCreate — workflow.json 唯一创建者契约 (AC-6)', () =>
       const workflow = readWorkflowJson(result.path);
 
       expect(workflow.workflow_type).toBe('');
-      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'files']);
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'file_log']);
       expect(workflowFileSchema.safeParse(workflow).success).toBe(false);
     } finally {
       project.cleanup();
@@ -396,43 +396,56 @@ describe('runChangeCreate — 拒绝已存在 change (AC-4)', () => {
 });
 
 // ===========================================================================
-// runChangeCreate — files 初始化 (AC-1)
+// runChangeCreate — file_log 初始化 (AC-1 / AC-7 必需补充)
 // ===========================================================================
 
-describe('runChangeCreate — files 初始化 (AC-1)', () => {
-  it('新建 workflow.json 含 files: { written: [], deleted: [] } 初始空净状态 (AC-1)', () => {
+describe('runChangeCreate — file_log 初始化 (AC-1)', () => {
+  it('新建 workflow.json 含 file_log: [] 初始空日志，且不含 files 键 (AC-1)', () => {
     const project = createTempProject();
     try {
       const result = runChangeCreate('inventory-init', project.root, 'requirement');
       const workflow = readWorkflowJson(result.path);
 
-      expect(workflow.files).toEqual({ written: [], deleted: [] });
+      expect(workflow.file_log).toEqual([]);
+      expect(Object.prototype.hasOwnProperty.call(workflow, 'files')).toBe(false);
     } finally {
       project.cleanup();
     }
   });
 
-  it('键序为 workflow_type → created → files（JSON.stringify 插入序断言）(AC-1)', () => {
+  it('键序为 workflow_type → created → file_log（JSON.stringify 插入序断言）(AC-1)', () => {
     const project = createTempProject();
     try {
       const result = runChangeCreate('key-order', project.root, 'bug-fix');
       const raw = fs.readFileSync(path.join(result.path, 'workflow.json'), 'utf-8');
       const workflow = readWorkflowJson(result.path);
 
-      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'files']);
+      expect(Object.keys(workflow)).toEqual(['workflow_type', 'created', 'file_log']);
       // 原始文本顺序同样契约化
       const typeIdx = raw.indexOf('"workflow_type"');
       const createdIdx = raw.indexOf('"created"');
-      const filesIdx = raw.indexOf('"files"');
+      const logIdx = raw.indexOf('"file_log"');
       expect(typeIdx).toBeGreaterThan(-1);
       expect(createdIdx).toBeGreaterThan(typeIdx);
-      expect(filesIdx).toBeGreaterThan(createdIdx);
+      expect(logIdx).toBeGreaterThan(createdIdx);
     } finally {
       project.cleanup();
     }
   });
 
-  it('产出可被 workflowFileSchema 解析，files 字段合法且 source 缺省 (AC-1)', () => {
+  it('新建 workflow.json 可被 getChangedFiles 读取（空净状态）——与读方硬报错契约闭环 (AC-1)', async () => {
+    const project = createTempProject();
+    try {
+      runChangeCreate('readable-log', project.root, 'requirement');
+
+      const { getChangedFiles } = await import('../modules/workflow');
+      expect(getChangedFiles('readable-log', project.root)).toEqual({ written: [], deleted: [] });
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('产出可被 workflowFileSchema 解析，file_log 字段合法为空数组 (AC-1)', () => {
     const project = createTempProject();
     try {
       const result = runChangeCreate('schema-files', project.root, 'refactor');
@@ -440,15 +453,14 @@ describe('runChangeCreate — files 初始化 (AC-1)', () => {
 
       expect(parsed.success).toBe(true);
       if (parsed.success) {
-        expect(parsed.data.files).toEqual({ written: [], deleted: [] });
-        expect(Object.prototype.hasOwnProperty.call(parsed.data.files, 'source')).toBe(false);
+        expect(parsed.data.file_log).toEqual([]);
       }
     } finally {
       project.cleanup();
     }
   });
 
-  it('4 值 workflow_type 枚举（requirement/bug-fix/refactor/test-only）逐一创建均含 files (AC-1)', () => {
+  it('4 值 workflow_type 枚举（requirement/bug-fix/refactor/test-only）逐一创建均含 file_log: [] (AC-1)', () => {
     const project = createTempProject();
     try {
       for (const workflowType of ['requirement', 'bug-fix', 'refactor', 'test-only'] as const) {
@@ -456,18 +468,18 @@ describe('runChangeCreate — files 初始化 (AC-1)', () => {
         const workflow = readWorkflowJson(result.path);
 
         expect(workflow.workflow_type).toBe(workflowType);
-        expect(workflow.files).toEqual({ written: [], deleted: [] });
+        expect(workflow.file_log).toEqual([]);
       }
     } finally {
       project.cleanup();
     }
   });
 
-  it('已存在 change 拒绝时不覆写、不修补已有 files（幂等回归扩展，AC-1）', () => {
+  it('已存在 change 拒绝时不覆写、不修补已有 file_log（幂等回归扩展，AC-1）', () => {
     const project = createTempProject();
     try {
       const first = runChangeCreate('no-patch', project.root, 'requirement');
-      // 把已有 change 退化成机制前旧形态（无 files），模拟历史目录
+      // 把已有 change 退化成机制前旧形态（无 file_log），模拟历史目录
       const workflowPath = path.join(first.path, 'workflow.json');
       fs.writeFileSync(
         workflowPath,
@@ -478,9 +490,9 @@ describe('runChangeCreate — files 初始化 (AC-1)', () => {
 
       expect(() => runChangeCreate('no-patch', project.root, 'requirement')).toThrow(/已存在/);
 
-      // 拒绝路径绝不「顺手修补」files
+      // 拒绝路径绝不「顺手修补」file_log
       expect(fs.readFileSync(workflowPath, 'utf-8')).toBe(before);
-      expect(readWorkflowJson(first.path).files).toBeUndefined();
+      expect(readWorkflowJson(first.path).file_log).toBeUndefined();
     } finally {
       project.cleanup();
     }

@@ -32,7 +32,7 @@
     ],
     "PostToolUse": [
       {
-        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|mcp__plugin_dev-team_dev-team__phase_next",
+        "matcher": "Write|Edit|NotebookEdit|Bash|PowerShell|mcp__plugin_dev-team_dev-team__phase_next|mcp__plugin_dev-team_dev-team__phase_start",
         "hooks": [
           {
             "type": "command",
@@ -57,6 +57,16 @@
           {
             "type": "command",
             "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" static-check"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "node \"${CLAUDE_PLUGIN_ROOT}/bin/hooks.cjs\" sweep-phase"
           }
         ]
       }

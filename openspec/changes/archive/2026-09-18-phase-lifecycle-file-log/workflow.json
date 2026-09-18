@@ -1,0 +1,651 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-18",
+  "files": {
+    "written": [
+      "plugins/dev-team/bin/src/schemas/workflow.schema.ts",
+      "plugins/dev-team/bin/src/schemas/phase-log.schema.ts",
+      "plugins/dev-team/bin/src/schemas/phase-start.schema.ts",
+      "plugins/dev-team/bin/src/schemas/index.ts",
+      "plugins/dev-team/bin/src/lib/workflow.ts",
+      "plugins/dev-team/bin/src/commands/phase-next.ts",
+      "plugins/dev-team/bin/src/lib/eval-json.ts",
+      "plugins/dev-team/bin/src/modules/workflow/doc-io.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files/file-inventory.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files/record.ts",
+      "plugins/dev-team/bin/src/modules/workflow/phase/phase-state.ts",
+      "plugins/dev-team/bin/src/modules/workflow/index.ts",
+      "plugins/dev-team/bin/src/commands/phase-start.ts",
+      "plugins/dev-team/bin/src/commands/sweep-phase.ts",
+      "plugins/dev-team/bin/src/hooks.ts",
+      "plugins/dev-team/bin/src/commands/phase-log.ts",
+      "plugins/dev-team/bin/src/mcp.ts",
+      "plugins/dev-team/bin/src/commands/record-files.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files/files-query.ts",
+      "plugins/dev-team/bin/src/lib/c4-cross-ref.ts",
+      "plugins/dev-team/bin/src/commands/test-execution.ts",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.ts",
+      "plugins/dev-team/bin/src/commands/change-files.ts",
+      "plugins/dev-team/bin/src/commands/change-create.ts",
+      "plugins/dev-team/hooks/hooks.canonical.json",
+      "plugins/dev-team/build/hooks-profile.ts",
+      "plugins/dev-team/skills/phase-implement/SKILL.md",
+      "plugins/dev-team/skills/phase-proposal/SKILL.md",
+      "plugins/dev-team/skills/phase-dev-design/SKILL.md",
+      "plugins/dev-team/skills/phase-test-design/SKILL.md",
+      "plugins/dev-team/skills/phase-test-gen/SKILL.md",
+      "plugins/dev-team/skills/phase-test-execution/SKILL.md",
+      "plugins/dev-team/skills/phase-code-review/SKILL.md",
+      "plugins/dev-team/skills/phase-acceptance/SKILL.md",
+      "plugins/dev-team/skills/workflow-requirement/SKILL.md",
+      "plugins/dev-team/skills/workflow-test-only/SKILL.md",
+      "plugins/dev-team/package.json",
+      "plugins/dev-team/bin/src/commands/change-files.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/index.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files/file-inventory.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files/record.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/files/files-query.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/doc-io.test.ts",
+      "plugins/dev-team/bin/src/modules/workflow/phase/phase-state.test.ts",
+      "plugins/dev-team/bin/src/commands/phase-start.test.ts",
+      "plugins/dev-team/bin/src/commands/sweep-phase.test.ts",
+      "plugins/dev-team/bin/src/commands/record-files.test.ts",
+      "plugins/dev-team/bin/__tests__/skill-phase-start-protocol/skill-phase-start-protocol.test.ts",
+      "plugins/dev-team/bin/src/commands/change-create.test.ts",
+      "plugins/dev-team/bin/src/commands/phase-log.test.ts",
+      "plugins/dev-team/bin/__tests__/eval-store-persist/eval-store-persist.test.ts",
+      "plugins/dev-team/bin/__tests__/eval-store-strict-workflow/eval-store-strict-workflow.test.ts",
+      "plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-execute.test.ts",
+      "plugins/dev-team/bin/__tests__/inventory-backtrack-preserve/inventory-backtrack-preserve.test.ts",
+      "plugins/dev-team/bin/__tests__/mutation-scope-inventory/mutation-scope-inventory.test.ts",
+      "plugins/dev-team/bin/__tests__/inventory-test-path-resolution/inventory-test-path-resolution.test.ts",
+      "{",
+      "plugins/dev-team/bin/src/lib/c4-cross-ref.test.ts",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts",
+      "bin/src/lib/workflow.test.ts",
+      "前缀剥离",
+      "bin/src/lib/eval-json.test.ts",
+      "plugins/dev-team/bin/src/hooks.test.ts",
+      "plugins/dev-team/bin/src/mcp.test.ts",
+      "=",
+      "MCP",
+      "bin/src/mcp.test.ts",
+      "}",
+      "bin/src/commands/phase-next.test.ts",
+      "build/hooks-profile.test.ts",
+      "}>",
+      "plugins/dev-team/build/hooks-profile.test.ts",
+      "plugins/dev-team/build/__tests__/hooks-user-prompt-submit/hooks-user-prompt-submit.test.ts",
+      "plugins/dev-team/bin/__tests__/file-inventory-recording/file-inventory-recording.test.ts",
+      "plugins/dev-team/bin/__tests__/phase-lifecycle/phase-lifecycle.test.ts"
+    ],
+    "deleted": [
+      "2>/dev/null"
+    ],
+    "source": {
+      "plugins/dev-team/bin/src/schemas/workflow.schema.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/schemas/phase-log.schema.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/schemas/phase-start.schema.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/schemas/index.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/lib/workflow.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/phase-next.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/lib/eval-json.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/doc-io.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files/file-inventory.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files/record.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/phase/phase-state.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/index.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/phase-start.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/sweep-phase.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/hooks.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/phase-log.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/mcp.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/record-files.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files/files-query.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/lib/c4-cross-ref.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/test-execution.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/change-files.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/change-create.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/hooks/hooks.canonical.json": "dev-team:implementation-generator",
+      "plugins/dev-team/build/hooks-profile.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-implement/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-proposal/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-dev-design/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-test-design/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-test-gen/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-test-execution/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-code-review/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/phase-acceptance/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/workflow-requirement/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/skills/workflow-test-only/SKILL.md": "dev-team:implementation-generator",
+      "plugins/dev-team/package.json": "dev-team:implementation-generator",
+      "2>/dev/null": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/commands/change-files.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/modules/workflow/index.test.ts": "dev-team:implementation-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files/file-inventory.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files/record.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/modules/workflow/files/files-query.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/modules/workflow/doc-io.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/modules/workflow/phase/phase-state.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/commands/phase-start.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/commands/sweep-phase.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/commands/record-files.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/skill-phase-start-protocol/skill-phase-start-protocol.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/commands/change-create.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/commands/phase-log.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/eval-store-persist/eval-store-persist.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/eval-store-strict-workflow/eval-store-strict-workflow.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/cli-test-execution-execute/cli-test-execution-execute.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/inventory-backtrack-preserve/inventory-backtrack-preserve.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/mutation-scope-inventory/mutation-scope-inventory.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/inventory-test-path-resolution/inventory-test-path-resolution.test.ts": "dev-team:test-gen-generator",
+      "{": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/lib/c4-cross-ref.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/commands/test-resolve-paths.test.ts": "dev-team:test-gen-generator",
+      "bin/src/lib/workflow.test.ts": "dev-team:test-gen-generator",
+      "前缀剥离": "dev-team:test-gen-generator",
+      "bin/src/lib/eval-json.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/hooks.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/src/mcp.test.ts": "dev-team:test-gen-generator",
+      "=": "dev-team:test-gen-generator",
+      "MCP": "dev-team:test-gen-generator",
+      "bin/src/mcp.test.ts": "dev-team:test-gen-generator",
+      "}": "dev-team:test-gen-generator",
+      "bin/src/commands/phase-next.test.ts": "dev-team:test-gen-generator",
+      "build/hooks-profile.test.ts": "dev-team:test-gen-generator",
+      "}>": "dev-team:test-gen-generator",
+      "plugins/dev-team/build/hooks-profile.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/build/__tests__/hooks-user-prompt-submit/hooks-user-prompt-submit.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/file-inventory-recording/file-inventory-recording.test.ts": "dev-team:test-gen-generator",
+      "plugins/dev-team/bin/__tests__/phase-lifecycle/phase-lifecycle.test.ts": "dev-team:test-gen-generator"
+    }
+  },
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "评估 phase-lifecycle-file-log 提案与 3 份 spec。问题具体(绑定无释放机制致完成后泄漏、phase 缺耗时起点);实现19项/测试6项/不要修改6项;六风险均有具体缓解(token→平台名解析、fold 等价测试兜底、Cursor 降级+TTL 二期);AC-1..12 含对象+条件+核验方式;决策表每行含理由与被拒备选;版本 bump+rebuild 符合项目规则,hasPhasePassed 确在 phase-next.ts:207;无占位符;能力3条与 spec 1:1;ADDED/MODIFIED/REMOVED 与能力声明一致,AC 与 spec 场景对应(AC-5 重绑、AC-9 绑定刷新、AC-12 backtrack 中立),revert 待决项两侧一致。全部通过。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "问题章节(L9-17)给出具体机制:session-registry 只有 bindSession/lookupChange、24h TTL 仅 bind 时懒惰修剪、完成后绑定污染文件清单致 implementation-evaluator 假阳性;第二个问题指出 eval 条目只有 timestamp 无起点。含 A2 方案被否决的演进过程,非泛泛改进"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L50 ### 实现文件 列 19 项;L70 ### 测试文件 列 6 项;L83 ### 不要修改 列 6 项(phase-next 协议、backtrack 引擎、extractFileOps、gitignore、写保护、eval round 语义);另有 ### 删除文件(无)"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "六风险均有非泛化缓解:门③失配→design 定 token→平台名解析+误判仅损粒度;revert 表达→以等价为约束+fold 等价测试兜底;Cursor 无 UserPromptSubmit→明确降级文档标注+TTL 二期备选;并发→记已知限制+design 评估 per-session;无'监控并调整'式空话"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1..AC-12(L98-109)每条含对象+条件+核验方式:AC-4 四分支单测、AC-5 重绑竞态端到端、AC-7 四读方行为不变+缺失 file_log 硬报错、AC-11 grep 技能文本核验、AC-10 单测+构建测试"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L130-137 决策表 6 行,每行含理由与备选:绑定释放→A2 被系统性击穿,备选 A1 hook 读 tool_response/B 完成标记/C Stop 解绑/D lookup TTL;schema 增量 vs phases[] 重构;存储 file_log vs 保留 files+旁挂;主 agent 写记录+标记 vs 硬门控/PreToolUse block;中断收口 UserPromptSubmit vs 接受窗口/TTL;不迁移 vs 迁移器"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L68 含 package.json 版本 bump+rebuild 双平台产物(项目规则);hasPhasePassed 下沉主张与实际代码一致(phase-next.ts:207 export function hasPhasePassed);无 test-only export 主张;不与 slim-plugin 架构矛盾"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep TODO|TBD|FIXME|placeholder|\\{\\{|\\}\\} 全 change 目录仅命中 workflow.json 的 JSON 闭合括号 ']}}',proposal.md 与 3 份 spec 无任何占位符或模板标记;待决问题均为显式 design 决议项非 TODO"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(两项具体缺陷+A2 演进)、提案(三件事:schema 增量、门控、存储重构+兼容策略)、变更范围(19 实现/6 测试)、验收标准(12 条)、风险(6 条)均实质填写"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L35 ## 能力;L37 ### 新增能力 含 phase-lifecycle(active_phase/interrupted、phase_start、phase_log 盖章、sweep hook、技能协议);L41 ### 修改的能力 含 workflow-file-inventory 与 change-files,均非空"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力 3 条(phase-lifecycle、workflow-file-inventory、change-files)与 specs/ 下 3 个目录 phase-lifecycle/、workflow-file-inventory/、change-files/ 各含 spec.md,精确 1:1,无 spec 对应未列出能力"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "能力声明类型与 spec delta 一致:phase-lifecycle=ADDED,change-files=MODIFIED,workflow-file-inventory 含 ADDED/MODIFIED/REMOVED(REMOVED 清单条目来源审计对应提案'来源审计要求取消')。AC 与 spec 场景对应:AC-5↔'完成后 Verdict 重绑不复活归账'、AC-9↔'phase_start 调用刷新绑定'、AC-12↔'backtrack 保持清单'中立、AC-6↔净状态折叠规则 (attempt,path) 键控。revert 待决问题两侧一致 defer 到 design;record.ts 与 spec Module Contract 的 recordFileOps 为文件粒度差异非逻辑冲突"
+        }
+      ],
+      "timestamp": "2026-09-18T09:49:33.854Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "D4 fail: tasks.md 阶段1任务(schemas/index.ts 导出 phaseStartInputSchema/phaseStartOutputSchema)依赖阶段3任务(新增 schemas/phase-start.schema.ts),前置任务依赖后续任务,违反依赖顺序。其余通过:D1 组件表5列齐备无TBD;D2 数据模型4模型含字段+持久化;D3 AC-1~12逐项对齐;D5 任务具体;D6 依赖已列;D7 合CLAUDE.md(含版本bump规则);D8 章节齐备;D9 无测试任务;D10 清单覆盖proposal实现文件且与tasks双向一致、新增文件函数均列于公共函数表。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表11行,职责/文件位置/依赖/技术四列均填,无TBD,路径指向具体文件(如 commands/phase-start.ts、modules/workflow/files/phase-state.ts)"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表4个模型(workflow.json/派生净状态/session注册表/interrupted[]条目),字段列与持久化列均填,含落盘路径与格式(2空格缩进+末尾换行)"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表逐项映射 AC-1~AC-12,与 proposal 验收表交叉核验一致(AC-5 标注端到端由测试阶段覆盖,设计侧落点为门控/sweep 机制)"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": false,
+          "evidence": "阶段1任务「schemas/index.ts 导出 phaseStartInputSchema/phaseStartOutputSchema」依赖阶段3任务「新增 schemas/phase-start.schema.ts」(该文件定义上述 schema),前置任务依赖后续任务"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "各任务含具体文件、函数名、签名与行为(如 runPhaseStart 校验链、门①②③判定顺序、setWorkflowFiles 删除+追加语义),无泛化「实现功能」表述"
+        },
+        {
+          "item": "D6 依赖项已列出",
+          "pass": true,
+          "evidence": "依赖章节列运行时依赖(@modelcontextprotocol/sdk、zod/v4、node:fs/path/crypto/os)及用途;构建/测试依赖注明无新增并说明既有 pnpm build 流水线"
+        },
+        {
+          "item": "D7 设计与项目架构一致(CLAUDE.md)",
+          "pass": true,
+          "evidence": "符合 slim 架构(MCP tool/hook/技能文本);含版本 bump 2.10.39→2.10.40+rebuild 项目规则;hasPhasePassed re-export 服务既有导入路径而非 test-only 导出"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(新增5文件+修改多文件均有)/数据模型/路由API(MCP工具表,注明无HTTP API)/依赖/待决问题均实质填写"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节;tasks.md 明示不含测试任务且各阶段无 .test.ts 或测试执行任务(Phase7 build 确认为产物核验非测试)"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "变更清单覆盖 proposal 实现文件全部条目;tasks 引用文件均在清单、清单文件均有对应任务;新增文件函数(runPhaseStart/runSweepPhase/phase-state 四函数/file-inventory log API)均列于公共函数表,子表无矛盾"
+        }
+      ],
+      "timestamp": "2026-09-18T10:15:01.231Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "D1 组件表12行均含职责/依赖/技术/路径,无TBD;D2 数据模型4行含字段/关系/持久化;D3 AC-1~12逐项映射齐备;D4 七阶段按 schema→module→命令→门控→hooks→技能→版本排序,phase-start.schema 建于P1先于P3消费,无逆向依赖;D5 任务均为函数级具体操作;D6 运行时/构建依赖分列;D7 版本bump+重建符合项目规则,module 零 commands 依赖;D8 六章节实质填写;D9 无测试章节与测试任务;D10 清单覆盖 proposal 全部实现文件,与 tasks 双向一致,新增文件函数均入公共函数表。全部通过。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表12行,每行含职责/文件位置/依赖/技术四列;技术均为具体值(zod looseObject、hook 管线等),无TBD;路径指向具体文件(8个技能文件在变更清单逐个枚举)"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表4行(workflow.json 总账、派生净状态、session 注册表、interrupted[] 条目),每行含字段、关系、持久化三列且均为实质内容"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」节 AC-1~AC-12 逐项映射设计落点;交叉验证:AC-2→runPhaseStart+writeActivePhase;AC-5→phase_log 清场后门②关闭;AC-6→deriveNetState 等价 foldFileOps;AC-10→sweep+canonical+双平台包装;AC-12→保持不动的边界,全部有对应设计"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在且含 - [ ] 复选框;7阶段 schema→module→命令→门控→hooks→技能→版本;phase-start.schema.ts 建于P1先于P3命令消费(第2轮修订修复);record.ts 在 RecordScope 定义(file-inventory)之后;hooks.ts 在 sweep-phase.ts 之后"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每个任务为文件+函数级具体操作,如「移除 workflowFilesSchema、新增 activePhaseSchema/interruptedEntrySchema/fileLogSchema」,无「实现功能」式空泛条目"
+        },
+        {
+          "item": "D6 依赖项(运行时和构建/测试)已列出",
+          "pass": true,
+          "evidence": "依赖节分运行时(@modelcontextprotocol/sdk、zod/v4、node:fs/path/crypto/os)与构建/测试(无新增,pnpm build 与 vitest 不变)"
+        },
+        {
+          "item": "D7 设计与项目架构一致(CLAUDE.md)",
+          "pass": true,
+          "evidence": "版本 2.10.39→2.10.40 + rebuild 双平台产物符合项目规则;module 层零 commands 依赖、doc-io 不经 barrel 与既有约定一致;hasPhasePassed re-export 保持既有导入路径,非 test-only export"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件(12行)、变更清单(新增5+修改25)、数据模型(4行)、路由/API(MCP 工具表,适用)、依赖、待决问题(全部拍板+已知限制)均有实质内容"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节(AC-5 仅注明端到端由测试阶段承担),变更清单不含 .test.ts;tasks.md 无单测/集成测试任务,Phase 7 build 确认为产物核验非测试"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal 实现文件 17 条目全部覆盖(含 sweep-phase 新增、10个技能文件、package.json);tasks 引用文件均在清单(设计补充 schemas/index.ts、doc-io、phase-state、change-create 等有依据);清单文件均有对应任务;新增文件函数(runPhaseStart/runSweepPhase/4个 phase-state API)均入公共函数表;子表无矛盾"
+        }
+      ],
+      "timestamp": "2026-09-18T10:35:07.792Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "未通过2项。T2：验收范围与单元测试章节互有缺失——AC-12行所列backtrack/shell-file-ops/gitignore三个既有测试文件（写保护亦未列）无对应###章节；change-create.test.ts、lib/workflow.test.ts、mcp.test.ts三章节的测试文件不在任何验收范围行。T3：eval-json(buildEntry)与hooks-profile两章节无异常用例，后者schema违例仅落在集成章节。T1/T4-T8通过：AC-1~12逐条映射；Mock策略齐全；幂等覆盖充分；格式符合模板。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准在验收范围中有映射",
+          "pass": true,
+          "evidence": "proposal.md L98-109 的 AC-1~AC-12 与 test-design.md 验收范围 L15-26 逐条对应，验收条件语义一致（AC-4/AC-10 仅压缩措辞）"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": false,
+          "evidence": "双向缺失：①AC-12 行（L26）列出 backtrack.test.ts、lib/shell-file-ops.test.ts、gitignore.test.ts，且 AC-12 文本含「写保护行为不变」但 protect-files 测试未列，均无 ## 单元测试 下对应 ### 章节（同为回归的 phase-next.test.ts 却有章节，L370）；②change-create.test.ts（L348）、lib/workflow.test.ts（L441）、mcp.test.ts（L546）三个章节的测试文件不出现在任何验收范围行的被测文件列中。集成方向通过：AC-5 在关系1 关联AC（L645）中，各关联AC均存在于验收范围"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": false,
+          "evidence": "eval-json 章节 buildEntry 用例表（L481-486）仅正向/边界无异常行；hooks-profile 单测章节（L579-587）无异常行，schema 违例「缺 commandTemplate」仅出现在集成场景 L805。其余 19 个章节异常+边界覆盖充分（如 files-query 特殊路径 L194、change-create 超长名 L360）"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "proposal 无外部服务/DB；进程边界（stdin fd0、os.tmpdir、getProjectDir、系统时钟、process.exit/stderr、MCP InMemoryTransport）在各相关章节 Mock策略表均有方案（如 L251-256、L309-315）；真盘 fs 不 mock 为仓库既有惯例且有注释说明（L33-34）"
+        },
+        {
+          "item": "T5 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "验收范围、21 个单测章节（各含待测功能/用例/Mock策略三节，有序完整）、3 个集成关系、不可测试项 6 条均含原因，无空章节"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 实现文件均有对应测试设计；schemas 两文件经消费方覆盖并在不可测试项说明（L830）；package.json bump/build 列为不可测试项（L831）；「不要修改」项仅作 AC-12 零改动回归，无越界覆盖"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "phase_start last-wins 重入（L217）、clearActivePhase 幂等（L84）、appendLogEntries 同 key 原位覆盖无累积（L116-117）、appendWorkflowFiles upsert 去重（L127）、连续 sweep 第二次 no-op（L244/L752）、清场失败无双录（L274/L764）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "21 个 ### 均为「源文件 -> 测试文件」且三小节按序；用例表 4 列、Mock 表 3 列；3 个集成关系含涉及模块表（≥2行）/非空关联AC/叙事段落/唯一命名场景（场景后跟叙事、用例表 3 列）；验收范围 4 列与模板一致"
+        }
+      ],
+      "timestamp": "2026-09-18T11:07:46.100Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "T1-T8 全过。修订验证：T2 验收范围 21 个单测文件与 21 个章节双向齐备，集成 AC-5 由 file-inventory-recording 关联AC 覆盖；T3 eval-json（L494-495）与 hooks-profile（L597-598）已补异常用例，21 章节均含异常+边界。T7 幂等（last-wins 重入/同 key 覆盖/重复 sweep no-op）齐备；T8 格式合规。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准都在验收范围中有映射",
+          "pass": true,
+          "evidence": "proposal.md L98-109 定义 AC-1~AC-12；test-design.md L15-26 验收范围表 12 行逐条映射，验收条件原文一致，无缺失无多余"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "验收范围单测行引用 21 个测试文件与 ## 单元测试 21 个 ### 章节（L45-635）双向一一对应无缺失；集成 3 关系关联AC（AC-4/5/6/9、AC-2/3/10+AC-1、AC-9/10）均在验收范围；集成 AC-5 由 file-inventory-recording 关系覆盖（L658）"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "21 章节均含异常+边界用例；上次缺失项已修复：eval-json L494-495（必填缺失抛错、start_at 非字符串抛错）、hooks-profile L597-598（缺 commandTemplate、键类型违例）；边界含 file_log:[]、空串、null/undefined、非法枚举、特殊路径"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "stdin fd0/os.tmpdir/getProjectDir/process.exit·stderr/系统时钟在各章节 Mock策略表声明（如 L262-265、L716-719）；无外部依赖章节以「无+mkdtempSync 真盘」注释说明"
+        },
+        {
+          "item": "T5 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/集成测试/不可测试项均实质填写；21 个 per-file 章节均按序含 待测功能/用例/Mock策略；不可测试项 6 条均附原因（L843-848）"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal「不要修改」面（backtrack/extractFileOps/gitignore/protect-files）无新增测试，仅 L28-35 注释说明既有回归；in_scope 实现文件均有对应章节或集成关系；schemas 不在测试 scope 已记入不可测试项并经消费方覆盖"
+        },
+        {
+          "item": "T7 写操作测试包含幂等性验证",
+          "pass": true,
+          "evidence": "写操作幂等覆盖：phase_start 重入 last-wins（L226）、appendLogEntries 同 key 原位覆盖不累积（L125-126）、clearActivePhase null 幂等（L93）、重复 sweep no-op interrupted 不增长（L253、L765）、失败时磁盘逐字节不变（L143）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "21 个 ### 标题含 -> 分隔；3 个集成 ### 含 → 测试文件；涉及模块表 7/6/4 数据行；场景名关系内唯一且后接叙事段落；用例/Mock策略表列名与模板一致；验收范围保留 AC ID|验收条件|测试类型|被测文件或模块"
+        }
+      ],
+      "timestamp": "2026-09-18T11:18:38.182Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "实现与 design 全量对账通过:5 新文件在盘,24 改动文件逐项核对相符,桶 API 生产源码零残留,git 无真实删除(deleted 桶 '2>/dev/null' 系 hook 误捕获)。MCP 面全实现,tasks 25 项全 [x] 且 dist 产物(UserPromptSubmit 仅 claude、matcher 含 phase_start)独立复核属实。额外改动仅测试文件(3 新增单测+既有测试适配,相关)。设计决议(revert 净消除/bare-name 门③/键控覆盖/set 映射/盖章时序/phase 目录零 lib/hasPhasePassed 逐字下沉)全部落实。遗留:若干旧桶形态测试待测试阶段更新;本 change 自身 workflow.json 为 legacy(机制引入前创建,符合预期)。",
+      "checklist": [
+        {
+          "item": "I1 设计每个架构组件均有实现代码",
+          "pass": true,
+          "evidence": "5 新文件均在盘(phase-start/sweep-phase/phase-start.schema/doc-io/phase-state);24 个改动文件逐一核对内容相符;workflow.schema 新增 activePhase/interruptedEntry/fileLog schema 且 looseObject 保留 legacy files 键"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现(三态对账)",
+          "pass": true,
+          "evidence": "files.written 覆盖全部计划条目;移除的 5 个桶 API 在生产源码零残留(仅旧测试引用);无计划删除且 git 无 D 记录;公共函数/类型/配置表逐项在码;files.written 额外 3 个新单测文件(相关新增,放宽);deleted 桶 '2>/dev/null' 系 hook 误捕获字符串,非真实删除"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "runXxx 命令命名、schemas/ + index barrel、module barrel 单出口、doc-io 按设计不经 barrel、2 空格缩进+尾换行写纪律、 标注均与代码库既有风格一致"
+        },
+        {
+          "item": "I4 路由/API 全实现",
+          "pass": true,
+          "evidence": "phase_start 已在 mcp.ts 注册(withResolvedProjectRoot);phase_log 盖章/清场、change_files 新语义、workflow_files/ archi_check/ test_resolve_paths 派生 written、staged 硬报错别名保留;phase_next/backtrack 零改动"
+        },
+        {
+          "item": "I5 tasks.md 全部勾选",
+          "pass": true,
+          "evidence": "tasks.md 25 项全部 [x];Phase 7 构建声明独立复核:dist claude 产物含 UserPromptSubmit 且 cursor/cursor-home-image 不含,双平台 postToolUse matcher 已展开含 phase_start,10 个技能产物含协议文本"
+        },
+        {
+          "item": "I6 无与变更无关的代码",
+          "pass": true,
+          "evidence": "额外改动均为测试文件(3 新增单测针对新 API 并引用本变更 AC;若干既有测试适配新签名,属测试阶段衔接性修改);session-registry/backtrack/shell-file-ops/gitignore/protect-files 均未动;无无关源码删改"
+        },
+        {
+          "item": "I7 设计决策在实现中遵守",
+          "pass": true,
+          "evidence": "revert 双桶净消除、门③ bare-name 归一(dev-team:/dev-team_ 前缀)、(scope,attempt,path) 键控原位覆盖/尾追、setWorkflowFiles 删涉及+尾追(written 先)、phase_log 先盖章后清场吞错、phase/ 目录零 lib 依赖、hasPhasePassed 逐字下沉、change_create 键序 workflow_type→created→file_log 均已在码"
+        }
+      ],
+      "timestamp": "2026-09-18T12:14:59.831Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "9 项全过。24 个声明测试文件全部在盘（test-execution.test.ts 清单漏记但文件在盘，良性）；单元/集成用例表逐行核对 describe/it 均生成，废弃行（agentType 盖章、fold 折叠、16 工具计数、files 桶 fixture）零残留。Mock 策略逐项落实（stdin fd0/tmpdir/getProjectDir/时钟/clearActivePhase 注入/InMemoryTransport）。25 文件均 vite-plus/test 且含清理还原。两处与源码一致的合理适配：phase-state 校验收口改读时抛错；project_root 必填（MCP 注入）替代 getProjectDir 兜底。",
+      "checklist": [
+        {
+          "item": "G1 源码公开方法均有对应测试文件",
+          "pass": true,
+          "evidence": "验收范围 21 个单测测试文件在盘且与章节一一对应（doc-io/phase-state/file-inventory/record/files-query/phase-start/sweep-phase/phase-log/record-files/change-files/change-create/eval-json/lib-workflow/c4-cross-ref/test-execution/test-resolve-paths/phase-next/hooks/hooks-profile/skill-protocol/mcp）；schemas 两文件按 design 声明经消费方断言（不可测试项豁免成立）；barrel index.test.ts 断言 11 个导出函数与引用一致"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存",
+          "pass": true,
+          "evidence": "Glob 确认 21 个单测文件均 *.test.ts 与源码同目录，3 个集成文件位于 bin/__tests__/ 与 build/__tests__/；grep -L 验证 25 个文件全部 import 'vite-plus/test'"
+        },
+        {
+          "item": "G3 单元测试用例表每新增行已生成 describe/it 骨架且路径类型正确",
+          "pass": true,
+          "evidence": "21 章节新增行逐条有 describe/it（如 doc-io L95-291、file-inventory L109-685、record-files L178-389 门①②③全分支、phase-log 盖章清场 L422-572、mcp phase_start L3318-3423）。两处与源码一致的适配：phase-state 校验收口改为写透传+读时 activePhaseSchema 抛错（L168/L188，phase 枚举校验落 phase-start 命令层 L232）；phase-start project_root 缺省改为 schema 拒绝（L240，phaseStartInputSchema 必填+MCP withResolvedProjectRoot 注入，与源码一致）"
+        },
+        {
+          "item": "G4 集成测试用例表每新增行已生成且 AC 关联正确",
+          "pass": true,
+          "evidence": "file-inventory-recording：门控回放 6 行（L285-370）、AC-5 重绑 L401、backtrack 自愈 L437/L456、派生等价 L473/L492，废弃行未生成；phase-lifecycle 3 场景 10 行全生成（L208-404）；hooks-user-prompt-submit 6 行全生成（L50-148）；AC 关联标注于 describe（AC-4/5/6/9、AC-2/3/10、AC-9/10）；额外场景（session 换绑/fd 复制/cursor 工具名）为相关增量"
+        },
+        {
+          "item": "G5 Mock策略表逐行在测试代码中实现",
+          "pass": true,
+          "evidence": "stdin fd0 队列+node:os 重定向+getProjectDir vi.mock+exit/stderr spy：sweep-phase L49-146、record-files L47-126、两集成文件 L55-96；vi.setSystemTime：phase-state L349、record L102、phase-lifecycle L115；clearActivePhase 故障注入：phase-log vi.mock modules/workflow L41/L547、phase-lifecycle mockImplementationOnce L385；mcp InMemoryTransport+registerTool spy L2532；hooks vi.mock commands/sweep-phase L76；真盘章节 mkdtempSync 落实"
+        },
+        {
+          "item": "G6 框架与导入正确",
+          "pass": true,
+          "evidence": "25 文件均从 vite-plus/test 导入 describe/it/expect/vi；hasPhasePassed 经 commands/phase-next re-export 与 lib/workflow 双路径断言且 toBe 同一引用（lib/workflow.test.ts L654-655）；mcp inputSchema 与 *InputSchema 导入比对（L234/L3318）"
+        },
+        {
+          "item": "G7 边界情况覆盖（每参数类型≥2 边界值）",
+          "pass": true,
+          "evidence": "file_log:[]、active_phase null/缺失、空串/超长/中文/emoji 路径（files-query L197）、executor null/undefined agent_type（record-files L338/L350）、entries=[]、interrupted 已有条目、report 500/501 边界、attempt 0/-1、9 值枚举外、revert 净消除、10+ 步长序列与单桶不变量扫描（file-inventory L305/L326）、cursor 降级与 canonical 删键兜底（hooks-profile L421/L431）"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "全部文件含清理/还原：finally project.cleanup()（phase-start/test-resolve-paths/c4-cross-ref）、afterAll+rmSync（phase-lifecycle L120-125、record/phase-state afterAll）、stderr.restore（record L341/L373）、mockReset/mockRestore（phase-log beforeEach L69-73、mcp 65 处）、sweep/record-files 队列与注册表逐用例重建"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "无 agentType 盖章/source 旁挂断言（record.test.ts 零命中）；无 foldFileOps 折叠用例（仅 barrel 缺席断言 index.test.ts L92-101 not.toHaveProperty）；mcp 断言 17 工具而非旧 16（L509）；c4-cross-ref/test-execution/test-resolve-paths fixture 均为 file_log 形态无 files 桶用例；change-files 无整桶覆写断言；集成无「phase_next 直接归账」「source 审计」场景"
+        }
+      ],
+      "timestamp": "2026-09-18T13:51:00.398Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 2381 个测试通过（2379 passed / 0 failed / 2 skipped）。覆盖率达标：lines=97.25%、branches=89.73%、functions=99.53%。Mutation score 82.89% >= 阈值 70%。2 个 skip 为既有条件跳过，与本变更无关；override 组 null 维度按规则不影响通过。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "所有必需字段存在且类型正确：phase/command/timestamp/total=2381/passed=2379/failed=0/skipped=2/coverage(含 pass/measured/thresholds/overrides)/duration_seconds=705；measured 三维度均非 null"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2381>0；2 个 skipped 为既有条件跳过（archi-decide-retirement 三平台产物目录缺失时的 ctx.skip），与本变更无关"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true：lines=97.25%（阈值90）、branches=89.73%（阈值85）、functions=99.53%（阈值90）；override 组 plugins/dev-team 三维度为 null 但组内 pass=true，整体加权覆盖率为门槛值且通过"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败诊断需求，自动通过；mutation score 82.89% >= 阈值 70%（1497 killed / 285 survived / 24 noCoverage / 355 ignored）"
+        }
+      ],
+      "timestamp": "2026-09-18T14:06:55.847Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "静态审查通过。C1 无注入/硬编码密钥,路径越根被丢弃(record.ts:39)。C2 stdin 逐字段校验(record-files.ts:115-135)、MCP zod 校验、doc-io schema 门控。C3 门序/盖章清场/键控/set/技能协议/版本 bump 均与 design 一致。C4 空值与 legacy 硬报错齐备;注意 file-inventory.ts:139 同 key 原位覆盖使数组序≠时序(同 attempt 翻转回时派生可能取旧 op,设计既定键控形态,窄场景,记为已知限制)。C5 旧桶 API 无残留引用。C6 注释/结构与库内惯例一致。C7 ActivePhase/InterruptedPhase 用 z.infer,FileLogEntry 按 design 类型表为本地接口。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "无 SQL/XSS/命令注入/硬编码密钥;新增代码无 exec 类调用;normalizeRecordedPath 丢弃越根与绝对化相对路径(record.ts:39);写盘仅 JSON.stringify 至固定 workflow.json 路径(doc-io.ts:95)"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "hook stdin:JSON.parse 守卫 + isPlainObject + 逐字段 typeof(record-files.ts:115-135、sweep-phase.ts:22-35);MCP 输入经 phaseStartInputSchema/phaseLogInputSchema zod 校验;workflow.json 经 workflowFileSchema 校验后加载(doc-io.ts:69)"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "门①②③按序(record-files.ts:159-193);盖章前读/成功后清场+吞错(phase-log.ts:42-62,113-115);attempt 推导+last-wins(phase-start.ts:38-41);(scope,attempt,path)键控原位覆盖(file-inventory.ts:63-68,130-148);set 删涉及+尾追加(227-245);cursor 不产出 userPromptSubmit(hooks-profile.ts buildCursorNative);version 2.10.40"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "active_phase 缺失/null→null(phase-state.ts:36);缺 file_log 硬报错含重建指引(file-inventory.ts:79-83);空 entries 不写盘(131-133);空 ops 提前返回(record.ts:89)。已知限制:同 key 原位覆盖保留原位使数组序≠时序(file-inventory.ts:139-141),同 attempt phase→workflow→phase 翻转回时派生后条胜可能取时序较旧 op;设计既定键控形态,窄场景低影响"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "readFileInventory/foldFileOps/writeFileInventory/appendFileOps/setFileBuckets 无存活代码引用(仅注释与测试名提及);变更文件 import 均有使用;旧桶导出自 schemas/index.ts 移除"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "模块头注释/中文错误文案/2 空格缩进+尾换行写纪律与 lib/eval-json.ts 既有惯例一致;doc-io 模块内私有不经 barrel(index.ts:8-9);knip lintignore 注释沿用既有做法"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "ActivePhase/InterruptedPhase 用 z.infer 推断自 schema(phase-state.ts:19,26);FileLogEntry 为本地接口但系 design 类型表明定,workflowEntry 经 fileLogSchema.parse 收敛(file-inventory.ts:192)"
+        }
+      ],
+      "timestamp": "2026-09-18T14:14:48.865Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "12 条 AC 全部溯源到代码：AC-1 新 schema 三字段+start_at；AC-2 phase-start.ts+mcp.ts:246；AC-3 phase-log.ts 盖章/清场/吞错；AC-4 record-files.ts 四分支门控；AC-5 重绑竞态回归测试在盘；AC-6 键控覆盖+deriveNetState；AC-7 四读方切派生视图、缺 file_log 硬报错；AC-8 append/set 新语义；AC-9 phase_start 事件绑定刷新；AC-10 sweep+双产物(claude 有 UserPromptSubmit/cursor 无)；AC-11 10 技能含 phase_start；AC-12 backtrack/session-registry/extractFileOps 零改动。tasks 25/25 [x]；唯一新 MCP 工具 phase_start，无范围蔓延；out_of_scope 未实现；风险缓解在码(门③归一/revert 净消除/同 key 覆盖/cursor 降级/legacy 硬报错)。全部通过。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 workflow.schema.ts:17-77 三新 schema+phase-log.schema.ts:53 start_at；AC-2 phase-start.ts:27-44 校验/attempt 推导/last-wins+mcp.ts:246 注册；AC-3 phase-log.ts:42-62 先读盖章、成功后清场吞错，输出形状不变；AC-4 record-files.ts:164-193 四分支门控；AC-5 file-inventory-recording.test.ts:397-424 重绑竞态回归；AC-6 file-inventory.ts:63-183 (scope,attempt,path) 键控+deriveNetState revert 净消除；AC-7 四读方派生视图(files-query.ts:18 等)，缺 file_log 硬报错含重建指引(79-83)；AC-8 change-files.ts:33-37 委托新语义；AC-9 record-files.ts:33-35+159-162 两事件绑定刷新；AC-10 sweep-phase.ts+hooks.canonical.json:53-61+claude 产物含 UserPromptSubmit/cursor 无；AC-11 10 个 SKILL.md 含 phase_start；AC-12 backtrack/session-registry/extractFileOps 零改动"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "mcp.ts 全量 17 工具中唯一新增为 phase_start(:246)；无 eval→phases 重构、无 TTL/unbind、无压缩、无迁移器——均系 proposal 明示二期/废弃项；workflow.json files.written 中 '{'、'2>/dev/null' 等为 hook 误捕获噪音(implement 已判明)非实现功能；额外文件仅测试，属 proposal 测试范围"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "实现文件 19 项全部在盘核验一致(schemas 4 项/mcp/6 命令/lib 2 项/modules 5 文件/3 读方/hooks 清单+构建/10 技能/package.json 2.10.40)；tasks.md 25/25 [x]；测试文件在盘且 test-execution 阶段 2381 测试 0 failed"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "session-registry.ts 仅 bindSession:82/lookupChange:106，无 TTL 新鲜度、无 unbind(被否决方案未引入)；backtrack.ts 对 file_log/active_phase 零引用；旧桶 schema 与 5 桶 API 生产源码零残留(仅测试断言不存在 index.test.ts:92-100)；不迁移落实：readFileLog 抛'请重建该 change'(file-inventory.ts:79-83)"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "门③→extractAgentName/matchesExecutorAgent bare-id 归一(lib/workflow.ts:451-475)；revert→op 'revert'+派生净消除+等价测试兜底(file-inventory.test.ts:239)；体积→同 key 原位覆盖(137-145)压缩留二期；Cursor 降级→cursor 产物无 UserPromptSubmit、claude 产出(hooks-profile.ts:79-88)；并发→writeActivePhase last-wins(phase-state.ts:48-52)已接受；不迁移→readFileLog 重建指引硬报错"
+        }
+      ],
+      "timestamp": "2026-09-18T14:20:51.842Z"
+    }
+  ]
+}

@@ -61,7 +61,7 @@ describe('真实 canonical 组装 PostToolUse 注册', () => {
     expect(parsed.hooks.PostToolUse).toHaveLength(1);
     const entry = parsed.hooks.PostToolUse[0];
     expect(entry.matcher).toBe(
-      'Write|Edit|NotebookEdit|Bash|PowerShell|mcp__plugin_dev-team_dev-team__phase_next',
+      'Write|Edit|NotebookEdit|Bash|PowerShell|mcp__plugin_dev-team_dev-team__phase_next|mcp__plugin_dev-team_dev-team__phase_start',
     );
     expect(entry.hooks).toHaveLength(1);
     const command = entry.hooks[0].command;
@@ -106,11 +106,13 @@ describe('真实 canonical 组装 PostToolUse 注册', () => {
   it('cursor / cursorHome：postToolUse 唯一条目 matcher 为 Cursor 工具集加各产物 phase_next MCP 全名，command 含 record-files 与已展开 token', () => {
     const expected = {
       cursor: {
-        matcher: 'Write|StrReplace|Shell|mcp__plugin_dev-team_dev-team__phase_next',
+        matcher:
+          'Write|StrReplace|Shell|mcp__plugin_dev-team_dev-team__phase_next|mcp__plugin_dev-team_dev-team__phase_start',
         bin: 'bin/hooks.cjs',
       },
       cursorHome: {
-        matcher: 'Write|StrReplace|Shell|mcp__user-dev-team_mcp__phase_next',
+        matcher:
+          'Write|StrReplace|Shell|mcp__user-dev-team_mcp__phase_next|mcp__user-dev-team_mcp__phase_start',
         bin: 'bin/dev-team_hooks.cjs',
       },
     } as const;

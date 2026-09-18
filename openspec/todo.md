@@ -62,7 +62,7 @@
 - [x] change目录管理新增/修改/删除的文件清单，避免强依赖git diff。后续基于清单做突变输入，检查测试范围是否有遗漏。
 - [ ] 澄清design.md.template架构组件填写规则，整体审视模板是否合理
 - [ ] 使用github hook完成构建，本地git忽略构建产物
-- [ ] design、code-analyze、test-design遇到js export class时，应将所有public方法视为公共api
+- [ ] code-analyze、test-design遇到 js export class 时，应将所有public方法视为公共api，当前有些测试仅验证了constructor；
 - [x] 补充cursor postToolUse记录修改文件的能力
 - [x] mcp提供api，查询指定change变更的文件（读取workflow.json，聚合变更记录，输出文件清单），agent使用api代替直接读取workflow.json
 - [x] 将“写入workflow.json files”的代码实现移入modules/workflow

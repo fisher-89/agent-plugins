@@ -92,20 +92,17 @@ interface WorkflowFilesFixture {
 }
 
 /**
- * 写入 change 的 workflow.json；`files` 传 null 时模拟文件清单机制前旧 change
- * （无 files 字段）。
+ * 写入 change 的 workflow.json（file_log 条目由 written/deleted 派生，workflow
+ * scope）；`files` 传 null 时模拟文件清单机制前旧 change（无 file_log 字段）。
  */
 function writeWorkflowJson(root: string, change: string, files: WorkflowFilesFixture | null): void {
   const doc: Record<string, unknown> = { workflow_type: 'requirement', created: '2026-09-17' };
   if (files !== null) {
-    const inventory: Record<string, unknown> = {
-      written: files.written,
-      deleted: files.deleted ?? [],
-    };
-    if (files.source !== undefined) {
-      inventory.source = files.source;
-    }
-    doc.files = inventory;
+    const at = '2026-09-17T00:00:00.000Z';
+    doc.file_log = [
+      ...files.written.map((p) => ({ op: 'write', scope: 'workflow', path: p, at })),
+      ...(files.deleted ?? []).map((p) => ({ op: 'delete', scope: 'workflow', path: p, at })),
+    ];
   }
   writeProjectFile(
     root,

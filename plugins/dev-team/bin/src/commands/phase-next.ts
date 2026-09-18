@@ -27,12 +27,19 @@ import { type z } from 'zod/v4';
 import { resolveChangeDir } from '../lib/change';
 import { getWorkflowType } from '../lib/change-config';
 import { readEvalJson, type EvalEntry } from '../lib/eval-json';
-import { getPhaseTable, type PhaseDefinition } from '../lib/workflow';
+import { getPhaseTable, hasPhasePassed, type PhaseDefinition } from '../lib/workflow';
 import { type phaseNextInputSchema, type phaseNextOutputSchema } from '../schemas';
 
 export type PhaseNextOptions = z.input<typeof phaseNextInputSchema>;
 
 export type PhaseNextResult = z.output<typeof phaseNextOutputSchema>;
+
+/**
+ * Re-export of the `hasPhasePassed` predicate (sunk verbatim to
+ * `lib/workflow.ts`) so the established `commands/phase-next` import path
+ * (`change-list.ts` and tests) keeps working unchanged.
+ */
+export { hasPhasePassed };
 
 const MAX_RETRY_TIMES = 5;
 
@@ -196,18 +203,6 @@ function buildErrorResponse(
  */
 function computeRound(window: EvalEntry[]): number {
   return window.length + 1;
-}
-
-/**
- * Check if a phase has passed (has a pass or skipped entry) that is NOT stale.
- *
- * Entries with `stale: true` are ignored.
- * Entries without a `stale` field are treated as `stale: false` (backward compatible).
- */
-export function hasPhasePassed(entries: EvalEntry[], phaseId: string): boolean {
-  return entries.some(
-    (e) => e.phase === phaseId && (e.verdict === 'pass' || e.skipped === true) && !e.stale,
-  );
 }
 
 /**

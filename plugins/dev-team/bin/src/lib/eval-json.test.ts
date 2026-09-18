@@ -998,3 +998,53 @@ describe('markPhaseStale', () => {
     expect(entries.find((e) => e.phase === 'test-gen')!.stale).toBe(true);
   });
 });
+
+// ===========================================================================
+// buildEntry — start_at 可选字段（phase-lifecycle-file-log AC-1）
+// ===========================================================================
+
+describe('buildEntry — start_at 可选字段 (AC-1)', () => {
+  const base: BuildEntryParams = {
+    phase: 'implement',
+    attempt: 2,
+    verdict: 'pass',
+    report: 'ok',
+    checklist: [{ item: '检查项', pass: true, evidence: 'ok' }],
+  };
+
+  it('显式传入 start_at（ISO 字符串）→ 条目含 start_at，其余字段不变', () => {
+    const entry = buildEntry({ ...base, start_at: '2026-09-18T08:00:00.000Z' });
+
+    expect(entry.start_at).toBe('2026-09-18T08:00:00.000Z');
+    expect(entry.phase).toBe('implement');
+    expect(entry.attempt).toBe(2);
+    expect(entry.verdict).toBe('pass');
+    expect(entry.report).toBe('ok');
+    expect(entry.checklist).toEqual(base.checklist);
+    expect(entry.timestamp).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+  });
+
+  it('未传 start_at → 条目不含 start_at 键（可选字段不写入，与 skipped 同策略）', () => {
+    const entry = buildEntry(base);
+
+    expect(Object.prototype.hasOwnProperty.call(entry, 'start_at')).toBe(false);
+  });
+
+  it('start_at 与 timestamp 并存 → 两字段各自独立保留（per-attempt 耗时的数据前提）', () => {
+    const entry = buildEntry({ ...base, start_at: '2026-09-18T08:00:00.000Z' });
+
+    expect(entry.start_at).toBe('2026-09-18T08:00:00.000Z');
+    expect(entry.timestamp).not.toBe(entry.start_at);
+    expect(typeof entry.timestamp).toBe('string');
+  });
+
+  it('start_at 显式传非字符串值 → schema.parse 抛错、不产出条目（组装层不自行兜底转换）', () => {
+    expect(() => buildEntry({ ...base, start_at: 42 as unknown as string })).toThrow();
+  });
+
+  it('必填字段非法（verdict 枚举外）→ 组装层 schema.parse 收口抛错、不产出条目（既有收口契约不因新增可选字段改变）', () => {
+    expect(() =>
+      buildEntry({ ...base, verdict: 'neutral' as unknown as 'pass' | 'fail' }),
+    ).toThrow();
+  });
+});

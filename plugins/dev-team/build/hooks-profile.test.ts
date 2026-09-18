@@ -379,3 +379,174 @@ describe('buildHooksFile', () => {
     expect(flatHooks.PreToolUse).toBeUndefined();
   });
 });
+
+// ===========================================================================
+// userPromptSubmit 事件 — canonical schema 与双平台包装（AC-10）
+// ===========================================================================
+
+const USER_PROMPT_FIXTURE = {
+  description: 'fixture with userPromptSubmit',
+  preToolUse: [],
+  subagentStop: [],
+  userPromptSubmit: [
+    {
+      matchers: { claude: '*', cursor: null },
+      commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" sweep-phase',
+    },
+  ],
+};
+
+describe('userPromptSubmit — canonical schema 与双平台包装 (AC-10)', () => {
+  it('claude 包装产出 UserPromptSubmit 数组：条目无 matcher 字段、hooks 为 command 且 command 指向 sweep-phase 模板', () => {
+    const parsed = JSON.parse(buildHooksFile(USER_PROMPT_FIXTURE, getEnv('claude'))) as {
+      hooks: {
+        UserPromptSubmit?: Array<{
+          matcher?: unknown;
+          hooks: Array<{ type: string; command: string }>;
+        }>;
+      };
+    };
+    expect(parsed.hooks.UserPromptSubmit).toHaveLength(1);
+    const entry = parsed.hooks.UserPromptSubmit![0];
+    // claude 包装不携带 matcher 字段（canonical claude 值仅为存在标志）
+    expect(entry).not.toHaveProperty('matcher');
+    expect(entry.hooks[0]).toEqual({
+      type: 'command',
+      command: expect.stringContaining('sweep-phase'),
+    });
+    expect(entry.hooks[0].command).toContain('hooks.cjs');
+    expect(entry.hooks[0].command).not.toContain('__DEV_TEAM_ROOT__');
+  });
+
+  it('cursor / cursorHome 包装不产出 userPromptSubmit 键（matcher.cursor=null 降级）', () => {
+    for (const agent of ['cursor', 'cursorHome'] as const) {
+      const parsed = JSON.parse(buildHooksFile(USER_PROMPT_FIXTURE, getEnv(agent))) as {
+        hooks: Record<string, unknown>;
+      };
+      expect(Object.hasOwn(parsed.hooks, 'userPromptSubmit')).toBe(false);
+      expect(Object.hasOwn(parsed.hooks, 'UserPromptSubmit')).toBe(false);
+    }
+  });
+
+  it('canonical 缺省 userPromptSubmit → schema default [] 兜底，两平台包装均不产出该事件键且不抛错 (AC-10)', () => {
+    const withoutEvent = {
+      description: 'no userPromptSubmit',
+      preToolUse: FIXTURE.preToolUse,
+      subagentStop: FIXTURE.subagentStop,
+    };
+    const claude = JSON.parse(buildHooksFile(withoutEvent, getEnv('claude'))) as {
+      hooks: Record<string, unknown>;
+    };
+    expect(Object.hasOwn(claude.hooks, 'UserPromptSubmit')).toBe(false);
+
+    const cursor = JSON.parse(buildHooksFile(withoutEvent, getEnv('cursor'))) as {
+      hooks: Record<string, unknown>;
+    };
+    expect(Object.hasOwn(cursor.hooks, 'userPromptSubmit')).toBe(false);
+  });
+
+  it('异常：userPromptSubmit 条目缺 commandTemplate → canonical schema 校验失败（构建期报错）', () => {
+    expect(() =>
+      buildHooksFile(
+        {
+          preToolUse: [],
+          subagentStop: [],
+          userPromptSubmit: [{ matchers: { claude: '*', cursor: null } }],
+        },
+        getEnv('claude'),
+      ),
+    ).toThrow();
+  });
+
+  it('异常：userPromptSubmit 键非数组 / 条目类型非法 → schema 校验拒绝（default [] 仅对键缺省生效）', () => {
+    expect(() =>
+      buildHooksFile(
+        { preToolUse: [], subagentStop: [], userPromptSubmit: 'bad' },
+        getEnv('claude'),
+      ),
+    ).toThrow();
+    expect(() =>
+      buildHooksFile(
+        { preToolUse: [], subagentStop: [], userPromptSubmit: ['bad'] },
+        getEnv('claude'),
+      ),
+    ).toThrow();
+  });
+
+  it('真实 hooks.canonical.json：claude 产出 UserPromptSubmit 指向 sweep-phase；cursor / cursorHome 不产出', () => {
+    const canonicalPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../hooks/hooks.canonical.json',
+    );
+    const canonical = JSON.parse(readFileSync(canonicalPath, 'utf-8')) as Record<string, unknown>;
+
+    const claude = JSON.parse(buildHooksFile(canonical, getEnv('claude'))) as {
+      hooks: { UserPromptSubmit?: Array<{ hooks: Array<{ command: string }> }> };
+    };
+    expect(claude.hooks.UserPromptSubmit).toHaveLength(1);
+    expect(claude.hooks.UserPromptSubmit![0].hooks[0].command).toContain('sweep-phase');
+
+    for (const agent of ['cursor', 'cursorHome'] as const) {
+      const wrapped = JSON.parse(buildHooksFile(canonical, getEnv(agent))) as {
+        hooks: Record<string, unknown>;
+      };
+      expect(Object.hasOwn(wrapped.hooks, 'userPromptSubmit')).toBe(false);
+    }
+  });
+});
+
+// ===========================================================================
+// postToolUse matcher 扩展 — __MCP:phase_start__ token（AC-9）
+// ===========================================================================
+
+describe('postToolUse matcher 扩展 — __MCP:phase_start__ (AC-9)', () => {
+  it('canonical postToolUse matchers 含 __MCP:phase_start__ → claude 与 cursor 包装均展开该 token', () => {
+    const withPhaseStart = {
+      description: 'phase_start matcher',
+      preToolUse: [],
+      subagentStop: [],
+      postToolUse: [
+        {
+          matchers: {
+            claude: 'Write|Edit|__MCP:phase_next__|__MCP:phase_start__',
+            cursor: 'Write|StrReplace|Shell|__MCP:phase_next__|__MCP:phase_start__',
+          },
+          commandTemplate: 'node "__DEV_TEAM_ROOT__/bin/__BIN:hooks__" record-files',
+        },
+      ],
+    };
+
+    const claude = JSON.parse(buildHooksFile(withPhaseStart, getEnv('claude'))) as {
+      hooks: { PostToolUse: Array<{ matcher: string }> };
+    };
+    // __MCP:<tool>__ token 经 env 展开为 claude 全名
+    expect(claude.hooks.PostToolUse[0].matcher).toContain(
+      'mcp__plugin_dev-team_dev-team__phase_start',
+    );
+
+    const cursor = JSON.parse(buildHooksFile(withPhaseStart, getEnv('cursor'))) as {
+      hooks: { postToolUse: Array<{ matcher: string }> };
+    };
+    expect(cursor.hooks.postToolUse[0].matcher).toContain(
+      'mcp__plugin_dev-team_dev-team__phase_start',
+    );
+  });
+
+  it('真实 hooks.canonical.json：postToolUse matchers 均含 __MCP:phase_next__ 与 __MCP:phase_start__（record-files command 不变）', () => {
+    const canonicalPath = join(
+      dirname(fileURLToPath(import.meta.url)),
+      '../hooks/hooks.canonical.json',
+    );
+    const canonical = JSON.parse(readFileSync(canonicalPath, 'utf-8')) as {
+      postToolUse: Array<{
+        matchers: { claude: string | null; cursor: string | null };
+        commandTemplate: string;
+      }>;
+    };
+    expect(canonical.postToolUse).toHaveLength(1);
+    expect(canonical.postToolUse[0].matchers.claude).toContain('__MCP:phase_next__');
+    expect(canonical.postToolUse[0].matchers.claude).toContain('__MCP:phase_start__');
+    expect(canonical.postToolUse[0].matchers.cursor).toContain('__MCP:phase_start__');
+    expect(canonical.postToolUse[0].commandTemplate).toContain('record-files');
+  });
+});

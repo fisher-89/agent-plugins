@@ -21,6 +21,7 @@ import * as fileInventory from './files/file-inventory';
 import * as filesQuery from './files/files-query';
 import * as record from './files/record';
 import * as workflow from './index';
+import * as phaseState from './phase/phase-state';
 
 /** 以 import.meta.url 为基准读取仓库内源文件文本（真实 fs）。 */
 function readSource(relativeUrl: string): string {
@@ -32,21 +33,27 @@ function readSource(relativeUrl: string): string {
 // ===========================================================================
 
 describe('workflow barrel — 函数导出', () => {
-  it('5 个导出函数均为 function 类型 (AC-3 扩充后导出面)', () => {
-    expect(typeof workflow.readFileInventory).toBe('function');
+  it('导出函数均为 function 类型 (file_log/phase 扩充后导出面)', () => {
+    expect(typeof workflow.appendWorkflowFiles).toBe('function');
+    expect(typeof workflow.setWorkflowFiles).toBe('function');
     expect(typeof workflow.getChangedFiles).toBe('function');
     expect(typeof workflow.recordFileOps).toBe('function');
-    expect(typeof workflow.appendFileOps).toBe('function');
-    expect(typeof workflow.setFileBuckets).toBe('function');
+    expect(typeof workflow.readActivePhase).toBe('function');
+    expect(typeof workflow.writeActivePhase).toBe('function');
+    expect(typeof workflow.clearActivePhase).toBe('function');
+    expect(typeof workflow.interruptActivePhase).toBe('function');
   });
 
   it('barrel 导出与源模块直接导入为同一函数引用（toBe）——re-export 而非复制', () => {
-    expect(workflow.readFileInventory).toBe(fileInventory.readFileInventory);
+    expect(workflow.appendWorkflowFiles).toBe(fileInventory.appendWorkflowFiles);
+    expect(workflow.setWorkflowFiles).toBe(fileInventory.setWorkflowFiles);
     expect(workflow.getChangedFiles).toBe(filesQuery.getChangedFiles);
-    // 扩充的三个导出（recordFileOps 自 files/record.ts；append/set 自 files/file-inventory.ts）
+    // recordFileOps 自 files/record.ts；phase 状态操作自 phase/phase-state.ts
     expect(workflow.recordFileOps).toBe(record.recordFileOps);
-    expect(workflow.appendFileOps).toBe(fileInventory.appendFileOps);
-    expect(workflow.setFileBuckets).toBe(fileInventory.setFileBuckets);
+    expect(workflow.readActivePhase).toBe(phaseState.readActivePhase);
+    expect(workflow.writeActivePhase).toBe(phaseState.writeActivePhase);
+    expect(workflow.clearActivePhase).toBe(phaseState.clearActivePhase);
+    expect(workflow.interruptActivePhase).toBe(phaseState.interruptActivePhase);
   });
 });
 
@@ -55,13 +62,16 @@ describe('workflow barrel — 函数导出', () => {
 // ===========================================================================
 
 describe('workflow barrel — 导出面精确', () => {
-  it('运行时导出键恰好等于 5 个函数名，无多余导出（防意外面与 knip dead export）', () => {
+  it('运行时导出键恰好等于 8 个函数名，无多余导出（防意外面与 knip dead export）', () => {
     expect(Object.keys(workflow).sort()).toEqual([
-      'appendFileOps',
+      'appendWorkflowFiles',
+      'clearActivePhase',
       'getChangedFiles',
-      'readFileInventory',
+      'interruptActivePhase',
+      'readActivePhase',
       'recordFileOps',
-      'setFileBuckets',
+      'setWorkflowFiles',
+      'writeActivePhase',
     ]);
   });
 
@@ -70,9 +80,21 @@ describe('workflow barrel — 导出面精确', () => {
     expect(workflow).not.toHaveProperty('isGitIgnored');
   });
 
+  it('不含 readFileInventory / appendFileOps / setFileBuckets（旧桶形态 API 已移除，无 shim）', () => {
+    expect(workflow).not.toHaveProperty('readFileInventory');
+    expect(workflow).not.toHaveProperty('appendFileOps');
+    expect(workflow).not.toHaveProperty('setFileBuckets');
+  });
+
   it('不含 writeFileInventory / foldFileOps（落盘原语为模块内私有，不进 barrel）', () => {
     expect(workflow).not.toHaveProperty('writeFileInventory');
     expect(workflow).not.toHaveProperty('foldFileOps');
+  });
+
+  it('不含 readFileLog / deriveNetState / readNetState（读原语不进 barrel，公共读通道唯一为 getChangedFiles）', () => {
+    expect(workflow).not.toHaveProperty('readFileLog');
+    expect(workflow).not.toHaveProperty('deriveNetState');
+    expect(workflow).not.toHaveProperty('readNetState');
   });
 });
 

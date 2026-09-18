@@ -109,6 +109,10 @@ LOOP:
     CRITICAL: Do NOT append explore body / EXPLORE_CONTEXT_SUMMARY to gate.executor.prompt
     Reminder: explore.md alone does not update proposal.md; this proposal executor is the convergence path
 
+  -- Start Phase --
+  # 每轮迭代 gate 通过后调用一次，开启运行态（计时档案 + 归账门控）；retry 重跑进入下一轮迭代时同样重新调用。gate.error / gate.done 路径在到达此处前已离开 LOOP，不调用
+  __MCP:phase_start__({ change: "<change-name>", phase: gate.next_phase })
+
   -- Run Executor if Exist --
   if gate.executor:
     Agent({

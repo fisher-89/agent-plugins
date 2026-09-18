@@ -27,7 +27,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 
 import { runChangeCreate } from '../../src/commands/change-create';
 import { runCrossRefCheck } from '../../src/lib/c4-cross-ref';
-import { setFileBuckets } from '../../src/modules/workflow';
+import { setWorkflowFiles } from '../../src/modules/workflow';
 
 // ---------------------------------------------------------------------------
 // git 退场 / staged 废弃防回归：child_process 全程 spy（仅作 not-called 断言）
@@ -94,11 +94,11 @@ function writeSourceFiles(): void {
   }
 }
 
-/** runChangeCreate 真实创建 change，inventory 缺省即初始空净状态；提供时经 setFileBuckets（change_files set 语义的公开通道）覆写。 */
+/** runChangeCreate 真实创建 change，inventory 缺省即初始空净状态；提供时经 setWorkflowFiles（change_files set 语义的公开通道）覆写。 */
 function createChange(inventory?: { written: string[]; deleted: string[] }): string {
   const created = runChangeCreate(CHANGE, projectRoot, 'requirement');
   if (inventory) {
-    setFileBuckets(created.path, inventory);
+    setWorkflowFiles(created.path, inventory);
   }
   return created.path;
 }

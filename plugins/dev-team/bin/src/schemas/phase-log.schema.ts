@@ -50,6 +50,10 @@ export const phaseLogSchema = z.object({
     .boolean()
     .optional()
     .describe('Mark entry as skipped (no-op phase, requires verdict pass)'),
+  start_at: z.iso
+    .datetime()
+    .optional()
+    .describe('Attempt start time (stamped from active_phase by phase_log when matching)'),
   timestamp: z.iso.datetime().describe('Recorded at'),
   stale: z.boolean().optional().describe('Phase need redo'),
 });

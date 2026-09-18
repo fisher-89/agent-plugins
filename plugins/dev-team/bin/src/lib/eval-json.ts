@@ -15,7 +15,10 @@ export type EvalEntry = z.infer<typeof phaseLogSchema>;
 export type BuildEntryParams = Pick<
   EvalEntry,
   'phase' | 'attempt' | 'verdict' | 'report' | 'checklist' | 'skipped'
->;
+> & {
+  /** Attempt start time (ISO 8601); written into the entry only when explicitly provided. */
+  start_at?: string;
+};
 
 /**
  * Render Zod issues as `<field.path: message; …>`, mirroring the format used
@@ -147,6 +150,8 @@ export function validateReportLength(report: string): void {
 /**
  * Build an EvalEntry object with auto-generated fields.
  * - timestamp: current ISO 8601 string
+ * - start_at: written only when explicitly provided (stamped from
+ *   `active_phase` by `phase_log`)
  * - backtrack_to/reason: not set here (handled by standalone backtrack tool)
  */
 export function buildEntry(params: BuildEntryParams): EvalEntry {
@@ -161,6 +166,9 @@ export function buildEntry(params: BuildEntryParams): EvalEntry {
   // Extended fields: only include when explicitly set
   if (params.skipped !== undefined) {
     entry.skipped = params.skipped;
+  }
+  if (params.start_at !== undefined) {
+    entry.start_at = params.start_at;
   }
   return phaseLogSchema.parse(entry);
 }

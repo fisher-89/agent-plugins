@@ -417,7 +417,7 @@
       {
         "item": "代码遵循项目现有规范",
         "pass": true,
-        "evidence": "经 ../schemas barrel 导入、复用 utils/isPlainObject、formatIssues 错误格式与 change-config 一致；私有辅助不 export；@lintignore 沿用 knip.json 既有 tags 约定（knip.json 未改）；JSDoc 与中文错误文案风格一致"
+        "evidence": "经 ../schemas barrel 导入、复用 utils/isPlainObject、formatIssues 错误格式与 change-config 一致；私有辅助不 export； 沿用 knip.json 既有 tags 约定（knip.json 未改）；JSDoc 与中文错误文案风格一致"
       },
       {
         "item": "design.md 路由/API 均已实现",

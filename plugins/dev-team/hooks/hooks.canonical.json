@@ -26,8 +26,8 @@
   "postToolUse": [
     {
       "matchers": {
-        "claude": "Write|Edit|NotebookEdit|Bash|PowerShell|__MCP:phase_next__",
-        "cursor": "Write|StrReplace|Shell|__MCP:phase_next__"
+        "claude": "Write|Edit|NotebookEdit|Bash|PowerShell|__MCP:phase_next__|__MCP:phase_start__",
+        "cursor": "Write|StrReplace|Shell|__MCP:phase_next__|__MCP:phase_start__"
       },
       "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" record-files"
     }
@@ -48,6 +48,15 @@
       },
       "loop_limit": 5,
       "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" static-check"
+    }
+  ],
+  "userPromptSubmit": [
+    {
+      "matchers": {
+        "claude": "*",
+        "cursor": null
+      },
+      "commandTemplate": "node \"__DEV_TEAM_ROOT__/bin/__BIN:hooks__\" sweep-phase"
     }
   ]
 }

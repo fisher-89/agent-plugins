@@ -484,7 +484,7 @@
         {
           "item": "C5 无冗余或死代码",
           "pass": true,
-          "evidence": "变更文件无未用导入；barrel @lintignore 注解与 knip.json tags:[-lintignore] 既有约定一致；旧位置 workflow/file-inventory.ts 等已迁移、lib/file-inventory.ts 保持删除"
+          "evidence": "变更文件无未用导入；barrel  注解与 knip.json tags:[-lintignore] 既有约定一致；旧位置 workflow/file-inventory.ts 等已迁移、lib/file-inventory.ts 保持删除"
         },
         {
           "item": "C6 可读性与项目规范",

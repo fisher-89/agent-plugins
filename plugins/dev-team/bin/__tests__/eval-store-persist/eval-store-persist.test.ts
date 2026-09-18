@@ -308,7 +308,7 @@ describe('双文件并存时写入迁移', () => {
 // ---------------------------------------------------------------------------
 
 describe('缺 workflow.json 时写入失败且不补建', () => {
-  it('runPhaseLog 抛「写入 workflow.json 失败」且内层含 change_create 指引，目录条目数不变（AC-13）', () => {
+  it('runPhaseLog 抛错（workflow.json 缺失在前置读取处暴露）且含 change_create 指引，目录条目数不变（AC-13）', () => {
     const before = dirEntries();
 
     let captured: Error | null = null;
@@ -325,7 +325,7 @@ describe('缺 workflow.json 时写入失败且不补建', () => {
     }
 
     expect(captured).not.toBeNull();
-    expect(captured!.message).toContain('写入 workflow.json 失败');
+    expect(captured!.message).toContain('workflow.json 不存在');
     expect(captured!.message).toContain('change_create');
     expect(dirEntries()).toEqual(before);
   });
@@ -358,7 +358,7 @@ describe('缺 workflow.json 时写入失败且不补建', () => {
         report: 'ok',
         checklist: VALID_ITEMS,
       }),
-    ).toThrow(/写入 workflow\.json 失败/);
+    ).toThrow(/workflow\.json 不存在/);
 
     expect(fs.existsSync(ghostDir)).toBe(false);
   });

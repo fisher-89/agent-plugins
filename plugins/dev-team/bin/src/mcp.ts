@@ -10,6 +10,7 @@ import { runChangeList } from './commands/change-list';
 import { runConfigGet } from './commands/config-get';
 import { runPhaseLog } from './commands/phase-log';
 import { runPhaseNext } from './commands/phase-next';
+import { runPhaseStart } from './commands/phase-start';
 import { runSpecList } from './commands/spec-list';
 import { runTestDetectFrameworks } from './commands/test-detect-frameworks';
 import { runTestResolvePaths } from './commands/test-resolve-paths';
@@ -36,6 +37,8 @@ import {
   archiDecideOutputSchema,
   phaseNextInputSchema,
   phaseNextOutputSchema,
+  phaseStartInputSchema,
+  phaseStartOutputSchema,
   configGetInputSchema,
   configGetOutputSchema,
   testDetectFrameworksInputSchema,
@@ -153,7 +156,7 @@ const MCP_TOOLS = [
   {
     name: 'archi_check',
     description:
-      'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files. The checked file set comes from an explicit files list or the target change file inventory (workflow.json files.written).',
+      'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files. The checked file set comes from an explicit files list or the target change file inventory (the file_log log in workflow.json, read as its derived net state).',
     inputSchema: archiCheckInputSchema,
     outputSchema: archiCheckOutputSchema,
     handler: async (
@@ -240,6 +243,20 @@ const MCP_TOOLS = [
       }),
   },
   {
+    name: 'phase_start',
+    description:
+      'Open the running phase state (workflow.json active_phase) for a workflow phase: validates that the phase belongs to the change workflow_type phase table, derives the attempt from the eval history, and writes {phase, attempt, start_at} (last-wins on re-entry). Call once after phase_next returns this phase and before the executor/evaluator runs; phase_log stamps start_at from this state and clears it. An invalid phase errors with workflow.json unchanged.',
+    inputSchema: phaseStartInputSchema,
+    outputSchema: phaseStartOutputSchema,
+    handler: async (
+      args: z.input<typeof phaseStartInputSchema>,
+    ): Promise<McpOutput<typeof phaseStartOutputSchema>> =>
+      withResolvedProjectRoot('phase_start', args as Record<string, unknown>, async () => {
+        const result = runPhaseStart(args);
+        return jsonContent(phaseStartOutputSchema, result);
+      }),
+  },
+  {
     name: 'config_get',
     description:
       'Read a value from openspec/config.json by dot-separated key path. Returns the value and whether the key exists. When the key does not exist, exists is false.',
@@ -284,7 +301,7 @@ const MCP_TOOLS = [
   {
     name: 'test_resolve_paths',
     description:
-      'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "change" (with the required `change` argument) — reads the change file inventory (workflow.json `files.written`) to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
+      'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "change" (with the required `change` argument) — reads the change file inventory (the file_log log in workflow.json, read as its derived net state) to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
     inputSchema: testResolvePathsInputSchema,
     outputSchema: testResolvePathsOutputSchema,
     handler: async (
@@ -338,7 +355,7 @@ const MCP_TOOLS = [
   {
     name: 'change_files',
     description:
-      'Merge paths into or overwrite the change file inventory (the `files` net state in workflow.json). op="append" folds paths into the net state to record file operations the PostToolUse hook missed (manual fallback for hook-invisible operations); op="set" wholesale-overwrites the provided buckets to explicitly correct the net state (e.g. after restores the hook cannot see). Returns the net state after the operation.',
+      'Merge paths into or overwrite the change file inventory (the file_log log in workflow.json). op="append" appends one workflow-scope record per path (upsert within the workflow scope; phase audit records are kept) to record file operations the PostToolUse hook missed (manual fallback for hook-invisible operations); op="set" removes every log record touching the provided paths (any scope or attempt) then appends workflow-scope records at the tail, leaving untouched paths as-is. Returns the derived net state after the operation.',
     inputSchema: changeFilesInputSchema,
     outputSchema: changeFilesOutputSchema,
     handler: async (
@@ -356,7 +373,7 @@ const MCP_TOOLS = [
   {
     name: 'workflow_files',
     description:
-      'Read-only query of the change file inventory (the `files` net state in workflow.json) for a given change. Returns the net `{ written, deleted }` path lists (relative to project root, POSIX style); the `source` audit map is never exposed. Strictly read-only — never modifies workflow.json; to record or correct the inventory use the write channel `change_files` instead. Hard-errors (no git diff fallback, no silent repair) when workflow.json is missing, unparseable, fails schema validation, or lacks the `files` field (a pre-inventory change must be recreated via change_create).',
+      'Read-only query of the change file inventory (the file_log log in workflow.json, returned as its derived net state) for a given change. Returns the net `{ written, deleted }` path lists (relative to project root, POSIX style). Strictly read-only — never modifies workflow.json; to record or correct the inventory use the write channel `change_files` instead. Hard-errors (no git diff fallback, no silent repair) when workflow.json is missing, unparseable, fails schema validation, or lacks the `file_log` field (a pre-log change must be recreated via change_create).',
     inputSchema: workflowFilesInputSchema,
     outputSchema: workflowFilesOutputSchema,
     handler: async (

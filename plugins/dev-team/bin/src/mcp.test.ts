@@ -59,6 +59,7 @@ import {
   configGetInputSchema,
   phaseLogInputSchema,
   phaseNextInputSchema,
+  phaseStartInputSchema,
   specListInputSchema,
   specListOutputSchema,
   testDetectFrameworksInputSchema,
@@ -183,6 +184,7 @@ const EXPECTED_TOOL_NAMES = [
   'config_get',
   'phase_log',
   'phase_next',
+  'phase_start',
   'spec_list',
   'test_detect_frameworks',
   'test_resolve_paths',
@@ -199,19 +201,21 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
   archi_write:
     'Validate and write a C4 architecture model file to the models/ directory. Validates DSL before writing.',
   archi_check:
-    'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files. The checked file set comes from an explicit files list or the target change file inventory (workflow.json files.written).',
+    'Cross-reference validation: check code imports against the C4 architecture model. Detects unmodeled dependencies and unused relationships in changed files. The checked file set comes from an explicit files list or the target change file inventory (the file_log log in workflow.json, read as its derived net state).',
   archi_decide:
     'Create, list, and update Architecture Decision Records (ADRs) under openspec/architecture/decisions/. Use action create, list, or update.',
   phase_next:
     'Return the next phase to execute in a PGE workflow. Handles gate check, skip passed phases, retry, backtrack, round limit, and mid-phase interruption. Returns the phase identifier and planner/evaluator agent config for the skill to execute.',
+  phase_start:
+    'Open the running phase state (workflow.json active_phase) for a workflow phase: validates that the phase belongs to the change workflow_type phase table, derives the attempt from the eval history, and writes {phase, attempt, start_at} (last-wins on re-entry). Call once after phase_next returns this phase and before the executor/evaluator runs; phase_log stamps start_at from this state and clears it. An invalid phase errors with workflow.json unchanged.',
   config_get:
     'Read a value from openspec/config.json by dot-separated key path. Returns the value and whether the key exists. When the key does not exist, exists is false.',
   test_detect_frameworks:
     'Detect test framework(s) for given files based on config.json tests suite mappings. When files is omitted, auto-scan the project for files in suite scope. Returns per-file framework detection and a plan built from tests[].',
   test_resolve_paths:
-    'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "change" (with the required `change` argument) — reads the change file inventory (workflow.json `files.written`) to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
+    'Derive unit test file paths from a module list (files or directories). Three modes: (1) modules is an empty array — directories are auto-detected from config.json test configuration; (2) modules is a non-empty array — paths are filtered by test config scope before resolving; (3) modules is "change" (with the required `change` argument) — reads the change file inventory (the file_log log in workflow.json, read as its derived net state) to discover changed files, then resolves test paths filtered by test config. Returns colocated unit test paths per source file.',
   change_files:
-    'Merge paths into or overwrite the change file inventory (the `files` net state in workflow.json). op="append" folds paths into the net state to record file operations the PostToolUse hook missed (manual fallback for hook-invisible operations); op="set" wholesale-overwrites the provided buckets to explicitly correct the net state (e.g. after restores the hook cannot see). Returns the net state after the operation.',
+    'Merge paths into or overwrite the change file inventory (the file_log log in workflow.json). op="append" appends one workflow-scope record per path (upsert within the workflow scope; phase audit records are kept) to record file operations the PostToolUse hook missed (manual fallback for hook-invisible operations); op="set" removes every log record touching the provided paths (any scope or attempt) then appends workflow-scope records at the tail, leaving untouched paths as-is. Returns the derived net state after the operation.',
   change_create:
     'Create a new change directory under openspec/changes/. The sole creator of its workflow.json metadata file (workflow_type + created only), which phase_next / backtrack / phase_log require — they error out when the file is missing. Validates kebab-case name and rejects existing changes.',
   change_list:
@@ -221,12 +225,13 @@ const EXPECTED_TOOL_DESCRIPTIONS: Record<(typeof EXPECTED_TOOL_NAMES)[number], s
   backtrack:
     'Set backtrack target and reason on the latest eval entry of a phase stored in workflow.json. This is the only way to modify backtrack state.',
   workflow_files:
-    'Read-only query of the change file inventory (the `files` net state in workflow.json) for a given change. Returns the net `{ written, deleted }` path lists (relative to project root, POSIX style); the `source` audit map is never exposed. Strictly read-only — never modifies workflow.json; to record or correct the inventory use the write channel `change_files` instead. Hard-errors (no git diff fallback, no silent repair) when workflow.json is missing, unparseable, fails schema validation, or lacks the `files` field (a pre-inventory change must be recreated via change_create).',
+    'Read-only query of the change file inventory (the file_log log in workflow.json, returned as its derived net state) for a given change. Returns the net `{ written, deleted }` path lists (relative to project root, POSIX style). Strictly read-only — never modifies workflow.json; to record or correct the inventory use the write channel `change_files` instead. Hard-errors (no git diff fallback, no silent repair) when workflow.json is missing, unparseable, fails schema validation, or lacks the `file_log` field (a pre-log change must be recreated via change_create).',
 };
 
 const ALL_INPUT_SCHEMAS = [
   ['phase_log', phaseLogInputSchema],
   ['phase_next', phaseNextInputSchema],
+  ['phase_start', phaseStartInputSchema],
   ['backtrack', backtrackInputSchema],
   ['change_create', changeCreateInputSchema],
   ['change_files', changeFilesInputSchema],
@@ -398,7 +403,7 @@ function setupChangeWithWorkflow(
     JSON.stringify({
       workflow_type: workflowType,
       created: '2026-09-11',
-      files: { written: [], deleted: [] },
+      file_log: [],
     }),
     'utf-8',
   );
@@ -406,21 +411,26 @@ function setupChangeWithWorkflow(
 }
 
 /**
- * Create `openspec/changes/<changeName>/workflow.json` with an explicit
- * `files` net state (the general form of `setupChangeWithWorkflow`).
+ * Create `openspec/changes/<changeName>/workflow.json` with a file_log derived
+ * from the given written/deleted lists (the general form of
+ * `setupChangeWithWorkflow`); `files` 为 null 时构造机制前旧 change。
  */
 function setupChangeWithFiles(
   dir: string,
   changeName: string,
-  files: Record<string, unknown>,
+  files?: { written?: string[]; deleted?: string[] } | null,
 ): string {
   const changeDir = path.join(dir, 'openspec', 'changes', changeName);
   fs.mkdirSync(changeDir, { recursive: true });
-  fs.writeFileSync(
-    path.join(changeDir, 'workflow.json'),
-    JSON.stringify({ workflow_type: 'requirement', created: '2026-09-11', files }),
-    'utf-8',
-  );
+  const at = '2026-09-11T00:00:00.000Z';
+  const doc: Record<string, unknown> = { workflow_type: 'requirement', created: '2026-09-11' };
+  if (files !== undefined && files !== null) {
+    doc.file_log = [
+      ...(files.written ?? []).map((p) => ({ op: 'write', scope: 'workflow', path: p, at })),
+      ...(files.deleted ?? []).map((p) => ({ op: 'delete', scope: 'workflow', path: p, at })),
+    ];
+  }
+  fs.writeFileSync(path.join(changeDir, 'workflow.json'), JSON.stringify(doc), 'utf-8');
   return changeDir;
 }
 
@@ -493,10 +503,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
   });
 
   describe('listTools — archi_decide (AC-01)', () => {
-    it('listTools() name 集合经 sort 后严格等于预期 16 个 name（含 workflow_files）(AC-1)', async () => {
+    it('listTools() name 集合经 sort 后严格等于预期 17 个 name（含 workflow_files / phase_start）(AC-1)', async () => {
       const names = (await getRegisteredToolNames(client)).slice().sort();
       expect(names).toEqual([...EXPECTED_TOOL_NAMES]);
-      expect(names).toHaveLength(16);
+      expect(names).toHaveLength(17);
     });
 
     it('不得包含 list_changed / camelCase 别名', async () => {
@@ -506,10 +516,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('name 集合长度恰好 16；无重复 name', async () => {
+    it('name 集合长度恰好 17；无重复 name', async () => {
       const names = await getRegisteredToolNames(client);
-      expect(names).toHaveLength(16);
-      expect(new Set(names).size).toBe(16);
+      expect(names).toHaveLength(17);
+      expect(new Set(names).size).toBe(17);
     });
 
     it('listTools 含 archi_decide 且无斜杠名 archi/decide', async () => {
@@ -945,7 +955,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       setResolvedRoot(process.cwd());
     });
 
-    it('resolve mock 成功时 16 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
+    it('resolve mock 成功时 17 个 tool 各 callTool 一次均非空成功 (AC-3)', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -996,6 +1006,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
           },
           { name: 'phase_next', args: { change: changeName, run_id: 'test-run' } },
           {
+            name: 'phase_start',
+            args: { change: changeName, phase: 'proposal' },
+          },
+          {
             name: 'backtrack',
             args: {
               change: changeName,
@@ -1024,7 +1038,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
           { name: 'change_list', args: {} },
           { name: 'spec_list', args: {} },
         ];
-        expect(calls).toHaveLength(16);
+        expect(calls).toHaveLength(17);
 
         for (const { name, args } of calls) {
           const result = await client.callTool({
@@ -1046,7 +1060,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
       }
     });
 
-    it('resolve 抛 not_in_candidates 时 16 个 tool 均 isError 且 spy 次数 0', async () => {
+    it('resolve 抛 not_in_candidates 时 17 个 tool 均 isError 且 spy 次数 0', async () => {
       setResolveError(
         makeResolveError('not_in_candidates', 'x', {
           candidates: [],
@@ -1272,10 +1286,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
       setResolvedRoot(process.cwd());
     });
 
-    it('listTools 返回的 tool names 中包含 change_create，且 EXPECTED_TOOL_NAMES 扩展到 16 (AC-1)', async () => {
+    it('listTools 返回的 tool names 中包含 change_create，且 EXPECTED_TOOL_NAMES 扩展到 17 (AC-1)', async () => {
       const names = await getRegisteredToolNames(client);
       expect(names).toContain('change_create');
-      expect(names).toHaveLength(16);
+      expect(names).toHaveLength(17);
     });
 
     it('change_create 的 inputSchema 包含 name 字段（z.string()）', async () => {
@@ -1467,12 +1481,12 @@ describe('MCP Server (via InMemoryTransport)', () => {
     });
   });
 
-  describe('MCP 调用 — 所有 16 个 tool 各 callTool 一次均成功（含 change_create / change_files / workflow_files / spec_list）', () => {
+  describe('MCP 调用 — 所有 17 个 tool 各 callTool 一次均成功（含 change_create / change_files / workflow_files / phase_start / spec_list）', () => {
     afterEach(() => {
       setResolvedRoot(process.cwd());
     });
 
-    it('在同一个 MCP server 上 16 个 tool 各调用一次均非 isError 且返回非空文本 (AC-1/AC-5)', async () => {
+    it('在同一个 MCP server 上 17 个 tool 各调用一次均非 isError 且返回非空文本 (AC-1/AC-5)', async () => {
       const { dir, cleanup } = setupTempProject({
         schema: 'spec-driven',
         tests: [{ root: 'src', framework: 'vitest', includes: ['**/*'] }],
@@ -1523,6 +1537,10 @@ describe('MCP Server (via InMemoryTransport)', () => {
           },
           { name: 'phase_next', args: { change: changeName, run_id: 'test-run' } },
           {
+            name: 'phase_start',
+            args: { change: changeName, phase: 'proposal' },
+          },
+          {
             name: 'backtrack',
             args: {
               change: changeName,
@@ -1548,7 +1566,7 @@ describe('MCP Server (via InMemoryTransport)', () => {
           { name: 'change_list', args: {} },
           { name: 'spec_list', args: {} },
         ];
-        expect(calls).toHaveLength(16);
+        expect(calls).toHaveLength(17);
 
         for (const { name, args } of calls) {
           const result = await client.callTool({
@@ -2496,6 +2514,7 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
     'archi_check',
     'archi_decide',
     'phase_next',
+    'phase_start',
     'config_get',
     'test_detect_frameworks',
     'test_resolve_paths',
@@ -2507,7 +2526,7 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
     'backtrack',
   ] as const;
 
-  it('按注册顺序对每次调用断言 name/description；调用次数恰好 16', async () => {
+  it('按注册顺序对每次调用断言 name/description；调用次数恰好 17', async () => {
     mockResolve.root = process.cwd();
     mockResolve.throwError = null;
     const registerSpy = vi.spyOn(McpServer.prototype, 'registerTool');
@@ -2520,9 +2539,9 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
       client = new Client({ name: 'reg-spy', version: '1.0.0' }, { capabilities: {} });
       await client.connect(clientTransport);
 
-      expect(registerSpy).toHaveBeenCalledTimes(16);
+      expect(registerSpy).toHaveBeenCalledTimes(17);
       const names: string[] = [];
-      for (let i = 0; i < 16; i++) {
+      for (let i = 0; i < 17; i++) {
         const call = registerSpy.mock.calls[i];
         const name = call[0] as string;
         const config = call[1] as { description?: unknown };
@@ -2552,7 +2571,7 @@ describe('MCP 注册 — registerTool spy 精确字面量', () => {
       const resolveDesc = await getToolDescription(c, 'test_resolve_paths');
       expect(resolveDesc).not.toContain('git diff');
       expect(resolveDesc).not.toContain('git-change');
-      expect(resolveDesc).toContain('files.written');
+      expect(resolveDesc).toContain('file_log');
 
       const checkDesc = await getToolDescription(c, 'archi_check');
       expect(checkDesc).toContain('change file inventory');
@@ -2750,7 +2769,6 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
       expect(desc).toBe(EXPECTED_TOOL_DESCRIPTIONS.workflow_files);
       expect(desc).toContain('Read-only query');
       expect(desc).toContain('never modifies workflow.json');
-      expect(desc).toContain('`source` audit map is never exposed');
       expect(desc).toContain('no git diff fallback');
       expect(desc).toContain('`change_files`');
     });
@@ -2763,7 +2781,6 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
       const changeDir = setupChangeWithFiles(dir, changeName, {
         written: ['src/a.ts', 'src/b.ts'],
         deleted: ['src/old.ts'],
-        source: { 'src/a.ts': 'dev-team:implementation-generator' },
       });
       setResolvedRoot(dir);
       const rawBefore = fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8');
@@ -2891,10 +2908,20 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
       }
     });
 
-    it('态③ files 类型非法（schema 不通过）→ isError 且文案含「格式非法」(AC-3)', async () => {
+    it('files 类型非法（schema 不通过）→ isError 且文案含「格式非法」(AC-3)', async () => {
       const { dir, cleanup } = setupTempProject();
       const changeName = 'wf-state3-invalid';
-      setupChangeWithFiles(dir, changeName, { written: 'src/a.ts', deleted: [] });
+      const state3Dir = path.join(dir, 'openspec', 'changes', changeName);
+      fs.mkdirSync(state3Dir, { recursive: true });
+      fs.writeFileSync(
+        path.join(state3Dir, 'workflow.json'),
+        JSON.stringify({
+          workflow_type: 'requirement',
+          created: '2026-09-11',
+          file_log: [{ op: 'write', scope: 'workflow', path: 'src/a.ts' }],
+        }),
+        'utf-8',
+      );
       setResolvedRoot(dir);
       try {
         const result = await client.callTool({
@@ -2942,8 +2969,14 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
       const s2 = setupChangeWithWorkflow(dir, 'wf-ro-2');
       fs.writeFileSync(path.join(s2, 'workflow.json'), '{"workflow_type": "requ', 'utf-8');
 
-      // 态③：files.written 非数组
-      const s3 = setupChangeWithFiles(dir, 'wf-ro-3', { written: 42, deleted: [] });
+      // 态③：file_log 非数组
+      const s3 = path.join(dir, 'openspec', 'changes', 'wf-ro-3');
+      fs.mkdirSync(s3, { recursive: true });
+      fs.writeFileSync(
+        path.join(s3, 'workflow.json'),
+        JSON.stringify({ workflow_type: 'requirement', created: '2026-09-11', file_log: 42 }),
+        'utf-8',
+      );
 
       // 态④：缺 files 字段
       const s4 = path.join(dir, 'openspec', 'changes', 'wf-ro-4');
@@ -2999,7 +3032,6 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
       setupChangeWithFiles(dir, changeName, {
         written: ['src/a.ts'],
         deleted: [],
-        source: { 'src/a.ts': 'dev-team:implementation-generator' },
       });
       setResolvedRoot(dir);
       try {
@@ -3027,20 +3059,30 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
       }
     });
 
-    it('预置 source 的 fixture：append 后查询输出仍无 source，而盘上 files.source 原样保留（写读两端对 source 的契约分工正确）(AC-2)', async () => {
+    it('预置 phase scope 审计条目的 fixture：change_files append 后 phase 记录逐字保留，workflow 命名空间按 path upsert；查询输出无 scope/attempt 审计明细 (AC-8)', async () => {
       const { dir, cleanup } = setupTempProject();
       const changeName = 'wf-loop-source';
-      const changeDir = setupChangeWithFiles(dir, changeName, {
-        written: ['src/a.ts'],
-        deleted: [],
-        source: { 'src/a.ts': 'dev-team:implementation-generator' },
-      });
+      const changeDir = setupChangeWithWorkflow(dir, changeName);
+      // 预置一条 phase scope 审计条目 + 一条 workflow 条目（同 path）
+      const doc = JSON.parse(
+        fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8'),
+      ) as Record<string, unknown>;
+      doc.file_log = [
+        {
+          op: 'write',
+          scope: 'implement',
+          attempt: 2,
+          path: 'src/a.ts',
+          at: '2026-09-11T00:00:00.000Z',
+        },
+      ];
+      fs.writeFileSync(path.join(changeDir, 'workflow.json'), JSON.stringify(doc), 'utf-8');
       setResolvedRoot(dir);
       try {
         const writeResult = await client.callTool({
           name: 'change_files',
           arguments: withProjectRoot(
-            { change: changeName, op: 'append', written: ['src/new.ts'] },
+            { change: changeName, op: 'append', written: ['src/a.ts', 'src/new.ts'] },
             dir,
           ),
         });
@@ -3051,14 +3093,29 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
           arguments: withProjectRoot({ change: changeName }, dir),
         });
         expect(isToolError(readResult)).toBe(false);
-        expect(extractText(readResult)).not.toContain('"source"');
+        // 派生净状态输出不泄漏审计明细键
+        expect(extractText(readResult)).not.toContain('"scope"');
+        expect(extractText(readResult)).not.toContain('"attempt"');
 
-        const doc = JSON.parse(fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8')) as {
-          files: { source?: Record<string, string> };
-        };
-        expect(doc.files.source).toEqual({
-          'src/a.ts': 'dev-team:implementation-generator',
+        // 盘上 phase 审计记录逐字保留；workflow 命名空间同 path upsert 为一条
+        const after = JSON.parse(
+          fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8'),
+        ) as { file_log: Array<Record<string, unknown>> };
+        const phaseEntries = after.file_log.filter((e) => e.scope === 'implement');
+        expect(phaseEntries).toHaveLength(1);
+        expect(phaseEntries[0]).toEqual({
+          op: 'write',
+          scope: 'implement',
+          attempt: 2,
+          path: 'src/a.ts',
+          at: '2026-09-11T00:00:00.000Z',
         });
+        const workflowEntries = after.file_log.filter((e) => e.scope === 'workflow');
+        expect(
+          workflowEntries
+            .map((e) => e.path)
+            .sort((a, b) => (a as string).localeCompare(b as string)),
+        ).toEqual(['src/a.ts', 'src/new.ts']);
       } finally {
         cleanup();
       }
@@ -3226,7 +3283,143 @@ describe('MCP 注册 — change_files 与清单模式接线 (AC-8, AC-9, AC-10)'
         expect(names).toContain(name);
       }
       expect(names).toContain('change_files');
-      expect(names).toHaveLength(16);
+      expect(names).toHaveLength(17);
     });
+  });
+});
+
+// ===========================================================================
+// phase_start 注册 — tools/list / inputSchema / 调用落盘面 (AC-2)
+// ===========================================================================
+
+describe('MCP 注册 — phase_start (AC-2)', () => {
+  let server: McpServer;
+  let client: Client;
+
+  beforeAll(async () => {
+    mockResolve.root = process.cwd();
+    mockResolve.throwError = null;
+    const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
+    const { connectToServer } = await import('./mcp');
+    server = await connectToServer(serverTransport);
+    client = new Client({ name: 'phase-start-client', version: '1.0.0' }, { capabilities: {} });
+    await client.connect(clientTransport);
+  });
+
+  afterAll(async () => {
+    await client.close();
+    await server.close();
+  });
+
+  afterEach(() => {
+    setResolvedRoot(process.cwd());
+  });
+
+  it('tools/list 含 phase_start；inputSchema 与 phaseStartInputSchema 形状一致（change 必填、phase 9 值枚举、project_root 可选注入）', async () => {
+    const names = await getRegisteredToolNames(client);
+    expect(names).toContain('phase_start');
+
+    const schema = await getToolInputSchema(client, 'phase_start');
+    expect(schema).toBeDefined();
+    const props = (schema?.properties ?? {}) as Record<string, unknown>;
+    expect(props).toHaveProperty('change');
+    expect(props).toHaveProperty('phase');
+    expect(props).toHaveProperty('project_root');
+    expect(schema?.required).toContain('change');
+    // 9 值 phase 枚举
+    const phaseEnum = (props.phase as { enum?: string[] }).enum;
+    expect(phaseEnum).toEqual([
+      'proposal',
+      'dev-design',
+      'test-design',
+      'implement',
+      'test-gen',
+      'test-execution',
+      'code-review',
+      'acceptance',
+      'code-analyze',
+    ]);
+  });
+
+  it('合法调用（经 change_create fixture）→ 返回 {started: true, phase, attempt, start_at}，workflow.json 落盘 active_phase', async () => {
+    const { dir, cleanup } = setupTempProject();
+    const changeName = 'ps-open';
+    setupChangeWithWorkflow(dir, changeName);
+    setResolvedRoot(dir);
+    const changeDir = path.join(dir, 'openspec', 'changes', changeName);
+    try {
+      const result = await client.callTool({
+        name: 'phase_start',
+        arguments: withProjectRoot({ change: changeName, phase: 'implement' }, dir),
+      });
+
+      expect(isToolError(result)).toBe(false);
+      const data = JSON.parse(extractText(result));
+      expect(data).toEqual({
+        started: true,
+        phase: 'implement',
+        attempt: 1,
+        start_at: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
+      });
+
+      const doc = JSON.parse(fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8')) as {
+        active_phase: Record<string, unknown>;
+      };
+      expect(doc.active_phase).toEqual({
+        phase: 'implement',
+        attempt: 1,
+        start_at: data.start_at,
+      });
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('非法 phase（requirement 传 code-analyze）→ 结构化错误响应，workflow.json 不变（无 active_phase）', async () => {
+    const { dir, cleanup } = setupTempProject();
+    const changeName = 'ps-invalid-phase';
+    setupChangeWithWorkflow(dir, changeName);
+    setResolvedRoot(dir);
+    const changeDir = path.join(dir, 'openspec', 'changes', changeName);
+    const rawBefore = fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8');
+    try {
+      const result = await client.callTool({
+        name: 'phase_start',
+        arguments: withProjectRoot({ change: changeName, phase: 'code-analyze' }, dir),
+      });
+
+      expect(isToolError(result)).toBe(true);
+      expect(extractText(result)).toContain('不属于 workflow_type');
+
+      // 报错路径不写盘：无 active_phase 半态
+      expect(fs.readFileSync(path.join(changeDir, 'workflow.json'), 'utf-8')).toBe(rawBefore);
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('change 不存在 → 结构化错误响应含 change_create 指引', async () => {
+    const { dir, cleanup } = setupTempProject();
+    setResolvedRoot(dir);
+    try {
+      const result = await client.callTool({
+        name: 'phase_start',
+        arguments: withProjectRoot({ change: 'ghost-change', phase: 'implement' }, dir),
+      });
+
+      expect(isToolError(result)).toBe(true);
+      expect(extractText(result)).toContain('workflow.json 不存在');
+      expect(extractText(result)).toContain('change_create');
+    } finally {
+      cleanup();
+    }
+  });
+
+  it('inputSchema 拒绝 9 值枚举外的 phase（schema 层，MCP 注册元数据与 phaseStartInputSchema 同源）', () => {
+    const base = { change: 'c', project_root: '/tmp/x' };
+    expect(phaseStartInputSchema.safeParse({ ...base, phase: 'integration-test' }).success).toBe(
+      false,
+    );
+    expect(phaseStartInputSchema.safeParse({ ...base, phase: 'implement' }).success).toBe(true);
   });
 });

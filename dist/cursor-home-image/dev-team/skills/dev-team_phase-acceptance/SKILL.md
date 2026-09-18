@@ -50,7 +50,9 @@ If response `modified` is true, recall `mcp__user-dev-team_mcp__phase_next({chan
 
 ### Run Evaluator
 
-Call `Agent` with response of `phase_next`:
+This phase has no executor — still call `mcp__user-dev-team_mcp__phase_start({change: "<change-name>", phase: "<next_phase>"})` once before the evaluator runs to open the phase running state (per-attempt timing archive). Repeat this call on backtrack recall re-entry; the `phase_next` call in `### Verdict Phase Result` never triggers one.
+
+Then call `Agent` with response of `phase_next`:
 
 ```
 Agent({

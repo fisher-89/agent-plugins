@@ -163,12 +163,12 @@ describe('workflow.json 缺失', () => {
     expect(error.message).toContain('change_create');
   });
 
-  it('runPhaseLog 抛错，且目录内未新增 workflow.json / eval.json / 子目录（AC-13）', () => {
+  it('runPhaseLog 抛错（workflow.json 缺失在前置读取处暴露），且目录内未新增 workflow.json / eval.json / 子目录（AC-13）', () => {
     const before = snapshotDir();
 
     const error = expectPhaseLog();
 
-    expect(error.message).toContain('写入 workflow.json 失败');
+    expect(error.message).toContain('workflow.json 不存在');
     expect(error.message).toContain('change_create');
     expect(snapshotDir()).toEqual(before);
     expect(fs.readdirSync(changeDir)).toEqual([]);

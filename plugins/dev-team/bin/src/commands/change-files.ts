@@ -1,6 +1,6 @@
 import { resolveChangeDir } from '../lib/change';
 import { getProjectDir } from '../lib/project-root';
-import { appendFileOps, setFileBuckets } from '../modules/workflow';
+import { appendWorkflowFiles, setWorkflowFiles } from '../modules/workflow';
 import { type ChangeFilesInput, type ChangeFilesOutput } from '../schemas';
 
 /**
@@ -14,14 +14,15 @@ export type ChangeFilesOptions = Omit<ChangeFilesInput, 'project_root'> & {
 
 /**
  * Core logic for `change_files`: manually append to or explicitly correct the
- * change file inventory (`workflow.json.files`).
+ * change file inventory (`workflow.json.file_log`).
  *
  * Preconditions — the change dir and `workflow.json` must exist, the file must
- * pass `workflowFileSchema` and contain `files`; any miss throws with the
- * rebuild guidance (a change created before the inventory mechanism must be
- * recreated). The append/set semantics — folding, source audit curation and
- * the write discipline preserving `workflow_type` / `created` / `eval` — live
- * in the workflow module. This is the manual backfill / correction channel:
+ * pass `workflowFileSchema` and contain `file_log`; any miss throws with the
+ * rebuild guidance (a change created before the log mechanism must be
+ * recreated). The append/set semantics — workflow-scope per-path upsert
+ * (append) vs remove-every-touching-record-then-append (set) and the write
+ * discipline preserving `workflow_type` / `created` / `eval` — live in the
+ * workflow module. This is the manual backfill / correction channel:
  * deliberately NO gitignore filtering applies here (that is the recorder's
  * concern).
  */
@@ -31,7 +32,9 @@ export function runChangeFiles(options: ChangeFilesOptions): ChangeFilesOutput {
 
   const paths = { written: options.written, deleted: options.deleted };
   const next =
-    options.op === 'set' ? setFileBuckets(changeDir, paths) : appendFileOps(changeDir, paths);
+    options.op === 'set'
+      ? setWorkflowFiles(changeDir, paths)
+      : appendWorkflowFiles(changeDir, paths);
 
   return { written: next.written, deleted: next.deleted };
 }

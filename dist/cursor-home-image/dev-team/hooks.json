@@ -13,7 +13,7 @@
     ],
     "postToolUse": [
       {
-        "matcher": "Write|StrReplace|Shell|mcp__user-dev-team_mcp__phase_next",
+        "matcher": "Write|StrReplace|Shell|mcp__user-dev-team_mcp__phase_next|mcp__user-dev-team_mcp__phase_start",
         "command": "node \"__INSTALL_PLUGIN_ROOT__/bin/dev-team_hooks.cjs\" record-files"
       }
     ]

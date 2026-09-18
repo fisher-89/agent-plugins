@@ -13,7 +13,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 
-import { readFileInventory } from '../modules/workflow';
+import { getChangedFiles } from '../modules/workflow';
 import { readAllModels, parseC4Dsl } from './c4-parser';
 import type {
   C4Element,
@@ -22,7 +22,6 @@ import type {
   CrossRefViolation,
   ArchiCheckResult,
 } from './c4-types';
-import { resolveChangeDir } from './change';
 
 // Python stdlib modules for filtering
 const PYTHON_STDLIB = new Set([
@@ -99,9 +98,9 @@ function normalizePath(p: string): string {
 /**
  * Resolve the file set to check. Priority:
  * 1. explicit `files` list — used as-is (and skips the inventory read);
- * 2. change inventory mode — the change's `workflow.json` `files.written`
- *    pass through unchanged (no test-config filtering); a legacy change
- *    without `files` throws the rebuild-guidance hard error;
+ * 2. change inventory mode — the change's `workflow.json` `file_log` derived
+ *    `written` set passes through unchanged (no test-config filtering); a
+ *    legacy change without `file_log` throws the rebuild-guidance hard error;
  * 3. otherwise empty.
  *
  * `staged: true` is a deprecated alias that throws: the git staged mode was
@@ -110,7 +109,7 @@ function normalizePath(p: string): string {
  * the reference frame — they never enter the check set (the recorder excludes
  * `openspec/**` from the inventory by construction).
  */
-function getChangedFiles(
+function resolveCheckFiles(
   projectRoot: string,
   options: { staged?: boolean; files?: string[]; change?: string } = {},
 ): string[] {
@@ -125,7 +124,7 @@ function getChangedFiles(
   }
 
   if (options.change) {
-    return readFileInventory(resolveChangeDir(options.change, projectRoot)).written;
+    return getChangedFiles(options.change, projectRoot).written;
   }
 
   return [];
@@ -505,7 +504,7 @@ export async function runCrossRefCheck(
     return skippedResult;
   }
 
-  const changedFiles = getChangedFiles(projectRoot, options);
+  const changedFiles = resolveCheckFiles(projectRoot, options);
 
   const noChangesResult = getEarlyCrossRefResult(model, changedFiles);
   if (noChangesResult) {

@@ -14,7 +14,7 @@ import * as path from 'path';
 
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import { readFileInventory } from '../modules/workflow';
+import { getChangedFiles } from '../modules/workflow';
 import { testResolvePathsInputSchema } from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 import { runTestResolvePaths } from './test-resolve-paths';
@@ -47,11 +47,11 @@ vi.mock('child_process', async () => {
 
 vi.mock('../modules/workflow', async () => {
   const actual = await vi.importActual<{
-    readFileInventory: typeof readFileInventory;
+    getChangedFiles: typeof getChangedFiles;
   }>('../modules/workflow');
   return {
     ...actual,
-    readFileInventory: vi.fn(actual.readFileInventory),
+    getChangedFiles: vi.fn(actual.getChangedFiles),
   };
 });
 
@@ -61,7 +61,7 @@ vi.mock('../modules/workflow', async () => {
 // every test, regardless of shuffle order.
 const _detectFrameworksPassthrough = vi.mocked(runTestDetectFrameworks).getMockImplementation();
 const _execSyncPassthrough = vi.mocked(execSync).getMockImplementation();
-const _readFileInventoryPassthrough = vi.mocked(readFileInventory).getMockImplementation();
+const _getChangedFilesPassthrough = vi.mocked(getChangedFiles).getMockImplementation();
 
 // Restore pass-through implementations before every test so that mock
 // state from one group never leaks into another when --sequence.shuffle
@@ -75,8 +75,8 @@ beforeEach(() => {
   if (_execSyncPassthrough) {
     vi.mocked(execSync).mockImplementation(_execSyncPassthrough);
   }
-  if (_readFileInventoryPassthrough) {
-    vi.mocked(readFileInventory).mockImplementation(_readFileInventoryPassthrough);
+  if (_getChangedFilesPassthrough) {
+    vi.mocked(getChangedFiles).mockImplementation(_getChangedFilesPassthrough);
   }
 });
 
@@ -873,13 +873,21 @@ describe('runTestResolvePaths -- config-driven 过滤', () => {
 // ===========================================================================
 
 describe('runTestResolvePaths — 清单模式 (AC-8)', () => {
-  function writeChange(dir: string, name: string, files: unknown): string {
+  function writeChange(
+    dir: string,
+    name: string,
+    files?: { written: string[]; deleted?: string[] },
+  ): string {
     const changeDir = path.join(dir, 'openspec', 'changes', name);
     fs.mkdirSync(changeDir, { recursive: true });
-    const doc: Record<string, unknown> =
-      files === undefined
-        ? { workflow_type: 'requirement', created: '2026-09-17' }
-        : { workflow_type: 'requirement', created: '2026-09-17', files };
+    const doc: Record<string, unknown> = { workflow_type: 'requirement', created: '2026-09-17' };
+    if (files !== undefined) {
+      const at = '2026-09-17T00:00:00.000Z';
+      doc.file_log = [
+        ...files.written.map((p) => ({ op: 'write', scope: 'workflow', path: p, at })),
+        ...(files.deleted ?? []).map((p) => ({ op: 'delete', scope: 'workflow', path: p, at })),
+      ];
+    }
     fs.writeFileSync(path.join(changeDir, 'workflow.json'), JSON.stringify(doc), 'utf-8');
     return changeDir;
   }
@@ -2079,14 +2087,14 @@ describe('runTestResolvePaths — isTestFile 正则判别', () => {
 describe('runTestResolvePaths — extractErrorMessage stderr（清单读取失败消息提取）', () => {
   beforeEach(() => {
     // 由文件级 beforeEach 恢复 passthrough，这里再显式兜底一次
-    if (_readFileInventoryPassthrough) {
-      vi.mocked(readFileInventory).mockImplementation(_readFileInventoryPassthrough);
+    if (_getChangedFilesPassthrough) {
+      vi.mocked(getChangedFiles).mockImplementation(_getChangedFilesPassthrough);
     }
   });
 
-  it('readFileInventory 抛 Error：errors.message === error.message', () => {
+  it('getChangedFiles 抛 Error：errors.message === error.message', () => {
     const project = createTempProject();
-    vi.mocked(readFileInventory).mockImplementation(() => {
+    vi.mocked(getChangedFiles).mockImplementation(() => {
       throw new Error('exact-inventory-error');
     });
     try {
@@ -2103,7 +2111,7 @@ describe('runTestResolvePaths — extractErrorMessage stderr（清单读取失�
 
   it('抛非 Error 但 { stderr: "  boom  " }：errors.message === "boom"（trim 后）', () => {
     const project = createTempProject();
-    vi.mocked(readFileInventory).mockImplementation(() => {
+    vi.mocked(getChangedFiles).mockImplementation(() => {
       throw { stderr: '  boom  ' };
     });
     try {
@@ -2120,7 +2128,7 @@ describe('runTestResolvePaths — extractErrorMessage stderr（清单读取失�
 
   it('抛 { stderr: "   " }（仅空白）：errors.message === fallback 非空串', () => {
     const project = createTempProject();
-    vi.mocked(readFileInventory).mockImplementation(() => {
+    vi.mocked(getChangedFiles).mockImplementation(() => {
       throw { stderr: '   ' };
     });
     try {
@@ -2139,7 +2147,7 @@ describe('runTestResolvePaths — extractErrorMessage stderr（清单读取失�
 
   it('抛 { stderr: { toString() { throw } } }：走 catch 后仍有非空 fallback', () => {
     const project = createTempProject();
-    vi.mocked(readFileInventory).mockImplementation(() => {
+    vi.mocked(getChangedFiles).mockImplementation(() => {
       throw {
         stderr: {
           toString(): string {
@@ -2164,7 +2172,7 @@ describe('runTestResolvePaths — extractErrorMessage stderr（清单读取失�
     const project = createTempProject();
     try {
       for (const thrown of [null, 42, { message: 'no-stderr' }]) {
-        vi.mocked(readFileInventory).mockImplementation(() => {
+        vi.mocked(getChangedFiles).mockImplementation(() => {
           throw thrown;
         });
         expect(() =>

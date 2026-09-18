@@ -1,5 +1,5 @@
 {
-  "version": "2.10.39",
+  "version": "2.10.40",
   "namePrefix": "dev-team_",
   "managedPaths": [
     "agents/dev-team_acceptance-evaluator.md",

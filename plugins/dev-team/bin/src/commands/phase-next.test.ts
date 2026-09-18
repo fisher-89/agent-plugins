@@ -2326,3 +2326,59 @@ describe('hasPhasePassed — 导出函数（纯函数，无 fs 依赖）', () =>
     expect(hasPhasePassed(entries, 'acceptance')).toBe(true);
   });
 });
+
+// ===========================================================================
+// runPhaseNext — 新运行态字段容忍（phase-lifecycle-file-log AC-12）
+// ===========================================================================
+
+describe('runPhaseNext — workflow.json 含新运行态字段时照常解析推进 (AC-12)', () => {
+  it('含 active_phase / file_log / interrupted（looseObject 允许的未知键）时 gate 正常返回下一 phase，新字段不参与 gate 计算', () => {
+    const entries = [passEntry('proposal')];
+    const raw = JSON.stringify({
+      workflow_type: 'requirement',
+      created: '2026-09-18',
+      eval: entries,
+      active_phase: { phase: 'implement', attempt: 1, start_at: '2026-09-18T08:00:00.000Z' },
+      interrupted: [
+        {
+          phase: 'implement',
+          attempt: 1,
+          start_at: '2026-09-18T07:00:00.000Z',
+          end_at: '2026-09-18T07:30:00.000Z',
+        },
+      ],
+      file_log: [
+        {
+          op: 'write',
+          scope: 'implement',
+          attempt: 1,
+          path: 'src/a.ts',
+          at: '2026-09-18T08:05:00.000Z',
+        },
+      ],
+    });
+
+    const result = next([], 'test-change', 'requirement', DEFAULT_RUN_ID, { workflowRaw: raw });
+
+    // proposal 已 pass → gate 照常推进；active_phase 的 implement 也不影响序列
+    expect(result.done).toBe(false);
+    expect(result.error).toBeNull();
+    expect(['dev-design', 'test-design']).toContain(result.next_phase);
+  });
+
+  it('active_phase: null 与空 file_log（change_create 初始形态 + phase_log 清场后）→ First Run 正常返回 proposal', () => {
+    const raw = JSON.stringify({
+      workflow_type: 'requirement',
+      created: '2026-09-18',
+      eval: [],
+      active_phase: null,
+      file_log: [],
+    });
+
+    const result = next([], 'test-change', 'requirement', DEFAULT_RUN_ID, { workflowRaw: raw });
+
+    expect(result.next_phase).toBe('proposal');
+    expect(result.done).toBe(false);
+    expect(result.round).toBe(1);
+  });
+});

@@ -24,11 +24,17 @@ const hooksCanonicalSubagentStopSchema = z.object({
   commandTemplate: z.string(),
 });
 
+const hooksCanonicalUserPromptSubmitSchema = z.object({
+  matchers: hooksCanonicalMatcherSchema,
+  commandTemplate: z.string(),
+});
+
 const hooksCanonicalSchema = z.object({
   description: z.string().optional(),
   preToolUse: z.array(hooksCanonicalPreToolUseSchema),
   postToolUse: z.array(hooksCanonicalPostToolUseSchema).default([]),
   subagentStop: z.array(hooksCanonicalSubagentStopSchema),
+  userPromptSubmit: z.array(hooksCanonicalUserPromptSubmitSchema).default([]),
 });
 
 type HooksCanonical = z.infer<typeof hooksCanonicalSchema>;
@@ -68,6 +74,17 @@ function buildClaudeNested(canonical: HooksCanonical): unknown {
     }));
   if (subagentStop.length > 0) {
     hooks.SubagentStop = subagentStop;
+  }
+
+  // UserPromptSubmit takes no matcher: the canonical `claude` value is only a
+  // presence flag and is dropped from the wrapped output.
+  const userPromptSubmit = canonical.userPromptSubmit
+    .filter((entry) => entry.matchers.claude)
+    .map((entry) => ({
+      hooks: [{ type: 'command', command: entry.commandTemplate }],
+    }));
+  if (userPromptSubmit.length > 0) {
+    hooks.UserPromptSubmit = userPromptSubmit;
   }
 
   return {
