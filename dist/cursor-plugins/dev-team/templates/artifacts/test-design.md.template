@@ -31,9 +31,10 @@
 #### 待测功能
 
 <!-- 使用无序列表格式列出被测模块导出的函数/类/变量签名。每项格式：`- functionName(): 简短描述`。
-  内容来源：grep 源文件中的导出声明（如 `export function`、`export class`、`export const`）。 -->
+  内容来源：design.md `### 公共函数 / API`。 -->
 
 - {{functionName}}(): {{简短描述}}
+- {{ClassName}}.{{methodName}}(): {{简短描述}}
 
 #### 用例
 

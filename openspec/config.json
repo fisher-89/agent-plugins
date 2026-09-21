@@ -9,7 +9,34 @@
       "config": "vite.config.ts",
       "includes": ["bin/src/**/*.{ts,tsx}"],
       "excludes": ["bin/src/schemas/**/*", "home-install.ts"],
-      "coverage": { "lines": 90, "branches": 85, "functions": 90 }
+      "coverage": { "lines": 90, "branches": 85, "functions": 90 },
+      "mutation": { "score": 80 }
+    },
+    {
+      "root": "packages/desktop",
+      "framework": "vite-plus",
+      "config": "vite.config.ts",
+      "includes": ["src/**/*.{ts,tsx}"],
+      "coverage": { "lines": 90, "branches": 85, "functions": 90 },
+      "mutation": { "score": 80 }
+    },
+    {
+      "root": "packages/desktop/src-tauri",
+      "framework": "rust",
+      "coverage": { "lines": 90, "branches": 85, "functions": 90 },
+      "mutation": { "score": 70 }
+    },
+    {
+      "root": "packages/desktop/src-tauri/crates/core/foundation",
+      "framework": "rust",
+      "coverage": { "lines": 90, "branches": 85, "functions": 90 },
+      "mutation": { "score": 70 }
+    },
+    {
+      "root": "packages/desktop/src-tauri/crates/core/workflow",
+      "framework": "rust",
+      "coverage": { "lines": 90, "branches": 85, "functions": 90 },
+      "mutation": { "score": 70 }
     }
   ],
   "write_protection": {

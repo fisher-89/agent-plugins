@@ -194,11 +194,11 @@ describe('getFrameworkConfig -- 模板字面量', () => {
 
   it('rust shell 含 cargo test; 与 llvm-cov；pytest shell 用 ;、cmd 用 &&', () => {
     const rustShell = te(getFrameworkConfig('rust').shell.test_execution);
-    expect(rustShell).toContain('cargo test;');
+    expect(rustShell).toContain('cargo test --workspace;');
     expect(rustShell).toContain('cargo llvm-cov --json --output-path "{coverage_file}"');
 
     const rustCmd = te(getFrameworkConfig('rust').cmd.test_execution);
-    expect(rustCmd).toContain('cargo test &');
+    expect(rustCmd).toContain('cargo test --workspace &');
     expect(rustCmd).toContain('cargo llvm-cov --json --output-path "{coverage_file}"');
     expect(rustCmd).toContain('exit /b %_X%');
 
@@ -483,10 +483,10 @@ describe('getFrameworkConfig -- resetModules 杀静态变异', () => {
 
     const rust = getFrameworkConfig('rust');
     expect(rust.shell.test_execution('1.0.0')).toBe(
-      'cargo test; _X=$?; cargo llvm-cov --json --output-path "{coverage_file}"; exit $_X',
+      'cargo test --workspace; _X=$?; cargo llvm-cov --json --output-path "{coverage_file}"; exit $_X',
     );
     expect(rust.cmd.test_execution('1.0.0')).toBe(
-      'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path "{coverage_file}" & exit /b %_X%',
+      'cargo test --workspace & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path "{coverage_file}" & exit /b %_X%',
     );
 
     const nodeTest = getFrameworkConfig('node-test');

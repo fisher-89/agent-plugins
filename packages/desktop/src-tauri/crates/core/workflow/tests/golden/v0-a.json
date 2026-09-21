@@ -1,0 +1,55 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [
+      {
+        "kind": "tasks-progress",
+        "source": "tasks.md",
+        "title": "任务进度"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "proposal.md",
+        "title": "提案"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "design.md",
+        "title": "设计"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "tasks.md",
+        "title": "任务"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/glob-matching/spec.md",
+        "title": "规格 · glob-matching"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/test-execution-diagnostics/spec.md",
+        "title": "规格 · test-execution-diagnostics"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "test-design.md",
+        "title": "测试设计"
+      }
+    ],
+    "created": null,
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v0",
+    "name": "v0-a",
+    "pipeline": [],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v0",
+  "fixture": "v0-a",
+  "parse": {
+    "outcome": "unparsable"
+  }
+}

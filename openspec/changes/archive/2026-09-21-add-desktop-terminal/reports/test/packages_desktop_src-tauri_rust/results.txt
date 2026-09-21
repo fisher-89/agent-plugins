@@ -1,0 +1,12 @@
+
+running 7 tests
+test commands::queries::mod_test::root为空字符串时经resolve空路径得空列表不panic ... ok
+test commands::queries::mod_test::read_artifact正向路径返回五字段信封 ... ok
+test commands::queries::mod_test::get_change_detail未知change返回none而非错误 ... ok
+test commands::queries::mod_test::get_change_detail已知change返回完整详情dto ... ok
+test commands::queries::mod_test::read_artifact未注册kind或不存在source返回none ... ok
+test commands::queries::mod_test::list_changes命令与core查询结果一致_纯透传无加工 ... ok
+test commands::queries::mod_test::read_artifact敌意source在命令边界被拒绝不逃逸change目录 ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+

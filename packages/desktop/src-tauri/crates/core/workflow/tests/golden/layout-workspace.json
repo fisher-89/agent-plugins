@@ -1,0 +1,59 @@
+{
+  "fixture": "layout-workspace",
+  "list": {
+    "active": [
+      {
+        "created": "2026-09-01",
+        "inventory": "v1",
+        "name": "2026-09-01-style-active",
+        "source": "active",
+        "unparsable": false
+      },
+      {
+        "created": null,
+        "inventory": "v0",
+        "name": "plain-active",
+        "source": "active",
+        "unparsable": false
+      }
+    ],
+    "archiveGroups": [
+      {
+        "changes": [
+          {
+            "created": "2026-09-01",
+            "inventory": "v1",
+            "name": "2026-09-01-archived-new",
+            "source": "archive",
+            "unparsable": false
+          }
+        ],
+        "month": "2026-09"
+      },
+      {
+        "changes": [
+          {
+            "created": "2026-05-15",
+            "inventory": "v0",
+            "name": "2026-05-15-archived-old",
+            "source": "archive",
+            "unparsable": false
+          }
+        ],
+        "month": "2026-05"
+      },
+      {
+        "changes": [
+          {
+            "created": null,
+            "inventory": "v1",
+            "name": "unknown-date-archived",
+            "source": "archive",
+            "unparsable": false
+          }
+        ],
+        "month": null
+      }
+    ]
+  }
+}

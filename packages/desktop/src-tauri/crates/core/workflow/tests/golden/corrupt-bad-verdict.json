@@ -1,0 +1,80 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [],
+    "created": null,
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v1",
+    "name": "corrupt-bad-verdict",
+    "pipeline": [
+      {
+        "attempts": [],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [],
+            "report": "合法条目：fail 也是合法枚举，应保留。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": null,
+            "verdict": "fail"
+          }
+        ],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v1",
+  "fixture": "corrupt-bad-verdict",
+  "parse": {
+    "activePhasePresent": false,
+    "created": null,
+    "evalCount": 1,
+    "evalSkipped": 0,
+    "evalStale": 0,
+    "evalWithBacktrack": 0,
+    "evalWithChecklist": 0,
+    "fileLog": "absent",
+    "fileLogCount": 0,
+    "interruptedCount": 0,
+    "outcome": "parsed",
+    "workflowType": "requirement"
+  }
+}

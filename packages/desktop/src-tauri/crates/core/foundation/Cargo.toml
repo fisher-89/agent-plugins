@@ -1,0 +1,7 @@
+[package]
+name = "foundation"
+version = "0.1.0"
+edition = "2021"
+
+# 刻意零依赖：只装 layout 解析，第二个消费者出现再下沉新能力
+[dependencies]

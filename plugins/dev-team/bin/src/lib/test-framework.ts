@@ -115,11 +115,11 @@ const FRAMEWORK_REGISTRY: Record<TestFramework, FrameworkConfig> = {
     version_command: 'cargo --version',
     shell: {
       test_execution: () =>
-        'cargo test; _X=$?; cargo llvm-cov --json --output-path "{coverage_file}"; exit $_X',
+        'cargo test --workspace; _X=$?; cargo llvm-cov --json --output-path "{coverage_file}"; exit $_X',
     },
     cmd: {
       test_execution: () =>
-        'cargo test & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path "{coverage_file}" & exit /b %_X%',
+        'cargo test --workspace & if errorlevel 1 set _X=%errorlevel% & cargo llvm-cov --json --output-path "{coverage_file}" & exit /b %_X%',
     },
     coverage_format: 'llvm-cov',
     coverage_output: 'coverage-summary.json',

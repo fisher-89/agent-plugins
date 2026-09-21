@@ -1,0 +1,612 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-16",
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "10/11 pass. R1 concrete problems + 8-point git dependency table (L9-29); R2-R5,R8 substantive; R7 no placeholders; R9/R10: 10 capabilities ↔ 10 specs 1:1. FAIL R11: AC-9 (archi_check 清单支持, L165) and scope entries c4-cross-ref.ts (L117) + c4-cross-ref.test.ts (L138) lack any spec requirement or capability — archi_check/cross-ref absent from all 10 spec files (only incidental \"x.c4\" path, workflow-file-inventory spec L38). Remove from proposal or add capability+spec.",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "问题 L9-29：4 个具体结构性问题（index 污染/范围超集/build 产物污染/计划侧无结构化清单）+ 8 处 git 依赖全景表（L18-29），含具体位置如 'bin/src/lib/git.ts:25 getGitDiffFiles'"
+        },
+        {
+          "item": "R2 变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L104 '### 实现文件'（12 代码层条目 + 8 提示词/模板条目）、L130 '### 测试文件'（9 条目）、L142 '### 不要修改'（6 条目）均非空"
+        },
+        {
+          "item": "R3 风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "风险表 L174-182 七项均有具体缓解：session_id 风险 '先临时 log hook 实测；若不共享退化为暂存-认领模式'（L176）；漏记风险 '三态对账良性漏记 + change_files 补录 + git restore 规范化'（L177）；无泛化'监控并调整'"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "AC 表 L155-168 共 12 条均含对象+条件：AC-1 'workflow.json 含 files:{written:[],deleted:[]} 且 workflowFileSchema 校验通过'；AC-4 列出具体命令分类（tee/Set-Content/mv/git restore）；AC-7 含 'lib/git.ts 与 git.test.ts 不存在'"
+        },
+        {
+          "item": "R5 关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "决策表 L190-199 八行均含理由与被拒备选：'hook 被动记录' 拒 'agent 主动调 MCP 注册（可忘、多一次调用）'；'硬报错' 拒 '回退 git diff（双轨永久化复杂度）'；'两桶 flat' 拒 '单列表带 op 标签/三桶'"
+        },
+        {
+          "item": "R6 提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "仅动 hooks/MCP 工具/agent 提示词/skill 文案，符合 slim 架构（hooks+agents+MCP，无内嵌 skills）；无 test-only export；'不要修改'（L142-149）明确保留 phase_next 协议与既有写保护语义"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep 'TODO|TBD|placeholder|{{'（忽略大小写）对 proposal+specs 全目录零命中；'待决问题（留给 design）'（L201-209）为合法模板章节，非占位符"
+        },
+        {
+          "item": "R8 所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9)/提案(L33)/变更范围(L102)/验收标准(L155)/风险(L174) 各节均有实质性内容，无空节或占位表述"
+        },
+        {
+          "item": "R9 能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L82 '## 能力'；L84 '### 新增能力' 2 条（workflow-file-inventory、change-files）；L89 '### 修改的能力' 8 条，均非空"
+        },
+        {
+          "item": "R10 specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力 10 条 ↔ specs/ 下 10 个 spec.md（workflow-file-inventory、change-files、protect-files-hook、change-create、pipeline-backtrack、unit-test-executor、test-path-resolver、phase-agents、phase-skills、json-design-schemas）精确一一对应，无多余、无缺失"
+        },
+        {
+          "item": "R11 proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": false,
+          "evidence": "AC-9 'archi_check 清单支持'（L165）与变更范围 bin/src/lib/c4-cross-ref.ts（L117）、c4-cross-ref.test.ts（L138）在 10 个 spec 中均无对应 requirement/capability；grep 'archi_check|cross-ref|staged' 仅命中 workflow-file-inventory spec L38 示例路径 'x.c4'（无关）。需删该条目或补能力+spec"
+        }
+      ],
+      "timestamp": "2026-09-16T11:02:18.514Z"
+    },
+    {
+      "phase": "proposal",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "11/11 pass (attempt 2). Fix verified: proposal L86 workflow-file-inventory capability now claims \"archi_check 清单消费（c4-cross-ref.ts 的 git staged 依赖退场）\"; spec gained \"Requirement: archi_check 支持清单文件列表\" (4 scenarios + Module row c4-cross-ref.ts getChangedFiles: git diff --cached → files.written). AC-9 now has a spec requirement; staged \"替代或降级\" matches AC-9 \"移除或降级\"; no-git-fallback and openspec/-exclusion rules consistent; R10 still 10↔10; no placeholders.",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "问题 L9-29：4 个具体结构性问题（index 污染/范围超集/build 产物污染/计划侧无结构化清单）+ 8 处 git 依赖全景表（L18-29），含具体位置如 'bin/src/lib/git.ts:25 getGitDiffFiles'"
+        },
+        {
+          "item": "R2 变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L104 '### 实现文件'（12 代码层条目 + 8 提示词/模板条目，含 c4-cross-ref.ts L117）、L130 '### 测试文件'（9 条目，含 c4-cross-ref.test.ts L138）、L142 '### 不要修改'（6 条目）均非空"
+        },
+        {
+          "item": "R3 风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "风险表 L174-182 七项均有具体缓解：session_id 风险 '先临时 log hook 实测；若不共享退化为暂存-认领模式'（L176）；漏记风险 '三态对账良性漏记 + change_files 补录 + git restore 规范化'（L177）；无泛化'监控并调整'"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "AC 表 L155-168 共 12 条均含对象+条件：AC-1 'workflow.json 含 files:{written:[],deleted:[]} 且 workflowFileSchema 校验通过'；AC-4 列出具体命令分类（tee/Set-Content/mv/git restore）；AC-7 含 'lib/git.ts 与 git.test.ts 不存在'；AC-9 archi_check 接收清单文件集可经 spec 4 场景验收"
+        },
+        {
+          "item": "R5 关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "决策表 L190-199 八行均含理由与被拒备选：'hook 被动记录' 拒 'agent 主动调 MCP 注册（可忘、多一次调用）'；'硬报错' 拒 '回退 git diff（双轨永久化复杂度）'；'两桶 flat' 拒 '单列表带 op 标签/三桶'"
+        },
+        {
+          "item": "R6 提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "仅动 hooks/MCP 工具/agent 提示词/skill 文案，符合 slim 架构（hooks+agents+MCP，无内嵌 skills）；无 test-only export；'不要修改'（L142-149）明确保留 phase_next 协议与既有写保护语义"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep 'TODO|TBD|placeholder|{{'（忽略大小写）对 proposal+specs 全目录零命中；'待决问题（留给 design）'（L201-209，含 L207 archi_check 参数形态）为合法模板章节，非占位符"
+        },
+        {
+          "item": "R8 所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9)/提案(L33)/变更范围(L102)/验收标准(L155)/风险(L174) 各节均有实质性内容，无空节或占位表述"
+        },
+        {
+          "item": "R9 能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L82 '## 能力'；L84 '### 新增能力' 2 条（workflow-file-inventory 含 'archi_check 清单消费（c4-cross-ref.ts 的 git staged 依赖退场）' L86、change-files）；L89 '### 修改的能力' 8 条，均非空"
+        },
+        {
+          "item": "R10 specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力 10 条 ↔ specs/ 下 10 个 spec.md（workflow-file-inventory、change-files、protect-files-hook、change-create、pipeline-backtrack、unit-test-executor、test-path-resolver、phase-agents、phase-skills、json-design-schemas）精确一一对应，无多余、无缺失；archi_check 归入 workflow-file-inventory 能力（L86），未新增孤立能力名"
+        },
+        {
+          "item": "R11 proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "attempt 1 的缺口已修复：AC-9（L165）现对应 workflow-file-inventory spec L166-194 'Requirement: archi_check 支持清单文件列表'（4 场景：清单驱动被查集/显式 files 优先/模型不进被查集/旧 change 硬报错）+ Module Contract L236-240 c4-cross-ref.ts getChangedFiles 'git diff --cached → files.written'。spec 'staged 替代或降级为显式入参别名' 与 AC-9 '移除或降级' 一致；'MUST NOT 隐式 git 回退' 与机制 1 硬报错一致；'模型文件不进被查集' 与机制 5 openspec/ 排除一致；能力声明（ADDED）与 spec 'ADDED Requirements' 一致。12 个 AC 全部有 spec 对应 requirement，无残留矛盾"
+        }
+      ],
+      "backtrack_to": "proposal",
+      "backtrack_reason": "用户手动执行回溯，推测原因：proposal 已通过但需求需要补充——unit-test-executor 传入 --change=<change-name> 参数时应自动读取清单文件，无需再传 --mutation-scope 或 --mutation-diff-only，--skip-mutation 参数保留。需更新 proposal.md 与 specs/ 后重新评估。",
+      "timestamp": "2026-09-16T11:06:47.116Z",
+      "stale": true
+    },
+    {
+      "phase": "proposal",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "回溯后复评通过。R1 问题含4项结构问题+8处git依赖定位表；R2 实现/测试/不要修改三节齐全非空；R3 7项风险均有具体缓解（如暂存-认领退化模式）；R4 AC-1~12均为对象+条件可测；R5 8项决策均含理由与被否备选；R6 符合slim插件架构约定；R7 grep占位符0命中；R8 各模板章节均有实质内容；R9 新增2+修改8条能力；R10 10能力与10 spec目录一一对应；R11 回溯核心语义（--change兼作突变入口、不引入--mutation-scope、--mutation-diff-only删除、--skip-mutation保留、净归零去噪）在提案L75/L94/AC-7与unit-test-executor spec逐条一致，实现文件与各spec Module Contract吻合，无冲突。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "proposal L11-16 列出4项具体结构问题（index污染 via add -N/reset、范围超集、build产物污染、计划侧无结构化清单），L18-29 给出8处git依赖定位表（含 bin/src/lib/git.ts:25 等文件:行号），非泛泛改进描述"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L104 `### 实现文件`（11个代码文件+8个提示词/模板文件）、L130 `### 测试文件`（10条）、L143 `### 不要修改`（6条），实现与测试均非空"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L175-183 共7项风险，缓解均具体：如 session_id 共享风险→\"临时 log hook 实测；不共享则退化为暂存-认领模式\"；shell解析漏记→\"三态对账判良性漏记 + change_files 补录 + git restore 规范还原\"；无\"监控并调整\"式泛化表述"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L156-169 AC-1~AC-12 均为对象+条件，如 AC-7 \"传入 --change=<change-name> 时突变 scope 自动来自 files.written ∩（内容≠HEAD）…lib/git.ts 与 git.test.ts 不存在\"；AC-1 断言 workflow.json 含 files:{written:[],deleted:[]}"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L191-200 决策表8行，每行均有理由与备选方案列：如\"清单记录方式→hook 被动记录｜基础设施不可遗忘｜备选: agent 主动调 MCP 注册（可忘、多一次调用）\""
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "符合 slim 插件架构（新增 PostToolUse hook、MCP 工具 change_files、agent 提示词修改，无嵌入 skill）；测试经公共API断言无 test-only export；改动范围与现有结构吻合"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "对 proposal.md 与 specs/**/*.md 执行 grep 'TODO|TBD|placeholder|\\{\\{'（忽略大小写）结果 0 命中；\"待决问题（留给 design）\"为模板合法章节非占位符"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题（4问题+8处定位表）、提案（架构图+10条核心机制）、变更范围（三类清单）、验收标准（12条）、风险（7项）均有实质内容，无占位表述"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L82 `## 能力`：L84-87 `### 新增能力` 含 workflow-file-inventory、change-files 2条；L89-98 `### 修改的能力` 含 protect-files-hook 等8条"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "10项能力（workflow-file-inventory/change-files/protect-files-hook/change-create/pipeline-backtrack/unit-test-executor/test-path-resolver/phase-agents/phase-skills/json-design-schemas）与 specs/ 下10个目录 spec.md 精确一一对应，无多余或缺失"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "回溯核心：提案L5/L75/L94/AC-7 与 unit-test-executor spec（--change 兼作唯一入口、SHALL NOT 引入 --mutation-scope、--mutation-diff-only 整体删除、--skip-mutation 保留、净归零去噪过滤）逐条一致；AC-1~12 均可在对应 spec Requirement 中溯源（如 AC-9→archi_check 清单要求、AC-6→pipeline-backtrack 清空规则）；实现文件与各 spec Module Contract 吻合，specs 无能力章节之外的多余条目"
+        }
+      ],
+      "timestamp": "2026-09-17T02:52:35.353Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "D1 组件表14行均填职责/依赖/技术/路径，技术无TBD；D2 数据模型3项含字段/关系/持久化；D3 AC-1~13逐项映射设计落点；D4 tasks 8阶段依赖序正确，git.ts删除(Phase6)晚于消费方去引用(Phase5)；D5 任务均含具体签名/规则/matcher值；D6 运行时+构建依赖已列并注明simple-git移除；D7 符合slim架构与版本bump规则、无test-only exports；D8 六章节全部实质填写；D9 design无测试章节、tasks无测试任务；D10 proposal实现文件18组全覆盖，清单↔tasks双向一致，新增文件函数均入公共函数表",
+      "checklist": [
+        {
+          "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表14行均填职责/文件位置/依赖/技术四列，技术均为具体选型（zod v4、正则单遍提取、JSON文件落盘等）无TBD，路径均指向具体文件"
+        },
+        {
+          "item": "数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型3项：workflow.json.files 列 written/deleted/source 字段与类型、change 1-1 关系、持久化路径 openspec/changes/<name>/workflow.json；session注册表含路径/结构/写入方/清理"
+        },
+        {
+          "item": "设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表 AC-1~AC-13 逐项给出设计落点，与 proposal 13条AC一一对应（如 AC-7→突变scope清单化组件+cli.ts行+git退场，AC-13→数据模型§1 source映射+FileOp.agentType）"
+        },
+        {
+          "item": "tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 60任务全为'- [ ]'并按 Phase1-8 分组；顺序 schema/file-inventory→session-registry→hooks→change_files→消费方→git退场→提示词→构建；git.ts 删除在 Phase6，晚于 Phase5 各消费方移除 import，无后置依赖"
+        },
+        {
+          "item": "任务具体且可执行",
+          "pass": true,
+          "evidence": "任务均具体到签名与规则：foldFileOps 三条折叠规则、record-files 的过滤与 exit 0 纪律、canonical matcher 具体值、change-create 键序，无泛化'实现功能'表述"
+        },
+        {
+          "item": "依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "依赖章节列运行时（zod v4、MCP SDK、node内置、simple-git 移除及原因）与构建/测试（pnpm build 组装链、既有 vitest/Stryker 无新增）并附用途"
+        },
+        {
+          "item": "设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "符合 slim 架构：仅扩展 hooks/MCP 工具/agent 提示词，不嵌入 skills；遵守版本 bump+rebuild 项目规则（package.json 行+Phase8）；extractFileOps 保持模块内部不出导出，符合 no test-only exports 约定"
+        },
+        {
+          "item": "所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增4+修改22行）/数据模型/路由API设计（MCP工具+hooks CLI子命令）/依赖/待决问题6项全部实质填写，变更清单同时含新增与修改文件"
+        },
+        {
+          "item": "不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节（依赖章节仅注明测试由独立阶段处理）；tasks.md 开头声明不含测试任务，全部为实现/文案/构建任务，无单元或集成测试执行"
+        },
+        {
+          "item": "变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal 实现文件18组条目全部见于变更清单（含 git.ts 整体删除）；清单↔tasks 逐文件双向对应无缺漏；新增4文件的函数/类型均入公共函数与类型定义表，子表间无矛盾"
+        }
+      ],
+      "timestamp": "2026-09-17T03:40:33.885Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "13项AC全部映射至验收范围(T1)；单元测试11个heading与验收范围互逆无缺失，6条集成关系关联AC均在范围内且覆盖全部集成型AC-2/3/6/7/8/9/13(T2)；各测试对象均含异常+边界用例，含空串/超长/emoji路径、空数组、100+路径大列表、非法枚举、TTL阈值(T3)；git/stdin/os.tmpdir/文件系统均有Mock策略，纯函数以注释说明不mock(T4)；四章节实质填写(T5)；不可测试项仅限提示词语义与宿主平台运行时，未对不要修改项扩圈(T6)；幂等有同op去重/append去重/拒绝覆写断言(T7)；T8格式子项全部合规(T8)。",
+      "checklist": [
+        {
+          "item": "T1 proposal每个AC在验收范围有映射",
+          "pass": true,
+          "evidence": "验收范围表含AC-1..AC-13共13行，与proposal验收标准表逐条对应；AC-11/AC-12以人工核对类型映射并列入不可测试项说明"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单元测试11个### heading（file-inventory/session-registry/hooks/change-files/change-create/backtrack/test-execution/test-resolve-paths/c4-cross-ref/cli/mcp 的 .test.ts）与验收范围各单元条目互逆无缺失；6条集成关系关联AC（R1:AC-2/3/13、R2:AC-7、R3:AC-8、R4:AC-9、R5:AC-6、R6:AC-2/3）均在验收范围，且集成型AC全部出现在关联AC中"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "每个测试对象均含异常+边界：readFileInventory覆盖空串/>1000字符/中文emoji路径/非数组/null/缺files；foldFileOps覆盖未知op、空ops、长序列、重复op、单桶不变量；change-files覆盖100+路径/空串/非法枚举；session-registry覆盖TTL阈值/损坏注册表；cli的错误路径由'未知命令报错/缺选项值CACError'用例承载"
+        },
+        {
+          "item": "T4 外部依赖有Mock策略",
+          "pass": true,
+          "evidence": "hooks stdin经vi.mock readFileSync注入、os.tmpdir mock隔离、HEAD内容对比在单元mock execSync且集成用真实git仓库、MCP用InMemoryTransport真实握手；foldFileOps纯函数以注释说明无需mock"
+        },
+        {
+          "item": "T5 所有模板章节已填写实质内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/集成测试(6关系10场景)/不可测试项均实质填写；11个单元章节均按序含####待测功能、####用例、####Mock策略"
+        },
+        {
+          "item": "T6 测试设计与proposal范围一致",
+          "pass": true,
+          "evidence": "不可测试项仅限提示词语义(AC-11/12)、宿主平台运行时链、构建发布与既定不解决的竞态，均有提案依据；不要修改清单（phase_next协议、fail-open语义、eval机制）未被新增测试扩圈，AC-1..AC-13全部有覆盖"
+        },
+        {
+          "item": "T7 写操作测试包含幂等性验证",
+          "pass": true,
+          "evidence": "foldFileOps同op重复→written单条目（去重幂等）；change-files append已存在路径去重且批量100+路径去重稳定；change-create已存在拒绝时不覆写不修补；set语义覆写净状态可显式修正"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "U1..U5：11个单元heading均为'源 -> 测试'且三小节顺序正确、待测功能为无序列表、用例表'测试对象|路径类型|测试条件|迭代类型'、Mock表'Mock主体|Mock方案|应用场景'、无测试文件列；I1..I8：6个集成heading均含'→ 测试文件'、涉及模块表'模块|角色'均≥4行、关联AC非空、关系描述为叙事段落、场景标题后均有叙事段、场景用例表列名一致；G1：验收范围表列名与模板一致"
+        }
+      ],
+      "timestamp": "2026-09-17T04:06:18.012Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "fail（仅 I5）。I1/I2：16 组件与变更清单全部落地，4 个新文件未跟踪故不在 git diff 但已实现，git.ts/git.test.ts 已删、simple-git 移除，提示词/模板层齐备。I4：change_files 注册、archi_check change 入参与 staged 显式报错、test_resolve_paths 模式3、record-files 子命令均在。I3/I7：写盘纪律与设计决策（硬报错指引、exit0 fail-open、noMutation 惰性、git show 去噪、openspec 排除、backtrack 预检先行、cursor null 省略）均遵守。I5 fail：tasks.md Phase 8 复选框未勾选，但工作实际已完成（2.10.37、四产物含记录器、无旧 flag 残留）。I6 备注：build/env.ts 与 apply-env-tokens.ts 各 1 行纯格式改动。",
+      "checklist": [
+        {
+          "item": "I1 design.md 中每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "16 组件逐一对应：workflow.schema.ts、file-inventory.ts、session-registry.ts、hooks.ts(extractFileOps/record-files/批量还原拦截)、hooks.canonical.json+hooks-profile.ts、change-files.schema.ts+change-files.ts+mcp.ts、test-execution.ts+cli.ts、test-resolve-paths 两文件、c4-cross-ref.ts+archi-check.schema.ts、backtrack.ts、change-create.ts、git.ts/git.test.ts 删+simple-git 移除、agents/skills/模板。新文件未跟踪故不在 git diff，但磁盘已存在"
+        },
+        {
+          "item": "I2 变更清单中的所有条目均有对应实现",
+          "pass": true,
+          "evidence": "新增 4 文件、修改文件表全命中；公共函数签名一致；FileInventory 经 z.infer(workflowFilesSchema) 从 file-inventory.ts 导出；postToolUse 条目、simple-git 移除、version 2.10.37、pnpm-lock 同步"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "命名/组织/导入/zod v4/2 空格写盘纪律与 eval-json 一致；测试文件仅机械去参，测试产出属独立 test 阶段（tasks.md 头部约定）"
+        },
+        {
+          "item": "I4 design.md 中所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "change_files 注册（withResolvedProjectRoot+jsonContent）、archi_check 增 change 且 staged:true 抛错、test_resolve_paths modules:'change'+refine、hooks main() 增 record-files、cli 删 --mutation-diff-only"
+        },
+        {
+          "item": "I5 tasks.md 中所有任务均标记 [x]（已完成）",
+          "pass": false,
+          "evidence": "tasks.md L59 Phase 8（bump version+build）为 [ ]；但工作实际已完成：version 2.10.37、四产物已重建、hooks.json 含 PostToolUse record-files、无 mutation-diff-only 残留"
+        },
+        {
+          "item": "I6 没有与当前变更任务无关的代码",
+          "pass": true,
+          "evidence": "改动均可追溯；唯一例外 build/env.ts 与 apply-env-tokens.ts 各 1 行纯格式改动（尾逗号/分号），无语义"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "缺 files 硬报错含重建指引、记录器异常仅 stderr exit 0、noMutation 惰性不读清单、去噪用 git show HEAD:<path> 非 git diff、openspec/** 与 workflow.json 排除、backtrack 预检先行、cursor null 整段省略、staged 显式报错、source 仅审计"
+        }
+      ],
+      "timestamp": "2026-09-17T04:58:00.249Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "复评通过：I5 已解决——tasks.md Phase 1-8 全部勾选，Phase 8 版本 bump 2.10.36→2.10.37 并 rebuild（4 个产物树已刷新，无 --mutation-diff-only 残留，hooks.json 含 record-files/PostToolUse）。其余项维持：4 个新增 lib/schema/command 文件在盘，git.ts/git.test.ts 已删，simple-git 移除，build/env 与 apply-env-tokens 仅 lint 级改动可追溯，test-execution-executor.md 为连带修改（引用被删 flag）。I1-I7 全过。",
+      "checklist": [
+        {
+          "item": "I1 design.md 每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "新增 file-inventory.ts/session-registry.ts/change-files.schema.ts/change-files.ts 均在盘；hooks.ts(+546)、hooks-profile.ts、workflow.schema.ts、c4-cross-ref.ts、backtrack.ts、change-create.ts、test-execution.ts、test-resolve-paths.ts、cli.ts、mcp.ts、git.ts 删除、提示词/模板/构建产物全部有 diff"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现",
+          "pass": true,
+          "evidence": "design.md 新增/修改文件表、公共函数表、类型表、配置表逐项对应 git diff 与新文件；package.json version 2.10.36→2.10.37 且 simple-git 移除"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "沿用 schemas/ 单行 re-export、commands/ runXxx 命令模式、zod v4、2 空格写盘纪律；与上次评估一致，无源码变动"
+        },
+        {
+          "item": "I4 所有路由/API 已实现",
+          "pass": true,
+          "evidence": "无 HTTP API；MCP change_files 新增注册、archi_check 增 change/staged 报错、test_resolve_paths 改清单模式，均在 mcp.ts/mcp.cjs diff 中；hooks 子命令 record-files 经 main() switch 分发"
+        },
+        {
+          "item": "I5 tasks.md 所有任务均标记 [x]",
+          "pass": true,
+          "evidence": "tasks.md Phase 1-8 全部复选框 [x]（上次仅 Phase 8 未勾，现已补勾）；产物验证：cli.cjs 无 mutation-diff-only 残留、hooks.json 含 record-files+PostToolUse"
+        },
+        {
+          "item": "I6 无与变更任务无关的代码",
+          "pass": true,
+          "evidence": "build/env.ts 与 apply-env-tokens.ts 仅分号/尾逗号 lint 级改动；test-execution-executor.md 为连带必需（原引用已删除的 --mutation-diff-only）；其余 diff 均可追溯到任务"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "三态折叠/单桶不变量、session 注册表 os.tmpdir+sha256 隔离、openspec/** 自污染排除、fail-open exit 0、staged 显式报错、无 --mutation-scope 等决策在 hooks.ts/c4-cross-ref.ts/cli.ts 中落实"
+        }
+      ],
+      "timestamp": "2026-09-17T05:02:21.831Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "G3/G4 不通过。G3：change-files.test.ts 缺设计行「路径命中受保护范围（workflow.json 自身 / openspec/config.json / 自污染范围）→ 拒绝入清单(AC-10)」——无用例传入此类路径断言拒绝，schema 仅拦表单（绝对/反斜杠/../），纯 openspec/config.json 可通过。G4：bin/__tests__/archi-check-inventory/ 集成测试文件整体缺失（设计 5 行：清单直通/files 优先/空数组 no_changes/staged 抛错/无 files 硬报错）；file-inventory-recording 场景2 缺「建绑前未绑定事件丢弃且不影响其后建绑与归账」。其余单测约 130 行、Mock 策略、框架导入、清理还原、废弃退场均符合设计。",
+      "checklist": [
+        {
+          "item": "G1 源码公开方法均有同目录测试文件",
+          "pass": true,
+          "evidence": "file-inventory/session-registry/change-files 新增测试与源码同目录；hooks/cli/mcp/commands/c4-cross-ref 均有共置测试；lib/git.ts 与 git.test.ts 同步删除"
+        },
+        {
+          "item": "G2 测试文件命名与共存",
+          "pass": true,
+          "evidence": "单元 *.test.ts 与源码同目录；集成按 __tests__/<场景>/<场景>.test.ts（build 侧 hooks-post-tool-use-registry 同）"
+        },
+        {
+          "item": "G3 单元测试用例表逐行生成",
+          "pass": false,
+          "evidence": "change-files.test.ts 缺「路径命中受保护范围→拒绝入清单(AC-10)」行（L317 仅覆盖表单拒绝，openspec/config.json 可通过 schema）；其余约 130 行（file-inventory 31、session-registry 11、hooks 32、change-create、backtrack、test-execution、test-resolve-paths、c4-cross-ref、cli、mcp）逐行核对均已生成且路径类型分类正确"
+        },
+        {
+          "item": "G4 集成测试用例表逐行生成",
+          "pass": false,
+          "evidence": "bin/__tests__/archi-check-inventory/ 目录不存在（设计 5 行未生成，AC-9 真盘链路无承载）；file-inventory-recording.test.ts 场景2 仅 2/3 行，缺「首个 phase_next 前未绑定事件丢弃且不影响其后建绑与归账」。其余 5 个集成文件行覆盖完整"
+        },
+        {
+          "item": "G5 Mock策略逐行实现",
+          "pass": true,
+          "evidence": "session-registry vi.mock node:os；hooks readFileSync/config/project-root/session-registry/file-inventory mock 且 foldFileOps 经 importOriginal 保持真实现；backtrack eval-json/file-inventory/change/change-config mock；test-execution child_process mock 承载 HEAD 对比；execSync not-called spy 就位；c4-cross-ref 以真实 .c4 fixture 替代 readAllModels mock，隔离实质等价"
+        },
+        {
+          "item": "G6 框架与导入正确",
+          "pass": true,
+          "evidence": "全部新测试文件 import { describe, expect, it } from 'vite-plus/test'，与 test-design 框架识别一致"
+        },
+        {
+          "item": "G7 边界情况覆盖",
+          "pass": true,
+          "evidence": "边界行均生成：路径形态多值（空串/超长/中文/emoji/绝对/反斜杠/../）、TTL 恰 24h 与略小、CRLF+反斜杠归一化、100+ 批量路径、空数组全去噪"
+        },
+        {
+          "item": "G8 清理/还原逻辑",
+          "pass": true,
+          "evidence": "真盘文件测试均 mkdtempSync+rmSync cleanup；spy 文件有 beforeEach mockReset/restore（test-resolve-paths 洗牌安全还原）；backtrack 与 build 注册测试为 mock/只读无磁盘副作用"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "mutationDiffOnly 仅负断言（cli.test.ts:277-279）；无 vi.mock('../lib/git')/getGitDiffFiles 残留；git-change 仅注释与 not.toContain；staged 仅剩 staged=false no_changes 回归，git diff --cached 数据源断言已删"
+        }
+      ],
+      "timestamp": "2026-09-17T06:03:13.750Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "All 9 pass. G3/G4 gaps closed: protected-path row (change-files.test.ts:300, deviation verified vs source), archi-check-inventory suite (5 rows), unbound-event row (file-inventory-recording:299). 11 unit tables + 6 integration suites map 1:1 to design rows with AC IDs. G5: c4-cross-ref uses real fixtures instead of vi.mock (matches pre-existing pattern cited). G9: lib/git, mutationDiffOnly, git-change, staged-effective absent or negative-only.",
+      "checklist": [
+        {
+          "item": "G1 每个公开方法有共存测试文件",
+          "pass": true,
+          "evidence": "file-inventory/session-registry/hooks/change-files/change-create/backtrack/test-execution/test-resolve-paths/c4-cross-ref/cli/mcp 均有同目录 *.test.ts；schemas 按测试配置 excludes 内嵌消费方断言（change-create.test.ts:435、change-files.test.ts:281、mcp.test.ts:2548）；git.ts/git.test.ts 成对删除"
+        },
+        {
+          "item": "G2 测试文件命名与共存",
+          "pass": true,
+          "evidence": "单元测试均为源码同目录 *.test.ts；集成测试按 design 既定路径 bin/__tests__/<场景>/ 与 build/__tests__/hooks-post-tool-use-registry/"
+        },
+        {
+          "item": "G3 单元测试用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "11 张表逐行核对全部命中；上轮缺口已补：受保护路径行 change-files.test.ts:300（记录偏差且与源码一致）、foldFileOps 未知 op 行 file-inventory.test.ts:470（switch 无 default，偏差如实记录）"
+        },
+        {
+          "item": "G4 集成测试用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "6 套件全行覆盖：file-inventory-recording（含新增未绑定行 :299）、mutation-scope-inventory(7)、inventory-test-path-resolution（含 :215 消费契约复核）、archi-check-inventory(5，新增)、inventory-backtrack-clear(5)、hooks-post-tool-use-registry(5)；AC ID 与 design 一致"
+        },
+        {
+          "item": "G5 Mock策略表已实现",
+          "pass": true,
+          "evidence": "hooks.test.ts:49-76（fd0/config/session-registry/file-inventory 半真半 mock/project-root）、backtrack.test.ts:30-52、test-execution.test.ts:60-78、session-registry.test.ts:22 os.tmpdir、execSync spy 断言（test-resolve-paths:1144、c4-cross-ref:1218）。偏差：c4-cross-ref 用真实 .c4/workflow.json fixture 替代 vi.mock，与 design 引用的既有模式一致且隔离意图不变"
+        },
+        {
+          "item": "G6 正确框架与导入",
+          "pass": true,
+          "evidence": "全部新测试文件 import { describe, it, expect, vi } from 'vite-plus/test'，与 design vite-plus 框架结论一致"
+        },
+        {
+          "item": "G7 边界情况覆盖",
+          "pass": true,
+          "evidence": "逐表核对全部 路径类型=边界 行均有对应 it（空净状态/超长路径/TTL 阈值/CRLF 归一化/空数组 scope/批量 100+ 等）；design 无类型映射表，逐类型 2 边界子句不适用"
+        },
+        {
+          "item": "G8 清理/还原逻辑",
+          "pass": true,
+          "evidence": "fixture cleanup rmSync（file-inventory.test.ts:40、change-files.test.ts:36、inventory-test-path-resolution:69）；集成套件均有 afterEach；hooks captureStderr restore；各套件 mockRestore"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "无 vi.mock('../lib/git')；mutationDiffOnly/mutation-diff-only 仅出现在否定断言（cli.test.ts:277-279、test-execution.test.ts:830）；git-change 仅存注释与 not.toContain；既有 staged 生效断言已替换为抛错断言；Object.keys 两键断言已替换为三键断言"
+        }
+      ],
+      "timestamp": "2026-09-17T06:37:39.699Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 2095 个测试通过（failed=0, skipped=0），conclusion=pass，无 execution_error。覆盖率达标: lines=96.87%(阈值90%), branches=89.02%(阈值85%), functions=99.32%(阈值90%)。突变得分 78.68% ≥ 70%（1450 killed / 2112 突变体）。override plugins/dev-team measured 为 null（未评估，非未达标，不影响通过）。无需修复。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp 元数据齐全；total=2095、passed=2095、failed=0、skipped=0 均为数值；coverage 为含 pass/measured/thresholds/overrides 的对象；duration_seconds=703 为数值"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2095>0；conclusion='pass'，problems=[] 无 execution_error"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true: lines=96.87% (阈值 90%), branches=89.02% (阈值 85%), functions=99.32% (阈值 90%)；override plugins/dev-team 测量维度为 null 但 pass=true（未评估，非未达标），按规则不失败"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，诊断不适用（自动通过）；mutation.pass=true (78.68% ≥ 70%) 亦无失败"
+        }
+      ],
+      "timestamp": "2026-09-17T07:04:45.187Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1：execFileSync 参数数组调 git show 无注入面；change-files schema 拒绝绝对路径/盘符/..（change-files.schema.ts:12-15）；hook stdin 逐字段收窄。C2：zod refine 双覆盖（test-resolve-paths/change-files.schema）。C3：与 design 一致——backtrack 预检先行（backtrack.ts:117-120）、突变清单惰性解析+净归零去噪仅 overstate、git 退场彻底、built hooks.json 含 PostToolUse 与展开 MCP matcher。连带观察：test-execution-executor.md 随 flag 删除同步（合理）；记录器不做 python/node 豁免（PreToolUse 保留，方向 overstate）。C4：readFileInventory 四类失败/越根丢弃/registry fail-open 齐备。C5：无死代码残留。C6/C7：类型同源 z.infer，符合规范。全部通过",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "execFileSync('git',['show',…]) 参数数组无注入面（test-execution.ts headFileContent）；change-files.schema.ts:12-15 拒绝绝对路径/盘符/反斜杠/.. 穿越；hooks.ts:704-746 stdin JSON 全量 try/catch+isRecord+typeof 收窄；session-registry 落盘 tmpdir 哈希名；无硬编码密钥/eval/exec 滥用"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "change_files 走 changeFilesInputSchema（refine written/deleted 至少其一）；test_resolve_paths refine modules==='change' 时 change 必填且运行时 errors 双覆盖（test-resolve-paths.ts:166-172）；readRegistry 逐条目形状校验（session-registry.ts:56-60）；readFileInventory 走 workflowFileSchema.safeParse"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "backtrack 预检 files 先于 eval 写回（backtrack.ts:117-120，不部分生效）；突变 scope 惰性解析+净归零去噪仅向 overstate（test-execution.ts headFileContent 失败保留）；git 退场彻底（git.ts/git.test.ts 删除、simple-git 移除、范围判定无 git diff）；built claude hooks.json 含 PostToolUse+展开的 mcp__…phase_next matcher；三态对账提示词层全部落位。连带观察：test-execution-executor.md 随 --mutation-diff-only 删除同步更新（设计未列但必要）；记录器不做 python/node 豁免（hooks.ts:352-354 注明，PreToolUse 侧 hooks.ts:453 保留，方向 overstate）"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "readFileInventory 四类失败各带指引（file-inventory.ts:58-93）；normalizeRecordedPath 空路径/越根丢弃（hooks.ts:634-642）；HEAD 读取失败→保留文件；registry fail-open（session-registry.ts:62-64）；清单为空 earlyReturn 不致命（test-resolve-paths.ts）"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "git.ts/git.test.ts 整删，全库无 getGitDiffFiles/simple-git/lib/git 残留引用；cli.test.ts 仅断言 absence；env.test.ts 移除 PRODUCT_ENV_KEYS 过期断言（键集已含 zcode，导出仍被 assemble.ts 使用，非死代码）；新增符号均有生产消费方"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "沿用既有模式：commands/schemas 分层、schemas/index.ts 单行 re-export、中文报错文案与 eval-json 写盘纪律一致（file-inventory.ts 注释明示镜像）、无 test-only export；未跟踪的 plugins/dev-team/stryker.config.3ebd98f8.json 为测试运行残留物（指向 planDir），非变更源码"
+        },
+        {
+          "item": "C7 外部数据使用同源数据类型",
+          "pass": true,
+          "evidence": "FileInventory/ChangeFilesInput/Output 均为 z.infer 单一 schema 源；hook stdin 属不可信外部输入，用局部收窄而非自定义映射类型，无中间类型转换层"
+        }
+      ],
+      "timestamp": "2026-09-17T07:11:38.502Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "13/13 AC 逐条溯源通过。AC-1 change-create.ts:39；AC-2/3/13 hooks.ts:594-768 record-files＋session-registry.ts 绑定＋agent_type 旁挂(file-inventory.ts:100-106)；AC-4/5 extractFileOps(hooks.ts:356)＋checkBulkRevert(hooks.ts:404)；AC-6 backtrack.ts:43-46,119-136；AC-7 test-execution.ts:136-151 git show 去噪，git.ts/git.test.ts 已删、--mutation-diff-only 零残留；AC-8 test-resolve-paths.ts:166-179；AC-9 c4-cross-ref.ts:113-128；AC-10 mcp.ts:336；AC-11/12 提示词/模板/skills 齐备。tasks 全 [x]；无范围蔓延；out_of_scope 未动；7 风险均有代码缓解。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 change-create.ts:39 初始化 files{written:[],deleted:[]}＋workflow.schema.ts:16-48；AC-2/3 hooks.ts:594-746 record-files（openspec/workflow.json 排除 :649-656）＋session-registry.ts:82-113 bind/lookup；AC-4 extractFileOps hooks.ts:356-364 三态＋foldFileOps file-inventory.ts:125-159；AC-5 checkBulkRevert hooks.ts:404-439（stash/clean/restore 拦截）＋checkExtractedOps:385-391 删保护；AC-6 backtrack.ts:43-46 shouldClearFiles＋:119-136 预检先行；AC-7 test-execution.ts:136-151 --change 触发清单＋:80-91 git show HEAD 去噪，lib/git.ts 与 git.test.ts 已删（glob 零命中），cli.ts 无 --mutation-diff-only/--mutation-scope 且 :28 --skip-mutation 保留，旧 change 硬报错 file-inventory.ts:86-90；AC-8 test-resolve-paths.ts:166-179 modules:'change' 读清单，schema refine test-resolve-paths.schema.ts:30-32；AC-9 c4-cross-ref.ts:113-128 change 清单直通＋staged:true 抛错:117-119；AC-10 mcp.ts:336 注册 change_files＋change-files.ts:95 append/set＋schema 拒绝绝对/../（change-files.schema.ts:9-15）；AC-11 implementation-evaluator.md:37-46 三态判定表＋test-gen-evaluator.md:34-42＋acceptance/code-review-evaluator.md:33 git diff 仅观察；AC-12 design.md.template:41 与 proposal.md.template:43 删除文件节＋phase-implement/phase-test-gen SKILL.md:61/7＋implementation-generator.md:45 git restore 规范还原；AC-13 hooks.ts:719 读 agent_type→:688-690 盖章，setSource file-inventory.ts:100-106 last-writer-wins，消费方仅读 .written（test-execution.ts:144/test-resolve-paths.ts:179/c4-cross-ref.ts:128），built hooks.json:33-39 PostToolUse 含展开 MCP 全名"
+        },
+        {
+          "item": "A2 无范围蔓延",
+          "pass": true,
+          "evidence": "MCP 工具面仅新增 change_files（mcp.ts:336），其余 15 个工具均既有；新增模块限 design 清单 4 文件（file-inventory/session-registry/change-files.schema/change-files）＋EMPTY_FILE_INVENTORY 常量（backtrack 消费）；连带改动均可追溯：architecture.md:35（design.md L68 说明）、test-execution-executor.md（随被删 flag）、build/env.ts 与 apply-env-tokens.ts 仅格式级（implement I6 两轮核实）；无 in_scope 外新功能/API"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "实现文件 18 组逐项命中：git.ts 删（git*.ts glob 零命中）＋hooks.ts（extractFileOps:356/runRecordFiles:755/checkBulkRevert:404）＋hooks.canonical.json:26-32 postToolUse＋hooks-profile.ts:53-100 双产物组装＋session-registry.ts＋workflow.schema.ts:48 files＋change-create.ts:39＋backtrack.ts＋test-execution.ts＋cli.ts（仅 --change:22/--skip-mutation:28）＋test-resolve-paths 两文件＋c4-cross-ref.ts＋archi-check.schema.ts:7-16＋mcp.ts＋schemas/index.ts:37 re-export；提示词/模板 8 组全命中；测试文件面由 test-gen G1-G4 核实（11 单元＋6 集成，git.test.ts 成对删除）"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "phase_next 协议未改：记录器仅旁路观察 PostToolUse 事件 tool_input（hooks.ts:594-596,663-672），run_id 契约与 (change,run_id) anchor 无改动；既有写保护 glob 与 fail-open 未动：openspec/config.json 不在修改集，python/node 豁免保留（hooks.ts:453），仅扩拦截分类；eval 机制语义保留：backtrack.ts:124-131 既有 markPhaseStale/persistEvalJson 流程不变，phase_log（mcp.ts:80）未改；archi_write/archi_decide 无特判：经通用 openspec/** 过滤（hooks.ts:649-656）自然排除；与清单无关的 evaluator/generator（proposal-evaluator、dev-design-*、test-design-*、code-analyze-*）无 diff（implement I6 核实）"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "session_id 共享：session-registry.ts 绑定/查表实现且接口可演进暂存-认领（design L223）；shell 解析长尾：三态对账良性漏记（implementation-evaluator.md:42）＋change_files 补录（mcp.ts:336）＋git restore 规范化（implementation-generator.md:45）；折叠近似：foldFileOps 只多记（file-inventory.ts:108-123）＋内容核对/去噪/文件系统裁判（test-execution.ts:94-124、evaluator 提示词）；旧 change 不兼容：硬报错含重建指引（file-inventory.ts:86-90）；Cursor 支持不全：change_files 兜底＋canonical cursor:null 如实标注 Claude-only（hooks.canonical.json:2,30）；去噪耗时：仅对 written 逐文件 git show（test-execution.ts:100-124）；并发写竞态：本期既定不解决，set 语义可修复（change-files.ts:60-83）"
+        }
+      ],
+      "timestamp": "2026-09-17T07:20:19.335Z"
+    }
+  ]
+}

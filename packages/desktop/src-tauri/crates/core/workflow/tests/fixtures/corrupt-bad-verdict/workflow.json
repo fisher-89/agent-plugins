@@ -1,0 +1,19 @@
+{
+  "workflow_type": "requirement",
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "not-a-verdict",
+      "report": "该条 verdict 非法，应整条跳过。",
+      "checklist": []
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "合法条目：fail 也是合法枚举，应保留。",
+      "checklist": []
+    }
+  ]
+}

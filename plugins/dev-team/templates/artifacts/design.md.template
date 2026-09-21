@@ -19,6 +19,7 @@
   以文件为入口逐层展开，实现阶段以此清单为边界。
   子表按需填写，不涉及的子表整段省略并以 HTML 注释标注原因。
   公共函数仅列模块级导出函数、CLI 子命令、HTTP 端点，私有函数不列入。
+  导出 class 的公共 API 按公开方法逐条列出（实例方法、静态方法、getter/setter），不得只列类名。
   签名格式：Python → create_adr(title: str, status: str = "proposed") -> dict；TS → function parseImports(file: string): Import[]
 -->
 
@@ -47,6 +48,8 @@
 <!-- 目录级删除以目录路径声明。如无删除文件，省略此子节，MUST NOT 强制为空表 -->
 
 ### 公共函数 / API
+
+<!-- identifier: 函数名 / 类名.方法名 -->
 
 | 标识符 | 所在文件 | 类型 | 签名 | 说明 |
 |--------|----------|------|------|------|

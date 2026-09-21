@@ -1,0 +1,82 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [],
+    "created": null,
+    "fileLog": [
+      {
+        "at": "2026-08-11T08:00:00Z",
+        "attempt": null,
+        "op": "write",
+        "path": "src/keep.rs",
+        "scope": "workflow"
+      },
+      {
+        "at": "2026-08-11T08:02:00Z",
+        "attempt": null,
+        "op": "delete",
+        "path": "src/also-keep.rs",
+        "scope": "workflow"
+      }
+    ],
+    "interrupted": [],
+    "inventory": "v2",
+    "name": "corrupt-bad-filelog-entry",
+    "pipeline": [
+      {
+        "attempts": [],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v2",
+  "fixture": "corrupt-bad-filelog-entry",
+  "parse": {
+    "activePhasePresent": false,
+    "created": null,
+    "evalCount": 0,
+    "evalSkipped": 0,
+    "evalStale": 0,
+    "evalWithBacktrack": 0,
+    "evalWithChecklist": 0,
+    "fileLog": "entries",
+    "fileLogCount": 2,
+    "interruptedCount": 0,
+    "outcome": "parsed",
+    "workflowType": "requirement"
+  }
+}

@@ -1,0 +1,98 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [
+      {
+        "kind": "tasks-progress",
+        "source": "tasks.md",
+        "title": "任务进度"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "proposal.md",
+        "title": "提案"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "design.md",
+        "title": "设计"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "tasks.md",
+        "title": "任务"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/pipeline-backtrack/spec.md",
+        "title": "规格 · pipeline-backtrack"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "test-design.md",
+        "title": "测试设计"
+      }
+    ],
+    "created": null,
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v1",
+    "name": "v1-a",
+    "pipeline": [
+      {
+        "attempts": [],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v1",
+  "fixture": "v1-a",
+  "parse": {
+    "activePhasePresent": false,
+    "created": null,
+    "evalCount": 0,
+    "evalSkipped": 0,
+    "evalStale": 0,
+    "evalWithBacktrack": 0,
+    "evalWithChecklist": 0,
+    "fileLog": "absent",
+    "fileLogCount": 0,
+    "interruptedCount": 0,
+    "outcome": "parsed",
+    "workflowType": "requirement"
+  }
+}

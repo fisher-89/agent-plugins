@@ -1,0 +1,18 @@
+{
+  "workflow_type": "requirement",
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "时间戳非法但条目本身合法：条目保留、时间戳降级为空。",
+      "checklist": [{ "item": "唯一检查项", "pass": true, "evidence": "时间戳降级不影响条目" }],
+      "timestamp": "2026年8月12日 8 点"
+    }
+  ],
+  "active_phase": {
+    "phase": "implement",
+    "attempt": 1,
+    "start_at": "not-a-timestamp"
+  }
+}

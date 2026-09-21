@@ -1,0 +1,7 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "查询 IPC 与文件夹选择器；无 fs / shell 等其他权限",
+  "windows": ["main"],
+  "permissions": ["core:default", "dialog:allow-open"]
+}

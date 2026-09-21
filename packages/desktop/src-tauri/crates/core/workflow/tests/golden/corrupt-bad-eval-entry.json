@@ -1,0 +1,126 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [
+      {
+        "kind": "eval-checklist",
+        "source": "0",
+        "title": "评估清单 · proposal · 第 1 次"
+      },
+      {
+        "kind": "eval-checklist",
+        "source": "1",
+        "title": "评估清单 · test-design · 第 1 次"
+      }
+    ],
+    "created": "2026-08-10",
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v1",
+    "name": "corrupt-bad-eval-entry",
+    "pipeline": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "有依据",
+                "item": "检查项一",
+                "pass": true
+              }
+            ],
+            "report": "完好条目：应正常保留。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": [
+              2026,
+              222,
+              7,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "verdict": "pass"
+          }
+        ],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "有依据",
+                "item": "检查项二",
+                "pass": false
+              }
+            ],
+            "report": "另一条完好条目：也应正常保留。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": null,
+            "verdict": "pass"
+          }
+        ],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v1",
+  "fixture": "corrupt-bad-eval-entry",
+  "parse": {
+    "activePhasePresent": false,
+    "created": "2026-08-10",
+    "evalCount": 2,
+    "evalSkipped": 0,
+    "evalStale": 0,
+    "evalWithBacktrack": 0,
+    "evalWithChecklist": 2,
+    "fileLog": "absent",
+    "fileLogCount": 0,
+    "interruptedCount": 0,
+    "outcome": "parsed",
+    "workflowType": "requirement"
+  }
+}

@@ -1,0 +1,167 @@
+﻿{
+  "numTotalTestSuites": 9,
+  "numPassedTestSuites": 9,
+  "numFailedTestSuites": 0,
+  "numPendingTestSuites": 0,
+  "numTotalTests": 10,
+  "numPassedTests": 10,
+  "numFailedTests": 0,
+  "numPendingTests": 0,
+  "numTodoTests": 0,
+  "snapshot": {
+    "added": 0,
+    "failure": false,
+    "filesAdded": 0,
+    "filesRemoved": 0,
+    "filesRemovedList": [],
+    "filesUnmatched": 0,
+    "filesUpdated": 0,
+    "matched": 0,
+    "total": 0,
+    "unchecked": 0,
+    "uncheckedKeysByFile": [],
+    "unmatched": 0,
+    "updated": 0,
+    "didUpdate": false
+  },
+  "startTime": 1781757498356,
+  "success": true,
+  "testResults": [
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["test_detect_frameworks — 首匹配规则"],
+          "fullName": "test_detect_frameworks — 首匹配规则 tests/e2e/test_app.ts 同时匹配 **/*.ts 与 **/e2e/** 时应归属数组首项 vitest",
+          "status": "passed",
+          "title": "tests/e2e/test_app.ts 同时匹配 **/*.ts 与 **/e2e/** 时应归属数组首项 vitest",
+          "duration": 15.646600000000035,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": ["test_detect_frameworks — 首匹配规则"],
+          "fullName": "test_detect_frameworks — 首匹配规则 交换 override 顺序后框架归属应随之改变",
+          "status": "passed",
+          "title": "交换 override 顺序后框架归属应随之改变",
+          "duration": 7.201900000000023,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1781757499255,
+      "endTime": 1781757499277.202,
+      "status": "passed",
+      "message": "",
+      "name": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_first_match/test_detect_frameworks_first_match.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["test_detect_frameworks — glob 模式匹配"],
+          "fullName": "test_detect_frameworks — glob 模式匹配 应正确检测 {} 花括号、** 跨目录与无通配符目录前缀三类 pattern",
+          "status": "passed",
+          "title": "应正确检测 {} 花括号、** 跨目录与无通配符目录前缀三类 pattern",
+          "duration": 11.972099999999955,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": ["test_detect_frameworks — Windows 路径"],
+          "fullName": "test_detect_frameworks — Windows 路径 以反斜杠形式传入 files 参数时检测结果应与正斜杠形式一致",
+          "status": "passed",
+          "title": "以反斜杠形式传入 files 参数时检测结果应与正斜杠形式一致",
+          "duration": 6.4298,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1781757499255,
+      "endTime": 1781757499273.4297,
+      "status": "passed",
+      "message": "",
+      "name": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_glob_matching/test_detect_frameworks_glob_matching.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["test_detect_frameworks — 自动扫描匹配文件集合"],
+          "fullName": "test_detect_frameworks — 自动扫描匹配文件集合 省略 files 参数时应检测 src/app.test.ts 与 tests/auth.rs 并归属正确框架",
+          "status": "passed",
+          "title": "省略 files 参数时应检测 src/app.test.ts 与 tests/auth.rs 并归属正确框架",
+          "duration": 21.56529999999998,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": ["test_detect_frameworks — 自动扫描匹配文件集合"],
+          "fullName": "test_detect_frameworks — 自动扫描匹配文件集合 仅含 readme.md 非测试文件时 detected 应为空",
+          "status": "passed",
+          "title": "仅含 readme.md 非测试文件时 detected 应为空",
+          "duration": 8.79469999999992,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": ["test_detect_frameworks — 自动扫描匹配文件集合"],
+          "fullName": "test_detect_frameworks — 自动扫描匹配文件集合 node_modules/pkg/index.test.ts 不应被自动扫描纳入 detected",
+          "status": "passed",
+          "title": "node_modules/pkg/index.test.ts 不应被自动扫描纳入 detected",
+          "duration": 9.719600000000014,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": ["test_detect_frameworks — 自动扫描匹配文件集合"],
+          "fullName": "test_detect_frameworks — 自动扫描匹配文件集合 自动扫描结果不应含 unknown 非测试文件（D5 语义变更）",
+          "status": "passed",
+          "title": "自动扫描结果不应含 unknown 非测试文件（D5 语义变更）",
+          "duration": 8.408600000000092,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1781757499255,
+      "endTime": 1781757499304.4087,
+      "status": "passed",
+      "message": "",
+      "name": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_auto_scan/test_detect_frameworks_auto_scan.test.ts"
+    },
+    {
+      "assertionResults": [
+        {
+          "ancestorTitles": ["test_detect_frameworks — plan 输出结构"],
+          "fullName": "test_detect_frameworks — plan 输出结构 字符串简写 \"vitest\" 配置时 plan 应含完整字段且通过 schema 校验",
+          "status": "passed",
+          "title": "字符串简写 \"vitest\" 配置时 plan 应含完整字段且通过 schema 校验",
+          "duration": 16.863500000000045,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        },
+        {
+          "ancestorTitles": ["test_detect_frameworks — plan 输出结构"],
+          "fullName": "test_detect_frameworks — plan 输出结构 无 test.framework 配置时 plan 应为空数组且 detected 均为 unknown",
+          "status": "passed",
+          "title": "无 test.framework 配置时 plan 应为空数组且 detected 均为 unknown",
+          "duration": 5.750799999999913,
+          "failureMessages": [],
+          "meta": {},
+          "tags": []
+        }
+      ],
+      "startTime": 1781757499255,
+      "endTime": 1781757499277.7507,
+      "status": "passed",
+      "message": "",
+      "name": "D:/Projects/wps-claude-plugin/plugins/dev-team/bin/__tests__/test_detect_frameworks_plan_output/test_detect_frameworks_plan_output.test.ts"
+    }
+  ]
+}

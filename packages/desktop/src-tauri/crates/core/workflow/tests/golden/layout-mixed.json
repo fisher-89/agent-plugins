@@ -1,0 +1,28 @@
+{
+  "fixture": "layout-mixed",
+  "list": {
+    "active": [
+      {
+        "created": null,
+        "inventory": "v2",
+        "name": "real-change",
+        "source": "active",
+        "unparsable": false
+      }
+    ],
+    "archiveGroups": [
+      {
+        "changes": [
+          {
+            "created": "2026-01-02",
+            "inventory": "v0",
+            "name": "2026-01-02-file-inside",
+            "source": "archive",
+            "unparsable": false
+          }
+        ],
+        "month": "2026-01"
+      }
+    ]
+  }
+}

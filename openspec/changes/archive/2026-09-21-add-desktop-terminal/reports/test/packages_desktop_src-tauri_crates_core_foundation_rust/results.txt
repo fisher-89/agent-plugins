@@ -1,0 +1,17 @@
+
+running 7 tests
+test layout_test::root_为空路径时返回相对形式且不_panic ... ok
+test layout_test::root_带尾部分隔符或重复分隔符时join不追加新分隔符 ... ok
+test layout_test::不存在的_root_纯推导正常返回 ... ok
+test layout_test::存在的_root_返回以_root为前缀的三棵子树 ... ok
+test layout_test::resolve_对同一输入结果稳定且可比较 ... ok
+test layout_test::root_指向文件而非目录时仍正常拼接路径 ... ok
+test layout_test::全包源码不含_openspec_字样_layout_为唯一例外 ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

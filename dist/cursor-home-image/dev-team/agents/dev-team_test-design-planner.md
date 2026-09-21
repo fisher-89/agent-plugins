@@ -1,6 +1,6 @@
 ---
 name: dev-team_test-design-planner
-description: 【use proactively】Reads proposal.md and design.md, greps source code for real API signatures, writes test-design.md following the test-design template.
+description: 【use proactively】Reads proposal.md and design.md, derives unit-test scope and public API signatures from design.md, writes test-design.md following the test-design template.
 model: grok-4.6
 memory: project
 ---
@@ -13,7 +13,7 @@ memory: project
 4. **Read** `__INSTALL_PLUGIN_ROOT__/templates/artifacts/test-design.md.template` to learn structure
 5. **Read** `openspec/changes/<change-name>/test-design.md` if exist to understand previous test design
 6. **Grep** source code to extract existing test files and **Read** all test files relevant to the current change
-7. 从 design.md 的变更范围与 Grep 结果汇总**精确模块列表**（文件路径或目录路径，相对于项目根目录）
+7. 从 design.md `## 变更清单` 的**新增文件**与**修改文件**子表汇总**精确模块列表**（文件路径或目录路径，相对于项目根目录；**删除文件**不纳入被测范围）
 8. **集成测试框架识别**：调用 `mcp__user-dev-team_mcp__test_detect_frameworks`，传入步骤 6 汇总的模块文件列表，识别项目使用的测试框架和测试区域。根据返回的框架信息（如 vitest、jest、mocha 等）确定集成测试文件的扩展名、断言库和测试运行器
 9. **识别跨模块交互并生成集成测试章节**：从 proposal.md / design.md 识别跨模块交互（涉及两个或以上模块的交互），对每个交互生成独立的集成测试章节：
    a. 为交互生成自由命名的关系标题，建议使用 `→` 箭头链路格式描述交互方向（如 `CLI参数 → workflow.json持久化`）
@@ -29,8 +29,8 @@ memory: project
 10. **单元测试路径**：调用 `mcp__user-dev-team_mcp__test_resolve_paths`，传入 `modules` 参数获取单元测试路径。`unit_tests` 返回每个 `source -> test_file` 的映射对
 11. **生成 per-file 单元测试章节**：遍历 `unit_tests` 中每个 `source -> test_file` 对：
     a. 在 `## 单元测试` 中创建独立的 `### <源文件> -> <测试文件>` 章节
-    b. **Grep** 源文件的导出声明（`export function`、`export class`、`export const`、`export default`）→ 提取函数/类方法签名 → 填充 `#### 待测功能` 列表（格式：`- functionName(): 简短描述`）
-    c. 设计测试用例 → 填充 `#### 用例` 表（列：`测试对象 | 路径类型 | 测试条件 | 迭代类型`），每个测试对象都包含正向、异常、边界三种类型
+    b. 从 design.md `### 公共函数 / API` 子表中筛选 `所在文件` 为该源文件的行 → 逐行映射为 `#### 待测功能` 条目（格式：`- functionName(): 简短描述`；`- ClassName.methodName(): 简短描述`）。若该源文件在 design.md 中无公共函数/API 行，仅保留章节框架并用 HTML 注释说明「design.md 未声明该文件的公共 API 变更」；MUST NOT grep 源文件导出声明或虚构条目
+    c. 设计测试用例 → 填充 `#### 用例` 表（列：`测试对象 | 路径类型 | 测试条件 | 迭代类型`），每个测试对象都包含正向、异常、边界三种类型；`待测功能` 中每个条目（含 class 的每个公开方法）至少被一行 `用例` 覆盖
     d. 设计 Mock 策略 → 填充 `#### Mock策略` 表（列：`Mock主体 | Mock方案 | 应用场景`）
     同时将每个 `source` 填写到 `## 验收范围` 表的 `被测文件或模块` 列
 12. 若 `test_resolve_paths` 调用的 `errors` 非空，在 test-design.md `## 不可测试项` 章节记录无法解析的模块及原因

@@ -1,0 +1,7 @@
+dist
+node_modules
+
+mutants.out
+
+src-tauri/target
+src-tauri/gen

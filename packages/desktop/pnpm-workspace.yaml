@@ -1,0 +1,12 @@
+allowBuilds:
+  esbuild: true
+# 将 `vite` 别名到 vite-plus 的 rolldown 内核（vite-plus README 推荐的 override）：
+# @vitejs/plugin-react 运行时检测 `rolldownVersion` 导出，命中后走 oxc 配置分支，
+# 不再返回已废弃的 esbuild/optimizeDeps.esbuildOptions（vp check 的弃用警告来源）。
+overrides:
+  vite: npm:@voidzero-dev/vite-plus-core@0.2.9
+# 别名后 vite 版本号为 0.2.9,不满足 vitest/plugin-react 声明的 ^6||^7||^8
+# semver 范围,但 vite-plus-core 即 rolldown-vite、API 兼容,放行该版本告警。
+peerDependencyRules:
+  allowedVersions:
+    vite: '*'

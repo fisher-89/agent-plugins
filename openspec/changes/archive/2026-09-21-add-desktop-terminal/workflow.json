@@ -1,0 +1,1624 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-20",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/queries/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/Cargo.toml",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/main.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/commands/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/commands/queries/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/commands/exec/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/tauri.conf.json",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/foundation/src/layout_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/parse/detect_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/parse/workflow_file_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/list_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/registry_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/markdown_doc_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/eval_checklist_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/tasks_progress_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/queries/mod_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/layout_queries_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/generation_parse_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/artifacts_envelope_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/corpus_golden_test.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/README.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/.openspec.yaml",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/eval.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/proposal.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/reports/coverage/vitest/coverage-summary.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/reports/integration-test-execution.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/reports/unit-test-execution.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/reports/vitest-glob-output.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/reports/vitest-integration-output.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/specs/glob-matching/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/specs/test-execution-diagnostics/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/tasks.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-a/test-design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/.openspec.yaml",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/proposal.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/specs/hook-output-import/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/specs/intent-router/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/specs/json-design-schemas/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/specs/pge-workflow-engine/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/specs/phase-agents/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/specs/phase-skills/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/specs/pipeline-backtrack/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v0-b/tasks.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/.openspec.yaml",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/eval.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/proposal.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/reports/test-execution.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/reports/test-execution/node-test.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/reports/test-execution/vite-plus.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/specs/pipeline-backtrack/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/tasks.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/test-design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-a/workflow.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/explore.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/proposal.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/change-create/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/change-files/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/json-design-schemas/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/phase-agents/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/phase-skills/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/pipeline-backtrack/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/protect-files-hook/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/test-path-resolver/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/unit-test-executor/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/specs/workflow-file-inventory/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/tasks.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/test-design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-b/workflow.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-c/design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-c/proposal.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-c/specs/change-files/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-c/specs/workflow-file-inventory/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-c/tasks.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-c/test-design.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v1-c/workflow.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/explore.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/proposal.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/specs/desktop-app-shell/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/specs/desktop-artifact-plugins/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/specs/desktop-change-parse/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/specs/desktop-change-queries/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/specs/desktop-corpus-regression/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/specs/desktop-crate-layout/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/specs/workspace-layout-resolution/spec.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/tasks.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-a/workflow.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-b/proposal.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-b/tasks.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v2-b/workflow.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/README.md",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corrupt-bad-eval-entry.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corrupt-bad-filelog-entry.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corrupt-bad-timestamp.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corrupt-bad-verdict.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/corrupt-invalid-json.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/layout-empty.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/layout-mixed.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/layout-workspace.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/v0-a.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/v0-b.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/v1-a.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/v1-b.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/v1-c.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/v2-a.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/golden/v2-b.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/foundation/src/lib.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/parse/mod.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/mod.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/mod.rs",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/hooks/useChangeList.test.ts",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/hooks/useChangeDetail.test.ts",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/renderers/registry.test.ts",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/renderers/ArtifactView.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/renderers/Fallback.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/renderers/MarkdownDocRenderer.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/renderers/EvalChecklistRenderer.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/renderers/TasksProgressRenderer.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/ChangeListView.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/ChangeDetailView.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/__tests__/ipc_pipeline.test.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/App.tsx",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/vite.config.ts",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/pnpm-lock.yaml",
+      "at": "2026-09-20T07:58:17.709Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/registry_test.rs",
+      "at": "2026-09-20T11:09:50.750Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/layout_queries_test.rs",
+      "at": "2026-09-20T11:11:01.869Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/generation_parse_test.rs",
+      "at": "2026-09-20T11:11:02.933Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/src/views/ChangeDetailView.test.tsx",
+      "at": "2026-09-20T12:16:45.329Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/src/renderers/EvalChecklistRenderer.test.tsx",
+      "at": "2026-09-20T11:49:20.533Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/src/views/ChangeListView.test.tsx",
+      "at": "2026-09-20T12:16:11.825Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/src/hooks/useChangeDetail.test.ts",
+      "at": "2026-09-20T12:17:15.167Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/parse_report_tmp.py",
+      "at": "2026-09-20T12:08:34.939Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/parse_report_tmp.cjs",
+      "at": "2026-09-20T12:07:49.869Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "parse_report_tmp.cjs",
+      "at": "2026-09-20T12:07:57.936Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "parse_report_tmp.py",
+      "at": "2026-09-20T12:08:40.199Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/src/views/ChangeDetailView.tsx",
+      "at": "2026-09-20T12:14:40.889Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/src/renderers/EvalChecklistRenderer.tsx",
+      "at": "2026-09-20T12:14:42.303Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "reports",
+      "at": "2026-09-20T12:23:48.985Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": ".stryker-tmp",
+      "at": "2026-09-20T12:23:48.985Z"
+    }
+  ],
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "评估 add-desktop-terminal proposal.md + 7 个 specs。问题含具体痛点、战略动机与三代数据表;范围四小节齐全;5 项风险均有具体缓解;AC-1..14 均可测;12 项决策含理由+被拒备选;CLAUDE.md bump 规则边界已显式声明(不触碰 plugins/**);无占位符;能力 7 项与 specs/ 7 个 spec 一一对应,全部 ADDED,AC 与 requirement 交叉一致无冲突。全部通过,verdict=pass。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-23: 具体痛点(过程数据只能终端逐文件翻看)+战略动机(多 agent/Rust 运行时第一块砖)+三代结构判定表格(v2/v1/v0 各有明确判据),非泛泛改进"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L63 实现文件(packages/desktop 六组路径非空)、L72 测试文件(fixtures+tests 非空)、L81 不要修改(5 项: plugins/**、仓库根、changes 数据、schema.ts、exec 轨道)"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L114-120 五项风险各有具体机制: schema 漂移→74 archive 快照回归+TS 唯一真理源; 老数据→代际降级+Fallback 硬要求; 膨胀→插件自包含+exec 空置; 无'监控并调整'式泛化"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L93-108 AC-1..AC-14 均为对象+条件, 如 AC-2 'resolve(root) 返回 Layout{changes_root,archive_root,explores_root}...无硬编码 openspec 路径'; AC-9 '统计 - [ ] / - [x] 数量'; AC-12 '无 watch、无后台轮询'"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L128-141 决策表 12 项均填理由+备选: 如 Rust 解析 vs '复用 TS zod(与 Rust 运行时战略相悖)'; 刷新按钮 vs '文件 watch+事件推送'; 三层 crate vs '单 crate+模块(边界弱)'"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L39 显式声明 packages/desktop 不进 plugins/ dist 分发链故 bump+rebuild 规则不适用(不触碰任何插件源码, 与 CLAUDE.md 规则触发条件不冲突); workflow.schema.ts 保持唯一真理源只读参照"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{}} 标记; L143-148 '待决问题'为实质性开放项(renderer 版本策略、fixtures 挑选留待 test-design、第二刀范围)而非占位"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围(实现+测试+删除+不要修改)/验收标准(14 行表)/风险(5 行表)各节均实质填写, 无空节"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L45-53 '### 新增能力' 列 7 项(desktop-crate-layout 等); L57 '### 修改的能力' 明确'无'并说明不触碰现有能力"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 下恰好 7 个 spec 目录, 与能力章节 7 项名称完全一致(desktop-crate-layout/workspace-layout-resolution/desktop-change-parse/desktop-change-queries/desktop-artifact-plugins/desktop-app-shell/desktop-corpus-regression), 无多余或缺失"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "7 spec 均 '## ADDED Requirements' 与新增声明一致; AC-3 判定规则与 parse spec 逐条相同; AC-6 九站流水线与 queries spec 列表一致; AC-7/8 信封字段与六 kind 与 artifact spec 表一致; AC-11/12/13/14 对应 shell/crate-layout/corpus spec; Layout 字段、exec 空轨、命名隔离表述均一致"
+        }
+      ],
+      "timestamp": "2026-09-20T02:54:45.039Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "D1组件表5行含职责/依赖/技术/路径,无TBD;D2数据模型8行字段+持久化齐全;D3 AC-1~14逐项落点对应;D4任务9阶段依赖有序、勾选框齐全;D5任务指名文件与函数;D6运行时+构建依赖列用途;D7独立包与CLAUDE.md插件分发规则划界一致;D8模板章节全实质填写;D9无测试策略/测试任务(check/build/走查非测试);D10清单覆盖proposal实现文件(core前缀差异已声明),tasks与清单双向一致。全部通过。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "design.md组件表5组件均填职责/文件位置/依赖/技术;技术为Rust/React+TS+Vite/pnpm+Vite,无TBD;目录位置经变更清单细化到具体文件"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "design.md数据模型表8模型,字段列经类型定义表全量展开(Workflow/PhaseLog/ChangeDetail等逐字段),持久化列均为workspace只读/内存DTO/无"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 每个验收标准",
+          "pass": true,
+          "evidence": "design.md验收标准对齐表AC-1~AC-14逐项给出设计落点,与proposal.md验收表一一对应;9站流水线清单与AC-6一致"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 9阶段全为'- [ ]';顺序骨架→foundation→workflow(model/parse→artifacts→queries)→desktop-app→前端→收口,无后置任务被前置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "各任务指名文件/函数/行为,如parse_workflow_file两段式解析规则、detect_inventory V2/V1/V0判定、list_changes按月分组规则,无空泛任务"
+        },
+        {
+          "item": "D6 依赖项(运行时和构建/测试)已列出",
+          "pass": true,
+          "evidence": "design.md依赖节:运行时tauri/serde/time/react系均注用途;构建vite/typescript/@tauri-apps/cli注用途;并列'明确不引入'清单"
+        },
+        {
+          "item": "D7 设计与项目架构一致(CLAUDE.md)",
+          "pass": true,
+          "evidence": "packages/desktop独立包自带lockfile、不进根workspace、不动plugins/**与dist分发链,proposal.md:39显式声明不受bump/rebuild规则约束,design不变更既有文件"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单/数据模型/路由API/依赖/待决问题均实质填写;变更清单新增文件表覆盖所有落位文件;无修改文件按模板注释省略,符合'至少含新增或修改之一'"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md无测试策略/架构章节(测试提及均为test-design阶段边界声明);tasks.md无单测/集成测试任务,cargo check/pnpm build/tauri dev走查为构建与冒烟验证"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "清单覆盖proposal实现文件全部条目(crates/core前缀差异design.md:11已声明对齐proposal决策表);逐文件双向核对tasks与清单一致;公共函数表条目均在新增文件表中,无矛盾"
+        }
+      ],
+      "timestamp": "2026-09-20T04:09:49.040Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "T1: AC-1..14与验收范围逐条映射齐全。T2: 单测型9条目与21个heading双向无缺失；5集成关系关联AC均在范围内，集成型AC-1/7/10/14均被引用。T3: 21个测试对象均含异常+边界(负attempt/空数组/None/非法枚举/超长/特殊字符/除零)。T4: 文件系统(temp+fixtures)与Tauri IPC(invoke/dialog)均有Mock策略。T5: 各章节实质填写无占位。T6: 第二刀项(exec/file-log等)无覆盖，file-log仅作未注册反例。T7: proposal纯读无写操作，不适用。T8: 单测21节/集成5节/验收范围列名与结构均合规。",
+      "checklist": [
+        {
+          "item": "T1 proposal每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md L95-108 AC-1..AC-14 与 test-design.md L13-26 验收范围表逐条一一对应无缺失；AC-13 标注为不可测试项并在不可测试项节(L815)展开原因"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单测型 AC-2/3/4/5/6/8/9/11/12 的被测文件均有对应 ### 源文件->测试文件 heading（21节双向核对无缺失）；集成型 AC-1/7/10/14 分别见于 ipc_pipeline/artifacts_envelope/corpus_golden 关系关联AC；5关系引用的 AC-ID 均存在于验收范围"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "21个测试对象均有异常用例（detect 目录不存在、parse 非法JSON、invoke reject 等）；边界按类型系统覆盖：负attempt(L110)/空数组(L107-108)/None(root,change,workflow)/非法枚举verdict与op(L105-106)/超长>1000(L111,L220,L423)/特殊字符与emoji(L111,L222)/除零(L485)"
+        },
+        {
+          "item": "T4 外部依赖有Mock策略",
+          "pass": true,
+          "evidence": "文件系统：各 Rust 节以临时目录+tests/fixtures 真实文件并声明不用 Mock 框架；跨进程边界 @tauri-apps/api/core invoke 与 plugin-dialog open 均 vi.mock 按命令名分发（App/useChangeList/useChangeDetail/ipc_pipeline 各节 Mock策略表）"
+        },
+        {
+          "item": "T5 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "验收范围14行；21个单测节均含待测功能/用例/Mock策略三子节；5个集成关系含涉及模块/关联AC/关系描述/场景/用例；不可测试项5条各有原因；全文无占位符"
+        },
+        {
+          "item": "T6 测试设计与proposal范围一致",
+          "pass": true,
+          "evidence": "第二刀范围项(exec接入/file-log/test-report-summary/html-report-ref/最近打开/耗时统计)无测试覆盖；file-log 仅作未注册kind反例验证Fallback(L381,L677)；exec空轨按AC-11归入不可测试项(L816)；in-scope AC-1..14全覆盖"
+        },
+        {
+          "item": "T7 写操作测试包含幂等性验证",
+          "pass": true,
+          "evidence": "proposal L29/L85 明确 desktop 对任意 workspace 只读、取数仅显式刷新，无 API/DB 写操作；golden 重写开关为测试基础设施非产品写路径，幂等性用例不适用"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "21个单测heading均为'源->测试'且按序含三子节、用例列'测试对象|路径类型|测试条件|迭代类型'、Mock列'Mock主体|Mock方案|应用场景'均无测试文件列；5个集成heading含→测试文件、模块表3/3/6/4/7行、关联AC与叙事段非空、场景名唯一且后接叙事、用例列'路径类型|测试条件|迭代类型'；验收范围保留 AC ID|验收条件|测试类型|被测文件或模块 四列顺序与模板一致"
+        }
+      ],
+      "timestamp": "2026-09-20T04:26:49.359Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "47 个声明文件全部存在（workflow_files 清单为空属 hook 不可见漏记，已按文件系统逐一核对内容）；公共 API/类型/配置逐项对上：三个 Tauri 命令、foundation 零依赖、workflow 无 tauri、serde camelCase 宽松两段解析、目录名仅 layout.rs:23-27 一处、静态注册表特化 kind 先于 markdown-doc、exec 空轨道、组件不直连 invoke、无轮询/watch/State，均落实。额外文件仅 .gitignore/Cargo.lock/icon.ico/pnpm-workspace.yaml 等构建必需物，无无关删除。唯一 fail：tasks.md:72 阶段9 全链路验证（cargo check/pnpm build/tauri dev 走查）复选框未勾选，其余 35 项均 [x]。",
+      "checklist": [
+        {
+          "item": "I1 design 每个架构组件均有实现代码",
+          "pass": true,
+          "evidence": "47/47 声明文件存在于文件系统：foundation 3 文件、workflow 17 文件、desktop-app 5 文件、前端 13 文件、工程配置 9 文件；files 清单为空属漏记，按内容核对"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现",
+          "pass": true,
+          "evidence": "新增 47 文件、公共函数（resolve/detect_inventory/parse_workflow_file/list_changes/change_detail/discover_artifacts/read_artifact/ArtifactPlugin/三命令/两 hook/resolveRenderer）与 22 Rust+10 TS 类型逐项在位；无修改/删除声明且未发生"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "中文文档注释、模块根+re-export 组织、package.json 结构与仓库惯例一致；crate/模块/类型/kind 标识符无 openspec 子串（grep 证实）"
+        },
+        {
+          "item": "I4 design 所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "main.rs:8-12 generate_handler 注册 list_changes/get_change_detail/read_artifact；queries/mod.rs 三个 #[tauri::command] 无状态薄包装；App.tsx:22 plugin-dialog open({directory:true})"
+        },
+        {
+          "item": "I5 tasks.md 所有任务均标记 [x]",
+          "pass": false,
+          "evidence": "tasks.md:72 阶段9「全链路验证」复选框为 [ ]（cargo check/pnpm build/tauri dev 手工走查）；其余 35 项均已勾选"
+        },
+        {
+          "item": "I6 没有与变更无关的代码",
+          "pass": true,
+          "evidence": "files 外额外文件仅构建必需物：.gitignore、Cargo.lock、icons/icon.ico（tauri.conf.json bundle 引用）、pnpm-workspace.yaml（pnpm 构建批准）、dist/target/node_modules 均被 gitignore；无无关删除"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "依赖图 desktop-app->workflow->foundation 编译器强制；磁盘目录名仅 layout.rs:23-27；registry.rs:42 PLUGINS 顺序特化 kind 先于 markdown-doc、同候选多 kind 并存；固定 9 站流水线；v0 空流水线/v1 file_log=None 留空；产物失败 Fallback 不白屏"
+        }
+      ],
+      "timestamp": "2026-09-20T05:16:08.668Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "7/7 通过。design 变更清单 49 个新增文件逐一核实落盘且内容对齐；files 清单 deleted[] 6 条为偏差注释声明的 crates/desktop-app 旧落位移除，盘面确认不存在，非无关删除。前次唯一失败项 I5 已修复：tasks.md 全部勾选且阶段 9 含 2026-09-20 用户验收完成注记。两处 GUI 修复在盘（MarkdownDocRenderer 挂 remark-gfm；list.rs scan_dir 经 layout 推导跳过 archive，目录名触点仍仅 layout.rs:23 一处）。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "foundation(3 文件)/workflow(16 文件)/desktop-app(root Cargo.toml+src/4 文件+icon.ico)/前端(13 文件)/工程配置(9 文件)逐文件核实存在，内容与 design 组件表一致"
+        },
+        {
+          "item": "I2 变更清单条目均有实现",
+          "pass": true,
+          "evidence": "三态对账：计划∧files无∧文件存在均按良性漏记逐文件核对通过；deleted[] 的 crates/desktop-app/* 与 design 偏差注释（根包混合 workspace）一致，盘面已无该目录"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "crate 裸名、模块组织与 design 文件表逐行一致；serde camelCase、中文 doc 注释风格与仓库 openspec 文档一致"
+        },
+        {
+          "item": "I4 路由/API 均实现",
+          "pass": true,
+          "evidence": "commands/queries/mod.rs 三命令签名与 design 路由表一致，main.rs:8-12 注册 dialog 插件与三命令；App.tsx:22 open({directory:true})"
+        },
+        {
+          "item": "I5 tasks.md 全部勾选",
+          "pass": true,
+          "evidence": "tasks.md 9 阶段所有复选框均 [x]，阶段 9 附完成注记：cargo check/pnpm build/tauri dev 冒烟 executor 验证 + 用户 2026-09-20 功能验收通过（前次失败项已闭环）"
+        },
+        {
+          "item": "I6 无无关代码",
+          "pass": true,
+          "evidence": "计划外仅包内 .gitignore 与 pnpm-workspace.yaml（pnpm allowBuilds 配置）及 lockfile/build 产物；仓库根确认无 package.json/pnpm-workspace.yaml，根 dist/ 仅 claude-plugins 等，无 desktop 产物；无无关源码删除"
+        },
+        {
+          "item": "I7 设计决策已遵守",
+          "pass": true,
+          "evidence": "根包混合 workspace 落位与偏差注释一致；\"openspec\" 全包仅 layout.rs:23（grep 证实）；前端无轮询/定时器、组件不直接 invoke（grep 证实）；exec/mod.rs 仅注释无 trait；foundation 零依赖、workflow 无 tauri；payload 契约与三插件装配顺序符合设计"
+        }
+      ],
+      "timestamp": "2026-09-20T06:54:39.002Z",
+      "stale": true
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "G1-G9 全部通过。16 Rust+12 前端测试文件全部落盘、与源码同目录且 #[cfg(test)] 挂载齐全；21 节单测用例逐行覆盖，集成 4 文件 29 用例齐全（corpus golden 宏生成 12 fixture 全量对比）；3 处期望值随实现修正且测试内注明理由（detect 非法JSON→V2、evidence 缺失→整条跳过、Fallback null→占位文案）；Mock 与清理（RAII Drop+afterEach）合规；边界与废弃项合规。唯一偏差：前端经 vite-plus/test 提供 vitest API 族（设计原文 vitest），包内自带依赖+lockfile 不变量成立，config.json 登记 vite-plus。",
+      "checklist": [
+        {
+          "item": "G1 每个公开方法均有对应测试文件",
+          "pass": true,
+          "evidence": "16 个 Rust *_test.rs 与 12 个前端 *.test.ts(x) 均与源文件同目录一一对应：layout/detect/workflow_file/list/detail/registry/markdown_doc/eval_checklist/tasks_progress/commands-queries + App/两 hook/registry+ArtifactView+Fallback/三 renderer/两 view；model 与 envelope 类型按 design L32 决策不设独立用例节，经 parse/queries/artifacts 间接覆盖"
+        },
+        {
+          "item": "G2 测试文件命名与源码同目录",
+          "pass": true,
+          "evidence": "Rust 侧 *_test.rs 与源码同目录且经 #[cfg(test)] 挂载（foundation/lib.rs:7、parse/mod.rs:12-15、queries/mod.rs:52-55、artifacts/mod.rs:12-21、commands/queries/mod.rs:36）；前端 *.test.ts(x) 同目录，集成测试在 crates tests/ 与 src/__tests__/，与 design L30-31 测试基础设施决策一致"
+        },
+        {
+          "item": "G3 单元用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "21 节单测逐行核对：layout 6/6、detect 8/8(+fixture 抽查)、workflow_file 13/13(+load_workflow)、list 9/9、detail 10/10、registry 8/8、markdown_doc 7/7、eval_checklist 6/6、tasks_progress 6/6、commands 6/6（无State行以直调结构证明 mod_test.rs:3-4）、App 5/5、hooks 5+6、renderers/views 全齐。3 处期望随实现修正且测试内注明：detect 非法JSON→V2(detect_test.rs:90-92,源 detect.rs:25-30)、evidence 缺失→整条跳过(workflow_file_test.rs:332-333)、Fallback null→占位文案(Fallback.test.tsx:25-30)；kind 徽标经 ArtifactView.test.tsx:27 链路覆盖；layout 命名隔离扫描仅收 .rs(L139)——已 grep 证实前端 src 零 openspec 字面量，无真实违规被漏检"
+        },
+        {
+          "item": "G4 集成用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "layout_queries 6/6、generation_parse 7/7、artifacts_envelope 7/7（v0+eval-checklist→None 于 L232-238）；corpus_golden 经宏生成 12 个 fixture 全量 golden 对比+3 layout+2 语料完整性，降级统计进投影（corrupt-* unparsable/跳过计数 L113-129），v1-c 未知键表现为字段缺失；重写开关 DESKTOP_GOLDEN_REWRITE 以头注 L8-16 两遍流程覆盖（自动 #[test] 会覆写仓内 golden，机制仅写 golden_dir 规范路径）"
+        },
+        {
+          "item": "G5 Mock策略表逐行落实",
+          "pass": true,
+          "evidence": "Rust 各表声明'无 Mock 框架'与实现一致：临时目录 RAII（TempDir/TempWs/TempChange 全带 Drop 清理）、tests/fixtures 语料、eval_checklist 以内存 Workflow 经 ArtifactInput 注入（eval_checklist_test.rs:13-24）、命令直调不启 Tauri runtime；前端 App/useChangeList/useChangeDetail/ipc_pipeline 均 vi.mock api/core 与 plugin-dialog 按命令名分发并记录调用序列，registry/ArtifactView/Fallback/renderers/views 无 mock 与设计一致"
+        },
+        {
+          "item": "G6 框架与导入正确",
+          "pass": true,
+          "evidence": "Rust 用 cargo #[test]、use super::/crate:: 导入；前端 @testing-library/react + jsdom（vite.config.ts test.environment）齐。偏差：导入为 vite-plus/test 而非设计命名的 vitest——vite-plus/test 导出同一 vitest API 族（describe/it/vi.mock），包以自带 devDependency(vite-plus ^0.2.1)+lockfile 保持独立，config.json 登记 framework:vite-plus 与仓库既有 token 一致；design '包内自带运行器'的不变量成立，判不构成实质偏离"
+        },
+        {
+          "item": "G7 边界情况覆盖",
+          "pass": true,
+          "evidence": "边界逐类在位：空/缺失路径、空数组与 None 区分、非法枚举/时间戳、负 attempt、>1000 长文本与 emoji/中文/特殊字符文件名、缩进与行内复选框排除、除零 total=0、null 参数、DTO 漂移留空、越界 eval 序号、虚拟计时无轮询断言（useChangeList.test.ts:114、ipc_pipeline L343）；每参数类型≥2 边界值"
+        },
+        {
+          "item": "G8 清理/还原逻辑",
+          "pass": true,
+          "evidence": "全部 Rust 测试文件以 RAII Drop 清理临时目录（layout_test.rs:24-28 等全部 13 文件）；ipc_pipeline.test.tsx:148、useChangeList.test.ts:28、useChangeDetail.test.ts:66 有 afterEach 还原，App.test.tsx:82 beforeEach 重置 mock；纯展示组件文件无 mock 无需清理（globals:true 下 RTL 自动 cleanup）"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "test-design 用例表全部迭代类型=新增，无废弃条目可违；file-log/exec 仅作为未注册 kind 反例出现（registry_test.rs:160、mod_test.rs:113、ipc_pipeline L244），与设计 L381/L677 的反例定位一致，未生成任何第二刀功能测试"
+        }
+      ],
+      "timestamp": "2026-09-20T08:11:16.978Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "第二次执行：5 套件全部真实执行，2534 通过 / 0 失败 / 2 跳过（2 个为 dev-team 套件既有 AC-09 跳过，与本变更无关）。已知口径偏差：CLI rust 解析器只读首个 binary 汇总行，workflow 套件在 summary.json 少计为 69，实际 110（results.txt 复核 6 份汇总均 ok：69+7+17+11+6=110），真实执行总数约 2575。TS 计划级覆盖率达标。5 个 golden 经文档化 DESKTOP_GOLDEN_REWRITE=1 协议重写，diff 验证仅序列化格式漂移，无测试逻辑或生产代码变更。Mutation 经官方 --skip-mutation 跳过（CLI 写死 ignorePatterns，Stryker 沙箱触发 Windows MAX_PATH），记为已知缺口。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "必需字段齐全且类型正确：phase/command/timestamp、total=2534、passed=2532、failed=0、skipped=2、coverage 对象（pass/measured/thresholds/overrides）、duration_seconds=62；coverage.measured 三维为 null 属允许形态"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2534>0；5 套件（dev-team 2382、desktop 前端 70、rust 6+7+110）全部真实执行。results.txt 复核 workflow 套件 6 份 'test result: ok' 汇总（69+7+17+11+6+0=110，0 failed），确认 summary.json 只计 69 是 CLI 解析器首个 binary 的计数偏差而非漏执行；真实执行约 2575，同样零失败"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（采信报告预计算值）。顶层 measured 三维 null：rust 覆盖未采集（cargo-llvm-cov 未安装、按指示避免长编译）→ N/A (框架不支持)；findings 记录 TS 计划级实测：packages/desktop 96.4/87.5/90.0 vs 阈值 90/85/90（functions 恰在阈值），plugins/dev-team 97.25/89.73/99.53；两个 override（plugins/dev-team、packages/desktop）均 pass=true。mutation=null 不属覆盖率项，跳过原因已记录（CLI 写死 ignorePatterns + Stryker Windows MAX_PATH）"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败诊断需求，自动通过"
+        }
+      ],
+      "timestamp": "2026-09-20T09:10:37.234Z",
+      "stale": true
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "C1 fail: read_artifact 的 source 参数无路径包含校验——registry.rs:97 decode 后直接 join 读文件(markdown_doc.rs:133)，\"..\"可越出 change 目录任意读，change 参数有防护(queries/mod.rs:43)而 source 无。C2 fail: 同一 IPC 输入缺格式校验。C3 fail: 违背 design「payload 为 unknown」——dto.ts:107 定为 TasksProgressPayload|null，tsc 实测 14 错(3 renderer TS2339+视图测试 TS2353)，pnpm build 的 tsc 门槛必挂。C5 fail: MarkdownDocRenderer.tsx:6/EvalChecklistRenderer.tsx:3 未用接口(TS6196)。C4/C6/C7 pass；cargo check 通过，无 XSS/硬编码密钥。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": false,
+          "evidence": "read_artifact 命令的 source 参数可路径穿越：registry.rs:97-104 decode_source 直接 PathBuf::from 后 join，markdown_doc.rs:133 / tasks_progress.rs:54 fs::read_to_string 直读，parse 不经 matches 故无扩展名限制；change 参数有 is_change_name 防护（queries/mod.rs:43-50，layout_queries_test.rs:153 有测试）而 source 无，IPC 面暴露越出 workspace 的文件读原语。无 SQL/XSS/命令注入/硬编码密钥/不安全反序列化。"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": false,
+          "evidence": "commands/queries/mod.rs:28 的 source 串参未做任何格式/包含性校验即转为文件路径；其余外部输入均有校验或降级（change 名、对话框取消 App.tsx:27、损坏 JSON 宽松解析、缺失目录返回空 list.rs:68）。"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": false,
+          "evidence": "design.md 类型定义规定信封「payload 为 unknown，由各 renderer 自行收窄」，实际 dto.ts:96-107 定为 TasksProgressPayload|null；tsc --noEmit 实测 14 个错误（EvalChecklistRenderer.tsx:29-35、MarkdownDocRenderer.tsx:13 TS2339；ChangeDetailView.test.tsx:147,182 TS2353；测试文件 TS2322），package.json build=tsc&&vp build 必失败。其余（三层 crate 依赖方向、9 站流水线、宽松解析、双轨 command、刷新取数、openspec 命名仅 layout.rs:23 一处触点）与设计一致。"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "缺失目录返回空（list.rs:68）、单条损坏降级不炸整份（workflow_file.rs:73-102）、时间戳解析失败降 None（model/workflow.rs lenient_timestamp）、进度条除零防护（TasksProgressRenderer.tsx:14）、对话框取消保持现状（App.tsx:27）、单产物读取失败以 Fallback 保留不阻断（useChangeDetail.ts:64-89）、eval 空清单跳过（eval_checklist.rs:67）。"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": false,
+          "evidence": "MarkdownDocRenderer.tsx:6-8 的 MarkdownDocPayload 与 EvalChecklistRenderer.tsx:3-8 的 EvalChecklistPayload 声明后从未使用，tsc noUnusedLocals 实证 TS6196 两处；其余无死代码，exec 轨道按要求仅注释。"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "模块结构逐文件对应设计清单；命令为无状态薄包装；中文文档注释与仓库风格一致；测试以 #[cfg(test)] mod 同目录挂载，无 test-only export（符合 CLAUDE.md knip 约束）；Rust cargo check 通过。"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "TS 侧 dto.ts 为设计规定的 Rust DTO camelCase 镜像类型，无额外自定义中间映射层；Rust 侧复用 serde/time 类型；renderer 对 payload 以运行时类型收窄而非强转。"
+        }
+      ],
+      "backtrack_to": "implement",
+      "backtrack_reason": "C1/C2: read_artifact source 参数无路径包含校验，\"..\" 可越出 change 目录任意读(registry.rs:97, markdown_doc.rs:133)；C3: dto.ts:107 payload 定为 TasksProgressPayload|null 违背 design「payload 为 unknown」，tsc 14 错必挂 build；C5: MarkdownDocRenderer.tsx:6/EvalChecklistRenderer.tsx:3 未用接口 TS6196。均为实现层缺陷，需回溯 implement 修复。",
+      "timestamp": "2026-09-20T09:18:13.227Z",
+      "stale": true
+    },
+    {
+      "phase": "implement",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "回溯项全修复：C1/C2 registry.rs is_valid_source 拒 ../反斜杠盘符+canonical 包含兜底+change 名校验；C3 dto.ts payload=unknown 三 renderer 守卫收窄；C5 导入全被使用。I1 七组件全落位；I2 三态对账通过（file_log 漏记良性，desktop-app 旧位删除符合设计偏差注释）；I4 三 command 签名注册一致；I5 全勾；I7 九站顺序/宽松解析/依赖边界/目录名唯一触点均落实。判 pass。",
+      "checklist": [
+        {
+          "item": "回溯C1/C2 read_artifact 路径包含校验",
+          "pass": true,
+          "evidence": "registry.rs:114-129 is_valid_source 拒绝 .././空段/反斜杠/盘符/绝对前缀；registry.rs:186-192 canonical 路径包含性兜底；change 名经 queries/mod.rs:43-50 is_change_name 校验；markdown_doc.rs:133 仅在校验后可达"
+        },
+        {
+          "item": "回溯C3 dto payload 为 unknown",
+          "pass": true,
+          "evidence": "dto.ts:101 payload: unknown；三 renderer 均以类型守卫（isMarkdownDocPayload 等）收窄，无 as 断言"
+        },
+        {
+          "item": "回溯C5 renderer 未用导入",
+          "pass": true,
+          "evidence": "MarkdownDocRenderer.tsx ArtifactEnvelope 用于 props；EvalChecklistRenderer.tsx 两导入均被类型守卫使用，无 TS6196"
+        },
+        {
+          "item": "I1 架构组件全实现",
+          "pass": true,
+          "evidence": "foundation/layout.rs、workflow 14 文件、src-tauri 根包 src/main.rs+commands 三轨、前端 13 文件、包配置 9 文件全部存在于文件系统且内容对齐设计"
+        },
+        {
+          "item": "I2 变更清单三态对账",
+          "pass": true,
+          "evidence": "全部新增文件在盘；resolve/detect_inventory/parse_workflow_file/list_changes/change_detail/discover_artifacts/read_artifact/ArtifactPlugin 及类型定义逐项在位；desktop-app 旧位删除符合设计偏差注释"
+        },
+        {
+          "item": "I3 项目规范一致",
+          "pass": true,
+          "evidence": "Rust //! 模块注释+mod_test 模式、serde camelCase、vp 工具链（package.json scripts + vite.config.ts defineConfig 取自 vite-plus）与仓库规范一致"
+        },
+        {
+          "item": "I4 IPC 路由全实现",
+          "pass": true,
+          "evidence": "commands/queries/mod.rs:25-58 三 #[tauri::command] 签名与设计一致，main.rs:8-12 注册 dialog 插件与三命令"
+        },
+        {
+          "item": "I5 tasks 全勾选",
+          "pass": true,
+          "evidence": "tasks.md 阶段 1-9 全部 [x]，含两条完成注记"
+        },
+        {
+          "item": "I6 无计划外改动",
+          "pass": true,
+          "evidence": "knip/stryker/pnpm-workspace 等额外文件属 test 阶段产物；无无关源码删除"
+        },
+        {
+          "item": "I7 设计决策落实",
+          "pass": true,
+          "evidence": "detail.rs:14-24 九站定序；workflow_file.rs 两段式宽松解析+lenient_timestamp 降级；Cargo.toml 零/禁依赖边界；grep 证实磁盘目录名仅 layout.rs:23 一处；exec 空轨；hooks 无轮询"
+        }
+      ],
+      "start_at": "2026-09-20T10:55:16.131Z",
+      "timestamp": "2026-09-20T11:04:17.205Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "回溯后重评（attempt 2）：G1-G9 全通过。重写 3 文件逐行核对：registry_test 8/8 行齐并新增敌意 source 拒绝测试（对齐 registry.rs is_valid_source+canonical 兜底）；layout_queries 6/6 行齐（逃逸用例补 C:\\evil）；generation_parse 7 行全齐（空 file_log 临界区分、双重损坏仅跳一次）。26 个测试文件三态对账齐全；10 处 #[cfg(test)] 挂载；前端统一 vite-plus/test（attempt 1 已判非实质偏离）；13 个涉盘 Rust 测试全带 RAII Drop；file-log/exec 仅作未注册反例，无废弃项、无第二刀测试。commands mod_test 随源码落位根包 src-tauri/src（design 偏差已声明）。",
+      "checklist": [
+        {
+          "item": "G1 每个公开方法均有对应测试文件",
+          "pass": true,
+          "evidence": "21 单测节+5 集成节对应 26 个测试文件全部在盘（Glob 三态对账：声明∧files.written∧文件系统齐全）；attempt 2 重写 registry_test/layout_queries/generation_parse（file_log scope=test-gen attempt 2 有记录）；commands 测试随源码落位 src-tauri/src/commands/queries/mod_test.rs（design 根包偏差已声明）"
+        },
+        {
+          "item": "G2 测试文件命名与源码同目录",
+          "pass": true,
+          "evidence": "Rust *_test.rs 与源码同目录且 10 处 #[cfg(test)] mod 挂载核实：foundation/lib.rs:7、parse/mod.rs:12-16、queries/mod.rs:52-56、artifacts/mod.rs:12-22、src-tauri/src/commands/queries/mod.rs:60；集成测试在 cargo tests/ 与 src/__tests__/，与 design L30-31 基础设施决策一致"
+        },
+        {
+          "item": "G3 单元用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "重写文件逐行核对：registry_test 8/8 行齐（discover 4 行+read 4 行，含新增敌意 source 测试对齐 C1/C2 修复）；commands mod_test 6/6 行齐（透传 serde 对比、未知 change None、root 空串）；其余 19 节未改动，沿用 attempt 1 全量核对结论（3 处期望修正仍带注记，detect 非法 JSON→V2 与 generation_parse_test.rs:155 口径一致）"
+        },
+        {
+          "item": "G4 集成用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "layout_queries 6/6 行齐（全链路月分组/active+archive 双定位/缺explores/root指向文件/name含..与C:\\evil不逃逸/changes缺失）；generation_parse 场景1 4行+场景2 3行全齐（v0-a 遗留 eval.json 不干扰、空 file_log Some(空) vs v1 None、双重损坏跳过恰一次）；artifacts_envelope 与 corpus_golden 未改动沿用 attempt 1（12 fixture 宏生成 golden 全量对比）"
+        },
+        {
+          "item": "G5 Mock策略表逐行落实",
+          "pass": true,
+          "evidence": "Rust 各表声明'无 Mock 框架'与实现一致：临时目录 RAII + tests/fixtures 语料 + eval_checklist 内存注入（无磁盘故无清理，合规）；前端 App/两 hook/ipc_pipeline 均 vi.mock api/core 与 plugin-dialog 按命令名分发并记录调用序列；registry/ArtifactView/Fallback/renderers/views 无 mock 与设计一致"
+        },
+        {
+          "item": "G6 框架与导入正确",
+          "pass": true,
+          "evidence": "Rust 用 cargo #[test]、use super::/crate:: 导入；前端 12 文件统一 import from 'vite-plus/test'（同 vitest API 族 describe/it/vi.mock，包自带 devDependency+lockfile，attempt 1 已判非实质偏离）；@testing-library/react + jsdom 环境经 vite.config.ts 提供"
+        },
+        {
+          "item": "G7 边界情况覆盖",
+          "pass": true,
+          "evidence": "重写文件边界在位：空/缺失 change 目录、空 file_log 与 None 严格区分、越界 eval 序号 99、敌意 source 10 形态（../、反斜杠、盘符、绝对前缀、空串、点分量）、双重损坏条目、root 空串与指向文件；其余文件未改动沿用 attempt 1（负 attempt/超长/emoji/除零/DTO 漂移等）"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "13 个涉盘 Rust 测试文件全带 impl Drop + remove_dir_all（含重写 3 文件与 commands mod_test；registry_test 另显式 remove_file 清 secret）；前端 4 个带 mock 文件均有 afterEach/beforeEach 还原（App/useChangeList/useChangeDetail/ipc_pipeline）；eval_checklist 纯内存注入无需清理"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "test-design 用例表全部迭代类型=新增，无废弃条目可违；file-log/exec 仅作未注册 kind 反例（registry_test.rs:160、mod_test.rs:113、registry.test.ts:17 注明'第二刀规划的 kind，当前未注册'，ipc_pipeline/ArtifactView/Fallback/ChangeDetailView 反例路径与 design L381/L677 定位一致），无第二刀功能测试"
+        }
+      ],
+      "start_at": "2026-09-20T11:04:42.106Z",
+      "timestamp": "2026-09-20T11:17:14.363Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "verdict": "fail",
+      "report": "Mutation score 55.25% < threshold 80%：全部 2536 个测试通过（2534 passed/0 failed/2 skipped），无 execution_error，唯一失败项为变异测试门。按 override 定位：packages/desktop 55.25%<80%（468 变异体：190 存活+19 无覆盖），plugins/dev-team 恰 80.0% 达标（零余量）。根因：约 86% 存活变异体集中于 4 个前端文件（ChangeDetailView 81/EvalChecklistRenderer 43/ChangeListView 24/useChangeDetail 16），ConditionalExpression/LogicalOperator 等条件渲染分支缺分支级断言、useChangeDetail error 路径无覆盖——属测试断言不足，非代码缺陷、非执行错误。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total(2536)/passed(2534)/failed(0)/skipped(2)/coverage/duration_seconds(575) 全部存在且类型正确；coverage.measured 三维为 null 属允许形态"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2536>0（2534 passed，2 skipped，5 个 plan）；problems 中无 execution_error，conclusion=fail 由 mutation 门触发"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；measured lines/branches/functions 均为 null（N/A，框架未提供聚合数据）；overrides 两项 pass=true。注（信息性）：per-plan 报告 packages_desktop_vite-plus functions=89.83%<90% 未被聚合层摄入，顶层 coverage.pass 仍为 true"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，T4 触发条件不满足自动通过；阶段失败根因唯一且明确：变异测试门未达标（测试断言不足），见「变异测试门」项"
+        },
+        {
+          "item": "变异测试门",
+          "pass": false,
+          "evidence": "mutation.pass=false：score 55.25% < threshold 80%（killed 258 / survived 190 / noCoverage 19 / total 468）。按 override：packages/desktop 55.25%<80% 未达标（11 文件，passed_count 0）；plugins/dev-team 恰 80.0% 达标（零余量）。存活变异体集中：ChangeDetailView.tsx(81)/EvalChecklistRenderer.tsx(43)/ChangeListView.tsx(24)/useChangeDetail.ts(16)，条件渲染分支缺分支级断言，useChangeDetail error/refresh 路径（43、61、91-94 行）等 19 个无覆盖变异体"
+        }
+      ],
+      "backtrack_to": "test-gen",
+      "backtrack_reason": "变异门禁 55.25%<80%：packages/desktop 468 变异体 190 存活+19 无覆盖，约 86% 集中于 ChangeDetailView(81)/EvalChecklistRenderer(43)/ChangeListView(24)/useChangeDetail(16) 的条件渲染分支（ConditionalExpression/LogicalOperator/StringLiteral）与 error/refresh 路径，缺分支级断言。属测试断言不足非代码缺陷非执行错误，回溯 test-gen 补断言与覆盖。",
+      "start_at": "2026-09-20T11:17:43.656Z",
+      "timestamp": "2026-09-20T11:34:09.405Z",
+      "stale": true
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "回溯后重评（attempt 3）：G1-G9 全通过。4 个回溯文件逐行核对：设计行 22/22 全保留（detail 6/list 5/eval 5/hook 6），新增约 45 个分支级用例直击变异簇（backtrack 四组合、payload 类型漂移拒收、created/startAt 空缺、stale 响应 resolve/reject/产物三重丢弃），hook L43/61/91-94 error/refresh 路径均有专测且与源码 cancelled 逻辑一致。26 文件三态对账齐全；mock 合规；globals:true 下 RTL 自动清理+afterEach。偏差（判良性）：test-gen 同时改写 2 源文件补 error/docOnly 分支与守卫收窄，file_log 已如实记录，与 AC-10 降级要求一致，建议 code-review 复核。",
+      "checklist": [
+        {
+          "item": "G1 每个公开方法均有对应测试文件",
+          "pass": true,
+          "evidence": "26 个测试文件（12 前端 *.test.ts(x) + 14 Rust）Glob 三态对账齐全；attempt 3 重写 4 文件（file_log scope=test-gen attempt 3：ChangeDetailView/ChangeListView/EvalChecklistRenderer/useChangeDetail）均在盘且与源码同目录"
+        },
+        {
+          "item": "G2 测试文件命名与源码同目录",
+          "pass": true,
+          "evidence": "前端 *.test.ts(x) 与源文件同目录、Rust *_test.rs 同目录挂载、集成测试在 crates tests/ 与 src/__tests__/，与 design L30-31 基础设施决策一致；未改动文件沿用 attempt 2 结论"
+        },
+        {
+          "item": "G3 单元用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "重写 4 文件设计行 22/22 全在：detail 6/6(L124/141/160/187/201/236)、list 5/5(L73/85/96/103/108)、eval 5/5(L32/40/50/59/68)、hook 6/6(L70/82/115/141/153/158)，另新增分支级用例；attempt null 行实现为整段隐藏（测试同时断言无 NaN/undefined），保设计意图；其余 17 节未改动沿用 attempt 2 全量核对"
+        },
+        {
+          "item": "G4 集成用例表逐行生成骨架",
+          "pass": true,
+          "evidence": "ipc_pipeline 10/10 行齐（场景 1-4 为 2+3+3+2）；layout_queries 6/6、generation_parse 7/7、artifacts_envelope 7/7、corpus_golden 12 fixture 宏生成对比——attempt 3 未改动，沿用 attempt 2 结论"
+        },
+        {
+          "item": "G5 Mock策略表逐行落实",
+          "pass": true,
+          "evidence": "useChangeDetail.test.ts:9-11 vi.mock api/core 按命令名分发并记录调用序列；ChangeListView/ChangeDetailView/EvalChecklistRenderer 三文件无 vi.mock，与设计「纯展示组件无 Mock」一致；Rust 表'无 Mock 框架'未改动"
+        },
+        {
+          "item": "G6 框架与导入正确",
+          "pass": true,
+          "evidence": "4 个重写文件统一 import from 'vite-plus/test' + @testing-library/react，jsdom 经 vite.config.ts test.environment 提供（attempt 1 已判与 vitest 同 API 族、非实质偏离）；Rust #[test] 侧未改动"
+        },
+        {
+          "item": "G7 边界情况覆盖",
+          "pass": true,
+          "evidence": "直击变异簇：backtrack to/reason 四组合矩阵、attempt 编号 null、checklist 空/有条目、fileLog null/[]/含空字段行、created null、activePhase startAt null、loading+detail 并存、payload null/原始值/缺字段/类型漂移/非法条目整批拒收、1/2 通过计数、stale 旧响应 resolve/reject/产物三重丢弃、虚拟计时无轮询"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "useChangeDetail.test.ts:62-64/184-186 beforeEach mockReset + L66-68 afterEach useRealTimers；纯展示文件在 globals:true（vite.config.ts:57）下 RTL 自动清理；Rust RAII Drop 未改动；attempt 3 临时文件 parse_report_tmp/.stryker-tmp/reports 已确认删除"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "test-design 用例表全部迭代类型=新增，无废弃条目可违；file-log 仅作未注册 kind 反例（ChangeDetailView.test.tsx:219 走 Fallback，与 design L381/L677 定位一致），未生成任何第二刀功能测试"
+        }
+      ],
+      "start_at": "2026-09-20T11:34:51.724Z",
+      "timestamp": "2026-09-20T12:29:16.417Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "所有 2577 个测试通过（2575 通过、0 失败、2 跳过），5 个计划零执行错误。Mutation 92.29% ≥ 80% 达标。coverage.pass=true；但 measured 各维度为 null：vite-plus 实测数据因 coverage-summary.json 反斜杠键与 sourceFiles 正斜杠失配未聚合（test-report.ts buildSourceFileEntries），rust 计划因未安装 cargo-llvm-cov 无覆盖数据且退出码被链式命令掩盖；plugins/dev-team mutation 覆盖值 80.0 为阈值占位非实测。建议后续修复聚合逻辑并安装 cargo-llvm-cov。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total(2577)/passed(2575)/failed(0)/skipped(2)/coverage(嵌套对象)/duration_seconds(413) 全部存在且类型正确"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2577>0；conclusion=pass，problems 为空，无 execution_error"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；measured: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)；overrides plugins/dev-team 与 packages/desktop 均 pass。注意: null 实为聚合缺陷(vite-plus 路径分隔符失配)与 rust 缺 cargo-llvm-cov，非框架不支持"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无需诊断，自动通过"
+        }
+      ],
+      "start_at": "2026-09-20T12:29:54.516Z",
+      "timestamp": "2026-09-20T12:44:40.441Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "C1-C7 全过。安全：无密钥/eval/unsafe；路径穿越由 is_change_name+is_valid_source+canonical 包含性三重防护（敌意 source 用例覆盖）。宽松解析、空目录/空白 root 降级、Fallback 永不白屏均符合设计。openspec 字样仅 layout.rs:23。三命令为无状态薄包装有结构性测试佐证。小疵不阻：DetailSectionInterupted 拼写、posix_path 与 encode_file_source 逻辑重复、tauri.conf csp:null（react-markdown 无 rehype-raw，无原始 HTML 路径，可接受）。inventory 日志缺部分实现文件属记录性偏差，文件系统/git 实际范围与设计清单一致。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "无密钥/命令执行/unsafe；路径穿越三重防护（queries/mod.rs:43 is_change_name、registry.rs:114 is_valid_source、registry.rs:186 canonical 包含性），mod_test.rs:157 敌意 source 用例全拒"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "root 空白检查 commands/queries/mod.rs:20；kind/source 格式校验 registry.rs:107-129；workflow.json 两段式宽松解析 workflow_file.rs:48；前端 payload 类型守卫收窄（三个 renderer）"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "与 design 一致：openspec 仅 layout.rs:23；workflow crate 零 Tauri 依赖；exec 空轨道无 trait；无 watch/轮询；9 站固定流水线；desktop-app 落位偏差与 design 范围节声明一致"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "缺失目录返回空 list.rs:68；Unparsable 降级打标 detail.rs:95；空白 root 空结果语义；hooks cancelled 竞态守卫；纯数字文件名与 eval 序号歧义属设计契约既有约定且失败安全（Fallback）"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "parse_report_tmp.* 已不在磁盘；archive_prefix_date/Verdict::as_str 均有消费方；无不可达分支"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "注释与模块结构对齐 design 清单；小疵不阻：ChangeDetailView.tsx:67 Interupted 拼写、markdown_doc.rs:35 posix_path 与 registry.rs:92 encode_file_source 逻辑重复"
+        },
+        {
+          "item": "C7 外部数据使用同来源类型",
+          "pass": true,
+          "evidence": "Rust DTO 直接 serde 派生无中间映射；dto.ts 为设计规定的跨语言镜像；renderer 复用契约形状以守卫收窄"
+        }
+      ],
+      "start_at": "2026-09-20T12:45:08.170Z",
+      "timestamp": "2026-09-20T12:51:43.021Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "14/14 AC 逐项实证：目录选择器(App.tsx:50)、resolve 唯一触点+扫描守护(layout.rs:22)、代际探测(detect.rs:20)、两段式宽松解析(workflow_file.rs:48)、列表/九站详情(list.rs:54/detail.rs:14)、信封+三插件双端注册(envelope.rs/registry.rs:42/registry.ts:13)、Fallback+v0/v1 降级、三薄包装+exec 空轨、hooks 显式刷新无轮询、独立 lockfile 根无 workspace、12 语料+golden 回归(corpus_golden_test.rs)。file_log 148 项均限 packages/desktop，无越界、out_of_scope 全未实现、风险缓解全可见。tasks.md 全勾，验收通过。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1~14 全实证：AC-1 App.tsx:50 目录选择器；AC-2 layout.rs:22 resolve 唯一触点+layout_test.rs:147 扫描守护；AC-3 detect.rs:20；AC-4 workflow_file.rs:48 两段式单条降级；AC-5 list.rs:54 全量+月分组；AC-6 detail.rs:14 九站含 backtrack；AC-7 envelope.rs:9+ArtifactView.tsx:6；AC-8 registry.rs:42 三插件+registry.ts:13 三 renderer；AC-9 tasks_progress.rs:26；AC-10 Fallback.tsx+DetailView v0/v1 降级；AC-11 queries/mod.rs:26 三薄包装+exec 空；AC-12 hooks 仅显式刷新；AC-13 lockfile 在位；AC-14 corpus_golden_test.rs 语料 golden 回归。"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "file_log 148 条全部在 packages/desktop/** 与本变更目录内，零 dist/plugins 写入；desktop-app 根包落位偏差为 design.md 显式声明；测试工具链属 tasks.md 头部声明的 test-gen 范畴；临时文件 parse_report_tmp/.stryker-tmp 同 attempt 内删除无残留。"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "七能力全在位：独立包配置+lockfile、foundation layout 零依赖、workflow model/parse、queries 双查询、artifacts 双注册表+三插件、desktop-app 双轨 command+main.rs:6-15 注册、前端 13 文件；tasks.md 阶段 1-9 全 [x]，含用户 2026-09-20 两轮 GUI 走查通过注记。"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "无 plugins/**/dist/** 写入，grep dist 无 desktop 产物；根目录无新增 package.json/pnpm-workspace.yaml；workflow.schema.ts 未动；commands/exec/mod.rs 空轨道无命令无 trait；PLUGINS 仅 3 kind，第二刀三插件未实现；openspec 现有数据未改。"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "R1 schema 漂移→golden 回归+宽松解析且 TS schema 未动；R2 怪数据→代际降级+单条跳过+Fallback；R3 膨胀→三插件上限+exec 空置；R4 环境摩擦→独立 lockfile 工具链；R5 误套 bump 规则→已核实 desktop 不进 dist 分发链。"
+        }
+      ],
+      "start_at": "2026-09-20T12:52:07.940Z",
+      "timestamp": "2026-09-20T12:58:27.730Z"
+    }
+  ],
+  "active_phase": null
+}

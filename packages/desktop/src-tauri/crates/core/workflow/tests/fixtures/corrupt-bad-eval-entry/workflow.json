@@ -1,0 +1,28 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-08-10",
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "完好条目：应正常保留。",
+      "checklist": [{ "item": "检查项一", "pass": true, "evidence": "有依据" }],
+      "timestamp": "2026-08-10T07:00:00Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "损坏条目：checklist 不是数组，应整条跳过。",
+      "checklist": "不是数组的字符串"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "另一条完好条目：也应正常保留。",
+      "checklist": [{ "item": "检查项二", "pass": false, "evidence": "有依据" }]
+    }
+  ]
+}

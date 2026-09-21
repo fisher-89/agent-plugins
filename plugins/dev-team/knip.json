@@ -1,6 +1,5 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "tags": ["-lintignore"],
   "entry": ["bin/src/mcp.ts", "bin/src/cli.ts", "bin/src/hooks.ts", "vite.config.ts"],
   "project": ["bin/src/**/*.ts", "!bin/src/**/*.test.ts", "build/**/*.ts", "!build/**/*.test.ts"],
   "ignoreDependencies": ["@vitest/coverage-v8", "@vitest/ui"],

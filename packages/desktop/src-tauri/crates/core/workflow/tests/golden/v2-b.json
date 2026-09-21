@@ -1,0 +1,255 @@
+{
+  "detail": {
+    "activePhase": {
+      "attempt": 2,
+      "phase": "implement",
+      "startAt": "2026-08-03T10:00:00Z"
+    },
+    "artifacts": [
+      {
+        "kind": "tasks-progress",
+        "source": "tasks.md",
+        "title": "任务进度"
+      },
+      {
+        "kind": "eval-checklist",
+        "source": "0",
+        "title": "评估清单 · proposal · 第 1 次"
+      },
+      {
+        "kind": "eval-checklist",
+        "source": "1",
+        "title": "评估清单 · dev-design · 第 1 次"
+      },
+      {
+        "kind": "eval-checklist",
+        "source": "2",
+        "title": "评估清单 · dev-design · 第 2 次"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "proposal.md",
+        "title": "提案"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "tasks.md",
+        "title": "任务"
+      }
+    ],
+    "created": "2026-08-01",
+    "fileLog": [
+      {
+        "at": "2026-08-01T08:00:00Z",
+        "attempt": 1,
+        "op": "write",
+        "path": "packages/desktop/src-tauri/crates/core/workflow/src/lib.rs",
+        "scope": "workflow"
+      },
+      {
+        "at": "2026-08-02T09:30:00Z",
+        "attempt": 2,
+        "op": "delete",
+        "path": "packages/desktop/src-tauri/crates/core/workflow/src/legacy.rs",
+        "scope": "workflow"
+      },
+      {
+        "at": "2026-08-03T10:15:30Z",
+        "attempt": 2,
+        "op": "revert",
+        "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/list.rs",
+        "scope": "workflow"
+      }
+    ],
+    "interrupted": [
+      {
+        "attempt": 1,
+        "endAt": "2026-08-02T12:00:00Z",
+        "phase": "test-gen",
+        "startAt": "2026-08-02T11:00:00Z"
+      }
+    ],
+    "inventory": "v2",
+    "name": "v2-b",
+    "pipeline": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "L1-10: 含痛点与动机",
+                "item": "问题描述清晰",
+                "pass": true
+              },
+              {
+                "evidence": "AC 均为对象+条件",
+                "item": "验收标准可测试",
+                "pass": true
+              }
+            ],
+            "report": "合成 v2 样本：proposal 评估通过。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": [
+              2026,
+              213,
+              7,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "verdict": "pass"
+          }
+        ],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "缺少 renderers 组件职责说明",
+                "item": "组件表完整",
+                "pass": false
+              }
+            ],
+            "report": "合成 v2 样本：首轮设计评估未过。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": [
+              2026,
+              214,
+              8,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "verdict": "fail"
+          },
+          {
+            "attempt": 2,
+            "backtrackReason": "设计缺产物区组件，回跳补齐",
+            "backtrackTo": "dev-design",
+            "checklist": [
+              {
+                "evidence": "组件表 5 行齐全",
+                "item": "组件表完整",
+                "pass": true
+              }
+            ],
+            "report": "合成 v2 样本：回跳后第二次设计评估通过。",
+            "skipped": false,
+            "stale": false,
+            "startAt": [
+              2026,
+              214,
+              9,
+              0,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "timestamp": [
+              2026,
+              214,
+              9,
+              40,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "verdict": "pass"
+          }
+        ],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [],
+            "report": "合成 v2 样本：实现阶段无 checklist 条目（验证空 checklist 不产信封）。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": [
+              2026,
+              215,
+              10,
+              30,
+              0,
+              0,
+              0,
+              0,
+              0
+            ],
+            "verdict": "pass"
+          }
+        ],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v2",
+  "fixture": "v2-b",
+  "parse": {
+    "activePhasePresent": true,
+    "created": "2026-08-01",
+    "evalCount": 4,
+    "evalSkipped": 0,
+    "evalStale": 0,
+    "evalWithBacktrack": 1,
+    "evalWithChecklist": 3,
+    "fileLog": "entries",
+    "fileLogCount": 3,
+    "interruptedCount": 1,
+    "outcome": "parsed",
+    "workflowType": "requirement"
+  }
+}

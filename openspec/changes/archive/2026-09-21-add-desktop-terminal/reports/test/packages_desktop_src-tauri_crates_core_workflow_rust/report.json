@@ -1,0 +1,18 @@
+{
+  "framework": "rust",
+  "root": "packages/desktop/src-tauri/crates/core/workflow",
+  "timestamp": "2026-09-20T12:37:18.828Z",
+  "exit_code": 0,
+  "duration_ms": 3082,
+  "summary": {
+    "total": 70,
+    "passed": 70,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [],
+  "coverage": null,
+  "mutation": null
+}

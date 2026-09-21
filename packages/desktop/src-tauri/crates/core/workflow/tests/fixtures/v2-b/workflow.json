@@ -1,0 +1,102 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-08-01",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "workflow",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/lib.rs",
+      "at": "2026-08-01T08:00:00Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/legacy.rs",
+      "at": "2026-08-02T09:30:00Z"
+    },
+    {
+      "op": "revert",
+      "scope": "workflow",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/list.rs",
+      "at": "2026-08-03T10:15:30Z"
+    }
+  ],
+  "active_phase": {
+    "phase": "implement",
+    "attempt": 2,
+    "start_at": "2026-08-03T10:00:00Z"
+  },
+  "interrupted": [
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "start_at": "2026-08-02T11:00:00Z",
+      "end_at": "2026-08-02T12:00:00Z"
+    }
+  ],
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "合成 v2 样本：proposal 评估通过。",
+      "checklist": [
+        {
+          "item": "问题描述清晰",
+          "pass": true,
+          "evidence": "L1-10: 含痛点与动机"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC 均为对象+条件"
+        }
+      ],
+      "timestamp": "2026-08-01T07:00:00Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "合成 v2 样本：首轮设计评估未过。",
+      "checklist": [
+        {
+          "item": "组件表完整",
+          "pass": false,
+          "evidence": "缺少 renderers 组件职责说明"
+        }
+      ],
+      "timestamp": "2026-08-02T08:00:00Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "合成 v2 样本：回跳后第二次设计评估通过。",
+      "checklist": [
+        {
+          "item": "组件表完整",
+          "pass": true,
+          "evidence": "组件表 5 行齐全"
+        }
+      ],
+      "start_at": "2026-08-02T09:00:00Z",
+      "timestamp": "2026-08-02T09:40:00Z",
+      "backtrack_to": "dev-design",
+      "backtrack_reason": "设计缺产物区组件，回跳补齐"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "合成 v2 样本：实现阶段无 checklist 条目（验证空 checklist 不产信封）。",
+      "checklist": [],
+      "skipped": false,
+      "stale": false,
+      "timestamp": "2026-08-03T10:30:00Z"
+    }
+  ]
+}

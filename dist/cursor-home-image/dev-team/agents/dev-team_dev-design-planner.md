@@ -26,7 +26,7 @@ Read:
    - **变更清单 (Change Inventory)**: 从 proposal.md 的变更范围和验收标准出发，以文件为入口逐层展开：
      - **新增文件 (New Files)**: 文件路径 + 说明。每个新增文件必须在后续子表中有关联条目（函数、类型或配置）
      - **修改文件 (Modified Files)**: 文件路径 + 具体修改内容 + 说明
-     - **公共函数/API (Public Functions/APIs)**: 标识符 + 所在文件 + 新增/修改 + 完整签名（参数名、类型标注、返回类型）+ 说明。仅列模块级导出函数、CLI 子命令、HTTP 端点；私有函数（`_` 前缀、模块内部）不列入。签名格式：Python → `create_adr(title: str, status: str = "proposed") -> dict`；TypeScript → `function parseImports(file: string): Import[]`
+     - **公共函数/API (Public Functions/APIs)**: 标识符 + 所在文件 + 新增/修改 + 完整签名（参数名、类型标注、返回类型）+ 说明。仅列模块级导出函数、CLI 子命令、HTTP 端点；私有函数（`_` 前缀、模块内部）不列入。导出 class 的公共 API 按公开方法逐条列出（实例方法、静态方法、getter/setter，格式 `ClassName.methodName(...)`）。签名格式：Python → `create_adr(title: str, status: str = "proposed") -> dict`；TypeScript → `function parseImports(file: string): Import[]`
      - **类型定义 (Type Definitions)**: 类型名 + 所在文件 + 新增/修改 + 说明。含 interface、type alias、enum、公共 API class
      - **配置 (Configuration)**: 配置键 + 所在文件 + 新增/修改 + 值类型 + 默认值 + 说明
      - 不涉及的子表整段省略，以 HTML 注释标注原因

@@ -1,0 +1,75 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [
+      {
+        "kind": "tasks-progress",
+        "source": "tasks.md",
+        "title": "任务进度"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "proposal.md",
+        "title": "提案"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "design.md",
+        "title": "设计"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "tasks.md",
+        "title": "任务"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/hook-output-import/spec.md",
+        "title": "规格 · hook-output-import"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/intent-router/spec.md",
+        "title": "规格 · intent-router"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/json-design-schemas/spec.md",
+        "title": "规格 · json-design-schemas"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/pge-workflow-engine/spec.md",
+        "title": "规格 · pge-workflow-engine"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/phase-agents/spec.md",
+        "title": "规格 · phase-agents"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/phase-skills/spec.md",
+        "title": "规格 · phase-skills"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "specs/pipeline-backtrack/spec.md",
+        "title": "规格 · pipeline-backtrack"
+      }
+    ],
+    "created": null,
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v0",
+    "name": "v0-b",
+    "pipeline": [],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v0",
+  "fixture": "v0-b",
+  "parse": {
+    "outcome": "unparsable"
+  }
+}

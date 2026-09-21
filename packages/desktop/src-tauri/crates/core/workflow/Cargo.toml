@@ -1,0 +1,11 @@
+[package]
+name = "workflow"
+version = "0.1.0"
+edition = "2021"
+
+# change 域纯读库：禁 Tauri 依赖、无指令（exec）概念
+[dependencies]
+foundation = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+time = { workspace = true }

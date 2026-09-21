@@ -1,0 +1,328 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-20",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/queries/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/Cargo.toml",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/main.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/commands/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/commands/queries/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/src/commands/exec/mod.rs",
+      "at": "2026-09-20T06:20:15.475Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src-tauri/crates/desktop-app/tauri.conf.json",
+      "at": "2026-09-20T06:20:15.475Z"
+    }
+  ],
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "评估 add-desktop-terminal proposal.md + 7 个 specs。问题含具体痛点、战略动机与三代数据表;范围四小节齐全;5 项风险均有具体缓解;AC-1..14 均可测;12 项决策含理由+被拒备选;CLAUDE.md bump 规则边界已显式声明(不触碰 plugins/**);无占位符;能力 7 项与 specs/ 7 个 spec 一一对应,全部 ADDED,AC 与 requirement 交叉一致无冲突。全部通过,verdict=pass。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-23: 具体痛点(过程数据只能终端逐文件翻看)+战略动机(多 agent/Rust 运行时第一块砖)+三代结构判定表格(v2/v1/v0 各有明确判据),非泛泛改进"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L63 实现文件(packages/desktop 六组路径非空)、L72 测试文件(fixtures+tests 非空)、L81 不要修改(5 项: plugins/**、仓库根、changes 数据、schema.ts、exec 轨道)"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L114-120 五项风险各有具体机制: schema 漂移→74 archive 快照回归+TS 唯一真理源; 老数据→代际降级+Fallback 硬要求; 膨胀→插件自包含+exec 空置; 无'监控并调整'式泛化"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L93-108 AC-1..AC-14 均为对象+条件, 如 AC-2 'resolve(root) 返回 Layout{changes_root,archive_root,explores_root}...无硬编码 openspec 路径'; AC-9 '统计 - [ ] / - [x] 数量'; AC-12 '无 watch、无后台轮询'"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L128-141 决策表 12 项均填理由+备选: 如 Rust 解析 vs '复用 TS zod(与 Rust 运行时战略相悖)'; 刷新按钮 vs '文件 watch+事件推送'; 三层 crate vs '单 crate+模块(边界弱)'"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L39 显式声明 packages/desktop 不进 plugins/ dist 分发链故 bump+rebuild 规则不适用(不触碰任何插件源码, 与 CLAUDE.md 规则触发条件不冲突); workflow.schema.ts 保持唯一真理源只读参照"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{}} 标记; L143-148 '待决问题'为实质性开放项(renderer 版本策略、fixtures 挑选留待 test-design、第二刀范围)而非占位"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围(实现+测试+删除+不要修改)/验收标准(14 行表)/风险(5 行表)各节均实质填写, 无空节"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L45-53 '### 新增能力' 列 7 项(desktop-crate-layout 等); L57 '### 修改的能力' 明确'无'并说明不触碰现有能力"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 下恰好 7 个 spec 目录, 与能力章节 7 项名称完全一致(desktop-crate-layout/workspace-layout-resolution/desktop-change-parse/desktop-change-queries/desktop-artifact-plugins/desktop-app-shell/desktop-corpus-regression), 无多余或缺失"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "7 spec 均 '## ADDED Requirements' 与新增声明一致; AC-3 判定规则与 parse spec 逐条相同; AC-6 九站流水线与 queries spec 列表一致; AC-7/8 信封字段与六 kind 与 artifact spec 表一致; AC-11/12/13/14 对应 shell/crate-layout/corpus spec; Layout 字段、exec 空轨、命名隔离表述均一致"
+        }
+      ],
+      "timestamp": "2026-09-20T02:54:45.039Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "D1组件表5行含职责/依赖/技术/路径,无TBD;D2数据模型8行字段+持久化齐全;D3 AC-1~14逐项落点对应;D4任务9阶段依赖有序、勾选框齐全;D5任务指名文件与函数;D6运行时+构建依赖列用途;D7独立包与CLAUDE.md插件分发规则划界一致;D8模板章节全实质填写;D9无测试策略/测试任务(check/build/走查非测试);D10清单覆盖proposal实现文件(core前缀差异已声明),tasks与清单双向一致。全部通过。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "design.md组件表5组件均填职责/文件位置/依赖/技术;技术为Rust/React+TS+Vite/pnpm+Vite,无TBD;目录位置经变更清单细化到具体文件"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "design.md数据模型表8模型,字段列经类型定义表全量展开(Workflow/PhaseLog/ChangeDetail等逐字段),持久化列均为workspace只读/内存DTO/无"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 每个验收标准",
+          "pass": true,
+          "evidence": "design.md验收标准对齐表AC-1~AC-14逐项给出设计落点,与proposal.md验收表一一对应;9站流水线清单与AC-6一致"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 9阶段全为'- [ ]';顺序骨架→foundation→workflow(model/parse→artifacts→queries)→desktop-app→前端→收口,无后置任务被前置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "各任务指名文件/函数/行为,如parse_workflow_file两段式解析规则、detect_inventory V2/V1/V0判定、list_changes按月分组规则,无空泛任务"
+        },
+        {
+          "item": "D6 依赖项(运行时和构建/测试)已列出",
+          "pass": true,
+          "evidence": "design.md依赖节:运行时tauri/serde/time/react系均注用途;构建vite/typescript/@tauri-apps/cli注用途;并列'明确不引入'清单"
+        },
+        {
+          "item": "D7 设计与项目架构一致(CLAUDE.md)",
+          "pass": true,
+          "evidence": "packages/desktop独立包自带lockfile、不进根workspace、不动plugins/**与dist分发链,proposal.md:39显式声明不受bump/rebuild规则约束,design不变更既有文件"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单/数据模型/路由API/依赖/待决问题均实质填写;变更清单新增文件表覆盖所有落位文件;无修改文件按模板注释省略,符合'至少含新增或修改之一'"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md无测试策略/架构章节(测试提及均为test-design阶段边界声明);tasks.md无单测/集成测试任务,cargo check/pnpm build/tauri dev走查为构建与冒烟验证"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "清单覆盖proposal实现文件全部条目(crates/core前缀差异design.md:11已声明对齐proposal决策表);逐文件双向核对tasks与清单一致;公共函数表条目均在新增文件表中,无矛盾"
+        }
+      ],
+      "timestamp": "2026-09-20T04:09:49.040Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "T1: AC-1..14与验收范围逐条映射齐全。T2: 单测型9条目与21个heading双向无缺失；5集成关系关联AC均在范围内，集成型AC-1/7/10/14均被引用。T3: 21个测试对象均含异常+边界(负attempt/空数组/None/非法枚举/超长/特殊字符/除零)。T4: 文件系统(temp+fixtures)与Tauri IPC(invoke/dialog)均有Mock策略。T5: 各章节实质填写无占位。T6: 第二刀项(exec/file-log等)无覆盖，file-log仅作未注册反例。T7: proposal纯读无写操作，不适用。T8: 单测21节/集成5节/验收范围列名与结构均合规。",
+      "checklist": [
+        {
+          "item": "T1 proposal每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md L95-108 AC-1..AC-14 与 test-design.md L13-26 验收范围表逐条一一对应无缺失；AC-13 标注为不可测试项并在不可测试项节(L815)展开原因"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单测型 AC-2/3/4/5/6/8/9/11/12 的被测文件均有对应 ### 源文件->测试文件 heading（21节双向核对无缺失）；集成型 AC-1/7/10/14 分别见于 ipc_pipeline/artifacts_envelope/corpus_golden 关系关联AC；5关系引用的 AC-ID 均存在于验收范围"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "21个测试对象均有异常用例（detect 目录不存在、parse 非法JSON、invoke reject 等）；边界按类型系统覆盖：负attempt(L110)/空数组(L107-108)/None(root,change,workflow)/非法枚举verdict与op(L105-106)/超长>1000(L111,L220,L423)/特殊字符与emoji(L111,L222)/除零(L485)"
+        },
+        {
+          "item": "T4 外部依赖有Mock策略",
+          "pass": true,
+          "evidence": "文件系统：各 Rust 节以临时目录+tests/fixtures 真实文件并声明不用 Mock 框架；跨进程边界 @tauri-apps/api/core invoke 与 plugin-dialog open 均 vi.mock 按命令名分发（App/useChangeList/useChangeDetail/ipc_pipeline 各节 Mock策略表）"
+        },
+        {
+          "item": "T5 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "验收范围14行；21个单测节均含待测功能/用例/Mock策略三子节；5个集成关系含涉及模块/关联AC/关系描述/场景/用例；不可测试项5条各有原因；全文无占位符"
+        },
+        {
+          "item": "T6 测试设计与proposal范围一致",
+          "pass": true,
+          "evidence": "第二刀范围项(exec接入/file-log/test-report-summary/html-report-ref/最近打开/耗时统计)无测试覆盖；file-log 仅作未注册kind反例验证Fallback(L381,L677)；exec空轨按AC-11归入不可测试项(L816)；in-scope AC-1..14全覆盖"
+        },
+        {
+          "item": "T7 写操作测试包含幂等性验证",
+          "pass": true,
+          "evidence": "proposal L29/L85 明确 desktop 对任意 workspace 只读、取数仅显式刷新，无 API/DB 写操作；golden 重写开关为测试基础设施非产品写路径，幂等性用例不适用"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "21个单测heading均为'源->测试'且按序含三子节、用例列'测试对象|路径类型|测试条件|迭代类型'、Mock列'Mock主体|Mock方案|应用场景'均无测试文件列；5个集成heading含→测试文件、模块表3/3/6/4/7行、关联AC与叙事段非空、场景名唯一且后接叙事、用例列'路径类型|测试条件|迭代类型'；验收范围保留 AC ID|验收条件|测试类型|被测文件或模块 四列顺序与模板一致"
+        }
+      ],
+      "timestamp": "2026-09-20T04:26:49.359Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "47 个声明文件全部存在（workflow_files 清单为空属 hook 不可见漏记，已按文件系统逐一核对内容）；公共 API/类型/配置逐项对上：三个 Tauri 命令、foundation 零依赖、workflow 无 tauri、serde camelCase 宽松两段解析、目录名仅 layout.rs:23-27 一处、静态注册表特化 kind 先于 markdown-doc、exec 空轨道、组件不直连 invoke、无轮询/watch/State，均落实。额外文件仅 .gitignore/Cargo.lock/icon.ico/pnpm-workspace.yaml 等构建必需物，无无关删除。唯一 fail：tasks.md:72 阶段9 全链路验证（cargo check/pnpm build/tauri dev 走查）复选框未勾选，其余 35 项均 [x]。",
+      "checklist": [
+        {
+          "item": "I1 design 每个架构组件均有实现代码",
+          "pass": true,
+          "evidence": "47/47 声明文件存在于文件系统：foundation 3 文件、workflow 17 文件、desktop-app 5 文件、前端 13 文件、工程配置 9 文件；files 清单为空属漏记，按内容核对"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现",
+          "pass": true,
+          "evidence": "新增 47 文件、公共函数（resolve/detect_inventory/parse_workflow_file/list_changes/change_detail/discover_artifacts/read_artifact/ArtifactPlugin/三命令/两 hook/resolveRenderer）与 22 Rust+10 TS 类型逐项在位；无修改/删除声明且未发生"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "中文文档注释、模块根+re-export 组织、package.json 结构与仓库惯例一致；crate/模块/类型/kind 标识符无 openspec 子串（grep 证实）"
+        },
+        {
+          "item": "I4 design 所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "main.rs:8-12 generate_handler 注册 list_changes/get_change_detail/read_artifact；queries/mod.rs 三个 #[tauri::command] 无状态薄包装；App.tsx:22 plugin-dialog open({directory:true})"
+        },
+        {
+          "item": "I5 tasks.md 所有任务均标记 [x]",
+          "pass": false,
+          "evidence": "tasks.md:72 阶段9「全链路验证」复选框为 [ ]（cargo check/pnpm build/tauri dev 手工走查）；其余 35 项均已勾选"
+        },
+        {
+          "item": "I6 没有与变更无关的代码",
+          "pass": true,
+          "evidence": "files 外额外文件仅构建必需物：.gitignore、Cargo.lock、icons/icon.ico（tauri.conf.json bundle 引用）、pnpm-workspace.yaml（pnpm 构建批准）、dist/target/node_modules 均被 gitignore；无无关删除"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "依赖图 desktop-app->workflow->foundation 编译器强制；磁盘目录名仅 layout.rs:23-27；registry.rs:42 PLUGINS 顺序特化 kind 先于 markdown-doc、同候选多 kind 并存；固定 9 站流水线；v0 空流水线/v1 file_log=None 留空；产物失败 Fallback 不白屏"
+        }
+      ],
+      "timestamp": "2026-09-20T05:16:08.668Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "7/7 通过。design 变更清单 49 个新增文件逐一核实落盘且内容对齐；files 清单 deleted[] 6 条为偏差注释声明的 crates/desktop-app 旧落位移除，盘面确认不存在，非无关删除。前次唯一失败项 I5 已修复：tasks.md 全部勾选且阶段 9 含 2026-09-20 用户验收完成注记。两处 GUI 修复在盘（MarkdownDocRenderer 挂 remark-gfm；list.rs scan_dir 经 layout 推导跳过 archive，目录名触点仍仅 layout.rs:23 一处）。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "foundation(3 文件)/workflow(16 文件)/desktop-app(root Cargo.toml+src/4 文件+icon.ico)/前端(13 文件)/工程配置(9 文件)逐文件核实存在，内容与 design 组件表一致"
+        },
+        {
+          "item": "I2 变更清单条目均有实现",
+          "pass": true,
+          "evidence": "三态对账：计划∧files无∧文件存在均按良性漏记逐文件核对通过；deleted[] 的 crates/desktop-app/* 与 design 偏差注释（根包混合 workspace）一致，盘面已无该目录"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "crate 裸名、模块组织与 design 文件表逐行一致；serde camelCase、中文 doc 注释风格与仓库 openspec 文档一致"
+        },
+        {
+          "item": "I4 路由/API 均实现",
+          "pass": true,
+          "evidence": "commands/queries/mod.rs 三命令签名与 design 路由表一致，main.rs:8-12 注册 dialog 插件与三命令；App.tsx:22 open({directory:true})"
+        },
+        {
+          "item": "I5 tasks.md 全部勾选",
+          "pass": true,
+          "evidence": "tasks.md 9 阶段所有复选框均 [x]，阶段 9 附完成注记：cargo check/pnpm build/tauri dev 冒烟 executor 验证 + 用户 2026-09-20 功能验收通过（前次失败项已闭环）"
+        },
+        {
+          "item": "I6 无无关代码",
+          "pass": true,
+          "evidence": "计划外仅包内 .gitignore 与 pnpm-workspace.yaml（pnpm allowBuilds 配置）及 lockfile/build 产物；仓库根确认无 package.json/pnpm-workspace.yaml，根 dist/ 仅 claude-plugins 等，无 desktop 产物；无无关源码删除"
+        },
+        {
+          "item": "I7 设计决策已遵守",
+          "pass": true,
+          "evidence": "根包混合 workspace 落位与偏差注释一致；\"openspec\" 全包仅 layout.rs:23（grep 证实）；前端无轮询/定时器、组件不直接 invoke（grep 证实）；exec/mod.rs 仅注释无 trait；foundation 零依赖、workflow 无 tauri；payload 契约与三插件装配顺序符合设计"
+        }
+      ],
+      "timestamp": "2026-09-20T06:54:39.002Z"
+    }
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "framework": "rust",
+  "root": "packages/desktop/src-tauri/crates/core/foundation",
+  "timestamp": "2026-09-20T12:37:15.745Z",
+  "exit_code": 0,
+  "duration_ms": 1303,
+  "summary": {
+    "total": 7,
+    "passed": 7,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [],
+  "coverage": null,
+  "mutation": null
+}

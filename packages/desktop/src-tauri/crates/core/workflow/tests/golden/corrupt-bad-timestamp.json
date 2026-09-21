@@ -1,0 +1,96 @@
+{
+  "detail": {
+    "activePhase": {
+      "attempt": 1,
+      "phase": "implement",
+      "startAt": null
+    },
+    "artifacts": [
+      {
+        "kind": "eval-checklist",
+        "source": "0",
+        "title": "评估清单 · proposal · 第 1 次"
+      }
+    ],
+    "created": null,
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v1",
+    "name": "corrupt-bad-timestamp",
+    "pipeline": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "时间戳降级不影响条目",
+                "item": "唯一检查项",
+                "pass": true
+              }
+            ],
+            "report": "时间戳非法但条目本身合法：条目保留、时间戳降级为空。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": null,
+            "verdict": "pass"
+          }
+        ],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v1",
+  "fixture": "corrupt-bad-timestamp",
+  "parse": {
+    "activePhasePresent": true,
+    "created": null,
+    "evalCount": 1,
+    "evalSkipped": 0,
+    "evalStale": 0,
+    "evalWithBacktrack": 0,
+    "evalWithChecklist": 1,
+    "fileLog": "absent",
+    "fileLogCount": 0,
+    "interruptedCount": 0,
+    "outcome": "parsed",
+    "workflowType": "requirement"
+  }
+}

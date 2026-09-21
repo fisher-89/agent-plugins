@@ -1,0 +1,56 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [],
+    "created": null,
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v2",
+    "name": "corrupt-invalid-json",
+    "pipeline": [
+      {
+        "attempts": [],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": true
+  },
+  "detect": "v2",
+  "fixture": "corrupt-invalid-json",
+  "parse": {
+    "outcome": "unparsable"
+  }
+}
