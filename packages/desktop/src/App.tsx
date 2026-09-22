@@ -2,20 +2,48 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useCallback } from 'react';
 
 import { useChangeList } from './hooks/useChangeList';
+import { useUpdater, type UpdateState } from './hooks/useUpdater';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import type { WorkspaceRecord } from './types/dto';
 import { ChangeView } from './views/changes/ChangeView';
 import { WelcomeView } from './views/WelcomeView';
 
 /**
- * 顶栏：workspace 下拉切换（清单项悬停 title 完整 path）+ 移除当前项 + 刷新列表。
- * 下拉与欢迎屏共用 useWorkspaces 同一清单来源。
+ * 顶栏更新指示：当前版本号 + 更新入口。有新版本 →「更新到 vX」→ 下载进度 →
+ * Finished 转「正在安装…」终态（Windows 上 NSIS 安装器接管重启，其后无回调）；
+ * 失败 →「重试更新」。
+ */
+function UpdateIndicator({ state }: { state: UpdateState }) {
+  return (
+    <>
+      {state.currentVersion !== null && (
+        <span className="app-version">v{state.currentVersion}</span>
+      )}
+      {state.status === 'installing' ? (
+        <span className="app-version">正在安装…</span>
+      ) : state.status === 'downloading' ? (
+        <span className="app-version">下载中 {state.progress ?? 0}%</span>
+      ) : state.error !== null ? (
+        <button onClick={state.start}>重试更新</button>
+      ) : (
+        state.available !== null && (
+          <button onClick={state.start}>更新到 v{state.available.version}</button>
+        )
+      )}
+    </>
+  );
+}
+
+/**
+ * 顶栏：workspace 下拉切换（清单项悬停 title 完整 path）+ 移除当前项 + 刷新列表
+ * + 版本与更新入口。下拉与欢迎屏共用 useWorkspaces 同一清单来源。
  */
 function AppHeader({
   root,
   workspaces,
   loading,
   error,
+  update,
   onOpen,
   onRemove,
   onRefresh,
@@ -24,6 +52,7 @@ function AppHeader({
   workspaces: WorkspaceRecord[];
   loading: boolean;
   error: string | null;
+  update: UpdateState;
   onOpen: (root: string) => void;
   onRemove: (root: string) => void;
   onRefresh: () => void;
@@ -45,6 +74,7 @@ function AppHeader({
       <button onClick={() => onRemove(root)}>移除</button>
       {error !== null && <span className="error-note">{error}</span>}
       <span className="spacer" />
+      <UpdateIndicator state={update} />
       <button onClick={onRefresh} disabled={loading}>
         刷新列表
       </button>
@@ -60,6 +90,7 @@ function AppHeader({
 export default function App() {
   const workspaceState = useWorkspaces();
   const list = useChangeList(workspaceState.root);
+  const update = useUpdater();
 
   // 对话框添加流经 useWorkspaces().add 入库；刷新后新记录 last_opened_at 最新，
   // 即清单第一名，root 随之切换到返回记录的 canonical root
@@ -86,6 +117,7 @@ export default function App() {
         workspaces={workspaceState.workspaces}
         loading={list.loading}
         error={workspaceState.error}
+        update={update}
         onOpen={workspaceState.touch}
         onRemove={workspaceState.remove}
         onRefresh={list.refresh}

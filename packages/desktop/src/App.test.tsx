@@ -3,11 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ChangeDetail, ChangeList, WorkspaceRecord } from './types/dto';
 
-const { invokeMock, openMock } = vi.hoisted(() => ({
+const { getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
+  getVersionMock: vi.fn(),
   invokeMock: vi.fn(),
   openMock: vi.fn(),
 }));
 
+vi.mock('@tauri-apps/api/app', () => ({ getVersion: getVersionMock }));
 vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 
@@ -118,8 +120,11 @@ async function restored() {
 
 describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => {
   beforeEach(() => {
+    getVersionMock.mockReset();
     invokeMock.mockReset();
     openMock.mockReset();
+    // useUpdater 挂载拉取版本号：走独立 mock，不混入 invoke 调用序列断言
+    getVersionMock.mockResolvedValue('0.1.0');
     mockIpc();
   });
 

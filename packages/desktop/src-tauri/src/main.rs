@@ -13,7 +13,22 @@ use store::Store;
 const DB_FILE_NAME: &str = ".dev-team/desktop-store.redb";
 
 fn main() {
-    tauri::Builder::default()
+    let mut builder =
+        tauri::Builder::default().plugin(tauri_plugin_updater::Builder::new().build());
+    #[cfg(desktop)]
+    {
+        builder = builder.plugin(tauri_plugin_single_instance::init(|app, _args, _cwd| {
+            if let Some(window) = app.get_webview_window("main") {
+                if let Ok(true) = window.is_minimized() {
+                    let _ = window.unminimize();
+                }
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
+        }));
+    }
+
+    builder
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
             // db 路径解析在此（app_data_dir 依赖 Tauri 上下文），store 内无环境解析。

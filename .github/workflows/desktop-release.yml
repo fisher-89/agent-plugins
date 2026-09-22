@@ -1,0 +1,50 @@
+# desktop 自动发版:推 desktop-vX.Y.Z tag 触发(版本须与 packages/desktop/src-tauri/tauri.conf.json 一致)。
+# 依赖仓库 secrets:TAURI_SIGNING_PRIVATE_KEY / TAURI_SIGNING_PRIVATE_KEY_PASSWORD(见 packages/desktop/RELEASE.md)。
+# 仅打 nsis,保证 latest.json 的 windows-x86_64 条目确定性;targets:"all" 仅在本地构建生效。
+name: desktop-release
+
+on:
+  push:
+    tags: ['desktop-v*']
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: desktop-release
+
+defaults:
+  run:
+    working-directory: packages/desktop
+
+jobs:
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11.22.0 # 仓库无 packageManager 字段,必须显式指定
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: packages/desktop/pnpm-lock.yaml
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: packages/desktop/src-tauri
+      - run: pnpm install --frozen-lockfile
+      - uses: tauri-apps/tauri-action@v0
+        with:
+          projectPath: packages/desktop
+          tagName: desktop-v__VERSION__
+          releaseName: 'Desktop Terminal v__VERSION__'
+          releaseDraft: false # draft 会使 releases/latest/download/latest.json 端点 404
+          prerelease: false
+          args: --bundles nsis
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAURI_SIGNING_PRIVATE_KEY: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY }}
+          TAURI_SIGNING_PRIVATE_KEY_PASSWORD: ${{ secrets.TAURI_SIGNING_PRIVATE_KEY_PASSWORD }}

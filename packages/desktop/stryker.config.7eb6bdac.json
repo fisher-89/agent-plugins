@@ -1,26 +1,16 @@
 {
   "$schema": "node_modules/@stryker-mutator/core/schema/stryker-schema.json",
-  "ignorePatterns": [
-    "openspec/**/*"
-  ],
-  "mutate": [
-    "src/App.tsx",
-    "src/hooks/useWorkspaces.ts"
-  ],
+  "ignorePatterns": ["openspec/**/*"],
+  "mutate": ["src/App.tsx", "src/hooks/useWorkspaces.ts"],
   "testRunner": "vitest",
-  "plugins": [
-    "@stryker-mutator/vitest-runner"
-  ],
+  "plugins": ["@stryker-mutator/vitest-runner"],
   "vitest": {
     "configFile": "vite.config.ts",
     "dir": "."
   },
   "disableTypeChecks": true,
   "ignoreStatic": true,
-  "reporters": [
-    "json",
-    "html"
-  ],
+  "reporters": ["json", "html"],
   "jsonReporter": {
     "fileName": "D:/Projects/wps-claude-plugin/openspec/changes/desktop-redb-store/reports/test/packages_desktop_vite-plus/mutation.json"
   },

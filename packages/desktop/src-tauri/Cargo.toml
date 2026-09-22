@@ -47,3 +47,7 @@ time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
+
+[target.'cfg(not(any(target_os = "android", target_os = "ios")))'.dependencies]
+tauri-plugin-single-instance = "2"
+tauri-plugin-updater = "2"
