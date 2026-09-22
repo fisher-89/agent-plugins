@@ -33,16 +33,17 @@ jobs:
       version: ${{ steps.version.outputs.version }}
       should: ${{ steps.version.outputs.should }}
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - id: version
         shell: bash
         run: |
           VERSION=$(node -p "require('./package.json').version")
           # 远端 desktop-v* tag 的最高版本;ls-remote 只看 origin,不碰本地遗留 tag。
-          # grep -v '\^' 排除 annotated tag 的 ^{} 附带行(本项目为轻量 tag,防御性过滤)。
+          # sed 一并完成两件事:剔除 annotated tag 的 ^{} 附带行(本项目为轻量 tag,
+          # 防御性过滤)+ 截取版本号——sed 空输入时退出码恒 0,规避 -e -o pipefail 下
+          # grep -v 零匹配即整条管道失败的问题(首发场景必现)。
           LATEST=$(git ls-remote --tags origin 'refs/tags/desktop-v*' \
-            | grep -v '\^' \
-            | sed -E 's#.*refs/tags/desktop-v##' \
+            | sed -E '/\^/d; s#.*refs/tags/desktop-v##' \
             | sort -V | tail -n1)
           : "${LATEST:=0.0.0}"
           NEWER=$(node -e "
@@ -64,7 +65,7 @@ jobs:
     if: needs.detect.outputs.should == 'true'
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: 创建 tag(已存在则跳过)
         shell: bash
         env:
@@ -76,10 +77,10 @@ jobs:
             git tag "desktop-v$VERSION"
             git push origin "refs/tags/desktop-v$VERSION"
           fi
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 11.22.0 # 仓库无 packageManager 字段,必须显式指定
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 24
           cache: pnpm
