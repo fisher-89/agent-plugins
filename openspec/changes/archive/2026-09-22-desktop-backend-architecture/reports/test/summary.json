@@ -1,0 +1,86 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-22T04:36:35.311Z",
+  "duration_seconds": 96,
+  "total": 2535,
+  "passed": 2535,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 0
+      },
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 12,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": null,
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/desktop-backend-architecture/reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-backend-architecture/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-backend-architecture/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All 2535 tests passed with zero failures/skips across all three suites (plugins/dev-team vite-plus: 2379, packages/desktop vite-plus: 139, src-tauri rust: 17); no error clusters, timing outliers, or flaky patterns observed.",
+    "Coverage aggregation inconsistency: summary coverage.measured is null with coverage.pass=true, but per-plan report.json files contain real coverage data - the rust plan reports coverage.pass=false (functions 88.46% below the configured 90% threshold; branches 0% vs 85%, likely unconverted llvm-cov branch data), which never surfaced as a coverage_failure problem. Verify plan-to-summary coverage propagation and rust branch-dimension conversion in the CLI coverage parser.",
+    "Override anomaly: the plugins/dev-team (file_count 51) and packages/desktop (file_count 12) override groups show measured null and passed_count 0 despite plan-level coverage above thresholds, and no override entry exists for the rust suite - per-file override aggregation attached no coverage data to any source file.",
+    "Mutation testing was skipped (mutation null) although config.json requests mutation scores 80/80/70 and the change inventory holds 1 file (packages/desktop/src-tauri/src/commands/mod.rs); Stryker cannot cover a rust-only scope, so the rust mutation gate currently has no runner wired."
+  ]
+}

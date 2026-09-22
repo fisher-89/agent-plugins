@@ -126,3 +126,57 @@ redb.rs 杂）就是将来抽接口的现成缝。
 2. 图数据库产品选型与引入时机（等关系查询的真实痛点出现再进？）
 3. api 边界的用途与形态
 4. 应用编排长大后是否需要独立 app 层 crate（现在 command 即应用服务够用）
+
+---
+
+## 八、开放问题裁决（2026-09-22 第二轮）
+
+四条全部关闭，第七节问题清单就此收敛。
+
+### 决定 1：workspace 维度落盘 → b）workspace 内落盘
+
+- 具体路径（`.openspec/` 下哪层）仍留 dev-design 轴
+- 随决定的三笔账，未来 workspace 维度 change 的 dev-design 必须还：
+  1. **redb 独占锁**：同一 db 文件单进程写锁。desktop 双窗口或他进程
+     打开 workspace 维度数据时，第二个打开者直接失败，需错误语义
+     （重试 / 只读降级，届时定）
+  2. **gitignore 按数据类型分**：派生缓存 / change 索引 ignore；
+     若将来出现值得随 repo 分享的状态，分目录放，不一刀切
+  3. 克隆语义恰是优点：换机器缓存重建，符合"数据跟随 repo"初衷；
+     user 维度注册表不受影响，仍在 `home_dir/.dev-team`
+
+### 决定 2：图数据库 → 暂不考虑
+
+关闭。第五节租户表该行口径更新为：暂不考虑，关系查询真实痛点出现再启。
+
+### 决定 3：api 边界 → 先占位，spec 留存记录即可
+
+关闭。维持 spec 现状；不建 `infra/api` 目录，不动代码。
+
+### 决定 4：独立 app 层 → 中间道路（不建 crate，规则显式化）
+
+**不抽 app crate，command 即应用服务维持**，但给 command body 立显式纪律：
+
+> 只允许 参数转换 / 调用 / 错误映射 三件事。
+> 编排长大时：属领域解释 → 下推 core；属跨边界协调 → 触发 app crate
+> 决策（即翻转信号，不是继续往 command 里塞）。
+
+依据的事实基础：
+
+- 当前 7 条命令（3 查询 + 4 workspace）全是 3-5 行薄包装，app 层现为
+  空收益纯 pass-through；测试已可行（`tauri["test"]` + MockRuntime）且不痛
+- `workspaces/mod.rs` 的 `*_inner(&Store)` 已是 app 层微形态：纯函数 +
+  IPC 适配的分层，只是长在模块里而非 crate 里。将来抽 crate 只是把这道缝
+  从函数边界升到 crate 边界，inner 函数平移零重写 → 推迟决定成本极低
+- 唯一"现在就要抽"的反方论据是根包双重身份（壳 + workspace 根混合体，
+  tauri-cli 所迫），但今日壳体量（7 命令 + setup）太小，分量不足
+
+翻转信号（任一出现即重新决策，不等架构回顾）：
+
+1. Rust 侧引入 phase lifecycle 类命令（parse + validate + mutate + write
+   真编排；TS 端 phase_start/phase_log 已落地，Rust 对齐时即触发）
+2. exec 轨道第一条真实命令（写 repo：保护检查 + 审计 + 执行 + touch 协调）
+3. 命令跨 store + fs 协调（如 add workspace 后自动 rescan）
+4. CLI / headless 复用需求出现
+5. 机械判据兜底：单命令非 IPC 样板逻辑超一屏（~30 行），或 commands/
+   非样板逻辑合计持续增长

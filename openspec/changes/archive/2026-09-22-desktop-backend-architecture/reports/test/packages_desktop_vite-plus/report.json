@@ -1,0 +1,82 @@
+{
+  "framework": "vite-plus",
+  "root": "packages/desktop",
+  "timestamp": "2026-09-22T04:35:46.700Z",
+  "exit_code": 0,
+  "duration_ms": 10032,
+  "summary": {
+    "total": 139,
+    "passed": 139,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/ChangeDetailView.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/registry.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/useChangeList.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/useWorkspaces.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/Fallback.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/EvalChecklistRenderer.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/useChangeDetail.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/TasksProgressRenderer.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/App.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/MarkdownDocRenderer.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/__tests__/workspace_restore.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/ArtifactView.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/ChangeListView.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/__tests__/ipc_pipeline.test.tsx"
+  ],
+  "source_files": [
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/App.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/useChangeList.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/useWorkspaces.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/ArtifactView.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/EvalChecklistRenderer.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/Fallback.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/MarkdownDocRenderer.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/TasksProgressRenderer.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/renderers/registry.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/ChangeDetailView.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/ChangeListView.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/useChangeDetail.ts"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 100,
+      "branches": 98.48,
+      "functions": 98.66
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    }
+  },
+  "mutation": null
+}
