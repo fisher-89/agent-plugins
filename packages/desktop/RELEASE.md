@@ -18,12 +18,13 @@ minisign 签名校验不可关闭,使用下方本地密钥对。
    ```
 
 2. 公钥已写入 `src-tauri/tauri.conf.json` 的 `plugins.updater.pubkey`。
-3. 在 GitHub 仓库 **Settings → Secrets and variables → Actions** 添加:
+3. 在 GitHub 仓库 **Settings → Secrets and variables → Actions** 添加
+   `TAURI_SIGNING_PRIVATE_KEY` = 私钥文件(`~/.tauri/desktop-terminal.key`)的完整内容。
 
-   | Secret                               | 值                                                  |
-   | ------------------------------------ | --------------------------------------------------- |
-   | `TAURI_SIGNING_PRIVATE_KEY`          | 私钥文件(`~/.tauri/desktop-terminal.key`)的完整内容 |
-   | `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` | 密码(为空则设为空字符串)                            |
+   `TAURI_SIGNING_PRIVATE_KEY_PASSWORD` **无需创建**:密钥密码为空,而 GitHub
+   secret 不接受空串;workflow 引用未定义 secret 会解析为空字符串,env 变量以
+   「已定义、值为空」传给 tauri CLI,即等价于显式空密码(本地已验证不触发密码
+   提示)。若将来换成带密码的密钥,再创建该 secret 即可,workflow 无需改动。
 
 > **私钥必须离机备份。** 公钥编译进应用,私钥丢失后现有安装的更新通道即报废,
 > 只能发新安装包重建。密码同样遗失则密钥作废。
