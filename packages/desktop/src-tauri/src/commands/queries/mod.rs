@@ -46,7 +46,12 @@ pub fn get_change_detail(root: String, change: String) -> Option<ChangeDetail> {
 
 /// 按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。
 #[tauri::command]
-pub fn read_artifact(root: String, change: String, kind: String, source: String) -> Option<ArtifactEnvelope> {
+pub fn read_artifact(
+    root: String,
+    change: String,
+    kind: String,
+    source: String,
+) -> Option<ArtifactEnvelope> {
     if is_blank_root(&root) {
         return None;
     }

@@ -1,0 +1,1009 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-21",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/Cargo.toml",
+      "at": "2026-09-21T04:55:44.377Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "at": "2026-09-21T04:55:53.766Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "at": "2026-09-21T04:56:08.176Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/canonical.rs",
+      "at": "2026-09-21T04:56:19.353Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store.rs",
+      "at": "2026-09-21T05:04:00.429Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-21T05:00:47.873Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/workspaces/mod.rs",
+      "at": "2026-09-21T04:57:50.205Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-21T04:57:58.986Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-21T04:58:07.966Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/types/dto.ts",
+      "at": "2026-09-21T04:58:19.801Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/useWorkspaces.ts",
+      "at": "2026-09-21T04:58:35.110Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/WelcomeView.tsx",
+      "at": "2026-09-21T04:59:04.020Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.tsx",
+      "at": "2026-09-21T05:09:11.113Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/queries/mod.rs",
+      "at": "2026-09-21T05:07:36.949Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/queries/mod_test.rs",
+      "at": "2026-09-21T05:07:36.949Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "From<",
+      "at": "2026-09-21T05:22:48.758Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "for",
+      "at": "2026-09-21T05:22:48.758Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-09-21T05:43:08.907Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "at": "2026-09-21T05:33:19.906Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/workspaces/mod_test.rs",
+      "at": "2026-09-21T05:47:56.556Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/workspaces/mod.rs",
+      "at": "2026-09-21T05:35:59.432Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-21T05:36:01.059Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/useWorkspaces.test.ts",
+      "at": "2026-09-21T05:42:42.115Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-21T05:42:40.047Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/workspace_restore.test.tsx",
+      "at": "2026-09-21T05:44:05.537Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/ipc_pipeline.test.tsx",
+      "at": "2026-09-21T05:50:28.596Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-21T11:22:26.119Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/hooks/useWorkspaces.test.ts",
+      "at": "2026-09-21T11:39:56.362Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/stryker.config.verify.json",
+      "at": "2026-09-21T11:25:49.549Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "stryker.config.json.bak",
+      "at": "2026-09-21T11:40:28.204Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "stryker.config.json",
+      "at": "2026-09-21T11:40:28.204Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "stryker.config.verify.json",
+      "at": "2026-09-21T11:43:57.940Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "reports/mutation-verify.json",
+      "at": "2026-09-21T11:43:57.940Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "reports/.stryker-tmp-verify",
+      "at": "2026-09-21T11:43:57.940Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-21T12:11:06.898Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/WelcomeView.tsx",
+      "at": "2026-09-21T12:11:17.556Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 3,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-21T12:23:22.524Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "desktop-redb-store 提案评估: 11/11 通过。R1 问题具体(useState 重启即失+三命令无状态, 含 redb 选型动机); R2 实现 8/测试 4/不要修改 5 均非空; R3 六风险缓解具体(dev-design 拍板 canonicalize 口径+AC-3 锁死); R4 AC-1~10 均对象+条件可测; R5 决策表 9 行含理由+被拒备选; R6 合 CLAUDE.md(Simplicity first、不改 config.json); R7 无占位符; R8 章节实质; R9 新增 1+修改 2; R10 3 specs 与能力一一对应; R11 类型/AC/场景交叉一致, touch 口径与 spec 一致。",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "proposal.md L11-13: 具体描述「workspace root 存于 React useState(App.tsx), 重启即失」「三个查询命令均为无状态薄包装」; 动机含后续缓存/索引/设置需持久化层及 redb vs rusqlite/sled/JSON 选型理由"
+        },
+        {
+          "item": "R2 变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L50-59 `### 实现文件` 8 项; L61-66 `### 测试文件` 4 项; L72-78 `### 不要修改` 5 项, 三节均非空"
+        },
+        {
+          "item": "R3 风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L103-108 六风险均有具体缓解: canonicalize 口径→「dev-design 必须拍板单一口径…AC-3 用等价路径测试锁死」; 错误面→「Result<T,String> 约定+AC-7/AC-8 错误路径测试; fail fast」; 非泛化「监控并调整」"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~AC-10(L86-95) 均对象+条件: AC-3「等价路径重复 add 仅一条记录且 last_opened_at 刷新」; AC-8「启动失败并报错, 无静默空清单降级」; AC-9 列出 4 个 App 测试行为"
+        },
+        {
+          "item": "R5 关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L116-127 决策表 9 行均有理由+备选列: 主键→拒「u64 id+分配器」; 错误约定→拒「自定义错误 enum(MVP 过重)」; KV trait→拒「预定义 port trait, 违反 Simplicity first」"
+        },
+        {
+          "item": "R6 提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "显式引用 Simplicity first 拒绝投机抽象(L126); L77 保护 openspec/config.json 符合 rust 套件收敛约定; 未改 plugin 源码无需版本 bump"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{}} 标记; L132「占位 desktop-store.redb」为待决问题节的实质候选值+dev-design 决策项, 非模板占位"
+        },
+        {
+          "item": "R8 所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案(7 条关键设计)/变更范围/验收标准(10 条)/风险(6 条)/决策(9 行)/待决问题(5 项)均实质内容, 无占位"
+        },
+        {
+          "item": "R9 能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L35-44 `## 能力`: 新增 desktop-workspace-store; 修改 desktop-crate-layout、desktop-app-shell, 列表非空"
+        },
+        {
+          "item": "R10 specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 含 desktop-workspace-store、desktop-crate-layout、desktop-app-shell 三个 spec.md, 与 3 能力一一对应, 无未列出能力的多余 spec"
+        },
+        {
+          "item": "R11 proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "类型一致(store=ADDED, 另两=MODIFIED); AC-2↔tempdir 全链路、AC-3↔等价路径去重、AC-8↔db 打开失败快速失败; 「选中即 touch」(L133)与 app-shell spec L12 一致; queries/exec 保留双端表述一致"
+        }
+      ],
+      "start_at": "2026-09-21T03:52:14.718Z",
+      "timestamp": "2026-09-21T04:02:22.196Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 通过。D1 组件表10行均填职责/依赖/技术/路径，无TBD；D2 双模型含字段/关系/持久化；D3 AC-1..10 逐项对齐；D4 任务A→G依赖正序（store→命令→前端→壳→自检）；D5 任务具体到文件/字段/签名；D6 运行时+构建/测试依赖含用途；D7 与既有 core/commands 布局一致，无投机抽象；D8 六章节实质填写；D9 design 无测试章节，tasks 无测试任务（G1仅编译/构建自检）；D10 提案8项实现文件全覆盖，tasks 13文件与清单双向一致，公共函数表覆盖新增公共面（model/canonical 内部化系 D6 决策）。",
+      "checklist": [
+        {
+          "item": "D1 架构组件列出职责/依赖/技术栈/文件路径",
+          "pass": true,
+          "evidence": "架构组件表 10 行（store crate、model、canonical、Store 持久化、命令轨道、启动装配、DTO、hook、视图、App 壳），每行均填职责/文件位置/依赖/技术，无 TBD"
+        },
+        {
+          "item": "D2 数据模型含字段/关系/持久化",
+          "pass": true,
+          "evidence": "数据模型表含 WorkspaceRecord 与 META schema_version 两模型，字段/关系/持久化列均填（user_workspaces 表 &str→JSON、user_meta &str→u64）"
+        },
+        {
+          "item": "D3 设计覆盖 proposal 每个 AC",
+          "pass": true,
+          "evidence": "「验收标准对齐」表 AC-1..AC-10 逐项给出设计落点（AC-3→D1 canonical 口径、AC-6→D6 pub use 收敛、AC-8→main.rs setup fail fast 等）"
+        },
+        {
+          "item": "D4 tasks.md 存在且遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在，全部为 `- [ ]` 复选框；Phase A(store 清单/骨架)→B(纯层)→C(持久化)→D(命令/装配)→E(前端取数)→F(视图/壳)→G(自检)，被依赖者先行，无反向依赖"
+        },
+        {
+          "item": "D5 任务具体可执行",
+          "pass": true,
+          "evidence": "每任务指明确切文件路径、结构体字段、方法签名与语义（如 C1 列 StoreError 两变体、两表定义、open 步骤、四操作语义）；G1 为具体编译/构建/零改动自检"
+        },
+        {
+          "item": "D6 运行时与构建/测试依赖已列出",
+          "pass": true,
+          "evidence": "「依赖」节分运行时（redb =4.3.0/dunce/serde/store path 依赖）与构建/测试（tempfile dev-dep、cargo test --workspace、前端无新增），均附用途"
+        },
+        {
+          "item": "D7 与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "已核实磁盘既有 crates/core/{foundation,workflow}、commands/{queries,exec}、types/dto.ts、views/ChangeListView.tsx，与设计引用一致；无 KV trait 投机抽象，vp 工具链与 cargo test --workspace 收编口径均合规"
+        },
+        {
+          "item": "D8 模板章节全部实质填写",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增 8 + 修改 5）/数据模型/命令面 API 设计（Tauri IPC，HTTP 标注不适用）/依赖/待决问题六章节均实质填写"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节（tempfile/cargo test 仅出现在依赖节）；tasks.md 无单元/集成测试任务，G1 仅 cargo check + pnpm build + git status 自检"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal 8 项实现文件全覆盖（store/ 5 文件、根 Cargo.toml、main.rs、commands/mod.rs、workspaces/mod.rs、dto.ts、useWorkspaces.ts、App.tsx+WelcomeView.tsx）；tasks 引用的 13 个文件与清单双向一致；公共函数表覆盖新增文件公共面（store 5 方法 + 四命令 + useWorkspaces）"
+        }
+      ],
+      "start_at": "2026-09-21T04:03:06.649Z",
+      "timestamp": "2026-09-21T04:19:25.801Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "仅 T2 不通过：验收范围中 AC-10 标注测试类型=集成测试，但两个集成关系的关联AC（AC-2/3/7；AC-9/7）均未含 AC-10，其覆盖被路由到「rust 套件运行自动证明」与不可测试项，与集成测试类型标注自相矛盾——应改标测试类型或补入某一关系关联AC。其余通过：T1 AC-1..10 逐条映射无缺失；T3 异常覆盖全部可触发错误路径、边界含空容器/并列/特殊字符/幂等miss，list/remove 的 Err 仅 redb 层且按口径不 mock 存储层已注明；T4 Mock 策略齐备；T5 章节完整且无用例章节有注释说明；T6 范围一致；T7 幂等用例三层覆盖；T8 格式符合模板。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal AC-1..AC-10 逐条出现在验收范围 10 行中，验收条件与 proposal 原文一致"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": false,
+          "evidence": "集成方向：验收范围 测试类型=集成测试 的 AC-10 未出现在任一关系关联AC（关系1=AC-2,3,7；关系2=AC-9,7）；其行内注记将覆盖路由到「rust 套件运行」与不可测试项，与集成测试类型标注自相矛盾。应改标类型或补入关系。单元方向与关系→验收范围方向均无缺失"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常与边界",
+          "pass": true,
+          "evidence": "异常覆盖全部可触发错误路径（canonicalize 失败/损坏db/父路径被占/空串/schema版本不符，行56-66）；边界含空容器、并列排序tie-break、特殊字符、幂等miss bool、枚举Display。list/remove 无异常行但其 Err 仅 redb 层故障，按「存储层不mock」口径不可触发且已在Mock策略注明（行85）"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "redb/文件系统→tempfile 真开文件（行85）；Tauri runtime→State::from(&store)（行197）；前端 IPC/dialog→vi.mock（行256-257、292、443-444）；不 mock 时钟附理由（行87）"
+        },
+        {
+          "item": "T5 模板章节已填实质内容",
+          "pass": true,
+          "evidence": "四大章节均实质填写；11 个 per-file 章节均含 待测功能/用例/Mock策略 且顺序正确；7 个无用例章节以注释说明并指向公共API承接章节，与 design.md 公共函数/API 表一致"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 实现文件 8 项均有承接（可测者有用例，静态约束入不可测试项 7 条附原因）；不要修改清单（queries/exec/config.json/core）无越界测试覆盖"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "重复add去重且added_at保留（行62-63）；未注册touch/remove Ok(false)且库不变（行71/75）穿透命令层（行188）与hook层（行282）；等价路径remove无孤儿（行76）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "11 个单元heading均为 源文件->测试文件；用例/Mock 表列名与模板一致无测试文件列；集成关系含 →测试文件、涉及模块3/4行、关联AC非空、场景名唯一、叙事段落齐全；验收范围保留模板列名与顺序"
+        }
+      ],
+      "start_at": "2026-09-21T04:19:49.497Z",
+      "timestamp": "2026-09-21T04:38:06.319Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "attempt-1 失败项 T2 已修复: AC-10 改标单元测试映射 store_test.rs(members 收编即证据, config.json 半边入不可测试项), AC-9 为唯一集成条目且在关系2关联AC, 两关系关联AC 均在验收范围。T1 AC-1..10 全映射; T3 异常含损坏db/父路径占位/canonicalize失败/空串/命令与hook错误态, 边界含空库/同毫秒tie-break/大小写与尾分隔符/中文emoji/幂等miss, list/remove 无异常行系存储层不mock口径已注明; T4 tempfile真开redb/State::from/vi.mock IPC+dialog/时钟不mock均附理由; T5 四章节实质, 11章节三子节齐序; T6 范围一致无越界; T7 幂等三层: 重复add保added_at/miss Ok(false)/等价路径无孤儿; T8 heading与列名/模块表/场景唯一/叙事段全合规。8/8 通过。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md L86-95 AC-1..AC-10 逐条出现在 test-design.md L16-25 验收范围 10 行, 验收条件与 proposal 语义一致(AC-4 将「清单排序与 name 字段」并入条件列, 无缺失)"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "attempt-1 失败已修复: AC-10(L25) 改标单元测试→store_test.rs 并注明不挂集成关系理由, config.json 半边入不可测试项(L503); 单元方向 9 个条目均有对应 ### 章节; 集成方向唯一集成条目 AC-9 出现于关系2关联AC(L421), 两关系关联AC(AC-2/3/7 L353; AC-9/7 L421)均在验收范围存在"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常与边界",
+          "pass": true,
+          "evidence": "异常: open 损坏db/父路径被占(L56-57), canonicalize 失败/空串(L65-66), 命令层不存在目录/空 root(L189-190), hook 三类 reject(L277/279/283); 边界: 空库、同毫秒 tie-break、大小写/尾分隔符、中文emoji空格、schema_version 两向、幂等 miss bool、StoreError 两变体 Display; list/remove 无异常行, 其 Err 仅 redb 层故障, 按存储层不 mock 口径不可触发且已在 L85 注明"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "redb/文件系统→tempfile 真开文件(L85/198/376); Tauri runtime→State::from(&store)(L197/375); 前端 IPC→vi.mock core(L256/292/443); dialog→vi.mock plugin-dialog(L257/444); 不 mock 时钟附 D4 设计理由(L87)"
+        },
+        {
+          "item": "T5 模板章节已填实质内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/集成测试/不可测试项四章节均实质填写; 11 个 per-file 章节均含 待测功能→用例→Mock策略 且顺序正确; 7 个无用例章节以注释说明承接去向(L91-92/110-112/130-132/150-151/204-206/298-300/318-320), 与 design.md 公共函数表一致"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 实现文件 8 项均承接: store 5 文件→store_test.rs 用例+3 个 no-case 章节, main.rs/commands mod/dto.ts/WelcomeView→no-case 章节附理由; 不要修改清单(queries/exec/config.json/core)无越界测试覆盖, config.json 入不可测试项(L503)"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "重复 add 去重且 added_at 保留(L62-63); 未注册 touch/remove Ok(false) 库不变(L71/75); 等价路径 touch/remove 命中同条无孤儿(L76-77); 幂等语义穿透命令层(L188)与 hook 层(L282); 重开持久化(L79)"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "11 个单元 heading 均为 源文件->测试文件 且三子节序正确; 用例表 4 列/Mock 表 3 列与模板一致无测试文件列; 2 个集成 heading 含 →测试文件(L343/410), 涉及模块 3/4 行, 关联AC 非空, 关系描述为叙事段(L357/425), 场景名关系内唯一(3+4 个), 场景描述段非空, 场景用例表 3 列; 验收范围保留模板列名与顺序"
+        }
+      ],
+      "start_at": "2026-09-21T04:38:47.274Z",
+      "timestamp": "2026-09-21T04:44:22.223Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账一致：design 13 文件 × files.written 13 项 × 文件系统全存在；Cargo.lock 为依赖新增的机械锁更新（良性漏记）。I1 十组件齐备；I2 变更清单（8 新增/5 修改/10 API/5 类型）逐项落实；I3 hook/命令风格与 useChangeList、queries 同型；I4 四 Tauri 命令注册于 main.rs invoke_handler；I5 tasks 全 [x]；I6 无计划外改动（config.json 为 staged 既有态，非本阶段产物）；I7 D1-D8 全遵守（dunce+回退、desktop-store.redb、选中即 touch、i64 毫秒、StoreError 前缀、三名 pub use、视图拆分、upsert/touch/排序语义）。",
+      "checklist": [
+        {
+          "item": "I1 design.md 每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "store crate/model.rs/canonical.rs/store.rs/commands/workspaces/main.rs 装配/dto.ts:106/useWorkspaces.ts/WelcomeView.tsx/App.tsx 全部落地"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现",
+          "pass": true,
+          "evidence": "8 新增文件存在、5 修改文件已改、零删除声明零删除、10 公共 API 签名一致、5 类型定义齐备；Cargo.lock 为依赖新增机械锁更新（良性漏记）"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "useWorkspaces 与既有 useChangeList 同型（tick 刷新/cancelled 守卫/String(err)）；命令模块 doc-comment 风格与 queries 一致；导入路径风格一致"
+        },
+        {
+          "item": "I4 所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "list/add/remove/touch_workspace 四命令实现在 commands/workspaces/mod.rs 并注册于 main.rs invoke_handler:31-34；既有三查询命令未动"
+        },
+        {
+          "item": "I5 tasks.md 所有任务标记 [x]",
+          "pass": true,
+          "evidence": "A1-A3/B1-B2/C1/D1-D3/E1-E2/F1-F2/G1 全部勾选"
+        },
+        {
+          "item": "I6 没有与当前变更无关的代码",
+          "pass": true,
+          "evidence": "files 清单 13 项与计划一致，无计划外写入、无额外删除；openspec/config.json 改动为 staged 既有态（design 已声明为前提），非本阶段产物"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "D1 dunce+词法回退(canonical.rs/store.rs:230)；D2 desktop-store.redb+create_dir_all(main.rs:13/store.rs:67)；D3 选中即 touch(App.tsx:82,89,118)；D4 i64 毫秒；D5 StoreError db:/canonicalize: 前缀；D6 三名 pub use(lib.rs:24-25)；D7 视图拆分；D8 upsert 保留 added_at+降序 root tie-break+miss 幂等 Ok(false)"
+        }
+      ],
+      "start_at": "2026-09-21T04:44:46.558Z",
+      "timestamp": "2026-09-21T05:13:05.600Z",
+      "stale": true
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账：5 声明测试文件×files.written×磁盘全一致；lib.rs/mod.rs 测试挂载、Cargo.toml dev-dep、ipc_pipeline 适配新自动恢复壳均良性，\"From<\"/\"for\" 为 hook 噪声路径。G1 全公共方法有行为断言；G2 命名与共存合规；G3 store 26+命令 6+App 9+hook 11 行全生成；G4 关系1 七行+关系2 九行逐条落位且 AC 关联正确；G5 tempfile RAII/只读直读 user_meta/时钟不 mock/vi.mock 齐备，State::from 以 mock_app+manage 等义承载；G6 导入与 Cargo/vite-plus 一致；G7 边界全落；G8 RAII+mockReset/useRealTimers；G9 废弃 5 例未重现。9/9 通过。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "store.rs 5 个 pub fn 均在 store_test.rs 直调并断言行为（open L72-L170、add L190-L283、list L301-L351、touch L358-L413、remove L420-L469），非仅构造；4 命令在 mod_test.rs 直调（L74-L170）；useWorkspaces 三动作经 renderHook 调用（useWorkspaces.test.ts L90-L228）；StoreError Display 断言（store_test.rs L476）"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存于同一目录",
+          "pass": true,
+          "evidence": "store_test.rs 与 store.rs 同目录；commands/workspaces/mod_test.rs 与 mod.rs 同目录且 mod.rs:55 声明 #[cfg(test)] mod mod_test; useWorkspaces.test.ts、App.test.tsx 与源码共存；workspace_restore.test.tsx 置于 src/__tests__/ 与 test-design 声明一致"
+        },
+        {
+          "item": "G3 单元测试>用例 表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "store 章节 26 行↔store_test.rs 26 个 #[test] 一一对应（损坏文件 L116、schema 高版本 L146、tie-break L324、emoji L248 等）；命令轨道 6 行↔mod_test.rs L69-L171；App 9 个新增行↔App.test.tsx L123-L285 九个 it；hook 11 行↔useWorkspaces.test.ts L58-L245 十一个 it；路径类型分类一致"
+        },
+        {
+          "item": "G4 集成测试>用例 表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "关系1 七行：场景1↔mod_test.rs L178/L189（add→touch→list 降序+remove+重开经命令面）与 L69 serde 对比；场景2↔L256/L236；场景3↔L148/L160，AC-2/3/7 断言语义一致。关系2 九行：4 个 describe 对应 4 场景（workspace_restore.test.tsx L124/173/190/229），AC-9/7 时序与参数契约断言齐备"
+        },
+        {
+          "item": "G5 Mock策略表格中的 mock 已在测试代码中实现",
+          "pass": true,
+          "evidence": "tempfile Env RAII 两 Rust 文件均实现（store_test.rs L26-L55）；ReadOnlyDatabase::open 直读 user_meta（L170-L183）；时钟不 mock 以 sleep+tie-break 表述（L216/305/327）；前端 vi.mock core invokeMock 按命令名分发+vi.mock plugin-dialog（App.test.tsx L11-L12、useWorkspaces.test.ts L9、workspace_restore L19-L20）全用例应用；Tauri 运行环境：设计 State::from(&store) 落为 mock_app+manage+state（mod_test.rs L57-L62），同为不启动真实 runtime 的真实 State<Store>，语义等义"
+        },
+        {
+          "item": "G6 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust：#[test] colocated，导入 redb/tempfile/dunce/serde_json 均有 Cargo.toml 依据（store crate deps dunce+redb、dev tempfile；desktop-app dev-deps tempfile+tauri features=[test] 支撑 mock_app）；前端统一 vite-plus/test + @testing-library/react，与 useChangeList.test.ts 既有模式一致"
+        },
+        {
+          "item": "G7 test-design.md 中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "空库 list（L346）、并列 tie-break（L324）、大小写/尾分隔符/正反斜杠（L208/L230/L445）、空格中文emoji（L248）、schema_version 三向（L132/L146/L170）、幂等 miss 与空串穿透 store/命令/hook 三层（L372/L404、mod_test.rs L131/L160、hook L121/L156）、StoreError 两前缀（L476）；String root/Path/时间戳每类参数≥2 边界值"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "Rust 侧 tempfile::TempDir RAII 自动清理并注释声明（store_test.rs L25、mod_test.rs L19），mod_test.rs L218-L222 显式 unmanage 释放 redb 文件锁；前端三文件 beforeEach invokeMock/openMock mockReset（App.test.tsx L117、useWorkspaces.test.ts L49、workspace_restore L114），hook 测试 afterEach vi.useRealTimers（L54）"
+        },
+        {
+          "item": "G9 迭代类型=废弃 的条目未生成新测试",
+          "pass": true,
+          "evidence": "App.test.tsx 五个废弃例（选择入口/dialog 取消保持未选/reject 不白屏/列表项切详情/刷新回调）原断言未在新文件出现：全文单一 describe 九个 it 与九个新增行一一对应，废弃语义按设计由重写例承接（L222/L236/L267 重写自废弃例 2/3/4/5）"
+        }
+      ],
+      "start_at": "2026-09-21T05:13:34.390Z",
+      "timestamp": "2026-09-21T05:58:46.861Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "Mutation score 69.7% < threshold 80%（packages/desktop 69.7% 未达标，plugins/dev-team 80% 达标）。6 个失败测试均为 vitest 超时 flake，根因唯一：约 6 个外部 node 进程自 12:24 起持续占满核心致 CPU 饱和；run2 失败的是另一随机子集且同超时签名，且 6 例全在 plugins/dev-team 既有套件、均不在本变更 written 清单内，非产品代码缺陷。需在空闲机器重跑验证，mutation 分数亦在饱和机器上测得。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total=2533/passed=2525/failed=6/skipped=2/coverage/duration_seconds=489 均存在且类型正确；coverage.measured 三维度 null 属允许值"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": false,
+          "evidence": "failed=6 > 0（total=2533, passed=2525, skipped=2）；problems 含 6 条 test_failure 与 1 条 coverage_failure（Mutation 69.7% < 80%，packages/desktop 未达标）"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；measured lines/branches/functions 均为 null（框架未产出维度数据，null 维度不参与比较）；两个 overrides glob 均 pass=true"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "根因唯一：环境性超时 flake（CPU 饱和）。run1 与 run2 失败用例为随机不同子集且同一超时签名；失败测试全部位于 plugins/dev-team 既有文件（c4-cross-ref.test.ts、exec-command.test.ts、mutation-scope-inventory.test.ts），不在本变更 written 清单（仅 packages/desktop/**）内"
+        }
+      ],
+      "start_at": "2026-09-21T05:59:18.017Z",
+      "timestamp": "2026-09-21T07:18:59.111Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "verdict": "fail",
+      "report": "Mutation score 68.97% < threshold 80%。全部30个未检出变异（27 survived + 3 timeout）集中于 packages/desktop 的 src/App.tsx（16/31）与 src/hooks/useWorkspaces.ts（14/56）：App 侧为未断言条件 UI（L46 error-note、L37 select disabled、L69-L76 添加流早退、L78 root 视图切换），hook 侧为 loading 翻转/refresh 二次取数/卸载取消/restoredRef 守卫，属测试断言缺口而非产品缺陷，需返回 test-gen 阶段补断言。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp 均为字符串，total=2531、passed=2529、failed=0、skipped=2、duration_seconds=205 均为数值；coverage 为完整对象（pass/measured/thresholds/overrides），非 null"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2531>0；三套件零失败：dev-team vite-plus 2380 passed + 2 skipped，desktop vite-plus 132 passed，rust 17 passed"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；measured 三维均为 null → N/A (框架不支持)（summary 层未聚合，desktop 单计划 report.json 实测 lines=100%/branches=98.48%/functions=98.66%，均高于 90/85/90 阈值，无结论影响）"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0 按规则自动通过；mutation 未检出根因亦已唯一确定：30 个未检出变异（27 survived + 3 timeout）全部位于 src/App.tsx 与 src/hooks/useWorkspaces.ts，其余 10 个被变异文件零漏检，无多因并存"
+        },
+        {
+          "item": "Mutation 分数达标（阈值80%）",
+          "pass": false,
+          "evidence": "68.97% < 80%：packages/desktop override 68.97%（57 killed / 27 survived / 3 timeout / 87 total），plugins/dev-team override 80.00% 达标；未检出变异全部集中于 App.tsx 与 useWorkspaces.ts 的未断言 UI 分支与异步生命周期（含 restoredRef 守卫触发的 timeout）"
+        }
+      ],
+      "backtrack_to": "test-gen",
+      "backtrack_reason": "Mutation score 68.97% < threshold 80%. All 30 undetected mutants (27 survived + 3 timeout) concentrate in packages/desktop src/App.tsx (16/31) and src/hooks/useWorkspaces.ts (14/56): unasserted conditional UI (error-note, select disabled, pickAndAdd early-returns, root view switch) and hook behaviors (loading transitions, refresh re-fetch, unmount cancellation, restoredRef guard). Test assertion gaps, not product defects — return to test-gen to add assertions.",
+      "start_at": "2026-09-21T10:49:50.143Z",
+      "timestamp": "2026-09-21T10:59:54.134Z",
+      "stale": true
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "回溯后 attempt-2 复评 9/9 通过。三态对账:声明 5 测试文件×files.written×磁盘一致;attempt-2 仅重写 App.test.tsx(10 it)与 useWorkspaces.test.ts(14 it),stryker 验证脚手架已自清(packages/desktop/stryker.config.json 与 HEAD 零差异,verify 产物均删),Rust/集成文件未动仍齐。回溯缺口逐项补齐:error-note 双向(L278/283)、select disabled(L267)、pickAndAdd 三早退(L198/218/226)、视图切换、loading 翻转(L305/310)、refresh 计数(L142/196/219)、卸载取消(L333)、restoredRef 恰一次(L92-93)。G3 store 26+命令 6+App 7+hook 11 行全有骨架,3+3 强化例不越设计;G9 废弃 5 例未重现。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "store.rs 5 pub fn 仍由 store_test.rs 26 #[test] 直调断言（attempt-2 未动）；4 命令在 mod_test.rs 直调；useWorkspaces 三动作与 root/workspaces/loading/error 全字段经 renderHook 断言（useWorkspaces.test.ts L97-335），App 壳经真实组合断言视图/错误/动作（App.test.tsx 10 it），非仅构造验证"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存于同一目录",
+          "pass": true,
+          "evidence": "Glob 证实:store_test.rs 与 store.rs 同目录,workspaces/mod_test.rs 与 mod.rs 同目录,useWorkspaces.test.ts/App.test.tsx 与源码共存,workspace_restore.test.tsx 置 src/__tests__/ 符合声明"
+        },
+        {
+          "item": "G3 单元测试>用例 表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "新增行全生成:store 26 行↔26 #[test]（grep 计数）；命令 6 行↔mod_test.rs；App 7 新增行↔App.test.tsx it（L126/139/146/175/198/212/243）；hook 11 行↔useWorkspaces.test.ts 对应 it；路径类型语义对位。另有 3+3 个强化 it（error-note/禁用态/对话框参数、守卫/loading/卸载）均在 AC-9 视图与添加流设计语义内,不越范围"
+        },
+        {
+          "item": "G4 集成测试>用例 表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "关系1 七行↔mod_test.rs 4 个集成 #[test]（全链路 serde 对比/等价路径/错误前缀/空库,attempt-2 未动）；关系2 九行↔workspace_restore.test.tsx 4 describe×9 it（grep 计数：恢复链 3/无记录 1/移除 2/添加切换 3）,AC-2/3/7 与 AC-9/7 断言在位"
+        },
+        {
+          "item": "G5 Mock策略表格中的 mock 已在测试代码中实现",
+          "pass": true,
+          "evidence": "tempfile RAII、redb 只读直读 user_meta（Rust 未动）；vi.mock core invokeMock 按命令名分发（App.test.tsx L11/L67、useWorkspaces.test.ts L9/L24、workspace_restore L21/L77）、vi.mock plugin-dialog（App L12、restore L22）；时钟不 mock 主口径保持,无轮询用例 fake timers 为设计 L284 明定；State::from 设计仍以 mock_app+manage 等义承载"
+        },
+        {
+          "item": "G6 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "前端两改写文件 import from 'vite-plus/test' + @testing-library/react（App.test.tsx L1-2、useWorkspaces.test.ts L1-2）,无裸 vitest；Rust #[test] colocated 与 Cargo dev-deps 未变"
+        },
+        {
+          "item": "G7 test-design.md 中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "空库 list、并列 tie-break、大小写/尾分隔符/正反斜杠、空格中文emoji、schema_version 三向、幂等 miss、空串穿透 store/命令/hook 三层、StoreError 双前缀全部在位（Rust 未动,grep 证实 26 test）；前端空串 add（L175）与 remove miss 不置 error（L200）保持"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "App.test.tsx beforeEach invokeMock/openMock mockReset（L121-122）；useWorkspaces.test.ts beforeEach mockReset（L55）+ afterEach vi.useRealTimers（L60）；workspace_restore L120-122 mockReset；Rust TempDir RAII + mod_test unmanage 未动；fake timers 用例退出即还原"
+        },
+        {
+          "item": "G9 迭代类型=废弃 的条目未生成新测试",
+          "pass": true,
+          "evidence": "App.test.tsx 单 describe 十 it 无废弃例复现:无「选择入口」「dialog 取消时 invoke 零调用」「reject 不白屏」原断言形态,废弃语义按设计由重写例承接（L198 重写自废弃例2、L212 重写自废弃例3）"
+        }
+      ],
+      "start_at": "2026-09-21T11:01:06.211Z",
+      "timestamp": "2026-09-21T11:51:56.510Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "所有 2537 个测试通过（2535 passed/0 failed/2 skipped；2 个 skip 为 AC-09 既有用例，与本变更无关）。Mutation 85.06%≥80%。覆盖率达标：TS 两计划 dev-team 97.25/89.73/99.53、desktop 100/98.48/98.66 高于阈值 90/85/90；汇总三维 null 系 rust 计划未装 cargo-llvm-cov，非失败。注意：rust report 仅计首个 binary 17 例，results.txt 实际 162 例 0 failed，总数低估但结论不变。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "summary.json 含 phase/command/timestamp/total=2537/passed=2535/failed=0/skipped=2/coverage/duration_seconds=158，字段齐全且类型正确；coverage 为非 null 对象（pass/measured/thresholds/overrides 均在）"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2537>0；三计划 report 均 exit_code=0、failed=0；rust results.txt 全部 test result 行 0 failed（162 例 8 个 binary），与报告 failed=0 一致"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true。TS 计划实测高于阈值 90/85/90：plugins/dev-team lines=97.25%/branches=89.73%/functions=99.53%，packages/desktop lines=100%/branches=98.48%/functions=98.66%。汇总 measured 三维为 null（rust 计划因 cargo-llvm-cov 未安装未产出 coverage，故 lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)）；null 维度存在但 coverage.pass=true，按 T3 不判失败"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例需诊断（T4 自动通过）；problems[] 为空，conclusion=pass；mutation.pass=true（85.06% ≥ 阈值 80%）"
+        }
+      ],
+      "start_at": "2026-09-21T11:52:49.723Z",
+      "timestamp": "2026-09-21T12:01:04.918Z",
+      "stale": true
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "C3 fail：(1) main.rs:13,22 db 落位 home_dir()/.dev-team/desktop-store.redb，违背 D2「app_data_dir() 根、不建子目录」（design.md L23/L49/L161）；(2) WelcomeView.tsx:16-22 仅渲染计数与空态，无清单项/悬停完整 path/移除按钮，缺 D7/变更清单（L74/L105）要求，能力被挪至 AppHeader。其余 pass：C1 无注入/硬编码密钥/XSS；C2 root 经 canonicalize 校验+幂等 miss；C4 空表/空清单/时钟前溢/无文件名段均兜底；C5 *_inner 为设计规定测试缝；C6 测试同置与 pub use 收敛合仓库模式；C7 redb 类型零泄漏。另 file_log 有噪声路径（\"From<\"/\"for\"/stryker 临时项，盘上不存在）。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "全变更面 grep 无 password/secret/token/eval/exec/system/dangerouslySetInnerHTML 命中；store crate 无进程/环境调用；redb key 为 canonical path，无注入面"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "commands/workspaces/mod.rs:27-53 root:String 经 Path 转换；add 依赖 canonicalize 存在性校验（canonical.rs:11-13），失败返回 Err(String)；touch/remove 未命中幂等 Ok(false)；App.tsx:73 typeof selected!=='string' 守卫；越界 value 解码失败收敛 StoreError::Db"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": false,
+          "evidence": "main.rs:13,22 用 home_dir()+\".dev-team/desktop-store.redb\"，违背 D2「直接位于 app_data_dir() 根、不建子目录」（design.md L23/L49/L161）；WelcomeView.tsx:16-22 仅渲染计数与空态文案，无清单项/悬停完整 path/移除按钮，缺 D7 与变更清单 L74/L105 要求（该能力被挪至 AppHeader 下拉）"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "store.rs:87-89 init_schema 预建业务表保证空表可读；useWorkspaces.ts:45 result[0]?.root??null；model.rs:54-58 时钟早于 epoch 取 0 不 panic；model.rs:46-51 dir_name 无文件名段回退整串；store.rs:67-73 空父目录跳过 create_dir_all"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "commands/workspaces/mod.rs:21-53 的 *_inner 为 design L103 规定的私有测试缝，非冗余；未发现不可达分支与未使用导入（knip/cargo clippy 纳入 check 脚本）"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "#[cfg(test)] mod *_test 同置模式与 queries/mod_test.rs 一致；lib.rs:20-25 私有模块+pub use 三名字收敛即 D6；中文文档注释风格与既有代码一致"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "dto.ts:105-115 WorkspaceRecord 注明为 store::WorkspaceRecord serde camelCase 镜像，字段一一对应；命令签名与前端均无 redb 类型（grep 证实仅注释与测试内部出现）；StoreError 不进命令签名（store.rs:29-30）"
+        }
+      ],
+      "backtrack_to": "implement",
+      "backtrack_reason": "C3 design contradictions: (1) main.rs:13,22 uses home_dir()/.dev-team/desktop-store.redb but design D2 mandates app_data_dir()/desktop-store.redb directly with no subdirectory; (2) WelcomeView.tsx:16-22 renders only count/add/error without the recent-workspace list (hover full-path titles) and per-item remove actions required by design D7 and the change inventory. Implementation must be corrected to match design.",
+      "start_at": "2026-09-21T12:01:40.799Z",
+      "timestamp": "2026-09-21T12:07:20.555Z",
+      "stale": true
+    },
+    {
+      "phase": "implement",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "回溯修正已落实：main.rs:22 改为 app_data_dir()?.join(\"desktop-store.redb\")（D2，无子目录、无 home_dir）；WelcomeView.tsx:25-30 补齐最近清单（title 完整 path + 逐项移除，D7）。store crate、四命令、dto/hook/App 均与 D1/D3-D8 一致；三态对账无缺失，测试文件属 test 阶段，删除项均为未跟踪临时文件。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "design 10 组件逐一落位：store crate 5 文件（Cargo.toml/lib/model/canonical/store.rs）、commands/workspaces/mod.rs、main.rs、dto.ts、useWorkspaces.ts、WelcomeView.tsx、App.tsx 均存在且内容与组件职责一致"
+        },
+        {
+          "item": "I2 变更清单条目均有对应实现",
+          "pass": true,
+          "evidence": "新增 8 文件与修改 5 文件全部对账（Cargo.toml members/workspace deps、main.rs setup+注册、commands/mod.rs 三轨、dto WorkspaceRecord、App 下拉/移除/添加流）；无缺失项"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "中文文档注释、*_test.rs 测试模块命名（对齐 layout_test.rs 等既有惯例）、hooks 模式与 useChangeList 同型、serde camelCase"
+        },
+        {
+          "item": "I4 路由/API 全实现",
+          "pass": true,
+          "evidence": "list/add/remove/touch_workspace 四命令实现并注册于 main.rs invoke_handler:31-34；既有 list_changes/get_change_detail/read_artifact 签名未动"
+        },
+        {
+          "item": "I5 tasks.md 全部 [x]",
+          "pass": true,
+          "evidence": "Phase A-G 全部 14 项复选框均已勾选"
+        },
+        {
+          "item": "I6 无计划外改动",
+          "pass": true,
+          "evidence": "删除项均为未跟踪临时文件（stryker bak/verify、reports/mutation-verify）；被跟踪的 stryker.config.json 零改动；无无关源码被删"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "D1 dunce+回退 miss→Ok(false)；D2 app_data_dir 根已修正（main.rs:22）；D3 选中即 touch；D4 i64 毫秒；D5 StoreError 两变体+命令面 to_string；D6 私有模块+3 名公共面；D7 WelcomeView 清单+逐项移除已补齐；D8 add 保留 added_at、降序+root tie-break、表名 user_*"
+        }
+      ],
+      "start_at": "2026-09-21T12:08:08.763Z",
+      "timestamp": "2026-09-21T12:16:36.353Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "回溯后 attempt-3 复评 9/9 通过。三态对账：5 声明测试文件×files.written×磁盘一致，7 个无用例章节未生成文件与设计相符；attempt-3 仅重写 App.test.tsx（11 it=7 设计行+4 强化）适配 WelcomeView 清单还原与 app_data_dir 修正，Rust/集成/hook 文件未动仍齐备。G3 store 26+命令 6+App 7+hook 11 行全生成且路径类型对位；G4 关系1 七行+关系2 九行逐条落位且 AC 关联正确；G5 tempfile RAII/只读直读 user_meta/时钟不 mock/vi.mock core+dialog 齐备，State 以 mock_app+manage 等义承载；G7 边界全落含三层空串穿透；G8 RAII+unmanage+mockReset/useRealTimers；G9 废弃 5 例未重现。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "store.rs 5 个 pub fn 均在 store_test.rs 直调并断言行为（open L72-L200、add L207-L327、list L334-L384、touch L391-L453、remove L460-L512），StoreError Display 断言 L519-L525；四命令在 mod_test.rs 直调（L74-L206）；useWorkspaces add/remove/touch 经 renderHook 调用断言（useWorkspaces.test.ts L97-L335）；App 壳经真实组合断言视图/错误/动作（App.test.tsx 11 it），非仅构造验证"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存于同一目录",
+          "pass": true,
+          "evidence": "Glob 证实：store_test.rs 与 store.rs 同目录且 lib.rs:28 声明 #[cfg(test)]；workspaces/mod_test.rs 与 mod.rs 同目录且 mod.rs:56 声明；useWorkspaces.test.ts、App.test.tsx 与源码共存；workspace_restore.test.tsx 置 src/__tests__/ 符合设计声明；7 个无用例章节（lib/model/canonical/commands mod/main/dto/WelcomeView）未生成文件，与「本章节不设用例」一致"
+        },
+        {
+          "item": "G3 单元测试>用例 表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "store 章节 26 行↔store_test.rs 26 个 #[test] 一一对应（损坏文件 L119、schema 高版本 L156、tie-break L357、emoji L271 等）；命令轨道 6 行↔mod_test.rs L69-L186 六例；App 7 个新增行↔App.test.tsx L126/162/169/198/221/235/266 七个 it，另有 4 个强化 it（L141/286/293/313）在 WorkspaceState 契约与添加流设计语义内；hook 11 行↔useWorkspaces.test.ts 对应 11 it，另有 3 强化 it（守卫/loading/卸载）；路径类型分类一致"
+        },
+        {
+          "item": "G4 集成测试>用例 表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "关系1 七行：场景1↔mod_test.rs L225（add→touch→list 降序+remove+重开经命令面）/L214（空库）；场景2↔L307/L281（等价路径）；场景3↔L166/L186（错误前缀/空串），AC-2/3/7 断言语义一致。关系2 九行↔workspace_restore.test.tsx 4 describe×9 it（L130/147/157/179/196/221/246/264/296），AC-9/7 时序、次数与参数契约断言齐备"
+        },
+        {
+          "item": "G5 Mock策略表格中的 mock 已在测试代码中实现",
+          "pass": true,
+          "evidence": "tempfile RAII Env 两 Rust 文件均实现（store_test.rs L26-L55、mod_test.rs L20-L54）；ReadOnlyDatabase::open 直读 user_meta（store_test.rs L192-L199）；时钟不 mock 以 sleep+tie-break 表述（L239/338/360-361）；前端 vi.mock core invokeMock 按命令名分发+vi.mock plugin-dialog（App.test.tsx L11-L12、useWorkspaces.test.ts L9、workspace_restore L21-L22）全用例应用；Tauri 运行环境：设计 State::from(&store) 落为 mock_app+manage+state（mod_test.rs L57-L62），同为不启动真实 runtime 的真实 State<Store>，语义等义"
+        },
+        {
+          "item": "G6 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust：#[test] colocated，导入 redb/tempfile/dunce/serde_json/tauri::test 均有 Cargo.toml 依据（store crate deps dunce+redb+dev tempfile；desktop-app dev-deps tempfile+tauri features=[\"test\"] L29 支撑 mock_app）；前端三文件统一 import from 'vite-plus/test' + @testing-library/react，无裸 vitest，与 useChangeList.test.ts 既有模式一致"
+        },
+        {
+          "item": "G7 test-design.md 中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "空库 list（L379）、并列 tie-break（L357）、大小写/尾分隔符/正反斜杠（L231/L253/L488）、空格中文emoji（L271）、schema_version 三向（L138/L156/L187）、幂等 miss 与空串穿透 store/命令/hook 三层（store L408/L444、mod_test L149/L186、hook L165/L200）、StoreError 双前缀（L519）；String root/Path/时间戳每类参数≥2 边界值"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "Rust 侧 tempfile::TempDir RAII 自动清理，mod_test.rs L262-L264 显式 unmanage 释放 redb 文件锁；前端三文件 beforeEach invokeMock/openMock mockReset（App.test.tsx L121-L122、useWorkspaces.test.ts L55、workspace_restore L120-L122），hook 测试 afterEach vi.useRealTimers（L60），fake timers 用例退出即还原"
+        },
+        {
+          "item": "G9 迭代类型=废弃 的条目未生成新测试",
+          "pass": true,
+          "evidence": "App.test.tsx 五个废弃例原断言未复现：无「选择入口」断言、无「dialog 取消时 invoke 零调用」形态、无独立的「reject 不白屏」例；全文单 describe 11 it 与 7 新增行+强化例对应，废弃语义按设计由重写例承接（L221 重写自废弃例 2、L235 例 3、L266 例 4/5）"
+        }
+      ],
+      "start_at": "2026-09-21T12:17:07.469Z",
+      "timestamp": "2026-09-21T12:30:14.677Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 4,
+      "verdict": "pass",
+      "report": "所有 2538 个测试通过（2536 通过，2 skipped 为既有 AC-09 下线用例，0 失败）。覆盖率达标: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)——summary 级 measured 为 null 系聚合解析异常（coverage-summary.json 为绝对 Windows 路径 key 未被匹配）：计划级实测均超阈值（dev-team 97.25/89.73/99.53，desktop 99.04/98.98/96.1），rust 套件 llvm-cov 输出未解析为覆盖产物。Mutation 85.06%≥80%（dev-team override 80.0% 贴线）。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/duration_seconds 均存在且类型正确；coverage 为对象含 pass/measured/thresholds/overrides；measured 三维 null 属允许值"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "total=2538>0，failed=0，passed=2536，skipped=2；conclusion=pass 与计数一致，problems=[]，无 execution_error；mutation.pass=true（85.06%≥80%）"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true，按报告预计算口径通过；summary 级 measured 三维 null 记 N/A (框架不支持)，实为聚合解析异常：已核验计划级 coverage-summary.json 实测 dev-team 97.25/89.73/99.53、desktop 99.04/98.98/96.1 均高于阈值 90/85/90；rust 套件无覆盖产物（llvm-cov 未解析，解析缺口，不影响本判定）"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，根因诊断项自动通过"
+        }
+      ],
+      "start_at": "2026-09-21T12:30:55.408Z",
+      "timestamp": "2026-09-21T12:37:54.052Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "C1-C7 全过。无注入/硬编码密钥，root 入参经 canonicalize 校验，空串/消失目录边界有测试；D1-D8 与 AC-1..10 均在代码落地，redb 类型不泄漏，fail fast 无静默降级。非阻塞观察：①views/changes/ChangeView.tsx 及视图重排未入 design 清单/file_log（App.tsx:7 依赖）；②stryker.config.7eb6bdac.json 为测试残留，建议提交前删除；③openspec/config.json 套件收敛改动不在本变更 file_log 且未新增注册（AC-10 实质保持）。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep password/secret/api_key/eval/exec/system 于 store crate、workspaces 命令、前端新增文件零命中；用户路径仅作 canonicalize 与 KV key（store.rs:123,230-250），db 路径固定 app_data_dir（main.rs:13,22-24），无注入面"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "对话框返回 typeof 守卫（App.tsx:73）；String root 经 canonicalize 校验（store.rs:122-126），空串/不存在目录 → Err（mod_test.rs:166-207）；invoke 错误全部 catch 置 error 态（useWorkspaces.ts:53-57,66-110）"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "D1 dunce 单一口径+词法回退（canonical.rs）、D2 create_dir_all+desktop-store.redb（store.rs:67-75/main.rs:13）、D5 StoreError 两变体带前缀、D6 pub use 三名字（lib.rs:24-25）、D8 upsert/排序/幂等 miss（store.rs:133-226）、AC-8 fail fast（main.rs:22-24）均落地；无矛盾"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "空路径（store_test.rs:444-453）、目录消失回退匹配（store_test.rs:425-441,501-512）、空清单（store_test.rs:379-384）、排序并列 tie-break（store_test.rs:357-376）、schema 高版本拒绝（store_test.rs:156-184）均有实现与测试"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "无不可达分支、无未用导入；stryker.config.7eb6bdac.json 为 test-execution 残留（含绝对路径 verify 配置），建议提交前删除；App.tsx:75 末尾 if(record===null) return 为冗余守卫（仅风格，非缺陷）"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "中文文档注释、薄包装+私有 *_inner、模块划分与既有 queries 模式一致（workspaces/mod.rs）；store crate 注释显式单进程约束与路径注入约定（lib.rs:1-18）"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "WorkspaceRecord 自 store→命令→serde camelCase→dto.ts 镜像（dto.ts:106-115），无自定义中间映射类型；redb 类型不出现在 store 公共面与命令签名（workspaces/mod.rs:17-49）"
+        }
+      ],
+      "start_at": "2026-09-21T12:38:30.558Z",
+      "timestamp": "2026-09-21T12:44:56.922Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 AC 全有代码证据。AC-1 store Cargo.toml 零 Tauri/core+根 members; AC-2 store.rs:65-226 四操作+重开测试; AC-3 canonical.rs dunce+等价路径测试; AC-4 store.rs:167 降序; AC-5 user_* 表+schema_version; AC-6 lib.rs:24 三名 pub use, 前端零 redb; AC-7 四命令注册 main.rs:31-34; AC-8 main.rs fail fast; AC-9 守卫恢复+App.test 四场景; AC-10 config.json 套件未动, rust 162 例 0 失败。tasks 全 [x]。非阻塞: stryker.config.7eb6bdac.json 脚手架残留建议删除; staged 的 core/config.json/package.json 改动系 file_log 外既有态。",
+      "checklist": [
+        {
+          "item": "A1 proposal 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 store/Cargo.toml:7-14 零 Tauri/core、根 Cargo.toml:34 members; AC-2 store.rs:65-79 open+四操作:122-226、store_test.rs:528-562 重开持久化; AC-3 canonical.rs:11-13 dunce、store.rs:133-146 upsert 保留 added_at、store_test.rs:231-268/488-512; AC-4 store.rs:167-171 降序+tie-break、model.rs:46-51 name 末段; AC-5 store.rs:15-24 user_workspaces/user_meta+84-117 schema_version、store_test.rs:187-200 直读断言; AC-6 lib.rs:20-25 三名 pub use、src 零 redb 命中; AC-7 workspaces/mod.rs:16-53 四命令+main.rs:31-34 注册+mod_test.rs:166-207 错误前缀; AC-8 main.rs:18-26,37 fail fast、store_test.rs:118-135; AC-9 useWorkspaces.ts:45-50 守卫恢复、App.test.tsx:126/162/169/198 四场景; AC-10 results.txt 26 store 例在 rust 套件 0 失败"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "实现面与 proposal 8 项清单一致: 新增 store 5 文件/workspaces 命令/useWorkspaces/WelcomeView(设计 D7 声明的「欢迎屏」落位, proposal L59)+修改 5 文件; file_log 无计划外产品写入; 唯一残留 stryker.config.7eb6bdac.json 为 test-execution 脚手架(非功能代码), 被跟踪的 stryker.config.json 零改动"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "8/8 实现文件磁盘在位且内容对齐: crates/infra/store(Cargo/lib/model/canonical/store.rs)、根 Cargo.toml(redb =4.3.0 锁版 L41/store path L44)、main.rs setup+注册、commands/mod.rs:6 三轨、workspaces/mod.rs 四命令、dto.ts:106-115、useWorkspaces.ts、App.tsx+WelcomeView.tsx; 测试 4 文件亦全在(store_test 26 例/mod_test/useWorkspaces.test/App.test)"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "core/foundation 与 core/workflow Cargo.toml 均零 store/redb 依赖, grep core 全目录 redb|use store 零命中, 本变更 file_log 无 core 写入(staged core 测试文件改动系既有态); queries/mod.rs 三命令无状态薄包装语义未动(file_log 05:07 有 revert 记录即已还原); exec/mod.rs 保持空轨道; openspec/config.json 无新增套件注册(rust 仍单条 src-tauri 根); 前端 src 零 redb 概念"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "Windows 口径: canonical.rs dunce 单一口径+消失目录词法回退:20-25, AC-3 等价路径测试锁死; 错误面: Result<T,String> 模板(workspaces/mod.rs:5-7)+AC-8 fail fast+三层错误态测试; 单进程: lib.rs:3-8 crate 文档显式声明; redb 4.3.0: 根 Cargo.toml:41 锁死=4.3.0+tempdir 真开文件; 恢复时序: useWorkspaces 收口+restoredRef 守卫:46-48+错误不阻断添加; 目录消失: store.rs:230-250 回退匹配用户救济路径+store_test.rs:425-441/501-512"
+        }
+      ],
+      "start_at": "2026-09-21T12:45:28.576Z",
+      "timestamp": "2026-09-21T12:51:02.698Z"
+    }
+  ]
+}

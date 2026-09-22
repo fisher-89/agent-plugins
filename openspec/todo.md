@@ -69,10 +69,13 @@
 - [x] 记录变更文件时，排除gitignore文件
 - [ ] 【模块边界】仅测试modules/workflow/index.ts，覆盖整合模块
 - [ ] 使用环境变量替换openspec目录，方便修改
-- [ ] 【Platform】检测支持的agent，以及是否安装plugin dev-team
-- [ ] 【Platform】workspace配置
-- [ ] 【Platform】workspace基线设计（模块结构、spec）
-- [ ] 【Platform】多任务预约，worktree隔离
+- [ ] 【Desktop】检测支持的agent，以及是否安装plugin dev-team
+- [ ] 【Desktop】workspace配置
+- [ ] 【Desktop】workspace基线设计（模块结构、spec）
+- [ ] 【Desktop】多任务预约，worktree隔离
 - [ ] rust支持突变测试，使用cargo-mutants
 - [ ] static-check按目录划分
-- [ ] 【Platform】引入redb本地数据库，实现store；记录workspace清单；
+- [x] 【Desktop】引入redb本地数据库，实现store；记录workspace清单；
+- [ ] 【Desktop】发布到github且版本号升级时，自动构建并创建版本release；支持检查更新；
+- [ ] 【Desktop】约定后端报错结构；
+- [ ] test-design、test-gen 在处理ui层时，尽量使用快照测试

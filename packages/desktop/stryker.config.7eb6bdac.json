@@ -1,0 +1,34 @@
+{
+  "$schema": "node_modules/@stryker-mutator/core/schema/stryker-schema.json",
+  "ignorePatterns": [
+    "openspec/**/*"
+  ],
+  "mutate": [
+    "src/App.tsx",
+    "src/hooks/useWorkspaces.ts"
+  ],
+  "testRunner": "vitest",
+  "plugins": [
+    "@stryker-mutator/vitest-runner"
+  ],
+  "vitest": {
+    "configFile": "vite.config.ts",
+    "dir": "."
+  },
+  "disableTypeChecks": true,
+  "ignoreStatic": true,
+  "reporters": [
+    "json",
+    "html"
+  ],
+  "jsonReporter": {
+    "fileName": "D:/Projects/wps-claude-plugin/openspec/changes/desktop-redb-store/reports/test/packages_desktop_vite-plus/mutation.json"
+  },
+  "htmlReporter": {
+    "fileName": "D:/Projects/wps-claude-plugin/openspec/changes/desktop-redb-store/reports/test/packages_desktop_vite-plus/mutation.html"
+  },
+  "tempDirName": "D:/Projects/wps-claude-plugin/openspec/changes/desktop-redb-store/reports/test/packages_desktop_vite-plus/_stryker-tmp",
+  "concurrency": 8,
+  "timeoutFactor": 1.5,
+  "timeoutMS": 10000
+}

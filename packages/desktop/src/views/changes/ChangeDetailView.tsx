@@ -1,6 +1,6 @@
-import type { ChangeDetailState } from '../hooks/useChangeDetail';
-import { ArtifactView } from '../renderers/ArtifactView';
-import type { ArtifactEnvelope, AttemptRecord, ChangeDetail, PhaseEntry } from '../types/dto';
+import { ArtifactView } from '../../renderers/ArtifactView';
+import type { ArtifactEnvelope, AttemptRecord, ChangeDetail, PhaseEntry } from '../../types/dto';
+import type { ChangeDetailState } from './hooks/useChangeDetail';
 
 function VerdictBadge({ verdict }: { verdict: AttemptRecord['verdict'] }) {
   return <span className={`badge badge-${verdict === 'pass' ? 'pass' : 'fail'}`}>{verdict}</span>;

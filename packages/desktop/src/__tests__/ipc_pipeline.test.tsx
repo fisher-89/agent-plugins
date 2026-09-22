@@ -136,6 +136,13 @@ function defaultIpc(
   } = {},
 ) {
   invokeMock.mockImplementation((command: string, params: { kind?: string; source?: string }) => {
+    if (command === 'list_workspaces') {
+      // 启动自动恢复唯一清单项，恢复根即本文件的 workspace 根
+      return Promise.resolve([{ root: '/repo', name: 'repo', addedAt: 1, lastOpenedAt: 2 }]);
+    }
+    if (command === 'touch_workspace') {
+      return Promise.resolve(true);
+    }
     if (command === 'list_changes') {
       return Promise.resolve(listWithUnknownGroup);
     }
@@ -155,9 +162,8 @@ function defaultIpc(
   });
 }
 
+/** 启动自动恢复以 /repo 为当前根并进入列表视图（选择入口流已由恢复流取代）。 */
 async function pickWorkspace(path = '/repo') {
-  openMock.mockResolvedValue(path);
-  fireEvent.click(screen.getByText('选择 workspace 文件夹'));
   await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: path }));
 }
 
@@ -175,12 +181,11 @@ afterEach(() => {
 // 场景：选定 workspace 到列表渲染
 // ---------------------------------------------------------------------------
 
-describe('ipc 管线：选定 workspace 到列表渲染', () => {
-  it('选择目录后刷新：invoke 参数携带选定 root，列表渲染月分组且未知时间组置尾', async () => {
+describe('ipc 管线：启动自动恢复到列表渲染', () => {
+  it('恢复根下发后：invoke 参数携带恢复 root，列表渲染月分组且未知时间组置尾', async () => {
     render(<App />);
     await pickWorkspace('/repo');
 
-    expect(openMock).toHaveBeenCalledWith({ directory: true, multiple: false });
     expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: '/repo' });
 
     // 分组与代际徽标渲染
@@ -190,14 +195,6 @@ describe('ipc 管线：选定 workspace 到列表渲染', () => {
     expect(headings[headings.length - 1].startsWith('未知时间')).toBe(true);
     expect(screen.getByText('v2') !== null).toBe(true);
     expect(screen.getByText('v0') !== null).toBe(true);
-  });
-
-  it('取消选择（dialog 返回 null）时不发起任何 invoke', async () => {
-    render(<App />);
-    openMock.mockResolvedValue(null);
-    fireEvent.click(screen.getByText('选择 workspace 文件夹'));
-    await new Promise((resolve) => setTimeout(resolve, 10));
-    expect(invokeMock).not.toHaveBeenCalled();
   });
 });
 
@@ -368,11 +365,7 @@ describe('ipc 管线：显式刷新纪律', () => {
   it('交互序列结束后推进虚拟计时，invoke 调用次数不增长（无轮询 / watch）', async () => {
     vi.useFakeTimers();
     render(<App />);
-    // 选择 workspace（对话框 promise 立即 resolve，不依赖定时器）
-    openMock.mockResolvedValue('/repo');
-    act(() => {
-      fireEvent.click(screen.getByText('选择 workspace 文件夹'));
-    });
+    // 启动恢复序列（对话框 promise 立即 resolve，不依赖定时器）
     await act(async () => {});
     const callsAfterSelection = invokeMock.mock.calls.length;
     expect(callsAfterSelection).toBeGreaterThan(0);
@@ -387,6 +380,12 @@ describe('ipc 管线：显式刷新纪律', () => {
   it('连续两次刷新产生两组完整调用，最终渲染以后一次为准', async () => {
     let round = 0;
     invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_workspaces') {
+        return Promise.resolve([{ root: '/repo', name: 'repo', addedAt: 1, lastOpenedAt: 2 }]);
+      }
+      if (command === 'touch_workspace') {
+        return Promise.resolve(true);
+      }
       if (command === 'list_changes') {
         round += 1;
         return Promise.resolve({

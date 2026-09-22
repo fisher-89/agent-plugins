@@ -46,14 +46,15 @@ static PLUGINS: &[&dyn ArtifactPlugin] = &[&TASKS_PROGRESS, &EVAL_CHECKLIST, &MA
 fn enumerate_candidates(change_dir: &Path, workflow: Option<&Workflow>) -> Vec<ArtifactCandidate> {
     let mut files: Vec<PathBuf> = Vec::new();
     collect_files(change_dir, PathBuf::new(), &mut files);
-    files.sort_by(|a, b| encode_file_source(a).cmp(&encode_file_source(b)));
+    files.sort_by_key(|a| encode_file_source(a));
 
     let mut candidates: Vec<ArtifactCandidate> = files
         .into_iter()
         .map(|relative_path| ArtifactCandidate::File { relative_path })
         .collect();
     if let Some(workflow) = workflow {
-        candidates.extend((0..workflow.eval.len()).map(|index| ArtifactCandidate::EvalEntry { index }));
+        candidates
+            .extend((0..workflow.eval.len()).map(|index| ArtifactCandidate::EvalEntry { index }));
     }
     candidates
 }
@@ -164,7 +165,9 @@ pub fn discover_artifacts(
     }
     // sort_by 稳定：排序键相同者保持候选枚举顺序
     hits.sort_by_key(|(plugin_index, order, _)| (*plugin_index, *order));
-    hits.into_iter().map(|(_, _, descriptor)| descriptor).collect()
+    hits.into_iter()
+        .map(|(_, _, descriptor)| descriptor)
+        .collect()
 }
 
 /// 按 kind 定位插件、按 source 重建候选后解析出单个信封。

@@ -12,7 +12,9 @@ use workflow::queries::{change_detail, list_changes};
 
 /// 入仓 fixtures 语料根。
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 /// 把 fixture 拷入临时 workspace（archive 保留目录名 / active 用 fixture 名）。
@@ -232,8 +234,14 @@ fn v0_change的产物清单等于全部md的markdown_doc清单() {
     // 直接读取 eval-checklist → None（无 workflow 数据源）
     let first_source = doc_sources.first().cloned().unwrap_or_default();
     assert!(
-        workflow::artifacts::read_artifact(&change_dir, Inventory::V0, None, "eval-checklist", &first_source)
-            .is_none(),
+        workflow::artifacts::read_artifact(
+            &change_dir,
+            Inventory::V0,
+            None,
+            "eval-checklist",
+            &first_source
+        )
+        .is_none(),
         "v0 下 eval-checklist 应无数据源产出"
     );
     // 逐个 markdown-doc 信封可读
@@ -315,10 +323,14 @@ fn source指向已被删除的文件时返回none而非报错() {
     let change_dir = layout.changes_root.join("v2-b");
 
     // 先确认可读，再删文件，读取 → None（清单与磁盘漂移时的上游契约）
-    assert!(
-        workflow::artifacts::read_artifact(&change_dir, Inventory::V2, None, "markdown-doc", "proposal.md")
-            .is_some()
-    );
+    assert!(workflow::artifacts::read_artifact(
+        &change_dir,
+        Inventory::V2,
+        None,
+        "markdown-doc",
+        "proposal.md"
+    )
+    .is_some());
     fs::remove_file(change_dir.join("proposal.md")).expect("删除文件失败");
     assert!(workflow::artifacts::read_artifact(
         &change_dir,
@@ -358,22 +370,41 @@ fn read_artifact敌意source与kind被拒绝不逃逸change目录() {
         "C:/evil/secret.md",
     ] {
         assert!(
-            workflow::artifacts::read_artifact(&change_dir, Inventory::V2, None, "markdown-doc", hostile)
-                .is_none(),
+            workflow::artifacts::read_artifact(
+                &change_dir,
+                Inventory::V2,
+                None,
+                "markdown-doc",
+                hostile
+            )
+            .is_none(),
             "敌意 source {hostile:?} 必须被拒绝"
         );
     }
 
     // kind 参数显式格式检查：空 kind → None（未注册同样 → None，语义一致）
-    assert!(workflow::artifacts::read_artifact(&change_dir, Inventory::V2, None, "", "proposal.md").is_none());
+    assert!(workflow::artifacts::read_artifact(
+        &change_dir,
+        Inventory::V2,
+        None,
+        "",
+        "proposal.md"
+    )
+    .is_none());
 
     // 越权目标确实存在且可读（排除"恰好读不到"的假阳性）
     assert!(fs::read_to_string(&ws_secret).is_ok());
 
     // 正向对照：合法相对路径不受校验影响
     assert!(
-        workflow::artifacts::read_artifact(&change_dir, Inventory::V2, None, "markdown-doc", "proposal.md")
-            .is_some(),
+        workflow::artifacts::read_artifact(
+            &change_dir,
+            Inventory::V2,
+            None,
+            "markdown-doc",
+            "proposal.md"
+        )
+        .is_some(),
         "合法 source 不应被误伤"
     );
 }

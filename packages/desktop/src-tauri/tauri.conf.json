@@ -4,9 +4,9 @@
   "version": "0.1.0",
   "identifier": "dev.wps.desktop-terminal",
   "build": {
-    "beforeDevCommand": "pnpm dev",
+    "beforeDevCommand": "pnpm client:dev",
     "devUrl": "http://localhost:5173",
-    "beforeBuildCommand": "pnpm build",
+    "beforeBuildCommand": "pnpm client:build",
     "frontendDist": "../dist"
   },
   "app": {

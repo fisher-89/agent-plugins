@@ -34,7 +34,9 @@ impl Drop for TempDir {
 
 /// 入仓 fixtures 语料根（workflow crate 的 tests/fixtures）。
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 #[test]
@@ -128,7 +130,16 @@ fn change_dir不存在时_判定为v0() {
 #[test]
 fn v2_a_fixture判定为v2_v1_b_fixture判定为v1() {
     // 入仓语料抽查：真实代际样本经同一判定路径
-    assert_eq!(detect_inventory(&fixtures_dir().join("v2-a")), Inventory::V2);
-    assert_eq!(detect_inventory(&fixtures_dir().join("v1-b")), Inventory::V1);
-    assert_eq!(detect_inventory(&fixtures_dir().join("v0-b")), Inventory::V0);
+    assert_eq!(
+        detect_inventory(&fixtures_dir().join("v2-a")),
+        Inventory::V2
+    );
+    assert_eq!(
+        detect_inventory(&fixtures_dir().join("v1-b")),
+        Inventory::V1
+    );
+    assert_eq!(
+        detect_inventory(&fixtures_dir().join("v0-b")),
+        Inventory::V0
+    );
 }

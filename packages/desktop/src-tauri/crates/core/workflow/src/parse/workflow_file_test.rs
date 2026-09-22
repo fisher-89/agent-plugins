@@ -39,7 +39,9 @@ impl Drop for TempDir {
 }
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 const V2_FULL: &str = r#"{
@@ -132,7 +134,10 @@ fn 未知顶层键被忽略_fixture_v1_c正常解析() {
     let path = fixtures_dir().join("v1-c").join("workflow.json");
     let text = fs::read_to_string(&path).expect("fixture v1-c workflow.json 应存在");
     // 前置：fixture 确实含 legacy 键
-    assert!(text.contains("\"files\"") || text.contains("\"source\""), "v1-c 应含 legacy 未知键");
+    assert!(
+        text.contains("\"files\"") || text.contains("\"source\""),
+        "v1-c 应含 legacy 未知键"
+    );
 
     let WorkflowFileParse::Parsed(workflow) = parse_workflow_file(&path) else {
         panic!("含未知键的 v1 应正常解析（未知字段忽略）");
@@ -187,8 +192,16 @@ fn 单条eval条目checklist损坏时跳过该条其余保留() {
     let WorkflowFileParse::Parsed(workflow) = parse_workflow_file(&path) else {
         panic!("单条损坏不应整体降级");
     };
-    let phases: Vec<&str> = workflow.eval.iter().map(|entry| entry.phase.as_str()).collect();
-    assert_eq!(phases, vec!["proposal", "test-design"], "损坏条目被跳过，其余完整保留");
+    let phases: Vec<&str> = workflow
+        .eval
+        .iter()
+        .map(|entry| entry.phase.as_str())
+        .collect();
+    assert_eq!(
+        phases,
+        vec!["proposal", "test-design"],
+        "损坏条目被跳过，其余完整保留"
+    );
 }
 
 #[test]
@@ -300,7 +313,11 @@ fn attempt缺失为none_负数条目整体跳过() {
     let WorkflowFileParse::Parsed(workflow) = parse_workflow_file(&path) else {
         panic!("解析不应失败");
     };
-    let phases: Vec<&str> = workflow.eval.iter().map(|entry| entry.phase.as_str()).collect();
+    let phases: Vec<&str> = workflow
+        .eval
+        .iter()
+        .map(|entry| entry.phase.as_str())
+        .collect();
     assert_eq!(phases, vec!["proposal", "test-design"]);
     assert_eq!(workflow.eval[0].attempt, None, "attempt 缺失 → None");
     assert_eq!(workflow.eval[1].attempt, Some(3));
@@ -310,7 +327,9 @@ fn attempt缺失为none_负数条目整体跳过() {
 fn 超长与含特殊字符的report原样保留() {
     let mut report = String::from("开头🎯含emoji与换行\n");
     for i in 0..100 {
-        report.push_str(&format!("第 {i} 行——超长内容不含换行与转义，长度远超一千字符上限验证。🚀✅\n"));
+        report.push_str(&format!(
+            "第 {i} 行——超长内容不含换行与转义，长度远超一千字符上限验证。🚀✅\n"
+        ));
     }
     assert!(report.chars().count() > 1000);
 
@@ -346,7 +365,11 @@ fn checklist条目缺失evidence时按损坏条目降级跳过() {
     let WorkflowFileParse::Parsed(workflow) = parse_workflow_file(&path) else {
         panic!("单条损坏不应整体降级");
     };
-    let phases: Vec<&str> = workflow.eval.iter().map(|entry| entry.phase.as_str()).collect();
+    let phases: Vec<&str> = workflow
+        .eval
+        .iter()
+        .map(|entry| entry.phase.as_str())
+        .collect();
     assert_eq!(phases, vec!["dev-design"], "缺 evidence 的条目按损坏跳过");
 }
 

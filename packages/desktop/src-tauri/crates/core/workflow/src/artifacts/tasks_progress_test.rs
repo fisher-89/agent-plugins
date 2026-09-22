@@ -56,7 +56,10 @@ fn input_for<'a>(change_dir: &'a Path, candidate: &'a ArtifactCandidate) -> Arti
 #[test]
 fn 混合勾选计数正确且三者自洽() {
     let change = TempChange::new("mixed");
-    change.write("tasks.md", "- [ ] 待办一\n- [x] 已办一\n- [ ] 待办二\n- [x] 已办二\n- [x] 已办三\n");
+    change.write(
+        "tasks.md",
+        "- [ ] 待办一\n- [x] 已办一\n- [ ] 待办二\n- [x] 已办二\n- [x] 已办三\n",
+    );
     let candidate = tasks_candidate();
     let input = input_for(&change.0, &candidate);
 
@@ -78,11 +81,15 @@ fn 混合勾选计数正确且三者自洽() {
 #[test]
 fn fallback_text为统计结果文本() {
     let change = TempChange::new("fallback");
-    change.write("tasks.md", "- [x] 甲\n- [x] 乙\n- [ ] 丙\n- [ ] 丁\n- [ ] 戊\n");
+    change.write(
+        "tasks.md",
+        "- [x] 甲\n- [x] 乙\n- [ ] 丙\n- [ ] 丁\n- [ ] 戊\n",
+    );
     let candidate = tasks_candidate();
 
-    let envelope =
-        TasksProgressPlugin.parse(&input_for(&change.0, &candidate)).expect("应产出信封");
+    let envelope = TasksProgressPlugin
+        .parse(&input_for(&change.0, &candidate))
+        .expect("应产出信封");
     let fallback = envelope.fallback_text.expect("fallback 非空");
     assert!(fallback.contains("2 / 5"), "实际: {fallback}");
     assert!(fallback.contains("待办 3"), "实际: {fallback}");
@@ -97,8 +104,14 @@ fn tasks_md不存在时matcher按名命中但解析产出none() {
     let candidate = tasks_candidate();
     let input = input_for(&change.0, &candidate);
 
-    assert!(TasksProgressPlugin.matches(&input), "matcher 仅按文件名判定");
-    assert!(TasksProgressPlugin.parse(&input).is_none(), "文件缺失 → 解析 None");
+    assert!(
+        TasksProgressPlugin.matches(&input),
+        "matcher 仅按文件名判定"
+    );
+    assert!(
+        TasksProgressPlugin.parse(&input).is_none(),
+        "文件缺失 → 解析 None"
+    );
     assert!(
         !super::discover_artifacts(&change.0, Inventory::V0, None)
             .iter()
@@ -114,7 +127,10 @@ fn 空tasks_md产出零计数信封() {
     let candidate = tasks_candidate();
     let input = input_for(&change.0, &candidate);
 
-    assert!(TasksProgressPlugin.matches(&input), "文件存在即命中，与内容无关");
+    assert!(
+        TasksProgressPlugin.matches(&input),
+        "文件存在即命中，与内容无关"
+    );
     let envelope = TasksProgressPlugin.parse(&input).expect("空文件仍产出信封");
     assert_eq!(envelope.payload["total"], 0);
     assert_eq!(envelope.payload["done"], 0);

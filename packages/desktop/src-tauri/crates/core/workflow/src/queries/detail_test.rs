@@ -42,16 +42,15 @@ impl Drop for TempWs {
 }
 
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 /// 把 fixture change 目录拷入临时 workspace 的 archive 树（保留目录名）。
 fn install_fixture(ws: &TempWs, fixture: &str, archived_name: &str) {
     let source = fixtures_dir().join(fixture);
-    let target = ws
-        .0
-        .join("openspec/changes/archive")
-        .join(archived_name);
+    let target = ws.0.join("openspec/changes/archive").join(archived_name);
     copy_dir(&source, &target);
 }
 
@@ -83,7 +82,10 @@ const MULTI_ATTEMPT_WORKFLOW: &str = r#"{
 #[test]
 fn 同phase多attempt折叠为单站且attempts升序() {
     let ws = TempWs::new("multi-attempt");
-    ws.change("openspec/changes/multi", &[("workflow.json", MULTI_ATTEMPT_WORKFLOW)]);
+    ws.change(
+        "openspec/changes/multi",
+        &[("workflow.json", MULTI_ATTEMPT_WORKFLOW)],
+    );
 
     let detail = ws.detail("multi");
 
@@ -103,7 +105,10 @@ fn 同phase多attempt折叠为单站且attempts升序() {
 #[test]
 fn attempt记录携带verdict_report_checklist全量字段() {
     let ws = TempWs::new("record-fields");
-    ws.change("openspec/changes/full-record", &[("workflow.json", MULTI_ATTEMPT_WORKFLOW)]);
+    ws.change(
+        "openspec/changes/full-record",
+        &[("workflow.json", MULTI_ATTEMPT_WORKFLOW)],
+    );
 
     let detail = ws.detail("full-record");
     let pass_record = &detail.pipeline[0].attempts[0]; // proposal
@@ -221,8 +226,15 @@ fn v1_change缺file_log时区块留空其余正常() {
 
     let detail = ws.detail("v1-change");
     assert_eq!(detail.inventory, Inventory::V1);
-    assert!(detail.file_log.is_none(), "v1 的 file_log 区块为 None（留空降级）");
-    assert_eq!(detail.pipeline.len(), PIPELINE_PHASES.len(), "其余区块正常（9 站全量）");
+    assert!(
+        detail.file_log.is_none(),
+        "v1 的 file_log 区块为 None（留空降级）"
+    );
+    assert_eq!(
+        detail.pipeline.len(),
+        PIPELINE_PHASES.len(),
+        "其余区块正常（9 站全量）"
+    );
     assert_eq!(detail.pipeline[0].attempts.len(), 1);
     assert_eq!(detail.created.as_deref(), Some("2026-03-03"));
 }
@@ -240,7 +252,11 @@ fn eval未覆盖的phase站点仍在且attempts为空() {
 
     let detail = ws.detail("partial");
     let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
-    assert_eq!(phases, PIPELINE_PHASES.to_vec(), "顺序固定，不依赖 eval 排列");
+    assert_eq!(
+        phases,
+        PIPELINE_PHASES.to_vec(),
+        "顺序固定，不依赖 eval 排列"
+    );
 
     let test_gen = &detail.pipeline[4]; // "test-gen"
     assert_eq!(test_gen.phase, "test-gen");
@@ -271,7 +287,11 @@ fn 无attempt字段的条目归入对应站且不影响其他条目排序() {
     let detail = ws.detail("no-attempt");
     let implement = &detail.pipeline[3]; // "implement"
     let attempts: Vec<Option<u32>> = implement.attempts.iter().map(|r| r.attempt).collect();
-    assert_eq!(attempts, vec![None, Some(5)], "缺省 attempt 视为 0 稳定排序");
+    assert_eq!(
+        attempts,
+        vec![None, Some(5)],
+        "缺省 attempt 视为 0 稳定排序"
+    );
 }
 
 #[test]

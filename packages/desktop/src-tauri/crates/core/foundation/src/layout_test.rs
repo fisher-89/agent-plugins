@@ -36,7 +36,10 @@ fn 存在的_root_返回以_root为前缀的三棵子树() {
     assert!(layout.changes_root.starts_with(&temp.0));
     assert!(layout.archive_root.starts_with(&temp.0));
     assert!(layout.explores_root.starts_with(&temp.0));
-    assert_eq!(layout.archive_root.parent(), Some(layout.changes_root.as_path()));
+    assert_eq!(
+        layout.archive_root.parent(),
+        Some(layout.changes_root.as_path())
+    );
     assert_eq!(
         layout.explores_root.parent(),
         layout.changes_root.parent(),
@@ -78,12 +81,18 @@ fn root_指向文件而非目录时仍正常拼接路径() {
 fn root_为空路径时返回相对形式且不_panic() {
     let layout = resolve(Path::new(""));
     // 空 root → 纯相对形式的三路径
-    assert_eq!(layout.changes_root, PathBuf::from("openspec").join("changes"));
+    assert_eq!(
+        layout.changes_root,
+        PathBuf::from("openspec").join("changes")
+    );
     assert_eq!(
         layout.archive_root,
         PathBuf::from("openspec").join("changes").join("archive")
     );
-    assert_eq!(layout.explores_root, PathBuf::from("openspec").join("explores"));
+    assert_eq!(
+        layout.explores_root,
+        PathBuf::from("openspec").join("explores")
+    );
 }
 
 #[test]

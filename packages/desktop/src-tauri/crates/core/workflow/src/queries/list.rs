@@ -56,7 +56,11 @@ pub fn list_changes(layout: &Layout) -> ChangeList {
         .archive_root
         .file_name()
         .map(|name| name.to_string_lossy().into_owned());
-    let active = scan_dir(&layout.changes_root, ChangeSource::Active, archive_dir_name.as_deref());
+    let active = scan_dir(
+        &layout.changes_root,
+        ChangeSource::Active,
+        archive_dir_name.as_deref(),
+    );
     let archive = scan_dir(&layout.archive_root, ChangeSource::Archive, None);
     ChangeList {
         active,
@@ -100,7 +104,9 @@ fn summarize_change(dir: &Path, name: &str, source: ChangeSource) -> (Option<Str
         return (created_fallback(None, name, source), false);
     }
     match parse_workflow_file(&workflow_path) {
-        WorkflowFileParse::Parsed(workflow) => (created_fallback(workflow.created, name, source), false),
+        WorkflowFileParse::Parsed(workflow) => {
+            (created_fallback(workflow.created, name, source), false)
+        }
         WorkflowFileParse::Unparsable { .. } => (created_fallback(None, name, source), true),
     }
 }
@@ -144,9 +150,12 @@ fn group_archive(changes: Vec<ChangeSummary>) -> Vec<ArchiveGroup> {
     let mut groups: Vec<ArchiveGroup> = known
         .into_iter()
         .rev()
-        .map(|(month, changes)| ArchiveGroup {
-            month: Some(month),
-            changes,
+        .map(|(month, mut changes)| {
+            changes.sort_by(|a, b| b.name.cmp(&a.name));
+            ArchiveGroup {
+                month: Some(month),
+                changes,
+            }
         })
         .collect();
     if !unknown.is_empty() {

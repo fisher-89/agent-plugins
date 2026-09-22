@@ -22,7 +22,12 @@ fn parse_entry(workflow: &Workflow, index: usize) -> Option<super::ArtifactEnvel
 }
 
 /// 内存构造一条 eval 记录。
-fn entry(phase: &str, attempt: Option<u32>, verdict: Verdict, checklist: Vec<ChecklistItem>) -> PhaseLog {
+fn entry(
+    phase: &str,
+    attempt: Option<u32>,
+    verdict: Verdict,
+    checklist: Vec<ChecklistItem>,
+) -> PhaseLog {
     PhaseLog {
         phase: phase.to_string(),
         attempt,
@@ -90,14 +95,20 @@ fn fallback_text为checklist文本化清单且非空() {
         "proposal",
         None,
         Verdict::Fail,
-        vec![item("问题清晰", true, "L1-10"), item("范围明确", false, "缺删除清单")],
+        vec![
+            item("问题清晰", true, "L1-10"),
+            item("范围明确", false, "缺删除清单"),
+        ],
     )]);
 
     let envelope = parse_entry(&workflow, 0).expect("应产出信封");
     let fallback = envelope.fallback_text.expect("fallback 非空");
     // 无 attempt 的 title 形态
     assert_eq!(envelope.title, "评估清单 · proposal");
-    assert!(fallback.contains("- [x] 问题清晰 — L1-10"), "实际: {fallback}");
+    assert!(
+        fallback.contains("- [x] 问题清晰 — L1-10"),
+        "实际: {fallback}"
+    );
     assert!(fallback.contains("- [ ] 范围明确 — 缺删除清单"));
 }
 
@@ -151,16 +162,20 @@ fn 大量条目逐条产出_序号与条目一一对应() {
     let ghost = Path::new("/unused-desktop-eval-checklist");
     let descriptors = discover_artifacts(ghost, crate::model::Inventory::V2, Some(&workflow));
 
-    let checklist_descriptors: Vec<_> = descriptors
-        .iter()
-        .filter(|d| d.kind == KIND)
-        .collect();
+    let checklist_descriptors: Vec<_> = descriptors.iter().filter(|d| d.kind == KIND).collect();
     assert_eq!(checklist_descriptors.len(), 12, "12 条全含清单 → 12 个信封");
     for (index, descriptor) in checklist_descriptors.iter().enumerate() {
-        assert_eq!(descriptor.source, index.to_string(), "source 序号与条目一一对应");
+        assert_eq!(
+            descriptor.source,
+            index.to_string(),
+            "source 序号与条目一一对应"
+        );
     }
     // 排序键 = 条目下标：历史顺序排列
-    let sources: Vec<&str> = checklist_descriptors.iter().map(|d| d.source.as_str()).collect();
+    let sources: Vec<&str> = checklist_descriptors
+        .iter()
+        .map(|d| d.source.as_str())
+        .collect();
     let expected: Vec<String> = (0..12).map(|i| i.to_string()).collect();
     let expected: Vec<&str> = expected.iter().map(String::as_str).collect();
     assert_eq!(sources, expected);
@@ -179,6 +194,13 @@ fn evidence长文本与特殊字符item名原样保留() {
     let envelope = parse_entry(&workflow, 0).expect("应产出信封");
     let items = envelope.payload["items"].as_array().expect("items 数组");
     assert_eq!(items[0]["item"], "检查项：含冒号/斜杠\t与emoji🚀");
-    assert_eq!(items[0]["evidence"].as_str().map(str::len), Some(long_evidence.len()));
-    assert!(envelope.fallback_text.as_deref().unwrap_or_default().contains(&long_evidence));
+    assert_eq!(
+        items[0]["evidence"].as_str().map(str::len),
+        Some(long_evidence.len())
+    );
+    assert!(envelope
+        .fallback_text
+        .as_deref()
+        .unwrap_or_default()
+        .contains(&long_evidence));
 }

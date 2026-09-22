@@ -6,7 +6,9 @@ use time::OffsetDateTime;
 use super::list::ChangeSource;
 use super::locate_change;
 use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
-use crate::model::{ActivePhase, ChecklistItem, FileLogEntry, InterruptedEntry, Inventory, PhaseLog, Verdict};
+use crate::model::{
+    ActivePhase, ChecklistItem, FileLogEntry, InterruptedEntry, Inventory, PhaseLog, Verdict,
+};
 use crate::parse::{detect_inventory, parse_workflow_file, WorkflowFileParse, WORKFLOW_FILE_NAME};
 use foundation::layout::Layout;
 
@@ -121,13 +123,18 @@ pub fn change_detail(layout: &Layout, name: &str) -> Option<ChangeDetail> {
     };
     if let Some(workflow) = workflow {
         for entry in &workflow.eval {
-            if let Some(station) = pipeline.iter_mut().find(|station| station.phase == entry.phase) {
+            if let Some(station) = pipeline
+                .iter_mut()
+                .find(|station| station.phase == entry.phase)
+            {
                 station.attempts.push(AttemptRecord::from(entry));
             }
         }
         for station in &mut pipeline {
             // 稳定排序：attempt 相同（或缺省视为 0）者保持 eval 原始顺序
-            station.attempts.sort_by_key(|record| record.attempt.unwrap_or(0));
+            station
+                .attempts
+                .sort_by_key(|record| record.attempt.unwrap_or(0));
         }
     }
 

@@ -64,11 +64,8 @@ struct TempWs(PathBuf);
 
 impl TempWs {
     fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "workflow-it-golden-{}-{}",
-            std::process::id(),
-            tag
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("workflow-it-golden-{}-{}", std::process::id(), tag));
         let _ = fs::remove_dir_all(&dir);
         Self(dir)
     }
@@ -103,7 +100,9 @@ fn project_change_fixture(fixture: &str) -> serde_json::Value {
     let change_dir = layout.changes_root.join(fixture);
 
     let detect = workflow::parse::detect_inventory(&change_dir);
-    let parse_outcome = match workflow::parse::parse_workflow_file(&change_dir.join("workflow.json")) {
+    let parse_outcome = match workflow::parse::parse_workflow_file(
+        &change_dir.join("workflow.json"),
+    ) {
         workflow::parse::WorkflowFileParse::Parsed(workflow) => {
             serde_json::json!({
                 "outcome": "parsed",
@@ -154,11 +153,14 @@ fn build_layout_workspace(fixture: &str) -> TempWs {
         "layout-workspace" => {
             write_files(
                 &base("openspec/changes/2026-09-01-style-active"),
-                &[(
-                    "workflow.json",
-                    r#"{ "workflow_type": "bug-fix", "created": "2026-09-01", "eval": [
+                &[
+                    (
+                        "workflow.json",
+                        r#"{ "workflow_type": "bug-fix", "created": "2026-09-01", "eval": [
                          { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "OK", "checklist": [] } ] }"#,
-                ), ("proposal.md", "# 提案")],
+                    ),
+                    ("proposal.md", "# 提案"),
+                ],
             );
             write_files(
                 &base("openspec/changes/plain-active"),
@@ -170,16 +172,25 @@ fn build_layout_workspace(fixture: &str) -> TempWs {
             );
             write_files(
                 &base("openspec/changes/archive/2026-09-01-archived-new"),
-                &[(
-                    "workflow.json",
-                    r#"{ "workflow_type": "requirement", "eval": [
+                &[
+                    (
+                        "workflow.json",
+                        r#"{ "workflow_type": "requirement", "eval": [
                          { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "回退 created", "checklist": [
                            { "item": "回退规则生效", "pass": true, "evidence": "目录名前缀" } ] } ] }"#,
-                ), ("proposal.md", "# v1 归档")],
+                    ),
+                    ("proposal.md", "# v1 归档"),
+                ],
             );
             write_files(
                 &base("openspec/changes/archive/unknown-date-archived"),
-                &[("workflow.json", r#"{ "workflow_type": "refactor", "eval": [] }"#), ("proposal.md", "# 无日期前缀")],
+                &[
+                    (
+                        "workflow.json",
+                        r#"{ "workflow_type": "refactor", "eval": [] }"#,
+                    ),
+                    ("proposal.md", "# 无日期前缀"),
+                ],
             );
             write_files(&base("openspec/explores"), &[("scratch.md", "# 探索笔记")]);
         }
@@ -187,15 +198,30 @@ fn build_layout_workspace(fixture: &str) -> TempWs {
             fs::create_dir_all(base("openspec/changes")).expect("创建空树失败");
         }
         "layout-mixed" => {
-            write_files(&base("openspec/changes"), &[("stray-file.md", "changes 树下混入的普通文件")]);
+            write_files(
+                &base("openspec/changes"),
+                &[("stray-file.md", "changes 树下混入的普通文件")],
+            );
             write_files(
                 &base("openspec/changes/real-change"),
-                &[("workflow.json", r#"{ "workflow_type": "requirement", "file_log": [] }"#), ("proposal.md", "# v2")],
+                &[
+                    (
+                        "workflow.json",
+                        r#"{ "workflow_type": "requirement", "file_log": [] }"#,
+                    ),
+                    ("proposal.md", "# v2"),
+                ],
             );
-            write_files(&base("openspec/changes/archive"), &[("loose-file.md", "archive 树下混入的普通文件")]);
+            write_files(
+                &base("openspec/changes/archive"),
+                &[("loose-file.md", "archive 树下混入的普通文件")],
+            );
             write_files(
                 &base("openspec/changes/archive/2026-01-02-file-inside"),
-                &[("proposal.md", "# v0"), ("not-a-change-note.txt", "内部混入文件")],
+                &[
+                    ("proposal.md", "# v0"),
+                    ("not-a-change-note.txt", "内部混入文件"),
+                ],
             );
         }
         other => panic!("未知的 layout fixture: {other}"),
@@ -222,15 +248,19 @@ fn project_layout_fixture(fixture: &str) -> serde_json::Value {
 
 /// 对比或覆写单份 golden。
 fn check_or_rewrite(golden_name: &str, projection: &serde_json::Value) {
-    let normalized = format!("{}\n", serde_json::to_string_pretty(projection).expect("投影序列化失败"));
+    let normalized = format!(
+        "{}\n",
+        serde_json::to_string_pretty(projection).expect("投影序列化失败")
+    );
     let golden_path = golden_dir().join(format!("{golden_name}.json"));
     if rewrite_mode() {
         fs::create_dir_all(golden_dir()).expect("创建 golden 目录失败");
         fs::write(&golden_path, &normalized).expect("写 golden 失败");
         return;
     }
-    let expected = fs::read_to_string(&golden_path)
-        .unwrap_or_else(|err| panic!("golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}"));
+    let expected = fs::read_to_string(&golden_path).unwrap_or_else(|err| {
+        panic!("golden {golden_name}.json 缺失（先以 {REWRITE_ENV}=1 生成）: {err}")
+    });
     assert_eq!(
         normalized, expected,
         "fixture {golden_name} 的投影与 golden 漂移；若为有意的 schema 演进，以 {REWRITE_ENV}=1 重写并 review diff"
@@ -254,14 +284,20 @@ change_fixture_golden_test!(golden_v1_c, "v1-c");
 change_fixture_golden_test!(golden_v2_a, "v2-a");
 change_fixture_golden_test!(golden_v2_b, "v2-b");
 change_fixture_golden_test!(golden_corrupt_bad_eval_entry, "corrupt-bad-eval-entry");
-change_fixture_golden_test!(golden_corrupt_bad_filelog_entry, "corrupt-bad-filelog-entry");
+change_fixture_golden_test!(
+    golden_corrupt_bad_filelog_entry,
+    "corrupt-bad-filelog-entry"
+);
 change_fixture_golden_test!(golden_corrupt_bad_timestamp, "corrupt-bad-timestamp");
 change_fixture_golden_test!(golden_corrupt_bad_verdict, "corrupt-bad-verdict");
 change_fixture_golden_test!(golden_corrupt_invalid_json, "corrupt-invalid-json");
 
 #[test]
 fn golden_layout_workspace_workspace树全量() {
-    check_or_rewrite("layout-workspace", &project_layout_fixture("layout-workspace"));
+    check_or_rewrite(
+        "layout-workspace",
+        &project_layout_fixture("layout-workspace"),
+    );
 }
 
 #[test]
@@ -291,7 +327,10 @@ fn 语料完整性_fixtures目录与清单表逐项对应() {
         "fixtures 目录与清单表不一致（防样本被静默删减）；README.md 清单需同步维护"
     );
     // 语料说明文档在位
-    assert!(fixtures_root().join("README.md").is_file(), "fixtures/README.md 应存在");
+    assert!(
+        fixtures_root().join("README.md").is_file(),
+        "fixtures/README.md 应存在"
+    );
 }
 
 #[test]

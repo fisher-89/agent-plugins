@@ -1,50 +1,69 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import { useCallback, useState } from 'react';
+import { useCallback } from 'react';
 
-import { useChangeDetail } from './hooks/useChangeDetail';
 import { useChangeList } from './hooks/useChangeList';
-import { ChangeDetailView } from './views/ChangeDetailView';
-import { ChangeListView } from './views/ChangeListView';
+import { useWorkspaces } from './hooks/useWorkspaces';
+import type { WorkspaceRecord } from './types/dto';
+import { ChangeView } from './views/changes/ChangeView';
+import { WelcomeView } from './views/WelcomeView';
 
-/** 顶栏：workspace 路径展示 + 刷新列表 + 切换 workspace。 */
+/**
+ * 顶栏：workspace 下拉切换（清单项悬停 title 完整 path）+ 移除当前项 + 刷新列表。
+ * 下拉与欢迎屏共用 useWorkspaces 同一清单来源。
+ */
 function AppHeader({
   root,
+  workspaces,
   loading,
+  error,
+  onOpen,
+  onRemove,
   onRefresh,
-  onPick,
 }: {
   root: string;
+  workspaces: WorkspaceRecord[];
   loading: boolean;
+  error: string | null;
+  onOpen: (root: string) => void;
+  onRemove: (root: string) => void;
   onRefresh: () => void;
-  onPick: () => void;
 }) {
   return (
     <header className="app-header">
       <strong>Desktop Terminal</strong>
-      <span className="workspace" title={root}>
-        {root}
-      </span>
+      <select
+        value={root}
+        onChange={(event) => onOpen(event.target.value)}
+        disabled={workspaces.length === 0}
+      >
+        {workspaces.map((record) => (
+          <option key={record.root} value={record.root} title={record.root}>
+            {record.name}
+          </option>
+        ))}
+      </select>
+      <button onClick={() => onRemove(root)}>移除</button>
+      {error !== null && <span className="error-note">{error}</span>}
       <span className="spacer" />
       <button onClick={onRefresh} disabled={loading}>
         刷新列表
       </button>
-      <button onClick={onPick}>切换 workspace</button>
     </header>
   );
 }
 
 /**
- * 应用壳：workspace 选择（文件夹选择器）+ 列表 / 详情视图切换 + 刷新动作下发。
- * 组件不直接 invoke，取数统一经 useChangeList / useChangeDetail 两个 hooks。
+ * 应用壳：workspace 选择与恢复（启动自动恢复收在 useWorkspaces / Header 下拉切换）
+ * + 列表 / 详情视图切换 + 刷新动作下发。
+ * 组件不直接 invoke，取数统一经 useWorkspaces / useChangeList / useChangeDetail。
  */
 export default function App() {
-  const [root, setRoot] = useState<string | null>(null);
-  const [selectedChange, setSelectedChange] = useState<string | null>(null);
+  const workspaceState = useWorkspaces();
+  const list = useChangeList(workspaceState.root);
 
-  const list = useChangeList(root);
-  const detail = useChangeDetail(root, selectedChange);
-
-  const pickWorkspace = useCallback(async () => {
+  // 对话框添加流经 useWorkspaces().add 入库；刷新后新记录 last_opened_at 最新，
+  // 即清单第一名，root 随之切换到返回记录的 canonical root
+  const pickAndAdd = useCallback(async () => {
     let selected: unknown;
     try {
       selected = await open({ directory: true, multiple: false });
@@ -52,37 +71,27 @@ export default function App() {
       return; // 对话框调用失败：保持现状，不中断应用
     }
     if (typeof selected !== 'string') return; // 取消选择则保持现状
-    setSelectedChange(null);
-    setRoot(selected);
-  }, []);
+    const record = await workspaceState.add(selected);
+    if (record === null) return; // 入库失败：error 态已呈现，不打开
+  }, [workspaceState]);
 
-  const openChange = useCallback((name: string) => setSelectedChange(name), []);
-  const backToList = useCallback(() => setSelectedChange(null), []);
-
-  if (root === null) {
-    return (
-      <div className="screen-center">
-        <h1>Desktop Terminal</h1>
-        <p>选择一个项目根目录，浏览其 change 过程记录。</p>
-        <button onClick={pickWorkspace}>选择 workspace 文件夹</button>
-      </div>
-    );
+  if (workspaceState.root === null) {
+    return <WelcomeView state={workspaceState} onAdd={pickAndAdd} />;
   }
 
   return (
     <>
       <AppHeader
-        root={root}
+        root={workspaceState.root}
+        workspaces={workspaceState.workspaces}
         loading={list.loading}
+        error={workspaceState.error}
+        onOpen={workspaceState.touch}
+        onRemove={workspaceState.remove}
         onRefresh={list.refresh}
-        onPick={pickWorkspace}
       />
       <main className="app-main">
-        {selectedChange === null ? (
-          <ChangeListView state={list} onSelect={openChange} />
-        ) : (
-          <ChangeDetailView state={detail} onBack={backToList} />
-        )}
+        <ChangeView root={workspaceState.root} list={list}></ChangeView>
       </main>
     </>
   );

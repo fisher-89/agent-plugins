@@ -1,9 +1,9 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ChangeDetailState } from '../hooks/useChangeDetail';
-import type { ArtifactEnvelope, AttemptRecord, ChangeDetail } from '../types/dto';
+import type { ArtifactEnvelope, AttemptRecord, ChangeDetail } from '../../types/dto';
 import { ChangeDetailView } from './ChangeDetailView';
+import type { ChangeDetailState } from './hooks/useChangeDetail';
 
 /** 9 站流水线的固定站名（与 Rust PIPELINE_PHASES 一致）。 */
 const PIPELINE = [

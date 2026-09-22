@@ -1,7 +1,7 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ArtifactDescriptor, ArtifactEnvelope, ChangeDetail } from '../types/dto';
+import type { ArtifactDescriptor, ArtifactEnvelope, ChangeDetail } from '../../../types/dto';
 
 export interface ChangeDetailState {
   detail: ChangeDetail | null;

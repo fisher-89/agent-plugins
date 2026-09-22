@@ -24,7 +24,7 @@ export default defineConfig({
       reportUnusedDisableDirectives: 'error',
     },
     rules: {
-      'max-lines-per-function': ['error', { max: 50 }],
+      'max-lines-per-function': ['error', { max: 50, skipBlankLines: true, skipComments: true }],
       'no-duplicate-imports': ['error'],
       'no-unused-vars': 'error',
       'import/no-duplicates': 'error',

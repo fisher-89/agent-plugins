@@ -17,9 +17,7 @@ use crate::model::{ActivePhase, FileLogEntry, InterruptedEntry, PhaseLog, Workfl
 #[derive(Debug, Clone)]
 pub enum WorkflowFileParse {
     Parsed(Workflow),
-    Unparsable {
-        reason: String,
-    },
+    Unparsable { reason: String },
 }
 
 /// 读取并宽松解析一份 workflow.json。
@@ -68,7 +66,10 @@ fn parse_workflow_text(text: &str) -> WorkflowFileParse {
     };
 
     // 可选字段：类型不符时宽松降级，不炸整份记录
-    let created = object.get("created").and_then(Value::as_str).map(str::to_string);
+    let created = object
+        .get("created")
+        .and_then(Value::as_str)
+        .map(str::to_string);
 
     let eval = match object.get("eval") {
         Some(Value::Array(items)) => items
@@ -89,7 +90,9 @@ fn parse_workflow_text(text: &str) -> WorkflowFileParse {
     };
 
     let active_phase = match object.get("active_phase") {
-        Some(value) if !value.is_null() => serde_json::from_value::<ActivePhase>(value.clone()).ok(),
+        Some(value) if !value.is_null() => {
+            serde_json::from_value::<ActivePhase>(value.clone()).ok()
+        }
         _ => None,
     };
 

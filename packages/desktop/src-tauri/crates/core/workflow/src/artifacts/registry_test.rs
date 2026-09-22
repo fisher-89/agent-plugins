@@ -50,7 +50,9 @@ const EVAL_WITH_CHECKLIST: &str = r#"{
 fn parse_workflow(text: &str) -> Workflow {
     match crate::parse::parse_workflow_file(&write_temp_json(text)) {
         crate::parse::WorkflowFileParse::Parsed(workflow) => workflow,
-        crate::parse::WorkflowFileParse::Unparsable { reason } => panic!("workflow 应可解析: {reason}"),
+        crate::parse::WorkflowFileParse::Unparsable { reason } => {
+            panic!("workflow 应可解析: {reason}")
+        }
     }
 }
 
@@ -91,7 +93,10 @@ fn 文件树与eval候选全部命中为descriptor清单() {
     let kinds: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
     let tasks_pos = kinds.iter().position(|k| *k == "tasks-progress").unwrap();
     let doc_pos = kinds.iter().position(|k| *k == "markdown-doc").unwrap();
-    assert!(tasks_pos < doc_pos, "tasks-progress 应排在 markdown-doc 之前");
+    assert!(
+        tasks_pos < doc_pos,
+        "tasks-progress 应排在 markdown-doc 之前"
+    );
 }
 
 #[test]
@@ -103,9 +108,15 @@ fn 同一候选多kind命中并存_无排他() {
 
     let hits: Vec<&str> = descriptors.iter().map(|d| d.kind.as_str()).collect();
     assert!(hits.contains(&"tasks-progress"), "tasks-progress 命中");
-    assert!(hits.contains(&"markdown-doc"), "同一 tasks.md 仍以 markdown-doc 并存命中");
+    assert!(
+        hits.contains(&"markdown-doc"),
+        "同一 tasks.md 仍以 markdown-doc 并存命中"
+    );
     assert_eq!(
-        descriptors.iter().filter(|d| d.kind == "tasks-progress").count(),
+        descriptors
+            .iter()
+            .filter(|d| d.kind == "tasks-progress")
+            .count(),
         1
     );
 }
@@ -135,17 +146,25 @@ fn 已注册kind与有效source返回五字段齐全的信封() {
     change.write("tasks.md", "- [x] 完成\n");
     change.write("proposal.md", "# 提案正文");
 
-    let envelope =
-        read_artifact(&change.0, Inventory::V0, None, "tasks-progress", "tasks.md")
-            .expect("tasks-progress 信封应可读取");
+    let envelope = read_artifact(&change.0, Inventory::V0, None, "tasks-progress", "tasks.md")
+        .expect("tasks-progress 信封应可读取");
     assert_eq!(envelope.kind, "tasks-progress");
     assert_eq!(envelope.version, 1, "version 从 1 起");
     assert_eq!(envelope.title, "任务进度");
     assert!(envelope.payload.is_object());
-    assert!(envelope.fallback_text.is_some(), "五字段之 fallback_text 齐全");
+    assert!(
+        envelope.fallback_text.is_some(),
+        "五字段之 fallback_text 齐全"
+    );
 
-    let envelope = read_artifact(&change.0, Inventory::V0, None, "markdown-doc", "proposal.md")
-        .expect("markdown-doc 信封应可读取");
+    let envelope = read_artifact(
+        &change.0,
+        Inventory::V0,
+        None,
+        "markdown-doc",
+        "proposal.md",
+    )
+    .expect("markdown-doc 信封应可读取");
     assert_eq!(envelope.kind, "markdown-doc");
     assert_eq!(envelope.version, 1);
     assert_eq!(envelope.payload["markdown"], "# 提案正文");
@@ -168,19 +187,32 @@ fn source指向不存在文件或越界eval序号时返回none() {
     let workflow = parse_workflow(EVAL_WITH_CHECKLIST);
 
     // 不存在的文件 source
-    assert!(
-        read_artifact(&change.0, Inventory::V2, Some(&workflow), "markdown-doc", "不存在的.md")
-            .is_none()
-    );
+    assert!(read_artifact(
+        &change.0,
+        Inventory::V2,
+        Some(&workflow),
+        "markdown-doc",
+        "不存在的.md"
+    )
+    .is_none());
     // 越界 eval 序号（eval 长度为 2）
-    assert!(
-        read_artifact(&change.0, Inventory::V2, Some(&workflow), "eval-checklist", "99").is_none()
-    );
+    assert!(read_artifact(
+        &change.0,
+        Inventory::V2,
+        Some(&workflow),
+        "eval-checklist",
+        "99"
+    )
+    .is_none());
     // 非数字 source 被 decode 为文件路径，指向不存在文件 → None
-    assert!(
-        read_artifact(&change.0, Inventory::V2, Some(&workflow), "eval-checklist", "not-a-number")
-            .is_none()
-    );
+    assert!(read_artifact(
+        &change.0,
+        Inventory::V2,
+        Some(&workflow),
+        "eval-checklist",
+        "not-a-number"
+    )
+    .is_none());
 }
 
 #[test]
@@ -190,7 +222,10 @@ fn 敌意source在注册表层被拒绝_不逃逸change目录() {
 
     // 越权目标：change 目录树外的秘密文件（workspace 侧真实存在，
     // 排除"恰好读不到"的假阳性）
-    let outside = change.0.parent().unwrap_or_else(|| std::path::Path::new("/"));
+    let outside = change
+        .0
+        .parent()
+        .unwrap_or_else(|| std::path::Path::new("/"));
     let secret = outside.join("registry-test-secret.md");
     fs::write(&secret, "# 不应被越权读取").expect("写外部 secret 失败");
 
@@ -219,7 +254,14 @@ fn 敌意source在注册表层被拒绝_不逃逸change目录() {
 
     // 正向对照：合法相对路径不受校验误伤
     assert!(
-        read_artifact(&change.0, Inventory::V0, None, "markdown-doc", "proposal.md").is_some(),
+        read_artifact(
+            &change.0,
+            Inventory::V0,
+            None,
+            "markdown-doc",
+            "proposal.md"
+        )
+        .is_some(),
         "合法 source 不应被包含性校验误伤"
     );
 }

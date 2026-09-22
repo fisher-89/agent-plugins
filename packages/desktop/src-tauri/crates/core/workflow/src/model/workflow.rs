@@ -28,7 +28,10 @@ pub(crate) mod lenient_timestamp {
         Ok(raw.as_deref().and_then(parse))
     }
 
-    pub(crate) fn serialize<S>(value: &Option<OffsetDateTime>, serializer: S) -> Result<S::Ok, S::Error>
+    pub(crate) fn serialize<S>(
+        value: &Option<OffsetDateTime>,
+        serializer: S,
+    ) -> Result<S::Ok, S::Error>
     where
         S: Serializer,
     {

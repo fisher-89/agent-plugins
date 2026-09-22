@@ -35,7 +35,11 @@ impl TempWs {
                        "checklist": [ { "item": "问题清晰", "pass": true, "evidence": "L1-10" } ] } ] }"#,
         )
         .expect("写 workflow.json 失败");
-        fs::write(v2_dir.join("proposal.md"), "# 提案\n\n- [x] 完成\n- [ ] 待办\n").expect("写 proposal 失败");
+        fs::write(
+            v2_dir.join("proposal.md"),
+            "# 提案\n\n- [x] 完成\n- [ ] 待办\n",
+        )
+        .expect("写 proposal 失败");
 
         let v0_dir = self.0.join("openspec/changes/archive/2026-02-02-old-docs");
         fs::create_dir_all(&v0_dir).expect("创建 archive 目录失败");
@@ -78,15 +82,17 @@ fn get_change_detail已知change返回完整详情dto() {
     ws.with_sample_tree();
     let root = ws.0.to_string_lossy().into_owned();
 
-    let detail = get_change_detail(root, "sample-v2".to_string())
-        .expect("已知 change 应返回 Some");
+    let detail = get_change_detail(root, "sample-v2".to_string()).expect("已知 change 应返回 Some");
     let value = serde_json::to_value(&detail).expect("详情序列化失败");
     assert_eq!(value["name"], json!("sample-v2"));
     assert_eq!(value["inventory"], json!("v2"));
     assert_eq!(value["pipeline"].as_array().map(Vec::len), Some(9));
     assert!(value["fileLog"].is_array(), "v2 的 fileLog 区块为数组");
     assert!(
-        value["artifacts"].as_array().map(|a| !a.is_empty()).unwrap_or(false),
+        value["artifacts"]
+            .as_array()
+            .map(|a| !a.is_empty())
+            .unwrap_or(false),
         "产物清单非空"
     );
 }
@@ -110,14 +116,24 @@ fn read_artifact未注册kind或不存在source返回none() {
 
     // 未注册 kind
     assert!(
-        read_artifact(root.clone(), "sample-v2".into(), "file-log".into(), "proposal.md".into())
-            .is_none(),
+        read_artifact(
+            root.clone(),
+            "sample-v2".into(),
+            "file-log".into(),
+            "proposal.md".into()
+        )
+        .is_none(),
         "未注册 kind → None"
     );
     // 不存在 source
     assert!(
-        read_artifact(root, "sample-v2".into(), "markdown-doc".into(), "没有这个.md".into())
-            .is_none(),
+        read_artifact(
+            root,
+            "sample-v2".into(),
+            "markdown-doc".into(),
+            "没有这个.md".into()
+        )
+        .is_none(),
         "不存在 source → None"
     );
 }
@@ -172,15 +188,26 @@ fn read_artifact敌意source在命令边界被拒绝不逃逸change目录() {
         "",
     ] {
         assert!(
-            read_artifact(root.clone(), "sample-v2".into(), "markdown-doc".into(), hostile.to_string())
-                .is_none(),
+            read_artifact(
+                root.clone(),
+                "sample-v2".into(),
+                "markdown-doc".into(),
+                hostile.to_string()
+            )
+            .is_none(),
             "命令边界必须拒绝敌意 source {hostile:?}"
         );
     }
 
     // 正向对照：合法相对路径正常回放信封
     assert!(
-        read_artifact(root, "sample-v2".into(), "markdown-doc".into(), "proposal.md".into()).is_some(),
+        read_artifact(
+            root,
+            "sample-v2".into(),
+            "markdown-doc".into(),
+            "proposal.md".into()
+        )
+        .is_some(),
         "合法 source 不应被误伤"
     );
 }

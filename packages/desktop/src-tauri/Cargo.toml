@@ -19,20 +19,30 @@ foundation = { workspace = true }
 workflow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+store = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }
+# 命令层测试以 MockRuntime 构造 State（不启动真实 runtime）；仅测试构建启用
+tauri = { workspace = true, features = ["test"] }
 
 # 根包是隐式成员，不得显式列入 members（重复列出会报错）
 [workspace]
 resolver = "2"
-members = ["crates/core/foundation", "crates/core/workflow"]
+members = ["crates/core/foundation", "crates/core/workflow", "crates/infra/store"]
 
-# workspace 级依赖版本收敛；core 两个 crate 禁用任何 Tauri 依赖
+# workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 desktop-app 壳）
 [workspace.dependencies]
+dunce = "1"
 foundation = { path = "crates/core/foundation" }
 workflow = { path = "crates/core/workflow" }
+redb = "=4.3.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+store = { path = "crates/infra/store" }
+tempfile = "3"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }

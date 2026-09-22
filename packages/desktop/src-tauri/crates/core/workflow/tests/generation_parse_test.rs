@@ -11,7 +11,9 @@ use workflow::parse::{detect_inventory, parse_workflow_file, WorkflowFileParse};
 
 /// 入仓 fixtures 语料根。
 fn fixtures_dir() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests").join("fixtures")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("fixtures")
 }
 
 fn fixture_workflow(fixture: &str) -> PathBuf {
@@ -51,11 +53,18 @@ impl Drop for TempDir {
 #[test]
 fn v2_fixtures判定v2且解析还原file_log() {
     for fixture in ["v2-a", "v2-b"] {
-        assert_eq!(detect_inventory(&fixtures_dir().join(fixture)), Inventory::V2, "{fixture}");
+        assert_eq!(
+            detect_inventory(&fixtures_dir().join(fixture)),
+            Inventory::V2,
+            "{fixture}"
+        );
         let WorkflowFileParse::Parsed(workflow) = parse(fixture) else {
             panic!("{fixture} 应解析成功");
         };
-        assert!(workflow.file_log.is_some(), "{fixture} 的 file_log 必须还原");
+        assert!(
+            workflow.file_log.is_some(),
+            "{fixture} 的 file_log 必须还原"
+        );
         assert!(!workflow.eval.is_empty(), "{fixture} 的 eval 必须还原");
     }
 
@@ -67,13 +76,20 @@ fn v2_fixtures判定v2且解析还原file_log() {
     assert_eq!(active.phase, "implement");
     let file_log = v2b.file_log.unwrap();
     let ops: Vec<FileLogOp> = file_log.iter().map(|entry| entry.op).collect();
-    assert_eq!(ops, vec![FileLogOp::Write, FileLogOp::Delete, FileLogOp::Revert]);
+    assert_eq!(
+        ops,
+        vec![FileLogOp::Write, FileLogOp::Delete, FileLogOp::Revert]
+    );
 }
 
 #[test]
 fn v1_fixtures判定v1且file_log严格为none() {
     for fixture in ["v1-a", "v1-b", "v1-c"] {
-        assert_eq!(detect_inventory(&fixtures_dir().join(fixture)), Inventory::V1, "{fixture}");
+        assert_eq!(
+            detect_inventory(&fixtures_dir().join(fixture)),
+            Inventory::V1,
+            "{fixture}"
+        );
         let WorkflowFileParse::Parsed(workflow) = parse(fixture) else {
             panic!("{fixture} 应解析成功");
         };
@@ -105,7 +121,11 @@ fn v1_c的未知键被忽略且eval正常还原() {
 #[test]
 fn v0_fixtures判定v0且无workflow可解析() {
     for fixture in ["v0-a", "v0-b"] {
-        assert_eq!(detect_inventory(&fixtures_dir().join(fixture)), Inventory::V0, "{fixture}");
+        assert_eq!(
+            detect_inventory(&fixtures_dir().join(fixture)),
+            Inventory::V0,
+            "{fixture}"
+        );
         // v0 无 workflow.json：load 语义为 None
         assert!(workflow::parse::load_workflow(&fixtures_dir().join(fixture)).is_none());
     }
@@ -140,7 +160,8 @@ fn file_log空数组的v2样本与v1的none严格区分() {
     )
     .expect("写样本失败");
     assert_eq!(detect_inventory(&temp_v1.0), Inventory::V1);
-    let WorkflowFileParse::Parsed(v1) = parse_workflow_file(&temp_v1.0.join("workflow.json")) else {
+    let WorkflowFileParse::Parsed(v1) = parse_workflow_file(&temp_v1.0.join("workflow.json"))
+    else {
         panic!("v1 样本应解析成功");
     };
     assert!(v1.file_log.is_none());
@@ -167,18 +188,32 @@ fn 整体非法json的fixture降级且detect仍按文件存在性判定代际() 
 fn 单条eval损坏的fixture跳过该条其余条目与区块完整() {
     let fixture = "corrupt-bad-eval-entry";
     // 合法 JSON 且无 file_log 键 → 判定 v1；条目级损坏只影响解析投影
-    assert_eq!(detect_inventory(&fixtures_dir().join(fixture)), Inventory::V1);
+    assert_eq!(
+        detect_inventory(&fixtures_dir().join(fixture)),
+        Inventory::V1
+    );
     let WorkflowFileParse::Parsed(workflow) = parse(fixture) else {
         panic!("单条损坏不应整体降级");
     };
-    let phases: Vec<&str> = workflow.eval.iter().map(|entry| entry.phase.as_str()).collect();
-    assert_eq!(phases, vec!["proposal", "test-design"], "损坏条目跳过，其余完整");
+    let phases: Vec<&str> = workflow
+        .eval
+        .iter()
+        .map(|entry| entry.phase.as_str())
+        .collect();
+    assert_eq!(
+        phases,
+        vec!["proposal", "test-design"],
+        "损坏条目跳过，其余完整"
+    );
 }
 
 #[test]
 fn 单条file_log损坏的fixture跳过该条其余保留() {
     let fixture = "corrupt-bad-filelog-entry";
-    assert_eq!(detect_inventory(&fixtures_dir().join(fixture)), Inventory::V2);
+    assert_eq!(
+        detect_inventory(&fixtures_dir().join(fixture)),
+        Inventory::V2
+    );
     let WorkflowFileParse::Parsed(workflow) = parse(fixture) else {
         panic!("单条损坏不应整体降级");
     };
@@ -231,7 +266,11 @@ fn 非法时间戳与非法verdict叠加的条目只被跳过一次() {
     let WorkflowFileParse::Parsed(workflow) = parse_workflow_file(&workflow_path) else {
         panic!("双重损坏条目不应整体降级");
     };
-    let phases: Vec<&str> = workflow.eval.iter().map(|entry| entry.phase.as_str()).collect();
+    let phases: Vec<&str> = workflow
+        .eval
+        .iter()
+        .map(|entry| entry.phase.as_str())
+        .collect();
     assert_eq!(phases, vec!["dev-design"], "损坏条目恰好跳过一次");
     // 降级不改变 Inventory 判定
     assert_eq!(detect_inventory(&temp.0), Inventory::V2);

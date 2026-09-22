@@ -3,12 +3,15 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "vp dev",
-    "build": "tsc && vp build",
-    "tauri": "tauri",
-    "check": "vp check --fix && knip",
+    "dev": "tauri dev",
+    "client:dev": "vp dev",
+    "build": "tauri build",
+    "client:build": "tsc && vp build",
+    "check": "pnpm run client:check && pnpm run server:check",
+    "client:check": "vp check --fix && knip",
+    "server:check": "cd src-tauri && cargo fmt && cargo clippy",
     "test": "vp test && cd src-tauri && cargo test --workspace",
-    "stryker": "stryker run"
+    "mutation-test": "stryker run"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.0.0",

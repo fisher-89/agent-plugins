@@ -1,8 +1,8 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ChangeListState } from '../hooks/useChangeList';
-import type { ChangeList } from '../types/dto';
+import type { ChangeListState } from '../../hooks/useChangeList';
+import type { ChangeList } from '../../types/dto';
 import { ChangeListView } from './ChangeListView';
 
 /** 以 fixture DTO 构造列表状态（取数已在 hooks 层被测，此处直接注入状态）。 */

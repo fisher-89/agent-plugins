@@ -101,3 +101,15 @@ export interface ArtifactEnvelope {
   payload: unknown;
   fallbackText: string | null;
 }
+
+/** workspace 清单记录（对齐 store::WorkspaceRecord 的 serde camelCase 序列化） */
+export interface WorkspaceRecord {
+  /** canonical 完整路径（库内 key） */
+  root: string;
+  /** 目录名最后一段（展示用） */
+  name: string;
+  /** 入库时间（UTC unix 毫秒） */
+  addedAt: number;
+  /** 最近打开时间（UTC unix 毫秒），清单排序依据 */
+  lastOpenedAt: number;
+}

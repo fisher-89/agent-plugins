@@ -95,10 +95,15 @@ fn legacy名单命中时title标注与排序生效() {
         "设计稿"
     );
     assert_eq!(
-        parse_file(&change.0, "test-reports/unit-run.md").unwrap().title,
+        parse_file(&change.0, "test-reports/unit-run.md")
+            .unwrap()
+            .title,
         "测试报告 · unit-run"
     );
-    assert_eq!(parse_file(&change.0, "test-design.md").unwrap().title, "测试设计");
+    assert_eq!(
+        parse_file(&change.0, "test-design.md").unwrap().title,
+        "测试设计"
+    );
     assert_eq!(parse_file(&change.0, "README.md").unwrap().title, "README");
 
     // 排序：legacy 名单整体位于现役名单之后（经 discover 的 kind 内 order 断言）
@@ -111,12 +116,17 @@ fn legacy名单命中时title标注与排序生效() {
         .collect();
     let proposal_pos = doc_titles.iter().position(|t| *t == "提案").unwrap();
     let legacy_pos = doc_titles.iter().position(|t| *t == "设计稿").unwrap();
-    assert!(proposal_pos < legacy_pos, "现役名单先于 legacy 名单：{doc_titles:?}");
+    assert!(
+        proposal_pos < legacy_pos,
+        "现役名单先于 legacy 名单：{doc_titles:?}"
+    );
 
     // specs/ 目录的规格标注（现役名单之外的规则路径仍在本插件内，无并行探测）
     change.write("specs/glob-matching/spec.md", "# 规格");
     let descriptors = discover_artifacts(&change.0, Inventory::V0, None);
-    assert!(descriptors.iter().any(|d| d.title == "规格 · glob-matching"));
+    assert!(descriptors
+        .iter()
+        .any(|d| d.title == "规格 · glob-matching"));
 }
 
 #[test]
@@ -160,7 +170,10 @@ fn 超长markdown完整保留不截断() {
     change.write("long.md", &content);
 
     let envelope = parse_file(&change.0, "long.md").expect("超长 .md 应产出信封");
-    assert_eq!(envelope.payload["markdown"].as_str().map(str::len), Some(content.len()));
+    assert_eq!(
+        envelope.payload["markdown"].as_str().map(str::len),
+        Some(content.len())
+    );
     assert_eq!(envelope.fallback_text.as_deref(), Some(content.as_str()));
 }
 
@@ -179,7 +192,10 @@ fn 子目录内md一并收录_目录树全量() {
         .collect();
     assert!(sources.contains(&"proposal.md"));
     assert!(sources.contains(&"reports/inner.md"), "子目录 .md 一并收录");
-    assert!(sources.contains(&"reports/deep/deeper.md"), "更深子目录同样收录");
+    assert!(
+        sources.contains(&"reports/deep/deeper.md"),
+        "更深子目录同样收录"
+    );
 }
 
 #[test]
@@ -194,7 +210,10 @@ fn 文件名含中文空格特殊字符时source为相对posix路径() {
         .filter(|d| d.kind == KIND)
         .map(|d| d.source.as_str())
         .collect();
-    assert!(sources.contains(&"会议纪要 备忘.md"), "实际 sources: {sources:?}");
+    assert!(
+        sources.contains(&"会议纪要 备忘.md"),
+        "实际 sources: {sources:?}"
+    );
     assert!(sources.contains(&"带(括号)&符号.md"));
     // source 不含反斜杠（POSIX 相对路径）
     assert!(sources.iter().all(|s| !s.contains('\\')));

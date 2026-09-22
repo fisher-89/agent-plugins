@@ -1,0 +1,121 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-21T12:33:50.345Z",
+  "duration_seconds": 158,
+  "total": 2538,
+  "passed": 2536,
+  "failed": 0,
+  "skipped": 2,
+  "conclusion": "pass",
+  "problems": [],
+  "findings": [
+    "All 2538 tests green (2536 passed, 0 failed, 2 skipped) across vite-plus (plugins/dev-team, packages/desktop) and rust (src-tauri workspace); conclusion 'pass' is consistent with counts, coverage.pass and mutation.pass.",
+    "The 2 skipped tests are pre-existing plugins/dev-team cases for 'Python 脚本与 manifest 下线 (AC-09)' (utils/archi-decide.py and manifest.json checks) — unrelated to this change's store code.",
+    "Report aggregation anomaly: summary-level coverage.measured is null for all dimensions (and overrides show passed_count 0) even though both vite-plus plans produced valid istanbul coverage-summary.json files with measured coverage above thresholds (plugins/dev-team 97.25/89.73/99.53, packages/desktop 99.04/98.98/96.1). The coverage parser's summary-level glob matching likely fails on the absolute Windows path keys (D:\\\\...) in coverage-summary.json; verdict unaffected but the weighted-average coverage numbers are lost.",
+    "Rust suite coverage is not captured: packages_desktop_src-tauri_rust report has coverage null and no coverage-summary.json remains in its plan dir, although cargo llvm-cov ran with exit 0 — llvm-cov JSON output is not being parsed (or is consumed/deleted) for the rust framework, so the redb store crates (core of this change) have no measured coverage.",
+    "Mutation passes at 85.06% vs 80% threshold, but the plugins/dev-team override sits exactly at 80.0% with zero margin; packages/desktop scope shows 13 survived + 1 timeout mutants (noCoverage 0) — candidates for stronger assertions in store canonicalization/serialization paths."
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 0
+      },
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 12,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 85.06,
+    "threshold": 80,
+    "measured": {
+      "killed": 73,
+      "survived": 13,
+      "timeout": 1,
+      "noCoverage": 0,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 0,
+      "total": 87,
+      "detected": 74,
+      "undetected": 13
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 80,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 51
+      },
+      {
+        "glob": "packages/desktop",
+        "score": 85.0574712643678,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 12,
+        "passed_count": 12
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/desktop-redb-store/reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-redb-store/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-redb-store/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ]
+}

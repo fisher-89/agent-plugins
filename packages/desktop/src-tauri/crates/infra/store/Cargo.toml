@@ -1,0 +1,14 @@
+[package]
+name = "store"
+version = "0.1.0"
+edition = "2021"
+
+# db 边界基础设施：仅 redb / dunce / serde 系依赖；禁 Tauri、禁 core crate（自含模型）
+[dependencies]
+dunce = { workspace = true }
+redb = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[dev-dependencies]
+tempfile = { workspace = true }

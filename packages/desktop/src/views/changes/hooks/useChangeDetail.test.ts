@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ArtifactDescriptor, ArtifactEnvelope, ChangeDetail } from '../types/dto';
+import type { ArtifactDescriptor, ArtifactEnvelope, ChangeDetail } from '../../../types/dto';
 import { useChangeDetail, type ChangeDetailState } from './useChangeDetail';
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));

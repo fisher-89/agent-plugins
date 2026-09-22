@@ -1,5 +1,5 @@
-import type { ChangeListState } from '../hooks/useChangeList';
-import type { ChangeSummary, Inventory } from '../types/dto';
+import type { ChangeListState } from '../../hooks/useChangeList';
+import type { ChangeSummary, Inventory } from '../../types/dto';
 
 function InventoryBadge({ inventory }: { inventory: Inventory }) {
   return <span className={`badge badge-in${inventory}`}>{inventory}</span>;
