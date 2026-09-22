@@ -1,7 +1,8 @@
 # Desktop 发版与自动更新
 
-更新链路:`tauri build` 产出带签名的 NSIS 安装包 → tag 推送触发 GitHub Actions
-(`.github/workflows/desktop-release.yml`)→ tauri-action 发布到
+更新链路:`tauri build` 产出带签名的 NSIS 安装包 → master 推送且 package.json
+版本高于远端最新 `desktop-v*` tag 时,GitHub Actions
+(`.github/workflows/desktop-release.yml`)自动打 tag 并由 tauri-action 发布到
 [fisher-89/agent-plugins](https://github.com/fisher-89/agent-plugins) 的 Releases →
 已安装应用启动时拉取 `releases/latest/download/latest.json` 比对版本 →
 顶栏出现「更新到 vX.Y.Z」→ 点击下载(带进度)→ NSIS 安装器静默安装并自动重启。
@@ -46,22 +47,21 @@ pnpm -C packages/desktop run build
 
 ## 每次发版
 
-1. 改版本号——权威是 `package.json` 的 `version`(驱动更新比较与
-   workflow 的 `__VERSION__` 占位符),同步改 `src-tauri/Cargo.toml`
-   (卫生,不改不影响发版)。tag 必须与 conf 版本一致,否则 workflow 里
-   `tagName: desktop-v__VERSION__` 对不上推上来的 tag,release 会建到别的 tag 上。
-2. commit 后打 tag 并推送:
-
-   ```powershell
-   git tag desktop-vX.Y.Z
-   git push origin master
-   git push origin desktop-vX.Y.Z   # 只推这一个 tag
-   ```
+1. 改版本号——权威是 `package.json` 的 `version`(`tauri.conf.json` 以
+   `"version": "../package.json"` 引用;`src-tauri/Cargo.toml` 的版本是 crate
+   自身版本,与应用版本无关)。
+2. commit 后 `git push origin master` 即可:workflow 触发时读取 package.json 版本,
+   经 `git ls-remote` 与远端最新 `desktop-v*` tag 比对,更高则在该 commit 上自动
+   创建 tag 并发版;不高(未升版/回退)则 release job 跳过,Actions 里表现为
+   detect 通过、release skipped。
+3. 补跑/重发同版本:Actions → desktop-release → Run workflow,勾选 `force`
+   (跳过版本比较;tag 已存在时自动跳过创建)。
 
    > **绝不 `git push --tags`**:本地仓库带有 276 个内部 gitlab(kso)历史遗留 tag,
-   > 全量推送会污染 GitHub 仓库。
+   > 全量推送会污染 GitHub 仓库。workflow 不监听 tag 推送,手动打 tag 无发版效果,
+   > 重发一律走上面的 force 入口。
 
-3. Actions 跑完后核对 release 产物:
+4. Actions 跑完后核对 release 产物:
    - `desktop-terminal_X.Y.Z_x64-setup.exe`(NSIS 安装包)
    - `desktop-terminal_X.Y.Z_x64-setup.exe.sig`(签名)
    - `latest.json`(`version` 为 X.Y.Z、`platforms` 含 `windows-x86_64`)

@@ -1,12 +1,20 @@
-# desktop 自动发版:推 desktop-vX.Y.Z tag 触发(版本须与 packages/desktop/src-tauri/tauri.conf.json 一致)。
-# 依赖仓库 secrets:TAURI_SIGNING_PRIVATE_KEY(密码 secret 无需创建,缺失时解析为空串即空密码,见 packages/desktop/RELEASE.md)。
-# 仅打 nsis,保证 latest.json 的 windows-x86_64 条目确定性;targets:"all" 仅在本地构建生效。
+# desktop 自动发版:master 推送触及 packages/desktop 时,读取 package.json 版本,
+# 与远端最新 desktop-v* tag 比对,更高则自动在该 commit 上创建 tag 并构建发布
+# (流程见 packages/desktop/RELEASE.md)。补跑/重发同版本用 workflow_dispatch 的 force。
+# 依赖 secret:TAURI_SIGNING_PRIVATE_KEY(密码 secret 无需创建,缺失时解析为空串即空密码)。
+# 注意:检测与发布必须在同一 workflow——GITHUB_TOKEN 推的 tag 不触发其他 workflow。
 name: desktop-release
 
 on:
   push:
-    tags: ['desktop-v*']
+    branches: [master]
+    paths: ['packages/desktop/**', '.github/workflows/desktop-release.yml']
   workflow_dispatch:
+    inputs:
+      force:
+        description: '跳过版本比较,按 package.json 版本强制发版(补跑/重发)'
+        type: boolean
+        default: false
 
 permissions:
   contents: write
@@ -19,10 +27,55 @@ defaults:
     working-directory: packages/desktop
 
 jobs:
-  build-windows:
+  detect:
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      should: ${{ steps.version.outputs.should }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: version
+        shell: bash
+        run: |
+          VERSION=$(node -p "require('./package.json').version")
+          # 远端 desktop-v* tag 的最高版本;ls-remote 只看 origin,不碰本地遗留 tag。
+          # grep -v '\^' 排除 annotated tag 的 ^{} 附带行(本项目为轻量 tag,防御性过滤)。
+          LATEST=$(git ls-remote --tags origin 'refs/tags/desktop-v*' \
+            | grep -v '\^' \
+            | sed -E 's#.*refs/tags/desktop-v##' \
+            | sort -V | tail -n1)
+          : "${LATEST:=0.0.0}"
+          NEWER=$(node -e "
+            const parse = (s) => s.split('.').map(Number);
+            const [a, b] = [parse(process.argv[1]), parse(process.argv[2])];
+            for (let i = 0; i < 3; i++) {
+              if (a[i] !== b[i]) { process.exit(a[i] > b[i] ? 0 : 1); }
+            }
+            process.exit(1);
+          " "$VERSION" "$LATEST" && echo true || echo false)
+          FORCE='${{ github.event.inputs.force }}'
+          if [ "$FORCE" = 'true' ] || [ "$NEWER" = 'true' ]; then SHOULD=true; else SHOULD=false; fi
+          echo "package.json=$VERSION 远端最高 tag=$LATEST 更高=$NEWER force=$FORCE 发版=$SHOULD"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "should=$SHOULD" >> "$GITHUB_OUTPUT"
+
+  release:
+    needs: detect
+    if: needs.detect.outputs.should == 'true'
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
+      - name: 创建 tag(已存在则跳过)
+        shell: bash
+        env:
+          VERSION: ${{ needs.detect.outputs.version }}
+        run: |
+          if git ls-remote --exit-code origin "refs/tags/desktop-v$VERSION" >/dev/null; then
+            echo "tag desktop-v$VERSION 已存在,跳过创建"
+          else
+            git tag "desktop-v$VERSION"
+            git push origin "refs/tags/desktop-v$VERSION"
+          fi
       - uses: pnpm/action-setup@v4
         with:
           version: 11.22.0 # 仓库无 packageManager 字段,必须显式指定
@@ -39,8 +92,8 @@ jobs:
       - uses: tauri-apps/tauri-action@v0
         with:
           projectPath: packages/desktop
-          tagName: desktop-v__VERSION__
-          releaseName: 'Desktop Terminal v__VERSION__'
+          tagName: desktop-v${{ needs.detect.outputs.version }}
+          releaseName: 'Desktop Terminal v${{ needs.detect.outputs.version }}'
           releaseDraft: false # draft 会使 releases/latest/download/latest.json 端点 404
           prerelease: false
           args: --bundles nsis
