@@ -217,9 +217,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
     // 停留列表视图，不回欢迎屏；下拉仅剩剩余第一名
     expect(screen.queryByText('添加新文件夹')).toBeNull();
-    const values = [...screen.getByRole('combobox').querySelectorAll('option')].map((option) =>
-      option.getAttribute('value'),
-    );
+    const values = screen.getAllByRole('option').map((option) => option.getAttribute('value'));
     expect(values).toEqual([SECOND.root]);
   });
 
@@ -239,7 +237,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
 
   it('添加对话框 reject 或 add_workspace reject：error-note 呈现、停留欢迎屏、可重试', async () => {
     remaining = []; // 必须先于 render：挂载即自动取数
-    const { container } = render(<App />);
+    render(<App />);
     await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
 
     // 分支一：对话框调用 reject —— 保持欢迎屏可重试
@@ -253,7 +251,7 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     openMock.mockResolvedValue('C:\\picked');
     addBehavior = 'reject';
     fireEvent.click(screen.getByText('添加新文件夹'));
-    await waitFor(() => expect(container.querySelector('.error-note') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('error-note') !== null).toBe(true));
     expect(screen.getByText('添加新文件夹') !== null).toBe(true);
 
     // 可重试：再次添加成功后以返回记录的 root 进入列表视图
@@ -296,20 +294,20 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
   });
 
   it('Header error-note：无错误时不渲染，workspace 动作失败后呈现错误文本且停留列表视图', async () => {
-    const { container } = render(<App />);
+    render(<App />);
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
     );
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
 
     // 无错误：error-note 一个都不渲染（空 span 也不允许）
-    expect(container.querySelectorAll('.error-note')).toHaveLength(0);
+    expect(screen.queryAllByTestId('error-note')).toHaveLength(0);
 
     removeReject = 'db: 移除失败';
     fireEvent.click(screen.getByText('移除'));
 
-    await waitFor(() => expect(container.querySelector('.error-note') !== null).toBe(true));
-    expect(container.querySelector('.error-note')?.textContent).toContain('db: 移除失败');
+    await waitFor(() => expect(screen.getByTestId('error-note') !== null).toBe(true));
+    expect(screen.getByTestId('error-note').textContent).toContain('db: 移除失败');
     // 错误呈现不切换视图：仍停留列表视图
     expect(screen.getByRole('combobox').tagName).toBe('SELECT');
     expect(screen.queryByText('添加新文件夹')).toBeNull();

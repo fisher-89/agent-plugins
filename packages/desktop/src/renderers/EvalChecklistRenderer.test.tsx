@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { ArtifactEnvelope } from '../types/dto';
@@ -20,12 +20,10 @@ const fullPayload = {
 
 const validItem = { item: '问题描述清晰', pass: true, evidence: 'L11-23 含痛点与动机' };
 
-/** 断言 payload 被拒收：以保底 <pre> 呈现且未渲染清单区块。 */
-function expectFallback(container: HTMLElement, text: string): void {
-  const pre = container.querySelector('.fallback-text');
-  expect(pre !== null).toBe(true);
-  expect(pre?.textContent).toBe(text);
-  expect(container.querySelector('.checklist')).toBeNull();
+/** 断言 payload 被拒收：以保底 <pre> 呈现（fallback-text 挂钩）且未渲染清单区块。 */
+function expectFallback(text: string): void {
+  expect(screen.getByTestId('fallback-text').textContent).toBe(text);
+  expect(screen.queryByTestId('checklist')).toBeNull();
 }
 
 describe('EvalChecklistRenderer：items（item / pass / evidence）清单渲染', () => {
@@ -37,14 +35,14 @@ describe('EvalChecklistRenderer：items（item / pass / evidence）清单渲染'
     expect(screen.getByText('缺删除清单') !== null).toBe(true);
   });
 
-  it('pass true / false 条目有可区分的视觉标识', () => {
-    const { container } = render(<EvalChecklistRenderer envelope={envelope(fullPayload)} />);
-    const badges = container.querySelectorAll('.badge');
-    const badgeTexts = Array.from(badges).map((badge) => badge.textContent);
+  it('pass true / false 条目有可区分的标识文案', () => {
+    render(<EvalChecklistRenderer envelope={envelope(fullPayload)} />);
+    // 在 checklist 域内收集 checklist-verdict 徽标文本（verdict 徽标在 attempt-meta 域，不入此列）
+    const badgeTexts = within(screen.getByTestId('checklist'))
+      .getAllByTestId('checklist-verdict')
+      .map((badge) => badge.textContent ?? '');
     expect(badgeTexts).toContain('pass');
     expect(badgeTexts).toContain('fail');
-    expect(container.querySelector('.badge-pass') !== null).toBe(true);
-    expect(container.querySelector('.badge-fail') !== null).toBe(true);
   });
 
   it('items 为空数组时渲染空清单不崩（回退保底文本）', () => {
@@ -93,39 +91,46 @@ describe('EvalChecklistRenderer：payload 收窄、统计与降级分支', () =>
 
   it('verdict 徽标三态：pass / fail / null 不渲染徽标', () => {
     const pass = render(<EvalChecklistRenderer envelope={envelope(fullPayload)} />);
-    expect(pass.container.querySelector('.badge-pass')?.textContent).toBe('pass');
+    expect(within(pass.container).getByTestId('attempt-verdict').textContent).toBe('pass');
+    pass.unmount();
 
     const fail = render(
       <EvalChecklistRenderer envelope={envelope({ ...fullPayload, verdict: 'fail' })} />,
     );
-    expect(fail.container.querySelector('.badge-fail')?.textContent).toBe('fail');
+    expect(within(fail.container).getByTestId('attempt-verdict').textContent).toBe('fail');
+    fail.unmount();
 
     const none = render(
       <EvalChecklistRenderer envelope={envelope({ ...fullPayload, verdict: null })} />,
     );
-    expect(none.container.querySelector('.attempt-meta .badge')).toBeNull();
+    expect(within(none.container).queryByTestId('attempt-verdict')).toBeNull();
   });
 
-  it('条目徽标按 pass / fail 计数且文案与样式一致', () => {
+  it('条目徽标按 pass / fail 计数且归属域正确', () => {
     const { container } = render(<EvalChecklistRenderer envelope={envelope(fullPayload)} />);
-    // verdict(pass) + 第 1 条 item(pass) → 2 个 badge-pass；第 2 条 item(fail) → 1 个 badge-fail
-    expect(container.querySelectorAll('.badge-pass')).toHaveLength(2);
-    expect(container.querySelectorAll('.badge-fail')).toHaveLength(1);
-    expect(container.querySelector('.checklist .badge-pass')?.textContent).toBe('pass');
-    expect(container.querySelector('.checklist .badge-fail')?.textContent).toBe('fail');
+    // verdict(pass) + 第 1 条 item(pass) → 2 个 pass 徽标；第 2 条 item(fail) → 1 个 fail 徽标
+    const verdictTexts = [
+      ...within(container).getAllByTestId('attempt-verdict'),
+      ...within(container).getAllByTestId('checklist-verdict'),
+    ].map((badge) => badge.textContent ?? '');
+    expect(verdictTexts.filter((text) => text === 'pass')).toHaveLength(2);
+    expect(verdictTexts.filter((text) => text === 'fail')).toHaveLength(1);
+    // checklist 域内的条目徽标依次为 pass / fail
+    const checklistTexts = within(container)
+      .getAllByTestId('checklist-verdict')
+      .map((badge) => badge.textContent ?? '');
+    expect(checklistTexts).toEqual(['pass', 'fail']);
   });
 
   it('items 为空数组且无保底文本时渲染（清单为空）占位', () => {
-    const { container } = render(
-      <EvalChecklistRenderer envelope={envelope({ ...fullPayload, items: [] })} />,
-    );
-    expectFallback(container, '（清单为空）');
+    render(<EvalChecklistRenderer envelope={envelope({ ...fullPayload, items: [] })} />);
+    expectFallback('（清单为空）');
   });
 
   it('payload 非对象（null / 原始值）时回退保底形态且不崩溃', () => {
     for (const bad of [null, 'text', 42, true]) {
-      const { container, unmount } = render(<EvalChecklistRenderer envelope={envelope(bad)} />);
-      expectFallback(container, '（清单为空）');
+      const { unmount } = render(<EvalChecklistRenderer envelope={envelope(bad)} />);
+      expectFallback('（清单为空）');
       unmount();
     }
   });
@@ -138,16 +143,16 @@ describe('EvalChecklistRenderer：payload 收窄、统计与降级分支', () =>
       { ...fullPayload, verdict: 42 },
     ];
     for (const bad of cases) {
-      const { container, unmount } = render(<EvalChecklistRenderer envelope={envelope(bad)} />);
-      expectFallback(container, '（清单为空）');
+      const { unmount } = render(<EvalChecklistRenderer envelope={envelope(bad)} />);
+      expectFallback('（清单为空）');
       unmount();
     }
   });
 
   it('缺失 phase 字段时拒收 payload', () => {
     const noPhase = { attempt: 2, verdict: 'pass', items: fullPayload.items };
-    const { container } = render(<EvalChecklistRenderer envelope={envelope(noPhase)} />);
-    expectFallback(container, '（清单为空）');
+    render(<EvalChecklistRenderer envelope={envelope(noPhase)} />);
+    expectFallback('（清单为空）');
   });
 
   it('verdict 与 attempt 为 null 属合法 payload 并正常渲染清单', () => {
@@ -161,7 +166,7 @@ describe('EvalChecklistRenderer：payload 收窄、统计与降级分支', () =>
         })}
       />,
     );
-    expect(container.querySelector('.checklist') !== null).toBe(true);
+    expect(within(container).getByTestId('checklist') !== null).toBe(true);
     expect(container.textContent).toContain('phase: implement');
     expect(container.textContent).toContain('1/2 通过');
   });
@@ -169,8 +174,8 @@ describe('EvalChecklistRenderer：payload 收窄、统计与降级分支', () =>
   it('items 非数组时拒收且不崩溃', () => {
     for (const bad of [{}, 'items', 3]) {
       const payload = { phase: 'proposal', attempt: 1, verdict: 'pass', items: bad };
-      const { container, unmount } = render(<EvalChecklistRenderer envelope={envelope(payload)} />);
-      expectFallback(container, '（清单为空）');
+      const { unmount } = render(<EvalChecklistRenderer envelope={envelope(payload)} />);
+      expectFallback('（清单为空）');
       unmount();
     }
   });
@@ -186,8 +191,8 @@ describe('EvalChecklistRenderer：payload 收窄、统计与降级分支', () =>
     ];
     for (const bad of invalidEntries) {
       const payload = { phase: 'proposal', attempt: 1, verdict: 'pass', items: [validItem, bad] };
-      const { container, unmount } = render(<EvalChecklistRenderer envelope={envelope(payload)} />);
-      expectFallback(container, '（清单为空）');
+      const { unmount } = render(<EvalChecklistRenderer envelope={envelope(payload)} />);
+      expectFallback('（清单为空）');
       unmount();
     }
   });

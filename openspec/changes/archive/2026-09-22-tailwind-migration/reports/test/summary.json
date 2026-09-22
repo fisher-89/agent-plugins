@@ -1,0 +1,120 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-22T12:34:05.950Z",
+  "duration_seconds": 552,
+  "total": 2568,
+  "passed": 2568,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 0
+      },
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 14,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 85.29,
+    "threshold": 80,
+    "measured": {
+      "killed": 348,
+      "survived": 59,
+      "timeout": 0,
+      "noCoverage": 1,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 8,
+      "total": 416,
+      "detected": 348,
+      "undetected": 60
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 80,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 51
+      },
+      {
+        "glob": "packages/desktop",
+        "score": 85.29411764705883,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 14,
+        "passed_count": 14
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/tailwind-migration/reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/tailwind-migration/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/tailwind-migration/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All 2568 tests passed with no execution errors, so no fixes were needed: vite-plus plugins/dev-team 2379/2379, vite-plus packages/desktop 172/172, rust 17/17; mutation score 85.29% vs threshold 80%.",
+    "Summary coverage aggregation gap: summary.json coverage.measured is null and both overrides show measured null / passed_count 0 with pass=true, even though all three per-plan report.json files contain parsed coverage values (plugins/dev-team 97.25/89.73/99.53, packages/desktop 100/94.46/100, rust 92.86/0/86.79). Per-plan coverage was never lifted into the summary, so the overall coverage gate passed without evaluating any numbers.",
+    "Masked rust coverage failure: packages_desktop_src-tauri_rust/report.json shows coverage.pass=false (lines 92.86 vs 90 ok, branches 0 vs 85, functions 86.79 vs 90). branches=0 comes from cargo llvm-cov emitting empty branches arrays for all 5 files (branch instrumentation absent), which the parser records as 0 instead of null; the functions shortfall is genuine. Action: treat rust branches as unsupported (null) in thresholds and either add tests to lift src-tauri function coverage or lower the rust functions threshold.",
+    "Mutation margins are thin: plugins/dev-team override scores exactly 80.0 against the 80 threshold (zero margin), and packages/desktop has 59 survived + 1 noCoverage out of 416 mutants."
+  ]
+}

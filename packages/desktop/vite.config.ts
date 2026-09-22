@@ -1,3 +1,6 @@
+import { fileURLToPath } from 'node:url';
+
+import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
 
@@ -5,7 +8,12 @@ import { defineConfig } from 'vite-plus';
 // defineConfig 取自 vite-plus（config.json 登记的套件框架）：`vp dev` /
 // `vp build` 与 `vp test` 共用本文件；test 节配置组件/hook 测试所需的 jsdom 环境。
 export default defineConfig({
-  plugins: [react()],
+  plugins: [react(), tailwindcss()],
+  resolve: {
+    alias: {
+      '@': fileURLToPath(new URL('./src', import.meta.url)),
+    },
+  },
   clearScreen: false,
   server: {
     port: 5173,

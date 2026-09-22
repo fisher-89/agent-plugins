@@ -35,13 +35,13 @@ describe('ArtifactView：信封按 kind 路由到 renderer（AC-7 / AC-10）', (
   });
 
   it('fallback_text 为 null 的未注册 kind 信封仍渲染 kind 徽标，不空白', () => {
-    const { container } = render(
+    render(
       <ArtifactView
         envelope={envelope({ kind: 'mystery-kind', payload: null, fallbackText: null })}
       />,
     );
-    expect(screen.getByText('mystery-kind') !== null).toBe(true);
-    expect(container.querySelector('.badge-kind') !== null).toBe(true);
+    // kind 徽标经 artifact-kind 挂钩断言（Badge 宿主），「永不白屏」护栏语义不变
+    expect(screen.getByTestId('artifact-kind').textContent).toBe('mystery-kind');
     expect(screen.getByText('（该产物类型暂无渲染器，且无保底文本）') !== null).toBe(true);
   });
 
@@ -62,9 +62,9 @@ describe('ArtifactView：信封按 kind 路由到 renderer（AC-7 / AC-10）', (
   });
 
   it('信封头渲染 kind 徽标、标题与版本号', () => {
-    const { container } = render(<ArtifactView envelope={envelope()} />);
-    expect(container.querySelector('.badge-kind')?.textContent).toBe('tasks-progress');
+    render(<ArtifactView envelope={envelope()} />);
+    expect(screen.getByTestId('artifact-kind').textContent).toBe('tasks-progress');
     expect(screen.getByText('任务进度') !== null).toBe(true);
-    expect(container.querySelector('.artifact-version')?.textContent).toBe('v1');
+    expect(screen.getByTestId('artifact-version').textContent).toBe('v1');
   });
 });

@@ -1,6 +1,6 @@
 {
   "$schema": "https://unpkg.com/knip@6/schema.json",
-  "project": ["src/**/*.{ts,tsx}", "!src/**/*.{test.ts,test.tsx}"],
+  "project": ["src/**/*.{ts,tsx,css}", "!src/**/*.{test.ts,test.tsx}"],
   "ignoreDependencies": ["@vitest/coverage-v8"],
   "typescript": {
     "config": ["tsconfig.json"]

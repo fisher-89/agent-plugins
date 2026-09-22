@@ -1,3 +1,5 @@
+import { Progress } from '@/components/ui/progress';
+
 import type { ArtifactEnvelope } from '../types/dto';
 
 /** tasks-progress payload 契约（design 数据模型表）：{ total, done, pending }；
@@ -27,10 +29,8 @@ export function TasksProgressRenderer({ envelope }: { envelope: ArtifactEnvelope
   const percent = total > 0 ? Math.round((done / total) * 100) : 0;
   return (
     <div>
-      <div className="progress-track">
-        <div className="progress-fill" style={{ width: `${percent}%` }} />
-      </div>
-      <div className="progress-labels">
+      <Progress value={percent} className="my-2" data-testid="progress" />
+      <div className="flex gap-4 text-[13px] text-muted-foreground">
         <span>{percent}%</span>
         <span>已完成 {done}</span>
         <span>待办 {pending}</span>

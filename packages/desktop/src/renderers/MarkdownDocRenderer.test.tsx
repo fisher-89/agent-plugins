@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vite-plus/test';
 
 import type { ArtifactEnvelope } from '../types/dto';
@@ -16,7 +16,39 @@ describe('MarkdownDocRenderer：payload.markdown 的收窄与渲染组装', () =
     // react-markdown 解析语义不属被测对象，此处只断言内容进入 DOM
     expect(screen.getByText('提案标题') !== null).toBe(true);
     expect(container.textContent).toContain('正文加粗段落。');
-    expect(container.querySelector('strong')?.textContent).toBe('加粗');
+    // 加粗结构经语义文本查询断言（不再使用 strong 标签查询）
+    expect(screen.getByText('加粗').tagName).toBe('STRONG');
+  });
+
+  it('AC-7：GFM 表格在 markdown-root 域内呈现完整表格语义结构', () => {
+    render(
+      <MarkdownDocRenderer
+        envelope={envelope({ markdown: '| 阶段 | 结论 |\n| --- | --- |\n| proposal | pass |' })}
+      />,
+    );
+    // prose 承载裸元素样式后，结构断言改经 markdown-root 挂钩 + role 语义查询
+    const root = screen.getByTestId('markdown-root');
+    const table = within(root).getByRole('table');
+    const headers = within(table)
+      .getAllByRole('columnheader')
+      .map((cell) => cell.textContent ?? '');
+    expect(headers).toEqual(['阶段', '结论']);
+    const rows = within(table).getAllByRole('row');
+    expect(rows).toHaveLength(2); // 表头行 + 1 数据行
+    expect(
+      within(rows[1])
+        .getAllByRole('cell')
+        .map((cell) => cell.textContent ?? ''),
+    ).toEqual(['proposal', 'pass']);
+  });
+
+  it('AC-7：围栏代码块内容在 markdown-root 域内经文本查询可断言进入 DOM', () => {
+    render(
+      <MarkdownDocRenderer envelope={envelope({ markdown: '```ts\nconst answer = 42;\n```' })} />,
+    );
+    const root = screen.getByTestId('markdown-root');
+    // 不引入新的标签查询：代码内容以文本查询断言
+    expect(within(root).getByText('const answer = 42;') !== null).toBe(true);
   });
 
   it('payload 缺 markdown 字段时降级为 fallback_text，不抛错', () => {
@@ -34,8 +66,8 @@ describe('MarkdownDocRenderer：payload.markdown 的收窄与渲染组装', () =
     expect(screen.getByText('（无 markdown 内容）') !== null).toBe(true);
   });
 
-  it('markdown 为空串时渲染空容器不崩', () => {
-    const { container } = render(<MarkdownDocRenderer envelope={envelope({ markdown: '' })} />);
-    expect(container.querySelector('.markdown-doc') !== null).toBe(true);
+  it('markdown 为空串时 prose 容器承载空内容不崩', () => {
+    render(<MarkdownDocRenderer envelope={envelope({ markdown: '' })} />);
+    expect(screen.getByTestId('markdown-root') !== null).toBe(true);
   });
 });

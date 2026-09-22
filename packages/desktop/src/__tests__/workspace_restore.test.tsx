@@ -158,7 +158,7 @@ describe('启动恢复链：list_workspaces → touch（fire-and-forget）→ li
     listReject = 'db: 打开失败';
     render(<App />);
 
-    await waitFor(() => expect(document.querySelector('.error-note') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('error-note') !== null).toBe(true));
 
     expect(countOf('touch_workspace')).toBe(0);
     expect(countOf('list_changes')).toBe(0);
@@ -212,9 +212,7 @@ describe('移除当前项：切换到剩余第一名且不二次恢复', () => {
     });
     // 停留列表视图（下拉仅剩剩余第一名），不回欢迎屏
     expect(screen.queryByText('添加新文件夹')).toBeNull();
-    const values = [...screen.getByRole('combobox').querySelectorAll('option')].map((option) =>
-      option.getAttribute('value'),
-    );
+    const values = screen.getAllByRole('option').map((option) => option.getAttribute('value'));
     expect(values).toEqual([SECOND.root]);
   });
 

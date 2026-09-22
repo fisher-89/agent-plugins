@@ -79,3 +79,4 @@
 - [ ] 【Desktop】发布到github且版本号升级时，自动构建并创建版本release；支持检查更新；
 - [ ] 【Desktop】约定后端报错结构；
 - [ ] test-design、test-gen 在处理ui层时，尽量使用快照测试
+- [ ] 【Desktop】移除utils.ts cn方法

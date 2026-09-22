@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ChangeListState } from '../../hooks/useChangeList';
@@ -71,15 +71,14 @@ const fixtureList: ChangeList = {
 
 describe('ChangeListView：分组列表、代际徽标与进入详情', () => {
   it('active 列表逐条渲染并带正确代际徽标（v2 / v1 / v0）', () => {
-    const { container } = render(
-      <ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />,
-    );
+    render(<ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />);
     expect(screen.getByText('add-feature') !== null).toBe(true);
     expect(screen.getByText('docs-only') !== null).toBe(true);
-    const badges = Array.from(container.querySelectorAll('.badge')).map((b) => b.textContent ?? '');
-    expect(badges.filter((text) => /^v[012]$/.test(text))).toEqual(
-      expect.arrayContaining(['v2', 'v0', 'v1']),
-    );
+    // 徽标宿主为 Badge 组件（INVENTORY_VARIANT 显式映射），在各 change-row 作用域内收集文本
+    const badgeTexts = screen
+      .getAllByTestId('change-row')
+      .map((row) => within(row).getByText(/^v[012]$/).textContent ?? '');
+    expect(badgeTexts).toEqual(expect.arrayContaining(['v2', 'v0', 'v1']));
   });
 
   it('archive 按月分组渲染，month=null 的"未知时间"组渲染在序列尾', () => {
@@ -132,10 +131,8 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
     const { container } = render(
       <ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />,
     );
-    // 按钮名本身含日期前缀，因此必须精确断言 .created span 的文本而非整页 textContent
-    const createdTexts = Array.from(container.querySelectorAll('span.created')).map(
-      (span) => span.textContent ?? '',
-    );
+    // 按钮名本身含日期前缀，因此必须精确断言 created 挂钩的文本而非整页 textContent
+    const createdTexts = screen.getAllByTestId('created').map((span) => span.textContent ?? '');
     expect(createdTexts).toEqual(expect.arrayContaining(['2026-09-01', '2026-05-15']));
     for (const text of createdTexts) {
       expect(text.length).toBeGreaterThan(0);
@@ -144,10 +141,8 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
   });
 
   it('无错误时不渲染错误提示条', () => {
-    const { container } = render(
-      <ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />,
-    );
-    expect(container.querySelector('.error-note')).toBeNull();
+    render(<ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />);
+    expect(screen.queryByTestId('error-note')).toBeNull();
   });
 
   it('暂无数据提示仅在空闲、无数据且无错误时出现', () => {

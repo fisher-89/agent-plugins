@@ -1,0 +1,695 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-22",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-22T11:37:16.302Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "pnpm-workspace.yaml",
+      "at": "2026-09-22T11:30:16.768Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/vite.config.ts",
+      "at": "2026-09-22T11:36:08.025Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/styles/global.css",
+      "at": "2026-09-22T11:43:54.151Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/main.tsx",
+      "at": "2026-09-22T11:30:39.277Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/tsconfig.json",
+      "at": "2026-09-22T11:36:09.216Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/components.json",
+      "at": "2026-09-22T11:37:45.086Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/utils.ts",
+      "at": "2026-09-22T11:37:46.289Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/index.html",
+      "at": "2026-09-22T11:43:52.607Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/button.tsx",
+      "at": "2026-09-22T11:39:33.888Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/badge.tsx",
+      "at": "2026-09-22T11:39:37.553Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/table.tsx",
+      "at": "2026-09-22T11:39:45.355Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/progress.tsx",
+      "at": "2026-09-22T11:39:48.543Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.tsx",
+      "at": "2026-09-22T11:44:49.674Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/WelcomeView.tsx",
+      "at": "2026-09-22T11:42:14.548Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeListView.tsx",
+      "at": "2026-09-22T11:45:16.522Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeDetailView.tsx",
+      "at": "2026-09-22T11:42:59.317Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/ArtifactView.tsx",
+      "at": "2026-09-22T11:43:01.608Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/Fallback.tsx",
+      "at": "2026-09-22T11:43:03.546Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/EvalChecklistRenderer.tsx",
+      "at": "2026-09-22T11:43:16.960Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/TasksProgressRenderer.tsx",
+      "at": "2026-09-22T11:43:21.132Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/MarkdownDocRenderer.tsx",
+      "at": "2026-09-22T11:43:25.762Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/knip.json",
+      "at": "2026-09-22T11:46:16.297Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/stryker.config.json",
+      "at": "2026-09-22T11:47:49.291Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeListView.tsx",
+      "at": "2026-09-22T12:05:49.615Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeDetailView.tsx",
+      "at": "2026-09-22T12:05:50.481Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/utils.test.ts",
+      "at": "2026-09-22T12:16:43.941Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-22T12:06:19.306Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeListView.test.tsx",
+      "at": "2026-09-22T12:06:38.081Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeDetailView.test.tsx",
+      "at": "2026-09-22T12:17:52.683Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/EvalChecklistRenderer.test.tsx",
+      "at": "2026-09-22T12:08:44.921Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/ArtifactView.test.tsx",
+      "at": "2026-09-22T12:08:58.314Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/MarkdownDocRenderer.test.tsx",
+      "at": "2026-09-22T12:09:11.843Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/renderers/TasksProgressRenderer.test.tsx",
+      "at": "2026-09-22T12:09:26.686Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/ipc_pipeline.test.tsx",
+      "at": "2026-09-22T12:09:32.152Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/workspace_restore.test.tsx",
+      "at": "2026-09-22T12:09:35.242Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/shadcn_controls.test.tsx",
+      "at": "2026-09-22T12:15:19.521Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/progress.tsx",
+      "at": "2026-09-22T12:14:21.330Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11 项全过。R1: 问题含 450 行内联 CSS 背景与四类具体代价(56 处类名测试查询、markdown 断层等)。R2: 实现/测试/不要修改三节齐全(16/9/6 条)。R3: 6 风险均有具体缓解(spike 回退 PostCSS、@layer base+截图回退、分层验收口径)。R4: AC-1~10 均对象+条件可测。R5: 8 决策全带否决备选与理由。R6: desktop 为 Tauri 独立包不触 plugin bump 规则;vp 三链路口径一致;config.json desktop excludes 实存。R7: 无占位符(仅 JSX style={{width}} 实文描述)。R9/R10: desktop-app-shell 与唯一 spec 1:1;workspace-store 明示零改动不算缺口。R11: spec 4 个 ADDED requirement 与 AC-1~10、Module Contract 全对应(56/9、break 50、#2563eb、1100px 数字一致),无矛盾。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-20: 零 UI 基建背景(无 Tailwind/radix/cva/别名, 450 行内联 CSS)+四类量化代价: 56 处/9 文件类名测试查询、markdown 仅 .markdown-doc 后代选择器、lint/knip 管线撞点、Stryker 分数稀释。姊妹 change workspace-sidebar 依赖本 change(L15)。非泛泛改进。"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+          "pass": true,
+          "evidence": "L52 ### 实现文件(16 条)、L73 ### 测试文件(9 文件具名列出+条件项)、L82 ### 不要修改(6 条: src-tauri/**、hooks 取数、registry.ts、布局形态、深色模式、姊妹 change 范围)。实现与测试均非空。"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L112-119 六风险均非泛化: vite-plus 兼容→三链路 spike+失败回退 @tailwindcss/postcss; Stryker 稀释→ui/** mutate glob design 定夺+testid mutant 可杀+StringLiteral 仅第二档兜底须记 design; preflight→@layer base+每步截图对比回退 commit; 生成件撞线→内部组件拆解删减无豁免; 步骤② 观感混合→验收分层(AC-9 布局零变化 vs 控件换肤明示允许)。"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L97-106 AC-1~10 均为对象+条件: AC-1 vite.config.ts 含插件且 vp dev/build/test 三链路可用; AC-3 index.html 无 <style> 且无 .panel/.badge-* 旧类; AC-5 client:check 全 src 通过且无新增 ignorePatterns; AC-6 56 处清零+vp test 全绿; AC-8 token 与原 hex 一致; AC-10 实测分数 ≥50 且处置与 design 理由成对。"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L127-136 决策表 8 行均含理由+被否决备选: 全量迁移 vs 渐进双轨(否决); 两步走 vs 逐文件平移(已否决); shadcn 直换 vs CSS 1:1 仿制(否决); hex 直写 vs oklch 转换(否决); vendored 内部化 vs ignorePatterns 豁免(否决); prose vs components 逐元素映射; data-testid vs 纯语义查询; ts-only mutate(否决, coverage theater)。"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "desktop 为 Tauri 独立包非 plugins/<name>,不触 CLAUDE.md bump 规则(与既往 desktop change 口径一致)。vendored 件过全管线、未用导出删减(L33/L133)契合 knip 纪律; data-testid 为 DOM 属性非 test-only export; vp 链路符合 vite-plus 工具链约定。实测 config.json L20 desktop 套件 excludes 已预置,与 L71 声明一致。"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文 grep TODO|TBD|placeholder|{{ 仅命中 L68 'style={{ width }}'——为 JSX 内联样式实文描述而非模板占位。「待决问题」(L138-144)为显式 design 定夺清单,属实质内容非占位。"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9-20 四类代价量化)、提案(L24-33 两步走方案乙+控件映射清单)、变更范围(L50-89)、验收标准(L93-106)、风险(L110-119)、过程决策表(L125-136)均实质填写,无空节。"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L37 ## 能力 存在; L39 ### 新增能力 明示『无』; L43 ### 修改的能力 desktop-app-shell 非空: 增补 UI 基建约定 4 项(ADDED Requirements,不改既有 requirement)。"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 下唯一文件 specs/desktop-app-shell/spec.md ↔ 能力章节唯一实质条目 desktop-app-shell,1:1。desktop-workspace-store(L46)明示『零改动(已确认)』为确认性标注非变更声明,无需 spec,不作缺口。无孤儿 spec。"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "spec 声明 ## ADDED Requirements(4 requirement)与 proposal『增补 ADDED 不改既有』一致。AC↔spec 全对应: AC-2/3/8/9↔单一样式体系 4 scenario; AC-4/5↔shadcn 内部化 3 scenario; AC-6↔data-testid 3 scenario; AC-7↔prose scenario; AC-10↔变异守线 2 scenario。数字交叉一致: 56 处/9 文件、break 50、阈值 80、#2563eb、1100px、badge-in${inventory}、ui/** excludes 口径在两侧均相同。Module Contract 表与实现文件清单吻合。"
+        }
+      ],
+      "start_at": "2026-09-22T10:33:21.265Z",
+      "timestamp": "2026-09-22T10:42:50.853Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 pass。D1组件表7行齐职责/依赖/技术/路径无TBD;D2零模型声明含payload契约边界;D3 AC-1~10逐项映射+对应Phase任务;D4 A→E无后置依赖;D5任务落至文件与类名清单;D6运行时5+构建3依赖带用途;D7符合vp工具链与knip无导出纪律,src-tauri零涉及;D8模板章节全实填,路由节注明不适用;D9测试改写归test阶段,验收命令为门禁非测试任务;D10清单覆盖proposal 18项,main.tsx透明补充,tasks与清单一一对应,函数表无矛盾。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表7行,每行含职责/文件位置/依赖/技术四要素;技术栈具体(Tailwind v4、shadcn+radix、Stryker),无TBD;路径均指向具体文件(global.css/main.tsx/components.json等)"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型节实质声明零模型变更:payload契约(EvalChecklist/TasksProgress/MarkdownDoc)形状不变,dto.ts零改动,Rust后端与持久化零涉及;UI迁移变更无数据模型可列,非空泛跳过"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表逐项覆盖AC-1~AC-10且各有设计落点+对应Phase任务:AC-1→依赖节/D3/Phase A spike;AC-2→Phase B;AC-3→Phase D;AC-10→变异守线处置节+Phase E"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md存在,全任务含- [ ]复选框;Phase A→B→C→D→E显式依赖序,前置(依赖安装/spike/global.css/ui四件)均先于依赖方,无后置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每个任务落至具体文件、具体类名清单与具体操作(如ChangeDetailView列13个类名+徽标/Table换装+testid标注);无『实现功能』式空泛任务"
+        },
+        {
+          "item": "D6 依赖项(运行时和构建/测试)已列出",
+          "pass": true,
+          "evidence": "依赖节分运行时5项(clsx/tailwind-merge/cva/radix slot/progress)与构建3项(tailwindcss/@tailwindcss/vite/@tailwindcss/typography),各项带用途说明"
+        },
+        {
+          "item": "D7 设计与项目架构一致(CLAUDE.md)",
+          "pass": true,
+          "evidence": "用vp三链路工具链;knip纪律删减未用导出(无test-only export);src-tauri/**与hooks/dto.ts/registry.ts零涉及;无豁免原则与项目纪律一致"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(新增7+修改18)/数据模型/依赖/待决问题(3项)均实填;路由/API设计节注释明确不适用理由(无HTTP API,Tauri IPC契约不变)"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design无测试策略/测试架构章节(「测试挂钩约定」为源侧data-testid契约,测试改写明确归test阶段);tasks无单测/集成测试任务,vp build/client:check/mutation-test为提案AC-5/AC-10验收门禁命令"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "清单覆盖proposal实现文件全部18项;main.tsx透明标注为清单外必要补充(D2);tasks引用的23个文件与清单一一对应且清单文件均有任务;新增文件函数(cn/Button/Badge/Table族/Progress)全列公共函数表,子表无矛盾"
+        }
+      ],
+      "start_at": "2026-09-22T10:43:39.752Z",
+      "timestamp": "2026-09-22T10:59:52.606Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "T1: AC-1~10 全映射(L15-24),摘录与 proposal L97-106 一致。T2: AC-6 七个单测文件与 AC-7 均有对应 ### heading;AC-4/AC-6 集成层由三关系承载,关联AC 均在验收范围;utils.test.ts 系 design 公共函数 cn() 派生。T3: Eval/Tasks 有异常用例(payload 漂移);边界齐:cn falsy、created=null、空 markdown、fileLog 空/null、进度 0/40/100、枚举 v0-v2+漂移值;库内语义按纪律不测(L45)。T4: invoke/dialog/getVersion Mock 表齐。T5: 8 个改写章节三小节齐序;main 等 4 节为 no-op 处置节,注释声明不落地。T6: 不可测试 12 条带原因,out-of-scope 无覆盖。T7: 纯样式迁移无写操作,不触发。T8: U/I/G 全符。",
+      "checklist": [
+        {
+          "item": "T1 proposal.md 中每个验收标准都在验收范围中有映射",
+          "pass": true,
+          "evidence": "test-design L15-24 表含 AC-1~AC-10 全 10 行,摘录与 proposal L97-106 逐条一致(AC-6 56 处清零、AC-8 --primary:#2563eb、AC-10 ≥50);8 条不可测试路由在不可测试项节 L421-432 逐条给原因,无 AC 缺映射。"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单元方向:AC-6 七个单测文件与 AC-7 MarkdownDocRenderer 均有对应 ### 源->测试 heading(L70/105/126/164/195/217/238)。集成方向:AC-4→shadcn_controls、AC-6 集成 2 件→workspace_restore/ipc_pipeline(L265/349/383),关联AC AC-4/AC-6 均存在于验收范围,集成类型 AC-4 在关系中出现。utils.test.ts 为 design 公共函数表 cn() 的派生新增,非孤儿(L37 注明)。"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "异常用例:EvalChecklistRenderer L208(payload 非对象/字段漂移/缺 phase/items 非数组)、TasksProgressRenderer L230(缺字段不抛错→0)。边界:cn 全 falsy→''(L50)、created=null(L118/144)、空 markdown(L251)、fileLog 空数组/null(L315/314)、进度 0/40/100(L228-229)、枚举 v0/v1/v2 全枚举+漂移值(集成 L289/291)。超长串/库内合并语义按既有纪律不测(L45 显式声明)。"
+        },
+        {
+          "item": "T4 存在外部依赖时描述了 Mock 策略",
+          "pass": true,
+          "evidence": "proposal 涉 Tauri 外部面:App 节 Mock 表含 invoke(按命令分发 mockIpc)/plugin-dialog open/getVersion(L87-91);三个集成关系各带 Mock策略表(L343-345/376-379/411-413);纯函数与 props 注入节以注释声明无 Mock(L56/122/150/181/213/234/257)。"
+        },
+        {
+          "item": "T5 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/集成测试/不可测试项全实填。8 个承载改写的 per-file 章节三小节齐且有序(如 utils L39/43/54、Detail L128/132/148);main.tsx、WelcomeView、ChangeView、Fallback 四节为 resolve 派生路径的 no-op 处置节,注释显式声明不新建/零改写,属声明性留空非漏填。"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "不可测试项 12 条均带原因(L421-432);proposal 不要修改面(src-tauri、hooks 取数逻辑、dto.ts、registry.ts、布局形态、深色模式、姊妹 change)无新增测试覆盖——useWorkspaces/registry 仅作既有集成套件参与模块出现(时序护栏保留);in_scope 全部实现文件均有单测/集成覆盖或不可测试落账。"
+        },
+        {
+          "item": "T7 写操作测试包含幂等性验证",
+          "pass": true,
+          "evidence": "本 change 为纯前端样式迁移,无 API/DB 写操作;design 数据模型节明示『无新增/修改数据模型,持久化零涉及』;用例中 touch/remove/add workspace 均为 mock IPC 的既有链路护栏断言,非本 change 引入的写操作,幂等性要求不触发。"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "U1:12 个 ### 源->测试 heading 全含 -> 与双侧路径;U2:改写节三小节齐序;U3:待测功能无表格式(cn 用 - funcName(): 格式);U4/U5:用例/Mock 表列名正确无测试文件列;I1-I8:三关系 heading 带 →测试文件、涉及模块 3-5 行、关联AC 非空、关系描述/场景叙事为段落、用例列名 路径类型|测试条件|迭代类型、场景名关系内唯一;G1:验收范围列名与模板一致。"
+        }
+      ],
+      "start_at": "2026-09-22T11:00:11.627Z",
+      "timestamp": "2026-09-22T11:19:41.880Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账通过:新增 7/7 在盘且内容符合(global.css token 逐值对表、ui 四件 variants 按 D10/D11 收敛、无 Next 残留);修改 15 件入 files,openspec/config.json(excludes 行20)与 ChangeView 零改动符合设计声明;16 个 testid 挂钩齐全,prose 参数与 R1-R6 回写逐项在码;旧类名、<style> 块、内联 width grep 清零。备注:pnpm-workspace.yaml 计划外删除但从未入 git 追踪,净突变零;Phase E 实测任务按 design 移交 test/acceptance,未勾属计划内。",
+      "checklist": [
+        {
+          "item": "I1 每个架构组件有实现代码",
+          "pass": true,
+          "evidence": "架构组件表 7 项全落地并核对:global.css(token 逐值对 design 表+@layer base)、main.tsx L5 挂载、components.json+tsconfig paths+vite alias+utils.ts cn()、ui 四件(button/badge/table/progress)、视图溶解、prose 通道、stryker 守线"
+        },
+        {
+          "item": "I2 变更清单三态对账",
+          "pass": true,
+          "evidence": "新增 7/7 文件在盘;修改件 15/16 入 files.written,openspec/config.json 工作树含 excludes(行20)属良性漏记,ChangeView.tsx 零改动符合设计;cn/Button/Badge/Table 族/Progress 签名与公共函数表一致;删除侧无计划内整文件删除"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "@/ 别名 import、inline type import、单引号、中文注释与代码库一致;knip.json project 扩 css 为 R2 声明非豁免;vite.config lint/fmt ignorePatterns 未动(AC-5)"
+        },
+        {
+          "item": "I4 路由/API 实现",
+          "pass": true,
+          "evidence": "无 HTTP API(design 明示此节省略);Tauri IPC 契约与 src/types/dto.ts 零改动,符合提案不修改约束"
+        },
+        {
+          "item": "I5 tasks 全勾选",
+          "pass": true,
+          "evidence": "Phase A-D 及 E1/E3/E4 全 [x];E2(mutation 实测)未勾系 design 变异守线处置明示移交——Stryker 初始校验须测试全绿,9 个测试文件改写归 test 阶段同原子 commit"
+        },
+        {
+          "item": "I6 无计划外代码",
+          "pass": true,
+          "evidence": "files 外改动均判可接受:knip.json=R2 声明,pnpm-lock.yaml 为依赖安装副产物,pnpm-workspace.yaml 计划外删除但从未入 git 追踪(无任何历史),非仓库源码,净突变零;无无关源码被删"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "D1-D11 逐项在码:D4 token/bg-pass-bg 类、D5 !src/components/ui/**、D7 change-row 换 Button、D9 prose prose-sm max-w-none、D10 调色板等值、D11 死导出删净;R1-R6 回写全落地(@types/node/line-height normal/WorkspaceSelect/ArchiveGroups)"
+        }
+      ],
+      "start_at": "2026-09-22T11:20:10.857Z",
+      "timestamp": "2026-09-22T11:57:47.217Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "9/9 过。11 个声明测试文件在盘且路径与 design 一致;单元用例 34 行逐行命中(describe=测试对象,it 覆盖各测试条件),集成 17 行全命中(shadcn 5 场景/workspace_restore/ipc_pipeline);4 套件 vi.mock(+hoisted) invoke 按命令分发、dialog、getVersion 0.1.0 与 Mock 表一致,无 Mock 节无 vi.mock;类名/标签查询清零(仅余注释与 DTO 字段名);边界全在码(cn falsy、created/fileLog null、进度 0/40/100、空 markdown、inventory v9);beforeEach mockReset+afterEach useRealTimers;无废弃行,main/WelcomeView/ChangeView 未落地符合不落地声明。备注:shadcn mock 无 read_artifact 分支,该套件无用例触达(ipc_pipeline 承载),不跨真实边界。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "design 12 节中 main/WelcomeView/ChangeView/Fallback 4 节显式声明不落地/零改写(文件未生成,符合);其余源文件均有共存测试且调用并断言行为:cn 4 用例(utils.test.ts L8-29),8 个组件经 render+断言(App/ListView/DetailView/ArtifactView/Eval/Tasks/MarkdownDoc/shadcn_controls),无仅构造验证。"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存于同一目录",
+          "pass": true,
+          "evidence": "11 文件全为 *.test.ts(x):7 个与源码同目录(App.test.tsx 等),utils.test.ts 在 src/lib/ 与 utils.ts 同目录,3 个集成件在 design 声明的既有集成区 src/__tests__/,与关系 heading 声明路径逐一一致。"
+        },
+        {
+          "item": "G3 单元测试>用例表每行已生成对应骨架",
+          "pass": true,
+          "evidence": "34 行逐行核对:utils 4/4(L8-29)、App 4/4(error-note L296-314、queryAllByTestId L304、SELECT L312、option 枚举 L220-221)、ListView 4/4(L73-82 徽标枚举、L130-141 created、L143-146、L140)、DetailView 11/11、ArtifactView 2/2(L64-69/37-46)、Eval 5/5、Tasks 4/4、MarkdownDoc 4/4;describe 与测试对象标题一致(仅 App/ArtifactView 带 AC 后缀)。"
+        },
+        {
+          "item": "G4 集成测试>用例表每行已生成对应骨架",
+          "pass": true,
+          "evidence": "17 行全命中:shadcn_controls 5 场景 15 it(Badge 枚举 L209-254 含漂移值异常、change-row Button L262-286、Table 矩阵 L294-336、Progress L344-378、Button 契约 L386-467);workspace_restore reject 用例 L157-171(getByTestId('error-note')+touch/list_changes 次数 0+手动添加);ipc_pipeline L296-319(artifact-card 长度 3+0% 降级)/L262-294(保底文本+徽标)。关联 AC-4/AC-6 与关系描述一致。"
+        },
+        {
+          "item": "G5 Mock策略表中的 mock 已在测试代码中实现",
+          "pass": true,
+          "evidence": "App L6-14 vi.hoisted+vi.mock invoke(按 6 命令分发 mockIpc L64-106)/dialog(mockResolvedValue L229/251/321、mockRejectedValue L244)/getVersion '0.1.0' L127;shadcn L28-36/163-194、workspace_restore L16-22(listReject/touchReject 开关 L78-89)、ipc_pipeline L12-18(read_artifact 按 kind 切 reject L152-160/298-300);无 Mock 声明节(utils/ListView/DetailView/三 renderer)确无 vi.mock。备注:shadcn mockIpc 无 read_artifact 分支,该套件 15 it 无一触达(shellDetail.artifacts 空),落 null 兜底仍属 mock,不破应用场景。"
+        },
+        {
+          "item": "G6 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "11 文件统一 import describe/it/expect/vi/beforeEach 自 'vite-plus/test',RTL 自 '@testing-library/react';__tests__ 三件带 // @vitest-environment jsdom;与 design 验收范围注记的 vite-plus(test 运行器+@testing-library/react+jsdom)结论一致,无裸 vitest 导入。"
+        },
+        {
+          "item": "G7 test-design.md 中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "每条边界行均有骨架:cn 无参/全 falsy/混入(utils L15-25)、created=null(ListView L140、Detail L506-512)、fileLog 空数组与 null(Detail L435-441/188-200、shadcn L316-336)、进度 0/40/100(Tasks L23-34、shadcn L352-364)、空串 markdown(MarkdownDoc L69-72)、inventory 漂移 v9 不产模板串类名(shadcn L235-254)、Button 禁用/焦点透传(shadcn L454-467)。"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "App L122-129、shadcn L196-202、workspace_restore L119-123 均 beforeEach mockReset+重建 mockIpc;ipc_pipeline L170-178 beforeEach mockReset+afterEach vi.useRealTimers;Eval 拒收循环逐例 unmount(L132-135 等);纯 props 注入套件无 mock 需还原,RTL auto-cleanup 兜底。"
+        },
+        {
+          "item": "G9 迭代类型=废弃的条目未生成新测试",
+          "pass": true,
+          "evidence": "design 用例表全部行迭代类型=新增,无废弃行需规避;4 个不落地节(main/WelcomeView/ChangeView/Fallback)对应测试文件均未生成或未被改写(Fallback.test.tsx 不在 test-gen files.written),无计划外 describe/it 出现。"
+        }
+      ],
+      "start_at": "2026-09-22T11:58:17.787Z",
+      "timestamp": "2026-09-22T12:24:10.991Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 2568 个测试通过(vite-plus plugins/dev-team 2379、packages/desktop 172、rust 17),无 execution_error,mutation 85.29%≥80%。覆盖率按汇总预置 coverage.pass=true 判定达标,measured 三维均 null → N/A(框架不支持)。遗留观察: 各 plan 覆盖率未聚合入汇总,rust plan 实测 coverage.pass=false(branches 0/85、functions 86.79/90)被掩盖,需修复汇总聚合或调整 rust 口径。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp、total=2568、passed=2568、failed=0、skipped=0、coverage 对象(pass/measured/thresholds/overrides)、duration_seconds=552 均存在且类型正确"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2568>0;conclusion=pass,problems 为空(无 execution_error);mutation.pass=true(85.29% ≥ 80%)"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "汇总 coverage.pass=true;measured lines/branches/functions 全为 null → N/A (框架不支持)。遗留观察: 各 plan 实测未聚合入汇总(rust plan report.json coverage.pass=false,branches 0 vs 85、functions 86.79 vs 90;两个 vite-plus plan 实测达标 97.25/89.73/99.53 与 100/94.46/100),按口径不据此改判,记为待修复的汇总聚合缺口"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0,无失败用例,根因诊断不适用,自动通过"
+        }
+      ],
+      "start_at": "2026-09-22T12:24:32.471Z",
+      "timestamp": "2026-09-22T12:37:38.453Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1-C7 全过。变更代码无安全漏洞(grep 命中仅 lockfile/docs);D1-D11+R1-R6 与 design 逐项一致:token hex 逐值吻合、badge 调色板对原 CSS 实测零漂移、stryker/knip/config excludes 口径一致、index.html 无 style 块、无旧类残留、ChangeView 零改动、R6 过渡别名已删;null 处理全覆盖;未用导出按 D11 删减;类型复用 ComponentProps/ClassValue/dto。nit:openspec/config.json 丢尾换行;workflow_files deleted 记 pnpm-workspace.yaml 但该文件从未存在于库史,系清单噪声。",
+      "checklist": [
+        {
+          "item": "C1 变更代码无安全漏洞",
+          "pass": true,
+          "evidence": "变更代码无注入/硬编码密钥/不安全反序列化;grep(password/secret/eval/exec/innerHTML)命中仅 pnpm-lock.yaml 依赖名与 RELEASE.md 文档,无一在变更文件"
+        },
+        {
+          "item": "C2 外部输入格式检查",
+          "pass": true,
+          "evidence": "payload 守卫(isEvalChecklistPayload 等)按 design 零改动保留;新引入面纯表现层,Progress value null 合并(progress.tsx:23)、countOf 边界守卫"
+        },
+        {
+          "item": "C3 实现与 design.md 一致",
+          "pass": true,
+          "evidence": "D1-D11/R1-R6 全落地:global.css token hex 与 design 映射表逐值一致;badge 调色板 utilities 对原 CSS hex 实测零漂移(gray-200=#e5e7eb 等);stryker !ui/**、knip css glob、config.json excludes 口径一致;index.html 无 <style>;src 无旧类名残留;ChangeView 零改动符合预期;R6 过渡别名已随步骤②移除"
+        },
+        {
+          "item": "C4 无空值/边界遗漏",
+          "pass": true,
+          "evidence": "formatTime null→'—'、created/activePhase/startAt 判空、fallbackText ?? 默认、group.month ?? 'unknown'、ChangeDetailView 三分支 fallback 覆盖 error/loading/not-found"
+        },
+        {
+          "item": "C5 无冗余/死代码",
+          "pass": true,
+          "evidence": "buttonVariants/badgeVariants 未导出、TableCaption/TableFooter 按 D11 删减;所有 Badge variant 与 Table 导出均有引用;无未用导入"
+        },
+        {
+          "item": "C6 可读性与项目规范",
+          "pass": true,
+          "evidence": "中文 JSDoc、单引号、import 排序、@/ 别名均与库内一致;WorkspaceSelect/ArchiveGroups 析出符合 R4/R5。nit:openspec/config.json 丢失文件尾换行(非功能性)"
+        },
+        {
+          "item": "C7 外部数据同源类型",
+          "pass": true,
+          "evidence": "控件签名复用 React.ComponentProps<'button'|'span'|'table'…>,cn 复用 clsx ClassValue,Inventory 沿用 src/types/dto.ts(零改动),无自定义中间映射类型"
+        }
+      ],
+      "start_at": "2026-09-22T12:37:59.693Z",
+      "timestamp": "2026-09-22T12:41:19.888Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "AC-1~AC-9 与 AC-10 实质全部实证通过,唯一不通过项:tasks.md L49(Phase E 全量 mutation 实测记录)复选框未勾——计划账面未闭合,按守则存在未勾任务即 fail。实测数据已在案:reports/test/packages_desktop_vite-plus/report.json:90-106 packages/desktop 85.29%(416 mutants,killed 348)≥break 50 且≥阈值 80,stryker.config.json:8 与 design D5 理由成对,二档 StringLiteral 兜底无需启用。修复=补勾 L49 并引证上述报告路径,即可复审转 pass。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 vite.config.ts:3,11(@tailwindcss/vite);AC-2 global.css:44-85 @layer base(body/button 三态/#root)+token;AC-3 index.html 仅 13 行无 <style>,src 内旧类(.panel/.badge-*/.filelog-table/.progress-*/.markdown-doc)grep 零命中;AC-4 badge.tsx:13-19 七变体,button/badge/table/progress 四件被 App/WelcomeView/ChangeList/ChangeDetail/ArtifactView/EvalChecklist/TasksProgress 引用;AC-5 knip.json 无 ignorePatterns、vite lint/fmt 仅既有 src-tauri/**;AC-6 src 内 querySelector/getElementsByClassName 零命中且 reports/test/summary.json:6-10 全 2568 用例绿(desktop 172);AC-7 MarkdownDocRenderer.tsx:36-37 prose+markdown-root 挂钩,样式表无 .markdown-doc 后代选择器;AC-8 global.css:8-24 十二个 hex 与 design token 表逐值一致(--primary #2563eb:14);AC-9 App.tsx:151、WelcomeView.tsx:15 max-w-[1100px] w-full mx-auto,Header 结构保留;AC-10 report.json:90-106 实测 85.29≥50"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "无新增功能/API/组件。两处观察不构成越界:shadcn_controls.test.tsx 为 test 阶段产物,仅测 AC-4 既有面(INVENTORY_VARIANT/变体渲染),无产品面新增;src-tauri/tauri.conf.json 工作区改动内容纯 updater/release 配置,与 tailwind 无关,不属本 change 清单。design 回写 R1-R6 均有对应代码且非新功能(@types/node、knip css 扩围、line-height:normal、WorkspaceSelect、ArchiveGroups、过渡别名已随 <style> 移除)"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": false,
+          "evidence": "实现文件全数落地(含 ChangeView 零 className 核实),但 tasks.md L49「全量 mutation-test 实测:分数≥50 记录在案」复选框未勾——尽管 reports/test/packages_desktop_vite-plus/report.json:90-106 已实测 85.29(416 mutants,≥50 且≥80),计划账面未闭合。按验收守则存在未勾任务即不通过;修复仅需补勾该框并引证报告路径"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "dark 值/主题切换零出现(grep dark:、prefers-color-scheme 零命中,global.css:23 仅空注释占位);registry.ts 注册机制未动;sidebar 壳/header 瘦身/错误 toast/workspace 面板均未实现(Header 仍为 strong+select+按钮+spacer 原架构,App.tsx:90-107);specs 仅 desktop-app-shell 四个 ADDED requirement,无新 capability"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "vite-plus 兼容→spike 定案主路线(vite.config.ts:11,D3 回写);Stryker 稀释→stryker.config.json:8 排除 ui/**+28 处 testid 可杀 mutant+实测 85.29≥80 无需二档兜底;preflight→@layer base(global.css:44)+R3 line-height(global.css:57)+R4 select utilities(App.tsx:52);lint/knip 撞线→子组件拆解(App.tsx:41 WorkspaceSelect、ChangeListView.tsx:46 ArchiveGroups)零豁免;嵌套/计数断言→容器 testid(checklist/attempt-meta/filelog-table)照常表达"
+        }
+      ],
+      "start_at": "2026-09-22T12:41:43.132Z",
+      "timestamp": "2026-09-22T12:48:05.012Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "复审转 pass:attempt 1 唯一失败项 tasks.md L49(Phase E mutation 实测勾选)已补勾 [x] 并引证 reports/test/packages_desktop_vite-plus/report.json:90-106——实测 85.29%(416 mutants,killed 348)≥break 50 且≥套件阈值 80,数据与勾选注记逐值一致。tasks.md grep '- [ ]' 零命中,全清单闭合。A1~A5 独立复核维持通过。遗留观察:AC-2/AC-9 截图对比为真实环境验收项,静态评估无法产出,建议归档前人工目验一次。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 vite.config.ts:3,11;AC-2 global.css:44-85 @layer base+token:8-40;AC-3 index.html 13 行无 <style>,旧类名 grep 仅余 testid/注释/payload kind;AC-4 ui 四件(button/badge/table/progress.tsx)在盘且被 App:4/WelcomeView:1/List:1-2/Detail:1-10/ArtifactView:1/Eval:1/TasksProgress:1 引用;AC-5 knip.json 无 ignorePatterns(仅 project 扩 css=R2);AC-6 querySelector|getElementsByClassName 全 src 零命中,report.json:7-12 desktop 172/172 绿;AC-7 MarkdownDocRenderer.tsx:36 prose,测试经 markdown-root+role 断言表格/代码(.test:23-52);AC-8 global.css:14 --primary:#2563eb,12 hex 与 design token 表逐值一致;AC-9 App.tsx:151/WelcomeView.tsx:15 max-w-[1100px] w-full mx-auto;AC-10 report.json:90-106 85.29≥50,stryker.config.json:8 与 design D5 理由成对"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "无产品面新增功能/API/组件。shadcn_controls.test.tsx/utils.test.ts 为 test 阶段产物,仅覆盖 in_scope 行为(INVENTORY_VARIANT/change-row Button/filelog Table/cn()),test-design T2 已有派生声明;src-tauri/tauri.conf.json 为工作区既有改动,不属本 change 清单;design 回写 R1-R6 均有对应代码且非新功能(knip css 扩围为 R2 声明非豁免)"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "实现文件全数落地(ChangeView.tsx 无 className 零改动符合声明);9 个测试文件改写完成、类名查询清零;attempt 1 唯一缺口 tasks.md L49 已闭合:现 [x] 且引证 report.json:90-106 实测 85.29%≥50 在案;grep '- [ ]' 全文零命中,Phase A-E 全清单无未勾项"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "grep dark:|prefers-color-scheme 全 src 零命中,global.css:23 仅空注释占位,无主题切换;registry.ts 注册机制未动;sidebar 壳/header 瘦身/错误 toast/workspace 面板布局均未实现(Header 原架构保留);无新增 capability(specs 仅 desktop-app-shell 四个 ADDED requirement);hooks 取数/dto.ts/Rust 后端零涉及"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "vite-plus 兼容→三链路 spike 主路线定案(vite.config.ts:11,D3 回写);Stryker 稀释→stryker.config.json:8 排除 ui/**+容器 testid 可杀 mutant+实测 85.29≥80 二档 StringLiteral 兜底无需启用;preflight→@layer base(global.css:44-85)+R3 line-height:normal(:57)+R4 select utilities;生成件撞线→WorkspaceSelect/ArchiveGroups 子组件拆解零豁免;步骤② 混合→AC-9 分层验收口径;嵌套/计数断言→checklist/filelog-table 容器 testid 照常表达"
+        }
+      ],
+      "start_at": "2026-09-22T12:54:33.156Z",
+      "timestamp": "2026-09-22T12:59:11.329Z"
+    }
+  ]
+}

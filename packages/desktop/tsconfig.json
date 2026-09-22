@@ -14,7 +14,10 @@
     "useDefineForClassFields": true,
     "resolveJsonModule": true,
     "noEmit": true,
-    "types": ["vite-plus/client"]
+    "types": ["vite-plus/client"],
+    "paths": {
+      "@/*": ["./src/*"]
+    }
   },
   "include": ["src"]
 }

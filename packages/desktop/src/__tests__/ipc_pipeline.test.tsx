@@ -306,13 +306,13 @@ describe('ipc 管线：DTO 漂移与读取失败的降级兜底', () => {
       },
     });
 
-    const { container } = render(<App />);
+    render(<App />);
     await pickWorkspace('/repo');
     fireEvent.click(screen.getByText('add-feature'));
 
     // 三张产物卡齐全：读取失败的一张以降级形态渲染（payload 为空 → 0% 计数），不白屏
-    await waitFor(() => expect(container.querySelectorAll('.artifact-card')).toHaveLength(3));
-    expect(container.textContent).toContain('0%');
+    await waitFor(() => expect(screen.getAllByTestId('artifact-card')).toHaveLength(3));
+    expect(screen.getByText('0%') !== null).toBe(true);
     // 其余产物与详情主体不受阻断
     expect(screen.getByText('内容段落。') !== null).toBe(true);
     expect(screen.getByText(/运行中 · implement · attempt 2/) !== null).toBe(true);

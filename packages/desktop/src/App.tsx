@@ -1,6 +1,8 @@
 import { open } from '@tauri-apps/plugin-dialog';
 import { useCallback } from 'react';
 
+import { Button } from '@/components/ui/button';
+
 import { useChangeList } from './hooks/useChangeList';
 import { useUpdater, type UpdateState } from './hooks/useUpdater';
 import { useWorkspaces } from './hooks/useWorkspaces';
@@ -17,20 +19,47 @@ function UpdateIndicator({ state }: { state: UpdateState }) {
   return (
     <>
       {state.currentVersion !== null && (
-        <span className="app-version">v{state.currentVersion}</span>
+        <span className="text-xs text-muted-foreground">v{state.currentVersion}</span>
       )}
       {state.status === 'installing' ? (
-        <span className="app-version">正在安装…</span>
+        <span className="text-xs text-muted-foreground">正在安装…</span>
       ) : state.status === 'downloading' ? (
-        <span className="app-version">下载中 {state.progress ?? 0}%</span>
+        <span className="text-xs text-muted-foreground">下载中 {state.progress ?? 0}%</span>
       ) : state.error !== null ? (
-        <button onClick={state.start}>重试更新</button>
+        <Button onClick={state.start}>重试更新</Button>
       ) : (
         state.available !== null && (
-          <button onClick={state.start}>更新到 v{state.available.version}</button>
+          <Button onClick={state.start}>更新到 v{state.available.version}</Button>
         )
       )}
     </>
+  );
+}
+
+/** workspace 下拉切换（清单项悬停 title 完整 path）。preflight 重置原生 select 的
+ * 边框/底色，此处以 utilities 还原原生观感。 */
+function WorkspaceSelect({
+  root,
+  workspaces,
+  onOpen,
+}: {
+  root: string;
+  workspaces: WorkspaceRecord[];
+  onOpen: (root: string) => void;
+}) {
+  return (
+    <select
+      className="rounded-md border border-border bg-card px-2 py-1"
+      value={root}
+      onChange={(event) => onOpen(event.target.value)}
+      disabled={workspaces.length === 0}
+    >
+      {workspaces.map((record) => (
+        <option key={record.root} value={record.root} title={record.root}>
+          {record.name}
+        </option>
+      ))}
+    </select>
   );
 }
 
@@ -58,26 +87,23 @@ function AppHeader({
   onRefresh: () => void;
 }) {
   return (
-    <header className="app-header">
+    <header className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2.5">
       <strong>Desktop Terminal</strong>
-      <select
-        value={root}
-        onChange={(event) => onOpen(event.target.value)}
-        disabled={workspaces.length === 0}
-      >
-        {workspaces.map((record) => (
-          <option key={record.root} value={record.root} title={record.root}>
-            {record.name}
-          </option>
-        ))}
-      </select>
-      <button onClick={() => onRemove(root)}>移除</button>
-      {error !== null && <span className="error-note">{error}</span>}
-      <span className="spacer" />
+      <WorkspaceSelect root={root} workspaces={workspaces} onOpen={onOpen} />
+      <Button onClick={() => onRemove(root)}>移除</Button>
+      {error !== null && (
+        <span
+          className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"
+          data-testid="error-note"
+        >
+          {error}
+        </span>
+      )}
+      <span className="flex-1" />
       <UpdateIndicator state={update} />
-      <button onClick={onRefresh} disabled={loading}>
+      <Button onClick={onRefresh} disabled={loading}>
         刷新列表
-      </button>
+      </Button>
     </header>
   );
 }
@@ -122,7 +148,7 @@ export default function App() {
         onRemove={workspaceState.remove}
         onRefresh={list.refresh}
       />
-      <main className="app-main">
+      <main className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
         <ChangeView root={workspaceState.root} list={list}></ChangeView>
       </main>
     </>

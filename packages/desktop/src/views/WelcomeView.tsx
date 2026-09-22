@@ -1,3 +1,5 @@
+import { Button } from '@/components/ui/button';
+
 import type { WorkspaceState } from '../hooks/useWorkspaces';
 
 /**
@@ -7,21 +9,28 @@ import type { WorkspaceState } from '../hooks/useWorkspaces';
 export function WelcomeView({ state, onAdd }: { state: WorkspaceState; onAdd: () => void }) {
   const { workspaces, loading, error } = state;
   return (
-    <div className="screen-center">
-      <h1>Desktop Terminal</h1>
-      <p>选择一个项目根目录，浏览其 change 过程记录。</p>
-      <div className="app-main">
-        {error !== null && <div className="error-note">workspace 清单加载失败：{error}</div>}
-        {loading && <div className="muted">加载中…</div>}
-        <section className="panel">
-          <h2>
-            最近的 workspace <span className="muted">({workspaces.length})</span>
+    <div className="flex flex-1 flex-col items-center justify-center gap-4">
+      <h1 className="m-0 text-xl">Desktop Terminal</h1>
+      <p className="m-0 text-muted-foreground">选择一个项目根目录，浏览其 change 过程记录。</p>
+      <div className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
+        {error !== null && (
+          <div
+            className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"
+            data-testid="error-note"
+          >
+            workspace 清单加载失败：{error}
+          </div>
+        )}
+        {loading && <div className="text-muted-foreground">加载中…</div>}
+        <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
+          <h2 className="m-0 mb-2.5 text-[15px]">
+            最近的 workspace <span className="text-muted-foreground">({workspaces.length})</span>
           </h2>
           {!loading && error === null && workspaces.length === 0 && (
-            <div className="muted">还没有记录，添加一个项目根目录开始浏览。</div>
+            <div className="text-muted-foreground">还没有记录，添加一个项目根目录开始浏览。</div>
           )}
         </section>
-        <button onClick={onAdd}>添加新文件夹</button>
+        <Button onClick={onAdd}>添加新文件夹</Button>
       </div>
     </div>
   );

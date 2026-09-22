@@ -1,0 +1,85 @@
+@import 'tailwindcss';
+@plugin '@tailwindcss/typography';
+
+/* app 唯一样式入口：token 单一来源，值直写原 index.html hex（配色身份保留，AC-8）。
+   light/dark 双槽：`:root` 仅填 light 值；dark 覆写槽位空置预留，本 change 不填值、
+   不引入主题切换。utilities 侧经 `@theme inline` 映射自动生成（bg-primary /
+   text-muted-foreground / bg-pass-bg 等）。 */
+:root {
+  --background: #f5f6f8;
+  --card: #ffffff;
+  --border: #d9dee5;
+  --foreground: #1f2430;
+  --muted-foreground: #6b7280;
+  --primary: #2563eb;
+  --primary-foreground: #ffffff;
+  --pass: #15803d;
+  --pass-bg: #dcfce7;
+  --fail: #b91c1c;
+  --fail-bg: #fee2e2;
+  --warn: #92400e;
+  --warn-bg: #fef3c7;
+
+  /* dark 覆写槽位（预留空置） */
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-card: var(--card);
+  --color-border: var(--border);
+  --color-foreground: var(--foreground);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-pass: var(--pass);
+  --color-pass-bg: var(--pass-bg);
+  --color-fail: var(--fail);
+  --color-fail-bg: var(--fail-bg);
+  --color-warn: var(--warn);
+  --color-warn-bg: var(--warn-bg);
+}
+
+/* 元素级样式自 index.html 1:1 平移（步骤①，视觉零变）；`*{box-sizing}` 弃置，
+   由 preflight 等价覆盖。本层置于 base layer，utilities 可正常覆写。 */
+@layer base {
+  :root {
+    color-scheme: light;
+  }
+
+  body {
+    margin: 0;
+    font-family: 'Segoe UI', 'Microsoft YaHei', system-ui, sans-serif;
+    background: var(--background);
+    color: var(--foreground);
+    font-size: 14px;
+    /* 原样式未设 line-height（浏览器默认 normal）；preflight 在 html 层注入 1.5，
+       此处还原原始渲染基线 */
+    line-height: normal;
+  }
+
+  button {
+    font: inherit;
+    cursor: pointer;
+    border: 1px solid var(--border);
+    background: var(--card);
+    color: var(--foreground);
+    border-radius: 6px;
+    padding: 6px 14px;
+  }
+
+  button:hover {
+    border-color: var(--primary);
+    color: var(--primary);
+  }
+
+  button:disabled {
+    opacity: 0.5;
+    cursor: default;
+  }
+
+  #root {
+    min-height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+}
