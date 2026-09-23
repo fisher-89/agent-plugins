@@ -345,7 +345,7 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>): R
 /* 变体集按本 app 实际用量裁剪（仅 default，同 ui/button 口径）；
    悬停/激活走 primary 弱化底色，data-active 由 isActive prop 派发 */
 const sidebarMenuButtonVariants = cva(
-  'peer/menu-button flex w-full items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-primary/10 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/10 active:text-primary disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-primary/10 data-[active=true]:font-medium data-[active=true]:text-primary group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-2 [&>span]:min-w-0 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
+  'peer/menu-button flex w-full justify-between items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-primary/10 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/10 active:text-primary disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-primary/10 data-[active=true]:font-medium data-[active=true]:text-primary group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-2 [&>span]:min-w-0 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
   {
     variants: {
       variant: {
