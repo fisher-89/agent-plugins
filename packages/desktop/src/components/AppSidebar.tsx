@@ -58,10 +58,12 @@ function WorkspaceItem({
             data-root={record.root}
             data-testid="workspace-item"
             isActive={record.root === currentRoot}
+            size="lg"
             tooltip={record.root}
             onClick={() => onOpen(record.root)}
           >
-            <span className="flex min-w-0 flex-col">
+            {/* leading-tight 收紧行高，主文本 + 父目录两行在 lg（h-12）内完整呈现 */}
+            <span className="flex min-w-0 flex-col leading-tight">
               <span className="truncate">{record.name}</span>
               {parent !== '' && (
                 <span

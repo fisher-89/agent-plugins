@@ -342,8 +342,10 @@ function SidebarMenuItem({ className, ...props }: React.ComponentProps<'li'>): R
   );
 }
 
-/* 变体集按本 app 实际用量裁剪（仅 default，同 ui/button 口径）；
-   悬停/激活走 primary 弱化底色，data-active 由 isActive prop 派发 */
+/* 变体集按本 app 实际用量裁剪（同 ui/button 口径）：default 单行 h-7，
+   lg 双行 h-12（主文本 + 副文本形态，如 workspace 清单项；行内需 leading-tight
+   方可在 h-12 内完整呈现两行）；悬停/激活走 primary 弱化底色，data-active 由
+   isActive prop 派发 */
 const sidebarMenuButtonVariants = cva(
   'peer/menu-button flex w-full justify-between items-center gap-2 overflow-hidden rounded-md p-2 text-left text-sm outline-none transition-[width,height,padding] hover:bg-primary/10 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/50 active:bg-primary/10 active:text-primary disabled:pointer-events-none disabled:opacity-50 aria-disabled:pointer-events-none aria-disabled:opacity-50 data-[active=true]:bg-primary/10 data-[active=true]:font-medium data-[active=true]:text-primary group-data-[collapsible=icon]:size-8 group-data-[collapsible=icon]:p-2 [&>span]:min-w-0 [&>span:last-child]:truncate [&>svg]:size-4 [&>svg]:shrink-0',
   {
@@ -353,6 +355,7 @@ const sidebarMenuButtonVariants = cva(
       },
       size: {
         default: 'h-7 text-sm',
+        lg: 'h-12 text-sm',
       },
     },
     defaultVariants: {
@@ -364,20 +367,24 @@ const sidebarMenuButtonVariants = cva(
 
 function SidebarMenuButton({
   isActive = false,
+  size = 'default',
   tooltip,
   className,
   ...props
-}: React.ComponentProps<typeof Button> & {
+}: Omit<React.ComponentProps<typeof Button>, 'size'> & {
   isActive?: boolean;
+  size?: 'default' | 'lg';
   tooltip?: string | React.ReactElement;
 }): React.JSX.Element {
+  // size 解构后不再流入 Button 自身变体（其 size 是 h-9/px-4 口径，与本件冲突），
+  // 仅喂本件 cva 并以 data-size 显影
   const button = (
     <Button
       data-active={isActive}
       data-sidebar="menu-button"
-      data-size="default"
+      data-size={size}
       data-slot="sidebar-menu-button"
-      className={cn(sidebarMenuButtonVariants(), className)}
+      className={cn(sidebarMenuButtonVariants({ size }), className)}
       {...props}
     />
   );

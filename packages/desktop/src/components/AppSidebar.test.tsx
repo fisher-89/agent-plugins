@@ -110,6 +110,8 @@ describe('AppSidebar：清单渲染', () => {
     const items = screen.getAllByTestId('workspace-item');
     expect(items).toHaveLength(2);
     expect(items.map((item) => item.getAttribute('data-root'))).toEqual([FIRST.root, SECOND.root]);
+    // 双行（主文本 + 父目录）走 lg 尺寸承载，固定单行高度（default）会裁掉副文本
+    expect(items.map((item) => item.getAttribute('data-size'))).toEqual(['lg', 'lg']);
     expect(within(items[0]).getByText('beta') !== null).toBe(true);
     expect(within(items[1]).getByText('alpha') !== null).toBe(true);
   });
