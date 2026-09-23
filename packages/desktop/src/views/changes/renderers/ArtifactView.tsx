@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 
-import type { ArtifactEnvelope } from '../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 import { resolveRenderer } from './registry';
 
 /** 信封路由组件：按 resolveRenderer(kind) 渲染单个 ArtifactEnvelope */

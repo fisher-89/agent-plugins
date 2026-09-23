@@ -6,7 +6,6 @@ import { Button } from '@/components/ui/button';
 
 import App from '../App';
 import type { ChangeListState } from '../hooks/useChangeList';
-import { TasksProgressRenderer } from '../renderers/TasksProgressRenderer';
 import type {
   ArtifactEnvelope,
   ChangeDetail,
@@ -17,6 +16,7 @@ import type {
 import { ChangeDetailView } from '../views/changes/ChangeDetailView';
 import { ChangeListView } from '../views/changes/ChangeListView';
 import type { ChangeDetailState } from '../views/changes/hooks/useChangeDetail';
+import { TasksProgressRenderer } from '../views/changes/renderers/TasksProgressRenderer';
 
 // ---------------------------------------------------------------------------
 // 集成关系「视图层/renderer → shadcn 控件换装」：控件渲染语义与交互契约。
@@ -493,8 +493,8 @@ describe('Button 换装保持动作契约', () => {
         onBack={() => {}}
       />,
     );
-    const refreshButton = screen.getByRole('button', { name: '刷新详情' }) as HTMLButtonElement;
-    expect(refreshButton.disabled).toBe(true);
+    const refreshButton = screen.getByRole('button', { name: '刷新详情' });
+    expect(refreshButton.hasAttribute('disabled')).toBe(true);
     fireEvent.click(refreshButton);
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -510,7 +510,7 @@ describe('Button 换装保持动作契约', () => {
     expect(normal.tagName).toBe('BUTTON');
     normal.focus();
     expect(document.activeElement).toBe(normal);
-    const disabled = screen.getByRole('button', { name: '禁用按钮' }) as HTMLButtonElement;
-    expect(disabled.disabled).toBe(true);
+    const disabled = screen.getByRole('button', { name: '禁用按钮' });
+    expect(disabled.hasAttribute('disabled')).toBe(true);
   });
 });

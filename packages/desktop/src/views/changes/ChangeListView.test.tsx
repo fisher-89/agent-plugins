@@ -232,8 +232,8 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
     const refresh = vi.fn();
     render(<ChangeListView state={state({ loading: true, refresh })} onSelect={() => {}} />);
 
-    const button = screen.getByRole('button', { name: '刷新列表' }) as HTMLButtonElement;
-    expect(button.disabled).toBe(true);
+    const button = screen.getByRole('button', { name: '刷新列表' });
+    expect(button.hasAttribute('disabled')).toBe(true);
     fireEvent.click(button);
     expect(refresh).not.toHaveBeenCalled();
   });
@@ -243,8 +243,8 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
     render(<ChangeListView state={state({ data: null, refresh })} onSelect={() => {}} />);
 
     expect(screen.getByText('暂无数据，点击刷新获取。') !== null).toBe(true);
-    const button = screen.getByRole('button', { name: '刷新列表' }) as HTMLButtonElement;
-    expect(button.disabled).toBe(false);
+    const button = screen.getByRole('button', { name: '刷新列表' });
+    expect(button.hasAttribute('disabled')).toBe(false);
     fireEvent.click(button);
     expect(refresh).toHaveBeenCalledTimes(1);
   });

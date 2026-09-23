@@ -1,7 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { ArtifactEnvelope } from '../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 import { TasksProgressRenderer } from './TasksProgressRenderer';
 
 function envelope(payload: unknown): ArtifactEnvelope {

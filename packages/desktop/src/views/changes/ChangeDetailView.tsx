@@ -9,7 +9,6 @@ import {
   TableRow,
 } from '@/components/ui/table';
 
-import { ArtifactView } from '../../renderers/ArtifactView';
 import type {
   ArtifactEnvelope,
   AttemptRecord,
@@ -18,6 +17,7 @@ import type {
   PhaseEntry,
 } from '../../types/dto';
 import type { ChangeDetailState } from './hooks/useChangeDetail';
+import { ArtifactView } from './renderers/ArtifactView';
 
 // Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
 const INVENTORY_VARIANT: Record<Inventory, 'inv0' | 'inv1' | 'inv2'> = {

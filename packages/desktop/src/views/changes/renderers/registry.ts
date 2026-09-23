@@ -1,6 +1,6 @@
 import type { ComponentType } from 'react';
 
-import type { ArtifactEnvelope } from '../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 import { EvalChecklistRenderer } from './EvalChecklistRenderer';
 import { Fallback } from './Fallback';
 import { MarkdownDocRenderer } from './MarkdownDocRenderer';

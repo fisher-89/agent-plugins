@@ -1,7 +1,7 @@
 import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
-import type { ArtifactEnvelope } from '../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 
 /** markdown-doc payload 契约（design 数据模型表）：{ markdown: string } */
 interface MarkdownDocPayload {

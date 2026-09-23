@@ -1,6 +1,6 @@
 import { Progress } from '@/components/ui/progress';
 
-import type { ArtifactEnvelope } from '../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 
 /** tasks-progress payload 契约（design 数据模型表）：{ total, done, pending }；
  * 字段声明为 unknown 由守卫/计数助手按值收窄——容忍缺字段与类型漂移，一律按 0 处理 */

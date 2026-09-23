@@ -1,7 +1,7 @@
 import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { ArtifactEnvelope } from '../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 import { EvalChecklistRenderer } from './EvalChecklistRenderer';
 
 function envelope(payload: unknown, fallbackText: string | null = null): ArtifactEnvelope {

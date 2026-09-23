@@ -1,4 +1,4 @@
-import type { ArtifactEnvelope } from '../types/dto';
+import type { ArtifactEnvelope } from '../../../types/dto';
 
 /**
  * 未注册 kind 的兜底组件（硬要求，永不白屏）：

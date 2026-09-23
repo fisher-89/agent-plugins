@@ -344,8 +344,8 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `packages/desktop/src/components/ui/**` | shadcn 内部化控件 | Button / Badge / Table / Progress 及 sidebar 系生成件(sidebar / separator / sheet / tooltip / context-menu / sonner 按需);过 fmt/lint/knip 全管线无豁免;无 Next 语境残留 |
 | `packages/desktop/components.json` | shadcn 生成配置 | alias `@/*`;内部化纪律适用 |
 | `@/*` 路径别名(tsconfig + vite 双处) | ui/** import 解析 | 双处同步配置 |
-| `src/renderers/MarkdownDocRenderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
-| `src/renderers/TasksProgressRenderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |
+| `src/views/changes/renderers/MarkdownDocRenderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
+| `src/views/changes/renderers/TasksProgressRenderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |
 | `*.test.tsx` | 测试挂钩 | data-testid;无样式类名查询;与步骤② 同 commit;右键经 `fireEvent.contextMenu`;toast 断言经 sonner 文本;同名场景 testid 承载 |
 | `packages/desktop/package.json` | 依赖 | `@radix-ui/react-separator` / `react-dialog` / `react-tooltip` / `react-context-menu`、`lucide-react`、`sonner` |
 | `packages/desktop/src-tauri/**` | 不修改 | 后端零改动;`desktop-workspace-store` spec 语义不变 |

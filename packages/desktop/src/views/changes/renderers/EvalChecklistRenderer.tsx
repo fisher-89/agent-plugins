@@ -1,6 +1,6 @@
 import { Badge } from '@/components/ui/badge';
 
-import type { ArtifactEnvelope, ChecklistItem } from '../types/dto';
+import type { ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
 
 /** eval-checklist payload 契约（design 数据模型表）：
  * { phase, attempt, verdict, items: [{ item, pass, evidence }] } */

@@ -565,7 +565,7 @@ describe('ChangeDetailView：标记位、backtrack 组合、区块分支与头�
     expect(screen.getByText('add-feature') !== null).toBe(true);
     // 换装 Button 后 role 查询天然成立（不再遍历 button 标签）
     const refreshButton = screen.getByRole('button', { name: '刷新详情' });
-    expect(refreshButton.disabled).toBe(true);
+    expect(refreshButton.hasAttribute('disabled')).toBe(true);
   });
 
   it('unparsable 为 false 时不渲染警示条', () => {

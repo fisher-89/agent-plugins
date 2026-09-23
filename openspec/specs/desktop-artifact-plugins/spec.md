@@ -83,4 +83,4 @@ MVP SHALL 将服务第一刀视图的产物实现为第一波插件实例，使�
 |------|------|----------|
 | `workflow::artifacts` | 信封 + trait + 静态注册表 | `ArtifactEnvelope { kind, version, title, payload, fallback_text }`；matcher + parser 自注册；无 dylib |
 | `workflow::artifacts` 第一波实例 | 三类产物解析 | markdown-doc / eval-checklist / tasks-progress；其余 kind 随第二刀以插件加法落地 |
-| 前端 `renderers/` | renderer 注册表 + Fallback | 按 kind 路由；未注册 → Fallback（fallback_text + kind 徽标） |
+| 前端 `views/changes/renderers/` | renderer 注册表 + Fallback | 按 kind 路由；未注册 → Fallback（fallback_text + kind 徽标） |
