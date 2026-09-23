@@ -138,10 +138,7 @@ function defaultIpc(
   invokeMock.mockImplementation((command: string, params: { kind?: string; source?: string }) => {
     if (command === 'list_workspaces') {
       // 启动自动恢复唯一清单项，恢复根即本文件的 workspace 根
-      return Promise.resolve([{ root: '/repo', name: 'repo', addedAt: 1, lastOpenedAt: 2 }]);
-    }
-    if (command === 'touch_workspace') {
-      return Promise.resolve(true);
+      return Promise.resolve([{ root: '/repo', name: 'repo', addedAt: 1 }]);
     }
     if (command === 'list_changes') {
       return Promise.resolve(listWithUnknownGroup);
@@ -390,10 +387,7 @@ describe('ipc 管线：显式刷新纪律', () => {
     let round = 0;
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_workspaces') {
-        return Promise.resolve([{ root: '/repo', name: 'repo', addedAt: 1, lastOpenedAt: 2 }]);
-      }
-      if (command === 'touch_workspace') {
-        return Promise.resolve(true);
+        return Promise.resolve([{ root: '/repo', name: 'repo', addedAt: 1 }]);
       }
       if (command === 'list_changes') {
         round += 1;

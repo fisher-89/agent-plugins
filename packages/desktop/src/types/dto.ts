@@ -110,8 +110,6 @@ export interface WorkspaceRecord {
   name: string;
   /** 入库时间（UTC unix 毫秒） */
   addedAt: number;
-  /** 最近打开时间（UTC unix 毫秒），清单排序依据 */
-  lastOpenedAt: number;
 }
 
 // ---------------------------------------------------------------------------

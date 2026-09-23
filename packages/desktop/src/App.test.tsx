@@ -20,20 +20,18 @@ vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
 
 // ---------------------------------------------------------------------------
-// fixture：workspace 清单按 last_opened_at 降序排列（FIRST 即"最近打开"第一名）
+// fixture：workspace 清单为默认序（canonical root 升序），FIRST 即默认序第一名
 // ---------------------------------------------------------------------------
 
 const FIRST: WorkspaceRecord = {
-  root: 'C:\\demo\\beta',
-  name: 'beta',
-  addedAt: 1,
-  lastOpenedAt: 900,
-};
-const SECOND: WorkspaceRecord = {
   root: 'C:\\demo\\alpha',
   name: 'alpha',
   addedAt: 1,
-  lastOpenedAt: 100,
+};
+const SECOND: WorkspaceRecord = {
+  root: 'C:\\demo\\beta',
+  name: 'beta',
+  addedAt: 1,
 };
 
 const fakeList: ChangeList = {
@@ -68,9 +66,7 @@ let addBehavior: 'ok' | 'reject' = 'ok';
 let addRecord: WorkspaceRecord | null = null;
 let removeReject: string | null = null;
 let removeMiss = false;
-let touchReject: string | null = null;
 let listReject: string | null = null;
-let clock = 1000;
 
 function mockIpc() {
   remaining = [FIRST, SECOND];
@@ -78,21 +74,11 @@ function mockIpc() {
   addRecord = null;
   removeReject = null;
   removeMiss = false;
-  touchReject = null;
   listReject = null;
-  clock = 1000;
   invokeMock.mockImplementation((command: string, params?: { root?: string; change?: string }) => {
     if (command === 'list_workspaces') {
       if (listReject !== null) return Promise.reject(new Error(listReject));
       return Promise.resolve([...remaining]);
-    }
-    if (command === 'touch_workspace') {
-      if (touchReject !== null) return Promise.reject(new Error(touchReject));
-      // 对齐后端：刷新 last_opened_at（单调时钟），清单随之降序重排
-      remaining = remaining
-        .map((r) => (r.root === params?.root ? { ...r, lastOpenedAt: ++clock } : r))
-        .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
-      return Promise.resolve(true);
     }
     if (command === 'remove_workspace') {
       if (removeReject !== null) return Promise.reject(new Error(removeReject));
@@ -108,11 +94,10 @@ function mockIpc() {
         root: params?.root ?? '',
         name: 'picked',
         addedAt: 1,
-        lastOpenedAt: 2,
       };
-      // 对齐后端：入库即按 last_opened_at 降序重排（新记录居第一名）
-      remaining = [...remaining.filter((r) => r.root !== rec.root), rec].sort(
-        (a, b) => b.lastOpenedAt - a.lastOpenedAt,
+      // 对齐后端：库存按默认序（canonical root 升序）返回，新记录未必居首
+      remaining = [...remaining.filter((r) => r.root !== rec.root), rec].sort((a, b) =>
+        a.root < b.root ? -1 : a.root > b.root ? 1 : 0,
       );
       return Promise.resolve(rec);
     }
@@ -215,11 +200,15 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     expect(screen.getByText('添加新文件夹') !== null).toBe(true);
   });
 
-  it('有记录启动：自动恢复 last_opened_at 第一名为当前根并进入列表视图', async () => {
+  it('有记录启动：自动恢复默认序第一名为当前根并进入列表视图（无任何 workspace 动作命令）', async () => {
     await restored();
 
     expect(screen.getByText(/进行中/) !== null).toBe(true);
-    expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: FIRST.root });
+    // 恢复为纯查询链：挂载取数 → 以默认序第一名取 change 列表，无动作命令
+    expect(invokeMock.mock.calls.map(([name]) => name)).toEqual([
+      'list_workspaces',
+      'list_changes',
+    ]);
   });
 
   it('恢复进入列表后：列表项点击进入详情视图，返回列表后「刷新列表」重发 list_changes', async () => {
@@ -304,7 +293,7 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     vi.unstubAllEnvs();
   });
 
-  it('点击非当前清单项：touch_workspace(新根) → 清单重排 → list_changes 以新根发起 → change 选中清空——IPC 断言与现状逐字一致（改写：fireEvent.change(combobox) → 列表项 click）', async () => {
+  it('点击非当前清单项：本地切换当前根（无 workspace 动作命令）→ list_changes 以新根发起 → change 选中清空', async () => {
     await restored();
     // 先进入详情视图，验证切换后选中被清空
     fireEvent.click(screen.getByText('add-feature'));
@@ -314,15 +303,15 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
 
     fireEvent.click(itemByRoot(SECOND.root));
 
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: SECOND.root }),
-    );
     await waitFor(() => {
       const lastListChanges = invokeMock.mock.calls
         .filter(([name]) => name === 'list_changes')
         .at(-1);
       expect(lastListChanges).toEqual(['list_changes', { root: SECOND.root }]);
     });
+    // 本地切换：无 add/remove 等任何 workspace 动作命令
+    expect(countOf('add_workspace')).toBe(0);
+    expect(countOf('remove_workspace')).toBe(0);
     // change 选中清空：详情视图退出回到列表视图，且不以新根重发 get_change_detail
     expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
@@ -331,7 +320,7 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     expect(detailCalls.every(([, params]) => params?.root === FIRST.root)).toBe(true);
   });
 
-  it('切换后激活态迁移：原当前项退出 isActive、新当前项进入（改写：option value/title 断言 → workspace-item data-root + data-active）', async () => {
+  it('切换后激活态迁移：原当前项退出 isActive、新当前项进入，清单保持默认序不重排', async () => {
     await restored();
 
     expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('true');
@@ -339,41 +328,43 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
 
     fireEvent.click(itemByRoot(SECOND.root));
 
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: SECOND.root }),
-    );
-    // touch 后清单按 last_opened_at 降序重排，新第一名即新当前项
     await waitFor(() => {
       expect(itemByRoot(SECOND.root).getAttribute('data-active')).toBe('true');
       expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('false');
     });
+    // 本地切换不重排清单：默认序保持
+    const roots = screen
+      .getAllByTestId('workspace-item')
+      .map((item) => item.getAttribute('data-root'));
+    expect(roots).toEqual([FIRST.root, SECOND.root]);
   });
 
-  it('对唯一清单项（当前项自身）点击：touch 照常发起、视图状态无抖动（原「下拉未禁用」用例的动作面保留）', async () => {
+  it('对唯一清单项（当前项自身）点击：无命令发起、视图状态无抖动', async () => {
     remaining = [FIRST];
     render(<App />);
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: FIRST.root }),
+      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
     );
 
-    const touchCountBefore = countOf('touch_workspace');
+    const callsBefore = invokeMock.mock.calls.length;
     fireEvent.click(itemByRoot(FIRST.root));
 
-    await waitFor(() => expect(countOf('touch_workspace')).toBe(touchCountBefore + 1));
-    // 清单重排后第一名不变，root 无抖动：list_changes 恒以 FIRST.root 发起
-    await waitFor(() => {
-      const lastListChanges = invokeMock.mock.calls
-        .filter(([name]) => name === 'list_changes')
-        .at(-1);
-      expect(lastListChanges).toEqual(['list_changes', { root: FIRST.root }]);
+    // 本地切换当前项自身：无任何新命令，root 无抖动
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 10));
     });
+    expect(invokeMock.mock.calls.length).toBe(callsBefore);
+    const lastListChanges = invokeMock.mock.calls
+      .filter(([name]) => name === 'list_changes')
+      .at(-1);
+    expect(lastListChanges).toEqual(['list_changes', { root: FIRST.root }]);
     expect(screen.getByText('add-feature') !== null).toBe(true);
   });
 
-  it('点击 GroupAction 内联图标：open({directory:true, multiple:false}) → add_workspace → 新记录（第一名）打开 → list_changes 以返回记录的 canonical root 发起（改写：欢迎屏入口 → GroupAction 图标）', async () => {
+  it('点击 GroupAction 内联图标：open({directory:true, multiple:false}) → add_workspace → 以返回记录打开 → list_changes 以返回记录的 canonical root 发起（改写：欢迎屏入口 → GroupAction 图标）', async () => {
     await restored();
     // 返回记录的 canonical root 与对话框原串书写不等价（模拟 canonicalize）
-    addRecord = { root: 'C:\\canonical\\picked', name: 'picked', addedAt: 1, lastOpenedAt: 5000 };
+    addRecord = { root: 'C:\\canonical\\picked', name: 'picked', addedAt: 1 };
     openMock.mockResolvedValue('/raw/PICKED DIR');
 
     fireEvent.click(screen.getByRole('button', { name: '添加 workspace' }));
@@ -469,7 +460,7 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     remaining = [FIRST];
     render(<App />);
     await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: FIRST.root }),
+      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
     );
 
     fireEvent.contextMenu(itemByRoot(FIRST.root));
@@ -566,20 +557,6 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
     expect(screen.queryByText('添加新文件夹')).toBeNull();
   });
 
-  it('恢复链 touch 失败（fire-and-forget）：toast 呈现「切换 workspace 失败：」且启动恢复不阻断（list_changes 照常发起）', async () => {
-    touchReject = 'db: 恢复 touch 失败';
-    render(<App />);
-
-    // 启动恢复不阻断：root 照常置为清单第一名，list_changes 以恢复根发起
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
-    );
-    await waitFor(() =>
-      expect(screen.getByText(/切换 workspace 失败：.*db: 恢复 touch 失败/) !== null).toBe(true),
-    );
-    expect(screen.queryAllByTestId('error-note')).toHaveLength(0);
-  });
-
   it('remove resolve(false)（store miss 幂等）：无 toast、无 error-note（D8 排除项在壳层的核对）', async () => {
     removeMiss = true;
     render(<App />);
@@ -593,8 +570,8 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: FIRST.root }),
     );
-    // 内部刷新照常发生（挂载取数 + 恢复 touch 刷新 + 移除刷新 = 3 次）
-    await waitFor(() => expect(countOf('list_workspaces')).toBe(3));
+    // 内部刷新照常发生（挂载取数 + 移除刷新 = 2 次）
+    await waitFor(() => expect(countOf('list_workspaces')).toBe(2));
     expect(document.querySelector('[data-sonner-toast]')).toBeNull();
     expect(screen.queryAllByTestId('error-note')).toHaveLength(0);
   });
@@ -870,13 +847,15 @@ describe('App：顶层页面切换（changes | agent，无路由）', () => {
   it('导航点击不触发任何 workspace 命令（两入口语义不串扰）', async () => {
     await restored();
 
-    const touchBefore = countOf('touch_workspace');
     const addBefore = countOf('add_workspace');
+    const removeBefore = countOf('remove_workspace');
+    const listBefore = countOf('list_workspaces');
     fireEvent.click(screen.getByTestId('nav-agent'));
     fireEvent.click(screen.getByTestId('nav-changes'));
 
-    expect(countOf('touch_workspace')).toBe(touchBefore);
     expect(countOf('add_workspace')).toBe(addBefore);
+    expect(countOf('remove_workspace')).toBe(removeBefore);
+    expect(countOf('list_workspaces')).toBe(listBefore);
   });
 
   it('root=null（无 workspace）时欢迎屏持有、页面导航不在场、不崩', async () => {

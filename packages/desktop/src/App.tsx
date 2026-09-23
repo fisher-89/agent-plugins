@@ -68,8 +68,8 @@ export default function App() {
   const update = useUpdater();
   const [page, setPage] = useState<TopPage>('changes');
 
-  // 对话框添加流经 useWorkspaces().add 入库；刷新后新记录 last_opened_at 最新，
-  // 即清单第一名，root 随之切换到返回记录的 canonical root
+  // 对话框添加流经 useWorkspaces().add 入库；成功即以返回记录的 canonical
+  // root 为当前根（清单为默认序，新记录未必居首）
   const pickAndAdd = useCallback(async () => {
     let selected: unknown;
     try {
@@ -91,7 +91,7 @@ export default function App() {
           <AppSidebar
             currentRoot={workspaceState.root}
             onAdd={pickAndAdd}
-            onOpen={workspaceState.touch}
+            onOpen={workspaceState.select}
             onRemove={workspaceState.remove}
             onPageChange={setPage}
             page={page}

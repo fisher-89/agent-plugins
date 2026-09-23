@@ -128,10 +128,9 @@ function detailState(
 // ---------------------------------------------------------------------------
 
 const FIRST: WorkspaceRecord = {
-  root: 'C:\\demo\\beta',
-  name: 'beta',
+  root: 'C:\\demo\\alpha',
+  name: 'alpha',
   addedAt: 1,
-  lastOpenedAt: 900,
 };
 
 const shellList: ChangeList = {
@@ -175,9 +174,6 @@ function mockIpc() {
     if (command === 'list_workspaces') {
       return Promise.resolve([...remaining]);
     }
-    if (command === 'touch_workspace') {
-      return Promise.resolve(true);
-    }
     if (command === 'remove_workspace') {
       remaining = remaining.filter((r) => r.root !== params?.root);
       return Promise.resolve(true);
@@ -187,7 +183,6 @@ function mockIpc() {
         root: params?.root ?? '',
         name: 'picked',
         addedAt: 1,
-        lastOpenedAt: 2,
       };
       remaining = [...remaining, rec];
       return Promise.resolve(rec);

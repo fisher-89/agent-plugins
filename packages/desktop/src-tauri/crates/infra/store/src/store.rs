@@ -134,35 +134,37 @@ impl Store {
         Ok(())
     }
 
-    /// canonicalize + upsert + touch：已存在 → 保留 `added_at`、刷新
-    /// `last_opened_at`；新建 → 两值同为 now。返回落库后的记录
+    /// canonicalize + upsert：已存在 → 原记录原样返回（保留 `added_at`，
+    /// 不刷新任何时间戳）；新建 → `added_at` 取 now。返回落库后的记录
     /// （canonical root，前端以此为当前根，展示与库内 key 同源）。
     pub fn add_workspace(&self, root: &Path) -> Result<WorkspaceRecord, StoreError> {
         let key = canonical::canonical_key(root)
             .map_err(StoreError::Canonicalize)?
             .to_string_lossy()
             .into_owned();
-        let now = now_millis();
         let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
         let record = {
             let mut table = write_txn
                 .open_table(USER_WORKSPACES)
                 .map_err(db_err("打开 user_workspaces 表"))?;
-            let record = match table.get(key.as_str()).map_err(db_err("读取已有记录"))? {
-                // 等价路径已入库：保留 added_at，仅刷新 last_opened_at（insert 即 upsert）
-                Some(guard) => {
-                    let mut existing =
-                        WorkspaceRecord::decode(guard.value()).map_err(db_err("解码已有记录"))?;
-                    existing.last_opened_at = now;
-                    existing
+            // 先拷出值结束借用，再做写入分支（读守卫的借用不得跨入 insert）
+            let stored = table
+                .get(key.as_str())
+                .map_err(db_err("读取已有记录"))?
+                .map(|guard| WorkspaceRecord::decode(guard.value()).map_err(db_err("解码已有记录")))
+                .transpose()?;
+            match stored {
+                // 等价路径已入库：原记录原样返回（无时间戳可刷新）
+                Some(record) => record,
+                None => {
+                    let record = WorkspaceRecord::from_root(&key, now_millis());
+                    let bytes = record.encode().map_err(db_err("编码记录"))?;
+                    table
+                        .insert(key.as_str(), bytes.as_slice())
+                        .map_err(db_err("写入记录"))?;
+                    record
                 }
-                None => WorkspaceRecord::from_root(&key, now),
-            };
-            let bytes = record.encode().map_err(db_err("编码记录"))?;
-            table
-                .insert(key.as_str(), bytes.as_slice())
-                .map_err(db_err("写入记录"))?;
-            record
+            }
         };
         write_txn
             .commit()
@@ -170,8 +172,8 @@ impl Store {
         Ok(record)
     }
 
-    /// 清单：`last_opened_at` 降序，并列按 root 字典序升序（顺序确定）；
-    /// 第一名即「上次打开」，不为此单设 API。
+    /// 清单：表主键（canonical root）自然序（redb 迭代序，字典序升序）。
+    /// 顺序与打开/添加时间无关，稳定可复现——sidebar 清单不因使用而重排。
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceRecord>, StoreError> {
         let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
         let table = read_txn
@@ -182,11 +184,6 @@ impl Store {
             let (_, value) = entry.map_err(db_err("读取记录"))?;
             records.push(WorkspaceRecord::decode(value.value()).map_err(db_err("解码记录"))?);
         }
-        records.sort_by(|a, b| {
-            b.last_opened_at
-                .cmp(&a.last_opened_at)
-                .then_with(|| a.root.cmp(&b.root))
-        });
         Ok(records)
     }
 
@@ -206,40 +203,6 @@ impl Store {
         write_txn
             .commit()
             .map_err(db_err("提交 remove_workspace 事务"))?;
-        Ok(hit)
-    }
-
-    /// 刷新 `last_opened_at`；miss 幂等 `Ok(false)`，不算错误。
-    pub fn touch_workspace(&self, root: &Path) -> Result<bool, StoreError> {
-        let Some(key) = self.resolve_key(root)? else {
-            return Ok(false);
-        };
-        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
-        let hit = {
-            let mut table = write_txn
-                .open_table(USER_WORKSPACES)
-                .map_err(db_err("打开 user_workspaces 表"))?;
-            // 先读后写分两步：读守卫的借用不得跨入 insert（scrutinee 临时借用）
-            let updated = match table.get(key.as_str()).map_err(db_err("读取记录"))? {
-                Some(guard) => {
-                    let mut record =
-                        WorkspaceRecord::decode(guard.value()).map_err(db_err("解码记录"))?;
-                    record.last_opened_at = now_millis();
-                    Some(record.encode().map_err(db_err("编码记录"))?)
-                }
-                None => None,
-            };
-            let hit = updated.is_some();
-            if let Some(bytes) = updated {
-                table
-                    .insert(key.as_str(), bytes.as_slice())
-                    .map_err(db_err("写入记录"))?;
-            }
-            hit
-        };
-        write_txn
-            .commit()
-            .map_err(db_err("提交 touch_workspace 事务"))?;
         Ok(hit)
     }
 

@@ -8,16 +8,17 @@
 
 ### Requirement: Store 打开与命令面
 
-store crate SHALL 暴露 `Store::open(path: &Path)` 打开（不存在则创建）redb 数据库文件；db 路径 MUST NOT 在 store crate 内解析（home_dir 依赖 Tauri 上下文），SHALL 由 desktop-app 解析后注入。store SHALL 提供四个同步操作（redb `Database` 为 `Send + Sync` 进程内 MVCC 单写多读，同步调用，无需 async）：
+store crate SHALL 暴露 `Store::open(path: &Path)` 打开（不存在则创建）redb 数据库文件；db 路径 MUST NOT 在 store crate 内解析（home_dir 依赖 Tauri 上下文），SHALL 由 desktop-app 解析后注入。store SHALL 提供三个同步操作（redb `Database` 为 `Send + Sync` 进程内 MVCC 单写多读，同步调用，无需 async）：
 
-- `add_workspace(root) -> WorkspaceRecord`：canonicalize + upsert + touch
-- `list_workspaces() -> Vec<WorkspaceRecord>`：`last_opened_at` 降序
+- `add_workspace(root) -> WorkspaceRecord`：canonicalize + upsert
+- `list_workspaces() -> Vec<WorkspaceRecord>`：默认序（表主键 canonical root 自然序升序）
 - `remove_workspace(root)`：按 canonical key 删除
-- `touch_workspace(root)`：刷新 `last_opened_at`
+
+MUST NOT 提供「按打开时间刷新/排序」类操作（`touch_workspace` 已移除：sidebar 清单顺序与使用时间无关，不因打开/切换而重排）。
 
 #### Scenario: tempdir 全链路
 
-- **WHEN** 在临时目录打开 Store 依次执行 add / list / touch / remove，并重开同一 db 文件
+- **WHEN** 在临时目录打开 Store 依次执行 add / list / remove，并重开同一 db 文件
 - **THEN** 各操作返回预期结果，且重开后记录状态与操作结果一致
 
 #### Scenario: db 路径注入
@@ -27,26 +28,26 @@ store crate SHALL 暴露 `Store::open(path: &Path)` 打开（不存在则创建�
 
 ### Requirement: canonical path 作 key 的 upsert 语义
 
-WORKSPACES 表 SHALL 以 canonical root path 为 key，value SHALL 为 `WorkspaceRecord` 的 JSON 编码。`add_workspace` SHALL 即 upsert：同一目录重复添加 MUST NOT 产生第二条记录，仅刷新 `last_opened_at`。目录移动 SHALL 视为删旧加新的两次用户操作，store MUST NOT 追踪路径身份连续性（将来需要时再迁 u64 id 方案）。Windows 路径的 canonicalize 口径（UNC `\\?\` 前缀处理、大小写不敏感归一化）SHALL 固定为单一策略并全链路一致：存库 key、去重比较、touch/remove 命中、前端展示同源。
+WORKSPACES 表 SHALL 以 canonical root path 为 key，value SHALL 为 `WorkspaceRecord` 的 JSON 编码。`add_workspace` SHALL 即 upsert：同一目录重复添加 MUST NOT 产生第二条记录，原记录 SHALL 原样返回（`added_at` 保留首添值，MUST NOT 刷新任何时间戳）。目录移动 SHALL 视为删旧加新的两次用户操作，store MUST NOT 追踪路径身份连续性（将来需要时再迁 u64 id 方案）。Windows 路径的 canonicalize 口径（UNC `\\?\` 前缀处理、大小写不敏感归一化）SHALL 固定为单一策略并全链路一致：存库 key、去重比较、remove 命中、前端展示同源。
 
 #### Scenario: 等价路径去重
 
 - **WHEN** 对同一目录先后两次 `add_workspace`（路径存在大小写或尾部分隔符等书写差异）
-- **THEN** 清单中仅一条记录，且其 `last_opened_at` 为后一次时间
+- **THEN** 清单中仅一条记录，第二次调用原样返回首添记录（`added_at` 保留首添值）
 
 #### Scenario: canonical 口径全链路一致
 
-- **WHEN** `add_workspace` 后再以等价路径执行 `touch_workspace` / `remove_workspace`
-- **THEN** 两个操作均命中同一条记录，不产生孤儿条目
+- **WHEN** `add_workspace` 后再以等价路径执行 `remove_workspace`
+- **THEN** 命中同一条记录，不产生孤儿条目
 
 ### Requirement: WorkspaceRecord 模型与清单排序
 
-`WorkspaceRecord` SHALL 含 `root`（canonical 完整路径）、`name`（目录名最后一段，展示用）、`added_at`、`last_opened_at` 四字段。`list_workspaces` SHALL 按 `last_opened_at` 降序返回；“上次打开的 workspace”SHALL 以清单第一名表达，MUST NOT 为此单设 API。
+`WorkspaceRecord` SHALL 含 `root`（canonical 完整路径）、`name`（目录名最后一段，展示用）、`added_at` 三字段。`list_workspaces` SHALL 按表主键（canonical root）自然序升序返回（默认序）：顺序与添加/打开时间无关、稳定可复现，清单呈现 MUST NOT 因使用而重排。存量库记录中的历史 `lastOpenedAt` 字段在解码时 SHALL 被忽略（serde 默认忽略未知字段），无需数据迁移。
 
-#### Scenario: 排序即恢复依据
+#### Scenario: 默认序与添加顺序无关
 
-- **WHEN** 依次 add/touch 多个 workspace 后调用 `list_workspaces`
-- **THEN** 返回顺序与 `last_opened_at` 降序一致，第一名即最近打开
+- **WHEN** 乱序 add 多个 workspace（如 gamma → alpha → beta）后调用 `list_workspaces`
+- **THEN** 返回顺序恒为 canonical root 字典序升序（alpha、beta、gamma），两次调用顺序一致
 
 #### Scenario: name 取目录名最后一段
 

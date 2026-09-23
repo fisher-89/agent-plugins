@@ -1,7 +1,7 @@
 //! `commands::workspaces` 的单元测试 + 「workspace命令面 → Store持久化」集成关系
 //! （dev-team 为纯 binary crate，无库目标，集成用例按仓库既有模式与本文件共置）。
 //!
-//! 四命令为薄包装（State 取 store + String→Path 参数转换 + StoreError→Err(String)
+//! 三命令为薄包装（State 取 store + String→Path 参数转换 + StoreError→Err(String)
 //! 映射）：`#[tauri::command]` 保留原函数可直调，测试不启动真实 Tauri runtime——
 //! 以 `tauri::test::mock_app()`（MockRuntime，无窗口无事件循环）manage 真实
 //! Store 后经 `app.state::<Store>()` 取 State。tempdir 真开 redb 文件。
@@ -13,7 +13,7 @@ use serde_json::json;
 use tauri::{App, Manager};
 use tempfile::TempDir;
 
-use super::{add_workspace, list_workspaces, remove_workspace, touch_workspace};
+use super::{add_workspace, list_workspaces, remove_workspace};
 use store::Store;
 
 /// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
@@ -66,19 +66,13 @@ fn app_with_store(env: &Env) -> App<tauri::test::MockRuntime> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 四命令结果与直连store公共api结果serde一致_薄包装不加工() {
+fn 三命令结果与直连store公共api结果serde一致_薄包装不加工() {
     let env = Env::new("passthrough");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
 
-    let rec_a = add_workspace(state.clone(), env.root_of("cmd-a")).expect("add a 应成功");
-    sleep_millis(2);
     let rec_b = add_workspace(state.clone(), env.root_of("cmd-b")).expect("add b 应成功");
-    sleep_millis(2);
-    assert!(
-        touch_workspace(state.clone(), rec_a.root.clone()).unwrap(),
-        "touch a 命中"
-    );
+    let rec_a = add_workspace(state.clone(), env.root_of("cmd-a")).expect("add a 应成功");
 
     // list：命令面与直连 store 公共 API 的 serde 值一致（同库同状态）
     let via_command = list_workspaces(state.clone()).expect("list 应成功");
@@ -92,14 +86,14 @@ fn 四命令结果与直连store公共api结果serde一致_薄包装不加工() 
     assert_eq!(
         roots,
         vec![rec_a.root.clone(), rec_b.root],
-        "命令面 touch 后排序一致"
+        "命令面与直连 store 的默认序（主键自然序）一致"
     );
     let stored_a = via_command.iter().find(|r| r.root == rec_a.root).unwrap();
     assert_eq!(stored_a.name, rec_a.name);
 }
 
 #[test]
-fn add_workspace返回值序列化顶层键恰为四字段驼峰命名无redb概念泄漏() {
+fn add_workspace返回值序列化顶层键恰为三字段驼峰命名无redb概念泄漏() {
     let env = Env::new("serde-shape");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
@@ -114,7 +108,7 @@ fn add_workspace返回值序列化顶层键恰为四字段驼峰命名无redb概
         .map(|k| k.as_str())
         .collect();
     keys.sort_unstable();
-    assert_eq!(keys, vec!["addedAt", "lastOpenedAt", "name", "root"]);
+    assert_eq!(keys, vec!["addedAt", "name", "root"]);
     assert_eq!(value["name"], json!("shape"));
 }
 
@@ -146,15 +140,14 @@ fn add传入书写不等价string返回root与库内canonical_key同源() {
 }
 
 #[test]
-fn 未注册root的remove_touch经命令面返回false幂等() {
+fn 未注册root的remove经命令面返回false幂等() {
     let env = Env::new("cmd-miss");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
     let registered = add_workspace(state.clone(), env.root_of("registered")).expect("add 应成功");
     let ghost = env.root_of("ghost"); // 存在但未注册
 
-    assert!(!remove_workspace(state.clone(), ghost.clone()).unwrap());
-    assert!(!touch_workspace(state.clone(), ghost).unwrap());
+    assert!(!remove_workspace(state.clone(), ghost).unwrap());
     assert_eq!(
         list_workspaces(state.clone()).unwrap(),
         vec![registered],
@@ -183,7 +176,7 @@ fn add传入不存在的目录返回err且含canonicalize前缀() {
 }
 
 #[test]
-fn 空字符串root时add为err而touch_remove为ok_false三命令语义一致() {
+fn 空字符串root时add为err而remove为ok_false两命令语义一致() {
     let env = Env::new("cmd-empty");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
@@ -191,10 +184,6 @@ fn 空字符串root时add为err而touch_remove为ok_false三命令语义一致()
 
     let add_err = add_workspace(state.clone(), String::new()).expect_err("空 root add 应 Err");
     assert!(add_err.starts_with("canonicalize:"), "实际: {add_err}");
-    assert!(
-        !touch_workspace(state.clone(), String::new()).unwrap(),
-        "空 root touch 幂等 miss"
-    );
     assert!(
         !remove_workspace(state.clone(), String::new()).unwrap(),
         "空 root remove 幂等 miss"
@@ -207,7 +196,7 @@ fn 空字符串root时add为err而touch_remove为ok_false三命令语义一致()
 }
 
 // ---------------------------------------------------------------------------
-// 集成：tempdir 全链路经命令面（add → touch → list → remove → 重开）与等价路径命中
+// 集成：tempdir 全链路经命令面（add → list → remove → 重开）与等价路径命中
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -222,7 +211,7 @@ fn 空库经命令面list返回空数组() {
 }
 
 #[test]
-fn 经命令面add_touch_list顺序与直连store一致_删除与重开后状态经命令面可复现() {
+fn 经命令面add_list顺序与直连store一致_删除与重开后状态经命令面可复现() {
     let env = Env::new("int-full");
     let rec_a;
     let rec_c;
@@ -230,13 +219,9 @@ fn 经命令面add_touch_list顺序与直连store一致_删除与重开后状态
         let app = app_with_store(&env);
         let state = app.state::<Store>();
 
-        rec_a = add_workspace(state.clone(), env.root_of("cmd-a")).expect("add a 应成功");
-        sleep_millis(2);
-        let rec_b = add_workspace(state.clone(), env.root_of("cmd-b")).expect("add b 应成功");
-        sleep_millis(2);
         rec_c = add_workspace(state.clone(), env.root_of("cmd-c")).expect("add c 应成功");
-        sleep_millis(2);
-        assert!(touch_workspace(state.clone(), rec_a.root.clone()).unwrap());
+        let rec_b = add_workspace(state.clone(), env.root_of("cmd-b")).expect("add b 应成功");
+        rec_a = add_workspace(state.clone(), env.root_of("cmd-a")).expect("add a 应成功");
 
         let roots: Vec<String> = list_workspaces(state.clone())
             .unwrap()
@@ -245,8 +230,8 @@ fn 经命令面add_touch_list顺序与直连store一致_删除与重开后状态
             .collect();
         assert_eq!(
             roots,
-            vec![rec_a.root.clone(), rec_c.root.clone(), rec_b.root.clone()],
-            "降序与并列规则一致"
+            vec![rec_a.root.clone(), rec_b.root.clone(), rec_c.root.clone()],
+            "默认序（主键自然序）与添加顺序无关"
         );
 
         // remove 命中：true 且清单不含该项
@@ -278,21 +263,14 @@ fn 经命令面add_touch_list顺序与直连store一致_删除与重开后状态
 }
 
 #[test]
-fn 等价路径经命令面touch_remove均命中同一条无孤儿条目() {
+fn 等价路径经命令面remove命中同一条无孤儿条目() {
     let env = Env::new("int-equivalent");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
     let raw = env.root_of("CmdDedup");
     let record = add_workspace(state.clone(), raw).expect("add 应成功");
 
-    // 尾分隔符书写形态 touch：命中
-    let with_trailing = format!("{}\\", record.root);
-    assert!(
-        touch_workspace(state.clone(), with_trailing).unwrap(),
-        "等价路径 touch 命中"
-    );
-
-    // 正斜杠书写形态 remove：命中同一条
+    // 正斜杠书写形态 remove：命中
     let forward = record.root.replace('\\', "/");
     assert!(
         remove_workspace(state.clone(), forward).unwrap(),
@@ -304,31 +282,21 @@ fn 等价路径经命令面touch_remove均命中同一条无孤儿条目() {
 }
 
 #[test]
-fn 大小写不同string二次add经命令面仅一条且时间戳刷新() {
+fn 大小写不同string二次add经命令面仅一条且原记录原样返回() {
     let env = Env::new("int-case");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
     let raw = env.root_of("CaseAdd");
     let first = add_workspace(state.clone(), raw).expect("首次 add 应成功");
 
-    sleep_millis(5);
     let flipped = Path::new(&first.root)
         .with_file_name("cASEaDD")
         .to_string_lossy()
         .into_owned();
     let second = add_workspace(state.clone(), flipped).expect("二次 add 应成功");
 
-    assert_eq!(second.root, first.root);
+    assert_eq!(second, first, "原记录原样返回");
     let list = list_workspaces(state.clone()).unwrap();
     assert_eq!(list.len(), 1, "仅一条记录");
     assert_eq!(list[0].added_at, first.added_at, "added_at 保留首添值");
-    assert!(
-        list[0].last_opened_at > first.last_opened_at,
-        "last_opened_at 已刷新"
-    );
-}
-
-/// 毫秒级 sleep：为需要严格时间差的断言拉开 wall clock（时钟不 mock）。
-fn sleep_millis(ms: u64) {
-    std::thread::sleep(std::time::Duration::from_millis(ms));
 }
