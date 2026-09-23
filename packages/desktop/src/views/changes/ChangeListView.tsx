@@ -70,7 +70,32 @@ function ArchiveGroups({
   );
 }
 
-/** change 列表视图：active 列表 + archive 按月分组（"未知时间"组置尾）、代际徽标、点击进详情 */
+/** 数据区：active 列表 + archive 分组 + 空目录提示 */
+function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (name: string) => void }) {
+  return (
+    <>
+      <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
+        <h2 className="m-0 mb-2.5 text-[15px]">
+          进行中 <span className="text-muted-foreground">({data.active.length})</span>
+        </h2>
+        {data.active.length === 0 ? (
+          <div className="text-muted-foreground">无进行中的 change。</div>
+        ) : (
+          data.active.map((summary) => (
+            <ChangeRow key={summary.name} summary={summary} onSelect={onSelect} />
+          ))
+        )}
+      </section>
+      <ArchiveGroups groups={data.archiveGroups} onSelect={onSelect} />
+      {data.active.length === 0 && data.archiveGroups.length === 0 && (
+        <div className="text-muted-foreground">该 workspace 下未发现任何 change 目录。</div>
+      )}
+    </>
+  );
+}
+
+/** change 列表视图：头部刷新行（始终渲染）+ 加载/error-note 空态 + 列表数据区；
+ * active 列表 + archive 按月分组（"未知时间"组置尾）、代际徽标、点击进详情 */
 export function ChangeListView({
   state,
   onSelect,
@@ -81,6 +106,12 @@ export function ChangeListView({
   const { data, loading, error } = state;
   return (
     <div>
+      {/* 头部行（始终渲染）：刷新控件语义自 App header 迁入 */}
+      <div className="mb-3 flex items-center justify-end">
+        <Button disabled={state.loading} onClick={state.refresh}>
+          刷新列表
+        </Button>
+      </div>
       {error !== null && (
         <div
           className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"
@@ -93,26 +124,7 @@ export function ChangeListView({
       {!loading && data === null && !error && (
         <div className="text-muted-foreground">暂无数据，点击刷新获取。</div>
       )}
-      {data !== null && (
-        <>
-          <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
-            <h2 className="m-0 mb-2.5 text-[15px]">
-              进行中 <span className="text-muted-foreground">({data.active.length})</span>
-            </h2>
-            {data.active.length === 0 ? (
-              <div className="text-muted-foreground">无进行中的 change。</div>
-            ) : (
-              data.active.map((summary) => (
-                <ChangeRow key={summary.name} summary={summary} onSelect={onSelect} />
-              ))
-            )}
-          </section>
-          <ArchiveGroups groups={data.archiveGroups} onSelect={onSelect} />
-          {data.active.length === 0 && data.archiveGroups.length === 0 && (
-            <div className="text-muted-foreground">该 workspace 下未发现任何 change 目录。</div>
-          )}
-        </>
-      )}
+      {data !== null && <ListSections data={data} onSelect={onSelect} />}
     </div>
   );
 }

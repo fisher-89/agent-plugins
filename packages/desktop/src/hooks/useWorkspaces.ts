@@ -1,12 +1,24 @@
 import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { toast } from 'sonner';
 
 import type { WorkspaceRecord } from '../types/dto';
+
+/** 动作失败 toast 固定前缀（design D8：文案供断言；remove 的 store miss 幂等非错误不 toast） */
+const ACTION_ERROR_PREFIX = {
+  add: '添加 workspace 失败：',
+  remove: '移除 workspace 失败：',
+  touch: '切换 workspace 失败：',
+} as const;
 
 export interface WorkspaceState {
   root: string | null;
   workspaces: WorkspaceRecord[];
   loading: boolean;
+  /**
+   * 仅承载 list_workspaces 加载失败（双轨语义：add/remove/touch 动作失败在
+   * hook 内直调 toast.error 呈现，不置本字段）。
+   */
   error: string | null;
   add: (root: string) => Promise<WorkspaceRecord | null>;
   remove: (root: string) => Promise<boolean>;
@@ -19,9 +31,12 @@ export interface WorkspaceState {
  * root 恒等于清单第一名（后端按 last_opened_at 降序返回）：清单非空即选中
  * 第一名，清单为空时 root 为 null 停欢迎屏。首次取得非空清单时以第一名
  * touch（fire-and-forget，先于 setRoot 派发，保证「挂载取数 → touch →
- * 以恢复根取列表」时序），此后刷新不再恢复，避免取数-恢复循环。
- * add / remove / touch 成功后内部刷新清单，失败置 error 态并返回
- * null / false。无轮询、无文件 watch。
+ * 以恢复根取列表」时序；失败经 toast 呈现，不阻断恢复链），此后刷新不再恢复，
+ * 避免取数-恢复循环。错误呈现双轨：查询轨道 list_workspaces 失败置 error 态
+ * inline 持久；动作轨道 add/remove/touch 失败 hook 内直调 toast.error
+ * （固定前缀 + String(err)），不置 error 态，返回值（null / false）仅供流程
+ * 控制。remove 返回 false（store miss）为幂等非错误：无 error、无 toast。
+ * 无轮询、无文件 watch。
  */
 export function useWorkspaces(): WorkspaceState {
   const [root, setRoot] = useState<string | null>(null);
@@ -32,7 +47,7 @@ export function useWorkspaces(): WorkspaceState {
   const restoredRef = useRef(false);
 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
-  const { add, remove, touch } = useWorkspacesActions(refresh, setError);
+  const { add, remove, touch } = useWorkspacesActions(refresh);
 
   useEffect(() => {
     let cancelled = false;
@@ -63,7 +78,8 @@ export function useWorkspaces(): WorkspaceState {
   return { root, workspaces, loading, error, add, remove, touch };
 }
 
-function useWorkspacesActions(refresh: () => void, setError: (err: string) => void) {
+/** 动作轨道：失败直调 toast.error（不置 error 态），返回值仅供流程控制 */
+function useWorkspacesActions(refresh: () => void) {
   const add = useCallback(
     async (root: string): Promise<WorkspaceRecord | null> => {
       try {
@@ -71,7 +87,7 @@ function useWorkspacesActions(refresh: () => void, setError: (err: string) => vo
         refresh();
         return record;
       } catch (err: unknown) {
-        setError(String(err));
+        toast.error(`${ACTION_ERROR_PREFIX.add}${String(err)}`);
         return null;
       }
     },
@@ -85,7 +101,7 @@ function useWorkspacesActions(refresh: () => void, setError: (err: string) => vo
         refresh();
         return hit;
       } catch (err: unknown) {
-        setError(String(err));
+        toast.error(`${ACTION_ERROR_PREFIX.remove}${String(err)}`);
         return false;
       }
     },
@@ -99,7 +115,7 @@ function useWorkspacesActions(refresh: () => void, setError: (err: string) => vo
         refresh();
         return hit;
       } catch (err: unknown) {
-        setError(String(err));
+        toast.error(`${ACTION_ERROR_PREFIX.touch}${String(err)}`);
         return false;
       }
     },

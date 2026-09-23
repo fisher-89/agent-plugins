@@ -1,0 +1,731 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-22",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-mobile.ts",
+      "at": "2026-09-22T14:32:33.856Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/tooltip.tsx",
+      "at": "2026-09-22T14:32:47.221Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/separator.tsx",
+      "at": "2026-09-22T14:32:50.324Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/sheet.tsx",
+      "at": "2026-09-22T14:33:06.812Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/context-menu.tsx",
+      "at": "2026-09-22T14:33:12.252Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/sonner.tsx",
+      "at": "2026-09-22T14:33:17.798Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/ui/sidebar.tsx",
+      "at": "2026-09-22T14:35:30.161Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/shadcn_controls.test.tsx",
+      "at": "2026-09-22T14:47:18.927Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/useWorkspaces.ts",
+      "at": "2026-09-22T14:39:54.143Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/AppSidebar.tsx",
+      "at": "2026-09-22T14:40:15.998Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.tsx",
+      "at": "2026-09-22T14:40:33.224Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeListView.tsx",
+      "at": "2026-09-22T14:41:47.440Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/WelcomeView.tsx",
+      "at": "2026-09-22T14:40:43.570Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeDetailView.test.tsx",
+      "at": "2026-09-22T14:44:01.679Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "2>/dev/null",
+      "at": "2026-09-22T14:44:01.679Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-mobile.test.ts",
+      "at": "2026-09-22T15:36:54.260Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/AppSidebar.test.tsx",
+      "at": "2026-09-22T15:12:26.498Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/useWorkspaces.test.ts",
+      "at": "2026-09-22T15:26:30.231Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeListView.test.tsx",
+      "at": "2026-09-22T15:15:09.330Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-22T15:36:52.027Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/workspace_restore.test.tsx",
+      "at": "2026-09-22T15:20:44.933Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/shadcn_controls.test.tsx",
+      "at": "2026-09-22T15:21:13.792Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "src/hooks/__debug_vp.test.ts",
+      "at": "2026-09-22T15:26:13.243Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "src/__tests__/__debug_sheet.test.tsx",
+      "at": "2026-09-22T15:31:36.523Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "debug-sheet.log",
+      "at": "2026-09-22T15:31:36.523Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "2>/dev/null",
+      "at": "2026-09-22T15:31:36.523Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/ipc_pipeline.test.tsx",
+      "at": "2026-09-22T15:33:21.230Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-22T15:38:19.272Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/components/AppSidebar.test.tsx",
+      "at": "2026-09-22T15:38:19.272Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/hooks/use-mobile.test.ts",
+      "at": "2026-09-22T15:38:19.272Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/hooks/useWorkspaces.test.ts",
+      "at": "2026-09-22T15:38:19.272Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/ChangeListView.test.tsx",
+      "at": "2026-09-22T15:38:19.272Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/__tests__/workspace_restore.test.tsx",
+      "at": "2026-09-22T15:38:19.272Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/__tests__/shadcn_controls.test.tsx",
+      "at": "2026-09-22T15:38:19.272Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/__tests__/ipc_pipeline.test.tsx",
+      "at": "2026-09-22T15:38:19.272Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "评估 proposal.md + specs/desktop-app-shell/spec.md。R1 问题含具体痛点与代码引用（App.tsx:94/WelcomeView.tsx:16）；R2 三节均非空（9/6/6 项）；R3 七项风险各有具体缓解；R4 AC-1~10 均对象+条件可测试；R5 九项决策均有被拒备选；R6 与 CLAUDE.md knip 纪律/不涉插件源一致；R7 无占位符；R9-R10 修改能力 desktop-app-shell 与唯一 spec 1:1；R11 spec 2 ADDED+4 MODIFIED 与声明一致，AC-1~9 映射 scenarios，双轨/零后端口径无冲突。判定：pass。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "proposal.md L11-15: 具体痛点（select 无法呈现全貌、控件语义错位、useWorkspaces.error 混装两类失败），引用 App.tsx:94 / WelcomeView.tsx:16，动机明确且注明 tailwind-migration 前置已归档"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L47 `### 实现文件` 9 项；L59 `### 测试文件` 6 项；L72 `### 不要修改` 6 项，均非空"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L102-110 七项风险各有非泛化缓解：radix「薄包装+testid 断言最终态」、sonner「测试内挂载 Toaster、固定文案、约定 waitFor」、knip「删减未用导出，不加豁免」"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L85-96 AC-1~AC-10 均对象+条件：AC-1 getByRole('combobox') 抛错、AC-5 fireEvent.contextMenu、AC-8 queryAllByTestId('error-note') 为 0、AC-9 git diff 为空"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L118-128 决策表 9 行均含理由+备选：如「sidebar 唯一入口」备选「下拉与 sidebar 并存」；「错误双轨」备选「全部 toast；全部 error-note」"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L79 不涉插件源故无 bump 义务；knip 内部化纪律（L50/L96 无新增豁免）与 no-test-only-exports 一致；后端零改动符合 surgical changes"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "对变更目录 grep TODO|TBD|placeholder|\\{\\{（忽略大小写）零匹配；待决问题为合法 design 输入非占位符"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围/验收标准/风险/过程均实质填写：提案 5 点方案+不做清单（L29），决策表 9 行，待决问题 4 条具体"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L33 `## 能力`；L39-41 `### 修改的能力` 列 desktop-app-shell（2 新增 requirement + 4 改写 requirement）；新增能力显式标注「无」"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力章节仅列 desktop-app-shell；specs/ 下仅存在 specs/desktop-app-shell/spec.md，1:1 对应，无多余 spec"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "spec ADDED 两条+MODIFIED 四条与 L41 声明一致；AC-1~8 对应 spec scenarios；AC-8 双轨口径与 workspace 注册命令轨道 reject 分流子句一致；touch→恒取第一名两文一致；AC-9 对应 spec 头注「desktop-workspace-store 无本 change delta」"
+        }
+      ],
+      "start_at": "2026-09-22T13:08:20.095Z",
+      "timestamp": "2026-09-22T13:18:36.390Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 通过。D1 组件表9行齐4列无TBD；D2 数据模型4条含字段+持久化；D3 AC-1..10 逐项有落点；D4 四阶段依赖序无逆序；D5 任务含具体命令/导出集/testid/文案前缀；D6 运行时6包列用途、构建无新增；D7 合 knip/vp 纪律与 CLAUDE.md；D8 六节实填、路由不适用已注明；D9 无测试章节与测试任务（仅 client:check 静态守线）；D10 proposal 实现文件全覆盖（skeleton/input 按 D5 有理由不引入），tasks 文件均在清单，函数子表与新增文件一致。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表 9 行均填职责/文件位置/依赖/技术四列，无 TBD；ui/*.tsx 分组行的 separator/sheet/tooltip/context-menu 各自在变更清单新增文件表以精确路径列出"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表 4 个模型（WorkspaceRecord/WorkspaceState/侧栏折叠态/ChangeListState）均含字段列与持久化列（redb 现状/会话内 state 不持久化/无持久化）"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表 AC-1..AC-10 逐项给出设计落点，与变更清单（App.tsx/useWorkspaces/ChangeListView 等）及决策 D1-D8 交叉互证，无遗漏"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "4 阶段：依赖与生成件→错误双轨→壳重排→守线；sonner 安装（阶段1）先于 toast 使用（阶段2），ui 生成件先于 AppSidebar/App.tsx；全部 - [ ] 复选框，无前置依赖后续任务"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "任务含具体命令（pnpm -C packages/desktop add ...）、pin 导出集、固定 toast 前缀三则、testid（workspace-item/workspace-sub）、aria-label、对话框参数，非泛化描述"
+        },
+        {
+          "item": "D6 依赖项已列出",
+          "pass": true,
+          "evidence": "运行时依赖 6 包（4 个 @radix-ui + lucide-react + sonner）各注用途；构建/测试依赖节明确无新增并说明沿用现有工具链"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "沿用 knip 未用导出纪律（无 test-only 导出、useSidebar 不导出）、vp 工具链（client:check/vp test）、无投机抽象；不涉插件源与产物目录，无矛盾"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增 8 文件+修改 6 文件+函数+类型）/数据模型/依赖/待决问题均实填；路由/API 不适用已注明（无 HTTP API，IPC 零改动）；proposal 四项待决均定夺"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/架构章节，测试文件明确移交 test-design/test-gen；tasks.md 仅 client:check（fmt/lint/knip 静态守线），无单元/集成测试任务、无 vp test 执行任务"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal 实现文件 9 项全覆盖（skeleton/input 按 D5 有理由不引入，proposal 原文为「按需引入」）；tasks 引用 14 文件均在清单且清单文件均有对应任务；新增文件导出与公共函数子表逐一对上，无矛盾"
+        }
+      ],
+      "start_at": "2026-09-22T13:19:31.313Z",
+      "timestamp": "2026-09-22T13:32:53.391Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "T1-T4,T6,T7 通过:AC-1~10 全映射验收范围;集成 7 AC 与四关系关联AC双向对齐;参数边界/异常系统化;IPC/dialog/sonner/matchMedia Mock 齐备;不做项零覆盖;remove store-miss 幂等在单测+关系三双处断言。T5✗:App.tsx->App.test.tsx 节缺「#### Mock策略」小节(仅注释提及三处进程边界);WelcomeView 节缺「#### 用例」「#### Mock策略」小节(仅注释声明不落地)。T8✗:T8-U2 该两节三子章节不全;其余 U1/U4/U5/I1-I8/G1 符合。",
+      "checklist": [
+        {
+          "item": "T1 proposal 验收标准在验收范围全映射",
+          "pass": true,
+          "evidence": "验收范围表 10 行与 proposal AC-1~AC-10 逐条对应,文案一致(含 AC-9 不可测试/AC-10 不可测试标注)"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "集成 AC-1/2/7←关系四、AC-3/4/5←关系一、AC-3/5/8←关系二、AC-8←关系三;单元条目 AC-6→ChangeListView 节;AC-3/7/8 单测半边路由由双路由注释显式声明;关联AC 引用均在验收范围存在"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "AppSidebar 清单渲染异常(currentRoot 缺失)+空清单/50项/超长root/无分隔符边界;useWorkspaces 异常×4+边界×2;use-mobile/ChangeListView 边界齐备;ChangeListView 异常由保留 error-note 用例(注释登记)承载"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "invoke/plugin-dialog open/getVersion/matchMedia/ResizeObserver/sonner toast 均有 Mock策略表;sonner Toaster 不 mock 亦有注释理由(waitFor+真实 DOM)"
+        },
+        {
+          "item": "T5 模板章节均填写实质性内容",
+          "pass": false,
+          "evidence": "App.tsx->App.test.tsx 节缺「#### Mock策略」小节,Mock 信息仅散在用例注释与集成章节;WelcomeView 节缺「#### 用例」「#### Mock策略」小节,仅两条注释声明不新建文件"
+        },
+        {
+          "item": "T6 测试范围与 proposal 一致",
+          "pass": true,
+          "evidence": "不做项(重命名/置顶/移除确认弹窗/欢迎态改版)无正向覆盖;「无确认弹窗」断言属 AC-5 验收条件本身;in-scope AC-1~8 均有承载,AC-9/10 归不可测试项并给原因"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "remove resolve(false)(store miss 幂等)在 useWorkspaces 单测与关系三场景一双处断言(无 toast/无 error-note);关系二次数守卫(恰3次 list_workspaces/无第二次恢复 touch)防副作用累积"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": false,
+          "evidence": "T8-U2 不符:App.tsx 节三子章节缺 Mock策略、WelcomeView 节缺 用例+Mock策略;T8-U1/U4/U5/I1-I8/G1 逐项核验符合(关系标题均含→测试文件,涉及模块表≥2行,场景段落齐全,用例/Mock 列名与模板一致,验收范围 4 列与模板一致)"
+        }
+      ],
+      "start_at": "2026-09-22T13:33:29.026Z",
+      "timestamp": "2026-09-22T13:59:43.120Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "test-design 评估通过(T1-T8 全过)。T1: AC-1~10 全映射验收范围(L15-24),AC-9/10 落不可测试项。T2: AC-6↔ChangeListView 章节;四关系关联AC 覆盖全部 7 个集成 AC。T3: 空清单/超大/超长root/不存在currentRoot/4类reject/断点/卸载泄漏系统覆盖。T4: invoke/dialog/getVersion/matchMedia/sonner/ResizeObserver Mock表齐备,无Mock处注释说明。T5: 章节齐全,App/WelcomeView 注释承载路由决策。T6: 不做项无用例,in-scope 全覆盖。T7: remove store-miss 幂等双层用例+重复touch无抖动。T8: 标题/列名/子章节序/场景结构全合规。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md L87-96 十条 AC 与 test-design L15-24 验收范围逐条对应,验收条件原文摘录一致;AC-9/AC-10 标不可测试并落不可测试项 L424-425 附原因"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "唯一单元测试条目 AC-6→ChangeListView.test.tsx 有对应 ### 章节(L155);四关系关联AC(L213/275/316/370)覆盖全部 7 个集成 AC 且均存在于验收范围;单测半边路由由 L26 双路由说明登记"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "AppSidebar:空清单/50项超大/不存在currentRoot异常/>1000字符root/无分隔符root(L78-88);useWorkspaces:4条reject异常+store miss边界(L136-141);use-mobile:断点边界+卸载泄漏(L114-116);ChangeListView:loading/空数据边界,异常用例经注释登记保留(L170)"
+        },
+        {
+          "item": "T4 外部依赖有Mock策略",
+          "pass": true,
+          "evidence": "Tauri invoke/plugin-dialog/getVersion/matchMedia/sonner toast/ResizeObserver 均有Mock策略表(L53-58/92-96/120-122/148-151/255-260/296-300/350-353/414-416);ChangeListView 无Mock以注释说明(L174)"
+        },
+        {
+          "item": "T5 模板章节均填实质性内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/集成测试/不可测试项全部填实;6个per-file章节含待测功能/用例/Mock策略三子章节且序正确;App与WelcomeView以注释承载改写路由与不落地决策(L45-47/186/190),无空占位"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "不做项(重命名/置顶/确认弹窗/欢迎态改版)无用例覆盖;in_scope 9个实现文件与5个测试文件全登记,shadcn_controls 改写波及归关系一验证方之二(L211),查询轨保留套件在集成章节注释登记(L198/345)"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "remove resolve(false) store miss 幂等双层用例(useWorkspaces L140+关系三 L331,无toast/error-note副作用累积);唯一清单项重复touch无抖动(L227);touch单调时钟重排语义断言逐字保留"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "6个单元###均为「源 -> 测试文件」式且三子章节序正确;用例表4列/Mock表3列,无测试文件列;4个集成###均含→测试文件标题、涉及模块表(4-6行)、关联AC非空、叙事关系描述、场景3/1/2/3个(关系内唯一)、场景叙事段、用例3列表(L223/235/247/285/326/340/380/393/404);验收范围列名与模板一致"
+        }
+      ],
+      "start_at": "2026-09-22T14:00:51.022Z",
+      "timestamp": "2026-09-22T14:07:36.233Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账通过：8 新增文件均在 files 清单且读盘核实；6 修改文件中 package.json 为 pnpm add 良性漏记（diff 与清单一致）、global.css 零 diff 属设计预期；files.written 无越界，无删除。D1-D8 全落实（无 cookie、toast 固定前缀逐字一致、parentDir 副文本、delayDuration=0、配置零改动、main→div）。暂存区 main.rs devtools 与版本号 0.1.1 系用户本地暂存（不在 files 清单、纯新增），不判 fail。ChangeListView 残留一行重复 JSDoc（L73），属瑕疵不计 fail。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "8 新文件（sidebar/separator/sheet/tooltip/context-menu/sonner/use-mobile/AppSidebar）逐一读盘在位；App壳/useWorkspaces/两视图/global.css 组件均已实现"
+        },
+        {
+          "item": "I2 变更清单条目均有实现",
+          "pass": true,
+          "evidence": "导出集/签名/类型与变更清单逐项吻合；package.json 依赖已核实（hook 漏记属良性）；global.css 零 diff 属 design 预期；files.written 12 条全部对应清单、无越界"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "@/ 别名导入、props 字母序、中文 JSDoc、裁剪导出口径与 ui/button 一致"
+        },
+        {
+          "item": "I4 路由/API 已实现",
+          "pass": true,
+          "evidence": "design 声明无 HTTP 路由；IPC 仅既有 4 命令，未新增命令"
+        },
+        {
+          "item": "I5 tasks 全部 [x]",
+          "pass": true,
+          "evidence": "tasks.md 阶段1-4 全部复选框已勾选"
+        },
+        {
+          "item": "I6 无无关代码",
+          "pass": true,
+          "evidence": "暂存区 main.rs devtools 片段与版本号 0.1.1 为用户本地暂存（不在 files 清单、非本次生成器写入、纯新增无删除），不判 fail"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "D1 会话内 state 无 cookie；D2 hook 直调 toast；D3 parentDir 副文本+data-testid；D4 delayDuration=0/asChild；D5 不引 skeleton/input；D6 配置零 diff；D7 内层 main→div；D8 toast 固定前缀逐字一致、store miss 不 toast"
+        }
+      ],
+      "start_at": "2026-09-22T14:08:09.322Z",
+      "timestamp": "2026-09-22T14:53:41.307Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账通过：design 声明 8 测试文件均在 files.written 且读盘核实，WelcomeView.test.tsx 按设计不落地，无越界。G1 公开 API 全覆盖（App/AppSidebar/useIsMobile/useWorkspaces/ChangeListView 直接测，WelcomeView 经 App 路径，ui/** 按设计排除）；G2 新文件同目录 *.test.ts(x)；G3 单测 29/29 行骨架齐；G4 集成 30/30 行落位，AC 关联正确；G5 mock 全实现（invoke 按命令分发+单调时钟、sonner 不 mock 走真实 DOM+waitFor、matchMedia/ResizeObserver stub、toast.error vi.fn）；G6 vite-plus/test+RTL+jsdom 套件默认；G7 边界齐；G8 teardown 齐；G9 唯一废弃行未生成、由无 combobox 断言取代。esbuild 解析 8 文件全过。判定：pass。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "AppSidebar.test.tsx 13 用例断言 onOpen/onAdd/onRemove/渲染/激活态/Tooltip/副文本；use-mobile.test.ts 5 用例钉 useIsMobile；useWorkspaces.test.ts 覆盖 root/workspaces/loading/error/add/remove/touch 全签名；ChangeListView.test.tsx 覆盖头部刷新行+既有分组面；App.test.tsx 全壳链路；WelcomeView 经 App 欢迎态用例（设计定案不落地专属文件）；ui/** 六件设计排除（test config scope 外，经消费方间接验证）。无导出 class。"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码同目录",
+          "pass": true,
+          "evidence": "AppSidebar.test.tsx、use-mobile.test.ts、useWorkspaces.test.ts、ChangeListView.test.tsx、App.test.tsx 均与源文件同目录且符合 *.test.ts(x)；workspace_restore/shadcn_controls/ipc_pipeline 为既有 __tests__ 集成套件原址改写（proposal 测试文件清单口径），非本次新建路径。"
+        },
+        {
+          "item": "G3 单元测试用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "AppSidebar 13/13（清单渲染5、切换1、添加1、右键2、Tooltip副文本4，L106-266）；use-mobile 5/5（L80-133）；useWorkspaces 错误双轨 7/7（L267-414）；ChangeListView 头部刷新行 4/4（L196-250）；App.tsx 节按设计不设表（用例由集成承载）、WelcomeView 按设计不落地；路径类型正向/边界/异常归类与实现一致。"
+        },
+        {
+          "item": "G4 集成测试用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "关系一 9/9（App.test.tsx 切换3+GroupAction添加3+右键移除3，L363-540）；关系二 4/4（workspace_restore L241-299，含次数守卫逐字保留）；关系三 7/7（toast轨5+inline轨2，L571-718）；关系四 10/10（拓扑3+欢迎Toaster2+折叠4，L748-882）；AC ID 与设计表一致；shadcn_controls L431 承载关系一「验证方之二」改写。"
+        },
+        {
+          "item": "G5 Mock策略表格中的 mock 已实现",
+          "pass": true,
+          "evidence": "App.test mockIpc 按命令分发+touch 单调时钟重排+removeReject/addBehavior/touchReject/listReject 四开关；plugin-dialog open、getVersion '0.1.0'、matchMedia stub 齐；sonner Toaster 按设计不 mock，断言走真实 DOM+waitFor；useWorkspaces vi.mock sonner toast.error 为 vi.fn；AppSidebar matchMedia+ResizeObserver stub；ChangeListView 无 mock 符合设计。备注：关系二方案提及 add 开关，实现仅有 addRecord 覆写，但该套件无用例需 add reject，主体已实现，不判 fail。"
+        },
+        {
+          "item": "G6 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "8 文件均 import 自 vite-plus/test（describe/it/vi）+ @testing-library/react；jsdom 经套件默认（vite.config.ts test.environment='jsdom'）生效，部分文件的 @vitest-environment jsdom 注释冗余但无害；与 design 测试框架识别结论一致。"
+        },
+        {
+          "item": "G7 test-design 中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "空清单、50项、不存在 currentRoot、无分隔符 root、超长 root、同名不同父、767/768 断点、卸载监听泄漏、空串 root、remove resolve(false) store miss、对话框 null 取消、loading disabled 四形态、唯一项自点、移除至空回欢迎屏、<768px Sheet、折叠不持久化均有对应 it；本设计无参数类型映射表章节，各参数型边界≥2 值。"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "各 stub 文件 afterEach 恢复（innerWidth 描述符还原+matchMedia 删除、vi.unstubAllGlobals、vi.useRealTimers、restoreViewport）+ beforeEach mockReset；App.test.tsx beforeEach toast.dismiss 防 sonner 跨用例残留；ChangeListView 无 stub，依赖套件 globals:true 的 RTL 自动 cleanup。"
+        },
+        {
+          "item": "G9 迭代类型=废弃 的条目未生成新测试",
+          "pass": true,
+          "evidence": "唯一废弃行「Header 下拉在清单非空时保持可操作（未禁用）」无对应 describe/it；其语义按设计由 App.test.tsx L768 与 workspace_restore L293 的 queryByRole('combobox')/option 为 null 断言取代，无残留下拉时代断言。"
+        }
+      ],
+      "start_at": "2026-09-22T14:54:09.992Z",
+      "timestamp": "2026-09-22T15:46:05.152Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 2784 个测试通过（dev-team 2379 / desktop 388 / rust 17），无执行错误；Mutation 89.55%≥80%。覆盖率按摘要 coverage.pass=true 判达标（measured 三维 null → N/A (框架不支持)）。注意：计划级 report.json 记录 desktop branches 58.34%<85%、rust branches 0%/functions 86.79%<90% 未达标，与摘要聚合不一致（findings 已声明）；desktop 缺口集中于设计排除测试范围的 ui/** 与新 UI 分支，rust 为解析伪象＋AC-9 零改动基线存量，建议按计划级口径复核覆盖率处置。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "summary.json 含 phase/command/timestamp/total=2784/passed=2784/failed=0/skipped=0、coverage{pass,measured,thresholds,overrides}、duration_seconds=483，类型全部正确"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2784>0；conclusion=pass、problems=[] 无 execution_error；mutation.pass=true（89.55%≥80%）；三计划（dev-team 2379 / desktop 388 / rust 17）合计与总数一致"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "摘要 coverage.pass=true，measured 三维均 null → N/A (框架不支持)，overrides 两项 pass=true，按检查单以摘要 coverage.pass 为准判过。注意：计划级 report.json 记录 desktop branches 58.34%<85%（pass=false）、rust branches 0% / functions 86.79%<90%（pass=false），与摘要聚合不一致（summary findings #2 已声明并以计划级为权威）"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无测试失败诊断需求（自动通过）。计划级覆盖缺口根因明确：desktop 分支缺口集中于设计排除测试范围的 ui/** 原语（计入覆盖率分母）及新 UI 交互分支；rust branches=0 为 cargo-llvm-cov 解析伪象、functions 缺口属基线存量（AC-9 本 change src-tauri 零改动）"
+        }
+      ],
+      "start_at": "2026-09-22T15:46:43.880Z",
+      "timestamp": "2026-09-22T16:01:44.365Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "C3 fail：src-tauri/main.rs:41-46 新增 debug devtools 块，违反 AC-9「git diff packages/desktop/src-tauri 为空」与 proposal「不要修改 src-tauri/**」，且不在 file_log 清单。C5 fail：main.rs:44-45 open_devtools 后立即 close_devtools，净效果为零冗余。C6 fail：ChangeListView.tsx:73 旧视图级 JSDoc 悬挂于 ListSections 上方与新「数据区」注释叠置。C1/C2/C4/C7 过：无注入与硬编码密钥；取消/空清单/卸载边界有守卫；复用 WorkspaceRecord 等同源类型；knip/stryker/vite/global.css 零 diff 合 D6。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep 全 src 无 password/secret/eval/exec/innerHTML/dangerouslySetInnerHTML 命中；仅 App.test.tsx:837-881 断言 localStorage/cookie 缺席（D1 正向验证）"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "App.tsx:62 对话框取消 typeof selected!=='string' 守卫、:59-61 open reject catch；invoke 结果走既有 DTO 契约（WorkspaceRecord/boolean，后端 reject→Err(String) 零改动）"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": false,
+          "evidence": "packages/desktop/src-tauri/src/main.rs:41-46 新增 #[cfg(debug_assertions)] devtools 块，直接违反 AC-9「git diff packages/desktop/src-tauri 为空」与 proposal「不要修改：src-tauri/** 全部」；该文件亦不在 workflow_files 清单内（scope 外未记录改动）。另 package.json version 0.1.0→0.1.1 超出 design 变更清单声明（仅依赖新增）"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "AppSidebar.tsx:36-39 parentDir 无分隔符→空串不显示；useWorkspaces.ts:60 result[0]?.root??null 空清单→root=null 停欢迎屏、:53-75 卸载 cancelled 守卫；use-mobile.ts:20 首帧 ?? false"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": false,
+          "evidence": "main.rs:44-45 window.open_devtools() 后立即 close_devtools()，净效果为零的冗余代码（debug-only 亦无意义）；应仅 open 或整块移除"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": false,
+          "evidence": "ChangeListView.tsx:73 旧视图级 JSDoc（「change 列表视图：active 列表…」）未随 ListSections 提取迁移，悬挂叠置于 :74 新「数据区」注释上方，注释与目标函数错位误导读者"
+        },
+        {
+          "item": "C7 外部数据使用同来源类型",
+          "pass": true,
+          "evidence": "AppSidebarProps 复用 WorkspaceRecord；视图复用 ChangeListState/UpdateState；无自定义中间映射类型"
+        }
+      ],
+      "start_at": "2026-09-22T16:02:16.743Z",
+      "timestamp": "2026-09-22T16:06:35.726Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "全部通过。attempt-1 三项修复核实：C6 陈旧 JSDoc 已除（ChangeListView.tsx:73）、刷新按钮断言改 as HTMLButtonElement（test:235,246）、相关测试 26/26 绿。C3：D1-D8 逐项与代码一致（D8 toast 前缀逐字、D1 无持久化、D5/D6 无新增豁免）。C5：knip 0，WorkspaceSelect/AppHeader 已移除，debug 残件不在盘。C1 grep 无命中。AC-9：git diff src-tauri 为空；staged main.rs devtools 块与 version 0.1.1 系用户确认的本 change 外本地暂存，不计入。范围外既有观察（不改判）：ChangeDetailView.test.tsx:568 .disabled 无 cast 之 TS2339 在裸 tsc --noEmit 下报错，该文件本次未动（proposal 保留不动）、lockfile 中 testing-library/@types 版本未变，属 HEAD 既有问题。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep password/secret/api_key/eval(/exec(/system(/innerHTML/dangerouslySetInnerHTML 于 packages/desktop/src 0 命中；纯 UI+既有 4 命令 IPC 字符串参数，外部文本经 React 文本转义渲染"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "IPC 返回空清单 result[0]?.root ?? null（useWorkspaces.ts:60）；add/remove/touch 返回值 null/hit 判定；remove store-miss 幂等不 toast（catch 外路径）"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "D1 会话内折叠态无 cookie/localStorage（sidebar.tsx:77-101）；D4 delayDuration=0（:124）；D8 toast 前缀逐字一致（useWorkspaces.ts:8-12,90,104,118）；D7 main→div 1100px 保留（App.tsx）；sidebar.tsx:393-405 导出集与 pin 完全一致；stryker/knip 配置零改动（D6）"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "空清单 map([]) 无渲染；无分隔符 parentDir 返回空串不渲染副文本（AppSidebar.tsx:36-39,66）；useSidebar 无 provider 抛错（sidebar.tsx:46-52）；isMobile ?? false 首帧兜底（use-mobile.ts:20）；pickAndAdd record===null 守卫"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "knip 退出码 0；WorkspaceSelect/AppHeader 随 App.tsx 重排移除；inventory deleted 项（__debug* 测试、debug-sheet.log、2>/dev/null 残件）确认不在盘"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "attempt-1 修复核实：ChangeListView.tsx:73 陈旧 JSDoc 已除；test:235,246 as HTMLButtonElement 与既有 cast 口径一致；ChangeListView 相关测试 26/26 绿。次要观察（不改判）：ChangeListView.tsx:106/111 混用解构 loading 与 state.loading，同一值仅风格不一致"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "WorkspaceRecord 直用 types/dto 零中间映射；radix/sonner 原语经 ComponentProps<typeof X> 复用类型；唯一新增 AppSidebarProps 为 React props 契约非外部数据映射"
+        }
+      ],
+      "start_at": "2026-09-23T01:27:41.574Z",
+      "timestamp": "2026-09-23T01:37:22.281Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 AC 全部溯源通过。AC-1/2 App.tsx:69-94 壳重排+Toaster 根挂载、无 combobox；AC-3/4/5 AppSidebar.tsx:36-103 touch切换/GroupAction添加/ContextMenu移除+副文本testid；AC-6 ChangeListView.tsx:110-114 刷新迁移；AC-7 sidebar.tsx:54-176 icon折叠+Ctrl/B+delayDuration=0；AC-8 useWorkspaces.ts:8-122 双轨+UpdateIndicator保留；AC-9 按orchestrator口径：unstaged src-tauri diff为空（staged内容系用户本地工作），静态佐证4命令零改动、spec仅desktop-app-shell delta；AC-10 knip/stryker零新豁免、ui/**裁剪符合D5/D6。tasks 23/23 [x]。无范围蔓延、out_of_scope（重命名/置顶/确认弹窗）零实现。",
+      "checklist": [
+        {
+          "item": "A1 每个 AC 均有实现证据",
+          "pass": true,
+          "evidence": "AC-1 App.tsx:72-92 SidebarProvider+AppSidebar+SidebarInset、header仅Trigger+标题+UpdateIndicator(App.tsx:81-87)、App.test.tsx:771 combobox为null；AC-2 App.tsx:69-71 root===null仅WelcomeView、Toaster App.tsx:94两态覆盖；AC-3 AppSidebar.tsx:57-63 tooltip=root+onOpen→touch(App.tsx:76)、副文本AppSidebar.tsx:66-73 workspace-sub、IPC断言App.test.tsx:363逐字保留；AC-4 AppSidebar.tsx:101-103 GroupAction→pickAndAdd(App.tsx:55-65)、WelcomeView.tsx:34入口保留；AC-5 AppSidebar.tsx:54-81 ContextMenu移除、App.test.tsx:481-652 fireEvent.contextMenu；AC-6 ChangeListView.tsx:110-114 刷新列表disabled={loading}；AC-7 sidebar.tsx:176 collapsible=icon、:54-58 Ctrl/Cmd+B、:124 delayDuration=0、use-mobile.ts 768断点；AC-8 useWorkspaces.ts:8-12固定前缀、:89-122动作toast不置error、:68-72加载失败保留setError、App.test.tsx:571-675 toast+error-note=0断言、App.tsx:32重试更新保留；AC-9 见A4项；AC-10 knip.json/stryker.config.json零新豁免、tasks.md:34-36 [x]"
+        },
+        {
+          "item": "A2 无范围蔓延",
+          "pass": true,
+          "evidence": "ui新增件恰为6件(sidebar/separator/sheet/tooltip/context-menu/sonner)，skeleton/input未引入(D5)；后端仅既有4命令(workspaces/mod.rs:16-51)；无新能力单开(specs仅desktop-app-shell)；超proposal清单的use-mobile.test.ts/shadcn_controls.test.tsx属测试文件，tasks.md:4明确由test-design/test-gen承接，非实现蔓延"
+        },
+        {
+          "item": "A3 in_scope 全部实现",
+          "pass": true,
+          "evidence": "package.json:18-34 六依赖齐备；AppSidebar.tsx/use-mobile.ts/6个ui生成件存在；App.tsx重排完成(WorkspaceSelect/AppHeader已移除，全库grep无combobox实现)；useWorkspaces双轨落地；ChangeListView刷新迁移；WelcomeView注释对齐且入口保留；global.css零新增token(定案预期)"
+        },
+        {
+          "item": "A4 out_of_scope 未实现 + AC-9 后端零改动",
+          "pass": true,
+          "evidence": "grep src无rename/重命名/置顶/confirm实现；sidebar.tsx:77-79无cookie/localStorage持久化(D1)；AC-9按orchestrator口径以unstaged git diff packages/desktop/src-tauri为空评估(staged main.rs devtools与package.json 0.1.1系用户确认的本地工作)；静态佐证：src-tauri仅4个workspace命令零新增、specs/仅desktop-app-shell delta无desktop-workspace-store、变更清单无src-tauri文件、tasks.md后端零任务"
+        },
+        {
+          "item": "A5 风险均有缓解措施",
+          "pass": true,
+          "evidence": "jsdom+Radix→testid终态断言+matchMedia/ResizeObserver stub(AppSidebar.test.tsx:13-47)；sonner时序→D8固定文案+waitFor(App.test.tsx:571)；hook契约→WorkspaceState shape不变(useWorkspaces.ts:14-26)；storage边界→会话内state(sidebar.tsx:79)；knip/超线→配置零改动+生成件裁剪拆分；mutate稀释→AppSidebar.test.tsx/use-mobile.test.ts覆盖；error-note两段式→仅动作类改toast、加载类inline未动(ChangeListView.tsx:115-122)"
+        },
+        {
+          "item": "tasks.md 全部勾选",
+          "pass": true,
+          "evidence": "tasks.md 23/23 任务均为 [x]，无未完成项"
+        }
+      ],
+      "start_at": "2026-09-23T01:37:59.651Z",
+      "timestamp": "2026-09-23T01:41:21.728Z"
+    }
+  ]
+}

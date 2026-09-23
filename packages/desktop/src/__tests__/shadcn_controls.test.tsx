@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { Button } from '@/components/ui/button';
 
@@ -160,6 +160,46 @@ function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
 }
 
+/** 以 data-root 定位 sidebar 清单项（移除入口改右键菜单后的定位方式）。 */
+function itemByRoot(root: string): HTMLElement {
+  const hit = screen
+    .getAllByTestId('workspace-item')
+    .find((item) => item.getAttribute('data-root') === root);
+  if (!hit) throw new Error(`data-root 为 ${root} 的 workspace-item 不存在`);
+  return hit;
+}
+
+// 壳重排后 App 挂载即经 SidebarProvider 消费 useIsMobile：
+// window.matchMedia / innerWidth 需 stub（jsdom 无 matchMedia 实现）
+let restoreViewport: () => void = () => {};
+
+function stubViewport(initialWidth: number) {
+  const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: initialWidth,
+  });
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches: window.innerWidth < 768,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })),
+  });
+  return () => {
+    if (widthDescriptor) Object.defineProperty(window, 'innerWidth', widthDescriptor);
+    Reflect.deleteProperty(window, 'matchMedia');
+  };
+}
+
 function mockIpc() {
   remaining = [FIRST];
   invokeMock.mockImplementation((command: string, params?: { root?: string; change?: string }) => {
@@ -199,6 +239,11 @@ beforeEach(() => {
   openMock.mockReset();
   getVersionMock.mockResolvedValue('0.1.0');
   mockIpc();
+  restoreViewport = stubViewport(1100);
+});
+
+afterEach(() => {
+  restoreViewport();
 });
 
 // ---------------------------------------------------------------------------
@@ -383,17 +428,20 @@ describe('Progress 承载百分比：radix value 契约', () => {
 // ---------------------------------------------------------------------------
 
 describe('Button 换装保持动作契约', () => {
-  it('header 动作按钮：刷新列表与移除换装后 IPC 契约不变', async () => {
+  it('清单页头部刷新按钮与右键移除：迁移改写后 IPC 契约不变（改写：刷新按钮迁清单页头部按钮名不变；header「移除」→ 右键菜单项）', async () => {
     render(<App />);
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
     );
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
 
+    // 刷新列表半边：按钮迁至清单页头部，按钮名不变
     fireEvent.click(screen.getByRole('button', { name: '刷新列表' }));
     await waitFor(() => expect(countOf('list_changes')).toBe(2));
 
-    fireEvent.click(screen.getByRole('button', { name: '移除' }));
+    // 移除半边：入口随 header 瘦身改为清单项右键菜单
+    fireEvent.contextMenu(itemByRoot(FIRST.root));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: FIRST.root }),
     );

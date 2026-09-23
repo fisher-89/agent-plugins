@@ -1,0 +1,122 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-22T15:55:00.595Z",
+  "duration_seconds": 483,
+  "total": 2784,
+  "passed": 2784,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "findings": [
+    "All 2784 tests passed across 3 plans (plugins/dev-team vite-plus 2379, packages/desktop vite-plus 388, rust 17) with 0 failures, 0 skipped, and no execution errors - no fixes were required for unit or integration tests.",
+    "Summary-level coverage aggregation is inconsistent with plan reports: coverage.measured is null and coverage.pass=true even though two per-plan report.json files record coverage.pass=false (packages/desktop vite-plus, packages/desktop/src-tauri rust). Treat the plan-level coverage values as authoritative when reviewing.",
+    "packages/desktop branch coverage is 58.34%, below the 85% threshold (lines 93.1% and functions 92.75% pass). Branch-level test coverage needs strengthening, concentrated in src/ UI code (AppSidebar, views/changes, renderers, hooks).",
+    "rust plan coverage fails as parsed: branches 0% (<85) and functions 86.79% (<90); branches reporting 0 rather than null suggests cargo llvm-cov branch data may not be parsed for this framework, but the functions shortfall is genuine.",
+    "Mutation testing passes overall (89.55% vs 80% threshold) with 21 survived mutants in packages/desktop, but the plugins/dev-team override sits exactly at the 80% threshold with zero margin.",
+    "The packages/desktop plan inventory includes duplicate test/source entries under .stryker-tmp/sandbox-* because Stryker ran concurrently with the coverage run; this is cosmetic and does not affect counts."
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 0
+      },
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 16,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 89.55,
+    "threshold": 80,
+    "measured": {
+      "killed": 180,
+      "survived": 21,
+      "timeout": 0,
+      "noCoverage": 0,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 4,
+      "total": 205,
+      "detected": 180,
+      "undetected": 21
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 80,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 51
+      },
+      {
+        "glob": "packages/desktop",
+        "score": 89.55223880597015,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 16,
+        "passed_count": 16
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/workspace-sidebar/reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/workspace-sidebar/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/workspace-sidebar/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ]
+}

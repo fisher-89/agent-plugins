@@ -4,7 +4,8 @@ import type { WorkspaceState } from '../hooks/useWorkspaces';
 
 /**
  * 欢迎屏：无 workspace 记录时的空态 +「添加新文件夹」入口
- * + 加载中 / error-note 呈现。（清单非空时启动即恢复第一名，不停留此处。）
+ * + 加载中 / error-note 呈现（error-note 仅承载清单加载失败；添加等动作失败
+ * 经 toast 呈现）。（清单非空时启动即恢复第一名，不停留此处。）
  */
 export function WelcomeView({ state, onAdd }: { state: WorkspaceState; onAdd: () => void }) {
   const { workspaces, loading, error } = state;

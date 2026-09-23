@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import App from '../App';
 import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
@@ -11,6 +11,8 @@ import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
 // invoke 时序、次数与参数契约（视图状态断言归 App.test.tsx 单测）。
 // mock 对齐后端 store 语义：touch_workspace 刷新 last_opened_at，
 // list_workspaces 结果按 last_opened_at 降序返回。
+// 壳重排后 App 挂载即经 SidebarProvider 消费 useIsMobile：window.matchMedia /
+// innerWidth 需 stub（jsdom 无 matchMedia 实现；matches 与 innerWidth 同源计算）。
 // ---------------------------------------------------------------------------
 
 const { invokeMock, openMock } = vi.hoisted(() => ({
@@ -116,10 +118,53 @@ function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
 }
 
+/** 以 data-root 定位 sidebar 清单项（枚举断言迁移后的定位方式）。 */
+function itemByRoot(root: string): HTMLElement {
+  const hit = screen
+    .getAllByTestId('workspace-item')
+    .find((item) => item.getAttribute('data-root') === root);
+  if (!hit) throw new Error(`data-root 为 ${root} 的 workspace-item 不存在`);
+  return hit;
+}
+
+let restoreViewport: () => void = () => {};
+
+function stubViewport(initialWidth: number) {
+  const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
+  Object.defineProperty(window, 'innerWidth', {
+    configurable: true,
+    writable: true,
+    value: initialWidth,
+  });
+  Object.defineProperty(window, 'matchMedia', {
+    configurable: true,
+    writable: true,
+    value: vi.fn((query: string) => ({
+      matches: window.innerWidth < 768,
+      media: query,
+      onchange: null,
+      addEventListener: () => {},
+      removeEventListener: () => {},
+      addListener: () => {},
+      removeListener: () => {},
+      dispatchEvent: () => false,
+    })),
+  });
+  return () => {
+    if (widthDescriptor) Object.defineProperty(window, 'innerWidth', widthDescriptor);
+    Reflect.deleteProperty(window, 'matchMedia');
+  };
+}
+
 beforeEach(() => {
   invokeMock.mockReset();
   openMock.mockReset();
   mockIpc();
+  restoreViewport = stubViewport(1100);
+});
+
+afterEach(() => {
+  restoreViewport();
 });
 
 // ---------------------------------------------------------------------------
@@ -193,13 +238,14 @@ describe('无记录停欢迎屏', () => {
 // ---------------------------------------------------------------------------
 
 describe('移除当前项：切换到剩余第一名且不二次恢复', () => {
-  it('移除当前打开项：remove_workspace 调用后以剩余第一名为新根重取列表', async () => {
+  it('右键移除当前项：remove_workspace 调用后以剩余第一名为新根重取列表（改写：getByText("移除") header 按钮 → fireEvent.contextMenu + 菜单项「移除」；时序断言逐字保留）', async () => {
     render(<App />);
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
     );
 
-    fireEvent.click(screen.getByText('移除'));
+    fireEvent.contextMenu(itemByRoot(FIRST.root));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: FIRST.root }),
@@ -210,13 +256,15 @@ describe('移除当前项：切换到剩余第一名且不二次恢复', () => {
         .at(-1);
       expect(lastListChanges).toEqual(['list_changes', { root: SECOND.root }]);
     });
-    // 停留列表视图（下拉仅剩剩余第一名），不回欢迎屏
+    // 停留列表视图（清单仅剩剩余第一名），不回欢迎屏
     expect(screen.queryByText('添加新文件夹')).toBeNull();
-    const values = screen.getAllByRole('option').map((option) => option.getAttribute('value'));
-    expect(values).toEqual([SECOND.root]);
+    const roots = screen
+      .getAllByTestId('workspace-item')
+      .map((item) => item.getAttribute('data-root'));
+    expect(roots).toEqual([SECOND.root]);
   });
 
-  it('移除后 hook 内部刷新取得剩余清单：不发生第二次自动恢复 touch', async () => {
+  it('移除后 hook 内部刷新取得剩余清单：不发生第二次自动恢复 touch（次数守卫逐字保留，入口改写）', async () => {
     render(<App />);
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
@@ -224,7 +272,8 @@ describe('移除当前项：切换到剩余第一名且不二次恢复', () => {
     expect(countOf('list_changes')).toBe(1);
     expect(countOf('touch_workspace')).toBe(1);
 
-    fireEvent.click(screen.getByText('移除'));
+    fireEvent.contextMenu(itemByRoot(FIRST.root));
+    fireEvent.click(await screen.findByRole('menuitem', { name: '移除' }));
 
     // 移除触发 hook 内部刷新：挂载 1 次 + touch 刷新 1 次 + 移除刷新 1 次 = 3 次
     await waitFor(() => expect(countOf('list_workspaces')).toBe(3));
@@ -233,6 +282,20 @@ describe('移除当前项：切换到剩余第一名且不二次恢复', () => {
     expect(invokeMock).toHaveBeenLastCalledWith('list_changes', { root: SECOND.root });
     // 恢复恰一次：无第二次 touch
     expect(countOf('touch_workspace')).toBe(1);
+  });
+
+  it('剩余清单枚举断言迁移：workspace-item 的 data-root 序列取代 option value 序列（combobox/option 查询清零）', async () => {
+    render(<App />);
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
+    );
+
+    expect(screen.queryByRole('combobox')).toBeNull();
+    expect(screen.queryAllByRole('option')).toHaveLength(0);
+    const roots = screen
+      .getAllByTestId('workspace-item')
+      .map((item) => item.getAttribute('data-root'));
+    expect(roots).toEqual([FIRST.root, SECOND.root]);
   });
 });
 
@@ -259,7 +322,7 @@ describe('添加与下拉切换链', () => {
     );
   });
 
-  it('下拉切换另一项：touch_workspace(新根) + change 选中清空 + list_changes 以新根重取', async () => {
+  it('切换另一项（列表项点击）：touch_workspace(新根) + change 选中清空 + list_changes 以新根重取（改写：fireEvent.change(combobox) → 列表项 click）', async () => {
     render(<App />);
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
@@ -274,7 +337,7 @@ describe('添加与下拉切换链', () => {
       }),
     );
 
-    fireEvent.change(screen.getByRole('combobox'), { target: { value: SECOND.root } });
+    fireEvent.click(itemByRoot(SECOND.root));
 
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: SECOND.root }),

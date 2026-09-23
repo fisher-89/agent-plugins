@@ -27,7 +27,10 @@ fn main() {
             }
         }));
     }
-
+    #[cfg(debug_assertions)]
+    {
+        builder = builder.plugin(tauri_plugin_devtools::init())
+    }
     builder
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {

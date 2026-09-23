@@ -2,11 +2,14 @@ import { open } from '@tauri-apps/plugin-dialog';
 import { useCallback } from 'react';
 
 import { Button } from '@/components/ui/button';
+import { Separator } from '@/components/ui/separator';
+import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
+import { Toaster } from '@/components/ui/sonner';
 
+import { AppSidebar } from './components/AppSidebar';
 import { useChangeList } from './hooks/useChangeList';
 import { useUpdater, type UpdateState } from './hooks/useUpdater';
 import { useWorkspaces } from './hooks/useWorkspaces';
-import type { WorkspaceRecord } from './types/dto';
 import { ChangeView } from './views/changes/ChangeView';
 import { WelcomeView } from './views/WelcomeView';
 
@@ -36,82 +39,11 @@ function UpdateIndicator({ state }: { state: UpdateState }) {
   );
 }
 
-/** workspace 下拉切换（清单项悬停 title 完整 path）。preflight 重置原生 select 的
- * 边框/底色，此处以 utilities 还原原生观感。 */
-function WorkspaceSelect({
-  root,
-  workspaces,
-  onOpen,
-}: {
-  root: string;
-  workspaces: WorkspaceRecord[];
-  onOpen: (root: string) => void;
-}) {
-  return (
-    <select
-      className="rounded-md border border-border bg-card px-2 py-1"
-      value={root}
-      onChange={(event) => onOpen(event.target.value)}
-      disabled={workspaces.length === 0}
-    >
-      {workspaces.map((record) => (
-        <option key={record.root} value={record.root} title={record.root}>
-          {record.name}
-        </option>
-      ))}
-    </select>
-  );
-}
-
 /**
- * 顶栏：workspace 下拉切换（清单项悬停 title 完整 path）+ 移除当前项 + 刷新列表
- * + 版本与更新入口。下拉与欢迎屏共用 useWorkspaces 同一清单来源。
- */
-function AppHeader({
-  root,
-  workspaces,
-  loading,
-  error,
-  update,
-  onOpen,
-  onRemove,
-  onRefresh,
-}: {
-  root: string;
-  workspaces: WorkspaceRecord[];
-  loading: boolean;
-  error: string | null;
-  update: UpdateState;
-  onOpen: (root: string) => void;
-  onRemove: (root: string) => void;
-  onRefresh: () => void;
-}) {
-  return (
-    <header className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2.5">
-      <strong>Desktop Terminal</strong>
-      <WorkspaceSelect root={root} workspaces={workspaces} onOpen={onOpen} />
-      <Button onClick={() => onRemove(root)}>移除</Button>
-      {error !== null && (
-        <span
-          className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"
-          data-testid="error-note"
-        >
-          {error}
-        </span>
-      )}
-      <span className="flex-1" />
-      <UpdateIndicator state={update} />
-      <Button onClick={onRefresh} disabled={loading}>
-        刷新列表
-      </Button>
-    </header>
-  );
-}
-
-/**
- * 应用壳：workspace 选择与恢复（启动自动恢复收在 useWorkspaces / Header 下拉切换）
- * + 列表 / 详情视图切换 + 刷新动作下发。
- * 组件不直接 invoke，取数统一经 useWorkspaces / useChangeList / useChangeDetail。
+ * 应用壳：workspace 选择与恢复（启动自动恢复收在 useWorkspaces；清单切换/添加/
+ * 移除收在 AppSidebar）+ 列表 / 详情视图切换。root === null 停欢迎屏，此时不渲染
+ * SidebarProvider / 侧栏 DOM；<Toaster /> 与条件渲染同级置于 App 根，欢迎态/壳态
+ * 均覆盖。组件不直接 invoke，取数统一经 useWorkspaces / useChangeList / useChangeDetail。
  */
 export default function App() {
   const workspaceState = useWorkspaces();
@@ -129,28 +61,37 @@ export default function App() {
     }
     if (typeof selected !== 'string') return; // 取消选择则保持现状
     const record = await workspaceState.add(selected);
-    if (record === null) return; // 入库失败：error 态已呈现，不打开
+    if (record === null) return; // 入库失败：toast 已呈现，不打开
   }, [workspaceState]);
-
-  if (workspaceState.root === null) {
-    return <WelcomeView state={workspaceState} onAdd={pickAndAdd} />;
-  }
 
   return (
     <>
-      <AppHeader
-        root={workspaceState.root}
-        workspaces={workspaceState.workspaces}
-        loading={list.loading}
-        error={workspaceState.error}
-        update={update}
-        onOpen={workspaceState.touch}
-        onRemove={workspaceState.remove}
-        onRefresh={list.refresh}
-      />
-      <main className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
-        <ChangeView root={workspaceState.root} list={list}></ChangeView>
-      </main>
+      {workspaceState.root === null ? (
+        <WelcomeView state={workspaceState} onAdd={pickAndAdd} />
+      ) : (
+        <SidebarProvider>
+          <AppSidebar
+            currentRoot={workspaceState.root}
+            onAdd={pickAndAdd}
+            onOpen={workspaceState.touch}
+            onRemove={workspaceState.remove}
+            workspaces={workspaceState.workspaces}
+          />
+          <SidebarInset>
+            <header className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2.5">
+              <SidebarTrigger />
+              <Separator className="mr-2 data-[orientation=vertical]:h-4" orientation="vertical" />
+              <strong>Desktop Terminal</strong>
+              <span className="flex-1" />
+              <UpdateIndicator state={update} />
+            </header>
+            <div className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
+              <ChangeView root={workspaceState.root} list={list} />
+            </div>
+          </SidebarInset>
+        </SidebarProvider>
+      )}
+      <Toaster />
     </>
   );
 }

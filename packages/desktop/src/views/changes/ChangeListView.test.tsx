@@ -191,3 +191,61 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
     expect(container.textContent).toContain('add-feature');
   });
 });
+
+describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入）', () => {
+  it('头部行先于 error-note 与数据区渲染，且 loading / error / 空数据 / 有数据四形态下「刷新列表」按钮均存在', () => {
+    // error 态：头部行是根节点的第一个子元素，先于 error-note
+    const withError = render(
+      <ChangeListView state={state({ error: 'IPC 断开' })} onSelect={() => {}} />,
+    );
+    const root = withError.container.firstElementChild;
+    const headerRow = screen.getByRole('button', { name: '刷新列表' }).parentElement;
+    expect(headerRow).not.toBeNull();
+    expect(headerRow).toBe(root?.firstElementChild);
+    expect(root?.children[1]?.getAttribute('data-testid')).toBe('error-note');
+    withError.unmount();
+
+    // 始终在场：四形态下刷新按钮均存在（空态可操作的前提）
+    const shapes = [
+      state({ loading: true }),
+      state({ error: 'IPC 断开' }),
+      state({ data: null }),
+      state({ data: fixtureList }),
+    ];
+    for (const shape of shapes) {
+      const view = render(<ChangeListView state={shape} onSelect={() => {}} />);
+      expect(within(view.container).getByRole('button', { name: '刷新列表' }) !== null).toBe(true);
+      view.unmount();
+    }
+  });
+
+  it('点击「刷新列表」→ state.refresh 调用恰一次', () => {
+    const refresh = vi.fn();
+    render(<ChangeListView state={state({ refresh })} onSelect={() => {}} />);
+
+    fireEvent.click(screen.getByRole('button', { name: '刷新列表' }));
+
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('loading=true：按钮 disabled、点击不触发 refresh（disabled={state.loading}）', () => {
+    const refresh = vi.fn();
+    render(<ChangeListView state={state({ loading: true, refresh })} onSelect={() => {}} />);
+
+    const button = screen.getByRole('button', { name: '刷新列表' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(true);
+    fireEvent.click(button);
+    expect(refresh).not.toHaveBeenCalled();
+  });
+
+  it('空数据态（「暂无数据，点击刷新获取。」文案在场）：按钮仍可操作、点击触发 refresh', () => {
+    const refresh = vi.fn();
+    render(<ChangeListView state={state({ data: null, refresh })} onSelect={() => {}} />);
+
+    expect(screen.getByText('暂无数据，点击刷新获取。') !== null).toBe(true);
+    const button = screen.getByRole('button', { name: '刷新列表' }) as HTMLButtonElement;
+    expect(button.disabled).toBe(false);
+    fireEvent.click(button);
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+});
