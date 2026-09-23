@@ -18,6 +18,8 @@ node __DEV_TEAM_ROOT__/bin/__BIN:cli__ test-execution --change <change-name>
 
 Wait for the command to complete. The CLI handles framework detection, test execution, coverage measurement, and report generation — writing the summary report to `openspec/changes/<change-name>/reports/test/summary.json`.
 
+Scope note: with `--change`, the CLI only runs plan entries whose suite root intersects the change file inventory — out-of-scope suites log `Skipping ... (change scope)` and do not appear in `plans[]`. This is expected behavior, not a missing report; do not treat an absent suite as a defect. If the inventory is unreadable, the CLI fails open and runs everything.
+
 If the CLI exits with a non-zero code, it means some tests failed or an error occurred — this is expected and the report should still have been written. Proceed to Step 1.
 
 ### Step 1: Verify summary report exists

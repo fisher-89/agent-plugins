@@ -99,6 +99,49 @@
 **THEN** summary SHALL 位于 `openspec/changes/my-feature/reports/test/summary.json`
 **AND** plan 目录 SHALL 位于 `openspec/changes/my-feature/reports/test/<planId>/`
 
+### Requirement: change 清单 plan entry gate
+
+**ID**: REQ-TEC-GATE-1
+**Priority**: MUST
+**Description**: 传 `--change` 时，CLI SHALL 将 plan entry 的执行范围圈定到 change 文件清单（`workflow.json` file_log 派生净状态，经 `getChangedFiles` 单次读取）：
+
+- gate 文件集 SHALL 为 `written ∪ deleted`（POSIX 归一）；两桶均为空时 gate SHALL 不激活（全量执行，现状语义）；无 `--change` 时同样无 gate
+- 判定 SHALL 仅按 plan entry 的 `root` 做包含级匹配（`isUnderPlanRoot`，含等于）：清单中任一文件位于某 entry 的 `root` 下即视为该 entry 在范围内。`includes`/`excludes` MUST NOT 参与 gate——同位 test/source 同目录、同归一个 root；过触发只是多跑一个 suite，欠触发会漏跑该跑的 suite
+- 范围外 plan entry SHALL 跳过并打印 `Skipping <framework> in <root>: no changed files under suite root (change scope)`；被跳过的 plan MUST NOT 出现在 `summary.plans[]`
+- 安全网：清单非空但无任何 plan entry 的 `root` 命中时 SHALL 全量执行并打印告警（布局对 root 规则不可见时宁可多跑）
+- gate 的清单读取 SHALL fail-open：读取失败时打印告警并全量执行，命令 MUST NOT 因 gate 读取失败而退出——`--skip-mutation` 的逃生口语义不因 gate 收窄；未跳过突变时清单读取失败仍按突变 scope 硬报错契约退出
+- 清单 SHALL 每次执行只读一次，gate 与突变 scope 共用该读取；突变 scope 仍仅取 `written` 并叠加同位反推与净归零去噪，gate MUST NOT 叠加去噪
+
+#### Scenario: 清单命中部分 root 时仅执行命中的 plan
+
+**WHEN** config 含两个 suite（root `pkg/a` 与 `pkg/b`），以 `--change=c1` 执行且清单净状态 written 为 `["pkg/a/src/foo.ts"]`
+**THEN** 仅 `pkg/a` 对应 plan SHALL 执行并写入 `report.json`
+**AND** `pkg/b` plan SHALL 跳过且不出现在 `summary.plans[]`
+**AND** stdout 含对应 `Skipping ... (change scope)` 行
+
+#### Scenario: deleted 文件参与 gate
+
+**WHEN** 清单净状态 written 为空、deleted 为 `["pkg/b/src/gone.ts"]`
+**THEN** `pkg/b` plan SHALL 执行
+
+#### Scenario: 清单非空但无 root 命中时安全网全量执行
+
+**WHEN** 清单净状态 written 为 `["docs/README.md"]`，所有 suite root 均不含该路径
+**THEN** 全部 plan entry SHALL 执行
+**AND** stdout 含 no changed files under any suite root 告警
+
+#### Scenario: 清单读取失败 fail-open
+
+**WHEN** 以 `--change=<清单非法> --skip-mutation` 执行
+**THEN** 命令 SHALL 全量执行且不因清单读取失败退出
+**AND** stdout 含 inventory read failed 告警
+**AND** 未跳过突变时清单读取失败仍以错误退出（硬报错契约不变）
+
+#### Scenario: 净状态两桶均空时 gate 不激活
+
+**WHEN** 以 `--change=c1` 执行且清单净状态 written/deleted 均为空数组
+**THEN** 全部 plan entry SHALL 执行（与无 `--change` 等价），无 gate 日志
+
 ### Requirement: summary.plans path index
 
 **ID**: REQ-TEF-PLANS-1
@@ -289,7 +332,7 @@ summary 的 `plans[]` SHALL 仅从 `ExecutionResult` 投影索引字段（`id` /
 |----------|-------------|
 | File | `plugins/dev-team/bin/src/commands/test-execution.ts` |
 | Exports | `runTestExecution(options: TestExecutionOptions): Promise<TestExecutionExitCode>` |
-| Input | `TestExecutionOptions`: `{ projectRoot?: string }` |
+| Input | `TestExecutionOptions`: `{ change?, projectRoot?, files?, framework?, noMutation? }`（`change` 兼作 plan gate 与突变 scope 来源，见 REQ-TEC-GATE-1） |
 | Output | `TestExecutionExitCode`: `0` / `1` |
 | Side Effects | 读写 `reports/test/summary.json` 与 `reports/test/<planId>/report.json`（及 plan 目录内垂直产物） |
 

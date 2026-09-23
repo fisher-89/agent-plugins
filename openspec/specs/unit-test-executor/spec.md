@@ -36,7 +36,7 @@
 
 **ID**: REQ-TEE-ALL-1
 **Priority**: MUST
-**Description**: The `dev-team test-execution` CLI command SHALL run ALL test files discovered by the framework plan, without distinguishing between unit and integration tests. For each framework in the plan (`test_detect_frameworks` result), the CLI SHALL:
+**Description**: The `dev-team test-execution` CLI command SHALL run ALL test files discovered by the framework plan, without distinguishing between unit and integration tests（`--change` 时受 change 清单 plan gate 约束：suite root 与清单 written∪deleted 无交集的 plan entry 被跳过，见 `cli-unit-test-execute` 的 REQ-TEC-GATE-1）. For each framework in the plan (`test_detect_frameworks` result), the CLI SHALL:
 1. Run the framework's `script` which executes all matching test files
 2. Parse test results and coverage from the plan directory file-channel artifacts
 3. Generate a single summary report at `reports/test/summary.json`
@@ -121,7 +121,7 @@ Agent 与相关 specs 文案 MUST 使用 `reports/test/`；MUST NOT 继续写 `r
 - CLI SHALL NOT 引入 `--mutation-scope` 或任何新的清单语义选项；既有 `--mutation-diff-only` 选项 SHALL 整体删除（含其 git diff 数据路径与 `--mutation-diff-only:` stdout 诊断前缀），突变 scope 解析 MUST NOT 再依赖 git
 - `getGitDiffFiles`（`lib/git.ts`）SHALL 停止被引用；测试文件 diff 反推同位源文件的 `expandMutationDiffWithInferredSources` 行为 SHALL 保留（对 `written` 中的测试文件同样反推）
 - 目标 change 的 `workflow.json` 缺失 `files` 字段时 SHALL 硬报错（"该 change 创建于文件清单机制之前，请重建"），MUST NOT 回退 git diff
-- `--skip-mutation` SHALL 保留：显式跳过突变阶段的逃生口不变；突变 scope 解析 SHALL 惰性执行（仅在突变阶段实际运行时读取清单），`--skip-mutation` 时 MUST NOT 因清单缺失或非法而失败
+- `--skip-mutation` SHALL 保留：显式跳过突变阶段的逃生口不变；突变 scope 解析 SHALL 惰性执行（仅在突变阶段实际运行时读取清单），`--skip-mutation` 时 MUST NOT 因清单缺失或非法而失败。plan gate（REQ-TEC-GATE-1）的清单读取独立于突变阶段且 fail-open，不改变本条逃生口语义
 
 #### Scenario: 传 --change 自动读清单
 

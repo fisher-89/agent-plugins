@@ -911,10 +911,11 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
     }
   });
 
-  it('惰性解析：noMutation=true 且传 change → 不读清单、不执行 HEAD 内容对比', async () => {
+  it('noMutation=true 且传 change → 清单为 gate 读取一次，但不做 HEAD 内容对比，mutationDiffFiles 为 undefined', async () => {
     const project = createTempProject();
     try {
       stubHappyPath();
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/foo.ts']));
 
       await runTestExecution({
         projectRoot: project.root,
@@ -922,7 +923,7 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
         noMutation: true,
       });
 
-      expect(mockGetChangedFiles).not.toHaveBeenCalled();
+      expect(mockGetChangedFiles).toHaveBeenCalledTimes(1);
       expect(mockExecFileSync).not.toHaveBeenCalled();
       expect(mockExecutePlanEntry).toHaveBeenCalledWith(
         expect.any(Object),
@@ -1088,11 +1089,11 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
         problems: [],
         coverage: null,
       });
-      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/a.ts']));
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['src/a.ts', 'tests/b.ts']));
 
       await runTestExecution({ projectRoot: project.root, change: 'inv-change' });
 
-      const expected = [abs(project.root, 'src/a.ts')];
+      const expected = [abs(project.root, 'src/a.ts'), abs(project.root, 'tests/b.ts')];
       expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
       expect(mockExecutePlanEntry).toHaveBeenNthCalledWith(
         1,
@@ -1152,6 +1153,169 @@ describe('runTestExecution — 清单突变 scope (AC-7)', () => {
           mutationDiffFiles: [abs(project.root, 'src/a.ts')],
         }),
       );
+    } finally {
+      project.cleanup();
+    }
+  });
+});
+
+// ===========================================================================
+// runTestExecution — change scope plan gate：--change 时按清单过滤 plan entry
+// ===========================================================================
+
+describe('runTestExecution — change scope plan gate', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  function stubTwoSuites(): void {
+    mockDetectFrameworks.mockReturnValue({
+      detected: [],
+      plan: [
+        makePlanEntry({ cwd: 'pkg', root: 'pkg/a', framework: 'vitest' }),
+        makePlanEntry({ cwd: 'pkg', root: 'pkg/b', framework: 'vite-plus' }),
+      ],
+    });
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 1,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'pass',
+      problems: [],
+      coverage: null,
+    });
+  }
+
+  it('written 命中某 root → 仅该 plan entry 执行，其余 skip 并打印 change scope 日志', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    try {
+      stubTwoSuites();
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['pkg/a/src/foo.ts']));
+
+      await runTestExecution({ projectRoot: project.root, change: 'gate-change' });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+      expect(mockExecutePlanEntry.mock.calls[0][0].root).toBe('pkg/a');
+      expect(
+        logs.some(
+          (l) => l.includes('Skipping') && l.includes('pkg/b') && l.includes('change scope'),
+        ),
+      ).toBe(true);
+      expect(logs.some((l) => l.includes('change scope gate: 1/2 plan entries'))).toBe(true);
+    } finally {
+      vi.spyOn(console, 'log').mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('deleted 命中某 root → 该 plan entry 执行（deleted 参与 gate）', async () => {
+    const project = createTempProject();
+    try {
+      stubTwoSuites();
+      mockGetChangedFiles.mockReturnValue({ written: [], deleted: ['pkg/b/src/gone.ts'] });
+
+      await runTestExecution({ projectRoot: project.root, change: 'gate-change' });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+      expect(mockExecutePlanEntry.mock.calls[0][0].root).toBe('pkg/b');
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('清单非空但无任何 root 命中 → 安全网兜底全量执行并打印告警', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    try {
+      stubTwoSuites();
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['docs/README.md']));
+
+      await runTestExecution({ projectRoot: project.root, change: 'gate-change' });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
+      expect(logs.some((l) => l.includes('no changed files under any suite root'))).toBe(true);
+    } finally {
+      vi.spyOn(console, 'log').mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('清单净状态 written+deleted 均为空 → gate 不激活，全量执行', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    try {
+      stubTwoSuites();
+      mockGetChangedFiles.mockReturnValue({ written: [], deleted: [] });
+
+      await runTestExecution({ projectRoot: project.root, change: 'gate-change' });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
+      expect(logs.some((l) => l.includes('change scope gate'))).toBe(false);
+    } finally {
+      vi.spyOn(console, 'log').mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('noMutation=true 且清单读取失败 → gate fail-open 全量执行，命令不失败', async () => {
+    const project = createTempProject();
+    const logs: string[] = [];
+    vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    try {
+      stubTwoSuites();
+      mockGetChangedFiles.mockImplementation(() => {
+        throw new Error(
+          'workflow.json 缺少 file_log 字段：该 change 创建于文件清单机制之前，请重建该 change（change_create）。',
+        );
+      });
+
+      const exitCode = await runTestExecution({
+        projectRoot: project.root,
+        change: 'legacy-change',
+        noMutation: true,
+      });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
+      expect(exitCode).toBe(0);
+      expect(logs.some((l) => l.includes('inventory read failed'))).toBe(true);
+    } finally {
+      vi.spyOn(console, 'log').mockRestore();
+      project.cleanup();
+    }
+  });
+
+  it('未传 change → gate 不激活（无清单读取，全量执行）', async () => {
+    const project = createTempProject();
+    try {
+      stubTwoSuites();
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockGetChangedFiles).not.toHaveBeenCalled();
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(2);
     } finally {
       project.cleanup();
     }

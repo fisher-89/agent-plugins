@@ -3,9 +3,10 @@
 //
 // CLI entry point for `dev-team test-execution`.  Orchestrates the full flow:
 //   1. Detect frameworks via runTestDetectFrameworks
-//   2. For each framework plan entry, execute via executePlanEntry
-//   3. Generate per-plan atomic reports via generateSubReport
-//   4. Generate summary report via generateSummaryReport
+//   2. With --change: gate plan entries to the change file inventory
+//   3. For each framework plan entry, execute via executePlanEntry
+//   4. Generate per-plan atomic reports via generateSubReport
+//   5. Generate summary report via generateSummaryReport
 // ---------------------------------------------------------------------------
 
 import { execFileSync } from 'node:child_process';
@@ -14,7 +15,7 @@ import * as path from 'path';
 
 import { getProjectDir } from '../lib/project-root';
 import { deriveSourcePathFromTestFile } from '../lib/test-path-naming';
-import { resolvePlanFiles } from '../lib/test-plan';
+import { isUnderPlanRoot, resolvePlanFiles } from '../lib/test-plan';
 import { generateSubReport, generateSummaryReport } from '../lib/test-report';
 import { executePlanEntry } from '../lib/test-runner';
 import { getChangedFiles } from '../modules/workflow';
@@ -27,10 +28,14 @@ import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 export interface TestExecutionOptions {
   /**
-   * Change name. Locates the reports directory AND selects the mutation
-   * scope: when set (and mutation is not skipped), the scope comes from the
-   * change file inventory (`workflow.json.files.written`) with the net-zero
-   * denoise filter applied. No dedicated scope option exists.
+   * Change name. Locates the reports directory AND narrows execution to the
+   * change file inventory (`workflow.json` file_log net state):
+   * - Plan gating: plan entries whose suite `root` contains no inventory file
+   *   (written ∪ deleted) are skipped; inventory read failures fail open
+   *   (all entries run).
+   * - Mutation scope (when mutation is not skipped): derived from
+   *   `written` with the net-zero denoise filter applied.
+   * No dedicated scope option exists.
    */
   change?: string;
   projectRoot?: string;
@@ -123,16 +128,93 @@ function filterNetZeroFiles(files: string[], projectRoot: string): string[] {
 }
 
 /**
- * Resolve the mutation scope from the change file inventory.
+ * Resolve the mutation scope from the change file inventory (`written` bucket
+ * of the net state already read by the caller).
  */
-function resolveMutationDiffFiles(change: string, projectRoot: string): string[] | undefined {
-  const written = getChangedFiles(change, projectRoot).written;
+function resolveMutationDiffFiles(written: string[], projectRoot: string): string[] | undefined {
   const expanded = expandMutationDiffWithInferredSources(written);
   const scoped = filterNetZeroFiles(expanded, projectRoot);
   console.log(
     `mutation scope (change inventory): ${scoped.length} files (${scoped.slice(0, 5).join(', ')})`,
   );
   return scoped.map((file) => path.resolve(projectRoot, file).replace(/\\/g, '/'));
+}
+
+// ---------------------------------------------------------------------------
+// Change-scope plan gating
+// ---------------------------------------------------------------------------
+
+/**
+ * One --change-scoped execution context: the inventory read plus the gate
+ * file set derived from it.
+ */
+interface ChangeScope {
+  /** `written` bucket of the net state; undefined without --change or on fail-open. */
+  inventoryWritten?: string[];
+  /** written ∪ deleted (POSIX); undefined when gating is inactive. */
+  gateFiles?: string[];
+}
+
+/**
+ * Read the change file inventory once. Gate reads fail open — an unreadable
+ * inventory never blocks execution (the `--skip-mutation` escape hatch);
+ * the mutation scope keeps its hard-error contract when mutation is enabled.
+ */
+function resolveChangeScope(
+  change: string | undefined,
+  noMutation: boolean,
+  projectRoot: string,
+): ChangeScope {
+  if (!change) return {};
+  let net: ReturnType<typeof getChangedFiles>;
+  try {
+    net = getChangedFiles(change, projectRoot);
+  } catch (e) {
+    if (!noMutation) throw e;
+    const message = e instanceof Error ? e.message : String(e);
+    console.log(`change scope gate: inventory read failed (${message}) — running all plan entries`);
+    return {};
+  }
+  const gateFiles = [...net.written, ...net.deleted].map((file) => file.replace(/\\/g, '/'));
+  return {
+    inventoryWritten: net.written,
+    gateFiles: gateFiles.length > 0 ? gateFiles : undefined,
+  };
+}
+
+/**
+ * Filter plan entries to those whose suite `root` contains at least one
+ * changed file (written ∪ deleted). Root-level matching only — colocated
+ * test/source pairs share a directory so both resolve to the same root, and
+ * includes/excludes are deliberately ignored (over-trigger runs an unrelated
+ * suite; under-trigger would skip a suite whose tests should run).
+ *
+ * Safety net: a non-empty change that matches no suite root at all suggests a
+ * layout the root rule cannot see — all entries run in that case.
+ */
+function gatePlanEntries(planEntries: TestPlan[], gateFiles: string[]): TestPlan[] {
+  const inScope = planEntries.filter((entry) =>
+    gateFiles.some((file) => isUnderPlanRoot(file, entry.root)),
+  );
+
+  if (inScope.length === 0) {
+    console.log(
+      'change scope gate: no changed files under any suite root — running all plan entries',
+    );
+    return planEntries;
+  }
+
+  for (const entry of planEntries) {
+    if (!inScope.includes(entry)) {
+      console.log(
+        `Skipping ${entry.framework} in ${entry.root}: no changed files under suite root (change scope)`,
+      );
+    }
+  }
+  console.log(
+    `change scope gate: ${inScope.length}/${planEntries.length} plan entries in change scope`,
+  );
+  return inScope;
 }
 
 // ---------------------------------------------------------------------------
@@ -228,14 +310,22 @@ export async function runTestExecution(options: TestExecutionOptions): Promise<n
     return 0;
   }
 
+  const { inventoryWritten, gateFiles } = resolveChangeScope(
+    options.change,
+    options.noMutation === true,
+    projectRoot,
+  );
+
   const mutationDiffFiles =
-    options.change && !options.noMutation
-      ? resolveMutationDiffFiles(options.change, projectRoot)
+    inventoryWritten !== undefined && !options.noMutation
+      ? resolveMutationDiffFiles(inventoryWritten, projectRoot)
       : undefined;
   const reportsDir = resolveReportsDir(projectRoot, options.change);
   const subReports = [];
 
-  for (const entry of planEntries) {
+  const effectivePlanEntries = gateFiles ? gatePlanEntries(planEntries, gateFiles) : planEntries;
+
+  for (const entry of effectivePlanEntries) {
     const subReport = runPlanEntry(entry, projectRoot, options, mutationDiffFiles, reportsDir);
     if (subReport) {
       subReports.push(subReport);

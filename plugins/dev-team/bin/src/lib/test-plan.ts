@@ -168,7 +168,7 @@ export function pathFilterFromPlan(entry: Pick<TestPlan, 'cwd' | 'root'>): strin
 }
 
 /** Whether a project-relative path is under plan.root (inclusive). */
-function isUnderPlanRoot(filePath: string, root: string): boolean {
+export function isUnderPlanRoot(filePath: string, root: string): boolean {
   const relToRoot = path.posix.relative(toForwardSlash(root), toForwardSlash(filePath));
   return relToRoot === '' || !relToRoot.startsWith('..');
 }

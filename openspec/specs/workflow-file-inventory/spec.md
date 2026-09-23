@@ -177,7 +177,7 @@ python/node 命令豁免与现有 fail-open 语义 SHALL 保持不变。
 
 #### Scenario: 派生净状态供读方消费
 
-- **WHEN** 任一读方(突变 scope / `test_resolve_paths` / `archi_check` / evaluator 对账 / `workflow_files`)读取清单
+- **WHEN** 任一读方(plan gate 与突变 scope / `test_resolve_paths` / `archi_check` / evaluator 对账 / `workflow_files`)读取清单
 - **THEN** 得到的是派生 written/deleted 路径列表,`file_log` 的 scope/attempt/at 审计明细不改变判定结果
 
 ### Requirement: 消费方对账三态
@@ -352,5 +352,5 @@ gitignore 过滤 SHALL 与既有自污染排除(`openspec/` 整体、`workflow.j
 |------|---------|
 | `modules/workflow/files/files-query.ts`(workflow_files) | 派生净状态,输出 `{ written, deleted }` 形状不变 |
 | `lib/c4-cross-ref.ts`(archi_check) | 派生 written 为被查文件集 |
-| `commands/test-execution.ts` | 突变 scope 取派生净状态 |
+| `commands/test-execution.ts` | plan gate 取 written∪deleted(读取失败 fail-open 全量执行)；突变 scope 取 written |
 | `commands/test-resolve-paths.ts` | 清单模式取派生净状态 |

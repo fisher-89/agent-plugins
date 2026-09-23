@@ -20,7 +20,7 @@ cli
   )
   .option(
     '--change <name>',
-    'Change name (reports written to openspec/changes/<name>/reports/; also selects the mutation scope from the change file inventory)',
+    'Change name (reports written to openspec/changes/<name>/reports/; also scopes plan entries and the mutation scope from the change file inventory)',
   )
   .option('--project-root <path>', 'Override project root directory')
   .option('--files <files>', 'Comma-separated list of test files to run, relative to project root')

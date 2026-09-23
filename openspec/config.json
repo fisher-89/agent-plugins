@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/fisher-89/agent-plugins/refs/heads/master/plugins/dev-team/bin/dev-team-config.schema.json",
   "schema": "spec-driven",
-  "static_analysis": "pnpm run -C ./plugins/dev-team check",
+  "static_analysis": "pnpm run -C ./plugins/dev-team check && pnpm run -C ./packages/desktop check",
   "tests": [
     {
       "root": "plugins/dev-team",
