@@ -49,4 +49,4 @@ App SHALL 支持读取任意用户选定的项目根目录下的 change 记录�
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `foundation::layout` | 磁盘布局解析 | `resolve(root: &Path) -> Layout`；纯路径推导、无 IO；目录名唯一触点 |
-| `desktop-app`（workspace 状态） | 当前 workspace 持有 | 持有选定的根目录 |
+| `dev-team`（workspace 状态） | 当前 workspace 持有 | 持有选定的根目录 |

@@ -61,7 +61,7 @@ pub struct Store {
 
 impl Store {
     /// 打开（不存在则创建）db：`create_dir_all` 父目录 + `Database::create`
-    /// + `schema_version` 写入/校验。打不开即 Err（desktop-app 据此 fail fast）。
+    /// + `schema_version` 写入/校验。打不开即 Err（dev-team 据此 fail fast）。
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         // redb 建文件不建父目录，首启必须补齐；裸文件名（无父目录）跳过
         if let Some(parent) = path.parent() {

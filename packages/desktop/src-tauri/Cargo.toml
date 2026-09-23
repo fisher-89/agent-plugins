@@ -1,8 +1,8 @@
-# 根包混合 workspace：本清单兼作 desktop-app 包（tauri-cli 要求 tauri.conf.json
+# 根包混合 workspace：本清单兼作 dev-team 包（tauri-cli 要求 tauri.conf.json
 # 所在目录的 Cargo.toml 含 [package]，虚拟 workspace 会使 tauri dev/build 报
 # "No package info in the config file"）与 cargo workspace 根。
 [package]
-name = "desktop-app"
+name = "dev-team"
 version = "0.1.0"
 edition = "2021"
 build = "build.rs"
@@ -34,7 +34,7 @@ tauri = { workspace = true, features = ["test"] }
 resolver = "2"
 members = ["crates/core/foundation", "crates/core/workflow", "crates/infra/store"]
 
-# workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 desktop-app 壳）
+# workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 dev-team 壳）
 [workspace.dependencies]
 dunce = "1"
 foundation = { path = "crates/core/foundation" }

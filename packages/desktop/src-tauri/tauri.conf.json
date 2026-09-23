@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "desktop-terminal",
+  "productName": "dev-team",
   "version": "../package.json",
-  "identifier": "dev.wps.desktop-terminal",
+  "identifier": "dev.wps.dev-team",
   "build": {
     "beforeDevCommand": "pnpm client:dev",
     "devUrl": "http://localhost:5173",
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "Desktop Terminal",
+        "title": "Dev Team",
         "width": 1200,
         "height": 800,
         "resizable": true

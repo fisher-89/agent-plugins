@@ -1,5 +1,5 @@
 //! `commands::workspaces` 的单元测试 + 「workspace命令面 → Store持久化」集成关系
-//! （desktop-app 为纯 binary crate，无库目标，集成用例按仓库既有模式与本文件共置）。
+//! （dev-team 为纯 binary crate，无库目标，集成用例按仓库既有模式与本文件共置）。
 //!
 //! 四命令为薄包装（State 取 store + String→Path 参数转换 + StoreError→Err(String)
 //! 映射）：`#[tauri::command]` 保留原函数可直调，测试不启动真实 Tauri runtime——

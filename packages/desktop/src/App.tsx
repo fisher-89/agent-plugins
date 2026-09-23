@@ -81,7 +81,7 @@ export default function App() {
             <header className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2.5">
               <SidebarTrigger />
               <Separator className="mr-2 data-[orientation=vertical]:h-4" orientation="vertical" />
-              <strong>Desktop Terminal</strong>
+              <strong>Dev Team</strong>
               <span className="flex-1" />
               <UpdateIndicator state={update} />
             </header>

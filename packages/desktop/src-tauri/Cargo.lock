@@ -882,7 +882,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "desktop-app"
+name = "dev-team"
 version = "0.1.0"
 dependencies = [
  "foundation",

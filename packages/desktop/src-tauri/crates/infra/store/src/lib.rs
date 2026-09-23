@@ -10,7 +10,7 @@
 //! # db 路径注入约定
 //!
 //! `home_dir` 依赖 Tauri 上下文，store 内不做任何环境路径解析：
-//! db 文件路径完全来自 [`Store::open`] 入参，由 desktop-app 解析后注入。
+//! db 文件路径完全来自 [`Store::open`] 入参，由 dev-team 解析后注入。
 //!
 //! # schema_version 演进
 //!

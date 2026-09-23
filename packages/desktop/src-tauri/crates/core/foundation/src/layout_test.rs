@@ -179,7 +179,7 @@ fn 全包源码不含_openspec_字样_layout_为唯一例外() {
             }
         }
     }
-    // desktop-app 根包源码树 src-tauri/src
+    // dev-team 根包源码树 src-tauri/src
     scan_roots.push(src_tauri.join("src"));
 
     let mut scanned = 0usize;

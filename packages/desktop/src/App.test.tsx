@@ -779,7 +779,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(header !== null).toBe(true);
     const scope = within(header!);
     expect(header?.querySelector('[data-sidebar="trigger"]') !== null).toBe(true);
-    expect(scope.getByText('Desktop Terminal') !== null).toBe(true);
+    expect(scope.getByText('Dev Team') !== null).toBe(true);
     expect(scope.getByText('v0.1.0') !== null).toBe(true);
     // 刷新入口迁清单页头部、移除入口迁右键菜单：header 内不再有这两枚按钮
     expect(scope.queryByText('刷新列表')).toBeNull();

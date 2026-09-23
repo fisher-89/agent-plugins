@@ -2,13 +2,13 @@
 
 ## Purpose
 
-定义 desktop-app Tauri 壳层的组织契约：command 按 queries / exec 双轨组织（MVP 仅实现三个查询命令、exec 为预留空轨道），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
+定义 dev-team Tauri 壳层的组织契约：command 按 queries / exec 双轨组织（MVP 仅实现三个查询命令、exec 为预留空轨道），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
 
 ## Requirements
 
 ### Requirement: Tauri command 查询双轨
 
-desktop-app SHALL 按 queries / exec 双轨组织 Tauri command：
+dev-team SHALL 按 queries / exec 双轨组织 Tauri command：
 
 - `commands/queries/`：MVP 实现三个命令——`list_changes`（change 列表）、`get_change_detail`（change 详情）、`read_artifact`（按信封读取单个产物）
 - `commands/exec/`：预留空轨道，MUST NOT 实现任何真实命令，MUST NOT 引入空壳 trait（trait 定形等第一条真实执行命令落地）
@@ -132,7 +132,7 @@ App SHALL 提供 workspace 选择与恢复能力：
 
 ### Requirement: workspace 注册命令轨道
 
-desktop-app SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注册表（shell 记忆，非 change 域查询）四命令：`list_workspaces`（`last_opened_at` 降序清单）、`add_workspace`（canonicalize + upsert + touch）、`remove_workspace`、`touch_workspace`。命令 SHALL 经 Tauri `State<Store>` 访问 store（`main.rs` 启动时打开并 `.manage()`），自身 MUST NOT 直接操作 redb 或 db 文件。既有 `commands/queries/` 三命令的无状态语义与 `commands/exec/` 空轨道 SHALL 保持不变。
+dev-team SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注册表（shell 记忆，非 change 域查询）四命令：`list_workspaces`（`last_opened_at` 降序清单）、`add_workspace`（canonicalize + upsert + touch）、`remove_workspace`、`touch_workspace`。命令 SHALL 经 Tauri `State<Store>` 访问 store（`main.rs` 启动时打开并 `.manage()`），自身 MUST NOT 直接操作 redb 或 db 文件。既有 `commands/queries/` 三命令的无状态语义与 `commands/exec/` 空轨道 SHALL 保持不变。
 
 本轨道 SHALL 确立后续可失败命令的错误约定模板：命令返回 `Result<T, String>`，`Err` 由 Tauri 转为前端 reject；MUST NOT 静默吞掉 db 打开或读写失败。db 打开失败 SHALL 使应用启动失败并报错，MUST NOT 静默降级为空清单。reject 抵达前端后的呈现 SHALL 按本能力「错误呈现双轨」requirement 分流：动作类命令（add / remove / touch）失败走 toast，查询类命令失败保留 inline error 态持久呈现。
 
@@ -184,7 +184,7 @@ hook 形态（hook 内直调 toast vs 保留返回值由视图 effect 触发）�
 
 ### Requirement: command body 纪律与 app 层微形态
 
-desktop-app SHALL NOT 抽独立 app 层 crate：command 即应用服务，维持既有双轨（queries / workspaces）加 exec 空轨道的组织不变。作为补偿纪律，任何 Tauri command body SHALL 只允许三件事：
+dev-team SHALL NOT 抽独立 app 层 crate：command 即应用服务，维持既有双轨（queries / workspaces）加 exec 空轨道的组织不变。作为补偿纪律，任何 Tauri command body SHALL 只允许三件事：
 
 1. **参数转换**（IPC 入参 → 领域/store 入参）；
 2. **调用**（core 函数或 store 操作）；
@@ -325,9 +325,9 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `desktop-app::commands::queries` | 三个查询命令 | list_changes / get_change_detail / read_artifact；无状态薄包装；返回 DTO |
-| `desktop-app::commands::workspaces` | workspace 注册命令轨道 | list_workspaces / add_workspace / remove_workspace / touch_workspace；`State<Store>`；`Result<T, String>` |
-| `desktop-app::commands::exec` | 预留空轨道 | 无实现、无空壳 trait |
+| `dev-team::commands::queries` | 三个查询命令 | list_changes / get_change_detail / read_artifact；无状态薄包装；返回 DTO |
+| `dev-team::commands::workspaces` | workspace 注册命令轨道 | list_workspaces / add_workspace / remove_workspace / touch_workspace；`State<Store>`；`Result<T, String>` |
+| `dev-team::commands::exec` | 预留空轨道 | 无实现、无空壳 trait |
 | 前端 `hooks/` | 取数收口 | useChangeList / useChangeDetail / useWorkspaces；显式刷新触发（useWorkspaces 启动自动一次） |
 | `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove/touch）；error 态收窄为清单加载失败（查询 inline 持久）；切换语义不变（touch → 重排 → 恒取第一名） |
 | `packages/desktop/src/hooks/use-mobile.ts` | 断点 hook | 窗口 < 768px → Sheet 抽屉第三态 |
@@ -336,7 +336,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `packages/desktop/src/components/AppSidebar.tsx` | workspace 清单侧栏 | `SidebarMenuButton` 列表项（点击 touch 切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
 | `packages/desktop/src/views/changes/ChangeListView.tsx` | 刷新入口 | 头部刷新按钮 `disabled={loading}`；列表加载失败 error-note inline 保留 |
 | `packages/desktop/src/views/WelcomeView.tsx` | 欢迎态 | error-note 仅清单加载失败；「添加新文件夹」入口保留 |
-| `desktop-app::commands::*`（全体命令） | 应用服务（command 即应用服务） | body 三件事：参数转换 / 调用 / 错误映射；无独立 app crate；编排下推 core 或触发翻转 |
+| `dev-team::commands::*`（全体命令） | 应用服务（command 即应用服务） | body 三件事：参数转换 / 调用 / 错误映射；无独立 app crate；编排下推 core 或触发翻转 |
 | `commands::workspaces::{list,add,remove,touch}_workspace_inner` | app 层微形态 | 纯函数 + `&Store` 入参；将来抽 crate 时平移复用，不重写 |
 | app crate 翻转信号 | 决策触发器 | 五条信号（phase lifecycle 命令 / exec 首命令 / 跨 store+fs 协调 / CLI 复用 / 行数机械判据），任一出现即重议 |
 | `packages/desktop/src/styles/global.css` | Tailwind 样式入口 | `@import "tailwindcss"`;`@theme` token(hex 直写、shadcn 结构命名);`@layer base` 元素级样式 |
