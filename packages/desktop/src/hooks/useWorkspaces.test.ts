@@ -19,10 +19,10 @@ vi.mock('sonner', () => ({
   toast: { error: toastErrorMock },
 }));
 
-/** 构造一份最小 WorkspaceRecord。 */
-function record(root: string, lastOpenedAt = 2): WorkspaceRecord {
+/** 构造一份最小 WorkspaceRecord（三字段；清单默认序与时间戳无关）。 */
+function record(root: string): WorkspaceRecord {
   const name = root.split(/[\\/]/).pop() ?? root;
-  return { root, name, addedAt: 1, lastOpenedAt };
+  return { root, name, addedAt: 1 };
 }
 
 /** 可变"库存"：list_workspaces 返回当前库存，add/remove 同步修改库存。 */
@@ -35,15 +35,12 @@ function mockDispatch() {
       return Promise.resolve([...stored]);
     }
     if (command === 'add_workspace') {
-      const rec = record(params?.root ?? '', 3);
+      const rec = record(params?.root ?? '');
       stored = [...stored.filter((r) => r.root !== rec.root), rec];
       return Promise.resolve(rec);
     }
     if (command === 'remove_workspace') {
       stored = stored.filter((r) => r.root !== params?.root);
-      return Promise.resolve(true);
-    }
-    if (command === 'touch_workspace') {
       return Promise.resolve(true);
     }
     return Promise.resolve(null);
@@ -59,7 +56,7 @@ function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
 }
 
-describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/touch 内部刷新）', () => {
+describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove 内部刷新 + select 本地切换）', () => {
   beforeEach(() => {
     invokeMock.mockReset();
     toastErrorMock.mockReset();
@@ -72,9 +69,9 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
 
   // 置于套件首位：守卫失效的病态循环会在其余用例（立即 resolve 的 mock）中
   // 微任务风暴式失控，须让本用例先运行、以稳定判据快速判失败
-  it('恢复守卫恰一次：取数链稳定后 list_workspaces 恰 2 次、touch_workspace 恰 1 次', async () => {
-    stored = [record('/repo/a'), record('/repo/b', 1)];
-    // 每个响应经 setTimeout(0) 宏任务逐拍解析：若恢复守卫失效形成取数-恢复循环，
+  it('取数链稳定：挂载自动取数恰一次后不再增长（无轮询、无恢复循环）', async () => {
+    stored = [record('/repo/a'), record('/repo/b')];
+    // 每个响应经 setTimeout(0) 宏任务逐拍解析：若取数链失控形成循环，
     // 循环每拍只走一轮而非微任务风暴，可被下方稳定判据观测到并快速判失败
     invokeMock.mockImplementation((command: string) => {
       const respond = (value: unknown) =>
@@ -84,7 +81,7 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
     });
     const { result } = renderHook(() => useWorkspaces());
 
-    // 等待取数链稳定：连续两次轮询调用数不再增长（恢复守卫生效即停止循环）
+    // 等待取数链稳定：连续两次轮询调用数不再增长
     let previous = -1;
     await waitFor(
       () => {
@@ -98,25 +95,17 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
     );
 
     expect(result.current.root).toBe('/repo/a');
-    // 挂载取数 + touch 成功后的内部刷新；恢复 touch 仅首次清单非空时一次
-    expect(countOf('list_workspaces')).toBe(2);
-    expect(countOf('touch_workspace')).toBe(1);
+    expect(countOf('list_workspaces')).toBe(1);
+    expect(invokeMock).toHaveBeenCalledTimes(1); // 除挂载取数外无任何命令
     expect(result.current.workspaces.map((r) => r.root)).toEqual(['/repo/a', '/repo/b']);
   });
 
-  it('挂载即自动取数并恢复第一名：取数 → touch（先派发）→ 内部刷新，root 置为第一名', async () => {
+  it('挂载即自动取数并恢复默认序第一名：root 置为第一名，无任何动作命令', async () => {
     invokeMock.mockResolvedValue([record('/repo/a')]);
     const { result } = renderHook(() => useWorkspaces());
 
     await waitFor(() => expect(result.current.root).toBe('/repo/a'));
-    // 挂载取数 → 恢复 touch → touch 成功后内部刷新清单，各恰一次
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3));
-    expect(invokeMock.mock.calls.map(([name]) => name)).toEqual([
-      'list_workspaces',
-      'touch_workspace',
-      'list_workspaces',
-    ]);
-    expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: '/repo/a' });
+    expect(invokeMock.mock.calls.map(([name]) => name)).toEqual(['list_workspaces']);
     expect(result.current.workspaces[0].root).toBe('/repo/a');
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
@@ -133,11 +122,11 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
     expect(result.current.loading).toBe(false);
   });
 
-  it('add 成功：返回记录且内部刷新清单，首次非空清单触发恢复 touch 并打开新记录', async () => {
+  it('add 成功：返回记录、root 直接切到返回记录 root、内部刷新清单', async () => {
     mockDispatch();
     const { result } = renderHook(() => useWorkspaces());
     await settleLoaded();
-    // 挂载时清单为空：仅取数一次，无恢复 touch
+    // 挂载时清单为空：仅取数一次
     expect(invokeMock).toHaveBeenCalledTimes(1);
 
     let added: WorkspaceRecord | null = null;
@@ -148,11 +137,25 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
     expect(added).not.toBeNull();
     expect(added!.root).toBe('/repo/b');
     expect(invokeMock).toHaveBeenCalledWith('add_workspace', { root: '/repo/b' });
-    // add 1 次 + 内部刷新 1 次；刷新取得首个非空清单 → 恢复 touch 1 次 + 再刷新 1 次
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(5));
+    // 挂载取数 1 次 + add 1 次 + 内部刷新 1 次 = 3 次
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(3));
     expect(invokeMock).toHaveBeenLastCalledWith('list_workspaces');
     await waitFor(() => expect(result.current.workspaces.map((r) => r.root)).toContain('/repo/b'));
     expect(result.current.root).toBe('/repo/b');
+  });
+
+  it('add 成功后 root 为新记录即使其不在默认序首位', async () => {
+    mockDispatch();
+    stored = [record('/repo/a')];
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
+
+    // mock 库存按加入顺序返回：z 追加在尾部（默认序非第一名）
+    await act(async () => {
+      await result.current.add('/repo/z');
+    });
+
+    expect(result.current.root).toBe('/repo/z');
   });
 
   it('remove 成功：返回 true 且清单内部刷新', async () => {
@@ -172,20 +175,53 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
     await waitFor(() => expect(result.current.workspaces).toHaveLength(0));
   });
 
-  it('touch 成功：返回 true 且清单内部刷新', async () => {
+  it('remove 当前根：刷新后 root 顺延剩余第一名；清空后回 null（欢迎屏）', async () => {
     mockDispatch();
-    stored = [record('/repo/a')];
+    stored = [record('/repo/a'), record('/repo/b')];
     const { result } = renderHook(() => useWorkspaces());
-    await waitFor(() => expect(result.current.workspaces).toHaveLength(1));
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
 
-    let hit: boolean | undefined;
     await act(async () => {
-      hit = await result.current.touch('/repo/a');
+      await result.current.remove('/repo/a');
     });
 
-    expect(hit).toBe(true);
-    expect(invokeMock).toHaveBeenCalledWith('touch_workspace', { root: '/repo/a' });
-    expect(invokeMock).toHaveBeenLastCalledWith('list_workspaces');
+    await waitFor(() => expect(result.current.root).toBe('/repo/b'));
+    expect(result.current.workspaces.map((r) => r.root)).toEqual(['/repo/b']);
+
+    await act(async () => {
+      await result.current.remove('/repo/b');
+    });
+    await waitFor(() => expect(result.current.root).toBeNull());
+  });
+
+  it('remove 非当前根：当前根保持不变', async () => {
+    mockDispatch();
+    stored = [record('/repo/a'), record('/repo/b')];
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
+
+    await act(async () => {
+      await result.current.remove('/repo/b');
+    });
+
+    expect(result.current.root).toBe('/repo/a');
+    await waitFor(() => expect(result.current.workspaces.map((r) => r.root)).toEqual(['/repo/a']));
+  });
+
+  it('select：本地切换当前根，不触发任何 invoke，清单顺序不变', async () => {
+    invokeMock.mockResolvedValue([record('/repo/a'), record('/repo/b')]);
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
+    const callsBefore = invokeMock.mock.calls.length;
+
+    act(() => {
+      result.current.select('/repo/b');
+    });
+
+    expect(result.current.root).toBe('/repo/b');
+    expect(invokeMock.mock.calls.length).toBe(callsBefore); // 无后端调用
+    // 清单不重排：仍为默认序
+    expect(result.current.workspaces.map((r) => r.root)).toEqual(['/repo/a', '/repo/b']);
   });
 
   it('无轮询无 watch：推进虚拟计时数分钟后 invoke 次数不增长', async () => {
@@ -224,7 +260,7 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
     expect(result.current.root).toBe('/repo/a');
   });
 
-  it('卸载取消：清单在卸载后才返回时不触发恢复 touch，也不再取数', async () => {
+  it('卸载取消：清单在卸载后才返回时不置状态、不再取数', async () => {
     let resolveLoad: (records: WorkspaceRecord[]) => void = () => {};
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_workspaces') {
@@ -232,7 +268,7 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
           resolveLoad = resolve;
         });
       }
-      return Promise.resolve(true);
+      return Promise.resolve(null);
     });
     const { unmount } = renderHook(() => useWorkspaces());
     unmount();
@@ -241,14 +277,13 @@ describe('useWorkspaces：清单取数收口（挂载自动 load + add/remove/to
       resolveLoad([record('/repo/a')]);
     });
 
-    // 取消后迟到响应被丢弃：不 touch、不内部刷新取数
-    expect(countOf('touch_workspace')).toBe(0);
+    // 取消后迟到响应被丢弃：不内部刷新取数
     expect(countOf('list_workspaces')).toBe(1);
   });
 });
 
 // ---------------------------------------------------------------------------
-// 错误双轨（design D2/D8）：动作失败（add/remove/touch）hook 内直调 toast.error
+// 错误双轨（design D2/D8）：动作失败（add/remove）hook 内直调 toast.error
 // 固定文案，error 仅承载 list_workspaces 加载失败——动作失败用例由旧「error 置位」
 // 断言改写为 toast 调用断言（error 保持 null）。
 // ---------------------------------------------------------------------------
@@ -264,7 +299,7 @@ describe('useWorkspaces：错误双轨（动作 toast 化）', () => {
     vi.useRealTimers();
   });
 
-  it('add reject：返回 null、toast.error 以「添加 workspace 失败：」前缀 + 错误串调用、error 保持 null（改写：原「error 置位」断言废除——双轨后动作失败不再置 error）', async () => {
+  it('add reject：返回 null、toast.error 以「添加 workspace 失败：」前缀 + 错误串调用、error 保持 null', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_workspaces') return Promise.resolve([]);
       return Promise.reject(new Error('canonicalize: 无效路径'));
@@ -285,7 +320,7 @@ describe('useWorkspaces：错误双轨（动作 toast 化）', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('add 传入空字符串 root：参数原样 invoke、toast 以固定前缀呈现、不崩溃（改写：error 断言 → toast 断言）', async () => {
+  it('add 传入空字符串 root：参数原样 invoke、toast 以固定前缀呈现、不崩溃', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_workspaces') return Promise.resolve([]);
       return Promise.reject(new Error('canonicalize: : 系统找不到指定的路径'));
@@ -306,11 +341,10 @@ describe('useWorkspaces：错误双轨（动作 toast 化）', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('remove reject：返回 false、toast.error 以「移除 workspace 失败：」前缀调用、error 保持 null（改写同上）', async () => {
+  it('remove reject：返回 false、toast.error 以「移除 workspace 失败：」前缀调用、error 保持 null', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_workspaces') return Promise.resolve([record('/repo/a')]);
-      if (command === 'touch_workspace') return Promise.resolve(true);
-      // 仅 remove_workspace 走 reject（恢复 touch 成功，不混入 toast 断言）
+      // 仅 remove_workspace 走 reject
       return Promise.reject(new Error('db: 打开失败'));
     });
     const { result } = renderHook(() => useWorkspaces());
@@ -327,33 +361,7 @@ describe('useWorkspaces：错误双轨（动作 toast 化）', () => {
     expect(result.current.error).toBeNull();
   });
 
-  it('touch reject：返回 false、toast.error 以「切换 workspace 失败：」前缀调用、error 保持 null、不阻塞后续 add（改写同上）', async () => {
-    mockDispatch();
-    stored = [];
-    const { result } = renderHook(() => useWorkspaces());
-    await settleLoaded();
-
-    invokeMock.mockImplementationOnce(() => Promise.reject(new Error('db: 写入失败')));
-    let hit: boolean | undefined;
-    await act(async () => {
-      hit = await result.current.touch('/repo/a');
-    });
-
-    expect(hit).toBe(false);
-    expect(toastErrorMock).toHaveBeenCalledTimes(1);
-    expect(toastErrorMock).toHaveBeenCalledWith('切换 workspace 失败：Error: db: 写入失败');
-    expect(result.current.error).toBeNull();
-
-    // 动作轨道失败不阻塞后续动作
-    let added: WorkspaceRecord | null = null;
-    await act(async () => {
-      added = await result.current.add('/repo/b');
-    });
-    expect(added).not.toBeNull();
-    expect(added!.root).toBe('/repo/b');
-  });
-
-  it('remove resolve(false)（store miss 幂等）：返回 false、不调 toast、不置 error（改写：既有「不置 error」用例补「不 toast」断言，D8 排除项）', async () => {
+  it('remove resolve(false)（store miss 幂等）：返回 false、不调 toast、不置 error', async () => {
     invokeMock.mockImplementation((command: string) => {
       if (command === 'list_workspaces') return Promise.resolve([record('/repo/a')]);
       if (command === 'remove_workspace') return Promise.resolve(false);
@@ -370,40 +378,19 @@ describe('useWorkspaces：错误双轨（动作 toast 化）', () => {
     expect(hit).toBe(false);
     expect(toastErrorMock).not.toHaveBeenCalled();
     expect(result.current.error).toBeNull();
-    // 幂等 miss 非错误，但内部刷新仍发生
-    // （挂载取数 + 挂载恢复 touch 刷新 + 移除后刷新 = 3 次）
+    // 幂等 miss 非错误，但内部刷新仍发生（挂载取数 + 移除后刷新 = 2 次）
     await waitFor(() =>
-      expect(invokeMock.mock.calls.filter(([name]) => name === 'list_workspaces')).toHaveLength(3),
+      expect(invokeMock.mock.calls.filter(([name]) => name === 'list_workspaces')).toHaveLength(2),
     );
   });
 
-  it('启动恢复 touch 失败（fire-and-forget）：toast 以「切换 workspace 失败：」前缀调用、error 保持 null、恢复链不阻断', async () => {
-    invokeMock.mockImplementation((command: string) => {
-      if (command === 'list_workspaces') {
-        return Promise.resolve([record('/repo/a'), record('/repo/b', 1)]);
-      }
-      if (command === 'touch_workspace') return Promise.reject(new Error('db: 恢复失败'));
-      return Promise.resolve(null);
-    });
-    const { result } = renderHook(() => useWorkspaces());
-
-    // 恢复链不阻断：touch 失败后 root 照常置为清单第一名
-    await waitFor(() => expect(result.current.root).toBe('/repo/a'));
-    expect(toastErrorMock).toHaveBeenCalledTimes(1);
-    expect(toastErrorMock).toHaveBeenCalledWith('切换 workspace 失败：Error: db: 恢复失败');
-    expect(result.current.error).toBeNull();
-  });
-
-  it('add / remove / touch 全部成功：toast 零调用（动作成功面无惊扰）', async () => {
+  it('add / remove 全部成功：toast 零调用（动作成功面无惊扰）', async () => {
     mockDispatch();
     const { result } = renderHook(() => useWorkspaces());
     await settleLoaded();
 
     await act(async () => {
       await result.current.add('/repo/b');
-    });
-    await act(async () => {
-      await result.current.touch('/repo/b');
     });
     await act(async () => {
       await result.current.remove('/repo/b');

@@ -1,4 +1,4 @@
-//! canonical 口径（单一规范函数）：存库 key、去重比较、touch/remove 命中同源。
+//! canonical 口径（单一规范函数）：存库 key、去重比较、remove 命中同源。
 
 use std::path::{Path, PathBuf};
 
@@ -15,7 +15,7 @@ pub(crate) fn canonical_key(input: &Path) -> Result<PathBuf, String> {
 /// 回退匹配：目录已消失、canonicalize 必然失败时，用户仍须能移除残留清单项。
 ///
 /// 入参词法归一化——分隔符统一 `\`、去 `\\?\` 前缀——与存量 key 逐个
-/// ASCII 大小写不敏感比较。前端 touch/remove 回传的是 list 结果中的
+/// ASCII 大小写不敏感比较。前端 remove 回传的是 list 结果中的
 /// canonical root，回退匹配必然命中；仍未命中由调用方按幂等 miss 处理。
 pub(crate) fn matches_lexically(stored_key: &str, input: &Path) -> bool {
     let raw = input.to_string_lossy();

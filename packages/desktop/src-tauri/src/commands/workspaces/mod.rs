@@ -1,4 +1,4 @@
-//! workspace 注册命令轨道（shell 记忆，非 change 域查询）：四命令薄包装——
+//! workspace 注册命令轨道（shell 记忆，非 change 域查询）：三命令薄包装——
 //! `State<'_, Store>` 取 store + 参数转换（`String` → `Path`）+ DTO 返回。
 //! 自身不直接操作 redb 或 db 文件，store 层 `StoreError` 不进入命令签名。
 //!
@@ -12,7 +12,7 @@ use tauri::State;
 
 use store::{Store, StoreError, WorkspaceRecord};
 
-/// 清单（`last_opened_at` 降序，第一名即最近打开）。
+/// 清单（表主键 canonical root 自然序，顺序与使用时间无关）。
 #[tauri::command]
 pub fn list_workspaces(store: State<'_, Store>) -> Result<Vec<WorkspaceRecord>, String> {
     list_workspaces_inner(&store).map_err(|e| e.to_string())
@@ -22,7 +22,7 @@ fn list_workspaces_inner(store: &Store) -> Result<Vec<WorkspaceRecord>, StoreErr
     store.list_workspaces()
 }
 
-/// 文件夹选择器选定后入库：canonicalize + upsert + touch，返回 canonical 记录。
+/// 文件夹选择器选定后入库：canonicalize + upsert，返回 canonical 记录。
 #[tauri::command]
 pub fn add_workspace(store: State<'_, Store>, root: String) -> Result<WorkspaceRecord, String> {
     add_workspace_inner(&store, Path::new(&root)).map_err(|e| e.to_string())
@@ -40,16 +40,6 @@ pub fn remove_workspace(store: State<'_, Store>, root: String) -> Result<bool, S
 
 fn remove_workspace_inner(store: &Store, root: &Path) -> Result<bool, StoreError> {
     store.remove_workspace(root)
-}
-
-/// 选中即 touch（自动恢复 / 下拉切换 / 添加后打开）；返回是否命中。
-#[tauri::command]
-pub fn touch_workspace(store: State<'_, Store>, root: String) -> Result<bool, String> {
-    touch_workspace_inner(&store, Path::new(&root)).map_err(|e| e.to_string())
-}
-
-fn touch_workspace_inner(store: &Store, root: &Path) -> Result<bool, StoreError> {
-    store.touch_workspace(root)
 }
 
 #[cfg(test)]

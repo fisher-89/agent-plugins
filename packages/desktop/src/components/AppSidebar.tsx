@@ -27,11 +27,11 @@ export interface AppSidebarProps {
   page?: TopPage;
   /** 页面导航组点击切换 */
   onPageChange?: (page: TopPage) => void;
-  /** workspace 清单（后端按 last_opened_at 降序） */
+  /** workspace 清单 */
   workspaces: WorkspaceRecord[];
-  /** 当前选中根（清单第一名） */
+  /** 当前选中根（启动恢复/移除顺延取默认序第一名，切换为本地 state） */
   currentRoot: string;
-  /** 点击清单项：touch → 清单重排 → 恒取第一名 */
+  /** 点击清单项 */
   onOpen: (root: string) => void;
   /** 「＋」添加：文件夹选择器 → add_workspace 入库 */
   onAdd: () => void;

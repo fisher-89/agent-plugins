@@ -53,17 +53,16 @@ function stubEnvironment() {
 // fixture 与装置
 // ---------------------------------------------------------------------------
 
-function record(root: string, lastOpenedAt: number): WorkspaceRecord {
+function record(root: string): WorkspaceRecord {
   return {
     root,
     name: root.split(/[\\/]/).pop() ?? root,
     addedAt: 1,
-    lastOpenedAt,
   };
 }
 
-const FIRST = record('C:\\demo\\beta', 900);
-const SECOND = record('C:\\demo\\alpha', 100);
+const FIRST = record('C:\\demo\\beta');
+const SECOND = record('C:\\demo\\alpha');
 
 function mountSidebar(workspaces: WorkspaceRecord[], currentRoot: string) {
   const onOpen = vi.fn();
@@ -133,7 +132,7 @@ describe('AppSidebar：清单渲染', () => {
   });
 
   it('超大清单（50 项）：全量渲染无丢失（workspace-item 计数断言）', () => {
-    const many = Array.from({ length: 50 }, (_, index) => record(`C:\\ws\\proj-${index}`, index));
+    const many = Array.from({ length: 50 }, (_, index) => record(`C:\\ws\\proj-${index}`));
 
     mountSidebar(many, many[0].root);
 
@@ -237,8 +236,8 @@ describe('AppSidebar：Tooltip 与副文本', () => {
   });
 
   it('同名不同父两项：data-root 定位后 within() 取 workspace-sub，副文本各为父目录（D3 区分能力）', () => {
-    const a = record('C:\\a\\plugin', 900);
-    const b = record('C:\\b\\plugin', 100);
+    const a = record('C:\\a\\plugin');
+    const b = record('C:\\b\\plugin');
 
     mountSidebar([a, b], a.root);
 
@@ -251,7 +250,7 @@ describe('AppSidebar：Tooltip 与副文本', () => {
   });
 
   it('root 无分隔符（如 plugin）：副文本为空串、workspace-sub 节点不渲染（D3）', () => {
-    mountSidebar([record('plugin', 1)], 'plugin');
+    mountSidebar([record('plugin')], 'plugin');
 
     const item = itemByRoot('plugin');
     expect(within(item).queryByTestId('workspace-sub')).toBeNull();
@@ -261,7 +260,7 @@ describe('AppSidebar：Tooltip 与副文本', () => {
   it('超长 root（>1000 字符）：渲染不崩、完整 root 在 DOM（truncate 承载，供 Tooltip 断言）', () => {
     const longRoot = `C:\\${'dir\\'.repeat(250)}leaf`;
 
-    mountSidebar([record(longRoot, 1)], longRoot);
+    mountSidebar([record(longRoot)], longRoot);
 
     const item = itemByRoot(longRoot);
     expect(item.getAttribute('data-root')).toBe(longRoot);

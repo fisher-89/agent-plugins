@@ -1,15 +1,12 @@
-//! `store` 的单元测试（AC-1/2/3/4/5/8/10）：四操作 + open + StoreError。
+//! `store` 的单元测试（AC-1/2/3/4/5/8/10）：三操作 + open + StoreError。
 //!
 //! tempdir 真开 redb 文件（存储层不 mock）；全部断言经 `Store` 公共 API
 //! （D6 三名字 `Store` / `StoreError` / `WorkspaceRecord`），内部协作
 //! （model 编解码、canonical 口径）由此间接覆盖。系统时钟不 mock：
-//! 并列场景以 tie-break 与「不减」断言表述，需要严格时间差的场景以
-//! 毫秒级 sleep 拉开。
+//! `added_at` 仅记录入库时间，清单排序与其无关（默认序按表主键）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
-use std::thread::sleep;
-use std::time::Duration;
 
 use redb::{Database, ReadOnlyDatabase, ReadableDatabase, TableDefinition};
 
@@ -211,7 +208,7 @@ fn 全新库open后经只读句柄直读user_meta表schema_version恰为当前�
 // ---------------------------------------------------------------------------
 
 #[test]
-fn add新目录返回canonical完整路径name为目录名末段且两时间戳同值() {
+fn add新目录返回canonical完整路径name为目录名末段() {
     let env = Env::new("add-basic");
     let store = open_ok(&env.db_path());
     let dir = env.ws("alpha");
@@ -227,15 +224,11 @@ fn add新目录返回canonical完整路径name为目录名末段且两时间戳�
         "root 为 canonical 完整路径"
     );
     assert_eq!(record.name, "alpha", "name 为目录名最后一段");
-    assert_eq!(
-        record.added_at, record.last_opened_at,
-        "新建语义两时间戳同值"
-    );
     assert_eq!(store.list_workspaces().unwrap(), vec![record]);
 }
 
 #[test]
-fn add大小写不同的等价路径仅一条且刷新时间保留首添added_at() {
+fn add大小写不同的等价路径仅一条且原记录原样返回保留首添added_at() {
     let env = Env::new("case-dedup");
     let store = open_ok(&env.db_path());
     let dir = env.ws("DedupMe");
@@ -243,17 +236,15 @@ fn add大小写不同的等价路径仅一条且刷新时间保留首添added_at
 
     // 同一目录、大小写不同的书写形态（Windows 盘上真实大小写归一）
     let flipped = Path::new(&first.root).with_file_name("dEDUPmE");
-    sleep(Duration::from_millis(5));
     let second = add_ok(&store, &flipped);
 
-    assert_eq!(second.root, first.root, "等价路径去重为同一 canonical key");
+    assert_eq!(
+        second, first,
+        "等价路径去重为同一 canonical key，原记录原样返回"
+    );
     let list = store.list_workspaces().unwrap();
     assert_eq!(list.len(), 1, "清单仅一条记录");
     assert_eq!(list[0].added_at, first.added_at, "added_at 保留首添值");
-    assert!(
-        list[0].last_opened_at > first.last_opened_at,
-        "last_opened_at 已刷新"
-    );
 }
 
 #[test]
@@ -338,16 +329,13 @@ fn add空路径返回canonicalize错误不panic() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list按last_opened_at降序且第一名即最近touch() {
+fn list按canonical_root字典序升序与添加顺序无关() {
     let env = Env::new("ordering");
     let store = open_ok(&env.db_path());
+    // 刻意乱序 add：默认序不随添加（或打开）时间变化
     let rec_gamma = add_ok(&store, &env.ws("gamma"));
-    sleep(Duration::from_millis(3));
     let rec_alpha = add_ok(&store, &env.ws("alpha"));
-    sleep(Duration::from_millis(3));
     let rec_beta = add_ok(&store, &env.ws("beta"));
-    sleep(Duration::from_millis(3));
-    assert!(store.touch_workspace(Path::new(&rec_alpha.root)).unwrap());
 
     let roots: Vec<String> = store
         .list_workspaces()
@@ -356,30 +344,28 @@ fn list按last_opened_at降序且第一名即最近touch() {
         .map(|r| r.root)
         .collect();
 
-    // alpha 最近 touch 置顶；beta 晚于 gamma add，降序在前（并列时 root 升序亦同序）
-    assert_eq!(roots, vec![rec_alpha.root, rec_beta.root, rec_gamma.root]);
+    assert_eq!(
+        roots,
+        vec![rec_alpha.root, rec_beta.root, rec_gamma.root],
+        "表主键（canonical root）自然序升序，与添加顺序无关"
+    );
 }
 
 #[test]
-fn list并列时按root字典序升序且顺序确定可复现() {
-    let env = Env::new("tie-break");
+fn list顺序确定可复现不因读写抖动() {
+    let env = Env::new("stable-order");
     let store = open_ok(&env.db_path());
-    // 同毫秒连续 add（刻意不 sleep）：时间戳很可能并列
     let rec_a = add_ok(&store, &env.ws("zzz-last"));
     let rec_b = add_ok(&store, &env.ws("aaa-first"));
-    assert_eq!(rec_a.added_at, rec_a.last_opened_at, "新建语义两时间戳同值");
-    assert_eq!(rec_b.added_at, rec_b.last_opened_at, "新建语义两时间戳同值");
 
     let first = store.list_workspaces().unwrap();
     let second = store.list_workspaces().unwrap();
     assert_eq!(first, second, "两次 list 顺序确定可复现");
-
-    for pair in first.windows(2) {
-        let (prev, next) = (&pair[0], &pair[1]);
-        let ordered = prev.last_opened_at > next.last_opened_at
-            || (prev.last_opened_at == next.last_opened_at && prev.root <= next.root);
-        assert!(ordered, "须按 last_opened_at 降序、并列按 root 字典序升序");
-    }
+    assert_eq!(
+        first.iter().map(|r| r.root.clone()).collect::<Vec<_>>(),
+        vec![rec_b.root, rec_a.root],
+        "主键自然序稳定，先添的 zzz 不因晚读而置顶"
+    );
 }
 
 #[test]
@@ -388,75 +374,6 @@ fn 空库list返回空向量不报错() {
     let store = open_ok(&env.db_path());
 
     assert!(store.list_workspaces().unwrap().is_empty());
-}
-
-// ---------------------------------------------------------------------------
-// Store::touch_workspace
-// ---------------------------------------------------------------------------
-
-#[test]
-fn touch已存在key返回true且last_opened_at不减() {
-    let env = Env::new("touch-hit");
-    let store = open_ok(&env.db_path());
-    let record = add_ok(&store, &env.ws("alpha"));
-
-    sleep(Duration::from_millis(2));
-    let hit = store.touch_workspace(Path::new(&record.root)).unwrap();
-
-    assert!(hit, "已存在 key touch 命中");
-    let stored = &store.list_workspaces().unwrap()[0];
-    assert!(
-        stored.last_opened_at >= record.last_opened_at,
-        "last_opened_at 不减"
-    );
-}
-
-#[test]
-fn touch未注册路径返回false幂等不产生新记录() {
-    let env = Env::new("touch-miss");
-    let store = open_ok(&env.db_path());
-    let record = add_ok(&store, &env.ws("registered"));
-    let ghost = env.ws("ghost"); // 存在但未注册
-
-    let hit = store.touch_workspace(&ghost).unwrap();
-
-    assert!(!hit, "未注册路径 touch 幂等 miss");
-    assert_eq!(
-        store.list_workspaces().unwrap(),
-        vec![record],
-        "不产生新记录"
-    );
-}
-
-#[test]
-fn touch目录消失后以原路径走词法回退命中并刷新() {
-    let env = Env::new("touch-vanish");
-    let store = open_ok(&env.db_path());
-    let dir = env.ws("vanish");
-    let record = add_ok(&store, &dir);
-    fs::remove_dir_all(&dir).expect("删除目录失败");
-
-    // 目录已消失：canonicalize 失败 → 词法归一化回退匹配存量 key
-    let hit = store.touch_workspace(Path::new(&record.root)).unwrap();
-
-    assert!(hit, "回退匹配命中存量 key");
-    let stored = &store.list_workspaces().unwrap()[0];
-    assert!(
-        stored.last_opened_at >= record.last_opened_at,
-        "命中记录的 last_opened_at 已刷新"
-    );
-}
-
-#[test]
-fn touch空路径回退不命中返回false幂等() {
-    let env = Env::new("touch-empty");
-    let store = open_ok(&env.db_path());
-    let record = add_ok(&store, &env.ws("registered"));
-
-    let hit = store.touch_workspace(Path::new("")).unwrap();
-
-    assert!(!hit, "空串边界穿透回退路径不命中");
-    assert_eq!(store.list_workspaces().unwrap(), vec![record], "库内容不变");
 }
 
 // ---------------------------------------------------------------------------
@@ -532,24 +449,18 @@ fn store_error两变体display携带db与canonicalize前缀() {
 }
 
 #[test]
-fn 全链路add_list_touch_remove后重开同一db文件清单状态与各操作返回一致() {
+fn 全链路add_list_remove后重开同一db文件清单状态与各操作返回一致() {
     let env = Env::new("full-cycle");
     let (rec_a_root, snapshot) = {
         let store = open_ok(&env.db_path());
         let rec_a = add_ok(&store, &env.ws("alpha"));
-        sleep(Duration::from_millis(2));
         let rec_b = add_ok(&store, &env.ws("beta"));
-        sleep(Duration::from_millis(2));
-        assert!(
-            store.touch_workspace(Path::new(&rec_a.root)).unwrap(),
-            "touch alpha 命中"
-        );
         let list = store.list_workspaces().unwrap();
         let roots: Vec<String> = list.iter().map(|r| r.root.clone()).collect();
         assert_eq!(
             roots,
             vec![rec_a.root.clone(), rec_b.root],
-            "操作后清单顺序符合预期"
+            "默认序：alpha 字典序在前，与添加顺序无关（此处恰同序）"
         );
         (rec_a.root, list)
     };

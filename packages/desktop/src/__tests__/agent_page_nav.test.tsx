@@ -31,16 +31,14 @@ vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
 // ---------------------------------------------------------------------------
 
 const FIRST: WorkspaceRecord = {
-  root: 'C:\\demo\\beta',
-  name: 'beta',
-  addedAt: 1,
-  lastOpenedAt: 900,
-};
-const SECOND: WorkspaceRecord = {
   root: 'C:\\demo\\alpha',
   name: 'alpha',
   addedAt: 1,
-  lastOpenedAt: 100,
+};
+const SECOND: WorkspaceRecord = {
+  root: 'C:\\demo\\beta',
+  name: 'beta',
+  addedAt: 1,
 };
 
 const fakeList: ChangeList = {
@@ -64,7 +62,6 @@ const fakeDetail: ChangeDetail = {
 };
 
 let remaining: WorkspaceRecord[];
-let clock = 1000;
 
 let restoreViewport: () => void = () => {};
 
@@ -101,16 +98,9 @@ function countOf(command: string): number {
 
 function mockIpc() {
   remaining = [FIRST, SECOND];
-  clock = 1000;
-  invokeMock.mockImplementation((command: string, params?: { root?: string }) => {
+  invokeMock.mockImplementation((command: string) => {
     if (command === 'list_workspaces') {
       return Promise.resolve([...remaining]);
-    }
-    if (command === 'touch_workspace') {
-      remaining = remaining
-        .map((r) => (r.root === params?.root ? { ...r, lastOpenedAt: ++clock } : r))
-        .sort((a, b) => b.lastOpenedAt - a.lastOpenedAt);
-      return Promise.resolve(true);
     }
     if (command === 'list_changes') {
       return Promise.resolve(fakeList);
@@ -164,11 +154,12 @@ describe('agent_page_nav：导航切换与 change 域状态共存', () => {
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
   });
 
-  it('导航点击不触发任何 workspace 命令（touch_workspace / list_workspaces 调用次数不变）', async () => {
+  it('导航点击不触发任何 workspace 命令（list_workspaces / 动作命令调用次数不变）', async () => {
     await restored();
 
-    const touchBefore = countOf('touch_workspace');
     const listBefore = countOf('list_workspaces');
+    const addBefore = countOf('add_workspace');
+    const removeBefore = countOf('remove_workspace');
     await act(async () => {
       fireEvent.click(screen.getByTestId('nav-agent'));
     });
@@ -179,8 +170,9 @@ describe('agent_page_nav：导航切换与 change 域状态共存', () => {
       fireEvent.click(screen.getByTestId('nav-agent'));
     });
 
-    expect(countOf('touch_workspace')).toBe(touchBefore);
     expect(countOf('list_workspaces')).toBe(listBefore);
+    expect(countOf('add_workspace')).toBe(addBefore);
+    expect(countOf('remove_workspace')).toBe(removeBefore);
   });
 
   it('进入 change 详情 → 切 Agent 页 → 切回：选中重置回清单、get_change_detail 不以旧选中重发（D10）', async () => {

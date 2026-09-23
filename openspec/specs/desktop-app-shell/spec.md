@@ -75,10 +75,9 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 
 App SHALL 提供 workspace 选择与恢复能力：
 
-- 启动时 SHALL 调用 `list_workspaces`，存在记录时自动恢复最近打开的 workspace（`last_opened_at` 降序第一名）并直接进入列表视图；无任何记录时 SHALL 停留在欢迎屏
-- 当前根 SHALL 恒等于清单第一名（`list_workspaces` 按 `last_opened_at` 降序）：清单非空即选中第一名，清单为空（或被移除一空）时停留在欢迎屏；欢迎屏 SHALL 呈现空态与“添加新文件夹”入口；文件夹选择器 SHALL 仍是添加入口，选定后经 `add_workspace` 入库，刷新后新记录（`last_opened_at` 最新）即第一名并打开；壳态下 sidebar「工作区」组标签右侧的 `SidebarGroupAction` 内联图标 SHALL 提供同一文件夹选择器添加流
-- 壳态下 sidebar SHALL 为唯一 workspace 清单与切换入口（顶部 `select` 下拉 MUST 移除）：清单项 SHALL 按 `last_opened_at` 降序呈现全部清单，点击清单项即切换；清单项 name 仅取目录名最后一段，SHALL 以副文本（`SidebarMenuButton` sub）区分同名项（具体内容 design 定，同名场景测试以 testid 承载、不依赖 accessible name），悬停 SHALL 以 Tooltip 展示完整 root；切换 SHALL 清空当前 change 选中并以新根重新取数
-- 选中 workspace（含自动恢复与 sidebar 列表项切换）SHALL 触发 `touch_workspace` 刷新 `last_opened_at`
+- 启动时 SHALL 调用 `list_workspaces`，存在记录时自动恢复默认序（canonical root 升序）第一名并直接进入列表视图；无任何记录时 SHALL 停留在欢迎屏。恢复为纯查询链，MUST NOT 触发任何 workspace 动作命令
+- 当前根的取值规则：启动恢复为默认序第一名；sidebar 点击为本地 state 切换（无后端命令）；当前根仍在清单则保持，被移除时顺延剩余清单第一名，清单为空（或被移除一空）时停留在欢迎屏；欢迎屏 SHALL 呈现空态与“添加新文件夹”入口；文件夹选择器 SHALL 仍是添加入口，选定后经 `add_workspace` 入库，成功即以返回记录的 canonical root 为当前根打开（新记录在默认序中未必居首）；壳态下 sidebar「工作区」组标签右侧的 `SidebarGroupAction` 内联图标 SHALL 提供同一文件夹选择器添加流
+- 壳态下 sidebar SHALL 为唯一 workspace 清单与切换入口（顶部 `select` 下拉 MUST 移除）：清单项 SHALL 按默认序（canonical root 升序）呈现全部清单，清单顺序与使用时间无关、MUST NOT 因点击切换或打开而重排；点击清单项即本地切换；清单项 name 仅取目录名最后一段，SHALL 以副文本（`SidebarMenuButton` sub）区分同名项（具体内容 design 定，同名场景测试以 testid 承载、不依赖 accessible name），悬停 SHALL 以 Tooltip 展示完整 root；切换 SHALL 清空当前 change 选中并以新根重新取数
 - 移除 SHALL 经清单项右键上下文菜单（shadcn `ContextMenu`）调用 `remove_workspace`，仅从清单移除、MUST NOT 删除盘上目录，MUST NOT 引入确认弹窗；移除的是当前根时 SHALL 切换到剩余清单第一名，清单为空时 SHALL 回到欢迎屏；移除非当前项时当前根与视图 SHALL 保持不变
 
 选定 workspace 根后，列表与详情取数均以该根为基准。
@@ -86,7 +85,7 @@ App SHALL 提供 workspace 选择与恢复能力：
 #### Scenario: 启动自动恢复
 
 - **WHEN** 应用启动且库中已有 workspace 记录
-- **THEN** App 恢复 `last_opened_at` 最新的一条为当前根并进入列表视图，无需用户操作
+- **THEN** App 恢复默认序（canonical root 升序）第一名为当前根并进入列表视图，无需用户操作，且无任何 workspace 动作命令发起
 
 #### Scenario: 无记录停留欢迎屏
 
@@ -96,17 +95,17 @@ App SHALL 提供 workspace 选择与恢复能力：
 #### Scenario: 欢迎屏添加
 
 - **WHEN** 用户经文件夹选择器添加新目录
-- **THEN** App 经 `add_workspace` 入库，刷新后以新记录（清单第一名）为根调用 `list_changes` 进入列表视图
+- **THEN** App 经 `add_workspace` 入库，成功即以返回记录的 canonical root 为根调用 `list_changes` 进入列表视图（新记录默认序未必居首）
 
 #### Scenario: Sidebar 组动作添加
 
 - **WHEN** 用户点击「工作区」组标签右侧的 `SidebarGroupAction` 内联图标并经文件夹选择器选定目录
-- **THEN** 经 `add_workspace` 入库，刷新后以新记录（清单第一名）为根打开列表视图
+- **THEN** 经 `add_workspace` 入库，成功即以返回记录的 canonical root 为根打开列表视图
 
 #### Scenario: Sidebar 列表项切换
 
 - **WHEN** 用户点击 sidebar 中另一 workspace 清单项
-- **THEN** 当前 change 选中被清空，`touch_workspace` 刷新 `last_opened_at` 后列表以新根（刷新后第一名）重取；悬停清单项可见 Tooltip 完整 root，同名项以副文本区分（testid 承载）
+- **THEN** 当前根本地切换（无 workspace 动作命令），当前 change 选中被清空，列表以新根重取；清单保持默认序不重排；悬停清单项可见 Tooltip 完整 root，同名项以副文本区分（testid 承载）
 
 #### Scenario: 右键菜单移除当前根
 
@@ -147,14 +146,14 @@ App SHALL 提供 workspace 选择与恢复能力：
 
 ### Requirement: workspace 注册命令轨道
 
-dev-team SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注册表（shell 记忆，非 change 域查询）四命令：`list_workspaces`（`last_opened_at` 降序清单）、`add_workspace`（canonicalize + upsert + touch）、`remove_workspace`、`touch_workspace`。命令 SHALL 经 Tauri `State<Store>` 访问 store（`main.rs` 启动时打开并 `.manage()`），自身 MUST NOT 直接操作 redb 或 db 文件。既有 `commands/queries/` 三命令的无状态语义与 `commands/exec/` 轨道纪律 SHALL 保持不变。
+dev-team SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注册表（shell 记忆，非 change 域查询）三命令：`list_workspaces`（默认序清单：表主键 canonical root 升序）、`add_workspace`（canonicalize + upsert）、`remove_workspace`。命令 SHALL 经 Tauri `State<Store>` 访问 store（`main.rs` 启动时打开并 `.manage()`），自身 MUST NOT 直接操作 redb 或 db 文件。既有 `commands/queries/` 三命令的无状态语义与 `commands/exec/` 轨道纪律 SHALL 保持不变。MUST NOT 存在「按打开时间刷新/排序」类命令（`touch_workspace` 已移除）。
 
-本轨道 SHALL 确立后续可失败命令的错误约定模板：命令返回 `Result<T, String>`，`Err` 由 Tauri 转为前端 reject；MUST NOT 静默吞掉 db 打开或读写失败。db 打开失败 SHALL 使应用启动失败并报错，MUST NOT 静默降级为空清单。reject 抵达前端后的呈现 SHALL 按本能力「错误呈现双轨」requirement 分流：动作类命令（add / remove / touch）失败走 toast，查询类命令失败保留 inline error 态持久呈现。
+本轨道 SHALL 确立后续可失败命令的错误约定模板：命令返回 `Result<T, String>`，`Err` 由 Tauri 转为前端 reject；MUST NOT 静默吞掉 db 打开或读写失败。db 打开失败 SHALL 使应用启动失败并报错，MUST NOT 静默降级为空清单。reject 抵达前端后的呈现 SHALL 按本能力「错误呈现双轨」requirement 分流：动作类命令（add / remove）失败走 toast，查询类命令失败保留 inline error 态持久呈现。
 
 #### Scenario: 命令经 State 访问 store
 
 - **WHEN** 审查 `commands/workspaces` 实现
-- **THEN** 四命令均以 `State<Store>` 取得 store，命令体为参数转换 + store 调用 + DTO 返回，签名中无 redb 类型
+- **THEN** 三命令均以 `State<Store>` 取得 store，命令体为参数转换 + store 调用 + DTO 返回，签名中无 redb 类型
 
 #### Scenario: 错误以 reject 传达前端
 
@@ -175,7 +174,7 @@ dev-team SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注�
 
 前端错误呈现 SHALL 按接口类别双轨分流：
 
-- 动作类接口（`add_workspace` / `remove_workspace` / `touch_workspace`）失败 SHALL 经 hook 统一以 toast（sonner）呈现，文案 SHALL 含错误信息，MUST NOT 再置入持久 error 态渲染 error-note
+- 动作类接口（`add_workspace` / `remove_workspace`）失败 SHALL 经 hook 统一以 toast（sonner）呈现，文案 SHALL 含错误信息，MUST NOT 再置入持久 error 态渲染 error-note
 - 查询类接口（启动 `list_workspaces` / `list_changes` / `get_change_detail` / `read_artifact`）失败 SHALL 保留 error 态透传，视图 inline 持久渲染（不自动消失）；`WorkspaceState.error` 语义收窄为「清单加载失败」。实证理由：启动 `list_workspaces` 失败时 toast 一闪即逝，用户面对「最近的 workspace (0)」空态会误读为无 workspace，故查询失败必须常驻可见
 - updater 错误呈现不变：保留「重试更新」按钮（恢复动作非纯呈现）
 - 无错误时 MUST NOT 渲染 error-note，也 MUST NOT 出现 toast
@@ -184,7 +183,7 @@ hook 形态（hook 内直调 toast vs 保留返回值由视图 effect 触发）�
 
 #### Scenario: 动作失败走 toast
 
-- **WHEN** `touch_workspace` / `remove_workspace` / `add_workspace` 任一 reject
+- **WHEN** `remove_workspace` / `add_workspace` 任一 reject
 - **THEN** toast 呈现含错误信息的文案，`queryAllByTestId('error-note')` 为 0，视图停留当前状态不跳转
 
 #### Scenario: 查询失败 inline 持久
@@ -355,19 +354,19 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `dev-team::commands::queries` | 三个查询命令 | list_changes / get_change_detail / read_artifact；无状态薄包装；返回 DTO |
-| `dev-team::commands::workspaces` | workspace 注册命令轨道 | list_workspaces / add_workspace / remove_workspace / touch_workspace；`State<Store>`；`Result<T, String>` |
+| `dev-team::commands::workspaces` | workspace 注册命令轨道 | list_workspaces / add_workspace / remove_workspace；`State<Store>`；`Result<T, String>` |
 | `dev-team::commands::exec` | 执行轨道（已开通） | `agent_start`（三件事，编排收 `run_agent()`）/ `agent_runs` / `agent_run_events`（薄包装）；`Result<T, String>`；无空壳 Executor trait |
 | 前端 `hooks/` | 取数收口 | useChangeList / useChangeDetail / useWorkspaces；显式刷新触发（useWorkspaces 启动自动一次） |
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
-| `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove/touch）；error 态收窄为清单加载失败（查询 inline 持久）；切换语义不变（touch → 重排 → 恒取第一名） |
+| `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove）；error 态收窄为清单加载失败（查询 inline 持久）；切换为本地 select（清单默认序不重排；root 在清单则保持、被移除顺延第一名）；add 成功直接以返回记录 root 为当前根 |
 | `packages/desktop/src/hooks/use-mobile.ts` | 断点 hook | 窗口 < 768px → Sheet 抽屉第三态 |
 | 前端视图 | 列表 / 流水线 / 产物区渲染 + 欢迎屏空态 / sidebar 侧栏 | 消费 DTO 与 ArtifactEnvelope；未注册 kind 由 Fallback 兜底 |
 | `packages/desktop/src/App.tsx` | 壳布局 + 顶层视图切换 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；changes \| agent 本地 state 切换，无路由 |
-| `packages/desktop/src/components/AppSidebar.tsx` | 页面导航组 + workspace 清单侧栏 | [变更] [Agent 调试] 页面入口（本地 state 切换）；`SidebarMenuButton` 列表项（点击 touch 切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
+| `packages/desktop/src/components/AppSidebar.tsx` | 页面导航组 + workspace 清单侧栏 | [变更] [Agent 调试] 页面入口（本地 state 切换）；`SidebarMenuButton` 列表项（点击本地切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
 | `packages/desktop/src/views/changes/ChangeListView.tsx` | 刷新入口 | 头部刷新按钮 `disabled={loading}`；列表加载失败 error-note inline 保留 |
 | `packages/desktop/src/views/WelcomeView.tsx` | 欢迎态 | error-note 仅清单加载失败；「添加新文件夹」入口保留 |
 | `dev-team::commands::*`（全体命令） | 应用服务（command 即应用服务） | body 三件事：参数转换 / 调用 / 错误映射；无独立 app crate；编排下推 core 或触发翻转 |
-| `commands::workspaces::{list,add,remove,touch}_workspace_inner` | app 层微形态 | 纯函数 + `&Store` 入参；将来抽 crate 时平移复用，不重写 |
+| `commands::workspaces::{list,add,remove}_workspace_inner` | app 层微形态 | 纯函数 + `&Store` 入参；将来抽 crate 时平移复用，不重写 |
 | `run_agent()` 编排函数 | app 层微形态（`*_inner` 先例进化） | 组装 runner → tee 双 sink（Tauri Channel + store）→ 状态收敛；将来抽 crate 时与 inner 函数一并平移复用，不重写 |
 | app crate 翻转信号 | 决策触发器 | 五条信号（phase lifecycle 命令 / exec 首命令 / 跨 store+fs 协调 / CLI 复用 / 行数机械判据）；#2 已触发、裁决「仍不抽」落痕；后续触发按清单重议 |
 | `packages/desktop/src/styles/global.css` | Tailwind 样式入口 | `@import "tailwindcss"`;`@theme` token(hex 直写、shadcn 结构命名);`@layer base` 元素级样式 |
@@ -379,5 +378,4 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `src/views/changes/renderers/TasksProgressRenderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |
 | `*.test.tsx` | 测试挂钩 | data-testid;无样式类名查询;与步骤② 同 commit;右键经 `fireEvent.contextMenu`;toast 断言经 sonner 文本;同名场景 testid 承载 |
 | `packages/desktop/package.json` | 依赖 | `@radix-ui/react-separator` / `react-dialog` / `react-tooltip` / `react-context-menu`、`lucide-react`、`sonner` |
-| `packages/desktop/src-tauri/**` | 不修改 | 后端零改动;`desktop-workspace-store` spec 语义不变 |
 | `stryker.config.json` | mutate 范围守线 | ui/** 处置 design 定夺有据;break 50 守线;StringLiteral 全局排除仅兜底 |

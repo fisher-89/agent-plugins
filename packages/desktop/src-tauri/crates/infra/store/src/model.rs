@@ -6,7 +6,7 @@ use serde::{Deserialize, Serialize};
 
 /// user 维度注册表一行：key 即 `root`（canonical 完整路径），value 以 JSON 编码入表。
 ///
-/// 时间戳均为 UTC unix 毫秒 `i64`——排序零解析零格式歧义，且 store 不引入 time 依赖。
+/// 时间戳为 UTC unix 毫秒 `i64`——零解析零格式歧义，且 store 不引入 time 依赖。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct WorkspaceRecord {
@@ -16,18 +16,15 @@ pub struct WorkspaceRecord {
     pub name: String,
     /// 入库时间（UTC unix 毫秒）
     pub added_at: i64,
-    /// 最近打开时间（UTC unix 毫秒），清单排序依据
-    pub last_opened_at: i64,
 }
 
 impl WorkspaceRecord {
-    /// 由 root 构造新记录：name 取目录名最后一段，两时间戳同为 `now`（新建语义）。
+    /// 由 root 构造新记录：name 取目录名最后一段，`added_at` 取 `now`（新建语义）。
     pub fn from_root(root: &str, now: i64) -> Self {
         Self {
             root: root.to_owned(),
             name: dir_name(root),
             added_at: now,
-            last_opened_at: now,
         }
     }
 

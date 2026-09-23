@@ -49,7 +49,6 @@ fn main() {
             commands::workspaces::list_workspaces,
             commands::workspaces::add_workspace,
             commands::workspaces::remove_workspace,
-            commands::workspaces::touch_workspace,
             commands::exec::agent_start,
             commands::exec::agent_runs,
             commands::exec::agent_run_events,
