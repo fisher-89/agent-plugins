@@ -1,0 +1,336 @@
+
+running 23 tests
+test event_test::raw变体原文json逐字节保留含中文emoji换行引号 ... ok
+test event_test::message携带空blocks与四类块混合数组均往返无损 ... ok
+test event_test::stamp以0盖戳产出seq为0且时间戳为当前时钟毫秒 ... ok
+test event_test::stamp对u64最大seq原样保留不截断 ... ok
+test event_test::五变体各自反序列化往返逐字段相等 ... ok
+test event_test::五变体序列化含seq与时间戳顶层键且判别值为驼峰 ... ok
+test event_test::各变体驼峰字段键落在线格式顶层 ... ok
+test event_test::子代理归因字段为null与有值两形态均保真 ... ok
+test event_test::缺seq或时间戳必填键的json反序列化返回err不产半成品事件 ... ok
+test runner_test::env_mode两档序列化为default与bare且as_str同值 ... ok
+test runner_test::permission_mode三档序列化为受控驼峰串且as_str同值 ... ok
+test runner_test::run_params的cwd含中文空格与尾分隔符时字段保真 ... ok
+test runner_test::start_error两变体display文案携带原因串可直抵前端 ... ok
+test runner_test::非法档位字符串反序列化返回err枚举边界 ... ok
+test runner_test::假runner可作trait_object注入且满足send_sync边界 ... ok
+test runner_test::假runner预录事件经start返回的agentrun按序接收 ... ok
+test state_test::new后current为running ... ok
+test state_test::run_result且is_error为false时收敛completed ... ok
+test state_test::run_result且is_error为true时收敛failed ... ok
+test state_test::收敛后再apply任意事件终态不被改写 ... ok
+test state_test::每次apply返回值与随后current观测一致 ... ok
+test state_test::连续两个run_result时首个收敛生效 ... ok
+test state_test::非run_result事件不改变状态保持running ... ok
+
+test result: ok. 23 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 43 tests
+test discover_test::path缺失视同cli缺失 ... ok
+test flags_test::cwd不产生任何flag且不影响组装结果 ... ok
+test flags_test::default加bypass组装恰含四要素flag ... ok
+test flags_test::env为bare时追加bare而default不含bare ... ok
+test flags_test::permission_mode三档分别映射acceptedits与dangerously与无flag ... ok
+test flags_test::prompt含空格引号换行中文emoji时原样保留不拆分 ... ok
+test flags_test::全组合九种档位组装均不含禁用flag ... ok
+test flags_test::空prompt仍组装空串arg作为单个参数 ... ok
+test flags_test::超长prompt完整保留于arg ... ok
+test jsonl_test::assistant与user行归一化为message且blocks按类型映射 ... ok
+test jsonl_test::init缺model与session置null缺tools与mcp置空数组 ... ok
+test jsonl_test::message含未知块类型时跳过该块不堵信封 ... ok
+test jsonl_test::message的content为字符串时降级为单个text块 ... ok
+test jsonl_test::message行携parent_tool_use_id时提取为有值形态 ... ok
+test jsonl_test::result缺汇总字段时置null与false ... ok
+test jsonl_test::result行归一化为run_result且字段名对齐 ... ok
+test jsonl_test::system_init行归一化为run_started并提取四字段 ... ok
+test jsonl_test::system其余subtype归一化为system_notice且payload存原json ... ok
+test jsonl_test::tool_result的content为数组时拼接为非数组时json序列化兜底 ... ok
+test jsonl_test::tool_result的is_error缺失视作false有true时保真 ... ok
+test jsonl_test::tool_use与tool_result块的id_name_input与扁平content映射正确 ... ok
+test jsonl_test::多行混合fixture归一化序列仅含非空白行且空白行不占位 ... ok
+test jsonl_test::未知type合法json归一化为raw且原文透传 ... ok
+test jsonl_test::深嵌套payload与超长字符串不炸且保真 ... ok
+test jsonl_test::空白行跳过返回none不占seq ... ok
+test jsonl_test::缺type键的合法json归一化为unknown形态raw ... ok
+test jsonl_test::零行输入产出零事件不报错 ... ok
+test jsonl_test::非json行归一化为unparsable且永不炸解析 ... ok
+test discover_test::合成目录含平台首选候选时发现并返回该路径 ... ok
+test discover_test::目录列表为空或全部无候选时返回cli_missing且display含检索线索 ... ok
+test discover_test::以合成path薄包装可发现伪cli且恢复原path ... ok
+test runner_test::两次new实例互不共享状态 ... ok
+test runner_test::seq单调性跨归一化与通道全程成立且空白行不占号 ... ok
+test runner_test::eof无result且携带退出码时补发合成run_result ... ok
+test runner_test::混入未知type与非json行时raw占seq透传与jsonl口径一致 ... ok
+test runner_test::空输出流即退出时仅一条合成run_result且seq为0 ... ok
+test discover_test::目录列表含不存在目录时跳过不panic ... ok
+test runner_test::完整会话fixture逐行入泵事件按序送达且线格式可被core表达 ... ok
+test jsonl_test::三百行混合fixture全部产出事件不丢不炸 ... ok
+test discover_test::同目录三候选并存时按cmd_bat_exe优先序取cmd ... ok
+test discover_test::多目录各含候选时先声明目录优先 ... ok
+test discover_test::仅bat或仅exe时依序降级发现对应文件 ... ok
+test runner_test::超容量洪峰315行经背压全量送达零丢失 ... ok
+
+test result: ok. 43 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 31 tests
+test commands::queries::mod_test::get_change_detail未知change返回none而非错误 ... ok
+test commands::queries::mod_test::get_change_detail已知change返回完整详情dto ... ok
+test commands::queries::mod_test::list_changes命令与core查询结果一致_纯透传无加工 ... ok
+test commands::exec::mod_test::不存在run时agent_run_events返回空数组 ... ok
+test commands::queries::mod_test::read_artifact敌意source在命令边界被拒绝不逃逸change目录 ... ok
+test commands::queries::mod_test::root为空字符串时经resolve空路径得空列表不panic ... ok
+test commands::exec::mod_test::空库agent_runs的serde值为空数组 ... ok
+test commands::queries::mod_test::read_artifact未注册kind或不存在source返回none ... ok
+test commands::queries::mod_test::read_artifact正向路径返回五字段信封 ... ok
+test commands::exec::agent::agent_test::run_agent隔离path时走薄入口全链返回err且store无run行 ... ok
+test commands::exec::mod_test::落库事件经命令面读回为反序列化后的agent_event按seq升序五变体保真 ... ok
+test commands::exec::agent::agent_test::假runner启动失败时返回err且store零run行 ... ok
+test commands::exec::mod_test::agent_runs结果与直连清单的serde值一致且按开始时间降序 ... ok
+test commands::exec::mod_test::两run事件隔离经命令面复核以run_id_a查询不串入run_b的任何事件 ... ok
+test commands::exec::agent::agent_test::store写失败的收敛助手将run收敛failed且error记因并尽力落终态行 ... ok
+test commands::workspaces::mod_test::add传入不存在的目录返回err且含canonicalize前缀 ... ok
+test commands::exec::agent::agent_test::预录is_error的result时返回ok的failed记录而非err ... ok
+test commands::exec::agent::agent_test::seq缺口乱序时tee透传不重排落库key与事件自带seq一致 ... ok
+test commands::workspaces::mod_test::add_workspace返回值序列化顶层键恰为四字段驼峰命名无redb概念泄漏 ... ok
+test commands::exec::agent::agent_test::channel接收端先行关闭时落库继续完整且命令返回最终记录 ... ok
+test commands::exec::agent::agent_test::预录completed会话经tee双sink全链路落库且channel逐事件一致 ... ok
+test commands::workspaces::mod_test::add传入书写不等价string返回root与库内canonical_key同源 ... ok
+test commands::exec::mod_test::agent_start在cli不可发现时返回err且store无run行且channel零推送 ... ok
+test commands::workspaces::mod_test::空库经命令面list返回空数组 ... ok
+test commands::workspaces::mod_test::未注册root的remove_touch经命令面返回false幂等 ... ok
+test commands::workspaces::mod_test::四命令结果与直连store公共api结果serde一致_薄包装不加工 ... ok
+test commands::exec::mod_test::drop后重开同一db命令面重放结果与重开前一致 ... ok
+test commands::workspaces::mod_test::空字符串root时add为err而touch_remove为ok_false三命令语义一致 ... ok
+test commands::workspaces::mod_test::大小写不同string二次add经命令面仅一条且时间戳刷新 ... ok
+test commands::workspaces::mod_test::等价路径经命令面touch_remove均命中同一条无孤儿条目 ... ok
+test commands::workspaces::mod_test::经命令面add_touch_list顺序与直连store一致_删除与重开后状态经命令面可复现 ... ok
+
+test result: ok. 31 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.19s
+
+
+running 7 tests
+test layout_test::root_为空路径时返回相对形式且不_panic ... ok
+test layout_test::root_带尾部分隔符或重复分隔符时join不追加新分隔符 ... ok
+test layout_test::不存在的_root_纯推导正常返回 ... ok
+test layout_test::resolve_对同一输入结果稳定且可比较 ... ok
+test layout_test::存在的_root_返回以_root为前缀的三棵子树 ... ok
+test layout_test::root_指向文件而非目录时仍正常拼接路径 ... ok
+test layout_test::全包源码不含_openspec_字样_layout_为唯一例外 ... ok
+
+test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 45 tests
+test model_test::encode产物为驼峰字节串且顶层键恰为十三字段 ... ok
+test model_test::running行全option为none时序列化含null键且decode回none ... ok
+test model_test::prompt与error含中文emoji换行与超长串时往返无损 ... ok
+test model_test::status三受控值直存直取store不引本地枚举 ... ok
+test model_test::全字段填充记录encode_decode往返逐字段相等 ... ok
+test model_test::非法json字节decode返回err不panic ... ok
+test store_test::add不存在的目录返回canonicalize错误 ... ok
+test store_test::add空路径返回canonicalize错误不panic ... ok
+test store_test::begin_agent_run传入记录的id字段不参与匹配以分配id落行为准 ... ok
+test store_test::add目录名含空格中文emoji的路径name提取正确且记录往返无损 ... ok
+test store_test::add新目录返回canonical完整路径name为目录名末段且两时间戳同值 ... ok
+test store_test::begin_agent_run空库首跑返回id为1且status为running且started_at落值 ... ok
+test store_test::append事件含中文emoji与深嵌套时进出无损 ... ok
+test store_test::add大小写不同的等价路径仅一条且刷新时间保留首添added_at ... ok
+test store_test::finish后整行替换为终态且list反映 ... ok
+test store_test::append后按run_id重放事件seq升序读回 ... ok
+test store_test::append空切片返回ok且不产生行 ... ok
+test store_test::store_error两变体display携带db与canonicalize前缀 ... ok
+test store_test::add尾分隔符与正反斜杠混写路径与已存key去重为一条 ... ok
+test store_test::begin_agent_run连续begin时id严格递增 ... ok
+test store_test::list并列时按root字典序升序且顺序确定可复现 ... ok
+test store_test::list_agent_runs按started_at降序并列时按id降序 ... ok
+test store_test::list按last_opened_at降序且第一名即最近touch ... ok
+test store_test::open对不存在的路径返回ok并创建db文件与父目录 ... ok
+test store_test::remove大小写不同等价路径命中删除同一条无孤儿条目 ... ok
+test store_test::父路径被同名普通文件占据时open返回db错误不panic ... ok
+test store_test::目标为损坏文件时open返回err不静默降级为空库 ... ok
+test store_test::remove目录消失后回退匹配命中删除 ... ok
+test store_test::remove已存在key返回true且list不再含该项 ... ok
+test store_test::remove未注册路径返回false且库内容不变 ... ok
+test store_test::不存在run_id的list_agent_run_events返回空向量不报错 ... ok
+test store_test::touch未注册路径返回false幂等不产生新记录 ... ok
+test store_test::touch空路径回退不命中返回false幂等 ... ok
+test store_test::全新库open后经只读句柄直读user_meta表schema_version恰为当前版本 ... ok
+test store_test::touch已存在key返回true且last_opened_at不减 ... ok
+test store_test::touch目录消失后以原路径走词法回退命中并刷新 ... ok
+test store_test::两run同seq互不串扰且复合键半开区间按run_id隔离 ... ok
+test store_test::run与events写入后drop重开同一db文件记录与事件完整 ... ok
+test store_test::空库list返回空向量不报错 ... ok
+test store_test::空库list_agent_runs返回空向量不报错 ... ok
+test store_test::schema_version高于支持版本时open返回err ... ok
+test store_test::已有db文件再次open返回ok且此前写入的记录完整读回 ... ok
+test store_test::schema_version等于当前版本时open幂等成功 ... ok
+test store_test::裸redb只读句柄可见user前缀两agent表 ... ok
+test store_test::全链路add_list_touch_remove后重开同一db文件清单状态与各操作返回一致 ... ok
+
+test result: ok. 45 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.28s
+
+
+running 70 tests
+test artifacts::eval_checklist_test::checklist为空的条目不产出信封 ... ok
+test artifacts::eval_checklist_test::fallback_text为checklist文本化清单且非空 ... ok
+test artifacts::eval_checklist_test::evidence长文本与特殊字符item名原样保留 ... ok
+test artifacts::eval_checklist_test::v0无workflow时不产出任何信封 ... ok
+test artifacts::eval_checklist_test::含非空checklist的条目产出payload全量信封 ... ok
+test artifacts::eval_checklist_test::大量条目逐条产出_序号与条目一一对应 ... ok
+test artifacts::registry_test::change目录为空或不存在时返回空清单不报错 ... ok
+test artifacts::markdown_doc_test::目录树内md命中_payload与fallback同为文件原文 ... ok
+test artifacts::markdown_doc_test::空md文件命中且markdown为空串 ... ok
+test artifacts::markdown_doc_test::超长markdown完整保留不截断 ... ok
+test artifacts::registry_test::同一候选多kind命中并存_无排他 ... ok
+test artifacts::registry_test::未注册的kind返回none ... ok
+test artifacts::markdown_doc_test::文件名含中文空格特殊字符时source为相对posix路径 ... ok
+test parse::detect_test::change_dir不存在时_判定为v0 ... ok
+test artifacts::markdown_doc_test::子目录内md一并收录_目录树全量 ... ok
+test artifacts::tasks_progress_test::fallback_text为统计结果文本 ... ok
+test artifacts::registry_test::eval候选的source序号串与discover寻址一致可回放 ... ok
+test artifacts::registry_test::无插件命中时返回空清单 ... ok
+test artifacts::registry_test::source指向不存在文件或越界eval序号时返回none ... ok
+test artifacts::markdown_doc_test::非md文件不命中matches ... ok
+test artifacts::registry_test::已注册kind与有效source返回五字段齐全的信封 ... ok
+test parse::detect_test::遗留eval_json不干扰判定_fixture_v0_a仍为v0 ... ok
+test parse::detect_test::v2_a_fixture判定为v2_v1_b_fixture判定为v1 ... ok
+test artifacts::tasks_progress_test::混合勾选计数正确且三者自洽 ... ok
+test artifacts::registry_test::敌意source在注册表层被拒绝_不逃逸change目录 ... ok
+test artifacts::tasks_progress_test::tasks_md不存在时matcher按名命中但解析产出none ... ok
+test artifacts::tasks_progress_test::空tasks_md产出零计数信封 ... ok
+test artifacts::tasks_progress_test::缩进嵌套复选框计数_普通行与行内字样不计入 ... ok
+test parse::detect_test::file_log为空数组时_仍判定为v2 ... ok
+test artifacts::registry_test::文件树与eval候选全部命中为descriptor清单 ... ok
+test parse::detect_test::无workflow_json_判定为v0 ... ok
+test parse::detect_test::workflow_json整体非法_json时_按现役代际假设判定v2 ... ok
+test parse::detect_test::有workflow_json且含file_log键_判定为v2 ... ok
+test parse::detect_test::目录名无日期前缀不影响判定 ... ok
+test parse::detect_test::有workflow_json无file_log键_判定为v1 ... ok
+test parse::workflow_file_test::attempt缺失为none_负数条目整体跳过 ... ok
+test parse::workflow_file_test::未知顶层键被忽略_fixture_v1_c正常解析 ... ok
+test parse::workflow_file_test::checklist条目缺失evidence时按损坏条目降级跳过 ... ok
+test artifacts::tasks_progress_test::全部勾选与全部未勾两个极端 ... ok
+test parse::workflow_file_test::eval为空数组时解析为空vec ... ok
+test parse::workflow_file_test::load_workflow_对缺失与损坏文件的_none语义 ... ok
+test parse::workflow_file_test::单条eval条目checklist损坏时跳过该条其余保留 ... ok
+test parse::workflow_file_test::单条eval的verdict为非法枚举时该条降级跳过 ... ok
+test parse::workflow_file_test::单条file_log条目op非法时该条跳过其余保留 ... ok
+test parse::workflow_file_test::文件整体非法json时返回_unparsable ... ok
+test artifacts::markdown_doc_test::legacy名单命中时title标注与排序生效 ... ok
+test parse::workflow_file_test::合法v2全字段解析为强类型 ... ok
+test parse::workflow_file_test::非法时间戳降级为none_条目本身保留 ... ok
+test parse::workflow_file_test::超长与含特殊字符的report原样保留 ... ok
+test parse::workflow_file_test::file_log空数组为some空vec_与缺失的none严格区分 ... ok
+test parse::workflow_file_test::workflow_type缺失时整体_unparsable_不返回半份数据 ... ok
+test queries::detail_test::attempt记录携带verdict_report_checklist全量字段 ... ok
+test queries::detail_test::skipped与stale标记随条目透出 ... ok
+test queries::detail_test::v1_change缺file_log时区块留空其余正常 ... ok
+test queries::detail_test::eval未覆盖的phase站点仍在且attempts为空 ... ok
+test queries::detail_test::v0_change为空流水线加纯文档形态不报错 ... ok
+test queries::list_test::changes_root存在但为空时全空 ... ok
+test queries::detail_test::未知change名返回none ... ok
+test queries::detail_test::同phase多attempt折叠为单站且attempts升序 ... ok
+test queries::list_test::changes或archive目录缺失时返回空结果而非报错 ... ok
+test queries::detail_test::无attempt字段的条目归入对应站且不影响其他条目排序 ... ok
+test queries::list_test::workflow_json不可解析的change标注unparsable且仍入列 ... ok
+test queries::list_test::archive按月前缀折叠_组间新月份在前_组内新名在前 ... ok
+test queries::list_test::单月单元素分组正确成组 ... ok
+test queries::list_test::无日期前缀的archive目录归入未知时间组置尾 ... ok
+test queries::detail_test::v2_b_fixture暴露active_phase与file_log条目 ... ok
+test queries::list_test::目录树混入普通文件时被忽略 ... ok
+test queries::list_test::active与archive全量返回_代际标注与磁盘事实一致 ... ok
+test queries::list_test::created优先取workflow_json_archive无created时回退目录名前缀 ... ok
+test queries::detail_test::v1_b_fixture的backtrack字段随条目暴露 ... ok
+
+test result: ok. 70 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.14s
+
+
+running 8 tests
+test 未注册kind与无效source返回none ... ok
+test source指向已被删除的文件时返回none而非报错 ... ok
+test eval_checklist信封payload契约形状符合设计表 ... ok
+test tasks_md双kind并存且各自读出正确信封 ... ok
+test read_artifact敌意source与kind被拒绝不逃逸change目录 ... ok
+test v2_b的detail产物清单与discover输出一致 ... ok
+test v2_b的每个descriptor都能回放出五字段齐全的信封 ... ok
+test v0_change的产物清单等于全部md的markdown_doc清单 ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+running 17 tests
+test 语料完整性_fixtures目录与清单表逐项对应 ... ok
+test 语料完整性_golden目录与语料集合一致 ... ok
+test golden_layout_empty_空目录树 ... ok
+test golden_corrupt_bad_filelog_entry ... ok
+test golden_corrupt_bad_timestamp ... ok
+test golden_corrupt_invalid_json ... ok
+test golden_corrupt_bad_eval_entry ... ok
+test golden_corrupt_bad_verdict ... ok
+test golden_layout_mixed_混入文件的目录树 ... ok
+test golden_v2_b ... ok
+test golden_layout_workspace_workspace树全量 ... ok
+test golden_v1_c ... ok
+test golden_v1_a ... ok
+test golden_v0_b ... ok
+test golden_v0_a ... ok
+test golden_v2_a ... ok
+test golden_v1_b ... ok
+
+test result: ok. 17 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 11 tests
+test v0_fixtures判定v0且无workflow可解析 ... ok
+test 非法verdict条目跳过_合法条目保留 ... ok
+test 非法时间戳降级none条目保留_且active_phase同步降级 ... ok
+test v1_c的未知键被忽略且eval正常还原 ... ok
+test 单条file_log损坏的fixture跳过该条其余保留 ... ok
+test 整体非法json的fixture降级且detect仍按文件存在性判定代际 ... ok
+test 单条eval损坏的fixture跳过该条其余条目与区块完整 ... ok
+test v2_fixtures判定v2且解析还原file_log ... ok
+test 非法时间戳与非法verdict叠加的条目只被跳过一次 ... ok
+test v1_fixtures判定v1且file_log严格为none ... ok
+test file_log空数组的v2样本与v1的none严格区分 ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 6 tests
+test root指向文件时list_changes返回空不panic ... ok
+test changes子树整体缺失时list_changes空结果 ... ok
+test workspace缺explores子目录时resolve正常查询不受影响 ... ok
+test change名含路径分隔符或点点时返回none不逃逸 ... ok
+test change_detail命中active与archive各一_archive经archive_root定位 ... ok
+test resolve到list_changes全链路_归属与月分组和磁盘一致 ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+

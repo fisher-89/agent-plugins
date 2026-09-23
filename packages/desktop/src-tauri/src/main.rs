@@ -50,6 +50,9 @@ fn main() {
             commands::workspaces::add_workspace,
             commands::workspaces::remove_workspace,
             commands::workspaces::touch_workspace,
+            commands::exec::agent_start,
+            commands::exec::agent_runs,
+            commands::exec::agent_run_events,
         ])
         .run(tauri::generate_context!("tauri.conf.json"))
         .expect("desktop 应用启动失败");

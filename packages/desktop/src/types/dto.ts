@@ -113,3 +113,75 @@ export interface WorkspaceRecord {
   /** 最近打开时间（UTC unix 毫秒），清单排序依据 */
   lastOpenedAt: number;
 }
+
+// ---------------------------------------------------------------------------
+// agent 域 DTO（对齐 core/agent 信封与 store::AgentRunRecord 的 serde camelCase
+// 线格式；线格式 = 落库形态 = 本文件镜像基准）
+// ---------------------------------------------------------------------------
+
+/** 环境档位双档：default 完整环境 / bare 纯净档（须外部认证前提） */
+export type AgentEnvMode = 'default' | 'bare';
+
+/** permission-mode 三档 */
+export type AgentPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
+
+/** run 状态受控字符串 */
+export type AgentRunStatus = 'running' | 'completed' | 'failed';
+
+/** 消息内块四变体（tag `kind`，camelCase） */
+export type AgentBlock =
+  | { kind: 'text'; text: string }
+  | { kind: 'thinking'; thinking: string }
+  | { kind: 'toolUse'; id: string; name: string; input: unknown }
+  | { kind: 'toolResult'; id: string; content: string; isError: boolean };
+
+/** 事件公共字段：seq 为单调序号（入库排序键），timestampMs 为盖戳时刻 */
+interface AgentEventBase {
+  seq: number;
+  timestampMs: number;
+}
+
+/** 事件信封五变体（kind 判别 union；`kind` 扁平于线格式顶层） */
+export type AgentEvent =
+  | (AgentEventBase & {
+      kind: 'runStarted';
+      model: string | null;
+      sessionId: string | null;
+      tools: string[];
+      mcpServers: string[];
+    })
+  | (AgentEventBase & {
+      kind: 'message';
+      role: string;
+      blocks: AgentBlock[];
+      parentToolUseId: string | null;
+    })
+  | (AgentEventBase & { kind: 'systemNotice'; subtype: string; payload: unknown })
+  | (AgentEventBase & {
+      kind: 'runResult';
+      subtype: string;
+      isError: boolean;
+      numTurns: number | null;
+      durationMs: number | null;
+      costUsd: number | null;
+      usage: unknown;
+      sessionId: string | null;
+    })
+  | (AgentEventBase & { kind: 'raw'; eventType: string; rawJson: string });
+
+/** agent 运行记录（对齐 store::AgentRunRecord 的 serde camelCase 序列化） */
+export interface AgentRunRecord {
+  id: number;
+  prompt: string;
+  cwd: string;
+  env: AgentEnvMode;
+  permissionMode: AgentPermissionMode;
+  status: AgentRunStatus;
+  startedAt: number;
+  finishedAt: number | null;
+  numTurns: number | null;
+  costUsd: number | null;
+  durationMs: number | null;
+  sessionId: string | null;
+  error: string | null;
+}

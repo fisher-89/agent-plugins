@@ -15,6 +15,8 @@ custom-protocol = ["tauri/custom-protocol"]
 tauri-build = { workspace = true }
 
 [dependencies]
+agent = { workspace = true }
+agent-cli = { workspace = true }
 foundation = { workspace = true }
 workflow = { workspace = true }
 serde = { workspace = true }
@@ -26,16 +28,26 @@ tauri-plugin-devtools = "2.2.1"
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# 编排/命令层测试以 #[tokio::test] 驱动 async run_agent_with / agent_start
+tokio = { workspace = true, features = ["rt", "macros"] }
 # 命令层测试以 MockRuntime 构造 State（不启动真实 runtime）；仅测试构建启用
 tauri = { workspace = true, features = ["test"] }
 
 # 根包是隐式成员，不得显式列入 members（重复列出会报错）
 [workspace]
 resolver = "2"
-members = ["crates/core/foundation", "crates/core/workflow", "crates/infra/store"]
+members = [
+    "crates/core/agent",
+    "crates/core/foundation",
+    "crates/core/workflow",
+    "crates/infra/agent",
+    "crates/infra/store",
+]
 
 # workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 dev-team 壳）
 [workspace.dependencies]
+agent = { path = "crates/core/agent" }
+agent-cli = { path = "crates/infra/agent" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
 workflow = { path = "crates/core/workflow" }
@@ -45,6 +57,7 @@ serde_json = "1"
 store = { path = "crates/infra/store" }
 tempfile = "3"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
+tokio = { version = "1", default-features = false, features = ["sync"] }
 tauri = { version = "2", features = [] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

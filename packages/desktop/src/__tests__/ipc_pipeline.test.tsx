@@ -167,6 +167,15 @@ async function pickWorkspace(path = '/repo') {
   await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: path }));
 }
 
+/**
+ * 清单 DOM 渲染滞后于 pickWorkspace 的 invoke 断言一拍（并行负载下更明显）：
+ * 等待列表项出现后再点击，避免同步 getByText 与异步重放渲染竞态。
+ */
+async function clickListItem(name: string) {
+  await waitFor(() => expect(screen.getByText(name) !== null).toBe(true));
+  fireEvent.click(screen.getByText(name));
+}
+
 // 壳重排后 App 挂载即经 SidebarProvider 消费 useIsMobile：
 // window.matchMedia / innerWidth 需 stub（jsdom 无 matchMedia 实现）
 let restoreViewport: () => void = () => {};
@@ -239,7 +248,7 @@ describe('ipc 管线：列表到详情与产物渲染', () => {
   it('进入详情后 get_change_detail + N 次 read_artifact 的调用序列与产物清单一致', async () => {
     render(<App />);
     await pickWorkspace('/repo');
-    fireEvent.click(screen.getByText('add-feature'));
+    await clickListItem('add-feature');
 
     await waitFor(() => expect(screen.getByText('提案正文') !== null).toBe(true));
 
@@ -260,7 +269,7 @@ describe('ipc 管线：列表到详情与产物渲染', () => {
   it('三 kind 信封分别路由到对应 renderer 并渲染 payload', async () => {
     render(<App />);
     await pickWorkspace('/repo');
-    fireEvent.click(screen.getByText('add-feature'));
+    await clickListItem('add-feature');
     await waitFor(() => expect(screen.getByText('提案正文') !== null).toBe(true));
 
     // markdown-doc renderer 的 payload 渲染
@@ -279,7 +288,7 @@ describe('ipc 管线：列表到详情与产物渲染', () => {
     defaultIpc({ detail: detailDto({ artifacts: [] }) });
     render(<App />);
     await pickWorkspace('/repo');
-    fireEvent.click(screen.getByText('add-feature'));
+    await clickListItem('add-feature');
 
     await waitFor(() => expect(screen.getByText('提案通过') !== null).toBe(true));
     expect(invokeMock.mock.calls.every(([name]) => name !== 'read_artifact')).toBe(true);
@@ -316,7 +325,7 @@ describe('ipc 管线：DTO 漂移与读取失败的降级兜底', () => {
 
     render(<App />);
     await pickWorkspace('/repo');
-    fireEvent.click(screen.getByText('add-feature'));
+    await clickListItem('add-feature');
 
     await waitFor(() => expect(screen.getByText('file-log 保底文本') !== null).toBe(true));
     // kind 徽标可见
@@ -341,7 +350,7 @@ describe('ipc 管线：DTO 漂移与读取失败的降级兜底', () => {
 
     render(<App />);
     await pickWorkspace('/repo');
-    fireEvent.click(screen.getByText('add-feature'));
+    await clickListItem('add-feature');
 
     // 三张产物卡齐全：读取失败的一张以降级形态渲染（payload 为空 → 0% 计数），不白屏
     await waitFor(() => expect(screen.getAllByTestId('artifact-card')).toHaveLength(3));
@@ -383,7 +392,7 @@ describe('ipc 管线：DTO 漂移与读取失败的降级兜底', () => {
 
     render(<App />);
     await pickWorkspace('/repo');
-    fireEvent.click(screen.getByText('add-feature'));
+    await clickListItem('add-feature');
 
     await waitFor(() => expect(screen.getByText('漂移条目') !== null).toBe(true));
     expect(screen.getByText(/（无 file_log 数据：v1 及更早代际无此字段）/) !== null).toBe(true);
@@ -443,7 +452,7 @@ describe('ipc 管线：显式刷新纪律', () => {
 
     render(<App />);
     await pickWorkspace('/repo');
-    expect(screen.getByText('add-feature') !== null).toBe(true);
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
 
     fireEvent.click(screen.getByText('刷新列表'));
     await waitFor(() => expect(screen.getByText('latest-refresh-change') !== null).toBe(true));

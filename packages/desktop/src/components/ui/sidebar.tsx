@@ -376,6 +376,7 @@ function SidebarMenuButton({
   size?: 'default' | 'lg';
   tooltip?: string | React.ReactElement;
 }): React.JSX.Element {
+  const { isMobile } = useSidebar();
   // size 解构后不再流入 Button 自身变体（其 size 是 h-9/px-4 口径，与本件冲突），
   // 仅喂本件 cva 并以 data-size 显影
   const button = (
@@ -389,6 +390,10 @@ function SidebarMenuButton({
     />
   );
   if (!tooltip) return button;
+  // mobile（Sheet 抽屉）不挂 Tooltip：抽屉打开时 Radix FocusScope 自动聚焦首个
+  // 可聚焦项，focus 触发其 Tooltip 内容挂载，Tooltip 的 DismissableLayer 叠在
+  // Dialog 层之上——首次 Escape 被 Tooltip 消费（抽屉关不掉）且呈现游离 Tooltip
+  if (isMobile) return button;
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>

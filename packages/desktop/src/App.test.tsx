@@ -881,3 +881,115 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(document.cookie).toBe('');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 关系四：侧栏页面导航组 → App 顶层视图切换（无路由，page state；决策 D10）。
+// AgentDebugView 经真实 hooks 挂载（挂载不取数），既有清单命令 mock 承载。
+// ---------------------------------------------------------------------------
+
+describe('App：顶层页面切换（changes | agent，无路由）', () => {
+  beforeEach(() => {
+    getVersionMock.mockReset();
+    invokeMock.mockReset();
+    openMock.mockReset();
+    checkMock.mockReset();
+    checkMock.mockResolvedValue(null);
+    getVersionMock.mockResolvedValue('0.1.0');
+    toast.dismiss();
+    mockIpc();
+    ({
+      queries: viewportQueries,
+      setWidth: setViewportWidth,
+      restore: restoreViewport,
+    } = stubViewport(1100));
+  });
+
+  afterEach(() => {
+    restoreViewport();
+    vi.unstubAllEnvs();
+  });
+
+  it('启动默认呈 changes 页：change 清单内容在场、Agent 调试页不在场（无路由，state 切视图）', async () => {
+    await restored();
+
+    expect(screen.getByText('add-feature') !== null).toBe(true);
+    expect(screen.queryByTestId('agent-run-form')).toBeNull();
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+  });
+
+  it('侧栏点击「Agent 调试」→ AgentDebugView 呈现、ChangeView 内容卸载；点击「变更」→ 切回清单', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-agent'));
+    await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
+    expect(screen.queryByText('add-feature')).toBeNull();
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
+
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+    expect(screen.queryByTestId('agent-run-form')).toBeNull();
+  });
+
+  it('进入 change 详情后切 Agent 页再切回：选中重置回清单、get_change_detail 不以旧选中重发（D10）', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByText('add-feature'));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
+        root: FIRST.root,
+        change: 'add-feature',
+      }),
+    );
+
+    fireEvent.click(screen.getByTestId('nav-agent'));
+    await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    // 选中重置：清单视图（详情标题不在场），且 get_change_detail 不重发
+    expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
+    expect(countOf('get_change_detail')).toBe(1);
+  });
+
+  it('useChangeList 留在 App 层不随页面卸载：切页往返不重发 list_workspaces（清单数据不丢）', async () => {
+    await restored();
+
+    const workspacesBefore = countOf('list_workspaces');
+    const listChangesBefore = countOf('list_changes');
+    expect(workspacesBefore).toBeGreaterThan(0);
+
+    fireEvent.click(screen.getByTestId('nav-agent'));
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    fireEvent.click(screen.getByTestId('nav-agent'));
+    await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
+
+    expect(countOf('list_workspaces')).toBe(workspacesBefore);
+    expect(countOf('list_changes')).toBe(listChangesBefore);
+    // 清单数据仍驻留：切回 changes 后无需重取即可见
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    expect(screen.getByText('add-feature') !== null).toBe(true);
+  });
+
+  it('导航点击不触发任何 workspace 命令（两入口语义不串扰）', async () => {
+    await restored();
+
+    const touchBefore = countOf('touch_workspace');
+    const addBefore = countOf('add_workspace');
+    fireEvent.click(screen.getByTestId('nav-agent'));
+    fireEvent.click(screen.getByTestId('nav-changes'));
+
+    expect(countOf('touch_workspace')).toBe(touchBefore);
+    expect(countOf('add_workspace')).toBe(addBefore);
+  });
+
+  it('root=null（无 workspace）时欢迎屏持有、页面导航不在场、不崩', async () => {
+    remaining = [];
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
+
+    expect(screen.queryByTestId('nav-agent')).toBeNull();
+    expect(screen.queryByTestId('nav-changes')).toBeNull();
+    expect(screen.getByText(/还没有记录/) !== null).toBe(true);
+  });
+});

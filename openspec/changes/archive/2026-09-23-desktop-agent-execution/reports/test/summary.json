@@ -1,0 +1,130 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-23T09:14:24.452Z",
+  "duration_seconds": 551,
+  "total": 2700,
+  "passed": 2700,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "fail",
+  "problems": [
+    {
+      "framework": "all",
+      "type": "coverage_failure",
+      "message": "Mutation score 77.7% < threshold 80%"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 0
+      },
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 23,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": false,
+    "score": 77.72,
+    "threshold": 80,
+    "measured": {
+      "killed": 321,
+      "survived": 90,
+      "timeout": 0,
+      "noCoverage": 2,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 19,
+      "total": 432,
+      "detected": 321,
+      "undetected": 92
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 80,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 51
+      },
+      {
+        "glob": "packages/desktop",
+        "score": 77.72397094430993,
+        "threshold": 80,
+        "pass": false,
+        "file_count": 23,
+        "passed_count": 0
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/desktop-agent-execution/reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-agent-execution/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-agent-execution/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All tests green this run: 2700/2700 across 3 plans (plugins/dev-team 2379, packages/desktop 298, rust 23), 0 failed/skipped, run completed in-turn (551s) with no mid-run kill; the 3 previously flaky tests (useAgentRunHistory empty-runs waitFor block, ipc_pipeline clickListItem helper, test-runner long-cwd 30s timeout) all passed under --sequence.shuffle.",
+    "Mutation gate failure is isolated to packages/desktop: score 77.72% (321 killed, 90 survived, 2 noCoverage of 413 non-ignored mutants) vs 80 threshold; killing 10 more mutants (the 2 noCoverage plus ~8 conditional/string assertions) reaches 331/413 = 80.1% and passes the gate.",
+    "Survived mutants concentrate in 4 files: AgentEventTimeline.tsx (33: parentId thread-grouping L19-21, children.length empty-state L78, error classNames L108), AgentRunHistory.tsx (21 + 2 noCoverage: status-label ternary and run.status failed-branches L13/L30), useAgentRunHistory.ts (15: async cancellation guards cancelled/refresh L37/L45/L50/L54), App.tsx (11). Mutator mix (34 ConditionalExpression, 23 StringLiteral, 7 EqualityOperator) indicates assertion gaps on branch conditions and rendered labels/status text, not untested files - plan coverage is 99.59/94.88/100.",
+    "Total 2700 vs run-1 2872 is expected, not lost tests: run 1 double-counted 172 packages/desktop tests collected from the stale 24GB _stryker-tmp sandbox copy inside reports/test/packages_desktop_vite-plus (duplicate-copy pollution, now deleted); 298 is the true packages/desktop suite size.",
+    "Rust plan-level coverage gate fails but is not propagated to the summary: functions 88.89% vs 90 (uncovered: main.rs tauri entry 0%, commands/exec/mod.rs 55.6%, commands/workspaces/mod.rs 75%, commands/exec/agent.rs 80% - thin tauri command wrappers and entry glue), lines 94.06% passes, branches 0% is an instrumentation artifact (empty branches arrays in cargo llvm-cov JSON), yet summary coverage.pass=true.",
+    "Summary coverage.measured is null with pass=true even though both vite-plus plans measured well above thresholds (plugins 97.25/89.73/99.53, desktop 99.59/94.88/100) - the summary coverage gate aggregates nothing this run; use plan-level report.json coverage for real numbers.",
+    "Traceability caveat: the plugins/dev-team mutation override (score 80, 51/51 files, pass) has no fresh mutation artifacts - only packages/desktop ran StrykerJS this invocation (462.6s, config 26d7cc28); treat that override as carried from CLI-side prior state, not refreshed evidence.",
+    "Rust mutation gate is unevaluated: config sets threshold 70 for packages/desktop/src-tauri but no rust mutation stage (cargo-mutants or similar) ran in the 551s run; only StrykerJS executed."
+  ]
+}

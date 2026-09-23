@@ -9,11 +9,22 @@ use std::path::Path;
 use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
 
 use crate::canonical;
-use crate::model::{now_millis, WorkspaceRecord};
+use crate::model::{now_millis, AgentRunRecord, WorkspaceRecord};
 
 /// user 维度注册表：key = canonical root path，value = `WorkspaceRecord` JSON。
 const USER_WORKSPACES: TableDefinition<'static, &str, &[u8]> =
     TableDefinition::new("user_workspaces");
+
+/// user 维度 agent 运行元数据：key = run id（写事务内 max+1 分配），
+/// value = `AgentRunRecord` JSON。
+const USER_AGENT_RUNS: TableDefinition<'static, i64, &[u8]> =
+    TableDefinition::new("user_agent_runs");
+
+/// user 维度 agent 运行事件流：key = `(run_id, seq)` 复合键（seq 取事件自带
+/// 值，天然有序），value = 单个事件 JSON 字节串。事件以 `serde_json::Value`
+/// 进出（store 禁依赖 core 契约 crate）。
+const USER_AGENT_RUN_EVENTS: TableDefinition<'static, (i64, u64), &[u8]> =
+    TableDefinition::new("user_agent_run_events");
 
 /// META 表：独立于业务表，自第一天起存 `schema_version`（redb 无内建迁移）。
 const USER_META: TableDefinition<'static, &str, u64> = TableDefinition::new("user_meta");
@@ -87,6 +98,13 @@ impl Store {
             let _ = write_txn
                 .open_table(USER_WORKSPACES)
                 .map_err(db_err("打开 user_workspaces 表"))?;
+            // 顺手打开 agent 两表：保证后续 list / 重放的读事务恒可打开
+            let _ = write_txn
+                .open_table(USER_AGENT_RUNS)
+                .map_err(db_err("打开 user_agent_runs 表"))?;
+            let _ = write_txn
+                .open_table(USER_AGENT_RUN_EVENTS)
+                .map_err(db_err("打开 user_agent_run_events 表"))?;
             let mut meta = write_txn
                 .open_table(USER_META)
                 .map_err(db_err("打开 user_meta 表"))?;
@@ -223,6 +241,119 @@ impl Store {
             .commit()
             .map_err(db_err("提交 touch_workspace 事务"))?;
         Ok(hit)
+    }
+
+    /// 新开一次 agent 运行：写事务内 `max(id)+1` 分配 id（与插入原子，首行
+    /// id=1），落 `running` 行，返回含 id 的记录。调用方填充 prompt / cwd /
+    /// env / permission_mode / status / started_at。
+    pub fn begin_agent_run(&self, run: &AgentRunRecord) -> Result<AgentRunRecord, StoreError> {
+        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
+        let record = {
+            let mut table = write_txn
+                .open_table(USER_AGENT_RUNS)
+                .map_err(db_err("打开 user_agent_runs 表"))?;
+            let next_id = match table.last().map_err(db_err("读取最大 id"))? {
+                Some((key, _)) => key.value() + 1,
+                None => 1,
+            };
+            let mut record = run.clone();
+            record.id = next_id;
+            let bytes = record.encode().map_err(db_err("编码 run 记录"))?;
+            table
+                .insert(next_id, bytes.as_slice())
+                .map_err(db_err("写入 run 记录"))?;
+            record
+        };
+        write_txn
+            .commit()
+            .map_err(db_err("提交 begin_agent_run 事务"))?;
+        Ok(record)
+    }
+
+    /// 批量追加运行事件：单事务写入；key `(run_id, seq)` 复合键，seq 取事件
+    /// 自带值。事件以 `serde_json::Value` 进出（缺失 seq 视作编码层损坏）。
+    pub fn append_agent_run_events(
+        &self,
+        run_id: i64,
+        events: &[serde_json::Value],
+    ) -> Result<(), StoreError> {
+        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
+        {
+            let mut table = write_txn
+                .open_table(USER_AGENT_RUN_EVENTS)
+                .map_err(db_err("打开 user_agent_run_events 表"))?;
+            for event in events {
+                let seq = event
+                    .get("seq")
+                    .and_then(serde_json::Value::as_u64)
+                    .ok_or_else(|| StoreError::Db("事件缺少 seq 字段".to_owned()))?;
+                let bytes = serde_json::to_vec(event).map_err(db_err("编码事件"))?;
+                table
+                    .insert((run_id, seq), bytes.as_slice())
+                    .map_err(db_err("写入事件"))?;
+            }
+        }
+        write_txn.commit().map_err(db_err("提交事件追加事务"))?;
+        Ok(())
+    }
+
+    /// 收敛 run 终态：以传入记录整行替换（status / finished_at / 汇总 /
+    /// error 由调用方填充）。
+    pub fn finish_agent_run(&self, run_id: i64, record: &AgentRunRecord) -> Result<(), StoreError> {
+        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
+        {
+            let mut table = write_txn
+                .open_table(USER_AGENT_RUNS)
+                .map_err(db_err("打开 user_agent_runs 表"))?;
+            let bytes = record.encode().map_err(db_err("编码 run 记录"))?;
+            table
+                .insert(run_id, bytes.as_slice())
+                .map_err(db_err("写入 run 记录"))?;
+        }
+        write_txn
+            .commit()
+            .map_err(db_err("提交 finish_agent_run 事务"))?;
+        Ok(())
+    }
+
+    /// 运行清单：`started_at` 降序，并列按 id 降序（顺序确定，与 workspace
+    /// 清单同哲学）。
+    pub fn list_agent_runs(&self) -> Result<Vec<AgentRunRecord>, StoreError> {
+        let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
+        let table = read_txn
+            .open_table(USER_AGENT_RUNS)
+            .map_err(db_err("打开 user_agent_runs 表"))?;
+        let mut records = Vec::new();
+        for entry in table.iter().map_err(db_err("遍历运行清单"))? {
+            let (_, value) = entry.map_err(db_err("读取 run 记录"))?;
+            records.push(AgentRunRecord::decode(value.value()).map_err(db_err("解码 run 记录"))?);
+        }
+        records.sort_by(|a, b| {
+            b.started_at
+                .cmp(&a.started_at)
+                .then_with(|| b.id.cmp(&a.id))
+        });
+        Ok(records)
+    }
+
+    /// 单 run 事件重放：`(run_id, seq)` 半开区间扫描，seq 升序返回。
+    pub fn list_agent_run_events(&self, run_id: i64) -> Result<Vec<serde_json::Value>, StoreError> {
+        let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
+        let table = read_txn
+            .open_table(USER_AGENT_RUN_EVENTS)
+            .map_err(db_err("打开 user_agent_run_events 表"))?;
+        let mut events = Vec::new();
+        let range_start = (run_id, 0u64);
+        let range_end = (run_id.saturating_add(1), 0u64);
+        for entry in table
+            .range(range_start..range_end)
+            .map_err(db_err("扫描运行事件"))?
+        {
+            let (_, value) = entry.map_err(db_err("读取事件"))?;
+            let event = serde_json::from_slice(value.value()).map_err(db_err("解码事件"))?;
+            events.push(event);
+        }
+        Ok(events)
     }
 
     /// 解析输入路径为库中已有 key（D1）：canonicalize 主口径；目录已消失

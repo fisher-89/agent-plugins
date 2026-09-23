@@ -1,0 +1,15 @@
+[package]
+name = "agent"
+version = "0.1.0"
+edition = "2021"
+
+# agent 边界中立契约：仅 serde 系 + tokio（sync，mpsc 逻辑事件流）
+# 禁 Tauri、禁进程 spawn、禁 workspace 内依赖、不认识任何具体 CLI
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true }
+
+# 测试所需 runtime/macros 特性（design：tokio 测试特性由测试阶段自定，不进实现清单）
+[dev-dependencies]
+tokio = { workspace = true, features = ["rt", "macros"] }

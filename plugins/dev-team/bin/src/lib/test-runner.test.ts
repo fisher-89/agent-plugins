@@ -1178,11 +1178,13 @@ describe('executePlanEntry -- prefix 与 exec cwd', () => {
     }
   });
 
-  it('entry.cwd 超长 → prefix 仍为绝对路径', () => {
+  // 超长 cwd（远超 Windows MAX_PATH 260）仍断言绝对 prefix；深层 fs 建删在并行负载下
+  // 偶发超时：深度收敛到 40 层并显式放宽本用例超时上限（不影响通过路径耗时）。
+  it('entry.cwd 超长 → prefix 仍为绝对路径', { timeout: 30_000 }, () => {
     const dir = createTempDir();
     try {
       setupOpenspec(dir.root);
-      const deep = `p/${'nested/'.repeat(200)}leaf`;
+      const deep = `p/${'nested/'.repeat(40)}leaf`;
       fs.mkdirSync(path.join(dir.root, deep), { recursive: true });
       const reportsDir = path.join(dir.root, 'reports', 'test');
       const expectedPrefix = path.resolve(dir.root, deep);

@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 dev-team Tauri 壳层的组织契约：command 按 queries / exec 双轨组织（MVP 仅实现三个查询命令、exec 为预留空轨道），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
+定义 dev-team Tauri 壳层的组织契约：command 按 queries / exec 双轨组织（queries 三命令；exec 轨道已由 agent 执行命令开通），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
 
 ## Requirements
 
@@ -11,7 +11,7 @@
 dev-team SHALL 按 queries / exec 双轨组织 Tauri command：
 
 - `commands/queries/`：MVP 实现三个命令——`list_changes`（change 列表）、`get_change_detail`（change 详情）、`read_artifact`（按信封读取单个产物）
-- `commands/exec/`：预留空轨道，MUST NOT 实现任何真实命令，MUST NOT 引入空壳 trait（trait 定形等第一条真实执行命令落地）
+- `commands/exec/`：执行轨道。空轨道状态由 desktop-agent-execution 结束，首批命令为 `agent_start`（agent 执行）与 `agent_runs` / `agent_run_events`（run 重放查询）。轨道纪律升级为：MUST NOT 出现空壳 Executor 类 trait（agent 执行的抽象由 `core/agent` 的 `AgentRunner` 承担）；后续 workspace 写文件等执行命令落此轨道时按各自 proposal 定形
 
 每个查询 command SHALL 是无状态薄包装：参数 → core 函数 → DTO 返回，MUST NOT 在 command 层持有或缓存 workspace 状态；所有 workspace 状态访问 SHALL 只经 workflow / foundation 的 core 函数。DTO SHALL 区分 Query Result 与 Command Result 形态。
 
@@ -20,10 +20,11 @@ dev-team SHALL 按 queries / exec 双轨组织 Tauri command：
 - **WHEN** 前端 invoke `list_changes` / `get_change_detail` / `read_artifact`
 - **THEN** command 仅做参数转换并调用 core 查询函数，返回 DTO，自身无状态
 
-#### Scenario: exec 轨道为空
+#### Scenario: exec 轨道承载 agent 首批命令
 
 - **WHEN** 检查 `commands/exec/`
-- **THEN** 无任何已实现命令、无预定义 Executor trait 空壳
+- **THEN** `agent_start` / `agent_runs` / `agent_run_events` 三命令落地，无空壳 Executor trait
+- **AND** workspace 写文件未在此轨道实现（仍待后续变更定形）
 
 #### Scenario: 状态访问收敛 core
 
@@ -38,6 +39,8 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 
 侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 接受窗口 < 768px 时 `use-mobile` 触发的 Sheet 抽屉第三态与内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。sidebar MUST NOT 引入路由：列表 ↔ 详情视图切换维持 `ChangeView` 本地 state。
 
+侧栏 SHALL 增设页面导航组：[变更] [Agent 调试] 两个页面入口（AppSidebar 首次出现非 workspace 入口语义）；点击切换顶层视图，切换维持本地 state、MUST NOT 引入路由；workspace 清单组语义不变。Agent 调试页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
+
 欢迎态（root 为 null）MUST NOT 挂载 `SidebarProvider` / `AppSidebar`：`WelcomeView` 维持全屏现状；Toaster（sonner）SHALL 在 App 根挂载一次，欢迎态与壳态都覆盖。
 
 #### Scenario: 壳态挂载与 header 终态
@@ -45,6 +48,12 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 - **WHEN** workspace 清单非空、应用处于壳态
 - **THEN** `SidebarProvider` / `AppSidebar` / `SidebarInset` 渲染，main 区 max-width 1100px 居中位于 inset 内
 - **AND** header 仅含折叠钮、标题、版本/更新指示，无 `combobox`、移除、刷新控件
+
+#### Scenario: 页面导航组切换
+
+- **WHEN** 用户点击侧栏页面导航组的「Agent 调试」
+- **THEN** 主内容区切至 AgentDebugView，无 router 依赖，workspace 清单组仍在
+- **AND** 点回「变更」恢复 change 视图（选中状态保持策略 design 定夺）
 
 #### Scenario: 欢迎态隔离
 
@@ -60,7 +69,7 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 #### Scenario: 不引入路由
 
 - **WHEN** 检查 desktop 依赖与视图代码
-- **THEN** 无 router 依赖，列表 ↔ 详情仍为 `ChangeView` 本地 state（`selectedChange`）
+- **THEN** 无 router 依赖，列表 ↔ 详情仍为 `ChangeView` 本地 state（`selectedChange`），Agent 调试页切换同为本地 state
 
 ### Requirement: workspace 选择
 
@@ -111,19 +120,25 @@ App SHALL 提供 workspace 选择与恢复能力：
 
 ### Requirement: React 前端刷新取数模型
 
-前端 SHALL 以 React + TS 实现，取数收在 hooks（`useChangeList` / `useChangeDetail` / `useWorkspaces`）内：由用户显式刷新动作触发 invoke；`useWorkspaces` 为唯一例外——启动时自动触发一次以支撑自动恢复，此后仍由用户动作触发。MUST NOT 实现文件 watch、后台轮询或事件订阅。刷新 SHALL 覆盖两个层级：workspace 级（重取列表）与 change 级（重取当前详情）。未来替换为推送时 SHALL 仅改动 hooks 内部实现，视图层不感知取数方式。
+前端 SHALL 以 React + TS 实现，取数收在 hooks（`useChangeList` / `useChangeDetail` / `useWorkspaces`）内：由用户显式刷新动作触发 invoke；`useWorkspaces` 为唯一例外——启动时自动触发一次以支撑自动恢复，此后仍由用户动作触发。MUST NOT 实现文件 watch、后台轮询或事件订阅。例外（desktop-agent-execution）：agent 调试页的运行事件经 Tauri Channel 实时订阅——该订阅属执行流通道（`agent_start` 命令作用域流），不属于查询取数模型；agent 域查询取数（历史 run 列表 / 事件重放）仍由用户显式动作触发 invoke。刷新 SHALL 覆盖两个层级：workspace 级（重取列表）与 change 级（重取当前详情）。未来替换为推送时 SHALL 仅改动 hooks 内部实现，视图层不感知取数方式。
 
-视图 SHALL 至少呈现：change 列表（代际标注、按月分组）、phase 流水线（attempt / verdict / checklist 展开）、经 renderer 注册表渲染的产物区（含 markdown 文档与 tasks 进度）、workspace 清单（sidebar 侧栏）。列表刷新入口 SHALL 位于清单页（`ChangeListView`）头部并保留 `disabled={loading}` 语义，MUST NOT 回迁 header。
+视图 SHALL 至少呈现：change 列表（代际标注、按月分组）、phase 流水线（attempt / verdict / checklist 展开）、经 renderer 注册表渲染的产物区（含 markdown 文档与 tasks 进度）、workspace 清单（sidebar 侧栏）、Agent 调试页（事件时间线）。列表刷新入口 SHALL 位于清单页（`ChangeListView`）头部并保留 `disabled={loading}` 语义，MUST NOT 回迁 header。
 
 #### Scenario: 刷新按钮触发重取
 
 - **WHEN** 用户点击清单页头部的刷新按钮
 - **THEN** hooks 重新 invoke 对应查询命令并更新视图，期间无自动轮询发生
 
+#### Scenario: agent 实时流例外
+
+- **WHEN** `agent_start` 运行中，调试页时间线逐事件更新
+- **THEN** 事件经 Tauri Channel 推送到达；无文件 watch、无定时轮询
+- **AND** 历史 run 列表与事件重放仍为用户显式触发的 invoke 查询
+
 #### Scenario: 取数收口 hooks
 
 - **WHEN** 审查视图组件代码
-- **THEN** 组件不直接 invoke，取数统一经 `useChangeList` / `useChangeDetail` / `useWorkspaces`
+- **THEN** 组件不直接 invoke，取数统一经 hooks（change / workspace 域既有 hooks 与 agent 域新增 hooks）
 
 #### Scenario: 无 watch 依赖
 
@@ -132,7 +147,7 @@ App SHALL 提供 workspace 选择与恢复能力：
 
 ### Requirement: workspace 注册命令轨道
 
-dev-team SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注册表（shell 记忆，非 change 域查询）四命令：`list_workspaces`（`last_opened_at` 降序清单）、`add_workspace`（canonicalize + upsert + touch）、`remove_workspace`、`touch_workspace`。命令 SHALL 经 Tauri `State<Store>` 访问 store（`main.rs` 启动时打开并 `.manage()`），自身 MUST NOT 直接操作 redb 或 db 文件。既有 `commands/queries/` 三命令的无状态语义与 `commands/exec/` 空轨道 SHALL 保持不变。
+dev-team SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注册表（shell 记忆，非 change 域查询）四命令：`list_workspaces`（`last_opened_at` 降序清单）、`add_workspace`（canonicalize + upsert + touch）、`remove_workspace`、`touch_workspace`。命令 SHALL 经 Tauri `State<Store>` 访问 store（`main.rs` 启动时打开并 `.manage()`），自身 MUST NOT 直接操作 redb 或 db 文件。既有 `commands/queries/` 三命令的无状态语义与 `commands/exec/` 轨道纪律 SHALL 保持不变。
 
 本轨道 SHALL 确立后续可失败命令的错误约定模板：命令返回 `Result<T, String>`，`Err` 由 Tauri 转为前端 reject；MUST NOT 静默吞掉 db 打开或读写失败。db 打开失败 SHALL 使应用启动失败并报错，MUST NOT 静默降级为空清单。reject 抵达前端后的呈现 SHALL 按本能力「错误呈现双轨」requirement 分流：动作类命令（add / remove / touch）失败走 toast，查询类命令失败保留 inline error 态持久呈现。
 
@@ -154,7 +169,7 @@ dev-team SHALL 新增 `commands/workspaces` 命令轨道，承载 workspace 注�
 #### Scenario: 既有轨道不受影响
 
 - **WHEN** 检查 `commands/queries` 与 `commands/exec`
-- **THEN** 三个查询命令语义不变，exec 轨道仍无实现、无空壳 trait
+- **THEN** 三个查询命令语义不变，exec 轨道已由 agent 执行命令开通、无空壳 Executor trait
 
 ### Requirement: 错误呈现双轨
 
@@ -184,7 +199,7 @@ hook 形态（hook 内直调 toast vs 保留返回值由视图 effect 触发）�
 
 ### Requirement: command body 纪律与 app 层微形态
 
-dev-team SHALL NOT 抽独立 app 层 crate：command 即应用服务，维持既有双轨（queries / workspaces）加 exec 空轨道的组织不变。作为补偿纪律，任何 Tauri command body SHALL 只允许三件事：
+dev-team SHALL NOT 抽独立 app 层 crate：command 即应用服务，维持既有双轨（queries / workspaces）加 exec 轨道（已由 agent 执行命令开通）的组织不变。作为补偿纪律，任何 Tauri command body SHALL 只允许三件事：
 
 1. **参数转换**（IPC 入参 → 领域/store 入参）；
 2. **调用**（core 函数或 store 操作）；
@@ -194,10 +209,17 @@ command 层 MUST NOT 实现领域解释（属领域解释的编排 SHALL 下推 
 
 `commands/workspaces` 的 `*_inner(&Store)` 纯函数模式 SHALL 视为 app 层微形态（IPC 适配与纯逻辑的函数级分层）予以保留：将来抽 app crate 时 SHALL 将 inner 函数平移复用（函数边界升 crate 边界），MUST NOT 重写。
 
+`commands/exec` 的 `run_agent()` 编排函数 SHALL 与 `*_inner` 同列 app 层微形态（`*_inner` 先例的进化）：`agent_start` 的 tee 协调（组装 runner → 事件流双 sink：Tauri Channel + store 落库 → run 状态收敛）收在编排函数内，命令体仍只做三件事。将来抽 app crate 时编排函数与 inner 函数 SHALL 一并平移复用，MUST NOT 重写。
+
 #### Scenario: 新命令符合三件事
 
 - **WHEN** 新增任一 Tauri command
 - **THEN** body 为参数转换 + 调用 + 错误映射三段，无编排逻辑、无领域解释、无跨 store / fs 协调
+
+#### Scenario: run_agent 编排缝保留
+
+- **WHEN** 审查 `commands/exec` 实现
+- **THEN** `agent_start` 命令体三段式，runner 组装与 tee 在 `run_agent()` 内，未被内联回命令体
 
 #### Scenario: 编排增长被下推而非上塞
 
@@ -221,14 +243,21 @@ command 层 MUST NOT 实现领域解释（属领域解释的编排 SHALL 下推 
 
 翻转信号清单 SHALL 保持可机械判定（命令类型可枚举、行数可数、复用需求可证），SHALL 随本能力 spec 存档，供代码评审与后续变更 proposal 引用。
 
+信号 #2 已由 desktop-agent-execution 触发（exec 轨道首条真实命令 `agent_start` 落地），重新裁决为：**仍不抽独立 app crate**——编排以 `run_agent()` 微形态承接（编排单点、仍在一屏内，无跨 store + fs 多点协调），裁决落痕于本 spec；后续信号再次触发时按清单重议，MUST NOT 沿袭本次结论。
+
 #### Scenario: 信号可机械判定
 
 - **WHEN** 审查翻转信号清单
 - **THEN** 每条信号可由代码状态直接判定（特定命令是否出现 / 命令体行数 / 复用需求是否提出），无需主观架构评价
 
+#### Scenario: 信号 #2 裁决落痕
+
+- **WHEN** 查阅本 spec 的翻转信号清单
+- **THEN** #2 已由 desktop-agent-execution 触发与「仍不抽」裁决及其理由（`run_agent()` 微形态、协调单点）可考
+
 #### Scenario: 信号触发即重议
 
-- **WHEN** 任一翻转信号出现（如 exec 第一条真实命令进入 design）
+- **WHEN** 任一翻转信号再次出现（如 phase lifecycle 命令进入 design）
 - **THEN** 对应变更的 proposal 显式回应"是否抽 app crate"的重新决策，而不是默认沿袭"不建"
 
 ### Requirement: Tailwind v4 单一样式体系
@@ -327,18 +356,20 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 |------|------|----------|
 | `dev-team::commands::queries` | 三个查询命令 | list_changes / get_change_detail / read_artifact；无状态薄包装；返回 DTO |
 | `dev-team::commands::workspaces` | workspace 注册命令轨道 | list_workspaces / add_workspace / remove_workspace / touch_workspace；`State<Store>`；`Result<T, String>` |
-| `dev-team::commands::exec` | 预留空轨道 | 无实现、无空壳 trait |
+| `dev-team::commands::exec` | 执行轨道（已开通） | `agent_start`（三件事，编排收 `run_agent()`）/ `agent_runs` / `agent_run_events`（薄包装）；`Result<T, String>`；无空壳 Executor trait |
 | 前端 `hooks/` | 取数收口 | useChangeList / useChangeDetail / useWorkspaces；显式刷新触发（useWorkspaces 启动自动一次） |
+| agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
 | `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove/touch）；error 态收窄为清单加载失败（查询 inline 持久）；切换语义不变（touch → 重排 → 恒取第一名） |
 | `packages/desktop/src/hooks/use-mobile.ts` | 断点 hook | 窗口 < 768px → Sheet 抽屉第三态 |
 | 前端视图 | 列表 / 流水线 / 产物区渲染 + 欢迎屏空态 / sidebar 侧栏 | 消费 DTO 与 ArtifactEnvelope；未注册 kind 由 Fallback 兜底 |
-| `packages/desktop/src/App.tsx` | 壳布局 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳 |
-| `packages/desktop/src/components/AppSidebar.tsx` | workspace 清单侧栏 | `SidebarMenuButton` 列表项（点击 touch 切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
+| `packages/desktop/src/App.tsx` | 壳布局 + 顶层视图切换 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；changes \| agent 本地 state 切换，无路由 |
+| `packages/desktop/src/components/AppSidebar.tsx` | 页面导航组 + workspace 清单侧栏 | [变更] [Agent 调试] 页面入口（本地 state 切换）；`SidebarMenuButton` 列表项（点击 touch 切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
 | `packages/desktop/src/views/changes/ChangeListView.tsx` | 刷新入口 | 头部刷新按钮 `disabled={loading}`；列表加载失败 error-note inline 保留 |
 | `packages/desktop/src/views/WelcomeView.tsx` | 欢迎态 | error-note 仅清单加载失败；「添加新文件夹」入口保留 |
 | `dev-team::commands::*`（全体命令） | 应用服务（command 即应用服务） | body 三件事：参数转换 / 调用 / 错误映射；无独立 app crate；编排下推 core 或触发翻转 |
 | `commands::workspaces::{list,add,remove,touch}_workspace_inner` | app 层微形态 | 纯函数 + `&Store` 入参；将来抽 crate 时平移复用，不重写 |
-| app crate 翻转信号 | 决策触发器 | 五条信号（phase lifecycle 命令 / exec 首命令 / 跨 store+fs 协调 / CLI 复用 / 行数机械判据），任一出现即重议 |
+| `run_agent()` 编排函数 | app 层微形态（`*_inner` 先例进化） | 组装 runner → tee 双 sink（Tauri Channel + store）→ 状态收敛；将来抽 crate 时与 inner 函数一并平移复用，不重写 |
+| app crate 翻转信号 | 决策触发器 | 五条信号（phase lifecycle 命令 / exec 首命令 / 跨 store+fs 协调 / CLI 复用 / 行数机械判据）；#2 已触发、裁决「仍不抽」落痕；后续触发按清单重议 |
 | `packages/desktop/src/styles/global.css` | Tailwind 样式入口 | `@import "tailwindcss"`;`@theme` token(hex 直写、shadcn 结构命名);`@layer base` 元素级样式 |
 | `packages/desktop/src/lib/utils.ts` | 类名合并 | `cn()` = clsx + tailwind-merge |
 | `packages/desktop/src/components/ui/**` | shadcn 内部化控件 | Button / Badge / Table / Progress 及 sidebar 系生成件(sidebar / separator / sheet / tooltip / context-menu / sonner 按需);过 fmt/lint/knip 全管线无豁免;无 Next 语境残留 |

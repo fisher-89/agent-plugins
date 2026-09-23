@@ -1,15 +1,16 @@
 import { open } from '@tauri-apps/plugin-dialog';
-import { useCallback } from 'react';
+import { useCallback, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 import { Separator } from '@/components/ui/separator';
 import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { Toaster } from '@/components/ui/sonner';
 
-import { AppSidebar } from './components/AppSidebar';
+import { AppSidebar, type TopPage } from './components/AppSidebar';
 import { useChangeList } from './hooks/useChangeList';
 import { useUpdater, type UpdateState } from './hooks/useUpdater';
 import { useWorkspaces } from './hooks/useWorkspaces';
+import { AgentDebugView } from './views/agent/AgentDebugView';
 import { ChangeView } from './views/changes/ChangeView';
 import { WelcomeView } from './views/WelcomeView';
 
@@ -39,16 +40,33 @@ function UpdateIndicator({ state }: { state: UpdateState }) {
   );
 }
 
+/** 壳态顶栏：侧栏开关 + 应用名 + 更新指示 */
+function ShellHeader({ update }: { update: UpdateState }): React.JSX.Element {
+  return (
+    <header className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2.5">
+      <SidebarTrigger />
+      <Separator className="mr-2 data-[orientation=vertical]:h-4" orientation="vertical" />
+      <strong>Dev Team</strong>
+      <span className="flex-1" />
+      <UpdateIndicator state={update} />
+    </header>
+  );
+}
+
 /**
  * 应用壳：workspace 选择与恢复（启动自动恢复收在 useWorkspaces；清单切换/添加/
- * 移除收在 AppSidebar）+ 列表 / 详情视图切换。root === null 停欢迎屏，此时不渲染
+ * 移除收在 AppSidebar）+ 顶层页面切换（changes | agent，本地 state 无路由）+
+ * change 列表 / 详情视图切换。root === null 停欢迎屏，此时不渲染
  * SidebarProvider / 侧栏 DOM；<Toaster /> 与条件渲染同级置于 App 根，欢迎态/壳态
- * 均覆盖。组件不直接 invoke，取数统一经 useWorkspaces / useChangeList / useChangeDetail。
+ * 均覆盖。组件不直接 invoke，取数统一经 useWorkspaces / useChangeList /
+ * useChangeDetail / agent 域 hooks。切页后 ChangeView 卸载、选中 change 状态
+ * 不保持（清单数据留 App 层不丢）；agent 页 remount 后经历史重放呈现已有内容。
  */
 export default function App() {
   const workspaceState = useWorkspaces();
   const list = useChangeList(workspaceState.root);
   const update = useUpdater();
+  const [page, setPage] = useState<TopPage>('changes');
 
   // 对话框添加流经 useWorkspaces().add 入库；刷新后新记录 last_opened_at 最新，
   // 即清单第一名，root 随之切换到返回记录的 canonical root
@@ -75,18 +93,18 @@ export default function App() {
             onAdd={pickAndAdd}
             onOpen={workspaceState.touch}
             onRemove={workspaceState.remove}
+            onPageChange={setPage}
+            page={page}
             workspaces={workspaceState.workspaces}
           />
           <SidebarInset>
-            <header className="flex flex-wrap items-center gap-3 border-b border-border bg-card px-4 py-2.5">
-              <SidebarTrigger />
-              <Separator className="mr-2 data-[orientation=vertical]:h-4" orientation="vertical" />
-              <strong>Dev Team</strong>
-              <span className="flex-1" />
-              <UpdateIndicator state={update} />
-            </header>
+            <ShellHeader update={update} />
             <div className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
-              <ChangeView root={workspaceState.root} list={list} />
+              {page === 'changes' ? (
+                <ChangeView root={workspaceState.root} list={list} />
+              ) : (
+                <AgentDebugView root={workspaceState.root} />
+              )}
             </div>
           </SidebarInset>
         </SidebarProvider>

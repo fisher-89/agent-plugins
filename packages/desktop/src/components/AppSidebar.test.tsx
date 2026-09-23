@@ -5,7 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test'
 import { SidebarProvider } from '@/components/ui/sidebar';
 
 import type { WorkspaceRecord } from '../types/dto';
-import { AppSidebar } from './AppSidebar';
+import { AppSidebar, type TopPage } from './AppSidebar';
 
 // ---------------------------------------------------------------------------
 // AppSidebar 单测：组件纯回调驱动（onOpen / onAdd / onRemove 以 vi.fn() 注入），
@@ -265,5 +265,118 @@ describe('AppSidebar：Tooltip 与副文本', () => {
 
     const item = itemByRoot(longRoot);
     expect(item.getAttribute('data-root')).toBe(longRoot);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 页面导航组：[变更] [Agent 调试]，顶层视图切换入口（无路由；本变更新增，
+// 首次出现非 workspace 入口语义）。组件纯回调驱动（onPageChange 以 vi.fn()
+// 注入），workspace 清单组语义不变（既有用例全部保留回归）。
+// ---------------------------------------------------------------------------
+
+function mountNav(page: TopPage, workspaces: WorkspaceRecord[] = [FIRST, SECOND]) {
+  const onPageChange = vi.fn();
+  render(
+    <SidebarProvider>
+      <AppSidebar
+        currentRoot={FIRST.root}
+        onAdd={vi.fn()}
+        onPageChange={onPageChange}
+        onOpen={vi.fn()}
+        onRemove={vi.fn()}
+        page={page}
+        workspaces={workspaces}
+      />
+    </SidebarProvider>,
+  );
+  return { onPageChange };
+}
+
+describe('AppSidebar：页面导航组（page / onPageChange）', () => {
+  let restore: () => void;
+
+  beforeEach(() => {
+    restore = stubEnvironment();
+  });
+
+  afterEach(() => {
+    restore();
+  });
+
+  it('「页面」导航组渲染于 workspace 清单组上方，含「变更」与「Agent 调试」两项', () => {
+    mountNav('changes');
+
+    const pageLabel = screen.getByText('页面');
+    const wsLabel = screen.getByText('工作区');
+    expect(
+      pageLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId('nav-changes').textContent).toContain('变更');
+    expect(screen.getByTestId('nav-agent').textContent).toContain('Agent 调试');
+  });
+
+  it('当前 page 项呈激活态、另一项不激活（changes 与 agent 两态）', () => {
+    const { unmount } = render(
+      <SidebarProvider>
+        <AppSidebar
+          currentRoot={FIRST.root}
+          onAdd={vi.fn()}
+          onOpen={vi.fn()}
+          onRemove={vi.fn()}
+          page="changes"
+          workspaces={[FIRST]}
+        />
+      </SidebarProvider>,
+    );
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    unmount();
+
+    mountNav('agent');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+  });
+
+  it('点击「Agent 调试」→ onPageChange("agent") 恰一次；点击「变更」→ onPageChange("changes") 恰一次', () => {
+    const { onPageChange } = mountNav('changes');
+
+    fireEvent.click(screen.getByTestId('nav-agent'));
+    expect(onPageChange).toHaveBeenCalledTimes(1);
+    expect(onPageChange).toHaveBeenCalledWith('agent');
+
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    expect(onPageChange).toHaveBeenCalledTimes(2);
+    expect(onPageChange).toHaveBeenLastCalledWith('changes');
+  });
+
+  it("page='agent' 时 workspace 清单组照常渲染、语义不变（激活态/点击回调不串扰）", () => {
+    const onPageChange = vi.fn();
+    const onOpen = vi.fn();
+    render(
+      <SidebarProvider>
+        <AppSidebar
+          currentRoot={FIRST.root}
+          onAdd={vi.fn()}
+          onPageChange={onPageChange}
+          onOpen={onOpen}
+          onRemove={vi.fn()}
+          page="agent"
+          workspaces={[FIRST, SECOND]}
+        />
+      </SidebarProvider>,
+    );
+
+    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
+    expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('true');
+    fireEvent.click(itemByRoot(SECOND.root));
+    expect(onOpen).toHaveBeenCalledWith(SECOND.root);
+    expect(onPageChange).not.toHaveBeenCalled();
+  });
+
+  it('两入口各带 lucide 图标（以 DOM 结构断言，非观感）', () => {
+    mountNav('changes');
+
+    expect(screen.getByTestId('nav-changes').querySelector('svg') !== null).toBe(true);
+    expect(screen.getByTestId('nav-agent').querySelector('svg') !== null).toBe(true);
   });
 });

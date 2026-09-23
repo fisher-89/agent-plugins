@@ -21,8 +21,10 @@ mod canonical;
 mod model;
 mod store;
 
-pub use model::WorkspaceRecord;
+pub use model::{AgentRunRecord, WorkspaceRecord};
 pub use store::{Store, StoreError};
 
+#[cfg(test)]
+mod model_test;
 #[cfg(test)]
 mod store_test;

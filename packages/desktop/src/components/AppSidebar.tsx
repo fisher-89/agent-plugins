@@ -1,4 +1,4 @@
-import { Plus } from 'lucide-react';
+import { Bot, GitBranch, Plus } from 'lucide-react';
 
 import {
   ContextMenu,
@@ -19,7 +19,14 @@ import {
 
 import type { WorkspaceRecord } from '../types/dto';
 
+/** 顶层视图判别（App 与 Sidebar 共用；本地 state 切换，无路由） */
+export type TopPage = 'changes' | 'agent';
+
 export interface AppSidebarProps {
+  /** 当前顶层视图（缺省 changes） */
+  page?: TopPage;
+  /** 页面导航组点击切换 */
+  onPageChange?: (page: TopPage) => void;
   /** workspace 清单（后端按 last_opened_at 降序） */
   workspaces: WorkspaceRecord[];
   /** 当前选中根（清单第一名） */
@@ -84,12 +91,56 @@ function WorkspaceItem({
   );
 }
 
+/** 页面导航组：[变更] [Agent 调试]，顶层视图切换入口（无路由） */
+function PageNavGroup({
+  page,
+  onPageChange,
+}: {
+  page: TopPage;
+  onPageChange?: (page: TopPage) => void;
+}): React.JSX.Element {
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>页面</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="nav-changes"
+              isActive={page === 'changes'}
+              tooltip="变更"
+              onClick={() => onPageChange?.('changes')}
+            >
+              <GitBranch />
+              <span>变更</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="nav-agent"
+              isActive={page === 'agent'}
+              tooltip="Agent 调试"
+              onClick={() => onPageChange?.('agent')}
+            >
+              <Bot />
+              <span>Agent 调试</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
 /**
- * workspace 清单侧栏（仅壳态挂载）：单「工作区」组呈现全部清单。
- * 列表项点击切换（副文本父目录区分同名、Tooltip 完整 root），「＋」添加、
- * 右键 ContextMenu 移除。
+ * 侧栏（仅壳态挂载）：上方「页面」导航组（[变更] [Agent 调试]，首次出现
+ * 非 workspace 入口语义），下方「工作区」清单组语义不变。列表项点击切换
+ * （副文本父目录区分同名、Tooltip 完整 root），「＋」添加、右键 ContextMenu
+ * 移除。
  */
 export function AppSidebar({
+  page = 'changes',
+  onPageChange,
   workspaces,
   currentRoot,
   onOpen,
@@ -98,6 +149,7 @@ export function AppSidebar({
 }: AppSidebarProps): React.JSX.Element {
   return (
     <Sidebar collapsible="icon">
+      <PageNavGroup page={page} onPageChange={onPageChange} />
       <SidebarGroup>
         <SidebarGroupLabel>工作区</SidebarGroupLabel>
         <SidebarGroupAction aria-label="添加 workspace" onClick={onAdd}>

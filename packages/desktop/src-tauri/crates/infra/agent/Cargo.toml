@@ -1,0 +1,15 @@
+[package]
+name = "agent-cli"
+version = "0.1.0"
+edition = "2021"
+
+# agent 边界 CLI 租户实现：实现 core 契约、允许进程 spawn（本 workspace 唯一
+# spawn 触点）；禁 Tauri 系依赖
+[dependencies]
+agent = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, features = ["process", "io-util", "rt", "macros"] }
+
+# discover 合成目录 / PATH 薄包装测试装置
+[dev-dependencies]
+tempfile = { workspace = true }

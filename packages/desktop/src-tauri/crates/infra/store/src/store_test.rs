@@ -13,11 +13,18 @@ use std::time::Duration;
 
 use redb::{Database, ReadOnlyDatabase, ReadableDatabase, TableDefinition};
 
-use crate::{Store, StoreError, WorkspaceRecord};
+use crate::{AgentRunRecord, Store, StoreError, WorkspaceRecord};
 
 /// 测试侧直读 schema_version 用的表定义（镜像 store.rs 的 `user_meta`，
 /// 仅作为检查手段，redb 自身事务/持久化语义不在断言范围）。
 const TEST_USER_META: TableDefinition<'static, &str, u64> = TableDefinition::new("user_meta");
+
+/// 测试侧直读 agent 两表的表定义（镜像 store.rs 的 `user_agent_runs` /
+/// `user_agent_run_events`，仅用于表名前缀存在性检查）。
+const TEST_USER_AGENT_RUNS: TableDefinition<'static, i64, &[u8]> =
+    TableDefinition::new("user_agent_runs");
+const TEST_USER_AGENT_RUN_EVENTS: TableDefinition<'static, (i64, u64), &[u8]> =
+    TableDefinition::new("user_agent_run_events");
 
 /// 当前库 schema 版本（镜像 store.rs 的 `SCHEMA_VERSION`）。
 const SCHEMA_VERSION: u64 = 1;
@@ -559,4 +566,299 @@ fn 全链路add_list_touch_remove后重开同一db文件清单状态与各操作
     let remaining = again.list_workspaces().unwrap();
     assert_eq!(remaining.len(), 1);
     assert_eq!(remaining[0].root, snapshot[1].root);
+}
+
+// ---------------------------------------------------------------------------
+// agent 域两表：begin / append / finish / list_runs / list_events（AC-3）
+// ---------------------------------------------------------------------------
+
+/// 构造一份 running 形态的 run 记录（id 由 begin 分配，入参不参与匹配）。
+fn running_run(prompt: &str, started_at: i64) -> AgentRunRecord {
+    AgentRunRecord {
+        id: 0,
+        prompt: prompt.to_owned(),
+        cwd: "C:\\ws\\demo".to_owned(),
+        env: "default".to_owned(),
+        permission_mode: "bypassPermissions".to_owned(),
+        status: "running".to_owned(),
+        started_at,
+        finished_at: None,
+        num_turns: None,
+        cost_usd: None,
+        duration_ms: None,
+        session_id: None,
+        error: None,
+    }
+}
+
+/// 构造一条事件 JSON（seq 必带；payload 可携带任意结构）。
+fn event_value(seq: u64, note: &str) -> serde_json::Value {
+    serde_json::json!({
+        "seq": seq,
+        "timestampMs": 1727000000000i64 + seq as i64,
+        "kind": "message",
+        "role": "assistant",
+        "blocks": [],
+        "parentToolUseId": null,
+        "note": note,
+    })
+}
+
+fn begin_ok(store: &Store, prompt: &str, started_at: i64) -> AgentRunRecord {
+    store
+        .begin_agent_run(&running_run(prompt, started_at))
+        .unwrap_or_else(|e| panic!("begin_agent_run 应成功: {e}"))
+}
+
+#[test]
+fn begin_agent_run空库首跑返回id为1且status为running且started_at落值() {
+    let env = Env::new("agent-begin-first");
+    let store = open_ok(&env.db_path());
+
+    let record = begin_ok(&store, "首轮", 1727000000000);
+
+    assert_eq!(record.id, 1, "空库首跑 max+1 分配 id=1");
+    assert_eq!(record.status, "running", "落 running 行");
+    assert_eq!(
+        record.started_at, 1727000000000,
+        "started_at 按调用方值落库"
+    );
+    assert_eq!(record.finished_at, None, "running 行无结束时间");
+    // 清单可见 running 行
+    assert_eq!(store.list_agent_runs().unwrap(), vec![record.clone()]);
+}
+
+#[test]
+fn begin_agent_run连续begin时id严格递增() {
+    let env = Env::new("agent-begin-incr");
+    let store = open_ok(&env.db_path());
+
+    let first = begin_ok(&store, "第一跑", 100);
+    let second = begin_ok(&store, "第二跑", 200);
+    let third = begin_ok(&store, "第三跑", 300);
+
+    assert_eq!((first.id, second.id, third.id), (1, 2, 3), "max+1 严格递增");
+}
+
+#[test]
+fn begin_agent_run传入记录的id字段不参与匹配以分配id落行为准() {
+    let env = Env::new("agent-begin-id");
+    let store = open_ok(&env.db_path());
+
+    let mut requested = running_run("调用方自填 id", 1727000000000);
+    requested.id = 999;
+    let record = store.begin_agent_run(&requested).unwrap();
+
+    assert_eq!(record.id, 1, "id 由写事务内 max+1 分配，入参 id 被覆盖");
+    assert_eq!(store.list_agent_runs().unwrap()[0].id, 1, "以分配 id 落行");
+}
+
+#[test]
+fn append后按run_id重放事件seq升序读回() {
+    let env = Env::new("agent-append");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "事件流", 1727000000000);
+
+    // 乱序写入：seq 2 / 0 / 1
+    let events = vec![
+        event_value(2, "乱序乙"),
+        event_value(0, "首条"),
+        event_value(1, "次条"),
+    ];
+    store
+        .append_agent_run_events(run.id, &events)
+        .unwrap_or_else(|e| panic!("append 应成功: {e}"));
+
+    let replay = store.list_agent_run_events(run.id).unwrap();
+    assert_eq!(replay.len(), 3, "三事件全部读回");
+    let seqs: Vec<u64> = replay
+        .iter()
+        .map(|value| value["seq"].as_u64().expect("seq 为数值"))
+        .collect();
+    assert_eq!(
+        seqs,
+        vec![0, 1, 2],
+        "AC-3 重放：按 (run_id, seq) 复合键升序"
+    );
+}
+
+#[test]
+fn append空切片返回ok且不产生行() {
+    let env = Env::new("agent-append-empty");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "空事件流", 1727000000000);
+
+    store.append_agent_run_events(run.id, &[]).unwrap();
+
+    assert!(store.list_agent_run_events(run.id).unwrap().is_empty());
+}
+
+#[test]
+fn append事件含中文emoji与深嵌套时进出无损() {
+    let env = Env::new("agent-append-unicode");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "保真事件流", 1727000000000);
+
+    let event = serde_json::json!({
+        "seq": 0,
+        "timestampMs": 1,
+        "kind": "systemNotice",
+        "subtype": "dump",
+        "payload": { "嵌套": { "深层": ["🎉", {"再深": "换行\n中文"}] } },
+    });
+    store
+        .append_agent_run_events(run.id, &[event.clone()])
+        .unwrap();
+
+    let replay = store.list_agent_run_events(run.id).unwrap();
+    assert_eq!(replay, vec![event], "事件行以 Value 进出 store，无损（D3）");
+}
+
+#[test]
+fn finish后整行替换为终态且list反映() {
+    let env = Env::new("agent-finish");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "待收敛", 1727000000000);
+
+    let mut finished = run.clone();
+    finished.status = "completed".to_owned();
+    finished.finished_at = Some(1727000001000);
+    finished.num_turns = Some(4);
+    finished.cost_usd = Some(0.5);
+    finished.duration_ms = Some(999);
+    finished.session_id = Some("s-1".to_owned());
+    store
+        .finish_agent_run(run.id, &finished)
+        .unwrap_or_else(|e| panic!("finish 应成功: {e}"));
+
+    let listed = store.list_agent_runs().unwrap();
+    assert_eq!(listed.len(), 1);
+    assert_eq!(listed[0].status, "completed", "终态整行替换");
+    assert_eq!(listed[0].num_turns, Some(4));
+    assert_eq!(listed[0].cost_usd, Some(0.5));
+    assert_eq!(listed[0].duration_ms, Some(999));
+    assert_eq!(listed[0].session_id.as_deref(), Some("s-1"));
+    assert_eq!(listed[0].finished_at, Some(1727000001000));
+}
+
+#[test]
+fn list_agent_runs按started_at降序并列时按id降序() {
+    let env = Env::new("agent-list-order");
+    let store = open_ok(&env.db_path());
+    // started_at 显式注入（排序依据由调用方落库值决定），无需 sleep
+    let early = begin_ok(&store, "早", 100);
+    let late = begin_ok(&store, "晚", 300);
+    let middle = begin_ok(&store, "中", 200);
+
+    let ids: Vec<i64> = store
+        .list_agent_runs()
+        .unwrap()
+        .into_iter()
+        .map(|record| record.id)
+        .collect();
+    assert_eq!(ids, vec![late.id, middle.id, early.id], "started_at 降序");
+
+    // 并列时 id 降序（顺序确定）
+    let tie_a = begin_ok(&store, "并列甲", 300);
+    let tie_b = begin_ok(&store, "并列乙", 300);
+    let top_two: Vec<i64> = store
+        .list_agent_runs()
+        .unwrap()
+        .into_iter()
+        .take(2)
+        .map(|record| record.id)
+        .collect();
+    assert_eq!(top_two, vec![tie_b.id, tie_a.id], "并列按 id 降序");
+}
+
+#[test]
+fn 空库list_agent_runs返回空向量不报错() {
+    let env = Env::new("agent-list-empty");
+    let store = open_ok(&env.db_path());
+
+    assert!(store.list_agent_runs().unwrap().is_empty());
+}
+
+#[test]
+fn 不存在run_id的list_agent_run_events返回空向量不报错() {
+    let env = Env::new("agent-events-miss");
+    let store = open_ok(&env.db_path());
+
+    assert!(store.list_agent_run_events(42).unwrap().is_empty());
+}
+
+#[test]
+fn 两run同seq互不串扰且复合键半开区间按run_id隔离() {
+    let env = Env::new("agent-isolation");
+    let store = open_ok(&env.db_path());
+    let run_a = begin_ok(&store, "run A", 100);
+    let run_b = begin_ok(&store, "run B", 200);
+
+    store
+        .append_agent_run_events(run_a.id, &[event_value(0, "A0"), event_value(1, "A1")])
+        .unwrap();
+    store
+        .append_agent_run_events(run_b.id, &[event_value(0, "B0"), event_value(1, "B1")])
+        .unwrap();
+
+    let replay_a = store.list_agent_run_events(run_a.id).unwrap();
+    let notes: Vec<&str> = replay_a
+        .iter()
+        .map(|value| value["note"].as_str().expect("note 为字符串"))
+        .collect();
+    assert_eq!(notes, vec!["A0", "A1"], "run A 不串入 run B 的任何事件");
+    assert_eq!(store.list_agent_run_events(run_b.id).unwrap().len(), 2);
+}
+
+#[test]
+fn run与events写入后drop重开同一db文件记录与事件完整() {
+    let env = Env::new("agent-reopen");
+    let run;
+    let snapshot_events;
+    {
+        let store = open_ok(&env.db_path());
+        run = begin_ok(&store, "持久化验证", 1727000000000);
+        let events = vec![event_value(0, "第一条"), event_value(1, "第二条")];
+        store.append_agent_run_events(run.id, &events).unwrap();
+        let mut finished = run.clone();
+        finished.status = "failed".to_owned();
+        finished.finished_at = Some(1727000002000);
+        finished.error = Some("进程结束但未产出 result 事件".to_owned());
+        store.finish_agent_run(run.id, &finished).unwrap();
+        snapshot_events = store.list_agent_run_events(run.id).unwrap();
+        // drop 前显式释放文件锁（与 workspace 重开场景同口径）
+    }
+
+    let reopened = open_ok(&env.db_path());
+    let listed = reopened.list_agent_runs().unwrap();
+    assert_eq!(listed.len(), 1, "重开后 run 记录完整");
+    assert_eq!(listed[0].status, "failed");
+    assert_eq!(
+        listed[0].error.as_deref(),
+        Some("进程结束但未产出 result 事件")
+    );
+    assert_eq!(
+        reopened.list_agent_run_events(run.id).unwrap(),
+        snapshot_events,
+        "AC-3 重开持久性：事件流完整"
+    );
+}
+
+#[test]
+fn 裸redb只读句柄可见user前缀两agent表() {
+    let env = Env::new("agent-table-prefix");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "建表核验", 1727000000000);
+    store
+        .append_agent_run_events(run.id, &[event_value(0, "n")])
+        .unwrap();
+    drop(store); // 释放写句柄文件锁
+
+    // Store 已 drop：只读句柄可独占打开，open_table 成功即表存在
+    let ro = ReadOnlyDatabase::open(env.db_path()).expect("只读打开失败");
+    let txn = ro.begin_read().expect("开启读事务失败");
+    txn.open_table(TEST_USER_AGENT_RUNS)
+        .expect("user_agent_runs 表存在（user 维度前缀）");
+    txn.open_table(TEST_USER_AGENT_RUN_EVENTS)
+        .expect("user_agent_run_events 表存在（user 维度前缀）");
 }
