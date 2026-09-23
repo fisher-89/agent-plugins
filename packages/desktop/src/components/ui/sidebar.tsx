@@ -3,15 +3,7 @@ import { PanelLeftIcon } from 'lucide-react';
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from '@/components/ui/sheet';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
-import { useIsMobile } from '@/hooks/use-mobile';
 import { cn } from '@/lib/utils';
 
 /* shadcn Sidebar vendored 内部化（裁剪版）：导出集 pin 为本 app 实际用量
@@ -21,11 +13,11 @@ import { cn } from '@/lib/utils';
    固定 true）；collapsible="icon" + 内建 Ctrl/Cmd+B 保留；TooltipProvider
    delayDuration={0}（D4）；菜单项 Tooltip 不限定折叠态才显示（D3 信息层级：副文本=父
    目录、Tooltip=完整 root）。未用子组件（MenuSkeleton / MenuSub / Input / Rail 等）与
-   side / variant 分支按 D5 删减。 */
+   side / variant 分支按 D5 删减。PC-only：无断点判断与 Sheet 抽屉第三态，极小分辨率
+   不适配——窗口最小尺寸由 tauri.conf.json（minWidth/minHeight）兜底，侧栏常驻。 */
 
 const SIDEBAR_WIDTH = '16rem';
 const SIDEBAR_WIDTH_ICON = '3rem';
-const SIDEBAR_WIDTH_MOBILE = '18rem';
 const SIDEBAR_KEYBOARD_SHORTCUT = 'b';
 
 type SidebarState = 'expanded' | 'collapsed';
@@ -34,9 +26,6 @@ interface SidebarContextValue {
   state: SidebarState;
   open: boolean;
   setOpen: (open: boolean) => void;
-  openMobile: boolean;
-  setOpenMobile: (open: boolean) => void;
-  isMobile: boolean;
   toggleSidebar: () => void;
 }
 
@@ -68,21 +57,16 @@ function useSidebarShortcut(toggleSidebar: () => void): void {
 interface SidebarOpenState {
   open: boolean;
   setOpen: (open: boolean) => void;
-  openMobile: boolean;
-  setOpenMobile: (open: boolean) => void;
-  isMobile: boolean;
   toggleSidebar: () => void;
 }
 
 /** 折叠态会话内 state（D1：无 cookie / localStorage 持久化，defaultOpen 固定 true）；
- * desktop 走 open（icon 折叠），mobile 走 openMobile（Sheet 抽屉第三态） */
+ * 折叠走 open（icon 折叠），无档位/断点分流 */
 function useSidebarOpenState(
   defaultOpen: boolean,
   openProp: boolean | undefined,
   onOpenChangeProp: ((open: boolean) => void) | undefined,
 ): SidebarOpenState {
-  const isMobile = useIsMobile();
-  const [openMobile, setOpenMobile] = useState(false);
   const [openState, setOpenState] = useState(defaultOpen);
   const open = openProp ?? openState;
   const setOpen = useCallback(
@@ -92,12 +76,9 @@ function useSidebarOpenState(
     },
     [onOpenChangeProp],
   );
-  const toggleSidebar = useCallback(
-    () => (isMobile ? setOpenMobile((v) => !v) : setOpen(!open)),
-    [isMobile, open, setOpen],
-  );
+  const toggleSidebar = useCallback(() => setOpen(!open), [open, setOpen]);
   useSidebarShortcut(toggleSidebar);
-  return { open, setOpen, openMobile, setOpenMobile, isMobile, toggleSidebar };
+  return { open, setOpen, toggleSidebar };
 }
 
 function SidebarProvider({
@@ -141,37 +122,6 @@ function SidebarProvider({
   );
 }
 
-/** 抽屉宽度经 CSS 变量注入（w-(--sidebar-width) 消费）；显式标注免去断言 */
-const SIDEBAR_MOBILE_STYLE: React.CSSProperties & Record<'--sidebar-width', string> = {
-  '--sidebar-width': SIDEBAR_WIDTH_MOBILE,
-};
-
-/** mobile 第三态：Sheet 抽屉（左向），sr-only 标题供 Radix Dialog a11y */
-function SidebarMobile({
-  children,
-  ...props
-}: React.ComponentProps<typeof Sheet>): React.JSX.Element {
-  const { openMobile, setOpenMobile } = useSidebar();
-  return (
-    <Sheet onOpenChange={setOpenMobile} open={openMobile} {...props}>
-      <SheetContent
-        className="w-(--sidebar-width) border-border bg-card p-0 text-foreground [&>button]:hidden"
-        data-mobile="true"
-        data-sidebar="sidebar"
-        data-slot="sidebar"
-        side="left"
-        style={SIDEBAR_MOBILE_STYLE}
-      >
-        <SheetHeader className="sr-only">
-          <SheetTitle>Sidebar</SheetTitle>
-          <SheetDescription>Displays the mobile sidebar.</SheetDescription>
-        </SheetHeader>
-        <div className="flex h-full w-full flex-col">{children}</div>
-      </SheetContent>
-    </Sheet>
-  );
-}
-
 function Sidebar({
   collapsible = 'icon',
   className,
@@ -180,13 +130,10 @@ function Sidebar({
 }: React.ComponentProps<'div'> & {
   collapsible?: 'icon';
 }): React.JSX.Element {
-  const { isMobile, state } = useSidebar();
-  if (isMobile) {
-    return <SidebarMobile {...props}>{children}</SidebarMobile>;
-  }
+  const { state } = useSidebar();
   return (
     <div
-      className="group peer text-foreground md:block"
+      className="group peer text-foreground"
       data-collapsible={state === 'collapsed' ? collapsible : ''}
       data-side="left"
       data-slot="sidebar"
@@ -200,7 +147,7 @@ function Sidebar({
       <div
         data-slot="sidebar-container"
         className={cn(
-          'fixed inset-y-0 left-0 z-10 hidden h-svh w-(--sidebar-width) transition-[width] duration-200 ease-linear md:flex group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[collapsible=icon]:overflow-hidden',
+          'fixed inset-y-0 left-0 z-10 flex h-svh w-(--sidebar-width) transition-[width] duration-200 ease-linear group-data-[collapsible=icon]:w-(--sidebar-width-icon) group-data-[collapsible=icon]:overflow-hidden',
           className,
         )}
         {...props}
@@ -291,7 +238,7 @@ function SidebarGroupAction({
       data-sidebar="group-action"
       data-slot="sidebar-group-action"
       className={cn(
-        'absolute top-3.5 right-3 flex aspect-square w-5 items-center justify-center rounded-md border-0 bg-transparent p-0 text-foreground outline-none transition-transform hover:bg-primary/10 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/50 disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0 after:absolute after:-inset-2 md:after:hidden group-data-[collapsible=icon]:hidden',
+        'absolute top-3.5 right-3 flex aspect-square w-5 items-center justify-center rounded-md border-0 bg-transparent p-0 text-foreground outline-none transition-transform hover:bg-primary/10 hover:text-primary focus-visible:ring-2 focus-visible:ring-primary/50 disabled:pointer-events-none disabled:opacity-50 [&>svg]:size-4 [&>svg]:shrink-0 group-data-[collapsible=icon]:hidden',
         className,
       )}
       {...props}
@@ -376,7 +323,6 @@ function SidebarMenuButton({
   size?: 'default' | 'lg';
   tooltip?: string | React.ReactElement;
 }): React.JSX.Element {
-  const { isMobile } = useSidebar();
   // size 解构后不再流入 Button 自身变体（其 size 是 h-9/px-4 口径，与本件冲突），
   // 仅喂本件 cva 并以 data-size 显影
   const button = (
@@ -390,10 +336,6 @@ function SidebarMenuButton({
     />
   );
   if (!tooltip) return button;
-  // mobile（Sheet 抽屉）不挂 Tooltip：抽屉打开时 Radix FocusScope 自动聚焦首个
-  // 可聚焦项，focus 触发其 Tooltip 内容挂载，Tooltip 的 DismissableLayer 叠在
-  // Dialog 层之上——首次 Escape 被 Tooltip 消费（抽屉关不掉）且呈现游离 Tooltip
-  if (isMobile) return button;
   return (
     <Tooltip>
       <TooltipTrigger asChild>{button}</TooltipTrigger>

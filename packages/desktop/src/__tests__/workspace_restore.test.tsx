@@ -1,6 +1,6 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import App from '../App';
 import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
@@ -11,8 +11,6 @@ import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
 // invoke 时序、次数与参数契约（视图状态断言归 App.test.tsx 单测）。
 // mock 对齐后端 store 语义：touch_workspace 刷新 last_opened_at，
 // list_workspaces 结果按 last_opened_at 降序返回。
-// 壳重排后 App 挂载即经 SidebarProvider 消费 useIsMobile：window.matchMedia /
-// innerWidth 需 stub（jsdom 无 matchMedia 实现；matches 与 innerWidth 同源计算）。
 // ---------------------------------------------------------------------------
 
 const { invokeMock, openMock } = vi.hoisted(() => ({
@@ -127,44 +125,10 @@ function itemByRoot(root: string): HTMLElement {
   return hit;
 }
 
-let restoreViewport: () => void = () => {};
-
-function stubViewport(initialWidth: number) {
-  const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
-  Object.defineProperty(window, 'innerWidth', {
-    configurable: true,
-    writable: true,
-    value: initialWidth,
-  });
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: vi.fn((query: string) => ({
-      matches: window.innerWidth < 768,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    })),
-  });
-  return () => {
-    if (widthDescriptor) Object.defineProperty(window, 'innerWidth', widthDescriptor);
-    Reflect.deleteProperty(window, 'matchMedia');
-  };
-}
-
 beforeEach(() => {
   invokeMock.mockReset();
   openMock.mockReset();
   mockIpc();
-  restoreViewport = stubViewport(1100);
-});
-
-afterEach(() => {
-  restoreViewport();
 });
 
 // ---------------------------------------------------------------------------

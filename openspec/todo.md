@@ -79,7 +79,7 @@
 - [ ] 【Desktop】发布到github且版本号升级时，自动构建并创建版本release；支持检查更新；
 - [ ] 【Desktop】约定后端报错结构；
 - [ ] test-design、test-gen 在处理ui层时，尽量使用快照测试
-- [ ] 【Desktop】移除移动端判断，系统只用在PC
+- [x] 【Desktop】移除移动端判断，系统只用在PC
 - [ ] 【Desktop】接入页面路由
 - [ ] 【Desktop】前端使用ai-sdk接入，ui可以考虑使用ai-elements
 - [ ] 【Desktop】调用agent支持配置api key，指定模型；收集会话耗时，循环轮次，消耗token数；

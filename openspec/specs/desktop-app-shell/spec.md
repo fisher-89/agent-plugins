@@ -37,7 +37,7 @@ dev-team SHALL 按 queries / exec 双轨组织 Tauri command：
 
 header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/更新指示（`UpdateIndicator` 含「重试更新」按钮语义不变）；workspace `select`、移除、刷新控件 MUST NOT 留在 header。
 
-侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 接受窗口 < 768px 时 `use-mobile` 触发的 Sheet 抽屉第三态与内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。sidebar MUST NOT 引入路由：列表 ↔ 详情视图切换维持 `ChangeView` 本地 state。
+侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 支持内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。系统 PC-only：极小分辨率不适配，窗口最小尺寸 SHALL 由 `tauri.conf.json` 限定（minWidth 900 / minHeight 600）。sidebar MUST NOT 引入路由：列表 ↔ 详情视图切换维持 `ChangeView` 本地 state。
 
 侧栏 SHALL 增设页面导航组：[变更] [Agent 调试] 两个页面入口（AppSidebar 首次出现非 workspace 入口语义）；点击切换顶层视图，切换维持本地 state、MUST NOT 引入路由；workspace 清单组语义不变。Agent 调试页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
 
@@ -64,7 +64,7 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 #### Scenario: 折叠交互
 
 - **WHEN** 用户点击折叠钮或按下 Ctrl/Cmd+B
-- **THEN** 侧栏进入 icon-only 态，悬停清单项出 Tooltip；窗口宽度 < 768px 时侧栏以 Sheet 抽屉呈现
+- **THEN** 侧栏进入 icon-only 态，悬停清单项出 Tooltip
 
 #### Scenario: 不引入路由
 
@@ -360,7 +360,6 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | 前端 `hooks/` | 取数收口 | useChangeList / useChangeDetail / useWorkspaces；显式刷新触发（useWorkspaces 启动自动一次） |
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
 | `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove/touch）；error 态收窄为清单加载失败（查询 inline 持久）；切换语义不变（touch → 重排 → 恒取第一名） |
-| `packages/desktop/src/hooks/use-mobile.ts` | 断点 hook | 窗口 < 768px → Sheet 抽屉第三态 |
 | 前端视图 | 列表 / 流水线 / 产物区渲染 + 欢迎屏空态 / sidebar 侧栏 | 消费 DTO 与 ArtifactEnvelope；未注册 kind 由 Fallback 兜底 |
 | `packages/desktop/src/App.tsx` | 壳布局 + 顶层视图切换 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；changes \| agent 本地 state 切换，无路由 |
 | `packages/desktop/src/components/AppSidebar.tsx` | 页面导航组 + workspace 清单侧栏 | [变更] [Agent 调试] 页面入口（本地 state 切换）；`SidebarMenuButton` 列表项（点击 touch 切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
@@ -372,8 +371,9 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | app crate 翻转信号 | 决策触发器 | 五条信号（phase lifecycle 命令 / exec 首命令 / 跨 store+fs 协调 / CLI 复用 / 行数机械判据）；#2 已触发、裁决「仍不抽」落痕；后续触发按清单重议 |
 | `packages/desktop/src/styles/global.css` | Tailwind 样式入口 | `@import "tailwindcss"`;`@theme` token(hex 直写、shadcn 结构命名);`@layer base` 元素级样式 |
 | `packages/desktop/src/lib/utils.ts` | 类名合并 | `cn()` = clsx + tailwind-merge |
-| `packages/desktop/src/components/ui/**` | shadcn 内部化控件 | Button / Badge / Table / Progress 及 sidebar 系生成件(sidebar / separator / sheet / tooltip / context-menu / sonner 按需);过 fmt/lint/knip 全管线无豁免;无 Next 语境残留 |
+| `packages/desktop/src/components/ui/**` | shadcn 内部化控件 | Button / Badge / Table / Progress 及 sidebar 系生成件(sidebar / separator / tooltip / context-menu / sonner 按需);过 fmt/lint/knip 全管线无豁免;无 Next 语境残留 |
 | `packages/desktop/components.json` | shadcn 生成配置 | alias `@/*`;内部化纪律适用 |
+| `packages/desktop/src-tauri/tauri.conf.json` | 窗口与打包配置 | 默认窗口 1200×800、最小 900×600（PC-only 兜底：极小分辨率不适配,由窗口最小尺寸约束保证）;updater endpoint 与 pubkey |
 | `@/*` 路径别名(tsconfig + vite 双处) | ui/** import 解析 | 双处同步配置 |
 | `src/views/changes/renderers/MarkdownDocRenderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
 | `src/views/changes/renderers/TasksProgressRenderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |

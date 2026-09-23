@@ -9,9 +9,9 @@ import { AppSidebar, type TopPage } from './AppSidebar';
 
 // ---------------------------------------------------------------------------
 // AppSidebar 单测：组件纯回调驱动（onOpen / onAdd / onRemove 以 vi.fn() 注入），
-// 无进程边界。jsdom 环境缺口兜底：SidebarProvider 消费 useIsMobile（需
-// matchMedia stub），radix Tooltip / ContextMenu 定位需 ResizeObserver 兜底；
-// 断言按 D4-④ 收敛最终态（data-root / testid / tooltip role），不复刻 portal 细节。
+// 无进程边界。jsdom 环境缺口兜底：radix Tooltip / ContextMenu 定位需
+// ResizeObserver 兜底；断言按 D4-④ 收敛最终态（data-root / testid /
+// tooltip role），不复刻 portal 细节。
 // ---------------------------------------------------------------------------
 
 class ResizeObserverStub {
@@ -21,30 +21,8 @@ class ResizeObserverStub {
 }
 
 function stubEnvironment() {
-  const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
-  Object.defineProperty(window, 'innerWidth', {
-    configurable: true,
-    writable: true,
-    value: 1100,
-  });
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: vi.fn((query: string) => ({
-      matches: false,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    })),
-  });
   vi.stubGlobal('ResizeObserver', ResizeObserverStub);
   return () => {
-    if (widthDescriptor) Object.defineProperty(window, 'innerWidth', widthDescriptor);
-    Reflect.deleteProperty(window, 'matchMedia');
     vi.unstubAllGlobals();
   };
 }

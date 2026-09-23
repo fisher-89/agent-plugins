@@ -223,9 +223,7 @@ fn assert_no_events_belong_to(events: &[AgentEvent], tag: &str) {
                 session_id.as_deref() == Some(&marker[..])
             }
             AgentEventKind::Message { role, .. } => role.as_str() == tag,
-            AgentEventKind::Raw { raw_json, .. } => {
-                raw_json.contains(&format!(r#""run":"{tag}""#))
-            }
+            AgentEventKind::Raw { raw_json, .. } => raw_json.contains(&format!(r#""run":"{tag}""#)),
             // systemNotice 不携带任何 run 标记，恒不归属
             AgentEventKind::SystemNotice { .. } => false,
         };
@@ -362,7 +360,10 @@ fn 两run事件隔离经命令面复核以run_id_a查询不串入run_b的任何�
 
     // 反向半边：以 runId=B 查询同样只含 B 的标记
     let replay_b = agent_run_events(state.clone(), run_b.id).expect("agent_run_events 应成功");
-    assert_eq!(replay_b, events_b, "以 runId=B 查询恰返回 run B 自己的事件序列");
+    assert_eq!(
+        replay_b, events_b,
+        "以 runId=B 查询恰返回 run B 自己的事件序列"
+    );
     assert_events_belong_to(&replay_b, "B");
 }
 
@@ -403,12 +404,20 @@ fn drop后重开同一db命令面重放结果与重开前一致() {
     let state = app.state::<Store>();
 
     let after_runs = agent_runs(state.clone()).expect("重开后 agent_runs 应成功");
-    let after_early = agent_run_events(state.clone(), early_id).expect("重开后 agent_run_events 应成功");
-    let after_late = agent_run_events(state.clone(), late_id).expect("重开后 agent_run_events 应成功");
+    let after_early =
+        agent_run_events(state.clone(), early_id).expect("重开后 agent_run_events 应成功");
+    let after_late =
+        agent_run_events(state.clone(), late_id).expect("重开后 agent_run_events 应成功");
 
-    assert_eq!(after_runs, before_runs, "run 清单（含终态与汇总）与重开前命令面一致");
     assert_eq!(
-        after_runs.iter().map(|record| record.id).collect::<Vec<_>>(),
+        after_runs, before_runs,
+        "run 清单（含终态与汇总）与重开前命令面一致"
+    );
+    assert_eq!(
+        after_runs
+            .iter()
+            .map(|record| record.id)
+            .collect::<Vec<_>>(),
         vec![late_id, early_id],
         "重开后 startedAt 降序保持"
     );

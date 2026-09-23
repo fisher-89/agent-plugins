@@ -58,9 +58,7 @@ const fakeDetail: ChangeDetail = {
 
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：IPC 按命令名分发；文件夹对话框按用例 resolve / reject / cancel；
-// 版本号固定 resolve；窗口视口与 matchMedia stub（壳态经 SidebarProvider 消费
-// useIsMobile，jsdom 无实现；matches 与 window.innerWidth 同源计算，<768px 呈
-// Sheet 抽屉第三态）。sonner <Toaster /> 不 mock：App 根真实挂载，toast 断言走
+// 版本号固定 resolve。sonner <Toaster /> 不 mock：App 根真实挂载，toast 断言走
 // DOM 文案 + waitFor。sonner toast 状态为模块级单例、跨用例存活，beforeEach
 // 统一 dismiss 防残留。
 // ---------------------------------------------------------------------------
@@ -73,48 +71,6 @@ let removeMiss = false;
 let touchReject: string | null = null;
 let listReject: string | null = null;
 let clock = 1000;
-
-let restoreViewport: () => void = () => {};
-let setViewportWidth: (width: number) => void = () => {};
-let viewportQueries: string[] = [];
-
-function stubViewport(initialWidth: number) {
-  const queries: string[] = [];
-  const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
-  const setWidth = (width: number) => {
-    Object.defineProperty(window, 'innerWidth', {
-      configurable: true,
-      writable: true,
-      value: width,
-    });
-  };
-  setWidth(initialWidth);
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: vi.fn((query: string) => {
-      queries.push(query);
-      return {
-        matches: window.innerWidth < 768,
-        media: query,
-        onchange: null,
-        addEventListener: () => {},
-        removeEventListener: () => {},
-        addListener: () => {},
-        removeListener: () => {},
-        dispatchEvent: () => false,
-      };
-    }),
-  });
-  return {
-    queries,
-    setWidth,
-    restore: () => {
-      if (widthDescriptor) Object.defineProperty(window, 'innerWidth', widthDescriptor);
-      Reflect.deleteProperty(window, 'matchMedia');
-    },
-  };
-}
 
 function mockIpc() {
   remaining = [FIRST, SECOND];
@@ -217,15 +173,9 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss(); // sonner 模块级 toast 状态跨用例存活：清残留
     mockIpc();
-    ({
-      queries: viewportQueries,
-      setWidth: setViewportWidth,
-      restore: restoreViewport,
-    } = stubViewport(1100));
   });
 
   afterEach(() => {
-    restoreViewport();
     vi.unstubAllEnvs();
   });
 
@@ -348,15 +298,9 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-    ({
-      queries: viewportQueries,
-      setWidth: setViewportWidth,
-      restore: restoreViewport,
-    } = stubViewport(1100));
   });
 
   afterEach(() => {
-    restoreViewport();
     vi.unstubAllEnvs();
   });
 
@@ -556,15 +500,9 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-    ({
-      queries: viewportQueries,
-      setWidth: setViewportWidth,
-      restore: restoreViewport,
-    } = stubViewport(1100));
   });
 
   afterEach(() => {
-    restoreViewport();
     vi.unstubAllEnvs();
   });
 
@@ -719,7 +657,7 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
 });
 
 // ---------------------------------------------------------------------------
-// 关系三：壳层布局与折叠形态——App 壳 ↔ ui/sidebar ↔ use-mobile（AC-1/AC-2/AC-7）
+// 关系三：壳层布局与折叠形态——App 壳 ↔ ui/sidebar（AC-1/AC-2/AC-7）
 // jsdom 断言拓扑与语义属性（data-slot / data-sidebar / data-state）而非观感。
 // ---------------------------------------------------------------------------
 
@@ -733,15 +671,9 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-    ({
-      queries: viewportQueries,
-      setWidth: setViewportWidth,
-      restore: restoreViewport,
-    } = stubViewport(1100));
   });
 
   afterEach(() => {
-    restoreViewport();
     vi.unstubAllEnvs();
   });
 
@@ -838,35 +770,6 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     expect(document.cookie).toBe('');
   });
 
-  it('窗口 < 768px：sidebar 走 Sheet 抽屉第三态，SidebarTrigger 点击切换 openMobile（SheetContent 出现/消失，断言收敛最终态 D4-④）', async () => {
-    setViewportWidth(500);
-    render(<App />);
-    await waitFor(() =>
-      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
-    );
-
-    // 断点查询串：(max-width: 767px)（AC-7 断点边界由 useIsMobile 判定）
-    expect(viewportQueries).toContain('(max-width: 767px)');
-    // 抽屉闭合：desktop sidebar 容器不在场
-    expect(document.querySelector('[data-slot="sidebar"]')).toBeNull();
-    expect(document.querySelector('[data-slot="sidebar"][data-mobile="true"]')).toBeNull();
-
-    // mobile 抽屉即 SheetContent：SidebarMobile 传入 data-slot="sidebar" +
-    // data-mobile="true"（收敛最终态断言，不复刻 portal 细节）
-    fireEvent.click(screen.getByRole('button', { name: /toggle sidebar/i }));
-    const sheet = document.querySelector('[data-slot="sidebar"][data-mobile="true"]')!;
-    expect(sheet !== null).toBe(true);
-    expect(sheet.getAttribute('data-sidebar')).toBe('sidebar');
-    expect(sheet.querySelector('[data-testid="workspace-item"]') !== null).toBe(true);
-
-    // 抽屉打开期间 radix 对壳层标 aria-hidden，trigger 退出可访问树：
-    // 收起走 vendored Sheet 保留的 Esc 键盘路径
-    fireEvent.keyDown(document, { key: 'Escape' });
-    await waitFor(() =>
-      expect(document.querySelector('[data-slot="sidebar"][data-mobile="true"]')).toBeNull(),
-    );
-  });
-
   it('折叠态不持久化（D1）：卸载重挂回到展开态，无 localStorage / cookie 读写', async () => {
     await restored();
     const sidebar = document.querySelector('[data-slot="sidebar"]')!;
@@ -897,15 +800,9 @@ describe('App：顶层页面切换（changes | agent，无路由）', () => {
     getVersionMock.mockResolvedValue('0.1.0');
     toast.dismiss();
     mockIpc();
-    ({
-      queries: viewportQueries,
-      setWidth: setViewportWidth,
-      restore: restoreViewport,
-    } = stubViewport(1100));
   });
 
   afterEach(() => {
-    restoreViewport();
     vi.unstubAllEnvs();
   });
 

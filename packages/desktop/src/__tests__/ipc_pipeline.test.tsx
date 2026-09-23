@@ -176,46 +176,13 @@ async function clickListItem(name: string) {
   fireEvent.click(screen.getByText(name));
 }
 
-// 壳重排后 App 挂载即经 SidebarProvider 消费 useIsMobile：
-// window.matchMedia / innerWidth 需 stub（jsdom 无 matchMedia 实现）
-let restoreViewport: () => void = () => {};
-
-function stubViewport(initialWidth: number) {
-  const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
-  Object.defineProperty(window, 'innerWidth', {
-    configurable: true,
-    writable: true,
-    value: initialWidth,
-  });
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: vi.fn((query: string) => ({
-      matches: window.innerWidth < 768,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    })),
-  });
-  return () => {
-    if (widthDescriptor) Object.defineProperty(window, 'innerWidth', widthDescriptor);
-    Reflect.deleteProperty(window, 'matchMedia');
-  };
-}
-
 beforeEach(() => {
   invokeMock.mockReset();
   openMock.mockReset();
   defaultIpc();
-  restoreViewport = stubViewport(1100);
 });
 
 afterEach(() => {
-  restoreViewport();
   vi.useRealTimers();
 });
 

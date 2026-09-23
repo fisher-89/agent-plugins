@@ -11,7 +11,7 @@ import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
 // 共存（D10 选中重置、useChangeList 留 App 层、两入口语义不串扰）。
 //
 // 进程边界 Mock 沿 App.test.tsx 既有装置：invoke 按命令名分发并记录调用
-// 序列（次数断言依赖记录）；matchMedia / 窗口视口 stub。
+// 序列（次数断言依赖记录）。
 // ---------------------------------------------------------------------------
 
 const { checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
@@ -66,35 +66,6 @@ const fakeDetail: ChangeDetail = {
 let remaining: WorkspaceRecord[];
 let clock = 1000;
 
-let restoreViewport: () => void = () => {};
-
-function stubViewport() {
-  const widthDescriptor = Object.getOwnPropertyDescriptor(window, 'innerWidth');
-  Object.defineProperty(window, 'innerWidth', {
-    configurable: true,
-    writable: true,
-    value: 1100,
-  });
-  Object.defineProperty(window, 'matchMedia', {
-    configurable: true,
-    writable: true,
-    value: vi.fn((query: string) => ({
-      matches: window.innerWidth < 768,
-      media: query,
-      onchange: null,
-      addEventListener: () => {},
-      removeEventListener: () => {},
-      addListener: () => {},
-      removeListener: () => {},
-      dispatchEvent: () => false,
-    })),
-  });
-  restoreViewport = () => {
-    if (widthDescriptor) Object.defineProperty(window, 'innerWidth', widthDescriptor);
-    Reflect.deleteProperty(window, 'matchMedia');
-  };
-}
-
 function countOf(command: string): number {
   return invokeMock.mock.calls.filter(([name]) => name === command).length;
 }
@@ -139,11 +110,9 @@ beforeEach(() => {
   getVersionMock.mockResolvedValue('0.1.0');
   toast.dismiss();
   mockIpc();
-  stubViewport();
 });
 
 afterEach(() => {
-  restoreViewport();
   cleanup();
 });
 
