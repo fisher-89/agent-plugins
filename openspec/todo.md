@@ -80,7 +80,9 @@
 - [ ] 【Desktop】约定后端报错结构；
 - [ ] test-design、test-gen 在处理ui层时，尽量使用快照测试
 - [ ] 【Desktop】移除移动端判断，系统只用在PC
-- [ ] 【Desktop】接入页面路由
+- [x] 【Desktop】接入页面路由
 - [ ] 【Desktop】前端使用ai-sdk接入，ui可以考虑使用ai-elements
 - [ ] 【Desktop】调用agent支持配置api key，指定模型；收集会话耗时，循环轮次，消耗token数；
-- [ ] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
+- [x] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
+- [ ] 【Desktop】rust生成ts类型
+- [ ] 【Desktop】移除store migrate

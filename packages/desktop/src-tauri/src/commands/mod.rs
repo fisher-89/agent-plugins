@@ -1,5 +1,5 @@
-//! Tauri command 三轨：queries（change 域查询）、workspaces（workspace 注册）
-//! 与 exec（执行；已开通，承载 agent 首批三命令）。
+//! Tauri command 三轨：queries（change 域查询 + workspace 注册）、exec（执行；
+//! 承载 agent 命令）与 db（db 查看轨道，只读）。
 //!
 //! Command body 纪律（决策出处：desktop-app-shell 能力 spec，
 //! `specs/desktop-app-shell/spec.md`，路径相对域根）：每条命令的 body 仅允许三件事——
@@ -11,6 +11,7 @@
 //! `run_agent()` 编排函数同为 app 层微形态，将来抽 app crate 时平移复用
 //! （函数边界升 crate 边界）、不重写、不内联回命令体。
 
+pub mod db;
 pub mod exec;
 pub mod queries;
 pub mod workspaces;

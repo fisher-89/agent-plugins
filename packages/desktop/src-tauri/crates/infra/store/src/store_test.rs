@@ -1,30 +1,19 @@
-//! `store` 的单元测试（AC-1/2/3/4/5/8/10）：三操作 + open + StoreError。
+//! `store` 的单元测试：open 打开流程 + workspace 三操作 + agent run
+//! begin / finish / list 存量回归 + 事件类型化（`append_agent_run_events` /
+//! `list_agent_run_events` 经 `AgentEvent` 构造）+ 信封 API（`list_models` /
+//! `scan`）。tempdir 真开 db 文件（存储层不 mock）；全部断言经 `Store` 公共
+//! API，内部协作（模型编解码、canonical 口径）由此间接覆盖。系统时钟不
+//! mock：`added_at` / `started_at` 仅记录入库值，清单排序与获取时间无关。
 //!
-//! tempdir 真开 redb 文件（存储层不 mock）；全部断言经 `Store` 公共 API
-//! （D6 三名字 `Store` / `StoreError` / `WorkspaceRecord`），内部协作
-//! （model 编解码、canonical 口径）由此间接覆盖。系统时钟不 mock：
-//! `added_at` 仅记录入库时间，清单排序与其无关（默认序按表主键）。
+//! 存量 schema_version 轮账与 `user_*` 表名前缀用例随 META 轮账退役而废弃；
+//! legacy 迁移全链路用例在 `migrate_test.rs`（集成关系 R1）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use redb::{Database, ReadOnlyDatabase, ReadableDatabase, TableDefinition};
+use agent::{AgentEvent, AgentEventKind};
 
 use crate::{AgentRunRecord, Store, StoreError, WorkspaceRecord};
-
-/// 测试侧直读 schema_version 用的表定义（镜像 store.rs 的 `user_meta`，
-/// 仅作为检查手段，redb 自身事务/持久化语义不在断言范围）。
-const TEST_USER_META: TableDefinition<'static, &str, u64> = TableDefinition::new("user_meta");
-
-/// 测试侧直读 agent 两表的表定义（镜像 store.rs 的 `user_agent_runs` /
-/// `user_agent_run_events`，仅用于表名前缀存在性检查）。
-const TEST_USER_AGENT_RUNS: TableDefinition<'static, i64, &[u8]> =
-    TableDefinition::new("user_agent_runs");
-const TEST_USER_AGENT_RUN_EVENTS: TableDefinition<'static, (i64, u64), &[u8]> =
-    TableDefinition::new("user_agent_run_events");
-
-/// 当前库 schema 版本（镜像 store.rs 的 `SCHEMA_VERSION`）。
-const SCHEMA_VERSION: u64 = 1;
 
 /// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -82,7 +71,7 @@ fn open对不存在的路径返回ok并创建db文件与父目录() {
 
     assert!(db_path.exists(), "db 文件被创建");
     assert!(db_path.parent().unwrap().is_dir(), "父目录被创建");
-    // 业务表已随 init_schema 建好，空库可正常 list
+    // 空库可正常 list
     assert!(store.list_workspaces().unwrap().is_empty());
 }
 
@@ -123,84 +112,19 @@ fn 父路径被同名普通文件占据时open返回db错误不panic() {
 fn 目标为损坏文件时open返回err不静默降级为空库() {
     let env = Env::new("open-corrupt");
     let corrupt = env.db_dir.path().join("corrupt.redb");
-    let garbage = "这不是一个 redb 数据库文件。".repeat(32);
+    let garbage = "这不是一个合法的 db 数据库文件。".repeat(32);
     fs::write(&corrupt, garbage).expect("写损坏文件失败");
 
     let result = Store::open(&corrupt);
 
     let err = match result {
         Err(e) => e,
-        Ok(_) => panic!("非合法 redb 文件必须报错，不得静默降级为空库"),
+        Ok(_) => panic!("非合法 db 文件必须报错，不得静默降级为空库"),
     };
     assert!(
         err.to_string().starts_with("db:"),
         "错误串以 db: 前缀，实际: {err}"
     );
-}
-
-#[test]
-fn schema_version等于当前版本时open幂等成功() {
-    let env = Env::new("schema-equal");
-
-    drop(open_ok(&env.db_path())); // 首次 open 写入当前版本
-    let second = open_ok(&env.db_path()); // 等版本重开：幂等成功
-    let dir = env.ws("any");
-    assert!(add_ok(&second, &dir).root.ends_with("any"));
-    drop(second);
-
-    let third = open_ok(&env.db_path());
-    assert_eq!(
-        third.list_workspaces().unwrap().len(),
-        1,
-        "再次 open 仍幂等"
-    );
-}
-
-#[test]
-fn schema_version高于支持版本时open返回err() {
-    let env = Env::new("schema-newer");
-    drop(open_ok(&env.db_path()));
-
-    // 以裸 redb 句柄伪造「由更新版本应用创建」的库：schema_version = 999
-    let raw = Database::create(env.db_path()).expect("打开裸句柄失败");
-    let txn = raw.begin_write().expect("开启写事务失败");
-    {
-        let mut meta = txn.open_table(TEST_USER_META).expect("打开 user_meta 失败");
-        meta.insert("schema_version", 999_u64)
-            .expect("写入高版本号失败");
-    }
-    txn.commit().expect("提交失败");
-    drop(raw);
-
-    let result = Store::open(&env.db_path());
-    let err = match result {
-        Err(e) => e,
-        Ok(_) => panic!("高于支持版本的库必须拒绝打开"),
-    };
-    assert!(
-        err.to_string().starts_with("db:"),
-        "错误串以 db: 前缀，实际: {err}"
-    );
-    assert!(
-        err.to_string().contains("999"),
-        "错误串携带实际版本号，实际: {err}"
-    );
-}
-
-#[test]
-fn 全新库open后经只读句柄直读user_meta表schema_version恰为当前版本() {
-    let env = Env::new("schema-fresh");
-    drop(open_ok(&env.db_path()));
-
-    // Store 已 drop（写句柄已释放），只读句柄可独占打开做检查
-    let ro = ReadOnlyDatabase::open(env.db_path()).expect("只读打开失败");
-    let txn = ro.begin_read().expect("开启读事务失败");
-    let meta = txn.open_table(TEST_USER_META).expect("打开 user_meta 失败");
-    let stored = meta
-        .get("schema_version")
-        .expect("读取 schema_version 失败")
-        .expect("schema_version 必须已写入");
-    assert_eq!(stored.value(), SCHEMA_VERSION, "新开 db 即写入当前版本");
 }
 
 // ---------------------------------------------------------------------------
@@ -281,7 +205,7 @@ fn add目录名含空格中文emoji的路径name提取正确且记录往返无�
             .to_string_lossy()
             .into_owned()
     );
-    // 记录以 JSON 落库：读回与返回记录逐字段相等（编解码往返无损）
+    // 记录经模型编解码落库：读回与返回记录逐字段相等（往返无损）
     assert_eq!(store.list_workspaces().unwrap(), vec![record]);
 }
 
@@ -480,7 +404,8 @@ fn 全链路add_list_remove后重开同一db文件清单状态与各操作返回
 }
 
 // ---------------------------------------------------------------------------
-// agent 域两表：begin / append / finish / list_runs / list_events（AC-3）
+// agent 域：begin / finish / list_runs 存量回归（事件类型化用例由 test-gen
+// 按 test-design 落位）
 // ---------------------------------------------------------------------------
 
 /// 构造一份 running 形态的 run 记录（id 由 begin 分配，入参不参与匹配）。
@@ -500,19 +425,6 @@ fn running_run(prompt: &str, started_at: i64) -> AgentRunRecord {
         session_id: None,
         error: None,
     }
-}
-
-/// 构造一条事件 JSON（seq 必带；payload 可携带任意结构）。
-fn event_value(seq: u64, note: &str) -> serde_json::Value {
-    serde_json::json!({
-        "seq": seq,
-        "timestampMs": 1727000000000i64 + seq as i64,
-        "kind": "message",
-        "role": "assistant",
-        "blocks": [],
-        "parentToolUseId": null,
-        "note": note,
-    })
 }
 
 fn begin_ok(store: &Store, prompt: &str, started_at: i64) -> AgentRunRecord {
@@ -565,35 +477,6 @@ fn begin_agent_run传入记录的id字段不参与匹配以分配id落行为准(
 }
 
 #[test]
-fn append后按run_id重放事件seq升序读回() {
-    let env = Env::new("agent-append");
-    let store = open_ok(&env.db_path());
-    let run = begin_ok(&store, "事件流", 1727000000000);
-
-    // 乱序写入：seq 2 / 0 / 1
-    let events = vec![
-        event_value(2, "乱序乙"),
-        event_value(0, "首条"),
-        event_value(1, "次条"),
-    ];
-    store
-        .append_agent_run_events(run.id, &events)
-        .unwrap_or_else(|e| panic!("append 应成功: {e}"));
-
-    let replay = store.list_agent_run_events(run.id).unwrap();
-    assert_eq!(replay.len(), 3, "三事件全部读回");
-    let seqs: Vec<u64> = replay
-        .iter()
-        .map(|value| value["seq"].as_u64().expect("seq 为数值"))
-        .collect();
-    assert_eq!(
-        seqs,
-        vec![0, 1, 2],
-        "AC-3 重放：按 (run_id, seq) 复合键升序"
-    );
-}
-
-#[test]
 fn append空切片返回ok且不产生行() {
     let env = Env::new("agent-append-empty");
     let store = open_ok(&env.db_path());
@@ -602,27 +485,6 @@ fn append空切片返回ok且不产生行() {
     store.append_agent_run_events(run.id, &[]).unwrap();
 
     assert!(store.list_agent_run_events(run.id).unwrap().is_empty());
-}
-
-#[test]
-fn append事件含中文emoji与深嵌套时进出无损() {
-    let env = Env::new("agent-append-unicode");
-    let store = open_ok(&env.db_path());
-    let run = begin_ok(&store, "保真事件流", 1727000000000);
-
-    let event = serde_json::json!({
-        "seq": 0,
-        "timestampMs": 1,
-        "kind": "systemNotice",
-        "subtype": "dump",
-        "payload": { "嵌套": { "深层": ["🎉", {"再深": "换行\n中文"}] } },
-    });
-    store
-        .append_agent_run_events(run.id, &[event.clone()])
-        .unwrap();
-
-    let replay = store.list_agent_run_events(run.id).unwrap();
-    assert_eq!(replay, vec![event], "事件行以 Value 进出 store，无损（D3）");
 }
 
 #[test]
@@ -698,78 +560,311 @@ fn 不存在run_id的list_agent_run_events返回空向量不报错() {
     assert!(store.list_agent_run_events(42).unwrap().is_empty());
 }
 
+// ---------------------------------------------------------------------------
+// Store::open：信封 API 空库形态 + native 格式重开直通（迁移探测不误触发，
+// legacy 迁移全链路见 migrate_test.rs 集成关系 R1）
+// ---------------------------------------------------------------------------
+
 #[test]
-fn 两run同seq互不串扰且复合键半开区间按run_id隔离() {
-    let env = Env::new("agent-isolation");
+fn open全新路径后list_models列出全部注册模型且计数为0() {
+    let env = Env::new("open-models-empty");
+
+    let store = open_ok(&env.db_path());
+
+    let models = store.list_models().unwrap();
+    assert_eq!(
+        models
+            .iter()
+            .map(|model| model.name.as_str())
+            .collect::<Vec<_>>(),
+        vec!["workspace", "agent_run", "agent_event"],
+        "注册表全量列出，计数 0 也列出"
+    );
+    assert!(
+        models.iter().all(|model| model.count == 0),
+        "空库三模型计数全 0: {models:?}"
+    );
+}
+
+#[test]
+fn native格式已有库重开直通此前写入的run与事件完整读回且不产生bak() {
+    let env = Env::new("reopen-native");
+    let db_path = env.db_path();
+
+    let (workspace, run, events) = {
+        let store = open_ok(&db_path);
+        let workspace = add_ok(&store, &env.ws("native-persist"));
+        let run = begin_ok(&store, "native 重开", 1727000000000);
+        let events = vec![
+            stamped(0, run_started_kind()),
+            stamped(1, raw_kind("native")),
+        ];
+        store
+            .append_agent_run_events(run.id, &events)
+            .unwrap_or_else(|e| panic!("append 应成功: {e}"));
+        (workspace, run, events)
+    };
+
+    // native 格式已有库：重开直通（legacy 探测不命中），全部记录完整读回
+    let reopened = open_ok(&db_path);
+    assert_eq!(reopened.list_workspaces().unwrap(), vec![workspace]);
+    assert_eq!(reopened.list_agent_runs().unwrap(), vec![run.clone()]);
+    assert_eq!(reopened.list_agent_run_events(run.id).unwrap(), events);
+    assert!(
+        !db_path.with_file_name("test.redb.bak").exists(),
+        "native 重开不触发迁移：不产生 .bak 留档"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 事件类型化：append / list_agent_run_events（五变体、重复合成主键、千级 seq、
+// 两 run 隔离）
+// ---------------------------------------------------------------------------
+
+/// 以指定 kind 构造盖戳事件（seq 由调用方给定，时间戳取当前钟面）。
+fn stamped(seq: u64, kind: AgentEventKind) -> AgentEvent {
+    AgentEvent::stamp(seq, kind)
+}
+
+fn run_started_kind() -> AgentEventKind {
+    AgentEventKind::RunStarted {
+        model: Some("claude-opus".to_owned()),
+        session_id: Some("s-1".to_owned()),
+        tools: vec!["Bash".to_owned()],
+        mcp_servers: Vec::new(),
+    }
+}
+
+fn message_kind(role: &str) -> AgentEventKind {
+    AgentEventKind::Message {
+        role: role.to_owned(),
+        blocks: Vec::new(),
+        parent_tool_use_id: None,
+    }
+}
+
+fn system_notice_kind(subtype: &str) -> AgentEventKind {
+    AgentEventKind::SystemNotice {
+        subtype: subtype.to_owned(),
+        payload: serde_json::json!({ "attempt": 2 }),
+    }
+}
+
+fn run_result_kind(is_error: bool) -> AgentEventKind {
+    AgentEventKind::RunResult {
+        subtype: if is_error {
+            "error_max_turns"
+        } else {
+            "success"
+        }
+        .to_owned(),
+        is_error,
+        num_turns: Some(1),
+        duration_ms: Some(1234),
+        cost_usd: Some(0.5),
+        usage: serde_json::Value::Null,
+        session_id: Some("s-1".to_owned()),
+    }
+}
+
+/// Raw 变体：`tag` 进入原文载荷，供归属/保真断言提取。
+fn raw_kind(tag: &str) -> AgentEventKind {
+    AgentEventKind::Raw {
+        event_type: "mystery".to_owned(),
+        raw_json: format!(r#"{{"type":"mystery","tag":"{tag}"}}"#),
+    }
+}
+
+/// 从 Raw 变体提取 tag（fixture 口径漂移即 panic）。
+fn raw_tag(event: &AgentEvent) -> &str {
+    match &event.kind {
+        AgentEventKind::Raw { raw_json, .. } => raw_json
+            .split(r#""tag":""#)
+            .nth(1)
+            .and_then(|rest| rest.split('"').next())
+            .unwrap_or_else(|| panic!("raw fixture 无 tag: {event:?}")),
+        other => panic!("期望 Raw 变体，实际: {other:?}"),
+    }
+}
+
+#[test]
+fn append五变体类型化批量追加后重放seq升序逐字段保真() {
+    let env = Env::new("append-five");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "五变体", 1727000000000);
+    let seeded = vec![
+        stamped(0, run_started_kind()),
+        stamped(1, message_kind("assistant")),
+        stamped(2, system_notice_kind("api_retry")),
+        stamped(3, run_result_kind(false)),
+        stamped(4, raw_kind("mystery-tag")),
+    ];
+
+    store
+        .append_agent_run_events(run.id, &seeded)
+        .unwrap_or_else(|e| panic!("批量追加应成功: {e}"));
+
+    let replayed = store.list_agent_run_events(run.id).unwrap();
+    assert_eq!(
+        replayed, seeded,
+        "类型化批量落库后重放逐字段保真（含 Raw 逃生舱）"
+    );
+    let seqs: Vec<u64> = replayed.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, vec![0, 1, 2, 3, 4], "重放 seq 升序");
+}
+
+#[test]
+fn 同run重复seq二次追加由合成主键冲突拒绝且重放恰一条() {
+    let env = Env::new("append-dup-seq");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "重复 seq", 1727000000000);
+    let first = stamped(0, raw_kind("first"));
+
+    store.append_agent_run_events(run.id, &[first]).unwrap();
+
+    // 同 (run_id, seq) 再追加：合成主键冲突（native_db insert 语义），二次追加报错
+    let second = stamped(0, raw_kind("second"));
+    let result = store.append_agent_run_events(run.id, &[second]);
+    assert!(
+        result.is_err(),
+        "同合成主键二次追加被拒绝，实际: {result:?}"
+    );
+
+    // 重放面恰一条：不产生重复行（与旧载体「重放不重」口径一致）
+    let replayed = store.list_agent_run_events(run.id).unwrap();
+    assert_eq!(replayed.len(), 1, "重放恰一条不重复");
+    assert_eq!(raw_tag(&replayed[0]), "first", "保留先写入的一条");
+}
+
+#[test]
+fn 单run千级seq批量追加后重放序完整不回绕() {
+    let env = Env::new("append-thousand");
+    let store = open_ok(&env.db_path());
+    let run = begin_ok(&store, "千级 seq", 1727000000000);
+    let seeded: Vec<AgentEvent> = (0..1000u64)
+        .map(|seq| stamped(seq, raw_kind(&seq.to_string())))
+        .collect();
+
+    store
+        .append_agent_run_events(run.id, &seeded)
+        .unwrap_or_else(|e| panic!("批量追加应成功: {e}"));
+
+    let replayed = store.list_agent_run_events(run.id).unwrap();
+    assert_eq!(replayed.len(), 1000, "千级事件一条不丢");
+    // u128 打包键在大 seq 下保序：重放序完整、严格单调不回绕
+    for (index, event) in replayed.iter().enumerate() {
+        assert_eq!(
+            event.seq, index as u64,
+            "重放第 {index} 条 seq 恰为 {index}"
+        );
+    }
+}
+
+#[test]
+fn 两run同seq区间互不串扰经run_id二级索引隔离() {
+    let env = Env::new("append-isolation");
     let store = open_ok(&env.db_path());
     let run_a = begin_ok(&store, "run A", 100);
     let run_b = begin_ok(&store, "run B", 200);
-
-    store
-        .append_agent_run_events(run_a.id, &[event_value(0, "A0"), event_value(1, "A1")])
-        .unwrap();
-    store
-        .append_agent_run_events(run_b.id, &[event_value(0, "B0"), event_value(1, "B1")])
-        .unwrap();
+    assert_ne!(run_a.id, run_b.id);
+    let events_a: Vec<AgentEvent> = (0..4u64).map(|seq| stamped(seq, raw_kind("A"))).collect();
+    let events_b: Vec<AgentEvent> = (0..4u64).map(|seq| stamped(seq, raw_kind("B"))).collect();
+    // 两 run 落完全重叠的 seq 区间：run_id 高位隔离缺失即串扰
+    store.append_agent_run_events(run_a.id, &events_a).unwrap();
+    store.append_agent_run_events(run_b.id, &events_b).unwrap();
 
     let replay_a = store.list_agent_run_events(run_a.id).unwrap();
-    let notes: Vec<&str> = replay_a
-        .iter()
-        .map(|value| value["note"].as_str().expect("note 为字符串"))
-        .collect();
-    assert_eq!(notes, vec!["A0", "A1"], "run A 不串入 run B 的任何事件");
-    assert_eq!(store.list_agent_run_events(run_b.id).unwrap().len(), 2);
+    assert_eq!(replay_a, events_a, "run A 重放恰为自己 seq 区间的四条");
+    assert!(replay_a.iter().all(|event| raw_tag(event) == "A"));
+    let replay_b = store.list_agent_run_events(run_b.id).unwrap();
+    assert_eq!(replay_b, events_b, "run B 重放恰为自己 seq 区间的四条");
+    assert!(replay_b.iter().all(|event| raw_tag(event) == "B"));
 }
 
-#[test]
-fn run与events写入后drop重开同一db文件记录与事件完整() {
-    let env = Env::new("agent-reopen");
-    let run;
-    let snapshot_events;
-    {
-        let store = open_ok(&env.db_path());
-        run = begin_ok(&store, "持久化验证", 1727000000000);
-        let events = vec![event_value(0, "第一条"), event_value(1, "第二条")];
-        store.append_agent_run_events(run.id, &events).unwrap();
-        let mut finished = run.clone();
-        finished.status = "failed".to_owned();
-        finished.finished_at = Some(1727000002000);
-        finished.error = Some("进程结束但未产出 result 事件".to_owned());
-        store.finish_agent_run(run.id, &finished).unwrap();
-        snapshot_events = store.list_agent_run_events(run.id).unwrap();
-        // drop 前显式释放文件锁（与 workspace 重开场景同口径）
-    }
-
-    let reopened = open_ok(&env.db_path());
-    let listed = reopened.list_agent_runs().unwrap();
-    assert_eq!(listed.len(), 1, "重开后 run 记录完整");
-    assert_eq!(listed[0].status, "failed");
-    assert_eq!(
-        listed[0].error.as_deref(),
-        Some("进程结束但未产出 result 事件")
-    );
-    assert_eq!(
-        reopened.list_agent_run_events(run.id).unwrap(),
-        snapshot_events,
-        "AC-3 重开持久性：事件流完整"
-    );
-}
+// ---------------------------------------------------------------------------
+// 信封 API：list_models 计数一致性 + scan 分页（分页边界与信封形态矩阵见
+// envelope_test.rs，此处为 Store 公共 API 的正向往返）
+// ---------------------------------------------------------------------------
 
 #[test]
-fn 裸redb只读句柄可见user前缀两agent表() {
-    let env = Env::new("agent-table-prefix");
+fn list_models写入三模型数据后计数与各模型实有记录数一致() {
+    let env = Env::new("models-counts");
     let store = open_ok(&env.db_path());
-    let run = begin_ok(&store, "建表核验", 1727000000000);
-    store
-        .append_agent_run_events(run.id, &[event_value(0, "n")])
-        .unwrap();
-    drop(store); // 释放写句柄文件锁
+    add_ok(&store, &env.ws("alpha"));
+    add_ok(&store, &env.ws("beta"));
+    let run = begin_ok(&store, "计数复核", 1727000000000);
+    let events: Vec<AgentEvent> = (0..3u64).map(|seq| stamped(seq, raw_kind("c"))).collect();
+    store.append_agent_run_events(run.id, &events).unwrap();
 
-    // Store 已 drop：只读句柄可独占打开，open_table 成功即表存在
-    let ro = ReadOnlyDatabase::open(env.db_path()).expect("只读打开失败");
-    let txn = ro.begin_read().expect("开启读事务失败");
-    txn.open_table(TEST_USER_AGENT_RUNS)
-        .expect("user_agent_runs 表存在（user 维度前缀）");
-    txn.open_table(TEST_USER_AGENT_RUN_EVENTS)
-        .expect("user_agent_run_events 表存在（user 维度前缀）");
+    let models = store.list_models().unwrap();
+    let count_of = |name: &str| {
+        models
+            .iter()
+            .find(|model| model.name == name)
+            .unwrap_or_else(|| panic!("模型 {name} 应在清单中"))
+            .count
+    };
+    assert_eq!(count_of("workspace"), 2, "workspace 计数与实有记录数一致");
+    assert_eq!(count_of("agent_run"), 1, "agent_run 计数与实有记录数一致");
+    assert_eq!(
+        count_of("agent_event"),
+        3,
+        "agent_event 计数与实有记录数一致"
+    );
+}
+
+#[test]
+fn scan分页按offset_limit返回主键自然序翻页拼接不重不漏() {
+    let env = Env::new("scan-paging");
+    let store = open_ok(&env.db_path());
+    let seeded: Vec<WorkspaceRecord> = ["alpha", "beta", "gamma", "delta", "epsilon"]
+        .iter()
+        .map(|name| add_ok(&store, &env.ws(name)))
+        .collect();
+
+    let all_keys = |offset: u32, limit: u32| -> Vec<String> {
+        store
+            .scan("workspace", offset, limit)
+            .unwrap_or_else(|e| panic!("scan 应成功: {e}"))
+            .into_iter()
+            .map(|envelope| {
+                envelope
+                    .key
+                    .as_str()
+                    .expect("workspace key 为字符串")
+                    .to_owned()
+            })
+            .collect()
+    };
+
+    let page1 = all_keys(0, 2);
+    let page2 = all_keys(2, 2);
+    let page3 = all_keys(4, 2);
+    let mut union = page1;
+    union.extend(page2);
+    union.extend(page3);
+    let mut sorted = union.clone();
+    sorted.sort();
+    assert_eq!(sorted, union, "翻页拼接不重不漏且全局唯一");
+    let mut expected: Vec<String> = seeded.iter().map(|record| record.root.clone()).collect();
+    expected.sort();
+    assert_eq!(union, expected, "拼接结果恰为全部记录的主键自然序");
+}
+
+#[test]
+fn scan未知模型名与空串返回err不panic且错误串可读() {
+    let env = Env::new("scan-unknown");
+    let store = open_ok(&env.db_path());
+
+    for name in ["nope", ""] {
+        let result = store.scan(name, 0, 10);
+        let err = result.expect_err(&format!("未知模型 {name:?} 应 Err"));
+        assert!(matches!(err, StoreError::Db(_)), "变体为 Db，实际: {err:?}");
+        assert!(
+            err.to_string().contains("未知模型"),
+            "错误串含「未知模型」语境便于排查，实际: {err}"
+        );
+    }
+    // 失败不产生任何副作用：库仍可正常读写
+    assert!(store.list_workspaces().unwrap().is_empty());
 }

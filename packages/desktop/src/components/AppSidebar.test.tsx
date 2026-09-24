@@ -268,9 +268,11 @@ describe('AppSidebar：Tooltip 与副文本', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 页面导航组：[变更] [Agent 调试]，顶层视图切换入口（无路由；本变更新增，
-// 首次出现非 workspace 入口语义）。组件纯回调驱动（onPageChange 以 vi.fn()
-// 注入），workspace 清单组语义不变（既有用例全部保留回归）。
+// 页面导航组（[变更]）+ 系统工具组（[Agent 调试] [DB 查看]）：顶层视图切换
+// 入口（无路由）。nav-agent 自「页面」组平移入「系统工具」组，nav-db 为本次
+// 新增。组件纯回调驱动（onPageChange 以 vi.fn() 注入），workspace 清单组语义
+// 不变（既有用例全部保留回归）。组归属以 DOM 结构断言（data-slot=sidebar-group
+// 容器 + 组标签文本），非观感。
 // ---------------------------------------------------------------------------
 
 function mountNav(page: TopPage, workspaces: WorkspaceRecord[] = [FIRST, SECOND]) {
@@ -291,7 +293,14 @@ function mountNav(page: TopPage, workspaces: WorkspaceRecord[] = [FIRST, SECOND]
   return { onPageChange };
 }
 
-describe('AppSidebar：页面导航组（page / onPageChange）', () => {
+/** 导航项所属组容器（向上取最近 sidebar-group），供组归属 DOM 结构断言。 */
+function groupOf(testId: string): HTMLElement {
+  const group = screen.getByTestId(testId).closest<HTMLElement>('[data-slot="sidebar-group"]');
+  if (!group) throw new Error(`${testId} 不在任何 sidebar-group 内`);
+  return group;
+}
+
+describe('AppSidebar：页面导航组与系统工具组（page / onPageChange）', () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -302,53 +311,63 @@ describe('AppSidebar：页面导航组（page / onPageChange）', () => {
     restore();
   });
 
-  it('「页面」导航组渲染于 workspace 清单组上方，含「变更」与「Agent 调试」两项', () => {
+  it('壳态渲染「页面」与「系统工具」两组标签，均位于 workspace 清单组上方', () => {
     mountNav('changes');
 
     const pageLabel = screen.getByText('页面');
+    const toolsLabel = screen.getByText('系统工具');
     const wsLabel = screen.getByText('工作区');
     expect(
-      pageLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+      pageLabel.compareDocumentPosition(toolsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
-    expect(screen.getByTestId('nav-changes').textContent).toContain('变更');
-    expect(screen.getByTestId('nav-agent').textContent).toContain('Agent 调试');
+    expect(
+      toolsLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
   });
 
-  it('当前 page 项呈激活态、另一项不激活（changes 与 agent 两态）', () => {
-    const { unmount } = render(
-      <SidebarProvider>
-        <AppSidebar
-          currentRoot={FIRST.root}
-          onAdd={vi.fn()}
-          onOpen={vi.fn()}
-          onRemove={vi.fn()}
-          page="changes"
-          workspaces={[FIRST]}
-        />
-      </SidebarProvider>,
-    );
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
-    unmount();
+  it('「页面」组仅含 nav-changes；nav-agent 归属「系统工具」组（组归属以 DOM 结构断言）', () => {
+    mountNav('changes');
 
-    mountNav('agent');
-    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
-    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    const pageGroup = groupOf('nav-changes');
+    expect(within(pageGroup).getByTestId('nav-changes') !== null).toBe(true);
+    expect(within(pageGroup).queryByTestId('nav-agent')).toBeNull();
+    expect(within(pageGroup).queryByTestId('nav-db')).toBeNull();
+
+    const toolsGroup = groupOf('nav-agent');
+    expect(toolsGroup).toBe(groupOf('nav-db'));
+    expect(toolsGroup.textContent).toContain('系统工具');
+    expect(within(toolsGroup).getByTestId('nav-agent').textContent).toContain('Agent 调试');
+    expect(within(toolsGroup).getByTestId('nav-db').textContent).toContain('DB 查看');
   });
 
-  it('点击「Agent 调试」→ onPageChange("agent") 恰一次；点击「变更」→ onPageChange("changes") 恰一次', () => {
+  it('系统工具组内 nav-db 携带 lucide 图标（svg 结构断言，非观感）', () => {
+    mountNav('changes');
+
+    expect(screen.getByTestId('nav-db').querySelector('svg') !== null).toBe(true);
+    expect(screen.getByTestId('nav-agent').querySelector('svg') !== null).toBe(true);
+  });
+
+  it('点击 nav-db → onPageChange("db") 恰一次；点击 nav-agent → onPageChange("agent") 恰一次', () => {
     const { onPageChange } = mountNav('changes');
 
-    fireEvent.click(screen.getByTestId('nav-agent'));
+    fireEvent.click(screen.getByTestId('nav-db'));
     expect(onPageChange).toHaveBeenCalledTimes(1);
-    expect(onPageChange).toHaveBeenCalledWith('agent');
+    expect(onPageChange).toHaveBeenCalledWith('db');
 
-    fireEvent.click(screen.getByTestId('nav-changes'));
+    fireEvent.click(screen.getByTestId('nav-agent'));
     expect(onPageChange).toHaveBeenCalledTimes(2);
-    expect(onPageChange).toHaveBeenLastCalledWith('changes');
+    expect(onPageChange).toHaveBeenNthCalledWith(2, 'agent');
   });
 
-  it("page='agent' 时 workspace 清单组照常渲染、语义不变（激活态/点击回调不串扰）", () => {
+  it("page='db' 时 nav-db 呈激活态，nav-changes / nav-agent 不激活", () => {
+    mountNav('db');
+
+    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+  });
+
+  it("page='db' 时 workspace 清单组照常渲染、激活态与回调不受切页影响（语义不串扰）", () => {
     const onPageChange = vi.fn();
     const onOpen = vi.fn();
     render(
@@ -359,7 +378,7 @@ describe('AppSidebar：页面导航组（page / onPageChange）', () => {
           onPageChange={onPageChange}
           onOpen={onOpen}
           onRemove={vi.fn()}
-          page="agent"
+          page="db"
           workspaces={[FIRST, SECOND]}
         />
       </SidebarProvider>,
@@ -372,10 +391,42 @@ describe('AppSidebar：页面导航组（page / onPageChange）', () => {
     expect(onPageChange).not.toHaveBeenCalled();
   });
 
-  it('两入口各带 lucide 图标（以 DOM 结构断言，非观感）', () => {
-    mountNav('changes');
+  it('page prop 缺省：默认 changes 激活（nav-changes data-active=true，agent / db 不激活）', () => {
+    mountSidebar([FIRST, SECOND], FIRST.root);
 
-    expect(screen.getByTestId('nav-changes').querySelector('svg') !== null).toBe(true);
-    expect(screen.getByTestId('nav-agent').querySelector('svg') !== null).toBe(true);
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('false');
+  });
+
+  it('onPageChange 缺省（可选回调未传）：点击三个导航项均不崩、无错误上报、组件完整在场', () => {
+    const errorSpy = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const windowError = vi.fn();
+    window.addEventListener('error', windowError);
+    try {
+      render(
+        <SidebarProvider>
+          <AppSidebar
+            currentRoot={FIRST.root}
+            onAdd={vi.fn()}
+            onOpen={vi.fn()}
+            onRemove={vi.fn()}
+            workspaces={[FIRST, SECOND]}
+          />
+        </SidebarProvider>,
+      );
+
+      fireEvent.click(screen.getByTestId('nav-changes'));
+      fireEvent.click(screen.getByTestId('nav-agent'));
+      fireEvent.click(screen.getByTestId('nav-db'));
+
+      expect(errorSpy).not.toHaveBeenCalled();
+      expect(windowError).not.toHaveBeenCalled();
+      // 未因崩溃卸载：workspace 清单完整在场
+      expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
+    } finally {
+      window.removeEventListener('error', windowError);
+      errorSpy.mockRestore();
+    }
   });
 });

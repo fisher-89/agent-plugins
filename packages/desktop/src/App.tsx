@@ -12,6 +12,7 @@ import { useUpdater, type UpdateState } from './hooks/useUpdater';
 import { useWorkspaces } from './hooks/useWorkspaces';
 import { AgentDebugView } from './views/agent/AgentDebugView';
 import { ChangeView } from './views/changes/ChangeView';
+import { DbInspectorView } from './views/db/DbInspectorView';
 import { WelcomeView } from './views/WelcomeView';
 
 /**
@@ -55,12 +56,14 @@ function ShellHeader({ update }: { update: UpdateState }): React.JSX.Element {
 
 /**
  * 应用壳：workspace 选择与恢复（启动自动恢复收在 useWorkspaces；清单切换/添加/
- * 移除收在 AppSidebar）+ 顶层页面切换（changes | agent，本地 state 无路由）+
+ * 移除收在 AppSidebar）+ 顶层页面切换（changes | agent | db，本地 state 无路由）+
  * change 列表 / 详情视图切换。root === null 停欢迎屏，此时不渲染
- * SidebarProvider / 侧栏 DOM；<Toaster /> 与条件渲染同级置于 App 根，欢迎态/壳态
- * 均覆盖。组件不直接 invoke，取数统一经 useWorkspaces / useChangeList /
- * useChangeDetail / agent 域 hooks。切页后 ChangeView 卸载、选中 change 状态
- * 不保持（清单数据留 App 层不丢）；agent 页 remount 后经历史重放呈现已有内容。
+ * SidebarProvider / 侧栏 DOM（系统工具组随壳整体不挂载，DB 查看页仅壳态可达）；
+ * <Toaster /> 与条件渲染同级置于 App 根，欢迎态/壳态均覆盖。组件不直接 invoke，
+ * 取数统一经 useWorkspaces / useChangeList / useChangeDetail / agent 域 /
+ * db 查看 hooks。切页后 ChangeView 卸载、选中 change 状态不保持（清单数据留
+ * App 层不丢，切页不在 page 依赖上、不触发 change 取数）；agent 页 remount 后
+ * 经历史重放呈现已有内容。
  */
 export default function App() {
   const workspaceState = useWorkspaces();
@@ -102,8 +105,10 @@ export default function App() {
             <div className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
               {page === 'changes' ? (
                 <ChangeView root={workspaceState.root} list={list} />
-              ) : (
+              ) : page === 'agent' ? (
                 <AgentDebugView root={workspaceState.root} />
+              ) : (
+                <DbInspectorView />
               )}
             </div>
           </SidebarInset>

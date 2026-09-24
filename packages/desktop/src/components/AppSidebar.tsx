@@ -1,4 +1,4 @@
-import { Bot, GitBranch, Plus } from 'lucide-react';
+import { Bot, Database, GitBranch, Plus } from 'lucide-react';
 
 import {
   ContextMenu,
@@ -20,7 +20,7 @@ import {
 import type { WorkspaceRecord } from '../types/dto';
 
 /** 顶层视图判别（App 与 Sidebar 共用；本地 state 切换，无路由） */
-export type TopPage = 'changes' | 'agent';
+export type TopPage = 'changes' | 'agent' | 'db';
 
 export interface AppSidebarProps {
   /** 当前顶层视图（缺省 changes） */
@@ -91,7 +91,7 @@ function WorkspaceItem({
   );
 }
 
-/** 页面导航组：[变更] [Agent 调试]，顶层视图切换入口（无路由） */
+/** 页面导航组：[变更]，数据视图入口（无路由） */
 function PageNavGroup({
   page,
   onPageChange,
@@ -115,6 +115,25 @@ function PageNavGroup({
               <span>变更</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+/** 系统工具导航组：[Agent 调试]（自页面组平移）[DB 查看]，系统级工具入口 */
+function SystemToolsGroup({
+  page,
+  onPageChange,
+}: {
+  page: TopPage;
+  onPageChange?: (page: TopPage) => void;
+}): React.JSX.Element {
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>系统工具</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton
               data-testid="nav-agent"
@@ -126,6 +145,17 @@ function PageNavGroup({
               <span>Agent 调试</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              data-testid="nav-db"
+              isActive={page === 'db'}
+              tooltip="DB 查看"
+              onClick={() => onPageChange?.('db')}
+            >
+              <Database />
+              <span>DB 查看</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
@@ -133,10 +163,10 @@ function PageNavGroup({
 }
 
 /**
- * 侧栏（仅壳态挂载）：上方「页面」导航组（[变更] [Agent 调试]，首次出现
- * 非 workspace 入口语义），下方「工作区」清单组语义不变。列表项点击切换
- * （副文本父目录区分同名、Tooltip 完整 root），「＋」添加、右键 ContextMenu
- * 移除。
+ * 侧栏（仅壳态挂载）：上方「页面」导航组（[变更]）与「系统工具」组
+ * （[Agent 调试] [DB 查看]，首次出现非 workspace 入口语义），下方「工作区」
+ * 清单组语义不变。列表项点击切换（副文本父目录区分同名、Tooltip 完整
+ * root），「＋」添加、右键 ContextMenu 移除。
  */
 export function AppSidebar({
   page = 'changes',
@@ -150,6 +180,7 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon">
       <PageNavGroup page={page} onPageChange={onPageChange} />
+      <SystemToolsGroup page={page} onPageChange={onPageChange} />
       <SidebarGroup>
         <SidebarGroupLabel>工作区</SidebarGroupLabel>
         <SidebarGroupAction aria-label="添加 workspace" onClick={onAdd}>

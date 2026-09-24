@@ -1,0 +1,92 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-23T14:44:50.911Z",
+  "duration_seconds": 347,
+  "total": 368,
+  "passed": 368,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 25,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 90.7,
+    "threshold": 80,
+    "measured": {
+      "killed": 234,
+      "survived": 23,
+      "timeout": 0,
+      "noCoverage": 1,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 0,
+      "total": 258,
+      "detected": 234,
+      "undetected": 24
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 90.69767441860465,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 25,
+        "passed_count": 25
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/native-db-store-upgrade/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/native-db-store-upgrade/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "Attempt 2 gate cleared: all 368 tests passed (vite-plus 345, rust 23, 0 failed/skipped) and the mutation score rose from 74.81% to 90.70% (234/258 killed), above the 80% threshold.",
+    "Mutation residual: 23 mutants survived and 1 sits in a no-coverage region (0 timeout/compile/runtime errors); survivor locations are in reports/test/packages_desktop_vite-plus/mutation.json if further score headroom is ever needed.",
+    "Summary-level coverage.measured is all null (pass=true) despite parseable per-plan data: vite-plus istanbul totals are 99.64 lines / 94.31 branches / 100 functions and the rust plan parsed 96.10 lines / 91.67 functions, so the nulls are a cross-format (istanbul vs cargo-llvm-cov) aggregation artifact, not missing coverage data.",
+    "The rust plan marks coverage.pass=false solely on branches=0; cargo-llvm-cov's JSON export leaves per-file branch summaries empty (count 0), so branch coverage is unsupported in that format rather than genuinely uncovered - lines and functions from the same file exceed thresholds.",
+    "Report validation passed: required fields present, 345+23=368 totals consistent, 'pass' conclusion consistent with coverage.pass=true and mutation.pass=true, and both attempted plans are indexed in plans[].",
+    "Plan scope: 2/3 plan entries ran; 'vite-plus in plugins/dev-team' was skipped by the change-scope gate (no changed files under that suite root), which is expected gate behavior, not a missing report."
+  ]
+}
