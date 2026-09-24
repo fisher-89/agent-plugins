@@ -103,7 +103,7 @@ describe('db_inspector_pipeline：清单到翻页取数链不重不漏', () => {
 
     expect(countOf('db_models')).toBe(1);
     // 记录区标题以所选模型名（清单首项）呈现；有记录时无错误区与空态
-    expect(screen.getByRole('heading', { name: '记录 agent_run' }) !== null).toBe(true);
+    expect(screen.getByRole('heading', { name: 'agent_run' }) !== null).toBe(true);
     expect(screen.queryByText(/记录扫描失败/)).toBeNull();
     expect(screen.queryByTestId('db-records-empty')).toBeNull();
     const page1 = renderedKeys();

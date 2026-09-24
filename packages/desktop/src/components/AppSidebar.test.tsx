@@ -300,17 +300,17 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
     restore();
   });
 
-  it('壳态渲染「页面」与「系统工具」两组标签，均位于 workspace 清单组上方', () => {
+  it('壳态渲染「页面」「工作区」「系统工具」三组标签：页面最上、系统工具最下', () => {
     mountNav('/changes');
 
     const pageLabel = screen.getByText('页面');
     const toolsLabel = screen.getByText('系统工具');
     const wsLabel = screen.getByText('工作区');
     expect(
-      pageLabel.compareDocumentPosition(toolsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+      pageLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(
-      toolsLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+      wsLabel.compareDocumentPosition(toolsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByTestId('nav-changes').textContent).toContain('变更');
     expect(screen.getByTestId('nav-agent').textContent).toContain('Agent 调试');
@@ -328,7 +328,7 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
     expect(toolsGroup).toBe(groupOf('nav-db'));
     expect(toolsGroup.textContent).toContain('系统工具');
     expect(within(toolsGroup).getByTestId('nav-agent').textContent).toContain('Agent 调试');
-    expect(within(toolsGroup).getByTestId('nav-db').textContent).toContain('DB 查看');
+    expect(within(toolsGroup).getByTestId('nav-db').textContent).toContain('数据库');
   });
 
   it('nav-* 渲染为锚点元素：testid 落在 NavLink 锚点上（D8 asChild Slot 合并到锚点，非 button 嵌套 anchor）', () => {

@@ -104,7 +104,7 @@ function useDbRecords(
 }
 
 /**
- * DB 查看器取数收口 hook：模型清单挂载取一次；记录分页由用户显式动作触发
+ * 数据库器取数收口 hook：模型清单挂载取一次；记录分页由用户显式动作触发
  * （选中模型 / 翻页 / 刷新），invoke "db_records"。错误呈现沿查询轨语义：
  * 失败置 error 态 inline 持久（不走 toast）。无轮询、无事件订阅。
  */

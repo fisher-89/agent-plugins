@@ -2,8 +2,7 @@
 //!
 //! 公共 API 只暴露自有类型，`native_db::Database` 等 native_db / native_model
 //! 类型不出现在任何公共签名（native_db 类型不越 crate 公共面）；db 路径完全
-//! 来自 [`Store::open`] 入参。legacy redb 手写表库的探测迁移收口在
-//! [`crate::migrate`]，本文件不含 redb 代码。
+//! 来自 [`Store::open`] 入参。
 
 use std::fmt;
 use std::path::Path;
@@ -14,7 +13,6 @@ use native_db::{Builder, Database, Models};
 
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
-use crate::migrate;
 use crate::model::{now_millis, AgentEventRecord, AgentRunRecord, WorkspaceRecord};
 
 /// store 内部错误面：两变体对应两类故障模式；`Display` 恒带 `db:` /
@@ -84,12 +82,8 @@ pub struct Store {
 
 impl Store {
     /// 打开（不存在则创建）db：`create_dir_all` 父目录 → 不存在（或空文件）
-    /// 则 native_db create → 存在则先 legacy 格式探测（命中即迁移）→ 再以
-    /// native_db open。打不开即 Err（dev-team 据此 fail fast）。
-    ///
-    /// legacy 探测 MUST 先于 native_db open：底层 redb 双版本共存（迁移模块
-    /// 读旧 4.x / native_db 内部 2.x），2.x 对 4.x 版式同头不同布局、读之即
-    /// panic——探测经 4.x（双格式安全读端，见 [`crate::migrate`]）先行分流。
+    /// 则 native_db create → 存在则以 native_db open。打不开即 Err（dev-team
+    /// 据此 fail fast）。
     pub fn open(path: &Path) -> Result<Self, StoreError> {
         // native_db 建文件不建父目录，首启必须补齐；裸文件名（无父目录）跳过
         if let Some(parent) = path.parent() {
@@ -109,9 +103,6 @@ impl Store {
                 .create(models(), path)
                 .map_err(|e| StoreError::Db(format!("创建 {} 失败: {e}", path.display())))?;
             return Ok(Self { db });
-        }
-        if migrate::is_legacy_format(path) {
-            migrate::migrate(path)?;
         }
         let db = Builder::new().open(models(), path).map_err(|e| {
             StoreError::Db(format!(

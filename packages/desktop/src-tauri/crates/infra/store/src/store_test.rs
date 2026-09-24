@@ -5,8 +5,7 @@
 //! API，内部协作（模型编解码、canonical 口径）由此间接覆盖。系统时钟不
 //! mock：`added_at` / `started_at` 仅记录入库值，清单排序与获取时间无关。
 //!
-//! 存量 schema_version 轮账与 `user_*` 表名前缀用例随 META 轮账退役而废弃；
-//! legacy 迁移全链路用例在 `migrate_test.rs`（集成关系 R1）。
+//! 存量 schema_version 轮账与 `user_*` 表名前缀用例随 META 轮账退役而废弃。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -561,8 +560,7 @@ fn 不存在run_id的list_agent_run_events返回空向量不报错() {
 }
 
 // ---------------------------------------------------------------------------
-// Store::open：信封 API 空库形态 + native 格式重开直通（迁移探测不误触发，
-// legacy 迁移全链路见 migrate_test.rs 集成关系 R1）
+// Store::open：信封 API 空库形态 + native 格式重开直通
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -605,15 +603,11 @@ fn native格式已有库重开直通此前写入的run与事件完整读回且�
         (workspace, run, events)
     };
 
-    // native 格式已有库：重开直通（legacy 探测不命中），全部记录完整读回
+    // native 格式已有库：重开直通，全部记录完整读回
     let reopened = open_ok(&db_path);
     assert_eq!(reopened.list_workspaces().unwrap(), vec![workspace]);
     assert_eq!(reopened.list_agent_runs().unwrap(), vec![run.clone()]);
     assert_eq!(reopened.list_agent_run_events(run.id).unwrap(), events);
-    assert!(
-        !db_path.with_file_name("test.redb.bak").exists(),
-        "native 重开不触发迁移：不产生 .bak 留档"
-    );
 }
 
 // ---------------------------------------------------------------------------

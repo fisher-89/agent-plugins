@@ -6,10 +6,8 @@
 //! `AgentEventRecord`）经 `#[native_model]` + `#[native_db]` 注册，记录经
 //! native_model bincode 编码落库，shape 演进的版本治理由 native_model 版本
 //! 机制承担。底层仍是 redb——事务 / ACID / 文件格式不变；升级实质是加模型
-//! 层，不是换引擎。legacy redb 手写表库（`user_*` 表 + `schema_version`
-//! 手工轮账）由 `migrate` 模块一次性迁移（旧文件 `.bak` 留档），META 轮账
-//! 随之退役。数据维度语义由 db 文件归属承载（user db 落 app data dir，见
-//! desktop-data-dimensions），不再依赖表名前缀。
+//! 层，不是换引擎。数据维度语义由 db 文件归属承载（user db 落 app data
+//! dir，见 desktop-data-dimensions），不再依赖表名前缀。
 //!
 //! # 单进程约束
 //!
@@ -25,7 +23,6 @@
 
 mod canonical;
 mod envelope;
-mod migrate;
 mod model;
 mod store;
 
@@ -35,8 +32,6 @@ pub use store::{Store, StoreError};
 
 #[cfg(test)]
 mod envelope_test;
-#[cfg(test)]
-mod migrate_test;
 #[cfg(test)]
 mod model_test;
 #[cfg(test)]

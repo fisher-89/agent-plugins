@@ -112,7 +112,7 @@ function PageNavGroup(): React.JSX.Element {
   );
 }
 
-/** 系统工具导航组：[Agent 调试]（自页面组平移）[DB 查看]，系统级工具入口 */
+/** 系统工具导航组：[Agent 调试]（自页面组平移）[数据库]，系统级工具入口 */
 function SystemToolsGroup(): React.JSX.Element {
   const { pathname } = useLocation();
   return (
@@ -129,10 +129,10 @@ function SystemToolsGroup(): React.JSX.Element {
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton asChild isActive={pathname === '/db'} tooltip="DB 查看">
+            <SidebarMenuButton asChild isActive={pathname === '/db'} tooltip="数据库">
               <NavLink data-testid="nav-db" to="/db">
                 <Database />
-                <span>DB 查看</span>
+                <span>数据库</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -143,9 +143,9 @@ function SystemToolsGroup(): React.JSX.Element {
 }
 
 /**
- * 侧栏（仅壳态挂载）：上方「页面」导航组（[变更]）与「系统工具」组
- * （[Agent 调试] [DB 查看]，首次出现非 workspace 入口语义），下方「工作区」
- * 清单组语义不变。列表项点击切换（副文本父目录区分同名、Tooltip 完整
+ * 侧栏（仅壳态挂载）：上方「页面」导航组（[变更]），中部「工作区」清单组
+ * （语义不变），下方「系统工具」组（[Agent 调试] [数据库]，首次出现非
+ * workspace 入口语义）。列表项点击切换（副文本父目录区分同名、Tooltip 完整
  * root），「＋」添加、右键 ContextMenu 移除。
  */
 export function AppSidebar({
@@ -158,7 +158,6 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon">
       <PageNavGroup />
-      <SystemToolsGroup />
       <SidebarGroup>
         <SidebarGroupLabel>工作区</SidebarGroupLabel>
         <SidebarGroupAction aria-label="添加 workspace" onClick={onAdd}>
@@ -178,6 +177,7 @@ export function AppSidebar({
           </SidebarMenu>
         </SidebarGroupContent>
       </SidebarGroup>
+      <SystemToolsGroup />
     </Sidebar>
   );
 }

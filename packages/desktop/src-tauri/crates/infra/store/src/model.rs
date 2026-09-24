@@ -88,8 +88,8 @@ pub struct AgentRunRecord {
 ///
 /// 编码后端为 serde_json（[`SerdeJsonCodec`]）：`AgentEvent` 内部 tag 枚举
 /// 经 `#[serde(flatten)]` 扁平进信封，serde 的 flatten 语义要求自描述编码，
-/// bincode 1.3 的定长 map 不支持；且 JSON 本就是 legacy 库的事件存储形态、
-/// 与 core「serde camelCase 线格式即落库形态」口径一致。
+/// bincode 1.3 的定长 map 不支持；JSON 与 core「serde camelCase 线格式即
+/// 落库形态」口径一致。
 ///
 /// 主键为合成 u128 打包键（native_db 复合主键不受支持，见 design Spike①）：
 /// 高 64 位 run_id、低 64 位 seq，`to_key()` 大端字节序保证字典序即数值序，

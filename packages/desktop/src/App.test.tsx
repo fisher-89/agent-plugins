@@ -910,7 +910,7 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
   });
 
-  it('侧栏点击「DB 查看」→ DbInspectorView 呈现且 db_models 取数发起、其余两分支不挂载（db 分支渲染）', async () => {
+  it('侧栏点击「数据库」→ DbInspectorView 呈现且 db_models 取数发起、其余两分支不挂载（db 分支渲染）', async () => {
     await restored();
 
     fireEvent.click(screen.getByTestId('nav-db'));
@@ -938,7 +938,7 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(countOf('list_workspaces')).toBe(listWorkspacesBefore);
   });
 
-  it('侧栏点击「DB 查看」→ DbInspectorView 呈现且 db_models 取数发起、其余两分支不挂载（db 分支渲染）', async () => {
+  it('侧栏点击「数据库」→ DbInspectorView 呈现且 db_models 取数发起、其余两分支不挂载（db 分支渲染）', async () => {
     await restored();
 
     fireEvent.click(screen.getByTestId('nav-db'));

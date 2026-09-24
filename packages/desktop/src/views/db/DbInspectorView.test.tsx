@@ -51,7 +51,7 @@ function makeState(overrides: Partial<DbInspectorState> = {}): DbInspectorState 
   };
 }
 
-describe('DbInspectorView：模型清单', () => {
+describe('DbInspectorView：数据模型', () => {
   beforeEach(() => {
     useDbInspectorMock.mockReset();
     toastErrorMock.mockReset();
@@ -62,7 +62,7 @@ describe('DbInspectorView：模型清单', () => {
     useDbInspectorMock.mockReturnValue(makeState());
     render(<DbInspectorView />);
 
-    expect(screen.getByText('模型清单') !== null).toBe(true);
+    expect(screen.getByText('数据模型') !== null).toBe(true);
     const items = screen.getAllByTestId('db-model-item');
     expect(items).toHaveLength(2);
     expect(items[0].textContent).toContain('workspace');
@@ -103,8 +103,7 @@ describe('DbInspectorView：模型清单', () => {
     expect(screen.queryByTestId('db-inspector-error')).toBeNull();
     expect(screen.queryByTestId('db-record-item')).toBeNull();
     // 记录区标题以「所选模型名」呈现（agent_run 为清单第二项，非 find 首项）
-    expect(screen.getByRole('heading', { name: '记录 agent_run' }) !== null).toBe(true);
-    expect(screen.queryByText('记录 workspace')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'agent_run' }) !== null).toBe(true);
   });
 
   it('模型行 className 精确匹配：仅选中行带 font-medium text-primary，非选中行为基线', () => {
@@ -120,12 +119,12 @@ describe('DbInspectorView：模型清单', () => {
     );
   });
 
-  it('页级错误（error 置位）：inline 错误区呈现且模型清单不丢失', () => {
+  it('页级错误（error 置位）：inline 错误区呈现且数据模型不丢失', () => {
     useDbInspectorMock.mockReturnValue(makeState({ error: 'db: 清单打开失败' }));
     render(<DbInspectorView />);
 
     const errorNote = screen.getByTestId('db-inspector-error');
-    expect(errorNote.textContent).toContain('模型清单加载失败');
+    expect(errorNote.textContent).toContain('模型加载失败');
     expect(errorNote.textContent).toContain('db: 清单打开失败');
     expect(screen.getAllByTestId('db-model-item')).toHaveLength(2);
   });
@@ -327,7 +326,7 @@ describe('DbInspectorView：错误态与只读边界', () => {
 
     const buttons = screen.getAllByRole('button');
     expect(buttons.length).toBeGreaterThan(0);
-    const readonlyActions = ['刷新', '上一页', '下一页'];
+    const readonlyActions = ['刷新数据', '上一页', '下一页'];
     const offenders = buttons
       .filter((button) => {
         const isNav = readonlyActions.some((action) => button.textContent === action);

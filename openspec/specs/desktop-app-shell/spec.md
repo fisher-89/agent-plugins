@@ -2,7 +2,7 @@
 
 ## Purpose
 
-定义 dev-team Tauri 壳层的组织契约：command 按 queries / exec / db 三轨组织（queries 三命令；exec 轨道已由 agent 执行命令开通；db 轨道已由 DB 查看命令开通），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
+定义 dev-team Tauri 壳层的组织契约：command 按 queries / exec / db 三轨组织（queries 三命令；exec 轨道已由 agent 执行命令开通；db 轨道已由 数据库命令开通），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
 
 ## Requirements
 
@@ -45,9 +45,9 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 
 侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 支持内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。系统 PC-only：极小分辨率不适配，窗口最小尺寸 SHALL 由 `tauri.conf.json` 限定（minWidth 900 / minHeight 600）。sidebar 导航 SHALL 路由化：页面导航组与列表 ↔ 详情切换均由路由承载（路由表与选中态 URL 化契约见 desktop-page-routing 能力）。
 
-侧栏 SHALL 以两个导航组组织顶层视图入口：「页面」组承载数据视图入口 [变更]；「系统工具」组承载系统级工具入口 [Agent 调试]（自页面组平移）与 [DB 查看]（desktop-db-inspector，`TopPage` 增 `db` 变体）（AppSidebar 首次出现非 workspace 入口语义）。点击经路由切换顶层视图（`/changes` ↔ `/agent`，NavLink 化契约见 desktop-page-routing 能力）；workspace 清单组语义不变。系统工具页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
+侧栏 SHALL 以两个导航组组织顶层视图入口：「页面」组承载数据视图入口 [变更]；「系统工具」组承载系统级工具入口 [Agent 调试]（自页面组平移）与 [数据库]（desktop-db-inspector，`TopPage` 增 `db` 变体）（AppSidebar 首次出现非 workspace 入口语义）。点击经路由切换顶层视图（`/changes` ↔ `/agent`，NavLink 化契约见 desktop-page-routing 能力）；workspace 清单组语义不变。系统工具页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
 
-欢迎态（root 为 null）MUST NOT 挂载 `SidebarProvider` / `AppSidebar`：`WelcomeView` 维持全屏现状——系统工具组随壳整体不挂载，DB 查看页仅壳态可达。Toaster（sonner）SHALL 在 App 根挂载一次，欢迎态与壳态都覆盖。
+欢迎态（root 为 null）MUST NOT 挂载 `SidebarProvider` / `AppSidebar`：`WelcomeView` 维持全屏现状——系统工具组随壳整体不挂载，数据库页仅壳态可达。Toaster（sonner）SHALL 在 App 根挂载一次，欢迎态与壳态都覆盖。
 
 #### Scenario: 壳态挂载与 header 终态
 
@@ -57,14 +57,14 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 
 #### Scenario: 导航组切换
 
-- **WHEN** 用户点击「页面」组的「变更」或「系统工具」组的「Agent 调试」/「DB 查看」
+- **WHEN** 用户点击「页面」组的「变更」或「系统工具」组的「Agent 调试」/「数据库」
 - **THEN** 主内容区切至对应视图（ChangeView / AgentDebugView / DbInspectorView），依赖 router，workspace 清单组仍在
 - **AND** 点回「变更」经 `/changes` 路由恢复 change 视图；选中不保留——选中随 URL 消失显示清单（desktop-page-routing 能力「选中重置语义保持」）
 
 #### Scenario: 欢迎态隔离
 
 - **WHEN** `root` 为 null（清单为空或加载失败后无根）
-- **THEN** 页面无 `SidebarProvider` / `AppSidebar` DOM（含「页面」与「系统工具」两组），`WelcomeView` 全屏呈现，无 DB 查看入口可达
+- **THEN** 页面无 `SidebarProvider` / `AppSidebar` DOM（含「页面」与「系统工具」两组），`WelcomeView` 全屏呈现，无 数据库入口可达
 - **AND** Toaster 已挂载（欢迎态下添加失败同样可 toast）
 
 #### Scenario: 折叠交互
@@ -75,7 +75,7 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 #### Scenario: 路由化导航
 
 - **WHEN** 检查 desktop 依赖与视图代码
-- **THEN** 以 react-router HashRouter 承载导航，列表 ↔ 详情为 `/changes` ↔ `/changes/:name` 路由，Agent 调试页为 `/agent`，DB 查看页为 `/db`
+- **THEN** 以 react-router HashRouter 承载导航，列表 ↔ 详情为 `/changes` ↔ `/changes/:name` 路由，Agent 调试页为 `/agent`，数据库页为 `/db`
 - **AND** 无 `TopPage` 本地 state / `onPageChange` 回调残留，无第二路由库
 
 ### Requirement: workspace 选择

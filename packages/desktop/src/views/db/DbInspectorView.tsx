@@ -17,7 +17,7 @@ function valueSummary(value: unknown, max = 120): string {
   return text.length > max ? `${text.slice(0, max)}…` : text;
 }
 
-/** 模型清单行：名称 + 计数，点击选中（计数 0 仍可选，呈空态） */
+/** 数据模型行：名称 + 计数，点击选中（计数 0 仍可选，呈空态） */
 function ModelItem({
   count,
   name,
@@ -49,14 +49,14 @@ function ModelItem({
   );
 }
 
-/** 模型清单区：模型列表（挂载取数一次，刷新按钮；失败态由页级错误区承载） */
+/** 数据模型区：模型列表（挂载取数一次，刷新按钮；失败态由页级错误区承载） */
 function ModelListSection({ state }: { state: DbInspectorState }): React.JSX.Element {
   return (
     <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
       <div className="mb-2 flex items-center justify-between">
-        <h2 className="m-0 text-[15px]">模型清单</h2>
+        <h2 className="m-0 text-[15px]">数据模型</h2>
         <Button disabled={state.loading} data-testid="db-refresh" onClick={state.refresh}>
-          刷新
+          刷新数据
         </Button>
       </div>
       <ul className="m-0 list-none p-0" data-testid="db-model-list">
@@ -135,9 +135,7 @@ function RecordsHeader({
 }): React.JSX.Element {
   return (
     <div className="mb-2 flex items-center justify-between gap-2">
-      <h2 className="m-0 text-[15px]">
-        记录 <span className="text-muted-foreground">{modelName}</span>
-      </h2>
+      <h2 className="m-0 text-[15px]">{modelName}</h2>
       <span className="flex items-center gap-2">
         <Button
           aria-label="上一页"
@@ -209,7 +207,7 @@ function RecordsSection({
 }
 
 /**
- * DB 查看页（只读四件套）：模型清单 + 计数、选中模型分页扫描、单条记录
+ * 数据库页（只读四件套）：数据模型 + 计数、选中模型分页扫描、单条记录
  * JSON 查看、空态 / inline 持久错误态。取数全部经 useDbInspector 的用户显式
  * 动作触发（进页 / 选中模型 / 翻页 / 刷新），无轮询；无任何写操作入口。
  */
@@ -224,7 +222,7 @@ export function DbInspectorView(): React.JSX.Element {
           className="mb-4 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"
           data-testid="db-inspector-error"
         >
-          模型清单加载失败：{state.error}
+          模型加载失败：{state.error}
         </div>
       )}
       <ModelListSection state={state} />

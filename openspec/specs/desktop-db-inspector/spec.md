@@ -8,7 +8,7 @@
 
 ### Requirement: 系统工具组入口与可达性
 
-前端 SHALL 在侧栏新增「DB 查看」入口，位于「系统工具」组（与平移至该组的 [Agent 调试] 并列）；「页面」组保留 [变更]。`TopPage` SHALL 增 `db` 变体，视图切换维持本地 state，MUST NOT 引入路由。DB 查看页 SHALL 仅壳态可达：欢迎态（root 为 null）MUST NOT 挂载壳与系统工具组，无 DB 查看入口可达。切换至 DB 查看页 MUST NOT 触发 change 取数。
+前端 SHALL 在侧栏新增「数据库」入口，位于「系统工具」组（与平移至该组的 [Agent 调试] 并列）；「页面」组保留 [变更]。`TopPage` SHALL 增 `db` 变体，视图切换维持本地 state，MUST NOT 引入路由。数据库页 SHALL 仅壳态可达：欢迎态（root 为 null）MUST NOT 挂载壳与系统工具组，无 DB 查看入口可达。切换至 DB 查看页 MUST NOT 触发 change 取数。
 
 #### Scenario: 壳态入口与切换
 
