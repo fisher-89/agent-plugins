@@ -149,6 +149,9 @@ function fakeUpdate(version = '0.2.0') {
 
 describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => {
   beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
     getVersionMock.mockReset();
     invokeMock.mockReset();
     openMock.mockReset();
@@ -279,6 +282,9 @@ describe('App：启动恢复、欢迎屏清单与视图状态（AC-9）', () => 
 
 describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5）', () => {
   beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
     getVersionMock.mockReset();
     invokeMock.mockReset();
     openMock.mockReset();
@@ -483,6 +489,9 @@ describe('App：sidebar 列表项交互 → workspace 动作链（AC-3/AC-4/AC-5
 
 describe('App：错误双轨呈现——动作 reject → toast / 查询 reject → inline（AC-8）', () => {
   beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
     getVersionMock.mockReset();
     invokeMock.mockReset();
     openMock.mockReset();
@@ -640,6 +649,9 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
 
 describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
   beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
     getVersionMock.mockReset();
     invokeMock.mockReset();
     openMock.mockReset();
@@ -763,12 +775,18 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 关系四：侧栏页面导航组 → App 顶层视图切换（无路由，page state；决策 D10）。
-// AgentDebugView 经真实 hooks 挂载（挂载不取数），既有清单命令 mock 承载。
+// 关系四：侧栏 NavLink 页面导航组 → HashRouter 路由表 → 顶层页面切换
+// （选中重置语义沿 D10 路由化保留：切回后 /changes 无 :name 段 → 清单呈现、
+// get_change_detail 不以旧选中重发）。AgentDebugView 经真实 hooks 挂载
+// （挂载不取数），既有清单命令 mock 承载；hash 落点在此核对，完整路由级
+// 矩阵归 route_pages.test.tsx。
 // ---------------------------------------------------------------------------
 
-describe('App：顶层页面切换（changes | agent，无路由）', () => {
+describe('App：路由化顶层页面切换（changes | agent）', () => {
   beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
     getVersionMock.mockReset();
     invokeMock.mockReset();
     openMock.mockReset();
@@ -783,28 +801,32 @@ describe('App：顶层页面切换（changes | agent，无路由）', () => {
     vi.unstubAllEnvs();
   });
 
-  it('启动默认呈 changes 页：change 清单内容在场、Agent 调试页不在场（无路由，state 切视图）', async () => {
+  it('启动（hash 空）经 / 重定向落 #/changes：清单内容在场、Agent 调试页不在场、nav-changes 激活', async () => {
     await restored();
 
+    expect(window.location.hash).toBe('#/changes');
     expect(screen.getByText('add-feature') !== null).toBe(true);
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
     expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
   });
 
-  it('侧栏点击「Agent 调试」→ AgentDebugView 呈现、ChangeView 内容卸载；点击「变更」→ 切回清单', async () => {
+  it('侧栏点击「Agent 调试」→ hash 落 #/agent、AgentDebugView 呈现、ChangeView 内容卸载；点击「变更」→ hash 回 #/changes 切回清单', async () => {
     await restored();
 
     fireEvent.click(screen.getByTestId('nav-agent'));
     await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
+    expect(window.location.hash).toBe('#/agent');
     expect(screen.queryByText('add-feature')).toBeNull();
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
 
     fireEvent.click(screen.getByTestId('nav-changes'));
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+    expect(window.location.hash).toBe('#/changes');
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
   });
 
-  it('进入 change 详情后切 Agent 页再切回：选中重置回清单、get_change_detail 不以旧选中重发（D10）', async () => {
+  it('进入 change 详情后切 Agent 页再切回：hash 落 /changes（无 :name 段）、选中重置回清单、get_change_detail 不以旧选中重发（D10 路由化保留）', async () => {
     await restored();
 
     fireEvent.click(screen.getByText('add-feature'));
@@ -820,12 +842,13 @@ describe('App：顶层页面切换（changes | agent，无路由）', () => {
     fireEvent.click(screen.getByTestId('nav-changes'));
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
 
-    // 选中重置：清单视图（详情标题不在场），且 get_change_detail 不重发
+    // 选中重置：URL 无 :name 段 + 清单视图（详情标题不在场），get_change_detail 不重发
+    expect(window.location.hash).toBe('#/changes');
     expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
     expect(countOf('get_change_detail')).toBe(1);
   });
 
-  it('useChangeList 留在 App 层不随页面卸载：切页往返不重发 list_workspaces（清单数据不丢）', async () => {
+  it('useChangeList 留在 App 层不随路由切换卸载：切页往返不重发 list_workspaces（清单数据不丢）', async () => {
     await restored();
 
     const workspacesBefore = countOf('list_workspaces');
@@ -867,5 +890,87 @@ describe('App：顶层页面切换（changes | agent，无路由）', () => {
     expect(screen.queryByTestId('nav-agent')).toBeNull();
     expect(screen.queryByTestId('nav-changes')).toBeNull();
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// HashRouter 自含挂载与路由初态（design D2/D6/D7）：render(<App />) 不包任何
+// Router 即得路由（D2 收敛点）；启动前预置 hash 验证深链直达与未知路径兜底
+// （D7）。深链用例 beforeEach 已重置 hash，此处用例内显式预置。
+// ---------------------------------------------------------------------------
+
+describe('App：HashRouter 自含挂载与路由初态（D2/D6/D7）', () => {
+  beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
+    getVersionMock.mockReset();
+    invokeMock.mockReset();
+    openMock.mockReset();
+    checkMock.mockReset();
+    checkMock.mockResolvedValue(null);
+    getVersionMock.mockResolvedValue('0.1.0');
+    toast.dismiss();
+    mockIpc();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('壳态启动不包任何 Router 包裹：hash 落 #/changes、清单渲染、sidebar-wrapper / header 在场（D2 自含 HashRouter）', async () => {
+    render(<App />);
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: FIRST.root }),
+    );
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/changes');
+    expect(document.querySelector('[data-slot="sidebar-wrapper"]') !== null).toBe(true);
+    expect(document.querySelector('header') !== null).toBe(true);
+  });
+
+  it('启动前 hash 已为 #/changes/add-feature：直出详情视图并以 URL 参数取数（深链直达 D7，无导航点击）', async () => {
+    window.location.hash = '#/changes/add-feature';
+    render(<App />);
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
+        root: FIRST.root,
+        change: 'add-feature',
+      }),
+    );
+
+    expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true);
+    expect(countOf('get_change_detail')).toBe(1);
+    // 深链直达不产生行点击之外的清单动作命令
+    expect(countOf('add_workspace')).toBe(0);
+    expect(countOf('remove_workspace')).toBe(0);
+  });
+
+  it('启动前 hash 已为 #/agent：直出 AgentDebugView（agent-run-form 在场）且 nav-agent 呈激活态', async () => {
+    window.location.hash = '#/agent';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/agent');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    // Agent 页不挂 ChangeView：无 detail 取数
+    expect(countOf('get_change_detail')).toBe(0);
+  });
+
+  it('启动前 hash 为未知路径（#/bogus）：兜底落 #/changes 渲染清单，不空白不崩', async () => {
+    window.location.hash = '#/bogus';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/changes');
+    // 落清单而非详情：无详情标题
+    expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
+    expect(countOf('get_change_detail')).toBe(0);
   });
 });

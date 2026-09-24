@@ -198,6 +198,9 @@ function mockIpc() {
 }
 
 beforeEach(() => {
+  // 路由化后 App 壳场景自含 HashRouter（design D6）：先重置 hash 防上一用例
+  // 深链残留污染本用例路由初态
+  window.location.hash = '';
   getVersionMock.mockReset();
   invokeMock.mockReset();
   openMock.mockReset();

@@ -111,6 +111,9 @@ function itemByRoot(root: string): HTMLElement {
 }
 
 beforeEach(() => {
+  // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+  // 上一用例残留的 hash（如详情深链）会污染下一用例的路由初态，先重置
+  window.location.hash = '';
   invokeMock.mockReset();
   openMock.mockReset();
   mockIpc();

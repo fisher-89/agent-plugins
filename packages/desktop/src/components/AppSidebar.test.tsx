@@ -1,17 +1,19 @@
 // @vitest-environment jsdom
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter, useLocation } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { SidebarProvider } from '@/components/ui/sidebar';
 
 import type { WorkspaceRecord } from '../types/dto';
-import { AppSidebar, type TopPage } from './AppSidebar';
+import { AppSidebar } from './AppSidebar';
 
 // ---------------------------------------------------------------------------
-// AppSidebar 单测：组件纯回调驱动（onOpen / onAdd / onRemove 以 vi.fn() 注入），
-// 无进程边界。jsdom 环境缺口兜底：radix Tooltip / ContextMenu 定位需
-// ResizeObserver 兜底；断言按 D4-④ 收敛最终态（data-root / testid /
-// tooltip role），不复刻 portal 细节。
+// AppSidebar 单测：workspace 组纯回调驱动（onOpen / onAdd / onRemove 以 vi.fn()
+// 注入），无进程边界；页面导航组为 NavLink 路由入口，需 Router context，故以
+// MemoryRouter 包裹（design D6）。jsdom 环境缺口兜底：radix Tooltip /
+// ContextMenu 定位需 ResizeObserver 兜底；断言按 D4-④ 收敛最终态（data-root /
+// testid / tooltip role），不复刻 portal 细节。
 // ---------------------------------------------------------------------------
 
 class ResizeObserverStub {
@@ -47,15 +49,17 @@ function mountSidebar(workspaces: WorkspaceRecord[], currentRoot: string) {
   const onAdd = vi.fn();
   const onRemove = vi.fn();
   render(
-    <SidebarProvider>
-      <AppSidebar
-        currentRoot={currentRoot}
-        onAdd={onAdd}
-        onOpen={onOpen}
-        onRemove={onRemove}
-        workspaces={workspaces}
-      />
-    </SidebarProvider>,
+    <MemoryRouter>
+      <SidebarProvider>
+        <AppSidebar
+          currentRoot={currentRoot}
+          onAdd={onAdd}
+          onOpen={onOpen}
+          onRemove={onRemove}
+          workspaces={workspaces}
+        />
+      </SidebarProvider>
+    </MemoryRouter>,
   );
   return { onAdd, onOpen, onRemove };
 }
@@ -246,30 +250,40 @@ describe('AppSidebar：Tooltip 与副文本', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 页面导航组：[变更] [Agent 调试]，顶层视图切换入口（无路由；本变更新增，
-// 首次出现非 workspace 入口语义）。组件纯回调驱动（onPageChange 以 vi.fn()
-// 注入），workspace 清单组语义不变（既有用例全部保留回归）。
+// 页面导航组：[变更] [Agent 调试]，NavLink 路由入口（active 由当前 URL 派生，
+// design D8；首次出现非 workspace 入口语义）。以 MemoryRouter 初始路由驱动，
+// 断言经 URL（location-probe），workspace 清单组语义不变（既有用例全部保留
+// 回归）。
 // ---------------------------------------------------------------------------
 
-function mountNav(page: TopPage, workspaces: WorkspaceRecord[] = [FIRST, SECOND]) {
-  const onPageChange = vi.fn();
-  render(
-    <SidebarProvider>
-      <AppSidebar
-        currentRoot={FIRST.root}
-        onAdd={vi.fn()}
-        onPageChange={onPageChange}
-        onOpen={vi.fn()}
-        onRemove={vi.fn()}
-        page={page}
-        workspaces={workspaces}
-      />
-    </SidebarProvider>,
-  );
-  return { onPageChange };
+/** URL 探针：把 MemoryRouter 当前 pathname 投影到 DOM 供断言 */
+function LocationProbe() {
+  const { pathname } = useLocation();
+  return <span data-testid="location-probe">{pathname}</span>;
 }
 
-describe('AppSidebar：页面导航组（page / onPageChange）', () => {
+function mountNav(initialEntry = '/changes', workspaces: WorkspaceRecord[] = [FIRST, SECOND]) {
+  const onOpen = vi.fn();
+  const onAdd = vi.fn();
+  const onRemove = vi.fn();
+  const view = render(
+    <MemoryRouter initialEntries={[initialEntry]}>
+      <SidebarProvider>
+        <AppSidebar
+          currentRoot={FIRST.root}
+          onAdd={onAdd}
+          onOpen={onOpen}
+          onRemove={onRemove}
+          workspaces={workspaces}
+        />
+        <LocationProbe />
+      </SidebarProvider>
+    </MemoryRouter>,
+  );
+  return { ...view, onAdd, onOpen, onRemove };
+}
+
+describe('AppSidebar：页面导航组（NavLink 路由导航）', () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -281,7 +295,7 @@ describe('AppSidebar：页面导航组（page / onPageChange）', () => {
   });
 
   it('「页面」导航组渲染于 workspace 清单组上方，含「变更」与「Agent 调试」两项', () => {
-    mountNav('changes');
+    mountNav();
 
     const pageLabel = screen.getByText('页面');
     const wsLabel = screen.getByText('工作区');
@@ -292,66 +306,66 @@ describe('AppSidebar：页面导航组（page / onPageChange）', () => {
     expect(screen.getByTestId('nav-agent').textContent).toContain('Agent 调试');
   });
 
-  it('当前 page 项呈激活态、另一项不激活（changes 与 agent 两态）', () => {
-    const { unmount } = render(
-      <SidebarProvider>
-        <AppSidebar
-          currentRoot={FIRST.root}
-          onAdd={vi.fn()}
-          onOpen={vi.fn()}
-          onRemove={vi.fn()}
-          page="changes"
-          workspaces={[FIRST]}
-        />
-      </SidebarProvider>,
-    );
+  it('nav-* 渲染为锚点元素：testid 落在 NavLink 锚点上（D8 asChild Slot 合并到锚点，非 button 嵌套 anchor）', () => {
+    mountNav();
+
+    expect(screen.getByTestId('nav-changes').tagName).toBe('A');
+    expect(screen.getByTestId('nav-agent').tagName).toBe('A');
+    expect(screen.getByTestId('nav-changes').getAttribute('href')).toBe('/changes');
+    expect(screen.getByTestId('nav-agent').getAttribute('href')).toBe('/agent');
+  });
+
+  it('pathname 无匹配前缀（/bogus）：两 nav 均 data-active=false，锚点与 workspace 组照常渲染不崩（active 派生安全降级，组件级不等同 App 层重定向兜底）', () => {
+    mountNav('/bogus');
+
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
+  });
+
+  it('active 态由 URL 派生：/changes 与 /changes/:name 激活变更项，/agent 激活 Agent 项', () => {
+    const first = mountNav('/changes', [FIRST]);
     expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
-    unmount();
+    first.unmount();
 
-    mountNav('agent');
+    // 详情路由同样激活变更项（与路由化前 page='changes' 含详情态一致）
+    const detail = mountNav('/changes/add-feature', [FIRST]);
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    detail.unmount();
+
+    mountNav('/agent', [FIRST]);
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
     expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
   });
 
-  it('点击「Agent 调试」→ onPageChange("agent") 恰一次；点击「变更」→ onPageChange("changes") 恰一次', () => {
-    const { onPageChange } = mountNav('changes');
+  it('点击「Agent 调试」→ URL 变为 /agent；点击「变更」→ URL 变回 /changes', () => {
+    mountNav('/changes');
+    expect(screen.getByTestId('location-probe').textContent).toBe('/changes');
 
     fireEvent.click(screen.getByTestId('nav-agent'));
-    expect(onPageChange).toHaveBeenCalledTimes(1);
-    expect(onPageChange).toHaveBeenCalledWith('agent');
+    expect(screen.getByTestId('location-probe').textContent).toBe('/agent');
 
     fireEvent.click(screen.getByTestId('nav-changes'));
-    expect(onPageChange).toHaveBeenCalledTimes(2);
-    expect(onPageChange).toHaveBeenLastCalledWith('changes');
+    expect(screen.getByTestId('location-probe').textContent).toBe('/changes');
   });
 
-  it("page='agent' 时 workspace 清单组照常渲染、语义不变（激活态/点击回调不串扰）", () => {
-    const onPageChange = vi.fn();
-    const onOpen = vi.fn();
-    render(
-      <SidebarProvider>
-        <AppSidebar
-          currentRoot={FIRST.root}
-          onAdd={vi.fn()}
-          onPageChange={onPageChange}
-          onOpen={onOpen}
-          onRemove={vi.fn()}
-          page="agent"
-          workspaces={[FIRST, SECOND]}
-        />
-      </SidebarProvider>,
-    );
+  it('URL 为 /agent 时 workspace 清单组照常渲染、语义不变（激活态/点击回调不串扰）', () => {
+    const { onAdd, onOpen, onRemove } = mountNav('/agent');
 
     expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
     expect(itemByRoot(FIRST.root).getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
     fireEvent.click(itemByRoot(SECOND.root));
     expect(onOpen).toHaveBeenCalledWith(SECOND.root);
-    expect(onPageChange).not.toHaveBeenCalled();
+    expect(onAdd).not.toHaveBeenCalled();
+    expect(onRemove).not.toHaveBeenCalled();
   });
 
   it('两入口各带 lucide 图标（以 DOM 结构断言，非观感）', () => {
-    mountNav('changes');
+    mountNav();
 
     expect(screen.getByTestId('nav-changes').querySelector('svg') !== null).toBe(true);
     expect(screen.getByTestId('nav-agent').querySelector('svg') !== null).toBe(true);

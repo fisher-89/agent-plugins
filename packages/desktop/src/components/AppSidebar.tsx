@@ -1,4 +1,5 @@
 import { Bot, GitBranch, Plus } from 'lucide-react';
+import { NavLink, useLocation } from 'react-router';
 
 import {
   ContextMenu,
@@ -19,14 +20,7 @@ import {
 
 import type { WorkspaceRecord } from '../types/dto';
 
-/** 顶层视图判别（App 与 Sidebar 共用；本地 state 切换，无路由） */
-export type TopPage = 'changes' | 'agent';
-
 export interface AppSidebarProps {
-  /** 当前顶层视图（缺省 changes） */
-  page?: TopPage;
-  /** 页面导航组点击切换 */
-  onPageChange?: (page: TopPage) => void;
   /** workspace 清单 */
   workspaces: WorkspaceRecord[];
   /** 当前选中根（启动恢复/移除顺延取默认序第一名，切换为本地 state） */
@@ -91,39 +85,33 @@ function WorkspaceItem({
   );
 }
 
-/** 页面导航组：[变更] [Agent 调试]，顶层视图切换入口（无路由） */
-function PageNavGroup({
-  page,
-  onPageChange,
-}: {
-  page: TopPage;
-  onPageChange?: (page: TopPage) => void;
-}): React.JSX.Element {
+/** 页面导航组：[变更] [Agent 调试]，NavLink 路由入口（active 由当前 URL 派生） */
+function PageNavGroup(): React.JSX.Element {
+  const { pathname } = useLocation();
   return (
     <SidebarGroup>
       <SidebarGroupLabel>页面</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
           <SidebarMenuItem>
+            {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
             <SidebarMenuButton
-              data-testid="nav-changes"
-              isActive={page === 'changes'}
+              asChild
+              isActive={pathname === '/changes' || pathname.startsWith('/changes/')}
               tooltip="变更"
-              onClick={() => onPageChange?.('changes')}
             >
-              <GitBranch />
-              <span>变更</span>
+              <NavLink data-testid="nav-changes" to="/changes">
+                <GitBranch />
+                <span>变更</span>
+              </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
           <SidebarMenuItem>
-            <SidebarMenuButton
-              data-testid="nav-agent"
-              isActive={page === 'agent'}
-              tooltip="Agent 调试"
-              onClick={() => onPageChange?.('agent')}
-            >
-              <Bot />
-              <span>Agent 调试</span>
+            <SidebarMenuButton asChild isActive={pathname === '/agent'} tooltip="Agent 调试">
+              <NavLink data-testid="nav-agent" to="/agent">
+                <Bot />
+                <span>Agent 调试</span>
+              </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>
@@ -139,8 +127,6 @@ function PageNavGroup({
  * 移除。
  */
 export function AppSidebar({
-  page = 'changes',
-  onPageChange,
   workspaces,
   currentRoot,
   onOpen,
@@ -149,7 +135,7 @@ export function AppSidebar({
 }: AppSidebarProps): React.JSX.Element {
   return (
     <Sidebar collapsible="icon">
-      <PageNavGroup page={page} onPageChange={onPageChange} />
+      <PageNavGroup />
       <SidebarGroup>
         <SidebarGroupLabel>工作区</SidebarGroupLabel>
         <SidebarGroupAction aria-label="添加 workspace" onClick={onAdd}>

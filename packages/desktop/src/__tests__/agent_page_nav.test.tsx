@@ -7,8 +7,9 @@ import App from '../App';
 import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
 
 // ---------------------------------------------------------------------------
-// 集成关系五：侧栏页面导航组 → App 顶层视图切换（无路由）与 change 域状态
-// 共存（D10 选中重置、useChangeList 留 App 层、两入口语义不串扰）。
+// 集成关系五：侧栏 NavLink 页面导航组 → HashRouter 路由表 → 顶层页面切换，
+// 与 change 域状态共存（选中重置、useChangeList 留 App 层、两入口语义不串扰）。
+// 行为断言保留（AC-7），hash 落点断言由 route_pages.test.tsx 承接。
 //
 // 进程边界 Mock 沿 App.test.tsx 既有装置：invoke 按命令名分发并记录调用
 // 序列（次数断言依赖记录）。
@@ -92,6 +93,9 @@ async function restored() {
 }
 
 beforeEach(() => {
+  // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+  // 上一用例点击导航残留的 hash 会改变下一用例启动路由初态，先重置
+  window.location.hash = '';
   getVersionMock.mockReset();
   invokeMock.mockReset();
   openMock.mockReset();

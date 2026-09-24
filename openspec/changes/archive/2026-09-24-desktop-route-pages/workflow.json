@@ -1,0 +1,573 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-23",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-23T11:37:59.379Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/AppSidebar.tsx",
+      "at": "2026-09-23T11:39:53.997Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeView.tsx",
+      "at": "2026-09-23T11:42:11.577Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.tsx",
+      "at": "2026-09-23T11:40:52.932Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/pnpm-lock.yaml",
+      "at": "2026-09-23T11:43:08.360Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/AppSidebar.test.tsx",
+      "at": "2026-09-23T11:47:40.863Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/debug_tmp.test.tsx",
+      "at": "2026-09-23T12:00:24.515Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeView.tsx",
+      "at": "2026-09-23T12:06:32.431Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/ipc_pipeline.test.tsx",
+      "at": "2026-09-23T12:07:19.954Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/workspace_restore.test.tsx",
+      "at": "2026-09-23T12:07:21.711Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/shadcn_controls.test.tsx",
+      "at": "2026-09-23T12:07:29.906Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/agent_page_nav.test.tsx",
+      "at": "2026-09-23T12:07:41.985Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-23T12:09:11.647Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/AppSidebar.test.tsx",
+      "at": "2026-09-23T12:09:26.611Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeView.test.tsx",
+      "at": "2026-09-23T12:18:46.517Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/route_pages.test.tsx",
+      "at": "2026-09-23T12:18:45.016Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "packages/desktop/src/__tests__/debug_tmp.test.tsx",
+      "at": "2026-09-23T12:24:55.859Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/routes.tsx",
+      "at": "2026-09-24T01:18:57.556Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/App.tsx",
+      "at": "2026-09-24T01:18:57.556Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "proposal.md 结构完整：问题含具体现状（App.tsx TopPage state、ChangeView selectedChange）与动机；变更范围三段齐全；5 项风险均有具体缓解；AC-1~AC-8 均对象+条件可测；D1~D5 均含被拒绝备选；无占位符。specs 与能力一一对应（desktop-page-routing=ADDED、desktop-app-shell=MODIFIED），路由表/HashRouter/NavLink/欢迎态隔离/AC 映射交叉验证无冲突。判定 pass。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "问题节列明具体现状：App.tsx useState<TopPage>、ChangeView useState<string|null>(selectedChange)、AppSidebar onPageChange 回调，动机含样板扩散、URL 不可寻址、断言困难及既有 spec 禁令需 MODIFIED 翻转"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+          "pass": true,
+          "evidence": "### 实现文件 5 项（App.tsx/main.tsx/AppSidebar.tsx/ChangeView.tsx/package.json）、### 测试文件 4 项、### 不要修改 5 项，均非空且附改动说明"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "5 项风险各有具体措施：如 404→锁定 HashRouter(D2)+AC-1 验收；取数漂移→AC-7 不重发断言+hooks 零改动；非法字符→kebab-case 约束+未知路径回退兜底；无泛化'监控并调整'"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~AC-8 均为对象+条件：如 AC-4 点击行进入 /changes/:name 且 get_change_detail 以 URL 参数发起；AC-6 root===null 无路由出口/壳 DOM；AC-2 含具体命令 client:check 与 knip 清零"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "D1~D5 均列被拒备选及原因：D1 拒 TanStack Router/wouter/自研；D2 拒 MemoryRouter/BrowserRouter；D3 拒 /welcome 路由；D4 拒 navigate(-1)/双轨；D5 拒仅改实现不动 spec"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "不矛盾：AC-2/管线合规用 vp check+knip 与 vp test 纪律一致；knip 未用导出清零呼应禁 test-only export；surgical 范围（src-tauri 零改动、hooks 不动）；desktop 版本 bump 属 packages 非插件规则范围"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "对 openspec/changes/desktop-route-pages 全目录 grep TODO|TBD|placeholder|{{ 零命中；待决问题为 design 定夺项非占位符"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围/验收标准/风险五节均实质填写：问题两段现状+代价分析，提案含路由表与 HashRouter 论证，风险表 5 行完整"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "## 能力 下 ### 新增能力 desktop-page-routing 与 ### 修改的能力 desktop-app-shell 各一条，均带实质描述"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 仅含 desktop-page-routing/spec.md 与 desktop-app-shell/spec.md 两个文件，与能力章节两条目 1:1 对应，无多余 spec"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "delta 类型一致（ADDED/MODIFIED）；路由表 /、/changes、/changes/:name、/agent、兜底两侧一致；AC-1~AC-8 均有对应 requirement/scenario；ChangeView 溶解与 Router 挂载位置两侧同为 design 定夺，无矛盾"
+        }
+      ],
+      "start_at": "2026-09-23T10:56:13.229Z",
+      "timestamp": "2026-09-23T11:04:53.044Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10项全过：D1组件表7行4列全填无TBD；D2数据模型5模型齐；D3 AC-1~8逐项映射；D4五阶段依赖顺序无逆向；D5任务具体到文件与操作；D6运行时react-router^7+构建无新增；D7合knip/vp/无test-only导出；D8六章节实质内容；D9无测试章节/任务，测试移交test-design；D10实现文件5条全覆盖、文件↔任务双向一致、子表无矛盾。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "7行组件均填职责/文件位置/依赖/技术4列，无TBD；修改面均指具体文件，仅零改动参照行（呈现视图/取数hooks）用glob前缀且组件逐一点名"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表5个模型（路由位置/选中态/过渡抑制态/既有state/折叠态），字段、关系、持久化列全填"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表AC-1~AC-8逐项落点，如AC-5←D4 resetPending、AC-6←欢迎态gate在HashRouter外、AC-8←specs delta+D1~D8映射"
+        },
+        {
+          "item": "D4 tasks.md 存在且遵循依赖顺序",
+          "pass": true,
+          "evidence": "存在且含- [ ]复选框，按5阶段分组；依赖安装→组件改造→壳路由表→终验核对，阶段2/3仅依赖阶段1装包，props签名不变保证跨阶段可执行，无逆向依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每条任务指名具体文件与具体操作（删TopPage导出、NavLink testid落锚点、具体路由表项、grep残留清扫），无空泛任务"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "运行时react-router ^7.x含用途与API面；构建/测试依赖明示无新增，沿用vp工具链"
+        },
+        {
+          "item": "D7 与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "无test-only导出（AppRoutes/PageNavGroup模块内私有）、knip零豁免、vp工具链、D1 surgical保留ChangeView无投机抽象"
+        },
+        {
+          "item": "D8 模板章节均填写实质内容",
+          "pass": true,
+          "evidence": "架构组件、变更清单（5条修改文件+子表）、数据模型、路由/API设计、依赖、待决问题全部有实质内容；待决问题四项均已定夺"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design无测试章节，D6/D7为proposal待决问题挂载策略定夺且用例拆分移交test-design/test-gen；tasks无测试任务，client:check为fmt/lint/knip守线非测试执行"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal实现文件5条全在修改文件表（main.tsx零diff核对项对应阶段4任务）；tasks文件与清单双向一致；新增/删除均无与D1一致；子表无矛盾"
+        }
+      ],
+      "start_at": "2026-09-23T11:05:06.311Z",
+      "timestamp": "2026-09-23T11:18:41.134Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "T3 FAIL: AppSidebar.test.tsx 章节(用例L75-81)4个在测对象(NavLink挂载/active派生/导航/workspace组)路径类型均仅正向/边界，无任何异常用例；对照 App(L47)/ChangeView(L112)各有异常用例。T1/T2 PASS: AC-1~8 全映射；3个单测heading与AC-3/4对应，5关系关联AC与集成条目双向互认。T4-T8 PASS: 外部依赖Mock策略齐备；各章节实质填写；范围一致；导航往返不重发断言承接无副作用累积；T8格式8项子检查全合规。修复: 为 AppSidebar 补异常用例(如无匹配 pathname 时两 nav 均不激活且不崩)。",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都在验收范围中有映射",
+          "pass": true,
+          "evidence": "验收范围表(L15-22)逐条映射 proposal AC-1~AC-8，测试类型与被测文件均摘自 proposal 验收条件原文"
+        },
+        {
+          "item": "验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单元方向: AC-3→AppSidebar.test.tsx、AC-4→ChangeView.test.tsx 均有对应 ### heading；集成方向: 5关系关联AC {1,3,7}/{4,7}/{1}/{5,7}/{6} 与验收范围集成条目双向覆盖，App.test.tsx 单测章节可经 AC-6/AC-7 被测文件列追溯，无缺失"
+        },
+        {
+          "item": "单元测试充分覆盖异常和边界",
+          "pass": false,
+          "evidence": "AppSidebar.test.tsx 章节(用例 L75-81)4个在测对象(NavLink挂载形态/active派生/导航/workspace组不串扰)路径类型均仅正向/边界，无任何异常用例；对照 App 章节(L47 未知hash异常)、ChangeView 章节(L112 ghost异常)各有异常用例。可补异常用例：pathname 无匹配项时两 nav 均不激活且组件不崩"
+        },
+        {
+          "item": "存在外部依赖时描述了 Mock 策略",
+          "pass": true,
+          "evidence": "proposal 外部依赖(Tauri invoke/dialog/updater/getVersion)在各单元章节(L53-58/L85-89/L116-120)及各关系 Mock策略表均有 mock 方案与应用场景"
+        },
+        {
+          "item": "所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试(3个 per-file 章节各含待测功能+用例+Mock策略)/集成测试(5关系)/不可测试项(5条含原因)全部实质填写，无占位"
+        },
+        {
+          "item": "测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 不要修改清单(src-tauri/hooks/views/agent/呈现组件/specs)无测试改造覆盖；in-scope 实现文件 App/AppSidebar/ChangeView 均有单测+集成覆盖，agent_page_nav.test.tsx 承接关系已在 L146/L159/L170 说明"
+        },
+        {
+          "item": "写操作（创建/更新/删除）测试包含幂等性验证",
+          "pass": true,
+          "evidence": "变更无新增写操作(纯前端路由化，workspace 命令语义不变且属不修改清单)；范围内重复操作无副作用累积由 L159(切回不重发 detail)/L169(导航零命令计数不变)/L218-219(A/B 参数无残留)断言承接"
+        },
+        {
+          "item": "产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "U1-U5: 3个 -> heading、待测功能无序列表、用例/Mock表列名合规；I1-I8: 5个 → heading、涉及模块≥3行、关联AC非空、叙事段落、场景名唯一、场景叙事、用例列名合规；G1: 验收范围列名与顺序与模板一致"
+        }
+      ],
+      "start_at": "2026-09-23T11:19:03.663Z",
+      "timestamp": "2026-09-23T11:30:50.419Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "T1-T8 全通过。T1: proposal AC-1~8 与验收范围 8 行一一对应。T2: 单元 3 节对应 AC-3/4（App.test.tsx 节由 AC-6/7 被测文件列承接）；集成 5 关系关联AC均在验收范围，集成型 AC-1/3/4/5/6/7 均被引用。T3: 三单元节均含异常+边界（未知hash/bogus/ghost名、空hash、null参数、根切换抑制）。T4: Tauri IPC/dialog/updater/hash 等均有 Mock 策略。T5: 全章节实质填写。T6: 不要修改项无专设测试，in-scope 全覆盖。T7: 变更无新增写路径，导航重复操作有零副作用计数断言。T8: U1-U5/I1-I8/G1 合规。",
+      "checklist": [
+        {
+          "item": "T1 proposal验收标准全映射",
+          "pass": true,
+          "evidence": "proposal.md L81-88 的 AC-1~AC-8 与 test-design.md L13-22 验收范围表 8 行一一对应，验收条件语义一致（含 AC-2 静态检查管线、AC-7 全绿门禁的归并表述）"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单元方向：AC-3→AppSidebar.test.tsx 节(L62)、AC-4→ChangeView.test.tsx 节(L94)，App.test.tsx 节(L31)由 AC-6/7 被测文件列(L20-21)承接；集成方向：5 关系关联AC {1,3,7}{4,7}{1}{5,7}{6} 均在验收范围，集成型 AC-1/3/4/5/6/7 均被≥1关系引用，AC-2/8 为不可测试项豁免"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常与边界",
+          "pass": true,
+          "evidence": "App 节异常(未知hash L47)+边界(深链/agent深链/欢迎态 L45-48)；AppSidebar 节异常('/bogus' L78)+边界(详情前缀 L77)；ChangeView 节异常('ghost' L113)+边界(根切换抑制 L111-112、name=null L107)；字符串边界：空hash(L57)、>1000字符name段(L232)"
+        },
+        {
+          "item": "T4 外部依赖 Mock 策略",
+          "pass": true,
+          "evidence": "Tauri invoke/dialog/updater/getVersion(L55-56)、window.location.hash(L57)、ResizeObserver(L88)、useChangeDetail(L119) 均有 Mock策略表；纯回调组件标注「不涉及」(L90) 符合无 Mock 允许规则"
+        },
+        {
+          "item": "T5 模板章节实质内容",
+          "pass": true,
+          "evidence": "验收范围 8 行、单元 3 节各含待测功能(无序列表)/用例/Mock策略(L31-58,62-90,94-121)、集成 5 关系各含涉及模块/关联AC/关系描述/场景+用例、不可测试项 5 条均带原因(L394-398)"
+        },
+        {
+          "item": "T6 与 proposal 范围一致",
+          "pass": true,
+          "evidence": "不要修改项(src-tauri/hooks本体/agent视图/ListView/DetailView/workspace-store specs)无专设测试，仅作交互链模块被引用(hook 本体零改动 L119)；proposal 实现文件与测试文件(App/agent_page_nav/AppSidebar/route_pages)均有承接场景(L147,171)"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "变更无新增写路径（src-tauri 零改动 proposal L69、hooks 不动）；新增操作类(导航)以重复往返断言无副作用累积(L170-171 命令计数与基线一致、list_changes 不重发)，workspace 写命令仅作既有装置未被改动"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "U1-U5: 3 个 ### 标题均含 ->，待测功能/用例/Mock策略顺序正确，无序列表格式，用例表列「测试对象|路径类型|测试条件|迭代类型」、Mock表列「Mock主体|Mock方案|应用场景」；I1-I8: 5 个标题均以 →测试文件 结尾，涉及模块表≥2行，关联AC非空，关系描述为叙事段落，场景名关系内唯一且后跟叙事段，用例/Mock表列名合规；G1: 验收范围表列名与顺序同模板"
+        }
+      ],
+      "start_at": "2026-09-23T11:31:15.939Z",
+      "timestamp": "2026-09-23T11:35:22.934Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "I1-I7 全过。AppRoutes 五条路由与 design 路由表逐一对应(App.tsx:58-68);HashRouter 壳态自含,main.tsx/hooks/src-tauri 零 diff;ChangeView useParams+resetPending 过渡抑制(ChangeView.tsx:17-35);AppSidebar asChild+NavLink、testid 移锚点,TopPage/onPageChange/selectedChange 无残留;version 0.3.0、react-router ^7.18.4 单包。files 多出 AppSidebar.test.tsx(D6 MemoryRouter 适配解 client:check 阻塞)与 pnpm-lock.yaml,判良性;无删除。tasks 全 [x]。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "App壳/AppRoutes/AppSidebar/ChangeView 落地(App.tsx:58-124, AppSidebar.tsx:89-121, ChangeView.tsx:16-45);hooks/呈现视图/main.tsx 按 design 零改动(无 diff);react-router 7.18.4 已装"
+        },
+        {
+          "item": "I2 变更清单逐项对账",
+          "pass": true,
+          "evidence": "package.json/App.tsx/AppSidebar.tsx/ChangeView.tsx 三态一致;main.tsx 声明零改动且无 diff;files 多出 AppSidebar.test.tsx(D6 适配)与 pnpm-lock.yaml 均良性,deleted 为空"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "import 排序/中文 JSDoc/命名导出与既有风格一致;'react-router' 单包导入;AppRoutes 约11行、PageNavGroup/ChangeView 均不超50行"
+        },
+        {
+          "item": "I4 路由全部实现",
+          "pass": true,
+          "evidence": "/、/changes、/changes/:name、/agent、* 五条与 design 路由表逐一对应(App.tsx:61-65),/ 与 * 均 Navigate replace(D3)"
+        },
+        {
+          "item": "I5 tasks 全部 [x]",
+          "pass": true,
+          "evidence": "阶段1-5 共13项全部勾选,含残留清扫与范围核对"
+        },
+        {
+          "item": "I6 无无关代码",
+          "pass": true,
+          "evidence": "git diff 仅含清单内5文件+测试适配+lockfile;无越界改动、无删除;src-tauri 与 hooks 为空"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "D2 HashRouter 壳态自含/main.tsx 零diff;D4 prevRoot+resetPending 抑制+replace 导航(ChangeView.tsx:20-35);D5 0.3.0;D8 asChild+NavLink、testid 移锚点、isActive 经 useLocation;TopPage/onPageChange/selectedChange 无残留"
+        }
+      ],
+      "start_at": "2026-09-23T11:35:41.525Z",
+      "timestamp": "2026-09-23T11:53:54.369Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "G1-G9 全过。G1 三源文件导出均行为断言覆盖;G2 单测与源码同目录、*.test.tsx 合规;G3 单元表 18 新增行全有 describe/it;G4 五关系集成用例全落 route_pages.test.tsx;G5 invoke 分发记录/ResizeObserver/useChangeDetail mock/hash 重置均落地;G6 vite-plus/test+RTL+jsdom;G7 深链/ghost/超长名/多段/bogus 全覆盖;G8 各文件有 unstub/cleanup/重置;G9 TopPage|onPageChange 零残留。备注:test-gen 对 ChangeView.tsx 源修复(渲染期清位 L32-34)已入 file_log;debug_tmp.test.tsx 清单有但盘上已删且无 delete 记录,临时调试文件良性遗留。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "App(App.tsx:80)/AppSidebar(AppSidebar.tsx:129)/ChangeView(ChangeView.tsx:16) 均经行为断言覆盖:App.test.tsx:804-975 hash 重定向/导航/IPC 计数/欢迎 gate,AppSidebar.test.tsx:146-161,309-365 回调与 NavLink 导航/active 派生,ChangeView.test.tsx:119-231 路由参数/导航/抑制;AppRoutes(App.tsx:58)模块私有,行为经集成覆盖,符合 design 不入表声明"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码同目录",
+          "pass": true,
+          "evidence": "App.test.tsx 与 App.tsx 同目录;components/AppSidebar.test.tsx、views/changes/ChangeView.test.tsx 与各自源码同目录;__tests__/route_pages.test.tsx 为集成文件;命名均符合 *.test.tsx 规范"
+        },
+        {
+          "item": "G3 单元用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "App 节 5 新增行:App.test.tsx:921-932/934-950/952-963/965-975/710-721;AppSidebar 节 6 行:AppSidebar.test.tsx:297-307/309-316/318-325(/bogus 异常)/327-342(含详情前缀边界)/344-353/355-365;ChangeView 节 7 行:ChangeView.test.tsx:122-130/132-139/141-149(ghost 异常)/155-163/165-174/194-219/221-230;路径类型分类一致"
+        },
+        {
+          "item": "G4 集成用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "关系一 8 行 route_pages.test.tsx:194-307;关系二 6 行 315-431;关系三 3 行 439-478;关系四 6 行 486-598;关系五 3 行 606-656;describe 组织与场景一致,AC ID 与文件头五关系标注一致"
+        },
+        {
+          "item": "G5 Mock策略表中的 mock 已实现",
+          "pass": true,
+          "evidence": "invoke 按命令分发+记录(App.test.tsx:71-112、route_pages.test.tsx:84-118 含 ghost 未命中 null);getVersion/dialog/check 固定 resolve(route_pages.test.tsx:175-183);hash 重置(App.test.tsx:154);toast.dismiss(162);ResizeObserver stubGlobal+unstub(AppSidebar.test.tsx:19-30);useChangeDetail 受控 vi.mock(ChangeView.test.tsx:23-25,112-117);MemoryRouter 装置与 ListView/DetailView 未 mock 与声明一致"
+        },
+        {
+          "item": "G6 框架与导入正确",
+          "pass": true,
+          "evidence": "全部文件从 vite-plus/test 导入 describe/it/expect/vi,@testing-library/react 断言,react-router 真实 HashRouter/MemoryRouter;jsdom 为 vite.config.ts:67 默认环境"
+        },
+        {
+          "item": "G7 边界情况已覆盖",
+          "pass": true,
+          "evidence": "深链 add-feature/agent(route_pages.test.tsx:377-389/299-307)、未知 hash #/bogus(App.test.tsx:965-975)、/bogus pathname 降级(AppSidebar.test.tsx:318-325)、ghost 名(391-400)、>1000 字符 name 段(402-415)、畸形多段 #/changes/a/b(423-431)、空清单欢迎态(606-618);字符串边界≥2(空 hash/超长名/多段)"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "App.test.tsx:166-168 afterEach unstubAllEnvs+beforeEach 重置 hash/mock/toast;AppSidebar.test.tsx:83-85 unstubAllGlobals;ChangeView.test.tsx:112-117 beforeEach mockReset+重实现;route_pages.test.tsx:171-187 与 agent_page_nav.test.tsx:95-111 afterEach cleanup+beforeEach 全量重置"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "src 全目录 grep TopPage|onPageChange 零命中;App.test.tsx 无 page state 条件渲染断言,AppSidebar.test.tsx 无 onPageChange/TopPage 导入用例"
+        }
+      ],
+      "start_at": "2026-09-23T11:54:10.497Z",
+      "timestamp": "2026-09-23T12:24:29.664Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 331 个测试通过（29 个测试文件，0 失败/0 跳过）。覆盖率达标: lines=99.14%, branches=94.65%, functions=99.48%；Mutation score 86.09% ≥ 阈值 80%。变更范围门控按计划跳过 2 个无文件套件（plugins/dev-team、src-tauri rust），属预期。注：packages/desktop 覆盖率 override 组 pass 但逐文件 measured=null、passed_count 0/23，聚合覆盖率达标，无需处理。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 全部存在且类型正确（coverage 为嵌套对象，duration_seconds=266）"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=331（29 个测试文件），conclusion=pass，problems 为空"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true: lines=99.14% (阈值 90), branches=94.65% (阈值 85), functions=99.48% (阈值 90)；mutation 86.09% ≥ 80；overrides 仅 packages/desktop 组且 pass=true，组内逐文件 measured=null、passed_count 0/23 属记录缺口，聚合达标不触发失败"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败条目，根因诊断自动通过"
+        }
+      ],
+      "start_at": "2026-09-23T12:25:03.898Z",
+      "timestamp": "2026-09-23T12:31:40.892Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "路由化实现与 design D1-D8 一致：HashRouter 壳态自含（main.tsx/配置零改动）、AppRoutes 路由表照 sketch、NavLink asChild 前缀派生 active、useParams 选中。唯一偏差：resetPending 清位由 effect 移至渲染期 selected===null（ChangeView.tsx:24-34 注释说明防「新根+旧名」中间提交），强于 sketch、贴合 D4/AC-7 意图。安全：纯前端、src-tauri 零 diff、无密钥/注入面。边界：name??null、/* 兜底、未知名降级均有测试。knip exit 0、vp check 65 文件零告警（--fix 未引入清单外改动）。类型复用 dto/hooks 无中间映射。debug_tmp.test.tsx 清除。C1-C7 全过。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "纯前端路由变更；src-tauri/** 零 diff（git diff 为空）；grep 密钥/eval/exec/innerHTML 仅命中未改文件的既有注释；无新增 IPC 面"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "路由参数 name 不本地校验系 design 定夺（kebab-case 约束）；畸形多段路径落 * 兜底（App.tsx）、未知名/超长名经 useChangeDetail null 降级，route_pages.test.tsx:391-432 覆盖"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "D1-D8 逐项落地：HashRouter 壳态自含、AppRoutes 表与 sketch 一致、NavLink asChild+前缀派生 active、main.tsx 与 knip/stryker/vite/tsconfig 零改动、0.3.0 minor。唯一偏差：resetPending 清位由 effect 内移至渲染期 selected===null（ChangeView.tsx:24-34 注释说明防「新根+旧名」中间提交），强于 sketch 且更贴合 D4/AC-7 抑制意图"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "name ?? null（ChangeView.tsx:19）；root===null 由欢迎态 gate 挡在 Router 外；尾斜杠/未知路径/移除唯一根回欢迎态均有用例；渲染期 setState 两分支条件可收敛无环"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "TopPage/onPageChange/selectedChange 全 src 零残留（grep）；debug_tmp.test.tsx 已删；knip exit 0；AppRoutes 约 15 行低于 50 行上限"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "vp check 65 文件零告警（format/lint/type 全过，且 --fix 未引入清单外改动）；中文注释沿既有 AC/D 引用风格；测试 mock 策略与既有文件一致"
+        },
+        {
+          "item": "C7 外部数据使用同来源类型",
+          "pass": true,
+          "evidence": "复用 ChangeListState（hooks/useChangeList）与 types/dto 类型；react-router 类型直接内联使用；AppSidebarProps 收缩而非重映射"
+        }
+      ],
+      "start_at": "2026-09-23T12:31:57.546Z",
+      "timestamp": "2026-09-23T12:36:59.763Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "AC-1~AC-7 均有代码+测试证据：路由表 App.tsx:58-68；NavLink 化 AppSidebar.tsx:89-121；选中态 useParams+显式返回 ChangeView.tsx:17-43；根切换落清单 ChangeView.tsx:28-40；欢迎态 gate 在 Router 外 App.tsx:101-121；route_pages.test.tsx 覆盖重定向/深链/抑制/隔离。AC-2：react-router ^7.18.4 单包、TopPage/onPageChange/selectedChange 零残留、331 测试全绿。AC-8：delta spec 已写入且与实现一致，live spec 未合并属手动归档阶段。13 任务全 [x]；main.tsx/hooks/呈现视图零改动。备注：specs/desktop-agent-execution/spec.md:164 残留「MUST NOT 引入路由」，归档时需人工复核。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 App.tsx:58-68 五条路由+route_pages.test.tsx:439-461 重定向/兜底；AC-2 package.json:32 唯一路由依赖+grep TopPage 零命中；AC-3 AppSidebar.tsx:89-121 NavLink/testid 落锚点/useLocation 派生；AC-4 ChangeView.tsx:17-43+route_pages.test.tsx:315-344；AC-5 ChangeView.tsx:28-40+测试 486-598 三条根变更路径；AC-6 App.tsx:101-121+测试 606-638；AC-7 测试 236-291 零重发/零命令+test-execution 331 全绿；AC-8 delta spec（desktop-page-routing ADDED/desktop-app-shell MODIFIED）与实现逐条一致"
+        },
+        {
+          "item": "A2 无范围蔓延",
+          "pass": true,
+          "evidence": "改动面=清单 5 实现文件+lockfile+proposal 测试文件清单+ChangeView.test.tsx（test-design/test-gen 承接范围，测在 scope 的 ChangeView）；AppRoutes/PageNavGroup 模块内私有无新导出；无第二依赖；knip.json/vite/tsconfig 零豁免（test-gen G5/code-review C5 证实）"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "实现文件 5 项全落地（main.tsx 声明零改动核对项：main.tsx:9 保持 createRoot(<App/>) 无 diff）；两能力（desktop-page-routing/desktop-app-shell delta）已承接；tasks.md 阶段 1-5 共 13 项全 [x]"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "hooks 零路由 import，useChangeDetail.ts:54 签名 (root, change) 不变；ChangeListView onSelect（L23）/ChangeDetailView onBack（L160）契约不变；AgentDebugView/WelcomeView 内部未动；src-tauri 零 diff（implement I6 证实）；openspec/specs/** 未被实现改动"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "R1 HashRouter 锁定 App.tsx:104；R2 testid 全保留 AppSidebar.tsx:103/111 且 331 测试全绿；R3 不重发断言 route_pages.test.tsx:251/290；R4 TopPage 已删（grep 零命中）+AppRoutes 约 11 行<50；R5 未知路径 * 兜底 App.tsx:65+测试 423-431 畸形多段/超长名"
+        }
+      ],
+      "start_at": "2026-09-23T12:37:21.808Z",
+      "timestamp": "2026-09-23T12:41:23.561Z"
+    }
+  ]
+}

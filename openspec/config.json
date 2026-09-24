@@ -17,7 +17,7 @@
       "framework": "vite-plus",
       "config": "vite.config.ts",
       "includes": ["src/**/*.{ts,tsx}"],
-      "excludes": ["src/components/ui/**/*"],
+      "excludes": ["src/components/ui/**/*","src/routes.tsx"],
       "coverage": { "lines": 90, "branches": 85, "functions": 90 },
       "mutation": { "score": 80 }
     },

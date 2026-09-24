@@ -37,9 +37,9 @@ dev-team SHALL 按 queries / exec 双轨组织 Tauri command：
 
 header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/更新指示（`UpdateIndicator` 含「重试更新」按钮语义不变）；workspace `select`、移除、刷新控件 MUST NOT 留在 header。
 
-侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 支持内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。系统 PC-only：极小分辨率不适配，窗口最小尺寸 SHALL 由 `tauri.conf.json` 限定（minWidth 900 / minHeight 600）。sidebar MUST NOT 引入路由：列表 ↔ 详情视图切换维持 `ChangeView` 本地 state。
+侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 支持内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。系统 PC-only：极小分辨率不适配，窗口最小尺寸 SHALL 由 `tauri.conf.json` 限定（minWidth 900 / minHeight 600）。sidebar 导航 SHALL 路由化：页面导航组与列表 ↔ 详情切换均由路由承载（路由表与选中态 URL 化契约见 desktop-page-routing 能力）。
 
-侧栏 SHALL 增设页面导航组：[变更] [Agent 调试] 两个页面入口（AppSidebar 首次出现非 workspace 入口语义）；点击切换顶层视图，切换维持本地 state、MUST NOT 引入路由；workspace 清单组语义不变。Agent 调试页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
+侧栏 SHALL 增设页面导航组：[变更] [Agent 调试] 两个页面入口（AppSidebar 首次出现非 workspace 入口语义）；点击经路由切换顶层视图（`/changes` ↔ `/agent`，NavLink 化契约见 desktop-page-routing 能力）；workspace 清单组语义不变。Agent 调试页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
 
 欢迎态（root 为 null）MUST NOT 挂载 `SidebarProvider` / `AppSidebar`：`WelcomeView` 维持全屏现状；Toaster（sonner）SHALL 在 App 根挂载一次，欢迎态与壳态都覆盖。
 
@@ -52,8 +52,8 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 #### Scenario: 页面导航组切换
 
 - **WHEN** 用户点击侧栏页面导航组的「Agent 调试」
-- **THEN** 主内容区切至 AgentDebugView，无 router 依赖，workspace 清单组仍在
-- **AND** 点回「变更」恢复 change 视图（选中状态保持策略 design 定夺）
+- **THEN** 主内容区切至 AgentDebugView（`/agent` 路由），workspace 清单组仍在
+- **AND** 点回「变更」经 `/changes` 路由恢复 change 视图；选中不保留——选中随 URL 消失显示清单（desktop-page-routing 能力「选中重置语义保持」）
 
 #### Scenario: 欢迎态隔离
 
@@ -66,10 +66,11 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 - **WHEN** 用户点击折叠钮或按下 Ctrl/Cmd+B
 - **THEN** 侧栏进入 icon-only 态，悬停清单项出 Tooltip
 
-#### Scenario: 不引入路由
+#### Scenario: 路由化导航
 
 - **WHEN** 检查 desktop 依赖与视图代码
-- **THEN** 无 router 依赖，列表 ↔ 详情仍为 `ChangeView` 本地 state（`selectedChange`），Agent 调试页切换同为本地 state
+- **THEN** 以 react-router HashRouter 承载导航，列表 ↔ 详情为 `/changes` ↔ `/changes/:name` 路由，Agent 调试页为 `/agent`
+- **AND** 无 `TopPage` 本地 state / `onPageChange` 回调残留，无第二路由库
 
 ### Requirement: workspace 选择
 
@@ -360,8 +361,8 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
 | `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove）；error 态收窄为清单加载失败（查询 inline 持久）；切换为本地 select（清单默认序不重排；root 在清单则保持、被移除顺延第一名）；add 成功直接以返回记录 root 为当前根 |
 | 前端视图 | 列表 / 流水线 / 产物区渲染 + 欢迎屏空态 / sidebar 侧栏 | 消费 DTO 与 ArtifactEnvelope；未注册 kind 由 Fallback 兜底 |
-| `packages/desktop/src/App.tsx` | 壳布局 + 顶层视图切换 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；changes \| agent 本地 state 切换，无路由 |
-| `packages/desktop/src/components/AppSidebar.tsx` | 页面导航组 + workspace 清单侧栏 | [变更] [Agent 调试] 页面入口（本地 state 切换）；`SidebarMenuButton` 列表项（点击本地切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
+| `packages/desktop/src/App.tsx` | 壳布局 + 路由表挂载 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；路由表 `/changes` / `/changes/:name` / `/agent`（`page` state 移除，契约见 desktop-page-routing） |
+| `packages/desktop/src/components/AppSidebar.tsx` | NavLink 页面导航组 + workspace 清单侧栏 | NavLink 导航（active 由 URL 派生，`TopPage` / `onPageChange` 删除，testid `nav-changes` / `nav-agent` 保持）；`SidebarMenuButton` 列表项（点击本地切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
 | `packages/desktop/src/views/changes/ChangeListView.tsx` | 刷新入口 | 头部刷新按钮 `disabled={loading}`；列表加载失败 error-note inline 保留 |
 | `packages/desktop/src/views/WelcomeView.tsx` | 欢迎态 | error-note 仅清单加载失败；「添加新文件夹」入口保留 |
 | `dev-team::commands::*`（全体命令） | 应用服务（command 即应用服务） | body 三件事：参数转换 / 调用 / 错误映射；无独立 app crate；编排下推 core 或触发翻转 |
