@@ -93,13 +93,15 @@ fn run_result(seq: u64, is_error: bool, num_turns: Option<u64>) -> AgentEvent {
 }
 
 /// 假 runner：预录事件经 mpsc 交付（后台任务投递），或返回可控启动错误。
-struct FakeRunner {
+/// `pub(crate)`：mod_test 的链路级用例（集成关系 R3）经 `run_agent_with` 泛型缝
+/// 复用同一装置。
+pub(crate) struct FakeRunner {
     events: Vec<AgentEvent>,
     failure: Option<AgentStartError>,
 }
 
 impl FakeRunner {
-    fn with_events(events: Vec<AgentEvent>) -> Self {
+    pub(crate) fn with_events(events: Vec<AgentEvent>) -> Self {
         Self {
             events,
             failure: None,
@@ -190,15 +192,16 @@ async fn 预录completed会话经tee双sink全链路落库且channel逐事件一
     // store sink：事件全量落库，key (run_id, seq)，seq 升序
     let stored = store.list_agent_run_events(record.id).unwrap();
     assert_eq!(stored.len(), 4, "四事件全量落库");
-    let stored_seqs: Vec<u64> = stored
-        .iter()
-        .map(|value| value["seq"].as_u64().expect("seq 为数值"))
-        .collect();
+    let stored_seqs: Vec<u64> = stored.iter().map(|event| event.seq).collect();
     assert_eq!(stored_seqs, vec![0, 1, 2, 3]);
 
     // Channel sink：逐事件一致（同 seq 同内容，两路 seq 一致）
     let pushed = captured.lock().expect("捕获锁不可中毒").clone();
-    assert_eq!(pushed, stored, "Channel 事件序列与落库事件序列逐条一致");
+    assert_eq!(
+        serde_json::Value::Array(pushed),
+        serde_json::to_value(&stored).unwrap(),
+        "Channel 事件序列与落库事件序列逐条一致"
+    );
 
     // 落库 run 行为 completed 终态
     let listed = store.list_agent_runs().unwrap();
@@ -295,10 +298,7 @@ async fn seq缺口乱序时tee透传不重排落库key与事件自带seq一致()
 
     // 落库 key 与事件自带 seq 一致：重放按 key 升序（而非推送序）
     let stored = store.list_agent_run_events(record.id).unwrap();
-    let stored_seqs: Vec<u64> = stored
-        .iter()
-        .map(|value| value["seq"].as_u64().expect("seq 为数值"))
-        .collect();
+    let stored_seqs: Vec<u64> = stored.iter().map(|event| event.seq).collect();
     assert_eq!(stored_seqs, vec![1, 2, 5, 9], "复合键升序重放");
 }
 

@@ -2,18 +2,19 @@
 
 ## Purpose
 
-定义 dev-team Tauri 壳层的组织契约：command 按 queries / exec 双轨组织（queries 三命令；exec 轨道已由 agent 执行命令开通），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
+定义 dev-team Tauri 壳层的组织契约：command 按 queries / exec / db 三轨组织（queries 三命令；exec 轨道已由 agent 执行命令开通；db 轨道已由 DB 查看命令开通），workspace 经文件夹选择器选定，React 前端以显式刷新取数模型收口在 hooks 内。
 
 ## Requirements
 
-### Requirement: Tauri command 查询双轨
+### Requirement: Tauri command 轨道组织
 
-dev-team SHALL 按 queries / exec 双轨组织 Tauri command：
+dev-team SHALL 按 queries / exec / db 三轨组织 Tauri command：
 
 - `commands/queries/`：MVP 实现三个命令——`list_changes`（change 列表）、`get_change_detail`（change 详情）、`read_artifact`（按信封读取单个产物）
 - `commands/exec/`：执行轨道。空轨道状态由 desktop-agent-execution 结束，首批命令为 `agent_start`（agent 执行）与 `agent_runs` / `agent_run_events`（run 重放查询）。轨道纪律升级为：MUST NOT 出现空壳 Executor 类 trait（agent 执行的抽象由 `core/agent` 的 `AgentRunner` 承担）；后续 workspace 写文件等执行命令落此轨道时按各自 proposal 定形
+- `commands/db/`：db 查看轨道（native-db-store-upgrade 开通），承载只读 db 检查命令 `db_models`（模型清单与计数）与 `db_records`（按模型分页扫描），经 `State<Store>` 调用 store 的记录信封 API（见 desktop-workspace-store「记录信封 API」）。轨道纪律：只读，MUST NOT 出现任何写命令；命令命名 design 可调
 
-每个查询 command SHALL 是无状态薄包装：参数 → core 函数 → DTO 返回，MUST NOT 在 command 层持有或缓存 workspace 状态；所有 workspace 状态访问 SHALL 只经 workflow / foundation 的 core 函数。DTO SHALL 区分 Query Result 与 Command Result 形态。
+每个查询 command SHALL 是无状态薄包装：参数 → core 函数或 store 操作 → DTO 返回，MUST NOT 在 command 层持有或缓存 workspace 状态；所有 workspace 状态访问 SHALL 只经 workflow / foundation 的 core 函数。DTO SHALL 区分 Query Result 与 Command Result 形态。
 
 #### Scenario: 查询命令薄包装
 
@@ -25,6 +26,11 @@ dev-team SHALL 按 queries / exec 双轨组织 Tauri command：
 - **WHEN** 检查 `commands/exec/`
 - **THEN** `agent_start` / `agent_runs` / `agent_run_events` 三命令落地，无空壳 Executor trait
 - **AND** workspace 写文件未在此轨道实现（仍待后续变更定形）
+
+#### Scenario: db 轨道只读薄包装
+
+- **WHEN** 前端 invoke `db_models` / `db_records`
+- **THEN** 命令经 `State<Store>` 调用信封 API 返回 DTO，自身无状态且无任何写操作
 
 #### Scenario: 状态访问收敛 core
 
@@ -39,9 +45,9 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 
 侧栏 SHALL 采用 `collapsible="icon"`：折叠态仅图标并经 Tooltip 补足信息；SHALL 支持内建 Ctrl/Cmd+B 折叠快捷键；折叠态持久化方式（localStorage vs 会话内 state）由 design 定夺。系统 PC-only：极小分辨率不适配，窗口最小尺寸 SHALL 由 `tauri.conf.json` 限定（minWidth 900 / minHeight 600）。sidebar 导航 SHALL 路由化：页面导航组与列表 ↔ 详情切换均由路由承载（路由表与选中态 URL 化契约见 desktop-page-routing 能力）。
 
-侧栏 SHALL 增设页面导航组：[变更] [Agent 调试] 两个页面入口（AppSidebar 首次出现非 workspace 入口语义）；点击经路由切换顶层视图（`/changes` ↔ `/agent`，NavLink 化契约见 desktop-page-routing 能力）；workspace 清单组语义不变。Agent 调试页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
+侧栏 SHALL 以两个导航组组织顶层视图入口：「页面」组承载数据视图入口 [变更]；「系统工具」组承载系统级工具入口 [Agent 调试]（自页面组平移）与 [DB 查看]（desktop-db-inspector，`TopPage` 增 `db` 变体）（AppSidebar 首次出现非 workspace 入口语义）。点击经路由切换顶层视图（`/changes` ↔ `/agent`，NavLink 化契约见 desktop-page-routing 能力）；workspace 清单组语义不变。系统工具页不依赖 change 选中状态，切换页面 MUST NOT 触发 change 取数。
 
-欢迎态（root 为 null）MUST NOT 挂载 `SidebarProvider` / `AppSidebar`：`WelcomeView` 维持全屏现状；Toaster（sonner）SHALL 在 App 根挂载一次，欢迎态与壳态都覆盖。
+欢迎态（root 为 null）MUST NOT 挂载 `SidebarProvider` / `AppSidebar`：`WelcomeView` 维持全屏现状——系统工具组随壳整体不挂载，DB 查看页仅壳态可达。Toaster（sonner）SHALL 在 App 根挂载一次，欢迎态与壳态都覆盖。
 
 #### Scenario: 壳态挂载与 header 终态
 
@@ -49,16 +55,16 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 - **THEN** `SidebarProvider` / `AppSidebar` / `SidebarInset` 渲染，main 区 max-width 1100px 居中位于 inset 内
 - **AND** header 仅含折叠钮、标题、版本/更新指示，无 `combobox`、移除、刷新控件
 
-#### Scenario: 页面导航组切换
+#### Scenario: 导航组切换
 
-- **WHEN** 用户点击侧栏页面导航组的「Agent 调试」
-- **THEN** 主内容区切至 AgentDebugView（`/agent` 路由），workspace 清单组仍在
+- **WHEN** 用户点击「页面」组的「变更」或「系统工具」组的「Agent 调试」/「DB 查看」
+- **THEN** 主内容区切至对应视图（ChangeView / AgentDebugView / DbInspectorView），依赖 router，workspace 清单组仍在
 - **AND** 点回「变更」经 `/changes` 路由恢复 change 视图；选中不保留——选中随 URL 消失显示清单（desktop-page-routing 能力「选中重置语义保持」）
 
 #### Scenario: 欢迎态隔离
 
 - **WHEN** `root` 为 null（清单为空或加载失败后无根）
-- **THEN** 页面无 `SidebarProvider` / `AppSidebar` DOM，`WelcomeView` 全屏呈现
+- **THEN** 页面无 `SidebarProvider` / `AppSidebar` DOM（含「页面」与「系统工具」两组），`WelcomeView` 全屏呈现，无 DB 查看入口可达
 - **AND** Toaster 已挂载（欢迎态下添加失败同样可 toast）
 
 #### Scenario: 折叠交互
@@ -69,7 +75,7 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 #### Scenario: 路由化导航
 
 - **WHEN** 检查 desktop 依赖与视图代码
-- **THEN** 以 react-router HashRouter 承载导航，列表 ↔ 详情为 `/changes` ↔ `/changes/:name` 路由，Agent 调试页为 `/agent`
+- **THEN** 以 react-router HashRouter 承载导航，列表 ↔ 详情为 `/changes` ↔ `/changes/:name` 路由，Agent 调试页为 `/agent`，DB 查看页为 `/db`
 - **AND** 无 `TopPage` 本地 state / `onPageChange` 回调残留，无第二路由库
 
 ### Requirement: workspace 选择
@@ -357,6 +363,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `dev-team::commands::queries` | 三个查询命令 | list_changes / get_change_detail / read_artifact；无状态薄包装；返回 DTO |
 | `dev-team::commands::workspaces` | workspace 注册命令轨道 | list_workspaces / add_workspace / remove_workspace；`State<Store>`；`Result<T, String>` |
 | `dev-team::commands::exec` | 执行轨道（已开通） | `agent_start`（三件事，编排收 `run_agent()`）/ `agent_runs` / `agent_run_events`（薄包装）；`Result<T, String>`；无空壳 Executor trait |
+| `dev-team::commands::db`（新轨道） | db 查看命令轨道 | `db_models` / `db_records` 只读薄包装；`State<Store>` → 信封 API；`Result<T, String>`；命名 design 可调 |
 | 前端 `hooks/` | 取数收口 | useChangeList / useChangeDetail / useWorkspaces；显式刷新触发（useWorkspaces 启动自动一次） |
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
 | `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove）；error 态收窄为清单加载失败（查询 inline 持久）；切换为本地 select（清单默认序不重排；root 在清单则保持、被移除顺延第一名）；add 成功直接以返回记录 root 为当前根 |

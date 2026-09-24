@@ -1,5 +1,6 @@
 //! exec 三命令（agent_start / agent_runs / agent_run_events）的单元 +
-//! 「exec 查询命令面 → user 维度两表重放」集成关系测试（AC-3/AC-4）。
+//! 「exec 查询命令面 → store 类型化事件表重放」与「exec 事件 tee → store
+//! 类型化事件表 → 命令面重放」集成关系测试（AC-1/AC-4）。
 //!
 //! `#[tauri::command]` 保留原函数可直调：以 `tauri::test::mock_app()`
 //! （MockRuntime，无窗口无事件循环）manage 真实 Store（tempdir 真库）后经
@@ -7,16 +8,18 @@
 //! agent_start 正向（真实 CLI）不直测：以隔离 PATH 触发 CliMissing 走
 //! Err 分支（PATH 环境变量修改以共享互斥锁串行化）。
 
+use std::path::Path;
 use std::sync::{Arc, Mutex};
 
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode};
+use ::agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams};
 use store::{AgentRunRecord, Store};
 
 use super::{agent_run_events, agent_runs, agent_start};
-use crate::commands::exec::agent::agent_test::PATH_LOCK;
+use crate::commands::exec::agent::agent_test::{FakeRunner, PATH_LOCK};
+use crate::commands::exec::agent::run_agent_with;
 
 // ---------------------------------------------------------------------------
 // 装置
@@ -82,14 +85,10 @@ fn seed_run(store: &Store, prompt: &str, started_at: i64) -> AgentRunRecord {
     record
 }
 
-/// 落一批事件（AgentEvent 序列 → Value 落库，模拟 tee store sink）。
+/// 落一批事件（AgentEvent 序列类型化落库，模拟 tee store sink）。
 fn seed_events(store: &Store, run_id: i64, events: &[AgentEvent]) {
-    let values: Vec<serde_json::Value> = events
-        .iter()
-        .map(|event| serde_json::to_value(event).expect("序列化成功"))
-        .collect();
     store
-        .append_agent_run_events(run_id, &values)
+        .append_agent_run_events(run_id, events)
         .expect("append 应成功");
 }
 
@@ -281,11 +280,11 @@ fn 空库agent_runs的serde值为空数组() {
 }
 
 // ---------------------------------------------------------------------------
-// agent_run_events：Value → AgentEvent 反序列化 + 不存在 runId 空数组
+// agent_run_events：类型化事件重放 + 不存在 runId 空数组
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 落库事件经命令面读回为反序列化后的agent_event按seq升序五变体保真() {
+fn 落库事件经命令面读回为类型化agent_event按seq升序五变体保真() {
     let env = Env::new("events-replay");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
@@ -298,7 +297,7 @@ fn 落库事件经命令面读回为反序列化后的agent_event按seq升序五
 
     let replayed = agent_run_events(state.clone(), run.id).expect("agent_run_events 应成功");
 
-    assert_eq!(replayed, seeded, "Value → AgentEvent 反序列化后逐字段保真");
+    assert_eq!(replayed, seeded, "类型化落库后经命令面重放逐字段保真");
     let seqs: Vec<u64> = replayed.iter().map(|event| event.seq).collect();
     assert_eq!(seqs, vec![0, 1, 2, 3], "seq 升序");
     // 五变体判别保真（含 Raw 变体透传形态）
@@ -429,6 +428,102 @@ fn drop后重开同一db命令面重放结果与重开前一致() {
         after_late, before_late,
         "晚 run 事件重放与重开前命令面一致（AC-3 重开持久性经命令面复核）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// 集成关系 R3：exec 事件 tee → store 类型化事件表 → 命令面重放（假 runner 经
+// run_agent_with 泛型缝注入，沿 agent_test.rs 既有装置）
+// ---------------------------------------------------------------------------
+
+/// 泛型缝入参（cwd 隐含 workspace root 语义，编排不读盘）。
+fn run_params() -> AgentRunParams {
+    AgentRunParams {
+        prompt: "R3 链路验证".to_owned(),
+        cwd: Path::new("C:\\ws\\demo").to_path_buf(),
+        env: AgentEnvMode::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+    }
+}
+
+fn system_notice(seq: u64) -> AgentEvent {
+    AgentEvent::stamp(
+        seq,
+        AgentEventKind::SystemNotice {
+            subtype: "api_retry".to_owned(),
+            payload: serde_json::json!({ "attempt": 2, "note": "重试中" }),
+        },
+    )
+}
+
+fn raw_zh(seq: u64) -> AgentEvent {
+    AgentEvent::stamp(
+        seq,
+        AgentEventKind::Raw {
+            event_type: "外星事件".to_owned(),
+            raw_json: "{\"kind\":\"外星事件\",\"msg\":\"🚀\"}".to_owned(),
+        },
+    )
+}
+
+#[tokio::test]
+async fn 假runner五变体事件流经tee落库后命令面重放逐字段保真seq升序() {
+    let env = Env::new("r3-five-variants");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    let seeded = vec![
+        run_started(0),
+        message(1),
+        system_notice(2),
+        run_result(3, false),
+        raw_zh(4),
+    ];
+    let runner = FakeRunner::with_events(seeded.clone());
+    let (channel, captured) = capturing_channel();
+
+    let record = run_agent_with(&state, &runner, channel, run_params())
+        .await
+        .expect("completed 会话返回 Ok");
+
+    assert_eq!(record.status, "completed", "RunResult 驱动收敛 completed");
+    let replayed = agent_run_events(state.clone(), record.id).expect("agent_run_events 应成功");
+    assert_eq!(
+        replayed, seeded,
+        "五变体（含 systemNotice 与中文/emoji Raw）经 tee 落库后命令面重放逐字段保真"
+    );
+    let seqs: Vec<u64> = replayed.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, vec![0, 1, 2, 3, 4], "重放 seq 升序");
+    // Channel 实时路与落库路一致（tee 双 sink 快照）
+    let pushed = captured.lock().expect("捕获锁不可中毒").clone();
+    assert_eq!(
+        serde_json::Value::Array(pushed),
+        serde_json::to_value(&replayed).unwrap(),
+        "Channel 推送序列与命令面重放一致"
+    );
+}
+
+#[tokio::test]
+async fn 单run千级seq连续产出后命令面重放序完整不回绕() {
+    let env = Env::new("r3-thousand");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    let seeded: Vec<AgentEvent> = (0..1000u64).map(raw).collect();
+    let runner = FakeRunner::with_events(seeded);
+
+    let record = run_agent_with(&state, &runner, capturing_channel().0, run_params())
+        .await
+        .expect("completed 会话返回 Ok");
+
+    let replayed = agent_run_events(state.clone(), record.id).expect("agent_run_events 应成功");
+    assert_eq!(replayed.len(), 1000, "千级事件一条不丢");
+    // u128 键打包在大 seq 下的保序性（命令面复核）：重放序完整、严格单调
+    for (index, event) in replayed.iter().enumerate() {
+        assert_eq!(
+            event.seq, index as u64,
+            "重放第 {index} 条 seq 恰为 {index}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

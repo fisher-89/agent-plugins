@@ -440,6 +440,10 @@ describe('route_pages：启动根路径重定向与首屏落点', () => {
     await restored();
 
     expect(window.location.hash).toBe('#/changes');
+    // 空 hash 默认激活变更项（「缺省 changes」语义现由 / 重定向承载，侧栏按 URL 派生）
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('false');
     expect(screen.getByText('add-feature') !== null).toBe(true);
     expect(invokeMock.mock.calls.map(([name]) => name)).toEqual([
       'list_workspaces',

@@ -1,41 +1,25 @@
-//! Store 持久化：表定义、事务读写、schema_version 写入/校验、错误面。
+//! Store 持久化：native_db 模型层操作面、打开流程与错误面。
 //!
-//! 公共 API 只暴露自有类型，`redb::Database` / `Table` 不出现在任何公共
-//! 签名（redb 类型不越 crate 公共面）；db 路径完全来自 [`Store::open`] 入参。
+//! 公共 API 只暴露自有类型，`native_db::Database` 等 native_db / native_model
+//! 类型不出现在任何公共签名（native_db 类型不越 crate 公共面）；db 路径完全
+//! 来自 [`Store::open`] 入参。legacy redb 手写表库的探测迁移收口在
+//! [`crate::migrate`]，本文件不含 redb 代码。
 
 use std::fmt;
 use std::path::Path;
+use std::sync::OnceLock;
 
-use redb::{Database, ReadableDatabase, ReadableTable, TableDefinition};
+use agent::AgentEvent;
+use native_db::{Builder, Database, Models};
 
 use crate::canonical;
-use crate::model::{now_millis, AgentRunRecord, WorkspaceRecord};
-
-/// user 维度注册表：key = canonical root path，value = `WorkspaceRecord` JSON。
-const USER_WORKSPACES: TableDefinition<'static, &str, &[u8]> =
-    TableDefinition::new("user_workspaces");
-
-/// user 维度 agent 运行元数据：key = run id（写事务内 max+1 分配），
-/// value = `AgentRunRecord` JSON。
-const USER_AGENT_RUNS: TableDefinition<'static, i64, &[u8]> =
-    TableDefinition::new("user_agent_runs");
-
-/// user 维度 agent 运行事件流：key = `(run_id, seq)` 复合键（seq 取事件自带
-/// 值，天然有序），value = 单个事件 JSON 字节串。事件以 `serde_json::Value`
-/// 进出（store 禁依赖 core 契约 crate）。
-const USER_AGENT_RUN_EVENTS: TableDefinition<'static, (i64, u64), &[u8]> =
-    TableDefinition::new("user_agent_run_events");
-
-/// META 表：独立于业务表，自第一天起存 `schema_version`（redb 无内建迁移）。
-const USER_META: TableDefinition<'static, &str, u64> = TableDefinition::new("user_meta");
-
-/// 当前库 schema 版本；将来演进时版本升级 + 迁移逻辑在 [`Store::init_schema`] 收口。
-const SCHEMA_VERSION: u64 = 1;
-
-const SCHEMA_VERSION_KEY: &str = "schema_version";
+use crate::envelope::{self, ModelInfo, RecordEnvelope};
+use crate::migrate;
+use crate::model::{now_millis, AgentEventRecord, AgentRunRecord, WorkspaceRecord};
 
 /// store 内部错误面：两变体对应两类故障模式；`Display` 恒带 `db:` /
-/// `canonicalize:` 前缀，直接服务「清单丢失」的可排查性。
+/// `canonicalize:` 前缀，直接服务「清单丢失」的可排查性。迁移失败经
+/// [`StoreError::Db`]（`迁移:` 语境前缀）呈现，不扩变体。
 ///
 /// 命令层以 `.to_string()` 转换为 `Err(String)`，本类型不进入命令签名。
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -57,24 +41,57 @@ impl fmt::Display for StoreError {
 
 impl std::error::Error for StoreError {}
 
-/// redb 事务/读写错误统一收敛为 [`StoreError::Db`]，错误串携带操作语境。
-fn db_err<E: fmt::Display>(context: &str) -> impl Fn(E) -> StoreError + '_ {
+/// 引擎错误（native_db `db_type::Error` 等 `Display` 错误）统一收敛为
+/// [`StoreError::Db`]，错误串携带操作语境。
+pub(crate) fn db_err<E: fmt::Display>(context: &str) -> impl Fn(E) -> StoreError + '_ {
     move |e| StoreError::Db(format!("{context}: {e}"))
 }
 
-/// redb 本地库句柄：私有持有 [`Database`]，`Send + Sync`（进程内 MVCC，
-/// 单写多读），可安全挂 Tauri State，同步调用无需 async。
+/// 全部已注册模型（静态）：`Database` 借用 `&'static Models`，进程内初始化
+/// 一次。define 仅在编程错误（模型 id / version 重复）失败，expect 与
+/// native_db 文档口径一致。
+pub(crate) fn models() -> &'static Models {
+    static MODELS: OnceLock<Models> = OnceLock::new();
+    MODELS.get_or_init(|| {
+        let mut models = Models::new();
+        models
+            .define::<WorkspaceRecord>()
+            .expect("定义 WorkspaceRecord 失败");
+        models
+            .define::<AgentRunRecord>()
+            .expect("定义 AgentRunRecord 失败");
+        models
+            .define::<AgentEventRecord>()
+            .expect("定义 AgentEventRecord 失败");
+        models
+    })
+}
+
+/// `Database`（`'static` 借用静态 Models）必须 `Send + Sync` 才能挂 Tauri
+/// State（进程内 MVCC、单写多读）；编译期硬校验，回归即编译失败。
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Database<'static>>();
+};
+
+/// native_db 本地库句柄：私有持有 [`Database`]，可安全挂 Tauri State，同步
+/// 调用无需 async。
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
-    db: Database,
+    db: Database<'static>,
 }
 
 impl Store {
-    /// 打开（不存在则创建）db：`create_dir_all` 父目录 + `Database::create`
-    /// + `schema_version` 写入/校验。打不开即 Err（dev-team 据此 fail fast）。
+    /// 打开（不存在则创建）db：`create_dir_all` 父目录 → 不存在（或空文件）
+    /// 则 native_db create → 存在则先 legacy 格式探测（命中即迁移）→ 再以
+    /// native_db open。打不开即 Err（dev-team 据此 fail fast）。
+    ///
+    /// legacy 探测 MUST 先于 native_db open：底层 redb 双版本共存（迁移模块
+    /// 读旧 4.x / native_db 内部 2.x），2.x 对 4.x 版式同头不同布局、读之即
+    /// panic——探测经 4.x（双格式安全读端，见 [`crate::migrate`]）先行分流。
     pub fn open(path: &Path) -> Result<Self, StoreError> {
-        // redb 建文件不建父目录，首启必须补齐；裸文件名（无父目录）跳过
+        // native_db 建文件不建父目录，首启必须补齐；裸文件名（无父目录）跳过
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent).map_err(|e| {
@@ -82,56 +99,27 @@ impl Store {
                 })?;
             }
         }
-        let db = Database::create(path)
-            .map_err(|e| StoreError::Db(format!("打开 {} 失败: {e}", path.display())))?;
-        let store = Self { db };
-        store.init_schema()?;
-        Ok(store)
-    }
-
-    /// `schema_version` 写入/校验：absent → 写入当前版本；已存在且高于支持
-    /// 版本 → Err（由更新版本应用创建的库，拒绝降版本打开）。
-    /// 同一事务顺手打开业务表，保证后续 list 的读事务恒可打开 `user_workspaces`。
-    fn init_schema(&self) -> Result<(), StoreError> {
-        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
-        {
-            let _ = write_txn
-                .open_table(USER_WORKSPACES)
-                .map_err(db_err("打开 user_workspaces 表"))?;
-            // 顺手打开 agent 两表：保证后续 list / 重放的读事务恒可打开
-            let _ = write_txn
-                .open_table(USER_AGENT_RUNS)
-                .map_err(db_err("打开 user_agent_runs 表"))?;
-            let _ = write_txn
-                .open_table(USER_AGENT_RUN_EVENTS)
-                .map_err(db_err("打开 user_agent_run_events 表"))?;
-            let mut meta = write_txn
-                .open_table(USER_META)
-                .map_err(db_err("打开 user_meta 表"))?;
-            // 先拷出值结束借用，再做写入分支（scrutinee 临时借用不得跨 insert）
-            let stored = meta
-                .get(SCHEMA_VERSION_KEY)
-                .map_err(db_err("读取 schema_version"))?
-                .map(|guard| guard.value());
-            match stored {
-                Some(found) => {
-                    if found > SCHEMA_VERSION {
-                        return Err(StoreError::Db(format!(
-                            "schema_version {found} 高于支持版本 {SCHEMA_VERSION}（db 由更新版本的应用创建）"
-                        )));
-                    }
-                    // 低于当前版本的存量库：将来迁移在此收口；当前单版本无迁移动作
-                }
-                None => {
-                    meta.insert(SCHEMA_VERSION_KEY, SCHEMA_VERSION)
-                        .map_err(db_err("写入 schema_version"))?;
-                }
-            }
+        // 空文件视同不存在（redb 语义：空文件初始化为新库；中断首启的残照）
+        let blank = !path.exists()
+            || std::fs::metadata(path)
+                .map(|m| m.len() == 0)
+                .unwrap_or(false);
+        if blank {
+            let db = Builder::new()
+                .create(models(), path)
+                .map_err(|e| StoreError::Db(format!("创建 {} 失败: {e}", path.display())))?;
+            return Ok(Self { db });
         }
-        write_txn
-            .commit()
-            .map_err(db_err("提交 schema_version 事务"))?;
-        Ok(())
+        if migrate::is_legacy_format(path) {
+            migrate::migrate(path)?;
+        }
+        let db = Builder::new().open(models(), path).map_err(|e| {
+            StoreError::Db(format!(
+                "打开 {} 失败: {e}（无法识别的 db 格式）",
+                path.display()
+            ))
+        })?;
+        Ok(Self { db })
     }
 
     /// canonicalize + upsert：已存在 → 原记录原样返回（保留 `added_at`，
@@ -142,49 +130,31 @@ impl Store {
             .map_err(StoreError::Canonicalize)?
             .to_string_lossy()
             .into_owned();
-        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
-        let record = {
-            let mut table = write_txn
-                .open_table(USER_WORKSPACES)
-                .map_err(db_err("打开 user_workspaces 表"))?;
-            // 先拷出值结束借用，再做写入分支（读守卫的借用不得跨入 insert）
-            let stored = table
-                .get(key.as_str())
-                .map_err(db_err("读取已有记录"))?
-                .map(|guard| WorkspaceRecord::decode(guard.value()).map_err(db_err("解码已有记录")))
-                .transpose()?;
-            match stored {
-                // 等价路径已入库：原记录原样返回（无时间戳可刷新）
-                Some(record) => record,
-                None => {
-                    let record = WorkspaceRecord::from_root(&key, now_millis());
-                    let bytes = record.encode().map_err(db_err("编码记录"))?;
-                    table
-                        .insert(key.as_str(), bytes.as_slice())
-                        .map_err(db_err("写入记录"))?;
-                    record
-                }
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<WorkspaceRecord> = rw
+            .get()
+            .primary(key.as_str())
+            .map_err(db_err("读取已有记录"))?;
+        let record = match stored {
+            // 等价路径已入库：原记录原样返回（无时间戳可刷新）
+            Some(record) => record,
+            None => {
+                let record = WorkspaceRecord::from_root(&key, now_millis());
+                rw.insert(record.clone()).map_err(db_err("写入记录"))?;
+                record
             }
         };
-        write_txn
-            .commit()
-            .map_err(db_err("提交 add_workspace 事务"))?;
+        rw.commit().map_err(db_err("提交 add_workspace 事务"))?;
         Ok(record)
     }
 
-    /// 清单：表主键（canonical root）自然序（redb 迭代序，字典序升序）。
+    /// 清单：主键（canonical root）自然序（native_db 主键迭代序，字典序升序）。
     /// 顺序与打开/添加时间无关，稳定可复现——sidebar 清单不因使用而重排。
     pub fn list_workspaces(&self) -> Result<Vec<WorkspaceRecord>, StoreError> {
-        let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
-        let table = read_txn
-            .open_table(USER_WORKSPACES)
-            .map_err(db_err("打开 user_workspaces 表"))?;
-        let mut records = Vec::new();
-        for entry in table.iter().map_err(db_err("遍历清单"))? {
-            let (_, value) = entry.map_err(db_err("读取记录"))?;
-            records.push(WorkspaceRecord::decode(value.value()).map_err(db_err("解码记录"))?);
-        }
-        Ok(records)
+        Ok(self
+            .read_all::<WorkspaceRecord>("遍历清单")?
+            .into_iter()
+            .collect())
     }
 
     /// 按 canonical key 删除（含消失目录的回退匹配）；miss 幂等 `Ok(false)`。
@@ -192,105 +162,62 @@ impl Store {
         let Some(key) = self.resolve_key(root)? else {
             return Ok(false);
         };
-        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
-        let hit = {
-            let mut table = write_txn
-                .open_table(USER_WORKSPACES)
-                .map_err(db_err("打开 user_workspaces 表"))?;
-            let removed = table.remove(key.as_str()).map_err(db_err("删除记录"))?;
-            removed.is_some()
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<WorkspaceRecord> =
+            rw.get().primary(key.as_str()).map_err(db_err("读取记录"))?;
+        let Some(record) = stored else {
+            return Ok(false); // 解析与删除之间被移除：miss 幂等
         };
-        write_txn
-            .commit()
-            .map_err(db_err("提交 remove_workspace 事务"))?;
-        Ok(hit)
+        rw.remove(record).map_err(db_err("删除记录"))?;
+        rw.commit().map_err(db_err("提交 remove_workspace 事务"))?;
+        Ok(true)
     }
 
     /// 新开一次 agent 运行：写事务内 `max(id)+1` 分配 id（与插入原子，首行
     /// id=1），落 `running` 行，返回含 id 的记录。调用方填充 prompt / cwd /
     /// env / permission_mode / status / started_at。
     pub fn begin_agent_run(&self, run: &AgentRunRecord) -> Result<AgentRunRecord, StoreError> {
-        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
-        let record = {
-            let mut table = write_txn
-                .open_table(USER_AGENT_RUNS)
-                .map_err(db_err("打开 user_agent_runs 表"))?;
-            let next_id = match table.last().map_err(db_err("读取最大 id"))? {
-                Some((key, _)) => key.value() + 1,
-                None => 1,
-            };
-            let mut record = run.clone();
-            record.id = next_id;
-            let bytes = record.encode().map_err(db_err("编码 run 记录"))?;
-            table
-                .insert(next_id, bytes.as_slice())
-                .map_err(db_err("写入 run 记录"))?;
-            record
-        };
-        write_txn
-            .commit()
-            .map_err(db_err("提交 begin_agent_run 事务"))?;
-        Ok(record)
-    }
-
-    /// 批量追加运行事件：单事务写入；key `(run_id, seq)` 复合键，seq 取事件
-    /// 自带值。事件以 `serde_json::Value` 进出（缺失 seq 视作编码层损坏）。
-    pub fn append_agent_run_events(
-        &self,
-        run_id: i64,
-        events: &[serde_json::Value],
-    ) -> Result<(), StoreError> {
-        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        // 主键自然序表尾即最大 id（双向迭代 next_back，与旧 last()+1 同口径）
+        let next_id = match rw
+            .scan()
+            .primary::<AgentRunRecord>()
+            .map_err(db_err("读取最大 id"))?
+            .all()
+            .map_err(db_err("读取最大 id"))?
+            .next_back()
         {
-            let mut table = write_txn
-                .open_table(USER_AGENT_RUN_EVENTS)
-                .map_err(db_err("打开 user_agent_run_events 表"))?;
-            for event in events {
-                let seq = event
-                    .get("seq")
-                    .and_then(serde_json::Value::as_u64)
-                    .ok_or_else(|| StoreError::Db("事件缺少 seq 字段".to_owned()))?;
-                let bytes = serde_json::to_vec(event).map_err(db_err("编码事件"))?;
-                table
-                    .insert((run_id, seq), bytes.as_slice())
-                    .map_err(db_err("写入事件"))?;
-            }
-        }
-        write_txn.commit().map_err(db_err("提交事件追加事务"))?;
-        Ok(())
+            Some(Ok(record)) => record.id + 1,
+            Some(Err(e)) => return Err(StoreError::Db(format!("读取最大 id: {e}"))),
+            None => 1,
+        };
+        let mut record = run.clone();
+        record.id = next_id;
+        rw.insert(record.clone()).map_err(db_err("写入 run 记录"))?;
+        rw.commit().map_err(db_err("提交 begin_agent_run 事务"))?;
+        Ok(record)
     }
 
     /// 收敛 run 终态：以传入记录整行替换（status / finished_at / 汇总 /
     /// error 由调用方填充）。
     pub fn finish_agent_run(&self, run_id: i64, record: &AgentRunRecord) -> Result<(), StoreError> {
-        let write_txn = self.db.begin_write().map_err(db_err("开启写事务"))?;
-        {
-            let mut table = write_txn
-                .open_table(USER_AGENT_RUNS)
-                .map_err(db_err("打开 user_agent_runs 表"))?;
-            let bytes = record.encode().map_err(db_err("编码 run 记录"))?;
-            table
-                .insert(run_id, bytes.as_slice())
-                .map_err(db_err("写入 run 记录"))?;
+        if record.id != run_id {
+            return Err(StoreError::Db(format!(
+                "run id 不匹配: 记录 id {} ≠ 目标 run id {run_id}",
+                record.id
+            )));
         }
-        write_txn
-            .commit()
-            .map_err(db_err("提交 finish_agent_run 事务"))?;
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.upsert(record.clone()).map_err(db_err("写入 run 记录"))?;
+        rw.commit().map_err(db_err("提交 finish_agent_run 事务"))?;
         Ok(())
     }
 
     /// 运行清单：`started_at` 降序，并列按 id 降序（顺序确定，与 workspace
-    /// 清单同哲学）。
+    /// 清单同哲学）。全表读 + 内存排序——调试页数据量小，行为零变化优先；
+    /// 二级索引查询形态由 `AgentEventRecord.run_id` 兑现。
     pub fn list_agent_runs(&self) -> Result<Vec<AgentRunRecord>, StoreError> {
-        let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
-        let table = read_txn
-            .open_table(USER_AGENT_RUNS)
-            .map_err(db_err("打开 user_agent_runs 表"))?;
-        let mut records = Vec::new();
-        for entry in table.iter().map_err(db_err("遍历运行清单"))? {
-            let (_, value) = entry.map_err(db_err("读取 run 记录"))?;
-            records.push(AgentRunRecord::decode(value.value()).map_err(db_err("解码 run 记录"))?);
-        }
+        let mut records = self.read_all::<AgentRunRecord>("遍历运行清单")?;
         records.sort_by(|a, b| {
             b.started_at
                 .cmp(&a.started_at)
@@ -299,24 +226,68 @@ impl Store {
         Ok(records)
     }
 
-    /// 单 run 事件重放：`(run_id, seq)` 半开区间扫描，seq 升序返回。
-    pub fn list_agent_run_events(&self, run_id: i64) -> Result<Vec<serde_json::Value>, StoreError> {
-        let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
-        let table = read_txn
-            .open_table(USER_AGENT_RUN_EVENTS)
-            .map_err(db_err("打开 user_agent_run_events 表"))?;
-        let mut events = Vec::new();
-        let range_start = (run_id, 0u64);
-        let range_end = (run_id.saturating_add(1), 0u64);
-        for entry in table
-            .range(range_start..range_end)
-            .map_err(db_err("扫描运行事件"))?
-        {
-            let (_, value) = entry.map_err(db_err("读取事件"))?;
-            let event = serde_json::from_slice(value.value()).map_err(db_err("解码事件"))?;
-            events.push(event);
+    /// 批量追加运行事件：单事务写入；`event_key` 由 `(run_id, seq)` 打包
+    /// （seq 取自事件本体，不存在「缺 seq」错误路径）。
+    pub fn append_agent_run_events(
+        &self,
+        run_id: i64,
+        events: &[AgentEvent],
+    ) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        for event in events {
+            let record = AgentEventRecord::new(run_id, event.clone());
+            rw.insert(record).map_err(db_err("写入事件"))?;
         }
-        Ok(events)
+        rw.commit().map_err(db_err("提交事件追加事务"))?;
+        Ok(())
+    }
+
+    /// 单 run 事件重放：经 `run_id` 非唯一二级索引扫描，seq 升序返回
+    /// （打包主键大端序保证同 run 内自然序即重放序）。
+    pub fn list_agent_run_events(&self, run_id: i64) -> Result<Vec<AgentEvent>, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let records: Vec<AgentEventRecord> = r
+            .scan()
+            .secondary(crate::model::AgentEventRecordKey::run_id)
+            .map_err(db_err("扫描运行事件"))?
+            .range(run_id..run_id.saturating_add(1))
+            .map_err(db_err("扫描运行事件"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描运行事件"))?;
+        Ok(records.into_iter().map(|record| record.event).collect())
+    }
+
+    /// 全部已注册模型清单与记录计数（注册表驱动，计数 0 也列出；新模型登记
+    /// 注册表一行即覆盖，见 [`crate::envelope`]）。
+    pub fn list_models(&self) -> Result<Vec<ModelInfo>, StoreError> {
+        envelope::list_models(&self.db)
+    }
+
+    /// 按模型主键自然序分页扫描（`skip(offset).take(limit)`；`limit` 上限
+    /// 500 超出截断；未知模型名 Err）。key/value 均为 JSON 值，native_db
+    /// 类型不越信封。
+    pub fn scan(
+        &self,
+        model: &str,
+        offset: u32,
+        limit: u32,
+    ) -> Result<Vec<RecordEnvelope>, StoreError> {
+        envelope::scan(&self.db, model, offset, limit)
+    }
+
+    /// 主键自然序全表读出（workspace / run 清单共用）。
+    fn read_all<T: native_db::ToInput + serde::de::DeserializeOwned>(
+        &self,
+        context: &'static str,
+    ) -> Result<Vec<T>, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        r.scan()
+            .primary::<T>()
+            .map_err(db_err(context))?
+            .all()
+            .map_err(db_err(context))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err(context))
     }
 
     /// 解析输入路径为库中已有 key（D1）：canonicalize 主口径；目录已消失
@@ -327,28 +298,18 @@ impl Store {
                 let key = canonical.to_string_lossy().into_owned();
                 Ok(self.contains_key(&key)?.then_some(key))
             }
-            Err(_) => {
-                let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
-                let table = read_txn
-                    .open_table(USER_WORKSPACES)
-                    .map_err(db_err("打开 user_workspaces 表"))?;
-                for entry in table.iter().map_err(db_err("遍历清单"))? {
-                    let (stored_key, _) = entry.map_err(db_err("读取记录"))?;
-                    if canonical::matches_lexically(stored_key.value(), root) {
-                        return Ok(Some(stored_key.value().to_owned()));
-                    }
-                }
-                Ok(None)
-            }
+            Err(_) => Ok(self
+                .list_workspaces()?
+                .into_iter()
+                .map(|record| record.root)
+                .find(|stored_key| canonical::matches_lexically(stored_key, root))),
         }
     }
 
     /// canonical key 是否已入库（命中判定，不取值）。
     fn contains_key(&self, key: &str) -> Result<bool, StoreError> {
-        let read_txn = self.db.begin_read().map_err(db_err("开启读事务"))?;
-        let table = read_txn
-            .open_table(USER_WORKSPACES)
-            .map_err(db_err("打开 user_workspaces 表"))?;
-        Ok(table.get(key).map_err(db_err("读取记录"))?.is_some())
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let hit: Option<WorkspaceRecord> = r.get().primary(key).map_err(db_err("读取记录"))?;
+        Ok(hit.is_some())
     }
 }

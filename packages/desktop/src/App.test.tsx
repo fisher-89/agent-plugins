@@ -3,7 +3,13 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import App from './App';
-import type { ChangeDetail, ChangeList, WorkspaceRecord } from './types/dto';
+import type {
+  ChangeDetail,
+  ChangeList,
+  ModelInfo,
+  RecordEnvelope,
+  WorkspaceRecord,
+} from './types/dto';
 
 const { checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
   checkMock: vi.fn(),
@@ -54,6 +60,19 @@ const fakeDetail: ChangeDetail = {
   artifacts: [],
 };
 
+// db 查看域 fixture：DbInspectorView 挂载即 invoke("db_models")，mock 必须回
+// 数组形态（null 会使 hook state.models 置 null 而崩），信封按 offset/limit 切页
+const DB_MODELS: ModelInfo[] = [
+  { name: 'workspace', count: 2 },
+  { name: 'agent_run', count: 1 },
+  { name: 'agent_event', count: 0 },
+];
+const DB_RECORDS: RecordEnvelope[] = [
+  { key: 'C:\\demo\\alpha', value: { root: 'C:\\demo\\alpha', name: 'alpha', addedAt: 1 } },
+  { key: 1, value: { id: 1, prompt: '你好', status: 'completed' } },
+  { key: { runId: 1, seq: 0 }, value: { eventKey: '0x1', runId: 1, event: { seq: 0 } } },
+];
+
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：IPC 按命令名分发；文件夹对话框按用例 resolve / reject / cancel；
 // 版本号固定 resolve。sonner <Toaster /> 不 mock：App 根真实挂载，toast 断言走
@@ -75,40 +94,53 @@ function mockIpc() {
   removeReject = null;
   removeMiss = false;
   listReject = null;
-  invokeMock.mockImplementation((command: string, params?: { root?: string; change?: string }) => {
-    if (command === 'list_workspaces') {
-      if (listReject !== null) return Promise.reject(new Error(listReject));
-      return Promise.resolve([...remaining]);
-    }
-    if (command === 'remove_workspace') {
-      if (removeReject !== null) return Promise.reject(new Error(removeReject));
-      if (removeMiss) return Promise.resolve(false); // store miss 幂等（D8 排除项）
-      remaining = remaining.filter((r) => r.root !== params?.root);
-      return Promise.resolve(true);
-    }
-    if (command === 'add_workspace') {
-      if (addBehavior === 'reject') {
-        return Promise.reject(new Error('canonicalize: 入库失败'));
+  invokeMock.mockImplementation(
+    (
+      command: string,
+      params?: { root?: string; change?: string; offset?: number; limit?: number },
+    ) => {
+      if (command === 'list_workspaces') {
+        if (listReject !== null) return Promise.reject(new Error(listReject));
+        return Promise.resolve([...remaining]);
       }
-      const rec: WorkspaceRecord = addRecord ?? {
-        root: params?.root ?? '',
-        name: 'picked',
-        addedAt: 1,
-      };
-      // 对齐后端：库存按默认序（canonical root 升序）返回，新记录未必居首
-      remaining = [...remaining.filter((r) => r.root !== rec.root), rec].sort((a, b) =>
-        a.root < b.root ? -1 : a.root > b.root ? 1 : 0,
-      );
-      return Promise.resolve(rec);
-    }
-    if (command === 'list_changes') {
-      return Promise.resolve(fakeList);
-    }
-    if (command === 'get_change_detail') {
-      return Promise.resolve(fakeDetail);
-    }
-    return Promise.resolve(null);
-  });
+      if (command === 'remove_workspace') {
+        if (removeReject !== null) return Promise.reject(new Error(removeReject));
+        if (removeMiss) return Promise.resolve(false); // store miss 幂等（D8 排除项）
+        remaining = remaining.filter((r) => r.root !== params?.root);
+        return Promise.resolve(true);
+      }
+      if (command === 'add_workspace') {
+        if (addBehavior === 'reject') {
+          return Promise.reject(new Error('canonicalize: 入库失败'));
+        }
+        const rec: WorkspaceRecord = addRecord ?? {
+          root: params?.root ?? '',
+          name: 'picked',
+          addedAt: 1,
+        };
+        // 对齐后端：库存按默认序（canonical root 升序）返回，新记录未必居首
+        remaining = [...remaining.filter((r) => r.root !== rec.root), rec].sort((a, b) =>
+          a.root < b.root ? -1 : a.root > b.root ? 1 : 0,
+        );
+        return Promise.resolve(rec);
+      }
+      if (command === 'list_changes') {
+        return Promise.resolve(fakeList);
+      }
+      if (command === 'get_change_detail') {
+        return Promise.resolve(fakeDetail);
+      }
+      if (command === 'db_models') {
+        return Promise.resolve(DB_MODELS.map((model) => ({ ...model })));
+      }
+      if (command === 'db_records') {
+        const offset = params?.offset ?? 0;
+        const limit = params?.limit ?? 50;
+        return Promise.resolve(DB_RECORDS.slice(offset, offset + limit).map((e) => ({ ...e })));
+      }
+      return Promise.resolve(null);
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -640,6 +672,58 @@ describe('App：错误双轨呈现——动作 reject → toast / 查询 reject 
     expect(document.querySelector('[data-sonner-toast]')).toBeNull();
     expect(screen.getByRole('button', { name: '重试更新' }) !== null).toBe(true);
   });
+
+  it('更新下载进度呈「下载中 42%」精确文案，Finished 转「正在安装…」终态并退出下载态', async () => {
+    // 安装版语义：启用启动检查
+    vi.stubEnv('DEV', false);
+    type UpdateEvent = { event: string; data?: { chunkLength?: number; contentLength?: number } };
+    // downloadAndInstall 挂起以维持 downloading 形态；事件回调经 channel 捕获后按拍派发
+    const channel: { emit: ((event: UpdateEvent) => void) | null } = { emit: null };
+    const updating = {
+      version: '0.2.0',
+      body: '修复若干问题',
+      close: vi.fn().mockResolvedValue(undefined),
+      downloadAndInstall: vi.fn((onEvent: (event: UpdateEvent) => void) => {
+        channel.emit = onEvent;
+        return new Promise<void>(() => {});
+      }),
+    };
+    checkMock.mockResolvedValueOnce(fakeUpdate()); // 启动检查发现新版本
+    render(<App />);
+    const entry = await screen.findByRole('button', { name: '更新到 v0.2.0' });
+
+    checkMock.mockResolvedValueOnce(updating); // start 重新 check 取新鲜实例
+    fireEvent.click(entry);
+    await waitFor(() => expect(channel.emit).not.toBeNull());
+
+    // 下载中段：Started(contentLength=100) + Progress(chunkLength=42) → 42%
+    act(() => {
+      channel.emit!({ event: 'Started', data: { contentLength: 100 } });
+      channel.emit!({ event: 'Progress', data: { chunkLength: 42 } });
+    });
+    await waitFor(() => expect(screen.getByText('下载中 42%') !== null).toBe(true));
+    expect(screen.queryByText('正在安装…')).toBeNull();
+
+    // Finished → installing 终态（Windows 上其后无回调）
+    act(() => {
+      channel.emit!({ event: 'Finished' });
+    });
+    await waitFor(() => expect(screen.getByText('正在安装…') !== null).toBe(true));
+    expect(screen.queryByText(/下载中/)).toBeNull();
+  });
+
+  it('版本号拉取失败：currentVersion=null 时顶栏不呈版本号文本（v 前缀 span 不渲染）', async () => {
+    getVersionMock.mockRejectedValue(new Error('version: 不可用'));
+    render(<App />);
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    // 断言收敛于顶栏（内容区 v2 inventory 徽标等与版本指示无关）
+    const header = document.querySelector('header');
+    expect(header !== null).toBe(true);
+    expect(within(header!).queryByText(/^v\d/)).toBeNull();
+    expect(within(header!).queryByText('v')).toBeNull(); // 守卫被移除时会渲染出孤立的「v」
+    expect(within(header!).getByText('Dev Team') !== null).toBe(true); // 顶栏其余元素在场
+  });
 });
 
 // ---------------------------------------------------------------------------
@@ -782,7 +866,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
 // 矩阵归 route_pages.test.tsx。
 // ---------------------------------------------------------------------------
 
-describe('App：路由化顶层页面切换（changes | agent）', () => {
+describe('App：路由化顶层页面切换（changes | agent | db）', () => {
   beforeEach(() => {
     // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
     // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
@@ -824,6 +908,62 @@ describe('App：路由化顶层页面切换（changes | agent）', () => {
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
     expect(window.location.hash).toBe('#/changes');
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
+  });
+
+  it('侧栏点击「DB 查看」→ DbInspectorView 呈现且 db_models 取数发起、其余两分支不挂载（db 分支渲染）', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-db'));
+    await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('db_models'));
+    expect(screen.queryByText('add-feature')).toBeNull();
+    expect(screen.queryByTestId('agent-run-form')).toBeNull();
+    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+  });
+
+  it('切至 db 页再切回 changes：list_changes / list_workspaces 调用次数不增长（切页不触发取数）', async () => {
+    await restored();
+
+    const listChangesBefore = countOf('list_changes');
+    const listWorkspacesBefore = countOf('list_workspaces');
+
+    fireEvent.click(screen.getByTestId('nav-db'));
+    await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(countOf('list_changes')).toBe(listChangesBefore);
+    expect(countOf('list_workspaces')).toBe(listWorkspacesBefore);
+  });
+
+  it('侧栏点击「DB 查看」→ DbInspectorView 呈现且 db_models 取数发起、其余两分支不挂载（db 分支渲染）', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-db'));
+    await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
+    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('db_models'));
+    expect(screen.queryByText('add-feature')).toBeNull();
+    expect(screen.queryByTestId('agent-run-form')).toBeNull();
+    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+  });
+
+  it('切至 db 页再切回 changes：list_changes / list_workspaces 调用次数不增长（切页不触发取数）', async () => {
+    await restored();
+
+    const listChangesBefore = countOf('list_changes');
+    const listWorkspacesBefore = countOf('list_workspaces');
+
+    fireEvent.click(screen.getByTestId('nav-db'));
+    await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(countOf('list_changes')).toBe(listChangesBefore);
+    expect(countOf('list_workspaces')).toBe(listWorkspacesBefore);
   });
 
   it('进入 change 详情后切 Agent 页再切回：hash 落 /changes（无 :name 段）、选中重置回清单、get_change_detail 不以旧选中重发（D10 路由化保留）', async () => {
@@ -881,7 +1021,7 @@ describe('App：路由化顶层页面切换（changes | agent）', () => {
     expect(countOf('list_workspaces')).toBe(listBefore);
   });
 
-  it('root=null（无 workspace）时欢迎屏持有、页面导航不在场、不崩', async () => {
+  it('root=null（无 workspace）时欢迎屏持有、页面导航不在场（含 nav-db）、不崩', async () => {
     remaining = [];
     render(<App />);
 
@@ -889,6 +1029,9 @@ describe('App：路由化顶层页面切换（changes | agent）', () => {
 
     expect(screen.queryByTestId('nav-agent')).toBeNull();
     expect(screen.queryByTestId('nav-changes')).toBeNull();
+    expect(screen.queryByTestId('nav-db')).toBeNull();
+    expect(screen.queryByText('系统工具')).toBeNull();
+    expect(screen.queryByTestId('db-model-list')).toBeNull();
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
   });
 });

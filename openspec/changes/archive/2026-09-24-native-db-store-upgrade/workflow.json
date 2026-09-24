@@ -1,0 +1,848 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-23",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-23T11:44:14.782Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/Cargo.toml",
+      "at": "2026-09-23T11:44:18.582Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "at": "2026-09-23T12:24:04.001Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store.rs",
+      "at": "2026-09-23T12:17:24.036Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope.rs",
+      "at": "2026-09-23T12:04:53.567Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/migrate.rs",
+      "at": "2026-09-23T12:17:37.167Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "at": "2026-09-23T12:03:22.227Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod.rs",
+      "at": "2026-09-23T12:05:11.436Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-23T12:05:18.390Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-23T12:23:36.299Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent.rs",
+      "at": "2026-09-23T12:05:29.958Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-09-23T12:05:40.390Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/types/dto.ts",
+      "at": "2026-09-23T12:06:23.247Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/useDbInspector.ts",
+      "at": "2026-09-23T12:21:03.408Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/DbInspectorView.tsx",
+      "at": "2026-09-23T12:22:19.388Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/AppSidebar.tsx",
+      "at": "2026-09-23T12:07:52.173Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.tsx",
+      "at": "2026-09-23T12:08:06.460Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-23T12:08:07.498Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/examples/smoke.rs",
+      "at": "2026-09-23T12:19:11.678Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/examples",
+      "at": "2026-09-23T12:19:11.678Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "2>/dev/null",
+      "at": "2026-09-23T12:19:11.678Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model_test.rs",
+      "at": "2026-09-23T12:41:27.613Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-09-23T12:42:24.401Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-09-23T12:42:50.319Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent_test.rs",
+      "at": "2026-09-23T12:44:14.343Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model_test.rs",
+      "at": "2026-09-23T13:18:03.355Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-09-23T13:18:10.601Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope_test.rs",
+      "at": "2026-09-23T13:18:06.779Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/migrate_test.rs",
+      "at": "2026-09-23T13:30:16.836Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "at": "2026-09-23T13:12:41.440Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod.rs",
+      "at": "2026-09-23T13:28:58.044Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod_test.rs",
+      "at": "2026-09-23T13:32:10.731Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent_test.rs",
+      "at": "2026-09-23T13:31:04.947Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-09-23T13:31:54.481Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/AppSidebar.test.tsx",
+      "at": "2026-09-23T13:44:53.696Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-23T13:34:40.879Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/useDbInspector.test.ts",
+      "at": "2026-09-23T13:42:20.698Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/DbInspectorView.test.tsx",
+      "at": "2026-09-23T13:40:56.275Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/db_inspector_nav.test.tsx",
+      "at": "2026-09-23T13:39:03.955Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/db_inspector_pipeline.test.tsx",
+      "at": "2026-09-23T13:42:26.649Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/hooks/useDbInspector.test.ts",
+      "at": "2026-09-23T14:24:11.439Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/db/DbInspectorView.test.tsx",
+      "at": "2026-09-23T14:25:56.989Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/components/AppSidebar.test.tsx",
+      "at": "2026-09-23T14:24:56.145Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/App.test.tsx",
+      "at": "2026-09-23T14:26:24.464Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/__tests__/db_inspector_pipeline.test.tsx",
+      "at": "2026-09-23T14:25:31.248Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "评估 proposal.md 与 5 个 specs。R1 问题含三诉求+具体痛点；R2 实现/测试/不要修改三节齐全非空；R3 六风险均有具体缓解（spike 退路、Raw 兜底+.bak）；R4 AC-1~8 均对象+条件可测；R5 决策表 9 项均含理由与被拒备选；R6 与 CLAUDE.md 无冲突（版本 bump、反投机裁定）；R7/R8 无占位符、章节实质；R9 能力 1 新增 4 修改；R10 5 能力与 5 spec 一一对应；R11 ADDED/MODIFIED/RENAMED 与能力类型一致，AC 与 spec requirement/scenario 交叉对应无矛盾。全部通过。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "问题节列出依赖升级/DB 查看页/store 架构规划三诉求，并具体化痛点：354 行手写表定义、事件流 opaque serde_json::Value、全表读+内存排序、schema_version 手工轮账。"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "### 实现文件 9 项（store crate、commands/db、AppSidebar、DbInspectorView 等）、### 测试文件 5 项、### 不要修改 4 项（core/agent、core/workflow 等）均非空。"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "Spike① 退路为合成键（u128 打包）+run_id 二级索引；迁移丢数据→Raw 兜底+.bak 留档+集成测试；双开竞态→仅启动时执行一次+新格式标记；均非泛化措施。"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~AC-8 均含对象+条件：AC-2 fixture 库记录数一致/落 Raw/.bak 存在；AC-4 core/agent git diff 为空+无 native_db 类型泄漏；AC-6 欢迎态无该组 DOM。"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "决策表 9 行均填理由与备选：如类型化建模 vs raw KV 保留通道；包装建模 vs 镜像类型/contract crate；一表加可选字段 vs 单独成表，均附拒绝原因。"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "含 packages/desktop/package.json 版本 bump；明确裁定无生产者的模型为投机特性不落地，符合 CLAUDE.md 简单优先/无投机特性；不涉及 plugin 架构冲突。"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文检索 proposal 与 5 个 spec 无 TODO/TBD/placeholder/{{...}} 标记；待决问题节为显式 spike 项而非占位。"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围/验收标准/风险/过程各节均有实质内容，无模板占位。"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "## 能力 下 ### 新增能力 desktop-db-inspector、### 修改的能力 desktop-workspace-store / desktop-crate-layout / desktop-app-shell / desktop-data-dimensions。"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 下恰有 desktop-db-inspector、desktop-workspace-store、desktop-crate-layout、desktop-app-shell、desktop-data-dimensions 5 个 spec.md，与能力列表一一对应，无多余 spec。"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "db-inspector=ADDED、store MODIFIED+RENAMED（redb→native_db 类型不泄漏）、layout MODIFIED（store→agent 修订留痕）、shell RENAMED 双轨→三轨+MODIFIED、dimensions MODIFIED+ADDED；AC-1~8 均能在 spec requirement/scenario 找到对应（迁移三 scenario、Raw 兜底、信封 API、db_models/db_records、欢迎态隔离），无矛盾。"
+        }
+      ],
+      "start_at": "2026-09-23T10:54:45.075Z",
+      "timestamp": "2026-09-23T11:07:48.667Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 通过。D1 组件表8行全填职责/依赖/技术/路径，无TBD；D2 数据模型4模型含字段/持久化及legacy映射；D3 AC-1..8逐项有落点（AC-6欢迎态隔离见任务7自查，AC-8含Cargo与spec修订）；D4 阶段1-7依赖序正确，阶段2对迁移的引用为延迟接线注记；D5 任务均到文件级具体操作；D6 依赖节列运行时+构建测试依赖及用途；D7 无CLAUDE.md冲突，投机特性已裁；D8 六章节实质填写；D9 design无测试章节，tasks无测试任务（cargo check/fmt/clippy/vp check为编译与静态验证）；D10 proposal实现文件全覆盖，tasks与清单双向一致，exec两涟漪文件已论证且不在不要修改清单，公共函数表与新增文件无矛盾。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表8行×5列全填；技术均具体（#[native_model]+#[native_db]宏、native_db Database、Tauri command、React+JSON.stringify），无TBD；路径指向具体文件（如 crates/infra/store/src/migrate.rs）"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表4行（WorkspaceRecord/AgentRunRecord/AgentEventRecord/未来租户），字段、关系（run_id 1:N、二级索引）、持久化（user db native_db 格式+native_model bincode 封装）全填，另附 legacy→新格式映射段"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 每个验收标准",
+          "pass": true,
+          "evidence": "AC-1 store.rs 平移签名不变（阶段2）；AC-2 migrate.rs+映射节+原子改名决策；AC-3 删 init_schema/META 轮账；AC-4 任务1确认 core/agent diff 为空+信封 serde_json::Value 不泄漏；AC-5 db_models/db_records；AC-6 SystemToolsGroup+任务7欢迎态隔离自查；AC-7 只读四件套+只读边界声明；AC-8 Cargo.toml 依赖+desktop-crate-layout 修订指引"
+        },
+        {
+          "item": "D4 tasks.md 存在且遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在且全为 - [ ] checkbox；阶段1-7 依赖序 地基→操作面→迁移→信封→命令→前端→收尾；阶段2 open 提及阶段3为延迟接线注记，实际接线在阶段3末任务完成，无后置任务被前置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每任务指定文件+具体操作：如删除手写 encode/decode、event_key=(run_id<<64|seq) 打包式、limit 上限500截断、PAGE_SIZE=50、具体 data-testid 命名；无空泛「实现功能」任务"
+        },
+        {
+          "item": "D6 运行时和构建/测试依赖已列出",
+          "pass": true,
+          "evidence": "依赖节分运行时（native_db =\"=0.8.2\"、native_model =\"=0.4.20\"、redb 保留读旧、agent 嵌装载荷、dunce/serde/serde_json、前端无新增）与构建/测试（tempfile、vp/cargo fmt/clippy），均注明用途"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "无矛盾：无投机特性（workflow 租户明确本变更不注册）、无 test-only exports、版本 bump 遵守规则；store→agent 依赖为 proposal 已裁定的 desktop-crate-layout spec 修订且有 agent-cli 先例"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件（8行）、变更清单（新增5+修改12+删除说明+公共函数15+类型8+配置）、数据模型（4行）、路由/API设计（2条 IPC 命令+只读边界）、依赖、待决问题（4项）均实质填写"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节（tempfile 仅作依赖声明并注明测试设计属独立阶段）；tasks.md 无单元/集成测试任务——cargo check 为编译期 spike 验证，fmt/clippy/vp check 为静态检查，阶段7为验收映射自查非测试执行"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal 实现文件9条全覆盖（store目录拆为 model/store/lib/canonical/Cargo.toml+新增2）；tasks 引用19文件均在清单；清单文件均有对应任务（canonical.rs 标注无修改一致）；新增文件公共符号 db_models/db_records/useDbInspector/DbInspectorView 均在公共函数表，migrate.rs 为 pub(crate) 无公共面；exec/agent.rs 与 exec/mod.rs 两涟漪文件已论证必要且不在 proposal 不要修改清单"
+        }
+      ],
+      "start_at": "2026-09-23T11:08:08.532Z",
+      "timestamp": "2026-09-23T11:21:56.256Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "8 项全过：AC-1~8 全映射（AC-8 落不可测试项）；5 个集成关系与验收范围双向闭合；Result 面对象均有异常用例，边界含 u128 min/max、offset u32::MAX、limit 0/500 截断、空库，无错误路径对象（model/AppSidebar/App）异常域由 R1 Raw 兜底与 R4/R5 reject 覆盖；DB/文件系统/runtime/IPC Mock 策略齐备；16 单元小节三要素完整；写操作幂等（重复 seq 恰一条、迁移重开直通）；格式与模板一致。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md L100-107 AC-1~AC-8 逐条映射至 test-design.md L15-22 验收范围表 8 行；AC-8 标注静态审查并指向不可测试项"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单元方向：验收范围所列测试文件（store/model/envelope/AppSidebar/App/DbInspectorView/useDbInspector *_test）均有对应 ### 章节；集成方向：R1(AC-1/2/3) R2(AC-5/7) R3(AC-1/4) R4(AC-6) R5(AC-5/7) 关联AC 与验收范围双向闭合，无缺失"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常与边界",
+          "pass": true,
+          "evidence": "Result 面对象均有异常用例（L86 open 迁移失败、L96/L149 scan 未知模型、L174 db_records Err、L281-282 hook 双 reject、L255 view 错误态）；model/AppSidebar/App 无错误路径，其异常域由 R1 损坏行 Raw 兜底与 R4/R5 reject 覆盖；边界含 u128 min/max(L48)、相邻 run 隔离(L49)、offset 0/==total/>total/u32::MAX(L145)、limit 0/剩余/500 截断(L146)、空库空页"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "文件 DB（tempfile 真开库不 mock，L102/L155）、文件系统改名注入（L482）、Tauri runtime（mock_app，L181/L518）、IPC（vi.mock invoke，L236/L288/L601/L637）均描述 Mock 策略"
+        },
+        {
+          "item": "T5 模板章节均填实质性内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/集成测试/不可测试项四章节齐全；16 个单元小节均含 待测功能→用例→Mock策略 三小节（无用例小节以注释说明理由）；5 个集成关系要素完整"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 实现文件全部有测试覆盖或落不可测试项（L645 manifest、L648 invoke_handler 装配、L650 版本 bump）；不要修改的 core/agent 与范围外的 workflow 未来租户无测试越界"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "重复 seq 二次追加重放恰一条（L91）、remove miss 幂等（L71/L88）、add_workspace upsert added_at 保留首添（L69）、迁移后重开直通不重复迁移（L448）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "单元 ### 均为 `源 -> 测试` 模式且三小节顺序正确；集成 ### 均含 `→ 测试文件`；用例表 4 列、Mock 表 3 列、场景表 3 列与模板一致；涉及模块表 3-4 行；关系描述与场景均为叙事段落；验收范围表列布局与模板一致"
+        }
+      ],
+      "start_at": "2026-09-23T11:22:29.976Z",
+      "timestamp": "2026-09-23T11:39:07.278Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "8组件/5新增/13修改全部落地,API/类型/pin/版本号均符设计;files.deleted 系钩子伪记录(含字面量 2>/dev/null),实际无删除;canonical.rs 按设计未动。I7 fail:lib.rs 仍声明 model_test/store_test 但未随 API 平移更新,cargo check -p store --all-targets 实报 20 错(手写 encode/decode 已删、append_agent_run_events 旧 Value 签名),测试目标不可编译;store_test.rs 残留 SCHEMA_VERSION/user_meta 镜像与 redb 直用,违背「META 轮账退役、redb 仅迁移模块」终态(AC-3 grep 不净);exec/mod_test.rs:92 同类;阶段7 clippy 收口 [x] 与事实不符。AgentEventRecord 用 SerdeJsonCodec 系已文档化必要偏差(flatten 需自描述编码),不扣。",
+      "checklist": [
+        {
+          "item": "I1 design.md 每个架构组件均有实现代码",
+          "pass": true,
+          "evidence": "model.rs/store.rs/migrate.rs/envelope.rs/commands/db/mod.rs/AppSidebar.tsx/DbInspectorView.tsx/useDbInspector.ts 全部存在且内容对题"
+        },
+        {
+          "item": "I2 变更清单条目均有对应实现(三态对账)",
+          "pass": true,
+          "evidence": "5 新增文件在盘;13 修改文件与 git status 一致;公共 API/类型/pin(native_db=0.8.2, native_model=0.4.20)/package.json 0.3.0 均符;Cargo.lock 为依赖锁良性漏记;files.deleted 系钩子伪记录(含字面量 2>/dev/null,examples/smoke.rs 不存在于 HEAD),实际无删除;canonical.rs 按设计零改动"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "新增代码命名/文件组织/导入模式/命令三件事纪律与代码库一致(store_test 残留问题归 I7 计)"
+        },
+        {
+          "item": "I4 所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "commands/db/mod.rs 两命令实现并在 main.rs invoke_handler 注册,Result<T,String> 错误约定符合"
+        },
+        {
+          "item": "I5 tasks.md 所有任务标记 [x]",
+          "pass": true,
+          "evidence": "tasks.md 阶段 1-7 全部 33 项复选框已勾选(阶段7 静态检查收口的记录真实性另见 I7 证据)"
+        },
+        {
+          "item": "I6 无与变更无关的代码",
+          "pass": true,
+          "evidence": "files.written 与计划一致;无计划外删除(git status 无 D 项);无额外源码删除"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": false,
+          "evidence": "lib.rs 仍声明 model_test/store_test 但两文件未随 API 平移更新:cargo check -p store --all-targets 实报 20 错(E0599 手写 encode/decode 已删、E0308 append_agent_run_events 旧 Value 签名、E0608/E0277);store_test.rs 残留 SCHEMA_VERSION/user_meta 镜像与 redb 直用,违背设计「META 轮账退役、redb 仅迁移模块、grep schema_version 干净」终态(AC-3);exec/mod_test.rs:92 同类签名失配;阶段7「cargo fmt+clippy 收口」[x] 与事实不符。AgentEventRecord 改 SerdeJsonCodec 系已文档化必要偏差(core AgentEvent serde flatten 需自描述编码,event.rs:98),不扣"
+        }
+      ],
+      "start_at": "2026-09-23T11:39:33.274Z",
+      "timestamp": "2026-09-23T12:33:44.825Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "实现与 design 变更清单完全对账：新增5文件、修改12文件均落盘且在 files 清单；无整文件删除（files.deleted 中 examples/smoke.rs 等为 hook 误记，路径从未存在，无源码被删）；Cargo.lock 为依赖声明机械涟漪。Store 11 公共方法、db_models/db_records 命令、hook/视图签名与 design 一致；u128 打包键、redb 双版本共存、迁移两段改名+回退、信封注册表、list_agent_runs 内存排序、事件类型化涟漪均落实。attempt1 三处 I7 缺陷已修复：cargo check --all-targets 通过、schema_version/user_meta 仅余 migrate.rs 合法探测、exec/mod_test.rs 已类型化；vp check/knip/clippy 通过，core/agent diff 为空。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "model.rs/store.rs/migrate.rs/envelope.rs/commands/db/mod.rs/AppSidebar.tsx/DbInspectorView.tsx/useDbInspector.ts 逐项与 design 架构表组件对上，均存在于文件系统"
+        },
+        {
+          "item": "I2 变更清单三态对账",
+          "pass": true,
+          "evidence": "新增5+修改12文件均落盘、在 files.written、git 显示 M；Store 11 公共方法、db_models/db_records、useDbInspector、TS DTO 签名逐项对上；files.deleted 指向从未存在的路径（含 '2>/dev/null'），属 hook 误记，无实际删除"
+        },
+        {
+          "item": "I3 代码遵循项目规范",
+          "pass": true,
+          "evidence": "命令体三件事纪律、Result<T,String> 错误约定、db:/canonicalize: 前缀保留、mod_test/#[path] agent_test 共置模式与既有 queries/exec 轨道一致"
+        },
+        {
+          "item": "I4 路由/API 均实现",
+          "pass": true,
+          "evidence": "commands/db/mod.rs:16/22 两命令实现并于 main.rs:55-56 注册 invoke_handler；轨道仅此两条，无写命令"
+        },
+        {
+          "item": "I5 tasks.md 全部 [x]",
+          "pass": true,
+          "evidence": "阶段1-7 共30项复选框全部勾选"
+        },
+        {
+          "item": "I6 无无关代码改动",
+          "pass": true,
+          "evidence": "工作树改动恰为 design 清单范围；Cargo.lock 为依赖声明机械涟漪；canonical.rs 未动（design 声明无修改，git 证实）"
+        },
+        {
+          "item": "I7 设计决策落实（含 attempt1 缺陷修复）",
+          "pass": true,
+          "evidence": "u128打包键+二级索引(Spike①)、redb=4.3.0双版本共存+探测先行(Spike②)、bincode默认+事件SerdeJsonCodec(Spike③)、迁移两段改名+回退+迁移:前缀、信封fn-pointer注册表、list_agent_runs内存排序、事件类型化涟漪均落实；attempt1三缺陷已修复：cargo check --all-targets 通过、schema_version/user_meta 仅余 migrate.rs 合法探测与文档、exec/mod_test.rs 已类型化；vp check/knip/cargo fmt/clippy 通过；core/agent git diff 为空"
+        }
+      ],
+      "start_at": "2026-09-23T12:34:28.715Z",
+      "timestamp": "2026-09-23T12:54:30.373Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "13 个声明测试文件全部落盘并接线。G1 store 11 公共方法、model 键打包/访问器、db 两命令直测，from_root/migrate 经公共 API；G3/G4 单元与集成用例表逐行有 #[test]/it，open 迁移异常按设计归 migrate_test(R1)；G5 tempfile 不 mock、redb 裸句柄 fixture、mock_app 真库、vi.mock invoke 记录调用、FakeRunner/PATH_LOCK 全落地；G6 vite-plus/test+std test；G7 u128 极值/分页边界/千级 seq/损坏三行/bak 残留齐备；G8 tempfile RAII+PATH 与 stub 还原；G9 轮账与手写编解码旧用例未复现。备注：hook 末页 nextPage 与空库 db_records 空数组由 pipeline/越界用例承载，agent_event key 信封为 {runId,seq} 投影，不扣分。",
+      "checklist": [
+        {
+          "item": "G1 源码公开方法均有测试覆盖",
+          "pass": true,
+          "evidence": "store.rs 11 pub fn（open/add/list/remove/begin/finish/list_runs/append/list_events/list_models/scan）在 store_test/envelope_test/migrate_test 直测；model.rs pack_event_key+AgentEventRecord::new/run_id/seq 在 model_test.rs L99-243 直测；db_models/db_records 在 commands/db/mod_test.rs L101-230 直调；WorkspaceRecord::from_root、migrate 经 Store 公共 API 间接承载（项目公共 API 测试口径）"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码同目录",
+          "pass": true,
+          "evidence": "Rust 7 个 *_test.rs 与源码同目录且已接线（lib.rs L37-43 四 mod、commands/db/mod.rs L15、exec/mod.rs L15、agent.rs L158 #[path]）；TS 6 个 *.test.tsx/ts 与源码共存，2 个跨模块集成收 src/__tests__/，与 test-design 声明一致"
+        },
+        {
+          "item": "G3 单元测试>用例表逐行生成",
+          "pass": true,
+          "evidence": "model 5 新增行（键打包保序/极值/相邻 run/五变体往返/Raw 保真）、store 9 新增行、envelope 6 行、db 命令 6 行、AppSidebar 5 新增行、App 3 新增行、DbInspectorView 7 行、useDbInspector 7 行均有对应 #[test]/it；store open 迁移异常行按设计收敛于 migrate_test.rs L534/L561（R1）；备注：hook 末页 nextPage 由 pipeline 层覆盖"
+        },
+        {
+          "item": "G4 集成测试>用例表逐行生成",
+          "pass": true,
+          "evidence": "R1 三场景 11 行全落 migrate_test.rs（全量一致/重开直通/空库/user_meta 退役/零丢失/三类损坏行/bak 复核/双注入失败/bak 残留）；R2 5 行落 db/mod_test.rs；R3 4 行落 exec/mod_test.rs（L469 五变体/L328 隔离/L506 千级/存量适配 L252-563）；R4 5 行、R5 5 行落 __tests__；备注：R2 空库 db_records 空数组由越界空数组用例承载"
+        },
+        {
+          "item": "G5 Mock策略表格 mock 已实现",
+          "pass": true,
+          "evidence": "存储层不 mock：Rust 测试 tempfile Env 装置；旧 redb fixture 裸句柄直写三表+ReadOnlyDatabase 复核（migrate_test.rs L68-134）；tauri::test::mock_app manage 真实 Store（db/mod_test.rs L47-52）；vi.mock invoke 按命令名分发并记录调用（App/useDbInspector/nav/pipeline）；useDbInspector vi.mock 受控 state（View 测试）；FakeRunner 泛型缝+PATH_LOCK（agent_test.rs L27/L98）均与设计一致"
+        },
+        {
+          "item": "G6 测试文件使用正确框架与导入",
+          "pass": true,
+          "evidence": "TS 侧 import from 'vite-plus/test'（vite-plus 工具链）+ @testing-library/react + '@vitest-environment jsdom' 注记；Rust 侧 std #[test]/#[tokio::test] + tempfile + redb + tauri::test，与 test-design 框架识别结论一致，无裸 vitest/jest"
+        },
+        {
+          "item": "G7 test-design 边界情况已覆盖",
+          "pass": true,
+          "evidence": "u128 最小/最大键、相邻 run 边界、offset 0/==total/>total/u32::MAX、limit 0/剩余/500 截断、空库空页、千级 seq、两 run 重叠 seq 隔离、损坏行三分类、.bak 残留均有骨架；类型映射表在本 test-design 不存在（不适用）"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "Rust 全部 tempfile TempDir RAII 自动清理；PATH 修改后还原（agent_test.rs L315-322、exec/mod_test.rs L552-555）；tauri unmanage+drop 释放文件锁（exec/mod_test.rs L394-397）；TS afterEach restore stub/unstubAllEnvs/cleanup/toast.dismiss（AppSidebar L101、App L244-247、pipeline L96-98）"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "store_test.rs 无 schema_version 轮账四用例残留（无 SCHEMA_VERSION/user_meta）；model_test.rs 无手写 encode/decode camelCase 用例；AppSidebar 旧「页面组含 Agent 调试」断言改写为归属断言（L328-341）；App 两分支断言改写为三分支（L900-1038），均为改写非新增废弃语义"
+        }
+      ],
+      "start_at": "2026-09-23T12:55:00.988Z",
+      "timestamp": "2026-09-23T13:56:24.139Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "Mutation score 74.81% < threshold 80%。全部 356 测试通过（vite-plus 333 + rust 23，0 failed），根因唯一：断言强度不足（非测试失败/产品缺陷）。65 个未检出变异（62 survived + 3 noCoverage）全集中于本变更 4 个 TS 文件：DbInspectorView.tsx 29、useDbInspector.ts 20、App.tsx 11、AppSidebar.tsx 5；主类 ConditionalExpression(23)/StringLiteral(11)/ArrayDeclaration(7)/EqualityOperator(6)，即三元分支单侧断言与精确文本/列表断言缺失；补齐两个 db-inspector 文件 46 个幸存者即可远超 80%。覆盖率达标（TS 99.64/93.4/100，rust lines 96.1）；rust branches=0 系 llvm-cov 摘要无分支数据，按未测量处理。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total=356/passed=356/failed=0/skipped=0/coverage/duration_seconds=477 均存在且类型正确；coverage 为完整对象（pass/measured/thresholds/overrides），measured 三维 null 属允许值；plans 双计划（vite-plus + rust）均索引"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=356>0：vite-plus 333 passed + rust 23 passed，零 skipped；problems 无 execution_error（唯一 problem 类型为 coverage_failure，即 mutation 门禁），conclusion=fail 由 mutation 门禁引起而非用例失败"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；汇总 measured 三维 null → lines/branches/functions=N/A (框架不支持)；override packages/desktop pass=true（25 文件）。计划级实测 vite-plus lines 99.64/branches 93.4/functions 100、rust lines 96.1/functions 91.7 均高于阈值 90/85/90；rust 计划自身报 branches=0<85 系 llvm-cov 摘要未产出分支维度（汇总按未测量处理），非真实缺口"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0 按规则自动通过；mutation 门禁的根因亦唯一：65 个未检出变异 100% 落在 4 个本变更 TS 文件（与 mutation.json 原始聚合核验一致），无多因并存；非环境性 flake（timeout=0、compileError=0、runtimeError=0），全部幸存文件均在 test-design 范围内"
+        },
+        {
+          "item": "Mutation 分数达标（阈值80%）",
+          "pass": false,
+          "evidence": "74.81% < 80%：killed 193 / survived 62 / noCoverage 3 / total 258；packages/desktop override 74.81% 未达标。幸存者分布：DbInspectorView.tsx 26+3 noCoverage、useDbInspector.ts 20、App.tsx 11、AppSidebar.tsx 5；主类 ConditionalExpression 23 + EqualityOperator 6（loading/error/empty/filter 三元分支仅断言单侧）、StringLiteral 11 / BooleanLiteral 6 / ArrayDeclaration 7（精确文本与列表断言缺失）。补齐两个 db-inspector 文件的 46 个幸存者即可远超阈值；需返回 test-gen 阶段补断言，非产品缺陷"
+        }
+      ],
+      "backtrack_to": "test-gen",
+      "backtrack_reason": "Mutation 分数 74.81% < 80%,全部 356 测试通过、覆盖率达标,根因为断言强度不足而非产品缺陷;65 个未检出变异集中于 DbInspectorView.tsx(29)/useDbInspector.ts(20)/App.tsx(11)/AppSidebar.tsx(5),主类为三元分支单侧断言与精确文本/列表断言缺失,属测试代码补强,回溯 test-gen。",
+      "start_at": "2026-09-23T13:56:57.962Z",
+      "timestamp": "2026-09-23T14:10:29.838Z",
+      "stale": true
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "回溯重评通过。范围对账：13 个声明测试文件全在盘，attempt2 仅重写 5 个声明内 TS 测试（nav/pipeline 装置保留、nav 未动），无新增文件、无生产代码改动。G1-G9 复核维持且断言显著补强：精确 className/截断 120 边界/翻页竞态取消守卫/invoke 参数契约断言落地；R1 11 行→migrate_test 11 测试、R2 6 行、R3 4 行、R4/R5 各 5 行逐行有骨架；Mock 装置与清理还原（RAII/restore/unstubAllEnvs/cleanup/dismiss）未回退；废弃条目未复现（store_test 仅注释留痕）。",
+      "checklist": [
+        {
+          "item": "G1 源码公开方法均有测试覆盖",
+          "pass": true,
+          "evidence": "生产代码 attempt2 零改动，覆盖维持：store.rs 11 pub fn 由 store_test(36 测试)/envelope_test(8)/migrate_test(11) 直测；model 键打包与访问器 model_test.rs L99-229；db_models/db_records commands/db/mod_test.rs L101-220；前端 useDbInspector 全动作/View/侧栏/App 均有调用+断言用例"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码同目录",
+          "pass": true,
+          "evidence": "Glob 证实 13 个声明文件全在盘：Rust 7 个 *_test.rs 与源码同目录（lib.rs L37-43 四 mod 接线在位），TS 4 个与源码共存 + 2 个收 src/__tests__/，与 test-design 声明一致"
+        },
+        {
+          "item": "G3 单元测试>用例表逐行生成",
+          "pass": true,
+          "evidence": "model 5 行（L99/L113/L126/L142/L169/L192）；store 9 新增行+存量回归；envelope 6 行（L101/L127/L157/L172/L202/L265/L323）；db 6 行（L101-L220）；AppSidebar 5 新增行（L314/L328/L343/L350/L362/L370）；App 3 新增行（L995/L1008/L1077）；View 7 行；hook 7 行（含 attempt2 新增稳定判据/竞态/整页倍数骨架）均重写后保留"
+        },
+        {
+          "item": "G4 集成测试>用例表逐行生成",
+          "pass": true,
+          "evidence": "R1 11 行→migrate_test.rs L228/277/301/317/389/409/479/503/534/561/587；R2 5 行→db/mod_test.rs（L154/L177/L203/L133/L220）；R3 4 行→exec/mod_test.rs（五变体 L469、隔离 L328、千级 L506、存量 L287/L534）；R4 5 行→db_inspector_nav.test.tsx L146-223；R5 5 行→db_inspector_pipeline.test.tsx L101-170"
+        },
+        {
+          "item": "G5 Mock策略表格 mock 已实现",
+          "pass": true,
+          "evidence": "tempfile Env 真开库不 mock；redb 裸句柄 fixture（migrate_test.rs L68-134 create_legacy_db/insert_*/readonly_count）；mock_app manage 真实 Store（db/mod_test.rs L47）；vi.mock invoke 按命令名分发并记录调用（App L134 mockIpc、hook L37 mockDispatch、nav、pipeline）；useDbInspector vi.mock 受控 state + sonner spy（View L22-26）；FakeRunner/PATH_LOCK（exec/mod_test.rs L530）"
+        },
+        {
+          "item": "G6 测试文件使用正确框架与导入",
+          "pass": true,
+          "evidence": "5 个重写 TS 文件均 import from 'vite-plus/test' + @testing-library/react，jsdom 注记在位；Rust #[test]/#[tokio::test] + tempfile + redb + tauri::test；无裸 vitest/jest 导入"
+        },
+        {
+          "item": "G7 边界情况已覆盖",
+          "pass": true,
+          "evidence": "u128 最小/最大键（model_test L126）、相邻 run 隔离（L142）、offset 0/==total/>total（envelope L127）、limit 0/剩余/500 截断（L157/L172）、千级 seq（exec L506）、两 run 重叠 seq（L328）、损坏行三分类（migrate L409）、.bak 残留（L587）；attempt2 增补整页倍数 hasMore（hook L234）与截断 120/121 边界（View L186）；类型映射表本设计不存在（不适用）"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "Rust tempfile TempDir RAII + PATH 还原；重写文件均保留：AppSidebar afterEach restore()（L310）、App afterEach restoreViewport+unstubAllEnvs+beforeEach toast.dismiss（L235/L244）、pipeline afterEach cleanup（L96）、hook afterEach useRealTimers（L76）、beforeEach mockReset 全套件"
+        },
+        {
+          "item": "G9 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "store_test.rs 无 schema_version 轮账用例（L8 仅废弃注释留痕）；model_test.rs 无手写 encode/decode camelCase 用例；AppSidebar 旧「页面组含 Agent 调试」改写为组归属 DOM 断言（L328-341）；App 两分支计数断言改写为三分支语义（L974/L982），均系改写非废弃语义复现"
+        }
+      ],
+      "start_at": "2026-09-23T14:11:10.353Z",
+      "timestamp": "2026-09-23T14:38:13.303Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "所有 368 个测试通过（vite-plus 345 + rust 23，0 失败/跳过）。覆盖率达标: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)（汇总维度为 null，coverage.pass=true；per-plan 数据 vite-plus 99.64/94.31/100、rust 96.10/91.67）。Mutation 90.7% ≥ 阈值 80%。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确；coverage.measured 三维为 null（T1 允许）"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=368>0；conclusion=pass，problems=[] 无 execution_error，mutation.pass=true"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；汇总 measured 三维为 null → N/A (框架不支持)；per-plan 数据 vite-plus lines 99.64/branches 94.31/functions 100、rust lines 96.10/functions 91.67 均超阈值"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，失败诊断项自动通过"
+        }
+      ],
+      "start_at": "2026-09-23T14:38:45.811Z",
+      "timestamp": "2026-09-23T14:48:08.172Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1-C7 全过。实现与 design 对账一致：11 公共方法、信封注册表、迁移两段改名+回退、事件类型化涟漪均落地，编译与 368 测试绿（test-execution 已证）。两处 design 文本与代码偏差核实为随 spec delta 走且意图保持：(1) SerdeJsonCodec（model.rs:99）vs Spike③ 默认 bincode——db-inspector spec.md:66 明列两选一；(2) legacy 探测先于 native_db open（store.rs:113）vs design 的 open 失败后探测——workspace-store spec.md:7 明令先探测，防 redb 2.x 读 4.x panic。无安全漏洞、无死代码；建议归档前在 design 决策表补注两处偏差。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep password/secret/token/eval(/exec(/system( 在 store 与 commands 变更域无命中（仅测试字段 input_tokens）。db 轨道仅两条只读命令，model 名经静态注册表白名单校验（envelope.rs:97-100 未知名 Err），无 SQL/命令注入面；db 路径仅 main.rs DB_FILE_NAME 注入，.bak/.native-tmp 由同一路径派生（migrate.rs:62-63）；React 渲染 JSON.stringify 文本无 XSS 面"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "db_records：offset/limit u32 类型化，limit 截断 500（envelope.rs:53,101），未知模型名 Err（envelope.rs:100）；legacy 库字节为外部输入：事件行解不出落 Raw 兜底（migrate.rs:159-166），workspace/run 解码失败 fail-fast 旧库不动（migrate.rs:122-123,138）；前端 invoke 错误 String 化 inline 持久（useDbInspector.ts:56,94）"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "11 公共方法/信封注册表/两段改名迁移/事件类型化涟漪/只读边界均与设计一致。两处 design 文本与代码偏差经核实实现随本变更 spec delta 走且意图保持：(1) AgentEventRecord 自研 SerdeJsonCodec（model.rs:99,163-179）vs Spike③「默认 bincode、拒自研 codec」——desktop-db-inspector/spec.md:66 明列两选一由 design 定夺，flatten 需自描述编码的依据已记于 model.rs:89-92；(2) legacy 探测先于 native_db open（store.rs:113-115）vs design「尝试 open 失败再探测」——desktop-workspace-store/spec.md:7 明令「SHALL 先探测文件格式」，先探测防 redb 2.x 读 4.x panic（migrate.rs:44-48）。建议归档前在 design 决策表补注两处，非代码缺陷"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "u128/i64 极值打包不回绕（model_test.rs:217）、run_id=i64::MAX 用 saturating_add 收敛单点区间（store.rs:253）、空库/空文件/offset 越界/limit 0 与 500 截断（envelope_test.rs:127-172）、prevPage 钳 0（useDbInspector.ts:124）、records[openIndex] 越界兜 ?? null（DbInspectorView.tsx:177）、rowKey undefined 兜底（:9-12）均有处理且有测试"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "无未使用导入、无不可达分支；旧 encode/decode 与 META 轮账随引擎升级删除（grep schema_version 仅存 migrate 读旧与测试留痕）。model.rs:127-134 run_id()/seq() 访问器生产路径未消费（list_agent_run_events 直取 .event）但属 test-design 已声明验证对象且经 lib.rs 导出为公共读面，非死代码；可留意后续租户接入时复用或收敛"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "中文模块文档/错误语境前缀/测试命名与库内既有风格一致；db 命令轨道复刻 workspaces/exec 轨道模板（Result<T,String> 不吞错，db/mod.rs:5-8）；design.md key 决策的验证均以编译期断言固化（store.rs:72-75 Send+Sync 硬校验）；cargo check -p store --all-targets 通过"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "AgentEvent 嵌装零镜像（model.rs:113，core 类型原样引用）；信封直接 serde_json::Value 无自定义中间类型（envelope.rs:29-34）；前端 DTO 仅按 dto.ts 既有镜像惯例对齐 serde camelCase（dto.ts:196-203）；redb 类型仅存于 migrate.rs 迁移模块，不越公共签名"
+        }
+      ],
+      "start_at": "2026-09-23T14:48:34.447Z",
+      "timestamp": "2026-09-23T14:54:41.640Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "8/8 AC 逐项可溯：模型层(model.rs native_model id=1/2/3)、迁移(migrate.rs 三表读出+Raw兜底+.bak两段改名+9个迁移测试)、信封API(envelope.rs 注册表→db_models/db_records 命令)、查看页与系统工具组(AppSidebar SystemToolsGroup/DbInspectorView 四件套)全落地。core/agent 零 native_db 引用；store 公共API/命令/DTO 无越界类型；schema_version 仅存 migrate 格式判定非轮账；workspace 内依赖仅增 agent，crate-layout 修订留痕 spec.md:25。out_of_scope 未越：无 WorkflowRunRecord 实现、AgentRunRecord 无联动字段、无订阅接线、plugins/dev-team 无引用。注：AC-1 cargo test 全绿属执行期证据，本阶段静态核对 6 个测试模块场景覆盖齐全（存量回归/迁移/信封/命令/侧栏/查看页均有）。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 store.rs:93-291 全操作平移+store_test.rs 存量回归(三操作/run/事件/重开)；AC-2 migrate.rs:61-93+migrate_test.rs:228/389/503(逐行一致/Raw兜底/.bak)；AC-3 grep schema_version 仅 migrate.rs:39 格式判定+model.rs native_model(id,version)；AC-4 crates/core grep native_db 零命中、lib.rs:32-34 导出仅自有类型；AC-5 envelope.rs:78-102+commands/db/mod.rs:19-32+RecordEnvelope(envelope.rs:27-34)；AC-6 AppSidebar.tsx:23/95-163+App.tsx:90-92 欢迎态不挂壳；AC-7 DbInspectorView.tsx 四件套+db 轨道仅两只读命令；AC-8 store Cargo.toml:10 workspace 成员仅增 agent+specs/desktop-crate-layout/spec.md:25 修订留痕"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "实现/测试文件与 proposal 变更范围清单一致；exec/agent.rs:103 与 exec/mod.rs:56-60 类型化涟漪为 design.md:150 预声明必要涟漪；SerdeJsonCodec 属 desktop-db-inspector spec.md:66 明示的 design 定夺选型；envelope_test.rs 为 in-scope 模块测试非新功能；无新 API/组件越界"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "四动作全落地：模型层(model.rs:20-135)、legacy 迁移(migrate.rs 全模块)、信封 API(envelope.rs+store.rs:262-276)、查看页+系统工具组(AppSidebar.tsx:125-163+DbInspectorView.tsx)；实现文件逐项在位含 main.rs:55-56 注册、dto.ts:193-202、package.json 0.3.0；测试文件清单 6 项全在位(model/store/migrate/mod_test/AppSidebar.test/DbInspectorView.test)；tasks.md 全 [x]"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "WorkflowRunRecord/PhaseExecutionRecord 无实现代码(仅 model.rs:47 文档提及未来租户)；AgentRunRecord(model.rs:55-83) 无 source/workflow_run_id/phase 字段；crates/core grep native_db/primary_key 零命中(core/agent derive-free)；store 无 subscribe 引用(订阅未接线)；plugins/dev-team grep db_models/RecordEnvelope 零命中(CLI 侧未动)"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "Spike① 合成u128主键+大端序(model.rs:101-140)+打包语义测试 model_test.rs:99-156；Spike② 双版本共存(workspace Cargo.toml:56-58 精确pin、redb=migrate.rs 唯一使用点)；Spike③ 按模型 SerdeJsonCodec(model.rs:163-179)+信封JSON值(envelope.rs:123-132)；pre-1.0 pin lockstep(Cargo.toml:54-57 注释)；迁移丢数据 Raw兜底(migrate.rs:173-194)+.bak(:76-82)+损坏行测试(:389,:409)；迁移竞态 仅启动一次+格式即标记(store.rs:93-123)+单进程约束强化(lib.rs:16-19)"
+        }
+      ],
+      "start_at": "2026-09-23T14:55:16.614Z",
+      "timestamp": "2026-09-23T14:59:04.807Z"
+    }
+  ]
+}

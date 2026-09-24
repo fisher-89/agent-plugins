@@ -51,6 +51,9 @@ agent-cli = { path = "crates/infra/agent" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
 workflow = { path = "crates/core/workflow" }
+# native_model pin 必须与 native_db 内部依赖（=0.4.20）严格一致，避免双版本 trait 失配
+native_db = "=0.8.2"
+native_model = "=0.4.20"
 redb = "=4.3.0"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

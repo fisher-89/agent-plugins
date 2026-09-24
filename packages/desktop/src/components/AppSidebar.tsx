@@ -1,4 +1,4 @@
-import { Bot, GitBranch, Plus } from 'lucide-react';
+import { Bot, Database, GitBranch, Plus } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router';
 
 import {
@@ -106,11 +106,33 @@ function PageNavGroup(): React.JSX.Element {
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
+        </SidebarMenu>
+      </SidebarGroupContent>
+    </SidebarGroup>
+  );
+}
+
+/** 系统工具导航组：[Agent 调试]（自页面组平移）[DB 查看]，系统级工具入口 */
+function SystemToolsGroup(): React.JSX.Element {
+  const { pathname } = useLocation();
+  return (
+    <SidebarGroup>
+      <SidebarGroupLabel>系统工具</SidebarGroupLabel>
+      <SidebarGroupContent>
+        <SidebarMenu>
           <SidebarMenuItem>
             <SidebarMenuButton asChild isActive={pathname === '/agent'} tooltip="Agent 调试">
               <NavLink data-testid="nav-agent" to="/agent">
                 <Bot />
                 <span>Agent 调试</span>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            <SidebarMenuButton asChild isActive={pathname === '/db'} tooltip="DB 查看">
+              <NavLink data-testid="nav-db" to="/db">
+                <Database />
+                <span>DB 查看</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>
@@ -121,10 +143,10 @@ function PageNavGroup(): React.JSX.Element {
 }
 
 /**
- * 侧栏（仅壳态挂载）：上方「页面」导航组（[变更] [Agent 调试]，首次出现
- * 非 workspace 入口语义），下方「工作区」清单组语义不变。列表项点击切换
- * （副文本父目录区分同名、Tooltip 完整 root），「＋」添加、右键 ContextMenu
- * 移除。
+ * 侧栏（仅壳态挂载）：上方「页面」导航组（[变更]）与「系统工具」组
+ * （[Agent 调试] [DB 查看]，首次出现非 workspace 入口语义），下方「工作区」
+ * 清单组语义不变。列表项点击切换（副文本父目录区分同名、Tooltip 完整
+ * root），「＋」添加、右键 ContextMenu 移除。
  */
 export function AppSidebar({
   workspaces,
@@ -136,6 +158,7 @@ export function AppSidebar({
   return (
     <Sidebar collapsible="icon">
       <PageNavGroup />
+      <SystemToolsGroup />
       <SidebarGroup>
         <SidebarGroupLabel>工作区</SidebarGroupLabel>
         <SidebarGroupAction aria-label="添加 workspace" onClick={onAdd}>

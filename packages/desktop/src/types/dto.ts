@@ -183,3 +183,20 @@ export interface AgentRunRecord {
   sessionId: string | null;
   error: string | null;
 }
+
+// ---------------------------------------------------------------------------
+// db 查看域 DTO（对齐 store 信封类型的 serde camelCase 序列化；信封值为 JSON
+// 值，native_db 类型不越信封）
+// ---------------------------------------------------------------------------
+
+/** 模型清单一行：模型名 + 记录计数（对齐 store::ModelInfo） */
+export interface ModelInfo {
+  name: string;
+  count: number;
+}
+
+/** 记录信封：key / value 均为 JSON 值（对齐 store::RecordEnvelope） */
+export interface RecordEnvelope {
+  key: unknown;
+  value: unknown;
+}

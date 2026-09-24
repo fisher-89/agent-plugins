@@ -251,7 +251,6 @@ describe('AppSidebar：Tooltip 与副文本', () => {
 
 // ---------------------------------------------------------------------------
 // 页面导航组：[变更] [Agent 调试]，NavLink 路由入口（active 由当前 URL 派生，
-// design D8；首次出现非 workspace 入口语义）。以 MemoryRouter 初始路由驱动，
 // 断言经 URL（location-probe），workspace 清单组语义不变（既有用例全部保留
 // 回归）。
 // ---------------------------------------------------------------------------
@@ -262,7 +261,7 @@ function LocationProbe() {
   return <span data-testid="location-probe">{pathname}</span>;
 }
 
-function mountNav(initialEntry = '/changes', workspaces: WorkspaceRecord[] = [FIRST, SECOND]) {
+function mountNav(initialEntry: string, workspaces: WorkspaceRecord[] = [FIRST, SECOND]) {
   const onOpen = vi.fn();
   const onAdd = vi.fn();
   const onRemove = vi.fn();
@@ -283,7 +282,14 @@ function mountNav(initialEntry = '/changes', workspaces: WorkspaceRecord[] = [FI
   return { ...view, onAdd, onOpen, onRemove };
 }
 
-describe('AppSidebar：页面导航组（NavLink 路由导航）', () => {
+/** 导航项所属组容器（向上取最近 sidebar-group），供组归属 DOM 结构断言。 */
+function groupOf(testId: string): HTMLElement {
+  const group = screen.getByTestId(testId).closest<HTMLElement>('[data-slot="sidebar-group"]');
+  if (!group) throw new Error(`${testId} 不在任何 sidebar-group 内`);
+  return group;
+}
+
+describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航）', () => {
   let restore: () => void;
 
   beforeEach(() => {
@@ -294,20 +300,39 @@ describe('AppSidebar：页面导航组（NavLink 路由导航）', () => {
     restore();
   });
 
-  it('「页面」导航组渲染于 workspace 清单组上方，含「变更」与「Agent 调试」两项', () => {
-    mountNav();
+  it('壳态渲染「页面」与「系统工具」两组标签，均位于 workspace 清单组上方', () => {
+    mountNav('/changes');
 
     const pageLabel = screen.getByText('页面');
+    const toolsLabel = screen.getByText('系统工具');
     const wsLabel = screen.getByText('工作区');
     expect(
-      pageLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+      pageLabel.compareDocumentPosition(toolsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(
+      toolsLabel.compareDocumentPosition(wsLabel) & Node.DOCUMENT_POSITION_FOLLOWING,
     ).toBeTruthy();
     expect(screen.getByTestId('nav-changes').textContent).toContain('变更');
     expect(screen.getByTestId('nav-agent').textContent).toContain('Agent 调试');
   });
 
+  it('「页面」组仅含 nav-changes；nav-agent 归属「系统工具」组（组归属以 DOM 结构断言）', () => {
+    mountNav('/changes');
+
+    const pageGroup = groupOf('nav-changes');
+    expect(within(pageGroup).getByTestId('nav-changes') !== null).toBe(true);
+    expect(within(pageGroup).queryByTestId('nav-agent')).toBeNull();
+    expect(within(pageGroup).queryByTestId('nav-db')).toBeNull();
+
+    const toolsGroup = groupOf('nav-agent');
+    expect(toolsGroup).toBe(groupOf('nav-db'));
+    expect(toolsGroup.textContent).toContain('系统工具');
+    expect(within(toolsGroup).getByTestId('nav-agent').textContent).toContain('Agent 调试');
+    expect(within(toolsGroup).getByTestId('nav-db').textContent).toContain('DB 查看');
+  });
+
   it('nav-* 渲染为锚点元素：testid 落在 NavLink 锚点上（D8 asChild Slot 合并到锚点，非 button 嵌套 anchor）', () => {
-    mountNav();
+    mountNav('/changes');
 
     expect(screen.getByTestId('nav-changes').tagName).toBe('A');
     expect(screen.getByTestId('nav-agent').tagName).toBe('A');
@@ -315,11 +340,12 @@ describe('AppSidebar：页面导航组（NavLink 路由导航）', () => {
     expect(screen.getByTestId('nav-agent').getAttribute('href')).toBe('/agent');
   });
 
-  it('pathname 无匹配前缀（/bogus）：两 nav 均 data-active=false，锚点与 workspace 组照常渲染不崩（active 派生安全降级，组件级不等同 App 层重定向兜底）', () => {
+  it('pathname 无匹配前缀（/bogus）：nav 均 data-active=false，锚点与 workspace 组照常渲染不崩（active 派生安全降级，组件级不等同 App 层重定向兜底）', () => {
     mountNav('/bogus');
 
     expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('false');
     expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
     expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
   });
@@ -364,10 +390,19 @@ describe('AppSidebar：页面导航组（NavLink 路由导航）', () => {
     expect(onRemove).not.toHaveBeenCalled();
   });
 
+  it('URL 为根路径 /：三导航项均不激活（激活态由 URL 派生；/ → /changes 重定向为 App 层职责，route_pages 覆盖）', () => {
+    mountSidebar([FIRST, SECOND], FIRST.root);
+
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('false');
+  });
+
   it('两入口各带 lucide 图标（以 DOM 结构断言，非观感）', () => {
-    mountNav();
+    mountNav('/changes');
 
     expect(screen.getByTestId('nav-changes').querySelector('svg') !== null).toBe(true);
     expect(screen.getByTestId('nav-agent').querySelector('svg') !== null).toBe(true);
+    expect(screen.getByTestId('nav-db').querySelector('svg') !== null).toBe(true);
   });
 });

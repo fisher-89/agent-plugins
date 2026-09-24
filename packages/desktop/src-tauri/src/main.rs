@@ -8,8 +8,8 @@ use tauri::Manager;
 
 use store::Store;
 
-/// db 文件落位：`home_dir()/.dev-team` 根，不建子目录（数据维度语义由表名承载）；
-/// 父目录由 `Store::open` 内部补齐。
+/// db 文件落位：`home_dir()/.dev-team` 根，不建子目录（数据维度语义由 db
+/// 文件归属承载，见 desktop-data-dimensions）；父目录由 `Store::open` 内部补齐。
 const DB_FILE_NAME: &str = ".dev-team/desktop-store.redb";
 
 fn main() {
@@ -52,6 +52,8 @@ fn main() {
             commands::exec::agent_start,
             commands::exec::agent_runs,
             commands::exec::agent_run_events,
+            commands::db::db_models,
+            commands::db::db_records,
         ])
         .run(tauri::generate_context!("tauri.conf.json"))
         .expect("desktop 应用启动失败");

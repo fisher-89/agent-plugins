@@ -67,20 +67,22 @@
 - [x] mcp提供api，查询指定change变更的文件（读取workflow.json，聚合变更记录，输出文件清单），agent使用api代替直接读取workflow.json
 - [x] 将“写入workflow.json files”的代码实现移入modules/workflow
 - [x] 记录变更文件时，排除gitignore文件
-- [ ] 【模块边界】仅测试modules/workflow/index.ts，覆盖整合模块
+- [ ] ~~【模块边界】仅测试modules/workflow/index.ts，覆盖整合模块~~
 - [ ] 使用环境变量替换openspec目录，方便修改
-- [ ] 【Desktop】检测支持的agent，以及是否安装plugin dev-team
+- [ ] 【Desktop】检测支持的agent
 - [ ] 【Desktop】workspace配置
 - [ ] 【Desktop】workspace基线设计（模块结构、spec）
 - [ ] 【Desktop】多任务预约，worktree隔离
 - [ ] rust支持突变测试，使用cargo-mutants
 - [ ] static-check按目录划分
 - [x] 【Desktop】引入redb本地数据库，实现store；记录workspace清单；
-- [ ] 【Desktop】发布到github且版本号升级时，自动构建并创建版本release；支持检查更新；
+- [x] 【Desktop】发布到github且版本号升级时，自动构建并创建版本release；支持检查更新；
 - [ ] 【Desktop】约定后端报错结构；
 - [ ] test-design、test-gen 在处理ui层时，尽量使用快照测试
 - [x] 【Desktop】移除移动端判断，系统只用在PC
-- [ ] 【Desktop】接入页面路由
+- [x] 【Desktop】接入页面路由
 - [ ] 【Desktop】前端使用ai-sdk接入，ui可以考虑使用ai-elements
 - [ ] 【Desktop】调用agent支持配置api key，指定模型；收集会话耗时，循环轮次，消耗token数；
-- [ ] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
+- [x] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
+- [ ] 【Desktop】rust生成ts类型
+- [ ] 【Desktop】移除store migrate

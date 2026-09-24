@@ -5,7 +5,7 @@
 //! `run_agent()`）、错误映射（启动阶段失败 → `Err(String)`）；事件实时流经
 //! `onEvent` Channel 逐事件推送（命令作用域执行流通道）。
 //! `agent_runs` / `agent_run_events`（查询）：无状态薄包装——`State<'_, Store>`
-//! 取 store + 参数转换 + DTO 返回，事件行以 `serde_json::Value` 出库后反序列化。
+//! 取 store + 参数转换 + DTO 返回，事件经 store 类型化 API 直接出库。
 //! 错误约定沿 workspaces 轨道模板：命令返回 `Result<T, String>`，`Err` 由
 //! Tauri 转为前端 reject，MUST NOT 静默吞掉失败。
 
@@ -51,13 +51,10 @@ pub fn agent_runs(store: State<'_, Store>) -> Result<Vec<AgentRunRecord>, String
     store.list_agent_runs().map_err(|e| e.to_string())
 }
 
-/// 单 run 事件重放（seq 升序）：事件行 `Value → AgentEvent` 反序列化后返回。
+/// 单 run 事件重放（seq 升序）：store 事件 API 类型化，直接返回。
 #[tauri::command]
 pub fn agent_run_events(store: State<'_, Store>, run_id: i64) -> Result<Vec<AgentEvent>, String> {
     store
         .list_agent_run_events(run_id)
-        .map_err(|e| e.to_string())?
-        .into_iter()
-        .map(|value| serde_json::from_value(value).map_err(|e| format!("事件反序列化失败: {e}")))
-        .collect()
+        .map_err(|e| e.to_string())
 }

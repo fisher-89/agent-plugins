@@ -98,26 +98,15 @@ pub(crate) async fn run_agent_with<R: AgentRunner>(
                 session_id: session_id.clone(),
             });
         }
-        // store sink（兜底路径）：写入失败立即收敛 failed 并终止 tee
-        match serde_json::to_value(&event) {
-            Ok(value) => {
-                if let Err(store_error) =
-                    store.append_agent_run_events(record.id, std::slice::from_ref(&value))
-                {
-                    return Ok(abort_with_store_failure(
-                        store,
-                        record,
-                        format!("事件落库失败: {store_error}"),
-                    ));
-                }
-            }
-            Err(encode_error) => {
-                return Ok(abort_with_store_failure(
-                    store,
-                    record,
-                    format!("事件编码失败: {encode_error}"),
-                ));
-            }
+        // store sink（兜底路径）：类型化事件直写；失败立即收敛 failed 并终止 tee
+        if let Err(store_error) =
+            store.append_agent_run_events(record.id, std::slice::from_ref(&event))
+        {
+            return Ok(abort_with_store_failure(
+                store,
+                record,
+                format!("事件落库失败: {store_error}"),
+            ));
         }
         // Channel sink（实时流）：发送失败（页面已关闭）不中断落库
         let _ = on_event.send(event);
