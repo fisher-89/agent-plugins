@@ -2,12 +2,12 @@
 //!
 //! # 模型层架构
 //!
-//! store 为模型层：三个模型（`WorkspaceRecord` / `AgentRunRecord` /
-//! `AgentEventRecord`）经 `#[native_model]` + `#[native_db]` 注册，记录经
-//! native_model bincode 编码落库，shape 演进的版本治理由 native_model 版本
-//! 机制承担。底层仍是 redb——事务 / ACID / 文件格式不变；升级实质是加模型
-//! 层，不是换引擎。数据维度语义由 db 文件归属承载（user db 落 app data
-//! dir，见 desktop-data-dimensions），不再依赖表名前缀。
+//! store 为模型层：四个模型（`WorkspaceRecord` / `AgentRunRecord` /
+//! `AgentEventRecord` / `ExploreRecord`）经 `#[native_model]` + `#[native_db]`
+//! 注册，记录经 native_model bincode 编码落库，shape 演进的版本治理由
+//! native_model 版本机制承担。底层仍是 redb——事务 / ACID / 文件格式不变；
+//! 升级实质是加模型层，不是换引擎。数据维度语义由 db 文件归属承载（user db
+//! 落 app data dir，见 desktop-data-dimensions），不再依赖表名前缀。
 //!
 //! # 单进程约束
 //!
@@ -27,7 +27,9 @@ mod model;
 mod store;
 
 pub use envelope::{ModelInfo, RecordEnvelope};
-pub use model::{AgentEventRecord, AgentRunRecord, WorkspaceRecord};
+pub use model::{
+    AgentEventRecord, AgentRunRecord, AgentRunRecordV1, ExploreRecord, WorkspaceRecord,
+};
 pub use store::{Store, StoreError};
 
 #[cfg(test)]

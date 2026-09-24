@@ -1,0 +1,16 @@
+[package]
+name = "watch"
+version = "0.1.0"
+edition = "2021"
+
+# 通用单文件 watch 失效信号通道：notify 订阅 + std mpsc「文件被修改」信号流；
+# 通知只携带信号不含内容、零去抖（防抖由前端持有）、零 Tauri（Channel 包装
+# 只出现在壳层命令）。
+[dependencies]
+notify = { workspace = true }
+serde = { workspace = true }
+
+# 信号流测试临时目录装置 + 信号 serde 形态断言
+[dev-dependencies]
+serde_json = { workspace = true }
+tempfile = { workspace = true }

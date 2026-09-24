@@ -44,6 +44,9 @@ function resultRecord(status: AgentRunRecord['status']): AgentRunRecord {
     durationMs: 1234,
     sessionId: 's-1',
     error: null,
+    source: 'debug',
+    sourceRef: null,
+    parentRunId: null,
   };
 }
 

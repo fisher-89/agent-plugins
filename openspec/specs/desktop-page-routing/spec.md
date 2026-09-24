@@ -14,6 +14,8 @@ desktop 前端壳态页面导航 SHALL 以 react-router（v7 declarative 模式�
 - `/changes` → 变更清单页
 - `/changes/:name` → 变更详情页（`name` 为路由参数）
 - `/agent` → Agent 调试页
+- `/explores` → 探索清单页
+- `/explores/:name` → 探索详情页（`name` 为路由参数）
 - 其余未知路径 → 重定向 `/changes` 兜底
 
 Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静态资源服务，BrowserRouter 的深链 / 刷新 SHALL NOT 采用（无协议层 fallback 配置）。MUST NOT 引入第二路由库。路由表声明 SHALL 独立成组件，MUST NOT 突破 `max-lines-per-function: 50` 管线约束。
@@ -32,6 +34,11 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 
 - **WHEN** URL 为 `/changes/<name>` 且该 change 存在
 - **THEN** 渲染 ChangeDetailView，`get_change_detail` 以 URL 中的 `name` 参数发起 invoke
+
+#### Scenario: 探索详情按路由参数渲染
+
+- **WHEN** URL 为 `/explores/<name>` 且该 explore 记录存在
+- **THEN** 渲染探索详情双栏视图，读取与会话还原以 URL 中的 `name` 参数发起
 
 ### Requirement: change 选中态 URL 化
 
@@ -59,7 +66,7 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 
 ### Requirement: Sidebar 页面导航 NavLink 化
 
-`AppSidebar` 页面导航组 SHALL 以 `NavLink`（或等价路由感知组件）承载，active 态 SHALL 由当前 URL 派生，MUST NOT 经独立 `page` state 或 `onPageChange` 回调同步。`TopPage` 类型导出 SHALL 删除。测试挂钩 `data-testid="nav-changes"` / `data-testid="nav-agent"` SHALL 保持不变。
+`AppSidebar` 页面导航组 SHALL 以 `NavLink`（或等价路由感知组件）承载，active 态 SHALL 由当前 URL 派生，MUST NOT 经独立 `page` state 或 `onPageChange` 回调同步。「页面」组 SHALL 为 [变更] [探索] 两项（探索与变更同属 workspace 域内容页；`/explores` 与 `/explores/:name` 均使探索项 active）。`TopPage` 类型导出 SHALL 保持删除状态。测试挂钩 `data-testid="nav-changes"` / `data-testid="nav-agent"` SHALL 保持不变，`data-testid="nav-explores"` 随探索页变更新增。
 
 #### Scenario: active 态由 URL 派生
 
@@ -67,10 +74,15 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 - **THEN** `nav-agent` 呈现 active 态，`nav-changes` 非 active；反向同理
 - **AND** 代码中无 `TopPage` / `onPageChange` 残留（knip 通过）
 
+#### Scenario: 探索入口 active 态
+
+- **WHEN** URL 分别为 `/explores` 与 `/explores/<name>`
+- **THEN** `nav-explores` 均呈现 active 态，`nav-changes` 非 active
+
 #### Scenario: 导航 testid 稳定
 
 - **WHEN** 检查 `AppSidebar` 渲染产物
-- **THEN** `nav-changes` / `nav-agent` testid 存在且语义与路由化前一致
+- **THEN** `nav-changes` / `nav-agent` testid 存在且语义与路由化前一致，`nav-explores` 在「页面」组内可达
 
 ### Requirement: 欢迎态路由隔离
 
@@ -89,7 +101,7 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 - 切页往返 MUST NOT 重发 `list_workspaces` / `list_changes`（清单数据驻留 App 层，查询仍显式触发）
 - 导航点击 MUST NOT 触发任何 workspace 命令（`add_workspace` / `remove_workspace` 等）
 - 进入详情 → 切 Agent 页 → 切回：选中随 URL 消失，显示清单，`get_change_detail` MUST NOT 以旧选中重发（现行 D10 语义）
-- 刷新取数模型不变：无文件 watch、无定时轮询，取数收口 hooks
+- 刷新取数模型不变：取数收口 hooks、无定时轮询；文件 watch 为 desktop-file-watch 认可的唯一推送例外（失效信号通道，非数据通道），既有页面的取数语义不变
 - `desktop-app-shell` 的错误呈现双轨、header 终态、折叠交互、workspace 选择契约不受影响
 
 #### Scenario: 切页不重发查询
@@ -99,7 +111,7 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 
 #### Scenario: 导航零 workspace 命令
 
-- **WHEN** 用户点击 `nav-agent` / `nav-changes`
+- **WHEN** 用户点击 `nav-agent` / `nav-changes` / `nav-explores`
 - **THEN** `list_workspaces` / `add_workspace` / `remove_workspace` 调用次数均不变
 
 #### Scenario: 选中重置语义保持
@@ -126,8 +138,8 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `react-router`（新依赖，`packages/desktop/package.json`） | 路由运行时 | v7 declarative 模式（`react-router` 单包）；HashRouter；无第二路由库 |
-| `packages/desktop/src/App.tsx` | 路由表挂载 + 壳布局 | 路由表 `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/agent`、`*` 兜底；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
-| `packages/desktop/src/components/AppSidebar.tsx` | NavLink 页面导航组 | active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持 |
+| `packages/desktop/src/App.tsx` | 路由表挂载 + 壳布局 | 路由表 `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/agent`、`/explores`、`/explores/:name`、`*` 兜底；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
+| `packages/desktop/src/components/AppSidebar.tsx` | NavLink 页面导航组 | active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持、`nav-explores` 新增 |
 | `packages/desktop/src/views/changes/ChangeView.tsx` | 选中态 ↔ 路由参数接线（溶解与否 design 定） | `useParams` 承载选中；返回显式 `navigate('/changes')`；workspace 切换落 `/changes` |
 | `packages/desktop/src/hooks/useChangeDetail.ts` 等 hooks | 取数契约不变 | 入参来源由 state 改为路由参数，hook 本体不动；显式刷新模型不变 |
 | 路由级测试（新，如 `src/__tests__/route_pages.test.tsx`） | 路由表 / 选中态 / 语义保留断言 | data-testid 挂钩；MemoryRouter vs HashRouter 挂载 design 定夺有据 |

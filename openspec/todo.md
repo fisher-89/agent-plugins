@@ -81,8 +81,10 @@
 - [ ] test-design、test-gen 在处理ui层时，尽量使用快照测试
 - [x] 【Desktop】移除移动端判断，系统只用在PC
 - [x] 【Desktop】接入页面路由
-- [ ] 【Desktop】前端使用ai-sdk接入，ui可以考虑使用ai-elements
+- [ ] 【Desktop】将agent会话抽出独立组件，agent调试和explore复用同一个底层
 - [ ] 【Desktop】调用agent支持配置api key，指定模型；收集会话耗时，循环轮次，消耗token数；
 - [x] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
 - [ ] 【Desktop】rust生成ts类型
 - [x] 【Desktop】移除store migrate
+- [ ] 【Desktop】梳理后端commands直接调用infra的场景(已知: watch、explore)，逐个分析是否需要增加core以维持DDD架构；core如何实现依赖反转？
+- [ ] 【Desktop】change详情页是否react-flow展示流程，将过程文件关联到对应节点内展开

@@ -182,6 +182,53 @@ export interface AgentRunRecord {
   durationMs: number | null;
   sessionId: string | null;
   error: string | null;
+  /** 来源受控字符串（debug | explore | …），缺省 debug */
+  source: string;
+  /** 来源内定位（explore 指向探索记录主键的十进制串） */
+  sourceRef: string | null;
+  /** resume 链显式指针（本 run 的上游 run id，链首为 null） */
+  parentRunId: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// explore 域 DTO（对齐 store::ExploreRecord 与 workflow 查询层自有类型的
+// serde camelCase 序列化）
+// ---------------------------------------------------------------------------
+
+/** explore 清单记录（对齐 store::ExploreRecord；记录是身份，磁盘文件是可丢弃投影） */
+export interface ExploreRecord {
+  /** 记录 id（主键，身份与文件名解耦） */
+  id: number;
+  /** workspace 归属（canonical root） */
+  root: string;
+  /** 展示名（= 笔记文件 stem，磁盘寻址键） */
+  name: string;
+  /** 建档时间（UTC unix 毫秒） */
+  createdAt: number;
+  /** 最近更新时间（UTC unix 毫秒） */
+  updatedAt: number;
+}
+
+/** 单篇 explore 笔记内容（对齐 workflow::ExploreDoc，纯文本直出） */
+export interface ExploreDoc {
+  /** 笔记名（= 文件 stem） */
+  name: string;
+  /** UTF-8 文本内容 */
+  content: string;
+}
+
+/** 导入扫描条目（对齐 workflow::ExploreScanEntry） */
+export interface ExploreScanEntry {
+  /** 笔记名（= 文件 stem） */
+  name: string;
+  /** 修改时间（UTC unix 毫秒）；metadata 不可得为 null */
+  modifiedAt: number | null;
+}
+
+/** watch 失效信号载荷（对齐 commands::watch::FileWatchEvent；无内容字节） */
+export interface FileWatchEvent {
+  /** 被修改目标的订阅路径 */
+  path: string;
 }
 
 // ---------------------------------------------------------------------------

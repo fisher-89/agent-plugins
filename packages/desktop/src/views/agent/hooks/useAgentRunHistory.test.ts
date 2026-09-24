@@ -31,6 +31,9 @@ function record(id: number, startedAt: number, status: AgentRunRecord['status'])
     durationMs: 500,
     sessionId: `s-${id}`,
     error: null,
+    source: 'debug',
+    sourceRef: null,
+    parentRunId: null,
   };
 }
 

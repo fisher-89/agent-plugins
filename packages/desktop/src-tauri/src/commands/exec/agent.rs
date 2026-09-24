@@ -6,6 +6,11 @@
 //! 让编排路径可被假 runner 测试。本文件独立于 mod.rs，将来抽 app crate 时
 //! 单文件平移复用、不重写。
 //!
+//! 来源归属与链指针（`RunProvenance`）是 store 记录面元数据，经编排填充进
+//! run 记录初值，不进 [`AgentRunner`] 契约（trait 面只认逻辑运行参数，见
+//! agent 契约 crate 文档）；`resume_session_id` 改变 CLI 行为，已在
+//! `AgentRunParams` 契约内。
+//!
 //! tee 循环节奏（背压策略）：`recv → 状态机 apply → store 逐事件单事务追加
 //! → Channel 发送`。Channel 发送失败（页面已关闭）不中断落库；store 写入
 //! 失败立即收敛 run 为 failed（error 记因）并终止 tee——落库是兜底路径，
@@ -25,6 +30,30 @@ const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 /// run 状态受控字符串：失败收敛。
 const STATUS_FAILED: &str = "failed";
+
+/// run 记录来源与链字段（app 层微形态，store 记录面元数据）：`source` 来源
+/// 受控字符串、`source_ref` 来源内定位、`parent_run_id` 链上游 run。编排
+/// 填充点单点——`running` 记录初值即携带，终态替换不改写。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(crate) struct RunProvenance {
+    /// 来源受控字符串（debug | explore | …）
+    pub source: String,
+    /// 来源内定位（explore 指向探索记录主键的十进制串）
+    pub source_ref: Option<String>,
+    /// 链上游 run id（链首为 None）
+    pub parent_run_id: Option<i64>,
+}
+
+impl RunProvenance {
+    /// 调试链路缺省来源（不携带定位与链指针，与演进前写入语义一致）。
+    pub(crate) fn debug() -> Self {
+        Self {
+            source: "debug".to_owned(),
+            source_ref: None,
+            parent_run_id: None,
+        }
+    }
+}
 
 /// `RunResult` 汇总字段摘取（终态记录填充用；is_error 由状态机承载，不在此重复）。
 struct RunSummary {
@@ -47,19 +76,22 @@ pub(crate) async fn run_agent(
     store: &Store,
     on_event: Channel<AgentEvent>,
     params: AgentRunParams,
+    provenance: RunProvenance,
 ) -> Result<AgentRunRecord, String> {
     let runner = ClaudeCliRunner::new();
-    run_agent_with(store, &runner, on_event, params).await
+    run_agent_with(store, &runner, on_event, params, provenance).await
 }
 
 /// 泛型编排：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ begin 落
-/// `running` 行 → tee 双 sink 循环 → EOF 按状态机收敛终态并落库 → 返回最终
-/// 记录（in-band 失败返回 `Ok(failed 记录)`，仅启动阶段失败返回 `Err`）。
+/// `running` 行（初值携带 provenance 来源与链字段）→ tee 双 sink 循环 →
+/// EOF 按状态机收敛终态并落库 → 返回最终记录（in-band 失败返回
+/// `Ok(failed 记录)`，仅启动阶段失败返回 `Err`）。
 pub(crate) async fn run_agent_with<R: AgentRunner>(
     store: &Store,
     runner: &R,
     on_event: Channel<AgentEvent>,
     params: AgentRunParams,
+    provenance: RunProvenance,
 ) -> Result<AgentRunRecord, String> {
     let running = AgentRunRecord {
         id: 0,
@@ -75,6 +107,9 @@ pub(crate) async fn run_agent_with<R: AgentRunner>(
         duration_ms: None,
         session_id: None,
         error: None,
+        source: provenance.source,
+        source_ref: provenance.source_ref,
+        parent_run_id: provenance.parent_run_id,
     };
     let mut run = runner.start(params).map_err(|e| e.to_string())?;
     let mut record = store.begin_agent_run(&running).map_err(|e| e.to_string())?;

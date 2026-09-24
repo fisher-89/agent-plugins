@@ -19,8 +19,8 @@ use ::agent::{
 use store::Store;
 
 use super::{
-    abort_with_store_failure, run_agent, run_agent_with, STATUS_COMPLETED, STATUS_FAILED,
-    STATUS_RUNNING,
+    abort_with_store_failure, run_agent, run_agent_with, RunProvenance, STATUS_COMPLETED,
+    STATUS_FAILED, STATUS_RUNNING,
 };
 
 /// PATH 环境变量修改串行化（agent_start 同款用例经 mod_test 共享此锁）。
@@ -46,6 +46,7 @@ fn params(cwd: &Path) -> AgentRunParams {
         cwd: cwd.to_path_buf(),
         env: AgentEnvMode::Default,
         permission_mode: AgentPermissionMode::BypassPermissions,
+        resume_session_id: None,
     }
 }
 
@@ -98,6 +99,8 @@ fn run_result(seq: u64, is_error: bool, num_turns: Option<u64>) -> AgentEvent {
 pub(crate) struct FakeRunner {
     events: Vec<AgentEvent>,
     failure: Option<AgentStartError>,
+    /// start 收到的入参（命令面组装断言的捕获缝，mod_test 复用）。
+    captured_params: Mutex<Vec<AgentRunParams>>,
 }
 
 impl FakeRunner {
@@ -105,6 +108,7 @@ impl FakeRunner {
         Self {
             events,
             failure: None,
+            captured_params: Mutex::new(Vec::new()),
         }
     }
 
@@ -112,12 +116,25 @@ impl FakeRunner {
         Self {
             events: Vec::new(),
             failure: Some(failure),
+            captured_params: Mutex::new(Vec::new()),
         }
+    }
+
+    /// start 已收到的入参快照（按调用序）。
+    pub(crate) fn captured_params(&self) -> Vec<AgentRunParams> {
+        self.captured_params
+            .lock()
+            .expect("参数捕获锁不可中毒")
+            .clone()
     }
 }
 
 impl AgentRunner for FakeRunner {
-    fn start(&self, _params: AgentRunParams) -> Result<AgentRun, AgentStartError> {
+    fn start(&self, params: AgentRunParams) -> Result<AgentRun, AgentStartError> {
+        self.captured_params
+            .lock()
+            .expect("参数捕获锁不可中毒")
+            .push(params);
         if let Some(failure) = self.failure.clone() {
             return Err(failure);
         }
@@ -176,7 +193,14 @@ async fn 预录completed会话经tee双sink全链路落库且channel逐事件一
     let runner = FakeRunner::with_events(prerecorded.clone());
     let (channel, captured) = capturing_channel();
 
-    let result = run_agent_with(&store, &runner, channel, params(Path::new("C:\\ws"))).await;
+    let result = run_agent_with(
+        &store,
+        &runner,
+        channel,
+        params(Path::new("C:\\ws")),
+        RunProvenance::debug(),
+    )
+    .await;
 
     let record = result.expect("completed 会话返回 Ok");
     assert_eq!(
@@ -216,7 +240,14 @@ async fn 预录is_error的result时返回ok的failed记录而非err() {
     let runner = FakeRunner::with_events(vec![run_result(0, true, Some(2))]);
     let (channel, _captured) = capturing_channel();
 
-    let result = run_agent_with(&store, &runner, channel, params(Path::new("C:\\ws"))).await;
+    let result = run_agent_with(
+        &store,
+        &runner,
+        channel,
+        params(Path::new("C:\\ws")),
+        RunProvenance::debug(),
+    )
+    .await;
 
     let record = result.expect("D7：in-band 失败返回 Ok(failed 记录)");
     assert_eq!(record.status, STATUS_FAILED);
@@ -235,7 +266,14 @@ async fn 假runner启动失败时返回err且store零run行() {
     let runner = FakeRunner::failing(AgentStartError::CliMissing("PATH 上未发现".to_owned()));
     let (channel, captured) = capturing_channel();
 
-    let result = run_agent_with(&store, &runner, channel, params(Path::new("C:\\ws"))).await;
+    let result = run_agent_with(
+        &store,
+        &runner,
+        channel,
+        params(Path::new("C:\\ws")),
+        RunProvenance::debug(),
+    )
+    .await;
 
     let err = result.expect_err("启动阶段失败必须 Err");
     assert!(
@@ -264,7 +302,14 @@ async fn channel接收端先行关闭时落库继续完整且命令返回最终�
     // 接收端恒失败（页面已关）：tee 不得中断落库
     let channel = failing_channel();
 
-    let result = run_agent_with(&store, &runner, channel, params(Path::new("C:\\ws"))).await;
+    let result = run_agent_with(
+        &store,
+        &runner,
+        channel,
+        params(Path::new("C:\\ws")),
+        RunProvenance::debug(),
+    )
+    .await;
 
     let record = result.expect("Channel 发送失败不影响命令返回");
     assert_eq!(record.status, STATUS_COMPLETED);
@@ -284,9 +329,15 @@ async fn seq缺口乱序时tee透传不重排落库key与事件自带seq一致()
     let runner = FakeRunner::with_events(prerecorded);
     let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&store, &runner, channel, params(Path::new("C:\\ws")))
-        .await
-        .expect("编排成功");
+    let record = run_agent_with(
+        &store,
+        &runner,
+        channel,
+        params(Path::new("C:\\ws")),
+        RunProvenance::debug(),
+    )
+    .await
+    .expect("编排成功");
 
     // Channel 透传不重排：与预录顺序一致
     let pushed = captured.lock().unwrap().clone();
@@ -314,7 +365,13 @@ async fn run_agent隔离path时走薄入口全链返回err且store无run行() {
 
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", empty_path.path());
-    let result = run_agent(&store, capturing_channel().0, params(Path::new("C:\\ws"))).await;
+    let result = run_agent(
+        &store,
+        capturing_channel().0,
+        params(Path::new("C:\\ws")),
+        RunProvenance::debug(),
+    )
+    .await;
     match original {
         Some(value) => std::env::set_var("PATH", value),
         None => std::env::remove_var("PATH"),
@@ -388,5 +445,8 @@ fn running_record() -> store::AgentRunRecord {
         duration_ms: None,
         session_id: None,
         error: None,
+        source: "debug".to_owned(),
+        source_ref: None,
+        parent_run_id: None,
     }
 }

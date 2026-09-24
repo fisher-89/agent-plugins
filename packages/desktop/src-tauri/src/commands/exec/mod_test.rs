@@ -17,9 +17,9 @@ use tauri::{App, Manager};
 use ::agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams};
 use store::{AgentRunRecord, Store};
 
-use super::{agent_run_events, agent_runs, agent_start};
+use super::{agent_run_chain, agent_run_events, agent_runs, agent_start};
 use crate::commands::exec::agent::agent_test::{FakeRunner, PATH_LOCK};
-use crate::commands::exec::agent::run_agent_with;
+use crate::commands::exec::agent::{run_agent_with, RunProvenance};
 
 // ---------------------------------------------------------------------------
 // 装置
@@ -68,6 +68,9 @@ fn running_run(prompt: &str, started_at: i64) -> AgentRunRecord {
         duration_ms: None,
         session_id: None,
         error: None,
+        source: "debug".to_owned(),
+        source_ref: None,
+        parent_run_id: None,
     }
 }
 
@@ -442,6 +445,7 @@ fn run_params() -> AgentRunParams {
         cwd: Path::new("C:\\ws\\demo").to_path_buf(),
         env: AgentEnvMode::Default,
         permission_mode: AgentPermissionMode::BypassPermissions,
+        resume_session_id: None,
     }
 }
 
@@ -481,9 +485,15 @@ async fn 假runner五变体事件流经tee落库后命令面重放逐字段保�
     let runner = FakeRunner::with_events(seeded.clone());
     let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&state, &runner, channel, run_params())
-        .await
-        .expect("completed 会话返回 Ok");
+    let record = run_agent_with(
+        &state,
+        &runner,
+        channel,
+        run_params(),
+        RunProvenance::debug(),
+    )
+    .await
+    .expect("completed 会话返回 Ok");
 
     assert_eq!(record.status, "completed", "RunResult 驱动收敛 completed");
     let replayed = agent_run_events(state.clone(), record.id).expect("agent_run_events 应成功");
@@ -511,9 +521,15 @@ async fn 单run千级seq连续产出后命令面重放序完整不回绕() {
     let seeded: Vec<AgentEvent> = (0..1000u64).map(raw).collect();
     let runner = FakeRunner::with_events(seeded);
 
-    let record = run_agent_with(&state, &runner, capturing_channel().0, run_params())
-        .await
-        .expect("completed 会话返回 Ok");
+    let record = run_agent_with(
+        &state,
+        &runner,
+        capturing_channel().0,
+        run_params(),
+        RunProvenance::debug(),
+    )
+    .await
+    .expect("completed 会话返回 Ok");
 
     let replayed = agent_run_events(state.clone(), record.id).expect("agent_run_events 应成功");
     assert_eq!(replayed.len(), 1000, "千级事件一条不丢");
@@ -547,6 +563,10 @@ async fn agent_start在cli不可发现时返回err且store无run行且channel零
         "你好".to_owned(),
         AgentEnvMode::Default,
         AgentPermissionMode::BypassPermissions,
+        None,
+        None,
+        None,
+        None,
     )
     .await;
     match original {
@@ -559,5 +579,356 @@ async fn agent_start在cli不可发现时返回err且store无run行且channel零
     assert!(
         state.list_agent_runs().unwrap().is_empty(),
         "D5：启动失败不留 run 行"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// agent_start 四可选参数：组装语义经 run_agent_with 泛型缝 + FakeRunner 捕获
+// 断言（R2：agent_start 参数 → RunProvenance 编排 → AgentRunRecord v2 落库）。
+// 命令体直调无法替换真实 CLI runner，组装段以 assemble_agent_start_args 逐行
+// 镜像，编排行为经泛型缝全链路观测。
+// ---------------------------------------------------------------------------
+
+/// `agent_start` 命令体的参数转换段（逐行镜像）：IPC 入参 → `AgentRunParams`
+/// + `RunProvenance`（`source` 缺省 `debug`，显式传入的定位与链参数始终保留）。
+fn assemble_agent_start_args(
+    root: &str,
+    prompt: &str,
+    resume_session_id: Option<String>,
+    source: Option<String>,
+    source_ref: Option<String>,
+    parent_run_id: Option<i64>,
+) -> (AgentRunParams, RunProvenance) {
+    let params = AgentRunParams {
+        prompt: prompt.to_owned(),
+        cwd: Path::new(root).to_path_buf(),
+        env: AgentEnvMode::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        resume_session_id,
+    };
+    let mut provenance = RunProvenance::debug();
+    if let Some(source) = source {
+        provenance.source = source;
+    }
+    provenance.source_ref = source_ref;
+    provenance.parent_run_id = parent_run_id;
+    (params, provenance)
+}
+
+#[tokio::test]
+async fn agent_start全参缺省调试页形态params无resume且记录debug缺省与现状一致() {
+    let env = Env::new("r2-debug-default");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    let (params, provenance) =
+        assemble_agent_start_args("C:\\ws\\demo", "调试一轮", None, None, None, None);
+    let runner = FakeRunner::with_events(vec![run_started(0), run_result(1, false)]);
+    let (channel, _captured) = capturing_channel();
+
+    let record = run_agent_with(&state, &runner, channel, params, provenance)
+        .await
+        .expect("completed 会话返回 Ok");
+
+    let captured = runner.captured_params();
+    assert_eq!(captured.len(), 1, "恰发起一次运行");
+    assert_eq!(
+        captured[0].resume_session_id, None,
+        "AC-6 回归：调试页 invoke 形态无 --resume 入参"
+    );
+    assert_eq!(
+        record.source, "debug",
+        "AC-4：来源缺省 debug（调试链路语义不变）"
+    );
+    assert_eq!(record.source_ref, None);
+    assert_eq!(record.parent_run_id, None);
+}
+
+#[tokio::test]
+async fn agent_start_explore形态全参resume进params三元组进记录且事件流正常() {
+    let env = Env::new("r2-explore-full");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    let (params, provenance) = assemble_agent_start_args(
+        "C:\\ws\\demo",
+        "explore 续轮",
+        Some("s-parent".to_owned()),
+        Some("explore".to_owned()),
+        Some("7".to_owned()),
+        Some(42),
+    );
+    let runner = FakeRunner::with_events(vec![run_started(0), run_result(1, false)]);
+    let (channel, captured) = capturing_channel();
+
+    let record = run_agent_with(&state, &runner, channel, params, provenance)
+        .await
+        .expect("completed 会话返回 Ok");
+
+    // resume 单独流进 runner 契约（--resume flag 组装细节在 flags_test.rs）
+    let runner_params = runner.captured_params();
+    assert_eq!(runner_params.len(), 1);
+    assert_eq!(
+        runner_params[0].resume_session_id.as_deref(),
+        Some("s-parent"),
+        "resume_session_id 进 AgentRunParams（AC-6）"
+    );
+    assert_eq!(
+        runner_params[0].prompt, "explore 续轮",
+        "其余 flag 面参数照常透传"
+    );
+    // 来源三元组走 RunProvenance 旁路落库，两路互不污染
+    assert_eq!(record.source, "explore", "AC-4：三元组进记录");
+    assert_eq!(record.source_ref.as_deref(), Some("7"));
+    assert_eq!(record.parent_run_id, Some(42));
+    // 事件经 Channel 正常流出
+    assert!(
+        !captured.lock().expect("捕获锁不可中毒").is_empty(),
+        "事件流正常流出（tee Channel sink）"
+    );
+    assert_eq!(record.status, "completed");
+}
+
+#[tokio::test]
+async fn agent_start仅传resume时两路各自缺省无串线() {
+    let env = Env::new("r2-resume-only");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    let (params, provenance) = assemble_agent_start_args(
+        "C:\\ws\\demo",
+        "续话轮",
+        Some("s-1".to_owned()),
+        None,
+        None,
+        None,
+    );
+    let runner = FakeRunner::with_events(vec![run_result(0, false)]);
+
+    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
+        .await
+        .expect("completed 会话返回 Ok");
+
+    assert_eq!(
+        runner.captured_params()[0].resume_session_id.as_deref(),
+        Some("s-1"),
+        "resume 进 params"
+    );
+    assert_eq!(record.source, "debug", "source 未传仍按缺省 debug 落库");
+    assert_eq!(record.source_ref, None, "resume 不串入 source_ref");
+    assert_eq!(record.parent_run_id, None, "resume 不串入链指针");
+}
+
+#[tokio::test]
+async fn agent_start仅传source不传定位与链指针时照入参落库() {
+    let env = Env::new("r2-source-only");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    // 设计未规定来源一致性强校验（source 与 source_ref 独立可选）：锁定现状契约
+    let (params, provenance) = assemble_agent_start_args(
+        "C:\\ws\\demo",
+        "explore 首轮",
+        None,
+        Some("explore".to_owned()),
+        None,
+        None,
+    );
+    let runner = FakeRunner::with_events(vec![run_result(0, false)]);
+
+    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
+        .await
+        .expect("completed 会话返回 Ok");
+
+    assert_eq!(record.source, "explore");
+    assert_eq!(record.source_ref, None);
+    assert_eq!(record.parent_run_id, None);
+    assert_eq!(
+        runner.captured_params()[0].resume_session_id,
+        None,
+        "resume 不受 source 影响"
+    );
+}
+
+#[tokio::test]
+async fn parent_run_id指向不存在的run时编排无回查照常落库() {
+    let env = Env::new("r2-dangling-parent");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    // D4：编排不回查链上游存在性（指针语义，指向记录由调用方保证）
+    let (params, provenance) = assemble_agent_start_args(
+        "C:\\ws\\demo",
+        "悬挂指针轮",
+        None,
+        Some("explore".to_owned()),
+        Some("7".to_owned()),
+        Some(9999),
+    );
+    let runner = FakeRunner::with_events(vec![run_result(0, false)]);
+
+    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
+        .await
+        .expect("无回查：不因指针悬挂报错");
+
+    assert_eq!(record.parent_run_id, Some(9999), "照常落库");
+    assert_eq!(record.source, "explore");
+}
+
+#[tokio::test]
+async fn explore来源run在in_band失败时落failed终态且三字段保留() {
+    let env = Env::new("r2-failed-keeps-source");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    let (params, provenance) = assemble_agent_start_args(
+        "C:\\ws\\demo",
+        "失败轮",
+        Some("s-tail".to_owned()),
+        Some("explore".to_owned()),
+        Some("7".to_owned()),
+        Some(42),
+    );
+    let runner = FakeRunner::with_events(vec![run_result(0, true)]);
+
+    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
+        .await
+        .expect("in-band 失败返回 Ok(failed 记录)");
+
+    assert_eq!(record.status, "failed", "is_error 收敛 failed");
+    assert_eq!(record.source, "explore", "失败路径不丢来源");
+    assert_eq!(record.source_ref.as_deref(), Some("7"));
+    assert_eq!(record.parent_run_id, Some(42));
+}
+
+// ---------------------------------------------------------------------------
+// agent_run_chain：restore_run_chain 命令薄包装（通用面）+ 链还原集成关系
+// ---------------------------------------------------------------------------
+
+/// 落一条带来源三元组的 run 记录并返回（begin 分配 id）。
+fn begin_chain_run(
+    store: &Store,
+    prompt: &str,
+    started_at: i64,
+    source: &str,
+    source_ref: Option<&str>,
+    parent_run_id: Option<i64>,
+) -> AgentRunRecord {
+    let mut requested = running_run(prompt, started_at);
+    requested.source = source.to_owned();
+    requested.source_ref = source_ref.map(str::to_owned);
+    requested.parent_run_id = parent_run_id;
+    store.begin_agent_run(&requested).expect("begin 应成功")
+}
+
+#[test]
+fn agent_run_chain与store_restore_run_chain直连同序同值serde等值() {
+    let env = Env::new("chain-cmd-passthrough");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+    let first = begin_chain_run(&state, "首轮", 100, "explore", Some("7"), None);
+    let second = begin_chain_run(&state, "续轮", 200, "explore", Some("7"), Some(first.id));
+
+    let via_command =
+        agent_run_chain(state.clone(), "explore".to_owned(), "7".to_owned()).expect("查询应成功");
+    let via_store = state.restore_run_chain("explore", "7").expect("直连应成功");
+
+    assert_eq!(
+        serde_json::to_value(&via_command).unwrap(),
+        serde_json::to_value(&via_store).unwrap(),
+        "薄包装不加工：命令面与 store 直连 serde 等值"
+    );
+    let ids: Vec<i64> = via_command.iter().map(|record| record.id).collect();
+    assert_eq!(ids, vec![first.id, second.id], "发起序（AC-5）");
+}
+
+#[test]
+fn agent_run_chain无链与未知source_ref组合均返回空数组不报错() {
+    let env = Env::new("chain-cmd-miss");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+
+    let empty =
+        agent_run_chain(state.clone(), "explore".to_owned(), "404".to_owned()).expect("无链不报错");
+    assert!(empty.is_empty(), "AC-5：无链返回空数组");
+    let unknown = agent_run_chain(state.clone(), "no-such-source".to_owned(), "7".to_owned())
+        .expect("未知 source 不报错");
+    assert!(
+        unknown.is_empty(),
+        "AC-5：未知 source/source_ref 组合空 Vec"
+    );
+}
+
+#[test]
+fn 两条explore链交替落库后各自完整还原且debug与对方链不入列() {
+    let env = Env::new("r3-two-chains");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+    // R7 与 R8 交替落库 + 一条 debug 干扰 run
+    let r7_1 = begin_chain_run(&state, "R7 首轮", 100, "explore", Some("7"), None);
+    let r8_1 = begin_chain_run(&state, "R8 首轮", 150, "explore", Some("8"), None);
+    let r7_2 = begin_chain_run(&state, "R7 续轮", 200, "explore", Some("7"), Some(r7_1.id));
+    let r8_2 = begin_chain_run(&state, "R8 续轮", 250, "explore", Some("8"), Some(r8_1.id));
+    begin_chain_run(&state, "调试 run", 300, "debug", None, None);
+
+    let chain7 =
+        agent_run_chain(state.clone(), "explore".to_owned(), "7".to_owned()).expect("R7 应还原");
+    let chain8 =
+        agent_run_chain(state.clone(), "explore".to_owned(), "8".to_owned()).expect("R8 应还原");
+
+    let ids7: Vec<i64> = chain7.iter().map(|record| record.id).collect();
+    let ids8: Vec<i64> = chain8.iter().map(|record| record.id).collect();
+    assert_eq!(ids7, vec![r7_1.id, r7_2.id], "R7 链按发起序恰 2 条（AC-5）");
+    assert_eq!(
+        ids8,
+        vec![r8_1.id, r8_2.id],
+        "R8 链按发起序恰 2 条，交替落库互不串扰"
+    );
+    assert!(
+        chain7
+            .iter()
+            .chain(&chain8)
+            .all(|record| record.source == "explore"),
+        "debug 与对方链不入列"
+    );
+}
+
+#[test]
+fn 链还原后逐run事件重放拼合按发起序无缝拼接() {
+    let env = Env::new("r3-chain-replay");
+    let app = app_with_store(&env);
+    let state = app.state::<Store>();
+    let first = begin_chain_run(&state, "首轮", 100, "explore", Some("7"), None);
+    let second = begin_chain_run(&state, "续轮", 200, "explore", Some("7"), Some(first.id));
+    // 每条 run 落一组可区分事件（归属标记 tag）
+    let events_first = isolation_events("71");
+    let events_second = isolation_events("72");
+    state
+        .append_agent_run_events(first.id, &events_first)
+        .expect("append 应成功");
+    state
+        .append_agent_run_events(second.id, &events_second)
+        .expect("append 应成功");
+
+    // 前端重放的同一收口：链还原 → 逐 run list_agent_run_events → 拼合
+    let chain =
+        agent_run_chain(state.clone(), "explore".to_owned(), "7".to_owned()).expect("链还原应成功");
+    let mut combined = Vec::new();
+    for run in &chain {
+        combined.extend(agent_run_events(state.clone(), run.id).expect("事件重放应成功"));
+    }
+
+    assert_eq!(
+        combined.len(),
+        events_first.len() + events_second.len(),
+        "全链事件无重叠无遗漏"
+    );
+    assert_events_belong_to(&combined[..events_first.len()], "71");
+    assert_events_belong_to(&combined[events_first.len()..], "72");
+    let seqs: Vec<u64> = combined.iter().map(|event| event.seq).collect();
+    assert_eq!(
+        seqs,
+        vec![0, 1, 2, 3, 0, 1, 2, 3],
+        "按发起序逐 run 拼接（run 内 seq 升序、run 间发起序）"
     );
 }

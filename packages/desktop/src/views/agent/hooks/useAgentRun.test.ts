@@ -63,6 +63,9 @@ const COMPLETED_RECORD: AgentRunRecord = {
   durationMs: 1234,
   sessionId: 's-1',
   error: null,
+  source: 'debug',
+  sourceRef: null,
+  parentRunId: null,
 };
 
 /** Channel mock 实例形状（vi.hoisted 内 class 不外泄类型，取其结构）。 */

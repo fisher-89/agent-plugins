@@ -42,15 +42,23 @@ impl WorkspaceRecord {
     }
 }
 
+/// `AgentRunRecord.source` 的 serde 缺省值：既有调试链路写入语义不变。
+fn default_run_source() -> String {
+    "debug".to_owned()
+}
+
 /// agent 运行记录：全平文字段；`status` / `env` / `permission_mode` 为受控
-/// 字符串（running | completed | failed 等），store 不引本地枚举。联动字段
-/// （`source` / `workflow_run_id` / `phase`）随 workflow 租户变更引入，本模型
-/// 不预建。
+/// 字符串（running | completed | failed 等），store 不引本地枚举。
 ///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
+///
+/// 字段演进（version 2）：新增 `source` / `source_ref` / `parent_run_id` 三
+/// 字段——来源归属与 resume 链显式指针。落库编码为 bincode（非自描述），
+/// v1 载荷无法直接反序列化为本结构，经 [`AgentRunRecordV1`] 版本化结构 +
+/// `From` 转换由 native_model 读路径自动升级（无手工迁移、无 legacy 迁移层）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 2, version = 1)]
+#[native_model(id = 2, version = 2, from = AgentRunRecordV1)]
 #[native_db]
 pub struct AgentRunRecord {
     /// run id（主键，写事务内 max+1 分配）
@@ -76,10 +84,138 @@ pub struct AgentRunRecord {
     pub cost_usd: Option<f64>,
     /// 运行时长毫秒（来自 result 事件）
     pub duration_ms: Option<u64>,
-    /// 会话 id（来自 result / init 事件，续会话未来账的信封预留）
+    /// 会话 id（来自 result / init 事件，续会话入参来源）
     pub session_id: Option<String>,
     /// 失败原因（落库失败收敛 / 无 result 异常终止时填因）
     pub error: Option<String>,
+    /// 来源受控字符串（debug | explore | …），缺省 debug（调试链路语义不变）
+    #[serde(default = "default_run_source")]
+    pub source: String,
+    /// 来源内定位（explore 指向探索记录主键的十进制串；调试 run 为 None）
+    #[serde(default)]
+    pub source_ref: Option<String>,
+    /// resume 链显式指针（本 run 的上游 run id；链首为 None）
+    #[serde(default)]
+    pub parent_run_id: Option<i64>,
+}
+
+/// `AgentRunRecord` 的 v1 版本化结构（13 字段，演进前形态）：不注册
+/// `#[native_db]`（不参与模型定义），仅承载 v1 载荷解码与到 v2 的升级转换，
+/// 供 native_model `from` 机制与 v1 fixture 测试使用。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 2, version = 1)]
+pub struct AgentRunRecordV1 {
+    /// run id（主键）
+    pub id: i64,
+    /// 提示词原文
+    pub prompt: String,
+    /// 工作目录
+    pub cwd: String,
+    /// 环境档位受控字符串
+    pub env: String,
+    /// permission-mode 受控字符串
+    pub permission_mode: String,
+    /// run 状态受控字符串
+    pub status: String,
+    /// 开始时间（UTC unix 毫秒）
+    pub started_at: i64,
+    /// 结束时间；运行中为 None
+    pub finished_at: Option<i64>,
+    /// 收敛轮数（来自 result 事件）
+    pub num_turns: Option<u64>,
+    /// 总成本美元（来自 result 事件）
+    pub cost_usd: Option<f64>,
+    /// 运行时长毫秒（来自 result 事件）
+    pub duration_ms: Option<u64>,
+    /// 会话 id
+    pub session_id: Option<String>,
+    /// 失败原因
+    pub error: Option<String>,
+}
+
+impl From<AgentRunRecordV1> for AgentRunRecord {
+    fn from(v1: AgentRunRecordV1) -> Self {
+        Self {
+            id: v1.id,
+            prompt: v1.prompt,
+            cwd: v1.cwd,
+            env: v1.env,
+            permission_mode: v1.permission_mode,
+            status: v1.status,
+            started_at: v1.started_at,
+            finished_at: v1.finished_at,
+            num_turns: v1.num_turns,
+            cost_usd: v1.cost_usd,
+            duration_ms: v1.duration_ms,
+            session_id: v1.session_id,
+            error: v1.error,
+            source: default_run_source(),
+            source_ref: None,
+            parent_run_id: None,
+        }
+    }
+}
+
+/// 反向转换仅满足 native_model 宏生成的 downgrade 编码路径的 trait 约束
+/// （应用只升级不降级，不调用 `encode_downgrade`）；转换即丢弃三个新字段。
+impl From<AgentRunRecord> for AgentRunRecordV1 {
+    fn from(v2: AgentRunRecord) -> Self {
+        Self {
+            id: v2.id,
+            prompt: v2.prompt,
+            cwd: v2.cwd,
+            env: v2.env,
+            permission_mode: v2.permission_mode,
+            status: v2.status,
+            started_at: v2.started_at,
+            finished_at: v2.finished_at,
+            num_turns: v2.num_turns,
+            cost_usd: v2.cost_usd,
+            duration_ms: v2.duration_ms,
+            session_id: v2.session_id,
+            error: v2.error,
+        }
+    }
+}
+
+/// explore 清单记录（user 维度，registry / 绑定元数据，与 [`WorkspaceRecord`]
+/// 同先例落 app data dir user db）：内容唯一真源在磁盘笔记文件（由 agent 会话
+/// 流程懒创建），记录是身份、文件是可丢弃投影——文件被删记录保留，未落盘记录
+/// 照常存在（数据三分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名
+/// 经 in-place 改 `name` 保主键，会话链绑定不破。
+///
+/// 时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 4, version = 1)]
+#[native_db]
+pub struct ExploreRecord {
+    /// 记录 id（主键，写事务内 max+1 分配；身份与文件名解耦）
+    #[primary_key]
+    pub id: i64,
+    /// workspace 归属（canonical root，与 `WorkspaceRecord.root` 同口径）
+    pub root: String,
+    /// 展示名（= 笔记文件 stem，磁盘寻址键）
+    pub name: String,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// 最近更新时间（UTC unix 毫秒）
+    pub updated_at: i64,
+}
+
+impl ExploreRecord {
+    /// 由归属与名称构造新记录：`id` 置 0（写事务内 max+1 分配覆盖），
+    /// `created_at = updated_at = now`（新建语义）。
+    pub fn new(root: &str, name: &str, now: i64) -> Self {
+        Self {
+            id: 0,
+            root: root.to_owned(),
+            name: name.to_owned(),
+            created_at: now,
+            updated_at: now,
+        }
+    }
 }
 
 /// agent 运行事件记录（类型化新建）：包装 struct 打 native_db derive，嵌装

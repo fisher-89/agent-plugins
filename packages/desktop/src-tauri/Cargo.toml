@@ -18,6 +18,7 @@ tauri-build = { workspace = true }
 agent = { workspace = true }
 agent-cli = { workspace = true }
 foundation = { workspace = true }
+watch = { workspace = true }
 workflow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
@@ -42,6 +43,7 @@ members = [
     "crates/core/workflow",
     "crates/infra/agent",
     "crates/infra/store",
+    "crates/infra/watch",
 ]
 
 # workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 dev-team 壳）
@@ -50,6 +52,8 @@ agent = { path = "crates/core/agent" }
 agent-cli = { path = "crates/infra/agent" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
+notify = "8"
+watch = { path = "crates/infra/watch" }
 workflow = { path = "crates/core/workflow" }
 # native_model pin 必须与 native_db 内部依赖（=0.4.20）严格一致，避免双版本 trait 失配
 native_db = "=0.8.2"

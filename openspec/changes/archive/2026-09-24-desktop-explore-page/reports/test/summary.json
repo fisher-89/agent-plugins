@@ -1,0 +1,92 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-24T09:36:34.699Z",
+  "duration_seconds": 1187,
+  "total": 1484,
+  "passed": 1484,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 30,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 94.16,
+    "threshold": 80,
+    "measured": {
+      "killed": 412,
+      "survived": 23,
+      "timeout": 7,
+      "noCoverage": 3,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 2,
+      "total": 447,
+      "detected": 419,
+      "undetected": 26
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 94.15730337078652,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 30,
+        "passed_count": 30
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-explore-page/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-explore-page/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All real tests pass with no fix needed: vite-plus 487 tests across 41 files (0 failed) plus rust 23/23, and both gates clear - mutation 94.16% >= 80% and gate-scope coverage lines 99.09 / branches 95.32 / functions 97.70 above the 90/85/90 thresholds.",
+    "Summary totals are inflated by Stryker sandbox duplication: 974 of the 1484 counted tests are duplicate executions under .stryker-tmp/sandbox-*/ (82 of 123 vite-plus test_files entries), merged into results.json after mutation ran; the real main-suite count is 510, so the CLI should exclude .stryker-tmp paths when parsing results.",
+    "The vite-plus plan's coverage.pass=false (branches 72.02% < 85%) is a measurement artifact, not a real shortfall: 74 sandbox coverage entries with partial per-mutant coverage (branches 67.24%) were merged into coverage-summary.json and dragged the aggregate down; recomputing gate scope (src/** minus components/ui minus routes.tsx, sandbox excluded) gives branches 95.32%, comfortably above threshold.",
+    "Rust plan coverage.pass=false is the known cargo llvm-cov artifact (branches=0 emitted without branch instrumentation, identical in recent archived runs); lines 97.09% and functions 91.53% exceed their 90/90 thresholds, so only lines/functions are meaningful for the rust suite, and rust mutation remains unexecuted (mutation=null) despite the declared threshold of 70.",
+    "Report-consistency issue for the CLI owner: summary coverage.measured is all-null with passed_count 0 yet pass=true, contradicting the desktop plan report that carries real (and gate-flipping) numbers; conclusion stays 'pass' as recorded since no problems[] entry was emitted.",
+    "Progress vs the previous 16:23 run: mutation survivors 84 -> 23 and noCoverage 22 -> 3 (score 76.18% -> 94.16%), confirming the earlier shortfall in the explore files was closed by the tests added between runs; the remaining 23 survivors are spread thin and none block the gate."
+  ]
+}

@@ -23,6 +23,9 @@ function record(id: number, status: AgentRunRecord['status'], prompt: string): A
     durationMs: 800,
     sessionId: `s-${id}`,
     error: status === 'failed' ? '进程结束但未产出 result 事件' : null,
+    source: 'debug',
+    sourceRef: null,
+    parentRunId: null,
   };
 }
 

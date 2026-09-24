@@ -1,7 +1,9 @@
 //! `store` 的单元测试：open 打开流程 + workspace 三操作 + agent run
 //! begin / finish / list 存量回归 + 事件类型化（`append_agent_run_events` /
 //! `list_agent_run_events` 经 `AgentEvent` 构造）+ 信封 API（`list_models` /
-//! `scan`）。tempdir 真开 db 文件（存储层不 mock）；全部断言经 `Store` 公共
+//! `scan`）+ explore 记录 CRUD（建档 / 清单 / 寻址 / 改名 / 删除，AC-3）+
+//! `restore_run_chain` 单链还原（AC-5）+ v1→v2 演进与三字段往返（AC-4）。
+//! tempdir 真开 db 文件（存储层不 mock）；全部断言经 `Store` 公共
 //! API，内部协作（模型编解码、canonical 口径）由此间接覆盖。系统时钟不
 //! mock：`added_at` / `started_at` 仅记录入库值，清单排序与获取时间无关。
 //!
@@ -12,7 +14,7 @@ use std::path::{Path, PathBuf};
 
 use agent::{AgentEvent, AgentEventKind};
 
-use crate::{AgentRunRecord, Store, StoreError, WorkspaceRecord};
+use crate::{AgentRunRecord, AgentRunRecordV1, ExploreRecord, Store, StoreError, WorkspaceRecord};
 
 /// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -423,6 +425,9 @@ fn running_run(prompt: &str, started_at: i64) -> AgentRunRecord {
         duration_ms: None,
         session_id: None,
         error: None,
+        source: "debug".to_owned(),
+        source_ref: None,
+        parent_run_id: None,
     }
 }
 
@@ -575,7 +580,7 @@ fn open全新路径后list_models列出全部注册模型且计数为0() {
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["workspace", "agent_run", "agent_event"],
+        vec!["workspace", "agent_run", "agent_event", "explore"],
         "注册表全量列出，计数 0 也列出"
     );
     assert!(
@@ -861,4 +866,599 @@ fn scan未知模型名与空串返回err不panic且错误串可读() {
     }
     // 失败不产生任何副作用：库仍可正常读写
     assert!(store.list_workspaces().unwrap().is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// explore 记录 CRUD（AC-3 / AC-8）：建档 / 清单 / 寻址 / 改名 / 删除
+// ---------------------------------------------------------------------------
+
+fn create_ok(store: &Store, root: &str, name: &str) -> ExploreRecord {
+    store
+        .create_explore_record(root, name)
+        .unwrap_or_else(|e| panic!("create_explore_record({name}) 应成功: {e}"))
+}
+
+#[test]
+fn create_explore_record两次建档id递增且created_at等于updated_at() {
+    let env = Env::new("explore-create-incr");
+    let store = open_ok(&env.db_path());
+
+    let first = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    let second = create_ok(&store, "C:\\ws\\alpha", "layout-design");
+
+    assert_eq!(
+        (first.id, second.id),
+        (1, 2),
+        "写事务内 max+1 分配，空库首行 id=1"
+    );
+    for record in [&first, &second] {
+        assert_eq!(
+            record.created_at, record.updated_at,
+            "新建语义 created_at = updated_at（入库时刻毫秒值）"
+        );
+        assert!(record.created_at > 0, "入库时刻为正毫秒值");
+    }
+}
+
+#[test]
+fn 同root同name重复建档返回err() {
+    let env = Env::new("explore-create-dup");
+    let store = open_ok(&env.db_path());
+    let first = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    let result = store.create_explore_record("C:\\ws\\alpha", "api-retry");
+
+    let err = result.expect_err("同 (root, name) 重复建档应 Err");
+    assert!(
+        matches!(err, StoreError::Db(_)),
+        "变体为 Db（命令层转 Err(String)），实际: {err:?}"
+    );
+    assert_eq!(
+        store.list_explore_records("C:\\ws\\alpha").unwrap(),
+        vec![first],
+        "失败不产生第二条记录"
+    );
+}
+
+#[test]
+fn 非法记录名建档返回err() {
+    let env = Env::new("explore-create-invalid");
+    let store = open_ok(&env.db_path());
+
+    for name in ["", ".", "..", "a/b", "a\\b", "a:b", "../x"] {
+        let result = store.create_explore_record("C:\\ws\\alpha", name);
+        assert!(
+            matches!(&result, Err(StoreError::Db(_))),
+            "非法名 {name:?} 应 Err（单分量校验），实际: {result:?}"
+        );
+    }
+    assert!(
+        store
+            .list_explore_records("C:\\ws\\alpha")
+            .unwrap()
+            .is_empty(),
+        "全部拒绝：不产生任何记录"
+    );
+}
+
+#[test]
+fn 同名不同root各建一档互不影响() {
+    let env = Env::new("explore-create-roots");
+    let store = open_ok(&env.db_path());
+
+    let alpha = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    let beta = create_ok(&store, "C:\\ws\\beta", "api-retry");
+
+    assert_ne!(
+        alpha.id, beta.id,
+        "主键独立分配（root 是归属键，非主键分量）"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        Some(alpha),
+        "各 root 自行寻址互不影响"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\beta", "api-retry")
+            .unwrap(),
+        Some(beta)
+    );
+}
+
+#[test]
+fn list_explore_records仅返回入参root的记录且id升序() {
+    let env = Env::new("explore-list");
+    let store = open_ok(&env.db_path());
+    let a1 = create_ok(&store, "C:\\ws\\alpha", "a-first");
+    let _b1 = create_ok(&store, "C:\\ws\\beta", "b-only");
+    let a2 = create_ok(&store, "C:\\ws\\alpha", "a-second");
+    let a3 = create_ok(&store, "C:\\ws\\alpha", "a-third");
+
+    let list = store.list_explore_records("C:\\ws\\alpha").unwrap();
+
+    let ids: Vec<i64> = list.iter().map(|record| record.id).collect();
+    assert_eq!(
+        ids,
+        vec![a1.id, a2.id, a3.id],
+        "仅入参 root 的记录、主键 id 升序稳定序（AC-3 / AC-8）"
+    );
+    assert!(
+        list.iter().all(|record| record.root == "C:\\ws\\alpha"),
+        "无他 root 记录混入"
+    );
+}
+
+#[test]
+fn 空root串清单返回空vec() {
+    let env = Env::new("explore-list-blank");
+    let store = open_ok(&env.db_path());
+    create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    assert!(
+        store.list_explore_records("").unwrap().is_empty(),
+        "blank root 不匹配任何归属键，返回空 Vec（blank root 纪律的 store 半）"
+    );
+}
+
+#[test]
+fn find_explore_record命中root与name返回some() {
+    let env = Env::new("explore-find-hit");
+    let store = open_ok(&env.db_path());
+    let record = create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        Some(record),
+        "命中按归属与名称寻址"
+    );
+}
+
+#[test]
+fn find_explore_record未命中name或root返回none() {
+    let env = Env::new("explore-find-miss");
+    let store = open_ok(&env.db_path());
+    create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "no-such")
+            .unwrap(),
+        None,
+        "name 未命中"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\beta", "api-retry")
+            .unwrap(),
+        None,
+        "root 未命中"
+    );
+}
+
+#[test]
+fn rename原地改名主键不变旧名不再命中新名命中() {
+    let env = Env::new("explore-rename");
+    let store = open_ok(&env.db_path());
+    let original = create_ok(&store, "C:\\ws\\alpha", "old-name");
+
+    let renamed = store
+        .rename_explore_record("C:\\ws\\alpha", "old-name", "new-name")
+        .expect("rename 应成功");
+
+    assert_eq!(
+        renamed.id, original.id,
+        "in-place 改名保主键（保 source_ref 链绑定）"
+    );
+    assert_eq!(renamed.name, "new-name");
+    assert!(
+        renamed.updated_at >= original.updated_at,
+        "updated_at 刷新（不早于原值）"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "old-name")
+            .unwrap(),
+        None,
+        "原 (root, old_name) 不再命中"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "new-name")
+            .unwrap(),
+        Some(renamed),
+        "(root, new_name) 命中"
+    );
+}
+
+#[test]
+fn rename目标名已存在返回err且原记录不被破坏() {
+    let env = Env::new("explore-rename-conflict");
+    let store = open_ok(&env.db_path());
+    let keeper = create_ok(&store, "C:\\ws\\alpha", "keeper");
+    create_ok(&store, "C:\\ws\\alpha", "mover");
+
+    let result = store.rename_explore_record("C:\\ws\\alpha", "mover", "keeper");
+
+    assert!(
+        matches!(&result, Err(StoreError::Db(_))),
+        "目标名已存在应 Err，实际: {result:?}"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "mover")
+            .unwrap()
+            .map(|r| r.name),
+        Some("mover".to_owned()),
+        "原记录不被破坏"
+    );
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "keeper")
+            .unwrap(),
+        Some(keeper),
+        "同名既有记录不受影响"
+    );
+}
+
+#[test]
+fn rename被改记录miss返回err() {
+    let env = Env::new("explore-rename-miss");
+    let store = open_ok(&env.db_path());
+
+    let result = store.rename_explore_record("C:\\ws\\alpha", "ghost", "any");
+    assert!(
+        matches!(&result, Err(StoreError::Db(_))),
+        "被改记录不存在应 Err，实际: {result:?}"
+    );
+}
+
+#[test]
+fn delete后find为none返回true且磁盘同名文件保留() {
+    let env = Env::new("explore-delete");
+    let store = open_ok(&env.db_path());
+    create_ok(&store, "C:\\ws\\alpha", "api-retry");
+    // 记录对应的磁盘笔记文件（store 不触磁盘：文件由 agent 会话流程创建）
+    let note = env.ws("alpha").join("api-retry.md");
+    fs::write(&note, "# 探索笔记").expect("写磁盘笔记失败");
+
+    let hit = store
+        .delete_explore_record("C:\\ws\\alpha", "api-retry")
+        .unwrap();
+
+    assert!(hit, "命中删除返回 true");
+    assert_eq!(
+        store
+            .find_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        None,
+        "删除后不再命中"
+    );
+    assert!(
+        note.exists(),
+        "AC-3 孤儿保留：删除记录不动磁盘文件（文件是可丢弃投影）"
+    );
+    assert_eq!(
+        fs::read_to_string(&note).unwrap(),
+        "# 探索笔记",
+        "文件内容原样"
+    );
+}
+
+#[test]
+fn delete_miss幂等返回false() {
+    let env = Env::new("explore-delete-miss");
+    let store = open_ok(&env.db_path());
+    create_ok(&store, "C:\\ws\\alpha", "api-retry");
+
+    assert!(
+        !store
+            .delete_explore_record("C:\\ws\\alpha", "ghost")
+            .unwrap(),
+        "miss 返回 false"
+    );
+    assert!(store
+        .delete_explore_record("C:\\ws\\alpha", "api-retry")
+        .unwrap());
+    assert!(
+        !store
+            .delete_explore_record("C:\\ws\\alpha", "api-retry")
+            .unwrap(),
+        "重复删除幂等（二次 miss）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// restore_run_chain（AC-5）：单链还原收口单点
+// ---------------------------------------------------------------------------
+
+/// 构造带来源三元组的 running 形态 run 记录（id 由 begin 分配）。
+fn provenance_run(
+    prompt: &str,
+    started_at: i64,
+    source: &str,
+    source_ref: Option<&str>,
+    parent_run_id: Option<i64>,
+) -> AgentRunRecord {
+    AgentRunRecord {
+        source: source.to_owned(),
+        source_ref: source_ref.map(str::to_owned),
+        parent_run_id,
+        ..running_run(prompt, started_at)
+    }
+}
+
+fn begin_provenance_run(
+    store: &Store,
+    prompt: &str,
+    started_at: i64,
+    source: &str,
+    source_ref: Option<&str>,
+    parent_run_id: Option<i64>,
+) -> AgentRunRecord {
+    store
+        .begin_agent_run(&provenance_run(
+            prompt,
+            started_at,
+            source,
+            source_ref,
+            parent_run_id,
+        ))
+        .expect("begin_agent_run 应成功")
+}
+
+#[test]
+fn 同source_source_ref两条链式run按发起序还原且链头在末位() {
+    let env = Env::new("chain-two");
+    let store = open_ok(&env.db_path());
+    let first = begin_provenance_run(&store, "首轮", 100, "explore", Some("7"), None);
+    let second = begin_provenance_run(&store, "续轮", 200, "explore", Some("7"), Some(first.id));
+
+    let chain = store.restore_run_chain("explore", "7").unwrap();
+
+    let ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
+    assert_eq!(
+        ids,
+        vec![first.id, second.id],
+        "按发起顺序还原，链头（最新）在末位"
+    );
+    assert_eq!(chain[0].parent_run_id, None, "链首无上游指针");
+    assert_eq!(chain[1].parent_run_id, Some(first.id), "链尾指向前一轮");
+}
+
+#[test]
+fn 未命中source_source_ref返回空vec() {
+    let env = Env::new("chain-miss");
+    let store = open_ok(&env.db_path());
+    begin_provenance_run(&store, "首轮", 100, "explore", Some("7"), None);
+
+    assert!(
+        store
+            .restore_run_chain("explore", "404")
+            .unwrap()
+            .is_empty(),
+        "无链返回空 Vec（起链语义）"
+    );
+}
+
+#[test]
+fn 混入干扰记录均不入链() {
+    let env = Env::new("chain-decoy");
+    let store = open_ok(&env.db_path());
+    let first = begin_provenance_run(&store, "首轮", 100, "explore", Some("7"), None);
+    let second = begin_provenance_run(&store, "续轮", 200, "explore", Some("7"), Some(first.id));
+    // 干扰一：同 source_ref 不同 source（调试来源同定位串）
+    let _decoy_source = begin_provenance_run(&store, "调试 run", 300, "debug", Some("7"), None);
+    // 干扰二：同 source 不同 source_ref（另一 explore 记录），且 parent 指入本链
+    let _decoy_ref =
+        begin_provenance_run(&store, "隔壁链", 400, "explore", Some("8"), Some(second.id));
+
+    let chain = store.restore_run_chain("explore", "7").unwrap();
+
+    let ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
+    assert_eq!(
+        ids,
+        vec![first.id, second.id],
+        "(source, source_ref) 双键过滤，干扰记录不入链"
+    );
+}
+
+#[test]
+fn parent_run_id成环时防环截断不悬挂且成员完整() {
+    let env = Env::new("chain-cycle");
+    let store = open_ok(&env.db_path());
+    let a = begin_provenance_run(&store, "A", 100, "explore", Some("7"), None);
+    let b = begin_provenance_run(&store, "B", 200, "explore", Some("7"), Some(a.id));
+    // 构造指针环 A→B→A：终态替换把 A 的上游改指 B
+    let mut cyclic = a.clone();
+    cyclic.parent_run_id = Some(b.id);
+    store.finish_agent_run(a.id, &cyclic).expect("构造环应成功");
+
+    let chain = store.restore_run_chain("explore", "7").expect("环不得悬挂");
+
+    let mut ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
+    ids.sort_unstable();
+    assert_eq!(
+        ids,
+        vec![a.id, b.id].into_iter().collect::<Vec<i64>>(),
+        "visited 集截断：成员完整不重复"
+    );
+}
+
+#[test]
+fn 分叉再汇聚还原为单链链头唯一取最新不重复不遗漏() {
+    let env = Env::new("chain-fork");
+    let store = open_ok(&env.db_path());
+    let root = begin_provenance_run(&store, "链首", 100, "explore", Some("9"), None);
+    let late = begin_provenance_run(&store, "分叉晚", 300, "explore", Some("9"), Some(root.id));
+    let _early = begin_provenance_run(&store, "分叉早", 200, "explore", Some("9"), Some(root.id));
+
+    let chain = store.restore_run_chain("explore", "9").unwrap();
+
+    let ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
+    assert_eq!(
+        ids,
+        vec![root.id, late.id],
+        "链头唯一取 (started_at, id) 最新：还原为单链（root → late），early 分叉不入列"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// v1→v2 演进（AC-4）：多版本结构升级 + 三字段往返
+// ---------------------------------------------------------------------------
+
+/// v1 形态 13 字段记录（演进前写入形态，全字段非缺省值）。
+fn v1_record(id: i64) -> AgentRunRecordV1 {
+    AgentRunRecordV1 {
+        id,
+        prompt: "演进前的一轮".to_owned(),
+        cwd: "C:\\ws\\legacy".to_owned(),
+        env: "bare".to_owned(),
+        permission_mode: "acceptEdits".to_owned(),
+        status: "completed".to_owned(),
+        started_at: 1726000000000,
+        finished_at: Some(1726000001000),
+        num_turns: Some(5),
+        cost_usd: Some(0.25),
+        duration_ms: Some(4321),
+        session_id: Some("s-legacy".to_owned()),
+        error: None,
+    }
+}
+
+#[test]
+fn v1载荷经读路径升级source缺省debug且十三字段保真() {
+    // 说明：store 读路径（native_db bincode_decode_from_slice →
+    // native_model::decode）对 v1 版本头字节自动升级——本用例直接驱动同一条
+    // decode 调用，锁定 From<AgentRunRecordV1> 转换语义；表名随模型版本演进
+    // 属 native_db 自身机制，不在本 crate 用例面（不测库自带语义）。
+    let v1 = v1_record(42);
+    let bytes = native_model::encode(&v1).expect("v1 编码应成功");
+
+    let (upgraded, source_version) =
+        native_model::decode::<AgentRunRecord>(bytes).expect("v1 字节应可被 v2 模型读路径消费");
+
+    assert_eq!(source_version, 1, "存量字节确为 v1 版本头（升级输入前提）");
+    assert_eq!(upgraded.source, "debug", "AC-4：v1 记录 source 缺省 debug");
+    assert_eq!(upgraded.source_ref, None, "v1 记录无来源定位");
+    assert_eq!(upgraded.parent_run_id, None, "v1 记录无链指针");
+    // 既有 13 字段保真（逐字段，不经被测的 From 构造期望值）
+    assert_eq!(upgraded.id, v1.id);
+    assert_eq!(upgraded.prompt, v1.prompt);
+    assert_eq!(upgraded.cwd, v1.cwd);
+    assert_eq!(upgraded.env, v1.env);
+    assert_eq!(upgraded.permission_mode, v1.permission_mode);
+    assert_eq!(upgraded.status, v1.status);
+    assert_eq!(upgraded.started_at, v1.started_at);
+    assert_eq!(upgraded.finished_at, v1.finished_at);
+    assert_eq!(upgraded.num_turns, v1.num_turns);
+    assert_eq!(upgraded.cost_usd, v1.cost_usd);
+    assert_eq!(upgraded.duration_ms, v1.duration_ms);
+    assert_eq!(upgraded.session_id, v1.session_id);
+    assert_eq!(upgraded.error, v1.error);
+}
+
+#[test]
+fn v2写入三字段非缺省重开db读回往返保真() {
+    let env = Env::new("explore-v2-roundtrip");
+    let db_path = env.db_path();
+
+    let seeded = {
+        let store = open_ok(&db_path);
+        let parent = begin_provenance_run(&store, "上一轮", 100, "explore", Some("7"), None);
+        let mut requested = provenance_run(
+            "explore 续轮",
+            1727000000000,
+            "explore",
+            Some("7"),
+            Some(parent.id),
+        );
+        requested.session_id = Some("s-tail".to_owned());
+        let mut record = store.begin_agent_run(&requested).expect("begin 应成功");
+        record.status = "completed".to_owned();
+        record.finished_at = Some(1727000001000);
+        store
+            .finish_agent_run(record.id, &record)
+            .expect("finish 应成功");
+        record
+    };
+    assert_eq!(seeded.source, "explore", "来源非缺省");
+    assert_eq!(seeded.source_ref.as_deref(), Some("7"), "定位非缺省");
+    assert!(seeded.parent_run_id.is_some(), "链指针非缺省");
+
+    // 重开同一 db 文件：v2 三字段往返保真
+    let reopened = open_ok(&db_path);
+    let listed = reopened.list_agent_runs().unwrap();
+    let tail = listed
+        .iter()
+        .find(|record| record.id == seeded.id)
+        .expect("链尾应可读");
+    assert_eq!(tail.source, "explore");
+    assert_eq!(tail.source_ref.as_deref(), Some("7"));
+    assert_eq!(tail.parent_run_id, seeded.parent_run_id, "链指针往返保真");
+    assert_eq!(
+        tail.session_id.as_deref(),
+        Some("s-tail"),
+        "其余字段一并保真"
+    );
+}
+
+#[test]
+fn 缺省来源与显式来源记录并存全量可读且按started_at统一排序() {
+    let env = Env::new("explore-mixed");
+    let store = open_ok(&env.db_path());
+    // v1 时代写入语义（source 缺省 debug、两字段 None）与 v2 显式三元组并存
+    let legacy = begin_provenance_run(&store, "调试旧轮", 100, "debug", None, None);
+    let explore_run = begin_provenance_run(
+        &store,
+        "explore 轮",
+        300,
+        "explore",
+        Some("5"),
+        Some(legacy.id),
+    );
+    let middle = begin_provenance_run(&store, "调试新轮", 200, "debug", None, None);
+
+    let listed = store.list_agent_runs().unwrap();
+
+    let ids: Vec<i64> = listed.iter().map(|record| record.id).collect();
+    assert_eq!(ids.len(), 3, "两代写入语义的记录全量可读");
+    assert_eq!(
+        ids,
+        vec![explore_run.id, middle.id, legacy.id],
+        "按 (started_at, id) 统一排序"
+    );
+    assert_eq!(legacy.source, "debug");
+    assert_eq!(explore_run.source, "explore");
+    assert_eq!(explore_run.parent_run_id, Some(legacy.id));
+}
+
+#[test]
+fn v1与v2语义run的事件记录照常经append与list重放() {
+    // 事件表全局 run_id 锚定，不受 run 模型演进影响（AC-4/AC-5 重放前提）
+    let env = Env::new("explore-events");
+    let db_path = env.db_path();
+    let events: Vec<AgentEvent> = (0..3u64)
+        .map(|seq| stamped(seq, raw_kind(&seq.to_string())))
+        .collect();
+
+    let run_id = {
+        let store = open_ok(&db_path);
+        let run = begin_provenance_run(&store, "explore 带事件", 100, "explore", Some("5"), None);
+        store
+            .append_agent_run_events(run.id, &events)
+            .expect("append 应成功");
+        run.id
+    };
+
+    let reopened = open_ok(&db_path);
+    assert_eq!(
+        reopened.list_agent_run_events(run_id).unwrap(),
+        events,
+        "显式来源 run 的事件重放逐字段保真"
+    );
 }

@@ -4,6 +4,7 @@
 //! 类型不出现在任何公共签名（native_db 类型不越 crate 公共面）；db 路径完全
 //! 来自 [`Store::open`] 入参。
 
+use std::collections::{HashMap, HashSet};
 use std::fmt;
 use std::path::Path;
 use std::sync::OnceLock;
@@ -13,7 +14,7 @@ use native_db::{Builder, Database, Models};
 
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
-use crate::model::{now_millis, AgentEventRecord, AgentRunRecord, WorkspaceRecord};
+use crate::model::{now_millis, AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
 
 /// store 内部错误面：两变体对应两类故障模式；`Display` 恒带 `db:` /
 /// `canonicalize:` 前缀，直接服务「清单丢失」的可排查性。迁移失败经
@@ -45,6 +46,18 @@ pub(crate) fn db_err<E: fmt::Display>(context: &str) -> impl Fn(E) -> StoreError
     move |e| StoreError::Db(format!("{context}: {e}"))
 }
 
+/// 记录名单分量校验（非空、非 `.` / `..`、不含 `/` `\` `:`）：与 workflow 查询
+/// 层的 `is_single_component_name` 同口径（store 不依赖 workflow，校验各自
+/// 持有、口径一致）。
+fn is_single_component_name(name: &str) -> bool {
+    !name.is_empty()
+        && name != "."
+        && name != ".."
+        && !name.contains('/')
+        && !name.contains('\\')
+        && !name.contains(':')
+}
+
 /// 全部已注册模型（静态）：`Database` 借用 `&'static Models`，进程内初始化
 /// 一次。define 仅在编程错误（模型 id / version 重复）失败，expect 与
 /// native_db 文档口径一致。
@@ -61,6 +74,9 @@ pub(crate) fn models() -> &'static Models {
         models
             .define::<AgentEventRecord>()
             .expect("定义 AgentEventRecord 失败");
+        models
+            .define::<ExploreRecord>()
+            .expect("定义 ExploreRecord 失败");
         models
     })
 }
@@ -246,6 +262,147 @@ impl Store {
             .collect::<native_db::db_type::Result<Vec<_>>>()
             .map_err(db_err("扫描运行事件"))?;
         Ok(records.into_iter().map(|record| record.event).collect())
+    }
+
+    /// explore 清单：按 root 过滤，主键 id 升序（读出自然序，稳定可复现）。
+    /// root 为记录归属键（调用方持有 canonical root，store 不二次 canonicalize）。
+    pub fn list_explore_records(&self, root: &str) -> Result<Vec<ExploreRecord>, StoreError> {
+        Ok(self
+            .read_all::<ExploreRecord>("遍历探索清单")?
+            .into_iter()
+            .filter(|record| record.root == root)
+            .collect())
+    }
+
+    /// 按归属与名称寻址单条 explore 记录（详情页按展示名寻址）。
+    pub fn find_explore_record(
+        &self,
+        root: &str,
+        name: &str,
+    ) -> Result<Option<ExploreRecord>, StoreError> {
+        Ok(self
+            .list_explore_records(root)?
+            .into_iter()
+            .find(|record| record.name == name))
+    }
+
+    /// 新建 explore 记录：写事务内 `max(id)+1` 分配（与插入原子，与
+    /// [`Store::begin_agent_run`] 同语义）；同 `(root, name)` 已存在 → `Err`。
+    /// 只写 DB——磁盘笔记文件由 agent 会话流程懒创建，本方法不触磁盘。
+    pub fn create_explore_record(
+        &self,
+        root: &str,
+        name: &str,
+    ) -> Result<ExploreRecord, StoreError> {
+        if !is_single_component_name(name) {
+            return Err(StoreError::Db(format!(
+                "非法记录名: {name:?}（须为单分量名）"
+            )));
+        }
+        if self.find_explore_record(root, name)?.is_some() {
+            return Err(StoreError::Db(format!(
+                "记录已存在: root={root:?} name={name:?}"
+            )));
+        }
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let next_id = match rw
+            .scan()
+            .primary::<ExploreRecord>()
+            .map_err(db_err("读取最大 id"))?
+            .all()
+            .map_err(db_err("读取最大 id"))?
+            .next_back()
+        {
+            Some(Ok(record)) => record.id + 1,
+            Some(Err(e)) => return Err(StoreError::Db(format!("读取最大 id: {e}"))),
+            None => 1,
+        };
+        let mut record = ExploreRecord::new(root, name, now_millis());
+        record.id = next_id;
+        rw.insert(record.clone()).map_err(db_err("写入探索记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 create_explore_record 事务"))?;
+        Ok(record)
+    }
+
+    /// in-place 改名（保主键 → 保 `source_ref` 会话链绑定），刷新 `updated_at`；
+    /// 目标名已存在 → `Err`。删 + 重建会分配新主键导致链断，改名必须 in-place。
+    pub fn rename_explore_record(
+        &self,
+        root: &str,
+        name: &str,
+        new_name: &str,
+    ) -> Result<ExploreRecord, StoreError> {
+        if !is_single_component_name(new_name) {
+            return Err(StoreError::Db(format!(
+                "非法记录名: {new_name:?}（须为单分量名）"
+            )));
+        }
+        if new_name != name && self.find_explore_record(root, new_name)?.is_some() {
+            return Err(StoreError::Db(format!(
+                "目标名已存在: root={root:?} name={new_name:?}"
+            )));
+        }
+        let stored = self
+            .find_explore_record(root, name)?
+            .ok_or_else(|| StoreError::Db(format!("记录不存在: root={root:?} name={name:?}")))?;
+        let mut updated = stored;
+        updated.name = new_name.to_owned();
+        updated.updated_at = now_millis();
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.upsert(updated.clone()).map_err(db_err("写入探索记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 rename_explore_record 事务"))?;
+        Ok(updated)
+    }
+
+    /// 删除 explore 记录：只删 DB 行，MUST NOT 触碰磁盘文件（文件是记录的
+    /// 可丢弃投影，删除方向亦然）；miss 幂等 `Ok(false)`。
+    pub fn delete_explore_record(&self, root: &str, name: &str) -> Result<bool, StoreError> {
+        let Some(record) = self.find_explore_record(root, name)? else {
+            return Ok(false);
+        };
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.remove(record).map_err(db_err("删除探索记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 delete_explore_record 事务"))?;
+        Ok(true)
+    }
+
+    /// 单链还原（链查询收口单点，前端 hook 不拼链）：按 `(source, source_ref)`
+    /// 过滤 → `(started_at, id)` 最新为链头 → 沿 `parent_run_id` 回溯整链
+    /// （visited 集防环）→ 反转为发起顺序。无链返回空 `Vec`。
+    pub fn restore_run_chain(
+        &self,
+        source: &str,
+        source_ref: &str,
+    ) -> Result<Vec<AgentRunRecord>, StoreError> {
+        let all = self.read_all::<AgentRunRecord>("遍历运行清单")?;
+        let by_id: HashMap<i64, &AgentRunRecord> =
+            all.iter().map(|record| (record.id, record)).collect();
+        let head = all
+            .iter()
+            .filter(|record| {
+                record.source == source && record.source_ref.as_deref() == Some(source_ref)
+            })
+            .max_by_key(|record| (record.started_at, record.id));
+        let Some(head) = head else {
+            return Ok(Vec::new());
+        };
+        let mut chain = Vec::new();
+        let mut visited: HashSet<i64> = HashSet::new();
+        let mut current = Some(head);
+        while let Some(record) = current {
+            if !visited.insert(record.id) {
+                break; // 环防御：指针成环时截断，不无限回溯
+            }
+            chain.push(record.clone());
+            current = record
+                .parent_run_id
+                .and_then(|pid| by_id.get(&pid).copied());
+        }
+        chain.reverse();
+        Ok(chain)
     }
 
     /// 全部已注册模型清单与记录计数（注册表驱动，计数 0 也列出；新模型登记

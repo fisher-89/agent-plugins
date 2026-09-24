@@ -6,8 +6,10 @@
 //! - env=bare → `--bare`；env=default → 无 flag
 //! - permission-mode=bypassPermissions → `--dangerously-skip-permissions`；
 //!   acceptEdits → `--permission-mode acceptEdits`；default → 无 flag
-//! - cwd 经 `Command::current_dir` 传递，非 flag；无 model / resume /
-//!   partial-messages flag（MVP 边界）
+//! - resume_session_id=Some(id) → 尾部追加 `--resume <id>`（显式续会话）；
+//!   `None` → 无此 flag
+//! - cwd 经 `Command::current_dir` 传递，非 flag；无 model /
+//!   partial-messages / `--continue` flag（MVP 边界，续话一律显式 session id）
 
 use agent::{AgentEnvMode, AgentPermissionMode, AgentRunParams};
 
@@ -33,6 +35,10 @@ pub fn build_args(params: &AgentRunParams) -> Vec<String> {
             args.push(AgentPermissionMode::AcceptEdits.as_str().to_owned());
         }
         AgentPermissionMode::Default => {}
+    }
+    if let Some(session_id) = &params.resume_session_id {
+        args.push("--resume".to_owned());
+        args.push(session_id.clone());
     }
     args
 }

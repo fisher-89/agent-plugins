@@ -68,6 +68,10 @@ pub struct AgentRunParams {
     pub env: AgentEnvMode,
     /// permission-mode 档位
     pub permission_mode: AgentPermissionMode,
+    /// 续会话入参（唯一进契约的续会话参数）：非空时以该 session 续发新一轮，
+    /// 由实现方翻译为传输层形态（CLI 租户为 `--resume <id>` flag）；`None`
+    /// 即全新 one-shot 运行。`--continue` 隐式续会话不进参数面。
+    pub resume_session_id: Option<String>,
 }
 
 /// 运行句柄：MVP 无 kill / cancel，刻意为空结构，作为未来终止能力的

@@ -1,0 +1,30 @@
+{
+  "framework": "rust",
+  "root": "packages/desktop/src-tauri",
+  "timestamp": "2026-09-24T09:36:34.692Z",
+  "exit_code": 0,
+  "duration_ms": 46384,
+  "summary": {
+    "total": 23,
+    "passed": 23,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [],
+  "source_files": [],
+  "coverage": {
+    "pass": false,
+    "measured": {
+      "lines": 97.08529789969995,
+      "branches": 0,
+      "functions": 91.52542372881356
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    }
+  },
+  "mutation": null
+}

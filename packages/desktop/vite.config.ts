@@ -64,6 +64,7 @@ export default defineConfig({
     sortImports: true,
   },
   test: {
+    include: ['src/**/*.test.ts?(x)'],
     environment: 'jsdom',
     globals: true,
   },

@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import App from '../App';
-import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
+import type { ChangeDetail, ChangeList, ExploreRecord, WorkspaceRecord } from '../types/dto';
 
 // ---------------------------------------------------------------------------
 // 路由级集成矩阵（test-design「集成测试」全量场景收敛于此文件）：集成用例
@@ -16,21 +16,32 @@ import type { ChangeDetail, ChangeList, WorkspaceRecord } from '../types/dto';
 //   ③ / 与未知路径 → 重定向 /changes（AC-1）
 //   ④ workspace 根切换 → ChangeView 过渡抑制 → navigate('/changes')（AC-5/AC-7）
 //   ⑤ 欢迎态 gate → Router 子树挂载/卸载（AC-6）
+// 另含「侧栏导航与路由 → /explores 路由面」关系（AC-10）：
+//   ⑥ nav-explores active 派生 / 深链直达 / workspace 切换 replace 回清单 /
+//      双段路径兜底（未知路径兜底由既有 #/totally-unknown 用例在新路由并存下
+//      继续承载）
 //
 // 进程边界 Mock：invoke 按命令名分发并记录调用序列（次数/参数断言依赖记录）；
-// getVersion / dialog open / updater check 固定 resolve 隔离无关分支。链路内
-// 组件/hooks/路由运行时全部真实实现。
+// Channel mock 为可编程 class（explore 详情页订阅链需要）；getVersion /
+// dialog open / updater check 固定 resolve 隔离无关分支。链路内组件/hooks/
+// 路由运行时全部真实实现。
 // ---------------------------------------------------------------------------
 
-const { checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
-  checkMock: vi.fn(),
-  getVersionMock: vi.fn(),
-  invokeMock: vi.fn(),
-  openMock: vi.fn(),
-}));
+const { ChannelMock, checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => {
+  class ChannelMock {
+    onmessage: ((event: unknown) => void) | null = null;
+  }
+  return {
+    ChannelMock,
+    checkMock: vi.fn(),
+    getVersionMock: vi.fn(),
+    invokeMock: vi.fn(),
+    openMock: vi.fn(),
+  };
+});
 
 vi.mock('@tauri-apps/api/app', () => ({ getVersion: getVersionMock }));
-vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMock }));
 vi.mock('@tauri-apps/plugin-dialog', () => ({ open: openMock }));
 vi.mock('@tauri-apps/plugin-updater', () => ({ check: checkMock }));
 
@@ -72,6 +83,16 @@ function detailDto(name: string): ChangeDetail {
   };
 }
 
+function exploreRecordDto(name: string): ExploreRecord {
+  return {
+    id: name === 'foo' ? 1 : 2,
+    root: FIRST.root,
+    name,
+    createdAt: 1727000000000,
+    updatedAt: 1727000000000,
+  };
+}
+
 // ---------------------------------------------------------------------------
 // 可切换 mock 行为与按命令名分发
 // ---------------------------------------------------------------------------
@@ -80,41 +101,86 @@ let remaining: WorkspaceRecord[];
 let addRecord: WorkspaceRecord | null = null;
 /** get_change_detail 命中表：未列名（ghost / 超长名等）返回 null 模拟后端未命中 */
 let knownDetails: string[];
+/** explore 清单 fixture：#root 记录按归属 root 过滤（AC-10 场景用） */
+let exploreRecords: ExploreRecord[];
 
 function mockIpc() {
   remaining = [FIRST, SECOND];
   addRecord = null;
   knownDetails = ['add-feature', 'beta-fix'];
-  invokeMock.mockImplementation((command: string, params?: { root?: string; change?: string }) => {
-    if (command === 'list_workspaces') {
-      return Promise.resolve([...remaining]);
-    }
-    if (command === 'remove_workspace') {
-      remaining = remaining.filter((r) => r.root !== params?.root);
-      return Promise.resolve(true);
-    }
-    if (command === 'add_workspace') {
-      const rec: WorkspaceRecord = addRecord ?? {
-        root: params?.root ?? '',
-        name: 'picked',
-        addedAt: 1,
-      };
-      // 对齐后端：库存按默认序（canonical root 升序）返回，新记录未必居首
-      remaining = [...remaining.filter((r) => r.root !== rec.root), rec].sort((a, b) =>
-        a.root < b.root ? -1 : a.root > b.root ? 1 : 0,
-      );
-      return Promise.resolve(rec);
-    }
-    if (command === 'list_changes') {
-      return Promise.resolve(fakeList);
-    }
-    if (command === 'get_change_detail') {
-      const change = params?.change;
-      const hit = change !== undefined && knownDetails.includes(change);
-      return Promise.resolve(hit ? detailDto(change) : null);
-    }
-    return Promise.resolve(null);
-  });
+  exploreRecords = [exploreRecordDto('foo'), exploreRecordDto('bar')];
+  invokeMock.mockImplementation(
+    (command: string, params?: { root?: string; change?: string; name?: string }) => {
+      if (command === 'list_workspaces') {
+        return Promise.resolve([...remaining]);
+      }
+      if (command === 'remove_workspace') {
+        remaining = remaining.filter((r) => r.root !== params?.root);
+        return Promise.resolve(true);
+      }
+      if (command === 'add_workspace') {
+        const rec: WorkspaceRecord = addRecord ?? {
+          root: params?.root ?? '',
+          name: 'picked',
+          addedAt: 1,
+        };
+        // 对齐后端：库存按默认序（canonical root 升序）返回，新记录未必居首
+        remaining = [...remaining.filter((r) => r.root !== rec.root), rec].sort((a, b) =>
+          a.root < b.root ? -1 : a.root > b.root ? 1 : 0,
+        );
+        return Promise.resolve(rec);
+      }
+      if (command === 'list_changes') {
+        return Promise.resolve(fakeList);
+      }
+      if (command === 'get_change_detail') {
+        const change = params?.change;
+        const hit = change !== undefined && knownDetails.includes(change);
+        return Promise.resolve(hit ? detailDto(change) : null);
+      }
+      if (command === 'list_explore_records') {
+        return Promise.resolve(exploreRecords.filter((record) => record.root === params?.root));
+      }
+      if (command === 'create_explore_record') {
+        const rec: ExploreRecord = {
+          id: exploreRecords.length + 1,
+          root: params?.root ?? '',
+          name: params?.name ?? '',
+          createdAt: 1727000000000,
+          updatedAt: 1727000000000,
+        };
+        exploreRecords = [...exploreRecords, rec];
+        return Promise.resolve(rec);
+      }
+      if (command === 'delete_explore_record') {
+        exploreRecords = exploreRecords.filter((record) => record.name !== params?.name);
+        return Promise.resolve(true);
+      }
+      // explore 详情恢复路（AC-10 场景只关注导航与清单取数，文档空态即可）
+      if (command === 'read_explore') {
+        return Promise.resolve(null);
+      }
+      if (command === 'explore_doc_path') {
+        return Promise.resolve(null);
+      }
+      if (command === 'watch_subscribe') {
+        return Promise.resolve(1);
+      }
+      if (command === 'watch_unsubscribe') {
+        return Promise.resolve(true);
+      }
+      if (command === 'agent_run_chain') {
+        return Promise.resolve([]);
+      }
+      if (command === 'agent_run_events') {
+        return Promise.resolve([]);
+      }
+      if (command === 'scan_explores') {
+        return Promise.resolve([]);
+      }
+      return Promise.resolve(null);
+    },
+  );
 }
 
 // ---------------------------------------------------------------------------
@@ -180,10 +246,21 @@ beforeEach(() => {
   getVersionMock.mockResolvedValue('0.1.0');
   toast.dismiss();
   mockIpc();
+  // jsdom 环境缺口兜底（沿 AppSidebar.test.tsx 惯例）：explore 详情页的
+  // react-resizable-panels / radix 定位需要 ResizeObserver
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
 });
 
 afterEach(() => {
   cleanup();
+  vi.unstubAllGlobals();
 });
 
 // ---------------------------------------------------------------------------
@@ -657,5 +734,117 @@ describe('route_pages：欢迎态路由隔离与双向迁移', () => {
     expect(screen.getByTestId('nav-changes') !== null).toBe(true);
     expect(screen.getByTestId('nav-agent') !== null).toBe(true);
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 关系⑥：侧栏导航与路由 → /explores 路由面（AC-10）
+// ---------------------------------------------------------------------------
+
+describe('route_pages：nav-explores 点击与 active 派生（AC-10）', () => {
+  it('restored 后点击 nav-explores → hash 落 #/explores、自身 active 他项失活、list_explore_records 以当前 root 发起', async () => {
+    await restored();
+
+    await clickNav('nav-explores');
+
+    await waitFor(() => expect(window.location.hash).toBe('#/explores'));
+    expect(screen.getByTestId('nav-explores').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('list_explore_records', { root: FIRST.root }),
+    );
+    expect(screen.getByTestId('explore-list') !== null).toBe(true);
+    expect(screen.getByText('foo') !== null).toBe(true);
+  });
+
+  it('详情态（hash=#/explores/foo）下 nav-explores 仍 active（前缀派生）；点击 nav-explores 回落 #/explores 清单', async () => {
+    await bootAt('#/explores/foo');
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: FIRST.root, name: 'foo' }),
+    );
+    expect(window.location.hash).toBe('#/explores/foo');
+    expect(screen.getByTestId('nav-explores').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+
+    await clickNav('nav-explores');
+
+    await waitFor(() => expect(window.location.hash).toBe('#/explores'));
+    expect(screen.getByTestId('explore-list') !== null).toBe(true);
+    expect(screen.getByTestId('nav-explores').getAttribute('data-active')).toBe('true');
+  });
+
+  it('深链 #/explores/foo 启动直达详情态：read_explore 以 URL 参数发起、无 NavLink 点击发生', async () => {
+    await bootAt('#/explores/foo');
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: FIRST.root, name: 'foo' }),
+    );
+    expect(countOf('read_explore')).toBe(1);
+    expect(window.location.hash).toBe('#/explores/foo');
+    expect(screen.getByTestId('explore-detail') !== null).toBe(true);
+    expect(screen.getByTestId('nav-explores').getAttribute('data-active')).toBe('true');
+  });
+
+  it('changes / agent / explores 往返后各 nav 项 active 始终与 URL 一致（既有 active 语义回归）', async () => {
+    await restored();
+
+    await clickNav('nav-agent');
+    await waitFor(() => expect(window.location.hash).toBe('#/agent'));
+    expect(screen.getByTestId('nav-explores').getAttribute('data-active')).toBe('false');
+
+    await clickNav('nav-explores');
+    await waitFor(() => expect(window.location.hash).toBe('#/explores'));
+    expect(screen.getByTestId('nav-explores').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
+
+    await clickNav('nav-changes');
+    await waitFor(() => expect(window.location.hash).toBe('#/changes'));
+    expect(screen.getByTestId('nav-explores').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+  });
+});
+
+describe('route_pages：explores workspace 切换 replace 回清单与畸形路径兜底（AC-10）', () => {
+  it('详情态点击另一 workspace 项 → hash replace 回 #/explores、全程无「新 root + 旧 name」取数', async () => {
+    await bootAt('#/explores/foo');
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: FIRST.root, name: 'foo' }),
+    );
+
+    fireEvent.click(itemByRoot(SECOND.root));
+
+    await waitFor(() => expect(window.location.hash).toBe('#/explores'));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('list_explore_records', { root: SECOND.root }),
+    );
+    // 过渡抑制（ChangeView 模式平移）：read_explore 只以旧根发起过，无新根 + 旧名组合
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    const readCalls = invokeMock.mock.calls.filter(([name]) => name === 'read_explore');
+    expect(readCalls).toHaveLength(1);
+    expect(readCalls[0]).toEqual(['read_explore', { root: FIRST.root, name: 'foo' }]);
+    expect(screen.queryByTestId('explore-detail-missing')).toBeNull();
+  });
+
+  it('未知路径 #/totally-unknown 在新路由并存下仍兜底 #/changes（AC-10 新路由不破坏兜底）', async () => {
+    await restored();
+
+    await navigateHash('#/totally-unknown');
+
+    await waitFor(() => expect(window.location.hash).toBe('#/changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+  });
+
+  it('hash 预置 #/explores/a/b（双段超出 :name 单参）启动 → 兜底落 #/changes 渲染清单，不空白不崩', async () => {
+    await bootAt('#/explores/a/b');
+
+    await waitFor(() => expect(window.location.hash).toBe('#/changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+    expect(countOf('read_explore')).toBe(0);
+    expect(countOf('list_explore_records')).toBe(0);
+    expect(screen.queryByTestId('explore-detail')).toBeNull();
   });
 });

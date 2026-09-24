@@ -67,6 +67,9 @@ fn begin_run(store: &Store, prompt: &str, started_at: i64) -> crate::AgentRunRec
             duration_ms: None,
             session_id: None,
             error: None,
+            source: "debug".to_owned(),
+            source_ref: None,
+            parent_run_id: None,
         })
         .unwrap_or_else(|e| panic!("begin_agent_run 应成功: {e}"))
 }
@@ -98,7 +101,7 @@ fn scan_err(store: &Store, model: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 注册表覆盖三个已注册模型且list_models计数与写入量一致() {
+fn 注册表覆盖全部已注册模型且list_models计数与写入量一致() {
     let env = Env::new("registry");
     let store = open_ok(&env.db_path());
     add_ok(&store, &env.ws("one"));
@@ -112,11 +115,11 @@ fn 注册表覆盖三个已注册模型且list_models计数与写入量一致() 
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["workspace", "agent_run", "agent_event"],
+        vec!["workspace", "agent_run", "agent_event", "explore"],
         "静态注册表恰三行，顺序即登记序"
     );
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
-    assert_eq!(counts, vec![1, 1, 1], "计数与各模型写入量一致");
+    assert_eq!(counts, vec![1, 1, 1, 0], "计数与各模型写入量一致");
 }
 
 // ---------------------------------------------------------------------------

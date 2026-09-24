@@ -10,7 +10,7 @@ use native_db::{Database, ToInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-use crate::model::{AgentEventRecord, AgentRunRecord, WorkspaceRecord};
+use crate::model::{AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
 use crate::store::{db_err, StoreError};
 
 /// 模型清单一行：模型名 + 记录计数（计数 0 也列出）。
@@ -71,6 +71,12 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<AgentEventRecord>,
         scan: scan_agent_events,
         key_of: agent_event_key,
+    },
+    ModelEntry {
+        name: "explore",
+        count: count_model::<ExploreRecord>,
+        scan: scan_explores,
+        key_of: explore_key,
     },
 ];
 
@@ -167,6 +173,15 @@ fn scan_agent_events(
     scan_model::<AgentEventRecord>(db, offset, limit, key_of)
 }
 
+fn scan_explores(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<ExploreRecord>(db, offset, limit, key_of)
+}
+
 /// workspace 主键 = canonical root。
 fn workspace_key(value: &Value) -> Value {
     value["root"].clone()
@@ -180,4 +195,9 @@ fn agent_run_key(value: &Value) -> Value {
 /// agent event 主键还原 `{runId, seq}` 形态（u128 打包键的 JSON 可读投影）。
 fn agent_event_key(value: &Value) -> Value {
     serde_json::json!({ "runId": value["runId"], "seq": value["event"]["seq"] })
+}
+
+/// explore 主键 = id。
+fn explore_key(value: &Value) -> Value {
+    value["id"].clone()
 }

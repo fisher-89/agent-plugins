@@ -71,6 +71,9 @@ fn begin_run(store: &Store, prompt: &str, started_at: i64) -> AgentRunRecord {
             duration_ms: None,
             session_id: None,
             error: None,
+            source: "debug".to_owned(),
+            source_ref: None,
+            parent_run_id: None,
         })
         .expect("begin_agent_run 应成功")
 }
@@ -124,6 +127,7 @@ fn db_models写入数据后与直连list_models的serde值一致_薄包装不加
             ("workspace".to_owned(), 1),
             ("agent_run".to_owned(), 1),
             ("agent_event".to_owned(), 2),
+            ("explore".to_owned(), 0),
         ],
         "命令面计数与各模型实有记录数一致"
     );
@@ -140,10 +144,10 @@ fn 空库db_models返回全模型清单且计数为0() {
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
     assert_eq!(
         counts,
-        vec![0, 0, 0],
+        vec![0, 0, 0, 0],
         "全模型照列且计数 0（空态可呈现的命令面前提）"
     );
-    assert_eq!(models.len(), 3);
+    assert_eq!(models.len(), 4);
 }
 
 // ---------------------------------------------------------------------------

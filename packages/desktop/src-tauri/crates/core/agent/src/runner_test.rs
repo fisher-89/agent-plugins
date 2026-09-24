@@ -72,6 +72,7 @@ fn params() -> AgentRunParams {
         cwd: PathBuf::from("C:\\work\\demo"),
         env: AgentEnvMode::Default,
         permission_mode: AgentPermissionMode::BypassPermissions,
+        resume_session_id: None,
     }
 }
 
@@ -219,6 +220,7 @@ fn run_params的cwd含中文空格与尾分隔符时字段保真() {
         cwd: cwd.clone(),
         env: AgentEnvMode::Bare,
         permission_mode: AgentPermissionMode::AcceptEdits,
+        resume_session_id: None,
     };
 
     assert_eq!(params.cwd, cwd, "cwd 原样持有（中文/空格/尾分隔符）");
