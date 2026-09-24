@@ -187,7 +187,7 @@ function ThinkingBlock({ thinking }: { thinking: string }): React.JSX.Element {
 function TextBlock({ text }: { text: string }): React.JSX.Element {
   return (
     <div
-      className="prose prose-sm max-w-none break-words prose-pre:rounded prose-pre:bg-background prose-code:bg-background prose-code:text-foreground"
+      className="prose prose-sm prose-invert max-w-none break-words [--tw-prose-links:var(--primary)] prose-pre:rounded prose-pre:bg-background prose-code:bg-background prose-code:text-foreground"
       data-testid="block-text"
     >
       <Markdown remarkPlugins={[remarkGfm]}>{text}</Markdown>

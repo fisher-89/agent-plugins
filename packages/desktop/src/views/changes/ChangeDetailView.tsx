@@ -55,7 +55,7 @@ function Attempt({ record }: { record: AttemptRecord }) {
       </div>
       <div className="my-1 whitespace-pre-wrap break-words">{record.report}</div>
       {(record.backtrackTo !== null || record.backtrackReason !== null) && (
-        <div className="mt-1 text-xs text-orange-800" data-testid="backtrack">
+        <div className="mt-1 text-xs text-orange-300" data-testid="backtrack">
           ↩ 回跳至 {record.backtrackTo ?? '?'}
           {record.backtrackReason !== null && `：${record.backtrackReason}`}
         </div>

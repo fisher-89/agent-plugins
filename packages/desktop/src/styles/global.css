@@ -1,26 +1,27 @@
 @import 'tailwindcss';
 @plugin '@tailwindcss/typography';
 
-/* app 唯一样式入口：token 单一来源，值直写原 index.html hex（配色身份保留，AC-8）。
-   light/dark 双槽：`:root` 仅填 light 值；dark 覆写槽位空置预留，本 change 不填值、
-   不引入主题切换。utilities 侧经 `@theme inline` 映射自动生成（bg-primary /
-   text-muted-foreground / bg-pass-bg 等）。 */
+/* app 唯一样式入口：token 单一来源，值直写固定 dark palette hex。
+   app 常驻深色：不设 .dark class、不写 prefers-color-scheme 媒体查询、
+   无主题切换入口；utilities 侧经 `@theme inline` 映射自动生成
+   （bg-primary / text-muted-foreground / bg-pass-bg / bg-muted / ring-ring 等）。 */
 :root {
-  --background: #f5f6f8;
-  --card: #ffffff;
-  --border: #d9dee5;
-  --foreground: #1f2430;
-  --muted-foreground: #6b7280;
-  --primary: #2563eb;
-  --primary-foreground: #ffffff;
-  --pass: #15803d;
-  --pass-bg: #dcfce7;
-  --fail: #b91c1c;
-  --fail-bg: #fee2e2;
-  --warn: #92400e;
-  --warn-bg: #fef3c7;
-
-  /* dark 覆写槽位（预留空置） */
+  --background: #161a22;
+  --card: #1e242e;
+  --border: #333c4c;
+  --foreground: #e6eaf2;
+  --muted-foreground: #9aa4b5;
+  --primary: #60a5fa;
+  --primary-foreground: #0b1220;
+  --pass: #4ade80;
+  --pass-bg: #12301f;
+  --fail: #f87171;
+  --fail-bg: #3a1517;
+  --warn: #fbbf24;
+  --warn-bg: #3a2a0c;
+  /* 激活既有静默 no-op 类：bg-muted（25 处）/ ring-ring（4 处）此前无 token 不产 CSS */
+  --muted: #2a3140;
+  --ring: #3b82f6;
 }
 
 @theme inline {
@@ -37,13 +38,15 @@
   --color-fail-bg: var(--fail-bg);
   --color-warn: var(--warn);
   --color-warn-bg: var(--warn-bg);
+  --color-muted: var(--muted);
+  --color-ring: var(--ring);
 }
 
 /* 元素级样式自 index.html 1:1 平移（步骤①，视觉零变）；`*{box-sizing}` 弃置，
    由 preflight 等价覆盖。本层置于 base layer，utilities 可正常覆写。 */
 @layer base {
   :root {
-    color-scheme: light;
+    color-scheme: dark;
   }
 
   body {

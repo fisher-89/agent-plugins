@@ -257,7 +257,7 @@ describe('Badge 变体全枚举渲染：INVENTORY_VARIANT 三键全命中', () =
     const badge = screen.getByText('v9');
     // 模板串 `badge-in${inventory}` 形态不得重现；cva 默认变体兜底（inv0 调色板类在场）
     expect(badge.className).not.toContain('badge-in');
-    expect(badge.className).toContain('bg-gray-200');
+    expect(badge.className).toContain('bg-gray-500/15');
   });
 });
 

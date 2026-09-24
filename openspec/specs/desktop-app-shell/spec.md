@@ -272,9 +272,9 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 
 - 样式入口 SHALL 为正式 CSS 文件(`@import "tailwindcss"`);`index.html` 内联 `<style>` MUST 移除,MUST NOT 长期并存第二套手写 CSS 体系
 - 迁移 SHALL 两步走:步骤① 元素级全局样式(`body` / `button` / `#root`)与设计 token 翻入 `@layer base`,与旧类 CSS 共存且视觉零变;步骤② 单 commit 完成类名全量 utilities 化
-- 设计 token SHALL 沿 shadcn 结构命名(`--background` / `--card` / `--border` / `--foreground` / `--muted-foreground` / `--primary` 等),值 SHALL 直写现有 hex(如 `--accent #2563eb` → `--primary`),SHALL NOT 换用 shadcn 默认主题色;`--pass/--fail/--warn` 语义色 SHALL 以自定义 `@theme` token 或语义工具类承载(形态 design 定夺);light/dark 双槽 SHALL 预留但仅填 light 值
+- 设计 token SHALL 沿 shadcn 结构命名(`--background` / `--card` / `--border` / `--foreground` / `--muted-foreground` / `--primary` / `--muted` / `--ring` 等),值 SHALL 直写一整套固定深色 hex(蓝色 accent 主色身份保留;浅色阶段基色 `#2563eb` 在深色面上以提亮蓝承载,原始 hex 直写深色面不再可读),SHALL NOT 换用 shadcn 默认 zinc 主题色;`--pass/--fail/--warn` 语义色 SHALL 以自定义 `@theme` token 承载(深色下取「暗底 tint + 亮字」配对);app SHALL 固定深色主题:`:root` 直填 dark 值并声明 `color-scheme: dark`,MUST NOT 引入 `.dark` class / `prefers-color-scheme` 媒体查询 / 主题切换入口
 - 布局冻结 SHALL 仅约束迁移步骤①②:期间 main 区 max-width 1100px 居中、header 信息架构、欢迎态/壳态 DOM 结构(控件替换除外)MUST NOT 变化;迁移完成后布局演化由壳层 requirement 承载(如「Sidebar 壳层布局」),main 区 max-width 1100px 居中作为长期形态延续
-- markdown 产物样式 SHALL 经 `@tailwindcss/typography`(`prose`)承载:react-markdown 输出裸元素无类名钩子,MUST NOT 依赖自定义类后代选择器(如 `.markdown-doc pre`)
+- markdown 产物样式 SHALL 经 `@tailwindcss/typography`(`prose`)承载:react-markdown 输出裸元素无类名钩子,MUST NOT 依赖自定义类后代选择器(如 `.markdown-doc pre`);深色观感由 `prose-invert` 承载,链接色对齐 `--primary`
 
 #### Scenario: 步骤① 共存且视觉零变
 
@@ -288,11 +288,11 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 - **THEN** `index.html` 无 `<style>` 块,组件类名为 utilities
 - **AND** `.panel` / `.badge-*` / `.attempt` 等旧自定义样式类不复存在
 
-#### Scenario: token 保持现有配色身份
+#### Scenario: 固定深色 token 单一来源
 
 - **WHEN** 审查 CSS 入口的 token 定义
-- **THEN** token 值与原 `index.html` 的 hex 一致(如 `--primary: #2563eb`)
-- **AND** 未引入 shadcn 默认 zinc 主题色,深色模式槽位留空未填
+- **THEN** `:root` 直填一整套深色 hex,蓝色 accent 主色身份保留,未引入 shadcn 默认 zinc 主题色
+- **AND** `color-scheme: dark` 已声明,样式表无 `.dark` class、无 `prefers-color-scheme` 媒体查询、无主题切换入口
 
 #### Scenario: markdown 经 prose 承载
 
@@ -380,7 +380,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `packages/desktop/src/lib/utils.ts` | 类名合并 | `cn()` = clsx + tailwind-merge |
 | `packages/desktop/src/components/ui/**` | shadcn 内部化控件 | Button / Badge / Table / Progress 及 sidebar 系生成件(sidebar / separator / tooltip / context-menu / sonner 按需);过 fmt/lint/knip 全管线无豁免;无 Next 语境残留 |
 | `packages/desktop/components.json` | shadcn 生成配置 | alias `@/*`;内部化纪律适用 |
-| `packages/desktop/src-tauri/tauri.conf.json` | 窗口与打包配置 | 默认窗口 1200×800、最小 900×600（PC-only 兜底：极小分辨率不适配,由窗口最小尺寸约束保证）;updater endpoint 与 pubkey |
+| `packages/desktop/src-tauri/tauri.conf.json` | 窗口与打包配置 | 默认窗口 1200×800、最小 900×600（PC-only 兜底：极小分辨率不适配,由窗口最小尺寸约束保证）;窗口固定 dark 主题与 `backgroundColor`（同 `--background`,消启动白闪）;updater endpoint 与 pubkey |
 | `@/*` 路径别名(tsconfig + vite 双处) | ui/** import 解析 | 双处同步配置 |
 | `src/views/changes/renderers/MarkdownDocRenderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
 | `src/views/changes/renderers/TasksProgressRenderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |

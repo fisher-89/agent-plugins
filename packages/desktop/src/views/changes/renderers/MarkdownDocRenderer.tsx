@@ -33,7 +33,7 @@ export function MarkdownDocRenderer({ envelope }: { envelope: ArtifactEnvelope }
   }
   return (
     <div
-      className="prose prose-sm max-w-none overflow-x-auto [--tw-prose-td-borders:var(--border)] prose-code:rounded-sm prose-code:bg-background prose-code:font-normal prose-code:text-foreground prose-pre:rounded prose-pre:bg-background prose-pre:text-foreground prose-th:bg-background prose-th:font-semibold prose-th:text-foreground"
+      className="prose prose-sm prose-invert max-w-none overflow-x-auto [--tw-prose-links:var(--primary)] [--tw-prose-td-borders:var(--border)] prose-code:rounded-sm prose-code:bg-background prose-code:font-normal prose-code:text-foreground prose-pre:rounded prose-pre:bg-background prose-pre:text-foreground prose-th:bg-background prose-th:font-semibold prose-th:text-foreground"
       data-testid="markdown-root"
     >
       <Markdown remarkPlugins={[remarkGfm]}>{envelope.payload.markdown}</Markdown>
