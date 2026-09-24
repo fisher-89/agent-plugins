@@ -1963,3 +1963,373 @@ describe('runTestExecution — reportsDir 新布局 (AC-1)', () => {
     }
   });
 });
+
+// ===========================================================================
+// runTestExecution — 新鲜报告复用 (reuse gate)
+// ===========================================================================
+
+describe('runTestExecution — 新鲜报告复用 (reuse gate)', () => {
+  beforeEach(() => {
+    mockDetectFrameworks.mockReset();
+    mockExecutePlanEntry.mockReset();
+    mockGenerateSubReport.mockReset();
+    mockGenerateSummaryReport.mockReset();
+    vi.spyOn(console, 'log').mockImplementation(() => {});
+  });
+
+  function stubHappyPath(): void {
+    mockDetectFrameworks.mockReturnValue({ detected: [], plan: [makePlanEntry()] });
+    mockExecutePlanEntry.mockReturnValue(makeExecutionResult());
+    mockGenerateSubReport.mockReturnValue(makeSubReport());
+    mockGenerateSummaryReport.mockReturnValue({
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp: '2026-07-01T00:00:00.000Z',
+      duration_seconds: 1,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'pass',
+      problems: [],
+      coverage: null,
+      mutation: null,
+      plans: [],
+    });
+  }
+
+  /** 把文件 mtime 设为过去（避免与 summary 时间戳的同毫秒竞争）。 */
+  function backdate(absPath: string, ms = 60_000): void {
+    const t = new Date(Date.now() - ms);
+    fs.utimesSync(absPath, t, t);
+  }
+
+  /** 把文件 mtime 设为未来（ deterministic 地新于 summary 时间戳）。 */
+  function futuredate(absPath: string, ms = 60_000): void {
+    const t = new Date(Date.now() + ms);
+    fs.utimesSync(absPath, t, t);
+  }
+
+  interface SeededSummary {
+    timestamp: string;
+  }
+
+  /** 满足 summary schema 的完整 mutation 块。 */
+  function mutBlock(pass: boolean, score: number, threshold: number): Record<string, unknown> {
+    return {
+      pass,
+      score,
+      threshold,
+      measured: {
+        killed: 80,
+        survived: 20,
+        timeout: 0,
+        noCoverage: 0,
+        compileError: 0,
+        runtimeError: 0,
+        ignored: 0,
+        total: 100,
+        detected: 80,
+        undetected: 20,
+      },
+    };
+  }
+
+  /**
+   * 准备一个"上一棒已跑完"的现场：src 用例/源文件 + 已回溯的 config.json，
+   * 再写入 summary.json（时间戳 = 现在，晚于所有输入文件）。
+   */
+  function seedPriorRun(
+    project: TempProject,
+    summaryOverrides: Record<string, unknown> = {},
+    change?: string,
+  ): SeededSummary {
+    const srcDir = path.join(project.root, 'src');
+    fs.mkdirSync(srcDir, { recursive: true });
+    fs.writeFileSync(path.join(srcDir, 'foo.ts'), 'export const foo = 1;\n', 'utf-8');
+    fs.writeFileSync(path.join(srcDir, 'foo.test.ts'), 'test("foo", () => {});\n', 'utf-8');
+    backdate(path.join(srcDir, 'foo.ts'));
+    backdate(path.join(srcDir, 'foo.test.ts'));
+    backdate(path.join(project.root, 'openspec', 'config.json'));
+
+    const timestamp = new Date().toISOString();
+    const summary: Record<string, unknown> = {
+      phase: 'test-execution',
+      command: 'dev-team test-execution',
+      timestamp,
+      duration_seconds: 1,
+      total: 1,
+      passed: 1,
+      failed: 0,
+      skipped: 0,
+      conclusion: 'pass',
+      problems: [],
+      coverage: null,
+      mutation: null,
+      plans: [{ id: 'vitest', framework: 'vitest', root: '.', path: 'reports/test/vitest' }],
+      ...summaryOverrides,
+    };
+    const reportsDir = change
+      ? path.join(project.root, 'openspec', 'changes', change, 'reports', 'test')
+      : path.join(project.root, 'reports', 'test');
+    fs.mkdirSync(reportsDir, { recursive: true });
+    fs.writeFileSync(
+      path.join(reportsDir, 'summary.json'),
+      JSON.stringify(summary, null, 2),
+      'utf-8',
+    );
+    return { timestamp };
+  }
+
+  function captureLogs(): { logs: string[]; restore: () => void } {
+    const logs: string[] = [];
+    const spy = vi.spyOn(console, 'log').mockImplementation((...args: unknown[]) => {
+      logs.push(args.map(String).join(' '));
+    });
+    return { logs, restore: () => spy.mockRestore() };
+  }
+
+  it('summary 新鲜且 plans 一致 → 复用：不执行 plan、不重写 summary，退出码 0', async () => {
+    const project = createTempProject();
+    const { logs, restore } = captureLogs();
+    try {
+      stubHappyPath();
+      seedPriorRun(project);
+
+      const exitCode = await runTestExecution({ projectRoot: project.root });
+
+      expect(exitCode).toBe(0);
+      expect(mockExecutePlanEntry).not.toHaveBeenCalled();
+      expect(mockGenerateSummaryReport).not.toHaveBeenCalled();
+      expect(logs.some((l) => l.includes('Reusing fresh summary'))).toBe(true);
+    } finally {
+      restore();
+      project.cleanup();
+    }
+  });
+
+  it('fail 结论（如突变未达标）同样复用 → 退出码 1，不重跑', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project, {
+        conclusion: 'fail',
+        mutation: mutBlock(false, 76.18, 80),
+      });
+
+      const exitCode = await runTestExecution({ projectRoot: project.root });
+
+      expect(exitCode).toBe(1);
+      expect(mockExecutePlanEntry).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('plan root 下清单外测试文件被更新（mtime 新于 summary）→ 重跑', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project);
+      futuredate(path.join(project.root, 'src', 'foo.test.ts'));
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('plan root 下新增文件（mtime 新于 summary）→ 重跑', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project);
+      const added = path.join(project.root, 'src', 'bar.test.ts');
+      fs.writeFileSync(added, 'test("bar", () => {});\n', 'utf-8');
+      futuredate(added);
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('plans 集合不一致（scope 变化）→ 重跑', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project, {
+        plans: [{ id: 'jest', framework: 'jest', root: '.', path: 'reports/test/jest' }],
+      });
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('summary 结论为 error（执行不完整）→ 不复用', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project, { conclusion: 'error' });
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('本次需测突变（mutation_script 已配置）而 summary.mutation 为 null（上一棒 --skip-mutation）→ 不复用', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      mockDetectFrameworks.mockReturnValue({
+        detected: [],
+        plan: [
+          makePlanEntry({ mutation_script: { shell: 'npx stryker run', cmd: 'npx stryker run' } }),
+        ],
+      });
+      seedPriorRun(project);
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('mutation_script 已配置且 summary.mutation 非空 → 复用', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      mockDetectFrameworks.mockReturnValue({
+        detected: [],
+        plan: [
+          makePlanEntry({ mutation_script: { shell: 'npx stryker run', cmd: 'npx stryker run' } }),
+        ],
+      });
+      seedPriorRun(project, { mutation: mutBlock(true, 90, 80) });
+
+      const exitCode = await runTestExecution({ projectRoot: project.root });
+
+      expect(exitCode).toBe(0);
+      expect(mockExecutePlanEntry).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('forceRerun=true → 即使新鲜也强制重跑', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project);
+
+      await runTestExecution({ projectRoot: project.root, forceRerun: true });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('排除目录不参与新鲜度：node_modules 与 openspec/ 下的更新不影响复用', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project);
+      const dep = path.join(project.root, 'node_modules', 'dep', 'index.js');
+      fs.mkdirSync(path.dirname(dep), { recursive: true });
+      fs.writeFileSync(dep, 'module.exports = 1;\n', 'utf-8');
+      futuredate(dep);
+      const workflowState = path.join(
+        project.root,
+        'openspec',
+        'changes',
+        'some-change',
+        'workflow.json',
+      );
+      fs.mkdirSync(path.dirname(workflowState), { recursive: true });
+      fs.writeFileSync(workflowState, '{}\n', 'utf-8');
+      futuredate(workflowState);
+
+      const exitCode = await runTestExecution({ projectRoot: project.root });
+
+      expect(exitCode).toBe(0);
+      expect(mockExecutePlanEntry).not.toHaveBeenCalled();
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('openspec/config.json 更新（阈值/套件映射来源）→ 重跑', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      seedPriorRun(project);
+      futuredate(path.join(project.root, 'openspec', 'config.json'));
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('清单中位于 plan root 之外的文件更新 → 重跑', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      mockDetectFrameworks.mockReturnValue({
+        detected: [],
+        plan: [makePlanEntry({ cwd: 'pkg/a', root: 'pkg/a' })],
+      });
+      const outside = path.join(project.root, 'pkg', 'b', 'outside.ts');
+      fs.mkdirSync(path.dirname(outside), { recursive: true });
+      fs.writeFileSync(outside, 'export const x = 1;\n', 'utf-8');
+      backdate(outside);
+      seedPriorRun(
+        project,
+        {
+          plans: [{ id: 'pkg_a_vitest', framework: 'vitest', root: 'pkg/a', path: 'x' }],
+        },
+        'inv-reuse',
+      );
+      futuredate(outside);
+      mockGetChangedFiles.mockReturnValue(workflowNetState(['pkg/b/outside.ts']));
+
+      await runTestExecution({ projectRoot: project.root, change: 'inv-reuse' });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+
+  it('无 summary.json → 正常执行（既有行为不受 reuse gate 影响）', async () => {
+    const project = createTempProject();
+    try {
+      stubHappyPath();
+      const srcDir = path.join(project.root, 'src');
+      fs.mkdirSync(srcDir, { recursive: true });
+      fs.writeFileSync(path.join(srcDir, 'foo.test.ts'), 'test("foo", () => {});\n', 'utf-8');
+
+      await runTestExecution({ projectRoot: project.root });
+
+      expect(mockExecutePlanEntry).toHaveBeenCalledTimes(1);
+    } finally {
+      project.cleanup();
+    }
+  });
+});

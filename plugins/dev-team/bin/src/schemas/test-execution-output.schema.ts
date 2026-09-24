@@ -210,7 +210,7 @@ const planIndexEntrySchema = z.object({
 // TestExecutionSummaryReportSchema
 // ---------------------------------------------------------------------------
 
-const testExecutionSummaryReportSchema = z.object({
+export const testExecutionSummaryReportSchema = z.object({
   phase: z.string().describe('Workflow phase, fixed to "test-execution"'),
   command: z.string().describe('CLI command description that generated the report'),
   timestamp: z.string().describe('ISO 8601 timestamp of report generation'),

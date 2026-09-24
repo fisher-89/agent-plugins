@@ -168,6 +168,37 @@ describe('dev-team test-execution --skip-mutation 选项', () => {
 });
 
 // ===========================================================================
+// --force 选项
+// ===========================================================================
+
+describe('dev-team test-execution --force 选项', () => {
+  it('--force 选项传递到 runTestExecution 为 forceRerun: true', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+
+    const cmd = getTestExecCommand();
+    await cmd.commandAction!({ projectRoot: '/test/project', force: true });
+
+    expect(mockRunTestExecution).toHaveBeenCalledWith(
+      expect.objectContaining({ forceRerun: true }),
+    );
+    exitSpy.mockRestore();
+  });
+
+  it('--force 不传递时 forceRerun 为 undefined（默认启用新鲜报告复用）', async () => {
+    const exitSpy = spyOnProcessExit();
+    mockRunTestExecution.mockResolvedValue(0);
+
+    const cmd = getTestExecCommand();
+    await cmd.commandAction!({ projectRoot: '/test/project' });
+
+    const callArgs = mockRunTestExecution.mock.calls.at(-1)!;
+    expect(callArgs[0].forceRerun).toBeUndefined();
+    exitSpy.mockRestore();
+  });
+});
+
+// ===========================================================================
 // 正向测试: run_static_analysis CLI 注册
 // ===========================================================================
 

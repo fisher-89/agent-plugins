@@ -26,6 +26,7 @@ cli
   .option('--files <files>', 'Comma-separated list of test files to run, relative to project root')
   .option('--framework <name>', 'Only run tests for the specified framework')
   .option('--skip-mutation', 'Skip mutation testing phase')
+  .option('--force', 'Force re-execution even if a fresh summary exists')
   .action(
     async (options: {
       change?: string;
@@ -33,6 +34,7 @@ cli
       files?: string;
       framework?: string;
       skipMutation?: boolean;
+      force?: boolean;
     }) => {
       const files = options.files
         ? options.files
@@ -46,6 +48,7 @@ cli
         files,
         framework: options.framework,
         noMutation: options.skipMutation,
+        forceRerun: options.force,
       });
       process.exit(exitCode);
     },

@@ -87,4 +87,4 @@
 - [ ] 【Desktop】rust生成ts类型
 - [x] 【Desktop】移除store migrate
 - [ ] 【Desktop】梳理后端commands直接调用infra的场景(已知: watch、explore)，逐个分析是否需要增加core以维持DDD架构；core如何实现依赖反转？
-- [ ] 【Desktop】change详情页是否react-flow展示流程，将过程文件关联到对应节点内展开
+- [ ] 【Desktop】change详情页使用react-flow展示流程，将过程文件等信息关联到对应节点内展开显示

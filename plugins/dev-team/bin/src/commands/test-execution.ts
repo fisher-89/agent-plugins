@@ -15,11 +15,16 @@ import * as path from 'path';
 
 import { getProjectDir } from '../lib/project-root';
 import { deriveSourcePathFromTestFile } from '../lib/test-path-naming';
-import { isUnderPlanRoot, resolvePlanFiles } from '../lib/test-plan';
+import { derivePlanId, isUnderPlanRoot, resolvePlanFiles } from '../lib/test-plan';
 import { generateSubReport, generateSummaryReport } from '../lib/test-report';
 import { executePlanEntry } from '../lib/test-runner';
 import { getChangedFiles } from '../modules/workflow';
-import type { TestExecutionSubReport, TestPlan } from '../schemas';
+import {
+  testExecutionSummaryReportSchema,
+  type TestExecutionSubReport,
+  type TestExecutionSummaryReport,
+  type TestPlan,
+} from '../schemas';
 import { runTestDetectFrameworks } from './test-detect-frameworks';
 
 // ---------------------------------------------------------------------------
@@ -43,6 +48,8 @@ export interface TestExecutionOptions {
   files?: string[];
   framework?: string;
   noMutation?: boolean;
+  /** Skip the fresh-summary reuse gate and re-execute unconditionally. */
+  forceRerun?: boolean;
 }
 
 // ---------------------------------------------------------------------------
@@ -256,6 +263,215 @@ function logSummary(report: {
 }
 
 // ---------------------------------------------------------------------------
+// Fresh-summary reuse
+// ---------------------------------------------------------------------------
+
+/**
+ * Directory names pruned from the plan-root freshness scan — dependencies and
+ * tool output, never execution inputs.
+ */
+const REUSE_SCAN_EXCLUDED_DIRS = new Set([
+  'node_modules',
+  'dist',
+  'build',
+  'target',
+  'coverage',
+  '_stryker-tmp',
+]);
+
+/** Newest input file found by the reuse scan (absolute path + mtime). */
+interface NewestInput {
+  file: string;
+  mtimeMs: number;
+}
+
+/** Whether `candidate` is inside `dir` (inclusive), platform-native paths. */
+function isInsideDir(dir: string, candidate: string): boolean {
+  const rel = path.relative(dir, candidate);
+  return rel === '' || (!rel.startsWith('..') && !path.isAbsolute(rel));
+}
+
+/** Fold one file into the newest-input tracker; unreadable files are ignored. */
+function considerInput(abs: string, newest: NewestInput | null): NewestInput | null {
+  let mtimeMs: number;
+  try {
+    mtimeMs = fs.statSync(abs).mtimeMs;
+  } catch {
+    return newest;
+  }
+  return !newest || mtimeMs > newest.mtimeMs ? { file: abs, mtimeMs } : newest;
+}
+
+/**
+ * Track the newest mtime among all files under `dir`, recursively. Dot
+ * directories (`.git`, tool caches) and {@link REUSE_SCAN_EXCLUDED_DIRS} names
+ * are pruned, plus the absolute `pruneDirs` (workflow state under `openspec/`
+ * and the CLI's own report output — neither is an execution input).
+ */
+function scanNewestMtime(
+  dir: string,
+  pruneDirs: string[],
+  newest: NewestInput | null,
+): NewestInput | null {
+  if (!fs.existsSync(dir)) {
+    return newest;
+  }
+  const stack: string[] = [dir];
+  for (let current = stack.pop(); current !== undefined; current = stack.pop()) {
+    let entries: fs.Dirent[];
+    try {
+      entries = fs.readdirSync(current, { withFileTypes: true });
+    } catch {
+      continue;
+    }
+    for (const dirent of entries) {
+      const abs = path.join(current, dirent.name);
+      if (dirent.isDirectory()) {
+        if (dirent.name.startsWith('.') || REUSE_SCAN_EXCLUDED_DIRS.has(dirent.name)) {
+          continue;
+        }
+        if (pruneDirs.some((prune) => isInsideDir(prune, abs))) {
+          continue;
+        }
+        stack.push(abs);
+      } else if (dirent.isFile()) {
+        newest = considerInput(abs, newest);
+      }
+    }
+  }
+  return newest;
+}
+
+/** Read and shape-check the existing summary; null when absent or malformed. */
+function readExistingSummary(reportsDir: string): TestExecutionSummaryReport | null {
+  try {
+    const raw: unknown = JSON.parse(
+      fs.readFileSync(path.join(reportsDir, 'summary.json'), 'utf-8'),
+    );
+    const parsed = testExecutionSummaryReportSchema.safeParse(raw);
+    return parsed.success ? parsed.data : null;
+  } catch {
+    return null;
+  }
+}
+
+/** Inputs to the fresh-summary reuse gate. */
+interface ReuseCheckArgs {
+  projectRoot: string;
+  reportsDir: string;
+  effectivePlanEntries: TestPlan[];
+  inventoryWritten?: string[];
+  mutationRequired: boolean;
+}
+
+/**
+ * Reuse gate — guarantees mutation (and the whole execution) runs at most once
+ * per code state, whoever ran the previous attempt (a backtrack-loop ad-hoc
+ * verification run, the previous test-execution phase, a manual CLI call).
+ *
+ * A summary is reusable when ALL hold:
+ * 1. It exists and is complete (`conclusion !== "error"` — error reports are
+ *    partial executions and would also poison the executor's Step 1b loop).
+ * 2. Mutation results are present whenever this run would measure mutation
+ *    (a `--skip-mutation` report must never satisfy the mutation gate).
+ * 3. Its plan set is exactly what this run would execute (scope changed
+ *    ⇒ stale).
+ * 4. No input file is newer than the summary timestamp (see findNewestInput).
+ *
+ * mtime-based by design; content hashing is out of scope. Fail direction is
+ * always "re-run" (git checkout / clock skew can only over-invalidate).
+ */
+function tryReuseFreshSummary(
+  args: ReuseCheckArgs,
+): { summary: TestExecutionSummaryReport; newestInput: NewestInput | null } | null {
+  const summary = readExistingSummary(args.reportsDir);
+  if (!summary || !summaryMatchesScope(summary, args)) {
+    return null;
+  }
+  const summaryTime = Date.parse(summary.timestamp);
+  const newest = findNewestInput(args);
+  if (Number.isNaN(summaryTime) || (newest !== null && newest.mtimeMs > summaryTime)) {
+    return null;
+  }
+  return { summary, newestInput: newest };
+}
+
+/** Scope-level checks: complete report, mutation coverage, identical plan set. */
+function summaryMatchesScope(summary: TestExecutionSummaryReport, args: ReuseCheckArgs): boolean {
+  if (summary.conclusion === 'error') {
+    return false;
+  }
+  if (args.mutationRequired && summary.mutation === null) {
+    return false;
+  }
+  const expectedIds = new Set(
+    args.effectivePlanEntries.map((entry) => derivePlanId(entry.root, entry.framework)),
+  );
+  const recordedIds = new Set(summary.plans.map((plan) => plan.id));
+  return (
+    expectedIds.size === recordedIds.size && [...expectedIds].every((id) => recordedIds.has(id))
+  );
+}
+
+/**
+ * Newest mtime among all execution inputs: every file under each plan root
+ * (not just the change inventory — out-of-inventory test files count too),
+ * plus `openspec/config.json` (thresholds / suite mapping) and inventory
+ * files outside all plan roots.
+ */
+function findNewestInput(args: ReuseCheckArgs): NewestInput | null {
+  const pruneDirs = [path.resolve(args.projectRoot, 'openspec'), path.resolve(args.reportsDir)];
+  const planRoots = [
+    ...new Set(
+      args.effectivePlanEntries.map((entry) => path.resolve(args.projectRoot, entry.root)),
+    ),
+  ];
+  let newest: NewestInput | null = null;
+  for (const root of planRoots) {
+    newest = scanNewestMtime(root, pruneDirs, newest);
+  }
+  newest = considerInput(path.resolve(args.projectRoot, 'openspec', 'config.json'), newest);
+  for (const file of args.inventoryWritten ?? []) {
+    const abs = path.resolve(args.projectRoot, file);
+    if (!planRoots.some((root) => isInsideDir(root, abs))) {
+      newest = considerInput(abs, newest);
+    }
+  }
+  return newest;
+}
+
+/**
+ * Reuse-gate wrapper: returns the exit code when the existing summary is
+ * fresh enough to reuse (after logging the reuse decision), or null when
+ * execution should proceed.
+ */
+function reuseFreshSummaryExit(args: {
+  projectRoot: string;
+  reportsDir: string;
+  effectivePlanEntries: TestPlan[];
+  inventoryWritten?: string[];
+  noMutation: boolean;
+}): number | null {
+  const reuse = tryReuseFreshSummary({
+    ...args,
+    mutationRequired:
+      !args.noMutation && args.effectivePlanEntries.some((entry) => entry.mutation_script),
+  });
+  if (!reuse) {
+    return null;
+  }
+  const newest = reuse.newestInput
+    ? `${reuse.newestInput.file} @ ${new Date(reuse.newestInput.mtimeMs).toISOString()}`
+    : 'none';
+  console.log(
+    `Reusing fresh summary (timestamp ${reuse.summary.timestamp} >= newest input ${newest}, ` +
+      `conclusion ${reuse.summary.conclusion}); pass --force to re-run`,
+  );
+  logSummary(reuse.summary);
+  return reuse.summary.conclusion === 'pass' ? 0 : 1;
+}
+
+// ---------------------------------------------------------------------------
 // Per-plan execution
 // ---------------------------------------------------------------------------
 
@@ -292,13 +508,19 @@ function runPlanEntry(
 // Main handler
 // ---------------------------------------------------------------------------
 
-export async function runTestExecution(options: TestExecutionOptions): Promise<number> {
-  const projectRoot = options.projectRoot || getProjectDir();
+/**
+ * Resolve the plan entries for this invocation (framework filter applied).
+ * Null when there is nothing to execute — the caller exits 0 after logging.
+ */
+function resolveExecutionPlans(
+  options: TestExecutionOptions,
+  projectRoot: string,
+): TestPlan[] | null {
   const detectResult = runTestDetectFrameworks({ files: options.files, projectRoot });
 
   if (detectResult.plan.length === 0) {
     console.log('No test configuration found. Configure tests in openspec/config.json');
-    return 0;
+    return null;
   }
 
   const planEntries = options.framework
@@ -307,6 +529,15 @@ export async function runTestExecution(options: TestExecutionOptions): Promise<n
 
   if (planEntries.length === 0) {
     console.log(`No plan entries found for framework "${options.framework}"`);
+    return null;
+  }
+  return planEntries;
+}
+
+export async function runTestExecution(options: TestExecutionOptions): Promise<number> {
+  const projectRoot = options.projectRoot || getProjectDir();
+  const planEntries = resolveExecutionPlans(options, projectRoot);
+  if (planEntries === null) {
     return 0;
   }
 
@@ -316,14 +547,27 @@ export async function runTestExecution(options: TestExecutionOptions): Promise<n
     projectRoot,
   );
 
+  const reportsDir = resolveReportsDir(projectRoot, options.change);
+  const effectivePlanEntries = gateFiles ? gatePlanEntries(planEntries, gateFiles) : planEntries;
+
+  if (options.forceRerun !== true) {
+    const reused = reuseFreshSummaryExit({
+      projectRoot,
+      reportsDir,
+      effectivePlanEntries,
+      inventoryWritten,
+      noMutation: options.noMutation === true,
+    });
+    if (reused !== null) {
+      return reused;
+    }
+  }
+
   const mutationDiffFiles =
     inventoryWritten !== undefined && !options.noMutation
       ? resolveMutationDiffFiles(inventoryWritten, projectRoot)
       : undefined;
-  const reportsDir = resolveReportsDir(projectRoot, options.change);
   const subReports = [];
-
-  const effectivePlanEntries = gateFiles ? gatePlanEntries(planEntries, gateFiles) : planEntries;
 
   for (const entry of effectivePlanEntries) {
     const subReport = runPlanEntry(entry, projectRoot, options, mutationDiffFiles, reportsDir);

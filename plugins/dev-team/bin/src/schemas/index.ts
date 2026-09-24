@@ -65,6 +65,7 @@ export {
   TEST_COVERAGE_FUNCTION_DEFAULT,
   TEST_MUTATION_SCORE_DEFAULT,
 } from './config/defaults';
+export { testExecutionSummaryReportSchema } from './test-execution-output.schema';
 export type {
   TestCaseResult,
   TestExecutionSubReport,

@@ -18,6 +18,8 @@ node ./bin/cli.cjs test-execution --change <change-name>
 
 Wait for the command to complete. The CLI handles framework detection, test execution, coverage measurement, and report generation — writing the summary report to `openspec/changes/<change-name>/reports/test/summary.json`.
 
+Reuse note: when an existing summary is still fresh for the current code state (no input file under the plan roots changed after it, plan set unchanged, and mutation results present), the CLI prints `Reusing fresh summary ...` and exits immediately WITHOUT re-executing tests or mutation — the previous attempt may have been an ad-hoc verification run during a backtrack loop. This is expected behavior, not a skipped run: continue to Step 1 and read the existing `summary.json` as-is. Dependency installs in Step 1b update `package.json` / lockfiles under the plan root, so the summary goes stale and the CLI re-runs on its own; only append `--force` to demand re-measurement when you repaired the environment in a way that touched no watched input files. Default to no flag.
+
 Scope note: with `--change`, the CLI only runs plan entries whose suite root intersects the change file inventory — out-of-scope suites log `Skipping ... (change scope)` and do not appear in `plans[]`. This is expected behavior, not a missing report; do not treat an absent suite as a defect. If the inventory is unreadable, the CLI fails open and runs everything.
 
 If the CLI exits with a non-zero code, it means some tests failed or an error occurred — this is expected and the report should still have been written. Proceed to Step 1.
