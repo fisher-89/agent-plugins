@@ -1,0 +1,811 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-24",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-24T11:44:08.936Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/types.ts",
+      "at": "2026-09-24T11:52:05.490Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/layout.ts",
+      "at": "2026-09-24T11:52:13.353Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/graph.ts",
+      "at": "2026-09-24T11:55:55.079Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/attachments.ts",
+      "at": "2026-09-24T11:52:58.100Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/PhaseColumnNode.tsx",
+      "at": "2026-09-24T11:55:42.386Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/FlowEventNode.tsx",
+      "at": "2026-09-24T11:58:31.409Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/ChangeFlowGraph.tsx",
+      "at": "2026-09-24T11:58:48.246Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/FileLogTable.tsx",
+      "at": "2026-09-24T11:52:31.482Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/DetailDrawer.tsx",
+      "at": "2026-09-24T11:52:33.909Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeDetailView.tsx",
+      "at": "2026-09-24T11:54:37.346Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/changes/ChangeDetailView.tsx",
+      "at": "2026-09-24T12:07:12.748Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/graph.test.ts",
+      "at": "2026-09-24T12:37:36.270Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/layout.test.ts",
+      "at": "2026-09-24T12:25:40.285Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/attachments.test.ts",
+      "at": "2026-09-24T12:26:49.664Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/FileLogTable.test.tsx",
+      "at": "2026-09-24T12:27:09.085Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/FlowEventNode.test.tsx",
+      "at": "2026-09-24T12:57:06.669Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/PhaseColumnNode.test.tsx",
+      "at": "2026-09-24T12:27:55.647Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/ChangeFlowGraph.test.tsx",
+      "at": "2026-09-24T12:47:49.773Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/DetailDrawer.test.tsx",
+      "at": "2026-09-24T12:57:52.496Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/ChangeDetailView.test.tsx",
+      "at": "2026-09-24T12:49:45.801Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/change_flow_pipeline.test.tsx",
+      "at": "2026-09-24T12:57:26.258Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/change_flow_generations.test.tsx",
+      "at": "2026-09-24T12:50:54.563Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/change_flow_refresh.test.tsx",
+      "at": "2026-09-24T12:37:09.927Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/ipc_pipeline.test.tsx",
+      "at": "2026-09-24T12:54:47.574Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/__tests__/shadcn_controls.test.tsx",
+      "at": "2026-09-24T12:54:54.449Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 通过。问题具体（ChangeDetailView.tsx 三重不足+夹具实证）；范围三分区齐全（实现5/测试3/不改4）；5 风险均有具体缓解（锁版本线、fitView 夹具调验、unwrap_or(0)+回归、断言逐条迁移）；AC-1~9 对象+条件完整；决策表 9 行均含理由与被拒备选；无占位符；新增能力 desktop-change-flow-view 与唯一 spec 1:1，ADDED 对应，AC 与 7 个 requirement 全映射且命令口径一致（client:check=vp check --fix&&knip 已核验），Module Contract 与实现文件一致。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-17 具体到文件 packages/desktop/src/views/changes/ChangeDetailView.tsx，列三重不足（执行史不可读/素材归属不可见/信息与结构割裂），并引用 v2-b 夹具与 record.ts 排除 openspec/** 实证，非泛泛改进。"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L48-54 ### 实现文件 5 项（package.json、flow/ 目录、渲染组件、抽屉、ChangeDetailView.tsx）；L56-60 ### 测试文件 3 项；L66-71 ### 不要修改 4 项（detail.rs、useChangeDetail、renderers/、record.ts）；另 ### 删除文件 明示（无）。"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L95-99 五风险均有非泛化缓解：锁 v12.11.x 版本线且失败仅回退视图层；fitView+夹具调验；eval 追加序主序+attempt 缺号 unwrap_or(0)（与 detail.rs 同款）+v2-a/v2-b 夹具回归；既有断言逐条迁移而非删除；9 列恒定上限。"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L79-87 AC-1~9 均为对象+条件：AC-1 坐标公式 x=列索引×COL_W 列数恒 9；AC-2 三分类视觉；AC-6 v0/v1/v2 行为；AC-7 仅显式 refresh；AC-9 指明 pnpm client:check 与 test 全绿、无新增豁免、data-testid。"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L107-117 决策表 9 行均填理由与备选列：station 级节点、dagre/elk、ArtifactDescriptor 加 phase 字段、挂图外层/省略、节点内展开、整页降级回线性布局、仅组件级测试、接入 watch、挂 proposal 列，均被明确拒绝。"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "不动后端 DTO、纯函数转换层 vitest 直测（经模块公共 API，非 test-only export）、spec L123 明示「不逐项验证库语义」、AC-9 knip 无豁免、手工坐标无第二布局库符合 simplicity。"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep TODO|TBD|placeholder|{{ 于 change 目录仅命中 explore.md L4 的文件名引用 openspec/todo.md（非 artifact）；proposal.md 与 spec.md 全文无占位符。"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题 L9-17、提案 L21-30、变更范围 L46-71、验收标准 L75-87、风险 L91-99 均实质；待决问题 L121 明示（无）并说明第三轮已定案、列出留给 dev-design 的实现细节。"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L34 ## 能力；L36-38 ### 新增能力 列 desktop-change-flow-view（含节点三分类/9 列布局/边推导/挂载规则/抽屉/降级/可测试性摘要）；L40-42 修改的能力明示（无）。"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 仅一个目录 desktop-change-flow-view/spec.md，与新增能力 desktop-change-flow-view 一一对应，无多余 spec 文件。"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "spec 为 ADDED 与新增能力一致；AC-1~8 映射 7 个 requirement（布局/三分类/边推导/挂载/抽屉/降级/纯函数），AC-7+AC-9 合入「取数模型与管线合规不变」；unwrap_or(0)、workflow 独立面板、explore.md 不入图两侧一致；AC-9 的 client:check 即 vp check --fix && knip（packages/desktop/package.json L10-13 已核验），Module Contract 表与实现文件逐行对应。"
+        }
+      ],
+      "backtrack_to": "proposal",
+      "backtrack_reason": "用户追加交付要求：desktop 版本号升级到 0.3.3（改 packages/desktop/package.json），需并入 proposal 实现文件清单与验收标准后重评",
+      "start_at": "2026-09-24T10:24:58.135Z",
+      "timestamp": "2026-09-24T10:34:05.241Z",
+      "stale": true
+    },
+    {
+      "phase": "proposal",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "重评(attempt 2):回溯要求的 desktop 0.3.3 版本升级已并入提案(提案 L31 交付收尾、L51 实现文件、AC-10、L122 决策行)且 spec 新增「desktop 版本升级交付」requirement(L130-137),两端口径一致。11 项全过:问题含夹具实证;实现/测试/不要修改三段齐备;5 风险缓解具体;10 决策均含否决备选;AC-1~10 可测;1 spec 与 1 能力 1:1,ADDED 类型一致,无占位符。",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-17:三重不足具体到字段与证据——file_log scope 未被前端使用、eval-checklist 信封 payload 自带 phase+attempt、v2-b 夹具实证 backtrack 形态,非泛泛「改进X」"
+        },
+        {
+          "item": "R2 变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L49-61 ### 实现文件 5 项(含 package.json 依赖+版本)、### 测试文件 3 项均非空;L67-74 ### 不要修改 6 项含 tauri.conf.json 与 Cargo.toml;L63-65 删除文件标注(无)"
+        },
+        {
+          "item": "R3 风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L99-103:5 风险各有具体缓解,如 L101「eval 追加序为主序、interrupted/active 按 start_at 归并,attempt 缺号 unwrap_or(0) 兜底(与 detail.rs 同款)+纯函数直测+夹具回归」;L102「断言逐条迁移而非删除」;无泛化「监控并调整」"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~AC-10 均为对象+条件,如 AC-10(L91)「version 字段为 0.3.3;tauri.conf.json 经 ../package.json 引用自动跟随(该文件无改动);src-tauri/Cargo.toml 保持 0.1.0」;AC-1 列数恒为 9+空列"
+        },
+        {
+          "item": "R5 关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L111-122 决策表 10 行均含理由+备选;L122 版本升级决策备选「单独 version-bump change;顺手改 Cargo.toml(否决:破坏既有惯例)」;L114 备选「dagre/elk 自动布局;按实际进度截断列」"
+        },
+        {
+          "item": "R6 提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "不涉 plugins/ 源码,不触发 CLAUDE.md plugin bump 规则;desktop 0.3.2→0.3.3 沿 0.3.0/0.3.1 先例(L74/L122);spec L109「不逐项验证库语义」、knip 无未用导出与项目规范一致"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{}} 模板标记;「空图占位」(L30/L87/spec L91)为 v0 UI 状态的功能描述,非模板占位符"
+        },
+        {
+          "item": "R8 非能力模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围/验收标准/风险均有实质内容;L126 待决问题「(无)」并附留给 dev-design 的实现细节清单(COL_W/ROW_H、目录命名、样式引入位置),非占位"
+        },
+        {
+          "item": "R9 能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L35-43:## 能力 下 ### 新增能力 含 desktop-change-flow-view(流程图视图契约);### 修改的能力 L43 标注(无)并说明理由"
+        },
+        {
+          "item": "R10 specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 仅含 specs/desktop-change-flow-view/spec.md,与能力章节唯一条目 1:1,无未列出的多余 spec"
+        },
+        {
+          "item": "R11 proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "spec 为 ADDED 与「新增能力」一致;AC-1~AC-9 与 8 个 requirement 场景对应;回溯新增 AC-10(L91)↔ spec L130-137 desktop 版本升级交付(0.3.2→0.3.3、Cargo.toml 0.1.0 不随动)一致;实现文件 package.json 与 Module Contract 行(L148)一致;不要修改清单与 spec MUST NOT 条款无矛盾"
+        }
+      ],
+      "start_at": "2026-09-24T10:37:08.725Z",
+      "timestamp": "2026-09-24T10:40:54.639Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "D9 不通过：tasks.md 阶段五要求执行 `pnpm -C packages/desktop run test`（vp test + cargo test 单元套件），违反「tasks.md 不得包含测试任务，包括执行测试」；且与惯例不符——归档变更（desktop-agent-execution 等）守线阶段均标注「静态，不含测试执行」，测试执行归 test-execution 阶段。design.md AC-9 行「最终任务跑 client:check 与 test」同源。其余通过：D1 组件表五列齐全无 TBD；D3 AC-1~10 逐项有落点；D4 五阶段依赖正序；D5 常量/签名具体；D10 清单 11 文件与 tasks/proposal 三向一致。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表 8 行，职责/文件位置/依赖/技术四列全填，无 TBD；路径均指向具体文件（flow/graph.ts、ChangeFlowGraph.tsx 等）"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "类型定义表 8 个模型字段齐全；节点 id 方案表；数据模型节首句明确「运行时派生物（不持久化、不落库）」"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表 AC-1~AC-10 逐项给出设计落点，与正文坐标约定/归并算法/挂载规则/降级映射/不改清单一致"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在，11 个 checkbox 任务按 5 阶段分组：依赖→纯函数层→渲染层→页面组装→合规收尾，无后置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每个任务指明具体文件、类型名、常量值（COL_W=260/ROW_H=128 等）、函数签名与行为规则，无「实现功能」式空任务"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "运行时 @xyflow/react ^12.11.0 及用途；构建/测试明确「无新增」并说明沿用 vitest/vite-plus/knip"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "已核实：ChangeDetailView.tsx 既有 Station/Attempt/VerdictBadge/DetailSectionInterupted/DetailSectionFileList/INVENTORY_VARIANT/formatTime、detail.rs PIPELINE_PHASES 9 站与 unwrap_or(0)、package.json 0.3.2、client:check/test 脚本均与设计一致；docColumn 模块私有符合无测试导出约定"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增 9 文件+修改 2 文件）/数据模型/依赖/待决问题均实质填写；路由/API 不适用（纯前端视图，以公共函数/API 表替代）"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": false,
+          "evidence": "tasks.md 阶段五「pnpm -C packages/desktop run test 全绿」为执行测试任务；归档惯例守线阶段均标注「静态，不含测试执行」，测试执行归 test-execution 阶段"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "清单 11 文件覆盖 proposal 实现文件全部条目（flow 四文件/渲染组件/抽屉/Detail/package.json）；tasks 引用文件全在清单；清单文件均有对应任务；公共函数子表与新增文件一一对应，无矛盾"
+        }
+      ],
+      "start_at": "2026-09-24T10:41:41.740Z",
+      "timestamp": "2026-09-24T10:57:13.494Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "D1组件表8行齐职责/依赖/技术/路径4列，路径具体无TBD；D2类型表8类型含字段，id方案+坐标+边关系齐，持久化明确不落库；D3 AC-1~10逐项映射设计落点；D4阶段一~五依赖序正确，DetailDrawer依赖的FileLogTable前置；D5任务含签名/常量/testid/拆除名单；D6运行时@xyflow/react及用途、构建测试无新增已说明；D7 docColumn私有符合no-test-only-exports，无第二布局库；D8各章节实质填写，路由API不适用省略；D9无测试步骤，守线仅静态；D10清单9新增+2修改覆盖proposal实现文件5条，tasks与清单互引一致，公共函数表齐。全部通过。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "组件表8行每行填齐职责/文件位置/依赖/技术4列，路径具体到 flow/graph.ts、DetailDrawer.tsx 等文件，无TBD"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "类型定义表8类型含字段（FlowNode id/kind/attempt/parentId等）；节点id方案+坐标约定+边推导给出关系；数据模型开头明确'运行时派生物不持久化不落库'"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表 AC-1~AC-10 逐项给出落点，与 proposal 10 条 AC 一一对应（AC-4挂载规则表/AC-6三代际映射/AC-9守线仅静态）"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在且全部为 - [ ]；阶段一依赖→二纯函数(types→layout→graph→attachments)→三渲染(FileLogTable先于依赖它的DetailDrawer)→四组装→五守线，无前置依赖后续"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "各任务指明文件、导出签名、常量取值(COL_W=260/ROW_H=128)、data-testid、ChangeDetailView 拆除与保留组件名单，无泛化'实现功能'表述"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "运行时 @xyflow/react ^12.11.0 附用途与import范围；构建/测试依赖'无新增'并说明 vitest/vite-plus/knip 沿用"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "docColumn 模块私有符合 no-test-only-exports 准则；不引入 dagre/elk 第二布局库、live 更新延后符合 simplicity；复用 renderers/registry 与既有 hook"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(新增9+修改2)/数据模型/依赖/待决问题均有实质内容；路由/API设计不适用省略，公共函数/API 子表覆盖模块级 API"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略章节，测试内容均为移交 test-design 的备注；tasks 明确排除测试文件与执行，阶段五仅 client:check(fmt/lint/knip) 与零diff边界检查"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "新增9文件+修改2文件覆盖 proposal 实现文件全部5条；tasks 引用的写入文件均在清单且清单每文件有对应任务；公共函数表8条与新增文件一致无矛盾；删除文件省略与 proposal'无删除'一致"
+        }
+      ],
+      "start_at": "2026-09-24T10:57:49.574Z",
+      "timestamp": "2026-09-24T11:01:49.260Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "T3 fail：PhaseColumnNode 章节（L158-166）仅 正向×2+边界×1，无异常用例，违反「每个测试对象至少一个异常用例」（对照 FileLogTable L124 / DetailDrawer L208 同类展示组件均有异常用例）。其余 T1/T2/T4-T8 全过：proposal AC-1..10 全映射（L14-23）；单元 heading 与验收范围互验、集成关联 AC（L267/321/359）闭合；Mock 策略覆盖 invoke/ResizeObserver/fake timers；模板格式（T8-U/I/G）合规。需为 PhaseColumnNode 补异常用例（如 materials/回调缺失不抛错）。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个 AC 在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md 验收标准 AC-1..AC-10 逐条对应 test-design.md L14-23 验收范围表 AC-1..AC-10 行，验收条件语义一致，无缺失无多余"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单元方向：验收范围单元测试条目指向的 graph/layout/attachments/FlowEventNode.test 均有 ### 章节（L31/64/84/130）；集成方向：关系关联 AC-2..5（L267）/AC-6（L321）/AC-7（L359）均在验收范围存在，集成类 AC-5/6/7 各被至少一关系引用"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": false,
+          "evidence": "PhaseColumnNode 章节（L162-166）3 条用例仅 正向×2+边界×1，无异常用例；对照同文档展示组件 FileLogTable L124（null 占位）、DetailDrawer L208（selection=null）均设异常用例，属覆盖缺口"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "Tauri invoke mock 见 L345/L381（沿 ipc_pipeline 既有模式）；ResizeObserver stub 见 L192/L291/L346/L383；fake timers 见 L382；无外部依赖的单元章节以注释声明无 Mock（L62/82/110 等）"
+        },
+        {
+          "item": "T5 模板章节均填写实质内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/集成测试/不可测试项均实质填写；各 per-file 章节含 待测功能/用例/Mock策略 三子节且顺序正确；types.ts 章节为不建文件决议注释并列于不可测试项 L393"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 不要修改清单（detail.rs、renderers/、record.ts、tauri.conf.json、Cargo.toml）无测试侵入——集成仅经真实实现消费（useChangeDetail/renderers）；in_scope 各项均有落点，package.json 版本归 AC-10 不可测试项 L392"
+        },
+        {
+          "item": "T7 写操作测试含幂等性验证",
+          "pass": true,
+          "evidence": "proposal 为纯视图层重构，无 API/DB 写操作（取数为显式 refresh），幂等性验证不适用"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "单元 ### 均为「源文件 -> 测试文件」（L31 等）、三子节齐备有序、用例表列名无测试文件列、Mock 表列名合规；集成 ### 含「→ 测试文件」（L256/310/348）、涉及模块 4 行、场景名唯一+叙事、场景用例列为 路径类型|测试条件|迭代类型；验收范围保留模板 4 列表头"
+        }
+      ],
+      "start_at": "2026-09-24T11:02:09.470Z",
+      "timestamp": "2026-09-24T11:20:18.603Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "通过（8/8）。T1: proposal AC-1~AC-10 与验收范围逐条映射。T2: 单元行4个测试文件均有章节；AC-5/6/7 分别由 pipeline/generations/refresh 三关系覆盖。T3: 各章节异常+边界齐备（空数组/null/NaN/超大order/缺字段/未知scope）。T4: invoke/ResizeObserver/fake timers 策略完备。T6: 不要修改项零测试侵入，in-scope 全覆盖。T7: 无写操作不适用。T8: heading 与列名全合规。types.ts 章节为零测试备案注释（不建测试文件，与不可测试项互证），不计违例。",
+      "checklist": [
+        {
+          "item": "T1 proposal每个AC映射验收范围",
+          "pass": true,
+          "evidence": "proposal.md 验收标准 AC-1~AC-10（L82-91）与 test-design 验收范围 AC-1~AC-10（L14-23）逐条对应；AC-9/AC-10 判不可测试且在不可测试项给出原因，无缺漏。"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "单元测试行 AC-1/2/3/4/8 涉及 graph/layout/FlowEventNode/attachments 测试文件均有对应 ### 章节；集成行 AC-5/6/7 分别被 change_flow_pipeline/generations/refresh 三关系覆盖；各关系关联AC引用的 AC-ID 均存在于验收范围。"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "每个含测试章节均含≥1异常+≥1边界；类型化边界齐备：空数组(pipeline=[]/envelopes=[]/fileLog=[])、null字段(attempt/at/startAt/fileLog=null)、NaN(Date.parse非法串)、超大order=1000、payload缺字段、未知scope非9站、attempt缺号0兜底。"
+        },
+        {
+          "item": "T4 外部依赖有Mock策略",
+          "pass": true,
+          "evidence": "集成章节声明 Tauri invoke mock（vi.mock('@tauri-apps/api/core')，generations/refresh）、ResizeObserver stub、fake timers；单测层以注释声明无跨进程Mock+fixture 构造，符合模板允许形式。"
+        },
+        {
+          "item": "T5 模板章节已填实质内容",
+          "pass": true,
+          "evidence": "四个顶层章节齐全有实质内容；9个含测试 per-file 章节均含 待测功能/用例/Mock策略 三子章节；types.ts 章节为零测试备案注释（明确不建 types.test.ts，与不可测试项互证），非测试章节不计缺子章节。"
+        },
+        {
+          "item": "T6 测试设计与proposal范围一致",
+          "pass": true,
+          "evidence": "proposal「不要修改」六项均无修改型测试；useChangeDetail 仅作 AC-7 不变式回归（in-scope）；live 更新属 out-of-scope 无测试并以负向断言守护；转换层/组件/三代际/抽屉/refresh 等 in-scope 项全覆盖。"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "不适用——proposal 为纯前端视图改造，refresh 为只读 IPC（get_change_detail），无创建/更新/删除写操作，无幂等性要求。"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "单元 10 个 ### 均匹配 `<源> -> <测试>`；含测试章节三子章节顺序正确、待测功能为无序列表；用例表四列/Mock表三列均无测试文件列；集成 3 个 ### 以 → 接测试文件、涉及模块表≥2行、关联AC非空、关系描述为叙事段、场景唯一且带叙事；场景用例三列；验收范围四列与模板一致。"
+        }
+      ],
+      "start_at": "2026-09-24T11:20:38.377Z",
+      "timestamp": "2026-09-24T11:26:48.958Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "I7 不通过：design 素材挂载规则与 tasks 阶段四均规定 workflow 独立面板渲染 materials.outsideFiles（scope='workflow' 与未命中条目），实现 ChangeDetailView.tsx:209 传 detail.fileLog 全量，outsideFiles（attachments.ts:90）无 UI 消费，节点级条目在面板重复。其余通过：9 新文件+2 修改与清单一致，8 公共函数/8 类型落定，version 0.3.3 + @xyflow/react^12.11.0，边界文件零 diff，归并/边推导/docColumn 私有/三代际降级/testid 均符合设计。",
+      "checklist": [
+        {
+          "item": "I1 每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "design 8 组件全部落地：flow/graph.ts、types.ts、layout.ts、attachments.ts、ChangeFlowGraph.tsx、PhaseColumnNode.tsx、FlowEventNode.tsx、DetailDrawer.tsx、FileLogTable.tsx 均存在，页面组装于 ChangeDetailView.tsx，useChangeDetail.ts 零改动"
+        },
+        {
+          "item": "I2 变更清单条目均有对应实现",
+          "pass": true,
+          "evidence": "9 新增文件均在 files.written 与文件系统；ChangeDetailView.tsx 与 package.json 已改（version 0.3.3、@xyflow/react ^12.11.0）；8 个公共函数（buildFlowGraph/mountMaterials/nodePosition/ChangeFlowGraph/DetailDrawer/FileLogTable/PhaseColumnNode/FlowEventNode）与 8 类型全部导出；声明删除为空，实际无删除。pnpm-lock.yaml 为依赖安装的机械伴生改动，良性"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "flow/ 与 renderers/、hooks/ 平级分层；@/components/ui 别名导入、具名函数导出、中文注释与代码库一致；转换层零 react/零 @xyflow/react/零 invoke；颜色引用现有 token（pass-bg/fail-bg/warn-bg/border 均在 global.css），Badge variant pass/fail/kind/active/inv0-2 均存在"
+        },
+        {
+          "item": "I4 路由/API 已实现",
+          "pass": true,
+          "evidence": "design.md 未指定任何路由/API，本变更为桌面视图层"
+        },
+        {
+          "item": "I5 tasks.md 全部 [x]",
+          "pass": true,
+          "evidence": "tasks.md 阶段一至五共 9 项任务全部勾选 [x]"
+        },
+        {
+          "item": "I6 无计划外无关代码",
+          "pass": true,
+          "evidence": "突变范围仅限计划文件 + pnpm-lock.yaml（依赖安装伴生）；无无关源码改动，无额外删除"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": false,
+          "evidence": "常量取值/nodePosition 公式/归并算法/Δ 符号边推导/docColumn 私有不导出/PIPELINE_PHASES 与 detail.rs 同序/三代际降级/testid 挂钩均符合；但 design 素材挂载规则（design.md「素材挂载规则」表末行）规定 scope='workflow' 与未命中条目归 outsideFiles 且由图外 workflow 独立面板完整展示，tasks 阶段四同；实现 ChangeDetailView.tsx:209 WorkflowPanel 传入 detail.fileLog 全量而非 materials.outsideFiles，attachments.ts:90 算出的 outsideFiles 无任何 UI 消费，节点级条目在面板重复展示，偏离设计数据流"
+        }
+      ],
+      "start_at": "2026-09-24T11:27:49.361Z",
+      "timestamp": "2026-09-24T12:05:59.446Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "实现与 design 三态对账一致：9 个 flow 新文件 + ChangeDetailView 改造 + package.json(0.3.3/@xyflow/react ^12.11.0) 全部落盘，无计划外删除（pnpm-lock 为装依赖伴生）。常量/9 站镜像/归并与边推导/挂载规则/三代际降级/fitView 参数逐项核对符合；docColumn 保持私有，边界清单（useChangeDetail、renderers、detail.rs、tauri.conf.json、Cargo.toml）零 diff。轻微偏差：nodePosition 入参放宽为 FlowColumn|FlowNode、DetailDrawer 增 hasFileLog 传参（v1 降级文案所需），均在注释中说明，判定良性。",
+      "checklist": [
+        {
+          "item": "I1 design 架构组件均有实现",
+          "pass": true,
+          "evidence": "9 个 flow 文件与 ChangeDetailView 改造均落盘；useChangeDetail.ts 保留未改（不在 git status）"
+        },
+        {
+          "item": "I2 变更清单条目三态对账",
+          "pass": true,
+          "evidence": "9 新增 + 2 修改与 files.written 一致；pnpm-lock.yaml 为任务1安装依赖的伴生改动（良性）；无计划外删除"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "flow/ 与 renderers、hooks 平级；@/components/ui 导入、React.JSX.Element 签名、文件头注释风格与代码库一致"
+        },
+        {
+          "item": "I4 路由/API 与 data-testid 挂钩",
+          "pass": true,
+          "evidence": "design 无路由；flow-graph/flow-column/flow-node/flow-empty/detail-drawer/drawer-*-section/workflow-panel/filelog-table 全部落位"
+        },
+        {
+          "item": "I5 tasks.md 全部 [x]",
+          "pass": true,
+          "evidence": "tasks.md 8 项（阶段一至五）全部勾选"
+        },
+        {
+          "item": "I6 无无关改动",
+          "pass": true,
+          "evidence": "diff 仅及清单内文件 + lockfile；旧 Station/Attempt/VerdictBadge 等按计划拆除，信息迁入 FlowEventNode/DetailDrawer"
+        },
+        {
+          "item": "I7 设计决策落地",
+          "pass": true,
+          "evidence": "layout.ts 常量与坐标、PIPELINE_PHASES 与 detail.rs:16 同序、归并/边推导/挂载规则/三代际降级/fitView 参数逐项核对；docColumn 未导出；tauri.conf.json 与 Cargo.toml 零 diff"
+        }
+      ],
+      "start_at": "2026-09-24T12:06:32.298Z",
+      "timestamp": "2026-09-24T12:10:52.707Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "13/13 声明测试文件落盘（types.test.ts 按 design 备注正确未建），单元 9 章节 64/64 用例、集成 3 文件 15/15 用例逐一对照齐备；Mock 策略（ResizeObserver stub+teardown、invoke vi.mock、fake timers、jsdom 垫片）与设计一致；框架统一 vite-plus/test；边界（null/NaN/空集/超大 order/缺字段）全覆盖；废弃行未生成新断言。清单外 ipc_pipeline/shadcn_controls 两处写入为既有断言向新页面结构的良性迁移。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "9 个公共导出均有共存测试调用并断言行为：buildFlowGraph(graph.test)、nodePosition+常量间接断言(layout.test)、mountMaterials(attachments.test)、FlowEventNode/PhaseColumnNode/ChangeFlowGraph/DetailDrawer/FileLogTable/ChangeDetailView 各同名测试渲染并断言 testid/回调/文案；types.ts 八导出为编译期类型，design 明示不建零用例文件。"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存",
+          "pass": true,
+          "evidence": "flow/ 下 8 个 *.test.ts(x) 与源文件同目录共置；ChangeDetailView.test.tsx 与源码同目录；3 个 change_flow_*.test.tsx 按 design 验收范围声明放置 src/__tests__/；命名符合 *.test.ts/tsx 规范。"
+        },
+        {
+          "item": "G3 单元测试用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "逐行核对：graph 18/18、layout 5/5、attachments 13/13、FileLogTable 3/3、FlowEventNode 9/9、PhaseColumnNode 4/4、ChangeFlowGraph 5/5、DetailDrawer 7/7、ChangeDetailView 10/10 新增行全落盘，describe/it 与测试对象/条件对应，路径类型分类正确（异常行均断言不抛错）。"
+        },
+        {
+          "item": "G4 集成测试用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "change_flow_pipeline.test.tsx 场景一 5/5（L339/387/407/437/462）+场景二 2/2（L498/513）；change_flow_generations 5/5（L179-235）；change_flow_refresh 3/3（L182/203/222）；AC 关联 AC-2..5/AC-6/AC-7 与场景一致。"
+        },
+        {
+          "item": "G5 Mock策略表格中的 mock 已实现",
+          "pass": true,
+          "evidence": "ChangeFlowGraph.test L76 stubGlobal ResizeObserver+L104 unstub；generations L26 vi.mock('@tauri-apps/api/core') 按代际返回 DTO；refresh L118 invoke 计数+L172 useFakeTimers；DOMMatrixReadOnly/getBBox/offsetWidth 垫片符合「按需补 stub」行；声明无 Mock 的纯函数章节实测零 vi.mock。"
+        },
+        {
+          "item": "G6 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "13 个测试文件统一从 vite-plus/test 导入 describe/it/expect/vi（design 声明 vite-plus），组件用例经 @testing-library/react render，无裸 vitest 导入；集成文件带 jsdom 环境头。"
+        },
+        {
+          "item": "G7 test-design 边界情况已覆盖",
+          "pass": true,
+          "evidence": "空 pipeline/envelopes/fileLog、attempt null→0 兜底(graph L124)、NaN 时间串(L364)、null 锚点跳过(L378)、超大 order=1000(layout L97)、双 null「—」占位、payload 缺字段/类型不符(attachments L158)、未知 phase/attempt null→outsideFiles、v0+v1 混合降级均各有用例。"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "装 stub 的 6 文件均有 afterEach cleanup+unstubAllGlobals；ChangeFlowGraph/pipeline 另还原 offsetWidth/Height 原生描述符(L102-111)；refresh 另 useRealTimers(L178)；纯函数文件无全局副作用，无需清理块。"
+        },
+        {
+          "item": "G9 迭代类型=废弃的条目未生成新测试",
+          "pass": true,
+          "evidence": "ChangeDetailView 旧线性布局断言（attempt 序列/（无记录）/页面级 filelog 矩阵/中断留档区块/attempt-meta 页面级挂钩）未出现在新生成文件，头注 L12-13 明示退役，语义按 design 迁往 graph/FlowEventNode/FileLogTable 与集成用例。"
+        }
+      ],
+      "start_at": "2026-09-24T12:11:15.054Z",
+      "timestamp": "2026-09-24T13:06:25.133Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 551 个测试通过（unit+integration，183 套件，0 失败/跳过）；覆盖率 lines=98.9%、branches=93.87%、functions=98% 达标（阈值 90/85/90）；mutation score 84.66% ≥ 80%。备注：packages/desktop override 维度 measured=null 且记录 pass=true（per-file 未测，以整体加权覆盖为准）；81 个 mutation 幸存者集中于 ChangeFlowGraph.tsx / attachments.ts / FlowEventNode.tsx / graph.ts 条件分支，不阻塞本阶段。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确；coverage 含 pass/measured/thresholds/overrides"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0，total=551（unit+integration，183 套件），skipped=0；conclusion=pass，problems=[] 无 execution_error；mutation.pass=true（84.66% ≥ 80%）"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；lines=98.9% (阈值90%)、branches=93.87% (阈值85%)、functions=98% (阈值90%) 均达标；packages/desktop override 维度 measured=null（per-file 覆盖未测，pass=true 依整体加权），null 维度在 coverage.pass=true 时不判失败"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败诊断需求，自动通过"
+        }
+      ],
+      "timestamp": "2026-09-24T13:44:21.677Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "逐项核查通过：flow 纯函数层零 invoke/fs 无注入面，payload 有最小形状守卫；PIPELINE_PHASES 与 Rust 同序，v0/v1/v2 降级、坐标/fitView/回跳边、docColumn 挂载、0.3.3+@xyflow/react 与 design 一致，不修改清单零改动；空值边界（fileLog null、attempt 缺号、NaN 时间、id 撞车后缀）齐全；vp check+knip 全绿无 diff。观察（不阻塞）：mergeByStartAt 实为 O(k·n)，design 标 O(n) 偏乐观；stryker.config.8319ba7c.json 为 test-execution 遗留临时文件，不在变更清单。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep flow/ 与 ChangeDetailView.tsx 无 password/secret/硬编码密钥/eval(/exec(/innerHTML 命中；flow 层零 invoke 零 fs；eval-checklist payload 经 attachments.ts:35 isChecklistRef 收窄"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "IPC 数据走 dto.ts 类型镜像（零改动）；信封 payload 唯一动态点 eval-checklist 以最小形状守卫收窄（attachments.ts:35-40），渲染收窄归 renderers 层"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "PIPELINE_PHASES 与 detail.rs:16-26 同序镜像；v0/v1/v2 降级、坐标/fitView 参数、backtrack 虚线+reason 标签、docColumn 映射、version 0.3.3+@xyflow/react 均符 design；useChangeDetail/renderers/detail.rs/tauri.conf.json/Cargo.toml 零改动"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "fileLog null、attempt 缺号 ??0（graph.ts:46）、anchorMs NaN 兜底（graph.ts:29）、colIndexOf<0 跳过、artifacts[index]?.source 未命中 continue、eval id 撞车加后缀（graph.ts:49）、抽屉节点缺失中性占位"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "knip 无未用导出；layout.ts 常量与 nodePosition 均被引用；无不可达分支"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "vp check（fmt/lint/types 含 max-lines-per-function:50）+ knip 全绿且未产生 diff；命名/中文注释/data-testid 与库内既有模式一致"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "FileLogEntry 由 NonNullable<ChangeDetail['fileLog']>[number] 派生（types.ts:19）；eval 节点原样携带 AttemptRecord；无自定义中间映射层"
+        }
+      ],
+      "start_at": "2026-09-24T13:44:43.157Z",
+      "timestamp": "2026-09-24T13:49:23.424Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "AC-1~10 全部有实现证据：flow/ 九文件与设计一致（layout 坐标公式、graph 归并与边推导、attachments 挂载、抽屉三分节、三代际降级测试齐备）；取数仅显式 refresh；版本 0.3.3 + @xyflow/react ^12.11.0，tauri.conf 引用跟随、Cargo.toml 保持 0.1.0。无范围蔓延：实现清单与 proposal 一致，无 watch/轮询/dagre，renderers 零耦合，out_of_scope 全未实现。五项风险缓解均可见（fitView、时间戳兜底、锁定 v12、抽屉迁移旧信息、9 列恒定）。tasks 全 [x]，无新增 knip 豁免，测试挂钩均 data-testid。",
+      "checklist": [
+        {
+          "item": "proposal 每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 layout.ts:35-40 nodePosition 公式+graph.ts:163 恒9列; AC-2 FlowEventNode.tsx:23-32 三分类视觉+graph.test.ts:171 interrupted 不合并; AC-3 graph.ts:106-156 归并+Δ符号边推导+backtrackReason 标签; AC-4 attachments.ts:22-27,81-93 挂载规则; AC-5 DetailDrawer.tsx:53/74/107 三分节+ArtifactView; AC-6 ChangeDetailView.test.tsx:279/302/145 v0/v1/v2; AC-7 useChangeDetail.ts:61,99 仅 refresh; AC-8 graph/attachments/layout.test 全边界; AC-9 knip.json 仅既有豁免+data-testid 挂钩齐; AC-10 package.json:3,27 版本 0.3.3+依赖, tauri.conf.json:4 引用跟随, Cargo.toml:6 保持 0.1.0"
+        },
+        {
+          "item": "无范围蔓延",
+          "pass": true,
+          "evidence": "实现清单=9 个 flow 源文件+ChangeDetailView+package.json，与 proposal 变更范围逐项对齐；renderers/ 内 flow 匹配均为 CSS overflow 类无耦合；测试文件属 test-design 承接范围"
+        },
+        {
+          "item": "in_scope 项全部实现",
+          "pass": true,
+          "evidence": "前端 PIPELINE_PHASES (layout.ts:16-26) 与 Rust detail.rs:16-26 九站同序镜像；drawing 组件/抽屉/表格/挂载层全部落地且被测试引用"
+        },
+        {
+          "item": "out_of_scope 未被实现",
+          "pass": true,
+          "evidence": "grep views/changes 无 watch/listen/setInterval/poll（仅注释声明）；无 dagre/elk 依赖；docColumn 映射表外 explore.md 返回 null（attachments.test.ts:103）；detail.rs/record.ts 无 flow 相关新增"
+        },
+        {
+          "item": "风险均有代码缓解",
+          "pass": true,
+          "evidence": "兼容性→锁定 ^12.11.0 且转换层零依赖；宽度→fitView minZoom 0.15/maxZoom 1 (ChangeFlowGraph.tsx:28,104-106)；时间戳失真→anchorMs NaN 守卫+attempt 缺号 0 兜底+graph.test.ts:307-436 回归；信息丢失→抽屉三分节+节点徽标迁移旧语义；节点增长→9 列恒定+仅渲染真实事件"
+        },
+        {
+          "item": "tasks 全部勾选",
+          "pass": true,
+          "evidence": "tasks.md 全部条目 [x]（阶段一至五，含 client:check 守线与边界零 diff 确认）"
+        }
+      ],
+      "start_at": "2026-09-24T13:49:49.340Z",
+      "timestamp": "2026-09-24T13:54:04.098Z"
+    }
+  ],
+  "interrupted": [
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "start_at": "2026-09-24T13:06:47.898Z",
+      "end_at": "2026-09-24T13:43:36.642Z"
+    }
+  ]
+}

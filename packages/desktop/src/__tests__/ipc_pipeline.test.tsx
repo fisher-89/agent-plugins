@@ -180,9 +180,19 @@ beforeEach(() => {
   invokeMock.mockReset();
   openMock.mockReset();
   defaultIpc();
+  // 详情页流程图区挂载 ReactFlow：jsdom 环境缺口兜底（沿 route_pages.test.tsx 惯例）
+  vi.stubGlobal(
+    'ResizeObserver',
+    class {
+      observe = vi.fn();
+      unobserve = vi.fn();
+      disconnect = vi.fn();
+    },
+  );
 });
 
 afterEach(() => {
+  vi.unstubAllGlobals();
   vi.useRealTimers();
 });
 
@@ -241,14 +251,14 @@ describe('ipc 管线：列表到详情与产物渲染', () => {
 
     // markdown-doc renderer 的 payload 渲染
     expect(screen.getByText('内容段落。') !== null).toBe(true);
-    // eval-checklist renderer 的 payload 渲染（同名条目也在详情 checklist 中，允许重复）
-    expect(screen.getAllByText('问题清晰').length).toBeGreaterThanOrEqual(2);
-    expect(screen.getAllByText('L1-10').length).toBeGreaterThanOrEqual(2);
+    // eval-checklist renderer 的 payload 渲染（产物区承载全部信封）
+    expect(screen.getAllByText('问题清晰').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('L1-10').length).toBeGreaterThanOrEqual(1);
     // tasks-progress renderer 的 payload 渲染（1/4 = 25%）
     expect(screen.getByText('25%') !== null).toBe(true);
-    // 详情主体的运行中标示与流水线也在
+    // 详情主体的运行中标示与流程图也在（评估 report 语义迁往抽屉，见 flow 用例）
     expect(screen.getByText(/运行中 · implement · attempt 2/) !== null).toBe(true);
-    expect(screen.getByText('提案通过') !== null).toBe(true);
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
   });
 
   it('产物清单为空时不发起 read_artifact，详情其余区块正常', async () => {
@@ -257,7 +267,7 @@ describe('ipc 管线：列表到详情与产物渲染', () => {
     await pickWorkspace('/repo');
     await clickListItem('add-feature');
 
-    await waitFor(() => expect(screen.getByText('提案通过') !== null).toBe(true));
+    await waitFor(() => expect(screen.getByTestId('flow-graph') !== null).toBe(true));
     expect(invokeMock.mock.calls.every(([name]) => name !== 'read_artifact')).toBe(true);
     expect(screen.getByText('（未发现可读产物）') !== null).toBe(true);
   });
@@ -361,8 +371,13 @@ describe('ipc 管线：DTO 漂移与读取失败的降级兜底', () => {
     await pickWorkspace('/repo');
     await clickListItem('add-feature');
 
-    await waitFor(() => expect(screen.getByText('漂移条目') !== null).toBe(true));
-    expect(screen.getByText(/（无 file_log 数据：v1 及更早代际无此字段）/) !== null).toBe(true);
+    // 漂移条目（dev-design eval，含 undefined backtrack 字段）照常转换为图节点
+    await waitFor(() =>
+      expect(screen.getByTestId('rf__node-eval:dev-design:1') !== null).toBe(true),
+    );
+    // fileLog 缺失（v1 形态）：页面级无 workflow 面板；降级文案由抽屉文件表节承载
+    expect(screen.queryByTestId('workflow-panel')).toBeNull();
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
   });
 });
 

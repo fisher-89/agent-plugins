@@ -1,9 +1,40 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ArtifactEnvelope, AttemptRecord, ChangeDetail } from '../../types/dto';
 import { ChangeDetailView } from './ChangeDetailView';
 import type { ChangeDetailState } from './hooks/useChangeDetail';
+
+// ---------------------------------------------------------------------------
+// ChangeDetailView 单测：页面组装语义（Header + 流程图区 + workflow 独立面板 +
+// 产物区 + 抽屉挂载），state 以 ChangeDetailState 手工 fixture 直供（无跨进程
+// Mock）；Tauri invoke 的进程边界 mock 仅在 __tests__ 集成用例中使用。
+// 旧线性布局断言整体退役（test-design「废弃」项）：attempt 序列 / （无记录）/
+// 中断留档区块 / 页面级 filelog-table 矩阵等语义分别迁往 flow/*.test 与集成用例。
+// ---------------------------------------------------------------------------
+
+class ResizeObserverStub {
+  observe = vi.fn();
+  unobserve = vi.fn();
+  disconnect = vi.fn();
+}
+
+beforeEach(() => {
+  // 流程图区（v1 / v2 详情）挂载 ReactFlow：jsdom 缺口垫片（环境 stub 而非业务 mock）
+  vi.stubGlobal('ResizeObserver', ResizeObserverStub);
+  // xyflow 边标签度量依赖 SVGGraphicsElement.getBBox，jsdom 未实现 → 零包围盒垫片
+  const svgPrototype = globalThis.SVGElement?.prototype as unknown as
+    | Record<string, unknown>
+    | undefined;
+  if (svgPrototype !== undefined && typeof svgPrototype.getBBox !== 'function') {
+    svgPrototype.getBBox = () => ({ x: 0, y: 0, width: 0, height: 0 });
+  }
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+});
 
 /** 9 站流水线的固定站名（与 Rust PIPELINE_PHASES 一致）。 */
 const PIPELINE = [
@@ -35,14 +66,6 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
   };
 }
 
-/** 仅 proposal 站带给定 attempts 的详情（隔离单站分支，避免多站噪声）。 */
-function singleStationDetail(
-  attempts: AttemptRecord[],
-  overrides: Partial<ChangeDetail> = {},
-): ChangeDetail {
-  return detail({ pipeline: [{ phase: 'proposal', attempts }], ...overrides });
-}
-
 function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
   return {
     name: 'add-feature',
@@ -55,40 +78,28 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
       attempts:
         phase === 'proposal'
           ? [
-              {
-                attempt: 1,
-                verdict: 'pass',
-                report: '提案评估通过',
-                checklist: [{ item: '问题清晰', pass: true, evidence: 'L1-10' }],
-                skipped: false,
-                stale: false,
-                startAt: null,
-                timestamp: '2026-09-01T02:00:00Z',
-                backtrackTo: null,
-                backtrackReason: null,
-              },
+              attempt({
+                verdict: 'fail',
+                report: '提案评估未过',
+                startAt: '2026-09-01T10:00:00Z',
+                checklist: [{ item: '问题清晰', pass: false, evidence: 'L1-10' }],
+              }),
             ]
           : phase === 'dev-design'
             ? [
-                {
-                  attempt: 2,
-                  verdict: 'fail',
-                  report: '设计未过',
-                  checklist: [],
-                  skipped: false,
+                attempt({
+                  verdict: 'pass',
+                  report: '设计通过',
                   stale: true,
-                  startAt: null,
-                  timestamp: null,
-                  backtrackTo: 'test-design',
-                  backtrackReason: '测试设计缺失',
-                },
+                  startAt: '2026-09-02T10:00:00Z',
+                }),
               ]
             : [],
     })),
     activePhase: null,
     interrupted: [],
-    fileLog: [],
-    artifacts: [],
+    fileLog: [{ op: 'write', scope: 'workflow', attempt: null, path: 'workflow.json', at: null }],
+    artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
     ...overrides,
   };
 }
@@ -120,126 +131,196 @@ function state(
   };
 }
 
-describe('ChangeDetailView：9 站流水线、运行标示、降级区块与产物区', () => {
-  it('9 站流水线渲染 attempt 序列 / verdict / checklist 展开内容', () => {
+/** proposal.md 文档信封（与 detail().artifacts[0] 下标配对）。 */
+function proposalDoc(): ArtifactEnvelope {
+  return envelope({
+    kind: 'markdown-doc',
+    title: '提案',
+    payload: { markdown: '# 提案正文' },
+    fallbackText: '# 提案正文',
+  });
+}
+
+describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区 / 抽屉）', () => {
+  it('v2 详情 → flow-graph 图区、workflow-panel 面板（内含 filelog-table）、产物区三者并存', async () => {
+    const base = detail();
+    const { container } = render(
+      <ChangeDetailView
+        state={state({ detail: base, artifacts: [proposalDoc()] })}
+        onBack={() => {}}
+      />,
+    );
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    const panel = screen.getByTestId('workflow-panel');
+    expect(within(panel).getByTestId('filelog-table') !== null).toBe(true);
+    // 面板行集 = outsideFiles（workflow-scope 条目不入图）
+    expect(within(panel).getAllByRole('row')).toHaveLength(2);
+    // 产物区独立于面板照常渲染
+    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
+  });
+
+  it('Header 元信息：name / inventory 徽标（detail-header 域）/ source / created；activePhase 运行中 badge（startAt null 不拼时间与占位）', () => {
     const { container } = render(
       <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
     );
-    for (const phase of PIPELINE) {
-      expect(screen.getByText(phase) !== null).toBe(true);
-    }
-    expect(screen.getByText('提案评估通过') !== null).toBe(true);
-    expect(container.textContent).toContain('1 次尝试');
-    expect(screen.getAllByText('（无记录）').length).toBe(7);
-    // checklist 展开
-    expect(screen.getByText('问题清晰') !== null).toBe(true);
-    expect(screen.getByText('L1-10') !== null).toBe(true);
-    // checklist 条目徽标文案一致（checklist 域内的 checklist-verdict 挂钩）
-    const checklist = screen.getByTestId('checklist');
-    expect(within(checklist).getByTestId('checklist-verdict').textContent).toBe('pass');
-  });
+    const header = within(container).getByTestId('detail-header');
+    expect(within(header).getByText('add-feature') !== null).toBe(true);
+    expect(within(header).getByText('v2') !== null).toBe(true);
+    expect(within(header).getByText('进行中') !== null).toBe(true);
+    expect(within(header).getByText('2026-09-01') !== null).toBe(true);
+    expect(container.textContent).not.toContain('已归档');
+    // activePhase 为 null → 无运行中 badge
+    expect(screen.queryByText(/运行中/)).toBeNull();
 
-  it('active_phase 存在时渲染运行中标示；backtrack_to / backtrack_reason 随条目展示', () => {
-    render(
+    const archived = render(
       <ChangeDetailView
         state={state({
           detail: detail({
-            activePhase: { phase: 'implement', attempt: 2, startAt: '2026-09-02T01:00:00Z' },
+            source: 'archive',
+            created: null,
+            activePhase: { phase: 'implement', attempt: 2, startAt: null },
           }),
         })}
         onBack={() => {}}
       />,
     );
-    // 精确断言完整文本（含 startAt 后缀），防止后缀拼接分支被静默跳过
-    const active = screen.getByText('运行中 · implement · attempt 2 · 2026-09-02T01:00:00Z');
-    expect(active !== null).toBe(true);
-    expect(screen.getByText(/回跳至 test-design/) !== null).toBe(true);
-    expect(screen.getByText(/测试设计缺失/) !== null).toBe(true);
-    expect(screen.getByText('stale') !== null).toBe(true);
+    expect(archived.container.textContent).toContain('已归档');
+    expect(archived.container.textContent).not.toContain('进行中');
+    // created 为 null → 不渲染空占位节点：detail-header 域内全部文本节点非空
+    const archivedHeader = within(archived.container).getByTestId('detail-header');
+    for (const leaf of within(archivedHeader).getAllByText(/\S/)) {
+      expect((leaf.textContent ?? '').trim().length).toBeGreaterThan(0);
+    }
+    expect(archivedHeader.textContent).not.toContain('null');
+    // activePhase startAt null → badge 不拼接时间与「 · —」占位
+    expect(within(archivedHeader).getByText('运行中 · implement · attempt 2') !== null).toBe(true);
+    expect(archivedHeader.textContent).not.toContain(' · —');
   });
 
-  it('v0 change（空流水线 + 纯文档产物清单）以纯文档形态呈现', () => {
+  it('列头 / 节点点击 → detail-drawer 挂载（selection 状态在本组件）；关闭后卸载', async () => {
     render(
+      <ChangeDetailView
+        state={state({ detail: detail(), artifacts: [proposalDoc()] })}
+        onBack={() => {}}
+      />,
+    );
+    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(2));
+
+    fireEvent.click(screen.getAllByTestId('flow-column')[0]);
+    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    fireEvent.click(screen.getByRole('button', { name: '关闭' }));
+    expect(screen.queryByTestId('detail-drawer')).toBeNull();
+
+    fireEvent.click(screen.getByTestId('rf__node-eval:proposal:1'));
+    expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+    // 抽屉 eval 节为所选 attempt 的 report（页面组装层 selection 上抛链路可用）
+    expect(screen.getByTestId('drawer-eval-section').textContent).toContain('提案评估未过');
+  });
+
+  it('unparsable 警示条正负两例（warn-note 有 / 无）', () => {
+    const warned = render(
+      <ChangeDetailView
+        state={state({ detail: detail({ unparsable: true }) })}
+        onBack={() => {}}
+      />,
+    );
+    expect(within(warned.container).getByTestId('warn-note').textContent).toContain(
+      'workflow.json 无法解析',
+    );
+    warned.unmount();
+
+    const clean = render(
+      <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
+    );
+    expect(within(clean.container).queryByTestId('warn-note')).toBeNull();
+    expect(clean.container.textContent).not.toContain('workflow.json 无法解析');
+  });
+
+  it('产物区按信封顺序渲染 ArtifactView 列表；空清单「（未发现可读产物）」占位', () => {
+    const { container, rerender } = render(
+      <ChangeDetailView
+        state={state({
+          detail: detail(),
+          artifacts: [
+            proposalDoc(),
+            envelope({ title: '任务进度' }),
+            envelope({
+              kind: 'unknown-kind',
+              title: '未知产物',
+              payload: null,
+              fallbackText: '未知保底',
+            }),
+          ],
+        })}
+        onBack={() => {}}
+      />,
+    );
+    const cards = within(container).getAllByTestId('artifact-card');
+    expect(cards).toHaveLength(3);
+    expect(cards[0].textContent).toContain('提案正文');
+    expect(cards[1].textContent).toContain('100%');
+    expect(cards[2].textContent).toContain('未知保底');
+    rerender(
+      <ChangeDetailView state={state({ detail: detail(), artifacts: [] })} onBack={() => {}} />,
+    );
+    expect(container.textContent).toContain('（未发现可读产物）');
+  });
+
+  it('点击「← 返回列表」回调触发；点击「刷新详情」触发 refresh 回调', () => {
+    const onBack = vi.fn();
+    const refresh = vi.fn();
+    render(<ChangeDetailView state={state({ detail: detail(), refresh })} onBack={onBack} />);
+    fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
+    expect(onBack).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole('button', { name: '刷新详情' }));
+    expect(refresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('v0（inventory v0 + pipeline 空）→ 不挂 flow-graph，渲染 flow-empty 占位，产物区照常', () => {
+    const { container } = render(
       <ChangeDetailView
         state={state({
           detail: detail({
             inventory: 'v0',
             pipeline: [],
             fileLog: null,
-            activePhase: null,
-            artifacts: [],
+            artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
           }),
-          artifacts: [
-            envelope({
-              kind: 'markdown-doc',
-              title: '提案',
-              payload: { markdown: '# v0 提案文档' },
-              fallbackText: '# v0 提案文档',
-            }),
-          ],
+          artifacts: [proposalDoc()],
         })}
         onBack={() => {}}
       />,
     );
-    expect(screen.getByText(/v0 早期代际：无 workflow.json，仅文档形态/) !== null).toBe(true);
-    expect(screen.getByText('v0 提案文档') !== null).toBe(true);
+    expect(screen.queryByTestId('flow-graph')).toBeNull();
+    expect(within(container).getByTestId('flow-empty').textContent).toContain(
+      'v0 早期代际：无 workflow.json，仅文档形态',
+    );
+    // 产物区不受图区缺位影响照常
+    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
   });
 
-  it('v1 change file_log 区块为 null 时对应区块留空降级，不报错不白屏', () => {
+  it('v1（fileLog null）→ flow-graph 正常渲染且无 workflow-panel', async () => {
     const { container } = render(
       <ChangeDetailView
-        state={state({
-          detail: detail({ inventory: 'v1', fileLog: null }),
-        })}
+        state={state({ detail: detail({ inventory: 'v1', fileLog: null }) })}
         onBack={() => {}}
       />,
     );
-    expect(container.textContent.includes('（无 file_log 数据：v1 及更早代际无此字段）')).toBe(
-      true,
-    );
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    expect(screen.getAllByTestId('flow-node').length).toBeGreaterThan(0);
+    expect(within(container).queryByTestId('workflow-panel')).toBeNull();
   });
 
-  it('产物区按信封顺序渲染 ArtifactView 列表', () => {
-    render(
-      <ChangeDetailView
-        state={state({
-          detail: detail(),
-          artifacts: [
-            envelope({
-              kind: 'markdown-doc',
-              title: '提案',
-              payload: { markdown: '# 提案正文' },
-              fallbackText: '# 提案正文',
-            }),
-            envelope({
-              kind: 'tasks-progress',
-              title: '任务进度',
-              payload: { total: 4, done: 4, pending: 0 },
-            }),
-            envelope({
-              kind: 'file-log',
-              title: '文件清单',
-              payload: null,
-              fallbackText: 'file-log 保底',
-            }),
-          ],
-        })}
-        onBack={() => {}}
-      />,
-    );
-    const cards = screen.getAllByTestId('artifact-card');
-    expect(cards).toHaveLength(3);
-    expect(cards[0].textContent).toContain('提案');
-    expect(cards[1].textContent).toContain('100%');
-    expect(cards[2].textContent).toContain('file-log 保底');
-  });
-
-  it('detail 为 null / error 态渲染空态与错误提示，不白屏', () => {
+  it('error / loading（无 detail）/ 未找到三态降级页与 detail-note / error-note 挂钩归属正确', () => {
     const { container, rerender } = render(
       <ChangeDetailView state={state({})} onBack={() => {}} />,
     );
     expect(container.textContent).toContain('未找到该 change。');
-    // 中性降级走 detail-note 挂钩，错误条不渲染
+    expect(within(container).getByTestId('detail-note') !== null).toBe(true);
+    expect(within(container).queryByTestId('error-note')).toBeNull();
+
+    rerender(<ChangeDetailView state={state({ loading: true })} onBack={() => {}} />);
+    expect(container.textContent).toContain('加载中…');
     expect(within(container).getByTestId('detail-note') !== null).toBe(true);
     expect(within(container).queryByTestId('error-note')).toBeNull();
 
@@ -247,331 +328,15 @@ describe('ChangeDetailView：9 站流水线、运行标示、降级区块与产�
     expect(container.textContent).toContain('详情加载失败：IPC 断开');
     const note = within(container).getByTestId('error-note');
     expect(note.textContent).toContain('详情加载失败：IPC 断开');
+    expect(within(container).queryByTestId('detail-note')).toBeNull();
   });
 
-  it('unparsable 详情渲染警示条', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({ detail: detail({ unparsable: true }) })}
-        onBack={() => {}}
-      />,
-    );
-    expect(container.textContent).toContain('workflow.json 无法解析');
-  });
-
-  it('点击返回列表回调触发', () => {
-    const onBack = vi.fn();
-    render(<ChangeDetailView state={state({ detail: detail() })} onBack={onBack} />);
-    fireEvent.click(screen.getByText('← 返回列表'));
-    expect(onBack).toHaveBeenCalled();
-  });
-});
-
-describe('ChangeDetailView：标记位、backtrack 组合、区块分支与头部元信息', () => {
-  it('verdict 徽标按 pass / fail 呈现对应文案', () => {
-    const { container } = render(
-      <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
-    );
-    // 断言范围限定在 attempt-meta 域内的 attempt-verdict 挂钩，避免与 checklist 条目徽标混淆
-    const metas = within(container).getAllByTestId('attempt-meta');
-    expect(metas).toHaveLength(2);
-    const metaVerdictTexts = metas.map(
-      (meta) => within(meta).getByTestId('attempt-verdict').textContent ?? '',
-    );
-    expect(metaVerdictTexts).toEqual(expect.arrayContaining(['pass', 'fail']));
-  });
-
-  it('attempt 编号缺失渲染占位符 attempt —，有编号渲染实际值', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([attempt({ attempt: null }), attempt({ attempt: 3 })]),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(container.textContent).toContain('attempt —');
-    expect(container.textContent).toContain('attempt 3');
-  });
-
-  it('skipped / stale / start / at 标记仅在对应值存在时渲染', () => {
-    const full = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([
-            attempt({
-              skipped: true,
-              stale: true,
-              startAt: '2026-09-01T00:00:00Z',
-              timestamp: '2026-09-01T02:00:00Z',
-            }),
-          ]),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(full.container.textContent).toContain('skipped');
-    expect(full.container.textContent).toContain('stale');
-    expect(full.container.textContent).toContain('start: 2026-09-01T00:00:00Z');
-    expect(full.container.textContent).toContain('at: 2026-09-01T02:00:00Z');
-
-    const bare = render(
-      <ChangeDetailView
-        state={state({ detail: singleStationDetail([attempt()]) })}
-        onBack={() => {}}
-      />,
-    );
-    expect(bare.container.textContent).not.toContain('skipped');
-    expect(bare.container.textContent).not.toContain('stale');
-    expect(bare.container.textContent).not.toContain('start:');
-    expect(bare.container.textContent).not.toContain('at:');
-  });
-
-  it('backtrack 块按 to / reason 的四种组合形态渲染', () => {
-    const both = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([
-            attempt({ backtrackTo: 'test-design', backtrackReason: '设计缺失' }),
-          ]),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(both.container.textContent).toContain('回跳至 test-design');
-    expect(both.container.textContent).toContain('：设计缺失');
-    expect(within(both.container).getByTestId('backtrack') !== null).toBe(true);
-
-    const toOnly = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([
-            attempt({ backtrackTo: 'proposal', backtrackReason: null }),
-          ]),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(toOnly.container.textContent).toContain('回跳至 proposal');
-    expect(toOnly.container.textContent).not.toContain('：null');
-
-    const reasonOnly = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([attempt({ backtrackTo: null, backtrackReason: '仅原因' })]),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(reasonOnly.container.textContent).toContain('回跳至 ?');
-    expect(reasonOnly.container.textContent).toContain('：仅原因');
-
-    const none = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([attempt({ backtrackTo: null, backtrackReason: null })]),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(within(none.container).queryByTestId('backtrack')).toBeNull();
-  });
-
-  it('checklist 为空时不渲染清单列表区块', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({ detail: singleStationDetail([attempt({ checklist: [] })]) })}
-        onBack={() => {}}
-      />,
-    );
-    expect(within(container).queryByTestId('checklist')).toBeNull();
-  });
-
-  it('checklist 条目渲染 item 名与 evidence 文本', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([
-            attempt({
-              checklist: [{ item: '含验收清单', pass: false, evidence: 'proposal 缺 AC 段' }],
-            }),
-          ]),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    const checklist = within(container).getByTestId('checklist');
-    expect(checklist !== null).toBe(true);
-    expect(container.textContent).toContain('含验收清单');
-    expect(container.textContent).toContain('proposal 缺 AC 段');
-    expect(within(checklist).getByTestId('checklist-verdict').textContent).toBe('fail');
-  });
-
-  it('中断留档区块渲染条目，空缺时间显示占位符', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({
-          detail: detail({
-            interrupted: [
-              { phase: 'implement', attempt: 2, startAt: '2026-09-02T00:00:00Z', endAt: null },
-            ],
-          }),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(screen.getByText('中断留档') !== null).toBe(true);
-    expect(container.textContent).toContain('implement');
-    expect(container.textContent).toContain('attempt 2');
-    expect(container.textContent).toContain('start: 2026-09-02T00:00:00Z');
-    expect(container.textContent).toContain('end: —');
-  });
-
-  it('interrupted 为空数组时不渲染中断留档区块', () => {
-    render(<ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />);
-    expect(screen.queryByText('中断留档')).toBeNull();
-  });
-
-  it('file_log 为空数组时渲染（空）占位而非留空降级', () => {
-    const { container } = render(
-      <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
-    );
-    expect(container.textContent).toContain('（空）');
-    expect(within(container).queryByTestId('filelog-table')).toBeNull();
-  });
-
-  it('file_log 条目以表格逐行渲染，attempt 与时间空缺显示占位符', () => {
-    render(
-      <ChangeDetailView
-        state={state({
-          detail: detail({
-            fileLog: [
-              {
-                op: 'write',
-                scope: 'workflow',
-                attempt: 3,
-                path: 'src/a.json',
-                at: '2026-09-03T00:00:00Z',
-              },
-              { op: 'delete', scope: 'files', attempt: null, path: 'src/b.ts', at: null },
-            ],
-          }),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    // filelog-table 挂钩域内以 row / cell 语义查询断言行列矩阵
-    const table = screen.getByTestId('filelog-table');
-    const rows = within(table).getAllByRole('row');
-    expect(rows).toHaveLength(3); // 表头 + 2 数据行
-    const headerCells = within(rows[0])
-      .getAllByRole('columnheader')
-      .map((cell) => cell.textContent ?? '');
-    expect(headerCells).toEqual(['op', 'scope', 'attempt', 'path', 'at']);
-    const matrix = rows.slice(1).map((row) =>
-      within(row)
-        .getAllByRole('cell')
-        .map((cell) => cell.textContent ?? ''),
-    );
-    expect(matrix[0]).toEqual(['write', 'workflow', '3', 'src/a.json', '2026-09-03T00:00:00Z']);
-    expect(matrix[1]).toEqual(['delete', 'files', '—', 'src/b.ts', '—']);
-  });
-
-  it('头部按 source / created / inventory 渲染元信息', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({ detail: singleStationDetail([attempt()]) })}
-        onBack={() => {}}
-      />,
-    );
-    expect(screen.getByText('进行中') !== null).toBe(true);
-    expect(container.textContent).not.toContain('已归档');
-    expect(container.textContent).toContain('2026-09-01');
-    // 代际徽标在 detail-header 挂钩作用域内（INVENTORY_VARIANT 显式映射换 Badge）
-    const header = within(container).getByTestId('detail-header');
-    expect(within(header).getByText('v2') !== null).toBe(true);
-
-    const archived = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([attempt()], { source: 'archive', created: null }),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(archived.container.textContent).toContain('已归档');
-    expect(archived.container.textContent).not.toContain('进行中');
-    expect(archived.container.textContent).not.toContain('2026-09-01');
-    // created 为 null 时不得出现空占位节点：detail-header 域内全部文本节点非空
-    const archivedHeader = within(archived.container).getByTestId('detail-header');
-    const textLeaves = within(archivedHeader).getAllByText(/\S/);
-    expect(textLeaves.length).toBeGreaterThan(0);
-    for (const leaf of textLeaves) {
-      expect((leaf.textContent ?? '').trim().length).toBeGreaterThan(0);
-    }
-    expect(archivedHeader.textContent).not.toContain('null');
-  });
-
-  it('active_phase 的 startAt 为空时不拼接时间与占位符', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({
-          detail: singleStationDetail([attempt()], {
-            activePhase: { phase: 'implement', attempt: 2, startAt: null },
-          }),
-        })}
-        onBack={() => {}}
-      />,
-    );
-    expect(screen.getByText('运行中 · implement · attempt 2') !== null).toBe(true);
-    expect(container.textContent).not.toContain(' · —');
-  });
-
-  it('v2 空流水线渲染（无评估记录）而非 v0 纯文档文案', () => {
-    const { container } = render(
-      <ChangeDetailView state={state({ detail: detail({ pipeline: [] }) })} onBack={() => {}} />,
-    );
-    expect(container.textContent).toContain('（无评估记录）');
-    expect(container.textContent).not.toContain('v0 早期代际');
-  });
-
-  it('产物清单为空时渲染（未发现可读产物）占位', () => {
-    const { container } = render(
-      <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
-    );
-    expect(container.textContent).toContain('（未发现可读产物）');
-    expect(within(container).queryByTestId('artifact-card')).toBeNull();
-  });
-
-  it('loading 态与未找到态共用降级页且采用中性提示挂钩', () => {
-    const { container, rerender } = render(
-      <ChangeDetailView state={state({ loading: true })} onBack={() => {}} />,
-    );
-    expect(container.textContent).toContain('加载中…');
-    expect(within(container).getByTestId('detail-note') !== null).toBe(true);
-    expect(within(container).queryByTestId('error-note')).toBeNull();
-
-    rerender(<ChangeDetailView state={state({})} onBack={() => {}} />);
-    expect(container.textContent).toContain('未找到该 change。');
-    expect(within(container).getByTestId('detail-note') !== null).toBe(true);
-    expect(within(container).queryByTestId('error-note')).toBeNull();
-  });
-
-  it('loading 中已有详情时不回落到加载占位，刷新按钮禁用', () => {
+  it('loading 中已有 detail 不回落加载占位，刷新按钮禁用', () => {
     render(
       <ChangeDetailView state={state({ loading: true, detail: detail() })} onBack={() => {}} />,
     );
     expect(screen.queryByText('加载中…')).toBeNull();
-    expect(screen.getByText('add-feature') !== null).toBe(true);
-    // 换装 Button 后 role 查询天然成立（不再遍历 button 标签）
-    const refreshButton = screen.getByRole('button', { name: '刷新详情' });
-    expect(refreshButton.hasAttribute('disabled')).toBe(true);
-  });
-
-  it('unparsable 为 false 时不渲染警示条', () => {
-    const { container } = render(
-      <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
-    );
-    expect(container.textContent).not.toContain('workflow.json 无法解析');
+    expect(screen.getByTestId('flow-graph') !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '刷新详情' }).hasAttribute('disabled')).toBe(true);
   });
 });

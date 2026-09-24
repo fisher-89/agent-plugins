@@ -1,21 +1,15 @@
+import { useMemo, useState } from 'react';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 
-import type {
-  ArtifactEnvelope,
-  AttemptRecord,
-  ChangeDetail,
-  Inventory,
-  PhaseEntry,
-} from '../../types/dto';
+import type { ArtifactEnvelope, ChangeDetail, Inventory } from '../../types/dto';
+import { mountMaterials } from './flow/attachments';
+import { ChangeFlowGraph } from './flow/ChangeFlowGraph';
+import { DetailDrawer } from './flow/DetailDrawer';
+import { FileLogTable } from './flow/FileLogTable';
+import { buildFlowGraph } from './flow/graph';
+import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
 import type { ChangeDetailState } from './hooks/useChangeDetail';
 import { ArtifactView } from './renderers/ArtifactView';
 
@@ -26,127 +20,18 @@ const INVENTORY_VARIANT: Record<Inventory, 'inv0' | 'inv1' | 'inv2'> = {
   v2: 'inv2',
 };
 
-function VerdictBadge({ verdict }: { verdict: AttemptRecord['verdict'] }) {
-  return (
-    <Badge variant={verdict === 'pass' ? 'pass' : 'fail'} data-testid="attempt-verdict">
-      {verdict}
-    </Badge>
-  );
-}
+// detail 为 null（降级页分支）时 hooks 仍需无条件产出图数据的空底座
+const EMPTY_GRAPH: FlowGraph = { columns: [], nodes: [], edges: [] };
+const EMPTY_MATERIALS: FlowMaterials = {
+  columnDocs: {},
+  nodeChecklists: {},
+  nodeFiles: {},
+  outsideFiles: [],
+};
 
 function formatTime(value: string | null): string {
   if (value === null) return '—';
   return value;
-}
-
-function Attempt({ record }: { record: AttemptRecord }) {
-  return (
-    <div className="my-2 ml-1 border-l-[3px] border-border py-1.5 pl-3">
-      <div
-        className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground"
-        data-testid="attempt-meta"
-      >
-        {record.attempt !== null ? <span>attempt {record.attempt}</span> : <span>attempt —</span>}
-        <VerdictBadge verdict={record.verdict} />
-        {record.skipped && <span>skipped</span>}
-        {record.stale && <span>stale</span>}
-        {record.startAt !== null && <span>start: {formatTime(record.startAt)}</span>}
-        {record.timestamp !== null && <span>at: {formatTime(record.timestamp)}</span>}
-      </div>
-      <div className="my-1 whitespace-pre-wrap break-words">{record.report}</div>
-      {(record.backtrackTo !== null || record.backtrackReason !== null) && (
-        <div className="mt-1 text-xs text-orange-300" data-testid="backtrack">
-          ↩ 回跳至 {record.backtrackTo ?? '?'}
-          {record.backtrackReason !== null && `：${record.backtrackReason}`}
-        </div>
-      )}
-      {record.checklist.length > 0 && (
-        <ul className="m-0 mt-1.5 list-none p-0" data-testid="checklist">
-          {record.checklist.map((entry, index) => (
-            <li key={index} className="flex items-baseline gap-2 py-[3px]">
-              <Badge variant={entry.pass ? 'pass' : 'fail'} data-testid="checklist-verdict">
-                {entry.pass ? 'pass' : 'fail'}
-              </Badge>
-              <div>
-                <div className="border-b border-dashed border-border py-1">{entry.item}</div>
-                <div className="break-words text-xs text-muted-foreground">{entry.evidence}</div>
-              </div>
-            </li>
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function Station({ entry }: { entry: PhaseEntry }) {
-  return (
-    <div className="mb-3.5">
-      <div className="flex items-center gap-2 font-semibold">
-        <span>{entry.phase}</span>
-        <span className="text-muted-foreground">({entry.attempts.length} 次尝试)</span>
-      </div>
-      {entry.attempts.length === 0 ? (
-        <div className="text-muted-foreground">（无记录）</div>
-      ) : (
-        entry.attempts.map((record, index) => <Attempt key={index} record={record} />)
-      )}
-    </div>
-  );
-}
-
-function DetailSectionInterupted({ interrupted }: { interrupted: ChangeDetail['interrupted'] }) {
-  return (
-    <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
-      <h2 className="m-0 mb-2.5 text-[15px]">中断留档</h2>
-      {interrupted.map((entry, index) => (
-        <div className="my-2 ml-1 border-l-[3px] border-border py-1.5 pl-3" key={index}>
-          <div className="mb-1 flex flex-wrap items-center gap-2 text-xs text-muted-foreground">
-            <span>{entry.phase}</span>
-            <span>attempt {entry.attempt}</span>
-            <span>start: {formatTime(entry.startAt)}</span>
-            <span>end: {formatTime(entry.endAt)}</span>
-          </div>
-        </div>
-      ))}
-    </section>
-  );
-}
-
-function DetailSectionFileList({ detail }: { detail: ChangeDetail }) {
-  return (
-    <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
-      <h2 className="m-0 mb-2.5 text-[15px]">文件清单 (file_log)</h2>
-      {detail.fileLog === null ? (
-        <div className="text-muted-foreground">（无 file_log 数据：v1 及更早代际无此字段）</div>
-      ) : detail.fileLog.length === 0 ? (
-        <div className="text-muted-foreground">（空）</div>
-      ) : (
-        <Table data-testid="filelog-table">
-          <TableHeader>
-            <TableRow>
-              <TableHead>op</TableHead>
-              <TableHead>scope</TableHead>
-              <TableHead>attempt</TableHead>
-              <TableHead>path</TableHead>
-              <TableHead>at</TableHead>
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {detail.fileLog.map((entry, index) => (
-              <TableRow key={index}>
-                <TableCell>{entry.op}</TableCell>
-                <TableCell>{entry.scope}</TableCell>
-                <TableCell>{entry.attempt ?? '—'}</TableCell>
-                <TableCell>{entry.path}</TableCell>
-                <TableCell>{formatTime(entry.at)}</TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
-        </Table>
-      )}
-    </section>
-  );
 }
 
 function DetailHeader({
@@ -182,23 +67,33 @@ function DetailHeader({
   );
 }
 
-function DetailSectionPipeline({
-  pipeline,
-  docOnly,
+/** 流程图区：v0（pipeline 空，无 workflow.json）空图占位，其余挂载 ChangeFlowGraph */
+function FlowSection({
+  detail,
+  graph,
+  materials,
+  onSelect,
 }: {
-  pipeline: PhaseEntry[];
-  docOnly: boolean;
+  detail: ChangeDetail;
+  graph: FlowGraph;
+  materials: FlowMaterials;
+  onSelect: (selection: DrawerSelection) => void;
 }) {
+  if (detail.pipeline.length === 0) {
+    return (
+      <section
+        className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
+        data-testid="flow-empty"
+      >
+        <h2 className="m-0 mb-2.5 text-[15px]">流程图</h2>
+        <div className="text-muted-foreground">（v0 早期代际：无 workflow.json，仅文档形态）</div>
+      </section>
+    );
+  }
   return (
     <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
-      <h2 className="m-0 mb-2.5 text-[15px]">流水线</h2>
-      {pipeline.length === 0 ? (
-        <div className="text-muted-foreground">
-          {docOnly ? '（v0 早期代际：无 workflow.json，仅文档形态）' : '（无评估记录）'}
-        </div>
-      ) : (
-        pipeline.map((entry) => <Station key={entry.phase} entry={entry} />)
-      )}
+      <h2 className="m-0 mb-2.5 text-[15px]">流程图</h2>
+      <ChangeFlowGraph graph={graph} materials={materials} onSelect={onSelect} />
     </section>
   );
 }
@@ -249,7 +144,37 @@ function DetailFallback({
   );
 }
 
-/** change 详情视图：9 站流水线、active_phase 运行中标示、v0 纯文档形态、v1 区块留空降级、产物区 */
+/** workflow.json 损坏警示条（unparsable 时呈现） */
+function UnparsableNote() {
+  return (
+    <div
+      className="my-2 rounded-md bg-warn-bg px-2.5 py-1.5 text-[13px] text-warn"
+      data-testid="warn-note"
+    >
+      workflow.json 无法解析（可能已损坏），以下仅展示文件系统层信息与产物。
+    </div>
+  );
+}
+
+/** workflow 独立面板：scope='workflow' 与未命中节点的 file_log 条目（图外完整展示） */
+function WorkflowPanel({ entries }: { entries: ChangeDetail['fileLog'] }) {
+  return (
+    <section
+      className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
+      data-testid="workflow-panel"
+    >
+      <h2 className="m-0 mb-2.5 text-[15px]">workflow 文件清单 (file_log)</h2>
+      <FileLogTable entries={entries ?? []} />
+    </section>
+  );
+}
+
+/**
+ * change 详情视图：Header + attempt 级流程图 + workflow 独立面板 + 产物区 + 抽屉。
+ * 三代际降级（design）：v0（pipeline 空）空图占位 + 产物区；v1（fileLog null）图
+ * 正常绘制、无 workflow 面板、抽屉文件表节降级；v2 完整图。取数仍仅由显式 refresh
+ * 触发（useChangeDetail 零改动），图数据仅随 state.detail 重算。
+ */
 export function ChangeDetailView({
   state,
   onBack,
@@ -258,6 +183,15 @@ export function ChangeDetailView({
   onBack: () => void;
 }) {
   const { detail, artifacts, loading, error, refresh } = state;
+  const [selection, setSelection] = useState<DrawerSelection | null>(null);
+  const graph = useMemo<FlowGraph>(
+    () => (detail === null ? EMPTY_GRAPH : buildFlowGraph(detail)),
+    [detail],
+  );
+  const materials = useMemo<FlowMaterials>(
+    () => (detail === null ? EMPTY_MATERIALS : mountMaterials(graph, detail, artifacts)),
+    [detail, graph, artifacts],
+  );
   if (error !== null) {
     return <DetailFallback message={`详情加载失败：${error}`} error onBack={onBack} />;
   }
@@ -267,29 +201,20 @@ export function ChangeDetailView({
   if (detail === null) {
     return <DetailFallback message="未找到该 change。" onBack={onBack} />;
   }
-  const docOnly = detail.inventory === 'v0';
   return (
     <div>
       <DetailHeader detail={detail} loading={loading} onBack={onBack} refresh={refresh} />
-
-      {detail.unparsable && (
-        <div
-          className="my-2 rounded-md bg-warn-bg px-2.5 py-1.5 text-[13px] text-warn"
-          data-testid="warn-note"
-        >
-          workflow.json 无法解析（可能已损坏），以下仅展示文件系统层信息与产物。
-        </div>
-      )}
-
-      <DetailSectionPipeline pipeline={detail.pipeline} docOnly={docOnly} />
-
-      {detail.interrupted.length > 0 && (
-        <DetailSectionInterupted interrupted={detail.interrupted}></DetailSectionInterupted>
-      )}
-
-      <DetailSectionFileList detail={detail}></DetailSectionFileList>
-
+      {detail.unparsable && <UnparsableNote />}
+      <FlowSection detail={detail} graph={graph} materials={materials} onSelect={setSelection} />
+      {detail.fileLog !== null && <WorkflowPanel entries={materials.outsideFiles} />}
       <DetailSectionArtifacts artifacts={artifacts} />
+      <DetailDrawer
+        selection={selection}
+        graph={graph}
+        materials={materials}
+        hasFileLog={detail.fileLog !== null}
+        onClose={() => setSelection(null)}
+      />
     </div>
   );
 }

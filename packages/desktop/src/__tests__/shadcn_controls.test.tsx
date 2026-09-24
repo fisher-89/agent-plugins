@@ -320,14 +320,14 @@ describe('filelog Table 语义结构：行列矩阵完整、空缺占位', () =>
     ).toEqual(['delete', 'files', '—', 'src/b.ts', '—']);
   });
 
-  it('fileLog 为 null：v1 及更早代际降级文案呈现，无 Table 结构，不白屏', () => {
+  it('fileLog 为 null：页面级无 workflow 面板与 Table 结构，不白屏（v1 降级文案由抽屉文件表节承载）', () => {
     render(
       <ChangeDetailView
         state={detailState({ detail: detailFixture({ inventory: 'v1', fileLog: null }) })}
         onBack={() => {}}
       />,
     );
-    expect(screen.getByText(/（无 file_log 数据：v1 及更早代际无此字段）/) !== null).toBe(true);
+    expect(screen.queryByTestId('workflow-panel')).toBeNull();
     expect(screen.queryByTestId('filelog-table')).toBeNull();
   });
 

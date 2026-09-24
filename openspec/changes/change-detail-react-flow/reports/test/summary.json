@@ -1,0 +1,87 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-24T13:40:48.890Z",
+  "duration_seconds": 1135,
+  "total": 551,
+  "passed": 551,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 98.9,
+      "branches": 93.87,
+      "functions": 98
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 38,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 84.66,
+    "threshold": 80,
+    "measured": {
+      "killed": 490,
+      "survived": 81,
+      "timeout": 1,
+      "noCoverage": 8,
+      "compileError": 0,
+      "runtimeError": 1,
+      "ignored": 26,
+      "total": 607,
+      "detected": 491,
+      "undetected": 89
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 84.6551724137931,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 38,
+        "passed_count": 38
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/change-detail-react-flow/reports/test/packages_desktop_vite-plus"
+    }
+  ],
+  "findings": [
+    "All 551 tests (unit + integration, 183 suites) passed with 0 failed/skipped; coverage 98.9/93.87/98 (lines/branches/functions) exceeds 90/85/90 thresholds and mutation score 84.66 meets the 80 threshold - no blocking issues.",
+    "Mutation survivors (81) cluster in ConditionalExpression mutants (33/81); highest-density files are ChangeFlowGraph.tsx (22), attachments.ts (14), FlowEventNode.tsx (14), graph.ts (11), DetailDrawer.tsx (10) - mostly untested alternate branches of conditional rendering, worth asserting alternate UI states.",
+    "attachments.ts locateNode (L45): LogicalOperator/ConditionalExpression survivors show NODE_PRECEDENCE fallback is never exercised - add cases with multiple candidate nodes per phase (same phase, differing kind or attempt) to prove precedence and attempt matching.",
+    "attachments.ts isChecklistRef (L36-39): survivors show the payload validation rejection paths are untested (non-string phase; attempt neither null nor number).",
+    "graph.ts L70/L90: colIndex<0 guard survives a <=0 replacement, so no test covers a phase mapping to column index 0 (first-column boundary) nor distinctly asserts unknown-phase exclusion; also StringLiteral survivors on node id templates (L78/L99) mean id formats are unasserted.",
+    "Reporting quirk: coverage.overrides[0] (packages/desktop, file_count 38) recorded measured=null / passed_count=0 while pass=true - per-file override coverage was not measured; the passing result rests on the overall weighted coverage.",
+    "8 noCoverage mutants remain (DetailDrawer.tsx 5, ChangeDetailView.tsx 2, graph.ts 1), mostly StringLiteral/ArrayDeclaration - low risk, optionally cover those render branches."
+  ]
+}
