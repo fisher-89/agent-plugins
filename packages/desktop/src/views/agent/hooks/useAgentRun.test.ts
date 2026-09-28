@@ -93,18 +93,18 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     const { result } = renderHook(() => useAgentRun(null));
 
     act(() => {
-      result.current.start({ prompt: '你好', env: 'default', permissionMode: 'bypassPermissions' });
+      result.current.start({ prompt: '你好', permissionMode: 'bypassPermissions' });
     });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.running).toBe(false);
   });
 
-  it('start 以 camelCase IPC 键调用 invoke("agent_start")：onEvent 为 Channel 实例 + root/prompt/env/permissionMode', () => {
+  it('start 以 camelCase IPC 键调用 invoke("agent_start")：onEvent 为 Channel 实例 + root/prompt/permissionMode', () => {
     const { result } = renderHook(() => useAgentRun('C:\\demo\\beta'));
 
     act(() => {
-      result.current.start({ prompt: '你好', env: 'bare', permissionMode: 'acceptEdits' });
+      result.current.start({ prompt: '你好', permissionMode: 'acceptEdits' });
     });
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
@@ -112,7 +112,6 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
       onEvent: expect.any(ChannelMock),
       root: 'C:\\demo\\beta',
       prompt: '你好',
-      env: 'bare',
       permissionMode: 'acceptEdits',
     });
   });
@@ -122,7 +121,7 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     const { result } = renderHook(() => useAgentRun('C:\\demo\\beta'));
 
     act(() => {
-      result.current.start({ prompt: '你好', env: 'default', permissionMode: 'bypassPermissions' });
+      result.current.start({ prompt: '你好', permissionMode: 'bypassPermissions' });
     });
     expect(result.current.running).toBe(true);
     expect(result.current.events).toEqual([]);
@@ -143,7 +142,7 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     const { result } = renderHook(() => useAgentRun('C:\\demo\\beta'));
 
     act(() => {
-      result.current.start({ prompt: '你好', env: 'default', permissionMode: 'bypassPermissions' });
+      result.current.start({ prompt: '你好', permissionMode: 'bypassPermissions' });
     });
     await waitFor(() => expect(result.current.result).toEqual(COMPLETED_RECORD));
     expect(result.current.running).toBe(false);
@@ -153,7 +152,7 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     const failedRecord: AgentRunRecord = { ...COMPLETED_RECORD, status: 'failed', numTurns: 1 };
     invokeMock.mockResolvedValueOnce(failedRecord);
     act(() => {
-      result.current.start({ prompt: '再来', env: 'default', permissionMode: 'bypassPermissions' });
+      result.current.start({ prompt: '再来', permissionMode: 'bypassPermissions' });
     });
     await waitFor(() => expect(result.current.result).toEqual(failedRecord));
     expect(result.current.running).toBe(false);
@@ -164,7 +163,7 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     const { result } = renderHook(() => useAgentRun('C:\\demo\\beta'));
 
     act(() => {
-      result.current.start({ prompt: '你好', env: 'default', permissionMode: 'bypassPermissions' });
+      result.current.start({ prompt: '你好', permissionMode: 'bypassPermissions' });
     });
     await waitFor(() => expect(result.current.error).toBe('CLI 未找到'));
     expect(result.current.running).toBe(false);
@@ -173,7 +172,7 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     // 可重试：错误如实呈现后再次 start 发起新 invoke
     invokeMock.mockResolvedValueOnce(COMPLETED_RECORD);
     act(() => {
-      result.current.start({ prompt: '重试', env: 'default', permissionMode: 'bypassPermissions' });
+      result.current.start({ prompt: '重试', permissionMode: 'bypassPermissions' });
     });
     await waitFor(() => expect(invokeMock).toHaveBeenCalledTimes(2));
     expect(result.current.error).toBeNull();
@@ -184,7 +183,7 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     const { result } = renderHook(() => useAgentRun('C:\\demo\\beta'));
 
     act(() => {
-      result.current.start({ prompt: '你好', env: 'default', permissionMode: 'bypassPermissions' });
+      result.current.start({ prompt: '你好', permissionMode: 'bypassPermissions' });
     });
     act(() => {
       for (let seq = 0; seq < 300; seq += 1) {
@@ -203,7 +202,6 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     act(() => {
       result.current.start({
         prompt: '第一跑',
-        env: 'default',
         permissionMode: 'bypassPermissions',
       });
     });
@@ -214,7 +212,6 @@ describe('useAgentRun：start 参数契约与实时事件累积', () => {
     act(() => {
       result.current.start({
         prompt: '第二跑',
-        env: 'default',
         permissionMode: 'bypassPermissions',
       });
     });

@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEnvMode, AgentPermissionMode } from '../../../types/dto';
+import type { AgentPermissionMode } from '../../../types/dto';
 import { AgentRunForm } from './AgentRunForm';
 
 // AgentRunForm 为纯回调组件（onStart 以 vi.fn() 注入），无进程边界，不需要 Mock。
@@ -28,10 +28,9 @@ function selectOf(testId: string): HTMLSelectElement {
 }
 
 describe('AgentRunForm：参数面默认值与 prompt 必填（AC-5）', () => {
-  it('初始 env=default、permission-mode=bypassPermissions（默认档断言）', () => {
+  it('初始 permission-mode=bypassPermissions（默认档断言）', () => {
     mount();
 
-    expect(selectOf('agent-env').value).toBe('default');
     expect(selectOf('agent-permission-mode').value).toBe('bypassPermissions');
     // bare 认证前提提示初始不在场
     expect(screen.queryByTestId('bare-auth-note')).toBeNull();
@@ -51,7 +50,7 @@ describe('AgentRunForm：参数面默认值与 prompt 必填（AC-5）', () => {
 });
 
 describe('AgentRunForm：onStart 回调与档位切换', () => {
-  it('填写后点击启动 → onStart 以 { prompt, env, permissionMode } 恰调用一次', () => {
+  it('填写后点击启动 → onStart 以 { prompt, permissionMode } 恰调用一次', () => {
     const { onStart } = mount();
 
     typePrompt('帮我跑一轮');
@@ -60,20 +59,8 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(onStart).toHaveBeenCalledWith({
       prompt: '帮我跑一轮',
-      env: 'default',
       permissionMode: 'bypassPermissions',
     } satisfies AgentStartInput);
-  });
-
-  it('env 双档：切 bare 呈现认证前提提示，切回 default 提示消失', () => {
-    mount();
-
-    fireEvent.change(selectOf('agent-env'), { target: { value: 'bare' } });
-    expect(selectOf('agent-env').value).toBe('bare');
-    expect(screen.getByTestId('bare-auth-note') !== null).toBe(true);
-
-    fireEvent.change(selectOf('agent-env'), { target: { value: 'default' } });
-    expect(screen.queryByTestId('bare-auth-note')).toBeNull();
   });
 
   it('permission-mode 三档下拉含 default / acceptEdits / bypassPermissions 且均可选回填', () => {
@@ -87,13 +74,6 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
       fireEvent.change(select, { target: { value } });
       expect(select.value).toBe(value);
     }
-  });
-
-  it('env 双档下拉仅含 default / bare（选项集边界）', () => {
-    mount();
-
-    const values = Array.from(selectOf('agent-env').options).map((option) => option.value);
-    expect(values).toEqual(['default', 'bare']);
   });
 });
 
@@ -117,21 +97,6 @@ describe('AgentRunForm：禁用与输入保真（边界）', () => {
 
     expect(onStart).toHaveBeenCalledWith({
       prompt: longPrompt,
-      env: 'default',
-      permissionMode: 'bypassPermissions',
-    } satisfies AgentStartInput);
-  });
-
-  it('env 切 bare 后启动：onStart 携带 bare 档位上抛', () => {
-    const { onStart } = mount();
-
-    typePrompt('纯净档');
-    fireEvent.change(selectOf('agent-env'), { target: { value: 'bare' } });
-    fireEvent.click(startButton());
-
-    expect(onStart).toHaveBeenCalledWith({
-      prompt: '纯净档',
-      env: 'bare' satisfies AgentEnvMode,
       permissionMode: 'bypassPermissions',
     } satisfies AgentStartInput);
   });

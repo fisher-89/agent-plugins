@@ -13,8 +13,8 @@ use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody};
 
 use ::agent::{
-    AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRun, AgentRunParams,
-    AgentRunner, AgentStartError, RunHandle,
+    AgentEvent, AgentEventKind, AgentPermissionMode, AgentRun, AgentRunParams, AgentRunner,
+    AgentStartError, RunHandle,
 };
 use store::Store;
 
@@ -44,7 +44,6 @@ fn params(cwd: &Path) -> AgentRunParams {
     AgentRunParams {
         prompt: "帮我跑一轮 loop".to_owned(),
         cwd: cwd.to_path_buf(),
-        env: AgentEnvMode::Default,
         permission_mode: AgentPermissionMode::BypassPermissions,
         resume_session_id: None,
     }

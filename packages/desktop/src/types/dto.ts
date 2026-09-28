@@ -118,7 +118,7 @@ export interface WorkspaceRecord {
 // ---------------------------------------------------------------------------
 
 /** 环境档位双档：default 完整环境 / bare 纯净档（须外部认证前提） */
-export type AgentEnvMode = 'default' | 'bare';
+type AgentEnvMode = 'default' | 'bare';
 
 /** permission-mode 三档 */
 export type AgentPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';

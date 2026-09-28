@@ -1,6 +1,6 @@
 import { useState } from 'react';
 
-import type { AgentEnvMode, AgentPermissionMode } from '../../../types/dto';
+import type { AgentPermissionMode } from '../../../types/dto';
 import type { ExploreSendInput } from '../hooks/useExploreSession';
 
 export interface ExploreComposerProps {
@@ -9,11 +9,6 @@ export interface ExploreComposerProps {
   /** 发送上抛（stance 拼接与链续话由 session hook 承担） */
   onSend: (input: ExploreSendInput) => void;
 }
-
-const ENV_OPTIONS: { value: AgentEnvMode; label: string }[] = [
-  { value: 'default', label: 'default（完整环境）' },
-  { value: 'bare', label: 'bare（纯净）' },
-];
 
 const PERMISSION_OPTIONS: { value: AgentPermissionMode; label: string }[] = [
   { value: 'bypassPermissions', label: 'bypassPermissions' },
@@ -60,33 +55,22 @@ function ModeSelect<T extends string>({
   );
 }
 
-/** 工具行：env / permission-mode 档位 + 发送按钮 */
+/** 工具行：permission-mode 档位 + 发送按钮 */
 function ComposerToolbar({
   disabled,
   prompt,
-  env,
   permissionMode,
-  onEnvChange,
   onPermissionModeChange,
   onSend,
 }: {
   disabled: boolean;
   prompt: string;
-  env: AgentEnvMode;
   permissionMode: AgentPermissionMode;
-  onEnvChange: (value: AgentEnvMode) => void;
   onPermissionModeChange: (value: AgentPermissionMode) => void;
   onSend: () => void;
 }): React.JSX.Element {
   return (
     <div className="flex flex-wrap items-center gap-4">
-      <ModeSelect
-        id="explore-env"
-        label="环境"
-        options={ENV_OPTIONS}
-        value={env}
-        onChange={onEnvChange}
-      />
       <ModeSelect
         id="explore-permission-mode"
         label="permission-mode"
@@ -109,17 +93,16 @@ function ComposerToolbar({
 }
 
 /**
- * composer：prompt 输入（原生 styled textarea）+ env / permission-mode 档位
+ * composer：prompt 输入（原生 styled textarea）+ permission-mode 档位
  * （默认 default + bypassPermissions，沿调试页档位语义与默认值）；bare 档
  * 认证前提固定提示。发送经 onSend 上抛。
  */
 export function ExploreComposer({ disabled, onSend }: ExploreComposerProps): React.JSX.Element {
   const [prompt, setPrompt] = useState('');
-  const [env, setEnv] = useState<AgentEnvMode>('default');
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
 
   const send = () => {
-    onSend({ prompt, env, permissionMode });
+    onSend({ prompt, permissionMode });
     setPrompt('');
   };
 
@@ -141,19 +124,11 @@ export function ExploreComposer({ disabled, onSend }: ExploreComposerProps): Rea
       />
       <ComposerToolbar
         disabled={disabled}
-        env={env}
-        onEnvChange={setEnv}
         onPermissionModeChange={setPermissionMode}
         onSend={send}
         permissionMode={permissionMode}
         prompt={prompt}
       />
-      {env === 'bare' && (
-        <div className="mt-1.5 text-xs text-muted-foreground" data-testid="explore-bare-auth-note">
-          bare 档不读取 OAuth 凭据与系统 keychain：需设置 ANTHROPIC_API_KEY（或经 --settings 配
-          apiKeyHelper），否则运行将认证失败。
-        </div>
-      )}
     </section>
   );
 }

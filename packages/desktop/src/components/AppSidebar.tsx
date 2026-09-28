@@ -94,19 +94,6 @@ function PageNavGroup(): React.JSX.Element {
       <SidebarGroupContent>
         <SidebarMenu>
           <SidebarMenuItem>
-            {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === '/changes' || pathname.startsWith('/changes/')}
-              tooltip="变更"
-            >
-              <NavLink data-testid="nav-changes" to="/changes">
-                <GitBranch />
-                <span>变更</span>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
             {/* 探索项：/explores 与 /explores/:name（详情）均 active */}
             <SidebarMenuButton
               asChild
@@ -116,6 +103,19 @@ function PageNavGroup(): React.JSX.Element {
               <NavLink data-testid="nav-explores" to="/explores">
                 <Compass />
                 <span>探索</span>
+              </NavLink>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          <SidebarMenuItem>
+            {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
+            <SidebarMenuButton
+              asChild
+              isActive={pathname === '/changes' || pathname.startsWith('/changes/')}
+              tooltip="变更"
+            >
+              <NavLink data-testid="nav-changes" to="/changes">
+                <GitBranch />
+                <span>变更</span>
               </NavLink>
             </SidebarMenuButton>
           </SidebarMenuItem>

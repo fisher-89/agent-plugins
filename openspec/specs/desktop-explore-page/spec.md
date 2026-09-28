@@ -51,7 +51,7 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 ### Requirement: 对话区呈现
 
-对话区 SHALL 以 shadcn 官方 `message-scroller` + `message` 组件承载滚动与气泡（滚动行为由组件负责，消息内容/状态留在应用层）。事件到气泡的映射 SHALL 为：user / assistant 消息各成气泡；`Block::Text` 渲染 markdown、`Block::Thinking` 折叠呈现、`Block::ToolUse` 渲染为可读卡片、`Block::ToolResult` 与同 id `ToolUse` 成对呈现；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 提供 prompt 输入与 env / permission-mode 档位选择（沿用调试页档位语义与默认值）。实时流 SHALL 走 `agent_start` 的 Channel（执行流通道），历史 SHALL 经 store 重放（`agent_run_events`）。
+对话区 SHALL 以 shadcn 官方 `message-scroller` + `message` 组件承载滚动与气泡（滚动行为由组件负责，消息内容/状态留在应用层）。事件到气泡的映射 SHALL 为：user / assistant 消息各成气泡；`Block::Text` 渲染 markdown、`Block::Thinking` 折叠呈现、`Block::ToolUse` 渲染为可读卡片、`Block::ToolResult` 与同 id `ToolUse` 成对呈现；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 提供 prompt 输入与 permission-mode 档位选择（沿用调试页档位语义与默认值，env 不设参数——运行恒为完整环境）。实时流 SHALL 走 `agent_start` 的 Channel（执行流通道），历史 SHALL 经 store 重放（`agent_run_events`）。
 
 #### Scenario: 四变体气泡映射
 
@@ -60,7 +60,7 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 #### Scenario: composer 发起运行
 
-- **WHEN** 用户在 composer 输入内容并选择 default 档 + bypassPermissions 发送
+- **WHEN** 用户在 composer 输入内容并以默认 bypassPermissions 档发送
 - **THEN** 以当前 workspace root 为 cwd 发起 `agent_start`，事件实时流入对话区，result 汇总（num_turns / cost / duration / session_id）可读
 
 ### Requirement: 会话链与 stance 前导

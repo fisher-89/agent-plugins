@@ -60,7 +60,7 @@ loop 调试关键信息 SHALL 在一等公民位：tool_use 与 tool_result 成�
 
 ### Requirement: AgentRunner trait 与逻辑事件流抽象
 
-`core/agent` SHALL 定义 `AgentRunner` trait：`start(params) → (逻辑事件流, 运行句柄)`。trait 面 SHALL 仅暴露逻辑事件与运行参数（prompt / env 档位 / permission-mode / cwd 等），进程模型（spawn、stdout/stdin、退出码）MUST NOT 出现在 trait 面上。事件流 SHALL 以 tokio mpsc channel 承载逻辑事件；抽象 SHALL 支持以假 runner（预录事件序列）替换真实 runner 供上层测试。三租户（本机 CLI / 进程内 SDK / 远程 API）SHALL 都能落在该 trait 预留内——CLI 泵 stdout 生产流，SDK 进程内调用，API 以轮询 / watch 模拟流；本变更仅实现 CLI 租户，SDK / API 租户 MUST NOT 预建实现。
+`core/agent` SHALL 定义 `AgentRunner` trait：`start(params) → (逻辑事件流, 运行句柄)`。trait 面 SHALL 仅暴露逻辑事件与运行参数（prompt / permission-mode / cwd 等），进程模型（spawn、stdout/stdin、退出码）MUST NOT 出现在 trait 面上。事件流 SHALL 以 tokio mpsc channel 承载逻辑事件；抽象 SHALL 支持以假 runner（预录事件序列）替换真实 runner 供上层测试。三租户（本机 CLI / 进程内 SDK / 远程 API）SHALL 都能落在该 trait 预留内——CLI 泵 stdout 生产流，SDK 进程内调用，API 以轮询 / watch 模拟流；本变更仅实现 CLI 租户，SDK / API 租户 MUST NOT 预建实现。
 
 run 状态机 SHALL 位于 `core/agent`：running → completed | failed，由 `RunResult`（含 is_error）驱动收敛，收敛后 MUST NOT 再接受状态变更。
 
@@ -84,7 +84,7 @@ run 状态机 SHALL 位于 `core/agent`：running → completed | failed，由 `
 `agent-cli` SHALL 以本机 Claude Code CLI（`-p` 无头 + `--output-format stream-json --verbose`）实现 `AgentRunner`：
 
 - stream-json SHALL 是唯一线上格式（解析路径唯一）；text / json 格式 MUST NOT 进入实现
-- 环境档位 SHALL 双档：`default`（完整环境，页面默认）/ `bare`（`--bare` 显式开关，跳过 hooks / skills / custom commands / subagents / plugins / MCP / 自动记忆发现）。bare 档 SHALL 提示认证前提（bare 不读 OAuth 凭据与系统 keychain，须 `ANTHROPIC_API_KEY` 或 `--settings` 配 `apiKeyHelper`）
+- 环境档位 MUST NOT 进运行参数面：`AgentRunParams` 无 env 字段，`agent_start` 无 env 参数，运行恒走完整环境（default）；`--bare` flag MUST NOT 组装（bare 档与其认证前提提示已从调试页 / explore 页参数面移除）。run 记录 `env` 列保留（store 既有 schema），落库恒为 `"default"`
 - permission-mode SHALL 参数面三档（`default` / `acceptEdits` / `bypassPermissions`），默认 `bypassPermissions`（`--dangerously-skip-permissions`）——`-p` 默认 `default` 档下需审批工具直接被拒、看不到真实 loop，本机自有 repo 的调试页场景裁决以完整循环为默认
 - cwd SHALL 为当前 workspace root（隐含，不设参数）；model MUST NOT 进 MVP 参数面（继承用户 CLI 默认）
 - CLI 发现 SHALL 处理 Windows `.cmd` shim（`cmd /C` 包装或解析真实入口）；CLI 不可发现时 SHALL 显式报错（错误事件 / Err），MUST NOT 静默空转
@@ -93,14 +93,13 @@ run 状态机 SHALL 位于 `core/agent`：running → completed | failed，由 `
 
 #### Scenario: flag 组装
 
-- **WHEN** 以 default + bypassPermissions 参数组装命令行
+- **WHEN** 以 bypassPermissions 参数组装命令行
 - **THEN** 含 `-p --output-format stream-json --verbose --dangerously-skip-permissions`，不含 `--bare` 与 `--resume`
-- **AND** bare 档时命令行含 `--bare`，stream-json 与 `--verbose` 不变
 
 #### Scenario: resume flag 组装
 
 - **WHEN** 以 `resume_session_id = Some("sess-1")` 组装命令行
-- **THEN** 参数含 `--resume sess-1`，其余 flag（`-p` / stream-json / `--verbose` / env 与 permission 档位）不变；`None` 时不出现 `--resume`
+- **THEN** 参数含 `--resume sess-1`，其余 flag（`-p` / stream-json / `--verbose` / permission 档位）不变；`None` 时不出现 `--resume`
 
 #### Scenario: JSONL 逐行泵
 
@@ -111,11 +110,6 @@ run 状态机 SHALL 位于 `core/agent`：running → completed | failed，由 `
 
 - **WHEN** PATH 上的 `claude` 为 `.cmd` shim
 - **THEN** spawn 成功（经 `cmd /C` 包装或解析后的真实入口）；CLI 不存在时得到显式错误而非静默空转
-
-#### Scenario: bare 认证失败如实呈现
-
-- **WHEN** 无 `ANTHROPIC_API_KEY` 时以 bare 档发起运行
-- **THEN** 失败以错误事件流入时间线呈现，不静默、不崩 UI
 
 ### Requirement: run 事件落库与重放（user 维度）
 
@@ -174,7 +168,7 @@ agent 运行记录 SHALL 以 **user 维度**持久化（个人活动历史：不
 
 前端 SHALL 新增 Agent 调试页（`AgentDebugView`），经侧栏页面导航组（[变更] [Agent 调试]）进入；视图切换 SHALL 沿用本地 state，MUST NOT 引入路由。页面 SHALL 包含：
 
-- **参数面（最小集）**：prompt（必填）、env 档位（default / bare，默认 default，bare 旁认证前提提示）、permission-mode 三档下拉（默认 bypassPermissions）；cwd 不设参数（隐含当前 workspace root）、model 不设参数
+- **参数面（最小集）**：prompt（必填）、permission-mode 三档下拉（默认 bypassPermissions）；cwd 不设参数（隐含当前 workspace root）、model 不设参数、env 不设参数（运行恒为完整环境，见 CLI 租户约定）
 - **事件时间线**：assistant / user 消息渲染为对话流；tool_use / tool_result 折叠块成对呈现；子代理按 `parent_tool_use_id` 分组归因；result 汇总卡（num_turns / cost / duration / session_id 可复制）
 - **原始 JSONL 切换**：全部事件（含 Raw）的原文可见
 - **历史运行**：run 列表 → 点开自 store 重放（invoke 查询）
@@ -184,7 +178,7 @@ agent 运行记录 SHALL 以 **user 维度**持久化（个人活动历史：不
 #### Scenario: 参数面默认值
 
 - **WHEN** 打开调试页
-- **THEN** env 默认 default、permission-mode 默认 bypassPermissions、prompt 为空且必填；无 model 输入、无 cwd 输入
+- **THEN** permission-mode 默认 bypassPermissions、prompt 为空且必填；无 model 输入、无 cwd 输入、无 env 输入
 
 #### Scenario: loop 可见性
 
@@ -230,6 +224,6 @@ agent 运行记录 SHALL 以 **user 维度**持久化（个人活动历史：不
 | `packages/desktop/src-tauri/crates/infra/store`（增两表） | run 持久化 | `user_agent_runs`（元数据）/ `user_agent_run_events`（(run_id, seq) 事件流）；user 维度 app data dir；重放查询入口 |
 | `dev-team::commands::exec`（开通） | 执行 + 查询命令 | `agent_start`（三件事，编排收 `run_agent()`）；`agent_runs` / `agent_run_events` 无状态薄包装；`Result<T, String>` 错误模板 |
 | `run_agent()` 编排函数 | app 层微形态 | 组装 runner → 事件流 tee（Tauri Channel + store sink）→ 状态收敛；将来抽 crate 平移复用不重写 |
-| `packages/desktop/src/views/agent/AgentDebugView.tsx`（新） | Agent 调试页 | 参数面（prompt 必填 / env 双档默认 default / permission-mode 默认 bypassPermissions）；事件时间线；原始 JSONL 切换；历史运行重放 |
+| `packages/desktop/src/views/agent/AgentDebugView.tsx`（新） | Agent 调试页 | 参数面（prompt 必填 / permission-mode 默认 bypassPermissions / env 不设参数）；事件时间线；原始 JSONL 切换；历史运行重放 |
 | `packages/desktop/src/components/AppSidebar.tsx` | 页面导航组 | [变更] [Agent 调试]；本地 state 切视图，无路由 |
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |

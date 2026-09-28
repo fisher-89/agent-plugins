@@ -19,7 +19,8 @@
 use tauri::ipc::Channel;
 
 use agent::{
-    AgentEvent, AgentEventKind, AgentRunParams, AgentRunState, AgentRunner, RunStateMachine,
+    AgentEnvMode, AgentEvent, AgentEventKind, AgentRunParams, AgentRunState, AgentRunner,
+    RunStateMachine,
 };
 use agent_cli::ClaudeCliRunner;
 use store::{AgentRunRecord, Store};
@@ -97,7 +98,7 @@ pub(crate) async fn run_agent_with<R: AgentRunner>(
         id: 0,
         prompt: params.prompt.clone(),
         cwd: params.cwd.to_string_lossy().into_owned(),
-        env: params.env.as_str().to_owned(),
+        env: AgentEnvMode::Default.as_str().to_owned(),
         permission_mode: params.permission_mode.as_str().to_owned(),
         status: STATUS_RUNNING.to_owned(),
         started_at: now_millis(),

@@ -1,6 +1,6 @@
 {
   "name": "desktop",
-  "version": "0.3.3",
+  "version": "0.3.4",
   "private": true,
   "scripts": {
     "dev": "tauri dev",
@@ -10,8 +10,10 @@
     "check": "pnpm run client:check && pnpm run server:check",
     "client:check": "vp check --fix && knip",
     "server:check": "cd src-tauri && cargo fmt && cargo clippy",
-    "test": "vp test && cd src-tauri && cargo test --workspace",
-    "mutation-test": "stryker run",
+    "test": "pnpm run client:test && pnpm run server:test",
+    "client:test": "vp test --sequence.shuffle",
+    "server:test": "cd src-tauri && cargo test --workspace",
+    "mutate": "stryker run && cd src-tauri && cargo mutate",
     "tauri": "tauri"
   },
   "dependencies": {

@@ -64,8 +64,6 @@ pub struct AgentRunParams {
     pub prompt: String,
     /// 工作目录
     pub cwd: PathBuf,
-    /// 环境档位
-    pub env: AgentEnvMode,
     /// permission-mode 档位
     pub permission_mode: AgentPermissionMode,
     /// 续会话入参（唯一进契约的续会话参数）：非空时以该 session 续发新一轮，

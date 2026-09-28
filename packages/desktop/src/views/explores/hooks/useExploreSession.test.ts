@@ -165,7 +165,6 @@ function startCallArgs(): Record<string, unknown> {
 
 const SEND_INPUT = {
   prompt: '继续追这条线索',
-  env: 'default' as const,
   permissionMode: 'bypassPermissions' as const,
 };
 
@@ -234,7 +233,6 @@ describe('useExploreSession：send 拼接 stance 与链尾 resume（AC-9，D4/D7
     expect(args.sourceRef).toBe(String(RECORD_ID));
     expect(args.parentRunId).toBe(12);
     expect(args.root).toBe(ROOT);
-    expect(args.env).toBe('default');
     expect(args.permissionMode).toBe('bypassPermissions');
     expect(args.onEvent).toBeInstanceOf(ChannelMock);
   });

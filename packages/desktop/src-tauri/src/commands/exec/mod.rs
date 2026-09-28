@@ -25,7 +25,7 @@ use tauri::State;
 
 // `mod agent`（本地编排模块）与外部 `agent` 契约 crate 同名：外部 crate
 // 以 `::agent::` 显式消歧
-use ::agent::{AgentEnvMode, AgentEvent, AgentPermissionMode, AgentRunParams};
+use ::agent::{AgentEvent, AgentPermissionMode, AgentRunParams};
 use store::{AgentRunRecord, Store};
 
 use agent::RunProvenance;
@@ -45,7 +45,6 @@ pub async fn agent_start(
     on_event: Channel<AgentEvent>,
     root: String,
     prompt: String,
-    env: AgentEnvMode,
     permission_mode: AgentPermissionMode,
     resume_session_id: Option<String>,
     source: Option<String>,
@@ -55,7 +54,6 @@ pub async fn agent_start(
     let params = AgentRunParams {
         prompt,
         cwd: Path::new(&root).to_path_buf(),
-        env,
         permission_mode,
         resume_session_id,
     };

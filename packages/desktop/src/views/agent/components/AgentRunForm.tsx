@@ -2,12 +2,11 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-import type { AgentEnvMode, AgentPermissionMode } from '../../../types/dto';
+import type { AgentPermissionMode } from '../../../types/dto';
 
 /** 发起一次运行的入参（hooks 与表单共用；cwd 隐含当前 workspace root、model 不进 MVP，均无输入） */
 export interface AgentStartInput {
   prompt: string;
-  env: AgentEnvMode;
   permissionMode: AgentPermissionMode;
 }
 
@@ -16,11 +15,6 @@ export interface AgentRunFormProps {
   disabled: boolean;
   onStart: (input: AgentStartInput) => void;
 }
-
-const ENV_OPTIONS: { value: AgentEnvMode; label: string }[] = [
-  { value: 'default', label: 'default（完整环境）' },
-  { value: 'bare', label: 'bare（纯净）' },
-];
 
 const PERMISSION_OPTIONS: { value: AgentPermissionMode; label: string }[] = [
   { value: 'bypassPermissions', label: 'bypassPermissions' },
@@ -67,33 +61,22 @@ function ModeSelect<T extends string>({
   );
 }
 
-/** 启动工具行：env / permission-mode 档位 + 发起按钮 */
+/** 启动工具行：permission-mode 档位 + 发起按钮 */
 function StartToolbar({
   disabled,
   prompt,
-  env,
   permissionMode,
-  onEnvChange,
   onPermissionModeChange,
   onStart,
 }: {
   disabled: boolean;
   prompt: string;
-  env: AgentEnvMode;
   permissionMode: AgentPermissionMode;
-  onEnvChange: (value: AgentEnvMode) => void;
   onPermissionModeChange: (value: AgentPermissionMode) => void;
   onStart: (input: AgentStartInput) => void;
 }): React.JSX.Element {
   return (
     <div className="mb-3 flex flex-wrap items-center gap-4">
-      <ModeSelect
-        id="agent-env"
-        label="环境"
-        options={ENV_OPTIONS}
-        value={env}
-        onChange={onEnvChange}
-      />
       <ModeSelect
         id="agent-permission-mode"
         label="permission-mode"
@@ -105,7 +88,7 @@ function StartToolbar({
       <Button
         disabled={disabled}
         data-testid="agent-start"
-        onClick={() => onStart({ prompt, env, permissionMode })}
+        onClick={() => onStart({ prompt, permissionMode })}
       >
         发起运行
       </Button>
@@ -114,14 +97,13 @@ function StartToolbar({
 }
 
 /**
- * 参数面（最小集）：prompt 必填（空则禁用启动）、env 双档默认 default、
+ * 参数面（最小集）：prompt 必填（空则禁用启动）、
  * permission-mode 三档下拉默认 bypassPermissions（无头 default 档下需审批
  * 工具直接被拒，调试页以完整循环为默认）。bare 档不读 OAuth 凭据与系统
  * keychain，须 ANTHROPIC_API_KEY 等外部认证前提——开关旁固定提示。
  */
 export function AgentRunForm({ disabled, onStart }: AgentRunFormProps): React.JSX.Element {
   const [prompt, setPrompt] = useState('');
-  const [env, setEnv] = useState<AgentEnvMode>('default');
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
 
   return (
@@ -130,7 +112,7 @@ export function AgentRunForm({ disabled, onStart }: AgentRunFormProps): React.JS
       data-testid="agent-run-form"
     >
       <label className="mb-1 block text-xs text-muted-foreground" htmlFor="agent-prompt">
-        提示词
+        用户输入
       </label>
       <textarea
         id="agent-prompt"
@@ -143,18 +125,10 @@ export function AgentRunForm({ disabled, onStart }: AgentRunFormProps): React.JS
       <StartToolbar
         disabled={disabled || prompt.trim().length === 0}
         prompt={prompt}
-        env={env}
         permissionMode={permissionMode}
-        onEnvChange={setEnv}
         onPermissionModeChange={setPermissionMode}
         onStart={onStart}
       />
-      {env === 'bare' && (
-        <div className="text-xs text-muted-foreground" data-testid="bare-auth-note">
-          bare 档不读取 OAuth 凭据与系统 keychain：需设置 ANTHROPIC_API_KEY（或经 --settings 配
-          apiKeyHelper），否则运行将认证失败。
-        </div>
-      )}
     </section>
   );
 }

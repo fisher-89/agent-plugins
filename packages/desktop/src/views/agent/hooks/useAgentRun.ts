@@ -46,7 +46,6 @@ export function useAgentRun(root: string | null): AgentRunState {
         onEvent: channel,
         root,
         prompt: input.prompt,
-        env: input.env,
         permissionMode: input.permissionMode,
       })
         .then((record) => {

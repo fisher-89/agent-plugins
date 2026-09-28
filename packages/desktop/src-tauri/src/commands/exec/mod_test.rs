@@ -14,7 +14,7 @@ use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams};
+use ::agent::{AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams};
 use store::{AgentRunRecord, Store};
 
 use super::{agent_run_chain, agent_run_events, agent_runs, agent_start};
@@ -443,7 +443,6 @@ fn run_params() -> AgentRunParams {
     AgentRunParams {
         prompt: "R3 链路验证".to_owned(),
         cwd: Path::new("C:\\ws\\demo").to_path_buf(),
-        env: AgentEnvMode::Default,
         permission_mode: AgentPermissionMode::BypassPermissions,
         resume_session_id: None,
     }
@@ -561,7 +560,6 @@ async fn agent_start在cli不可发现时返回err且store无run行且channel零
         capturing_channel().0,
         "C:\\ws\\demo".to_owned(),
         "你好".to_owned(),
-        AgentEnvMode::Default,
         AgentPermissionMode::BypassPermissions,
         None,
         None,
@@ -602,7 +600,6 @@ fn assemble_agent_start_args(
     let params = AgentRunParams {
         prompt: prompt.to_owned(),
         cwd: Path::new(root).to_path_buf(),
-        env: AgentEnvMode::Default,
         permission_mode: AgentPermissionMode::BypassPermissions,
         resume_session_id,
     };

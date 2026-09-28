@@ -1176,6 +1176,41 @@ fn delete_miss幂等返回false() {
 // restore_run_chain（AC-5）：单链还原收口单点
 // ---------------------------------------------------------------------------
 
+/// BUG 复现（临时,分析用,验证后按修复语义改写或删除）：删除 max-id explore
+/// 记录后新建,id 在幸存行上 max+1 分配 → 复用被删 id;旧记录名下 run 的
+/// source_ref 未清理,新记录链还原捞到旧聊天。
+#[test]
+fn 删除最大id记录后新建复用id且旧run被错误关联() {
+    let env = Env::new("explore-id-reuse");
+    let store = open_ok(&env.db_path());
+    let _a = create_ok(&store, "C:\\ws\\alpha", "old-topic");
+    let b = create_ok(&store, "C:\\ws\\alpha", "to-be-deleted");
+    // 被删记录名下已有一段 agent 聊天（source_ref = b.id 十进制串）
+    begin_provenance_run(
+        &store,
+        "旧聊天",
+        100,
+        "explore",
+        Some(&b.id.to_string()),
+        None,
+    );
+
+    store
+        .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
+        .unwrap();
+    let c = create_ok(&store, "C:\\ws\\alpha", "combine-agent-and-explore-chat");
+
+    assert_eq!(c.id, b.id, "复现点一：max+1 在幸存行上计算,id 被复用");
+    let chain = store
+        .restore_run_chain("explore", &c.id.to_string())
+        .unwrap();
+    assert_eq!(
+        chain.len(),
+        1,
+        "复现点二：新记录（从未发过消息）链还原捞到旧聊天"
+    );
+}
+
 /// 构造带来源三元组的 running 形态 run 记录（id 由 begin 分配）。
 fn provenance_run(
     prompt: &str,

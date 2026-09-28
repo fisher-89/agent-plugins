@@ -70,7 +70,6 @@ fn params() -> AgentRunParams {
     AgentRunParams {
         prompt: "你好".to_owned(),
         cwd: PathBuf::from("C:\\work\\demo"),
-        env: AgentEnvMode::Default,
         permission_mode: AgentPermissionMode::BypassPermissions,
         resume_session_id: None,
     }
@@ -218,7 +217,6 @@ fn run_params的cwd含中文空格与尾分隔符时字段保真() {
     let params = AgentRunParams {
         prompt: "含 空格 与\n换行的提示词 🎉".to_owned(),
         cwd: cwd.clone(),
-        env: AgentEnvMode::Bare,
         permission_mode: AgentPermissionMode::AcceptEdits,
         resume_session_id: None,
     };
@@ -233,6 +231,6 @@ fn run_params的cwd含中文空格与尾分隔符时字段保真() {
     let cloned = params.clone();
     assert_eq!(cloned, params);
     assert_eq!(cloned.cwd, PathBuf::from(raw_cwd));
-    // 构造面完整：prompt / env / permission_mode 三字段齐备（json 形态仅作形状示意）
-    let _shape = json!({ "prompt": params.prompt, "env": params.env.as_str() });
+    // 构造面完整：prompt / permission_mode 三字段齐备（json 形态仅作形状示意）
+    let _shape = json!({ "prompt": params.prompt });
 }

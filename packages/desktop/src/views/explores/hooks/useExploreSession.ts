@@ -3,7 +3,6 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 
 import { buildExplorePrompt } from '../../../lib/exploreStance';
 import type {
-  AgentEnvMode,
   AgentEvent,
   AgentPermissionMode,
   AgentRunRecord,
@@ -16,7 +15,6 @@ const EXPLORE_SOURCE = 'explore';
 /** 单次发送入参（与调试页表单语义一致：cwd 隐含 workspace root） */
 export interface ExploreSendInput {
   prompt: string;
-  env: AgentEnvMode;
   permissionMode: AgentPermissionMode;
 }
 
@@ -125,7 +123,6 @@ export function useExploreSession(
         onEvent: channel,
         root: currentRoot,
         prompt: buildExplorePrompt(input.prompt),
-        env: input.env,
         permissionMode: input.permissionMode,
         resumeSessionId: tail?.sessionId ?? null,
         source: EXPLORE_SOURCE,

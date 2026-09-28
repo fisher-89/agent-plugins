@@ -172,7 +172,6 @@ function startCallArgs(): {
   onEvent: unknown;
   root: unknown;
   prompt: unknown;
-  env: unknown;
   permissionMode: unknown;
 } {
   const call = invokeMock.mock.calls.find(([name]) => name === 'agent_start');
@@ -183,7 +182,6 @@ function startCallArgs(): {
     onEvent: unknown;
     root: unknown;
     prompt: unknown;
-    env: unknown;
     permissionMode: unknown;
   };
 }
@@ -210,7 +208,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('agent_run_pipeline：表单启动 → agent_start → 实时时间线', () => {
-  it('表单启动 → invoke 参数逐字符合契约（默认 env/permissionMode 随链路上抛，IPC 键 camelCase）', async () => {
+  it('表单启动 → invoke 参数逐字符合契约（默认 permissionMode 随链路上抛，IPC 键 camelCase）', async () => {
     render(<AgentDebugView root={ROOT} />);
 
     await launch();
@@ -219,7 +217,6 @@ describe('agent_run_pipeline：表单启动 → agent_start → 实时时间线'
       onEvent: expect.any(ChannelMock),
       root: ROOT,
       prompt: '帮我跑一轮',
-      env: 'default',
       permissionMode: 'bypassPermissions',
     });
   });
