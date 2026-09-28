@@ -7,12 +7,13 @@ export interface AgentRawStreamProps {
 
 /**
  * 原始 JSONL 面板：逐事件 JSON dump（落库归一化形态，与重放同源一致）；
- * Raw 变体内嵌 rawJson 原文保真，不为非 Raw 事件另存 CLI 原始行。
+ * Raw 变体内嵌 rawJson 原文保真，不为非 Raw 事件另存 CLI 原始行。区域滚动：
+ * flex 填充 + 事件列表内部滚动（调试 dump 不做流式跟随）。
  */
 export function AgentRawStream({ events }: AgentRawStreamProps): React.JSX.Element {
   return (
     <section
-      className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5"
+      className="mb-4 flex min-h-0 flex-1 flex-col rounded-lg border border-border bg-card px-4 py-3.5"
       data-testid="agent-raw-stream"
     >
       <h2 className="m-0 mb-1.5 text-[15px]">原始 JSONL</h2>
@@ -21,16 +22,18 @@ export function AgentRawStream({ events }: AgentRawStreamProps): React.JSX.Eleme
           尚无事件。
         </div>
       ) : (
-        events.map((event) => (
-          <pre
-            key={event.seq}
-            className="mb-1.5 overflow-x-auto rounded bg-muted px-2 py-1.5 text-xs"
-            data-testid="raw-line"
-            data-seq={event.seq}
-          >
-            {JSON.stringify(event, null, 2)}
-          </pre>
-        ))
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          {events.map((event) => (
+            <pre
+              key={event.seq}
+              className="mb-1.5 overflow-x-auto rounded bg-muted px-2 py-1.5 text-xs"
+              data-testid="raw-line"
+              data-seq={event.seq}
+            >
+              {JSON.stringify(event, null, 2)}
+            </pre>
+          ))}
+        </div>
       )}
     </section>
   );

@@ -1,5 +1,9 @@
 allowBuilds:
   esbuild: true
+minimumReleaseAgeExclude:
+  - '@ai-sdk/gateway@4.0.96'
+  - ai@7.0.118
+  - '@ai-sdk/react@4.0.121'
 # 将 `vite` 别名到 vite-plus 的 rolldown 内核（vite-plus README 推荐的 override）：
 # @vitejs/plugin-react 运行时检测 `rolldownVersion` 导出，命中后走 oxc 配置分支，
 # 不再返回已废弃的 esbuild/optimizeDeps.esbuildOptions（vp check 的弃用警告来源）。

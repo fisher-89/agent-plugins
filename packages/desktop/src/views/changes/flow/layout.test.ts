@@ -15,7 +15,7 @@ import type { FlowColumn, FlowNode } from './types';
 // ---------------------------------------------------------------------------
 // nodePosition 单测：布局常量（COL_W / ROW_H / COLUMN_HEADER_H / COLUMN_PAD_X）
 // 经 nodePosition 输出间接断言；列容器为画布绝对坐标，事件节点为相对父列坐标
-// （AC-1 公式 x = 列索引 × COL_W、y = 执行序 × ROW_H 的 react-flow 落地）。
+// （坐标公式 x = 列索引 × (COL_W + 20 列距)、y = 执行序 × ROW_H 的 react-flow 落地）。
 // 节点取自真实 buildFlowGraph 产出，避免手拼模型漂移。
 // ---------------------------------------------------------------------------
 
@@ -60,10 +60,10 @@ function column(colIndex: number): FlowColumn {
 }
 
 describe('nodePosition：布局即语义坐标公式', () => {
-  it('列容器节点 x = colIndex × COL_W、y = 0（colIndex 0 / 4 / 8 抽样验证）', () => {
+  it('列容器节点 x = colIndex × (COL_W + 20)、y = 0（colIndex 0 / 4 / 8 抽样验证）', () => {
     expect(nodePosition(column(0))).toEqual({ x: 0, y: 0 });
-    expect(nodePosition(column(4))).toEqual({ x: 4 * COL_W, y: 0 });
-    expect(nodePosition(column(8))).toEqual({ x: 8 * COL_W, y: 0 });
+    expect(nodePosition(column(4))).toEqual({ x: 4 * (COL_W + 20), y: 0 });
+    expect(nodePosition(column(8))).toEqual({ x: 8 * (COL_W + 20), y: 0 });
     expect(COL_W).toBe(260);
   });
 
@@ -88,10 +88,10 @@ describe('nodePosition：布局即语义坐标公式', () => {
     expect(nodePosition(first).y).toBe(48);
   });
 
-  it('末列 colIndex=8 → x 恰为 8 × COL_W（画布总宽边界 ≈2340px）', () => {
-    expect(nodePosition(column(8)).x).toBe(2080);
-    // 9 列总宽 = 8 × COL_W + COL_W
-    expect(8 * COL_W + COL_W).toBe(2340);
+  it('末列 colIndex=8 → x 恰为 8 × (COL_W + 20)（画布总宽边界 ≈2500px）', () => {
+    expect(nodePosition(column(8)).x).toBe(2240);
+    // 9 列总宽 = 8 × (COL_W + 20) + COL_W
+    expect(8 * (COL_W + 20) + COL_W).toBe(2500);
   });
 
   it('超大 order（如 1000）→ 坐标按公式线性外推，无钳制、无 NaN、不抛错', () => {

@@ -7,9 +7,10 @@ import { useExploreSession } from './use-explore-session';
 
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：invoke 按命令名分发（agent_run_chain / agent_run_events /
-// agent_start 记录入参供断言、可切换 reject）；Channel mock 为可编程 class
-// （捕获 onmessage）。stance 前导不 mock：buildExplorePrompt 以真实实现参与
-// send 拼接语义断言。
+// agent_start 记录入参供断言、可切换 reject / pending；agent_stop 记录寻址）；
+// Channel mock 为可编程 class（捕获 onmessage，测试直接投递 AgentRunMessage
+// 信封——ipc: 'event' / 'record' 双变体——驱动实时流与终态回流）。
+// stance 前导不 mock：buildExplorePrompt 以真实实现参与 send 拼接语义断言。
 // ---------------------------------------------------------------------------
 
 const { ChannelMock, invokeMock } = vi.hoisted(() => {
@@ -42,20 +43,25 @@ function exploreRecord(): ExploreRecord {
   };
 }
 
-function run(id: number, sessionId: string | null, parentRunId: number | null): AgentRunRecord {
+function run(
+  id: number,
+  sessionId: string | null,
+  parentRunId: number | null,
+  status: AgentRunRecord['status'] = 'completed',
+): AgentRunRecord {
   return {
     id,
     prompt: `explore 轮次 ${id}`,
     cwd: ROOT,
     env: 'default',
     permissionMode: 'bypassPermissions',
-    status: 'completed',
+    status,
     startedAt: 1727000000000 + id,
-    finishedAt: 1727000001000 + id,
-    numTurns: 1,
-    costUsd: 0.1,
-    durationMs: 500,
-    sessionId,
+    finishedAt: status === 'running' ? null : 1727000001000 + id,
+    numTurns: status === 'running' ? null : 1,
+    costUsd: status === 'running' ? null : 0.1,
+    durationMs: status === 'running' ? null : 500,
+    sessionId: status === 'running' ? null : sessionId,
     error: null,
     source: 'explore',
     sourceRef: String(RECORD_ID),
@@ -100,6 +106,20 @@ function lastChannel(): ChannelLike {
   return instance;
 }
 
+/** 投递实时事件信封（ipc: 'event'）。 */
+function deliverEvent(event: AgentEvent) {
+  act(() => {
+    lastChannel().onmessage?.({ ipc: 'event', event });
+  });
+}
+
+/** 投递终态记录信封（ipc: 'record'，后端闭流收尾）。 */
+function deliverRecord(record: AgentRunRecord) {
+  act(() => {
+    lastChannel().onmessage?.({ ipc: 'record', record });
+  });
+}
+
 /** 链 fixture：两条 parent_run_id 相连的 run（链头在前）。 */
 const chainFixture = [run(11, 's-first', null), run(12, 's-tail', 11)];
 
@@ -114,7 +134,8 @@ function mockIpc() {
     [11, [textEvent(0, '首轮结论')]],
     [12, [textEvent(0, '续轮结论'), runResultEvent(1)]],
   ]);
-  startResult = run(13, 's-new-tail', 12);
+  // 提前 resolve 契约：agent_start 返回 running 记录（currentRunId 随 onRecord 确立）
+  startResult = run(13, 's-new-tail', 12, 'running');
   invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
     if (command === 'agent_run_chain') {
       expect(params).toMatchObject({ source: 'explore', sourceRef: String(RECORD_ID) });
@@ -253,7 +274,7 @@ describe('useExploreSession：send 拼接 stance 与链尾 resume（AC-9，D4/D7
     expect(args.sourceRef).toBe(String(RECORD_ID));
   });
 
-  it('run 终态后：链增长，二次 send 的 resume 更新为新链尾 sessionId', async () => {
+  it('run 终态后：链增长、终态 record 回流复位，二次 send 的 resume 更新为新链尾 sessionId', async () => {
     const { result } = await mounted();
     expect(result.current.chain).toHaveLength(2);
 
@@ -261,7 +282,13 @@ describe('useExploreSession：send 拼接 stance 与链尾 resume（AC-9，D4/D7
       result.current.send(SEND_INPUT);
     });
     await act(async () => {});
+    // 提前 resolve：running 记录入链（id 立即可用）
     expect(result.current.chain).toHaveLength(3);
+    expect(result.current.chain[2]).toEqual(run(13, 's-new-tail', 12, 'running'));
+
+    // 终态 record 经 Channel 信封回流（后端闭流收尾）：链尾推进为终态行
+    deliverRecord(run(13, 's-new-tail', 12));
+    await waitFor(() => expect(result.current.running).toBe(false));
     expect(result.current.chain[2]).toEqual(run(13, 's-new-tail', 12));
 
     act(() => {
@@ -312,7 +339,7 @@ describe('useExploreSession：send 拼接 stance 与链尾 resume（AC-9，D4/D7
     act(() => {
       result.current.send(SEND_INPUT);
     });
-    expect(result.current.running).toBe(true);
+    await waitFor(() => expect(result.current.running).toBe(true));
 
     act(() => {
       result.current.send(SEND_INPUT);
@@ -320,24 +347,59 @@ describe('useExploreSession：send 拼接 stance 与链尾 resume（AC-9，D4/D7
     await act(async () => {});
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(1);
 
+    // 启动 resolve（early resolve running）+ 终态 record 信封回流 → running 复位
     act(() => {
-      resolveStart?.(run(13, 's-new-tail', 12));
+      resolveStart?.(run(13, 's-new-tail', 12, 'running'));
     });
+    await act(async () => {});
+    deliverRecord(run(13, 's-new-tail', 12, 'stopped'));
     await waitFor(() => expect(result.current.running).toBe(false));
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(1);
   });
 
-  it('send 成功后实时 Channel 事件累积进 events', async () => {
+  it('send 成功后实时 Channel 事件信封（ipc: event）累积进 events', async () => {
     const { result } = await mounted();
 
     act(() => {
       result.current.send(SEND_INPUT);
     });
-    act(() => {
-      lastChannel().onmessage?.(textEvent(0, '实时片段'));
-    });
+    await act(async () => {});
+    deliverEvent(textEvent(0, '实时片段'));
     await act(async () => {});
 
     expect(result.current.events).toContainEqual(textEvent(0, '实时片段'));
+  });
+});
+
+// ---------------------------------------------------------------------------
+// stop 透传（停止时序：前端 → invoke("agent_stop") → 后端闭流收尾，
+// 前端流 MUST NOT 截断——终态 record 部件经 Channel 回流后 running 复位）。
+// ---------------------------------------------------------------------------
+
+describe('useExploreSession → 基建接线：stop 透传', () => {
+  it('运行中 stop() → invoke("agent_stop", { runId }) 触达后端；Channel 仍可投递事件与终态 record', async () => {
+    const { result } = await mounted();
+
+    act(() => {
+      result.current.send(SEND_INPUT);
+    });
+    await waitFor(() => expect(result.current.running).toBe(true));
+
+    act(() => {
+      result.current.stop();
+    });
+    await act(async () => {});
+    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { runId: 13 });
+
+    // 前端流不截断：stop 后事件信封照常入镜像
+    deliverEvent(textEvent(0, '停止前已产出'));
+    await act(async () => {});
+    expect(result.current.events).toContainEqual(textEvent(0, '停止前已产出'));
+
+    // 终态 record 回流：running 经 Record 复位
+    deliverRecord(run(13, 's-new-tail', 12, 'stopped'));
+    await waitFor(() => expect(result.current.running).toBe(false));
+    expect(result.current.chain.at(-1)?.status).toBe('stopped');
   });
 });
 

@@ -51,7 +51,7 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 ### Requirement: 对话区呈现
 
-对话区 SHALL 以 shadcn 官方 `message-scroller` + `message` 组件承载滚动与气泡（滚动行为由组件负责，消息内容/状态留在应用层）。事件到气泡的映射 SHALL 为：user / assistant 消息各成气泡；`Block::Text` 渲染 markdown、`Block::Thinking` 折叠呈现、`Block::ToolUse` 渲染为可读卡片、`Block::ToolResult` 与同 id `ToolUse` 成对呈现；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 提供 prompt 输入与 permission-mode 档位选择（沿用调试页档位语义与默认值，env 不设参数——运行恒为完整环境）。实时流 SHALL 走 `agent_start` 的 Channel（执行流通道），历史 SHALL 经 store 重放（`agent_run_events`）。
+对话区 SHALL 以共享 agent 会话组件族（`components/agent/`，见 desktop-agent-chat-infra）呈现，MUST NOT 保留视图层私有的事件渲染实现：状态面经统一会话基建（`use-agent-chat` + `TauriAgentTransport`），实时流经 transport 走 `agent_start` 的 Channel（执行流通道），历史经 `agent_run_chain` + `agent_run_events` 重放装载进 UIMessage 状态（实时与重放同一状态形状）。呈现面 SHALL 以 `AgentMessages` 对话透镜渲染：user / assistant 消息各成气泡；文本块渲染 markdown、思考块折叠呈现、工具调用渲染为可读卡片并与同 id 工具结果成对呈现（配对收口于适配层）；`AskUserQuestion` 的 ToolUse SHALL 呈现为静态卡片（问题与选项原样可读），答案经 composer 文本输入（questionnaire 接线为二期）。composer SHALL 采用 `AgentInput`：prompt 输入与 permission-mode 档位选择（沿用调试页档位语义与默认值，env 不设参数——运行恒为完整环境），运行中忽略重复发送并提供停止入口。滚动 SHALL 沿用 shadcn `message-scroller` 组合（滚动行为由组件负责，消息状态留在应用层）。
 
 #### Scenario: 四变体气泡映射
 
@@ -62,6 +62,16 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 - **WHEN** 用户在 composer 输入内容并以默认 bypassPermissions 档发送
 - **THEN** 以当前 workspace root 为 cwd 发起 `agent_start`，事件实时流入对话区，result 汇总（num_turns / cost / duration / session_id）可读
+
+#### Scenario: 运行中停止
+
+- **WHEN** 会话运行中用户点击 composer 的停止入口
+- **THEN** 触发 `agent_stop`，事件流以终止终态收尾且呈现与停止前实时流一致，随后恢复可发送
+
+#### Scenario: 重开重放形状一致
+
+- **WHEN** 用户离开后重新打开该 explore 详情页
+- **THEN** 经重放装载重建的对话区呈现与离开前实时呈现形状一致（同一 `AgentMessages` 透镜渲染）
 
 ### Requirement: 会话链与 stance 前导
 
@@ -91,9 +101,9 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `packages/desktop/src/views/explores/explore-view.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；导入扫描绑定 / 新话题建档；删除入口（不动文件，对话随记录级联清） |
-| `packages/desktop/src/views/explores/explore-detail-view.tsx`（新） | 双栏详情 | resizable 分栏；左对话区右预览；watch 生命周期 = 页面生命周期 |
-| `views/explores/components/`（新：对话区 / composer / 预览 / 新建对话框） | 呈现件 | `message-scroller` + `message` 气泡映射；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
-| `views/explores/hooks/`（新） | 会话链与刷新编排 | 链还原重放 + Channel 实时流；watch 信号防抖 → `read_explore` 显式刷新 |
+| `packages/desktop/src/views/explores/explore-detail-view.tsx`（新） | 双栏详情 | resizable 分栏；左对话区右预览；对话区 / composer 换共享组件族（`AgentMessages` / `AgentInput`）；watch 生命周期 = 页面生命周期 |
+| `views/explores/components/`（新：composer / 预览 / 新建对话框；`explore-conversation.tsx` 已删） | 呈现件 | 对话区由 `components/agent/AgentMessages` 承载（私有渲染实现收编，用例随迁组件族测试）；composer 改用 `AgentInput`；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
+| `views/explores/hooks/use-explore-session.ts`（改） | 会话链与刷新编排 | 改走 `use-agent-chat`（重放装载 + 链参数经 body 穿透）；stance 文本组装留本 hook（来源侧）；对外状态/行为语义不变；watch 信号防抖 → `read_explore` 显式刷新 |
 | `packages/desktop/src/lib/explore-stance.ts`（新） | stance 前导模板 | 拼接进 explore run prompt 头部；与 SKILL.md 双源注释互链 |
 | `routes.tsx` + `components/app-sidebar.tsx` | 路由与导航 | `/explores`、`/explores/:name`；`nav-explores` 入口（active 由 URL 派生） |
 | `types/dto.ts` | 前端 DTO | `ExploreRecord` / 导入扫描结果，与 store 自有类型一一对应 |

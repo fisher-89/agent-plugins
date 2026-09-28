@@ -243,8 +243,8 @@ fn 经命令面add_list顺序与直连store一致_删除与重开后状态经命
             .collect();
         assert_eq!(after_remove, vec![rec_a.root.clone(), rec_c.root.clone()]);
         // 显式取回 Store 所有权并释放：App 内部 Arc 环不保证同步 drop，redb 文件锁须显式还。
-        // 安全性：唯一引用 state 已先行 drop，且测试单线程，unmanage 后无悬垂引用。
-        drop(state);
+        // 安全性：state 借用已随上一断言自然结束（State 为引用包装，无 Drop 副作用），
+        // 且测试单线程，unmanage 后无悬垂引用。
         #[allow(deprecated)]
         let _store = app.unmanage::<Store>().expect("store 应已 manage");
     }

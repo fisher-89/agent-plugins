@@ -79,6 +79,26 @@ describe('AgentRunHistory：run 列表与触发（AC-5 / D13）', () => {
     );
   });
 
+  it('status 为 stopped 的 run 行状态标签呈「已停止」，其余三态标签不回归', () => {
+    mount(
+      historyState({
+        runs: [
+          record(1, 'running', '运行中跑'),
+          record(2, 'completed', '完成跑'),
+          record(3, 'stopped', '停止跑'),
+          record(4, 'failed', '失败跑'),
+        ],
+      }),
+    );
+
+    const statuses = screen.getAllByTestId('run-status').map((node) => node.textContent);
+    expect(statuses).toEqual(['运行中', '已完成', '已停止', '失败']);
+    const stoppedRow = screen
+      .getAllByTestId('agent-run-row')
+      .find((row) => row.getAttribute('data-status') === 'stopped');
+    expect(stoppedRow?.textContent).toContain('停止跑');
+  });
+
   it('点击 run 行 → openRun(id) 恰调用一次（重放触发半边）', () => {
     const openRun = vi.fn();
     mount(historyState({ runs: [record(7, 'completed', '目标 run')], openRun }));
@@ -111,6 +131,25 @@ describe('AgentRunHistory：run 列表与触发（AC-5 / D13）', () => {
     expect(replay.getAttribute('data-selected-run-id')).toBe('7');
     expect(within(replay).getByTestId('agent-timeline') !== null).toBe(true);
     expect(within(replay).getByTestId('event-run-started') !== null).toBe(true);
+  });
+
+  it('重放区限高滚动：max-h-96 overflow-y-auto 容器，内嵌 AgentTimeline 无 props 分叉', () => {
+    mount(
+      historyState({
+        runs: [record(7, 'completed', '限高重放')],
+        events: [event(0), event(1)],
+        selectedRunId: 7,
+      }),
+    );
+
+    // 重放区不再撑高页面：限高容器自身滚动
+    const replay = screen.getByTestId('replay-area');
+    expect(replay.className).toContain('max-h-96');
+    expect(replay.className).toContain('overflow-y-auto');
+    // 内嵌 AgentTimeline 与流式形态同组件同结构（普通块容器内自然高、无 props 分叉）
+    const timeline = within(replay).getByTestId('agent-timeline');
+    expect(timeline.className).toContain('flex-1');
+    expect(within(timeline).getAllByTestId('event-run-started')).toHaveLength(2);
   });
 });
 

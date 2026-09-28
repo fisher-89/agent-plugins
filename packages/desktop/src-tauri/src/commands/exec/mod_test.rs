@@ -1,25 +1,29 @@
-//! exec 三命令（agent_start / agent_runs / agent_run_events）的单元 +
-//! 「exec 查询命令面 → store 类型化事件表重放」与「exec 事件 tee → store
-//! 类型化事件表 → 命令面重放」集成关系测试（AC-1/AC-4）。
+//! exec 命令面（agent_start / agent_stop / agent_runs / agent_run_events /
+//! agent_run_chain）的单元 + 「exec 查询命令面 → store 类型化事件表重放」
+//! 与「exec 事件 tee → store 类型化事件表 → 命令面重放」集成关系测试
+//! （AC-1/AC-4）。
 //!
 //! `#[tauri::command]` 保留原函数可直调：以 `tauri::test::mock_app()`
 //! （MockRuntime，无窗口无事件循环）manage 真实 Store（tempdir 真库）后经
 //! `app.state::<Store>()` 取 State，沿 workspaces/mod_test.rs 惯例。
-//! agent_start 正向（真实 CLI）不直测：以隔离 PATH 触发 CliMissing 走
-//! Err 分支（PATH 环境变量修改以共享互斥锁串行化）。
+//! agent_start 正向（真实 CLI）不直测：命令体首参为 Wry `AppHandle`
+//! （MockRuntime 不可构造），失败分支以命令委托的薄入口 `start_agent_run`
+//! 承载（隔离 PATH 触发 CliMissing 走 Err 分支，PATH 环境变量修改以共享
+//! 互斥锁串行化）；成功链路的编排时序经 `start_agent_run_with` 泛型缝
+//! （假 runner，装置复用 agent_test.rs）。
 
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 
-use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::{AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams};
+use ::agent::{AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams, RunHandle};
 use store::{AgentRunRecord, Store};
 
-use super::{agent_run_chain, agent_run_events, agent_runs, agent_start};
-use crate::commands::exec::agent::agent_test::{FakeRunner, PATH_LOCK};
-use crate::commands::exec::agent::{run_agent_with, RunProvenance};
+use super::{agent_run_chain, agent_run_events, agent_runs, agent_stop, RunStopRegistry};
+use crate::commands::exec::agent::agent_test::{
+    capturing_channel, pushed_event_bodies, start_and_wait_terminal, FakeRunner, PATH_LOCK,
+};
+use crate::commands::exec::agent::{start_agent_run, RunProvenance};
 
 // ---------------------------------------------------------------------------
 // 装置
@@ -44,11 +48,13 @@ impl Env {
     }
 }
 
-/// 以 MockRuntime 建测用 app，并在其中 manage 真实 Store（打开 env 的 db 文件）。
+/// 以 MockRuntime 建测用 app，并在其中 manage 真实 Store（打开 env 的 db
+/// 文件）与 RunStopRegistry（编排同步段注册停止句柄，须先于 start 托管）。
 fn app_with_store(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
     let store = Store::open(&env.db_path()).expect("打开测试 db 失败");
     app.manage(store);
+    app.manage(RunStopRegistry::default());
     app
 }
 
@@ -233,20 +239,8 @@ fn assert_no_events_belong_to(events: &[AgentEvent], tag: &str) {
     }
 }
 
-/// 捕获型 Channel（agent_start 直调入参）。
-fn capturing_channel() -> (Channel<AgentEvent>, Arc<Mutex<Vec<serde_json::Value>>>) {
-    let captured = Arc::new(Mutex::new(Vec::new()));
-    let sink = Arc::clone(&captured);
-    let channel = Channel::new(move |body: InvokeResponseBody| {
-        if let InvokeResponseBody::Json(text) = body {
-            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&text) {
-                sink.lock().expect("捕获锁不可中毒").push(value);
-            }
-        }
-        Ok(())
-    });
-    (channel, captured)
-}
+/// 捕获型 Channel 复用 agent_test 装置（`Channel<AgentRunMessage>` 信封口径，
+/// 实时事件断言经 `pushed_event_bodies` 剥壳）。
 
 // ---------------------------------------------------------------------------
 // agent_runs：薄包装不加工 + 空库空数组
@@ -435,7 +429,7 @@ fn drop后重开同一db命令面重放结果与重开前一致() {
 
 // ---------------------------------------------------------------------------
 // 集成关系 R3：exec 事件 tee → store 类型化事件表 → 命令面重放（假 runner 经
-// run_agent_with 泛型缝注入，沿 agent_test.rs 既有装置）
+// start_agent_run_with 泛型缝注入，沿 agent_test.rs 既有装置）
 // ---------------------------------------------------------------------------
 
 /// 泛型缝入参（cwd 隐含 workspace root 语义，编排不读盘）。
@@ -484,15 +478,16 @@ async fn 假runner五变体事件流经tee落库后命令面重放逐字段保�
     let runner = FakeRunner::with_events(seeded.clone());
     let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(
+    let (_running, record) = start_and_wait_terminal(
+        &app,
         &state,
         &runner,
+        &captured,
         channel,
         run_params(),
         RunProvenance::debug(),
     )
-    .await
-    .expect("completed 会话返回 Ok");
+    .await;
 
     assert_eq!(record.status, "completed", "RunResult 驱动收敛 completed");
     let replayed = agent_run_events(state.clone(), record.id).expect("agent_run_events 应成功");
@@ -502,10 +497,9 @@ async fn 假runner五变体事件流经tee落库后命令面重放逐字段保�
     );
     let seqs: Vec<u64> = replayed.iter().map(|event| event.seq).collect();
     assert_eq!(seqs, vec![0, 1, 2, 3, 4], "重放 seq 升序");
-    // Channel 实时路与落库路一致（tee 双 sink 快照）
-    let pushed = captured.lock().expect("捕获锁不可中毒").clone();
+    // Channel 实时路与落库路一致（tee 双 sink 快照，信封剥壳后对读）
     assert_eq!(
-        serde_json::Value::Array(pushed),
+        serde_json::Value::Array(pushed_event_bodies(&captured)),
         serde_json::to_value(&replayed).unwrap(),
         "Channel 推送序列与命令面重放一致"
     );
@@ -519,16 +513,18 @@ async fn 单run千级seq连续产出后命令面重放序完整不回绕() {
 
     let seeded: Vec<AgentEvent> = (0..1000u64).map(raw).collect();
     let runner = FakeRunner::with_events(seeded);
+    let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(
+    let (_running, record) = start_and_wait_terminal(
+        &app,
         &state,
         &runner,
-        capturing_channel().0,
+        &captured,
+        channel,
         run_params(),
         RunProvenance::debug(),
     )
-    .await
-    .expect("completed 会话返回 Ok");
+    .await;
 
     let replayed = agent_run_events(state.clone(), record.id).expect("agent_run_events 应成功");
     assert_eq!(replayed.len(), 1000, "千级事件一条不丢");
@@ -542,31 +538,34 @@ async fn 单run千级seq连续产出后命令面重放序完整不回绕() {
 }
 
 // ---------------------------------------------------------------------------
-// agent_start：隔离 PATH 走启动失败分支（AC-4 Err(String) + D5 不留行）
+// agent_start：隔离 PATH 走启动失败分支（AC-4 Err(String) + D5 不留行）——
+// 命令体直调需 Wry AppHandle（MockRuntime 不可构造），以命令委托的薄入口
+// `start_agent_run` 承载同一失败链（参数转换段由 assemble 镜像用例锁定）
 // ---------------------------------------------------------------------------
 
-#[tokio::test]
-async fn agent_start在cli不可发现时返回err且store无run行且channel零推送() {
+#[test]
+fn agent_start薄入口在cli不可发现时返回err且store无run行且channel零推送() {
     let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
     let env = Env::new("start-missing");
     let app = app_with_store(&env);
     let state = app.state::<Store>();
     let empty_path = tempfile::tempdir().expect("创建空 PATH 目录失败");
+    let (channel, captured) = capturing_channel();
 
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", empty_path.path());
-    let result = agent_start(
-        state.clone(),
-        capturing_channel().0,
-        "C:\\ws\\demo".to_owned(),
-        "你好".to_owned(),
-        AgentPermissionMode::BypassPermissions,
-        None,
-        None,
-        None,
-        None,
-    )
-    .await;
+    let result = start_agent_run(
+        app.handle().clone(),
+        &state,
+        channel,
+        AgentRunParams {
+            prompt: "你好".to_owned(),
+            cwd: Path::new("C:\\ws\\demo").to_path_buf(),
+            permission_mode: AgentPermissionMode::BypassPermissions,
+            resume_session_id: None,
+        },
+        RunProvenance::debug(),
+    );
     match original {
         Some(value) => std::env::set_var("PATH", value),
         None => std::env::remove_var("PATH"),
@@ -578,13 +577,58 @@ async fn agent_start在cli不可发现时返回err且store无run行且channel零
         state.list_agent_runs().unwrap().is_empty(),
         "D5：启动失败不留 run 行"
     );
+    assert!(
+        captured.lock().unwrap().is_empty(),
+        "启动失败不推送任何事件"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// agent_start 四可选参数：组装语义经 run_agent_with 泛型缝 + FakeRunner 捕获
-// 断言（R2：agent_start 参数 → RunProvenance 编排 → AgentRunRecord v2 落库）。
-// 命令体直调无法替换真实 CLI runner，组装段以 assemble_agent_start_args 逐行
-// 镜像，编排行为经泛型缝全链路观测。
+// agent_stop：miss / 已终态（除名）幂等 Ok（命中 running 句柄的半边经
+// agent_test.rs 停止信号端到端用例承载）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn agent_stop对不存在id与已除名id幂等ok() {
+    let env = Env::new("stop-idempotent");
+    let app = app_with_store(&env);
+    let registry = app.state::<RunStopRegistry>();
+
+    // 不存在 id：registry miss → 无副作用直接 Ok
+    assert!(
+        agent_stop(registry.clone(), 404).is_ok(),
+        "miss 幂等：不存在 id 不报错"
+    );
+
+    // 已终态（除名）id：登记过但已除名 → 同样幂等 Ok
+    registry.register(7, RunHandle::default());
+    registry.remove(7);
+    assert!(
+        agent_stop(registry.clone(), 7).is_ok(),
+        "已终态幂等：除名后不报错"
+    );
+}
+
+#[test]
+fn agent_stop命中running句柄时置位停止信号() {
+    let env = Env::new("stop-hit");
+    let app = app_with_store(&env);
+    let registry = app.state::<RunStopRegistry>();
+    let handle = RunHandle::default();
+    registry.register(9, handle.clone());
+
+    assert!(agent_stop(registry.clone(), 9).is_ok(), "命中不报错");
+    assert!(
+        handle.stop_requested(),
+        "agent_stop 经注册表触达句柄置位停止信号"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// agent_start 四可选参数：组装语义经 start_and_wait_terminal（start_agent_run_with
+// 泛型缝）+ FakeRunner 捕获断言（R2：agent_start 参数 → RunProvenance 编排 →
+// AgentRunRecord v2 落库）。命令体直调无法替换真实 CLI runner，组装段以
+// assemble_agent_start_args 逐行镜像，编排行为经泛型缝全链路观测。
 // ---------------------------------------------------------------------------
 
 /// `agent_start` 命令体的参数转换段（逐行镜像）：IPC 入参 → `AgentRunParams`
@@ -621,11 +665,12 @@ async fn agent_start全参缺省调试页形态params无resume且记录debug缺�
     let (params, provenance) =
         assemble_agent_start_args("C:\\ws\\demo", "调试一轮", None, None, None, None);
     let runner = FakeRunner::with_events(vec![run_started(0), run_result(1, false)]);
-    let (channel, _captured) = capturing_channel();
+    let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&state, &runner, channel, params, provenance)
-        .await
-        .expect("completed 会话返回 Ok");
+    let (_running, record) = start_and_wait_terminal(
+        &app, &state, &runner, &captured, channel, params, provenance,
+    )
+    .await;
 
     let captured = runner.captured_params();
     assert_eq!(captured.len(), 1, "恰发起一次运行");
@@ -658,9 +703,10 @@ async fn agent_start_explore形态全参resume进params三元组进记录且事�
     let runner = FakeRunner::with_events(vec![run_started(0), run_result(1, false)]);
     let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&state, &runner, channel, params, provenance)
-        .await
-        .expect("completed 会话返回 Ok");
+    let (_running, record) = start_and_wait_terminal(
+        &app, &state, &runner, &captured, channel, params, provenance,
+    )
+    .await;
 
     // resume 单独流进 runner 契约（--resume flag 组装细节在 flags_test.rs）
     let runner_params = runner.captured_params();
@@ -701,10 +747,12 @@ async fn agent_start仅传resume时两路各自缺省无串线() {
         None,
     );
     let runner = FakeRunner::with_events(vec![run_result(0, false)]);
+    let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
-        .await
-        .expect("completed 会话返回 Ok");
+    let (_running, record) = start_and_wait_terminal(
+        &app, &state, &runner, &captured, channel, params, provenance,
+    )
+    .await;
 
     assert_eq!(
         runner.captured_params()[0].resume_session_id.as_deref(),
@@ -732,10 +780,12 @@ async fn agent_start仅传source不传定位与链指针时照入参落库() {
         None,
     );
     let runner = FakeRunner::with_events(vec![run_result(0, false)]);
+    let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
-        .await
-        .expect("completed 会话返回 Ok");
+    let (_running, record) = start_and_wait_terminal(
+        &app, &state, &runner, &captured, channel, params, provenance,
+    )
+    .await;
 
     assert_eq!(record.source, "explore");
     assert_eq!(record.source_ref, None);
@@ -763,10 +813,13 @@ async fn parent_run_id指向不存在的run时编排无回查照常落库() {
         Some(9999),
     );
     let runner = FakeRunner::with_events(vec![run_result(0, false)]);
+    let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
-        .await
-        .expect("无回查：不因指针悬挂报错");
+    // 无回查：编排不因指针悬挂报错（发起与终态等待均正常返回）
+    let (_running, record) = start_and_wait_terminal(
+        &app, &state, &runner, &captured, channel, params, provenance,
+    )
+    .await;
 
     assert_eq!(record.parent_run_id, Some(9999), "照常落库");
     assert_eq!(record.source, "explore");
@@ -787,10 +840,12 @@ async fn explore来源run在in_band失败时落failed终态且三字段保留() 
         Some(42),
     );
     let runner = FakeRunner::with_events(vec![run_result(0, true)]);
+    let (channel, captured) = capturing_channel();
 
-    let record = run_agent_with(&state, &runner, capturing_channel().0, params, provenance)
-        .await
-        .expect("in-band 失败返回 Ok(failed 记录)");
+    let (_running, record) = start_and_wait_terminal(
+        &app, &state, &runner, &captured, channel, params, provenance,
+    )
+    .await;
 
     assert_eq!(record.status, "failed", "is_error 收敛 failed");
     assert_eq!(record.source, "explore", "失败路径不丢来源");

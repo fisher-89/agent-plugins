@@ -9,8 +9,8 @@
 //! 跨边界协调 SHALL 触发 app crate 决策（五条翻转信号见 spec），
 //! MUST NOT 以「先塞进命令里」的方式消化编排增长。
 //! `commands/workspaces` 的 `*_inner(&Store)` 纯函数模式与 `commands/exec` 的
-//! `run_agent()` 编排函数同为 app 层微形态，将来抽 app crate 时平移复用
-//! （函数边界升 crate 边界）、不重写、不内联回命令体。
+//! `start_agent_run()` / `drive_agent_run()` 编排函数同为 app 层微形态，将来
+//! 抽 app crate 时平移复用（函数边界升 crate 边界）、不重写、不内联回命令体。
 
 pub mod db;
 pub mod exec;

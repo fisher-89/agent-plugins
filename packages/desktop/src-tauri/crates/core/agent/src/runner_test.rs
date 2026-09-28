@@ -50,7 +50,7 @@ impl AgentRunner for FakeRunner {
         });
         Ok(AgentRun {
             events: receiver,
-            handle: RunHandle,
+            handle: RunHandle::default(),
         })
     }
 }
@@ -233,4 +233,92 @@ fn run_params的cwd含中文空格与尾分隔符时字段保真() {
     assert_eq!(cloned.cwd, PathBuf::from(raw_cwd));
     // 构造面完整：prompt / permission_mode 三字段齐备（json 形态仅作形状示意）
     let _shape = json!({ "prompt": params.prompt });
+}
+
+// ---------------------------------------------------------------------------
+// RunHandle：逻辑终止信号（置位 / 同步观测 / 异步等待 / Clone 共享）。
+// 无外部依赖；tokio sync（Notify/AtomicBool）以真实实现参与，不需要 Mock。
+// 等待语义以「让步自旋 + JoinHandle::is_finished」断言（workspace tokio 无
+// time 特性，不引入 timeout）。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 初始句柄未置位停止信号() {
+    let handle = RunHandle::default();
+    assert!(!handle.stop_requested(), "初始态 stop_requested 为 false");
+    let cloned = handle.clone();
+    assert!(!cloned.stop_requested(), "Clone 出的初始句柄同样未置位");
+}
+
+#[test]
+fn request_stop置位后stop_requested为true且重复置位幂等() {
+    let handle = RunHandle::default();
+    handle.request_stop();
+    assert!(handle.stop_requested(), "request_stop 后同步观测为 true");
+
+    // 重复置位幂等：不 panic、状态不变
+    handle.request_stop();
+    assert!(handle.stop_requested());
+}
+
+#[test]
+fn clone句柄共享信号置位双方可见() {
+    let handle = RunHandle::default();
+    let cloned = handle.clone();
+
+    // 租户泵侧的 Clone 置位 → 编排侧原句柄可见（共享 AtomicBool 语义）
+    cloned.request_stop();
+    assert!(handle.stop_requested(), "Clone 置位后原句柄可观测");
+    handle.request_stop();
+    assert!(cloned.stop_requested(), "原句柄置位后 Clone 侧可观测");
+}
+
+#[tokio::test]
+async fn 已置位时wait_requested经先复查短路立即返回() {
+    let handle = RunHandle::default();
+    handle.request_stop();
+    // 先复查短路：直接 await 即完成（未短路会永久挂起，测试无法通过）
+    handle.wait_requested().await;
+}
+
+#[tokio::test]
+async fn 未请求终止时wait_requested持续挂起不完成() {
+    let handle = RunHandle::default();
+    let waiter = tokio::spawn({
+        let handle = handle.clone();
+        async move { handle.wait_requested().await }
+    });
+
+    // 多轮让步后仍未完成：未置位时等待方挂起（不误唤醒）
+    for _ in 0..64 {
+        tokio::task::yield_now().await;
+        assert!(!waiter.is_finished(), "未置位时等待方不得完成");
+    }
+    waiter.abort();
+}
+
+#[tokio::test]
+async fn 挂起的wait_requested被request_stop唤醒且重复置位不二次异常唤醒() {
+    let handle = RunHandle::default();
+    let waiter = tokio::spawn({
+        let handle = handle.clone();
+        async move { handle.wait_requested().await }
+    });
+
+    // 让 waiter 先运行注册等待（wait_requested 内部「先注册、再复查」关闭
+    // 置位与注册的竞态：即便置位先落，复查也会短路完成）
+    tokio::task::yield_now().await;
+    tokio::task::yield_now().await;
+    assert!(!waiter.is_finished(), "置位前等待方保持挂起");
+
+    handle.request_stop();
+    handle.request_stop(); // 幂等：重复置位不 panic、不产生副作用
+
+    let mut spins = 0;
+    while !waiter.is_finished() {
+        tokio::task::yield_now().await;
+        spins += 1;
+        assert!(spins < 10_000, "request_stop 后等待方应被唤醒");
+    }
+    waiter.await.expect("等待任务正常结束");
 }

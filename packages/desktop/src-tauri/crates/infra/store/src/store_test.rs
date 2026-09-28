@@ -1196,7 +1196,13 @@ fn 删除记录级联清掉名下runs与事件且复用id不错链() {
         None,
     );
     store
-        .append_agent_run_events(run.id, &[stamped(0, run_started_kind()), stamped(1, message_kind("assistant"))])
+        .append_agent_run_events(
+            run.id,
+            &[
+                stamped(0, run_started_kind()),
+                stamped(1, message_kind("assistant")),
+            ],
+        )
         .unwrap();
 
     assert!(
@@ -1206,10 +1212,7 @@ fn 删除记录级联清掉名下runs与事件且复用id不错链() {
         "命中删除返回 true"
     );
     assert!(
-        store
-            .list_agent_run_events(run.id)
-            .unwrap()
-            .is_empty(),
+        store.list_agent_run_events(run.id).unwrap().is_empty(),
         "名下事件随记录级联删除"
     );
     assert!(
@@ -1250,7 +1253,14 @@ fn 级联删除不波及无关runs与事件() {
         None,
     );
     // 干扰一：同 source_ref 不同 source（debug 来源同定位串）
-    let debug_run = begin_provenance_run(&store, "调试 run", 200, "debug", Some(&doomed.id.to_string()), None);
+    let debug_run = begin_provenance_run(
+        &store,
+        "调试 run",
+        200,
+        "debug",
+        Some(&doomed.id.to_string()),
+        None,
+    );
     // 干扰二：同 source 不同 source_ref（另一 explore 记录名下）
     let other_explore = begin_provenance_run(
         &store,
@@ -1266,11 +1276,9 @@ fn 级联删除不波及无关runs与事件() {
             .unwrap();
     }
 
-    assert!(
-        store
-            .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
-            .unwrap()
-    );
+    assert!(store
+        .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
+        .unwrap());
 
     assert!(
         store.list_agent_run_events(bound.id).unwrap().is_empty(),

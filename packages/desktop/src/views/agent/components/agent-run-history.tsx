@@ -1,8 +1,9 @@
 import { Button } from '@/components/ui/button';
 
+import { AgentTimeline } from '../../../components/agent';
+import { eventsToUIMessages } from '../../../lib/agent-adapter';
 import type { AgentRunRecord, AgentRunStatus } from '../../../types/dto';
 import type { AgentRunHistoryState } from '../hooks/use-agent-run-history';
-import { AgentEventTimeline } from './agent-event-timeline';
 
 export interface AgentRunHistoryProps {
   state: AgentRunHistoryState;
@@ -10,7 +11,10 @@ export interface AgentRunHistoryProps {
 
 /** 状态文案（受控字符串直出） */
 function statusLabel(status: AgentRunStatus): string {
-  return status === 'running' ? '运行中' : status === 'completed' ? '已完成' : '失败';
+  if (status === 'running') return '运行中';
+  if (status === 'completed') return '已完成';
+  if (status === 'stopped') return '已停止';
+  return '失败';
 }
 
 /** 单条 run 行：状态 / 时间 / 提示词摘要，点开重放 */
@@ -54,7 +58,7 @@ function RunRow({ run, onOpen }: { run: AgentRunRecord; onOpen: (runId: number) 
 /**
  * 历史运行区：run 列表（状态 / 时间 / 提示词摘要）→ 点开经 invoke 查询重放
  * 落库事件（不要求原运行进程存活）+ 显式刷新按钮。run 结束不自动刷新——
- * 列表仅经显式刷新 / 点开取得。
+ * 列表仅经显式刷新 / 点开取得。重放区限高（max-h-96）内部滚动，不撑高页面。
  */
 export function AgentRunHistory({ state }: AgentRunHistoryProps): React.JSX.Element {
   return (
@@ -92,11 +96,15 @@ export function AgentRunHistory({ state }: AgentRunHistoryProps): React.JSX.Elem
         <RunRow key={run.id} run={run} onOpen={state.openRun} />
       ))}
       {state.selectedRunId !== null && (
-        <div className="mt-3" data-testid="replay-area" data-selected-run-id={state.selectedRunId}>
+        <div
+          className="mt-3 max-h-96 overflow-y-auto"
+          data-testid="replay-area"
+          data-selected-run-id={state.selectedRunId}
+        >
           <div className="mb-1 text-xs text-muted-foreground">
             重放 run #{state.selectedRunId}（落库事件）
           </div>
-          <AgentEventTimeline events={state.events} running={false} />
+          <AgentTimeline messages={eventsToUIMessages(state.events)} running={false} />
         </div>
       )}
     </section>

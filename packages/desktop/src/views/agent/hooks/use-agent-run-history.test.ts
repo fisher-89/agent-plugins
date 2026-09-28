@@ -67,10 +67,16 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     invokeMock.mockReset();
   });
 
-  it('挂载不自动取数：不发起任何 invoke', () => {
-    renderHook(() => useAgentRunHistory());
+  it('挂载即自动取数：invoke("agent_runs") 恰一次，runs 承接清单', async () => {
+    invokeMock.mockResolvedValue(RUNS_DESC);
+    const { result } = renderHook(() => useAgentRunHistory());
 
-    expect(invokeMock).not.toHaveBeenCalled();
+    await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
+
+    expect(invokeMock).toHaveBeenCalledTimes(1);
+    expect(invokeMock).toHaveBeenCalledWith('agent_runs');
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
   });
 
   it('refresh() → invoke("agent_runs") → runs 按后端降序原样承接', async () => {

@@ -1,0 +1,1223 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-28",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-28T05:07:05.929Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/state.rs",
+      "at": "2026-09-28T05:27:34.520Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/runner.rs",
+      "at": "2026-09-28T05:30:35.780Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/lib.rs",
+      "at": "2026-09-28T05:28:31.526Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/runner.rs",
+      "at": "2026-09-28T06:06:02.956Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/runner_test.rs",
+      "at": "2026-09-28T05:29:53.066Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent.rs",
+      "at": "2026-09-28T06:05:25.205Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-09-28T05:35:10.641Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-28T05:33:32.288Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-adapter.ts",
+      "at": "2026-09-28T06:07:41.289Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-transport.ts",
+      "at": "2026-09-28T06:08:04.758Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.ts",
+      "at": "2026-09-28T06:10:19.587Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/types/dto.ts",
+      "at": "2026-09-28T05:42:51.296Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/tsconfig.json",
+      "at": "2026-09-28T05:43:46.667Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/agent-blocks.tsx",
+      "at": "2026-09-28T05:49:31.808Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/tool-cards.tsx",
+      "at": "2026-09-28T05:48:25.334Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/agent-messages.tsx",
+      "at": "2026-09-28T05:49:18.090Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/agent-timeline.tsx",
+      "at": "2026-09-28T05:50:44.548Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/agent-input.tsx",
+      "at": "2026-09-28T05:51:05.603Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/index.tsx",
+      "at": "2026-09-28T06:02:54.526Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-session.ts",
+      "at": "2026-09-28T05:54:04.859Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/components/explore-composer.tsx",
+      "at": "2026-09-28T05:52:37.498Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/explore-detail-view.tsx",
+      "at": "2026-09-28T05:52:56.708Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.tsx",
+      "at": "2026-09-28T05:59:39.054Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-run-history.tsx",
+      "at": "2026-09-28T05:53:30.033Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "src/views/explores/components/explore-conversation.tsx",
+      "at": "2026-09-28T05:54:48.044Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "src/views/explores/components/explore-conversation.test.tsx",
+      "at": "2026-09-28T05:54:48.044Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "src/views/agent/components/agent-event-timeline.tsx",
+      "at": "2026-09-28T05:54:48.044Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "src/views/agent/components/agent-event-timeline.test.tsx",
+      "at": "2026-09-28T05:54:48.044Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "src/views/agent/hooks/use-agent-run.ts",
+      "at": "2026-09-28T05:54:48.044Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "src/views/agent/hooks/use-agent-run.test.ts",
+      "at": "2026-09-28T05:54:48.044Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/knip.json",
+      "at": "2026-09-28T06:03:17.358Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "scratch-smoke/smoke2.ts",
+      "at": "2026-09-28T06:08:25.105Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "scratch-smoke",
+      "at": "2026-09-28T06:14:19.597Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent.rs",
+      "at": "2026-09-28T06:40:01.595Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent_test.rs",
+      "at": "2026-09-28T06:41:19.221Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-09-28T06:49:14.458Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-28T06:43:58.687Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-28T06:44:01.120Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+      "at": "2026-09-28T06:44:50.914Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/runner_test.rs",
+      "at": "2026-09-28T06:45:41.933Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/runner_test.rs",
+      "at": "2026-09-28T06:49:15.576Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/workspaces/mod_test.rs",
+      "at": "2026-09-28T06:49:17.978Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 3,
+      "path": "packages/desktop/src/components/agent/agent-messages.tsx",
+      "at": "2026-09-28T08:14:05.444Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 3,
+      "path": "packages/desktop/src/components/agent/agent-timeline.tsx",
+      "at": "2026-09-28T08:19:02.407Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 3,
+      "path": "packages/desktop/src/views/agent/components/agent-run-history.tsx",
+      "at": "2026-09-28T08:16:48.901Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 3,
+      "path": "packages/desktop/src/app.tsx",
+      "at": "2026-09-28T08:15:34.745Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 3,
+      "path": "packages/desktop/src/views/explores/explore-detail-view.tsx",
+      "at": "2026-09-28T08:15:35.812Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 3,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.tsx",
+      "at": "2026-09-28T08:16:44.557Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 3,
+      "path": "packages/desktop/src/views/agent/components/agent-raw-stream.tsx",
+      "at": "2026-09-28T08:16:46.617Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-adapter.test.ts",
+      "at": "2026-09-28T09:28:27.763Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-transport.test.ts",
+      "at": "2026-09-28T09:28:27.095Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.test.ts",
+      "at": "2026-09-28T08:55:20.214Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/agent-messages.test.tsx",
+      "at": "2026-09-28T08:59:42.357Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/agent-timeline.test.tsx",
+      "at": "2026-09-28T09:02:02.949Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/agent-input.test.tsx",
+      "at": "2026-09-28T09:29:59.593Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent/tool-cards.test.tsx",
+      "at": "2026-09-28T09:01:19.038Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-session.test.ts",
+      "at": "2026-09-28T09:04:50.108Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+      "at": "2026-09-28T09:07:12.022Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-run-history.test.tsx",
+      "at": "2026-09-28T09:18:44.323Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-raw-stream.test.tsx",
+      "at": "2026-09-28T09:08:00.744Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/app.test.tsx",
+      "at": "2026-09-28T09:27:39.226Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/state_test.rs",
+      "at": "2026-09-28T09:21:48.576Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/runner_test.rs",
+      "at": "2026-09-28T09:22:13.010Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/runner_test.rs",
+      "at": "2026-09-28T09:22:50.183Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.ts",
+      "at": "2026-09-28T10:19:15.905Z"
+    },
+    {
+      "op": "revert",
+      "scope": "workflow",
+      "path": "packages/desktop/src/hooks/use-agent-chat.ts",
+      "at": "2026-09-28T09:59:04.345Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/lib/agent-adapter.ts",
+      "at": "2026-09-28T09:55:06.905Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+      "at": "2026-09-28T10:19:25.616Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-session.ts",
+      "at": "2026-09-28T10:19:34.249Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "proposal.md 评估:问题4点具体(670行双胞胎渲染/取数重复/无终止/状态无收口);变更范围实现10+测试5+删除2+不要修改5;6风险均具体缓解;AC-1~8对象+条件可测;7决策均列被拒绝备选(Rust直出/增量流/旁路注册表/v5);3 specs 与能力1:1(chat-infra=ADDED,execution/explore=ADDED+MODIFIED/MODIFIED 与修改能力一致);AC 各条在 spec scenario 有落点;无TODO/占位符;knip 缓解与 CLAUDE.md 一致。全部通过。",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-16 列4点具体问题: 渲染重复(explore-conversation.tsx vs agent-event-timeline.tsx 约670行)、取数重复(useAgentRun/useExploreSession)、无终止能力(引 spec「无 kill」已知限制)、状态模型无收口,均带具体文件与机制描述"
+        },
+        {
+          "item": "R2 变更范围明确划分为实现文件、测试文件 和 不要修改",
+          "pass": true,
+          "evidence": "L47 实现文件(10条)、L60 测试文件(5条)、L68 删除文件(2条)、L73 不要修改(5条),实现与测试均非空"
+        },
+        {
+          "item": "R3 风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L100-107 六风险均有具体措施: 版本锁定+适配层隔离带;两 hook 同批改造+Rust 测试锁时序;design 核实 taskkill /T;既有组件测试用例迁移;不新增 test-only 导出。无泛化「监控并调整」"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "L85-94 AC-1~8 均对象+条件: AC-1 单测覆盖五变体映射;AC-2 假 Channel/invoke 测试;AC-7 cargo 测试提前resolve/幂等;AC-8 检索 views/ 与 Rust/store 无 ai-sdk import"
+        },
+        {
+          "item": "R5 关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L115-123 决策表7行均含备选方案列: B Rust直出(格式裂开+版本耦合)、C 不依赖ai-sdk、增量流、构造闭包注入、方案b旁路进程注册表、failed+error文案、v5"
+        },
+        {
+          "item": "R6 提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L107 knip 风险缓解「不新增 test-only 导出,一律经公共 API 测试」与 CLAUDE.md 编码指南5一致;L79 不引入 assistant-ui 额外组件库符合 simplicity first"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{}};L57-58「design 定」与 L127-132 待决问题为显式流程交接而非占位符"
+        },
+        {
+          "item": "R8 所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9-16)/提案(L20-28)/变更范围(L45-79)/验收标准(L83-94)/风险(L98-107)均实质性,无空章节"
+        },
+        {
+          "item": "R9 能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L32 ## 能力;L34 新增能力 desktop-agent-chat-infra 非空;L38 修改的能力 desktop-agent-execution、desktop-explore-page 非空"
+        },
+        {
+          "item": "R10 specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 恰有 desktop-agent-chat-infra、desktop-agent-execution、desktop-explore-page 三个 spec.md,与能力章节3条一一对应,无多余无缺失"
+        },
+        {
+          "item": "R11 proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "chat-infra=ADDED 对应新增;execution=ADDED(agent_stop)+MODIFIED 对应修改;explore=MODIFIED 对话区呈现。AC-7↔提前resolve/幂等忽略/stop收敛scenario,AC-8↔import收口+信封不动,AC-3↔链参数穿透;删除文件与 explore spec Module Contract（删）一致;MVP「无 kill 偿还」两文一致"
+        }
+      ],
+      "start_at": "2026-09-28T04:05:38.996Z",
+      "timestamp": "2026-09-28T04:17:02.614Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "D1 组件表10行四列全填无TBD; D2 数据模型5模型三列齐; D3 design验收对齐表AC-1~8逐项落点; D4 tasks六阶段复选框, 顺序Rust→基建→组件→接线→删除→守线无逆序; D5 任务到函数/常量/签名级; D6 运行时ai v7, 构建无新增; D7 knip纪律/vp脚本/store零迁移与项目约定一致; D8 六章节实质填写, 变更清单新增6+修改17+删除6; D9 design无测试策略章节, tasks无测试任务, 守线仅静态; D10 proposal实现文件全覆盖, 级联文件注明理由, tasks与清单双向一致。判定: pass",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表10行（适配层/transport/hook/组件族/状态机/RunHandle/击杀泵/编排/命令面/页面接线），职责/文件位置/依赖/技术四列全填，无TBD；路径具体到文件（state.rs、exec/agent.rs等均经磁盘核实存在）；components/agent/ 目录行由变更清单落到逐文件"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表5个模型（AgentRunRecord/AgentEvent/AgentRunMessage/AgentUIMessage/RunStopRegistry），字段、关系、持久化三列均实质填写，并明示schema零变更"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "design「验收标准对齐」表AC-1~AC-8逐项给出落点：五变体映射表、transport关流时序、hook链参数/stop、双透镜组件、explore/debug接线、Rust stopped收敛与幂等、ai收口四文件纪律"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md六阶段全部为「- [ ]」复选框；顺序Rust→前端基建→组件族→页面接线→删除→守线；组件任务依赖的块渲染件/注册表在同阶段在前，删除在换线之后，无前置依赖后续"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "任务到函数/常量/签名级：RunStateMachine::stop收敛分支、RunStopRegistry(Mutex<HashMap<i64,RunHandle>>)、taskkill /PID /T /F、eventsToUIMessages/eventToChunk/runRecordToUIMessage、statusLabel增stopped，无泛化「实现功能」"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "运行时：ai(v7锚定,新增)与@tauri-apps/api(既有)；构建/测试依赖明示无新增并列既有vp/knip/tokio sync特性"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "守线明示无test-only导出（knip纪律）、client:check/server:check走vp脚本、store schema零迁移无兼容层、AgentEvent信封/agent-cli/store为禁区，与CLAUDE.md及项目约定不矛盾"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增6+修改17+删除6，含新增与修改文件）/数据模型/路由API（agent_start演进+agent_stop新增+停止时序）/依赖/待决问题4项全部实质填写"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design无测试策略/测试架构章节，仅声明测试归test-design/test-gen/test-execution；tasks无单测/集成测试任务与测试命令，阶段六明示「静态，不含测试执行」"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal实现文件10条全覆盖（core/agent与击杀机制按proposal「design定」落到具体文件）；清单外级联文件（dto/agent-run-history/use-agent-run/store model/main.rs）注明理由；tasks与清单双向覆盖；公共函数/类型子表与新增文件对应无矛盾（agent-blocks内部渲染件非公共API面，已在新增表说明列枚举）"
+        }
+      ],
+      "start_at": "2026-09-28T04:17:30.988Z",
+      "timestamp": "2026-09-28T04:45:07.197Z",
+      "stale": true
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "test-design 与 proposal/design 对齐：AC-1~8 全部映射验收范围（AC-8 归不可测试项）；单元/集成双向对应无缺失（AC-3/5/6/7 指向集成关系1-6）；异常边界覆盖系统（有异常面的模块均有异常行，纯函数模块异常语义以边界行承载）；进程边界 Mock 完备；幂等（agent_stop、首个收敛生效、运行中禁发）充分；T8 格式与模板一致。全部通过。",
+      "checklist": [
+        {
+          "item": "T1: proposal 每条 AC 映射验收范围",
+          "pass": true,
+          "evidence": "proposal L85-94 的 AC-1~AC-8 与 test-design 验收范围表 L13-20 一一对应，验收条件原文摘录；AC-8 映射不可测试项 1（静态 import 边界，L736）并给原因"
+        },
+        {
+          "item": "T2: 验收范围与测试章节双向对应",
+          "pass": true,
+          "evidence": "单元向：AC-1/2/4 的 6 个测试文件均有 ### 源->测试 章节（L29/59/116/138/159/182）；集成分向：AC-3→关系1(L478)、AC-5→关系2/3(L534/572)、AC-6→关系4(L606)、AC-7→关系5/6(L645/703)，引用 AC-ID 均存在"
+        },
+        {
+          "item": "T3: 单元测试异常与边界覆盖充分",
+          "pass": true,
+          "evidence": "有异常面的模块均有异常行：transport L77、use-agent-chat L103/104、agent-input L174、exec/agent.rs L389/395、mod.rs L421；纯函数/渲染/状态机模块异常语义以边界行承载（adapter 未知事件 L48/空输入 L47、tool-cards L195/196、state 幂等 L328-330）；参数边界系统覆盖（null 守卫 L107、空链 L106、seq 乱序 L397、Channel 已关 L396）"
+        },
+        {
+          "item": "T4: 外部依赖 Mock 策略",
+          "pass": true,
+          "evidence": "进程边界均有 Mock 表：@tauri-apps/api/core（L84/112/499/557/629）、假 runner+Channel 捕获+tempdir 真库（L401-405/666-670/688-691/724-728）、PATH 隔离（L429）；关系3 无跨进程边界以注释说明省略（L592）"
+        },
+        {
+          "item": "T5: 模板章节实质内容齐备",
+          "pass": true,
+          "evidence": "验收范围 8 行、单元 22 个 per-file 章节均含待测功能/用例/Mock策略、集成 6 关系、不可测试项 8 条均有实质内容；不建测试文件章节以注释给出理由并指向集成关系"
+        },
+        {
+          "item": "T6: 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "in_scope 全覆盖（含级联文件 dto/agent-run-history/main.rs/model.rs 与 use-agent-run 等删除面）；禁区（信封五变体、store schema、agent-cli jsonl）无新增测试；不建零用例套件的决定集中在不可测试项"
+        },
+        {
+          "item": "T7: 写操作幂等性验证",
+          "pass": true,
+          "evidence": "state.rs stop 幂等/连续调用/竞态（L328-330）；agent_stop 不存在与已终态 id 均 Ok（L422-423、集成5 L681）；运行中重复发送忽略（L103、L513）；首个收敛生效不改写（L393、L683）"
+        },
+        {
+          "item": "T8: 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "22 个单元 ### 均 <源> -> <测试> 且三小节齐序；用例/Mock 表列名合规无测试文件列；6 个集成 ### 均 → 测试文件，涉及模块≥3 行、关联AC/关系描述/场景齐备，场景用例列为 路径类型|测试条件|迭代类型；验收范围表列名与模板一致（L11）"
+        }
+      ],
+      "start_at": "2026-09-28T04:45:34.644Z",
+      "timestamp": "2026-09-28T05:03:30.281Z",
+      "stale": true
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "未通过。run_agent/run_agent_with 删除级联未收口：agent_test.rs:22 与 mod_test.rs:22 仍 import 已删符号并编入 crate（#[path] agent.rs:303、mod.rs:24），cargo test --workspace 编译必败（E0432）；实现已随迁 runner_test.rs 泵缝，证明 Rust 测试缝级联属本阶段范围，阶段一-5/六-2 勾选不成立。次要：agent-debug-view.test.tsx:17 仍 mock 已删 use-agent-run（随迁归测试阶段）。其余适配层/transport/hook/组件族/Rust stop+提前 resolve/AC-8 收口均符合 design。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "适配层/transport/hook/组件族/state.rs Stopped/RunHandle/击杀泵/start_agent_run+drive_agent_run/agent_stop/页面接线逐项落盘核实"
+        },
+        {
+          "item": "I2 变更清单三态对账",
+          "pass": false,
+          "evidence": "run_agent/run_agent_with 已从 agent.rs 删除，但 agent_test.rs:22 与 mod_test.rs:22 仍 import 已删符号（多处理调用），经 #[path](agent.rs:303) 与 mod.rs:24 编入 crate，cargo test --workspace 编译必败 E0432；删除级联未收口"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "新文件命名/组织/导入模式与代码库一致，app 层微形态与 *_inner 同列纪律保持"
+        },
+        {
+          "item": "I4 路由/API 已实现",
+          "pass": true,
+          "evidence": "agent_start 提前 resolve + Channel<AgentRunMessage>；agent_stop 幂等；main.rs:50,61 注册"
+        },
+        {
+          "item": "I5 任务勾选真实完成",
+          "pass": false,
+          "evidence": "阶段一-5「移除旧形态」与阶段六-2「server:check 零告警」（clippy 默认不编 test 目标）被 E0432 证伪；阶段五-4 零残留声明被 agent-debug-view.test.tsx:17 的 use-agent-run mock 证伪（用例随迁归测试阶段，非阻断）"
+        },
+        {
+          "item": "I6 无计划外代码",
+          "pass": true,
+          "evidence": "清单外改动均为良性级联（lib.rs 文档、runner_test.rs 泵缝随迁、lockfile、knip/tsconfig/pnpm-workspace 配置、store_test.rs 仅 fmt）；无无关源码删除"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "五 data 部件、非 running 链尾、stop 不截断前端流、taskkill /T /F+CREATE_NO_WINDOW、STATUS_STOPPED 三处同步、AppHandle 取 State、tee 双 sink、EOF 收敛优先级、AC-8 import 收口（grep 仅 3 基建文件命中）"
+        }
+      ],
+      "start_at": "2026-09-28T05:03:55.365Z",
+      "timestamp": "2026-09-28T06:21:57.616Z",
+      "stale": true
+    },
+    {
+      "phase": "implement",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "attempt2 通过。三态对账：新增6/修改16/删除6全部落盘核实，清单外条目均为必要级联（core/infra runner_test 编译修复、tsconfig node types、knip ignore、Cargo.toml 与 commands/mod.rs 文档随迁）。Rust stopped 收敛/停止句柄/taskkill 树杀/编排拆分/agent_stop/注册表全落地，停止路径无 error_process_exit 合成；AC-8 边界核实（ai import 仅 adapter+transport，useChat 限 use-agent-chat，views 零命中）；use-explore-session.test 4 败经 test-design.md 核实归测试阶段，不计。微差两处：index.tsx 未再导出 DEFAULT_TOOL_CARDS（按同任务行 knip 纪律取舍，符号仍在 tool-cards.tsx 被消费）；非 Windows 击杀 kill -9 替 start_kill（pid 缝等价，已注释）。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "适配层/transport/hook/组件族6新文件存在且符号齐(eventsToUIMessages/eventToChunk/runRecordToUIMessage/TauriAgentTransport/useAgentChat)；state.rs Stopped+stop()、core runner.rs RunHandle 三原语、infra pump select+taskkill/CREATE_NO_WINDOW、exec/agent.rs start_agent_run/drive_agent_run/AgentRunMessage/RunStopRegistry/STATUS_STOPPED、mod.rs agent_start/agent_stop、main.rs 注册+manage 全部在位"
+        },
+        {
+          "item": "I2 变更清单三态对账",
+          "pass": true,
+          "evidence": "新增6/修改16/删除6 全落盘核实(explore-conversation、agent-event-timeline、use-agent-run 连测试共6文件已不存在)；清单外条目均为必要级联：core runner_test RunHandle::default() 编译修复、tsconfig node types、knip ignoreDependencies @types/json-schema、Cargo.toml/commands/mod.rs 文档随迁、workspaces/mod_test 注释修正；deleted 侧记录缺 packages/desktop 前缀属记录拼写，文件系统已证实删除"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "kebab-case 文件名、共置 *_test.rs、无 test-only 导出(index.tsx 只导出被消费符号)、vp 工具链未动、run_agent_with 零残留(mod_test/agent_test 均改走 start_agent_run_with/drive_agent_run)"
+        },
+        {
+          "item": "I4 路由/API 均实现",
+          "pass": true,
+          "evidence": "agent_start 提前 resolve running 记录且 on_event: Channel<AgentRunMessage>；agent_stop(registry, run_id) 新增幂等；main.rs invoke_handler 注册+app.manage(RunStopRegistry)；agent_runs/agent_run_events/agent_run_chain 未动"
+        },
+        {
+          "item": "I5 tasks.md 全部勾选",
+          "pass": true,
+          "evidence": "tasks.md 24 项全勾；抽查阶段六守线声明与代码相符(AC-8 import 边界、禁区 flags/jsonl/store schema 零写入记录)"
+        },
+        {
+          "item": "I6 无计划外代码",
+          "pass": true,
+          "evidence": "scratch-smoke 已写已删(净零)；无无关源码删除；agent-debug-view.test.tsx 改 mock use-agent-chat 为被删 hook 的必要随迁"
+        },
+        {
+          "item": "I7 设计决策落实",
+          "pass": true,
+          "evidence": "停止路径无 error_process_exit 合成(pump_lines stopped 分支直接 return)；drive EOF 三分支=状态机优先/stop→stopped/兜底 failed；store 写失败先流 Record 再除名；链尾非 running 过滤在 use-agent-chat chainTail；AC-8: from 'ai' 仅 adapter/transport，useChat(@ai-sdk/react) 限 use-agent-chat，views 零命中；use-explore-session.test 4 败经 test-design.md L244-256 核实该套件随迁归测试阶段，不计本相。微差：index.tsx 未再导出 DEFAULT_TOOL_CARDS(按同任务行 knip 纪律取舍，符号在 tool-cards.tsx 且被 agent-messages 消费)；非 Windows 击杀用 kill -9 替 child.start_kill(pid 缝等价，代码注释已说明)"
+        }
+      ],
+      "backtrack_to": "dev-design",
+      "backtrack_reason": "用户手动执行回溯,补充新设计需求:1) 显示的 agent 消息中不应包含 system 类型消息;2) explore 与 debug 场景未实现区域滚动,期望消息区域撑满窗口剩余区域、超出时内部滚动。需回 dev-design 更新 design.md 与 tasks.md。",
+      "start_at": "2026-09-28T06:22:37.147Z",
+      "timestamp": "2026-09-28T07:00:06.003Z",
+      "stale": true
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "回溯修订(attempt2)通过。两新需求决策完整:1) system过滤缝定在AgentMessages渲染入口,适配层照产/hook不滤/保真透镜全量,缝选择与破坏面论证齐,五载体列举+empty/loading改过滤后+AC-4/5口径显式收窄并留测试承接;2) 三级flex链壳层→场景根→消息区逐场景落点(explore缺环=根flex-1一环;debug根改+流视图区flex-1),拒绝h-full备选,非目标路由守线,replay嵌入态与scroller降级路径备案。D1-D10全过:组件表11行四列齐,五模型三列,AC-1~8逐项对齐,九阶段无逆序(七至九仅改三四阶段已建文件),任务到className/分支级,依赖无新增,守线走vp无test-only,清单新增6+修改19+删除6与tasks双向一致。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表L38-50共11行,职责/文件位置/依赖/技术四列全填无TBD;components/agent/与views/*/两行聚合路径由变更清单逐文件落点(6新增+6视图修改文件逐一列出),attempt1同构判定一致"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "L252-258五模型(AgentRunRecord/AgentEvent/AgentRunMessage/AgentUIMessage/RunStopRegistry)字段/关系/持久化三列齐,明示schema零变更;L257回溯注记system角色仅呈现过滤状态形状不变;L260声明数据模型零变更"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "L294-303对齐表AC-1~8逐项落点;回溯需求映射AC-4/5(渲染入口过滤+呈现基线收窄注记L300)与AC-6(流视图区flex-1+内部滚动+重放限高L301);AC-8补message-scroller走vendored不经ai(L303)"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "九阶段复选框:一至六[x]存档、七至九[ ]回溯范围(符合回溯修订结构);顺序Rust→基建→组件→接线→删除→守线→回溯修订→回溯守线;七/八仅改三四阶段已建文件与app.tsx,九守线殿后,无前置依赖后续"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "回溯任务到className/分支级:role !== 'system'入口过滤、删system/onlyData分支与InfoRow/RawView、section增flex min-h-0 flex-1 flex-col、replay-area max-h-96 overflow-y-auto、包裹层增flex min-h-0 flex-col,均具体操作非泛化实现"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "L280-284运行时:ai v7(新增,含四类基建文件收口纪律)、@tauri-apps/api既有、vendored message-scroller既有;L288构建/测试明示无新增(vp/knip/tokio sync既有),测试归测试阶段"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "L217不引公共helper避免test-only导出污染knip、守线走vp client:check/server:check(L53-54,74)、store零迁移(L254)、禁区零diff(阶段九L75)、无ai概念入Rust/store,与CLAUDE.md knip/vite-plus/surgical纪律一致"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(新增6+修改19+删除6+公共函数+类型+配置)/数据模型/路由API(agent_start演进+agent_stop新增+停止时序L272)/依赖/待决问题(备案+3开放项L309-312)均实质填写;变更清单含新增与修改文件"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design无测试策略/测试架构章节,仅可测缝表述与阶段交接;tasks无单测/集成测试任务,阶段六/九明示「静态，不含测试执行」,client:check/server:check为lint/typecheck非测试执行;用例随迁显式归测试阶段"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal实现文件10条全覆盖;回溯新增修改app.tsx与agent-raw-stream.tsx均在L178注明理由且各有任务(阶段八);tasks引用文件均在清单、清单文件均有任务(双向核对);新增文件符号在公共函数/类型子表对应,回溯不新增API(L217,238)"
+        }
+      ],
+      "start_at": "2026-09-28T07:21:20.797Z",
+      "timestamp": "2026-09-28T07:37:34.008Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "fail",
+      "report": "8/9 通过：AC 全映射、章节双向齐备、异常/边界充分、幂等用例齐备、格式合模板、其余 Mock 主体均为进程边界或注入缝。唯一 fail T9：agent-debug-view 章节 Mock策略以 vi.mock 替换内部模块 use-agent-chat/use-agent-run-history（组件内 import 直调，非进程边界/注入入参，见 agent-debug-view.tsx L6/L10/L79/L81）。修正方向：页面用例仅 mock @tauri-apps/api/core 进程边界、真实组合 use-agent-chat（同文档 use-explore-session 章节已示范该模式）。",
+      "checklist": [
+        {
+          "item": "T1 proposal 验收标准全映射",
+          "pass": true,
+          "evidence": "proposal.md L87-94 AC-1~AC-8 与 test-design.md L13-20 验收范围逐条对应；AC-8 静态收口映射不可测试项 1 并说明原因"
+        },
+        {
+          "item": "T2 验收范围与单元测试双向对应",
+          "pass": true,
+          "evidence": "AC 行 12 个测试文件均有对应 ### 章节；反向 24 个源文件章节合模板「每源文件一章节」要求，7 个不建文件章节与不可测试项 5-9 对应，app/agent-raw-stream 为回溯新增断言面且章节注释说明"
+        },
+        {
+          "item": "T3 异常与边界充分覆盖",
+          "pass": true,
+          "evidence": "异常用例：启动失败 L79/109/474、运行中禁发 L108/184/269、store 写失败 L480、PATH 失败 L507；非法输入按边界：未知事件 L50、未注册回退 L205、null 守卫 L112/270；纯渲染/纯类型章节注释说明无异常路径"
+        },
+        {
+          "item": "T4 外部依赖 Mock 策略已描述",
+          "pass": true,
+          "evidence": "tauri invoke/Channel L88/119/276、Rust Channel::new 捕获 L490、假 runner 泛型缝 L489、PATH 隔离 L516、行流/击杀缝注入 L457-458；store 显式不 mock 用 tempdir 真库 L491"
+        },
+        {
+          "item": "T5 模板章节实质内容",
+          "pass": true,
+          "evidence": "验收范围表、24 个 per-file 章节各含待测功能/用例/Mock策略三子章节、不可测试项 9 条均填实质内容；不建文件章节含理由注释"
+        },
+        {
+          "item": "T6 与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal 无 out_of_scope；不要修改区（信封/store schema/agent-cli/其余页面）无越界用例；实现文件均有覆盖或不可测试项 1/5-9 承载；删除文件用例吸收见 AC-4/5"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "agent_stop 不存在/已终态 id Ok L508-509；state stop 已收敛幂等/连续调用/竞态首收敛 L400-402；编排全链除名后寻址 miss L483"
+        },
+        {
+          "item": "T8 产物结构与模板一致",
+          "pass": true,
+          "evidence": "24 个 ### 标题均 源->测试 格式；三子章节顺序正确；待测功能无序列表；用例表 测试对象|路径类型|测试条件|迭代类型、Mock表 Mock主体|Mock方案|应用场景 均无测试文件列；验收范围 3 列合模板"
+        },
+        {
+          "item": "T9 Mock策略遵守最小 mock 原则",
+          "pass": false,
+          "evidence": "L328 agent-debug-view 章节 vi.mock 内部模块 use-agent-chat/use-agent-run-history：非进程边界、非显式入参（agent-debug-view.tsx L6/L10 组件内 import 直调，非注入）。应改为真实组合：仅 mock @tauri-apps/api/core 进程边界，沿同文档 use-explore-session 章节 L276 既有模式"
+        }
+      ],
+      "start_at": "2026-09-28T07:44:21.551Z",
+      "timestamp": "2026-09-28T08:02:28.327Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "test-design（design 回溯修订版）逐项核验通过：T1 proposal AC-1~8 全部映射验收范围（AC-8 显式路由不可测试项1）；T2 AC 表 15 个测试文件与 ### 章节双向无缺失；T3 各模块含异常/边界用例（transport 启动失败、use-agent-chat 禁发/启动失败、adapter 空输入与未知事件、agent_stop/state stop 幂等）；T4 invoke/Channel、CLI 子进程、store 全有 Mock 策略；T5 章节齐全、三小节完整，不建文件处注释说明；T6 不要修改项零新增覆盖；T7 幂等用例在场；T8 标题 -> 模式、三小节顺序、表格列名均合规；T9 仅 mock 进程边界，内部协作者真实组合。全部通过，verdict=pass。",
+      "checklist": [
+        {
+          "item": "T1 proposal AC 全部映射验收范围",
+          "pass": true,
+          "evidence": "proposal.md 验收标准 AC-1~AC-7 逐条对应 test-design.md 验收范围表 L13-19（文案逐字一致）；AC-8 映射于 L20 并显式路由「不可测试项 1」（L555），该项完整解释静态 import 边界不可自动化原因"
+        },
+        {
+          "item": "T2 验收范围与单元测试章节双向对应",
+          "pass": true,
+          "evidence": "AC 表全部测试文件均有对应 ### 章节：agent-adapter(L31)/agent-transport(L61)/use-agent-chat(L90)/agent-messages(L121)/agent-timeline(L146)/agent-input(L169)/tool-cards(L192)/use-explore-session(L254)/agent-debug-view(L306)/agent-run-history(L332)/agent_test.rs(L462)/mod_test.rs(L495)/state_test.rs(L388)/core runner_test.rs(L410)/infra runner_test.rs(L435)；反向亦无缺失"
+        },
+        {
+          "item": "T3 异常与边界用例充分",
+          "pass": true,
+          "evidence": "每模块均含异常/边界：transport 启动失败(L79)+空流/未知信封(L80-81)；use-agent-chat 运行中禁发/启动失败(L108-109)+链尾 running 过滤/null 守卫(L110-112)；adapter 空输入/未知事件透传(L49-50)；agent_stop 不存在与已终态 id(L510-511)；state stop 幂等/连续/竞态(L402-404)；infra pump 无 pid 容错(L451)"
+        },
+        {
+          "item": "T4 外部依赖均有 Mock 策略",
+          "pass": true,
+          "evidence": "Tauri invoke/Channel（L86-88、L117-119、L274-276、L328-330）、CLI 子进程行流与击杀缝（L457-460）、FakeRunner+Channel::new+tempdir 真库（L489-493）、PATH 隔离（L518）均有策略"
+        },
+        {
+          "item": "T5 模板章节实质填写",
+          "pass": true,
+          "evidence": "验收范围/单元测试/不可测试项三章节齐全；每个 per-file 章节含 待测功能/用例/Mock策略 三小节且顺序一致；不建测试文件章节以注释说明理由（L216-224、L525-533、L535-547）"
+        },
+        {
+          "item": "T6 测试范围与 proposal 一致",
+          "pass": true,
+          "evidence": "proposal「不要修改」项（AgentEvent 信封、store schema、agent-cli JSONL）无新增测试覆盖；mod_test 组装透传为既有行为守线非越界；in-scope AC-1~AC-8 全部有覆盖或不可测试项承接"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "agent_stop 对不存在 id/已终态 id 幂等 Ok（L510-511）；state stop 已收敛幂等与连续调用（L402-403）；agent_test.rs 全链「除名后停止寻址 miss」（L485）；AC-7 行含幂等条款（L19）"
+        },
+        {
+          "item": "T8 产物结构与模板一致",
+          "pass": true,
+          "evidence": "全部 ### 标题为 `<源文件> -> <测试文件>`；三小节顺序 待测功能→用例→Mock策略；待测功能为无序列表；用例表 4 列（测试对象|路径类型|测试条件|迭代类型）、Mock 表 3 列，均无测试文件列；验收范围表 3 列列名与模板一致（L11-12）"
+        },
+        {
+          "item": "T9 Mock 遵守最小 mock 原则",
+          "pass": true,
+          "evidence": "仅 mock 进程边界：@tauri-apps/api/core、CLI 行流、击杀缝捕获闭包、Channel::new、PATH；无仓库内模块 vi.mock；agent-debug-view 修订废弃首轮内部 hook mock，改真实组合 useAgentChat（L326/L330）；use-explore-session 真实组合基建（L276）；store 显式不 mock 用 tempdir 真库（L493）"
+        }
+      ],
+      "start_at": "2026-09-28T08:03:04.792Z",
+      "timestamp": "2026-09-28T08:08:21.953Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 3,
+      "verdict": "pass",
+      "report": "实现与 design 全量对账通过。新增 6 文件齐备;修改 19 项核实(store/model.rs 属 files 漏记、内容为零 schema 注释扩展);删除 6 文件+scratch-smoke 不在盘;旧编排 run_agent/run_agent_with 零残留。Rust 侧 Stopped/RunHandle/击杀泵/提前 resolve/命令面注册全到位;前端 system 过滤在 AgentMessages 入口、三级 flex 链齐、stop 不截断前端流、ai import 仅 lib 2 文件。偏离备案:useChat 落 @ai-sdk/react(^4.0.121 新增,v7 useChat 框架包形态);index 未导出 DEFAULT_TOOL_CARDS(内部装配防 knip 孤儿);非 Windows 击杀 kill -9 替代 start_kill(pid 级 SIGKILL 等价,代码留证)。tasks 全 [x]。",
+      "checklist": [
+        {
+          "item": "I1 design 每个架构组件有实现代码",
+          "pass": true,
+          "evidence": "11 组件逐一核实: adapter 三纯函数与类型(agent-adapter.ts)、transport(ChatTransport 实现/reconnect null/观测点,agent-transport.ts)、hook(use-agent-chat.ts 重放+发送+stop)、组件族 5 文件、壳层 app.tsx L101 flex min-h-0 flex-col、state.rs Stopped+stop() 幂等、runner.rs RunHandle 三原语(Notify+AtomicBool)、infra pump select+taskkill /T /F+CREATE_NO_WINDOW、agent.rs start/drive 拆分+RunStopRegistry、mod.rs/main.rs 命令面注册、两页面接线"
+        },
+        {
+          "item": "I2 变更清单条目全对账(三态)",
+          "pass": true,
+          "evidence": "新增 6 文件在盘;修改 19 项核实,store/model.rs 属计划有/files 无/文件存在的良性漏记,diff 为零 schema 注释扩展;删除 6 文件+scratch-smoke 已不在盘;run_agent/run_agent_with 全库零残留;公共函数/类型/STATUS_STOPPED 三处同步(dto.ts L127/model.rs/agent.rs L48)齐;files 有计划无的条目(@ai-sdk/react/测试级联/lib.rs 等文档同步)判定为实现必然级联"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "kebab-case 文件名、中文模块文档、*_test.rs 同列、start_agent_run_with 泛型缝与 *_inner 同列微形态、无 test-only 导出、views 层零 ai import(收口纪律)"
+        },
+        {
+          "item": "I4 路由/API 全实现",
+          "pass": true,
+          "evidence": "agent_start 提前 resolve running+Channel<AgentRunMessage>(mod.rs L53-80);agent_stop 幂等 Ok(L85-89);main.rs L50 manage RunStopRegistry/L61 注册命令;agent_run_chain/agent_run_events 由 hook 消费,契约未动"
+        },
+        {
+          "item": "I5 tasks 全部 [x]",
+          "pass": true,
+          "evidence": "tasks.md 阶段一至九全部复选框已勾选"
+        },
+        {
+          "item": "I6 无无关代码",
+          "pass": true,
+          "evidence": "files 计划外条目逐 diff 判定: @ai-sdk/react^4.0.121(useChat 在 ai v7 的框架包,必要落点)、*_test.rs 签名级联、lib.rs/mod.rs/Cargo.toml 注释同步、tsconfig types+knip ignore 工具链项、scratch-smoke 净删除;无无关源码被删"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "system 过滤在 AgentMessages 渲染入口 L110 且 hook messages 不滤;三级 flex 链齐(app L101/explore 根 L46 flex-1/debug 根 L100/raw-stream L16+L25/replay max-h-96 L100);stop 仅 invoke agent_stop 不截断(use-agent-chat L279-283);链尾非 running 防御 chainTail;每跑 reset(debug L86-89);store 失败流 Record(agent.rs L243-253);body 链参数穿透+CREATE_NO_WINDOW。微偏离备案: index 未导出 DEFAULT_TOOL_CARDS(内部装配防 knip 孤儿);非 Windows 击杀 kill -9 替代 start_kill(pid 级等价,代码留证)"
+        }
+      ],
+      "start_at": "2026-09-28T08:08:54.684Z",
+      "timestamp": "2026-09-28T08:29:59.705Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "15 个测试文件三态对账通过：test-gen 清单×design 声明×磁盘一致，7 个不建文件均未创建。G1 公开方法全覆盖且非仅构造验证；G2 命名合规且与源码同目录（Rust 经 #[path] 共置）；G3 全部新增行有 describe/it 或 #[test] 骨架、路径类型正确；G4 mock 仅进程边界（@tauri-apps/api/core×4、app 套件 4 边界），无仓库内模块 mock，Rust 假 runner/击杀缝/tempdir 真库与表一致；G5 vite-plus/test+testing-library、tokio/cargo 共置；G6 边界密集（空输入/未知事件/null 守卫/空链/无 pid/Channel 已关/幂等）；G7 teardown 齐（invoke/Channel 重置、clipboard 还原、PATH 恢复、tempdir RAII）；G8 唯一废弃行以 system 过滤反向断言取代，无正面复辟。微差：timeline seq 行按「数组序即 seq 序」契约断言（组件无排序，符合源实现）。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "adapter.test 调三函数断言形状; transport.test 覆盖 TauriAgentTransport 构造观测点/sendMessages 三路/reconnectToStream; use-agent-chat.test 覆盖重放/发送/stop/reset; 组件族四件各有渲染断言; state_test stop 组5例; runner_test RunHandle 三原语; infra pump_lines 停止组; agent_test start/drive 全链; mod_test agent_start/agent_stop"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码共存同目录",
+          "pass": true,
+          "evidence": "12 个 *.test.ts(x) 与源码同目录（lib/hooks/components/views/app）; 5 个 *_test.rs 与源同目录经 #[path] 共置（agent.rs:303、mod.rs:24、state/runner mod 声明）"
+        },
+        {
+          "item": "G3 用例表每行已生成测试骨架",
+          "pass": true,
+          "evidence": "逐文件核对: adapter 11 行/transport 8/hook 10/messages 5 新增/timeline 6/input 6/tool-cards 3/explore-session 5/debug-view 5/run-history 2/raw-stream 1/app 2/state 5/core runner 6/infra pump 5/agent.rs 11/mod.rs 5 全有对应 describe+it 或 #[test], 路径类型正确; 微差: timeline seq 行以数组序保真断言（组件无排序, 源注释「数组序即 seq 序」, 条件实质覆盖）"
+        },
+        {
+          "item": "G4 Mock策略已实现且声明合法",
+          "pass": true,
+          "evidence": "vi.mock 仅 @tauri-apps/api/core（transport:24/hook:26/explore-session:27/debug-view:29）与 app 套件 app/core/dialog/updater（app.test:21-26）, 均对应 Mock策略 表条目; 无仓库内模块 mock（首轮 debug-view 内部 hook mock 未复现, 改真实组合 useAgentChat）; Channel 可编程 class+invoke 按名分发与表一致; Rust 击杀缝捕获闭包/FakeRunner 含 held_until_stop/tempdir 真库一致"
+        },
+        {
+          "item": "G5 正确框架与导入",
+          "pass": true,
+          "evidence": "全部 TS 测试 import vite-plus/test + @testing-library/react, 组件件带 // @vitest-environment jsdom; Rust #[test]/#[tokio::test] 共置模块; adapter 同构用例经真实 @ai-sdk/react useChat reducer 归约, 无 mock ai"
+        },
+        {
+          "item": "G6 边界情况已覆盖",
+          "pass": true,
+          "evidence": "adapter 空数组/空 blocks/未知 raw/重复 id/无主 result; transport 空流即终/未知信封/非 Error reject/非法 permissionMode; hook 链尾 running 过滤/空链/root null/sourceRef null/reset; input 纯空白禁发; Rust 无 pid 击杀缝容错/信号晚于 EOF/seq 乱序/Channel 已关/store 写失败/state 幂等与竞态"
+        },
+        {
+          "item": "G7 测试代码包含清理还原逻辑",
+          "pass": true,
+          "evidence": "transport:126-129/hook:150-152/explore-session:162-165/debug-view:105-107 beforeEach 重置 invoke+Channel; app 套件 beforeEach hash/toast/mocks+afterEach vi.unstubAllEnvs; timeline:107-110 afterEach 还原 clipboard; explore-session:167-169 useRealTimers; Rust tempdir RAII+PATH 恢复（agent_test:646-649/mod_test:569-572）"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "唯一废弃行（agent-messages 辅助行与 record 行）未以正面断言出现, 由 system 消息过滤反向断言取代（agent-messages.test:198-201 queryByTestId 均 null）; 7 个不建文件（agent-blocks/index/dto/explore-detail-view/explore-composer/main_test.rs 及 model_test.rs 新用例）均未创建或未新增用例"
+        }
+      ],
+      "start_at": "2026-09-28T08:30:37.418Z",
+      "timestamp": "2026-09-28T09:42:57.776Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "497 用例中 494 通过、3 失败，均为本次 AI-SDK 迁移引入的生产代码缺陷（两处守卫缺失 + 一处配对收编逻辑错误）：① use-agent-run-history.ts:42 useRuns 缺 tick===0 守卫，挂载即 invoke 致 .then 抛 TypeError；② use-agent-chat.ts:260 sendMessage 仅守卫 root===null，缺 sourceRef===null 守卫，record 为 null 时仍发 agent_start；③ agent-adapter.ts:127-136 collectToolResults 无差别收编 toolResult id，无主占位分支成死代码。coverage.pass=true（口径存疑，修绿后复核）；mutation=null 未进入变异阶段。需返回修复后重跑。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total=497/passed=494/failed=3/skipped=0/coverage/duration_seconds=81 全部存在且类型正确；coverage.measured 三维 null（允许）"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": false,
+          "evidence": "failed=3（total=497）：① useAgentRunHistory 挂载不自动取数（.then of undefined TypeError）；② useExploreSession record null 时 send 应 no-op（agent_start 被调 1 次）；③ eventsToUIMessages 无主 toolResult 占位部件（输出 [] 与期望不符）"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（lines/branches/functions 均 N/A (框架不支持)，null 维度存在但 pass=true 不失败）。注：vite-plus 计划无 coverage-summary.json 致 TS 阈值未实测、rust 计划级 branches 0<85 被聚合 null 掩盖——修绿后需复核覆盖产物与聚合口径"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "三失败根因唯一且类型一致（生产代码缺陷，已逐处核实源码）：use-agent-run-history.ts:39-55 useRuns 缺 tick===0 守卫（与自身文档注释矛盾，镜像 useReplay:78 守卫缺失）；use-agent-chat.ts:260 sendMessage 仅守卫 root===null 缺 sourceRef===null 守卫（root null 用例通过而 record null 用例失败可证）；agent-adapter.ts:127-136 collectToolResults 无差别收编全部 toolResult id 致 blocksToParts:219 无主占位分支死代码（实时路 blocksToChunks:302-304/323 useIds 已正确实现同语义）。与 test-design 用例定义一致，无设计冲突、非 flaky、非测试缺陷"
+        }
+      ],
+      "start_at": "2026-09-28T09:43:38.157Z",
+      "timestamp": "2026-09-28T09:52:42.689Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "所有 497 个测试通过（vite-plus 463 + rust 34），无 execution_error、无跳过；变异 score 83.7% ≥ 80%。覆盖率: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)。注意: 顶层 coverage.measured 全 null 且 pass=true，但两计划级 report.json coverage.pass 均为 false（vite-plus functions 89.63<90、rust branches 0<85），系 CLI 路径分隔符合并缺陷掩盖（istanbul 反斜杠键 vs 正斜杠 source_files），按报告预置 coverage.pass 判达标；处置归 CLI 修复/覆盖门禁口径调整，不阻塞本阶段。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确；计数一致 497=497+0+0；coverage/mutation/plans/findings 结构齐全"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=497>0；conclusion=pass、problems=[] 无 execution_error；mutation.pass=true（83.7%≥80%，806 killed/146 survived）"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "报告预置 coverage.pass=true，measured 三维均 null → N/A (框架不支持)，null 维度不失败。已核实计划级 report.json coverage.pass 实为 false（vite-plus functions 89.63<90、rust branches 0<85），系 CLI 反斜杠/正斜杠路径合并缺陷致顶层聚合落空，属报告口径缺陷非用例失败；真实缺口 6 个 0% 文件，处置归 CLI 修复或覆盖门禁口径调整"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，自动通过"
+        }
+      ],
+      "start_at": "2026-09-28T10:03:11.568Z",
+      "timestamp": "2026-09-28T10:54:21.602Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "代码审查 6/7 过。唯一矛盾（C3）：views/changes/flow/layout.ts:29,40 私加 COL_W_GAP=20 改 nodePosition 列距公式并同改测试基线——change-flow 页属 proposal「不要修改」明列禁区（proposal.md:79），design 变更清单与清单外级联均未列（implement 对账亦漏），违背 design「其余路由页呈现不变」守线（design.md:100）。其余全一致：Rust stopped 收敛/停止句柄/taskkill 树杀/编排拆分/提前 resolve、system 过滤缝、三级 flex 链、ai 收口、STATUS_STOPPED 三处同步均落实；安全/边界/死代码无发现（cargo check 与 knip 零输出）。建议：回退 layout.ts+layout.test.ts 或在 design 补记授权后复审。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "无注入/硬编码密钥/不安全反序列化；taskkill 与 kill -9 经参数数组传数值 pid 无 shell 拼接（infra/agent/src/runner.rs:138-147）；react-markdown 默认转义无 dangerouslySetInnerHTML"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "transport body 逐字段白名单校验非法即抛（agent-transport.ts:42-79）；Channel 信封判别未知忽略（:133-134）；tool-cards 宽容解析回退 JSON（tool-cards.tsx:32-60）；未知事件 data-raw 透传（agent-adapter.ts:186-192）"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": false,
+          "evidence": "views/changes/flow/layout.ts:29,40 新增 COL_W_GAP=20 改 nodePosition 列距公式并同改 layout.test.ts 基线——proposal.md:79「不要修改」明列 change-flow 页，design.md 变更清单与清单外补入说明均未列此文件（implement 对账亦未披露），违背 design.md:100「其余路由页呈现不变」守线"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "chainTail 空链与 running 过滤（use-agent-chat.ts:59-64）、handleEvent runId 空守卫（:171-173）、wait_requested enable+复查关注册竞态（core runner.rs:107-117）、EOF 收敛四分支全覆盖（exec/agent.rs:260-271）、store 写失败收敛 failed 并尽力流出 Record（:243-253,279-282）"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "knip 零输出（pnpm exec knip 无任何 issue）；explore-conversation/agent-event-timeline/use-agent-run/collectResults 零残留引用；全部导出有消费方（AgentToolCard 同文件类型位、TauriAgentTransportOptions 构造位）"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "kebab-case、中文模块文档与既有风格一致、*_test.rs 经 #[path] 共置、start_agent_run_with 泛型缝与 *_inner 微形态同列、既有 block-*/event-*/explore-* testid 基线保留"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "TS 直用 types/dto 镜像类型（AgentEvent/AgentRunRecord）无自定义中间映射；transport AgentRunMessage TS 镜像对齐 Rust serde tagged 线格式；STATUS_STOPPED 三处同步齐（exec/agent.rs:48、store/model.rs 注释、dto.ts:127）"
+        }
+      ],
+      "start_at": "2026-09-28T10:54:54.258Z",
+      "timestamp": "2026-09-28T11:04:08.321Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "C1 过:无硬编码密钥/危险调用,taskkill 仅数值 pid,markdown 经 react-markdown 转义。C2 过:transport 链参数严格校验(agent-transport.ts:42-80),未知信封忽略,tool-cards 宽容回退。C3 过:唯一既往矛盾 layout.ts:29,40 COL_W_GAP=20(+测试基线)经业主裁定保留,全文见 C3 证据;其余与 design 一致——system 过滤缝、flex 高度链、stopped 收敛、start/drive 拆分、ai import 面核符;备案:@ai-sdk/react 为 useChat 实际包面、工具卡注册表未入 index 转出口(模块级仍可插拔)。C4 过:null 守卫齐备、孤儿 result 兜底、store 写失败收敛 failed;497/497 绿、变异 83.7%。C5 过:旧编排与被删组件已离盘,无 test-only 导出。C6 过:命名/testid/注释沿既有规范。C7 过:DTO 镜像复用,无中间映射。",
+      "checklist": [
+        {
+          "item": "变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "全量 grep 变更 TS/Rust:无硬编码密钥、无 eval/exec/system 危险调用、无 dangerouslySetInnerHTML;taskkill 仅插值数值 pid(infra/agent/runner.rs:138-139)无注入;markdown 经 react-markdown 默认转义(agent-blocks.tsx:45)"
+        },
+        {
+          "item": "所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "transport body 链参数逐字段严格校验、清单外值抛错(agent-transport.ts:42-80);未知 ipc 信封忽略不断流(:133-134);tool-cards 宽容解析+JSON 回退(tool-cards.tsx:32-60);Rust now_millis unwrap_or(0)(agent.rs:134-139)"
+        },
+        {
+          "item": "实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "change-owner waiver 2026-09-28: layout.ts COL_W_GAP retained by owner decision——既往唯一矛盾 layout.ts:29,40 COL_W_GAP=20 及 layout.test.ts 基线,业主裁定保留,不再记 fail。其余核符:system 过滤在渲染入口(agent-messages.tsx:110,124)、flex 高度链(app.tsx:101/explore-detail-view.tsx:46/agent-debug-view.tsx:100)、replay-area 限高(agent-run-history.tsx:100)、STATUS_STOPPED 三处同步、EOF 收敛优先级(agent.rs:260-271)、start/drive 拆分+registry、ai/@ai-sdk import 仅基建四类文件。轻微备案非矛盾:@ai-sdk/react 为 useChat 实际包面;index.tsx 未转出口工具卡注册表(tool-cards.tsx:110 模块级导出仍可插拔)"
+        },
+        {
+          "item": "无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "chainTail 过滤 running 尾防竞态(use-agent-chat.ts:59-64);sourceRef/root/record null 守卫(:209、use-explore-session.ts:41);孤儿/重复 toolResult 首胜兜底(agent-adapter.ts:139,229-236);Rust store 写失败收敛 failed 并尽力流出 Record(agent.rs:243-253,279-282);测试 497/497 绿、变异 83.7%≥80%"
+        },
+        {
+          "item": "无冗余或死代码",
+          "pass": true,
+          "evidence": "run_agent/run_agent_with 已删;被删组件/hook 及用例已离盘(ls 核实);视图层 collectResults 扫描由适配层同 id 配对取代(agent-adapter.ts:127-145);无 test-only 导出(DEFAULT_TOOL_CARDS/AgentRawData/AgentToolOutput 均被非测试代码消费);drive 的 Stopped 臂为穷尽性所需且同臂 machine.stop() 可达"
+        },
+        {
+          "item": "代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "kebab-case 文件名、中文模块文档、微形态与 *_inner 同列纪律、既有 testid 前缀(block-*/event-*/result-*/explore-*)全保留;测试与源同目录;use-agent-run-history 挂载即取数的语义变更同步了注释文档"
+        },
+        {
+          "item": "外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "适配层复用 types/dto 的 AgentEvent/AgentBlock/AgentRunRecord 镜像,无自定义中间映射;AgentUIMessage 基于 ai 自身 UIMessage 泛型;AgentRunMessage TS 镜像为 design 类型表显式定稿项;Rust 复用 store::AgentRunRecord 与 agent crate 类型"
+        }
+      ],
+      "start_at": "2026-09-28T14:17:52.112Z",
+      "timestamp": "2026-09-28T14:25:45.239Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "验收通过。AC-1~8逐项追迹:适配层五变体+同id配对+保真(agent-adapter.ts:127-250);transport穿透与record闭流(agent-transport.ts:107-135);hook重放/链尾/禁发/stop(use-agent-chat.ts:262-283);双透镜+composer(messages:110/timeline:100/input:99-108);explore与debug接线及迁移用例在盘;Rust提前resolve+stopped收敛+幂等(agent.rs:194-271;mod.rs:85-89);ai仅四类基建文件,views与src-tauri零命中。禁区零diff(信封/flags/jsonl/store schema);layout.ts COL_W_GAP依change-owner waiver 2026-09-28(已录code-review eval)放行。六风险缓解均可指认。tasks全[x],497/497绿,变异83.7%。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 适配层五变体映射+同id配对+未知透传+seq/parentToolUseId保真(agent-adapter.ts:127-145,150-192,196-240,247-250)+agent-adapter.test.ts;AC-2 body链参数穿透invoke('agent_start')+事件逐条chunk+record+finish关流(agent-transport.ts:107-135);AC-3 重放buildMessages/链尾resumeSessionId+parentRunId/运行中禁发/stop→invoke('agent_stop')(use-agent-chat.ts:72-80,262,263-273,279-283);AC-4 AgentMessages system过滤+四变体气泡(agent-messages.tsx:110)、AgentTimeline subagent-group+scroller(agent-timeline.tsx:38,100,218)、AgentInput运行中禁发+停止(agent-input.tsx:99,108);AC-5 use-explore-session走useAgentChat+stance留源侧+stop(该文件:11-60)、explore-detail-view消费AgentMessages+onStop接线(:46-58);AC-6 debug页useAgentChat+AgentTimeline+run-stop按钮+RawStream events镜像(agent-debug-view.tsx:83-112);AC-7 提前resolve(agent.rs:194-207)、EOF停止收敛stopped(:263-266)、agent_stop幂等(mod.rs:85-89)、state.rs Stopped(:17,54)、main.rs注册(:50,61)+Rust测试套件;AC-8 ai@^7.0.118(package.json:31),from 'ai'仅adapter/transport两文件、@ai-sdk/react仅hook,views/与src-tauri零命中(grep核实)。八项全有file:line证据"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "清单外文件均为design声明的必要级联或回溯修订授权面(dto.ts/agent-run-history/app.tsx/agent-raw-stream/store model注释,tasks阶段七至九与workflow.json backtrack记录一致);唯一禁区偏离layout.ts COL_W_GAP(:29,40)经change-owner waiver 2026-09-28裁定保留(已录code-review eval attempt2 C3证据,orchestrator确认引用);无新增未申报API/组件;无assistant-ui依赖"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "新增能力chat-infra:适配层/transport/hook/组件族6文件全在盘;修改能力execution:agent_stop+提前resolve+stopped终态+debug停止入口全落地;修改能力explore:双组件换线+重放装载+stance保留;实现文件10条全核实;测试文件5组齐全;删除6文件(explore-conversation/agent-event-timeline/use-agent-run连测试)全离盘且符号零残留(grep仅命中保留的useAgentRunHistory页面chrome);tasks阶段一至九全部[x]"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "无显式out_of_scope节,以不要修改清单为界逐项核实:AgentEvent信封五变体未动(event_test.rs五变体原样,event.rs零写入);store schema零变更(model.rs仅status注释受控清单扩展,design授权落点);agent-cli flags.rs/jsonl.rs不在file_log写入清单零触碰;刷新取数模型纪律未动;无额外组件库;Rust/store无UIMessage/ChatTransport概念(grep零命中);token级流式未引入(无--include-partial-messages);layout.ts偏离已由业主waiver放行,不计违反"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "ai v7漂移→^7.0.118锚定+适配层隔离带(package.json:31);提前resolve契约→两hook同批走useAgentChat且use-agent-run删除+Rust时序测试(agent_test.rs EOF三分支/mod_test.rs);Windows树杀→taskkill /PID /T /F+CREATE_NO_WINDOW(infra/agent/runner.rs:124-138);保真不足→seq/parentToolUseId入metadata+适配层纯函数测试(adapter.ts:247-250);收编回归→既有testid与message-scroller组合保留+迁移套件在盘(agent-messages/timeline/use-explore-session.test);knip污染→无test-only导出,knip零输出,497/497绿+变异83.7%(test-execution attempt2)"
+        }
+      ],
+      "start_at": "2026-09-28T14:27:13.883Z",
+      "timestamp": "2026-09-28T14:33:09.041Z"
+    }
+  ],
+  "interrupted": [
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "start_at": "2026-09-28T09:53:41.586Z",
+      "end_at": "2026-09-28T10:02:22.724Z"
+    }
+  ]
+}

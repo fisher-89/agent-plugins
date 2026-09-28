@@ -4,7 +4,7 @@ import { useCallback, useEffect, useState } from 'react';
 import type { AgentEvent, AgentRunRecord } from '../../../types/dto';
 
 export interface AgentRunHistoryState {
-  /** 运行清单（后端 started_at 降序）；仅显式 refresh 后取得 */
+  /** 运行清单（后端 started_at 降序）；挂载自动取数，refresh() 重取 */
   runs: AgentRunRecord[];
   /** 点开重放的事件流（seq 升序） */
   events: AgentEvent[];
@@ -26,8 +26,8 @@ interface QueryState {
 const IDLE: QueryState = { loading: false, error: null };
 
 /**
- * 运行清单轨道：挂载不自动取数（tick===0 跳过），仅显式 refresh 触发
- * invoke("agent_runs")。无轮询、无文件 watch。
+ * 运行清单轨道：挂载即自动取数（tick 从 0 起即触发 invoke("agent_runs")），
+ * 刷新仍经 tick 递增（refresh()）。无轮询、无文件 watch。
  */
 function useRuns(): { runs: AgentRunRecord[]; query: QueryState; refresh: () => void } {
   const [runs, setRuns] = useState<AgentRunRecord[]>([]);
@@ -37,7 +37,6 @@ function useRuns(): { runs: AgentRunRecord[]; query: QueryState; refresh: () => 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
-    if (tick === 0) return;
     let cancelled = false;
     setQuery({ loading: true, error: null });
     invoke<AgentRunRecord[]>('agent_runs')
@@ -99,9 +98,9 @@ function useReplay(): {
 }
 
 /**
- * 历史运行 hook：全部取数由用户显式动作触发——refresh() 取运行清单，
- * openRun(id) 重放事件；挂载不自动取数、run 结束不自动刷新（design：查询
- * 取数显式触发，Channel 例外不外溢）、无轮询。
+ * 历史运行 hook：挂载即自动取运行清单，refresh() 显式重取，openRun(id)
+ * 重放事件；run 结束不自动刷新（design：查询取数显式触发，Channel 例外
+ * 不外溢）、无轮询。
  */
 export function useAgentRunHistory(): AgentRunHistoryState {
   const runsState = useRuns();

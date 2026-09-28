@@ -124,7 +124,7 @@ type AgentEnvMode = 'default' | 'bare';
 export type AgentPermissionMode = 'default' | 'acceptEdits' | 'bypassPermissions';
 
 /** run 状态受控字符串 */
-export type AgentRunStatus = 'running' | 'completed' | 'failed';
+export type AgentRunStatus = 'running' | 'completed' | 'failed' | 'stopped';
 
 /** 消息内块四变体（tag `kind`，camelCase） */
 export type AgentBlock =

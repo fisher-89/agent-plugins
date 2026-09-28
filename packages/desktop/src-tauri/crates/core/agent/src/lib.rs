@@ -3,7 +3,7 @@
 //! 定义 agent 域的三租户共享契约：
 //! - [`AgentEvent`] 事件信封（五变体 + 块模型 + seq/时间戳 + Raw 透传）
 //! - [`AgentRunner`] trait 与 [`AgentRunParams`]（逻辑事件流 + 句柄，进程模型不可见）
-//! - [`RunStateMachine`] run 状态机（running → completed/failed）
+//! - [`RunStateMachine`] run 状态机（running → completed/failed/stopped）
 //!
 //! 本 crate 刻意保持中立：零 Tauri、零进程 spawn、不认识任何具体 CLI
 //! （flag 名与 JSONL 行解析全部关在 infra 侧实现 crate）。三租户（本机 CLI /

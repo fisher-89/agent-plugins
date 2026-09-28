@@ -95,3 +95,30 @@ describe('AgentRawStream：逐事件 JSON dump（D12 落库形态）', () => {
     expect(screen.getAllByTestId('raw-line')).toHaveLength(300);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 区域滚动框架（jsdom className 结构代理）：flex 填充 + 事件列表内部滚动。
+// ---------------------------------------------------------------------------
+
+describe('AgentRawStream：滚动容器结构', () => {
+  it('section 呈 flex min-h-0 flex-1 flex-col，事件列表包 min-h-0 flex-1 overflow-y-auto 滚动容器', () => {
+    render(<AgentRawStream events={[runStarted(0), textMessage(1, '正文')]} />);
+
+    const section = screen.getByTestId('agent-raw-stream');
+    for (const className of ['flex', 'min-h-0', 'flex-1', 'flex-col']) {
+      expect(section.className).toContain(className);
+    }
+    // 事件列表为内部滚动容器（debug 流视图不再撑高页面）
+    const scrollContainer = section.querySelector('.min-h-0.flex-1.overflow-y-auto');
+    expect(scrollContainer !== null).toBe(true);
+    expect(scrollContainer?.contains(screen.getAllByTestId('raw-line')[0] ?? null)).toBe(true);
+  });
+
+  it('空态无滚动容器（空面板直出）', () => {
+    render(<AgentRawStream events={[]} />);
+
+    const section = screen.getByTestId('agent-raw-stream');
+    expect(section.querySelector('.overflow-y-auto')).toBeNull();
+    expect(screen.getByTestId('raw-stream-empty') !== null).toBe(true);
+  });
+});

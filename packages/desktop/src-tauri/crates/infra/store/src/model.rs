@@ -48,7 +48,7 @@ fn default_run_source() -> String {
 }
 
 /// agent 运行记录：全平文字段；`status` / `env` / `permission_mode` 为受控
-/// 字符串（running | completed | failed 等），store 不引本地枚举。
+/// 字符串（running | completed | failed | stopped），store 不引本地枚举。
 ///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
 ///
@@ -72,7 +72,7 @@ pub struct AgentRunRecord {
     pub env: String,
     /// permission-mode 受控字符串（default | acceptEdits | bypassPermissions）
     pub permission_mode: String,
-    /// run 状态受控字符串（running | completed | failed）
+    /// run 状态受控字符串（running | completed | failed | stopped）
     pub status: String,
     /// 开始时间（UTC unix 毫秒）
     pub started_at: i64,

@@ -1,26 +1,39 @@
-//! `run_agent()` 编排函数（app 层微形态，与 `commands::workspaces` 的
-//! `*_inner` 同列）：组装 runner → 事件流 tee 双 sink（store 逐事件落库 +
-//! Channel 实时流）→ 状态机收敛 → 终态落库。
+//! agent 运行编排（app 层微形态，与 `commands::workspaces` 的 `*_inner`
+//! 同列）：[`start_agent_run`] 同步段（组装 runner → start → begin 落
+//! running 行 → 注册停止句柄 → spawn 后台任务 → 提前 resolve running 记
+//! 录），加 [`drive_agent_run`] 后台任务体（事件流 tee 双 sink → EOF 收敛
+//! → 终态落库 → Channel 流出 Record → 注册表除名）。
 //!
-//! 命令体保持三件事纪律（组装不内联回命令体）；[`run_agent_with`] 泛型缝
-//! 让编排路径可被假 runner 测试。本文件独立于 mod.rs，将来抽 app crate 时
-//! 单文件平移复用、不重写。
+//! 提前 resolve 契约（能力 spec `specs/desktop-agent-execution/spec.md`，
+//! 路径相对域根）：run id 在 begin 落库时即可用，命令在落库后立即返回
+//! running 记录，执行转后台任务继续；终态记录经 Channel 以
+//! [`AgentRunMessage::Record`] 信封流出，MUST NOT 再依赖 invoke 返回携带终态。
 //!
-//! 来源归属与链指针（`RunProvenance`）是 store 记录面元数据，经编排填充进
-//! run 记录初值，不进 [`AgentRunner`] 契约（trait 面只认逻辑运行参数，见
-//! agent 契约 crate 文档）；`resume_session_id` 改变 CLI 行为，已在
-//! `AgentRunParams` 契约内。
+//! 泛型缝 [`start_agent_run_with`] 让编排路径可被假 runner 测试（`AppHandle`
+//! 对 runtime 泛型：生产经命令注入 Wry 句柄，测试注入 `tauri::test` 的
+//! MockRuntime 句柄）；[`drive_agent_run`] 以 `&Store` + `&RunStopRegistry`
+//! 入参保持可注入。本文件独立于 mod.rs，将来抽 app crate 时单文件平移复用、
+//! 不重写。
 //!
 //! tee 循环节奏（背压策略）：`recv → 状态机 apply → store 逐事件单事务追加
 //! → Channel 发送`。Channel 发送失败（页面已关闭）不中断落库；store 写入
-//! 失败立即收敛 run 为 failed（error 记因）并终止 tee——落库是兜底路径，
-//! 失败不可静默。
+//! 失败立即收敛 run 为 failed（error 记因）、尽力流出 Record 并终止 tee——
+//! 落库是兜底路径，失败不可静默。
+//!
+//! EOF 收敛优先级：状态机已收敛（RunResult 驱动）以状态机为准；否则停止
+//! 信号已置位 → 显式收敛 stopped（停止路径泵不合成 error_process_exit，
+//! 状态机不被驱动成 failed）；兜底 failed 记因（进程异常终止无 result）。
 
+use std::collections::HashMap;
+use std::sync::Mutex;
+
+use serde::Serialize;
 use tauri::ipc::Channel;
+use tauri::{AppHandle, Manager, Runtime};
 
 use agent::{
-    AgentEnvMode, AgentEvent, AgentEventKind, AgentRunParams, AgentRunState, AgentRunner,
-    RunStateMachine,
+    AgentEnvMode, AgentEvent, AgentEventKind, AgentRun, AgentRunParams, AgentRunState, AgentRunner,
+    RunHandle, RunStateMachine,
 };
 use agent_cli::ClaudeCliRunner;
 use store::{AgentRunRecord, Store};
@@ -31,6 +44,59 @@ const STATUS_RUNNING: &str = "running";
 const STATUS_COMPLETED: &str = "completed";
 /// run 状态受控字符串：失败收敛。
 const STATUS_FAILED: &str = "failed";
+/// run 状态受控字符串：用户主动终止收敛（与 completed / failed 同列受控终态）。
+const STATUS_STOPPED: &str = "stopped";
+
+/// `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
+/// 事件与终态记录双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
+/// 对齐）。信封不含 record 语义——终态记录塞进事件 usage 是反模式。
+#[derive(Debug, Clone, Serialize)]
+#[serde(tag = "ipc", rename_all = "camelCase")]
+pub(crate) enum AgentRunMessage {
+    /// 实时事件（落库与流出同源同构）
+    Event { event: AgentEvent },
+    /// 终态 run 记录（提前 resolve 契约的终态流出半边）
+    Record { record: AgentRunRecord },
+}
+
+/// 运行中 run 的停止句柄注册表（托管状态，与 `WatchRegistry` 同型）：
+/// run id → 逻辑终止信号句柄。`agent_start` 登记、`drive_agent_run` 终态
+/// 除名、`agent_stop` 查询；内存态与进程同生命周期（应用重启即清空）。
+#[derive(Default)]
+pub(crate) struct RunStopRegistry {
+    handles: Mutex<HashMap<i64, RunHandle>>,
+}
+
+impl RunStopRegistry {
+    /// 登记运行中 run 的停止句柄（begin 落库分配 id 后立即注册）。
+    pub(crate) fn register(&self, run_id: i64, handle: RunHandle) {
+        self.handles
+            .lock()
+            .expect("停止注册表锁不可中毒")
+            .insert(run_id, handle);
+    }
+
+    /// 按 id 寻址置位停止信号；命中返回 true，非 running / 不存在返回
+    /// false（`agent_stop` 幂等忽略，不报错）。
+    pub(crate) fn request_stop(&self, run_id: i64) -> bool {
+        let handles = self.handles.lock().expect("停止注册表锁不可中毒");
+        match handles.get(&run_id) {
+            Some(handle) => {
+                handle.request_stop();
+                true
+            }
+            None => false,
+        }
+    }
+
+    /// 终态除名（收敛落库后调用；除名后 `agent_stop` 对该 id 幂等忽略）。
+    pub(crate) fn remove(&self, run_id: i64) {
+        self.handles
+            .lock()
+            .expect("停止注册表锁不可中毒")
+            .remove(&run_id);
+    }
+}
 
 /// run 记录来源与链字段（app 层微形态，store 记录面元数据）：`source` 来源
 /// 受控字符串、`source_ref` 来源内定位、`parent_run_id` 链上游 run。编排
@@ -72,29 +138,9 @@ fn now_millis() -> i64 {
         .unwrap_or(0)
 }
 
-/// 薄入口：组装真实 CLI runner 后委托 [`run_agent_with`]。
-pub(crate) async fn run_agent(
-    store: &Store,
-    on_event: Channel<AgentEvent>,
-    params: AgentRunParams,
-    provenance: RunProvenance,
-) -> Result<AgentRunRecord, String> {
-    let runner = ClaudeCliRunner::new();
-    run_agent_with(store, &runner, on_event, params, provenance).await
-}
-
-/// 泛型编排：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ begin 落
-/// `running` 行（初值携带 provenance 来源与链字段）→ tee 双 sink 循环 →
-/// EOF 按状态机收敛终态并落库 → 返回最终记录（in-band 失败返回
-/// `Ok(failed 记录)`，仅启动阶段失败返回 `Err`）。
-pub(crate) async fn run_agent_with<R: AgentRunner>(
-    store: &Store,
-    runner: &R,
-    on_event: Channel<AgentEvent>,
-    params: AgentRunParams,
-    provenance: RunProvenance,
-) -> Result<AgentRunRecord, String> {
-    let running = AgentRunRecord {
+/// running 记录初值（id 由 begin 分配）：初值携带 provenance 来源与链字段。
+fn running_record(params: &AgentRunParams, provenance: RunProvenance) -> AgentRunRecord {
+    AgentRunRecord {
         id: 0,
         prompt: params.prompt.clone(),
         cwd: params.cwd.to_string_lossy().into_owned(),
@@ -111,9 +157,67 @@ pub(crate) async fn run_agent_with<R: AgentRunner>(
         source: provenance.source,
         source_ref: provenance.source_ref,
         parent_run_id: provenance.parent_run_id,
-    };
-    let mut run = runner.start(params).map_err(|e| e.to_string())?;
-    let mut record = store.begin_agent_run(&running).map_err(|e| e.to_string())?;
+    }
+}
+
+/// 薄入口：组装真实 CLI runner 后委托 [`start_agent_run_with`]。
+pub(crate) fn start_agent_run<T: Runtime>(
+    app: AppHandle<T>,
+    store: &Store,
+    on_event: Channel<AgentRunMessage>,
+    params: AgentRunParams,
+    provenance: RunProvenance,
+) -> Result<AgentRunRecord, String> {
+    let runner = ClaudeCliRunner::new();
+    start_agent_run_with(app, store, &runner, on_event, params, provenance)
+}
+
+/// 泛型编排同步段：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ begin
+/// 落 `running` 行（初值携带 provenance 来源与链字段）→ 注册停止句柄 →
+/// spawn [`drive_agent_run`] 后台任务 → 立即返回 running 记录（提前 resolve；
+/// 终态经 Channel 流出）。后台任务经命令注入的 `AppHandle` 在任务内取托管
+/// 的 store 与注册表句柄（`native_db::Database` 非 Clone，AppHandle 取
+/// State 是零侵入方案）；runtime 泛型仅为测试注入 MockRuntime 句柄，生产
+/// 命令面解析为 Wry。
+pub(crate) fn start_agent_run_with<R, T>(
+    app: AppHandle<T>,
+    store: &Store,
+    runner: &R,
+    on_event: Channel<AgentRunMessage>,
+    params: AgentRunParams,
+    provenance: RunProvenance,
+) -> Result<AgentRunRecord, String>
+where
+    R: AgentRunner + 'static,
+    T: Runtime,
+{
+    let running = running_record(&params, provenance);
+    let run = runner.start(params).map_err(|e| e.to_string())?;
+    let record = store.begin_agent_run(&running).map_err(|e| e.to_string())?;
+    app.state::<RunStopRegistry>()
+        .register(record.id, run.handle.clone());
+    let app = app.clone();
+    let task_record = record.clone();
+    // 后台任务走 tauri 异步运行时（命令层不直依赖 tokio；spawn 语义等价）
+    tauri::async_runtime::spawn(async move {
+        let store = app.state::<Store>();
+        let registry = app.state::<RunStopRegistry>();
+        drive_agent_run(store.inner(), on_event, run, task_record, registry.inner()).await;
+    });
+    Ok(record)
+}
+
+/// 后台任务体：事件流 tee 双 sink（store 逐事件单事务追加 + Channel 实时
+/// 流出）→ EOF 按状态机/停止信号收敛终态并落库 → 注册表除名 → Channel 流出
+/// 终态 Record 信封 → 返回最终记录。in-band 失败（is_error result）返回
+/// failed 记录；store 写失败收敛 failed、尽力流出 Record 后终止。
+pub(crate) async fn drive_agent_run(
+    store: &Store,
+    on_event: Channel<AgentRunMessage>,
+    mut run: AgentRun,
+    mut record: AgentRunRecord,
+    registry: &RunStopRegistry,
+) -> AgentRunRecord {
     let mut machine = RunStateMachine::new();
     let mut summary: Option<RunSummary> = None;
 
@@ -134,26 +238,33 @@ pub(crate) async fn run_agent_with<R: AgentRunner>(
                 session_id: session_id.clone(),
             });
         }
-        // store sink（兜底路径）：类型化事件直写；失败立即收敛 failed 并终止 tee
+        // store sink（兜底路径）：类型化事件直写；失败立即收敛 failed、
+        // 尽力流出 Record 并终止 tee（落库失败不可静默）
         if let Err(store_error) =
             store.append_agent_run_events(record.id, std::slice::from_ref(&event))
         {
-            return Ok(abort_with_store_failure(
-                store,
-                record,
-                format!("事件落库失败: {store_error}"),
-            ));
+            let failed =
+                abort_with_store_failure(store, record, format!("事件落库失败: {store_error}"));
+            registry.remove(failed.id);
+            let _ = on_event.send(AgentRunMessage::Record {
+                record: failed.clone(),
+            });
+            return failed;
         }
         // Channel sink（实时流）：发送失败（页面已关闭）不中断落库
-        let _ = on_event.send(event);
+        let _ = on_event.send(AgentRunMessage::Event { event });
     }
 
-    // EOF：按状态机收敛终态（收敛恒由 RunResult 驱动；泵异常终止无 result
-    // 时不留 running 终态，按 failed 记因收敛）
+    // EOF：状态机已收敛以状态机为准（首个收敛生效）；否则停止信号已置位 →
+    // 显式收敛 stopped（error 不记因——用户主动终止非失败）；兜底 failed 记因
     record.status = match machine.current() {
         AgentRunState::Completed => STATUS_COMPLETED.to_owned(),
         AgentRunState::Failed => STATUS_FAILED.to_owned(),
-        AgentRunState::Running => {
+        AgentRunState::Running if run.handle.stop_requested() => {
+            machine.stop();
+            STATUS_STOPPED.to_owned()
+        }
+        AgentRunState::Running | AgentRunState::Stopped => {
             record.error = Some("进程结束但未产出 result 事件".to_owned());
             STATUS_FAILED.to_owned()
         }
@@ -165,10 +276,15 @@ pub(crate) async fn run_agent_with<R: AgentRunner>(
         record.session_id = result.session_id;
     }
     record.finished_at = Some(now_millis());
-    store
-        .finish_agent_run(record.id, &record)
-        .map_err(|e| e.to_string())?;
-    Ok(record)
+    if let Err(store_error) = store.finish_agent_run(record.id, &record) {
+        // 终态落库失败同样不可静默：error 记因后仍尽力流出 Record
+        record.error = Some(format!("终态落库失败: {store_error}"));
+    }
+    registry.remove(record.id);
+    let _ = on_event.send(AgentRunMessage::Record {
+        record: record.clone(),
+    });
+    record
 }
 
 /// store 写失败的失败收敛：run 收敛为 failed、error 记因，并尽力落终态行

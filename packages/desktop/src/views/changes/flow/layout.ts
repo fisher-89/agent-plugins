@@ -26,6 +26,7 @@ export const PIPELINE_PHASES: readonly string[] = [
 ];
 
 export const COL_W = 260;
+const COL_W_GAP = 20;
 export const ROW_H = 128;
 export const COLUMN_HEADER_H = 48;
 export const COLUMN_PAD_X = 18;
@@ -36,5 +37,5 @@ export function nodePosition(node: FlowColumn | FlowNode): { x: number; y: numbe
   if ('kind' in node) {
     return { x: COLUMN_PAD_X, y: COLUMN_HEADER_H + node.order * ROW_H };
   }
-  return { x: node.colIndex * COL_W, y: 0 };
+  return { x: node.colIndex * (COL_W + COL_W_GAP), y: 0 };
 }

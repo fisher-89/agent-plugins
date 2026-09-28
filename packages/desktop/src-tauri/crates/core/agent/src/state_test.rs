@@ -153,3 +153,94 @@ fn 每次apply返回值与随后current观测一致() {
     let applied = machine.apply(&message(3));
     assert_eq!(applied, machine.current());
 }
+
+// ---------------------------------------------------------------------------
+// stop()：显式终止收敛（Running → Stopped；首个收敛生效，幂等终态不改写）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn running状态调用stop收敛stopped且current观测一致() {
+    let mut machine = RunStateMachine::new();
+    let state = machine.stop();
+    assert_eq!(state, AgentRunState::Stopped, "显式终止收敛 Stopped");
+    assert_eq!(machine.current(), AgentRunState::Stopped);
+}
+
+#[test]
+fn stopped收敛后再apply任意事件终态保持stopped() {
+    let mut machine = RunStateMachine::new();
+    machine.stop();
+    assert_eq!(machine.current(), AgentRunState::Stopped);
+
+    // Stopped 终态拒绝一切改写（含 is_error 的 RunResult）
+    for event in [message(1), run_result(2, true), system_notice(3), raw(4)] {
+        let state = machine.apply(&event);
+        assert_eq!(
+            state,
+            AgentRunState::Stopped,
+            "Stopped 不被改写（幂等终态）"
+        );
+        assert_eq!(machine.current(), AgentRunState::Stopped);
+    }
+}
+
+#[test]
+fn 已completed或failed终态调用stop原样返回不改写() {
+    let mut completed = RunStateMachine::new();
+    completed.apply(&run_result(0, false));
+    assert_eq!(
+        completed.stop(),
+        AgentRunState::Completed,
+        "已 Completed 调 stop 原样返回 Completed"
+    );
+    assert_eq!(completed.current(), AgentRunState::Completed);
+
+    let mut failed = RunStateMachine::new();
+    failed.apply(&run_result(0, true));
+    assert_eq!(
+        failed.stop(),
+        AgentRunState::Failed,
+        "已 Failed 调 stop 原样返回 Failed"
+    );
+    assert_eq!(failed.current(), AgentRunState::Failed);
+}
+
+#[test]
+fn 连续两次stop首个收敛生效第二次原样返回stopped() {
+    let mut machine = RunStateMachine::new();
+    let first = machine.stop();
+    let second = machine.stop();
+
+    assert_eq!(first, AgentRunState::Stopped, "首个收敛生效");
+    assert_eq!(second, AgentRunState::Stopped, "第二次原样返回 Stopped");
+}
+
+#[test]
+fn stop与run_result竞态时首个收敛生效且双向不改写() {
+    // stop 先到：Stopped 定终态，后续 RunResult（含 is_error）不改写
+    let mut stop_first = RunStateMachine::new();
+    stop_first.stop();
+    assert_eq!(
+        stop_first.apply(&run_result(0, false)),
+        AgentRunState::Stopped,
+        "stop 先到收敛 → RunResult 不改写"
+    );
+
+    // RunResult 先到：Completed 定终态，后续 stop 不改写
+    let mut result_first = RunStateMachine::new();
+    result_first.apply(&run_result(0, false));
+    assert_eq!(
+        result_first.stop(),
+        AgentRunState::Completed,
+        "RunResult 先到收敛 → stop 不改写"
+    );
+
+    // RunResult（is_error=true）先到：Failed 定终态，后续 stop 不改写
+    let mut failed_first = RunStateMachine::new();
+    failed_first.apply(&run_result(0, true));
+    assert_eq!(
+        failed_first.stop(),
+        AgentRunState::Failed,
+        "is_error 收敛先到 → stop 不改写"
+    );
+}

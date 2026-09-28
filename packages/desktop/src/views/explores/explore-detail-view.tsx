@@ -2,9 +2,9 @@ import { useEffect, useRef } from 'react';
 
 import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@/components/ui/resizable';
 
+import { AgentMessages } from '../../components/agent';
 import type { ExploreRecord } from '../../types/dto';
 import { ExploreComposer } from './components/explore-composer';
-import { ExploreConversation } from './components/explore-conversation';
 import { ExplorePreview } from './components/explore-preview';
 import { useExploreDoc } from './hooks/use-explore-doc';
 import { useExploreSession } from './hooks/use-explore-session';
@@ -43,16 +43,20 @@ export function ExploreDetailView({ root, record }: ExploreDetailViewProps): Rea
   }
 
   return (
-    <div className="flex min-h-0 flex-col" data-testid="explore-detail">
+    <div className="flex min-h-0 flex-1 flex-col" data-testid="explore-detail">
       <ResizablePanelGroup className="min-h-0 flex-1" orientation="horizontal">
         <ResizablePanel defaultSize="55" minSize="25">
           <div className="flex h-full min-h-0 flex-col gap-3 pr-1.5">
-            <ExploreConversation
-              events={session.events}
+            <AgentMessages
+              messages={session.messages}
               loading={session.loading}
               running={session.running}
             />
-            <ExploreComposer disabled={session.running} onSend={session.send} />
+            <ExploreComposer
+              running={session.running}
+              onSend={session.send}
+              onStop={session.stop}
+            />
           </div>
         </ResizablePanel>
         <ResizableHandle withHandle />

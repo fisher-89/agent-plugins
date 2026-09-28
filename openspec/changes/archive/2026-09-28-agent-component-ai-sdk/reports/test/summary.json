@@ -1,0 +1,91 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-28T10:45:26.737Z",
+  "duration_seconds": 850,
+  "total": 497,
+  "passed": 497,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 42,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 83.7,
+    "threshold": 80,
+    "measured": {
+      "killed": 806,
+      "survived": 146,
+      "timeout": 0,
+      "noCoverage": 11,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 25,
+      "total": 988,
+      "detected": 806,
+      "undetected": 157
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 83.69678089304257,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 42,
+        "passed_count": 42
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/agent-component-ai-sdk/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/agent-component-ai-sdk/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "全绿:vite-plus 463/463、rust 34/34,总 497/497 通过;变异 score 83.7% ≥ 80% 通过(806 killed / 146 survived / 11 noCoverage)。上轮 3 个失败均已修复:use-agent-chat.ts:209 补 sourceRef===null 守卫、agent-adapter.ts collectToolResults 改为按 useIds 配对收编、use-agent-run-history 语义改为挂载即取数(文档同步),对应用例全部转绿,无 flaky、非时序聚簇。",
+    "报告口径缺陷:summary 顶层 coverage.measured 全为 null 且 coverage.pass=true,但两份计划级 report.json 的 coverage.pass 均为 false(vite-plus functions 89.63<90、rust branches 0<85),顶层聚合把两处真实覆盖失败掩盖为通过;conclusion=pass 仅在字段自洽层面成立。根因在 CLI:istanbul 逐文件覆盖键为反斜杠绝对路径(D:Projects...),source_files 为正斜杠(D:/Projects/...),精确键匹配合并 0/42 全部落空,聚合只得 null,而 kc 把 null 维度视为通过。修复需改 CLI(合并前统一路径分隔符),非本仓库代码问题。",
+    "TS 覆盖真实缺口仅集中在 6 个 0% 文件(共 43 个未覆盖函数):5 个 explores 视图/组件(40 fn,routes.tsx 实挂载的活代码)+ src/components/ui/resizable.tsx(3 fn;openspec config 已将 src/components/ui/** 列入排除,但 vite.config.ts 无 coverage 配置,实际仍被采集)。仅排除 5 个 explores 文件 functions 即达 98.5%。处置二选一:补 explores 视图测试,或按 ui/** 同口径将 explores 视图排除出覆盖门禁;排除 resizable 需另给 vite.config.ts 补 coverage.exclude。",
+    "rust branches=0 属度量口径问题而非真实低覆盖:cargo llvm-cov --json 输出的 files[].branches 为空数组,解析为 0% < 85 阈值,致计划级 coverage.pass=false;该工作区 llvm-cov 未产出分支数据,建议 rust 计划 branches 阈值置 null 或启用分支插桩,否则 rust 计划级覆盖恒红。",
+    "报告完整性校验通过:必填字段齐全,497=497+0+0 计数一致,无 execution_error、无跳过用例;plans 索引完整(2/3 计划在 change 范围内,plugins/dev-team 因无变更文件按预期跳过,不计入)。"
+  ]
+}

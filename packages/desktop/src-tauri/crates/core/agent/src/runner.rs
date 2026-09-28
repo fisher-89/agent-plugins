@@ -6,8 +6,11 @@
 
 use std::fmt;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use tokio::sync::Notify;
 
 use crate::event::AgentEvent;
 
@@ -72,17 +75,54 @@ pub struct AgentRunParams {
     pub resume_session_id: Option<String>,
 }
 
-/// 运行句柄：MVP 无 kill / cancel，刻意为空结构，作为未来终止能力的
-/// 挂点（trait 形状「事件流 + 句柄」的句柄半边）。
-#[derive(Debug, Clone, Copy)]
-pub struct RunHandle;
+/// 运行句柄：逻辑终止信号（trait 形状「事件流 + 句柄」的句柄半边）。信号
+/// 面零进程类型——句柄只承载「终止已请求」状态与等待原语，进程树击杀等
+/// kill 机制归租户实现（租户经 `wait_requested` 或 `stop_requested` 观测
+/// 信号后自行终止其进程模型）。`Clone` 共享同一信号：编排侧持有一份、
+/// 租户泵持有一份，任一置位双方可见。
+#[derive(Debug, Clone, Default)]
+pub struct RunHandle {
+    /// 终止请求标志（置位后不可清除；首个收敛生效语义的信号半边）
+    stop_requested: Arc<AtomicBool>,
+    /// 等待方唤醒原语：`request_stop` 置位后唤醒所有在途等待
+    notify: Arc<Notify>,
+}
+
+impl RunHandle {
+    /// 置位终止请求并唤醒等待方（幂等：重复置位无副作用、不重复 panic）。
+    pub fn request_stop(&self) {
+        self.stop_requested.store(true, Ordering::SeqCst);
+        self.notify.notify_waiters();
+    }
+
+    /// 同步观测终止请求（编排侧 EOF 收敛判定：状态机未收敛但信号已置位
+    /// → 显式收敛 stopped）。
+    pub fn stop_requested(&self) -> bool {
+        self.stop_requested.load(Ordering::SeqCst)
+    }
+
+    /// 异步等待终止请求（租户泵 select 半边）：已置位立即返回；未置位挂起
+    /// 至 `request_stop` 唤醒。置位与注册等待之间的竞态经「先注册、再复查」
+    /// 关闭（enable 先于复查，复查先于挂起）。
+    pub async fn wait_requested(&self) {
+        if self.stop_requested() {
+            return;
+        }
+        let mut notified = std::pin::pin!(self.notify.notified());
+        notified.as_mut().enable();
+        if self.stop_requested() {
+            return;
+        }
+        notified.await;
+    }
+}
 
 /// 一次运行的产出：逻辑事件流（有界 mpsc）+ 运行句柄。
 #[derive(Debug)]
 pub struct AgentRun {
     /// 逻辑事件流：消费端关闭后生产端自行停止
     pub events: tokio::sync::mpsc::Receiver<AgentEvent>,
-    /// 运行句柄（MVP 预留）
+    /// 运行句柄（逻辑终止信号，kill 机制归租户）
     pub handle: RunHandle,
 }
 

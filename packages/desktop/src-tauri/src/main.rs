@@ -8,6 +8,7 @@ use tauri::Manager;
 
 use store::Store;
 
+use commands::exec::RunStopRegistry;
 use commands::watch::WatchRegistry;
 
 /// db 文件落位：`home_dir()/.dev-team` 根，不建子目录（数据维度语义由 db
@@ -44,6 +45,9 @@ fn main() {
             app.manage(store);
             // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
             app.manage(WatchRegistry::default());
+            // agent 停止句柄注册表：agent_start 登记 / drive 终态除名 /
+            // agent_stop 查询，此处只挂空表（与 WatchRegistry 同型托管）
+            app.manage(RunStopRegistry::default());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -54,6 +58,7 @@ fn main() {
             commands::workspaces::add_workspace,
             commands::workspaces::remove_workspace,
             commands::exec::agent_start,
+            commands::exec::agent_stop,
             commands::exec::agent_runs,
             commands::exec::agent_run_events,
             commands::exec::agent_run_chain,

@@ -29,7 +29,8 @@ tauri-plugin-devtools = "2.2.1"
 
 [dev-dependencies]
 tempfile = { workspace = true }
-# 编排/命令层测试以 #[tokio::test] 驱动 async run_agent_with / agent_start
+# 编排/命令层测试以 #[tokio::test] 驱动（drive_agent_run 直驱 / start_agent_run
+# 泛型缝 / agent_start 与 agent_stop 命令面）
 tokio = { workspace = true, features = ["rt", "macros"] }
 # 命令层测试以 MockRuntime 构造 State（不启动真实 runtime）；仅测试构建启用
 tauri = { workspace = true, features = ["test"] }

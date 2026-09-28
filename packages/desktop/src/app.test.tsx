@@ -138,6 +138,11 @@ function mockIpc() {
         const limit = params?.limit ?? 50;
         return Promise.resolve(DB_RECORDS.slice(offset, offset + limit).map((e) => ({ ...e })));
       }
+      // agent 调试页挂载取数（useAgentRunHistory 挂载发起 agent_runs）：回数组形态
+      // （null 会使 useRuns state.runs 置 null 而崩），页面切页往返断言不涉及其内容
+      if (command === 'agent_runs' || command === 'agent_run_events') {
+        return Promise.resolve([]);
+      }
       return Promise.resolve(null);
     },
   );
@@ -1033,6 +1038,80 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.queryByText('系统工具')).toBeNull();
     expect(screen.queryByTestId('db-model-list')).toBeNull();
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 壳层滚动框架（回溯修订）：壳态路由内容包裹层增 flex min-h-0 flex-col 立高度
+// 链起点；其余路由页为内容自适应 flex item，呈现不变。jsdom 以 className 拓扑
+// 为代理断言（真实观感归人工验收）。
+// ---------------------------------------------------------------------------
+
+describe('App：壳层滚动框架', () => {
+  beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
+    getVersionMock.mockReset();
+    invokeMock.mockReset();
+    openMock.mockReset();
+    checkMock.mockReset();
+    checkMock.mockResolvedValue(null);
+    getVersionMock.mockResolvedValue('0.1.0');
+    toast.dismiss();
+    mockIpc();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  /** 壳态路由内容包裹层（SidebarInset 下的 w-full 容器）。 */
+  function shellContentWrapper(): Element {
+    const inset = document.querySelector('main[data-slot="sidebar-inset"]');
+    const wrapper = Array.from(inset?.children ?? []).find(
+      (el) => el.tagName === 'DIV' && el.className.includes('w-full'),
+    );
+    if (!wrapper) throw new Error('壳态路由内容包裹层不存在');
+    return wrapper;
+  }
+
+  it('壳态路由内容包裹层增 flex min-h-0 flex-col 类（高度链起点），既有留白类不回归', async () => {
+    await restored();
+
+    const wrapper = shellContentWrapper();
+    for (const className of [
+      'mx-auto',
+      'flex',
+      'min-h-0',
+      'w-full',
+      'flex-1',
+      'flex-col',
+      'px-4',
+      'py-4',
+    ]) {
+      expect(wrapper.className).toContain(className);
+    }
+    // 高度链起点在壳层语义内：包裹层即路由页 flex 容器（AppRoutes 直接子级）
+    expect(wrapper.contains(screen.getByText('add-feature'))).toBe(true);
+  });
+
+  it('切页往返（changes → db → changes）包裹层框架类稳定，清单 / 数据库页呈现不回归', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-db'));
+    await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
+    for (const className of ['flex', 'min-h-0', 'flex-1', 'flex-col']) {
+      expect(shellContentWrapper().className).toContain(className);
+    }
+
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+    for (const className of ['flex', 'min-h-0', 'flex-1', 'flex-col']) {
+      expect(shellContentWrapper().className).toContain(className);
+    }
+    // 非滚动场景页为内容自适应 flex item：切页往返后清单照常呈现
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
   });
 });
 
