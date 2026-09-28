@@ -1,10 +1,10 @@
 import { Navigate, Route, Routes } from 'react-router';
 
-import { type ChangeListState } from './hooks/useChangeList';
-import { AgentDebugView } from './views/agent/AgentDebugView';
-import { ChangeView } from './views/changes/ChangeView';
-import { DbInspectorView } from './views/db/DbInspectorView';
-import { ExploreView } from './views/explores/ExploreView';
+import { type ChangeListState } from './hooks/use-change-list';
+import { AgentDebugView } from './views/agent/agent-debug-view';
+import { ChangeView } from './views/changes/change-view';
+import { DbInspectorView } from './views/db/db-inspector-view';
+import { ExploreView } from './views/explores/explore-view';
 
 /** 壳态路由表：/ 与未知路径 replace 重定向 /changes，顶层页面与 change / explore 选中均由 URL 承载 */
 export function AppRoutes({ root, list }: { root: string; list: ChangeListState }) {

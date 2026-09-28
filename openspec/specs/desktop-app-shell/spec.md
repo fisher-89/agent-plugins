@@ -366,12 +366,12 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `dev-team::commands::db`（新轨道） | db 查看命令轨道 | `db_models` / `db_records` 只读薄包装；`State<Store>` → 信封 API；`Result<T, String>`；命名 design 可调 |
 | 前端 `hooks/` | 取数收口 | useChangeList / useChangeDetail / useWorkspaces；显式刷新触发（useWorkspaces 启动自动一次） |
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
-| `packages/desktop/src/hooks/useWorkspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove）；error 态收窄为清单加载失败（查询 inline 持久）；切换为本地 select（清单默认序不重排；root 在清单则保持、被移除顺延第一名）；add 成功直接以返回记录 root 为当前根 |
+| `packages/desktop/src/hooks/use-workspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove）；error 态收窄为清单加载失败（查询 inline 持久）；切换为本地 select（清单默认序不重排；root 在清单则保持、被移除顺延第一名）；add 成功直接以返回记录 root 为当前根 |
 | 前端视图 | 列表 / 流水线 / 产物区渲染 + 欢迎屏空态 / sidebar 侧栏 | 消费 DTO 与 ArtifactEnvelope；未注册 kind 由 Fallback 兜底 |
-| `packages/desktop/src/App.tsx` | 壳布局 + 路由表挂载 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；路由表 `/changes` / `/changes/:name` / `/agent`（`page` state 移除，契约见 desktop-page-routing） |
-| `packages/desktop/src/components/AppSidebar.tsx` | NavLink 页面导航组 + workspace 清单侧栏 | NavLink 导航（active 由 URL 派生，`TopPage` / `onPageChange` 删除，testid `nav-changes` / `nav-agent` 保持）；`SidebarMenuButton` 列表项（点击本地切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
-| `packages/desktop/src/views/changes/ChangeListView.tsx` | 刷新入口 | 头部刷新按钮 `disabled={loading}`；列表加载失败 error-note inline 保留 |
-| `packages/desktop/src/views/WelcomeView.tsx` | 欢迎态 | error-note 仅清单加载失败；「添加新文件夹」入口保留 |
+| `packages/desktop/src/app.tsx` | 壳布局 + 路由表挂载 | `SidebarProvider` + `AppSidebar` + `SidebarInset`；header 终态（折叠钮/标题/版本更新）；Toaster App 根挂载一次；欢迎态不挂壳；路由表 `/changes` / `/changes/:name` / `/agent`（`page` state 移除，契约见 desktop-page-routing） |
+| `packages/desktop/src/components/app-sidebar.tsx` | NavLink 页面导航组 + workspace 清单侧栏 | NavLink 导航（active 由 URL 派生，`TopPage` / `onPageChange` 删除，testid `nav-changes` / `nav-agent` 保持）；`SidebarMenuButton` 列表项（点击本地切换 / 副文本 testid 区分同名 / Tooltip 完整 root）；`SidebarGroupAction` 添加流；`ContextMenu` 右键移除 |
+| `packages/desktop/src/views/changes/change-list-view.tsx` | 刷新入口 | 头部刷新按钮 `disabled={loading}`；列表加载失败 error-note inline 保留 |
+| `packages/desktop/src/views/welcome-view.tsx` | 欢迎态 | error-note 仅清单加载失败；「添加新文件夹」入口保留 |
 | `dev-team::commands::*`（全体命令） | 应用服务（command 即应用服务） | body 三件事：参数转换 / 调用 / 错误映射；无独立 app crate；编排下推 core 或触发翻转 |
 | `commands::workspaces::{list,add,remove}_workspace_inner` | app 层微形态 | 纯函数 + `&Store` 入参；将来抽 crate 时平移复用，不重写 |
 | `run_agent()` 编排函数 | app 层微形态（`*_inner` 先例进化） | 组装 runner → tee 双 sink（Tauri Channel + store）→ 状态收敛；将来抽 crate 时与 inner 函数一并平移复用，不重写 |
@@ -382,8 +382,8 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `packages/desktop/components.json` | shadcn 生成配置 | alias `@/*`;内部化纪律适用 |
 | `packages/desktop/src-tauri/tauri.conf.json` | 窗口与打包配置 | 默认窗口 1200×800、最小 900×600（PC-only 兜底：极小分辨率不适配,由窗口最小尺寸约束保证）;窗口固定 dark 主题与 `backgroundColor`（同 `--background`,消启动白闪）;updater endpoint 与 pubkey |
 | `@/*` 路径别名(tsconfig + vite 双处) | ui/** import 解析 | 双处同步配置 |
-| `src/views/changes/renderers/MarkdownDocRenderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
-| `src/views/changes/renderers/TasksProgressRenderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |
+| `src/views/changes/renderers/markdown-doc-renderer.tsx` | markdown 渲染 | `prose` 接管后代样式;无自定义类后代选择器 |
+| `src/views/changes/renderers/tasks-progress-renderer.tsx` | 任务进度渲染 | Progress 组件 value 承载百分比;无内联 `style={{ width }}` |
 | `*.test.tsx` | 测试挂钩 | data-testid;无样式类名查询;与步骤② 同 commit;右键经 `fireEvent.contextMenu`;toast 断言经 sonner 文本;同名场景 testid 承载 |
 | `packages/desktop/package.json` | 依赖 | `@radix-ui/react-separator` / `react-dialog` / `react-tooltip` / `react-context-menu`、`lucide-react`、`sonner` |
 | `stryker.config.json` | mutate 范围守线 | ui/** 处置 design 定夺有据;break 50 守线;StringLiteral 全局排除仅兜底 |

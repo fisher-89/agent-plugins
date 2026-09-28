@@ -224,6 +224,6 @@ agent 运行记录 SHALL 以 **user 维度**持久化（个人活动历史：不
 | `packages/desktop/src-tauri/crates/infra/store`（增两表） | run 持久化 | `user_agent_runs`（元数据）/ `user_agent_run_events`（(run_id, seq) 事件流）；user 维度 app data dir；重放查询入口 |
 | `dev-team::commands::exec`（开通） | 执行 + 查询命令 | `agent_start`（三件事，编排收 `run_agent()`）；`agent_runs` / `agent_run_events` 无状态薄包装；`Result<T, String>` 错误模板 |
 | `run_agent()` 编排函数 | app 层微形态 | 组装 runner → 事件流 tee（Tauri Channel + store sink）→ 状态收敛；将来抽 crate 平移复用不重写 |
-| `packages/desktop/src/views/agent/AgentDebugView.tsx`（新） | Agent 调试页 | 参数面（prompt 必填 / permission-mode 默认 bypassPermissions / env 不设参数）；事件时间线；原始 JSONL 切换；历史运行重放 |
-| `packages/desktop/src/components/AppSidebar.tsx` | 页面导航组 | [变更] [Agent 调试]；本地 state 切视图，无路由 |
+| `packages/desktop/src/views/agent/agent-debug-view.tsx`（新） | Agent 调试页 | 参数面（prompt 必填 / permission-mode 默认 bypassPermissions / env 不设参数）；事件时间线；原始 JSONL 切换；历史运行重放 |
+| `packages/desktop/src/components/app-sidebar.tsx` | 页面导航组 | [变更] [Agent 调试]；本地 state 切视图，无路由 |
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |

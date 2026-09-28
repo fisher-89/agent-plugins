@@ -138,8 +138,8 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `react-router`（新依赖，`packages/desktop/package.json`） | 路由运行时 | v7 declarative 模式（`react-router` 单包）；HashRouter；无第二路由库 |
-| `packages/desktop/src/App.tsx` | 路由表挂载 + 壳布局 | 路由表 `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/agent`、`/explores`、`/explores/:name`、`*` 兜底；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
-| `packages/desktop/src/components/AppSidebar.tsx` | NavLink 页面导航组 | active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持、`nav-explores` 新增 |
-| `packages/desktop/src/views/changes/ChangeView.tsx` | 选中态 ↔ 路由参数接线（溶解与否 design 定） | `useParams` 承载选中；返回显式 `navigate('/changes')`；workspace 切换落 `/changes` |
-| `packages/desktop/src/hooks/useChangeDetail.ts` 等 hooks | 取数契约不变 | 入参来源由 state 改为路由参数，hook 本体不动；显式刷新模型不变 |
+| `packages/desktop/src/app.tsx` | 路由表挂载 + 壳布局 | 路由表 `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/agent`、`/explores`、`/explores/:name`、`*` 兜底；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
+| `packages/desktop/src/components/app-sidebar.tsx` | NavLink 页面导航组 | active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持、`nav-explores` 新增 |
+| `packages/desktop/src/views/changes/change-view.tsx` | 选中态 ↔ 路由参数接线（溶解与否 design 定） | `useParams` 承载选中；返回显式 `navigate('/changes')`；workspace 切换落 `/changes` |
+| `packages/desktop/src/hooks/use-change-detail.ts` 等 hooks | 取数契约不变 | 入参来源由 state 改为路由参数，hook 本体不动；显式刷新模型不变 |
 | 路由级测试（新，如 `src/__tests__/route_pages.test.tsx`） | 路由表 / 选中态 / 语义保留断言 | data-testid 挂钩；MemoryRouter vs HashRouter 挂载 design 定夺有据 |

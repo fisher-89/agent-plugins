@@ -90,10 +90,10 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `packages/desktop/src/views/explores/ExploreView.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；导入扫描绑定 / 新话题建档；删除入口（不动文件，对话随记录级联清） |
-| `packages/desktop/src/views/explores/ExploreDetailView.tsx`（新） | 双栏详情 | resizable 分栏；左对话区右预览；watch 生命周期 = 页面生命周期 |
+| `packages/desktop/src/views/explores/explore-view.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；导入扫描绑定 / 新话题建档；删除入口（不动文件，对话随记录级联清） |
+| `packages/desktop/src/views/explores/explore-detail-view.tsx`（新） | 双栏详情 | resizable 分栏；左对话区右预览；watch 生命周期 = 页面生命周期 |
 | `views/explores/components/`（新：对话区 / composer / 预览 / 新建对话框） | 呈现件 | `message-scroller` + `message` 气泡映射；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
 | `views/explores/hooks/`（新） | 会话链与刷新编排 | 链还原重放 + Channel 实时流；watch 信号防抖 → `read_explore` 显式刷新 |
-| `packages/desktop/src/lib/exploreStance.ts`（新） | stance 前导模板 | 拼接进 explore run prompt 头部；与 SKILL.md 双源注释互链 |
-| `routes.tsx` + `components/AppSidebar.tsx` | 路由与导航 | `/explores`、`/explores/:name`；`nav-explores` 入口（active 由 URL 派生） |
+| `packages/desktop/src/lib/explore-stance.ts`（新） | stance 前导模板 | 拼接进 explore run prompt 头部；与 SKILL.md 双源注释互链 |
+| `routes.tsx` + `components/app-sidebar.tsx` | 路由与导航 | `/explores`、`/explores/:name`；`nav-explores` 入口（active 由 URL 派生） |
 | `types/dto.ts` | 前端 DTO | `ExploreRecord` / 导入扫描结果，与 store 自有类型一一对应 |

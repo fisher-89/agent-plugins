@@ -1,10 +1,10 @@
 import type { ComponentType } from 'react';
 
 import type { ArtifactEnvelope } from '../../../types/dto';
-import { EvalChecklistRenderer } from './EvalChecklistRenderer';
-import { Fallback } from './Fallback';
-import { MarkdownDocRenderer } from './MarkdownDocRenderer';
-import { TasksProgressRenderer } from './TasksProgressRenderer';
+import { EvalChecklistRenderer } from './eval-checklist-renderer';
+import { Fallback } from './fallback';
+import { MarkdownDocRenderer } from './markdown-doc-renderer';
+import { TasksProgressRenderer } from './tasks-progress-renderer';
 
 /** 信封渲染组件类型：入参单个 ArtifactEnvelope */
 export type RendererComponent = ComponentType<{ envelope: ArtifactEnvelope }>;

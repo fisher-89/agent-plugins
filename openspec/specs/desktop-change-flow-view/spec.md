@@ -148,6 +148,6 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 | ReactFlow 渲染薄层组件（新） | 图呈现 | `@xyflow/react` v12 subflow（`parentId` + `extent: 'parent'`）；9 列恒定 + fitView；eval 实心 / active pulse / interrupted dashed / stale 半透明 |
 | phase 列头 + 自定义节点组件（新） | 列容器与节点 | 列头：phase 名 + 过程文档徽章；节点：verdict 视觉 + attempt 序号；点击统一进抽屉 |
 | 右侧抽屉组件（新） | 素材详情 | 三分节【本站文档 / eval report+checklist / 文件表】；文档节复用 `renderers/registry`（`ArtifactView`）；单一交互入口 |
-| `packages/desktop/src/views/changes/ChangeDetailView.tsx` | 页面组装 | Header + 流程图 + workflow 独立面板（`scope='workflow'` file_log）+ 产物区；v0 空图占位 / v1 无文件区降级；`unparsable` 警示与降级页保留 |
+| `packages/desktop/src/views/changes/change-detail-view.tsx` | 页面组装 | Header + 流程图 + workflow 独立面板（`scope='workflow'` file_log）+ 产物区；v0 空图占位 / v1 无文件区降级；`unparsable` 警示与降级页保留 |
 | `packages/desktop/package.json` | 新依赖与版本交付 | `@xyflow/react` v12（React 19 + Tailwind 4 兼容）；无第二图布局库（无 dagre / elk）；`version` 0.3.2 → 0.3.3（`tauri.conf.json` 经 `../package.json` 自动跟随，`src-tauri/Cargo.toml` 不随动） |
 | 后端 `workflow::queries::detail`（不改） | 数据来源 | `ChangeDetail` DTO 与 `PIPELINE_PHASES` 不动；归属全部前端派生 |

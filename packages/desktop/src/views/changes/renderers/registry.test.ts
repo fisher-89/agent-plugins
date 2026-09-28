@@ -1,10 +1,10 @@
 import { describe, expect, it } from 'vite-plus/test';
 
-import { EvalChecklistRenderer } from './EvalChecklistRenderer';
-import { Fallback } from './Fallback';
-import { MarkdownDocRenderer } from './MarkdownDocRenderer';
+import { EvalChecklistRenderer } from './eval-checklist-renderer';
+import { Fallback } from './fallback';
+import { MarkdownDocRenderer } from './markdown-doc-renderer';
 import { resolveRenderer } from './registry';
-import { TasksProgressRenderer } from './TasksProgressRenderer';
+import { TasksProgressRenderer } from './tasks-progress-renderer';
 
 describe('resolveRenderer：kind 到渲染组件的映射', () => {
   it('三个第一波 kind 分别返回对应 renderer 组件', () => {
