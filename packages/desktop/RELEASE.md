@@ -1,7 +1,7 @@
 # Desktop 发版与自动更新
 
 更新链路:`tauri build` 产出带签名的 NSIS 安装包 → master 推送且 package.json
-版本高于远端最新 `desktop-v*` tag 时,GitHub Actions
+版本高于仓库最新 release 的版本时,GitHub Actions
 (`.github/workflows/desktop-release.yml`)自动打 tag 并由 tauri-action 发布到
 [fisher-89/agent-plugins](https://github.com/fisher-89/agent-plugins) 的 Releases →
 已安装应用启动时拉取 `releases/latest/download/latest.json` 比对版本 →
@@ -51,7 +51,7 @@ pnpm -C packages/desktop run build
    `"version": "../package.json"` 引用;`src-tauri/Cargo.toml` 的版本是 crate
    自身版本,与应用版本无关)。
 2. commit 后 `git push origin master` 即可:workflow 触发时读取 package.json 版本,
-   经 `git ls-remote` 与远端最新 `desktop-v*` tag 比对,更高则在该 commit 上自动
+   经 GitHub API 与仓库最新 release 的版本比对,更高则在该 commit 上自动
    创建 tag 并发版;不高(未升版/回退)则 release job 跳过,Actions 里表现为
    detect 通过、release skipped。
 3. 补跑/重发同版本:Actions → desktop-release → Run workflow,勾选 `force`

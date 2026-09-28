@@ -1,5 +1,5 @@
 # desktop 自动发版:master 推送触及 packages/desktop 时,读取 package.json 版本,
-# 与远端最新 desktop-v* tag 比对,更高则自动在该 commit 上创建 tag 并构建发布
+# 与仓库最新 release 的版本比对,更高则自动在该 commit 上创建 tag 并构建发布
 # (流程见 packages/desktop/RELEASE.md)。补跑/重发同版本用 workflow_dispatch 的 force。
 # 依赖 secret:TAURI_SIGNING_PRIVATE_KEY(密码 secret 无需创建,缺失时解析为空串即空密码)。
 # 注意:检测与发布必须在同一 workflow——GITHUB_TOKEN 推的 tag 不触发其他 workflow。
@@ -36,15 +36,16 @@ jobs:
       - uses: actions/checkout@v7
       - id: version
         shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           VERSION=$(node -p "require('./package.json').version")
-          # 远端 desktop-v* tag 的最高版本;ls-remote 只看 origin,不碰本地遗留 tag。
-          # sed 一并完成两件事:剔除 annotated tag 的 ^{} 附带行(本项目为轻量 tag,
-          # 防御性过滤)+ 截取版本号——sed 空输入时退出码恒 0,规避 -e -o pipefail 下
-          # grep -v 零匹配即整条管道失败的问题(首发场景必现)。
-          LATEST=$(git ls-remote --tags origin 'refs/tags/desktop-v*' \
-            | sed -E '/\^/d; s#.*refs/tags/desktop-v##' \
-            | sort -V | tail -n1)
+          # 仓库最新非 draft/prerelease release 的版本——更新器跟随的正是
+          # releases/latest 端点,以它为准而非 tag(tag 残留而 release 缺失时仍可重发)。
+          # 首发无 release 时 API 404,gh 报错经 || true 归空;sed 仅在 tag 形如
+          # desktop-v<数字> 时输出,兼做前缀剥离与格式过滤(本仓库只发 desktop release)。
+          LATEST=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq '.tag_name' 2>/dev/null || true)
+          LATEST=$(sed -nE 's#^desktop-v([0-9.]+)$#\1#p' <<<"$LATEST")
           : "${LATEST:=0.0.0}"
           NEWER=$(node -e "
             const parse = (s) => s.split('.').map(Number);
@@ -56,7 +57,7 @@ jobs:
           " "$VERSION" "$LATEST" && echo true || echo false)
           FORCE='${{ github.event.inputs.force }}'
           if [ "$FORCE" = 'true' ] || [ "$NEWER" = 'true' ]; then SHOULD=true; else SHOULD=false; fi
-          echo "package.json=$VERSION 远端最高 tag=$LATEST 更高=$NEWER force=$FORCE 发版=$SHOULD"
+          echo "package.json=$VERSION 最新release=$LATEST 更高=$NEWER force=$FORCE 发版=$SHOULD"
           echo "version=$VERSION" >> "$GITHUB_OUTPUT"
           echo "should=$SHOULD" >> "$GITHUB_OUTPUT"
 
