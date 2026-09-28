@@ -424,11 +424,11 @@ describe('change_flow_pipeline：v2 完整链路——素材上墙与抽屉取�
     expect(labels).toHaveLength(1);
     expect(labels[0].textContent).toBe('设计未对齐提案');
     // 回跳边虚线标记落在边 path 内联样式上；常规边无虚线
-    const backtrackPath = document.querySelector(
+    const backtrackPath = document.querySelector<SVGElement>(
       '[data-id="edge:interrupted:code-review:1->eval:dev-design:2"] path',
     );
     expect((backtrackPath?.style.strokeDasharray ?? '').length).toBeGreaterThan(0);
-    const forwardPath = document.querySelector(
+    const forwardPath = document.querySelector<SVGElement>(
       '[data-id="edge:eval:dev-design:1->interrupted:code-review:1"] path',
     );
     expect(forwardPath?.style.strokeDasharray ?? '').toBe('');
