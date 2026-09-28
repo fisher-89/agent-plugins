@@ -13,7 +13,7 @@ export function WelcomeView({ state, onAdd }: { state: WorkspaceState; onAdd: ()
     <div className="flex flex-1 flex-col items-center justify-center gap-4">
       <h1 className="m-0 text-xl">Dev Team</h1>
       <p className="m-0 text-muted-foreground">选择一个项目根目录，浏览其 change 过程记录。</p>
-      <div className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
+      <div className="mx-auto w-full flex-1 px-4 py-4">
         {error !== null && (
           <div
             className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"

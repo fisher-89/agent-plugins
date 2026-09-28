@@ -71,6 +71,21 @@ round = |entries[anchor..]| + 1
 - **WHEN** eval 空、出错、或 `done: true` → `last_result` 为 `null`
 - **WHEN** 多条乱序 → 取时间戳最新一条
 
+### Requirement: phase prompt 文案不区分测试层级
+
+`plugins/dev-team/bin/src/lib/workflow.ts` 中三种工作流（requirement / bug-fix / test-only）的 test-execution phase prompt SHALL 为 `Run and fix all tests for change "<change>".`，MUST NOT 含 `(unit + integration)` 层级表述。phase 表结构、phase id 与前置依赖不变。
+
+#### Scenario: prompt 文案已改写
+
+- **WHEN** 检索 `workflow.ts` 全部 phase prompt
+- **THEN** 三处 test-execution prompt 均为 `Run and fix all tests for change "<change>".`
+- **AND** 全仓库源码无 `unit + integration` 字样
+
+#### Scenario: phase 表数据不受文案影响
+
+- **WHEN** 读取 `PHASE_REQUIREMENT` / `PHASE_BUG_FIX` / `PHASE_TEST_ONLY` 的 test-execution 条目
+- **THEN** phase id、pattern、executor / evaluator、前置依赖均不变，仅 prompt 文案改写
+
 ## MODIFIED Requirements
 
 ### Requirement: 八阶段工作流结构
@@ -84,7 +99,7 @@ round = |entries[anchor..]| + 1
 | test-design | DESIGN P→E | 测试场景设计 |
 | implement | EXEC G→E + AUTO | 实现代码 |
 | test-gen | EXEC G→E | 测试代码 |
-| test-execution | EXEC Executor→E | 全自动测试（单元+集成） |
+| test-execution | EXEC Executor→E | 全自动测试 |
 | code-review | EVAL-ONLY | 代码审查 |
 | acceptance | EVAL-ONLY | 验收 |
 
@@ -170,7 +185,7 @@ round = |entries[anchor..]| + 1
 
 | 位置 | 要点 |
 |------|------|
-| `workflow.ts` | `PHASE_REQUIREMENT` 长度 8；`PHASE_TEST_ONLY` 长度 5；`unit-test`→`test-execution`；无 `integration-test` |
+| `workflow.ts` | `PHASE_REQUIREMENT` 长度 8；`PHASE_TEST_ONLY` 长度 5；`unit-test`→`test-execution`；无 `integration-test`；test-execution prompt 为 `Run and fix all tests for change "<change>".`（无层级表述） |
 | `phase-next.schema.ts` | 输入必填 `run_id`；输出含 `last_result`；`round`=session 语义 |
 | `phase-next.ts` | `getWorkflowType(change)`（严格，抛错不吞）+ `readEvalJson(changeDir)`；只读；anchor=`entries.length` |
 | `mcp.ts` | `phase_next` 透传 `run_id` |

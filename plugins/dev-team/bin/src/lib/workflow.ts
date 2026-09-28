@@ -111,7 +111,7 @@ const PHASE_REQUIREMENT: PhaseDefinition[] = [
     description: '测试执行与诊断',
     executor: {
       agent_type: '__CALL_AGENT:test-execution-executor__',
-      prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
+      prompt: 'Run and fix all tests for change "<change>".',
     },
     evaluator: {
       agent_type: '__CALL_AGENT:test-execution-evaluator__',
@@ -185,7 +185,7 @@ const PHASE_BUG_FIX: PhaseDefinition[] = [
     description: '测试执行与诊断',
     executor: {
       agent_type: '__CALL_AGENT:test-execution-executor__',
-      prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
+      prompt: 'Run and fix all tests for change "<change>".',
     },
     evaluator: {
       agent_type: '__CALL_AGENT:test-execution-evaluator__',
@@ -278,7 +278,7 @@ const PHASE_TEST_ONLY: PhaseDefinition[] = [
     description: '测试执行与诊断',
     executor: {
       agent_type: '__CALL_AGENT:test-execution-executor__',
-      prompt: 'Run and fix all tests (unit + integration) for change "<change>".',
+      prompt: 'Run and fix all tests for change "<change>".',
     },
     evaluator: {
       agent_type: '__CALL_AGENT:test-execution-evaluator__',

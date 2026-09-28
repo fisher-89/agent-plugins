@@ -34,8 +34,8 @@ Collect the `detected` list from the result to select the correct test syntax fo
 
 对照 test-design.md.template 中定义的列名和结构，解析 test-design.md 的：
 
-- `单元测试` / `集成测试` > `用例` 表格：测试文件、测试对象、路径类型、测试条件、迭代类型
-- `单元测试` / `集成测试` > `Mock策略` 表格：Mock主体、Mock方案、应用场景
+- `单元测试` > `用例` 表格：测试文件、测试对象、路径类型、测试条件、迭代类型
+- `单元测试` > `Mock策略` 表格：Mock主体、Mock方案、应用场景
 
 过滤 `迭代类型 = 废弃` 的条目。
 

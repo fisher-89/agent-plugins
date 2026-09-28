@@ -14,7 +14,7 @@
 | code-analyze | DESIGN P→E | 反构现有架构 |
 | test-design | DESIGN P→E | 测试场景 |
 | test-gen | EXEC G→E | 测试代码 |
-| test-execution | EXEC Executor→E | 执行（单元+集成） |
+| test-execution | EXEC Executor→E | 执行全部测试 |
 
 完成条件：表内 5 个 phase 均有有效（非 stale）pass。
 
@@ -34,3 +34,4 @@
 |--------|-------|
 | Phase count | 5 |
 | Phases | proposal, code-analyze, test-design, test-gen, test-execution |
+| test-execution 描述 | `执行全部测试`；规范性数据仍以 `pge-workflow-engine` 为准 |

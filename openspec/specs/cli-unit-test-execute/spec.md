@@ -312,6 +312,21 @@ summary 的 `plans[]` SHALL 仅从 `ExecutionResult` 投影索引字段（`id` /
 **THEN** `ExecutionResult.planId` SHALL 等于目录 id
 **AND** `ExecutionResult.reportDir` SHALL 指向该 plan 产物目录
 
+### Requirement: test-execution 命令描述去测试层级表述
+
+`plugins/dev-team/bin/src/cli.ts` 中 `test-execution` 子命令的描述 SHALL 为 `Run all automated tests with coverage and generate execution report`，MUST NOT 含 `(unit + integration)` 层级表述。命令名、选项与行为不变。
+
+#### Scenario: 命令描述已改写
+
+- **WHEN** 读取 `cli.ts` 的 `test-execution` 命令注册
+- **THEN** 描述为 `Run all automated tests with coverage and generate execution report`
+- **AND** 不含 `unit + integration` 字样
+
+#### Scenario: 命令行为不变
+
+- **WHEN** `dev-team test-execution` 照常调用
+- **THEN** 命令名、`--change` / `--project-root` / `--files` / `--framework` / `--skip-mutation` / `--force` 选项与执行路径均不变，仅描述文案改写
+
 ## REMOVED Requirements
 
 ### Requirement: dev-team unit-test CLI command exists
@@ -521,3 +536,10 @@ executePlanEntry()
 | macOS    | N/A       | `shell: undefined` | Unchanged |
 | Windows  | Yes       | `shell: '...bash.exe'` | Unchanged |
 | Windows  | No        | `shell: 'bash'` → FAILS | `shell: 'cmd.exe'` → WORKS |
+
+### Module: cli.ts（命令注册描述）
+
+| Property | Description |
+|----------|-------------|
+| File | `plugins/dev-team/bin/src/cli.ts` |
+| `test-execution` 描述 | `Run all automated tests with coverage and generate execution report`（无 `unit + integration` 表述）；命令名 / 选项 / action 不变 |

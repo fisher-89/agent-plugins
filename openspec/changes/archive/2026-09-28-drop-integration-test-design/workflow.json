@@ -1,0 +1,496 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-28",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/templates/artifacts/test-design.md.template",
+      "at": "2026-09-28T04:15:51.879Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/agents/test-design-planner.md",
+      "at": "2026-09-28T04:16:41.855Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/agents/test-design-evaluator.md",
+      "at": "2026-09-28T04:17:48.966Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/agents/test-gen-generator.md",
+      "at": "2026-09-28T04:17:55.990Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/agents/test-gen-evaluator.md",
+      "at": "2026-09-28T04:18:17.016Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/bin/src/cli.ts",
+      "at": "2026-09-28T04:18:27.650Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/bin/src/lib/workflow.ts",
+      "at": "2026-09-28T04:18:28.464Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/templates/test-jest.js",
+      "at": "2026-09-28T04:18:41.486Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/templates/test-pytest.py",
+      "at": "2026-09-28T04:18:41.486Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/templates/test-rust.rs",
+      "at": "2026-09-28T04:18:41.486Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "plugins/dev-team/templates/test-jest.js",
+      "at": "2026-09-28T04:18:47.424Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "plugins/dev-team/templates/test-pytest.py",
+      "at": "2026-09-28T04:18:47.424Z"
+    },
+    {
+      "op": "delete",
+      "scope": "workflow",
+      "path": "plugins/dev-team/templates/test-rust.rs",
+      "at": "2026-09-28T04:18:47.424Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "plugins/dev-team/package.json",
+      "at": "2026-09-28T04:19:09.153Z"
+    },
+    {
+      "op": "delete",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/agent",
+      "at": "2026-09-28T04:28:40.548Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "评估 proposal.md（132 行）+ 5 个 spec。R1 双层模型痛点具体（mock 纸面化/双通道冗余）；R2 三节齐全（8 实现文件/测试/不要修改 5 项）；R3 四风险缓解具体（白名单+入参例外+vi.mock 反例等）；R4 AC-1..11 均对象+条件且覆盖全部实现文件；R5 六决策均含被拒备选；R6 含 bump+build 合 CLAUDE.md；R7 无占位符；R8 各节实质内容；R9 修改能力 5 条；R10 5 spec 与能力 1:1；R11 AC 与 spec 场景逐条一致（prompt/描述逐字匹配、G4 重编号一致），AC-9/11 属死文件删除与项目规则 bump，非能力项。全部通过。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-14: 双层测试模型两痛点具体——(1) 最小 mock 原则纸面化「双层模型的分工从未被真正执行」；(2) 双通道冗余列举 5 处维护点且 integration-test 阶段已移除、test_resolve_paths 只返回 unit_tests，设计语言与管线脱节"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+          "pass": true,
+          "evidence": "L53-62 ### 实现文件 8 项均带改动说明；L64-67 ### 测试文件（预期零新增，仅断言跟随修改）；L75-81 ### 不要修改 5 项（工具/phase 表/存量测试/design 禁令/openspec specs）"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L105-110 四风险均有具体缓解：判据写入模板+evaluator（白名单+入参例外+反例 vi.mock(仓库内模块路径)→fail）；describe 写链路保持可导航；存量不动（决策 D6）另起迁移 change；vp test 全量回归。无泛化「监控并调整」"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L89-99 AC-1..AC-11 均对象+条件：AC-1 读模板无测试类型列；AC-6 内部 wiring mock→fail；AC-9 三文件不存在且全仓库无引用；AC-10 grep 无 unit + integration。8 个实现文件全部映射到对应 AC"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L118-125 六决策均有理由+被拒备选：挂靠→拒独立章节/新建 __tests__ 区；验收表→拒保留类型列；mock 落地→拒仅注释；内部 mock→拒一律禁止；文案范围→拒全仓库迁移；死模板→拒保留待用"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L62 与 AC-11: package.json bump + pnpm -C plugins/dev-team run build 重建 claude-plugins/cursor-plugins/cursor-home-image，与 CLAUDE.md 升版重建规则一致；无架构/编码指南矛盾"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{...}}。L61 \"<change>\" 为 prompt 格式串原文，与 pge spec L41/60 逐字一致；spec 中 ### <源文件> -> <测试文件> 为标题格式记法，非模板占位"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(两编号痛点)/提案(4 点)/变更范围(三节)/验收标准(11 行)/风险(4 行)/决策(6 行)均实质内容；L129 待决问题显式「无」并说明三项设计点已定，非遗漏占位"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L35-47 ## 能力 存在；### 修改的能力 5 条非空：phase-agents/json-design-schemas/pge-workflow-engine/test-only-workflow/cli-unit-test-execute；新增能力显式「无」并说明为收敛变更"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 恰 5 目录（phase-agents、json-design-schemas、pge-workflow-engine、test-only-workflow、cli-unit-test-execute）与修改能力 5 条 1:1，无未列出能力的多余 spec"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "4 spec MODIFIED + phase-agents ADDED 新 requirement（沿用既往「修改能力下 ADDED」口径）。AC-1..8/10 与 spec 场景逐条对应：Step 8 改名、T8-G1 3 列、G4 删+G5..G9→G4..G8 重编号、cli/workflow 文案逐字一致；AC-9/11 为零引用死文件删除与项目规则 bump，非能力项，与「不引入新能力」一致"
+        }
+      ],
+      "start_at": "2026-09-28T03:38:39.730Z",
+      "timestamp": "2026-09-28T03:51:12.657Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 pass。D1:8组件五列全填无TBD;D2:明示无数据模型变更(纯文案/字面量);D3:AC-1..11逐项映射修改文件#1..#8与阶段任务;D4:阶段一→五前向依赖,checkbox齐全;D5:改写串/3列表头/版本号具体可执行;D6:运行时+构建依赖均列用途;D7:符合CLAUDE.md升版+rebuild与vp工具链;D8:章节齐全,API节注明不适用省略;D9:仅静态检查,明示不运行测试;D10:8实现+3删除文件与proposal范围双向一致,公共函数表无矛盾。",
+      "checklist": [
+        {
+          "item": "D1 架构组件列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表8行均填职责/文件位置/依赖/技术5列,技术无TBD,路径均具体文件(如 plugins/dev-team/agents/test-design-planner.md)"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型节明示无数据模型变更:仅模板/prompt文案与字符串字面量,workflow.json/eval历史/报告schema均不动"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表覆盖AC-1..AC-11,逐项映射修改文件#1..#8、删除文件与阶段一~五任务,proposal 11条AC无遗漏"
+        },
+        {
+          "item": "D4 tasks.md 存在且任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "5阶段分组;阶段二依赖阶段一三列口径,阶段四先于阶段五重建,阶段三标明可并行;无后置任务被前置依赖;全部为 - [ ] 复选项"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "逐任务给出精确改写串('unit + integration'→去括号)、3列表头、Step编号变动、删除文件名、版本2.10.43→2.10.44,无空泛任务"
+        },
+        {
+          "item": "D6 依赖项已列出",
+          "pass": true,
+          "evidence": "运行时依赖:无新增并列明既有cac/zod/picomatch/ignore/@likec4;构建/测试依赖:pnpm、vite-plus(vp pack/check)、knip均含用途"
+        },
+        {
+          "item": "D7 设计与项目架构一致",
+          "pass": true,
+          "evidence": "遵循CLAUDE.md插件升版+pnpm run build重建规则与vp工具链约定;不加测试专用导出、无投机抽象;不变项清单与proposal「不要修改」一致"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(修改8+删除3)/数据模型/依赖/待决问题均有实质内容;路由API节注明不适用省略,CLI子命令见公共函数表"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design无测试策略章节并明示不含;tasks仅build/静态核对/grep/run check(vp check+knip),明示不运行测试,守卫测试不改"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal实现文件8项↔修改文件#1..#8一一对应,删除3文件一致;tasks引用文件均在清单,清单文件均有任务;公共函数表与修改表一致,新增为空无矛盾"
+        }
+      ],
+      "start_at": "2026-09-28T03:51:54.834Z",
+      "timestamp": "2026-09-28T04:03:06.881Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "T1 pass: proposal AC-1..11 与验收范围 11 行逐条一致。T2 pass: 验收范围全为不可测试，无单元/集成条目；单元测试 2 heading 零用例并与不可测试项10呼应；集成测试无关系，双向无缺失。T3 pass: 无测试对象（设计决策零新增），空满足，回归由既有套件承接。T4 pass: 无外部依赖，Mock策略注释说明无新增 mock。T5 pass: 四章节齐备，per-file 三子章节齐全。T6 pass: 不要修改项无覆盖，in-scope 全入验收范围。T7 不适用: 无写操作。T8 pass: U1 heading 含 -> 双路径，U2 顺序正确，U3-U5 空章节无违例，I1-I8 无关系空满足，G1 表结构与模板一致。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准映射至验收范围",
+          "pass": true,
+          "evidence": "proposal.md 验收标准表 AC-1..AC-11（行89-99）与 test-design.md 验收范围表 11 行（行16-26）逐条 ID、条件文字一致，无缺失。"
+        },
+        {
+          "item": "T2 验收范围与测试章节互相对应",
+          "pass": true,
+          "evidence": "验收范围 11 行测试类型均为「不可测试」，无单元/集成条目；## 单元测试 2 个 heading（行36、54）均声明零用例并经不可测试项10 追溯 AC-10；## 集成测试（行74-77）无关系，双向映射无缺失。"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常与边界",
+          "pass": true,
+          "evidence": "待测功能零条目（行41-43、58-60 注释：design 决策测试文件零新增、零修改），无测试对象故异常/边界映射空满足；回归网由既有 cli.test.ts、workflow.test.ts、bin/__tests__ 套件承接（行47-48、64-66）。"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略描述",
+          "pass": true,
+          "evidence": "proposal 为模板/agent 文案与 TS 字符串字面量变更，无外部服务/接口/文件/DB 依赖；两 per-file Mock策略（行50-52、68-70）以注释说明无新增 mock 需求。"
+        },
+        {
+          "item": "T5 模板章节均填写实质性内容",
+          "pass": true,
+          "evidence": "验收范围 11 行、单元测试 2 个 per-file 章节各含 待测功能→用例→Mock策略 三子章节（行41-52、58-70）、集成测试（可选，行74-77 说明无跨模块交互）、不可测试项 12 条（行86-97）均齐备。"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "proposal「不要修改」清单（test_resolve_paths/test_detect_frameworks、phase 表、__tests__ 存量、dev-design-planner 禁令、specs/**）均无测试覆盖；in-scope 8 个实现文件+3 个删除文件经 AC-1..AC-11 全部入验收范围。"
+        },
+        {
+          "item": "T7 写操作测试含幂等性验证",
+          "pass": true,
+          "evidence": "不适用：proposal 无 API/DB 写操作（纯 Markdown 模板/agent prompt 文案与 TS 字符串字面量改写），无幂等性测试要求。"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "U1: 两 heading 含 -> 且左右为文件路径（行36、54）；U2: 三子章节顺序正确；U3-U5: 章节为空、无表格故无列名/格式违例；I1-I8: ## 集成测试无 ### 关系，空满足；G1: 验收范围表 4 列名+5 组分隔与模板（行15-16）结构一致。"
+        }
+      ],
+      "start_at": "2026-09-28T04:03:26.347Z",
+      "timestamp": "2026-09-28T04:12:52.781Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账一致：design 8 修改+3 删除 × files 清单 × 文件系统全部吻合。模板 3 列表/集成章删除/四要素 Mock、planner 重编号+挂靠指引、evaluator 删 T8-I+增 T9、gen-generator 双表解析、gen-evaluator 新 G4+重编号、cli/workflow 文案、版本 2.10.44 逐字落实；dist 三棵树同步（死模板与 manifest 条目消除、T9/新文案在包）。files.deleted 多出 packages/desktop/src/components/agent——从未入库的 untracked 草稿目录，非仓库源码，判良性。残留「集成测试」仅 2 处，均为设计 AC-2/AC-4 规定的禁止性文案原文。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "8 组件全部落地：test-design.md.template(3列表+删集成章)、test-design-planner/evaluator.md、test-gen-generator/evaluator.md、cli.ts L17、workflow.ts L114/188/281、package.json 2.10.44"
+        },
+        {
+          "item": "I2 变更清单全部实现",
+          "pass": true,
+          "evidence": "8 修改文件在 files.written 且内容逐项核对；3 死模板源码+dist 三棵树+manifest 条目均已消除；无新增文件符合计划"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "纯模板/prompt 文案与 TS 字符串字面量，组织与既有文件一致；版本 bump+重建遵循 CLAUDE.md 规则"
+        },
+        {
+          "item": "I4 路由/API",
+          "pass": true,
+          "evidence": "无 HTTP API；CLI test-execution 仅描述文案改写，命令名/选项/action 不变"
+        },
+        {
+          "item": "I5 tasks 全勾选",
+          "pass": true,
+          "evidence": "17 项全 [x]；五阶段产物逐一核实（模板/agent/文案/删除/重建+守线）"
+        },
+        {
+          "item": "I6 无关代码",
+          "pass": true,
+          "evidence": "written=计划 8 文件无计划外改动；files.deleted 多出 packages/desktop/src/components/agent——git ls-files 为空的 untracked 草稿目录，非仓库源码，判良性"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "最小 mock 四要素入模板+T9+新G4；挂靠入模板+planner step10e；test_resolve_paths/detect_frameworks/phase 表结构/守卫测试均未动；openspec 存量未清；dist 同步 2.10.44"
+        }
+      ],
+      "start_at": "2026-09-28T04:13:18.311Z",
+      "timestamp": "2026-09-28T04:34:41.553Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "9/9 pass。三态对账一致：test-design 声明零新增用例/零新文件（2 既有测试对 cli、workflow），file_log 无 test-gen 写入与任何测试文件，文件系统仅有既有 cli.test.ts/workflow.test.ts，无计划外新测试或守卫测试。G1 两既有测试对均含调用+断言；G3/G4 用例表零行空满足，生成器正确未虚构骨架；G5 无新增 mock 声明且代码无新增；G6 vite-plus/test 合 vp 工具链；G7 无类型映射表空满足；G8 未生成文件空清理可接受；G9 无废弃行且无新 describe/it。grep 证实全仓库无测试断言 unit + integration 文案。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "test-design 仅 2 个可测源（cli.ts、workflow.ts），均有共存测试文件且用例调用+断言：cli.test.ts L43-293 覆盖命令注册/action 透传/退出码/help；workflow.test.ts L3-108 导入并调用 getPhaseTable/getDependents 等断言行为。design 声明本次无新增公共 API。"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存于同一目录",
+          "pass": true,
+          "evidence": "plugins/dev-team/bin/src/cli.test.ts 与 cli.ts 同目录、bin/src/lib/workflow.test.ts 与 workflow.ts 同目录，*.test.ts 命名合 TS 规范，Glob 证实两文件存在。"
+        },
+        {
+          "item": "G3 单元测试用例表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "test-design 单元测试两 per-file 用例节（L45-48、L62-66）均为注释、零新增行；无行需生成，生成器未虚构骨架，文件系统无对应新 describe/it，空满足。"
+        },
+        {
+          "item": "G4 集成测试用例表格每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "test-design ## 集成测试（L74-77）无 ### 关系、无用例表，零新增行，空满足。"
+        },
+        {
+          "item": "G5 Mock策略表格中的 mock 已在测试代码中实现",
+          "pass": true,
+          "evidence": "两 Mock策略节（L50-52、L68-70）均声明无新增 mock；测试代码无本次新增 mock 声明，cli.test.ts 既有 vi.mock/spyOn 为历史存量，与声明一致。"
+        },
+        {
+          "item": "G6 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "cli.test.ts L1 与 workflow.test.ts L1 均 import { describe, it, expect, vi } from 'vite-plus/test'，符合项目 vp 工具链（test-design 未另行指定框架）。"
+        },
+        {
+          "item": "G7 test-design.md 中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "test-design 无参数类型映射表、无边界用例条目，无欠覆盖项，空满足。"
+        },
+        {
+          "item": "G8 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "test-gen 未生成任何文件，空清理块可接受；既有测试本就含 exitSpy.mockRestore()/finally 还原逻辑。"
+        },
+        {
+          "item": "G9 迭代类型=废弃的条目未生成新测试",
+          "pass": true,
+          "evidence": "test-design 无废弃行；且本次未生成任何新测试文件，无守卫测试残留；grep 证实无测试断言被删的 unit + integration 文案。"
+        }
+      ],
+      "start_at": "2026-09-28T04:35:11.610Z",
+      "timestamp": "2026-09-28T04:39:17.347Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 2814 个测试通过（plugins/dev-team 2400 + packages/desktop 414），0 失败 0 跳过，无执行错误。Mutation 83.15%≥70 达标（desktop 80% 恰好压线）。覆盖率达标: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)。注：desktop plan 级 functions 87.25%<90% 为存量债务，非本变更回归。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total(2814)/passed(2814)/failed(0)/skipped(0)/coverage/duration_seconds(104) 均存在且类型正确；coverage.measured 三维度为 null 属允许值"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=2814>0；conclusion=pass，problems=[] 无 execution_error"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（summary 预计算 rollup）：lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)；mutation 83.15%≥70 达标。备注：summary 汇总匹配到 0 文件（measured=null），packages_desktop plan 级报告 functions 87.25%<90% 属存量覆盖债务（本变更未触及 desktop 源码），非回归"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无需失败诊断，自动通过"
+        }
+      ],
+      "start_at": "2026-09-28T04:39:56.380Z",
+      "timestamp": "2026-09-28T04:45:29.779Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "code-review 通过。C1 安全：改动仅为模板/agent prompt 文案与 TS 字符串字面量，无注入/硬编码密钥（workflow.ts:449 exec 为既有正则）。C3 一致性：8 修改+3 删除文件与设计清单逐项吻合——模板 3 列表+T9 mock 四要素、planner 步骤重编号+挂靠指引(10e)、evaluator T2/T5/T8-G1 3列+T9、G4 收紧+G5..G8 重编号、cli.ts/workflow.ts×3 文案、version 2.10.44，dist 三棵树经 build 同步（模板逐字节一致，死模板与 manifest 条目已消除）。C5：无 T8-I/G9/Step9 残留，全仓库无 unit + integration；遗留「集成测试」仅在守卫测试与 D9 禁令等设计保留处。C2/C4/C7：无逻辑与类型变更。备注：file_log 含杂项删除记录 packages/desktop/src/components/agent（非本变更范围，盘上不存在，无代码影响）。",
+      "checklist": [
+        {
+          "item": "C1 变更代码无安全漏洞",
+          "pass": true,
+          "evidence": "改动仅为 markdown prompt/模板与 TS 字符串字面量；workflow.ts:449 的 CALL_AGENT_TOKEN_PATTERN.exec 为既有正则解析，非注入面"
+        },
+        {
+          "item": "C2 外部输入格式检查",
+          "pass": true,
+          "evidence": "未触及任何输入处理逻辑（cli.ts 仅命令描述字符串），无新增外部输入面"
+        },
+        {
+          "item": "C3 实现与 design.md 一致",
+          "pass": true,
+          "evidence": "8 修改+3 删除与设计清单逐项吻合：模板 3 列表/T9 四要素、planner 步骤 1-12 重编号+10e 挂靠、evaluator T2/T5/T8-G1/T9、G4 收紧+重编号、cli.ts 与 workflow.ts×3 文案、version 2.10.44、dist 三棵树 diff 核对同步"
+        },
+        {
+          "item": "C4 无空值/边界遗漏",
+          "pass": true,
+          "evidence": "无逻辑/数据结构变更，无边界处理改动需求"
+        },
+        {
+          "item": "C5 无冗余死代码",
+          "pass": true,
+          "evidence": "死模板已删且全仓库（plugins+dist，除 node_modules）零引用；grep 无 T8-I/G9/Step9 残留、无 unit + integration 残留；遗留「集成测试」仅在守卫测试与 D9 禁令等设计明示保留处"
+        },
+        {
+          "item": "C6 可读性与项目规范",
+          "pass": true,
+          "evidence": "planner 步骤与 G/T 编号连续无跳号，文案风格与既有一致，遵循 CLAUDE.md 版本 bump+rebuild 规则"
+        },
+        {
+          "item": "C7 外部数据类型同源",
+          "pass": true,
+          "evidence": "无类型变更，与设计「类型定义：无」声明一致"
+        }
+      ],
+      "start_at": "2026-09-28T04:45:50.258Z",
+      "timestamp": "2026-09-28T04:48:35.727Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 AC 逐条溯源通过：模板 3 列表(test-design.md.template:14)+最小 mock 四要素(:57-65)+挂靠规则(:24)；planner Step8 改名/Step10.e 挂靠(:17,24)、写入顺序无集成(:27-32)；evaluator T2/T5 去集成、T8-G1 三列(:38,41,63)、新增 T9 硬检查(:45,70)；generator Step2 仅双表(:33-40)；test-gen-eval 新 G4 mock 合法性(:18)、Process 仅单元表(:42)；3 死模板已删且源/dist 零引用；cli.ts:17+workflow.ts:114/188/281 改写，全仓零 unit+integration；v2.10.44 三棵 dist 树同步。范围无蔓延，out_of_scope 未动，风险缓解可见。注：file_log 有一条未跟踪杂项目录 packages/desktop/src/components/agent 的 delete 记录，非源码交付，不影响范围判定。",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 模板:14-16 三列表且 grep 无 测试类型/## 集成测试；AC-2 模板:57-65 四要素+22-25 挂靠；AC-3 planner:17 Step8 测试框架识别、27-32 写入顺序无集成、无命名指南节；AC-4 planner:24 链路入口挂靠+describe 链路示例；AC-5 evaluator:38/41/63 T2/T5 去集成、T8-G1 三列、无 T8-I 条目；AC-6 evaluator:45 T9 含 vi.mock 反例、:70 T1-T9；AC-7 generator:33-40 仅两表且零集成引用；AC-8 test-gen-evaluator:18 新 G4 含「必须对应 Mock策略 表合法条目→fail」、:42 Process 仅单元表、G1-G8 重编号；AC-9 三文件 Read 均不存在、全仓引用仅 openspec 文档；AC-10 cli.ts:17+workflow.ts:114/188/281、全仓零 unit+integration；AC-11 package.json:3=2.10.44、三棵 dist 树均含改写后内容且无死模板条目"
+        },
+        {
+          "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "workflow.json files 记录的 8 改+3 删与 proposal 变更范围完全一致；无新功能/API/组件。唯一偏差：file_log 记录 delete 未跟踪杂项目录 packages/desktop/src/components/agent（现已在磁盘消失），非交付源码，无行为影响"
+        },
+        {
+          "item": "proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "5 个修改能力逐项对应：phase-agents 4 agent 文件均改写；json-design-schemas 模板单层化；pge-workflow-engine workflow.ts:114/188 prompt 改写；test-only-workflow workflow.ts:281；cli-unit-test-execute cli.ts:17"
+        },
+        {
+          "item": "proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "test_resolve_paths/test_detect_frameworks 无改动记录；phase 表 id/结构未动（workflow.test.ts:155-289 守卫测试原样保留，仅断言 integration-test 不存在）；bin/__tests__ 与 build/__tests__ 存量文件未动（eval-json.test.ts:233 等仍在）；dev-design-*/code-analyze-planner 禁令文案未动；openspec/specs 未直接编辑"
+        },
+        {
+          "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "R1 判据落地：模板:57-65 白名单+入参例外+反例、evaluator:45 T9、test-gen-evaluator:18 G4；R2 链路 describe 保持可导航：模板:24、planner:24；R3 存量 __tests__ 不动（D6）；R4 全仓无断言引用旧文案（grep unit+integration 零命中），check 静态守线已过"
+        }
+      ],
+      "start_at": "2026-09-28T04:49:07.435Z",
+      "timestamp": "2026-09-28T04:53:09.604Z"
+    }
+  ]
+}

@@ -14,10 +14,7 @@ cli
   });
 
 cli
-  .command(
-    'test-execution',
-    'Run all automated tests (unit + integration) with coverage and generate execution report',
-  )
+  .command('test-execution', 'Run all automated tests with coverage and generate execution report')
   .option(
     '--change <name>',
     'Change name (reports written to openspec/changes/<name>/reports/; also scopes plan entries and the mutation scope from the change file inventory)',

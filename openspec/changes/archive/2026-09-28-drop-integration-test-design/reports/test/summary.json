@@ -1,0 +1,115 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-28T04:41:51.832Z",
+  "duration_seconds": 104,
+  "total": 2814,
+  "passed": 2814,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 0
+      },
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 38,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 83.15,
+    "threshold": 70,
+    "measured": {
+      "killed": 74,
+      "survived": 13,
+      "timeout": 0,
+      "noCoverage": 2,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 233,
+      "total": 322,
+      "detected": 74,
+      "undetected": 15
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 83.14606741573034,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 51
+      },
+      {
+        "glob": "packages/desktop",
+        "score": 80,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 38,
+        "passed_count": 38
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/drop-integration-test-design/reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/drop-integration-test-design/reports/test/packages_desktop_vite-plus"
+    }
+  ],
+  "findings": [
+    "All 2814 tests passed (plugins/dev-team: 2400, packages/desktop: 414), 0 failed, 0 skipped, no execution errors - no blocking fixes were required.",
+    "Report inconsistency: summary-level coverage aggregation matched zero files (measured=null, overrides passed_count=0 for both globs) even though valid coverage-summary.json artifacts exist in both plan dirs and the per-plan reports parsed real values; the recorded coverage.pass=true/conclusion=pass rest on this empty rollup.",
+    "Effective coverage failure per atomic report: packages_desktop_vite-plus/report.json records coverage.pass=false - functions 87.25% < 90% threshold (lines 90.21% vs 90 and branches 85.71% vs 85 pass). The change touched no desktop source files (only a deleted path in its inventory), so this is pre-existing desktop coverage debt, not a regression, but desktop functions coverage remains the open gap.",
+    "Mutation gate passes: overall 83.15% vs 70 threshold; plugins/dev-team 83.15% (thr 70); packages/desktop 80.0% is exactly at its 80 threshold - zero headroom, worth watching.",
+    "Rust suite (packages/desktop/src-tauri) skipped by the change-scope gate: inventory has no files under that root, so its absence from plans[] is expected, not a missing report."
+  ]
+}

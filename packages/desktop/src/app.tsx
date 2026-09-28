@@ -98,7 +98,7 @@ export default function App() {
             />
             <SidebarInset>
               <ShellHeader update={update} />
-              <div className="mx-auto w-full max-w-[1100px] flex-1 px-4 py-4">
+              <div className="mx-auto w-full flex-1 px-4 py-4">
                 <AppRoutes list={list} root={workspaceState.root} />
               </div>
             </SidebarInset>

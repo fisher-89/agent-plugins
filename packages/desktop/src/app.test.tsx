@@ -750,7 +750,7 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     vi.unstubAllEnvs();
   });
 
-  it('壳态渲染 SidebarProvider / AppSidebar / SidebarInset 的 DOM 标记，1100px 居中容器位于 inset 内（D7：内层为 div 非 main，无嵌套 main）', async () => {
+  it('壳态渲染 SidebarProvider / AppSidebar / SidebarInset 的 DOM 标记，宽度撑满inset容器', async () => {
     await restored();
 
     expect(document.querySelector('[data-slot="sidebar-wrapper"]') !== null).toBe(true);
@@ -761,9 +761,9 @@ describe('App：壳层布局与折叠形态（AC-1/AC-2/AC-7）', () => {
     const inset = document.querySelector('main[data-slot="sidebar-inset"]');
     expect(inset !== null).toBe(true);
 
-    // 1100px 居中容器位于 inset 内，且为 div（SidebarInset 本身即 main，无嵌套 main）
+    // 宽度撑满inset容器
     const container = Array.from(inset?.children ?? []).find((el) =>
-      el.className.includes('max-w-[1100px]'),
+      el.className.includes('w-full'),
     );
     expect(container?.tagName).toBe('DIV');
     expect(container?.contains(screen.getByText('add-feature'))).toBe(true);

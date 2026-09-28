@@ -1,5 +1,5 @@
 {
-  "version": "2.10.43",
+  "version": "2.10.44",
   "namePrefix": "dev-team_",
   "managedPaths": [
     "agents/dev-team_acceptance-evaluator.md",
@@ -43,10 +43,7 @@
     "templates/artifacts/design.md.template",
     "templates/artifacts/proposal.md.template",
     "templates/artifacts/test-design.md.template",
-    "templates/model.c4",
-    "templates/test-jest.js",
-    "templates/test-pytest.py",
-    "templates/test-rust.rs"
+    "templates/model.c4"
   ],
   "mcpFragment": "mcp.json",
   "hooksFile": "hooks.json"

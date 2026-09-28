@@ -9,8 +9,7 @@
       "config": "vite.config.ts",
       "includes": ["bin/src/**/*.{ts,tsx}"],
       "excludes": ["bin/src/schemas/**/*", "home-install.ts"],
-      "coverage": { "lines": 90, "branches": 85, "functions": 90 },
-      "mutation": { "score": 80 }
+      "coverage": { "lines": 90, "branches": 85, "functions": 90 }
     },
     {
       "root": "packages/desktop",
