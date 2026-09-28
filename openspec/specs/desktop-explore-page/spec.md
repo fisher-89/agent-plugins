@@ -13,7 +13,7 @@
 - **从已有文档创建**：经导入扫描列出 explores 目录中未被绑定的 `*.md`（命令层以 store 清单滤除已绑定），选中即创建 `ExploreRecord` 绑定该文件（展示名 = 文件名 stem）；
 - **新话题**：输入主题名建档——仅创建记录，MUST NOT 由应用预建空文件或落盘 `explore.md`（内容唯一真源在磁盘，文件由 agent 会话流程按 skill 指引创建；未落盘期间预览呈空态）。
 
-agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定是显式动作，未导入前于清单隐形）。清单条目 SHALL 提供删除入口（删记录不动磁盘文件）。
+agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定是显式动作，未导入前于清单隐形）。清单条目 SHALL 提供删除入口（删记录不动磁盘文件；该记录名下的会话 runs 与事件随记录在 store 层同事务级联删除——对话随身份消亡，磁盘笔记文件是唯一保留物）。
 
 #### Scenario: 清单按 workspace 过滤且来自 store
 
@@ -90,7 +90,7 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `packages/desktop/src/views/explores/ExploreView.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；导入扫描绑定 / 新话题建档；删除入口（不动文件） |
+| `packages/desktop/src/views/explores/ExploreView.tsx`（新） | 清单页 + 新建流程 | store 清单按 root 过滤；导入扫描绑定 / 新话题建档；删除入口（不动文件，对话随记录级联清） |
 | `packages/desktop/src/views/explores/ExploreDetailView.tsx`（新） | 双栏详情 | resizable 分栏；左对话区右预览；watch 生命周期 = 页面生命周期 |
 | `views/explores/components/`（新：对话区 / composer / 预览 / 新建对话框） | 呈现件 | `message-scroller` + `message` 气泡映射；AskUserQuestion 静态卡片；预览复用 `MarkdownDocRenderer` |
 | `views/explores/hooks/`（新） | 会话链与刷新编排 | 链还原重放 + Channel 实时流；watch 信号防抖 → `read_explore` 显式刷新 |

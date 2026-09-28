@@ -14,7 +14,10 @@ use native_db::{Builder, Database, Models};
 
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
-use crate::model::{now_millis, AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
+use crate::model::{
+    now_millis, AgentEventRecord, AgentEventRecordKey, AgentRunRecord, ExploreRecord,
+    WorkspaceRecord,
+};
 
 /// store 内部错误面：两变体对应两类故障模式；`Display` 恒带 `db:` /
 /// `canonicalize:` 前缀，直接服务「清单丢失」的可排查性。迁移失败经
@@ -57,6 +60,11 @@ fn is_single_component_name(name: &str) -> bool {
         && !name.contains('\\')
         && !name.contains(':')
 }
+
+/// explore 来源受控字符串：与 app 层 `RunProvenance` 及前端 `EXPLORE_SOURCE`
+/// 口径一致（三处同字面量，改动需同步）。`delete_explore_record` 据此圈定
+/// 级联删除的 runs。
+const EXPLORE_RUN_SOURCE: &str = "explore";
 
 /// 全部已注册模型（静态）：`Database` 借用 `&'static Models`，进程内初始化
 /// 一次。define 仅在编程错误（模型 id / version 重复）失败，expect 与
@@ -356,13 +364,46 @@ impl Store {
         Ok(updated)
     }
 
-    /// 删除 explore 记录：只删 DB 行，MUST NOT 触碰磁盘文件（文件是记录的
-    /// 可丢弃投影，删除方向亦然）；miss 幂等 `Ok(false)`。
+    /// 删除 explore 记录：MUST NOT 触碰磁盘文件（文件是记录的可丢弃投影，
+    /// 删除方向亦然）；记录名下的会话 runs 及其事件随记录**同事务级联删除**
+    /// ——id 是幸存行上 max+1 的可复用计数，悬空 `source_ref` 不清则下次建档
+    /// 复用 id 时旧聊天经 `(source, source_ref)` 匹配错挂到新记录。miss 幂等
+    /// `Ok(false)`。
     pub fn delete_explore_record(&self, root: &str, name: &str) -> Result<bool, StoreError> {
         let Some(record) = self.find_explore_record(root, name)? else {
             return Ok(false);
         };
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        // 级联圈定：explore 来源且 source_ref 指向本记录 id 的 runs（全表读 +
+        // 内存过滤，与清单读面同哲学——调试页数据量小）
+        let source_ref = record.id.to_string();
+        let bound_runs: Vec<AgentRunRecord> = rw
+            .scan()
+            .primary::<AgentRunRecord>()
+            .map_err(db_err("扫描运行清单"))?
+            .all()
+            .map_err(db_err("扫描运行清单"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描运行清单"))?
+            .into_iter()
+            .filter(|run| {
+                run.source == EXPLORE_RUN_SOURCE && run.source_ref.as_deref() == Some(&source_ref)
+            })
+            .collect();
+        for run in &bound_runs {
+            let events: Vec<AgentEventRecord> = rw
+                .scan()
+                .secondary(AgentEventRecordKey::run_id)
+                .map_err(db_err("扫描运行事件"))?
+                .range(run.id..run.id.saturating_add(1))
+                .map_err(db_err("扫描运行事件"))?
+                .collect::<native_db::db_type::Result<Vec<_>>>()
+                .map_err(db_err("扫描运行事件"))?;
+            for event in events {
+                rw.remove(event).map_err(db_err("删除运行事件"))?;
+            }
+            rw.remove(run.clone()).map_err(db_err("删除运行记录"))?;
+        }
         rw.remove(record).map_err(db_err("删除探索记录"))?;
         rw.commit()
             .map_err(db_err("提交 delete_explore_record 事务"))?;

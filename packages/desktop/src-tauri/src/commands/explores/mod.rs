@@ -5,7 +5,8 @@
 //! store 操作）→ 错误映射；blank root 空结果纪律同口径（空/空白 root 不进入
 //! 查询与 store 链路，直接空结果语义，无 panic 无错误弹窗）。查询侧纯读零
 //! 写入（笔记文件由 agent 会话流程创建，应用无落盘路径）；记录侧只写 DB
-//! （记录是身份，磁盘文件是可丢弃投影，删除记录不动文件）。
+//! （记录是身份，磁盘文件是可丢弃投影，删除记录不动文件，记录名下会话
+//! runs+events 随记录在 store 层同事务级联删除）。
 //!
 //! 绑定过滤在命令层：workflow 扫描只列目录不认识 store，「未绑定」以 explore
 //! 记录清单求差滤除（已绑定 stem 不再出现在导入清单）。
@@ -127,7 +128,8 @@ pub fn rename_explore_record(
         .map_err(|e| e.to_string())
 }
 
-/// 删除 explore 记录（不动磁盘文件）；miss 幂等返回 `false`。
+/// 删除 explore 记录（不动磁盘文件；名下会话 runs+events 随记录同事务级联
+/// 删除，级联语义见 store `delete_explore_record`）；miss 幂等返回 `false`。
 #[tauri::command]
 pub fn delete_explore_record(
     store: State<'_, Store>,

@@ -1,8 +1,9 @@
 //! `store` 的单元测试：open 打开流程 + workspace 三操作 + agent run
 //! begin / finish / list 存量回归 + 事件类型化（`append_agent_run_events` /
 //! `list_agent_run_events` 经 `AgentEvent` 构造）+ 信封 API（`list_models` /
-//! `scan`）+ explore 记录 CRUD（建档 / 清单 / 寻址 / 改名 / 删除，AC-3）+
-//! `restore_run_chain` 单链还原（AC-5）+ v1→v2 演进与三字段往返（AC-4）。
+//! `scan`）+ explore 记录 CRUD（建档 / 清单 / 寻址 / 改名 / 删除含 runs+events
+//! 级联，AC-3）+ `restore_run_chain` 单链还原（AC-5）+ v1→v2 演进与三字段
+//! 往返（AC-4）。
 //! tempdir 真开 db 文件（存储层不 mock）；全部断言经 `Store` 公共
 //! API，内部协作（模型编解码、canonical 口径）由此间接覆盖。系统时钟不
 //! mock：`added_at` / `started_at` 仅记录入库值，清单排序与获取时间无关。
@@ -1176,17 +1177,17 @@ fn delete_miss幂等返回false() {
 // restore_run_chain（AC-5）：单链还原收口单点
 // ---------------------------------------------------------------------------
 
-/// BUG 复现（临时,分析用,验证后按修复语义改写或删除）：删除 max-id explore
-/// 记录后新建,id 在幸存行上 max+1 分配 → 复用被删 id;旧记录名下 run 的
-/// source_ref 未清理,新记录链还原捞到旧聊天。
+/// 级联回归（原错链 BUG 的修复语义）：删除记录时其名下 runs 与事件随记录
+/// 同事务删除——id 仍是幸存行上 max+1 的可复用计数,但悬空 `source_ref` 已清,
+/// 新建记录即使复用被删 id,链还原也不再捞到旧聊天。
 #[test]
-fn 删除最大id记录后新建复用id且旧run被错误关联() {
-    let env = Env::new("explore-id-reuse");
+fn 删除记录级联清掉名下runs与事件且复用id不错链() {
+    let env = Env::new("explore-delete-cascade");
     let store = open_ok(&env.db_path());
     let _a = create_ok(&store, "C:\\ws\\alpha", "old-topic");
     let b = create_ok(&store, "C:\\ws\\alpha", "to-be-deleted");
-    // 被删记录名下已有一段 agent 聊天（source_ref = b.id 十进制串）
-    begin_provenance_run(
+    // 被删记录名下已有一段 agent 聊天（source_ref = b.id 十进制串）及其事件
+    let run = begin_provenance_run(
         &store,
         "旧聊天",
         100,
@@ -1194,20 +1195,112 @@ fn 删除最大id记录后新建复用id且旧run被错误关联() {
         Some(&b.id.to_string()),
         None,
     );
-
     store
-        .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
+        .append_agent_run_events(run.id, &[stamped(0, run_started_kind()), stamped(1, message_kind("assistant"))])
         .unwrap();
-    let c = create_ok(&store, "C:\\ws\\alpha", "combine-agent-and-explore-chat");
 
-    assert_eq!(c.id, b.id, "复现点一：max+1 在幸存行上计算,id 被复用");
+    assert!(
+        store
+            .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
+            .unwrap(),
+        "命中删除返回 true"
+    );
+    assert!(
+        store
+            .list_agent_run_events(run.id)
+            .unwrap()
+            .is_empty(),
+        "名下事件随记录级联删除"
+    );
+    assert!(
+        !store
+            .list_agent_runs()
+            .unwrap()
+            .iter()
+            .any(|left| left.id == run.id),
+        "名下 run 随记录级联删除"
+    );
+
+    // 复用 id 后链还原为空：错链不再发生
+    let c = create_ok(&store, "C:\\ws\\alpha", "combine-agent-and-explore-chat");
+    assert_eq!(c.id, b.id, "max+1 在幸存行上计算,id 仍会复用（级联后无害）");
+    assert!(
+        store
+            .restore_run_chain("explore", &c.id.to_string())
+            .unwrap()
+            .is_empty(),
+        "新记录（从未发过消息）链还原为空"
+    );
+}
+
+/// 级联只圈 (source=explore, source_ref=本记录 id)：debug 来源同定位串、
+/// 其他 source_ref 的 explore run 及其事件不波及。
+#[test]
+fn 级联删除不波及无关runs与事件() {
+    let env = Env::new("explore-delete-cascade-scope");
+    let store = open_ok(&env.db_path());
+    let doomed = create_ok(&store, "C:\\ws\\alpha", "to-be-deleted");
+    let keeper = create_ok(&store, "C:\\ws\\alpha", "keeper-topic");
+    let bound = begin_provenance_run(
+        &store,
+        "被删链",
+        100,
+        "explore",
+        Some(&doomed.id.to_string()),
+        None,
+    );
+    // 干扰一：同 source_ref 不同 source（debug 来源同定位串）
+    let debug_run = begin_provenance_run(&store, "调试 run", 200, "debug", Some(&doomed.id.to_string()), None);
+    // 干扰二：同 source 不同 source_ref（另一 explore 记录名下）
+    let other_explore = begin_provenance_run(
+        &store,
+        "隔壁链",
+        300,
+        "explore",
+        Some(&keeper.id.to_string()),
+        Some(bound.id),
+    );
+    for run in [&bound, &debug_run, &other_explore] {
+        store
+            .append_agent_run_events(run.id, &[stamped(0, run_started_kind())])
+            .unwrap();
+    }
+
+    assert!(
+        store
+            .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
+            .unwrap()
+    );
+
+    assert!(
+        store.list_agent_run_events(bound.id).unwrap().is_empty(),
+        "被删记录名下事件清空"
+    );
+    for survivor in [debug_run.clone(), other_explore.clone()] {
+        assert!(
+            store
+                .list_agent_runs()
+                .unwrap()
+                .iter()
+                .any(|left| left.id == survivor.id),
+            "无关 run 存活: {:?}",
+            survivor.prompt
+        );
+        assert_eq!(
+            store.list_agent_run_events(survivor.id).unwrap().len(),
+            1,
+            "无关 run 事件存活: {:?}",
+            survivor.prompt
+        );
+    }
+    // 隔壁链还原不受牵连（parent 指向已删 run 的尾段仍由本链自身锚定）
     let chain = store
-        .restore_run_chain("explore", &c.id.to_string())
+        .restore_run_chain("explore", &keeper.id.to_string())
         .unwrap();
     assert_eq!(
         chain.len(),
         1,
-        "复现点二：新记录（从未发过消息）链还原捞到旧聊天"
+        "隔壁链仍可还原（其 parent_run_id 指向已删 run 时截断回溯）"
     );
 }
 

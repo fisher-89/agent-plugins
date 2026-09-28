@@ -154,7 +154,7 @@ redb 面向单进程嵌入场景，双开（如 dev 与已装正式版指向同�
 
 store SHALL 新增 `ExploreRecord` 模型（native_model 新 id，version 1），承载 explore 清单条目与 agent 会话链绑定。字段面 SHALL 至少含：独立主键 `id`（写事务内 max+1 分配，与 `AgentRunRecord` 同语义——身份与文件名解耦，文件改名不破绑定）、`root`（workspace 归属，canonical 口径与 `WorkspaceRecord` 一致）、展示名 `name`、`created_at` / `updated_at`（UTC unix 毫秒，同既有时间戳口径）；链锚与磁盘路径关联字段（`head_run_id` 双写 vs `(source, source_ref)` 派生；路径字段 vs 名字派生）由 dev-design 定夺。维度声明：`ExploreRecord` 归 **user 维度**（registry / 绑定元数据，同 `WorkspaceRecord` 先例落 app data dir user db），内容唯一真源在磁盘 `explore.md`（workspace repo），数据三分——记录（DB）/ 内容（磁盘）/ 对话（`AgentRunRecord` + 事件）。
 
-store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 root 过滤）、`create_explore_record`、`delete_explore_record`（删记录 MUST NOT 触碰磁盘文件）。孤儿语义 SHALL 为：磁盘文件被删记录保留（不自动清理，预览空态、下次落盘重建——文件是记录的可丢弃投影）；新模型 SHALL 随既有记录信封 API（`list_models` / `scan`）零改动可浏览。
+store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 root 过滤）、`create_explore_record`、`delete_explore_record`（删记录 MUST NOT 触碰磁盘文件；记录名下的会话 runs 及其事件 SHALL 随记录**同事务级联删除**——按 `(source="explore", source_ref=记录id)` 圈定。id 为幸存行上 max+1 的可复用计数，级联清理是悬空 `source_ref` 不被复用 id 错挂的引用完整性保证；MUST NOT 波及 debug 来源或其他 `source_ref` 的 runs）。孤儿语义 SHALL 为：磁盘文件被删记录保留（不自动清理，预览空态、下次落盘重建——文件是记录的可丢弃投影）；新模型 SHALL 随既有记录信封 API（`list_models` / `scan`）零改动可浏览。
 
 #### Scenario: 清单按 root 过滤
 
@@ -170,6 +170,11 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 
 - **WHEN** 某 `ExploreRecord` 绑定的磁盘文件被外部删除
 - **THEN** 记录仍在清单中；经 `delete_explore_record` 删除记录后磁盘不受影响（文件本已不存在则无操作）
+
+#### Scenario: 删除级联清对话且 id 复用不错链
+
+- **WHEN** 某 `ExploreRecord`（id=N）名下已有 `source="explore"`、`source_ref="N"` 的 runs 及事件，执行 `delete_explore_record` 后再新建记录（幸存行 max+1 复用 id=N）
+- **THEN** 被删记录名下 runs 与事件已同事务消失（`(source, source_ref)` 链还原为空），新记录链还原为空不捞旧聊天；debug 来源及指向其他记录 id 的 runs 及其事件原样存活
 
 #### Scenario: 信封 API 零改动覆盖
 
@@ -205,9 +210,9 @@ store SHALL 提供 explore 清单操作面：`list_explore_records(root)`（按 
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/infra/store`（crate 名 `store`） | native_db 本地库，db 边界第一成员 | `Store::open(path)` 注入式打开 + legacy 探测迁移；workspace 三操作 + 信封 API；公共 API 仅自有类型；零 Tauri；仅依赖 `agent` 纯类型作嵌装载荷；迁移期保留 redb（迁移模块内部）；explore 清单操作（list/create/delete）与 `(source, source_ref)` 链还原查询单点收口 |
+| `crates/infra/store`（crate 名 `store`） | native_db 本地库，db 边界第一成员 | `Store::open(path)` 注入式打开 + legacy 探测迁移；workspace 三操作 + 信封 API；公共 API 仅自有类型；零 Tauri；仅依赖 `agent` 纯类型作嵌装载荷；迁移期保留 redb（迁移模块内部）；explore 清单操作（list/create/delete 含 runs+events 级联）与 `(source, source_ref)` 链还原查询单点收口 |
 | `WorkspaceRecord`（模型） | workspace 注册记录 | PK = canonical root；root / name / added_at；native_model 编码 |
-| `ExploreRecord`（模型） | explore 清单与绑定记录 | native_model 新 id；PK 独立自增 id；root / name / created_at / updated_at；user 维度声明；孤儿保留 |
+| `ExploreRecord`（模型） | explore 清单与绑定记录 | native_model 新 id；PK 独立自增 id（幸存行 max+1，可复用——复用安全性由删除级联保证）；root / name / created_at / updated_at；user 维度声明；孤儿保留 |
 | `AgentRunRecord`（模型，v2） | agent 运行元数据 | PK = id（自增语义不变）；+ `source`（缺省 `debug`）/ `source_ref` / `parent_run_id`；native_model 版本原地演进，无迁移层 |
 | `AgentEventRecord`（模型，新） | 类型化事件记录 | PK = `(run_id, seq)`（spike 裁定，退路合成键）；二级索引 `run_id`；嵌装 `agent::AgentEvent`（含 Raw 逃生舱）；core 类型 derive-free |
 | legacy 迁移模块（新） | 一次性迁移 | read_only 读旧 redb → 事务写 native_db → 旧文件 `.bak` 留档；失败不破坏旧库；过渡期后收 redb |
