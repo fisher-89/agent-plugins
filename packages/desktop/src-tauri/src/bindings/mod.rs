@@ -1,7 +1,3 @@
-//! specta builder 组装与 TS bindings 幂等导出：全部 IPC 命令的唯一注册面
-//! （`main` 的 `invoke_handler` 与导出工具共用 [`builder`]），前端 IPC 类型
-//! 与调用面的唯一生成源。
-//!
 //! 错误通道定夺（PoC 回填 design「PoC 前置门」）：`ErrorHandlingMode::Throw`
 //! ——`Result<T, String>` 命令的生成绑定为 `Promise<T>` reject 语义，与前端
 //! 既有 `.catch → error 态` 接线逐字兼容（替换前后错误面同形）。
@@ -11,35 +7,13 @@ use std::path::PathBuf;
 
 use tauri_specta::{collect_commands, Builder, ErrorHandlingMode};
 
-/// 全部命令的 specta builder：23 条命令全量注册（迁自 `main.rs`
-/// `generate_handler!`，命令清单与总数以 `main.rs` 迁移前为准）。
-pub fn builder() -> Builder<tauri::Wry> {
+use crate::commands::all_commands;
+
+/// 全部命令的 specta builder：命令清单经 `crate::commands::all_commands!`
+/// 注入（与 `main` 的原生 `generate_handler` 同源），tauri_specta 依赖仅归本模块。
+fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
-        .commands(collect_commands![
-            crate::commands::queries::list_changes,
-            crate::commands::queries::get_change_detail,
-            crate::commands::queries::read_artifact,
-            crate::commands::workspaces::list_workspaces,
-            crate::commands::workspaces::add_workspace,
-            crate::commands::workspaces::remove_workspace,
-            crate::commands::exec::agent_start,
-            crate::commands::exec::agent_stop,
-            crate::commands::exec::agent_runs,
-            crate::commands::exec::agent_run_events,
-            crate::commands::exec::agent_run_chain,
-            crate::commands::explores::read_explore,
-            crate::commands::explores::scan_explores,
-            crate::commands::explores::explore_doc_path,
-            crate::commands::explores::list_explore_records,
-            crate::commands::explores::create_explore_record,
-            crate::commands::explores::rename_explore_record,
-            crate::commands::explores::delete_explore_record,
-            crate::commands::watch::watch_subscribe,
-            crate::commands::watch::watch_unsubscribe,
-            crate::commands::db::db_models,
-            crate::commands::db::db_records,
-            crate::commands::stats::code_stats,
-        ])
+        .commands(all_commands!(collect_commands))
         .error_handling(ErrorHandlingMode::Throw)
         // serde_json::Value 自引用递归（Value → Vec<Value> → Value），不可结构
         // 化展开；语义规则改写为 TS `unknown`（与既有 dto.ts 的 payload/usage/
@@ -72,3 +46,6 @@ pub fn export_bindings() -> Result<(), String> {
         )
         .map_err(|e| format!("导出 TS bindings 失败: {e}"))
 }
+
+#[cfg(test)]
+mod mod_test;

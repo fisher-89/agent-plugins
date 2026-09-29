@@ -1,15 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-// 命令面（`commands`）与 specta 注册面（`bindings`）归 lib 目标承载，main 为
-// 薄壳：setup / 插件挂载 / db 路径解析 + invoke_handler 接线（Tauri 2 上游
-// 模板形态，与导出 bin 共享同一命令面）。
-
 use std::path::PathBuf;
 
-use tauri::Manager;
+use tauri::{generate_handler, Manager};
 
 use store::Store;
 
-use dev_team::bindings;
+use dev_team::commands::all_commands;
 use dev_team::commands::exec::RunStopRegistry;
 use dev_team::commands::watch::WatchRegistry;
 
@@ -52,7 +48,7 @@ fn main() {
             app.manage(RunStopRegistry::default());
             Ok(())
         })
-        .invoke_handler(bindings::builder().invoke_handler())
+        .invoke_handler(all_commands!(generate_handler))
         .run(tauri::generate_context!("tauri.conf.json"))
         .expect("desktop 应用启动失败");
 }

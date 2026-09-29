@@ -155,7 +155,7 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 | `packages/desktop/src-tauri/src/commands/stats/`（新轨道） | 代码统计解析命令轨道 | `code_stats(root, depth) -> Result<CodeStatsReport, String>` 薄包装（三件事）；`code_stats_inner` 纯函数微形态（可离 Tauri 测试）；单次遍历出三面；不落库、无缓存、无第二次遍历 |
 | `CodeStatsReport` / `CodeTotals` / `LanguageStats` / `DirNode` / `FileNode` / `TreeEntry`（DTO） | 出线数据面 | `specta::Type` + camelCase；汇总 / 语言行（代码行降序）/ 树条目信封（`TreeEntry` tag `kind` 目录 / 文件叶双变体，目录名 + 聚合统计 + 子条目 / 文件名 + 单文件行统计）；字段级形状 design 定夺 |
 | `packages/desktop/src-tauri/Cargo.toml` + workspace.dependencies | tokei 依赖落位 | tokei 仅落 desktop-app；版本精确 pin；不进 core / infra crate |
-| `packages/desktop/src-tauri/src/bindings.rs` | 命令注册 | `collect_commands!` 增 `code_stats`；bindings 重导出管线（入库 + diff 守卫）不变 |
+| `packages/desktop/src-tauri/src/bindings/mod.rs` | 命令注册 | `collect_commands!` 增 `code_stats`；bindings 重导出管线（入库 + diff 守卫）不变 |
 | `packages/desktop/src/views/info/`（新） | 基础信息页视图域 | `info-view.tsx` + 汇总面 / 语言占比表 / 目录树组件；树折叠态按需渲染；Progress 承载占比；空态与 inline 错误 |
 | `packages/desktop/src/views/info/hooks/use-code-stats.ts`（新） | 取数收口 hook | `{ data, loading, error, refresh }` 形态；深度参数化 invoke；显式刷新模型；查询失败 inline |
 | `packages/desktop/src/routes.tsx` + `src/components/app-sidebar.tsx` | 路由与入口 | `/info` 路由项；「页面」组 [基础信息] NavLink，`data-testid="nav-info"`，active 由 URL 派生 |

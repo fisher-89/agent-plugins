@@ -4,6 +4,3 @@
 
 pub mod bindings;
 pub mod commands;
-
-#[cfg(test)]
-mod bindings_test;

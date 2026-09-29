@@ -19,3 +19,39 @@ pub mod queries;
 pub mod stats;
 pub mod watch;
 pub mod workspaces;
+
+/// 全量命令清单（单一登记面，纯路径注入零依赖）：23 条命令路径（迁自旧版
+/// `main.rs` `generate_handler!`）注入调用方传入的宏——运行时 `main` 传原生
+/// `tauri::generate_handler`，导出 `bindings` 传 `tauri_specta::collect_commands`，
+/// 新增命令只改此处，两侧自动同步。`commands` 自身不依赖 tauri_specta。
+#[macro_export]
+macro_rules! all_commands {
+    ($mac:ident) => {
+        $mac![
+            $crate::commands::queries::list_changes,
+            $crate::commands::queries::get_change_detail,
+            $crate::commands::queries::read_artifact,
+            $crate::commands::workspaces::list_workspaces,
+            $crate::commands::workspaces::add_workspace,
+            $crate::commands::workspaces::remove_workspace,
+            $crate::commands::exec::agent_start,
+            $crate::commands::exec::agent_stop,
+            $crate::commands::exec::agent_runs,
+            $crate::commands::exec::agent_run_events,
+            $crate::commands::exec::agent_run_chain,
+            $crate::commands::explores::read_explore,
+            $crate::commands::explores::scan_explores,
+            $crate::commands::explores::explore_doc_path,
+            $crate::commands::explores::list_explore_records,
+            $crate::commands::explores::create_explore_record,
+            $crate::commands::explores::rename_explore_record,
+            $crate::commands::explores::delete_explore_record,
+            $crate::commands::watch::watch_subscribe,
+            $crate::commands::watch::watch_unsubscribe,
+            $crate::commands::db::db_models,
+            $crate::commands::db::db_records,
+            $crate::commands::stats::code_stats,
+        ]
+    };
+}
+pub use crate::all_commands;
