@@ -2,8 +2,8 @@
 //! begin / finish / list 存量回归 + 事件类型化（`append_agent_run_events` /
 //! `list_agent_run_events` 经 `AgentEvent` 构造）+ 信封 API（`list_models` /
 //! `scan`）+ explore 记录 CRUD（建档 / 清单 / 寻址 / 改名 / 删除含 runs+events
-//! 级联，AC-3）+ `restore_run_chain` 单链还原（AC-5）+ v1→v2 演进与三字段
-//! 往返（AC-4）。
+//! 级联，AC-3）+ `restore_run_chain` 单链还原（AC-5）+ 来源三元组演进与
+//! 三字段往返（AC-4）。
 //! tempdir 真开 db 文件（存储层不 mock）；全部断言经 `Store` 公共
 //! API，内部协作（模型编解码、canonical 口径）由此间接覆盖。系统时钟不
 //! mock：`added_at` / `started_at` 仅记录入库值，清单排序与获取时间无关。
@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 
 use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
 
-use crate::{AgentRunRecord, AgentRunRecordV1, ExploreRecord, Store, StoreError, WorkspaceRecord};
+use crate::{AgentRunRecord, ExploreRecord, Store, StoreError, WorkspaceRecord};
 
 /// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -1445,59 +1445,8 @@ fn 分叉再汇聚还原为单链链头唯一取最新不重复不遗漏() {
 }
 
 // ---------------------------------------------------------------------------
-// v1→v2 演进（AC-4）：多版本结构升级 + 三字段往返
+// 来源三元组演进（AC-4）：三字段往返与两代写入语义并存
 // ---------------------------------------------------------------------------
-
-/// v1 形态 13 字段记录（演进前写入形态，全字段非缺省值）。
-fn v1_record(id: i64) -> AgentRunRecordV1 {
-    AgentRunRecordV1 {
-        id,
-        prompt: "演进前的一轮".to_owned(),
-        cwd: "C:\\ws\\legacy".to_owned(),
-        env: "bare".to_owned(),
-        permission_mode: "acceptEdits".to_owned(),
-        status: "completed".to_owned(),
-        started_at: 1726000000000,
-        finished_at: Some(1726000001000),
-        num_turns: Some(5),
-        cost_usd: Some(0.25),
-        duration_ms: Some(4321),
-        session_id: Some("s-legacy".to_owned()),
-        error: None,
-    }
-}
-
-#[test]
-fn v1载荷经读路径升级source缺省debug且十三字段保真() {
-    // 说明：store 读路径（native_db bincode_decode_from_slice →
-    // native_model::decode）对 v1 版本头字节自动升级——本用例直接驱动同一条
-    // decode 调用，锁定 From<AgentRunRecordV1> 转换语义；表名随模型版本演进
-    // 属 native_db 自身机制，不在本 crate 用例面（不测库自带语义）。
-    let v1 = v1_record(42);
-    let bytes = native_model::encode(&v1).expect("v1 编码应成功");
-
-    let (upgraded, source_version) =
-        native_model::decode::<AgentRunRecord>(bytes).expect("v1 字节应可被 v2 模型读路径消费");
-
-    assert_eq!(source_version, 1, "存量字节确为 v1 版本头（升级输入前提）");
-    assert_eq!(upgraded.source, "debug", "AC-4：v1 记录 source 缺省 debug");
-    assert_eq!(upgraded.source_ref, None, "v1 记录无来源定位");
-    assert_eq!(upgraded.parent_run_id, None, "v1 记录无链指针");
-    // 既有 13 字段保真（三受控字符串升级为枚举后逐值断言；AC-2 枚举化跟改）
-    assert_eq!(upgraded.id, v1.id);
-    assert_eq!(upgraded.prompt, v1.prompt);
-    assert_eq!(upgraded.cwd, v1.cwd);
-    assert_eq!(upgraded.env, AgentEnvMode::Bare);
-    assert_eq!(upgraded.permission_mode, AgentPermissionMode::AcceptEdits);
-    assert_eq!(upgraded.status, AgentRunStatus::Completed);
-    assert_eq!(upgraded.started_at, v1.started_at);
-    assert_eq!(upgraded.finished_at, v1.finished_at);
-    assert_eq!(upgraded.num_turns, v1.num_turns);
-    assert_eq!(upgraded.cost_usd, v1.cost_usd);
-    assert_eq!(upgraded.duration_ms, v1.duration_ms);
-    assert_eq!(upgraded.session_id, v1.session_id);
-    assert_eq!(upgraded.error, v1.error);
-}
 
 #[test]
 fn v2写入三字段非缺省重开db读回往返保真() {

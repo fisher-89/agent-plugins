@@ -27,9 +27,7 @@ mod model;
 mod store;
 
 pub use envelope::{ModelInfo, RecordEnvelope};
-pub use model::{
-    AgentEventRecord, AgentRunRecord, AgentRunRecordV1, ExploreRecord, WorkspaceRecord,
-};
+pub use model::{AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
 pub use store::{Store, StoreError};
 
 #[cfg(test)]

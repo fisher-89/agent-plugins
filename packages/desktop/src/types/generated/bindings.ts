@@ -203,11 +203,9 @@ export type AgentRunMessage =
  *  时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
  * 
  *  字段演进：version 2 新增 `source` / `source_ref` / `parent_run_id` 三字段
- *  （来源归属与 resume 链显式指针）；version 3 三字段 String → 枚举。落库
- *  编码为 bincode（非自描述），旧版本载荷无法直接反序列化为本结构，经
- *  [`AgentRunRecordV2`] / [`AgentRunRecordV1`] 版本化结构 + `From` 转换链由
- *  native_model 读路径自动升级（v1 存量经 v1→v2→v3 链式升级；无手工迁移、
- *  无 legacy 迁移层）。
+ *  （来源归属与 resume 链显式指针）；version 3 三字段 String → 枚举。v1 / v2
+ *  历史版本化结构与升级链已移除（不做旧库兼容定夺）：v1 / v2 版本头存量
+ *  载荷不再可读，native_model 读路径版本不支持直接报错。
  */
 export type AgentRunRecord = {
 	/**  run id（主键，写事务内 max+1 分配） */

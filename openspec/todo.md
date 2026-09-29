@@ -92,7 +92,7 @@
 - [ ] 【Desktop】将workspace内数据与全局数据分离，每个workspace独立库
 - [ ] 【Desktop】changeDetail流程图连线与实际执行顺序不符
 - [ ] 【Desktop】Agent消息，改为支持查看完成传输的单条消息的原始jsonL，完整jsonL面板数据量太大不利于查看
-- [ ] 【Desktop】src-tauri/infra/store/src/model.ts 移除升级的历史版本 AgentRunRecordV1、AgentRunRecordV2
+- [x] 【Desktop】src-tauri/infra/store/src/model.ts 移除升级的历史版本 AgentRunRecordV1、AgentRunRecordV2
 - [ ] 【Desktop】移除生成类型中的null，使用undefined代替
 - [ ] 【Desktop】调整src-tauri/src/bindings逻辑，置入子目录；分离生成的类型文件和commands；
 - [ ] 【Desktop】恢复src-tauri/build.rs，当前复杂适配原因“测试链接了 GUI 框架”
