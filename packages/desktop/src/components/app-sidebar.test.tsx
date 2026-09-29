@@ -406,3 +406,87 @@ describe('AppSidebar：页面导航组与系统工具组（NavLink 路由导航�
     expect(screen.getByTestId('nav-db').querySelector('svg') !== null).toBe(true);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 页面导航组 nav-info 扩员（AC-1）：[基础信息] 居「页面」组首位（组序
+// 基础信息 → 变更 → 探索），active 由 URL 派生。页面组扩员不改变他项——
+// nav-changes / nav-explores / nav-agent / nav-db 的组归属与激活语义既有
+// 断言保留回归（上方既有套件全部保留）。
+// ---------------------------------------------------------------------------
+
+describe('AppSidebar：页面导航组 nav-info（AC-1）', () => {
+  let restore: () => void;
+
+  beforeEach(() => {
+    restore = stubEnvironment();
+  });
+
+  afterEach(() => {
+    restore();
+  });
+
+  it('nav-info 在场且居「页面」组首位（基础信息 → 变更 → 探索），tagName 为 A、href=/info、带 svg 图标', () => {
+    mountNav('/changes');
+
+    const navInfo = screen.getByTestId('nav-info');
+    expect(navInfo.tagName).toBe('A');
+    expect(navInfo.getAttribute('href')).toBe('/info');
+    expect(navInfo.textContent).toContain('基础信息');
+    expect(navInfo.querySelector('svg') !== null).toBe(true);
+
+    // 组序以 DOM 结构断言：基础信息居首，其后为 变更 → 探索
+    const pageGroup = groupOf('nav-info');
+    const navOrder = within(pageGroup)
+      .getAllByTestId(/^nav-/)
+      .map((nav) => nav.getAttribute('data-testid'));
+    expect(navOrder).toEqual(['nav-info', 'nav-changes', 'nav-explores']);
+  });
+
+  it('pathname=/info → nav-info data-active=true 且其余 nav 为 false；/changes 下 nav-info 为 false（active 由 URL 派生）', () => {
+    const onInfo = mountNav('/info', [FIRST]);
+    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('true');
+    for (const id of ['nav-explores', 'nav-changes', 'nav-agent', 'nav-db']) {
+      expect(screen.getByTestId(id).getAttribute('data-active')).toBe('false');
+    }
+    onInfo.unmount();
+
+    mountNav('/changes', [FIRST]);
+    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+  });
+
+  it('点击 nav-info → location-probe 呈 /info', () => {
+    mountNav('/changes');
+
+    fireEvent.click(screen.getByTestId('nav-info'));
+
+    expect(screen.getByTestId('location-probe').textContent).toBe('/info');
+  });
+
+  it('pathname 无匹配前缀（/bogus）→ nav-info data-active=false、渲染不崩（对齐既有降级用例）', () => {
+    mountNav('/bogus');
+
+    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('false');
+    expect(screen.getAllByTestId('workspace-item')).toHaveLength(2);
+    expect(screen.getByRole('button', { name: '添加 workspace' }) !== null).toBe(true);
+  });
+
+  it('既有挂钩回归：页面组含 nav-info / nav-explores / nav-changes、系统工具组含 nav-agent / nav-db（页面组扩员不改变他项）', () => {
+    mountNav('/changes');
+
+    const pageGroup = groupOf('nav-info');
+    expect(groupOf('nav-explores')).toBe(pageGroup);
+    expect(groupOf('nav-changes')).toBe(pageGroup);
+    expect(within(pageGroup).getByTestId('nav-explores').textContent).toContain('探索');
+    expect(within(pageGroup).getByTestId('nav-changes').textContent).toContain('变更');
+    for (const id of ['nav-agent', 'nav-db']) {
+      expect(within(pageGroup).queryByTestId(id)).toBeNull();
+    }
+
+    const toolsGroup = groupOf('nav-agent');
+    expect(toolsGroup).toBe(groupOf('nav-db'));
+    expect(toolsGroup.textContent).toContain('系统工具');
+    expect(within(toolsGroup).getByTestId('nav-agent').textContent).toContain('Agent 调试');
+    expect(within(toolsGroup).getByTestId('nav-db').textContent).toContain('数据库');
+  });
+});

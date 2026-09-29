@@ -11,7 +11,7 @@ use std::path::PathBuf;
 
 use tauri_specta::{collect_commands, Builder, ErrorHandlingMode};
 
-/// 全部命令的 specta builder：22 条命令全量注册（迁自 `main.rs`
+/// 全部命令的 specta builder：23 条命令全量注册（迁自 `main.rs`
 /// `generate_handler!`，命令清单与总数以 `main.rs` 迁移前为准）。
 pub fn builder() -> Builder<tauri::Wry> {
     Builder::<tauri::Wry>::new()
@@ -38,6 +38,7 @@ pub fn builder() -> Builder<tauri::Wry> {
             crate::commands::watch::watch_unsubscribe,
             crate::commands::db::db_models,
             crate::commands::db::db_records,
+            crate::commands::stats::code_stats,
         ])
         .error_handling(ErrorHandlingMode::Throw)
         // serde_json::Value 自引用递归（Value → Vec<Value> → Value），不可结构

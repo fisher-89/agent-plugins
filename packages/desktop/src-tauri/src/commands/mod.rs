@@ -1,6 +1,6 @@
-//! Tauri command 五轨：queries（change 域查询 + workspace 注册）、exec（执行；
+//! Tauri command 六轨：queries（change 域查询 + workspace 注册）、exec（执行；
 //! 承载 agent 命令）、explores（explore 读面 + 记录面）、watch（单文件失效
-//! 信号订阅）与 db（db 查看轨道，只读）。
+//! 信号订阅）、db（db 查看轨道，只读）与 stats（工作区代码统计，无状态解析）。
 //!
 //! Command body 纪律（决策出处：desktop-app-shell 能力 spec，
 //! `specs/desktop-app-shell/spec.md`，路径相对域根）：每条命令的 body 仅允许三件事——
@@ -16,5 +16,6 @@ pub mod db;
 pub mod exec;
 pub mod explores;
 pub mod queries;
+pub mod stats;
 pub mod watch;
 pub mod workspaces;

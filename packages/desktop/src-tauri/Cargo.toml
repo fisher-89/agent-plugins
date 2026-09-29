@@ -31,6 +31,10 @@ tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-devtools = "2.2.1"
 tauri-specta = { workspace = true }
+# 工作区代码统计（tokei library 直依赖）：`=` 精确 pin + default-features = false
+# 剥离 cli feature（clap 4 / colored / env_logger / num-format 不入树，纯库消费）；
+# 仅落 desktop-app 壳，MUST NOT 出现在任何 core / infra crate
+tokei = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -74,6 +78,9 @@ tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 store = { path = "crates/infra/store" }
 tempfile = "3"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
+# tokei 13 稳定线（2025-11 发布）：工作区遍历 / 语言识别 / 行计数唯一提供方，
+# 纯库消费（default-features = false 剥离 cli 栈）
+tokei = { version = "=13.0.0", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }
 # specta 特性：tauri 出线类型（含 ipc::Channel<T>）的 Type 远程 impl
 tauri = { version = "2", features = ["specta"] }

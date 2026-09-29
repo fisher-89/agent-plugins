@@ -10,6 +10,7 @@ import type {
   RecordEnvelope,
   WorkspaceRecord,
 } from './types/dto';
+import type { CodeStatsReport } from './types/generated/bindings';
 
 const { checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
   checkMock: vi.fn(),
@@ -72,6 +73,17 @@ const DB_RECORDS: RecordEnvelope[] = [
   { key: 1, value: { id: 1, prompt: '你好', status: 'completed' } },
   { key: { runId: 1, seq: 0 }, value: { eventKey: '0x1', runId: 1, event: { seq: 0 } } },
 ];
+
+// 基础信息域 fixture：InfoView 挂载即以 (root, depth=5) invoke("code_stats")，
+// 三面 DTO（totals.files > 0 → 非空态），树面顶层节点默认展开在 DOM
+const CODE_STATS: CodeStatsReport = {
+  totals: { files: 12, code: 340, comments: 40, blanks: 20 },
+  languages: [
+    { name: 'Rust', files: 6, code: 220, comments: 30, blanks: 10, share: 64.7 },
+    { name: 'TypeScript', files: 6, code: 120, comments: 10, blanks: 10, share: 35.3 },
+  ],
+  tree: [{ name: 'src', path: 'src', files: 9, code: 300, comments: 35, blanks: 18, children: [] }],
+};
 
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：IPC 按命令名分发；文件夹对话框按用例 resolve / reject / cancel；
@@ -142,6 +154,11 @@ function mockIpc() {
       // （null 会使 useRuns state.runs 置 null 而崩），页面切页往返断言不涉及其内容
       if (command === 'agent_runs' || command === 'agent_run_events') {
         return Promise.resolve([]);
+      }
+      // 基础信息页挂载取数（useCodeStats 挂载发起 code_stats）：回三面 DTO，
+      // fixture 深拷贝防用例间引用残留
+      if (command === 'code_stats') {
+        return Promise.resolve(JSON.parse(JSON.stringify(CODE_STATS)) as CodeStatsReport);
       }
       return Promise.resolve(null);
     },
@@ -1194,5 +1211,98 @@ describe('App：HashRouter 自含挂载与路由初态（D2/D6/D7）', () => {
     // 落清单而非详情：无详情标题
     expect(screen.queryByRole('heading', { name: 'add-feature' })).toBeNull();
     expect(countOf('get_change_detail')).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 关系五：/info 基础信息路由（AC-1）——侧栏 nav-info → HashRouter /info 路由项
+// → InfoView 真实挂载（AppRoutes / InfoView / useCodeStats 不 mock，进程边界
+// 收敛于 invoke 的 code_stats 分支）。路由表为组合声明文件、无独立测试路径，
+// 按链路入口挂靠规则以本套件组合用例承载（/info 路由项 + * 兜底回归 +
+// 欢迎态隔离）。
+// ---------------------------------------------------------------------------
+
+describe('App：/info 基础信息路由可达与欢迎态隔离（AC-1）', () => {
+  beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
+    getVersionMock.mockReset();
+    invokeMock.mockReset();
+    openMock.mockReset();
+    checkMock.mockReset();
+    checkMock.mockResolvedValue(null);
+    getVersionMock.mockResolvedValue('0.1.0');
+    toast.dismiss();
+    mockIpc();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('壳态点击 nav-info：hash 落 #/info、基础信息页呈现（info-summary 在场）、变更页内容卸载、nav-info 激活', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-info'));
+
+    await waitFor(() => expect(window.location.hash).toBe('#/info'));
+    await waitFor(() => expect(screen.getByTestId('info-summary') !== null).toBe(true));
+    expect(screen.queryByText('add-feature')).toBeNull();
+    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    // InfoView 挂载即以 (root, depth=5) 发起解析
+    expect(invokeMock).toHaveBeenCalledWith('code_stats', { root: FIRST.root, depth: 5 });
+  });
+
+  it('启动前 hash 已为 #/info：深链直出基础信息页且 nav-info 激活（对齐既有深链用例形态）', async () => {
+    window.location.hash = '#/info';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('info-summary') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/info');
+    expect(screen.getByTestId('nav-info').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(countOf('code_stats')).toBe(1);
+    // 变更页未挂载：无 change 内容、无详情取数
+    expect(screen.queryByText('add-feature')).toBeNull();
+    expect(countOf('get_change_detail')).toBe(0);
+  });
+
+  it('未知路径兜底回归：#/bogus 仍兜底落 #/changes（/info 插入不破 * 兜底语义）、不误触 code_stats', async () => {
+    window.location.hash = '#/bogus';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/changes');
+    expect(screen.queryByTestId('info-view')).toBeNull();
+    expect(countOf('code_stats')).toBe(0);
+  });
+
+  it('#/info/xyz（路由表无 /info 子段）：兜底落 #/changes，不空白不崩', async () => {
+    window.location.hash = '#/info/xyz';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/changes');
+    expect(screen.queryByTestId('info-view')).toBeNull();
+    expect(countOf('code_stats')).toBe(0);
+  });
+
+  it('欢迎态（root=null）：无壳无 nav-info，#/info 不渲染基础信息页、仅欢迎屏（无 Router 挂壳的隔离）', async () => {
+    window.location.hash = '#/info';
+    remaining = [];
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
+
+    expect(document.querySelector('[data-slot="sidebar-wrapper"]')).toBeNull();
+    expect(screen.queryByTestId('nav-info')).toBeNull();
+    expect(screen.queryByTestId('info-view')).toBeNull();
+    expect(screen.getByText(/还没有记录/) !== null).toBe(true);
+    expect(countOf('code_stats')).toBe(0);
   });
 });

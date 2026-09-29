@@ -1,0 +1,92 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-29T06:17:48.417Z",
+  "duration_seconds": 355,
+  "total": 574,
+  "passed": 574,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "findings": [
+    "All 574 tests passed (vite-plus 538, rust 36) with zero failures and no execution errors; mutation score 87.82% exceeds the 80% threshold - no test or tooling fixes were required this run.",
+    "Summary-level coverage aggregation is degraded: coverage.measured is null for all dimensions and the packages/desktop override reports passed_count 0/47 because per-plan source_files carry no per-file coverage counts (all 47 vite-plus entries contain only 'file' paths; the rust list is empty since the CLI's llvm-cov parser emits fileCoverage: null). As a result coverage.pass evaluates vacuously true and plan-level coverage results are not reflected in the summary - fix the coverage-to-source_files merge in the CLI report builder.",
+    "The rust plan report.json has coverage.pass=false solely on branches (0% vs 85%): cargo llvm-cov collected zero branch data (totals.branches.count=0 across all 20 files - LLVM branch instrumentation not enabled), while lines 96.59%, functions 92.05%, and regions 97.16% are healthy. This is a measurement artifact, not a genuine branch-coverage gap; either enable branch instrumentation in the rust suite command or have the llvm-cov parser treat count=0 branch totals as null (unsupported dimension).",
+    "Cross-report inconsistency: the rust plan's coverage.pass=false is hidden by the summary because the aggregation found no per-file data; the summary's 'pass' conclusion is consistent with its own fields but does not surface the rust branch-threshold failure.",
+    "Plan coverage detail for reference: vite-plus passed all thresholds (lines 92.42/90, branches 85.69/85, functions 90.56/90, 47 files); the only plan-level miss is the rust branches dimension described above.",
+    "The plugins/dev-team vite-plus suite was skipped because no changed files under its root are in this change's inventory (change scope) - expected behavior, not a missing report."
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 47,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 87.82,
+    "threshold": 80,
+    "measured": {
+      "killed": 137,
+      "survived": 19,
+      "timeout": 0,
+      "noCoverage": 0,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 1,
+      "total": 157,
+      "detected": 137,
+      "undetected": 19
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 87.82051282051282,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 47,
+        "passed_count": 47
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-workspace-code-stats/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-workspace-code-stats/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ]
+}

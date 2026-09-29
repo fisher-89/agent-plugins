@@ -1,8 +1,8 @@
-//! `bindings` 的单元测试（AC-3 / AC-4）：`export_bindings()` 导出产物的覆盖性
-//! （22 条命令包装名 + invoke 命令名 + 全部出线 DTO 类型名）、Channel 参数
+//! `bindings` 的单元测试（AC-2 / AC-3 / AC-4）：`export_bindings()` 导出产物的覆盖性
+//! （23 条命令包装名 + invoke 命令名 + 全部出线 DTO 类型名）、Channel 参数
 //! typed（`agent_start` / `watch_subscribe`）、AgentEvent 出线形态（PoC 判据
-//! 自动化留档）、特殊字段出线口径、导出幂等、过期产物纠正、目标目录缺失健壮
-//! 性与 Result 错误通道形态。
+//! 自动化留档）、特殊字段出线口径、code_stats 三面 DTO 包装形态、导出幂等、
+//! 过期产物纠正、目标目录缺失健壮性与 Result 错误通道形态。
 //!
 //! 文件系统为真实目标路径（`export_bindings` 以 `CARGO_MANIFEST_DIR` 定位
 //! `src/types/generated/bindings.ts`，无路径注入缝——按 test-design Mock策略
@@ -53,7 +53,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 22 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一对应）。
+/// 23 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一对应）。
 const COMMAND_WRAPPERS: &[&str] = &[
     "listChanges",
     "getChangeDetail",
@@ -77,9 +77,10 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "watchUnsubscribe",
     "dbModels",
     "dbRecords",
+    "codeStats",
 ];
 
-/// 22 条命令的 IPC 命令名（snake_case，invoke 目标）。
+/// 23 条命令的 IPC 命令名（snake_case，invoke 目标）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -103,6 +104,7 @@ const COMMAND_NAMES: &[&str] = &[
     "watch_unsubscribe",
     "db_models",
     "db_records",
+    "code_stats",
 ];
 
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
@@ -125,6 +127,9 @@ const DTO_TYPES: &[&str] = &[
     "ChangeSource",
     "ChangeSummary",
     "ChecklistItem",
+    "CodeStatsReport",
+    "CodeTotals",
+    "DirNode",
     "ExploreDoc",
     "ExploreRecord",
     "ExploreScanEntry",
@@ -133,6 +138,7 @@ const DTO_TYPES: &[&str] = &[
     "FileWatchEvent",
     "InterruptedEntry",
     "Inventory",
+    "LanguageStats",
     "ModelInfo",
     "PhaseEntry",
     "RecordEnvelope",
@@ -145,7 +151,7 @@ const DTO_TYPES: &[&str] = &[
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 导出产物包含全部22条命令包装名与invoke命令名及出线dto类型名() {
+fn 导出产物包含全部23条命令包装名与invoke命令名及出线dto类型名() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -360,6 +366,35 @@ fn 产物父目录缺失时create_dir_all先行导出成功() {
         fs::read(generated_path()).expect("产物应恢复"),
         authoritative,
         "重建产物与权威内容一致"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// code_stats 三面 DTO 包装形态（23 条扩面，AC-2）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn code_stats绑定为root_depth入参的三面dto直返() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 包装形态逐字：camelCase 包装名 + (root: string, depth: number) 入参 +
+    // `__TAURI_INVOKE<CodeStatsReport>` 直返（Throw 模式 Promise，错误面 reject）
+    assert!(
+        content.contains(
+            "codeStats: (root: string, depth: number) => __TAURI_INVOKE<CodeStatsReport>(\"code_stats\", { root, depth })",
+        ),
+        "codeStats 包装形态不符（入参 / 返回类型 / invoke 命令名）"
+    );
+    // 三面 DTO 系类型 camelCase TS 镜像出线（share 上游怪癖出线 `number | null`，
+    // 前端以 `share ?? 0` 防御）
+    assert!(content.contains("export type CodeStatsReport = {"));
+    assert!(content.contains("export type CodeTotals = {"));
+    assert!(content.contains("export type LanguageStats = {"));
+    assert!(content.contains("export type DirNode = {"));
+    assert!(
+        content.contains("share: number | null,"),
+        "LanguageStats.share 出线为 `number | null`（specta 裸 f64 口径留档）"
     );
 }
 

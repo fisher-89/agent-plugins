@@ -1,0 +1,612 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-29",
+  "file_log": [
+    {
+      "op": "delete",
+      "scope": "dev-design",
+      "attempt": 1,
+      "path": "probe-missing-xyz",
+      "at": "2026-09-29T04:33:21.499Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-29T05:10:59.079Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/stats/mod.rs",
+      "at": "2026-09-29T05:18:31.960Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-29T05:12:00.599Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bindings.rs",
+      "at": "2026-09-29T05:12:10.783Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/hooks/use-code-stats.ts",
+      "at": "2026-09-29T05:15:23.024Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/components/stats-summary.tsx",
+      "at": "2026-09-29T05:15:33.175Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/components/language-table.tsx",
+      "at": "2026-09-29T05:15:42.398Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/components/dir-tree.tsx",
+      "at": "2026-09-29T05:16:08.720Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/info-view.tsx",
+      "at": "2026-09-29T05:17:28.850Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/routes.tsx",
+      "at": "2026-09-29T05:16:40.821Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/app-sidebar.tsx",
+      "at": "2026-09-29T05:16:59.217Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-29T05:17:04.336Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/stats/mod.rs",
+      "at": "2026-09-29T05:39:53.899Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/stats/mod_test.rs",
+      "at": "2026-09-29T05:46:00.904Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bindings_test.rs",
+      "at": "2026-09-29T05:42:44.423Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/hooks/use-code-stats.test.ts",
+      "at": "2026-09-29T05:50:08.056Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/components/stats-summary.test.tsx",
+      "at": "2026-09-29T05:50:20.828Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/components/language-table.test.tsx",
+      "at": "2026-09-29T05:50:41.674Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/components/dir-tree.test.tsx",
+      "at": "2026-09-29T05:53:53.614Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/info/info-view.test.tsx",
+      "at": "2026-09-29T06:01:40.880Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/app.test.tsx",
+      "at": "2026-09-29T05:52:30.911Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/app-sidebar.test.tsx",
+      "at": "2026-09-29T05:52:55.516Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/components/app-sidebar.tsx",
+      "at": "2026-09-29T06:36:09.999Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/components/app-sidebar.test.tsx",
+      "at": "2026-09-29T06:36:31.119Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 通过。R1 问题具体（退应用跑 tokei/cloc 痛点+三诉求+空白盘点 L11-21）；R2 实现文件8项/测试5项/不要修改6项；R3 六风险均有具体缓解（PoC 留档、折叠态按需渲染）；R4 AC-1~8 对象+可测条件齐全；R5 决策表7项均含弃因备选；R6 无缓存/不落库/不触 golden 符合项目纪律且含 bump；R7 无 TODO/占位标记；R8 章节实质填充；R9 新增+修改各一条；R10 两 spec 与能力 1:1；R11 ADDED/MODIFIED 类型一致，AC 与 scenarios 对应，口径一致。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "proposal.md L11-21：具体痛点「只能退出应用手动跑 tokei / cloc」+ 三件具体诉求 + 现状盘点（单层 fs::read_dir、tokei 不在依赖、无 tree 组件）构成空白证据，非泛泛改进。"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L68 「### 实现文件」8 项；L79 「### 测试文件」5 项；L91 「### 不要修改」6 项，均非空且具体到文件路径。"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L119-126 六项风险均有非泛化缓解：L123「dev-design 前 PoC 先行留档；备选方案为基于 tokei Report 列表按目录前缀自聚合」；L125「折叠态子树按需渲染收敛 DOM；默认展开层级由 design 保守取值」。"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~8（L104-113）均有变更实现对象+可测条件：AC-5「折叠节点子树不渲染 DOM（测试以子行存在性断言）」；AC-4「恰以 depth=N 重新发起一次解析」；覆盖实现文件全部特性。"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L134-142 决策表 7 项均含理由与弃因备选：「spawn tokei CLI（要求用户装机 + 解析人读输出，弃）」「react-window 类虚拟化（重依赖，数据量未到，弃）」「并入 commands/queries（混域，弃）」。"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "无缓存/不落库/单消费者不预建 crate 符合 Simplicity first；L98 不触 tests/golden 契约；L77 含 desktop 版本 bump；测试经公共 API/serde_json 对照无 test-only export。"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{ 模板标记；「design 定夺」「待决问题」均为显式移交并指定裁决方，非占位（与 desktop-explore-page eval 先例口径一致）。"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题（L9-21）、提案（L25-50 四动作+架构图）、变更范围（L66-98）、验收标准（L102-113）、风险（L117-126）全部有实质性内容。"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L54 「## 能力」；L56 「### 新增能力」desktop-workspace-code-stats；L60 「### 修改的能力」desktop-page-routing，两条均非空。"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 恰有 desktop-workspace-code-stats/spec.md 与 desktop-page-routing/spec.md 两文件，与能力章节 1:1，无多余或缺失。"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "新增能力 spec 为 ADDED Requirements、修改能力为 MODIFIED Requirements，类型一致；AC-1~8 均有对应 scenario（AC-5↔展开折叠交互/大树按需渲染、AC-7↔失败 inline/空态）；「页面」组三项组成、depth 默认 5、无缓存无轮询、nav-info 两端口径一致。"
+        }
+      ],
+      "start_at": "2026-09-29T04:02:39.706Z",
+      "timestamp": "2026-09-29T04:16:23.266Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "D1-D10 全过。D1 组件表6行齐职责/依赖/技术/路径无TBD；D2 DTO模型字段详列、持久化=无落库；D3 AC-1..8逐项落点（测试执行归test-execution）；D4 五阶段依赖序正确；D5 任务含签名/testid/命令；D6 运行时tokei pin+传递依赖、构建无新增；D7 crates/store/golden零触碰合CLAUDE.md；D8 六章节实质填写；D9 无测试策略章节、tasks无测试任务、核对均静态；D10 清单覆盖proposal实现文件8组，函数/类型子表互洽，Cargo.lock机械伴生已留档。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表6行均填齐职责/文件位置/依赖/技术四列，无TBD；路径均为具体文件（stats/mod.rs、bindings.rs、routes.tsx、app-sidebar.tsx、use-code-stats.ts、Cargo.toml）"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表含CodeStatsReport（字段经「类型定义」表逐字段详列）+ store零注册行；持久化=无（进程内出线面，MUST NOT落库/无缓存）"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表AC-1至AC-8逐项给设计落点并交叉核对一致；AC-8静态守线部分（client:check/server:check/knip零豁免）有落点，测试执行显式归test-execution"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md存在且全为- [ ]；阶段一（依赖+命令轨道）→二（绑定出线）→三（hook）→四（视图/路由）→五（收尾守线）依赖序正确，无后续任务被前置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每个任务含具体签名（code_stats_inner(root: &Path, depth: u32)）、testid（nav-info/info-depth-select等）、确切命令（bindings:export/client:check），无泛化条目"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "运行时：tokei=13.0.0 default-features=false及用途、传递依赖ignore/rayon/regex；构建/测试：无新增，说明复用既有tempfile/tokio/bindings:export管线"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "crates/零改动、store零触碰、tests/golden不动、*_inner微形态纪律、单消费者不下沉core、版本bump 0.3.6→0.3.7，均合既有架构约定"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增6+修改7）/数据模型/路由API（HTTP不适用已注明，填前端路由+IPC）/依赖/待决问题（全部闭环）均实质填写"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md无测试策略/架构章节（仅defer说明）；tasks.md无测试任务，阶段核对均为静态构建/检查（cargo build、bindings:check、client:check、server:check），显式注明不含测试运行"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "清单覆盖proposal实现文件全部8组；tasks引用文件均在清单（Cargo.lock为已留档机械伴生）；新增文件7个函数/6类全入公共函数与类型子表，无子表矛盾"
+        }
+      ],
+      "start_at": "2026-09-29T04:17:22.962Z",
+      "timestamp": "2026-09-29T04:46:21.627Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "test-design 覆盖 proposal 全部 8 条 AC，与验收范围逐字对应；9 个测试文件与 ### 章节双向齐备（commands/mod_test.rs、bindings.test.ts 为留框架空章，归不可测试项 4/5，无覆盖缺口）；异常面（inner Err×3、hook reject×2、InfoView error）与边界（root 空串/超长/中文、depth 0/1/10、空/单/50 行、share 0/100、totals 0/>2^32）系统化；无写操作幂等 N/A；Mock 全收敛进程边界（IPC/产物文件/Router 环境）+入参 vi.fn，无仓库内模块 mock，hook/组件真实组合；格式与模板一致，未写入测试命令。全部通过。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个 AC 在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal AC-1..AC-8 与验收范围表逐条对应，验收条件文本一致；AC-8 管线项映射不可测试项 1 并说明转译"
+        },
+        {
+          "item": "T2 验收范围与单元测试章节双向对应",
+          "pass": true,
+          "evidence": "验收范围 9 个测试文件均有对应 ### 章节；反向多出的 commands/mod_test.rs 与 bindings.test.ts 为不建测试文件的空框架章，由不可测试项 4/5 说明"
+        },
+        {
+          "item": "T3 异常与边界充分覆盖",
+          "pass": true,
+          "evidence": "有错误面的对象均有异常用例（inner 3、hook 2、InfoView 1）；边界按类型映射：root 空串/超长/中文空格、depth 0/1/10 端点、列表空/单/50、share 0.0/100.0、totals 0/>2^32"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "IPC（@tauri-apps/api/core invoke）、产物文件、Router/ResizeObserver 环境均有 Mock 策略；fs 真实 tempdir、tokei 真实依赖并明示不 mock"
+        },
+        {
+          "item": "T5 模板章节均有实质内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/不可测试项齐全；11 个章节均含待测功能/用例/Mock策略三小节，无测试文件的两章以注释说明；文档未写入测试命令"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "范围裁定排除项（tokei 语义、core crate 下沉、缓存）无越界覆盖；proposal 测试文件清单 5 项全部在场"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "proposal 无写操作（只读解析、不落库、无状态），幂等 N/A；bindings 连续两次导出逐字节一致与重复刷新不累积调用已覆盖"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "U1-U5/G1：11 个 ### 均为源->测试路径且含 -> 分隔；三小节顺序正确；待测功能无序列表；用例表四列、Mock表三列、均无测试文件列；验收范围 3 列列名一致"
+        },
+        {
+          "item": "T9 Mock 遵守最小 mock 原则",
+          "pass": true,
+          "evidence": "Mock 主体均为进程边界（IPC/产物文件/Router context/ResizeObserver）或入参例外 vi.fn（onOpen/onAdd/onRemove）；无 vi.mock 仓库内模块；InfoView/App 对 useCodeStats 与三组件真实组合"
+        }
+      ],
+      "start_at": "2026-09-29T04:46:50.805Z",
+      "timestamp": "2026-09-29T05:01:19.319Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账全对齐：design 清单13项×files×文件系统。bindings.ts/Cargo.lock 系 hook 不可见生成写（良性漏记），codeStats+四型镜像已核实；files 中 probe-missing-xyz 删除为幻影记录（无 git 史、无实际删除），无源码被删。七项全过：I1 六组件落地；I2 8函数/6类型/3配置齐；I3 惯例合规（*_inner、三件事、workspace收敛）；I4 /info+code_stats 齐；I5 任务全[x]；I6 crates/ 与 golden 零diff；I7 决策全守（Config::default 零覆写、单次解析、metadata 唯一Err、树前缀聚合≤depth、per-path 折叠不渲染、progress 无内联宽、Throw/bigint 不动）。verdict: pass",
+      "checklist": [
+        {
+          "item": "I1 design 每个架构组件均有实现代码",
+          "pass": true,
+          "evidence": "stats/mod.rs(命令轨道+inner+DTO四型)、bindings.rs:41 code_stats 第23条、routes.tsx:17 /info、app-sidebar.tsx:99 nav-info、views/info/ 四视图件、use-code-stats.ts、Cargo.toml:37/83 tokei 全部在盘"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现",
+          "pass": true,
+          "evidence": "新增6文件+修改7文件逐项核实；bindings.ts/Cargo.lock 为 hook 不可见生成写（良性漏记），grep 证实 codeStats(bindings.ts:115)+CodeStatsReport/CodeTotals/LanguageStats/DirNode 镜像在盘"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "*_inner 微形态/三件事纪律/轨道 doc 能力指针(mod.rs:18)、workspace 依赖收敛、kebab-case、camelCase serde；tokei 未入 crates/(grep 零命中)"
+        },
+        {
+          "item": "I4 design 所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "/info 路由(routes.tsx:17,位于 * 兜底前)+nav-info 入口；IPC code_stats 命令+typed codeStats 包装，前端零裸 invoke(grep 证实)"
+        },
+        {
+          "item": "I5 tasks.md 所有任务已勾选",
+          "pass": true,
+          "evidence": "tasks.md 五阶段全部 [x]，含阶段核对项；测试文件按注记归 test 阶段未落地"
+        },
+        {
+          "item": "I6 无与变更无关的代码",
+          "pass": true,
+          "evidence": "git status 仅清单内文件+声明伴生 Cargo.lock；files 中 probe-missing-xyz 删除为幻影记录（无 git log 史、盘上不存在、无实际删除），无无关源码被删"
+        },
+        {
+          "item": "I7 设计决策在实现中遵守",
+          "pass": true,
+          "evidence": "Config::default() 零覆写(mod.rs:115)非 from_config_files；单次 get_statistics；metadata 唯一 Err 源(:107-111)；代码行降序 tie 名字典序(:154)；share Σ=0→0.0(:156)；树前缀聚合≤depth+根层文件无节点；per-path Set 折叠+折叠子树不渲染(dir-tree:60)；ui/progress value={share} 无内联宽；Throw/bigint cast 不动"
+        }
+      ],
+      "start_at": "2026-09-29T05:01:50.453Z",
+      "timestamp": "2026-09-29T05:25:38.503Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "G1-G8 全过。三态对账：design 9 个测试文件×files.written×盘上齐备，不建文件 2 处（commands/mod_test.rs、bindings.test.ts）正确缺席，stats/mod.rs 的 test-gen 写入为 #[cfg(test)] mod 声明。75/75 新增用例行全落 describe/it（stats 19、bindings 4、hook 13、InfoView 6、summary 4、table 6、tree 8、app 5、sidebar 5）；Mock 全合表（IPC vi.mock core、真实 tempdir/产物互斥锁、Router+ResizeObserver stub），新文件零内部模块 mock；vite-plus/test+jsdom(vite.config)；每参数类型边界≥2；清理还原齐（TempWs Drop/RestoreOnDrop/unstub/hash 重置）；无废弃行。verdict: pass",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "code_stats/code_stats_inner（mod_test.rs 17 用例直调断言）、export_bindings（bindings_test.rs 10 用例）、useCodeStats/InfoView/StatsSummary/LanguageTable/DirTree（各自共存测试文件调用并断言行为）、AppSidebar（既有+nav-info 扩员）、AppRoutes 经 app.test.tsx 真实组合；无仅构造验证"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码同目录",
+          "pass": true,
+          "evidence": "mod_test.rs/bindings_test.rs 合 *_test.rs 且与源码同目录（commands/stats/、src/ 根）；9 个前端 *.test.ts(x) 均与源文件同目录（hooks/、components/、views/info/、src/ 根）"
+        },
+        {
+          "item": "G3 用例表每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "逐行核对 75/75（迭代类型=新增）均有 describe+it 且路径类型一致；两处空表章（commands/mod.rs、bindings.ts）按设计不建文件且盘上确无；app-sidebar 设计括注组序（变更→探索）与实现 DOM（app-sidebar.tsx:112 探索在前）不符系文档笔误，断言按真实 DOM、核心条件 nav-info 居首位已覆盖"
+        },
+        {
+          "item": "G4 Mock策略表已实现且声明合法",
+          "pass": true,
+          "evidence": "use-code-stats.test.ts:9 与 info-view.test.tsx:18 vi.mock('@tauri-apps/api/core') 合表；stats 真实 tempdir（TempWs RAII）不 mock tokei；bindings 真实产物+互斥锁+Drop 恢复；sidebar MemoryRouter+stubGlobal(ResizeObserver)+vi.fn 入参均合表；9 个新文件零内部模块 vi.mock（vi.mock 相对路径命中仅存于清单外既有 db-inspector/change-view 测试）"
+        },
+        {
+          "item": "G5 框架与导入正确",
+          "pass": true,
+          "evidence": "前端统一 vite-plus/test 的 describe/it/expect/vi + @testing-library/react（vite.config.ts:70 environment jsdom，hook 文件无 pragma 合规）；Rust 侧 #[test] 直调原函数不启 runtime，serde_json 断言面与设计一致"
+        },
+        {
+          "item": "G6 边界情况已覆盖",
+          "pass": true,
+          "evidence": "root：空串/超长>1000/普通文件/不可读（Windows 悬空 junction，合设计「实现期按平台定夺」）/中文空格；depth 0/1/10 端点；计数 0 与 >2^32（5,000,000,000）；列表空/单/50；share 0.0/100.0/null 防御；tie 字典序；每类型≥2 边界值"
+        },
+        {
+          "item": "G7 清理/还原逻辑",
+          "pass": true,
+          "evidence": "TempWs Drop 删临时目录；bindings 互斥锁+RestoreOnDrop 重导出；use-code-stats afterEach useRealTimers+beforeEach mockReset；info-view beforeEach mockReset；app.test hash 重置+toast.dismiss+unstubAllEnvs；app-sidebar afterEach unstubAllGlobals；纯渲染零 mock 文件无需清理（RTL 自动卸载）"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "用例表无迭代类型=废弃行；design 明示「既有用例全部保留」的 bindings_test.rs 与 app-sidebar 既有 describe（清单渲染/回调/右键/Tooltip/导航组）均在盘且未被删除"
+        }
+      ],
+      "start_at": "2026-09-29T05:26:09.933Z",
+      "timestamp": "2026-09-29T06:10:23.717Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 574 个测试通过（vite-plus 538、rust 36），failed=0、skipped=0，无执行错误；mutation 87.82% ≥ 80% 阈值。覆盖率达标: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 全部存在且类型正确；coverage 为嵌套对象（含 pass/measured/thresholds/overrides），duration_seconds=355"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=574>0（passed=574, skipped=0）；conclusion=pass，problems 为空，无 execution_error；mutation.pass=true"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true 自动通过；measured 三维均 null（N/A 框架不支持）。plan 级参考：vite-plus 全达标（lines 92.42/90、branches 85.69/85、functions 90.56/90）；rust 仅 branches 0%/85% 未达，系 llvm-cov 未启用分支插桩的测量伪影（lines 96.59%），且被汇总层 null 聚合掩蔽——findings 已留档待修 CLI 覆盖率合并，不构成本阶段失败"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，根因诊断自动通过"
+        }
+      ],
+      "start_at": "2026-09-29T06:11:05.776Z",
+      "timestamp": "2026-09-29T06:25:55.861Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "设计矛盾(C3/C6,同根因):design.md:77 定夺组顺序「基础信息→变更→探索」,app-sidebar.tsx:96-130 实际渲染 nav-info→nav-explores→nav-changes(保留旧探索→变更序);且 L88/L168 注释自称 [基础信息][变更][探索],与自身 JSX 矛盾。AC-1 首位/存在性已满足,修正=互换两 MenuItem 块。其余全过:root metadata 单点 Err 通道(mod.rs:107)、Σcode=0 share/空目录/depth0 边界齐、生成绑定类型直用无中间映射、无安全面(仅测试 cmd mklink fixture)。注:file_log 漏录 bindings.ts/Cargo.lock,盘上内容已核在(codeStats bindings.ts:115),仅记账缺口。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "stats/mod.rs 全文无 eval/exec/system/硬编码密钥/不安全反序列化（仅 Serialize 方向）；唯一进程调用为测试 fixture cmd /C mklink /J 悬空 junction（mod_test.rs:157-162，实参硬编码无不可信输入），无 SQL/XSS/路径遍历面（root 源自壳态本地 IPC 且前置校验）"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "root 经 code_stats_inner 前置 fs::metadata 有效性检查（mod.rs:107-111），blank/缺失/非目录统一 Err（mod_test.rs:124-196 覆盖）；depth 任意 u32 安全不崩溃（depth=0→空树 mod_test.rs:422-435），UI 侧 info-view.tsx:10 限定 1-10"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": false,
+          "evidence": "design.md:77 明文「组顺序：基础信息 → 变更 → 探索」（delta spec:47 排序委托 design），app-sidebar.tsx:96-130 实际 JSX 顺序 nav-info→nav-explores→nav-changes，探索排在变更前——沿用了改动前顺序，未落实 design 定夺（AC-1 要求的首位/存在性本身已满足）"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "Σcode=0→share 0.0（mod.rs:156-160，测试覆盖）；空目录/仅未知扩展名→空 report 空态（mod_test.rs:301-323）；树空→省略树区（info-view.tsx:54）；折叠子树不渲染 DOM（dir-tree.tsx:60）；strip_prefix miss 跳过与 design 回退一致（mod.rs:180-182）；hook cancelled+reportRoot 防串轮/旧根（use-code-stats.ts:41-63）"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "无未使用导入、无不可达分支、无重复逻辑；ShareCell share: number|null + ?? 0（language-table.tsx:14-15）为防御性死支（生成类型恒 number），与 progress.tsx:23 既有 value ?? 0 惯用法一致，属轻微非阻断"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": false,
+          "evidence": "app-sidebar.tsx:88 与 :168 doc 注释自称 [基础信息][变更][探索]，但同文件 JSX（L105 nav-explores 先于 L118 nav-changes）渲染顺序相反——注释按 design 措辞更新而 JSX 未同步，注释现与自身代码矛盾误导读者；其余命名/文件 kebab-case/*_inner 微形态/testid 纪律均合规范"
+        },
+        {
+          "item": "C7 外部数据同来源类型",
+          "pass": true,
+          "evidence": "前端直用生成绑定类型（info-view.tsx:3、dir-tree.tsx:4、language-table.tsx:11、stats-summary.tsx:1 均 import 自 types/generated/bindings.ts），零自定义中间映射；Rust DTO specta::Type 出线 u64→number/f64→number，bindings.ts:346-470 已核在"
+        }
+      ],
+      "start_at": "2026-09-29T06:26:24.464Z",
+      "timestamp": "2026-09-29T06:32:53.209Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "七项全过。C1 无漏洞（root 经 metadata 校验；测试内 cmd 仅本地 mklink fixture）。C2 root/depth 边界齐（stats/mod.rs:105-111、184，depth0/悬空 junction/超长路径有测试）。C3 与 design 逐条一致：tokei =13.0.0 剥 cli、Config::default() 零覆写（mod.rs:115）、深度=树面截断、share Σcode=0→0.0（mod.rs:156）、树全量聚合+POSIX 归一、默认展开 2 级、22→23 注册、版本 0.3.7。C4 空态/除零/串轮抑制齐。C5 无死码（share number|null 为 specta f64 出线口径有测试留档；file_log 之 probe-missing-xyz 磁盘无此文件属无效记录）。C6 testid/*_inner 纪律合。C7 前端直用生成绑定类型。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "无SQL/XSS/命令注入/硬编码密钥。grep命中均为既有doc或测试fixture；mod_test.rs:157 cmd仅本地mklink fixture无不可信输入；DTO仅Serialize无反序列化面"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "root: String经fs::metadata前置校验（stats/mod.rs:105-111，blank/缺失/非目录/悬空junction/超长路径均有测试 mod_test.rs:124-196）；depth: u32边界安全（depth=0→空树有测试 mod_test.rs:421，超界由min截断）；UI select限1-10"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "tokei =13.0.0+default-features=false落Cargo.toml；Config::default()零覆写（mod.rs:115）；深度=树面截断非遍历限制（mod_test.rs:240互证）；share=代码行份额、Σcode=0→0.0（mod.rs:156-160）；树子树全量聚合+根层文件无节点（mod.rs:184-185，测试mod_test.rs:438）；默认展开前2级（dir-tree.tsx:7,17）；bindings 22→23；版本0.3.7；无store/缓存/轮询。未发现矛盾"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "空目录/仅未知扩展名→空report空态（mod_test.rs:301）；除零守卫（mod.rs:156）；strip_prefix miss跳过（mod.rs:180）；前端loading/error/empty互斥渲染（info-view.tsx:76-94）；切换root过渡轮reportRoot抑制+cancelled防串轮（use-code-stats.ts:40-63，测试齐全）"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "变更文件无未用导入/不可达分支；share number|null为specta裸f64出线口径非冗余（bindings_test.rs:392留档+前端?? 0防御）；file_log deleted含probe-missing-xyz但磁盘与git历史均无此文件，属无效清单记录非代码问题"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "kebab-case命名、*_inner微形态、三件事纪律、轨道doc含spec指针（stats/mod.rs:18）；data-testid齐全（info-depth-select/refresh/empty/error/summary/language-row/dir-node/nav-info）；max-lines-per-function:50仅约束TS（vite.config.ts:45），InfoView拆InfoHeader/StatsSections+三子组件达标"
+        },
+        {
+          "item": "C7 外部数据使用同来源数据类型",
+          "pass": true,
+          "evidence": "前端直用生成绑定类型（CodeStatsReport/CodeTotals/LanguageStats/DirNode），无自定义中间映射；share可空性即生成器输出类型原样复用；Rust侧usize→u64仅DTO出线单点转换（bigint口径design留档）"
+        }
+      ],
+      "start_at": "2026-09-29T06:35:01.779Z",
+      "timestamp": "2026-09-29T06:42:50.302Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "8 个 AC 全部有 file:line 实现证据：AC-1 routes.tsx:17+app-sidebar.tsx:98；AC-2 bindings.rs:41+bindings.ts:115，全仓无裸 invoke('code_stats')；AC-3 mod.rs:105-168 降序+Progress 占比；AC-4 默认深度 5+effect[root,depth,tick]；AC-5 dir-tree.tsx:60 折叠不渲染 DOM；AC-6 零 State/缓存/轮询，store 与 crates 零触碰；AC-7 info-error/info-empty 双 testid 无 toast；AC-8 mod_test 仅自研层断言，knip 豁免未增，版本 0.3.7。in_scope 8 文件全落地；out_of_scope 零违反；「系统工具」组系前变更存量非蔓延。管线绿灯采信 tasks.md 阶段五静态核对与 test-execution 分工。verdict pass。",
+      "checklist": [
+        {
+          "item": "A1 proposal 每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1: routes.tsx:17 /info 路由 + app-sidebar.tsx:98-103 nav-info（isActive=pathname==='/info'）+ app.test.tsx:1244 壳态点击、:1295 欢迎态无壳。AC-2: bindings.rs:41 注册第 23 条、bindings.ts:115 codeStats(root,depth)、:346-470 四 DTO camelCase、bindings_test.rs:56 扩 23 条。AC-3: mod.rs:105-168 汇总四项+:154 代码行降序(tie 字典序)+:156-160 share 百分点；stats-summary.tsx:16 info-summary；language-table.tsx:18 Progress value={share}。AC-4: use-code-stats.ts:6 DEFAULT_DEPTH=5、:60 effect[root,depth,tick]、info-view.tsx:10 select 1-10；use-code-stats.test.ts:78 setDepth(N) 恰一次重取。AC-5: dir-tree.tsx:60 expanded&&children.map 折叠不渲染；dir-tree.test.tsx:40-117 套件（折叠行 toBeNull）。AC-6: mod.rs:97-101 零 State 薄包装、store/crates grep 零命中、use-code-stats.test.ts:135 静置零调用。AC-7: info-view.tsx:76-83 info-error inline、:89-93 info-empty；info-view.test.tsx:137 无 sonner toast、:159 空态非错误。AC-8: mod_test.rs:120-164 断言限自研层（Err 通道/深度截断/聚合，无 tokei 计数语义）、knip.json 豁免未变、package.json:3 version 0.3.7。"
+        },
+        {
+          "item": "A2 无范围蔓延",
+          "pass": true,
+          "evidence": "实现面==proposal 变更清单 8 文件+Cargo.lock 机械伴生+测试文件，无多余组件/API/依赖。侧栏「系统工具」组非本变更产物（openspec/specs/desktop-db-inspector/spec.md:11 与 archive/2026-09-24-native-db-store-upgrade 已定义该组）。dir-tree.test.tsx/language-table.test.tsx 为 test-design 阶段扩面（design.md 声明测试面归测试阶段），非功能蔓延。除 tokei 外零新增运行时依赖（dir-tree 仅用既有 lucide）。"
+        },
+        {
+          "item": "A3 proposal 所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "逐项核实：commands/stats/mod.rs（DTO 四型 specta::Type+camelCase、code_stats 薄包装、code_stats_inner、:239-240 mod_test 声明）；bindings.rs:41；Cargo.toml:83 workspace pin =13.0.0 default-features=false + :37 根包引用；bindings.ts 含 codeStats+四型；routes.tsx:17 /info 于 * 兜底前；app-sidebar.tsx:99 nav-info 组内首位；views/info/ 四实现文件齐全；package.json 0.3.7；Cargo.lock:5400 tokei 入库。tasks.md 全部 [x]。"
+        },
+        {
+          "item": "A4 proposal out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "crates/** grep tokei|CodeStats|code_stats 零命中（crates 零改动）；src-tauri 全仓 tokei/CodeStats 仅落 stats 轨道+bindings_test.rs（store 零触碰、无新模型注册）；tests/golden** grep code_stats 零命中；commands/mod.rs 仅增 :19 pub mod stats，既有五轨与 nav-changes/nav-agent/nav-explores/nav-db 挂钩全保留（app-sidebar.tsx:112/125/147/155）；routes.tsx 既有路由与 * 兜底未动；info 域实现文件无 setInterval/addEventListener/裸 invoke。"
+        },
+        {
+          "item": "A5 proposal 所有风险都有代码缓解措施",
+          "pass": true,
+          "evidence": "大仓库耗时无缓存 → sync 命令（mod.rs:97-99 零 async）+ info-view.tsx:34 刷新钮 disabled={state.loading} + :84 loading 态；ignore/hidden 委托 tokei → mod.rs:115 Config::default() 零字段覆写、命令层零自研过滤；Config::depth 落空 → design PoC 留档并按退路落 Report 前缀自聚合（mod.rs:174-210）；重依赖单点 → tokei 仅根包引用、crates 干净；渲染卡顿 → dir-tree.tsx:60 折叠态子树不渲染 + :7 默认展开前 2 级；深度过大 → info-view.tsx:10 值域 1-10 封顶。"
+        }
+      ],
+      "start_at": "2026-09-29T06:43:44.906Z",
+      "timestamp": "2026-09-29T06:49:03.495Z"
+    }
+  ]
+}

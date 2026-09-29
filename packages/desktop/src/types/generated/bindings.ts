@@ -107,6 +107,12 @@ export const commands = {
 	dbModels: () => __TAURI_INVOKE<ModelInfo[]>("db_models"),
 	/**  按模型主键自然序分页扫描记录信封（只读；未知模型名 reject）。 */
 	dbRecords: (model: string, offset: number, limit: number) => __TAURI_INVOKE<RecordEnvelope[]>("db_records", { model, offset, limit }).then((v) => (v.map(i=>i) as typeof v)),
+	/**
+	 *  工作区代码统计：root 有效性检查 → tokei 单次解析 → 汇总 / 语言 / 树三面组装。
+	 *  缺失 / 不可读 / 非目录 root 返回 `Err`（MUST NOT panic、MUST NOT 静默空报告）；
+	 *  目录存在但无被识别文件返回空 report（空态由前端呈现）。
+	 */
+	codeStats: (root: string, depth: number) => __TAURI_INVOKE<CodeStatsReport>("code_stats", { root, depth }),
 };
 
 /* Types */
@@ -333,6 +339,53 @@ export type ChecklistItem = {
 	evidence: string,
 };
 
+/**
+ *  工作区代码统计报告（三面聚合根）：同一次 `Languages::get_statistics` 解析
+ *  的三种投影——汇总合计 / 逐语言行 / 目录前缀聚合树，三面数字互洽。
+ */
+export type CodeStatsReport = {
+	/**  全部被解析文件合计 */
+	totals: CodeTotals,
+	/**  逐语言统计（按代码行降序，tie 语言名字典序） */
+	languages: LanguageStats[],
+	/**  目录树（≤ depth 级前缀聚合；根层直属文件不产生目录节点） */
+	tree: DirNode[],
+};
+
+/**  汇总面四项总量；`lines` 不设字段（派生值 `code + comments + blanks` 前端可算）。 */
+export type CodeTotals = {
+	/**  被识别文件数 */
+	files: number,
+	/**  代码行合计 */
+	code: number,
+	/**  注释行合计 */
+	comments: number,
+	/**  空行合计 */
+	blanks: number,
+};
+
+/**
+ *  目录树节点：统计为该目录子树内**全部**被解析文件合计（祖先链逐级累计，
+ *  含更深文件）；`path` 为相对 root 的 POSIX 路径（`/` 分隔，Windows 下
+ *  tokei 报告的分隔符混排经 components 归一化）；`children` 按 `name` 字典序。
+ */
+export type DirNode = {
+	/**  末段目录名 */
+	name: string,
+	/**  相对 root 的 POSIX 路径（`/` 分隔） */
+	path: string,
+	/**  子树内被识别文件数 */
+	files: number,
+	/**  子树内代码行合计 */
+	code: number,
+	/**  子树内注释行合计 */
+	comments: number,
+	/**  子树内空行合计 */
+	blanks: number,
+	/**  子目录节点（≤ depth 截断，name 字典序） */
+	children: DirNode[],
+};
+
 /**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
 export type ExploreDoc = {
 	/**  笔记名（= 文件 stem） */
@@ -409,6 +462,25 @@ export type Inventory =
 "v1" | 
 /**  无 workflow.json，仅 markdown 产物 */
 "v0";
+
+/**
+ *  单语言统计行：`name` 取 tokei `LanguageType::name()`；`share` 为代码行份额
+ *  （该语言 code / Σ全部语言 code，百分点 0–100；Σcode 为 0 时 0.0）。
+ */
+export type LanguageStats = {
+	/**  语言名（tokei 识别名，如 "Rust" / "Markdown"） */
+	name: string,
+	/**  该语言被识别文件数 */
+	files: number,
+	/**  代码行 */
+	code: number,
+	/**  注释行 */
+	comments: number,
+	/**  空行 */
+	blanks: number,
+	/**  代码行份额（百分点 0–100，与排序键同轴） */
+	share: number | null,
+};
 
 /**  模型清单一行：模型名 + 记录计数（计数 0 也列出）。 */
 export type ModelInfo = {
