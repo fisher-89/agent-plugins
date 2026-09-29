@@ -88,7 +88,7 @@
 - [x] 【Desktop】移除store migrate
 - [ ] 【Desktop】梳理后端commands直接调用infra的场景(已知: watch、explore)，逐个分析是否需要增加core以维持DDD架构；core如何实现依赖反转？
 - [x] 【Desktop】change详情页使用react-flow展示流程，将过程文件等信息关联到对应节点内展开显示
-- [ ] 【Desktop】使用tokei解析工作区目录代码量，语言占比
+- [x] 【Desktop】使用tokei解析工作区目录代码量，语言占比
 - [ ] 【Desktop】将workspace内数据与全局数据分离，每个workspace独立库
 - [ ] 【Desktop】changeDetail流程图连线与实际执行顺序不符
 - [ ] 【Desktop】Agent消息，改为支持查看完成传输的单条消息的原始jsonL，完整jsonL面板数据量太大不利于查看

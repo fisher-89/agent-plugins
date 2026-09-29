@@ -54,6 +54,7 @@ members = [
     "crates/infra/agent",
     "crates/infra/store",
     "crates/infra/watch",
+    "crates/tools/export-bindings",
 ]
 
 # workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 dev-team 壳）

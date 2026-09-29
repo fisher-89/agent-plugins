@@ -1421,6 +1421,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "export-bindings"
+version = "0.1.0"
+dependencies = [
+ "dev-team",
+ "embed-resource",
+]
+
+[[package]]
 name = "fastrand"
 version = "2.5.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"

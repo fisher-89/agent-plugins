@@ -60,7 +60,9 @@ function collectEvals(pipeline: PhaseEntry[]): EvalFlowNode[] {
       });
     }
   }
-  return evals;
+  return evals.sort(
+    (a, b) => (anchorMs(a.record.startAt) ?? 0) - (anchorMs(b.record.startAt) ?? 0),
+  );
 }
 
 function collectInterrupted(detail: ChangeDetail): InterruptedFlowNode[] {

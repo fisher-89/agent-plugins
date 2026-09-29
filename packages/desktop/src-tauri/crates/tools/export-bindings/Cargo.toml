@@ -1,0 +1,18 @@
+[package]
+name = "export-bindings"
+version = "0.1.0"
+edition = "2021"
+
+# TS bindings 导出工具：独立成员 crate 而非 dev-team 包 `src/bin` 目标——
+# tauri build 会把包内全部 [[bin]] 编进 release 产物，且 bundler 主二进制
+# 选择被多 bin 干扰（0.3.7 MSI/NSIS 曾误以本工具为主程序）。仅经
+# `cargo run -p export-bindings` 驱动（package.json `bindings:export`），
+# 不被 app 构建拖带。
+[dependencies]
+dev-team = { path = "../../../" }
+
+# 与根包同款清单注入（见本 crate build.rs）：链接 dev_team → tauri →
+# tao/muda 即静态导入 TaskDialogIndirect，bin 无 RT_MANIFEST 加载即
+# 0xC0000139；与根包锁内 embed-resource 同版本线
+[build-dependencies]
+embed-resource = "3"

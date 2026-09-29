@@ -1,5 +1,5 @@
 //! specta builder 组装与 TS bindings 幂等导出：全部 IPC 命令的唯一注册面
-//! （`main` 的 `invoke_handler` 与导出 bin 共用 [`builder`]），前端 IPC 类型
+//! （`main` 的 `invoke_handler` 与导出工具共用 [`builder`]），前端 IPC 类型
 //! 与调用面的唯一生成源。
 //!
 //! 错误通道定夺（PoC 回填 design「PoC 前置门」）：`ErrorHandlingMode::Throw`
