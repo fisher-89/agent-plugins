@@ -30,23 +30,37 @@ function makeReport(overrides: Partial<CodeStatsReport> = {}): CodeStatsReport {
     ],
     tree: [
       {
-        name: 'src',
-        path: 'src',
-        files: 9,
-        code: 300,
-        comments: 35,
-        blanks: 18,
-        children: [
-          {
-            name: 'deep',
-            path: 'src/deep',
-            files: 2,
-            code: 80,
-            comments: 5,
-            blanks: 3,
-            children: [],
-          },
-        ],
+        kind: 'dir',
+        node: {
+          name: 'src',
+          path: 'src',
+          files: 9,
+          code: 300,
+          comments: 35,
+          blanks: 18,
+          children: [
+            {
+              kind: 'dir',
+              node: {
+                name: 'deep',
+                path: 'src/deep',
+                files: 2,
+                code: 80,
+                comments: 5,
+                blanks: 3,
+                children: [],
+              },
+            },
+            {
+              kind: 'file',
+              node: { name: 'main.rs', path: 'src/main.rs', code: 220, comments: 30, blanks: 8 },
+            },
+          ],
+        },
+      },
+      {
+        kind: 'file',
+        node: { name: 'README.md', path: 'README.md', code: 40, comments: 5, blanks: 2 },
       },
     ],
     ...overrides,
@@ -80,6 +94,10 @@ describe('InfoView：三面呈现与深度控件（AC-3/AC-4）', () => {
     expect(screen.getAllByTestId('info-language-row')).toHaveLength(2);
     expect(rowByPath('src') !== null).toBe(true);
     expect(rowByPath('src/deep') !== null).toBe(true);
+    // 展开到文件层：src 默认展开 → 直属文件叶行在场；根层直属文件叶行在场
+    expect(screen.getAllByTestId('info-file-node').length).toBe(2);
+    expect(screen.getByTestId('info-dir-tree').textContent).toContain('main.rs');
+    expect(screen.getByTestId('info-dir-tree').textContent).toContain('README.md');
     expect(screen.queryByTestId('info-empty')).toBeNull();
     expect(screen.queryByTestId('info-error')).toBeNull();
     expect(countOf('code_stats')).toBe(1);
@@ -87,8 +105,19 @@ describe('InfoView：三面呈现与深度控件（AC-3/AC-4）', () => {
   });
 
   it('深度 select 默认值 5；改为 8 后恰以 depth=8 重发一次，树面随新数据收缩呈现（AC-4）', async () => {
-    const shallowTree = [
-      { name: 'src', path: 'src', files: 9, code: 300, comments: 35, blanks: 18, children: [] },
+    const shallowTree: CodeStatsReport['tree'] = [
+      {
+        kind: 'dir',
+        node: {
+          name: 'src',
+          path: 'src',
+          files: 9,
+          code: 300,
+          comments: 35,
+          blanks: 18,
+          children: [],
+        },
+      },
     ];
     invokeMock.mockImplementation((_command: string, params?: { depth?: number }) =>
       Promise.resolve(

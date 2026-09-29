@@ -31,7 +31,7 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 
 - 命令体 SHALL 为三件事薄包装（参数转换 / 调用 / 错误映射），领域组装收在 `code_stats_inner` 纯函数（`*_inner` app 层微形态先例，可不经 Tauri 运行时直接测试）；
 - 解析 SHALL 经 tokei library（依赖仅落 desktop-app，版本精确 pin），MUST NOT spawn tokei CLI 子进程；
-- 一次调用 SHALL 完成一次遍历并产出三面数据：汇总（文件数 / 代码行 / 注释行 / 空行）、语言行（按代码行降序的逐语言统计）、目录树（至多 `depth` 级目录节点的聚合统计）——树面 MUST NOT 触发第二次独立遍历；
+- 一次调用 SHALL 完成一次遍历并产出三面数据：汇总（文件数 / 代码行 / 注释行 / 空行）、语言行（按代码行降序的逐语言统计）、目录树（至多 `depth` 级目录节点的聚合统计 + 父目录在深度内的文件叶，见目录树面 Requirement）——树面 MUST NOT 触发第二次独立遍历；
 - 命令 MUST NOT 注册 store 模型、MUST NOT 落库、MUST NOT 持有任何缓存（内存或磁盘）——每次调用都完整重新解析；
 - DTO SHALL `specta::Type` + `serde(rename_all = "camelCase")` 出线，经既有 bindings 重导出管线生成 typed 包装，前端 MUST NOT 以裸 `invoke('code_stats')` 调用；
 - 命令形态沿用 sync 命令惯例（sync 命令不在主线程执行）；如需 async + `spawn_blocking` 由 design 定夺并记录理由；
@@ -88,12 +88,17 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 
 ### Requirement: 目录树展开折叠
 
-目录树面 SHALL 以树形行呈现至多 `depth` 级目录节点：每行含目录名与该目录聚合统计（文件数 / 代码行，口径 design 定夺），子目录缩进体现层级。节点 SHALL 可展开 / 折叠（本地 state），**折叠节点的子树 MUST NOT 渲染 DOM**（按需渲染，作为不引虚拟化依赖的渲染面收敛手段）；默认展开层级由 design 定夺。树上统计数据 SHALL 为 `code_stats` 单次解析结果的聚合投影，MUST NOT 为树的展开交互发起增量解析调用。
+目录树面 SHALL 以树形行呈现至多 `depth` 级目录节点，并支持展开到文件层：目录行含目录名与该目录聚合统计（文件数 / 代码行，口径 design 定夺），父目录在深度内的直接被解析文件 SHALL 以文件叶行（文件名 + 单文件代码行）呈现——根层直属文件为顶层文件叶，不设虚拟根目录节点；深度外的文件不出叶、仅并入最深可达祖先的聚合。同父条目 SHALL 目录先于文件（各自按名字典序）。目录节点 SHALL 可展开 / 折叠（本地 state），文件叶行 MUST NOT 有展开开关；**折叠节点的子树 MUST NOT 渲染 DOM**（按需渲染，作为不引虚拟化依赖的渲染面收敛手段）；默认展开层级由 design 定夺。树上统计数据 SHALL 为 `code_stats` 单次解析结果的聚合投影，MUST NOT 为树的展开交互发起增量解析调用。
 
-#### Scenario: 深度内节点呈现
+#### Scenario: 深度内节点与文件叶呈现
 
-- **WHEN** 以 `depth=2` 解析含三级目录的工作区
-- **THEN** 树仅呈现至第二级目录节点，第三级目录不出现在任何展开态中
+- **WHEN** 以 `depth=2` 解析含三级目录与多级文件的工作区
+- **THEN** 树仅呈现至第二级目录节点，第三级目录不出现在任何展开态中；父目录在深度内的文件以文件叶行呈现，深度外的文件不出叶
+
+#### Scenario: 展开到文件层
+
+- **WHEN** 用户展开一个含直接被解析文件的目录节点
+- **THEN** 其直属文件叶行（文件名 + 代码行）随子目录行呈现且目录行在前、文件行在后，文件叶行无展开开关，期间无新的 `code_stats` invoke 发生
 
 #### Scenario: 展开折叠交互
 
@@ -126,7 +131,7 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 
 ### Requirement: 解析语义边界与测试纪律
 
-遍历、语言识别、`.gitignore` 尊重、hidden 跳过等语义 SHALL 直接依赖 tokei 既有行为，MUST NOT 在命令层重写识别或过滤规则。`Config::depth` 的实际目录聚合行为 SHALL 在 dev-design 前以最小样例 PoC 验证并留档 design（specta PoC 先例）；不符预期时退路 SHALL 为基于 tokei Report 列表按目录前缀自聚合。测试 SHALL 只覆盖自研组装层（inner 聚合、DTO 映射、排序、树构建、深度截断、前端交互），MUST NOT 逐项断言 tokei 自身的计数 / 匹配语义。desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`，`max-lines-per-function: 50` 与 data-testid 纪律不变），Rust 侧 `cargo test --workspace` 全绿。
+遍历、语言识别、`.gitignore` 尊重、hidden 跳过等语义 SHALL 直接依赖 tokei 既有行为，MUST NOT 在命令层重写识别或过滤规则。`Config::depth` 的实际目录聚合行为 SHALL 在 dev-design 前以最小样例 PoC 验证并留档 design（specta PoC 先例）；不符预期时退路 SHALL 为基于 tokei Report 列表按目录前缀自聚合。测试 SHALL 只覆盖自研组装层（inner 聚合、DTO 映射、排序、树构建、深度截断、文件叶归属与排序、前端交互），MUST NOT 逐项断言 tokei 自身的计数 / 匹配语义。desktop 前端 SHALL 维持全管线通过（`vp check --fix` / knip / `vp test`，`max-lines-per-function: 50` 与 data-testid 纪律不变），Rust 侧 `cargo test --workspace` 全绿。
 
 #### Scenario: 不重写识别规则
 
@@ -148,7 +153,7 @@ Rust 侧 SHALL 新增 `commands/stats/` 命令轨道，提供 `code_stats(root: 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `packages/desktop/src-tauri/src/commands/stats/`（新轨道） | 代码统计解析命令轨道 | `code_stats(root, depth) -> Result<CodeStatsReport, String>` 薄包装（三件事）；`code_stats_inner` 纯函数微形态（可离 Tauri 测试）；单次遍历出三面；不落库、无缓存、无第二次遍历 |
-| `CodeStatsReport` / `CodeTotals` / `LanguageStats` / `DirNode`（DTO） | 出线数据面 | `specta::Type` + camelCase；汇总 / 语言行（代码行降序）/ 目录树节点（目录名 + 聚合统计 + 子节点）；字段级形状 design 定夺 |
+| `CodeStatsReport` / `CodeTotals` / `LanguageStats` / `DirNode` / `FileNode` / `TreeEntry`（DTO） | 出线数据面 | `specta::Type` + camelCase；汇总 / 语言行（代码行降序）/ 树条目信封（`TreeEntry` tag `kind` 目录 / 文件叶双变体，目录名 + 聚合统计 + 子条目 / 文件名 + 单文件行统计）；字段级形状 design 定夺 |
 | `packages/desktop/src-tauri/Cargo.toml` + workspace.dependencies | tokei 依赖落位 | tokei 仅落 desktop-app；版本精确 pin；不进 core / infra crate |
 | `packages/desktop/src-tauri/src/bindings.rs` | 命令注册 | `collect_commands!` 增 `code_stats`；bindings 重导出管线（入库 + diff 守卫）不变 |
 | `packages/desktop/src/views/info/`（新） | 基础信息页视图域 | `info-view.tsx` + 汇总面 / 语言占比表 / 目录树组件；树折叠态按需渲染；Progress 承载占比；空态与 inline 错误 |

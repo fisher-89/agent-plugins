@@ -135,6 +135,7 @@ const DTO_TYPES: &[&str] = &[
     "ExploreScanEntry",
     "FileLogEntry",
     "FileLogOp",
+    "FileNode",
     "FileWatchEvent",
     "InterruptedEntry",
     "Inventory",
@@ -142,6 +143,7 @@ const DTO_TYPES: &[&str] = &[
     "ModelInfo",
     "PhaseEntry",
     "RecordEnvelope",
+    "TreeEntry",
     "Verdict",
     "WorkspaceRecord",
 ];
@@ -392,6 +394,11 @@ fn code_stats绑定为root_depth入参的三面dto直返() {
     assert!(content.contains("export type CodeTotals = {"));
     assert!(content.contains("export type LanguageStats = {"));
     assert!(content.contains("export type DirNode = {"));
+    assert!(content.contains("export type FileNode = {"));
+    // 树条目信封：tag `kind` 双变体（目录 / 文件叶），前端以 kind 收窄行形态
+    assert!(content.contains("export type TreeEntry ="));
+    assert!(content.contains("{ kind: \"dir\"; node: DirNode }"));
+    assert!(content.contains("{ kind: \"file\"; node: FileNode }"));
     assert!(
         content.contains("share: number | null,"),
         "LanguageStats.share 出线为 `number | null`（specta 裸 f64 口径留档）"

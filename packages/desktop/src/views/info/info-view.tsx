@@ -39,7 +39,7 @@ function InfoHeader({ state }: { state: CodeStatsState }): React.JSX.Element {
   );
 }
 
-/** 三面呈现区：汇总面 + 语言占比表 + 目录树（无目录节点时省略树区） */
+/** 三面呈现区：汇总面 + 语言占比表 + 目录树（树面为空——无目录节点且无文件叶——时省略树区） */
 function StatsSections({ report }: { report: CodeStatsReport }): React.JSX.Element {
   return (
     <>
@@ -54,7 +54,7 @@ function StatsSections({ report }: { report: CodeStatsReport }): React.JSX.Eleme
       {report.tree.length > 0 && (
         <section className="rounded-lg border border-border bg-card px-4 py-3.5">
           <h2 className="m-0 mb-3 text-[15px]">目录分布</h2>
-          <DirTree nodes={report.tree} />
+          <DirTree entries={report.tree} />
         </section>
       )}
     </>

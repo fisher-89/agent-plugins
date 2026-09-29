@@ -10,7 +10,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use super::{code_stats, code_stats_inner, DirNode};
+use super::{code_stats, code_stats_inner, DirNode, TreeEntry};
 
 /// 临时 workspace 根 RAII：测试结束自动清理。
 struct TempWs(PathBuf);
@@ -70,9 +70,24 @@ fn seed_nested(ws: &TempWs) {
     ws.write("src/deep/b.rs", "fn b() {}\n");
 }
 
-/// 顶层节点 files 之和（父含子的子树全量口径：顶层节点已含全部后代，不再递归）。
-fn sum_files(nodes: &[DirNode]) -> u64 {
-    nodes.iter().map(|node| node.files).sum()
+/// 树条目的末段名（目录 / 文件通用，排序与排除断言用）。
+fn entry_name(entry: &TreeEntry) -> &str {
+    match entry {
+        TreeEntry::Dir { node } => &node.name,
+        TreeEntry::File { node } => &node.name,
+    }
+}
+
+/// 顶层**目录节点** files 之和（父含子的子树全量口径：顶层节点已含全部后代，
+/// 不再递归；文件叶不计——目录聚合不含根层直属文件）。
+fn sum_files(entries: &[TreeEntry]) -> u64 {
+    entries
+        .iter()
+        .filter_map(|entry| match entry {
+            TreeEntry::Dir { node } => Some(node.files),
+            TreeEntry::File { .. } => None,
+        })
+        .sum()
 }
 
 // ---------------------------------------------------------------------------
@@ -380,7 +395,10 @@ fn 根层openspec目录整棵排除_三面均无其文件() {
     );
     // 树面：无 openspec 节点
     assert!(
-        report.tree.iter().all(|node| node.name != "openspec"),
+        report
+            .tree
+            .iter()
+            .all(|node| entry_name(node) != "openspec"),
         "树面不得出现 openspec 节点"
     );
 }
@@ -394,10 +412,17 @@ fn 任意层级名为openspec的目录同样排除() {
     let report = code_stats_inner(ws.root(), 10).expect("有效 root 应返回 Ok");
 
     assert_eq!(report.totals.files, 1, "深层 openspec 目录同样整棵排除");
-    fn assert_no_openspec(nodes: &[DirNode]) {
-        for node in nodes {
-            assert_ne!(node.name, "openspec", "任意层级的 openspec 均不出树");
-            assert_no_openspec(&node.children);
+    fn assert_no_openspec(entries: &[TreeEntry]) {
+        for entry in entries {
+            match entry {
+                TreeEntry::Dir { node } => {
+                    assert_ne!(node.name, "openspec", "任意层级的 openspec 均不出树");
+                    assert_no_openspec(&node.children);
+                }
+                TreeEntry::File { node } => {
+                    assert_ne!(node.name, "openspec", "openspec 内文件不出叶");
+                }
+            }
         }
     }
     assert_no_openspec(&report.tree);
@@ -417,21 +442,28 @@ fn 嵌套fixture树面posix路径_末段名与children字典序() {
     let report = code_stats_inner(ws.root(), 10).expect("有效 root 应返回 Ok");
     let tree = &report.tree;
     assert_eq!(tree.len(), 1, "仅 src 一个顶层目录");
-    let src = &tree[0];
+    let TreeEntry::Dir { node: src } = &tree[0] else {
+        panic!("顶层条目应为目录节点");
+    };
     assert_eq!(src.name, "src");
     assert_eq!(src.path, "src", "路径为相对 root 的 POSIX 路径");
     assert_eq!(
-        src.children
-            .iter()
-            .map(|c| c.name.as_str())
-            .collect::<Vec<_>>(),
+        src.children.iter().map(entry_name).collect::<Vec<_>>(),
         vec!["Alpha", "beta", "中文目录"],
         "children 按名字典序（字节序）"
     );
     for child in &src.children {
-        assert_eq!(child.path, format!("src/{}", child.name), "子路径以 / 分隔");
-        assert!(!child.path.contains('\\'), "路径不得含反斜杠");
-        assert!(child.children.is_empty());
+        let TreeEntry::Dir { node } = child else {
+            panic!("fixture 下 src 直接子条目应全为目录");
+        };
+        assert_eq!(node.path, format!("src/{}", node.name), "子路径以 / 分隔");
+        assert!(!node.path.contains('\\'), "路径不得含反斜杠");
+        // 每个子目录 children 恰为其直属文件叶
+        let [TreeEntry::File { node: file }] = &node.children[..] else {
+            panic!("子目录 children 应恰为一个文件叶");
+        };
+        assert_eq!(file.path, format!("{}/{}", node.path, file.name));
+        assert!(!file.path.contains('\\'), "文件叶路径同为 POSIX");
     }
 }
 
@@ -443,10 +475,22 @@ fn depth1树仅顶层一层且节点聚合为子树全量() {
     let shallow = code_stats_inner(ws.root(), 1).expect("depth=1 应返回 Ok");
     let deep = code_stats_inner(ws.root(), 10).expect("depth=10 应返回 Ok");
 
-    assert_eq!(shallow.tree.len(), 1, "树仅顶层目录一层");
-    let src = &shallow.tree[0];
+    // 顶层 = src 目录节点 + top.rs 根层文件叶（目录先于文件）
+    assert_eq!(shallow.tree.len(), 2, "顶层 = 1 目录节点 + 1 根层文件叶");
+    let TreeEntry::Dir { node: src } = &shallow.tree[0] else {
+        panic!("首条目应为目录（目录先于文件）");
+    };
     assert_eq!(src.path, "src");
-    assert!(src.children.is_empty(), "深层目录被截断不出节点");
+    // 深层目录被截断不出节点：children 无目录条目，仅剩直属文件叶 a.rs
+    assert_eq!(
+        src.children.len(),
+        1,
+        "depth=1 下 src children 仅直属文件叶"
+    );
+    assert!(
+        matches!(&src.children[0], TreeEntry::File { node } if node.path == "src/a.rs"),
+        "第二级目录不出节点，deep/b.rs 深度外不出叶"
+    );
     assert_eq!(
         src.files, 2,
         "深层文件行计入祖先顶层节点（a.rs + deep/b.rs）"
@@ -456,7 +500,10 @@ fn depth1树仅顶层一层且节点聚合为子树全量() {
     let deep_src = deep
         .tree
         .iter()
-        .find(|n| n.path == "src")
+        .find_map(|entry| match entry {
+            TreeEntry::Dir { node } if node.path == "src" => Some(node),
+            _ => None,
+        })
         .expect("depth=10 树应含 src 节点");
     assert_eq!(deep_src.files, src.files);
     assert_eq!(deep_src.code, src.code);
@@ -465,15 +512,22 @@ fn depth1树仅顶层一层且节点聚合为子树全量() {
 }
 
 #[test]
-fn depth0树为空数组且汇总语言面不变() {
+fn depth0树无目录节点_根层直属文件仍为顶层文件叶() {
     let ws = TempWs::new("tree-depth0");
     seed_nested(&ws);
 
     let truncated = code_stats_inner(ws.root(), 0).expect("depth=0 应返回 Ok");
     let reference = code_stats_inner(ws.root(), 10).expect("depth=10 应返回 Ok");
 
-    // 截断到无目录层：不丢数、不出错
-    assert!(truncated.tree.is_empty(), "depth=0 时树面为空数组");
+    // 截断到无目录层：目录节点全无，根层直属文件（目录级数 0 ≤ 0）仍出叶
+    assert!(
+        truncated
+            .tree
+            .iter()
+            .all(|entry| matches!(entry, TreeEntry::File { .. })),
+        "depth=0 树面无目录节点"
+    );
+    assert_eq!(truncated.tree.len(), 1, "仅 top.rs 一个根层文件叶");
     let a = serde_json::to_value(&truncated).expect("depth=0 序列化失败");
     let b = serde_json::to_value(&reference).expect("depth=10 序列化失败");
     assert_eq!(a["totals"], b["totals"], "汇总面不变");
@@ -481,30 +535,37 @@ fn depth0树为空数组且汇总语言面不变() {
 }
 
 #[test]
-fn 根层直属文件不产生节点且子目录聚合恰含全部后代() {
+fn 根层直属文件为顶层文件叶_不计入任何目录节点聚合() {
     let ws = TempWs::new("tree-root-file");
     seed_nested(&ws);
 
     let report = code_stats_inner(ws.root(), 10).expect("有效 root 应返回 Ok");
     let tree = &report.tree;
 
-    // 无虚拟根：top.rs 不产生目录节点、不计入任何节点聚合
-    assert_eq!(tree.len(), 1, "仅 src 顶层节点（根层直属文件无节点）");
-    assert_eq!(tree[0].path, "src");
+    // 无虚拟根目录节点：top.rs 不产生目录节点、不计入任何目录节点聚合，
+    // 但作为顶层文件叶呈现（目录先于文件）
+    assert_eq!(tree.len(), 2, "src 目录节点 + top.rs 根层文件叶");
+    let TreeEntry::Dir { node: src } = &tree[0] else {
+        panic!("首条目应为目录（目录先于文件）");
+    };
+    assert_eq!(src.path, "src");
     assert_eq!(
-        tree[0].files, 2,
+        src.files, 2,
         "src 节点恰含其全部后代文件（a.rs + deep/b.rs）"
     );
-    let deep = tree[0]
+    let deep = src
         .children
         .iter()
-        .find(|n| n.path == "src/deep")
+        .find_map(|entry| match entry {
+            TreeEntry::Dir { node } if node.path == "src/deep" => Some(node),
+            _ => None,
+        })
         .expect("src/deep 节点在场");
     assert_eq!(deep.files, 1, "deep 节点恰含 b.rs");
-    assert_eq!(sum_files(tree), 2, "树面聚合和不含根层直属文件");
+    assert_eq!(sum_files(tree), 2, "目录节点聚合和不含根层直属文件");
 
     // 对照：总数含根层文件（3 = top.rs + a.rs + b.rs，每识别文件 +1）
-    assert_eq!(report.totals.files, 3, "汇总面含根层直属文件，树面不含");
+    assert_eq!(report.totals.files, 3, "汇总面含根层直属文件，目录聚合不含");
 }
 
 #[test]
@@ -531,16 +592,23 @@ fn 五十个顶层子目录混合命名children字典序稳定全量呈现() {
     let tree = &report.tree;
     assert_eq!(tree.len(), 50, "50 个顶层子目录全量呈现");
     assert!(
-        tree.windows(2).all(|pair| pair[0].name <= pair[1].name),
+        tree.windows(2)
+            .all(|pair| entry_name(&pair[0]) <= entry_name(&pair[1])),
         "children（顶层）按 name 字典序稳定排列"
     );
-    for node in tree {
+    for entry in tree {
+        let TreeEntry::Dir { node } = entry else {
+            panic!("顶层应全为目录节点（fixture 无根层直属文件）");
+        };
         assert_eq!(node.files, 1, "每目录节点恰含其一个后代文件");
-        assert!(node.children.is_empty());
+        assert!(
+            matches!(&node.children[..], [TreeEntry::File { node: file }] if file.name == "a.rs"),
+            "children 恰为直属文件叶 a.rs"
+        );
     }
-    let listed: u64 = tree.iter().map(|n| n.files).sum();
     assert_eq!(
-        listed, report.totals.files,
+        sum_files(tree),
+        report.totals.files,
         "无根层直属文件时顶层聚合和恰为总数"
     );
     assert_eq!(report.totals.files, 50);
@@ -556,34 +624,191 @@ fn 含空格与中文名的目录_path出线保持原名() {
     let tree = &report.tree;
     assert_eq!(tree.len(), 2, "两个顶层目录全量呈现");
 
-    let ascii = tree
-        .iter()
-        .find(|n| n.path == "with space")
-        .expect("空格目录在场");
+    let top_dir = |path: &str| {
+        tree.iter().find_map(|entry| match entry {
+            TreeEntry::Dir { node } if node.path == path => Some(node),
+            _ => None,
+        })
+    };
+    let ascii = top_dir("with space").expect("空格目录在场");
     assert_eq!(ascii.name, "with space", "归一化不改名");
 
-    let chinese = tree
-        .iter()
-        .find(|n| n.path == "带 空格 目录")
-        .expect("中文目录在场");
+    let chinese = top_dir("带 空格 目录").expect("中文目录在场");
     assert_eq!(chinese.name, "带 空格 目录");
     let nested = chinese
         .children
         .iter()
-        .find(|n| n.path == "带 空格 目录/子 目录")
+        .find_map(|entry| match entry {
+            TreeEntry::Dir { node } if node.path == "带 空格 目录/子 目录" => Some(node),
+            _ => None,
+        })
         .expect("嵌套中文目录 path 保持原名并以 / 分隔");
     assert_eq!(nested.name, "子 目录");
 
-    // 归一化仅统一分隔符：全树无反斜杠出线
-    fn assert_posix(nodes: &[DirNode]) {
-        for node in nodes {
-            assert!(
-                !node.path.contains('\\'),
-                "path 不得含反斜杠，实际 {:?}",
-                node.path
-            );
-            assert_posix(&node.children);
+    // 归一化仅统一分隔符：全树（目录节点 + 文件叶）无反斜杠出线
+    fn assert_posix(entries: &[TreeEntry]) {
+        for entry in entries {
+            match entry {
+                TreeEntry::Dir { node } => {
+                    assert!(
+                        !node.path.contains('\\'),
+                        "path 不得含反斜杠，实际 {:?}",
+                        node.path
+                    );
+                    assert_posix(&node.children);
+                }
+                TreeEntry::File { node } => assert!(
+                    !node.path.contains('\\'),
+                    "path 不得含反斜杠，实际 {:?}",
+                    node.path
+                ),
+            }
         }
     }
     assert_posix(tree);
+}
+
+// ---------------------------------------------------------------------------
+// code_stats_inner：文件叶归属与排序（展开到文件层）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 文件叶挂于父目录children_同父条目目录先于文件() {
+    let ws = TempWs::new("leaf-order");
+    // 同父混合：src 下既有子目录又有直属文件，根层另有直属文件与根层目录
+    ws.write("root.rs", "fn r() {}\n");
+    ws.write("src/adir/x.rs", "fn x() {}\n");
+    ws.write("src/zeta.rs", "fn z() {}\n");
+    ws.write("src/alpha.rs", "fn a() {}\n");
+
+    let report = code_stats_inner(ws.root(), 10).expect("有效 root 应返回 Ok");
+
+    // 顶层：目录组 [src] 字典序在前，文件组 [root.rs] 在后
+    let top: Vec<(&str, bool)> = report
+        .tree
+        .iter()
+        .map(|entry| (entry_name(entry), matches!(entry, TreeEntry::Dir { .. })))
+        .collect();
+    assert_eq!(
+        top,
+        vec![("src", true), ("root.rs", false)],
+        "同父条目目录先于文件，各自按 name 字典序"
+    );
+
+    // src children：目录组 [adir] 在前，文件组 [alpha.rs, zeta.rs] 字典序在后
+    let src = report
+        .tree
+        .iter()
+        .find_map(|entry| match entry {
+            TreeEntry::Dir { node } if node.path == "src" => Some(node),
+            _ => None,
+        })
+        .expect("src 目录节点在场");
+    let children: Vec<(&str, bool)> = src
+        .children
+        .iter()
+        .map(|entry| (entry_name(entry), matches!(entry, TreeEntry::Dir { .. })))
+        .collect();
+    assert_eq!(
+        children,
+        vec![("adir", true), ("alpha.rs", false), ("zeta.rs", false)],
+        "目录先于文件，文件叶按 name 字典序"
+    );
+}
+
+#[test]
+fn 深度外文件不出叶_仅并入最深可达祖先聚合() {
+    let ws = TempWs::new("leaf-truncate");
+    ws.write("src/a.rs", "fn a() {}\n");
+    ws.write("src/deep/b.rs", "fn b() {}\n");
+
+    let report = code_stats_inner(ws.root(), 1).expect("depth=1 应返回 Ok");
+
+    let src = report
+        .tree
+        .iter()
+        .find_map(|entry| match entry {
+            TreeEntry::Dir { node } if node.path == "src" => Some(node),
+            _ => None,
+        })
+        .expect("src（level 1 ≤ depth）节点在场");
+    assert_eq!(src.files, 2, "深度外 b.rs 仍并入 src 子树聚合");
+    let leaves: Vec<&str> = src
+        .children
+        .iter()
+        .filter_map(|entry| match entry {
+            TreeEntry::File { node } => Some(node.path.as_str()),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(
+        leaves,
+        vec!["src/a.rs"],
+        "仅父目录在深度内的文件出叶（src/deep 截断，b.rs 无叶）"
+    );
+}
+
+#[test]
+fn 文件叶行统计与目录聚合自洽_四项均叶加子目录() {
+    let ws = TempWs::new("leaf-consistency");
+    seed_nested(&ws);
+
+    let report = code_stats_inner(ws.root(), 10).expect("有效 root 应返回 Ok");
+
+    // 组装不变量（非 tokei 计数断言）：目录节点四项统计 = 直接文件叶合计 +
+    // 子目录聚合之和——树面展开到文件层后逐节点自洽
+    fn assert_consistent(node: &DirNode) {
+        let leaves: Vec<_> = node
+            .children
+            .iter()
+            .filter_map(|entry| match entry {
+                TreeEntry::File { node } => Some((1u64, node.code, node.comments, node.blanks)),
+                _ => None,
+            })
+            .collect();
+        let dirs: Vec<_> = node
+            .children
+            .iter()
+            .filter_map(|entry| match entry {
+                TreeEntry::Dir { node } => {
+                    Some((node.files, node.code, node.comments, node.blanks))
+                }
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            node.files,
+            leaves.iter().map(|it| it.0).sum::<u64>() + dirs.iter().map(|it| it.0).sum::<u64>(),
+            "{} 的 files = 直接叶 + 子目录聚合",
+            node.path
+        );
+        assert_eq!(
+            node.code,
+            leaves.iter().map(|it| it.1).sum::<u64>() + dirs.iter().map(|it| it.1).sum::<u64>(),
+            "{} 的 code = 直接叶 + 子目录聚合",
+            node.path
+        );
+        assert_eq!(
+            node.comments,
+            leaves.iter().map(|it| it.2).sum::<u64>() + dirs.iter().map(|it| it.2).sum::<u64>(),
+            "{} 的 comments 自洽",
+            node.path
+        );
+        assert_eq!(
+            node.blanks,
+            leaves.iter().map(|it| it.3).sum::<u64>() + dirs.iter().map(|it| it.3).sum::<u64>(),
+            "{} 的 blanks 自洽",
+            node.path
+        );
+        for child in &node.children {
+            if let TreeEntry::Dir { node } = child {
+                assert_consistent(node);
+            }
+        }
+    }
+    for entry in &report.tree {
+        if let TreeEntry::Dir { node } = entry {
+            assert_consistent(node);
+        }
+    }
 }

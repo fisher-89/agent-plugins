@@ -18,9 +18,16 @@ pub struct Layout {
     pub explores_root: PathBuf,
 }
 
+/// 域根目录名（裸名消费方唯一来源）：tokei `ignored_directories` 等 gitignore
+/// 裸名语义（任意层级同名目录整棵剪枝）的调用方由此取字面量，本模块保持
+/// 全包唯一磁盘目录名触点（layout_test 命名隔离扫描不变量）。
+pub fn domain_dir_name() -> &'static str {
+    "openspec"
+}
+
 /// 把用户选定的 workspace 根目录解析为布局结构。
 pub fn resolve(root: &Path) -> Layout {
-    let domain_root = root.join("openspec");
+    let domain_root = root.join(domain_dir_name());
     Layout {
         changes_root: domain_root.join("changes"),
         archive_root: domain_root.join("changes").join("archive"),

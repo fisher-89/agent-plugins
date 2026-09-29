@@ -82,7 +82,20 @@ const CODE_STATS: CodeStatsReport = {
     { name: 'Rust', files: 6, code: 220, comments: 30, blanks: 10, share: 64.7 },
     { name: 'TypeScript', files: 6, code: 120, comments: 10, blanks: 10, share: 35.3 },
   ],
-  tree: [{ name: 'src', path: 'src', files: 9, code: 300, comments: 35, blanks: 18, children: [] }],
+  tree: [
+    {
+      kind: 'dir',
+      node: {
+        name: 'src',
+        path: 'src',
+        files: 9,
+        code: 300,
+        comments: 35,
+        blanks: 18,
+        children: [],
+      },
+    },
+  ],
 };
 
 // ---------------------------------------------------------------------------

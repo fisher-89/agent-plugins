@@ -341,15 +341,16 @@ export type ChecklistItem = {
 
 /**
  *  工作区代码统计报告（三面聚合根）：同一次 `Languages::get_statistics` 解析
- *  的三种投影——汇总合计 / 逐语言行 / 目录前缀聚合树，三面数字互洽。
+ *  的三种投影——汇总合计 / 逐语言行 / 目录树（目录节点 + 文件叶混合条目），
+ *  三面数字互洽。
  */
 export type CodeStatsReport = {
 	/**  全部被解析文件合计 */
 	totals: CodeTotals,
 	/**  逐语言统计（按代码行降序，tie 语言名字典序） */
 	languages: LanguageStats[],
-	/**  目录树（≤ depth 级前缀聚合；根层直属文件不产生目录节点） */
-	tree: DirNode[],
+	/**  树（≤ depth 级目录节点 + 深度内文件叶；根层直属文件为顶层文件叶） */
+	tree: TreeEntry[],
 };
 
 /**  汇总面四项总量；`lines` 不设字段（派生值 `code + comments + blanks` 前端可算）。 */
@@ -367,7 +368,8 @@ export type CodeTotals = {
 /**
  *  目录树节点：统计为该目录子树内**全部**被解析文件合计（祖先链逐级累计，
  *  含更深文件）；`path` 为相对 root 的 POSIX 路径（`/` 分隔，Windows 下
- *  tokei 报告的分隔符混排经 components 归一化）；`children` 按 `name` 字典序。
+ *  tokei 报告的分隔符混排经 components 归一化）；`children` 为直接子目录 +
+ *  直接文件叶（目录先于文件，各自按 `name` 字典序）。
  */
 export type DirNode = {
 	/**  末段目录名 */
@@ -382,8 +384,8 @@ export type DirNode = {
 	comments: number,
 	/**  子树内空行合计 */
 	blanks: number,
-	/**  子目录节点（≤ depth 截断，name 字典序） */
-	children: DirNode[],
+	/**  直接子目录与直接文件叶（≤ depth 截断；目录在前、文件在后，各按 name 字典序） */
+	children: TreeEntry[],
 };
 
 /**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
@@ -435,6 +437,23 @@ export type FileLogEntry = {
 
 /**  file_log 记录的文件操作。 */
 export type FileLogOp = "write" | "delete" | "revert";
+
+/**
+ *  文件叶节点：单个被解析文件的行统计；父目录在深度内时挂其 `children`
+ *  （目录级数 0 = 根层直属文件挂树顶层），深度外的文件不出叶（仅并入祖先聚合）。
+ */
+export type FileNode = {
+	/**  文件名（含扩展名） */
+	name: string,
+	/**  相对 root 的 POSIX 路径（`/` 分隔） */
+	path: string,
+	/**  代码行 */
+	code: number,
+	/**  注释行 */
+	comments: number,
+	/**  空行 */
+	blanks: number,
+};
 
 /**  桥接后的前端信号载荷（与 `FileWatchSignal` 同构，camelCase；无内容字节）。 */
 export type FileWatchEvent = {
@@ -503,6 +522,16 @@ export type RecordEnvelope = {
 	/**  记录本体（serde 转 JSON 值） */
 	value: unknown,
 };
+
+/**
+ *  树条目信封（tag `kind` 判别，`AgentRunMessage` 同式）：目录节点与文件叶
+ *  双变体，前端以 `kind` 收窄行形态（目录可展开、文件叶不可）。
+ */
+export type TreeEntry = 
+/**  目录节点（子树聚合统计，可展开） */
+{ kind: "dir"; node: DirNode } | 
+/**  文件叶（单文件行统计，不可展开） */
+{ kind: "file"; node: FileNode };
 
 /**  评估 verdict。条目级严格：非法值触发该条降级跳过。 */
 export type Verdict = "pass" | "fail";
