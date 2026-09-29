@@ -444,3 +444,103 @@ describe('useAgentChat：边界', () => {
     expect(args['parentRunId']).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：agent_run_chain / agent_run_events /
+// agent_stop 裸 invoke → typed bindings 机械替换后，invoke 命令名与 camelCase
+// 参数逐字不变（生成绑定底层仍走 @tauri-apps/api/core 的 invoke，mock 机制
+// 切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useAgentChat：生成绑定调用面', () => {
+  it('发起经生成绑定入口后 invoke 收到 "agent_start" 与 7 个 camelCase 链参数逐字不变，返回 running 记录透传', async () => {
+    const { result } = await mounted();
+
+    // 链发起：命令名与来源二元组逐字不变
+    expect(invokeMock).toHaveBeenCalledWith('agent_run_chain', {
+      source: 'explore',
+      sourceRef: SOURCE_REF,
+    });
+
+    act(() => {
+      result.current.sendMessage(SEND_INPUT);
+    });
+    await waitFor(() => expect(result.current.running).toBe(true));
+
+    // 生成绑定位置参数 → invoke 参数对象：恰 8 个 key（链参数 7 + onEvent）
+    const args = startCallArgs();
+    expect(Object.keys(args).sort()).toEqual([
+      'onEvent',
+      'parentRunId',
+      'permissionMode',
+      'prompt',
+      'resumeSessionId',
+      'root',
+      'source',
+      'sourceRef',
+    ]);
+    expect(args).toMatchObject({
+      root: ROOT,
+      prompt: SEND_INPUT.prompt,
+      permissionMode: 'bypassPermissions',
+      resumeSessionId: 's-tail',
+      parentRunId: 12,
+      source: 'explore',
+      sourceRef: SOURCE_REF,
+    });
+    // 返回 running 记录透传（提前 resolve：running 置位、id 可寻址）
+    await waitFor(() => expect(result.current.currentRunId).toBe(13));
+    expect(result.current.running).toBe(true);
+  });
+
+  it('逐 run 重放经生成绑定后 invoke 收到 "agent_run_events" 与 { runId }：空链零调用、多 run 逐 run 调用与消息重建不变', async () => {
+    const { result } = await mounted();
+
+    // 多 run：每 run 恰一次重放调用，参数逐字 { runId }，消息重建不变
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_run_events')).toEqual([
+      ['agent_run_events', { runId: 11 }],
+      ['agent_run_events', { runId: 12 }],
+    ]);
+    // 消息重建不变：逐 run 事件折叠 + 终态 record 部件交错（1+1+2+1 = 5 条）
+    expect(result.current.messages).toHaveLength(5);
+
+    // 空链：零 agent_run_events 调用（空链语义在绑定切换后保持）
+    const callsBeforeEmpty = invokeMock.mock.calls.length;
+    chainResult = [];
+    const empty = await mounted();
+    expect(
+      invokeMock.mock.calls.slice(callsBeforeEmpty).filter(([name]) => name === 'agent_run_events'),
+    ).toHaveLength(0);
+    expect(empty.result.current.messages).toEqual([]);
+  });
+
+  it('停止经生成绑定后 invoke 收到 "agent_stop" 与 { runId }；reject 路径 error 置位 / running 复位行为不变', async () => {
+    chainResult = [];
+    const { result } = await mounted();
+
+    act(() => {
+      result.current.sendMessage(SEND_INPUT);
+    });
+    await waitFor(() => expect(result.current.running).toBe(true));
+
+    act(() => {
+      result.current.stop();
+    });
+    await act(async () => {});
+    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { runId: 13 });
+
+    // 终态 record 回流后 running 复位（停止路径行为不变）
+    deliverRecord(run(13, null, null, 'stopped'));
+    await waitFor(() => expect(result.current.running).toBe(false));
+
+    // reject 路径：错误经生成绑定 reject 通道抵达，error 置位、running 复位
+    act(() => {
+      startBehavior = { mode: 'reject', value: 'CLI 未找到' };
+    });
+    act(() => {
+      result.current.sendMessage(SEND_INPUT);
+    });
+    await waitFor(() => expect(result.current.error).toContain('CLI 未找到'));
+    expect(result.current.running).toBe(false);
+  });
+});

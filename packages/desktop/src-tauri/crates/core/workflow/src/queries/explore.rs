@@ -10,13 +10,14 @@ use std::path::Path;
 use std::time::UNIX_EPOCH;
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
 use foundation::layout::Layout;
 
 use super::is_single_component_name;
 
 /// 单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ExploreDoc {
     /// 笔记名（= 文件 stem）
@@ -26,7 +27,7 @@ pub struct ExploreDoc {
 }
 
 /// 导入扫描条目：stem 名称 + 可得的修改时间。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ExploreScanEntry {
     /// 笔记名（= 文件 stem）

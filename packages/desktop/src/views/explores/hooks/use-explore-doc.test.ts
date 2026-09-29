@@ -397,3 +397,80 @@ describe('useExploreDoc：参数变更竞态（取消抑制）', () => {
     expect(result.current.doc).toEqual({ name: 'new-doc', content: '新文档内容' });
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：read_explore / explore_doc_path /
+// watch_subscribe / watch_unsubscribe 裸 invoke → typed bindings 机械替换后，
+// 命令名与参数逐字不变；Channel<FileWatchEvent> 底层构造保留（类型来自生成
+// 物），信号仅按 { path } 处理（mock 机制切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useExploreDoc：生成绑定调用面', () => {
+  it('四命令经生成绑定入口后命令名与参数逐字不变；watch 信号仅按 { path } 处理（载荷注入仍只按信号处理）', async () => {
+    vi.useFakeTimers();
+    const { result } = await mounted();
+    await flush();
+
+    expect(invokeMock).toHaveBeenCalledWith('read_explore', { root: ROOT, name: NAME });
+    expect(invokeMock).toHaveBeenCalledWith('explore_doc_path', { root: ROOT, name: NAME });
+    expect(subscribeCall()?.path).toBe(derivedPath);
+    expect(subscribeCall()?.onEvent).toBeInstanceOf(ChannelMock);
+    expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+
+    // FileWatchEvent 生成类型形态：信号仅 { path }；注入内容字段也只按信号处理
+    act(() => {
+      lastChannel().onmessage?.({ path: derivedPath, content: '不应被读取的字节' });
+    });
+    act(() => {
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+    expect(readCallCount()).toBe(2);
+    expect(invokeMock).toHaveBeenLastCalledWith('read_explore', { root: ROOT, name: NAME });
+    expect(result.current.doc).toEqual(doc('# 探索笔记\n初稿'));
+  });
+
+  it('explore_doc_path 返回 null 不订阅、500ms 窗口内多信号合并为恰一次重拉（语义在绑定切换后不变）', async () => {
+    vi.useFakeTimers();
+    derivedPath = null;
+    const noSubscribe = await mounted();
+    await flush();
+
+    expect(subscribeCall()).toBeNull();
+    expect(readCallCount()).toBe(1);
+    expect(noSubscribe.result.current.doc).not.toBeNull();
+
+    // 正常订阅下防抖合并：窗口内两信号合并为一次重拉（第二次信号重置计时）
+    derivedPath = `${ROOT}\\openspec\\explores\\${NAME}.md`;
+    const { result } = await mounted();
+    await flush();
+    const readsBefore = readCallCount();
+    act(() => {
+      lastChannel().onmessage?.({ path: derivedPath });
+      vi.advanceTimersByTime(200);
+      lastChannel().onmessage?.({ path: derivedPath });
+      vi.advanceTimersByTime(200);
+      lastChannel().onmessage?.({ path: derivedPath });
+      vi.advanceTimersByTime(500);
+    });
+    await flush();
+    expect(readCallCount()).toBe(readsBefore + 1);
+    expect(result.current.doc).not.toBeNull();
+  });
+
+  it('read_explore / watch_subscribe reject → 错误态与订阅生命周期解耦行为不变', async () => {
+    docResult = 'IPC 断开';
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.error).toContain('IPC 断开'));
+
+    expect(result.current.doc).toBeNull();
+    expect(subscribeCall()).not.toBeNull();
+
+    // 订阅失败不影响文档呈现（错误态解耦）
+    docResult = doc('# 探索笔记\n订阅失败对照');
+    subscribeResult = '订阅失败';
+    const subscribeFailed = await mounted();
+    await waitFor(() => expect(subscribeFailed.result.current.doc).not.toBeNull());
+    expect(subscribeFailed.result.current.error).toBeNull();
+  });
+});

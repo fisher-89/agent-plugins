@@ -1,7 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ModelInfo, RecordEnvelope } from '../../../types/dto';
+import { commands, type ModelInfo, type RecordEnvelope } from '../../../types/generated/bindings';
 
 /** 记录分页页长 */
 const PAGE_SIZE = 50;
@@ -45,7 +44,8 @@ function useDbModels(): { models: ModelInfo[]; loading: boolean; error: string |
     let cancelled = false;
     setLoading(true);
     setError(null);
-    invoke<ModelInfo[]>('db_models')
+    commands
+      .dbModels()
       .then((result) => {
         if (cancelled) return;
         setModels(result);
@@ -84,7 +84,8 @@ function useDbRecords(
     let cancelled = false;
     setRecordsLoading(true);
     setRecordsError(null);
-    invoke<RecordEnvelope[]>('db_records', { model: selected, offset, limit: PAGE_SIZE })
+    commands
+      .dbRecords(selected, offset, PAGE_SIZE)
       .then((result) => {
         if (cancelled) return;
         setRecords(result);

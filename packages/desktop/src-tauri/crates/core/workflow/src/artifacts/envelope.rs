@@ -1,10 +1,11 @@
 //! 产物信封契约：Rust 解析侧与 React 渲染侧之间唯一共享的知识。
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use std::path::PathBuf;
 
 /// 中间产物信封：所有产物以统一形状经 IPC 传递。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactEnvelope {
     /// 契约 ID（如 "eval-checklist"），前端据此路由 renderer
@@ -19,7 +20,7 @@ pub struct ArtifactEnvelope {
 }
 
 /// 产物寻址清单项：`source` 为 change 内相对 POSIX 路径或 eval 条目序号串。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArtifactDescriptor {
     pub kind: String,

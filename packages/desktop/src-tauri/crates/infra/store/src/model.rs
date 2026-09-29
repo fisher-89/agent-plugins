@@ -9,15 +9,17 @@
 
 use std::path::Path;
 
-use agent::AgentEvent;
+use agent::{AgentEnvMode, AgentEvent, AgentPermissionMode, AgentRunStatus};
 use native_db::{native_db, ToKey};
 use native_model::{native_model, Model};
+use serde::de::DeserializeOwned;
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
 /// user 维度注册表一行：主键即 `root`（canonical 完整路径）。
 ///
 /// 时间戳为 UTC unix 毫秒 `i64`——零解析零格式歧义，且 store 不引入 time 依赖。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 1, version = 1)]
 #[native_db]
@@ -47,18 +49,39 @@ fn default_run_source() -> String {
     "debug".to_owned()
 }
 
-/// agent 运行记录：全平文字段；`status` / `env` / `permission_mode` 为受控
-/// 字符串（running | completed | failed | stopped），store 不引本地枚举。
+/// 枚举字段解析（v2 → v3 升级通道单一来源）：受控值域之外的野值 fail-fast
+/// panic 记因（含原字符串值）——存量值域扫描先行确认无野值，存量库内该分支
+/// 不可达；数据损坏不得伪装成合法状态（fail-fast 无静默降级纪律）。
+fn parse_enum_field<T: DeserializeOwned>(value: &str, field: &'static str) -> T {
+    serde_json::from_value(serde_json::Value::String(value.to_owned())).unwrap_or_else(|_| {
+        panic!("agent_run 存量记录 {field} 含野值: {value:?}（受控值域之外，fail-fast）")
+    })
+}
+
+/// 枚举字段字符串化（downgrade 通道单一来源）：serde 序列化派生（unit
+/// variant + rename_all camelCase），与 JSON 线格式值域同源。
+fn enum_to_string<T: Serialize>(value: &T) -> String {
+    match serde_json::to_value(value) {
+        Ok(serde_json::Value::String(text)) => text,
+        _ => unreachable!("字段枚举序列化恒为 JSON 字符串"),
+    }
+}
+
+/// agent 运行记录：全平文字段；`status` / `env` / `permission_mode` 为
+/// core/agent 契约枚举（serde camelCase 值域与枚举化前受控字符串逐字一致，
+/// serde JSON 线格式零变化）。
 ///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
 ///
-/// 字段演进（version 2）：新增 `source` / `source_ref` / `parent_run_id` 三
-/// 字段——来源归属与 resume 链显式指针。落库编码为 bincode（非自描述），
-/// v1 载荷无法直接反序列化为本结构，经 [`AgentRunRecordV1`] 版本化结构 +
-/// `From` 转换由 native_model 读路径自动升级（无手工迁移、无 legacy 迁移层）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+/// 字段演进：version 2 新增 `source` / `source_ref` / `parent_run_id` 三字段
+/// （来源归属与 resume 链显式指针）；version 3 三字段 String → 枚举。落库
+/// 编码为 bincode（非自描述），旧版本载荷无法直接反序列化为本结构，经
+/// [`AgentRunRecordV2`] / [`AgentRunRecordV1`] 版本化结构 + `From` 转换链由
+/// native_model 读路径自动升级（v1 存量经 v1→v2→v3 链式升级；无手工迁移、
+/// 无 legacy 迁移层）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 2, version = 2, from = AgentRunRecordV1)]
+#[native_model(id = 2, version = 3, from = AgentRunRecordV2)]
 #[native_db]
 pub struct AgentRunRecord {
     /// run id（主键，写事务内 max+1 分配）
@@ -68,12 +91,12 @@ pub struct AgentRunRecord {
     pub prompt: String,
     /// 工作目录
     pub cwd: String,
-    /// 环境档位受控字符串（default | bare）
-    pub env: String,
-    /// permission-mode 受控字符串（default | acceptEdits | bypassPermissions）
-    pub permission_mode: String,
-    /// run 状态受控字符串（running | completed | failed | stopped）
-    pub status: String,
+    /// 环境档位（default | bare）
+    pub env: AgentEnvMode,
+    /// permission-mode 档位（default | acceptEdits | bypassPermissions）
+    pub permission_mode: AgentPermissionMode,
+    /// run 状态（running | completed | failed | stopped）
+    pub status: AgentRunStatus,
     /// 开始时间（UTC unix 毫秒）
     pub started_at: i64,
     /// 结束时间；运行中为 None
@@ -97,6 +120,101 @@ pub struct AgentRunRecord {
     /// resume 链显式指针（本 run 的上游 run id；链首为 None）
     #[serde(default)]
     pub parent_run_id: Option<i64>,
+}
+
+/// `AgentRunRecord` 的 v2 版本化结构（16 字段，枚举化前形态）：不注册
+/// `#[native_db]`（不参与模型定义），仅承载 v2 载荷解码与到 v3 的升级转换。
+/// 三字段此代仍为受控字符串（running | completed | failed | stopped 等）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 2, version = 2, from = AgentRunRecordV1)]
+pub struct AgentRunRecordV2 {
+    /// run id（主键）
+    pub id: i64,
+    /// 提示词原文
+    pub prompt: String,
+    /// 工作目录
+    pub cwd: String,
+    /// 环境档位受控字符串
+    pub env: String,
+    /// permission-mode 受控字符串
+    pub permission_mode: String,
+    /// run 状态受控字符串
+    pub status: String,
+    /// 开始时间（UTC unix 毫秒）
+    pub started_at: i64,
+    /// 结束时间；运行中为 None
+    pub finished_at: Option<i64>,
+    /// 收敛轮数（来自 result 事件）
+    pub num_turns: Option<u64>,
+    /// 总成本美元（来自 result 事件）
+    pub cost_usd: Option<f64>,
+    /// 运行时长毫秒（来自 result 事件）
+    pub duration_ms: Option<u64>,
+    /// 会话 id
+    pub session_id: Option<String>,
+    /// 失败原因
+    pub error: Option<String>,
+    /// 来源受控字符串
+    #[serde(default = "default_run_source")]
+    pub source: String,
+    /// 来源内定位
+    #[serde(default)]
+    pub source_ref: Option<String>,
+    /// resume 链显式指针
+    #[serde(default)]
+    pub parent_run_id: Option<i64>,
+}
+
+/// v2 → v3 升级：三受控字符串解析为契约枚举（[`parse_enum_field`] fail-fast
+/// 记因；扫描结论：存量值域全部落受控域内，该分支存量库不可达）。
+impl From<AgentRunRecordV2> for AgentRunRecord {
+    fn from(v2: AgentRunRecordV2) -> Self {
+        Self {
+            id: v2.id,
+            prompt: v2.prompt,
+            cwd: v2.cwd,
+            env: parse_enum_field(&v2.env, "env"),
+            permission_mode: parse_enum_field(&v2.permission_mode, "permission_mode"),
+            status: parse_enum_field(&v2.status, "status"),
+            started_at: v2.started_at,
+            finished_at: v2.finished_at,
+            num_turns: v2.num_turns,
+            cost_usd: v2.cost_usd,
+            duration_ms: v2.duration_ms,
+            session_id: v2.session_id,
+            error: v2.error,
+            source: v2.source,
+            source_ref: v2.source_ref,
+            parent_run_id: v2.parent_run_id,
+        }
+    }
+}
+
+/// 反向转换仅满足 native_model 宏生成的 downgrade 编码路径的 trait 约束
+/// （应用只升级不降级，不调用 `encode_downgrade`）；转换即枚举字符串化
+/// （serde 派生，线格式值域不变）。
+impl From<AgentRunRecord> for AgentRunRecordV2 {
+    fn from(v3: AgentRunRecord) -> Self {
+        Self {
+            id: v3.id,
+            prompt: v3.prompt,
+            cwd: v3.cwd,
+            env: enum_to_string(&v3.env),
+            permission_mode: enum_to_string(&v3.permission_mode),
+            status: enum_to_string(&v3.status),
+            started_at: v3.started_at,
+            finished_at: v3.finished_at,
+            num_turns: v3.num_turns,
+            cost_usd: v3.cost_usd,
+            duration_ms: v3.duration_ms,
+            session_id: v3.session_id,
+            error: v3.error,
+            source: v3.source,
+            source_ref: v3.source_ref,
+            parent_run_id: v3.parent_run_id,
+        }
+    }
 }
 
 /// `AgentRunRecord` 的 v1 版本化结构（13 字段，演进前形态）：不注册
@@ -134,7 +252,9 @@ pub struct AgentRunRecordV1 {
     pub error: Option<String>,
 }
 
-impl From<AgentRunRecordV1> for AgentRunRecord {
+/// v1 → v2 升级：补 `source` / `source_ref` / `parent_run_id` 三字段缺省
+/// （调试链路语义不变），三受控字符串原样透传（同代内无值域变化）。
+impl From<AgentRunRecordV1> for AgentRunRecordV2 {
     fn from(v1: AgentRunRecordV1) -> Self {
         Self {
             id: v1.id,
@@ -159,8 +279,8 @@ impl From<AgentRunRecordV1> for AgentRunRecord {
 
 /// 反向转换仅满足 native_model 宏生成的 downgrade 编码路径的 trait 约束
 /// （应用只升级不降级，不调用 `encode_downgrade`）；转换即丢弃三个新字段。
-impl From<AgentRunRecord> for AgentRunRecordV1 {
-    fn from(v2: AgentRunRecord) -> Self {
+impl From<AgentRunRecordV2> for AgentRunRecordV1 {
+    fn from(v2: AgentRunRecordV2) -> Self {
         Self {
             id: v2.id,
             prompt: v2.prompt,
@@ -186,7 +306,7 @@ impl From<AgentRunRecord> for AgentRunRecordV1 {
 /// 经 in-place 改 `name` 保主键，会话链绑定不破。
 ///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 4, version = 1)]
 #[native_db]

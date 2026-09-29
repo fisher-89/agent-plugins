@@ -43,6 +43,7 @@ fn is_single_component_name(name: &str) -> bool {
 
 /// 读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。
 #[tauri::command]
+#[specta::specta]
 pub fn read_explore(root: String, name: String) -> Option<ExploreDoc> {
     if is_blank_root(&root) {
         return None;
@@ -54,6 +55,7 @@ pub fn read_explore(root: String, name: String) -> Option<ExploreDoc> {
 /// 导入扫描：列出笔记目录顶层 `*.md` 中**未被绑定**的 stem（绑定过滤在
 /// 命令层以 store 清单求差）；blank root → 空结果。
 #[tauri::command]
+#[specta::specta]
 pub fn scan_explores(
     root: String,
     store: State<'_, Store>,
@@ -77,6 +79,7 @@ pub fn scan_explores(
 /// 布局派生当前笔记的完整磁盘路径（无 IO；stem 校验同读取口径）：供前端
 /// watch 订阅取路径，目录名知识不下沉前端。
 #[tauri::command]
+#[specta::specta]
 pub fn explore_doc_path(root: String, name: String) -> Option<String> {
     if is_blank_root(&root) || !is_single_component_name(&name) {
         return None;
@@ -93,6 +96,7 @@ pub fn explore_doc_path(root: String, name: String) -> Option<String> {
 
 /// explore 记录清单（按当前 workspace root 过滤，id 升序）；blank root → 空结果。
 #[tauri::command]
+#[specta::specta]
 pub fn list_explore_records(
     store: State<'_, Store>,
     root: String,
@@ -105,6 +109,7 @@ pub fn list_explore_records(
 
 /// 新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件。
 #[tauri::command]
+#[specta::specta]
 pub fn create_explore_record(
     store: State<'_, Store>,
     root: String,
@@ -117,6 +122,7 @@ pub fn create_explore_record(
 
 /// in-place 改名（保主键 → 保会话链绑定）：文件改名后的记录重关联入口。
 #[tauri::command]
+#[specta::specta]
 pub fn rename_explore_record(
     store: State<'_, Store>,
     root: String,
@@ -131,6 +137,7 @@ pub fn rename_explore_record(
 /// 删除 explore 记录（不动磁盘文件；名下会话 runs+events 随记录同事务级联
 /// 删除，级联语义见 store `delete_explore_record`）；miss 幂等返回 `false`。
 #[tauri::command]
+#[specta::specta]
 pub fn delete_explore_record(
     store: State<'_, Store>,
     root: String,

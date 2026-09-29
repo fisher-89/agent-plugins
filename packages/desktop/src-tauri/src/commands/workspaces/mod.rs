@@ -14,6 +14,7 @@ use store::{Store, StoreError, WorkspaceRecord};
 
 /// 清单（表主键 canonical root 自然序，顺序与使用时间无关）。
 #[tauri::command]
+#[specta::specta]
 pub fn list_workspaces(store: State<'_, Store>) -> Result<Vec<WorkspaceRecord>, String> {
     list_workspaces_inner(&store).map_err(|e| e.to_string())
 }
@@ -24,6 +25,7 @@ fn list_workspaces_inner(store: &Store) -> Result<Vec<WorkspaceRecord>, StoreErr
 
 /// 文件夹选择器选定后入库：canonicalize + upsert，返回 canonical 记录。
 #[tauri::command]
+#[specta::specta]
 pub fn add_workspace(store: State<'_, Store>, root: String) -> Result<WorkspaceRecord, String> {
     add_workspace_inner(&store, Path::new(&root)).map_err(|e| e.to_string())
 }
@@ -34,6 +36,7 @@ fn add_workspace_inner(store: &Store, root: &Path) -> Result<WorkspaceRecord, St
 
 /// 移除清单项；返回是否命中（miss 幂等，不算错误）。
 #[tauri::command]
+#[specta::specta]
 pub fn remove_workspace(store: State<'_, Store>, root: String) -> Result<bool, String> {
     remove_workspace_inner(&store, Path::new(&root)).map_err(|e| e.to_string())
 }

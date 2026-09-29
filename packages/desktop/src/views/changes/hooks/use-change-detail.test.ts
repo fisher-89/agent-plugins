@@ -379,3 +379,96 @@ describe('useChangeDetail：加载态、降级信封、错误路径与刷新竞�
     expect(result.current.detail).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：get_change_detail / read_artifact 裸
+// invoke → typed bindings 机械替换后，invoke 命令名与参数逐字不变（生成绑定
+// 底层仍走同模块 invoke，mock 机制切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useChangeDetail：生成绑定调用面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('经生成绑定入口后 invoke 收到 "get_change_detail" 与 "read_artifact"，详情 + 产物信封同周期组装透传不变', async () => {
+    invokeMock.mockImplementation((command: string, params: { kind?: string; source?: string }) => {
+      if (command === 'get_change_detail') {
+        return Promise.resolve(fakeDetail(twoArtifacts));
+      }
+      const descriptor = twoArtifacts.find(
+        (d) => d.kind === params.kind && d.source === params.source,
+      );
+      return Promise.resolve(descriptor ? envelopeFor(descriptor) : null);
+    });
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+
+    await waitFor(() => expect(result.current.artifacts).toHaveLength(2));
+    expect(invokeMock).toHaveBeenCalledWith('get_change_detail', {
+      root: '/repo',
+      change: 'add-feature',
+    });
+    expect(invokeMock).toHaveBeenCalledWith('read_artifact', {
+      root: '/repo',
+      change: 'add-feature',
+      kind: 'tasks-progress',
+      source: 'tasks.md',
+    });
+    expect(result.current.detail?.name).toBe('add-feature');
+    expect(result.current.artifacts[1].fallbackText).toBe('保底：提案');
+  });
+
+  it('detail 为 null / 产物清单空数组 → 零后续调用保持；read_artifact 返回 null 降级 Fallback 信封不变', async () => {
+    invokeMock.mockResolvedValue(fakeDetail([]));
+    const { result } = renderHook(() => useChangeDetail('/repo', 'empty'));
+    await waitFor(() => expect(result.current.detail).not.toBeNull());
+
+    expect(result.current.artifacts).toEqual([]);
+    expect(invokeMock.mock.calls.every(([name]) => name === 'get_change_detail')).toBe(true);
+
+    const descriptor: ArtifactDescriptor = {
+      kind: 'markdown-doc',
+      source: 'proposal.md',
+      title: '提案',
+    };
+    invokeMock.mockReset();
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'get_change_detail') {
+        return Promise.resolve(fakeDetail([descriptor]));
+      }
+      return Promise.resolve(null);
+    });
+    const fallbackCase = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await waitFor(() => expect(fallbackCase.result.current.artifacts).toHaveLength(1));
+    expect(fallbackCase.result.current.artifacts[0].version).toBe(0);
+    expect(fallbackCase.result.current.artifacts[0].fallbackText).toContain('产物读取失败');
+  });
+
+  it('单个 read_artifact reject → 该产物 Fallback 其余正常；get_change_detail reject → 错误态清空数据不变', async () => {
+    invokeMock.mockImplementation((command: string, params: { kind?: string }) => {
+      if (command === 'get_change_detail') {
+        return Promise.resolve(fakeDetail(twoArtifacts));
+      }
+      if (params.kind === 'tasks-progress') {
+        return Promise.reject(new Error('读取失败'));
+      }
+      const descriptor = twoArtifacts.find((d) => d.kind === params.kind);
+      return Promise.resolve(descriptor ? envelopeFor(descriptor) : null);
+    });
+    const { result } = renderHook(() => useChangeDetail('/repo', 'add-feature'));
+    await waitFor(() => expect(result.current.artifacts).toHaveLength(2));
+
+    expect(result.current.artifacts[0].fallbackText).toContain('产物读取失败');
+    expect(result.current.artifacts[1].version).toBe(1);
+    expect(result.current.error).toBeNull();
+
+    invokeMock.mockReset();
+    invokeMock.mockRejectedValue(new Error('IPC 断开'));
+    const failed = renderHook(() => useChangeDetail('/repo', 'broken'));
+    await waitFor(() => expect(failed.result.current.loading).toBe(false));
+
+    expect(failed.result.current.error).toContain('IPC 断开');
+    expect(failed.result.current.detail).toBeNull();
+    expect(failed.result.current.artifacts).toEqual([]);
+  });
+});

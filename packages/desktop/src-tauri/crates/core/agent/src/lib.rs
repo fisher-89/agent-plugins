@@ -18,8 +18,8 @@ mod state;
 
 pub use event::{AgentBlock, AgentEvent, AgentEventKind};
 pub use runner::{
-    AgentEnvMode, AgentPermissionMode, AgentRun, AgentRunParams, AgentRunner, AgentStartError,
-    RunHandle,
+    AgentEnvMode, AgentPermissionMode, AgentRun, AgentRunParams, AgentRunStatus, AgentRunner,
+    AgentStartError, RunHandle,
 };
 pub use state::{AgentRunState, RunStateMachine};
 

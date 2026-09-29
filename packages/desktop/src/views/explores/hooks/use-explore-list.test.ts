@@ -320,3 +320,72 @@ describe('useExploreList：root 切换过渡与迟到现在语义（AC-8）', ()
     expect(result.current.records).toEqual([record(9, 'b-record', 'C:\\demo\\b')]);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：list_explore_records / create_explore_record
+// / rename_explore_record / delete_explore_record 裸 invoke → typed bindings
+// 机械替换后，命令名与参数逐字不变（生成绑定底层仍走同模块 invoke，mock 机制
+// 切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useExploreList：生成绑定调用面', () => {
+  it('四命令经生成绑定入口后命令名与参数逐字不变，动作后以当前 root 重新取数语义不变', async () => {
+    const initial = [record(1, 'api-retry')];
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') {
+        const created = invokeMock.mock.calls.some(([name]) => name === 'create_explore_record');
+        return Promise.resolve(created ? [...initial, record(2, 'new-topic')] : initial);
+      }
+      if (command === 'create_explore_record') {
+        return Promise.resolve(record(2, 'new-topic'));
+      }
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toEqual(initial));
+    expect(invokeMock).toHaveBeenCalledWith('list_explore_records', { root: ROOT });
+
+    act(() => {
+      result.current.create('new-topic');
+    });
+    await waitFor(() => expect(result.current.records).toHaveLength(2));
+    expect(invokeMock).toHaveBeenCalledWith('create_explore_record', {
+      root: ROOT,
+      name: 'new-topic',
+    });
+    expect(invokeMock).toHaveBeenLastCalledWith('list_explore_records', { root: ROOT });
+  });
+
+  it('root 为 null 时四动作均 no-op（零 IPC 守卫在绑定切换后保持）', async () => {
+    const { result } = renderHook(() => useExploreList(null));
+
+    act(() => {
+      result.current.create('topic');
+      result.current.rename('topic', 'renamed');
+      result.current.remove('topic');
+      result.current.refresh();
+    });
+    await act(async () => {});
+
+    expect(invokeMock.mock.calls).toHaveLength(0);
+  });
+
+  it('动作 reject → error 置位、清单不被污染（清单保持原值）不变', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_explore_records') return Promise.resolve([record(1, 'keep')]);
+      if (command === 'delete_explore_record') return Promise.reject(new Error('删除失败'));
+      return Promise.resolve(null);
+    });
+
+    const { result } = renderHook(() => useExploreList(ROOT));
+    await waitFor(() => expect(result.current.records).toHaveLength(1));
+
+    act(() => {
+      result.current.remove('keep');
+    });
+    await waitFor(() => expect(result.current.error).toContain('删除失败'));
+
+    expect(result.current.records).toEqual([record(1, 'keep')]);
+  });
+});

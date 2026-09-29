@@ -21,12 +21,13 @@ use std::sync::mpsc;
 use std::sync::Mutex;
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use tauri::ipc::Channel;
 use tauri::State;
 use watch::{FileWatchSignal, Watcher};
 
 /// 桥接后的前端信号载荷（与 `FileWatchSignal` 同构，camelCase；无内容字节）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct FileWatchEvent {
     /// 被修改目标的订阅路径
@@ -67,6 +68,7 @@ fn idempotency_key(path: &str) -> String {
 /// 返回 subscription_id。同一路径重复订阅幂等（命中既有订阅原样返回 id，
 /// 不新建、不产生重复信号）；目标缺失不报错（信号流就绪，目标出现后生效）。
 #[tauri::command]
+#[specta::specta]
 pub fn watch_subscribe(
     registry: State<'_, WatchRegistry>,
     on_event: Channel<FileWatchEvent>,
@@ -103,6 +105,7 @@ pub fn watch_subscribe(
 /// 解除订阅：移除并 drop `Watcher`（停流 + 桥接线程随通道关闭退出）；
 /// miss 幂等返回 `false`。
 #[tauri::command]
+#[specta::specta]
 pub fn watch_unsubscribe(
     registry: State<'_, WatchRegistry>,
     subscription_id: u64,

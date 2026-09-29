@@ -1,7 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ExploreRecord } from '../../../types/dto';
+import { commands, type ExploreRecord } from '../../../types/generated/bindings';
 
 export interface ExploreListState {
   /** 探索记录清单（store 按当前 root 过滤，id 升序；root 未就绪/切换过渡轮为空） */
@@ -33,7 +32,8 @@ function useExploreActions(
   const create = useCallback(
     (name: string) => {
       if (!root) return;
-      invoke<ExploreRecord>('create_explore_record', { root, name })
+      commands
+        .createExploreRecord(root, name)
         .then(refresh)
         .catch((err: unknown) => onError(String(err)));
     },
@@ -42,7 +42,8 @@ function useExploreActions(
   const rename = useCallback(
     (name: string, newName: string) => {
       if (!root) return;
-      invoke<ExploreRecord>('rename_explore_record', { root, name, newName })
+      commands
+        .renameExploreRecord(root, name, newName)
         .then(refresh)
         .catch((err: unknown) => onError(String(err)));
     },
@@ -51,7 +52,8 @@ function useExploreActions(
   const remove = useCallback(
     (name: string) => {
       if (!root) return;
-      invoke<boolean>('delete_explore_record', { root, name })
+      commands
+        .deleteExploreRecord(root, name)
         .then(refresh)
         .catch((err: unknown) => onError(String(err)));
     },
@@ -88,7 +90,8 @@ export function useExploreList(root: string | null): ExploreListState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    invoke<ExploreRecord[]>('list_explore_records', { root })
+    commands
+      .listExploreRecords(root)
       .then((result) => {
         if (cancelled) return;
         setRecords(result);

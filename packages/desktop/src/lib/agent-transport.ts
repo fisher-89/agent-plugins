@@ -1,36 +1,39 @@
 /**
  * Tauri 传输适配：ai-sdk v7 `ChatTransport` 的 Tauri IPC 实现（无状态转换器，
- * 不持链状态）。`sendMessages` 把 `options.body` 的链参数 + 提示词原样穿透
- * `invoke("agent_start")`，Tauri `Channel<AgentRunMessage>` 消息逐条翻译为
- * `UIMessageChunk` 流：Event 信封经 `eventToChunk` 转 chunk；Record 信封转
- * `data-run-record` 部件 + finish 后关流（终态由后端闭流收尾，前端流不在
+ * 不持链状态）。`sendMessages` 把 `options.body` 的链参数 + 提示词经生成绑定
+ * `commands.agentStart` 穿透 invoke，Tauri `Channel<AgentRunMessage>` 消息逐条
+ * 翻译为 `UIMessageChunk` 流：Event 信封经 `eventToChunk` 转 chunk；Record 信封
+ * 转 `data-run-record` 部件 + finish 后关流（终态由后端闭流收尾，前端流不在
  * 停止时截断）。`reconnectToStream` 恒 null（重连诉求由重放装载承担）。
  *
  * 链状态归应用层：hook 经 `onEvent` / `onRecord` 观测点维护 events / chain
  * 镜像；transport 只转换不解释。
  */
 
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
 import type { ChatTransport } from 'ai';
 
-import type { AgentEvent, AgentPermissionMode, AgentRunRecord } from '../types/dto';
+import {
+  commands,
+  type AgentEvent,
+  type AgentRunMessage,
+  type AgentRunRecord,
+} from '../types/generated/bindings';
 import { eventToChunk, type AgentUIMessage, type AgentUIMessageChunk } from './agent-adapter';
 
-/** `agent_start` Channel 的消息信封（对齐 Rust serde tagged 线格式） */
-type AgentRunMessage =
-  | { ipc: 'event'; event: AgentEvent }
-  | { ipc: 'record'; record: AgentRunRecord };
+/** `commands.agentStart` 位置参数面（生成绑定派生，无手写镜像） */
+type AgentStartArgs = Parameters<typeof commands.agentStart>;
 
-/** 链参数 + 提示词（hook 发送时刻组装，body 原样穿透） */
-interface AgentStartChainParams {
-  root: string;
-  prompt: string;
-  permissionMode: AgentPermissionMode;
-  resumeSessionId: string | null;
-  parentRunId: number | null;
-  source: string;
-  sourceRef: string | null;
-}
+/** 链参数 + 提示词（hook 发送时刻组装，body 原样穿透；形状派生自生成绑定） */
+type AgentStartChainParams = {
+  root: AgentStartArgs[1];
+  prompt: AgentStartArgs[2];
+  permissionMode: AgentStartArgs[3];
+  resumeSessionId: AgentStartArgs[4];
+  source: AgentStartArgs[5];
+  sourceRef: AgentStartArgs[6];
+  parentRunId: AgentStartArgs[7];
+};
 
 /** transport 构造观测点：hook 注入（不承载状态，仅透传镜像） */
 export interface TauriAgentTransportOptions {
@@ -39,7 +42,7 @@ export interface TauriAgentTransportOptions {
 }
 
 /** unknown → AgentPermissionMode（清单外值拒绝，transport 不改写） */
-function readPermissionMode(value: unknown): AgentPermissionMode {
+function readPermissionMode(value: unknown): AgentStartChainParams['permissionMode'] {
   if (value === 'default' || value === 'acceptEdits' || value === 'bypassPermissions') {
     return value;
   }
@@ -132,15 +135,35 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
           }
           // 未知信封判别：忽略单条消息，流不断开
         };
-        invoke<AgentRunRecord>('agent_start', { ...chain, onEvent: channel })
-          .then((record) => {
-            this.onRecord?.(record);
-          })
-          .catch((cause: unknown) => {
-            controller.error(cause instanceof Error ? cause : new Error(String(cause)));
-          });
+        this.invokeStart(channel, chain, controller);
       },
     });
+  }
+
+  /** 发起运行（生成绑定穿透链参数 + Channel）：early-resolve 记录经
+   * `onRecord` 透传；invoke 失败（启动阶段失败）把错误灌入流。 */
+  private invokeStart(
+    channel: Channel<AgentRunMessage>,
+    chain: AgentStartChainParams,
+    controller: ReadableStreamDefaultController<AgentUIMessageChunk>,
+  ): void {
+    commands
+      .agentStart(
+        channel,
+        chain.root,
+        chain.prompt,
+        chain.permissionMode,
+        chain.resumeSessionId,
+        chain.source,
+        chain.sourceRef,
+        chain.parentRunId,
+      )
+      .then((record) => {
+        this.onRecord?.(record);
+      })
+      .catch((cause: unknown) => {
+        controller.error(cause instanceof Error ? cause : new Error(String(cause)));
+      });
   }
 
   /** 重连由重放装载承担：恒 null */

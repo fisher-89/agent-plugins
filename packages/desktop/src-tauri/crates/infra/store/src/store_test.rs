@@ -13,7 +13,7 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use agent::{AgentEvent, AgentEventKind};
+use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
 
 use crate::{AgentRunRecord, AgentRunRecordV1, ExploreRecord, Store, StoreError, WorkspaceRecord};
 
@@ -411,14 +411,15 @@ fn 全链路add_list_remove后重开同一db文件清单状态与各操作返回
 // ---------------------------------------------------------------------------
 
 /// 构造一份 running 形态的 run 记录（id 由 begin 分配，入参不参与匹配）。
+/// 三字段直写契约枚举（v3 起落库载体即枚举）。
 fn running_run(prompt: &str, started_at: i64) -> AgentRunRecord {
     AgentRunRecord {
         id: 0,
         prompt: prompt.to_owned(),
         cwd: "C:\\ws\\demo".to_owned(),
-        env: "default".to_owned(),
-        permission_mode: "bypassPermissions".to_owned(),
-        status: "running".to_owned(),
+        env: AgentEnvMode::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        status: AgentRunStatus::Running,
         started_at,
         finished_at: None,
         num_turns: None,
@@ -446,7 +447,7 @@ fn begin_agent_run空库首跑返回id为1且status为running且started_at落值
     let record = begin_ok(&store, "首轮", 1727000000000);
 
     assert_eq!(record.id, 1, "空库首跑 max+1 分配 id=1");
-    assert_eq!(record.status, "running", "落 running 行");
+    assert_eq!(record.status, AgentRunStatus::Running, "落 running 行");
     assert_eq!(
         record.started_at, 1727000000000,
         "started_at 按调用方值落库"
@@ -499,7 +500,7 @@ fn finish后整行替换为终态且list反映() {
     let run = begin_ok(&store, "待收敛", 1727000000000);
 
     let mut finished = run.clone();
-    finished.status = "completed".to_owned();
+    finished.status = AgentRunStatus::Completed;
     finished.finished_at = Some(1727000001000);
     finished.num_turns = Some(4);
     finished.cost_usd = Some(0.5);
@@ -511,7 +512,7 @@ fn finish后整行替换为终态且list反映() {
 
     let listed = store.list_agent_runs().unwrap();
     assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].status, "completed", "终态整行替换");
+    assert_eq!(listed[0].status, AgentRunStatus::Completed, "终态整行替换");
     assert_eq!(listed[0].num_turns, Some(4));
     assert_eq!(listed[0].cost_usd, Some(0.5));
     assert_eq!(listed[0].duration_ms, Some(999));
@@ -1482,13 +1483,13 @@ fn v1载荷经读路径升级source缺省debug且十三字段保真() {
     assert_eq!(upgraded.source, "debug", "AC-4：v1 记录 source 缺省 debug");
     assert_eq!(upgraded.source_ref, None, "v1 记录无来源定位");
     assert_eq!(upgraded.parent_run_id, None, "v1 记录无链指针");
-    // 既有 13 字段保真（逐字段，不经被测的 From 构造期望值）
+    // 既有 13 字段保真（三受控字符串升级为枚举后逐值断言；AC-2 枚举化跟改）
     assert_eq!(upgraded.id, v1.id);
     assert_eq!(upgraded.prompt, v1.prompt);
     assert_eq!(upgraded.cwd, v1.cwd);
-    assert_eq!(upgraded.env, v1.env);
-    assert_eq!(upgraded.permission_mode, v1.permission_mode);
-    assert_eq!(upgraded.status, v1.status);
+    assert_eq!(upgraded.env, AgentEnvMode::Bare);
+    assert_eq!(upgraded.permission_mode, AgentPermissionMode::AcceptEdits);
+    assert_eq!(upgraded.status, AgentRunStatus::Completed);
     assert_eq!(upgraded.started_at, v1.started_at);
     assert_eq!(upgraded.finished_at, v1.finished_at);
     assert_eq!(upgraded.num_turns, v1.num_turns);
@@ -1515,7 +1516,7 @@ fn v2写入三字段非缺省重开db读回往返保真() {
         );
         requested.session_id = Some("s-tail".to_owned());
         let mut record = store.begin_agent_run(&requested).expect("begin 应成功");
-        record.status = "completed".to_owned();
+        record.status = AgentRunStatus::Completed;
         record.finished_at = Some(1727000001000);
         store
             .finish_agent_run(record.id, &record)

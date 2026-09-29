@@ -5,13 +5,14 @@ use std::fs;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
 use crate::model::Inventory;
 use crate::parse::{detect_inventory, parse_workflow_file, WorkflowFileParse, WORKFLOW_FILE_NAME};
 use foundation::layout::Layout;
 
 /// change 来源：进行中 / 已归档。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum ChangeSource {
     Active,
@@ -19,7 +20,7 @@ pub enum ChangeSource {
 }
 
 /// 列表条目摘要。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeSummary {
     pub name: String,
@@ -30,7 +31,7 @@ pub struct ChangeSummary {
 }
 
 /// archive 月份分组；`month` 为 `None` 即"未知时间"组，固定排组序列尾。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ArchiveGroup {
     pub month: Option<String>,
@@ -38,7 +39,7 @@ pub struct ArchiveGroup {
 }
 
 /// change 列表：active 全量 + archive 按月分组。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeList {
     pub active: Vec<ChangeSummary>,

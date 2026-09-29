@@ -28,31 +28,23 @@ use std::collections::HashMap;
 use std::sync::Mutex;
 
 use serde::Serialize;
+use specta::Type;
 use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager, Runtime};
 
 use agent::{
-    AgentEnvMode, AgentEvent, AgentEventKind, AgentRun, AgentRunParams, AgentRunState, AgentRunner,
-    RunHandle, RunStateMachine,
+    AgentEnvMode, AgentEvent, AgentEventKind, AgentRun, AgentRunParams, AgentRunState,
+    AgentRunStatus, AgentRunner, RunHandle, RunStateMachine,
 };
 use agent_cli::ClaudeCliRunner;
 use store::{AgentRunRecord, Store};
 
-/// run 状态受控字符串（store 不引本地枚举，见 store 模型文档）。
-const STATUS_RUNNING: &str = "running";
-/// run 状态受控字符串：正常收敛。
-const STATUS_COMPLETED: &str = "completed";
-/// run 状态受控字符串：失败收敛。
-const STATUS_FAILED: &str = "failed";
-/// run 状态受控字符串：用户主动终止收敛（与 completed / failed 同列受控终态）。
-const STATUS_STOPPED: &str = "stopped";
-
 /// `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
 /// 事件与终态记录双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
 /// 对齐）。信封不含 record 语义——终态记录塞进事件 usage 是反模式。
-#[derive(Debug, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize, Type)]
 #[serde(tag = "ipc", rename_all = "camelCase")]
-pub(crate) enum AgentRunMessage {
+pub enum AgentRunMessage {
     /// 实时事件（落库与流出同源同构）
     Event { event: AgentEvent },
     /// 终态 run 记录（提前 resolve 契约的终态流出半边）
@@ -63,7 +55,7 @@ pub(crate) enum AgentRunMessage {
 /// run id → 逻辑终止信号句柄。`agent_start` 登记、`drive_agent_run` 终态
 /// 除名、`agent_stop` 查询；内存态与进程同生命周期（应用重启即清空）。
 #[derive(Default)]
-pub(crate) struct RunStopRegistry {
+pub struct RunStopRegistry {
     handles: Mutex<HashMap<i64, RunHandle>>,
 }
 
@@ -139,14 +131,16 @@ fn now_millis() -> i64 {
 }
 
 /// running 记录初值（id 由 begin 分配）：初值携带 provenance 来源与链字段。
+/// 三字段直写枚举（core/agent 契约值域，无字符串降级）；env 恒为完整档
+/// （bare 纯净档不进本编排的 IPC 面，无 UI 输入口）。
 fn running_record(params: &AgentRunParams, provenance: RunProvenance) -> AgentRunRecord {
     AgentRunRecord {
         id: 0,
         prompt: params.prompt.clone(),
         cwd: params.cwd.to_string_lossy().into_owned(),
-        env: AgentEnvMode::Default.as_str().to_owned(),
-        permission_mode: params.permission_mode.as_str().to_owned(),
-        status: STATUS_RUNNING.to_owned(),
+        env: AgentEnvMode::Default,
+        permission_mode: params.permission_mode,
+        status: AgentRunStatus::Running,
         started_at: now_millis(),
         finished_at: None,
         num_turns: None,
@@ -258,15 +252,15 @@ pub(crate) async fn drive_agent_run(
     // EOF：状态机已收敛以状态机为准（首个收敛生效）；否则停止信号已置位 →
     // 显式收敛 stopped（error 不记因——用户主动终止非失败）；兜底 failed 记因
     record.status = match machine.current() {
-        AgentRunState::Completed => STATUS_COMPLETED.to_owned(),
-        AgentRunState::Failed => STATUS_FAILED.to_owned(),
+        AgentRunState::Completed => AgentRunStatus::Completed,
+        AgentRunState::Failed => AgentRunStatus::Failed,
         AgentRunState::Running if run.handle.stop_requested() => {
             machine.stop();
-            STATUS_STOPPED.to_owned()
+            AgentRunStatus::Stopped
         }
         AgentRunState::Running | AgentRunState::Stopped => {
             record.error = Some("进程结束但未产出 result 事件".to_owned());
-            STATUS_FAILED.to_owned()
+            AgentRunStatus::Failed
         }
     };
     if let Some(result) = summary {
@@ -294,7 +288,7 @@ fn abort_with_store_failure(
     mut record: AgentRunRecord,
     cause: String,
 ) -> AgentRunRecord {
-    record.status = STATUS_FAILED.to_owned();
+    record.status = AgentRunStatus::Failed;
     record.error = Some(cause);
     record.finished_at = Some(now_millis());
     if let Err(store_error) = store.finish_agent_run(record.id, &record) {

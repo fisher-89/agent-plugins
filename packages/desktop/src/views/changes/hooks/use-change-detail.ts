@@ -1,7 +1,11 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ArtifactDescriptor, ArtifactEnvelope, ChangeDetail } from '../../../types/dto';
+import {
+  commands,
+  type ArtifactDescriptor,
+  type ArtifactEnvelope,
+  type ChangeDetail,
+} from '../../../types/generated/bindings';
 
 export interface ChangeDetailState {
   detail: ChangeDetail | null;
@@ -33,12 +37,7 @@ async function readArtifactSafe(
   descriptor: ArtifactDescriptor,
 ): Promise<ArtifactEnvelope> {
   try {
-    const envelope = await invoke<ArtifactEnvelope | null>('read_artifact', {
-      root,
-      change,
-      kind: descriptor.kind,
-      source: descriptor.source,
-    });
+    const envelope = await commands.readArtifact(root, change, descriptor.kind, descriptor.source);
     if (envelope) return envelope;
     return fallbackEnvelope(descriptor.kind, descriptor.source, descriptor.title, '产物读取失败');
   } catch {
@@ -71,7 +70,8 @@ export function useChangeDetail(root: string | null, change: string | null): Cha
     let cancelled = false;
     setLoading(true);
     setError(null);
-    invoke<ChangeDetail | null>('get_change_detail', { root, change })
+    commands
+      .getChangeDetail(root, change)
       .then(async (result) => {
         if (cancelled) return;
         if (!result) {

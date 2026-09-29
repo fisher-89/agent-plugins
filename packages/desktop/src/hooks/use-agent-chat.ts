@@ -17,7 +17,6 @@
  */
 
 import { useChat } from '@ai-sdk/react';
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
 import {
@@ -26,7 +25,12 @@ import {
   type AgentUIMessage,
 } from '../lib/agent-adapter';
 import { TauriAgentTransport } from '../lib/agent-transport';
-import type { AgentEvent, AgentPermissionMode, AgentRunRecord } from '../types/dto';
+import {
+  commands,
+  type AgentEvent,
+  type AgentPermissionMode,
+  type AgentRunRecord,
+} from '../types/generated/bindings';
 
 /** 会话来源参数（source 二元组 + cwd；sourceRef=null 即不重放装载） */
 export interface UseAgentChatParams {
@@ -84,12 +88,9 @@ async function loadChain(
   source: string,
   sourceRef: string,
 ): Promise<{ runs: AgentRunRecord[]; byRun: Map<number, AgentEvent[]> }> {
-  const runs = await invoke<AgentRunRecord[]>('agent_run_chain', { source, sourceRef });
+  const runs = await commands.agentRunChain(source, sourceRef);
   const replays = await Promise.all(
-    runs.map(
-      async (run) =>
-        [run.id, await invoke<AgentEvent[]>('agent_run_events', { runId: run.id })] as const,
-    ),
+    runs.map(async (run) => [run.id, await commands.agentRunEvents(run.id)] as const),
   );
   return { runs, byRun: new Map(replays) };
 }
@@ -279,7 +280,7 @@ function useSessionActions(
   const stop = useCallback(() => {
     const runId = mirrors.currentRunIdRef.current;
     // 不调 chat.stop() 截断前端流：终态 record 部件与 finish 由后端闭流推入
-    if (runId !== null) void invoke('agent_stop', { runId });
+    if (runId !== null) void commands.agentStop(runId);
   }, [mirrors.currentRunIdRef]);
 
   const reset = useCallback(() => {

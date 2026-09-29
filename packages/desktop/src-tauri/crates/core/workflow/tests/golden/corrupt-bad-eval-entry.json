@@ -36,17 +36,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              222,
-              7,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-08-10T07:00:00Z",
             "verdict": "pass"
           }
         ],

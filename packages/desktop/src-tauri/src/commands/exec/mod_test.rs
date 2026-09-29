@@ -16,7 +16,10 @@ use std::path::Path;
 
 use tauri::{App, Manager};
 
-use ::agent::{AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams, RunHandle};
+use ::agent::{
+    AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams, AgentRunStatus,
+    RunHandle,
+};
 use store::{AgentRunRecord, Store};
 
 use super::{agent_run_chain, agent_run_events, agent_runs, agent_stop, RunStopRegistry};
@@ -58,15 +61,15 @@ fn app_with_store(env: &Env) -> App<tauri::test::MockRuntime> {
     app
 }
 
-/// running 形态底座记录（id 由 begin 分配）。
+/// running 形态底座记录（id 由 begin 分配；三字段直写契约枚举）。
 fn running_run(prompt: &str, started_at: i64) -> AgentRunRecord {
     AgentRunRecord {
         id: 0,
         prompt: prompt.to_owned(),
         cwd: "C:\\ws\\demo".to_owned(),
-        env: "default".to_owned(),
-        permission_mode: "bypassPermissions".to_owned(),
-        status: "running".to_owned(),
+        env: AgentEnvMode::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        status: AgentRunStatus::Running,
         started_at,
         finished_at: None,
         num_turns: None,
@@ -85,7 +88,7 @@ fn seed_run(store: &Store, prompt: &str, started_at: i64) -> AgentRunRecord {
     let mut record = store
         .begin_agent_run(&running_run(prompt, started_at))
         .expect("begin 应成功");
-    record.status = "completed".to_owned();
+    record.status = AgentRunStatus::Completed;
     record.finished_at = Some(started_at + 500);
     record.num_turns = Some(2);
     store
@@ -489,7 +492,11 @@ async fn 假runner五变体事件流经tee落库后命令面重放逐字段保�
     )
     .await;
 
-    assert_eq!(record.status, "completed", "RunResult 驱动收敛 completed");
+    assert_eq!(
+        record.status,
+        AgentRunStatus::Completed,
+        "RunResult 驱动收敛 completed"
+    );
     let replayed = agent_run_events(state.clone(), record.id).expect("agent_run_events 应成功");
     assert_eq!(
         replayed, seeded,
@@ -729,7 +736,7 @@ async fn agent_start_explore形态全参resume进params三元组进记录且事�
         !captured.lock().expect("捕获锁不可中毒").is_empty(),
         "事件流正常流出（tee Channel sink）"
     );
-    assert_eq!(record.status, "completed");
+    assert_eq!(record.status, AgentRunStatus::Completed);
 }
 
 #[tokio::test]
@@ -847,7 +854,11 @@ async fn explore来源run在in_band失败时落failed终态且三字段保留() 
     )
     .await;
 
-    assert_eq!(record.status, "failed", "is_error 收敛 failed");
+    assert_eq!(
+        record.status,
+        AgentRunStatus::Failed,
+        "is_error 收敛 failed"
+    );
     assert_eq!(record.source, "explore", "失败路径不丢来源");
     assert_eq!(record.source_ref.as_deref(), Some("7"));
     assert_eq!(record.parent_run_id, Some(42));

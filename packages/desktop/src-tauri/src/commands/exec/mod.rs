@@ -33,7 +33,7 @@ use tauri::{AppHandle, State};
 use ::agent::{AgentEvent, AgentPermissionMode, AgentRunParams};
 use store::{AgentRunRecord, Store};
 
-pub(crate) use agent::RunStopRegistry;
+pub use agent::RunStopRegistry;
 
 use agent::{AgentRunMessage, RunProvenance};
 
@@ -50,6 +50,7 @@ use agent::{AgentRunMessage, RunProvenance};
 // 项（非 IPC 参数），后台任务经前者取托管句柄
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
+#[specta::specta]
 pub async fn agent_start(
     app: AppHandle,
     store: State<'_, Store>,
@@ -82,6 +83,7 @@ pub async fn agent_start(
 /// 树、编排收敛 `stopped`、Channel 流出终态 Record）；对已终态（除名）或
 /// 不存在 id 幂等 `Ok`，不报错、不改写既有终态。
 #[tauri::command]
+#[specta::specta]
 pub fn agent_stop(registry: State<'_, RunStopRegistry>, run_id: i64) -> Result<(), String> {
     // miss 幂等：句柄不在注册表即已终态或不存在，无副作用直接成功
     let _ = registry.request_stop(run_id);
@@ -90,12 +92,14 @@ pub fn agent_stop(registry: State<'_, RunStopRegistry>, run_id: i64) -> Result<(
 
 /// 历史运行清单（started_at 降序）。
 #[tauri::command]
+#[specta::specta]
 pub fn agent_runs(store: State<'_, Store>) -> Result<Vec<AgentRunRecord>, String> {
     store.list_agent_runs().map_err(|e| e.to_string())
 }
 
 /// 单 run 事件重放（seq 升序）：store 事件 API 类型化，直接返回。
 #[tauri::command]
+#[specta::specta]
 pub fn agent_run_events(store: State<'_, Store>, run_id: i64) -> Result<Vec<AgentEvent>, String> {
     store
         .list_agent_run_events(run_id)
@@ -105,6 +109,7 @@ pub fn agent_run_events(store: State<'_, Store>, run_id: i64) -> Result<Vec<Agen
 /// 来源单链还原（发起顺序）：沿 `parent_run_id` 显式指针回溯整链，链拼接收
 /// 口 store 单点；无链返回空数组。通用面查询（非 explore 专属）。
 #[tauri::command]
+#[specta::specta]
 pub fn agent_run_chain(
     store: State<'_, Store>,
     source: String,

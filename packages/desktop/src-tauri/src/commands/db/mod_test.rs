@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use agent::{AgentEvent, AgentEventKind};
+use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
 use tauri::{App, Manager};
 
 use super::{db_models, db_records};
@@ -61,9 +61,9 @@ fn begin_run(store: &Store, prompt: &str, started_at: i64) -> AgentRunRecord {
             id: 0,
             prompt: prompt.to_owned(),
             cwd: "C:\\ws\\demo".to_owned(),
-            env: "default".to_owned(),
-            permission_mode: "bypassPermissions".to_owned(),
-            status: "running".to_owned(),
+            env: AgentEnvMode::Default,
+            permission_mode: AgentPermissionMode::BypassPermissions,
+            status: AgentRunStatus::Running,
             started_at,
             finished_at: None,
             num_turns: None,

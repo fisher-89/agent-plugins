@@ -13,6 +13,8 @@ custom-protocol = ["tauri/custom-protocol"]
 
 [build-dependencies]
 tauri-build = { workspace = true }
+# 测试二进制清单注入（见 build.rs）：与 tauri-winres 传递依赖同版本，锁内已存在
+embed-resource = "3"
 
 [dependencies]
 agent = { workspace = true }
@@ -22,10 +24,13 @@ watch = { workspace = true }
 workflow = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+specta = { workspace = true, features = ["function"] }
+specta-typescript = { workspace = true }
 store = { workspace = true }
 tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-devtools = "2.2.1"
+tauri-specta = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -61,11 +66,17 @@ native_db = "=0.8.2"
 native_model = "=0.4.20"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# specta 三件套 `=` 精确 pin + lockstep（RC 间无 semver 兼容，升级事件驱动不追新）；
+# specta-typescript 0.0.12 与 specta rc.25 配对（tauri-specta rc.25 内部依赖同一 pin）
+specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json", "time"] }
+specta-typescript = "=0.0.12"
+tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 store = { path = "crates/infra/store" }
 tempfile = "3"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
 tokio = { version = "1", default-features = false, features = ["sync"] }
-tauri = { version = "2", features = [] }
+# specta 特性：tauri 出线类型（含 ipc::Channel<T>）的 Type 远程 impl
+tauri = { version = "2", features = ["specta"] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"
 

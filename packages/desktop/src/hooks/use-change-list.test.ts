@@ -132,3 +132,47 @@ describe('useChangeList：显式刷新取数纪律（AC-12）', () => {
     expect(result.current.data?.active[0].name).toBe('stable');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：list_changes 裸 invoke → typed bindings
+// 机械替换后，invoke 命令名与参数逐字不变（生成绑定底层仍走同模块 invoke，
+// mock 机制切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useChangeList：生成绑定调用面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('经生成绑定入口后 invoke 收到 "list_changes" 与 { root }，ChangeList DTO 透传 data 更新', async () => {
+    invokeMock.mockResolvedValue(fakeList('typed-binding'));
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    expect(invokeMock).toHaveBeenCalledWith('list_changes', { root: '/repo' });
+    expect(result.current.data?.active[0].name).toBe('typed-binding');
+    expect(result.current.error).toBeNull();
+  });
+
+  it('root 为 null 时不发起任何调用（零 IPC 语义在绑定切换后保持）', () => {
+    renderHook(() => useChangeList(null));
+
+    expect(invokeMock.mock.calls).toHaveLength(0);
+  });
+
+  it('invoke reject → error 置位、data 保持原值、不抛未捕获异常（错误路径行为不变）', async () => {
+    invokeMock.mockResolvedValueOnce(fakeList('kept'));
+    const { result } = renderHook(() => useChangeList('/repo'));
+    await waitFor(() => expect(result.current.data).not.toBeNull());
+
+    invokeMock.mockRejectedValueOnce(new Error('IPC 断开'));
+    act(() => {
+      result.current.refresh();
+    });
+    await waitFor(() => expect(result.current.error).not.toBeNull());
+
+    expect(result.current.error).toContain('IPC 断开');
+    expect(result.current.data?.active[0].name).toBe('kept');
+    expect(result.current.loading).toBe(false);
+  });
+});

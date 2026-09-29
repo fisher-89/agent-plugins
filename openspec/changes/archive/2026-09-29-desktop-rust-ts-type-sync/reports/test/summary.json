@@ -1,0 +1,90 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-28T18:35:40.178Z",
+  "duration_seconds": 605,
+  "total": 527,
+  "passed": 527,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 42,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 82.69,
+    "threshold": 80,
+    "measured": {
+      "killed": 597,
+      "survived": 120,
+      "timeout": 0,
+      "noCoverage": 5,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 6,
+      "total": 728,
+      "detected": 597,
+      "undetected": 125
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 82.68698060941828,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 42,
+        "passed_count": 42
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-rust-ts-type-sync/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-rust-ts-type-sync/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All 527 tests passed (vite-plus 491/491 in 556s incl. mutation, rust 36/36 in 48s) with zero failures/skips; conclusion 'pass' is consistent with counts, coverage.pass=true and mutation.pass=true (82.69% vs 80).",
+    "Summary-level coverage.measured is null for lines/branches/functions although thresholds (90/85/90) are defined and the vite-plus plan report measured 92.06/85.2/90 (all met); the packages/desktop override also shows passed_count 0 of file_count 42 despite pass=true. Coverage data exists but the summary aggregation did not propagate it - review summary aggregation, not the test suites.",
+    "Rust plan report flags coverage.pass=false on branches: 0 vs threshold 85, but the CLI runs 'cargo llvm-cov --json' without --branch so every file reports branch count=0 (not measured, not 0% covered). The summary gate treating this dimension as pass matches null-dimension awareness; add --branch to the cargo llvm-cov invocation only if branch gating is actually wanted for rust.",
+    "Rust function coverage 90.75% barely clears the 90 threshold; the shortfall is concentrated in binary entry points src/main.rs and src/bin/export-bindings.rs (0% lines/functions, not exercised by unit tests) while workspace crates sit at 96%+ line coverage. Headroom is thin - new untested public functions could push the gate below threshold."
+  ]
+}

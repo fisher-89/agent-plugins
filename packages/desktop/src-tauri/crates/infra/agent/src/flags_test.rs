@@ -64,7 +64,7 @@ fn permission_mode三档分别映射acceptedits与dangerously与无flag() {
     assert_eq!(
         accept_edits.get(position + 1).map(String::as_str),
         Some("acceptEdits"),
-        "档位值与 as_str 落库口径一致"
+        "档位值与 serde 线格式值域同源（单一来源，无字符串副本）"
     );
 
     let default = build_args(&params("任务", AgentPermissionMode::Default));
@@ -72,6 +72,71 @@ fn permission_mode三档分别映射acceptedits与dangerously与无flag() {
         !default.iter().any(|arg| arg.contains("permission")),
         "default 档无 permission flag（CLI -p 默认档），实际: {default:?}"
     );
+}
+
+#[test]
+fn 档位值改serde派生后accept_edits值串逐字不变且组装与基线逐项相等() {
+    // flag 值改由 serde 序列化派生（serde_json::to_value 取字符串）：值串与
+    // 枚举化前逐字一致（AC-1 行为不变回归锁定），组装序列与既有基线逐项相等
+    let derived =
+        serde_json::to_value(AgentPermissionMode::AcceptEdits).expect("档位枚举序列化应成功");
+    assert_eq!(
+        derived,
+        serde_json::json!("acceptEdits"),
+        "serde 派生值与既有落库/线格式口径逐字一致"
+    );
+
+    let args = build_args(&params("任务", AgentPermissionMode::AcceptEdits));
+    let position = args
+        .iter()
+        .position(|arg| arg == "--permission-mode")
+        .expect("acceptEdits 组装含 --permission-mode flag");
+    assert_eq!(
+        args.get(position + 1).map(String::as_str),
+        Some("acceptEdits"),
+        "flag 值串逐字为 acceptEdits"
+    );
+    assert_eq!(
+        args,
+        legacy_args("任务", AgentPermissionMode::AcceptEdits),
+        "组装序列与既有基线逐项相等"
+    );
+}
+
+#[test]
+fn 三档全组合组装结果与改动前基线逐项相等() {
+    // Default（无 permission flag）/ AcceptEdits / BypassPermissions 三档穷尽：
+    // 组装结果与改动前基线逐项相等（边界穷尽，复用 legacy_args 基线对照装置）
+    for (mode, expected) in [
+        (AgentPermissionMode::Default, None),
+        (
+            AgentPermissionMode::AcceptEdits,
+            Some(["--permission-mode", "acceptEdits"].as_slice()),
+        ),
+        (
+            AgentPermissionMode::BypassPermissions,
+            Some(["--dangerously-skip-permissions"].as_slice()),
+        ),
+    ] {
+        let args = build_args(&params("任务", mode));
+        assert_eq!(
+            args,
+            legacy_args("任务", mode),
+            "组合 permission={mode:?} 与改动前基线逐项相等"
+        );
+        // 档位段（基础五要素 -p/prompt/stream-json/verbose 之后、resume 之前）逐字核对
+        let tail = &args[5..];
+        match expected {
+            Some(expected_flags) => assert_eq!(
+                tail, expected_flags,
+                "组合 permission={mode:?} 档位段逐字一致"
+            ),
+            None => assert!(
+                tail.is_empty(),
+                "组合 permission={mode:?} 无档位 flag，实际: {tail:?}"
+            ),
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------

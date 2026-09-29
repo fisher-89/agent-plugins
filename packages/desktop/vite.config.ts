@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
 import { defineConfig } from 'vite-plus';
 
+const NO_STATIC_CHECK = ['src-tauri/**', 'src/types/generated/**'];
+
 // dev server 端口与 src-tauri/tauri.conf.json 的 build.devUrl 对齐。
 // defineConfig 取自 vite-plus（config.json 登记的套件框架）：`vp dev` /
 // `vp build` 与 `vp test` 共用本文件；test 节配置组件/hook 测试所需的 jsdom 环境。
@@ -27,8 +29,13 @@ export default defineConfig({
     outDir: 'dist',
     target: 'es2022',
   },
+  fmt: {
+    ignorePatterns: NO_STATIC_CHECK,
+    singleQuote: true,
+    sortImports: true,
+  },
   lint: {
-    ignorePatterns: ['src-tauri/**'],
+    ignorePatterns: NO_STATIC_CHECK,
     options: {
       typeCheck: true,
       typeAware: true,
@@ -57,11 +64,6 @@ export default defineConfig({
         },
       },
     ],
-  },
-  fmt: {
-    ignorePatterns: ['src-tauri/**'],
-    singleQuote: true,
-    sortImports: true,
   },
   test: {
     include: ['src/**/*.test.ts?(x)'],

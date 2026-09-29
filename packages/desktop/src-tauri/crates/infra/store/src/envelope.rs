@@ -9,12 +9,13 @@
 use native_db::{Database, ToInput};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
+use specta::Type;
 
 use crate::model::{AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
 use crate::store::{db_err, StoreError};
 
 /// 模型清单一行：模型名 + 记录计数（计数 0 也列出）。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ModelInfo {
     /// 模型名（查看器展示与 `Store::scan` 入参同源）
@@ -24,7 +25,7 @@ pub struct ModelInfo {
 }
 
 /// 记录信封：key / value 均为 JSON 值（native_db 类型不越信封，无二进制）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct RecordEnvelope {
     /// 记录主键的 JSON 形态

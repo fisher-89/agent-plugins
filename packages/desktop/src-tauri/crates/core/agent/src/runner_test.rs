@@ -1,6 +1,7 @@
 //! `runner` 的单元测试（AC-1）：`AgentRunner` trait 假实现经 mpsc 交付预录
-//! 事件（trait 测试替身，非外部进程 mock）、Send+Sync 注入面、两枚举 serde
-//! 线格式与 as_str 口径、`AgentStartError` Display 文案、`AgentRunParams`
+//! 事件（trait 测试替身，非外部进程 mock）、Send+Sync 注入面、三枚举 serde
+//! 线格式值域（含 `AgentRunStatus`；as_str 双轨口径随其退役删除，值域单一
+//! 来源 = serde camelCase）、`AgentStartError` Display 文案、`AgentRunParams`
 //! cwd 保真。
 
 use std::path::PathBuf;
@@ -10,8 +11,8 @@ use tokio::sync::mpsc;
 
 use crate::event::{AgentEvent, AgentEventKind};
 use crate::runner::{
-    AgentEnvMode, AgentPermissionMode, AgentRun, AgentRunParams, AgentRunner, AgentStartError,
-    RunHandle,
+    AgentEnvMode, AgentPermissionMode, AgentRun, AgentRunParams, AgentRunStatus, AgentRunner,
+    AgentStartError, RunHandle,
 };
 
 /// 假 runner：预录事件序列经 mpsc 交付（或直接返回可控启动错误）。
@@ -137,36 +138,63 @@ async fn 假runner可作trait_object注入且满足send_sync边界() {
 }
 
 // ---------------------------------------------------------------------------
-// AgentEnvMode / AgentPermissionMode serde 与 as_str
+// 三枚举 serde 线格式值域（AC-1：与枚举化前 String 值域逐字一致；值域单一
+// 来源 = serde camelCase，as_str 双轨口径已退役）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn env_mode两档序列化为default与bare且as_str同值() {
+fn env_mode线格式回归两档仍逐字为default与bare且roundtrip一致() {
+    // 加 specta::Type 后线格式零变化（AC-1 边界回归）
     for (mode, expected) in [
         (AgentEnvMode::Default, "default"),
         (AgentEnvMode::Bare, "bare"),
     ] {
         let serialized = serde_json::to_string(&mode).expect("序列化成功");
-        assert_eq!(serialized, format!("\"{expected}\""));
-        assert_eq!(mode.as_str(), expected, "落库口径与线格式一致");
+        assert_eq!(serialized, format!("\"{expected}\""), "线格式逐字一致");
         let roundtrip: AgentEnvMode = serde_json::from_str(&serialized).expect("反序列化成功");
         assert_eq!(roundtrip, mode);
     }
 }
 
 #[test]
-fn permission_mode三档序列化为受控驼峰串且as_str同值() {
+fn permission_mode线格式回归三档仍为受控驼峰串且roundtrip一致() {
+    // 加 specta::Type 后线格式零变化（AC-1 正向回归）
     for (mode, expected) in [
         (AgentPermissionMode::Default, "default"),
         (AgentPermissionMode::AcceptEdits, "acceptEdits"),
         (AgentPermissionMode::BypassPermissions, "bypassPermissions"),
     ] {
         let serialized = serde_json::to_string(&mode).expect("序列化成功");
-        assert_eq!(serialized, format!("\"{expected}\""));
-        assert_eq!(mode.as_str(), expected, "落库口径与线格式一致");
+        assert_eq!(serialized, format!("\"{expected}\""), "线格式逐字一致");
         let roundtrip: AgentPermissionMode =
             serde_json::from_str(&serialized).expect("反序列化成功");
         assert_eq!(roundtrip, mode);
+    }
+}
+
+#[test]
+fn run_status四档序列化逐字为running_completed_failed_stopped且roundtrip一致() {
+    // AgentRunStatus（新增枚举）：serde camelCase 值域与枚举化前 String 值域
+    // 逐字一致（AC-1 正向）
+    for (status, expected) in [
+        (AgentRunStatus::Running, "running"),
+        (AgentRunStatus::Completed, "completed"),
+        (AgentRunStatus::Failed, "failed"),
+        (AgentRunStatus::Stopped, "stopped"),
+    ] {
+        let serialized = serde_json::to_string(&status).expect("序列化成功");
+        assert_eq!(serialized, format!("\"{expected}\""), "线格式逐字一致");
+        let roundtrip: AgentRunStatus = serde_json::from_str(&serialized).expect("反序列化成功");
+        assert_eq!(roundtrip, status);
+    }
+}
+
+#[test]
+fn run_status清单外字符串反序列化返回err值域受控() {
+    // 大小写不符 / 前缀撞车 / 旧同义词 / 空串：清单外一律 Err（异常半边）
+    for invalid in ["Running", "run", "succeeded", "COMPLETE", "stop", ""] {
+        let result = serde_json::from_str::<AgentRunStatus>(invalid);
+        assert!(result.is_err(), "status 非法值 {invalid:?} 必须 Err");
     }
 }
 

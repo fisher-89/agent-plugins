@@ -202,3 +202,63 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     await waitFor(() => expect(result.current.events).toEqual(eventsSecond));
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：agent_runs / agent_run_events 裸 invoke →
+// typed bindings 机械替换后，invoke 命令名与参数逐字不变（生成绑定底层仍走
+// 同模块 invoke，mock 机制切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useAgentRunHistory：生成绑定调用面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('经生成绑定入口后 invoke 收到 "agent_runs"（挂载恰一次）与 "agent_run_events" + { runId }，清单降序承接与事件透传不变', async () => {
+    invokeMock.mockResolvedValue(RUNS_DESC);
+    const { result } = renderHook(() => useAgentRunHistory());
+    await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
+
+    const events = [runStarted(0)];
+    invokeMock.mockImplementation((command: string, params?: { runId?: number }) =>
+      command === 'agent_run_events' && params?.runId === 3
+        ? Promise.resolve(events)
+        : Promise.resolve([]),
+    );
+    act(() => {
+      result.current.openRun(3);
+    });
+    await waitFor(() => expect(result.current.events).toEqual(events));
+
+    expect(invokeMock).toHaveBeenCalledWith('agent_runs');
+    expect(invokeMock).toHaveBeenCalledWith('agent_run_events', { runId: 3 });
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_runs')).toHaveLength(1);
+    expect(result.current.selectedRunId).toBe(3);
+  });
+
+  it('agent_runs 返回 [] → runs 为空数组不崩（绑定切换不改变空态）', async () => {
+    invokeMock.mockResolvedValue([]);
+    const { result } = renderHook(() => useAgentRunHistory());
+
+    await waitFor(() => {
+      expect(result.current.runs).toEqual([]);
+      expect(result.current.error).toBeNull();
+      expect(result.current.loading).toBe(false);
+    });
+  });
+
+  it('refresh / openRun reject → error 置串、loading 复位、runs 清单不受影响（错误路径不变）', async () => {
+    invokeMock.mockResolvedValue(RUNS_DESC);
+    const { result } = renderHook(() => useAgentRunHistory());
+    await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
+
+    invokeMock.mockRejectedValue('db: 事件读取失败');
+    act(() => {
+      result.current.openRun(3);
+    });
+    await waitFor(() => expect(result.current.error).toBe('db: 事件读取失败'));
+
+    expect(result.current.loading).toBe(false);
+    expect(result.current.runs).toEqual(RUNS_DESC);
+  });
+});

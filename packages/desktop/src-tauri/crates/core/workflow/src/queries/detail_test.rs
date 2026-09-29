@@ -318,3 +318,58 @@ fn skipped与stale标记随条目透出() {
     assert!(detail.pipeline[5].attempts[0].stale);
     assert!(!detail.pipeline[5].attempts[0].skipped);
 }
+
+
+#[test]
+fn 线面契约缺省为null且时间戳为iso串() {
+    let ws = TempWs::new("wire-shape");
+    ws.change(
+        "openspec/changes/wire",
+        &[(
+            "workflow.json",
+            r#"{
+              "workflow_type": "requirement",
+              "created": "2026-09-18",
+              "eval": [
+                { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "start_at": "2026-09-18T08:00:00Z", "timestamp": "2026-09-18T08:30:00Z" },
+                { "phase": "dev-design", "attempt": 1, "verdict": "fail", "report": "首轮未过", "checklist": [], "backtrack_to": "proposal", "backtrack_reason": "缺组件" }
+              ],
+              "active_phase": { "phase": "dev-design", "attempt": 2, "start_at": "2026-09-18T09:00:00Z" },
+              "interrupted": [ { "phase": "test-gen", "attempt": 1, "start_at": "2026-09-18T07:00:00Z", "end_at": "2026-09-18T07:30:00Z" } ],
+              "file_log": [
+                { "op": "write", "scope": "workflow", "attempt": 2, "path": "a.md", "at": "2026-09-18T07:00:00Z" },
+                { "op": "delete", "scope": "workflow", "path": "b.md" }
+              ]
+            }"#,
+        )],
+    );
+
+    let detail = ws.detail("wire");
+    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+
+    // 缺省 → null（golden 契约：线面与数据源形态一致，不省键）
+    assert_eq!(value["pipeline"][1]["attempts"][0]["startAt"], serde_json::Value::Null);
+    assert_eq!(value["pipeline"][1]["attempts"][0]["timestamp"], serde_json::Value::Null);
+    assert_eq!(value["fileLog"][1]["attempt"], serde_json::Value::Null);
+    assert_eq!(value["fileLog"][1]["at"], serde_json::Value::Null);
+
+    // 有值时间戳 → ISO 串原样往返（含 AttemptRecord，修正前的组件数组伪影不再出现）
+    assert_eq!(value["activePhase"]["startAt"], "2026-09-18T09:00:00Z");
+    assert_eq!(value["interrupted"][0]["endAt"], "2026-09-18T07:30:00Z");
+    assert_eq!(value["fileLog"][0]["at"], "2026-09-18T07:00:00Z");
+    assert_eq!(
+        value["pipeline"][0]["attempts"][0]["timestamp"], "2026-09-18T08:30:00Z",
+        "AttemptRecord 时间戳应为 ISO 串（非裸 OffsetDateTime 组件数组）"
+    );
+
+    // v1 形态：无 active_phase / file_log 的代际，缺省为 null
+    let ws_v1 = TempWs::new("wire-v1");
+    ws_v1.change(
+        "openspec/changes/wire-v1",
+        &[("workflow.json", r#"{ "workflow_type": "requirement", "eval": [] }"#)],
+    );
+    let v1 = ws_v1.detail("wire-v1");
+    let v1_value = serde_json::to_value(&v1).expect("线面序列化应成功");
+    assert_eq!(v1_value["activePhase"], serde_json::Value::Null);
+    assert_eq!(v1_value["fileLog"], serde_json::Value::Null);
+}

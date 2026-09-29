@@ -94,17 +94,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              213,
-              7,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-08-01T07:00:00Z",
             "verdict": "pass"
           }
         ],
@@ -127,17 +117,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              214,
-              8,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-08-02T08:00:00Z",
             "verdict": "fail"
           },
           {
@@ -154,28 +134,8 @@
             "report": "合成 v2 样本：回跳后第二次设计评估通过。",
             "skipped": false,
             "stale": false,
-            "startAt": [
-              2026,
-              214,
-              9,
-              0,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
-            "timestamp": [
-              2026,
-              214,
-              9,
-              40,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
+            "startAt": "2026-08-02T09:00:00Z",
+            "timestamp": "2026-08-02T09:40:00Z",
             "verdict": "pass"
           }
         ],
@@ -196,17 +156,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              215,
-              10,
-              30,
-              0,
-              0,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-08-03T10:30:00Z",
             "verdict": "pass"
           }
         ],

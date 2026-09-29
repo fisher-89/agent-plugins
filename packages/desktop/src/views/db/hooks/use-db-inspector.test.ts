@@ -427,3 +427,65 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
     expect(result.current.records).toHaveLength(50);
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：db_models / db_records 裸 invoke → typed
+// bindings 机械替换后，invoke 命令名与参数逐字不变（生成绑定底层仍走同模块
+// invoke，mock 机制切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useDbInspector：生成绑定调用面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('经生成绑定入口后 invoke 收到 "db_models" 与 "db_records" + { model, offset, limit }，分页参数与取数透传不变', async () => {
+    mockDispatch(envelopes(60));
+    const { result } = renderHook(() => useDbInspector());
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+    expect(invokeMock).toHaveBeenCalledWith('db_models');
+
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.records).toHaveLength(50));
+    expect(invokeMock).toHaveBeenCalledWith('db_records', {
+      model: 'agent_run',
+      offset: 0,
+      limit: 50,
+    });
+
+    act(() => {
+      result.current.nextPage();
+    });
+    await waitFor(() => expect(result.current.offset).toBe(50));
+    expect(lastParamsOf('db_records')).toEqual({ model: 'agent_run', offset: 50, limit: 50 });
+  });
+
+  it('未选中模型不取记录（零 IPC 纪律保持）、翻页 offset 步进参数不变', async () => {
+    mockDispatch(envelopes(10));
+    const { result } = renderHook(() => useDbInspector());
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(countOf('db_records')).toBe(0);
+    expect(result.current.records).toEqual([]);
+  });
+
+  it('db_models / db_records reject → 双轨 inline 错误态置位、已选模型不丢失不变', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'db_models') return Promise.resolve([...MODELS]);
+      return Promise.reject(new Error('db: 未知模型'));
+    });
+    const { result } = renderHook(() => useDbInspector());
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.recordsError).toContain('db: 未知模型'));
+    expect(result.current.selected).toBe('agent_run');
+    expect(result.current.models).toHaveLength(3);
+
+    invokeMock.mockReset();
+    invokeMock.mockRejectedValue(new Error('db: 清单打开失败'));
+    const modelsFailed = renderHook(() => useDbInspector());
+    await waitFor(() => expect(modelsFailed.result.current.error).toContain('db: 清单打开失败'));
+    expect(modelsFailed.result.current.models).toEqual([]);
+  });
+});

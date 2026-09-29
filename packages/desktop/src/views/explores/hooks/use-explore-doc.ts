@@ -1,7 +1,7 @@
-import { Channel, invoke } from '@tauri-apps/api/core';
+import { Channel } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ExploreDoc, FileWatchEvent } from '../../../types/dto';
+import { commands, type ExploreDoc, type FileWatchEvent } from '../../../types/generated/bindings';
 
 /** watch 信号防抖窗口（毫秒，trailing）：窗口内多次信号合并为一次显式拉取 */
 const WATCH_DEBOUNCE_MS = 500;
@@ -24,7 +24,8 @@ function fetchDoc(
   onError: (message: string) => void,
   onSettled: () => void,
 ): void {
-  invoke<ExploreDoc | null>('read_explore', { root, name })
+  commands
+    .readExplore(root, name)
     .then((result) => {
       if (isCancelled()) return;
       onDoc(result);
@@ -67,11 +68,11 @@ async function armWatch(
   channel: Channel<FileWatchEvent>,
   isCancelled: () => boolean,
 ): Promise<() => void> {
-  const path = await invoke<string | null>('explore_doc_path', { root, name });
+  const path = await commands.exploreDocPath(root, name);
   if (path === null || isCancelled()) return () => {};
-  const subscriptionId = await invoke<number>('watch_subscribe', { onEvent: channel, path });
+  const subscriptionId = await commands.watchSubscribe(channel, path);
   return () => {
-    void invoke<boolean>('watch_unsubscribe', { subscriptionId });
+    void commands.watchUnsubscribe(subscriptionId);
   };
 }
 

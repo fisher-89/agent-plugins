@@ -337,3 +337,85 @@ describe('TauriAgentTransport：边界', () => {
     expect(reconnected).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）与 dto shim 兼容（AC-6）：裸 invoke 切生成
+// 绑定入口后，命令名 / 参数 key camelCase / 错误通道逐字不变（生成绑定底层
+// 仍走 @tauri-apps/api/core 的 invoke，mock 机制切换后依旧生效）；手写镜像
+// interface 退役后，fixture 类型导入改自生成物（经 dto shim）。
+// ---------------------------------------------------------------------------
+
+describe('TauriAgentTransport：生成绑定调用面', () => {
+  it('经生成绑定入口发起后 invoke 收到 "agent_start"，链参数 7 字段 camelCase key 与值逐字不变且 body 原样穿透', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    void stream.cancel();
+
+    // 生成绑定位置参数 → invoke 参数对象：恰 8 个 key（链参数 7 + onEvent）
+    expect(Object.keys(startCallArgs()).sort()).toEqual([
+      'onEvent',
+      'parentRunId',
+      'permissionMode',
+      'prompt',
+      'resumeSessionId',
+      'root',
+      'source',
+      'sourceRef',
+    ]);
+    expect(startCallArgs()).toEqual({ ...CHAIN_BODY, onEvent: expect.any(ChannelMock) });
+  });
+
+  it('Channel<AgentRunMessage> 信封（ipc event / record 双变体）类型来自生成物：事件转 chunk 保序、Record 收尾关流、未知信封忽略流不断', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().onmessage?.({ ipc: 'mystery', payload: '?' });
+    lastChannel().onmessage?.({ ipc: 'event', event: runStarted(0) });
+    lastChannel().onmessage?.({ ipc: 'record', record: recordRow(13, 'completed') });
+    const collected = await pumping;
+
+    // 未知信封不产出 chunk、流不断；事件 chunk 在前（保序），Record 四部件收尾关流
+    const types = collected.map((chunk) => chunk.type);
+    expect(types.length).toBeGreaterThan(4);
+    expect(types.slice(-4)).toEqual(['start', 'reset-step', 'data-run-record', 'finish']);
+  });
+
+  it('生成绑定错误通道（Result<T, String> → reject）下启动失败：错误串透传、流以错误 reject、非 Error 原因包装行为不变', async () => {
+    invokeMock.mockRejectedValue('CLI 未找到');
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const reader = stream.getReader();
+
+    // 错误串经 reject 通道抵达，非 Error 原因包一层 Error 后透出
+    await expect(reader.read()).rejects.toThrow('CLI 未找到');
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(1);
+  });
+
+  it("dto shim（from '../types/dto' 导入）在 shim 化后编译与运行不受影响：recordRow fixture 与断言照常工作", async () => {
+    // AC-6 自动化半边：漏网旧 import 经纯 re-export shim 不炸——fixture 构造
+    // （AgentRunRecord / AgentEvent 类型自 dto shim 导入）与断言语义不变
+    const row: AgentRunRecord = recordRow(7, 'stopped');
+    const event: AgentEvent = runStarted(0);
+    expect([row.env, row.permissionMode, row.status]).toEqual([
+      'default',
+      'bypassPermissions',
+      'stopped',
+    ]);
+    expect(event.kind).toBe('runStarted');
+
+    invokeMock.mockResolvedValue(recordRow(7, 'running'));
+    const transport = new TauriAgentTransport();
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().onmessage?.({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    const recordChunk = collected.find((chunk) => chunk.type === 'data-run-record');
+    expect(recordChunk?.type === 'data-run-record' && recordChunk.data).toEqual(row);
+  });
+});

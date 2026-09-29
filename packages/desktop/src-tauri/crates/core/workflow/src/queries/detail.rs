@@ -1,13 +1,23 @@
 //! change 详情查询：固定 9 站流水线聚合 + 运行状态 + 产物清单。
+//!
+//! 出线 DTO 约定（API 层转换，golden 契约）：磁盘模型（`model`，snake_case
+//! alias + 宽松时间戳）不出线；本层 DTO 为自然结构体纯 derive（零字段属性、
+//! 零手动序列化——`alias`/`skip_serializing_if`/自定义编解码任一都会被
+//! specta phases 模式判为相位差，分裂出 `*_Serialize/_Deserialize` 联合
+//! 别名）。线面：缺省字段 `null`、时间戳 ISO 串（与磁盘数据源形态一致，
+//! 由 `tests/golden` 逐字节钉死）；时间戳在 `From` 转换时定格为字符串。
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
+use time::format_description::well_known::Rfc3339;
 use time::OffsetDateTime;
 
 use super::list::ChangeSource;
 use super::locate_change;
 use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
 use crate::model::{
-    ActivePhase, ChecklistItem, FileLogEntry, InterruptedEntry, Inventory, PhaseLog, Verdict,
+    ActivePhase as DiskActivePhase, ChecklistItem, FileLogEntry as DiskFileLogEntry,
+    FileLogOp, InterruptedEntry as DiskInterruptedEntry, Inventory, PhaseLog, Verdict,
 };
 use crate::parse::{detect_inventory, parse_workflow_file, WorkflowFileParse, WORKFLOW_FILE_NAME};
 use foundation::layout::Layout;
@@ -25,8 +35,77 @@ pub const PIPELINE_PHASES: [&str; 9] = [
     "code-analyze",
 ];
 
+/// 时间戳出线转换：ISO 串。与 `model` 层 `lenient_timestamp::serialize`
+/// 语义逐字一致（Rfc3339 + `unwrap_or_default` 空串降级）。
+fn to_iso(timestamp: &OffsetDateTime) -> String {
+    timestamp.format(&Rfc3339).unwrap_or_default()
+}
+
+/// 运行中 phase 状态（线面）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct ActivePhase {
+    pub phase: String,
+    pub attempt: u32,
+    pub start_at: Option<String>,
+}
+
+impl From<&DiskActivePhase> for ActivePhase {
+    fn from(entry: &DiskActivePhase) -> Self {
+        ActivePhase {
+            phase: entry.phase.clone(),
+            attempt: entry.attempt,
+            start_at: entry.start_at.as_ref().map(to_iso),
+        }
+    }
+}
+
+/// 中断留档（线面）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct InterruptedEntry {
+    pub phase: String,
+    pub attempt: u32,
+    pub start_at: Option<String>,
+    pub end_at: Option<String>,
+}
+
+impl From<&DiskInterruptedEntry> for InterruptedEntry {
+    fn from(entry: &DiskInterruptedEntry) -> Self {
+        InterruptedEntry {
+            phase: entry.phase.clone(),
+            attempt: entry.attempt,
+            start_at: entry.start_at.as_ref().map(to_iso),
+            end_at: entry.end_at.as_ref().map(to_iso),
+        }
+    }
+}
+
+/// 一条日志式文件清单（线面）。
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct FileLogEntry {
+    pub op: FileLogOp,
+    pub scope: String,
+    pub attempt: Option<u32>,
+    pub path: String,
+    pub at: Option<String>,
+}
+
+impl From<&DiskFileLogEntry> for FileLogEntry {
+    fn from(entry: &DiskFileLogEntry) -> Self {
+        FileLogEntry {
+            op: entry.op,
+            scope: entry.scope.clone(),
+            attempt: entry.attempt,
+            path: entry.path.clone(),
+            at: entry.at.as_ref().map(to_iso),
+        }
+    }
+}
+
 /// 单次尝试记录：backtrack 目标与原因随条目可查。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AttemptRecord {
     pub attempt: Option<u32>,
@@ -35,8 +114,8 @@ pub struct AttemptRecord {
     pub checklist: Vec<ChecklistItem>,
     pub skipped: bool,
     pub stale: bool,
-    pub start_at: Option<OffsetDateTime>,
-    pub timestamp: Option<OffsetDateTime>,
+    pub start_at: Option<String>,
+    pub timestamp: Option<String>,
     pub backtrack_to: Option<String>,
     pub backtrack_reason: Option<String>,
 }
@@ -50,8 +129,8 @@ impl From<&PhaseLog> for AttemptRecord {
             checklist: entry.checklist.clone(),
             skipped: entry.skipped,
             stale: entry.stale,
-            start_at: entry.start_at,
-            timestamp: entry.timestamp,
+            start_at: entry.start_at.as_ref().map(to_iso),
+            timestamp: entry.timestamp.as_ref().map(to_iso),
             backtrack_to: entry.backtrack_to.clone(),
             backtrack_reason: entry.backtrack_reason.clone(),
         }
@@ -59,7 +138,7 @@ impl From<&PhaseLog> for AttemptRecord {
 }
 
 /// 一站流水线：该 phase 的全部 attempt 序列。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct PhaseEntry {
     pub phase: String,
@@ -67,7 +146,7 @@ pub struct PhaseEntry {
 }
 
 /// change 详情聚合。
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct ChangeDetail {
     pub name: String,
@@ -138,11 +217,21 @@ pub fn change_detail(layout: &Layout, name: &str) -> Option<ChangeDetail> {
         }
     }
 
-    let active_phase = workflow.and_then(|workflow| workflow.active_phase.clone());
+    let active_phase = workflow
+        .and_then(|workflow| workflow.active_phase.as_ref())
+        .map(ActivePhase::from);
     let interrupted = workflow
-        .map(|workflow| workflow.interrupted.clone())
+        .map(|workflow| {
+            workflow
+                .interrupted
+                .iter()
+                .map(InterruptedEntry::from)
+                .collect()
+        })
         .unwrap_or_default();
-    let file_log = workflow.and_then(|workflow| workflow.file_log.clone());
+    let file_log = workflow
+        .and_then(|workflow| workflow.file_log.as_ref())
+        .map(|entries| entries.iter().map(FileLogEntry::from).collect());
     let artifacts = discover_artifacts(&location.dir, inventory, workflow);
 
     Some(ChangeDetail {

@@ -21,15 +21,14 @@ use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
 use ::agent::{
-    AgentEvent, AgentEventKind, AgentPermissionMode, AgentRun, AgentRunParams, AgentRunner,
-    AgentStartError, RunHandle,
+    AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRun, AgentRunParams,
+    AgentRunStatus, AgentRunner, AgentStartError, RunHandle,
 };
 use store::{AgentRunRecord, Store};
 
 use super::{
-    abort_with_store_failure, drive_agent_run, start_agent_run, start_agent_run_with,
-    AgentRunMessage, RunProvenance, RunStopRegistry, STATUS_COMPLETED, STATUS_FAILED,
-    STATUS_RUNNING, STATUS_STOPPED,
+    abort_with_store_failure, drive_agent_run, running_record, start_agent_run,
+    start_agent_run_with, AgentRunMessage, RunProvenance, RunStopRegistry,
 };
 
 /// PATH 环境变量修改串行化（agent_start 同款用例经 mod_test 共享此锁）。
@@ -294,15 +293,15 @@ pub(crate) async fn start_and_wait_terminal<R: AgentRunner + 'static>(
 }
 
 /// drive 直驱用例的底座（编排前半边替身，`start_agent_run_with` 同款 begin
-/// 语义）：running 形态记录 begin 落库分配 id。
+/// 语义）：running 形态记录 begin 落库分配 id（三字段直写契约枚举）。
 fn begin_running(store: &Store) -> AgentRunRecord {
     let running = AgentRunRecord {
         id: 0,
         prompt: "帮我跑一轮 loop".to_owned(),
         cwd: "C:\\ws".to_owned(),
-        env: "default".to_owned(),
-        permission_mode: "bypassPermissions".to_owned(),
-        status: STATUS_RUNNING.to_owned(),
+        env: AgentEnvMode::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        status: AgentRunStatus::Running,
         started_at: 1727000000000,
         finished_at: None,
         num_turns: None,
@@ -343,7 +342,8 @@ async fn 预录completed会话经tee双sink全链路落库且channel逐事件一
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
     assert_eq!(
-        record.status, STATUS_COMPLETED,
+        record.status,
+        AgentRunStatus::Completed,
         "RunResult 驱动收敛 completed"
     );
     assert_eq!(record.num_turns, Some(3), "汇总字段摘自 RunResult 事件");
@@ -365,11 +365,19 @@ async fn 预录completed会话经tee双sink全链路落库且channel逐事件一
         "Channel 事件序列与落库事件序列逐条一致"
     );
 
+    // Channel Record 信封 JSON 逐字 "completed"（提前 resolve 契约的终态半边）
+    let terminal = wait_terminal_record(&captured).await;
+    assert_eq!(
+        terminal["record"]["status"],
+        serde_json::json!("completed"),
+        "信封出线 status 逐字 completed（serde camelCase 值域）"
+    );
+
     // 落库 run 行为 completed 终态；注册表终态除名（停止寻址幂等 miss）
     let listed = store.list_agent_runs().unwrap();
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, record.id);
-    assert_eq!(listed[0].status, STATUS_COMPLETED);
+    assert_eq!(listed[0].status, AgentRunStatus::Completed);
     assert!(!registry.request_stop(record.id), "终态除名后停止寻址 miss");
 }
 
@@ -389,12 +397,16 @@ async fn 预录is_error的result时返回ok的failed记录而非err() {
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
     assert_eq!(
-        record.status, STATUS_FAILED,
+        record.status,
+        AgentRunStatus::Failed,
         "D7：in-band 失败收敛 failed 记录"
     );
     assert_eq!(record.num_turns, Some(2));
     assert!(record.finished_at.is_some());
-    assert_eq!(store.list_agent_runs().unwrap()[0].status, STATUS_FAILED);
+    assert_eq!(
+        store.list_agent_runs().unwrap()[0].status,
+        AgentRunStatus::Failed
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -418,7 +430,8 @@ async fn eof时状态机已由run_result收敛则以状态机为准stop请求晚
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
     assert_eq!(
-        record.status, STATUS_COMPLETED,
+        record.status,
+        AgentRunStatus::Completed,
         "EOF 时状态机已收敛：以状态机为准，停止信号不改写"
     );
 }
@@ -439,14 +452,22 @@ async fn eof无result但停止信号已置位时显式收敛stopped且不记因(
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
-    assert_eq!(record.status, STATUS_STOPPED, "停止信号显式收敛 stopped");
+    assert_eq!(
+        record.status,
+        AgentRunStatus::Stopped,
+        "停止信号显式收敛 stopped"
+    );
     assert_eq!(record.error, None, "用户主动终止非失败：error 不记因");
     assert!(record.finished_at.is_some(), "终态落 finished_at");
     // 终态 Record 信封流出（提前 resolve 契约的终态半边）
     let pushed = captured.lock().expect("捕获锁不可中毒").clone();
     assert_eq!(pushed.len(), 2, "一事件一终态 Record");
     assert_eq!(pushed[1]["ipc"], "record", "收尾信封为 Record");
-    assert_eq!(pushed[1]["record"]["status"], STATUS_STOPPED);
+    assert_eq!(
+        pushed[1]["record"]["status"],
+        serde_json::json!("stopped"),
+        "信封出线值逐字 stopped（用户主动终止非失败语义不变）"
+    );
     // 注册表终态除名
     assert!(!registry.request_stop(record.id), "终态除名后停止寻址 miss");
 }
@@ -467,7 +488,8 @@ async fn 既无result又无stop请求的eof兜底收敛failed且error记因() {
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
     assert_eq!(
-        record.status, STATUS_FAILED,
+        record.status,
+        AgentRunStatus::Failed,
         "进程异常终止无 result：兜底收敛 failed"
     );
     assert_eq!(
@@ -534,7 +556,7 @@ async fn channel接收端先行关闭时落库继续完整且编排返回最终�
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
-    assert_eq!(record.status, STATUS_COMPLETED);
+    assert_eq!(record.status, AgentRunStatus::Completed);
     let stored = store.list_agent_run_events(record.id).unwrap();
     assert_eq!(stored.len(), 3, "D1：落库完整不因 Channel 失败而中断");
 }
@@ -597,7 +619,8 @@ async fn stop请求经注册表触达租户后后台收敛stopped并流出record
     )
     .expect("start 提前 resolve running 记录");
     assert_eq!(
-        running.status, STATUS_RUNNING,
+        running.status,
+        AgentRunStatus::Running,
         "返回即 running（提前 resolve）"
     );
     assert_ne!(running.id, 0, "begin 已分配 id，agent_stop 可寻址");
@@ -609,12 +632,16 @@ async fn stop请求经注册表触达租户后后台收敛stopped并流出record
     let record_value = wait_terminal_record(&captured).await;
     let record: AgentRunRecord =
         serde_json::from_value(record_value["record"].clone()).expect("Record 信封携带终态记录");
-    assert_eq!(record.status, STATUS_STOPPED, "停止信号收敛 stopped");
+    assert_eq!(
+        record.status,
+        AgentRunStatus::Stopped,
+        "停止信号收敛 stopped"
+    );
     assert_eq!(record.error, None, "用户主动终止不记因");
     assert!(record.finished_at.is_some(), "终态落 finished_at");
     assert_eq!(
         state.list_agent_runs().unwrap()[0].status,
-        STATUS_STOPPED,
+        AgentRunStatus::Stopped,
         "终态整行替换落库"
     );
     assert!(
@@ -671,7 +698,7 @@ fn store写失败的收敛助手将run收敛failed且error记因并尽力落终�
     // 尽力落库），tee 侧「Channel 已送达事件保留」由 channel_closed 用例承载。
     let (_dir, store) = temp_store("abort-failure");
     let run = store
-        .begin_agent_run(&running_record())
+        .begin_agent_run(&abort_base_record())
         .expect("begin 应成功");
 
     let record = abort_with_store_failure(
@@ -680,7 +707,7 @@ fn store写失败的收敛助手将run收敛failed且error记因并尽力落终�
         "事件落库失败: db: 模拟写入失败".to_owned(),
     );
 
-    assert_eq!(record.status, STATUS_FAILED, "run 收敛为 failed");
+    assert_eq!(record.status, AgentRunStatus::Failed, "run 收敛为 failed");
     assert_eq!(
         record.error.as_deref(),
         Some("事件落库失败: db: 模拟写入失败"),
@@ -690,25 +717,25 @@ fn store写失败的收敛助手将run收敛failed且error记因并尽力落终�
 
     let listed = store.list_agent_runs().unwrap();
     assert_eq!(listed.len(), 1, "终态行已尽力落库");
-    assert_eq!(listed[0].status, STATUS_FAILED);
+    assert_eq!(listed[0].status, AgentRunStatus::Failed);
     assert_eq!(
         listed[0].error.as_deref(),
         Some("事件落库失败: db: 模拟写入失败")
     );
 
     // 终态替换语义：failed 终态行覆盖 running 行（整行替换，非追加）
-    assert_ne!(listed[0].status, STATUS_RUNNING);
+    assert_ne!(listed[0].status, AgentRunStatus::Running);
 }
 
-/// 收敛助手用例的底座记录（running 形态，id 已由 begin 分配）。
-fn running_record() -> store::AgentRunRecord {
+/// 收敛助手用例的底座记录（running 形态，id 已由 begin 分配；三字段直写契约枚举）。
+fn abort_base_record() -> store::AgentRunRecord {
     store::AgentRunRecord {
         id: 0,
         prompt: "落库失败场景".to_owned(),
         cwd: "C:\\ws".to_owned(),
-        env: "default".to_owned(),
-        permission_mode: "bypassPermissions".to_owned(),
-        status: STATUS_RUNNING.to_owned(),
+        env: AgentEnvMode::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        status: AgentRunStatus::Running,
         started_at: 1727000000000,
         finished_at: None,
         num_turns: None,
@@ -720,4 +747,78 @@ fn running_record() -> store::AgentRunRecord {
         source_ref: None,
         parent_run_id: None,
     }
+}
+
+// ---------------------------------------------------------------------------
+// running_record 初值与 AgentRunMessage 信封线格式（枚举化跟改：直写枚举、
+// as_str().to_owned() + STATUS_* 常量组装退役；信封 serde 形态零变化是 tee
+// 双路对读断言的前提不变式）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn running_record初值三字段直写枚举且携带provenance来源() {
+    // 初值三字段直写枚举（原 as_str().to_owned() + STATUS_RUNNING 组装退役）：
+    // env 恒 Default、permission_mode 取入参档位变体、status 恒 Running
+    let mut params = params(Path::new("C:\\ws"));
+    params.permission_mode = AgentPermissionMode::AcceptEdits;
+    let provenance = RunProvenance {
+        source: "explore".to_owned(),
+        source_ref: Some("7".to_owned()),
+        parent_run_id: Some(12),
+    };
+
+    let record = running_record(&params, provenance);
+
+    assert_eq!(
+        record.env,
+        AgentEnvMode::Default,
+        "env 恒完整档（无 UI 输入口）"
+    );
+    assert_eq!(
+        record.permission_mode,
+        AgentPermissionMode::AcceptEdits,
+        "permission_mode 直写入参档位变体"
+    );
+    assert_eq!(record.status, AgentRunStatus::Running, "初值恒 running");
+    assert_eq!(record.source, "explore", "初值携带 provenance 来源");
+    assert_eq!(record.source_ref.as_deref(), Some("7"));
+    assert_eq!(record.parent_run_id, Some(12));
+    assert_eq!(record.finished_at, None, "running 行无结束时间");
+    assert_eq!(record.error, None);
+}
+
+#[test]
+fn agent_run_message信封serde线格式双变体逐字不变() {
+    // 加 specta::Type 后信封 serde JSON 形态零变化：tag `ipc` camelCase 双变体
+    // {"ipc":"event","event":…} / {"ipc":"record","record":…}（tee 双路对读的
+    // 前提不变式）
+    let event = run_started(3);
+    let event_value = serde_json::to_value(AgentRunMessage::Event {
+        event: event.clone(),
+    })
+    .expect("Event 信封序列化应成功");
+    assert_eq!(event_value["ipc"], serde_json::json!("event"));
+    assert_eq!(
+        event_value["event"],
+        serde_json::to_value(&event).unwrap(),
+        "Event 信封载荷与事件本体 JSON 同构"
+    );
+
+    let (_dir, store) = temp_store("envelope-record");
+    let record = begin_running(&store);
+    let record_value = serde_json::to_value(AgentRunMessage::Record {
+        record: record.clone(),
+    })
+    .expect("Record 信封序列化应成功");
+    assert_eq!(record_value["ipc"], serde_json::json!("record"));
+    assert_eq!(
+        record_value["record"],
+        serde_json::to_value(&record).unwrap(),
+        "Record 信封载荷与记录本体 JSON 同构"
+    );
+    assert_eq!(
+        record_value["record"]["status"],
+        serde_json::json!("running"),
+        "记录内枚举出线为受控 camelCase 串"
+    );
 }

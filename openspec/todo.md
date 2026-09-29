@@ -84,7 +84,7 @@
 - [x] 【Desktop】将agent会话抽出独立组件，agent调试和explore复用同一个底层
 - [ ] 【Desktop】调用agent支持配置api key，指定模型；收集会话耗时，循环轮次，消耗token数；
 - [x] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
-- [ ] 【Desktop】rust生成ts类型
+- [x] 【Desktop】rust生成ts类型
 - [x] 【Desktop】移除store migrate
 - [ ] 【Desktop】梳理后端commands直接调用infra的场景(已知: watch、explore)，逐个分析是否需要增加core以维持DDD架构；core如何实现依赖反转？
 - [x] 【Desktop】change详情页使用react-flow展示流程，将过程文件等信息关联到对应节点内展开显示
@@ -92,3 +92,7 @@
 - [ ] 【Desktop】将workspace内数据与全局数据分离，每个workspace独立库
 - [ ] 【Desktop】changeDetail流程图连线与实际执行顺序不符
 - [ ] 【Desktop】Agent消息，改为支持查看完成传输的单条消息的原始jsonL，完整jsonL面板数据量太大不利于查看
+- [ ] 【Desktop】src-tauri/infra/store/src/model.ts 移除升级的历史版本 AgentRunRecordV1、AgentRunRecordV2
+- [ ] 【Desktop】移除生成类型中的null，使用undefined代替
+- [ ] 【Desktop】调整src-tauri/src/bindings逻辑，置入子目录；分离生成的类型文件和commands；
+- [ ] 【Desktop】恢复src-tauri/build.rs，当前复杂适配原因“测试链接了 GUI 框架”

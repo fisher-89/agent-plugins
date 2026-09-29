@@ -1,7 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { ChangeList } from '../types/dto';
+import { commands, type ChangeList } from '../types/generated/bindings';
 
 export interface ChangeListState {
   data: ChangeList | null;
@@ -32,7 +31,8 @@ export function useChangeList(root: string | null): ChangeListState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    invoke<ChangeList>('list_changes', { root })
+    commands
+      .listChanges(root)
       .then((result) => {
         if (cancelled) return;
         setData(result);

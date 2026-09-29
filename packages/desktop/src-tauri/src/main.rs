@@ -1,6 +1,7 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
-
-mod commands;
+// 命令面（`commands`）与 specta 注册面（`bindings`）归 lib 目标承载，main 为
+// 薄壳：setup / 插件挂载 / db 路径解析 + invoke_handler 接线（Tauri 2 上游
+// 模板形态，与导出 bin 共享同一命令面）。
 
 use std::path::PathBuf;
 
@@ -8,8 +9,9 @@ use tauri::Manager;
 
 use store::Store;
 
-use commands::exec::RunStopRegistry;
-use commands::watch::WatchRegistry;
+use dev_team::bindings;
+use dev_team::commands::exec::RunStopRegistry;
+use dev_team::commands::watch::WatchRegistry;
 
 /// db 文件落位：`home_dir()/.dev-team` 根，不建子目录（数据维度语义由 db
 /// 文件归属承载，见 desktop-data-dimensions）；父目录由 `Store::open` 内部补齐。
@@ -50,30 +52,7 @@ fn main() {
             app.manage(RunStopRegistry::default());
             Ok(())
         })
-        .invoke_handler(tauri::generate_handler![
-            commands::queries::list_changes,
-            commands::queries::get_change_detail,
-            commands::queries::read_artifact,
-            commands::workspaces::list_workspaces,
-            commands::workspaces::add_workspace,
-            commands::workspaces::remove_workspace,
-            commands::exec::agent_start,
-            commands::exec::agent_stop,
-            commands::exec::agent_runs,
-            commands::exec::agent_run_events,
-            commands::exec::agent_run_chain,
-            commands::explores::read_explore,
-            commands::explores::scan_explores,
-            commands::explores::explore_doc_path,
-            commands::explores::list_explore_records,
-            commands::explores::create_explore_record,
-            commands::explores::rename_explore_record,
-            commands::explores::delete_explore_record,
-            commands::watch::watch_subscribe,
-            commands::watch::watch_unsubscribe,
-            commands::db::db_models,
-            commands::db::db_records,
-        ])
+        .invoke_handler(bindings::builder().invoke_handler())
         .run(tauri::generate_context!("tauri.conf.json"))
         .expect("desktop 应用启动失败");
 }

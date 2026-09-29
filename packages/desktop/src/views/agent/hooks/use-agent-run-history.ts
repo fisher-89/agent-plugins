@@ -1,7 +1,6 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useState } from 'react';
 
-import type { AgentEvent, AgentRunRecord } from '../../../types/dto';
+import { commands, type AgentEvent, type AgentRunRecord } from '../../../types/generated/bindings';
 
 export interface AgentRunHistoryState {
   /** 运行清单（后端 started_at 降序）；挂载自动取数，refresh() 重取 */
@@ -39,7 +38,8 @@ function useRuns(): { runs: AgentRunRecord[]; query: QueryState; refresh: () => 
   useEffect(() => {
     let cancelled = false;
     setQuery({ loading: true, error: null });
-    invoke<AgentRunRecord[]>('agent_runs')
+    commands
+      .agentRuns()
       .then((result) => {
         if (cancelled) return;
         setRuns(result);
@@ -78,7 +78,8 @@ function useReplay(): {
     if (target === null) return;
     let cancelled = false;
     setQuery({ loading: true, error: null });
-    invoke<AgentEvent[]>('agent_run_events', { runId: target })
+    commands
+      .agentRunEvents(target)
       .then((result) => {
         if (cancelled) return;
         setEvents(result);

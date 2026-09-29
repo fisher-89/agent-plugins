@@ -12,6 +12,15 @@
 
 use agent::{AgentPermissionMode, AgentRunParams};
 
+/// `--permission-mode` flag 值（serde 序列化派生：值单一来源 = 线格式值域，
+/// 与落库 / IPC 命名逐字一致，无双轨字符串副本）。
+fn permission_mode_flag_value() -> String {
+    match serde_json::to_value(AgentPermissionMode::AcceptEdits) {
+        Ok(serde_json::Value::String(text)) => text,
+        _ => unreachable!("档位枚举序列化恒为 JSON 字符串"),
+    }
+}
+
 /// 组装 CLI 参数序列（不含程序名本身，逐参传递）。
 pub fn build_args(params: &AgentRunParams) -> Vec<String> {
     let mut args = vec![
@@ -27,7 +36,7 @@ pub fn build_args(params: &AgentRunParams) -> Vec<String> {
         }
         AgentPermissionMode::AcceptEdits => {
             args.push("--permission-mode".to_owned());
-            args.push(AgentPermissionMode::AcceptEdits.as_str().to_owned());
+            args.push(permission_mode_flag_value());
         }
         AgentPermissionMode::Default => {}
     }

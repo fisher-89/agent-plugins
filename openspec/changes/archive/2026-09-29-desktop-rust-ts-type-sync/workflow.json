@@ -1,0 +1,870 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-28",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-28T15:56:43.480Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/Cargo.toml",
+      "at": "2026-09-28T15:56:52.772Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/Cargo.toml",
+      "at": "2026-09-28T15:56:54.940Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/Cargo.toml",
+      "at": "2026-09-28T15:56:58.911Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/event.rs",
+      "at": "2026-09-28T15:57:22.976Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/runner.rs",
+      "at": "2026-09-28T16:22:03.121Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/list.rs",
+      "at": "2026-09-28T15:57:53.743Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/model/inventory.rs",
+      "at": "2026-09-28T15:57:56.460Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "at": "2026-09-28T16:27:01.793Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent.rs",
+      "at": "2026-09-28T16:25:41.552Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/lib.rs",
+      "at": "2026-09-28T15:59:53.533Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bindings.rs",
+      "at": "2026-09-28T16:28:27.460Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bin/export-bindings.rs",
+      "at": "2026-09-28T16:00:20.631Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/queries/mod.rs",
+      "at": "2026-09-28T16:14:06.909Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-09-28T16:28:56.114Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail.rs",
+      "at": "2026-09-28T16:13:30.819Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/model/workflow.rs",
+      "at": "2026-09-28T16:50:52.862Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/envelope.rs",
+      "at": "2026-09-28T16:14:01.246Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bin/scan-legacy-values.rs",
+      "at": "2026-09-28T16:19:58.897Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/lib.rs",
+      "at": "2026-09-28T16:22:04.686Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/flags.rs",
+      "at": "2026-09-28T16:24:22.915Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/explore.rs",
+      "at": "2026-09-28T16:26:51.888Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope.rs",
+      "at": "2026-09-28T16:37:19.373Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/watch/mod.rs",
+      "at": "2026-09-28T16:27:48.417Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/workspaces/mod.rs",
+      "at": "2026-09-28T16:27:19.729Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/explores/mod.rs",
+      "at": "2026-09-28T16:27:46.273Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod.rs",
+      "at": "2026-09-28T16:27:51.119Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-28T16:28:55.197Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-28T17:00:35.505Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/knip.json",
+      "at": "2026-09-28T16:31:17.024Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "crates/infra/store/src/envelope.rs",
+      "at": "2026-09-28T16:36:12.510Z"
+    },
+    {
+      "op": "revert",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "2>",
+      "at": "2026-09-28T16:36:12.510Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/types/dto.ts",
+      "at": "2026-09-28T16:39:11.132Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-transport.ts",
+      "at": "2026-09-28T16:59:26.399Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.ts",
+      "at": "2026-09-28T16:40:06.364Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-change-list.ts",
+      "at": "2026-09-28T16:40:17.610Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-workspaces.ts",
+      "at": "2026-09-28T16:40:22.639Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.ts",
+      "at": "2026-09-28T16:40:34.460Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/hooks/use-db-inspector.ts",
+      "at": "2026-09-28T16:40:45.128Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-doc.ts",
+      "at": "2026-09-28T16:40:57.262Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-list.ts",
+      "at": "2026-09-28T16:41:18.178Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/components/explore-create-dialog.tsx",
+      "at": "2026-09-28T16:41:37.859Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-change-detail.ts",
+      "at": "2026-09-28T16:41:42.313Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/attachments.ts",
+      "at": "2026-09-28T16:53:09.433Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/runner_test.rs",
+      "at": "2026-09-28T17:24:03.477Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/flags_test.rs",
+      "at": "2026-09-28T18:13:05.719Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model_test.rs",
+      "at": "2026-09-28T18:13:04.263Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-09-28T17:28:44.506Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod_test.rs",
+      "at": "2026-09-28T17:29:05.698Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-09-28T17:29:40.752Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope_test.rs",
+      "at": "2026-09-28T17:30:03.735Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent_test.rs",
+      "at": "2026-09-28T17:32:20.893Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/lib.rs",
+      "at": "2026-09-28T17:33:22.220Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bindings_test.rs",
+      "at": "2026-09-28T18:10:11.051Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-transport.test.ts",
+      "at": "2026-09-28T17:38:36.552Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.test.ts",
+      "at": "2026-09-28T17:47:34.485Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-change-list.test.ts",
+      "at": "2026-09-28T17:39:46.361Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-workspaces.test.ts",
+      "at": "2026-09-28T17:40:07.460Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+      "at": "2026-09-28T17:40:29.040Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-change-detail.test.ts",
+      "at": "2026-09-28T17:40:49.700Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/hooks/use-db-inspector.test.ts",
+      "at": "2026-09-28T17:41:17.320Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-doc.test.ts",
+      "at": "2026-09-28T17:47:47.498Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-list.test.ts",
+      "at": "2026-09-28T17:43:08.744Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "out_list.txt",
+      "at": "2026-09-28T17:53:23.348Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "lst.txt",
+      "at": "2026-09-28T17:53:36.768Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "lerr.txt",
+      "at": "2026-09-28T17:53:36.768Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-28T18:00:50.419Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/build.rs",
+      "at": "2026-09-28T18:03:32.259Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 通过。问题含 dto.ts/agent-transport 镜像分裂、27 文件裸 invoke、4c81c9e/a41fde3 前科与 String-vs-union 深层缺陷(R1)；实现/测试/不要修改三节齐备(R2)；7 风险均有具体缓解（=pin、PoC 先行+ts-rs 回退、native_model v2→v3+值域扫描、diff 守卫等）(R3)；AC-1~6 对象+条件可测(R4)；7 决策均含被拒备选(R5)；与旧规一致：无 legacy 迁移层、vp/pnpm check、knip ignore(R6)；无 TODO/占位(R7)；能力 2 条 ↔ specs 2 文件 1:1(R9/R10)；AC 全部映射 scenario，source 保留/线格式逐字不变/运行时校验保留两处口径一致(R11)。",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "问题节(L9-16)具体明确：镜像分裂两处 dto.ts 约 250 行 + agent-transport.ts 双镜像；约 27 文件裸 invoke / 22 条命令；震荡前科 commit 4c81c9e、a41fde3；深层缺陷 TS 镜像比 Rust 类型更强（String vs 字面量 union）。非泛泛改进。"
+        },
+        {
+          "item": "R2 变更范围明确划分实现/测试/不要修改",
+          "pass": true,
+          "evidence": "L47「### 实现文件」14 条（Cargo.toml、runner.rs、model.rs、main.rs、bindings.ts 等）；L64「### 测试文件」5 条；L76「### 不要修改」6 条（source/source_ref、线格式、AgentRunner trait 等）。实现与测试均非空。"
+        },
+        {
+          "item": "R3 风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L102-110 七条风险均有具体缓解：RC 依赖风险→「= 精确 pin；升级事件驱动不追新」；出线形态不符→「PoC 先行…回退 ts-rs 备选」；bincode 编码变化→「native_model v2→v3 + 存量值域扫描先行」；过期生成物→「git diff --exit-code 守卫」；无泛泛的『监控并调整』。"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~6(L89-96) 均为对象+条件：AC-1 serde JSON 断言逐字一致+cargo test 全绿；AC-4 人为改 Rust 类型不重导出→守卫报非干净；AC-5 src/ 无裸 invoke 字符串+pnpm check 绿；AC-6 knip 报 shim 引用计数零引用触发删除。全部机械可验。"
+        },
+        {
+          "item": "R5 关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L118-126 决策表 7 行，每行含理由与显式被拒备选：tauri-specta vs「ts-rs（只类型…）；只校验不生成（治标）」；入库 vs「纯构建时生成（产物易 stale）」；一次性切换 vs「按命令分批」；shim vs「直接删（漏网 import 炸）」；合一个 change vs「拆 A/B 两 change」等。"
+        },
+        {
+          "item": "R6 提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "不矛盾：L82/L108 明确「MUST NOT 重新引入 legacy redb 迁移层」符合 store 无旧兼容约定；L69 用 vp 测试、AC-5 用 pnpm check 符合 vite-plus 工具链；针对 knip 死代码导出约束以 knip.json ignore 生成目录（非 test-only export）解决。"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep TODO|TBD|placeholder|{{（-i）跨 proposal+specs 全目录：0 命中。「design 定夺」项均归入 L128-134 待决问题清单并指定决断场合，属正常开放问题非占位符。"
+        },
+        {
+          "item": "R8 模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9-16)、提案四步串联(L20-29)、变更范围(L45-83)、验收标准(L87-96)、风险(L100-110)全部有实质内容，无空节无占位。"
+        },
+        {
+          "item": "R9 能力章节存在且至少一个条目",
+          "pass": true,
+          "evidence": "L33「## 能力」下 L35「### 新增能力」desktop-ipc-type-bindings、L39「### 修改的能力」desktop-workspace-store，两条均非空且各带一句范围摘要。"
+        },
+        {
+          "item": "R10 specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力 2 条：desktop-ipc-type-bindings、desktop-workspace-store；specs/ 下恰有 specs/desktop-ipc-type-bindings/spec.md 与 specs/desktop-workspace-store/spec.md 两文件，1:1 无孤儿 spec。"
+        },
+        {
+          "item": "R11 proposal 与 specs 无逻辑冲突",
+          "pass": true,
+          "evidence": "修改能力以 ADDED requirement 承载且提案 L41 明示该口径；AC-1~6 逐一映射 spec scenario（线格式逐字/存量升级/PoC 留档/守卫/裸 invoke 清零/零引用退役）；source 保持 String、运行时校验保留、STATUS_* 退役、native_model 演进在两侧表述一致；AgentRunStatus 四变体 camelCase 与 AC-1 值域示例吻合。"
+        }
+      ],
+      "start_at": "2026-09-28T10:30:26.925Z",
+      "timestamp": "2026-09-28T10:49:15.164Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 通过。D1 组件表9行四列全填无TBD; D2 数据模型5个模型含字段+持久化; D3「验收标准对齐」AC-1~6逐项映射; D4 tasks 7阶段依PoC→enum→specta→守卫→切换→退役→守线排序无逆序; D5 任务含路径与具体操作; D6 三件套运行时依赖+构建无新增; D7 specta非Tauri系不破core/infra分层、无legacy迁移层、无test-only导出(bin入口); D8 六章节实质填写; D9 无测试章节/任务, 测试显式归test-execution; D10 清单覆盖proposal全部实现文件(app.tsx与commands其余轨道零改动已留痕), 清单↔任务双向一致, 新增函数/类型在子表齐列。",
+      "checklist": [
+        {
+          "item": "架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "design.md「架构组件」表9行, 职责/文件位置/依赖/技术四列全填, 无TBD; 目录级组件(前端消费面)在变更清单逐文件展开为10个具体文件"
+        },
+        {
+          "item": "数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "「数据模型」表5个模型(AgentRunRecord v3/V2/V1、AgentEventRecord、WorkspaceRecord/ExploreRecord), 每行字段+关系+持久化(native_db/native_model版本/编码)均填"
+        },
+        {
+          "item": "设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表 AC-1~AC-6 逐条映射到具体设计落点(枚举值域钉死/值域扫描+From链/PoC门+22条注册/bindings:check守卫/10文件一次切/shim判据退役)"
+        },
+        {
+          "item": "tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 全部为 - [ ] 复选框, 阶段一~七依 PoC→enum化→specta接入→守卫→前端切换→shim退役→守线; as_str删除排在flags.rs替换之后, main.rs切换排在bindings.rs创建之后"
+        },
+        {
+          "item": "任务具体且可执行",
+          "pass": true,
+          "evidence": "任务均含文件路径+具体操作(如 AgentRunStatus 四变体+rename_all camelCase、bindings:check 脚本命令原文、knip ignore 路径), 无泛化「实现功能」类任务"
+        },
+        {
+          "item": "依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "「依赖」节列 specta(features derive/serde_json/time)/tauri-specta/specta-typescript 及各自用途与落位边界; 构建/测试依赖明示无新增并说明复用"
+        },
+        {
+          "item": "设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "specta 为非Tauri derive crate 不破「core/infra 禁 Tauri」; 明示 MUST NOT 重引入 legacy 迁移层; 导出用专用 bin 而非 #[test] 搭车, 无 test-only 导出"
+        },
+        {
+          "item": "所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(新增4+修改24+删除1)/数据模型/路由API(说明IPC不涉HTTP并指向汇聚行)/依赖/待决问题(4条)全部实质填写"
+        },
+        {
+          "item": "不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略章节; tasks.md 无测试任务, 阶段七明示仅静态检查; 测试显式归 test-design/test-gen/test-execution; 幂等/守卫核对为实现自检非测试执行"
+        },
+        {
+          "item": "变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "覆盖 proposal 实现文件全部条目(app.tsx 零invoke、commands 其余四轨道零改动均实测留痕); 清单每文件在 tasks 有对应任务, tasks 引用文件均在清单; builder/export_bindings/main/AgentRunStatus/AgentRunRecordV2 在公共API与类型子表齐列"
+        }
+      ],
+      "start_at": "2026-09-28T14:48:59.701Z",
+      "timestamp": "2026-09-28T15:12:56.914Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "test-design 评估通过：AC-1..6 全映射至验收范围且与 proposal 判据对应；30 个 source->test 章节三小节齐备，标题与表列符合模板；有用例章节均含边界，异常覆盖全部错误路径（野值 fail-fast、过期产物纠正、reject 路径），flags build_args 纯函数无错误路径以三档全组合穷尽替代；mock 仅限进程边界与入参注入（FakeRunner 泛型缝、tempdir 真库、vi.mock IPC 模块）；写操作幂等由导出幂等+过期产物纠正承载；proposal『约27文件』经 design 实证收敛为 10 调用文件且全有章节，app.tsx/commands 零改动不测有据。",
+      "checklist": [
+        {
+          "item": "T1",
+          "pass": true,
+          "evidence": "proposal.md:89-96 AC-1..AC-6 与 test-design.md:12-19 验收范围逐条映射，判据文本一致；AC-2 值域扫描子句归不可测试项3（实施期一次性核查）有据"
+        },
+        {
+          "item": "T2",
+          "pass": true,
+          "evidence": "验收范围 6 个被测文件均有对应 ### 章节（runner_test.rs L67、model_test.rs L241、bindings_test.rs L291、agent-transport.test.ts L518）；章节用例行标注 AC 关联（AC-1 L81、AC-2 L258/264、AC-3 L304、AC-4 L308/309、AC-5/6 L531/535），双向无缺失"
+        },
+        {
+          "item": "T3",
+          "pass": true,
+          "evidence": "14 个有用例章节均含边界；异常覆盖全部错误路径：runner L82 野值、model L263 野值 fail-fast(should_panic)、bindings L309 过期产物、agent L342 兜底 failed、前端各 reject 行；flags build_args 纯函数无错误路径（enum 域不可非法），L215 三档全组合穷尽替代；空串/null/空列表边界齐（L451/473/557/579）"
+        },
+        {
+          "item": "T4",
+          "pass": true,
+          "evidence": "外部依赖均有 Mock策略表：文件系统 tempdir（L270/317/357）、运行环境 mock_app（L354）、IPC vi.mock @tauri-apps/api/core（L436/541）；runner/flags 无进程边界以表内注释声明"
+        },
+        {
+          "item": "T5",
+          "pass": true,
+          "evidence": "验收范围/单元测试/不可测试项（13 项）均实质填写；30 个 per-file 章节均含 待测功能/用例/Mock策略 三小节，不设用例章节均注释原因（L43、L61 等）"
+        },
+        {
+          "item": "T6",
+          "pass": true,
+          "evidence": "design.md 变更清单逐项有测试承接或不可测试项说明（配置→项1、store_test 跟改→项13、生成物→项6、dto shim→项7、explore-create-dialog→项11）；『约27文件』经 design 前端切换面定夺行实证为 10 调用文件且全部有章节；app.tsx 无 invoke、src/commands 目录零改动不测有据"
+        },
+        {
+          "item": "T7",
+          "pass": true,
+          "evidence": "导出写操作幂等：bindings.rs L308 导出幂等（连续两次导出逐字节一致、无时间戳/路径嵌入）+ L309 过期产物纠正；store 演进写路径由 L264 v2 存量 fixture 打开与重放用例承接"
+        },
+        {
+          "item": "T8",
+          "pass": true,
+          "evidence": "U1 30 个 ### 标题均 <源文件> -> <测试文件>；U2 三小节齐且顺序正确；U3 待测功能均无序列表（无表格）；U4 用例表 4 列、U5 Mock表 3 列，均无测试文件列；G1 验收范围 3 列与模板一致"
+        },
+        {
+          "item": "T9",
+          "pass": true,
+          "evidence": "Mock 主体均为进程边界（文件系统/运行环境/IPC 接口模块）或入参注入例外（FakeRunner 经 start_agent_run_with 泛型缝 L356、MockRuntime 属运行环境白名单）；无仓库内部模块 vi.mock；store/信封明示真实组合不 mock（L270/357）"
+        }
+      ],
+      "start_at": "2026-09-28T15:13:43.164Z",
+      "timestamp": "2026-09-28T15:44:11.678Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "8 架构组件与变更清单全量落地：bindings.rs 22 条命令注册（Throw + Value→unknown + bigint cast）、store v3+V2+From 链（fail-fast panic）、AgentRunStatus 新增且 as_str/STATUS_* 退役、flags serde 派生、生成物 22 包装入库、dto.ts 纯 shim、前端 10 文件切 typed（裸 invoke 零残留，仅 doc 注释）。清单外漂移均可归因：mod.rs 系 specta attr 注册面伴生、scan bin 按 design 即删、attachments.ts 已回填、Cargo.lock 为 pin 机械伴生。runner_test.rs 残留 as_str 引用归 test-gen 阶段（design 明示测试不入本清单）。全部 7 项通过。",
+      "checklist": [
+        {
+          "item": "I1 架构组件全实现",
+          "pass": true,
+          "evidence": "8 组件全落地：bindings.rs builder 22 条命令+Throw+Value→unknown；runner.rs AgentRunStatus/event.rs 3 Type；workflow 6 文件 derive+specta_face remote；model.rs v3+V2+From 链；bindings.ts 22 包装；dto.ts 纯 re-export；transport+10 文件 typed；package.json/knip.json 守卫链"
+        },
+        {
+          "item": "I2 变更清单对账",
+          "pass": true,
+          "evidence": "新增 4 文件在盘（bindings.ts 系 cargo 生成良性漏记）；32 修改文件全在 files 清单且内容核对；as_str/STATUS_* 已删；dto.ts 按 knip 判据留置合规；清单外 mod.rs specta attr 伴生、scan bin 已按 design 即删、attachments.ts 已回填"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "kebab-case、模块 doc 注释、fail-fast 无静默降级、无 legacy 迁移层重引入"
+        },
+        {
+          "item": "I4 IPC 22 条命令",
+          "pass": true,
+          "evidence": "design 明示零 HTTP API；collect_commands 与 bindings.ts 双侧核对均 22 条，命令 Rust 签名零变更"
+        },
+        {
+          "item": "I5 tasks 全勾",
+          "pass": true,
+          "evidence": "33/33 任务复选框勾选"
+        },
+        {
+          "item": "I6 无计划外改动",
+          "pass": true,
+          "evidence": "files 清单全部可归因 design；无无关源码删除（scan-legacy-values.rs 删除为 design 明文「后即删」）"
+        },
+        {
+          "item": "I7 设计决策遵守",
+          "pass": true,
+          "evidence": "Throw/Value→unknown/bigint cast/fail-fast panic 记因/flags serde 派生/v3 原地演进禁 legacy/守卫 git diff 口径/两型并存显式 match/specta_face 投影，逐条在码验证"
+        }
+      ],
+      "start_at": "2026-09-28T15:44:46.771Z",
+      "timestamp": "2026-09-28T17:09:00.795Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "test-gen 通过：9 个 Rust *_test.rs 与 9 个前端 *.test.ts 跟 test-design 30 章节三态对账一致，10 个「不应创建」文件均未创建。14 个有用例章节逐行核对全落地（runner 值域/野值、model v2 升级+should_panic+24 组合+fixture 真库、bindings 22 命令覆盖+幂等+过期纠正、agent 枚举收敛、transport+hooks 生成绑定调用面）；10 行废弃断言（as_str/STATUS_*/String 直比/手写镜像）零残留；mock 全在白名单，无内部模块 mock；tempfile RAII/RestoreOnDrop/PATH 还原/mockReset 清理齐备。db/exec mod_test 跟改为编译伴生，不违规。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "runner_test.rs L83-352 调 AgentRunner.start/RunHandle request_stop/stop_requested/wait_requested/AgentStartError Display/三枚举 serde；flags_test.rs L39-381 调 build_args；model_test.rs L303-528 驱动 From<V1/V2> 与 serde；bindings_test.rs L42 直调 export_bindings，builder 经 22 命令覆盖性断言（bindings.rs L61-67 同一注册面）；agent_test.rs 调 drive_agent_run/running_record/abort_with_store_failure/start_agent_run_with（L342/770/704/612）；前端 9 文件 renderHook/sendMessages 行为断言，非仅构造"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码共存",
+          "pass": true,
+          "evidence": "*_test.rs 与 *.test.ts 均与源码同目录；#[cfg(test)] mod 声明齐（core/agent lib.rs L29、infra/agent L29-33、store L35-40、exec/agent.rs L305、src/lib.rs L9）；不应创建的 lib_test/main_test/export-bindings_test/dto.test/bindings.test/inventory_test/workflow_test/artifacts envelope_test/explore-create-dialog.test 均不存在"
+        },
+        {
+          "item": "G3 用例表每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "新增行逐行落地：runner_test L146/160/176/193（值域+野值）；flags_test L78/107（serde 派生+三档基线）；model_test L303/339/372/404/457/468；bindings_test L148/178/210/267/298/318/337/364 八行；agent_test L324/385/417/440/476/694/759/791；transport L349/370/387/399；8 hooks 各 3 行生成绑定 describe；正向/边界/异常分类一致"
+        },
+        {
+          "item": "G4 Mock策略已实现且声明合法",
+          "pass": true,
+          "evidence": "FakeRunner（runner_test L19、agent_test L122 经 start_agent_run_with 泛型缝）、mock_app（agent_test L55）、Channel::new 捕获/恒失败（L203/219）、tempdir 真库不 mock store、legacy_args 基线（flags_test L214）、vi.mock 仅 @tauri-apps/api/core（9 文件，sonner 为既有外部库替身）；grep 全测试面无仓库内部模块 vi.mock"
+        },
+        {
+          "item": "G5 使用正确框架与导入",
+          "pass": true,
+          "evidence": "Rust std #[test]/#[tokio::test] + serde_json + native_model + tempfile 与 crate 依赖一致；前端统一 import {describe,it,expect,vi} from 'vite-plus/test' + @testing-library/react，无裸 vitest"
+        },
+        {
+          "item": "G6 边界情况已覆盖",
+          "pass": true,
+          "evidence": "三枚举各 ≥4 野值（runner_test L195/204/209 清单外大小写/前缀/空串）；24 全组合（model_test L404）；空串 root/prompt/resume（flags_test L147/294、use-workspaces L438）、null root 零 IPC、空链、目录缺失（bindings L337）、未知信封、500ms 防抖合并、翻页 offset 边界齐备"
+        },
+        {
+          "item": "G7 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "tempfile TempDir RAII 自动清理；bindings_test RestoreOnDrop 守卫+重导出恢复权威产物（L48/318）+Mutex 串行化；agent_test PATH set_var 原值还原（L664-676）+PATH_LOCK；前端 beforeEach invokeMock.mockReset/ChannelMock.instances 清空、afterEach vi.useRealTimers"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "10 废弃行零新测试：grep 全测试面无 STATUS_* 常量、三退役枚举无 as_str() 调用（余下 as_str 均为 role/name/Value/String 等无关类型；Verdict::as_str 按 design 明示不在退役范围）；String 直比断言与手写 AgentRunMessage/AgentStartChainParams 镜像 interface 未复现，fixture 类型改从 dto shim 导入"
+        }
+      ],
+      "start_at": "2026-09-28T17:09:41.545Z",
+      "timestamp": "2026-09-28T18:23:56.442Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 527 个测试通过（vite-plus 491 + rust 36，0 失败/跳过，无执行错误）；mutation 82.69% ≥ 80% 达标。覆盖率达标: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)（coverage.pass=true；计划层 vite-plus 实测 92.06/85.2/90 已达标，汇总层 measured 为 null 系聚合未回传，非覆盖不足）",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total=527/passed=527/failed=0/skipped=0/coverage/duration_seconds=605 齐全且类型正确；coverage.measured 三维为 null 属允许形态"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=527>0；conclusion=pass、problems=[] 无 execution_error；mutation.pass=true（82.69% ≥ 80%）"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（采信报告预计算门）。measured lines/branches/functions 均 null → 记「N/A (框架不支持)」。计划层 vite-plus 实测 92.06/85.2/90 达标，null 系汇总聚合未回传，非覆盖不足"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，诊断自动通过；与 test-design.md 无设计冲突需比对"
+        }
+      ],
+      "start_at": "2026-09-28T18:24:39.817Z",
+      "timestamp": "2026-09-28T18:39:59.307Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1 安全：无硬编码密钥/注入面；bigint cast 为 design 留档显式定夺。C2：readChainParams 等运行时校验保留（agent-transport.ts:44-83）；v2→v3 野值 fail-fast 记因（model.rs）。C3：22 命令 #[specta::specta] 全覆盖、Throw/unknown/specta_face 投影/shim/守卫均按 design 落地；增量 build.rs 清单注入（测试基建）与 specta function feature 不矛盾。C4：export_bindings 错误全映射、状态机全变体 match。C5：STATUS_*/as_str 退役零残留；dto.ts 有活引用按判据保留。C6/C7：注释合规范；链参数类型经 Parameters 派生无第二镜像。",
+      "checklist": [
+        {
+          "item": "C1 变更代码无安全漏洞",
+          "pass": true,
+          "evidence": "grep 密钥/eval/exec/system 无命中；dangerously_cast_bigints_to_number(bindings.rs:55)为design留档定夺(值域<2^53)；build.rs清单为静态常量，路径取CARGO_MANIFEST_DIR无注入缝"
+        },
+        {
+          "item": "C2 外部输入格式检查",
+          "pass": true,
+          "evidence": "agent-transport.ts:44-83 readChainParams/readPermissionMode/readNullable* 校验保留；model.rs parse_enum_field 野值fail-fast记因含原值；未知ipc判别忽略不断流(agent-transport.ts:136)"
+        },
+        {
+          "item": "C3 实现与design.md一致",
+          "pass": true,
+          "evidence": "22条命令#[specta::specta]全覆盖(实测22/22)；ErrorHandlingMode::Throw/Value→unknown/specta_face remote投影/dto.ts纯shim/knip ignore/bindings:check守卫均按design落地；仅增量build.rs清单注入(测试基建,file_log已录)与根包specta function feature，不矛盾"
+        },
+        {
+          "item": "C4 空值/边界处理",
+          "pass": true,
+          "evidence": "export_bindings 父目录ok_or_else+create_dir_all/导出错误全映射(bindings.rs:61-73)；enum_to_string unreachable护栏；drive_agent_run对AgentRunState全变体显式match(agent.rs:255-265)"
+        },
+        {
+          "item": "C5 无冗余/死代码",
+          "pass": true,
+          "evidence": "STATUS_*/两as_str退役零残留(grep实证)；scan-legacy bin已删盘；dto.ts有活引用(agent-blocks/app-sidebar等)按knip判据保留非死代码"
+        },
+        {
+          "item": "C6 可读性与项目规范",
+          "pass": true,
+          "evidence": "中文doc注释与仓库风格一致，退役/决策均留因；命名沿用既有模式；命令签名零变更(queries/workspaces/explores/db diff仅derive+attr)"
+        },
+        {
+          "item": "C7 外部数据同来源类型",
+          "pass": true,
+          "evidence": "AgentStartChainParams经Parameters<typeof commands.agentStart>派生自生成绑定零手写镜像；store三字段直用core/agent枚举；flags值serde序列化派生单一来源；仅V2版本桥结构属演进必需"
+        }
+      ],
+      "start_at": "2026-09-28T18:41:05.803Z",
+      "timestamp": "2026-09-28T18:45:49.891Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "6/6 AC 全部落地有据: AC-1 AgentRunStatus(runner.rs:45)+三字段枚举(model.rs:95-99)+as_str/STATUS_*退役+flags serde派生; AC-2 native_model v3+AgentRunRecordV2转换链+野值fail-fast(model.rs:84,171)+扫描结论回填design; AC-3 bindings.rs 22命令全注册+Channel typed(bindings.ts:51,100)+PoC六项留档; AC-4 bindings:check挂check/build(package.json:8-12); AC-5 业务代码零裸invoke,全部commands.* typed; AC-6 dto.ts纯re-export,引用非零按判据留置. 无范围蔓延: 清单外仅Cargo.lock+attachments.ts且已回填design. out_of_scope守住: source保持String、无legacy迁移层、无events面、运行时校验保留.",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1: runner.rs:45-56 AgentRunStatus + model.rs:95-99 三字段枚举 + as_str/STATUS_* 仅存于测试注释 + flags.rs:17-22 serde 派生 + runner_test.rs:145-189 线格式逐字断言; AC-2: model.rs:84 v3/from=V2、:131 V2 结构、:171-192 升级链、:55 fail-fast、design.md:178 扫描结论; AC-3: bindings.rs:18-41 恰 22 命令、bindings.ts:51/100 Channel typed、design.md:41-65 PoC 留档; AC-4: package.json:10-12 脚本、:8/:12 前置串接; AC-5: grep 证实业务代码仅生成物与 Channel 构造引用 @tauri-apps/api/core、use-change-list.ts:3/use-agent-chat.ts:91 typed 调用; AC-6: dto.ts:8 纯 re-export、tasks.md:56 判据驱动留置记录"
+        },
+        {
+          "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "清单外漂移仅两处且已回填 design「PoC 前置门/变更清单」: Cargo.lock（pin 机械伴生）与 attachments.ts:91 attempt==null 判空收窄（已知双相 union 形态差异）; 无新增命令（builder 恰 22 条）、无 events 面（bindings.rs:8 明示零 emit/listen）、无额外 API"
+        },
+        {
+          "item": "proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "四步全落地: enum 化（runner.rs:45/model.rs:95-99）、specta 接入（bindings.rs builder+bin/export-bindings.rs+lib.rs）、入库+守卫（src/types/generated/bindings.ts 存在、package.json 脚本链）、前端切换+shim（dto.ts:8 纯 re-export、transport 收编生成类型 agent-transport.ts:16-21）; 新增能力 desktop-ipc-type-bindings 与修改能力 desktop-workspace-store 类型化均有代码载体"
+        },
+        {
+          "item": "proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "source/source_ref 仍为 String（model.rs:114-119）; serde camelCase attrs 逐字未动（event.rs:20/48/92 tag/rename_all/flatten 仅加 Type derive）; AgentRunner trait 面不变（runner.rs trait 契约注释原样）; 无 legacy redb 迁移层（store 仅 native_model 版本链, model.rs:81）; 前端运行时校验保留（agent-transport.ts:45,65 readPermissionMode/readChainParams）; workflow 域语义仅加 derive"
+        },
+        {
+          "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "RC 供应链: Cargo.toml:71-73 三件套 = 精确 pin+lockstep; PoC 门: design.md:41-65 六项验证全过留档; bincode 形态变化: model.rs:84 v3+parse_enum_field fail-fast(:55)+扫描先行(design.md:178); 切换回归面: tsc/knip 入 check 链(package.json:13); 生成物过期: bindings:check = 重导出+git diff --exit-code(package.json:11); 分层争议: specta 仅 workspace=true 入 core/infra 三 Cargo.toml, tauri-specta/specta-typescript 仅根包(:27-33); knip dead code: knip.json:4 ignore 生成目录"
+        }
+      ],
+      "start_at": "2026-09-28T18:46:22.248Z",
+      "timestamp": "2026-09-28T18:49:53.341Z"
+    }
+  ]
+}

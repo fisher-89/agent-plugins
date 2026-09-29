@@ -1,11 +1,12 @@
 //! change 目录的数据代际标注。
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
 /// 三代结构代际：v2（现在）/ v1（中期）/ v0（早期）。
 ///
 /// 判定规则见 `crate::parse::detect_inventory`，这里只承载结果。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum Inventory {
     /// 有 workflow.json 且含 file_log

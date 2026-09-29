@@ -16,12 +16,14 @@ mod mod_test;
 
 /// 模型清单与记录计数（只读；计数 0 也列出）。
 #[tauri::command]
+#[specta::specta]
 pub fn db_models(store: State<'_, Store>) -> Result<Vec<ModelInfo>, String> {
     store.list_models().map_err(|e| e.to_string())
 }
 
 /// 按模型主键自然序分页扫描记录信封（只读；未知模型名 reject）。
 #[tauri::command]
+#[specta::specta]
 pub fn db_records(
     store: State<'_, Store>,
     model: String,

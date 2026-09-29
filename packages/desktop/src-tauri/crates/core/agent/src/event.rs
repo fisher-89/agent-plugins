@@ -5,6 +5,7 @@
 //! [`AgentEventKind::Raw`] 刻意承接未识别事件透传：永不丢事件、永不炸解析。
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 
 /// UTC unix 毫秒：std 唯一时间源（时钟早于 epoch 时取 0，不 panic）。
 fn now_millis() -> i64 {
@@ -15,7 +16,7 @@ fn now_millis() -> i64 {
 }
 
 /// 消息内块：Text / Thinking / ToolUse / ToolResult 四变体（tag `kind`，camelCase）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -43,7 +44,7 @@ pub enum AgentBlock {
 /// 事件类别五变体：`kind` 为 serde 内部 tag（camelCase 值），经
 /// [`AgentEvent`] 扁平进线格式。字段表与归一化映射见能力 spec
 /// `specs/desktop-agent-execution/spec.md`（路径相对域根）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
     rename_all = "camelCase",
@@ -87,7 +88,7 @@ pub enum AgentEventKind {
 
 /// 统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
 /// `kind` 扁平进线格式（线格式 = 落库形态 = 前端 DTO 基准）。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
     /// 单调序号，每 run 从 0 递增；空白行跳过不占 seq

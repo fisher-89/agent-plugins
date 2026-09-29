@@ -1,8 +1,7 @@
-import { invoke } from '@tauri-apps/api/core';
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { toast } from 'sonner';
 
-import type { WorkspaceRecord } from '../types/dto';
+import { commands, type WorkspaceRecord } from '../types/generated/bindings';
 
 /** 动作失败 toast 固定前缀（design D8：文案供断言；remove 的 store miss 幂等非错误不 toast） */
 const ACTION_ERROR_PREFIX = {
@@ -58,7 +57,8 @@ export function useWorkspaces(): WorkspaceState {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    invoke<WorkspaceRecord[]>('list_workspaces')
+    commands
+      .listWorkspaces()
       .then((result) => {
         if (cancelled) return;
         setWorkspaces(result);
@@ -91,7 +91,7 @@ function useWorkspacesActions(applyRoot: (next: string | null) => void, refresh:
   const add = useCallback(
     async (root: string): Promise<WorkspaceRecord | null> => {
       try {
-        const record = await invoke<WorkspaceRecord>('add_workspace', { root });
+        const record = await commands.addWorkspace(root);
         // 直接以返回记录的 canonical root 为当前根（新记录默认序未必居首）
         applyRoot(record.root);
         refresh();
@@ -107,7 +107,7 @@ function useWorkspacesActions(applyRoot: (next: string | null) => void, refresh:
   const remove = useCallback(
     async (root: string): Promise<boolean> => {
       try {
-        const hit = await invoke<boolean>('remove_workspace', { root });
+        const hit = await commands.removeWorkspace(root);
         // 当前根被移除时由取数回调顺延取剩余第一名（或回欢迎屏）
         refresh();
         return hit;

@@ -227,17 +227,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              263,
-              2,
-              54,
-              45,
-              39000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-20T02:54:45.039Z",
             "verdict": "pass"
           }
         ],
@@ -305,17 +295,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              263,
-              4,
-              9,
-              49,
-              40000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-20T04:09:49.04Z",
             "verdict": "pass"
           }
         ],
@@ -373,17 +353,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              263,
-              4,
-              26,
-              49,
-              359000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-20T04:26:49.359Z",
             "verdict": "pass"
           }
         ],
@@ -436,17 +406,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              263,
-              5,
-              16,
-              8,
-              668000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-20T05:16:08.668Z",
             "verdict": "fail"
           },
           {
@@ -494,17 +454,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              263,
-              6,
-              54,
-              39,
-              2000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-20T06:54:39.002Z",
             "verdict": "pass"
           }
         ],

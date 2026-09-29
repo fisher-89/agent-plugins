@@ -10,13 +10,14 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use tokio::sync::Notify;
 
 use crate::event::AgentEvent;
 
 /// 环境档位双档：`default`（完整环境）/ `bare`（纯净档；不读 OAuth 凭据，
 /// 须 `ANTHROPIC_API_KEY` 等外部认证前提——提示责任在参数面，不在本 crate）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentEnvMode {
     /// 完整环境（页面默认档）
@@ -25,19 +26,9 @@ pub enum AgentEnvMode {
     Bare,
 }
 
-impl AgentEnvMode {
-    /// 受控字符串（落库口径，与 serde 线格式一致）。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::Bare => "bare",
-        }
-    }
-}
-
 /// permission-mode 三档；无头模式下档位决定工具审批行为（档位语义由能力
 /// spec 留痕，本 crate 不解释）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentPermissionMode {
     /// CLI 默认档（需审批工具在无头下直接被拒）
@@ -48,15 +39,20 @@ pub enum AgentPermissionMode {
     BypassPermissions,
 }
 
-impl AgentPermissionMode {
-    /// 受控字符串（落库口径，与 serde 线格式一致）。
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Default => "default",
-            Self::AcceptEdits => "acceptEdits",
-            Self::BypassPermissions => "bypassPermissions",
-        }
-    }
+/// run 状态四档（落库 / 出线契约）：与 [`crate::state::AgentRunState`] 状态机
+/// 内存态两型并存——本枚举是 serde camelCase 线格式与 store 落库形态的值域
+/// 契约，状态机类型不出契约面（编排侧显式 `match` 映射）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentRunStatus {
+    /// 运行中（run begin 落库行初值）
+    Running,
+    /// 正常收敛（result 事件 is_error=false）
+    Completed,
+    /// 失败收敛（result 事件 is_error=true / 无 result 异常终止 / 落库失败）
+    Failed,
+    /// 用户主动终止收敛（agent_stop 显式请求，语义区别于 CLI 失败）
+    Stopped,
 }
 
 /// 一次运行的入参：trait 面只认逻辑参数；cwd 由壳层注入（隐含当前

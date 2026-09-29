@@ -23,6 +23,7 @@ fn is_blank_root(root: &str) -> bool {
 
 /// change 列表（active + archive 按月分组）。
 #[tauri::command]
+#[specta::specta]
 pub fn list_changes(root: String) -> ChangeList {
     if is_blank_root(&root) {
         return ChangeList {
@@ -36,6 +37,7 @@ pub fn list_changes(root: String) -> ChangeList {
 
 /// 单 change 详情聚合；未知 change 名返回 `None`。
 #[tauri::command]
+#[specta::specta]
 pub fn get_change_detail(root: String, change: String) -> Option<ChangeDetail> {
     if is_blank_root(&root) {
         return None;
@@ -46,6 +48,7 @@ pub fn get_change_detail(root: String, change: String) -> Option<ChangeDetail> {
 
 /// 按信封读取单个产物；kind 未注册、source 非法或解析失败返回 `None`。
 #[tauri::command]
+#[specta::specta]
 pub fn read_artifact(
     root: String,
     change: String,

@@ -4,7 +4,8 @@ version = "0.1.0"
 edition = "2021"
 
 # db 边界基础设施：native_db / native_model 模型层 + dunce / serde 系依赖；
-# 仅依赖 `agent` 纯类型作嵌装载荷（禁 agent 域行为）；禁 Tauri。
+# 仅依赖 `agent` 纯类型作嵌装载荷（禁 agent 域行为）；specta 为类型导出
+# derive（非 Tauri 系）；禁 Tauri。
 [dependencies]
 agent = { workspace = true }
 dunce = { workspace = true }
@@ -12,6 +13,7 @@ native_db = { workspace = true }
 native_model = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
+specta = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }

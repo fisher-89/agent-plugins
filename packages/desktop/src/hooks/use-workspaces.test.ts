@@ -400,3 +400,75 @@ describe('useWorkspaces：错误双轨（动作 toast 化）', () => {
     expect(result.current.error).toBeNull();
   });
 });
+
+// ---------------------------------------------------------------------------
+// 生成绑定调用面（AC-5 回归锁定）：list_workspaces / add_workspace /
+// remove_workspace 裸 invoke → typed bindings 机械替换后，invoke 命令名与
+// 参数逐字不变（生成绑定底层仍走同模块 invoke，mock 机制切换后依旧生效）。
+// ---------------------------------------------------------------------------
+
+describe('useWorkspaces：生成绑定调用面', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+    toastErrorMock.mockReset();
+    stored = [];
+  });
+
+  it('三命令经生成绑定入口后 invoke 命令名与参数（root 等）逐字不变，返回值透传（清单内部刷新 / root 切换 / remove 返回 true）', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+
+    await act(async () => {
+      const added = await result.current.add('/repo/b');
+      expect(added?.root).toBe('/repo/b');
+    });
+    await waitFor(() => expect(result.current.root).toBe('/repo/b'));
+    expect(invokeMock).toHaveBeenCalledWith('add_workspace', { root: '/repo/b' });
+
+    await act(async () => {
+      const hit = await result.current.remove('/repo/b');
+      expect(hit).toBe(true);
+    });
+    expect(invokeMock).toHaveBeenCalledWith('remove_workspace', { root: '/repo/b' });
+    // 动作后以 list_workspaces 内部刷新（挂载 1 + add 刷新 1 + remove 刷新 1）
+    expect(countOf('list_workspaces')).toBe(3);
+  });
+
+  it('add 传入空字符串 root 参数原样穿透（把关责任仍在后端，绑定切换不引入前端改写）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_workspaces') return Promise.resolve([]);
+      return Promise.reject(new Error('canonicalize: 无效路径'));
+    });
+    const { result } = renderHook(() => useWorkspaces());
+    await settleLoaded();
+
+    await act(async () => {
+      await result.current.add('');
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('add_workspace', { root: '' });
+  });
+
+  it('add / remove reject → toast 固定前缀 + 错误串、返回 null / false 的错误双轨行为不变', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_workspaces') return Promise.resolve([record('/repo/a')]);
+      return Promise.reject(new Error('db: 打开失败'));
+    });
+    const { result } = renderHook(() => useWorkspaces());
+    await waitFor(() => expect(result.current.workspaces).toHaveLength(1));
+
+    await act(async () => {
+      const added = await result.current.add('/nope');
+      expect(added).toBeNull();
+    });
+    await act(async () => {
+      const hit = await result.current.remove('/repo/a');
+      expect(hit).toBe(false);
+    });
+
+    expect(toastErrorMock).toHaveBeenCalledWith('添加 workspace 失败：Error: db: 打开失败');
+    expect(toastErrorMock).toHaveBeenCalledWith('移除 workspace 失败：Error: db: 打开失败');
+    expect(result.current.error).toBeNull();
+  });
+});

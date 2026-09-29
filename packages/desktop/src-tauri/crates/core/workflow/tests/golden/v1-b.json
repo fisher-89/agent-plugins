@@ -216,17 +216,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              259,
-              11,
-              2,
-              18,
-              514000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-16T11:02:18.514Z",
             "verdict": "fail"
           },
           {
@@ -294,17 +284,7 @@
             "skipped": false,
             "stale": true,
             "startAt": null,
-            "timestamp": [
-              2026,
-              259,
-              11,
-              6,
-              47,
-              116000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-16T11:06:47.116Z",
             "verdict": "pass"
           },
           {
@@ -372,17 +352,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              2,
-              52,
-              35,
-              353000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T02:52:35.353Z",
             "verdict": "pass"
           }
         ],
@@ -450,17 +420,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              3,
-              40,
-              33,
-              885000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T03:40:33.885Z",
             "verdict": "pass"
           }
         ],
@@ -518,17 +478,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              4,
-              6,
-              18,
-              12000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T04:06:18.012Z",
             "verdict": "pass"
           }
         ],
@@ -581,17 +531,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              4,
-              58,
-              0,
-              249000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T04:58:00.249Z",
             "verdict": "fail"
           },
           {
@@ -639,17 +579,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              5,
-              2,
-              21,
-              831000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T05:02:21.831Z",
             "verdict": "pass"
           }
         ],
@@ -712,17 +642,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              6,
-              3,
-              13,
-              750000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T06:03:13.75Z",
             "verdict": "fail"
           },
           {
@@ -780,17 +700,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              6,
-              37,
-              39,
-              699000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T06:37:39.699Z",
             "verdict": "pass"
           }
         ],
@@ -828,17 +738,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              7,
-              4,
-              45,
-              187000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T07:04:45.187Z",
             "verdict": "pass"
           }
         ],
@@ -891,17 +791,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              7,
-              11,
-              38,
-              502000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T07:11:38.502Z",
             "verdict": "pass"
           }
         ],
@@ -944,17 +834,7 @@
             "skipped": false,
             "stale": false,
             "startAt": null,
-            "timestamp": [
-              2026,
-              260,
-              7,
-              20,
-              19,
-              335000000,
-              0,
-              0,
-              0
-            ],
+            "timestamp": "2026-09-17T07:20:19.335Z",
             "verdict": "pass"
           }
         ],

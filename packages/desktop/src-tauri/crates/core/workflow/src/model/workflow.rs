@@ -5,6 +5,7 @@
 //! 未知字段由 serde 自行忽略（含 legacy `files` 桶、`source` 旁挂映射）。
 
 use serde::{Deserialize, Serialize};
+use specta::Type;
 use time::OffsetDateTime;
 
 /// 宽松时间戳：字段缺失、null 或 ISO 8601 解析失败一律降级为 `None`，
@@ -46,7 +47,7 @@ pub(crate) mod lenient_timestamp {
 }
 
 /// 评估 verdict。条目级严格：非法值触发该条降级跳过。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum Verdict {
     Pass,
@@ -63,7 +64,7 @@ impl Verdict {
 }
 
 /// checklist 检查项。
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
 pub struct ChecklistItem {
     pub item: String,
     pub pass: bool,
@@ -105,7 +106,7 @@ pub struct PhaseLog {
 }
 
 /// file_log 记录的文件操作。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum FileLogOp {
     Write,
@@ -113,7 +114,9 @@ pub enum FileLogOp {
     Revert,
 }
 
-/// 一条日志式文件清单（`workflow.json.file_log[]` 条目）。
+/// 一条日志式文件清单（`workflow.json.file_log[]` 条目）。磁盘模型：不出线
+/// （线面由 queries 层 DTO 承载），读盘语义（snake_case alias + 宽松时间戳）
+/// 全部留在本层。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct FileLogEntry {
@@ -130,7 +133,8 @@ pub struct FileLogEntry {
     pub at: Option<OffsetDateTime>,
 }
 
-/// 运行中 phase 状态（`workflow.json.active_phase`）。
+/// 运行中 phase 状态（`workflow.json.active_phase`）。磁盘模型：不出线（线面
+/// 由 queries 层 DTO 承载），读盘语义（snake_case alias + 宽松时间戳）留在本层。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct ActivePhase {
@@ -146,6 +150,7 @@ pub struct ActivePhase {
 }
 
 /// 中断留档（`workflow.json.interrupted[]` 条目）：ActivePhase 加 `end_at` 的扩展。
+/// 磁盘模型：不出线（线面由 queries 层 DTO 承载）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct InterruptedEntry {
