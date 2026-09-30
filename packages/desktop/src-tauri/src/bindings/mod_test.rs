@@ -415,10 +415,11 @@ fn 命令错误面为promise_reject透传无result包装() {
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
     // ErrorHandlingMode::Throw：生成包装直返 `__TAURI_INVOKE<T>` 的 Promise，
-    // Err 经 reject 抵达前端（前端 hook 既有 `.catch → error 态` 接线不变）
+    // Err 经 reject 抵达前端（前端 hook 既有 `.catch → error 态` 接线不变）；
+    // agent_stop 随 desktop-workspace-db-split 携 root（复合键寻址）
     assert!(
         content.contains(
-            "agentStop: (runId: number) => __TAURI_INVOKE<null>(\"agent_stop\", { runId })"
+            "agentStop: (root: string, runId: number) => __TAURI_INVOKE<null>(\"agent_stop\", { root, runId })"
         ),
         "命令包装直返 invoke Promise（错误面 reject 透传）"
     );

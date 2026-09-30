@@ -25,10 +25,16 @@ interface QueryState {
 const IDLE: QueryState = { loading: false, error: null };
 
 /**
- * 运行清单轨道：挂载即自动取数（tick 从 0 起即触发 invoke("agent_runs")），
- * 刷新仍经 tick 递增（refresh()）。无轮询、无文件 watch。
+ * 运行清单轨道：挂载即自动取数（tick 从 0 起即触发 invoke("agent_runs")，
+ * 携 root 寻址当前 workspace 库——清单收窄为本 workspace 历史），刷新仍经
+ * tick 递增（refresh()）。root 为 null（未选定 workspace）跳过 invoke 保持
+ * 空态。无轮询、无文件 watch。
  */
-function useRuns(): { runs: AgentRunRecord[]; query: QueryState; refresh: () => void } {
+function useRuns(root: string | null): {
+  runs: AgentRunRecord[];
+  query: QueryState;
+  refresh: () => void;
+} {
   const [runs, setRuns] = useState<AgentRunRecord[]>([]);
   const [query, setQuery] = useState<QueryState>(IDLE);
   const [tick, setTick] = useState(0);
@@ -36,10 +42,15 @@ function useRuns(): { runs: AgentRunRecord[]; query: QueryState; refresh: () => 
   const refresh = useCallback(() => setTick((t) => t + 1), []);
 
   useEffect(() => {
+    if (root === null) {
+      setRuns([]);
+      setQuery(IDLE);
+      return;
+    }
     let cancelled = false;
     setQuery({ loading: true, error: null });
     commands
-      .agentRuns()
+      .agentRuns(root)
       .then((result) => {
         if (cancelled) return;
         setRuns(result);
@@ -52,16 +63,17 @@ function useRuns(): { runs: AgentRunRecord[]; query: QueryState; refresh: () => 
     return () => {
       cancelled = true;
     };
-  }, [tick]);
+  }, [root, tick]);
 
   return { runs, query, refresh };
 }
 
 /**
- * 重放轨道：点开 run 触发 invoke("agent_run_events")，以落库事件还原时间线
- * （不要求原运行进程存活）。
+ * 重放轨道：点开 run 触发 invoke("agent_run_events")（携 root 寻址所属
+ * workspace 库），以落库事件还原时间线（不要求原运行进程存活）；root 为
+ * null 跳过 invoke 保持空态。
  */
-function useReplay(): {
+function useReplay(root: string | null): {
   events: AgentEvent[];
   selectedRunId: number | null;
   query: QueryState;
@@ -75,11 +87,11 @@ function useReplay(): {
   const openRun = useCallback((runId: number) => setTarget(runId), []);
 
   useEffect(() => {
-    if (target === null) return;
+    if (target === null || root === null) return;
     let cancelled = false;
     setQuery({ loading: true, error: null });
     commands
-      .agentRunEvents(target)
+      .agentRunEvents(root, target)
       .then((result) => {
         if (cancelled) return;
         setEvents(result);
@@ -93,19 +105,19 @@ function useReplay(): {
     return () => {
       cancelled = true;
     };
-  }, [target]);
+  }, [root, target]);
 
   return { events, selectedRunId, query, openRun };
 }
 
 /**
- * 历史运行 hook：挂载即自动取运行清单，refresh() 显式重取，openRun(id)
- * 重放事件；run 结束不自动刷新（design：查询取数显式触发，Channel 例外
- * 不外溢）、无轮询。
+ * 历史运行 hook：挂载即自动取当前 workspace 的运行清单（root 寻址；null 跳
+ * 过取数保持空态），refresh() 显式重取，openRun(id) 重放事件；run 结束不自
+ * 动刷新（design：查询取数显式触发，Channel 例外不外溢）、无轮询。
  */
-export function useAgentRunHistory(): AgentRunHistoryState {
-  const runsState = useRuns();
-  const replayState = useReplay();
+export function useAgentRunHistory(root: string | null): AgentRunHistoryState {
+  const runsState = useRuns(root);
+  const replayState = useReplay(root);
   return {
     runs: runsState.runs,
     events: replayState.events,

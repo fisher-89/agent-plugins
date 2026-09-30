@@ -1,43 +1,46 @@
-//! `commands::workspaces` 的单元测试 + 「workspace命令面 → Store持久化」集成关系
-//! （dev-team 为纯 binary crate，无库目标，集成用例按仓库既有模式与本文件共置）。
+//! `commands::workspaces` 的单元测试 + 「workspace命令面 → WorkspaceStores 两库
+//! 持久化」集成关系（AC-7 组合：remove 仅删注册记录、workspace 库历史保留）。
 //!
-//! 三命令为薄包装（State 取 store + String→Path 参数转换 + StoreError→Err(String)
-//! 映射）：`#[tauri::command]` 保留原函数可直调，测试不启动真实 Tauri runtime——
-//! 以 `tauri::test::mock_app()`（MockRuntime，无窗口无事件循环）manage 真实
-//! Store 后经 `app.state::<Store>()` 取 State。tempdir 真开 redb 文件。
+//! 三命令为薄包装（State 取 `WorkspaceStores` + String→Path 参数转换 +
+//! StoreError→Err(String) 映射）：`#[tauri::command]` 保留原函数可直调，测试
+//! 不启动真实 Tauri runtime——以 `tauri::test::mock_app()`（MockRuntime，无窗口
+//! 无事件循环）manage 真实 `WorkspaceStores`（tempdir 真开全局库与 workspace
+//! 库）后经 `app.state::<WorkspaceStores>()` 取 State。
 
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::sync::Arc;
 
+use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
 use serde_json::json;
 use tauri::{App, Manager};
 use tempfile::TempDir;
 
 use super::{add_workspace, list_workspaces, remove_workspace};
-use store::Store;
+use store::{AgentRunRecord, WorkspaceStores};
 
-/// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
+/// 数据根 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
-    db_dir: TempDir,
+    data_dir: TempDir,
     ws_root: TempDir,
 }
 
 impl Env {
     fn new(tag: &str) -> Self {
-        let db_dir = tempfile::Builder::new()
-            .prefix(&format!("ws-cmd-test-{tag}-db-"))
+        let data_dir = tempfile::Builder::new()
+            .prefix(&format!("ws-cmd-test-{tag}-data-"))
             .tempdir()
-            .expect("创建 db 临时目录失败");
+            .expect("创建数据根临时目录失败");
         let ws_root = tempfile::Builder::new()
             .prefix(&format!("ws-cmd-test-{tag}-root-"))
             .tempdir()
             .expect("创建 workspace 根临时目录失败");
-        Self { db_dir, ws_root }
+        Self { data_dir, ws_root }
     }
 
-    /// 默认 db 文件路径（固定文件名，多次调用同值，支撑重开场景）。
-    fn db_path(&self) -> PathBuf {
-        self.db_dir.path().join("test.redb")
+    /// `workspaces/` 子树根（workspace 库文件派生落位）。
+    fn workspaces_dir(&self) -> PathBuf {
+        self.data_dir.path().join("workspaces")
     }
 
     /// 在 workspace 根下创建一个真实目录并返回路径。
@@ -51,42 +54,98 @@ impl Env {
     fn root_of(&self, name: &str) -> String {
         self.ws(name).to_string_lossy().into_owned()
     }
+
+    /// `workspaces/` 子树内的 db 文件名清单（排序稳定）。
+    fn workspace_db_files(&self) -> Vec<String> {
+        let mut names: Vec<String> = fs::read_dir(self.workspaces_dir())
+            .expect("读取 workspaces 子树失败")
+            .map(|entry| {
+                entry
+                    .expect("遍历目录项失败")
+                    .file_name()
+                    .to_string_lossy()
+                    .into_owned()
+            })
+            .collect();
+        names.sort();
+        names
+    }
 }
 
-/// 以 MockRuntime 建测用 app，并在其中 manage 真实 Store（打开 env 的 db 文件）。
-fn app_with_store(env: &Env) -> App<tauri::test::MockRuntime> {
+/// 以 MockRuntime 建测用 app，并在其中 manage 真实 WorkspaceStores（打开 env
+/// 数据根的全局库；workspace 库经 add 预开 / for_root 惰性开）。
+fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     let app = tauri::test::mock_app();
-    let store = Store::open(&env.db_path()).expect("打开测试 db 失败");
-    app.manage(store);
+    let stores = WorkspaceStores::open(env.data_dir.path()).expect("打开测试全局库失败");
+    app.manage(stores);
     app
 }
 
+/// 带来源三元组的 running 形态 run 记录（id 由 begin 分配）。
+fn chain_run(
+    root: &str,
+    prompt: &str,
+    started_at: i64,
+    source: &str,
+    source_ref: Option<&str>,
+) -> AgentRunRecord {
+    AgentRunRecord {
+        id: 0,
+        prompt: prompt.to_owned(),
+        cwd: root.to_owned(),
+        env: AgentEnvMode::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        status: AgentRunStatus::Running,
+        started_at,
+        finished_at: None,
+        num_turns: None,
+        cost_usd: None,
+        duration_ms: None,
+        session_id: None,
+        error: None,
+        source: source.to_owned(),
+        source_ref: source_ref.map(str::to_owned),
+        parent_run_id: None,
+    }
+}
+
+/// 一条盖戳 Raw 事件（级联与重放断言的最小载荷）。
+fn raw_event(seq: u64) -> AgentEvent {
+    AgentEvent::stamp(
+        seq,
+        AgentEventKind::Raw {
+            event_type: "mystery".to_owned(),
+            raw_json: format!(r#"{{"type":"mystery","seq":{seq}}}"#),
+        },
+    )
+}
+
 // ---------------------------------------------------------------------------
-// 单元：薄包装不加工 DTO（AC-7）与错误约定（AC-3/D1/D8）
+// State 切换回归：薄包装不加工（命令面与直连 WorkspaceStores 公共 API 一致）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 三命令结果与直连store公共api结果serde一致_薄包装不加工() {
+fn 三命令结果与直连两级库注册表公共api结果serde一致_薄包装不加工() {
     let env = Env::new("passthrough");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
 
     let rec_b = add_workspace(state.clone(), env.root_of("cmd-b")).expect("add b 应成功");
     let rec_a = add_workspace(state.clone(), env.root_of("cmd-a")).expect("add a 应成功");
 
-    // list：命令面与直连 store 公共 API 的 serde 值一致（同库同状态）
+    // list：命令面与直连 WorkspaceStores 公共 API 的 serde 值一致（同库同状态）
     let via_command = list_workspaces(state.clone()).expect("list 应成功");
-    let via_store = state.list_workspaces().expect("直连 list 应成功");
+    let via_stores = state.global().list_workspaces().expect("直连 list 应成功");
     assert_eq!(
         serde_json::to_value(&via_command).unwrap(),
-        serde_json::to_value(&via_store).unwrap()
+        serde_json::to_value(&via_stores).unwrap()
     );
     // add：命令返回值即落库记录（root / name 字段直比；时间戳由 list 一致性间接锁定）
     let roots: Vec<String> = via_command.iter().map(|r| r.root.clone()).collect();
     assert_eq!(
         roots,
         vec![rec_a.root.clone(), rec_b.root],
-        "命令面与直连 store 的默认序（主键自然序）一致"
+        "命令面与直连的默认序（主键自然序）一致"
     );
     let stored_a = via_command.iter().find(|r| r.root == rec_a.root).unwrap();
     assert_eq!(stored_a.name, rec_a.name);
@@ -95,8 +154,8 @@ fn 三命令结果与直连store公共api结果serde一致_薄包装不加工() 
 #[test]
 fn add_workspace返回值序列化顶层键恰为三字段驼峰命名无redb概念泄漏() {
     let env = Env::new("serde-shape");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
 
     let record = add_workspace(state.clone(), env.root_of("shape")).expect("add 应成功");
 
@@ -115,8 +174,8 @@ fn add_workspace返回值序列化顶层键恰为三字段驼峰命名无redb概
 #[test]
 fn add传入书写不等价string返回root与库内canonical_key同源() {
     let env = Env::new("canonical-same");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
 
     let raw = env.root_of("DedupMe");
     let first = add_workspace(state.clone(), raw).expect("首次 add 应成功");
@@ -142,8 +201,8 @@ fn add传入书写不等价string返回root与库内canonical_key同源() {
 #[test]
 fn 未注册root的remove经命令面返回false幂等() {
     let env = Env::new("cmd-miss");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
     let registered = add_workspace(state.clone(), env.root_of("registered")).expect("add 应成功");
     let ghost = env.root_of("ghost"); // 存在但未注册
 
@@ -158,8 +217,8 @@ fn 未注册root的remove经命令面返回false幂等() {
 #[test]
 fn add传入不存在的目录返回err且含canonicalize前缀() {
     let env = Env::new("cmd-missing");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
     let missing = env
         .ws_root
         .path()
@@ -178,8 +237,8 @@ fn add传入不存在的目录返回err且含canonicalize前缀() {
 #[test]
 fn 空字符串root时add为err而remove为ok_false两命令语义一致() {
     let env = Env::new("cmd-empty");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
     let registered = add_workspace(state.clone(), env.root_of("registered")).expect("add 应成功");
 
     let add_err = add_workspace(state.clone(), String::new()).expect_err("空 root add 应 Err");
@@ -196,14 +255,73 @@ fn 空字符串root时add为err而remove为ok_false两命令语义一致() {
 }
 
 // ---------------------------------------------------------------------------
+// 注册表操作 → 全局库 + 预开校验
+// ---------------------------------------------------------------------------
+
+#[test]
+fn add_workspace后注册记录落全局库且对应workspace库文件已创建() {
+    let env = Env::new("preopen-hit");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    let record = add_workspace(state.clone(), env.root_of("preopen")).expect("add 应成功");
+
+    assert_eq!(
+        list_workspaces(state.clone()).unwrap(),
+        vec![record],
+        "注册记录落全局库"
+    );
+    assert_eq!(
+        env.workspace_db_files().len(),
+        1,
+        "注册成功后预开对应 workspace 库（文件落 workspaces/ 子树）"
+    );
+}
+
+#[test]
+fn workspace库文件损坏时add_workspace返回err且注册记录保留() {
+    let env = Env::new("preopen-corrupt");
+    let root;
+    {
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+        root = env.root_of("victim");
+        add_workspace(state.clone(), root.clone()).expect("首次 add 应成功");
+        // tauri 托管值生命周期长于 App（redb 文件锁不随 App drop 释放）：
+        // 显式取回注册表销毁，损坏文件才能覆写
+        #[allow(deprecated)]
+        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
+    }
+    let file_path = env
+        .workspaces_dir()
+        .join(env.workspace_db_files()[0].as_str());
+    fs::write(
+        &file_path,
+        "损坏的非法字节序列，不是合法 db 文件。".repeat(32),
+    )
+    .expect("写损坏文件失败");
+
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let err = add_workspace(state.clone(), root.clone())
+        .expect_err("坏文件注册时以 Err 暴露（预开校验 fail fast）");
+    assert!(!err.is_empty(), "错误串可直抵前端，实际: {err}");
+
+    // 先注册后预开：注册记录保留（重加同 root upsert 幂等并再次校验）
+    let list = list_workspaces(state.clone()).unwrap();
+    assert_eq!(list.len(), 1, "注册记录保留");
+    assert_eq!(list[0].root, root, "root 为 canonical key");
+}
+
+// ---------------------------------------------------------------------------
 // 集成：tempdir 全链路经命令面（add → list → remove → 重开）与等价路径命中
 // ---------------------------------------------------------------------------
 
 #[test]
 fn 空库经命令面list返回空数组() {
     let env = Env::new("int-empty");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
 
     let list = list_workspaces(state.clone()).expect("list 应成功");
 
@@ -211,13 +329,13 @@ fn 空库经命令面list返回空数组() {
 }
 
 #[test]
-fn 经命令面add_list顺序与直连store一致_删除与重开后状态经命令面可复现() {
+fn 经命令面add_list顺序与直连一致_删除与重开后状态经命令面可复现() {
     let env = Env::new("int-full");
     let rec_a;
     let rec_c;
     {
-        let app = app_with_store(&env);
-        let state = app.state::<Store>();
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
 
         rec_c = add_workspace(state.clone(), env.root_of("cmd-c")).expect("add c 应成功");
         let rec_b = add_workspace(state.clone(), env.root_of("cmd-b")).expect("add b 应成功");
@@ -242,16 +360,16 @@ fn 经命令面add_list顺序与直连store一致_删除与重开后状态经命
             .map(|r| r.root.clone())
             .collect();
         assert_eq!(after_remove, vec![rec_a.root.clone(), rec_c.root.clone()]);
-        // 显式取回 Store 所有权并释放：App 内部 Arc 环不保证同步 drop，redb 文件锁须显式还。
-        // 安全性：state 借用已随上一断言自然结束（State 为引用包装，无 Drop 副作用），
-        // 且测试单线程，unmanage 后无悬垂引用。
+        // 显式取回注册表所有权并释放：App 内部 Arc 环不保证同步 drop，全局库文件
+        // 锁须显式还（沿既有 unmanage 惯例）。
         #[allow(deprecated)]
-        let _store = app.unmanage::<Store>().expect("store 应已 manage");
+        let _stores = app.unmanage::<WorkspaceStores>().expect("应已 manage");
     }
 
-    // Store 已释放文件锁，重开同一 db 文件再经命令面 list：结果与删除后状态一致
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    // WorkspaceStores 已释放文件锁，重开同一数据根再经命令面 list：结果与删除
+    // 后状态一致
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
     let after_reopen: Vec<String> = list_workspaces(state.clone())
         .unwrap()
         .iter()
@@ -265,8 +383,8 @@ fn 经命令面add_list顺序与直连store一致_删除与重开后状态经命
 #[test]
 fn 等价路径经命令面remove命中同一条无孤儿条目() {
     let env = Env::new("int-equivalent");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
     let raw = env.root_of("CmdDedup");
     let record = add_workspace(state.clone(), raw).expect("add 应成功");
 
@@ -284,8 +402,8 @@ fn 等价路径经命令面remove命中同一条无孤儿条目() {
 #[test]
 fn 大小写不同string二次add经命令面仅一条且原记录原样返回() {
     let env = Env::new("int-case");
-    let app = app_with_store(&env);
-    let state = app.state::<Store>();
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
     let raw = env.root_of("CaseAdd");
     let first = add_workspace(state.clone(), raw).expect("首次 add 应成功");
 
@@ -299,4 +417,142 @@ fn 大小写不同string二次add经命令面仅一条且原记录原样返回()
     let list = list_workspaces(state.clone()).unwrap();
     assert_eq!(list.len(), 1, "仅一条记录");
     assert_eq!(list[0].added_at, first.added_at, "added_at 保留首添值");
+}
+
+// ---------------------------------------------------------------------------
+// AC-7 组合：workspace命令面 → WorkspaceStores 缓存复用 → workspace 库历史保留
+// ---------------------------------------------------------------------------
+
+#[test]
+fn remove仅删注册记录_重加同root后explore与会话链历史完整可读() {
+    let env = Env::new("ac7-history");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("history");
+
+    let record = add_workspace(state.clone(), root.clone()).expect("add 应成功");
+    // 预开的 workspace 库种数据：explore 记录 + 会话链 runs（含事件）
+    {
+        let ws = state.for_root(&record.root).expect("预开实例应可解析");
+        let explore = ws
+            .create_explore_record(&record.root, "历史话题")
+            .expect("建档应成功");
+        let run = ws
+            .begin_agent_run(&chain_run(
+                &record.root,
+                "历史首轮",
+                100,
+                "explore",
+                Some(&explore.id.to_string()),
+            ))
+            .expect("begin 应成功");
+        ws.append_agent_run_events(run.id, &[raw_event(0), raw_event(1)])
+            .expect("append 应成功");
+    }
+
+    // remove：仅删注册记录，db 文件与缓存实例保留
+    assert!(remove_workspace(state.clone(), record.root.clone()).unwrap());
+    assert!(
+        list_workspaces(state.clone()).unwrap().is_empty(),
+        "注册记录消失"
+    );
+    assert_eq!(
+        env.workspace_db_files().len(),
+        1,
+        "workspace db 文件仍在磁盘"
+    );
+
+    // 重新 add 同 root：explore 清单与会话链历史完整可读
+    let readded = add_workspace(state.clone(), root).expect("重加应成功");
+    assert_eq!(readded.root, record.root, "重加为同一 canonical root");
+    let ws = state.for_root(&readded.root).expect("for_root 应成功");
+    let explores = ws.list_explore_records(&readded.root).unwrap();
+    assert_eq!(explores.len(), 1, "explore 清单历史完整");
+    assert_eq!(explores[0].name, "历史话题");
+    let runs = ws.list_agent_runs().unwrap();
+    assert_eq!(runs.len(), 1, "会话链历史完整");
+    assert_eq!(
+        runs[0].source_ref.as_deref(),
+        Some(explores[0].id.to_string().as_str()),
+        "链绑定（source_ref）跨 remove-readd 保持"
+    );
+    assert_eq!(
+        ws.list_agent_run_events(runs[0].id).unwrap().len(),
+        2,
+        "事件历史完整可读"
+    );
+}
+
+#[test]
+fn remove后db文件名与字节保持原样不自动清理() {
+    let env = Env::new("ac7-bytes");
+    // 阶段一：注册 + 种数据（文件持锁期间不做外部字节读取——redb 独占字节锁）
+    let root;
+    let file_name;
+    {
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+        root = env.root_of("keep-bytes");
+        let record = add_workspace(state.clone(), root.clone()).expect("add 应成功");
+        state
+            .for_root(&record.root)
+            .expect("for_root 应成功")
+            .begin_agent_run(&chain_run(&record.root, "占位轮", 100, "debug", None))
+            .expect("begin 应成功");
+        file_name = env.workspace_db_files()[0].clone();
+        // tauri 托管值生命周期长于 App（redb 文件锁不随 App drop 释放）：
+        // 显式取回注册表销毁，db 文件字节才能被外部读取
+        #[allow(deprecated)]
+        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
+    }
+    let file_path = env.workspaces_dir().join(&file_name);
+    let bytes_before = fs::read(&file_path).expect("读取 db 文件失败");
+
+    // 阶段二：remove 仅删注册记录（本 app 未开 workspace 库，文件不持锁）
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    assert!(remove_workspace(state.clone(), root).unwrap());
+
+    assert_eq!(
+        env.workspace_db_files(),
+        vec![file_name],
+        "派生路径上 db 文件名保持原样（不自动清理）"
+    );
+    assert_eq!(
+        fs::read(&file_path).expect("读取 db 文件失败"),
+        bytes_before,
+        "db 文件字节保持原样"
+    );
+}
+
+#[test]
+fn remove不驱逐缓存_重加同root经缓存实例即读即得() {
+    let env = Env::new("ac7-cache");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("keep-cache");
+
+    let record = add_workspace(state.clone(), root).expect("add 应成功");
+    let arc_before = state.for_root(&record.root).expect("for_root 应成功");
+    // 缓存实例内写入一笔数据
+    arc_before
+        .begin_agent_run(&chain_run(&record.root, "缓存轮", 100, "debug", None))
+        .expect("begin 应成功");
+
+    // remove：注册记录消失，缓存实例保留
+    assert!(remove_workspace(state.clone(), record.root.clone()).unwrap());
+    assert!(list_workspaces(state.clone()).unwrap().is_empty());
+
+    // 重加同 root：命中同一缓存实例（无二次文件打开），实例内数据即读即得
+    add_workspace(state.clone(), record.root.clone()).expect("重加应成功");
+    let arc_after = state.for_root(&record.root).expect("for_root 应成功");
+    assert!(
+        Arc::ptr_eq(&arc_before, &arc_after),
+        "重加后命中同一缓存实例（remove 不驱逐缓存）"
+    );
+    assert_eq!(
+        arc_after.list_agent_runs().unwrap().len(),
+        1,
+        "缓存实例数据即读即得（remove-readd 不清空 workspace 库）"
+    );
 }

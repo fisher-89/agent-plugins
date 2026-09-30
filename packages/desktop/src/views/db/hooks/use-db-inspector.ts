@@ -1,12 +1,21 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type ModelInfo, type RecordEnvelope } from '../../../types/generated/bindings';
+import {
+  commands,
+  type DbDimension,
+  type ModelInfo,
+  type RecordEnvelope,
+} from '../../../types/generated/bindings';
 
 /** 记录分页页长 */
 const PAGE_SIZE = 50;
 
 export interface DbInspectorState {
-  /** 模型清单（挂载取一次；计数 0 也列出） */
+  /** 当前 scope（全局库 / workspace 库；默认 workspace 库——调试主看 workspace 域模型） */
+  scope: DbDimension;
+  /** 切换 scope（用户显式动作）：重置选中模型与分页并重取清单 */
+  setScope: (scope: DbDimension) => void;
+  /** 模型清单（scope / root 变更即重取；计数 0 也列出） */
   models: ModelInfo[];
   /** 模型清单加载中 */
   loading: boolean;
@@ -34,8 +43,12 @@ export interface DbInspectorState {
   prevPage: () => void;
 }
 
-/** 模型清单取数：挂载 invoke("db_models") 一次（进入页面即用户显式动作） */
-function useDbModels(): { models: ModelInfo[]; loading: boolean; error: string | null } {
+/** 模型清单取数：scope / root 挂载与变更即 invoke("db_models")（进入页面 /
+ * 切 scope 均用户显式动作；scope 寻址两库，Global 忽略 root） */
+function useDbModels(
+  scope: DbDimension,
+  root: string,
+): { models: ModelInfo[]; loading: boolean; error: string | null } {
   const [models, setModels] = useState<ModelInfo[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -45,7 +58,7 @@ function useDbModels(): { models: ModelInfo[]; loading: boolean; error: string |
     setLoading(true);
     setError(null);
     commands
-      .dbModels()
+      .dbModels(scope, root)
       .then((result) => {
         if (cancelled) return;
         setModels(result);
@@ -59,13 +72,15 @@ function useDbModels(): { models: ModelInfo[]; loading: boolean; error: string |
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [scope, root]);
 
   return { models, loading, error };
 }
 
-/** 记录分页取数：选中模型 / 翻页 / 刷新触发；未选中模型不取数 */
+/** 记录分页取数：选中模型 / 翻页 / 刷新 / scope 变更触发；未选中模型不取数 */
 function useDbRecords(
+  scope: DbDimension,
+  root: string,
   selected: string | null,
   offset: number,
   tick: number,
@@ -85,7 +100,7 @@ function useDbRecords(
     setRecordsLoading(true);
     setRecordsError(null);
     commands
-      .dbRecords(selected, offset, PAGE_SIZE)
+      .dbRecords(scope, root, selected, offset, PAGE_SIZE)
       .then((result) => {
         if (cancelled) return;
         setRecords(result);
@@ -99,23 +114,41 @@ function useDbRecords(
     return () => {
       cancelled = true;
     };
-  }, [selected, offset, tick]);
+  }, [scope, root, selected, offset, tick]);
 
   return { records, recordsLoading, recordsError };
 }
 
 /**
- * 数据库器取数收口 hook：模型清单挂载取一次；记录分页由用户显式动作触发
- * （选中模型 / 翻页 / 刷新），invoke "db_records"。错误呈现沿查询轨语义：
- * 失败置 error 态 inline 持久（不走 toast）。无轮询、无事件订阅。
+ * 数据库器取数收口 hook：scope 态（默认 workspace 库，切全局库为显式动作）；
+ * 模型清单随 scope / root 变更重取，scope / root 变更同步重置选中模型与分页；
+ * 记录分页由用户显式动作触发（选中模型 / 翻页 / 刷新），invoke "db_records"。
+ * 错误呈现沿查询轨语义：失败置 error 态 inline 持久（不走 toast）。无轮询、
+ * 无事件订阅。
  */
-export function useDbInspector(): DbInspectorState {
-  const { models, loading, error } = useDbModels();
+export function useDbInspector(root: string): DbInspectorState {
+  const [scope, setScopeState] = useState<DbDimension>('workspace');
   const [selected, setSelected] = useState<string | null>(null);
   const [offset, setOffset] = useState(0);
   const [tick, setTick] = useState(0);
-  const { records, recordsLoading, recordsError } = useDbRecords(selected, offset, tick);
 
+  // scope / root 变更即重置选中模型与分页（两库清单互不混列，选中与页码
+  // 不跨库沿用），模型清单经 useDbModels 的 effect 随之重取
+  useEffect(() => {
+    setSelected(null);
+    setOffset(0);
+  }, [scope, root]);
+
+  const { models, loading, error } = useDbModels(scope, root);
+  const { records, recordsLoading, recordsError } = useDbRecords(
+    scope,
+    root,
+    selected,
+    offset,
+    tick,
+  );
+
+  const setScope = useCallback((next: DbDimension) => setScopeState(next), []);
   const refresh = useCallback(() => setTick((t) => t + 1), []);
   const selectModel = useCallback((name: string) => {
     setSelected(name);
@@ -125,6 +158,8 @@ export function useDbInspector(): DbInspectorState {
   const prevPage = useCallback(() => setOffset((o) => Math.max(0, o - PAGE_SIZE)), []);
 
   return {
+    scope,
+    setScope,
     models,
     loading,
     error,

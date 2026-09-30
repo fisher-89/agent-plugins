@@ -1,8 +1,12 @@
-//! `envelope`（信封 API 实现体）的单元测试：注册表结构、scan 分页边界矩阵、
-//! key/value 信封形态（JSON 口径、u128 键可表达性）、未知模型名异常面（AC-5）。
+//! `envelope`（信封 API 实现体）的单元测试：注册表结构（按实例维度分组列出）、
+//! scan 分页边界矩阵、key/value 信封形态（JSON 口径、u128 键可表达性）、未知
+//! 模型名异常面。
 //!
 //! 存储层不 mock：tempfile 真开库并经 `Store` 公共 API 写入构造数据（信封
-//! 实现体经 `Store::list_models` / `Store::scan` 委托触达）。
+//! 实现体经 `Store::list_models` / `Store::scan` 委托触达）。双库布局下按
+//! 维度开库：注册表记录走 `Store::open_global`、run / 事件走
+//! `Store::open_workspace`（维度过滤的行为断言在 store_test.rs 的分维度
+//! list_models / scan 用例承载，本文件为分页边界与信封形态回归）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -30,8 +34,10 @@ impl Env {
         Self { db_dir, ws_root }
     }
 
-    fn db_path(&self) -> PathBuf {
-        self.db_dir.path().join("test.redb")
+    /// db 文件路径（tag 区分全局库 / workspace 库文件：维度在打开点锁定，
+    /// 同一文件不能混开两模型组）。
+    fn db_path(&self, tag: &str) -> PathBuf {
+        self.db_dir.path().join(format!("{tag}.redb"))
     }
 
     fn ws(&self, name: &str) -> PathBuf {
@@ -41,8 +47,12 @@ impl Env {
     }
 }
 
-fn open_ok(path: &Path) -> Store {
-    Store::open(path).unwrap_or_else(|e| panic!("open 应成功: {e}"))
+fn open_ws_ok(path: &Path) -> Store {
+    Store::open_workspace(path).unwrap_or_else(|e| panic!("open_workspace 应成功: {e}"))
+}
+
+fn open_global_ok(path: &Path) -> Store {
+    Store::open_global(path).unwrap_or_else(|e| panic!("open_global 应成功: {e}"))
 }
 
 fn add_ok(store: &Store, dir: &Path) -> crate::WorkspaceRecord {
@@ -97,29 +107,43 @@ fn scan_err(store: &Store, model: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 注册表：三模型全列、计数一致
+// 注册表：按维度分组列出、计数一致
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 注册表覆盖全部已注册模型且list_models计数与写入量一致() {
+fn 注册表按维度分组列出模型且list_models计数与写入量一致() {
     let env = Env::new("registry");
-    let store = open_ok(&env.db_path());
-    add_ok(&store, &env.ws("one"));
-    let run = begin_run(&store, "注册表复核", 100);
-    append_raw(&store, run.id, 0);
 
-    let models = store.list_models().unwrap();
+    // 全局库：仅 workspace 一行（含计数 1）
+    let global = open_global_ok(&env.db_path("global"));
+    add_ok(&global, &env.ws("one"));
+    let global_models = global.list_models().unwrap();
+    assert_eq!(
+        global_models
+            .iter()
+            .map(|model| (model.name.as_str(), model.count))
+            .collect::<Vec<_>>(),
+        vec![("workspace", 1)],
+        "全局库静态注册表仅 workspace 一行，计数与写入量一致"
+    );
+    drop(global);
 
+    // workspace 库：三行按登记序，计数与各模型写入量一致（explore 计数 0 也列出）
+    let ws = open_ws_ok(&env.db_path("ws"));
+    let run = begin_run(&ws, "注册表复核", 100);
+    append_raw(&ws, run.id, 0);
+
+    let models = ws.list_models().unwrap();
     assert_eq!(
         models
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["workspace", "agent_run", "agent_event", "explore"],
-        "静态注册表恰三行，顺序即登记序"
+        vec!["agent_run", "agent_event", "explore"],
+        "workspace 库静态注册表恰三行，顺序即登记序"
     );
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
-    assert_eq!(counts, vec![1, 1, 1, 0], "计数与各模型写入量一致");
+    assert_eq!(counts, vec![1, 1, 0], "计数与各模型写入量一致");
 }
 
 // ---------------------------------------------------------------------------
@@ -129,7 +153,7 @@ fn 注册表覆盖全部已注册模型且list_models计数与写入量一致() 
 #[test]
 fn scan_offset首页恰为总数与超过总数三种形态返回正确() {
     let env = Env::new("scan-offset");
-    let store = open_ok(&env.db_path());
+    let store = open_ws_ok(&env.db_path("ws"));
     for index in 0..3 {
         begin_run(&store, &format!("run-{index}"), 100 + index);
     }
@@ -159,7 +183,7 @@ fn scan_offset首页恰为总数与超过总数三种形态返回正确() {
 #[test]
 fn scan_limit为零返回空大limit返回剩余全部() {
     let env = Env::new("scan-limit");
-    let store = open_ok(&env.db_path());
+    let store = open_ws_ok(&env.db_path("ws"));
     for index in 0..3 {
         begin_run(&store, &format!("run-{index}"), 100 + index);
     }
@@ -174,7 +198,7 @@ fn scan_limit为零返回空大limit返回剩余全部() {
 #[test]
 fn scan_limit超过500截断为500上限语义() {
     let env = Env::new("scan-limit-cap");
-    let store = open_ok(&env.db_path());
+    let store = open_ws_ok(&env.db_path("ws"));
     // 505 条 > 上限 500：截断语义与「恰好 500 条」歧义区分
     for index in 0..505 {
         begin_run(&store, &format!("run-{index}"), index);
@@ -202,24 +226,28 @@ fn scan_limit超过500截断为500上限语义() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn scan_key信封三模型各自口径workspace根串run数值event为run与seq对象() {
+fn scan_key信封workspace根串run数值event对象三口径各自成立() {
     let env = Env::new("envelope-keys");
-    let store = open_ok(&env.db_path());
-    let workspace = add_ok(&store, &env.ws("keyed"));
-    let run = begin_run(&store, "键口径", 100);
-    append_raw(&store, run.id, 7);
 
-    // workspace → root 字符串
-    let ws_page = store.scan("workspace", 0, 10).unwrap();
+    // workspace → root 字符串（全局库）
+    let global = open_global_ok(&env.db_path("global"));
+    let workspace = add_ok(&global, &env.ws("keyed"));
+    let ws_page = global.scan("workspace", 0, 10).unwrap();
     assert_eq!(ws_page.len(), 1);
     assert_eq!(
         ws_page[0].key,
         serde_json::json!(workspace.root),
         "workspace key 信封为 canonical root 字符串"
     );
+    drop(global);
 
-    // agent_run → id 数值
-    let run_page = store.scan("agent_run", 0, 10).unwrap();
+    // agent_run → id 数值；agent_event → {runId, seq} JSON 形态（u128 打包键的
+    // 可读投影）——均在 workspace 库
+    let ws = open_ws_ok(&env.db_path("ws"));
+    let run = begin_run(&ws, "键口径", 100);
+    append_raw(&ws, run.id, 7);
+
+    let run_page = ws.scan("agent_run", 0, 10).unwrap();
     assert_eq!(run_page.len(), 1);
     assert_eq!(
         run_page[0].key,
@@ -227,8 +255,7 @@ fn scan_key信封三模型各自口径workspace根串run数值event为run与seq�
         "agent_run key 信封为 id 数值"
     );
 
-    // agent_event → {runId, seq} JSON 形态（u128 打包键的可读投影）
-    let event_page = store.scan("agent_event", 0, 10).unwrap();
+    let event_page = ws.scan("agent_event", 0, 10).unwrap();
     assert_eq!(event_page.len(), 1);
     assert_eq!(
         event_page[0].key,
@@ -240,7 +267,7 @@ fn scan_key信封三模型各自口径workspace根串run数值event为run与seq�
 #[test]
 fn scan_event_value信封u128打包键为十六进制字符串合法json可还原() {
     let env = Env::new("envelope-u128");
-    let store = open_ok(&env.db_path());
+    let store = open_ws_ok(&env.db_path("ws"));
     let run = begin_run(&store, "u128 键", 100);
     append_raw(&store, run.id, 3);
 
@@ -267,13 +294,11 @@ fn scan_event_value信封u128打包键为十六进制字符串合法json可还�
 #[test]
 fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
     let env = Env::new("envelope-readable");
-    let store = open_ok(&env.db_path());
-    let workspace = add_ok(&store, &env.ws("readable"));
-    let run = begin_run(&store, "可读性", 1727000000000);
-    append_raw(&store, run.id, 0);
 
-    // workspace value：三字段 camelCase 且文本可读（无 bincode 字节串）
-    let ws_value = &store.scan("workspace", 0, 10).unwrap()[0].value;
+    // workspace value：三字段 camelCase 且文本可读（无 bincode 字节串）——全局库
+    let global = open_global_ok(&env.db_path("global"));
+    let workspace = add_ok(&global, &env.ws("readable"));
+    let ws_value = &global.scan("workspace", 0, 10).unwrap()[0].value;
     let mut ws_keys: Vec<&str> = ws_value
         .as_object()
         .expect("value 为 JSON 对象")
@@ -283,9 +308,17 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
     ws_keys.sort_unstable();
     assert_eq!(ws_keys, vec!["addedAt", "name", "root"], "camelCase 字段面");
     assert_eq!(ws_value["root"], serde_json::json!(workspace.root));
+    // 信封值为人可读文本 JSON：序列化产物无 lossy 乱码标记、可无损再解析
+    // （bincode 二进制若泄漏必然以不可解析字节串或替换符形态显现）
+    assert_readable_json(ws_value);
+    drop(global);
 
-    // agent_run value：camelCase 汇总字段面
-    let run_value = &store.scan("agent_run", 0, 10).unwrap()[0].value;
+    // agent_run value：camelCase 汇总字段面；agent_event value：嵌装载荷结构化
+    // 呈现——workspace 库
+    let ws = open_ws_ok(&env.db_path("ws"));
+    let run = begin_run(&ws, "可读性", 1727000000000);
+    append_raw(&ws, run.id, 0);
+    let run_value = &ws.scan("agent_run", 0, 10).unwrap()[0].value;
     assert_eq!(run_value["prompt"], serde_json::json!("可读性"));
     assert_eq!(run_value["startedAt"], serde_json::json!(1727000000000i64));
     assert_eq!(
@@ -293,8 +326,7 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
         serde_json::json!("bypassPermissions")
     );
 
-    // agent_event value：嵌装载荷结构化呈现
-    let event_value = &store.scan("agent_event", 0, 10).unwrap()[0].value;
+    let event_value = &ws.scan("agent_event", 0, 10).unwrap()[0].value;
     assert_eq!(
         event_value["event"]["kind"],
         serde_json::json!("raw"),
@@ -304,18 +336,20 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
         event_value["event"]["rawJson"],
         serde_json::json!(r#"{"type":"mystery","seq":0}"#)
     );
-    // 信封值为人可读文本 JSON：序列化产物无 lossy 乱码标记、可无损再解析
-    // （bincode 二进制若泄漏必然以不可解析字节串或替换符形态显现）
-    for value in [ws_value, run_value, event_value] {
-        let text = serde_json::to_string(value).expect("信封值可序列化");
-        assert!(
-            !text.contains('\u{FFFD}'),
-            "无 UTF-8 lossy 乱码标记（无二进制泄漏）: {text}"
-        );
-        let reparsed: serde_json::Value =
-            serde_json::from_str(&text).expect("产物为合法 JSON 文本");
-        assert_eq!(&reparsed, value, "信封值文本往返无损");
+    for value in [run_value, event_value] {
+        assert_readable_json(value);
     }
+}
+
+/// 信封值文本往返无损断言（无二进制泄漏的代理判据）。
+fn assert_readable_json(value: &serde_json::Value) {
+    let text = serde_json::to_string(value).expect("信封值可序列化");
+    assert!(
+        !text.contains('\u{FFFD}'),
+        "无 UTF-8 lossy 乱码标记（无二进制泄漏）: {text}"
+    );
+    let reparsed: serde_json::Value = serde_json::from_str(&text).expect("产物为合法 JSON 文本");
+    assert_eq!(&reparsed, value, "信封值文本往返无损");
 }
 
 // ---------------------------------------------------------------------------
@@ -325,7 +359,7 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
 #[test]
 fn scan未知模型名与空串返回err且错误串含模型名() {
     let env = Env::new("envelope-unknown");
-    let store = open_ok(&env.db_path());
+    let store = open_ws_ok(&env.db_path("ws"));
 
     let err_named = scan_err(&store, "nope");
     assert!(err_named.contains("未知模型"), "语境前缀在位: {err_named}");
@@ -340,6 +374,6 @@ fn scan未知模型名与空串返回err且错误串含模型名() {
         "空串同样走未知模型错误面: {err_empty}"
     );
 
-    // 异常不产生副作用：正常模型仍可扫描
-    assert!(store.scan("workspace", 0, 10).unwrap().is_empty());
+    // 异常不产生副作用：本库已注册模型仍可扫描
+    assert!(store.scan("agent_run", 0, 10).unwrap().is_empty());
 }

@@ -1,0 +1,84 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-29T14:18:51.717Z",
+  "duration_seconds": 621,
+  "total": 585,
+  "passed": 585,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 47,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 84.17,
+    "threshold": 80,
+    "measured": {
+      "killed": 452,
+      "survived": 81,
+      "timeout": 0,
+      "noCoverage": 4,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 2,
+      "total": 539,
+      "detected": 452,
+      "undetected": 85
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 84.17132216014897,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 47,
+        "passed_count": 47
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-workspace-db-split/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-workspace-db-split/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ]
+}

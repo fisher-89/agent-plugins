@@ -19,6 +19,10 @@ vi.mock('@tauri-apps/api/core', () => ({
 // 页长 50 与 hook 内 PAGE_SIZE 常量同源（未导出，按实现值字面书写）。
 // ---------------------------------------------------------------------------
 
+/** workspace root（workspace 库 scope 寻址基准；scope 默认 workspace 库） */
+const ROOT = 'C:\\demo\\beta';
+const WORKSPACE_PARAMS = { scope: 'workspace', root: ROOT } as const;
+
 /** 模型清单 fixture：agent_run 载荷用于翻页矩阵（60 = 1 整页 + 10）。 */
 const MODELS: ModelInfo[] = [
   { name: 'workspace', count: 0 },
@@ -87,7 +91,7 @@ describe('useDbInspector：挂载取数', () => {
           setTimeout(() => resolve(command === 'db_models' ? MODELS : []), 0),
         ),
     );
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
 
     let previous = -1;
     await waitFor(
@@ -115,7 +119,7 @@ describe('useDbInspector：挂载取数', () => {
           if (command === 'db_models') resolveLoad = resolve;
         }),
     );
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
 
     // 挂载取数进行中：loading 置位（挂载 effect 显式置位）
     expect(result.current.loading).toBe(true);
@@ -126,13 +130,13 @@ describe('useDbInspector：挂载取数', () => {
     expect(result.current.loading).toBe(false);
     expect(result.current.models).toHaveLength(3);
     expect(result.current.error).toBeNull();
-    expect(invokeMock).toHaveBeenCalledWith('db_models');
+    expect(invokeMock).toHaveBeenCalledWith('db_models', WORKSPACE_PARAMS);
     expect(countOf('db_models')).toBe(1);
   });
 
   it('静置后调用数不增长且未选中模型时不取记录（AC-7 只读取数纪律）', async () => {
     mockDispatch();
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
     const baseline = invokeMock.mock.calls.length;
 
@@ -151,16 +155,17 @@ describe('useDbInspector：selectModel 与翻页', () => {
     invokeMock.mockReset();
   });
 
-  it('selectModel 重置 offset=0 并以 {model, offset:0, limit:50} 取第一页', async () => {
+  it('selectModel 重置 offset=0 并以 {scope, root, model, offset:0, limit:50} 取第一页', async () => {
     const inventory = envelopes(60);
     mockDispatch(inventory);
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await selectModel(result, 'agent_run');
 
     await waitFor(() => expect(result.current.records).toHaveLength(50));
     expect(invokeMock).toHaveBeenCalledWith('db_records', {
+      ...WORKSPACE_PARAMS,
       model: 'agent_run',
       offset: 0,
       limit: 50,
@@ -171,7 +176,7 @@ describe('useDbInspector：selectModel 与翻页', () => {
 
   it('连续两次 selectModel：两次动作均触发取数，最终状态与最后选择一致', async () => {
     mockDispatch(envelopes(10));
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await selectModel(result, 'agent_run');
@@ -181,13 +186,18 @@ describe('useDbInspector：selectModel 与翻页', () => {
 
     expect(result.current.selected).toBe('agent_event');
     expect(result.current.offset).toBe(0);
-    expect(lastParamsOf('db_records')).toEqual({ model: 'agent_event', offset: 0, limit: 50 });
+    expect(lastParamsOf('db_records')).toEqual({
+      ...WORKSPACE_PARAMS,
+      model: 'agent_event',
+      offset: 0,
+      limit: 50,
+    });
   });
 
   it('nextPage / prevPage 以 PAGE_SIZE 步进取对应页，refresh 以当前 offset 重取', async () => {
     const inventory = envelopes(120);
     mockDispatch(inventory);
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await selectModel(result, 'agent_run');
@@ -198,25 +208,40 @@ describe('useDbInspector：selectModel 与翻页', () => {
     });
     await waitFor(() => expect(result.current.offset).toBe(50));
     await waitFor(() => expect(result.current.records[0].key).toBe(50));
-    expect(lastParamsOf('db_records')).toEqual({ model: 'agent_run', offset: 50, limit: 50 });
+    expect(lastParamsOf('db_records')).toEqual({
+      ...WORKSPACE_PARAMS,
+      model: 'agent_run',
+      offset: 50,
+      limit: 50,
+    });
 
     act(() => {
       result.current.refresh();
     });
     await waitFor(() => expect(countOf('db_records')).toBe(3));
-    expect(lastParamsOf('db_records')).toEqual({ model: 'agent_run', offset: 50, limit: 50 });
+    expect(lastParamsOf('db_records')).toEqual({
+      ...WORKSPACE_PARAMS,
+      model: 'agent_run',
+      offset: 50,
+      limit: 50,
+    });
 
     act(() => {
       result.current.prevPage();
     });
     await waitFor(() => expect(result.current.offset).toBe(0));
     await waitFor(() => expect(result.current.records[0].key).toBe(0));
-    expect(lastParamsOf('db_records')).toEqual({ model: 'agent_run', offset: 0, limit: 50 });
+    expect(lastParamsOf('db_records')).toEqual({
+      ...WORKSPACE_PARAMS,
+      model: 'agent_run',
+      offset: 0,
+      limit: 50,
+    });
   });
 
   it('首页 prevPage 不动：offset 保持 0 且不触发负 offset 取数', async () => {
     mockDispatch(envelopes(10));
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await selectModel(result, 'agent_run');
@@ -233,7 +258,7 @@ describe('useDbInspector：selectModel 与翻页', () => {
 
   it('记录数恰为整页倍数：hasMore 判定使翻页拼接不重不漏', async () => {
     mockDispatch(envelopes(100)); // 恰两整页
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await selectModel(result, 'agent_run');
@@ -257,6 +282,69 @@ describe('useDbInspector：selectModel 与翻页', () => {
   });
 });
 
+// ---------------------------------------------------------------------------
+// scope / root 切换重置与重取（desktop-workspace-db-split）：scope 态默认
+// workspace 库，切全局库 / 换 root 均重置选中模型与分页并重取清单（两库清单
+// 互不混列，选中与页码不跨库沿用）。
+// ---------------------------------------------------------------------------
+
+describe('useDbInspector：scope / root 切换重置与重取', () => {
+  beforeEach(() => {
+    invokeMock.mockReset();
+  });
+
+  it('默认 scope 为 workspace 库：挂载即携 (scope: "workspace", root) 取清单', async () => {
+    mockDispatch();
+    const { result } = renderHook(() => useDbInspector(ROOT));
+
+    await waitFor(() => expect(result.current.models).toHaveLength(3));
+
+    expect(result.current.scope).toBe('workspace');
+    expect(invokeMock).toHaveBeenCalledWith('db_models', WORKSPACE_PARAMS);
+  });
+
+  it('setScope 切换后重置选中模型（复位 null）与分页（offset 回 0），并以新 scope 重取清单', async () => {
+    mockDispatch(envelopes(10));
+    const { result } = renderHook(() => useDbInspector(ROOT));
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.records).toHaveLength(10));
+
+    act(() => {
+      result.current.setScope('user');
+    });
+
+    await waitFor(() => expect(lastParamsOf('db_models')).toEqual({ scope: 'user', root: ROOT }));
+    expect(result.current.scope).toBe('user');
+    expect(result.current.selected).toBeNull();
+    expect(result.current.offset).toBe(0);
+    expect(result.current.records).toEqual([]);
+  });
+
+  it('root 变更同口径：重置选中与分页，清单与记录以新 root 重取', async () => {
+    mockDispatch(envelopes(10));
+    const NEXT_ROOT = 'C:\\demo\\gamma';
+    const { result, rerender } = renderHook(
+      (props: { root: string }) => useDbInspector(props.root),
+      { initialProps: { root: ROOT } },
+    );
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    await selectModel(result, 'agent_run');
+    await waitFor(() => expect(result.current.records).toHaveLength(10));
+
+    rerender({ root: NEXT_ROOT });
+
+    await waitFor(() =>
+      expect(lastParamsOf('db_models')).toEqual({ scope: 'workspace', root: NEXT_ROOT }),
+    );
+    expect(result.current.selected).toBeNull();
+    expect(result.current.offset).toBe(0);
+    expect(result.current.records).toEqual([]);
+  });
+});
+
 describe('useDbInspector：错误态（查询轨 inline，无 toast）', () => {
   beforeEach(() => {
     invokeMock.mockReset();
@@ -264,7 +352,7 @@ describe('useDbInspector：错误态（查询轨 inline，无 toast）', () => {
 
   it('db_models reject：error 置位含错误串、models 保持空数组、无未捕获异常', async () => {
     invokeMock.mockRejectedValue(new Error('db: 清单打开失败'));
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
 
     await waitFor(() => expect(result.current.error).not.toBeNull());
 
@@ -278,7 +366,7 @@ describe('useDbInspector：错误态（查询轨 inline，无 toast）', () => {
       if (command === 'db_models') return Promise.resolve([...MODELS]);
       return Promise.reject(new Error('db: 未知模型'));
     });
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.models).toHaveLength(3));
 
     await selectModel(result, 'agent_run');
@@ -299,7 +387,7 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
 
   it('未选中模型静置：recordsLoading 保持 false、recordsError 为 null（无幽灵加载态）', async () => {
     mockDispatch(envelopes(10));
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(result.current.recordsLoading).toBe(false);
@@ -316,7 +404,7 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
         resolveRecords = resolve;
       });
     });
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => {
@@ -341,7 +429,7 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
         resolvers.push(resolve);
       });
     });
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => {
@@ -378,7 +466,7 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
         rejectors.push(reject);
       });
     });
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     act(() => {
@@ -407,7 +495,7 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
 
   it('refresh 连按两次：每次均重发当前页取数（tick 严格递增，第二次不失效）', async () => {
     mockDispatch(envelopes(60));
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     await selectModel(result, 'agent_run');
@@ -423,7 +511,12 @@ describe('useDbInspector：加载态、翻页竞态取消守卫与 refresh 严�
     });
     await waitFor(() => expect(countOf('db_records')).toBe(3));
 
-    expect(lastParamsOf('db_records')).toEqual({ model: 'agent_run', offset: 0, limit: 50 });
+    expect(lastParamsOf('db_records')).toEqual({
+      ...WORKSPACE_PARAMS,
+      model: 'agent_run',
+      offset: 0,
+      limit: 50,
+    });
     expect(result.current.records).toHaveLength(50);
   });
 });
@@ -439,15 +532,16 @@ describe('useDbInspector：生成绑定调用面', () => {
     invokeMock.mockReset();
   });
 
-  it('经生成绑定入口后 invoke 收到 "db_models" 与 "db_records" + { model, offset, limit }，分页参数与取数透传不变', async () => {
+  it('经生成绑定入口后 invoke 收到 "db_models" + { scope, root } 与 "db_records" + { scope, root, model, offset, limit }，分页参数与取数透传不变', async () => {
     mockDispatch(envelopes(60));
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.models).toHaveLength(3));
-    expect(invokeMock).toHaveBeenCalledWith('db_models');
+    expect(invokeMock).toHaveBeenCalledWith('db_models', WORKSPACE_PARAMS);
 
     await selectModel(result, 'agent_run');
     await waitFor(() => expect(result.current.records).toHaveLength(50));
     expect(invokeMock).toHaveBeenCalledWith('db_records', {
+      ...WORKSPACE_PARAMS,
       model: 'agent_run',
       offset: 0,
       limit: 50,
@@ -457,12 +551,17 @@ describe('useDbInspector：生成绑定调用面', () => {
       result.current.nextPage();
     });
     await waitFor(() => expect(result.current.offset).toBe(50));
-    expect(lastParamsOf('db_records')).toEqual({ model: 'agent_run', offset: 50, limit: 50 });
+    expect(lastParamsOf('db_records')).toEqual({
+      ...WORKSPACE_PARAMS,
+      model: 'agent_run',
+      offset: 50,
+      limit: 50,
+    });
   });
 
   it('未选中模型不取记录（零 IPC 纪律保持）、翻页 offset 步进参数不变', async () => {
     mockDispatch(envelopes(10));
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.loading).toBe(false));
 
     expect(countOf('db_records')).toBe(0);
@@ -474,7 +573,7 @@ describe('useDbInspector：生成绑定调用面', () => {
       if (command === 'db_models') return Promise.resolve([...MODELS]);
       return Promise.reject(new Error('db: 未知模型'));
     });
-    const { result } = renderHook(() => useDbInspector());
+    const { result } = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(result.current.models).toHaveLength(3));
 
     await selectModel(result, 'agent_run');
@@ -484,7 +583,7 @@ describe('useDbInspector：生成绑定调用面', () => {
 
     invokeMock.mockReset();
     invokeMock.mockRejectedValue(new Error('db: 清单打开失败'));
-    const modelsFailed = renderHook(() => useDbInspector());
+    const modelsFailed = renderHook(() => useDbInspector(ROOT));
     await waitFor(() => expect(modelsFailed.result.current.error).toContain('db: 清单打开失败'));
     expect(modelsFailed.result.current.models).toEqual([]);
   });

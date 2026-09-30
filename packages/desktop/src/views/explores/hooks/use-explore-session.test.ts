@@ -138,7 +138,11 @@ function mockIpc() {
   startResult = run(13, 's-new-tail', 12, 'running');
   invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
     if (command === 'agent_run_chain') {
-      expect(params).toMatchObject({ source: 'explore', sourceRef: String(RECORD_ID) });
+      expect(params).toMatchObject({
+        root: ROOT,
+        source: 'explore',
+        sourceRef: String(RECORD_ID),
+      });
       return typeof chainResult === 'string'
         ? Promise.reject(chainResult)
         : Promise.resolve(chainResult);
@@ -190,7 +194,7 @@ const SEND_INPUT = {
 };
 
 describe('useExploreSession：链还原与逐 run 事件重放（AC-9/AC-5）', () => {
-  it('record 有既有链：挂载发起 agent_run_chain 恰一次（来源二元组）+ 逐 run 重放，events 按发起序拼接', async () => {
+  it('record 有既有链：挂载发起 agent_run_chain 恰一次（携 root 寻址 + 来源二元组）+ 逐 run 重放，events 按发起序拼接', async () => {
     const { result } = await mounted();
 
     expect(result.current.loading).toBe(false);
@@ -198,7 +202,7 @@ describe('useExploreSession：链还原与逐 run 事件重放（AC-9/AC-5）', 
     expect(chainCalls).toHaveLength(1);
     expect(chainCalls[0]).toEqual([
       'agent_run_chain',
-      { source: 'explore', sourceRef: String(RECORD_ID) },
+      { root: ROOT, source: 'explore', sourceRef: String(RECORD_ID) },
     ]);
     expect(result.current.chain).toEqual(chainFixture);
     expect(result.current.events).toEqual([
@@ -377,7 +381,7 @@ describe('useExploreSession：send 拼接 stance 与链尾 resume（AC-9，D4/D7
 // ---------------------------------------------------------------------------
 
 describe('useExploreSession → 基建接线：stop 透传', () => {
-  it('运行中 stop() → invoke("agent_stop", { runId }) 触达后端；Channel 仍可投递事件与终态 record', async () => {
+  it('运行中 stop() → invoke("agent_stop", { root, runId }) 复合键触达后端；Channel 仍可投递事件与终态 record', async () => {
     const { result } = await mounted();
 
     act(() => {
@@ -389,7 +393,7 @@ describe('useExploreSession → 基建接线：stop 透传', () => {
       result.current.stop();
     });
     await act(async () => {});
-    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { runId: 13 });
+    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { root: ROOT, runId: 13 });
 
     // 前端流不截断：stop 后事件信封照常入镜像
     deliverEvent(textEvent(0, '停止前已产出'));

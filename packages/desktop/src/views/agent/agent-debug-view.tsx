@@ -78,7 +78,7 @@ function RunErrorBanner({ error }: { error: string }): React.JSX.Element {
  * 「刷新取数模型」禁止的轮询取数。无路由（页面切换由 App 层顶层 state 承担）。
  */
 export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element {
-  const history = useAgentRunHistory();
+  const history = useAgentRunHistory(root);
   const [showRaw, setShowRaw] = useState(false);
   const session = useAgentChat({ source: 'debug', sourceRef: null, root });
 

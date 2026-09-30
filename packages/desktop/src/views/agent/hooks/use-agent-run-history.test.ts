@@ -16,6 +16,9 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 // fixture
 // ---------------------------------------------------------------------------
 
+/** workspace root（run id 为 workspace 库域内自增，取数 invoke 携 root 寻址） */
+const ROOT = 'C:\\demo\\beta';
+
 function record(id: number, startedAt: number, status: AgentRunRecord['status']): AgentRunRecord {
   return {
     id,
@@ -69,31 +72,35 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
 
   it('挂载即自动取数：invoke("agent_runs") 恰一次，runs 承接清单', async () => {
     invokeMock.mockResolvedValue(RUNS_DESC);
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
 
     await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
 
     expect(invokeMock).toHaveBeenCalledTimes(1);
-    expect(invokeMock).toHaveBeenCalledWith('agent_runs');
+    expect(invokeMock).toHaveBeenCalledWith('agent_runs', { root: ROOT });
     expect(result.current.loading).toBe(false);
     expect(result.current.error).toBeNull();
   });
 
-  it('refresh() → invoke("agent_runs") → runs 按后端降序原样承接', async () => {
+  it('refresh() 重取仍携同一 root：invoke("agent_runs") 重发且 runs 按后端降序原样承接', async () => {
     invokeMock.mockResolvedValue(RUNS_DESC);
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
+    await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
 
     act(() => {
       result.current.refresh();
     });
-    await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
-
-    expect(invokeMock).toHaveBeenCalledWith('agent_runs');
-    expect(result.current.loading).toBe(false);
-    expect(result.current.error).toBeNull();
+    // 第二次 invoke 发起瞬间其 .then 尚未 flush（loading 仍 true）：落定断言一并置于 waitFor 内轮询
+    await waitFor(() => {
+      expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_runs')).toHaveLength(2);
+      expect(invokeMock).toHaveBeenLastCalledWith('agent_runs', { root: ROOT });
+      expect(result.current.runs).toEqual(RUNS_DESC);
+      expect(result.current.loading).toBe(false);
+      expect(result.current.error).toBeNull();
+    });
   });
 
-  it('openRun(id) → invoke("agent_run_events", { runId }) → events 更新、selectedRunId 跟随', async () => {
+  it('openRun(id) → invoke("agent_run_events", { root, runId }) → events 更新、selectedRunId 跟随', async () => {
     invokeMock.mockResolvedValue([]);
     const events = [runStarted(0), raw(1)];
     invokeMock.mockImplementation((command: string, params?: { runId?: number }) => {
@@ -102,20 +109,20 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
       }
       return Promise.resolve([]);
     });
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
 
     act(() => {
       result.current.openRun(7);
     });
     await waitFor(() => expect(result.current.events).toEqual(events));
 
-    expect(invokeMock).toHaveBeenCalledWith('agent_run_events', { runId: 7 });
+    expect(invokeMock).toHaveBeenCalledWith('agent_run_events', { root: ROOT, runId: 7 });
     expect(result.current.selectedRunId).toBe(7);
   });
 
   it('refresh reject：error 置串、loading 复位（显式触发失败不静默）', async () => {
     invokeMock.mockRejectedValue('db: 清单打开失败');
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
 
     act(() => {
       result.current.refresh();
@@ -127,7 +134,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
 
   it('openRun reject：error 置串、loading 复位、runs 清单不受影响', async () => {
     invokeMock.mockResolvedValue(RUNS_DESC);
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
     act(() => {
       result.current.refresh();
     });
@@ -151,7 +158,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
           resolveRuns = resolve;
         }),
     );
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
 
     act(() => {
       result.current.refresh();
@@ -164,9 +171,34 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
     await waitFor(() => expect(result.current.loading).toBe(false));
   });
 
+  it('root 为 null（未选定 workspace）：不发起任何 invoke，runs 保持空态（跳过取数分支）', async () => {
+    invokeMock.mockResolvedValue(RUNS_DESC);
+    const { result } = renderHook(() => useAgentRunHistory(null));
+
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(result.current.runs).toEqual([]);
+    expect(result.current.loading).toBe(false);
+    expect(result.current.error).toBeNull();
+
+    // 重放轨道同样跳过：null root 下 openRun 不触发 invoke、events 保持空态
+    act(() => {
+      result.current.openRun(7);
+    });
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(result.current.events).toEqual([]);
+    expect(result.current.selectedRunId).toBeNull();
+  });
+
   it('agent_runs 返回 []：runs 为空数组不崩', async () => {
     invokeMock.mockResolvedValue([]);
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
 
     act(() => {
       result.current.refresh();
@@ -188,7 +220,7 @@ describe('useAgentRunHistory：显式刷新与点开重放', () => {
       }
       return Promise.resolve([]);
     });
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
 
     act(() => {
       result.current.openRun(1);
@@ -214,9 +246,9 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
     invokeMock.mockReset();
   });
 
-  it('经生成绑定入口后 invoke 收到 "agent_runs"（挂载恰一次）与 "agent_run_events" + { runId }，清单降序承接与事件透传不变', async () => {
+  it('经生成绑定入口后 invoke 收到 "agent_runs" + { root }（挂载恰一次）与 "agent_run_events" + { root, runId }，清单降序承接与事件透传不变', async () => {
     invokeMock.mockResolvedValue(RUNS_DESC);
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
     await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
 
     const events = [runStarted(0)];
@@ -230,15 +262,15 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
     });
     await waitFor(() => expect(result.current.events).toEqual(events));
 
-    expect(invokeMock).toHaveBeenCalledWith('agent_runs');
-    expect(invokeMock).toHaveBeenCalledWith('agent_run_events', { runId: 3 });
+    expect(invokeMock).toHaveBeenCalledWith('agent_runs', { root: ROOT });
+    expect(invokeMock).toHaveBeenCalledWith('agent_run_events', { root: ROOT, runId: 3 });
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_runs')).toHaveLength(1);
     expect(result.current.selectedRunId).toBe(3);
   });
 
   it('agent_runs 返回 [] → runs 为空数组不崩（绑定切换不改变空态）', async () => {
     invokeMock.mockResolvedValue([]);
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
 
     await waitFor(() => {
       expect(result.current.runs).toEqual([]);
@@ -249,7 +281,7 @@ describe('useAgentRunHistory：生成绑定调用面', () => {
 
   it('refresh / openRun reject → error 置串、loading 复位、runs 清单不受影响（错误路径不变）', async () => {
     invokeMock.mockResolvedValue(RUNS_DESC);
-    const { result } = renderHook(() => useAgentRunHistory());
+    const { result } = renderHook(() => useAgentRunHistory(ROOT));
     await waitFor(() => expect(result.current.runs).toEqual(RUNS_DESC));
 
     invokeMock.mockRejectedValue('db: 事件读取失败');

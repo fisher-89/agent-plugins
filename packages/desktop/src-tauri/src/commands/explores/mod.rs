@@ -2,11 +2,13 @@
 //! 扫描 / 文档路径派生）+ 四记录面（清单 / 建档 / 改名 / 删除）。
 //!
 //! 三件事纪律沿 `commands/queries` 模板：参数转换 → 调用（workflow 查询或
-//! store 操作）→ 错误映射；blank root 空结果纪律同口径（空/空白 root 不进入
-//! 查询与 store 链路，直接空结果语义，无 panic 无错误弹窗）。查询侧纯读零
-//! 写入（笔记文件由 agent 会话流程创建，应用无落盘路径）；记录侧只写 DB
-//! （记录是身份，磁盘文件是可丢弃投影，删除记录不动文件，记录名下会话
-//! runs+events 随记录在 store 层同事务级联删除）。
+//! store 操作）→ 错误映射；blank root 纪律同口径（空/空白 root 不进入查询
+//! 与 store 链路：查询直接空结果语义、写命令 `Err`——写无空结果语义，无
+//! panic 无错误弹窗）。记录面经 `for_root(&root)` 路由至**所属 workspace 库**
+//! （记录 / 名下会话链同库收敛，见 desktop-workspace-store 双库布局）。
+//! 查询侧纯读零写入（笔记文件由 agent 会话流程创建，应用无落盘路径）；记录
+//! 侧只写 DB（记录是身份，磁盘文件是可丢弃投影，删除记录不动文件，记录名下
+//! 会话 runs+events 随记录在 store 层同事务级联删除）。
 //!
 //! 绑定过滤在命令层：workflow 扫描只列目录不认识 store，「未绑定」以 explore
 //! 记录清单求差滤除（已绑定 stem 不再出现在导入清单）。
@@ -21,7 +23,7 @@ mod mod_test;
 use tauri::State;
 
 use foundation::layout::resolve;
-use store::{ExploreRecord, Store};
+use store::{ExploreRecord, WorkspaceStores};
 use workflow::queries::{self, ExploreDoc, ExploreScanEntry};
 
 /// root 显式格式检查：空/空白串不进入查询链路（同 `commands::queries` 口径）。
@@ -58,12 +60,13 @@ pub fn read_explore(root: String, name: String) -> Option<ExploreDoc> {
 #[specta::specta]
 pub fn scan_explores(
     root: String,
-    store: State<'_, Store>,
+    stores: State<'_, WorkspaceStores>,
 ) -> Result<Vec<ExploreScanEntry>, String> {
     if is_blank_root(&root) {
         return Ok(Vec::new());
     }
     let layout = resolve(Path::new(&root));
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
     let bound: Vec<String> = store
         .list_explore_records(&root)
         .map_err(|e| e.to_string())?
@@ -98,52 +101,74 @@ pub fn explore_doc_path(root: String, name: String) -> Option<String> {
 #[tauri::command]
 #[specta::specta]
 pub fn list_explore_records(
-    store: State<'_, Store>,
+    stores: State<'_, WorkspaceStores>,
     root: String,
 ) -> Result<Vec<ExploreRecord>, String> {
     if is_blank_root(&root) {
         return Ok(Vec::new());
     }
-    store.list_explore_records(&root).map_err(|e| e.to_string())
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
+        .list_explore_records(&root)
+        .map_err(|e| e.to_string())
 }
 
-/// 新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件。
+/// 新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件；
+/// blank root → `Err`（写无空结果语义）。
 #[tauri::command]
 #[specta::specta]
 pub fn create_explore_record(
-    store: State<'_, Store>,
+    stores: State<'_, WorkspaceStores>,
     root: String,
     name: String,
 ) -> Result<ExploreRecord, String> {
-    store
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
         .create_explore_record(&root, &name)
         .map_err(|e| e.to_string())
 }
 
-/// in-place 改名（保主键 → 保会话链绑定）：文件改名后的记录重关联入口。
+/// in-place 改名（保主键 → 保会话链绑定）：文件改名后的记录重关联入口；
+/// blank root → `Err`。
 #[tauri::command]
 #[specta::specta]
 pub fn rename_explore_record(
-    store: State<'_, Store>,
+    stores: State<'_, WorkspaceStores>,
     root: String,
     name: String,
     new_name: String,
 ) -> Result<ExploreRecord, String> {
-    store
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
         .rename_explore_record(&root, &name, &new_name)
         .map_err(|e| e.to_string())
 }
 
 /// 删除 explore 记录（不动磁盘文件；名下会话 runs+events 随记录同事务级联
-/// 删除，级联语义见 store `delete_explore_record`）；miss 幂等返回 `false`。
+/// 删除，级联语义见 store `delete_explore_record`）；miss 幂等返回 `false`；
+/// blank root → `Err`。
 #[tauri::command]
 #[specta::specta]
 pub fn delete_explore_record(
-    store: State<'_, Store>,
+    stores: State<'_, WorkspaceStores>,
     root: String,
     name: String,
 ) -> Result<bool, String> {
-    store
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白".to_owned());
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
         .delete_explore_record(&root, &name)
         .map_err(|e| e.to_string())
 }

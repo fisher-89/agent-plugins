@@ -89,10 +89,14 @@
 - [ ] 【Desktop】梳理后端commands直接调用infra的场景(已知: watch、explore)，逐个分析是否需要增加core以维持DDD架构；core如何实现依赖反转？
 - [x] 【Desktop】change详情页使用react-flow展示流程，将过程文件等信息关联到对应节点内展开显示
 - [x] 【Desktop】使用tokei解析工作区目录代码量，语言占比
-- [ ] 【Desktop】将workspace内数据与全局数据分离，每个workspace独立库
+- [x] 【Desktop】将workspace数据与全局数据分离，每个workspace独立db文件，依然放在全局目录下
 - [x] 【Desktop】changeDetail流程图连线与实际执行顺序不符
 - [ ] 【Desktop】Agent消息，改为支持查看完成传输的单条消息的原始jsonL，完整jsonL面板数据量太大不利于查看
 - [x] 【Desktop】src-tauri/infra/store/src/model.ts 移除升级的历史版本 AgentRunRecordV1、AgentRunRecordV2
 - [ ] 【Desktop】移除生成类型中的null，使用undefined代替
 - [ ] 【Desktop】src-tauri/src/bindings分离生成的类型文件和commands
 - [ ] 【Desktop】恢复src-tauri/build.rs，当前复杂适配原因“测试链接了 GUI 框架”
+- [ ] 【Desktop】自动升级时，可随版本号嵌入脚本；从<当前版本>到<目标版本>顺序执行，处理数据迁移/文件修正等事项
+- [ ] 【Desktop】将changeList从app.tsx移入到change列表页内部，详情页提供单独接口
+- [ ] 【Desktop】设置网关或者tauri校验，集中检查is_blank_root，当前分散到多个api中不易维护
+- [ ] 【Desktop】main.rs中DATA_DIR也一并收入常量文件

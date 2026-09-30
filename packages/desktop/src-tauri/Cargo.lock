@@ -4671,6 +4671,7 @@ dependencies = [
  "native_model",
  "serde",
  "serde_json",
+ "sha2",
  "specta",
  "tempfile",
 ]

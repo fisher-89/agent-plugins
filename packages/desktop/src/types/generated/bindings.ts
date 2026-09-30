@@ -34,36 +34,49 @@ export const commands = {
 } | null>("read_artifact", { root, change, kind, source }).then((v) => (v==null?v:v as typeof v)),
 	/**  清单（表主键 canonical root 自然序，顺序与使用时间无关）。 */
 	listWorkspaces: () => __TAURI_INVOKE<WorkspaceRecord[]>("list_workspaces"),
-	/**  文件夹选择器选定后入库：canonicalize + upsert，返回 canonical 记录。 */
+	/**
+	 *  文件夹选择器选定后入库：canonicalize + upsert，返回 canonical 记录；注册
+	 *  成功后预开对应 workspace 库（坏文件注册时 `Err`，注册记录保留——重加同
+	 *  root 时 upsert 幂等并再次校验）。
+	 */
 	addWorkspace: (root: string) => __TAURI_INVOKE<WorkspaceRecord>("add_workspace", { root }),
-	/**  移除清单项；返回是否命中（miss 幂等，不算错误）。 */
+	/**
+	 *  移除清单项；返回是否命中（miss 幂等，不算错误）。仅删注册记录——workspace
+	 *  db 文件与缓存实例保留（移除注册 ≠ 销毁历史，重加同 root 历史完整恢复）。
+	 */
 	removeWorkspace: (root: string) => __TAURI_INVOKE<boolean>("remove_workspace", { root }),
 	/**
 	 *  发起一次 agent 运行：run 记录落库进入 running 后**提前 resolve** 返回
 	 *  running 记录（含 id，可直接用于 `agent_stop` 寻址）；执行转后台任务，
 	 *  事件实时流与终态记录均经 `onEvent` Channel 流出。启动阶段失败（CLI
-	 *  缺失 / spawn 失败 / store 失败）返回 `Err`。cwd 隐含为当前 workspace
-	 *  root（前端 invoke 固定传 `root`，无 UI 输入）。四个可选参数：
+	 *  缺失 / spawn 失败 / workspace 库解析失败）返回 `Err`。cwd 隐含为当前
+	 *  workspace root（前端 invoke 固定传 `root`，无 UI 输入）。四个可选参数：
 	 *  `resume_session_id` 续会话（进 runner 契约，组装 `--resume` flag）；
 	 *  `source` / `source_ref` / `parent_run_id` 来源三元组（旁路编排落库，
 	 *  `source` 缺省 `debug`）。
 	 */
 	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null) => __TAURI_INVOKE<AgentRunRecord>("agent_start", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId }),
 	/**
-	 *  终止一次运行中 agent 运行：按 id 寻址停止句柄置位信号（租户泵击杀进程
-	 *  树、编排收敛 `stopped`、Channel 流出终态 Record）；对已终态（除名）或
-	 *  不存在 id 幂等 `Ok`，不报错、不改写既有终态。
+	 *  终止一次运行中 agent 运行：携 root 按 `(root, run id)` 复合键寻址停止
+	 *  句柄置位信号（租户泵击杀进程树、编排收敛 `stopped`、Channel 流出终态
+	 *  Record）；对已终态（除名）或不存在键幂等 `Ok`，不报错、不改写既有终态
+	 *  （run id 为 workspace 库域内自增，裸 id 跨库歧义由 root 消解，不跨库误停）。
 	 */
-	agentStop: (runId: number) => __TAURI_INVOKE<null>("agent_stop", { runId }),
-	/**  历史运行清单（started_at 降序）。 */
-	agentRuns: () => __TAURI_INVOKE<AgentRunRecord[]>("agent_runs"),
-	/**  单 run 事件重放（seq 升序）：store 事件 API 类型化，直接返回。 */
-	agentRunEvents: (runId: number) => __TAURI_INVOKE<AgentEvent[]>("agent_run_events", { runId }),
+	agentStop: (root: string, runId: number) => __TAURI_INVOKE<null>("agent_stop", { root, runId }),
+	/**  当前 workspace 的历史运行清单（started_at 降序）；blank root → 空结果。 */
+	agentRuns: (root: string) => __TAURI_INVOKE<AgentRunRecord[]>("agent_runs", { root }),
+	/**
+	 *  单 run 事件重放（seq 升序）：store 事件 API 类型化，直接返回；
+	 *  blank root → 空结果。
+	 */
+	agentRunEvents: (root: string, runId: number) => __TAURI_INVOKE<AgentEvent[]>("agent_run_events", { root, runId }),
 	/**
 	 *  来源单链还原（发起顺序）：沿 `parent_run_id` 显式指针回溯整链，链拼接收
-	 *  口 store 单点；无链返回空数组。通用面查询（非 explore 专属）。
+	 *  口 store 单点；无链返回空数组。通用面查询（非 explore 专属）；
+	 *  `source_ref` 为 workspace 库域内的 explore 记录 id（root 寻址与库域内 id
+	 *  配套消解跨库歧义）；blank root → 空结果。
 	 */
-	agentRunChain: (source: string, sourceRef: string) => __TAURI_INVOKE<AgentRunRecord[]>("agent_run_chain", { source, sourceRef }),
+	agentRunChain: (root: string, source: string, sourceRef: string) => __TAURI_INVOKE<AgentRunRecord[]>("agent_run_chain", { root, source, sourceRef }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
 	readExplore: (root: string, name: string) => __TAURI_INVOKE<{
 	/**  笔记名（= 文件 stem） */
@@ -83,13 +96,20 @@ export const commands = {
 	exploreDocPath: (root: string, name: string) => __TAURI_INVOKE<string | null>("explore_doc_path", { root, name }),
 	/**  explore 记录清单（按当前 workspace root 过滤，id 升序）；blank root → 空结果。 */
 	listExploreRecords: (root: string) => __TAURI_INVOKE<ExploreRecord[]>("list_explore_records", { root }),
-	/**  新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件。 */
+	/**
+	 *  新建 explore 记录（导入绑定 / 新话题建档共用）：只写 DB，不触磁盘文件；
+	 *  blank root → `Err`（写无空结果语义）。
+	 */
 	createExploreRecord: (root: string, name: string) => __TAURI_INVOKE<ExploreRecord>("create_explore_record", { root, name }),
-	/**  in-place 改名（保主键 → 保会话链绑定）：文件改名后的记录重关联入口。 */
+	/**
+	 *  in-place 改名（保主键 → 保会话链绑定）：文件改名后的记录重关联入口；
+	 *  blank root → `Err`。
+	 */
 	renameExploreRecord: (root: string, name: string, newName: string) => __TAURI_INVOKE<ExploreRecord>("rename_explore_record", { root, name, newName }),
 	/**
 	 *  删除 explore 记录（不动磁盘文件；名下会话 runs+events 随记录同事务级联
-	 *  删除，级联语义见 store `delete_explore_record`）；miss 幂等返回 `false`。
+	 *  删除，级联语义见 store `delete_explore_record`）；miss 幂等返回 `false`；
+	 *  blank root → `Err`。
 	 */
 	deleteExploreRecord: (root: string, name: string) => __TAURI_INVOKE<boolean>("delete_explore_record", { root, name }),
 	/**
@@ -103,10 +123,18 @@ export const commands = {
 	 *  miss 幂等返回 `false`。
 	 */
 	watchUnsubscribe: (subscriptionId: number) => __TAURI_INVOKE<boolean>("watch_unsubscribe", { subscriptionId }),
-	/**  模型清单与记录计数（只读；计数 0 也列出）。 */
-	dbModels: () => __TAURI_INVOKE<ModelInfo[]>("db_models"),
-	/**  按模型主键自然序分页扫描记录信封（只读；未知模型名 reject）。 */
-	dbRecords: (model: string, offset: number, limit: number) => __TAURI_INVOKE<RecordEnvelope[]>("db_records", { model, offset, limit }).then((v) => (v.map(i=>i) as typeof v)),
+	/**
+	 *  模型清单与记录计数（只读；计数 0 也列出；scope 寻址两库——全局库仅 user
+	 *  维度模型、workspace 库仅 workspace 维度模型，互不混列；Global 忽略 root，
+	 *  Workspace blank root → 空结果不触发库解析）。
+	 */
+	dbModels: (scope: DbDimension, root: string) => __TAURI_INVOKE<ModelInfo[]>("db_models", { scope, root }),
+	/**
+	 *  按模型主键自然序分页扫描记录信封（只读；scope 寻址两库，分页语义不变；
+	 *  未知模型名 reject——含跨维度模型名，维度由实例锁定；Global 忽略 root，
+	 *  Workspace blank root → 空结果）。
+	 */
+	dbRecords: (scope: DbDimension, root: string, model: string, offset: number, limit: number) => __TAURI_INVOKE<RecordEnvelope[]>("db_records", { scope, root, model, offset, limit }).then((v) => (v.map(i=>i) as typeof v)),
 	/**
 	 *  工作区代码统计：root 有效性检查 → tokei 单次解析 → 汇总 / 语言 / 树三面组装。
 	 *  缺失 / 不可读 / 非目录 root 返回 `Err`（MUST NOT panic、MUST NOT 静默空报告）；
@@ -196,9 +224,14 @@ export type AgentRunMessage =
 { ipc: "record"; record: AgentRunRecord };
 
 /**
- *  agent 运行记录：全平文字段；`status` / `env` / `permission_mode` 为
- *  core/agent 契约枚举（serde camelCase 值域与枚举化前受控字符串逐字一致，
+ *  agent 运行记录（workspace 维度，落所属 workspace 的独立 db 文件
+ *  `workspaces/` 子树，cwd 恒为当前 workspace root 即归属键，见
+ *  desktop-data-dimensions）：全平文字段；`status` / `env` / `permission_mode`
+ *  为 core/agent 契约枚举（serde camelCase 值域与枚举化前受控字符串逐字一致，
  *  serde JSON 线格式零变化）。
+ * 
+ *  run id 为所属 workspace 库域内自增（写事务内 max+1），跨 workspace 不假定
+ *  全局唯一，跨库定位携 root。
  * 
  *  时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
  * 
@@ -364,6 +397,16 @@ export type CodeTotals = {
 };
 
 /**
+ *  数据维度（信封维度标签 + db 查看命令 scope 入参双职）：`User` 全局库 /
+ *  `Workspace` workspace 库。serde 线值为 `"user"` / `"workspace"`。
+ */
+export type DbDimension = 
+/**  user 维度（全局库，`WorkspaceRecord` 及未来 user 维度租户） */
+"user" | 
+/**  workspace 维度（per-workspace 库，run / 事件 / explore 三模型） */
+"workspace";
+
+/**
  *  目录树节点：统计为该目录子树内**全部**被解析文件合计（祖先链逐级累计，
  *  含更深文件）；`path` 为相对 root 的 POSIX 路径（`/` 分隔，Windows 下
  *  tokei 报告的分隔符混排经 components 归一化）；`children` 为直接子目录 +
@@ -395,11 +438,12 @@ export type ExploreDoc = {
 };
 
 /**
- *  explore 清单记录（user 维度，registry / 绑定元数据，与 [`WorkspaceRecord`]
- *  同先例落 app data dir user db）：内容唯一真源在磁盘笔记文件（由 agent 会话
- *  流程懒创建），记录是身份、文件是可丢弃投影——文件被删记录保留，未落盘记录
- *  照常存在（数据三分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名
- *  经 in-place 改 `name` 保主键，会话链绑定不破。
+ *  explore 清单记录（workspace 维度，落所属 workspace 的独立 db 文件
+ *  `workspaces/` 子树，`root` 即归属键，与名下会话链同库——级联删除与链还原
+ *  同实例收敛）：内容唯一真源在磁盘笔记文件（由 agent 会话流程懒创建），记录
+ *  是身份、文件是可丢弃投影——文件被删记录保留，未落盘记录照常存在（数据三
+ *  分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名经 in-place 改
+ *  `name` 保主键，会话链绑定不破。
  * 
  *  时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
  */
@@ -535,7 +579,8 @@ export type TreeEntry =
 export type Verdict = "pass" | "fail";
 
 /**
- *  user 维度注册表一行：主键即 `root`（canonical 完整路径）。
+ *  user 维度注册表一行（落全局库 `desktop-global.redb`，见 desktop-data-dimensions）：
+ *  主键即 `root`（canonical 完整路径）。
  * 
  *  时间戳为 UTC unix 毫秒 `i64`——零解析零格式歧义，且 store 不引入 time 依赖。
  */

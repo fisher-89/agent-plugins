@@ -950,7 +950,12 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
 
     fireEvent.click(screen.getByTestId('nav-db'));
     await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('db_models'));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('db_models', {
+        scope: 'workspace',
+        root: FIRST.root,
+      }),
+    );
     expect(screen.queryByText('add-feature')).toBeNull();
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
     expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('true');
@@ -978,7 +983,12 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
 
     fireEvent.click(screen.getByTestId('nav-db'));
     await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
-    await waitFor(() => expect(invokeMock).toHaveBeenCalledWith('db_models'));
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('db_models', {
+        scope: 'workspace',
+        root: FIRST.root,
+      }),
+    );
     expect(screen.queryByText('add-feature')).toBeNull();
     expect(screen.queryByTestId('agent-run-form')).toBeNull();
     expect(screen.getByTestId('nav-db').getAttribute('data-active')).toBe('true');
@@ -986,19 +996,13 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
   });
 
-  it('切至 db 页再切回 changes：list_changes / list_workspaces 调用次数不增长（切页不触发取数）', async () => {
+  it('侧栏点击「Agent 调试」→ agent_runs 挂载取数携当前 workspace root（返回 [] 数组形态不变）', async () => {
     await restored();
 
-    const listChangesBefore = countOf('list_changes');
-    const listWorkspacesBefore = countOf('list_workspaces');
+    fireEvent.click(screen.getByTestId('nav-agent'));
+    await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
 
-    fireEvent.click(screen.getByTestId('nav-db'));
-    await waitFor(() => expect(screen.getByTestId('db-model-list') !== null).toBe(true));
-    fireEvent.click(screen.getByTestId('nav-changes'));
-    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
-
-    expect(countOf('list_changes')).toBe(listChangesBefore);
-    expect(countOf('list_workspaces')).toBe(listWorkspacesBefore);
+    expect(invokeMock).toHaveBeenCalledWith('agent_runs', { root: FIRST.root });
   });
 
   it('进入 change 详情后切 Agent 页再切回：hash 落 /changes（无 :name 段）、选中重置回清单、get_change_detail 不以旧选中重发（D10 路由化保留）', async () => {
@@ -1068,6 +1072,9 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.queryByText('系统工具')).toBeNull();
     expect(screen.queryByTestId('db-model-list')).toBeNull();
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
+    // 清单域取数形态不变：agent_runs / db_models 零调用，root 无从携带
+    expect(countOf('agent_runs')).toBe(0);
+    expect(countOf('db_models')).toBe(0);
   });
 });
 

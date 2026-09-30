@@ -222,7 +222,7 @@ describe('AgentDebugView：停止入口与收敛呈现', () => {
 
     const stopCalls = invokeMock.mock.calls.filter(([name]) => name === 'agent_stop');
     expect(stopCalls).toHaveLength(1);
-    expect(stopCalls[0]).toEqual(['agent_stop', { runId: 1 }]);
+    expect(stopCalls[0]).toEqual(['agent_stop', { root: ROOT, runId: 1 }]);
   });
 
   it('停止后终态 record 回流：event-run-record 呈现、running 复位、表单恢复可用', async () => {

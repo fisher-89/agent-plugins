@@ -18,7 +18,7 @@ export function AppRoutes({ root, list }: { root: string; list: ChangeListState 
       <Route path="/agent" element={<AgentDebugView root={root} />} />
       <Route path="/explores" element={<ExploreView root={root} />} />
       <Route path="/explores/:name" element={<ExploreView root={root} />} />
-      <Route path="/db" element={<DbInspectorView />} />
+      <Route path="/db" element={<DbInspectorView root={root} />} />
       <Route path="*" element={<Navigate replace to="/changes" />} />
     </Routes>
   );

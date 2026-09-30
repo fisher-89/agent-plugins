@@ -12,7 +12,7 @@ use serde_json::Value;
 use specta::Type;
 
 use crate::model::{AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
-use crate::store::{db_err, StoreError};
+use crate::store::{db_err, DbDimension, StoreError};
 
 /// 模型清单一行：模型名 + 记录计数（计数 0 也列出）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -42,9 +42,11 @@ type ScanFn = fn(&Database<'static>, u32, u32, KeyOfFn) -> Result<Vec<RecordEnve
 /// 记录主键 JSON 构造 fn-pointer：入参为记录序列化后的 JSON 值。
 type KeyOfFn = fn(&Value) -> Value;
 
-/// 注册表一行（三元组）。
+/// 注册表一行（四元组）：`dimension` 维度标签——`list_models` / `scan` 据实例
+/// 维度过滤本库模型，分维度是数据行非分支代码（查看器零模型特定代码不变）。
 struct ModelEntry {
     name: &'static str,
+    dimension: DbDimension,
     count: CountFn,
     scan: ScanFn,
     key_of: KeyOfFn,
@@ -53,38 +55,48 @@ struct ModelEntry {
 /// 单页扫描上限：超出截断（查看器单页上限，防误传大 limit 拖垮 IPC）。
 const MAX_SCAN_LIMIT: u32 = 500;
 
-/// 静态模型注册表。新模型接入点 = 此处登记一行。
+/// 静态模型注册表（dimension 与模型注册分组一一对应：全局库组仅 user 维度，
+/// workspace 库组仅 workspace 维度，无交叉）。新模型接入点 = 此处登记一行。
 const MODEL_ENTRIES: &[ModelEntry] = &[
     ModelEntry {
         name: "workspace",
+        dimension: DbDimension::User,
         count: count_model::<WorkspaceRecord>,
         scan: scan_workspaces,
         key_of: workspace_key,
     },
     ModelEntry {
         name: "agent_run",
+        dimension: DbDimension::Workspace,
         count: count_model::<AgentRunRecord>,
         scan: scan_agent_runs,
         key_of: agent_run_key,
     },
     ModelEntry {
         name: "agent_event",
+        dimension: DbDimension::Workspace,
         count: count_model::<AgentEventRecord>,
         scan: scan_agent_events,
         key_of: agent_event_key,
     },
     ModelEntry {
         name: "explore",
+        dimension: DbDimension::Workspace,
         count: count_model::<ExploreRecord>,
         scan: scan_explores,
         key_of: explore_key,
     },
 ];
 
-/// 全部已注册模型清单与计数（注册表全量分发）。
-pub(crate) fn list_models(db: &Database<'static>) -> Result<Vec<ModelInfo>, StoreError> {
+/// 本维度已注册模型清单与计数（注册表按实例维度过滤分发——全局库只列 user
+/// 维度模型，workspace 库只列 workspace 维度模型，两库清单互不混列）。
+pub(crate) fn list_models(
+    db: &Database<'static>,
+    dimension: DbDimension,
+) -> Result<Vec<ModelInfo>, StoreError> {
     MODEL_ENTRIES
         .iter()
+        .filter(|entry| entry.dimension == dimension)
         .map(|entry| {
             (entry.count)(db).map(|count| ModelInfo {
                 name: entry.name.to_owned(),
@@ -94,16 +106,18 @@ pub(crate) fn list_models(db: &Database<'static>) -> Result<Vec<ModelInfo>, Stor
         .collect()
 }
 
-/// 按模型名分页扫描记录信封；未知模型名 Err。
+/// 按模型名分页扫描记录信封（维度随实例锁定：跨维度模型名按「未知模型」
+/// Err）；未知模型名 Err。
 pub(crate) fn scan(
     db: &Database<'static>,
+    dimension: DbDimension,
     model: &str,
     offset: u32,
     limit: u32,
 ) -> Result<Vec<RecordEnvelope>, StoreError> {
     let entry = MODEL_ENTRIES
         .iter()
-        .find(|entry| entry.name == model)
+        .find(|entry| entry.dimension == dimension && entry.name == model)
         .ok_or_else(|| StoreError::Db(format!("未知模型: {model}")))?;
     (entry.scan)(db, offset, limit.min(MAX_SCAN_LIMIT), entry.key_of)
 }

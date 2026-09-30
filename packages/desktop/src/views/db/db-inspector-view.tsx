@@ -49,15 +49,45 @@ function ModelItem({
   );
 }
 
-/** 数据模型区：模型列表（挂载取数一次，刷新按钮；失败态由页级错误区承载） */
+/** scope 双 tab（全局库 / workspace 库，aria-pressed 模式同 agent 页切换行）：
+ * 两库清单互不混列，切换即重置选中与分页并重取清单 */
+function ScopeToggle({ state }: { state: DbInspectorState }): React.JSX.Element {
+  return (
+    <span className="flex items-center gap-2">
+      <span className="text-xs text-muted-foreground">数据库</span>
+      <Button
+        aria-pressed={state.scope === 'workspace'}
+        className={state.scope === 'workspace' ? undefined : 'bg-muted text-muted-foreground'}
+        data-testid="db-scope-workspace"
+        onClick={() => state.setScope('workspace')}
+      >
+        workspace 库
+      </Button>
+      <Button
+        aria-pressed={state.scope === 'user'}
+        className={state.scope === 'user' ? undefined : 'bg-muted text-muted-foreground'}
+        data-testid="db-scope-user"
+        onClick={() => state.setScope('user')}
+      >
+        全局库
+      </Button>
+    </span>
+  );
+}
+
+/** 数据模型区：scope 双 tab + 模型列表（scope / root 变更即重取，刷新按钮；
+ * 失败态由页级错误区承载） */
 function ModelListSection({ state }: { state: DbInspectorState }): React.JSX.Element {
   return (
     <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
-      <div className="mb-2 flex items-center justify-between">
+      <div className="mb-2 flex items-center justify-between gap-2">
         <h2 className="m-0 text-[15px]">数据模型</h2>
-        <Button disabled={state.loading} data-testid="db-refresh" onClick={state.refresh}>
-          刷新数据
-        </Button>
+        <span className="flex items-center gap-2">
+          <ScopeToggle state={state} />
+          <Button disabled={state.loading} data-testid="db-refresh" onClick={state.refresh}>
+            刷新数据
+          </Button>
+        </span>
       </div>
       <ul className="m-0 list-none p-0" data-testid="db-model-list">
         {state.models.map((model) => (
@@ -206,13 +236,19 @@ function RecordsSection({
   );
 }
 
+export interface DbInspectorViewProps {
+  /** 当前 workspace root（workspace 库 scope 的寻址基准；全局库 scope 忽略） */
+  root: string;
+}
+
 /**
- * 数据库页（只读四件套）：数据模型 + 计数、选中模型分页扫描、单条记录
- * JSON 查看、空态 / inline 持久错误态。取数全部经 useDbInspector 的用户显式
- * 动作触发（进页 / 选中模型 / 翻页 / 刷新），无轮询；无任何写操作入口。
+ * 数据库页（只读四件套）：scope 双 tab（全局库 / 当前 workspace 库，默认
+ * workspace 库）+ 数据模型 + 计数、选中模型分页扫描、单条记录 JSON 查看、
+ * 空态 / inline 持久错误态。取数全部经 useDbInspector 的用户显式动作触发
+ * （进页 / 切 scope / 选中模型 / 翻页 / 刷新），无轮询；无任何写操作入口。
  */
-export function DbInspectorView(): React.JSX.Element {
-  const state = useDbInspector();
+export function DbInspectorView({ root }: DbInspectorViewProps): React.JSX.Element {
+  const state = useDbInspector(root);
   const selectedModel = state.models.find((model) => model.name === state.selected) ?? null;
 
   return (

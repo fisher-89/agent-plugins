@@ -16,8 +16,8 @@ use super::list::ChangeSource;
 use super::locate_change;
 use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
 use crate::model::{
-    ActivePhase as DiskActivePhase, ChecklistItem, FileLogEntry as DiskFileLogEntry,
-    FileLogOp, InterruptedEntry as DiskInterruptedEntry, Inventory, PhaseLog, Verdict,
+    ActivePhase as DiskActivePhase, ChecklistItem, FileLogEntry as DiskFileLogEntry, FileLogOp,
+    InterruptedEntry as DiskInterruptedEntry, Inventory, PhaseLog, Verdict,
 };
 use crate::parse::{detect_inventory, parse_workflow_file, WorkflowFileParse, WORKFLOW_FILE_NAME};
 use foundation::layout::Layout;

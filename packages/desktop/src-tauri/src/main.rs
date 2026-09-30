@@ -3,15 +3,16 @@ use std::path::PathBuf;
 
 use tauri::{generate_handler, Manager};
 
-use store::Store;
+use store::WorkspaceStores;
 
 use dev_team::commands::all_commands;
 use dev_team::commands::exec::RunStopRegistry;
 use dev_team::commands::watch::WatchRegistry;
 
-/// db 文件落位：`home_dir()/.dev-team` 根，不建子目录（数据维度语义由 db
-/// 文件归属承载，见 desktop-data-dimensions）；父目录由 `Store::open` 内部补齐。
-const DB_FILE_NAME: &str = ".dev-team/desktop-store.redb";
+/// 全局数据目录名：`home_dir()` 根下（双库落位基准——全局库直居其下、
+/// workspace 库落 `workspaces/` 子树；库文件名与子树语义由 store 常量单点
+/// 承载，父目录由 store 打开流程内部补齐，见 desktop-data-dimensions）。
+const DATA_DIR: &str = ".dev-team";
 
 fn main() {
     let mut builder =
@@ -35,12 +36,12 @@ fn main() {
     builder
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
-            // db 路径解析在此（app_data_dir 依赖 Tauri 上下文），store 内无环境解析。
+            // 数据根解析在此（home_dir 依赖 Tauri 上下文），store 内无环境解析。
             // 任一步失败即 setup Err → run Err → expect 报错启动失败：
             // fail fast，无静默空清单降级。
-            let db_path: PathBuf = app.path().home_dir()?.join(DB_FILE_NAME);
-            let store = Store::open(&db_path)?;
-            app.manage(store);
+            let data_root: PathBuf = app.path().home_dir()?.join(DATA_DIR);
+            let stores = WorkspaceStores::open(&data_root)?;
+            app.manage(stores);
             // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
             app.manage(WatchRegistry::default());
             // agent 停止句柄注册表：agent_start 登记 / drive 终态除名 /

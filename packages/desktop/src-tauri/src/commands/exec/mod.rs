@@ -8,13 +8,17 @@
 //! `AgentRunMessage::Record` 信封流出（MUST NOT 再依赖 invoke 返回携带
 //! 终态）。可选续会话与来源参数（`resume_session_id` / `source` /
 //! `source_ref` / `parent_run_id`）全部缺省安全：不传即既有 one-shot 调试
-//! 行为（来源缺省 `debug`、链指针 `None`）。
-//! `agent_stop`（终止）：按运行中 run 的 id 寻址置位停止信号（句柄注册表
-//! `RunStopRegistry`），租户泵击杀进程树、编排收敛 `stopped` 并经 Channel
-//! 流出终态 Record；对非 running（已终态除名）或不存在 id 幂等 `Ok`。
-//! `agent_runs` / `agent_run_events` / `agent_run_chain`（查询）：无状态薄
-//! 包装——`State<'_, Store>` 取 store + 参数转换 + DTO 返回，事件与链还原经
-//! store 类型化 API 直接出库（链拼接收口 store 单点，命令不做领域解释）。
+//! 行为（来源缺省 `debug`、链指针 `None`）。落库经 `for_root` 路由至当前
+//! workspace 库（run id 为库域内自增）；blank root → `Err`（无 cwd 无从发起）。
+//! `agent_stop`（终止）：携 root 按 `(root, run id)` 复合键寻址运行中 run 的
+//! 停止句柄置位信号（句柄注册表 `RunStopRegistry`），租户泵击杀进程树、编排
+//! 收敛 `stopped` 并经 Channel 流出终态 Record；对非 running（已终态除名）
+//! 或不存在键幂等 `Ok`（blank root 天然 miss 同口径）。
+//! `agent_runs` / `agent_run_events` / `agent_run_chain`（查询）：携 root
+//! 无状态薄包装——`for_root` 解析所属 workspace 库 + 参数转换 + DTO 返回，
+//! 运行清单随之收窄为当前 workspace 的历史；blank root 查询空结果（不触发
+//! 库解析）；事件与链还原经 store 类型化 API 直接出库（链拼接收口 store 单
+//! 点，命令不做领域解释）。
 //! 错误约定沿 workspaces 轨道模板：命令返回 `Result<T, String>`，`Err` 由
 //! Tauri 转为前端 reject，MUST NOT 静默吞掉失败。
 
@@ -31,29 +35,34 @@ use tauri::{AppHandle, State};
 // `mod agent`（本地编排模块）与外部 `agent` 契约 crate 同名：外部 crate
 // 以 `::agent::` 显式消歧
 use ::agent::{AgentEvent, AgentPermissionMode, AgentRunParams};
-use store::{AgentRunRecord, Store};
+use store::{AgentRunRecord, WorkspaceStores};
 
 pub use agent::RunStopRegistry;
 
 use agent::{AgentRunMessage, RunProvenance};
 
+/// root 显式格式检查：空/空白串不进入库解析链路（同 explores 轨道口径）。
+fn is_blank_root(root: &str) -> bool {
+    root.trim().is_empty()
+}
+
 /// 发起一次 agent 运行：run 记录落库进入 running 后**提前 resolve** 返回
 /// running 记录（含 id，可直接用于 `agent_stop` 寻址）；执行转后台任务，
 /// 事件实时流与终态记录均经 `onEvent` Channel 流出。启动阶段失败（CLI
-/// 缺失 / spawn 失败 / store 失败）返回 `Err`。cwd 隐含为当前 workspace
-/// root（前端 invoke 固定传 `root`，无 UI 输入）。四个可选参数：
+/// 缺失 / spawn 失败 / workspace 库解析失败）返回 `Err`。cwd 隐含为当前
+/// workspace root（前端 invoke 固定传 `root`，无 UI 输入）。四个可选参数：
 /// `resume_session_id` 续会话（进 runner 契约，组装 `--resume` flag）；
 /// `source` / `source_ref` / `parent_run_id` 来源三元组（旁路编排落库，
 /// `source` 缺省 `debug`）。
 // 命令入参即扁平 IPC 参数面（三件事纪律的参数转换段），打包成结构体反而
-// 背离轨道模板，故豁免 clippy 参数数上限；`app` / `store` 为 Tauri 注入
+// 背离轨道模板，故豁免 clippy 参数数上限；`app` / `stores` 为 Tauri 注入
 // 项（非 IPC 参数），后台任务经前者取托管句柄
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_start(
     app: AppHandle,
-    store: State<'_, Store>,
+    stores: State<'_, WorkspaceStores>,
     on_event: Channel<AgentRunMessage>,
     root: String,
     prompt: String,
@@ -63,6 +72,9 @@ pub async fn agent_start(
     source_ref: Option<String>,
     parent_run_id: Option<i64>,
 ) -> Result<AgentRunRecord, String> {
+    if is_blank_root(&root) {
+        return Err("非法 root: 不得为空白（无 cwd 无从发起）".to_owned());
+    }
     let params = AgentRunParams {
         prompt,
         cwd: Path::new(&root).to_path_buf(),
@@ -76,46 +88,79 @@ pub async fn agent_start(
     }
     provenance.source_ref = source_ref;
     provenance.parent_run_id = parent_run_id;
-    agent::start_agent_run(app, &store, on_event, params, provenance)
+    agent::start_agent_run(app, &stores, on_event, params, provenance)
 }
 
-/// 终止一次运行中 agent 运行：按 id 寻址停止句柄置位信号（租户泵击杀进程
-/// 树、编排收敛 `stopped`、Channel 流出终态 Record）；对已终态（除名）或
-/// 不存在 id 幂等 `Ok`，不报错、不改写既有终态。
+/// 终止一次运行中 agent 运行：携 root 按 `(root, run id)` 复合键寻址停止
+/// 句柄置位信号（租户泵击杀进程树、编排收敛 `stopped`、Channel 流出终态
+/// Record）；对已终态（除名）或不存在键幂等 `Ok`，不报错、不改写既有终态
+/// （run id 为 workspace 库域内自增，裸 id 跨库歧义由 root 消解，不跨库误停）。
 #[tauri::command]
 #[specta::specta]
-pub fn agent_stop(registry: State<'_, RunStopRegistry>, run_id: i64) -> Result<(), String> {
-    // miss 幂等：句柄不在注册表即已终态或不存在，无副作用直接成功
-    let _ = registry.request_stop(run_id);
+pub fn agent_stop(
+    registry: State<'_, RunStopRegistry>,
+    root: String,
+    run_id: i64,
+) -> Result<(), String> {
+    // miss 幂等：句柄不在注册表即已终态或不存在（含 blank root），无副作用直接成功
+    let _ = registry.request_stop(&root, run_id);
     Ok(())
 }
 
-/// 历史运行清单（started_at 降序）。
+/// 当前 workspace 的历史运行清单（started_at 降序）；blank root → 空结果。
 #[tauri::command]
 #[specta::specta]
-pub fn agent_runs(store: State<'_, Store>) -> Result<Vec<AgentRunRecord>, String> {
-    store.list_agent_runs().map_err(|e| e.to_string())
+pub fn agent_runs(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+) -> Result<Vec<AgentRunRecord>, String> {
+    if is_blank_root(&root) {
+        return Ok(Vec::new());
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
+        .list_agent_runs()
+        .map_err(|e| e.to_string())
 }
 
-/// 单 run 事件重放（seq 升序）：store 事件 API 类型化，直接返回。
+/// 单 run 事件重放（seq 升序）：store 事件 API 类型化，直接返回；
+/// blank root → 空结果。
 #[tauri::command]
 #[specta::specta]
-pub fn agent_run_events(store: State<'_, Store>, run_id: i64) -> Result<Vec<AgentEvent>, String> {
-    store
+pub fn agent_run_events(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    run_id: i64,
+) -> Result<Vec<AgentEvent>, String> {
+    if is_blank_root(&root) {
+        return Ok(Vec::new());
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
         .list_agent_run_events(run_id)
         .map_err(|e| e.to_string())
 }
 
 /// 来源单链还原（发起顺序）：沿 `parent_run_id` 显式指针回溯整链，链拼接收
-/// 口 store 单点；无链返回空数组。通用面查询（非 explore 专属）。
+/// 口 store 单点；无链返回空数组。通用面查询（非 explore 专属）；
+/// `source_ref` 为 workspace 库域内的 explore 记录 id（root 寻址与库域内 id
+/// 配套消解跨库歧义）；blank root → 空结果。
 #[tauri::command]
 #[specta::specta]
 pub fn agent_run_chain(
-    store: State<'_, Store>,
+    stores: State<'_, WorkspaceStores>,
+    root: String,
     source: String,
     source_ref: String,
 ) -> Result<Vec<AgentRunRecord>, String> {
-    store
+    if is_blank_root(&root) {
+        return Ok(Vec::new());
+    }
+    stores
+        .for_root(&root)
+        .map_err(|e| e.to_string())?
         .restore_run_chain(&source, &source_ref)
         .map_err(|e| e.to_string())
 }

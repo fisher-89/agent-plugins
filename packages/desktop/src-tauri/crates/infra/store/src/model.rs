@@ -15,7 +15,8 @@ use native_model::{native_model, Model};
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
-/// user 维度注册表一行：主键即 `root`（canonical 完整路径）。
+/// user 维度注册表一行（落全局库 `desktop-global.redb`，见 desktop-data-dimensions）：
+/// 主键即 `root`（canonical 完整路径）。
 ///
 /// 时间戳为 UTC unix 毫秒 `i64`——零解析零格式歧义，且 store 不引入 time 依赖。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -48,9 +49,14 @@ fn default_run_source() -> String {
     "debug".to_owned()
 }
 
-/// agent 运行记录：全平文字段；`status` / `env` / `permission_mode` 为
-/// core/agent 契约枚举（serde camelCase 值域与枚举化前受控字符串逐字一致，
+/// agent 运行记录（workspace 维度，落所属 workspace 的独立 db 文件
+/// `workspaces/` 子树，cwd 恒为当前 workspace root 即归属键，见
+/// desktop-data-dimensions）：全平文字段；`status` / `env` / `permission_mode`
+/// 为 core/agent 契约枚举（serde camelCase 值域与枚举化前受控字符串逐字一致，
 /// serde JSON 线格式零变化）。
+///
+/// run id 为所属 workspace 库域内自增（写事务内 max+1），跨 workspace 不假定
+/// 全局唯一，跨库定位携 root。
 ///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
 ///
@@ -101,11 +107,12 @@ pub struct AgentRunRecord {
     pub parent_run_id: Option<i64>,
 }
 
-/// explore 清单记录（user 维度，registry / 绑定元数据，与 [`WorkspaceRecord`]
-/// 同先例落 app data dir user db）：内容唯一真源在磁盘笔记文件（由 agent 会话
-/// 流程懒创建），记录是身份、文件是可丢弃投影——文件被删记录保留，未落盘记录
-/// 照常存在（数据三分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名
-/// 经 in-place 改 `name` 保主键，会话链绑定不破。
+/// explore 清单记录（workspace 维度，落所属 workspace 的独立 db 文件
+/// `workspaces/` 子树，`root` 即归属键，与名下会话链同库——级联删除与链还原
+/// 同实例收敛）：内容唯一真源在磁盘笔记文件（由 agent 会话流程懒创建），记录
+/// 是身份、文件是可丢弃投影——文件被删记录保留，未落盘记录照常存在（数据三
+/// 分：记录 / 内容 / 对话）。独立主键与文件名解耦：文件改名经 in-place 改
+/// `name` 保主键，会话链绑定不破。
 ///
 /// 时间戳均为 UTC unix 毫秒 `i64`，与 [`WorkspaceRecord`] 同口径。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -140,7 +147,8 @@ impl ExploreRecord {
     }
 }
 
-/// agent 运行事件记录（类型化新建）：包装 struct 打 native_db derive，嵌装
+/// agent 运行事件记录（workspace 维度，落所属 run 同一 workspace 库——同库
+/// 内 N:1 引用，无跨库引用）：包装 struct 打 native_db derive，嵌装
 /// core `agent::AgentEvent` 纯类型作载荷——core 保持 derive-free，native_model
 /// 版本治理全部留在 infra 侧。
 ///
@@ -237,7 +245,9 @@ impl<T: serde::de::DeserializeOwned> native_model::Decode<T> for SerdeJsonCodec 
 }
 
 /// 目录名最后一段（`D:\work\my-project` → `my-project`）；无文件名段时回退整串。
-fn dir_name(root: &str) -> String {
+/// 展示名（`WorkspaceRecord::from_root`）与 workspace 库文件名可读段（store
+/// 路径派生）同源取末段。
+pub(crate) fn dir_name(root: &str) -> String {
     Path::new(root)
         .file_name()
         .map(|s| s.to_string_lossy().into_owned())

@@ -1,0 +1,791 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-29",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "at": "2026-09-29T11:54:36.205Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store.rs",
+      "at": "2026-09-29T11:58:25.294Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope.rs",
+      "at": "2026-09-29T11:56:53.922Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "at": "2026-09-29T11:57:09.855Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/Cargo.toml",
+      "at": "2026-09-29T11:57:19.943Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-29T11:57:25.687Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/main.rs",
+      "at": "2026-09-29T12:00:24.384Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/workspaces/mod.rs",
+      "at": "2026-09-29T12:00:39.738Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/explores/mod.rs",
+      "at": "2026-09-29T12:01:11.455Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent.rs",
+      "at": "2026-09-29T12:02:28.325Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-09-29T12:03:01.497Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod.rs",
+      "at": "2026-09-29T12:04:42.845Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-29T12:04:15.672Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.ts",
+      "at": "2026-09-29T12:06:50.945Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.ts",
+      "at": "2026-09-29T12:07:07.716Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.tsx",
+      "at": "2026-09-29T12:07:14.695Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/hooks/use-db-inspector.ts",
+      "at": "2026-09-29T12:07:45.712Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/db-inspector-view.tsx",
+      "at": "2026-09-29T12:08:23.209Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/routes.tsx",
+      "at": "2026-09-29T12:08:27.435Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-29T12:09:54.779Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+      "at": "2026-09-29T12:17:11.265Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/hooks/use-db-inspector.test.ts",
+      "at": "2026-09-29T12:18:12.660Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/db-inspector-view.test.tsx",
+      "at": "2026-09-29T12:18:36.877Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-09-29T12:58:30.823Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope_test.rs",
+      "at": "2026-09-29T12:44:08.451Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/workspaces/mod_test.rs",
+      "at": "2026-09-29T13:00:31.395Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/explores/mod_test.rs",
+      "at": "2026-09-29T12:57:27.872Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent_test.rs",
+      "at": "2026-09-29T12:49:52.630Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-09-29T12:57:36.333Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod_test.rs",
+      "at": "2026-09-29T12:55:47.971Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bindings/mod_test.rs",
+      "at": "2026-09-29T13:00:10.581Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.test.ts",
+      "at": "2026-09-29T13:02:01.862Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+      "at": "2026-09-29T13:02:51.402Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/hooks/use-db-inspector.test.ts",
+      "at": "2026-09-29T13:03:35.304Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/db/db-inspector-view.test.tsx",
+      "at": "2026-09-29T13:04:03.576Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/app.test.tsx",
+      "at": "2026-09-29T13:04:39.301Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/explores/hooks/use-explore-session.test.ts",
+      "at": "2026-09-29T13:07:20.309Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+      "at": "2026-09-29T13:07:40.219Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-09-29T13:37:58.271Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/db/db-inspector-view.test.tsx",
+      "at": "2026-09-29T13:44:00.631Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/changes/flow/graph.ts",
+      "at": "2026-09-29T14:01:47.535Z"
+    },
+    {
+      "op": "write",
+      "scope": "workflow",
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+      "at": "2026-09-29T14:06:52.211Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 通过。R1 问题具体（单库四模型混居三痛点+2026-09-29 用户裁定，desktop-store.redb 核实于 main.rs）。R2 三节齐非空。R3 缓解具体（root 寻址+registry 键+同 id 并行测试；哈希文件名；单实例留痕）。R4 AC-1~9 对象+条件齐。R5 8 项决策均含否决备选及理由。R6 一致（golden 冻结、零迁移同轨、desktop bump 合规）。R7 无占位符。R8 章节实质、待决问题路由 dev-design。R9 修改能力 4 条非空。R10 4 specs 1:1。R11 一致：REMOVED/ADDED 与提案互证，AC↔scenario 全映射，文件路径实存。",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "proposal.md:11-17 单库四模型混居+三编号痛点（无物理隔离/不可分域治理/维度语义悬空）；:17 用户裁定 2026-09-29；desktop-store.redb 现存核实于 main.rs"
+        },
+        {
+          "item": "R2 变更范围明确划分（实现/测试/不要修改）",
+          "pass": true,
+          "evidence": "proposal.md:57 ### 实现文件 12 条、:71 ### 测试文件 3 组、:81 ### 不要修改 5 条均非空；:77 另有 ### 删除文件（无）"
+        },
+        {
+          "item": "R3 风险包含具体缓解措施",
+          "pass": true,
+          "evidence": "proposal.md:112「命令面统一 root 寻址；registry 寻址键含 root；测试覆盖双 workspace 同 id 并行场景」；:114「哈希成分为主、可读段可选；文件名不含完整路径」；:113 单实例插件留痕+Err(String)"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "proposal.md:95-103 AC-1~9 均对象+条件：AC-3「复用同一打开实例（不触发 redb 文件锁冲突）」、AC-6「git diff 无 per-model 分支」、AC-7「重新 add 同 root 后历史完整可读」"
+        },
+        {
+          "item": "R5 关键决策含理由与被拒绝备选",
+          "pass": true,
+          "evidence": "proposal.md:123-132 决策表 8 项均含理由+备选：:128「一次性同引擎搬移（否决：用户裁定无需兼容）」「原路径子集模型打开（否决：依赖 native_db 未验证行为）」"
+        },
+        {
+          "item": "R6 与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "proposal.md:86 tests/golden 不触碰（契约冻结）；:30 零迁移与 store 既有「不做旧库兼容」立场同轨；:69 bump packages/desktop/package.json 合 desktop 口径，不涉 plugins/*"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep TODO|TBD|placeholder|{{（忽略大小写）于变更目录全部 md：0 匹配"
+        },
+        {
+          "item": "R8 模板章节均有实质内容",
+          "pass": true,
+          "evidence": "问题/提案/变更范围/验收标准/风险全实质；proposal.md:136-139 待决问题 4 项均显式路由 dev-design/二期，非占位符"
+        },
+        {
+          "item": "R9 能力章节存在且有条目",
+          "pass": true,
+          "evidence": "proposal.md:40-51 ## 能力 存在；:44 新增能力显式「无」；:48-51 修改能力 4 条非空（workspace-store/data-dimensions/agent-execution/db-inspector）"
+        },
+        {
+          "item": "R10 specs 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力章节 4 能力 ↔ specs/ 4 个 spec.md 目录 1:1（desktop-workspace-store/desktop-data-dimensions/desktop-agent-execution/desktop-db-inspector），无多余 spec"
+        },
+        {
+          "item": "R11 proposal 与 specs 无逻辑冲突",
+          "pass": true,
+          "evidence": "data-dimensions spec REMOVED 两 requirement（:57/:63）与提案「落盘反转+三笔账消灭」互证；agent-execution REMOVED user 维度（:28）与提案「维度由 user 改 workspace」一致；AC-1~9 均映射 spec scenario；store.rs/model.rs/commands/*、前端 hooks 路径均核实实存"
+        }
+      ],
+      "start_at": "2026-09-29T10:39:45.239Z",
+      "timestamp": "2026-09-29T11:00:41.586Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 通过。D1 组件表14行四列齐全无TBD;D2 四模型字段/关系/持久化完整;D3 AC-1~9逐项对齐并交叉验证一致;D4 四阶段依赖序(store→命令→前端→收尾);D5 任务均含具体文件与操作;D6 运行时/构建依赖分列含用途;D7 符合store零迁移立场与desktop版本口径;D8 六章节实质内容,4项定夺全落定;D9 无测试任务,守线为静态检查;D10 清单覆盖proposal全部12条实现文件,与tasks双向一致,级联4文件标注补入。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表 14 行,职责/文件位置/依赖/技术四列全填;文件均具体(store.rs、envelope.rs、main.rs、各命令 mod.rs、前端 hooks/views);技术栈无 TBD(OnceLock、Mutex<HashMap>、SHA-256 截断、aria-pressed 按钮组等)"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表 4 模型(WorkspaceRecord/AgentRunRecord/AgentEventRecord/ExploreRecord),字段全列(含 PK 与归属键),关系列(N:1、(source,source_ref) 锚定、级联),持久化列标注全局库或 workspaces/{可读段}-{hash}.redb"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表 AC-1~AC-9 逐项落点;交叉验证:AC-5 对应四命令 root 入参+RunStopRegistry 复合键,AC-6 对应 DbDimension scope+信封维度过滤,AC-8 对应 model.rs 仅注释修正+golden 不触碰,均与架构组件和命令签名一致"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 22 个 - [ ] 任务按四阶段分组:store 基建→命令面→前端接线→bindings/版本收尾,与文件头依赖声明一致;命令签名(阶段二)先于前端消费(阶段三),无后置任务被前置任务依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每任务指名文件+具体操作:models() 拆 global_models()/workspace_models()、RunStopRegistry 键 HashMap<i64>→HashMap<(String,i64)>、sha2 workspace pin、bindings:export 再生成核对;无「实现功能」类泛化任务"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "依赖章节分两节:运行时 sha2 0.10(新增,哈希成分,锁内既有传递依赖)/native_db/dunce/tauri-plugin-single-instance;构建测试 tauri-specta、tempfile、vp/knip/fmt/clippy,均注用途"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "沿用 store「不做旧库兼容」既有立场(零迁移,与记忆一致);版本 0.3.8→0.3.9 仅因用户可见变更,符合 desktop 版本口径;sha2 走 workspace 级 pin 符合依赖纪律;tests/golden 契约不动;无 test-only 导出"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(修改文件 19 行+级联 4 行)/数据模型/路由API设计(Tauri IPC 命令表,HTTP 不适用已说明)/依赖/待决问题六章节全有实质内容;proposal 4 项 dev-design 定夺全部在「关键设计定夺」落定"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略章节,测试文件仅指向 test-design/test-gen/test-execution 阶段;tasks.md 无单元/集成测试任务,阶段四标题明示「静态,不含测试执行」,守线均为静态检查(fmt/clippy/knip/bindings:check)"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "修改文件表覆盖 proposal 实现文件全部 12 条(含 use-explore-session.ts 落实为核对任务、agent.rs、db-inspector-view.tsx);级联 4 文件(routes.tsx/两 Cargo.toml/Cargo.lock)标注清单外补入;tasks 引用文件与清单双向一致;新增文件为空故子表无交叉矛盾"
+        }
+      ],
+      "start_at": "2026-09-29T11:01:40.651Z",
+      "timestamp": "2026-09-29T11:22:21.824Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "T6 范围不一致：proposal「测试文件」清单列明 src/app.test.tsx（invoke 入参面 root/scope 更新），test-design 全文 17 个章节与不可测试项均未提及该文件，无覆盖映射亦无豁免理由。其余 8 项通过：AC-1~9 全映射（T1）、验收范围与单元测试双向对齐（T2）、异常/边界覆盖充分（T3）、Mock 策略齐备（T4）、章节实质填写（T5）、幂等用例在位（T7）、模板格式合规（T8）、最小 mock 原则遵守（T9）。补 app.test.tsx 章节（root/scope 断言更新行）或不可测试项豁免理由后可过。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个 AC 在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md L95-103 AC-1~AC-9 逐条对应 test-design.md L11-19 验收范围表；AC-9 显式路由「见不可测试项 1」（L414），无缺失"
+        },
+        {
+          "item": "T2 验收范围与单元测试双向对应",
+          "pass": true,
+          "evidence": "验收范围 5 个测试文件（store_test/model_test/exec/mod_test/db/mod_test/workspaces/mod_test）均有对应 ### 章节（L27/71/135/192/243）；17 个章节均回溯 AC 或声明豁免（lib/main/bindings/agent/envelope 等以注释路由既有回归或不可测试项），双向无缺失"
+        },
+        {
+          "item": "T3 异常与边界覆盖充分",
+          "pass": true,
+          "evidence": "异常：损坏文件 Err（L59/61）、add_workspace 坏库 Err 且注册保留（L152）、重复建档/非法名 Err（L183）、blank root 矩阵（L182/210/259）、PATH 失败分支（L214）、未知模型/跨维度 scan Err（L49/258）；边界：哈希文件名、char boundary 截断、大小写归一（L52-54）、同 id 并行隔离（L56/208）、null root 跳过（L306）、分页回归（L260/363）；零新增用例章节注释说明既有回归继续执行"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "redb 文件（L68 不 mock 真开库）、Tauri runtime（L160/189/221/267 mock_app）、agent CLI 子进程 FakeRunner（L222）、PATH（L223）、Channel（L224）、前端 IPC invoke 替身（L290/314/370/392）均有表；无案例章节以注释声明不适用/不新增"
+        },
+        {
+          "item": "T5 模板章节实质填写",
+          "pass": true,
+          "evidence": "验收范围（L9-21）、单元测试（L25-408）、不可测试项（L412-421）均实质填写；17 个 per-file 章节均含 待测功能/用例/Mock策略 三小节且顺序正确"
+        },
+        {
+          "item": "T6 与 proposal 范围一致",
+          "pass": false,
+          "evidence": "proposal.md L75 测试文件清单列 src/app.test.tsx（invoke 入参面 root/scope 更新），该文件存在于仓库（packages/desktop/src/app.test.tsx），但 test-design 全文未提及：无 ### 章节、无用例行、不可测试项亦无豁免理由；其余 in_scope 项（含 routes.tsx/package.json/bindings.ts）均已覆盖或豁免"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "重加同 root upsert 幂等（L152）、remove 未注册 root 幂等 false（L154）、agent_stop miss 幂等 Ok（L212）、同 (root,name) 重复建档 Err（L183）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "17 个 ### heading 均为「<源文件> -> <测试文件>」；三小节顺序正确；待测功能为无序列表无表格；用例表列「测试对象|路径类型|测试条件|迭代类型」；Mock 表列「Mock主体|Mock方案|应用场景」；验收范围 3 列「AC ID|验收条件|被测文件或模块」（L9），均合模板"
+        },
+        {
+          "item": "T9 Mock 遵守最小 mock 原则",
+          "pass": true,
+          "evidence": "全部 Mock主体为进程边界/全局变量（文件系统、db 文件、Tauri 运行环境、子进程、PATH、Channel、IPC invoke）；内部协作模块（workflow 查询层 L190、agent-adapter L291、store 层）均显式不 mock 真实组合；无被测模块内部 import 协作模块的 mock"
+        }
+      ],
+      "start_at": "2026-09-29T11:22:46.979Z",
+      "timestamp": "2026-09-29T11:41:18.131Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "test-design 评估 9 项全过。AC-1..9 全数入验收范围（L11-19，AC-9 归不可测试项1）；范围表与 17 个 ### 章节双向对齐（L21 路由说明）；异常/边界齐备（store L52-54 派生边界、L59/61 损坏 Err、各命令 blank root 矩阵）；Mock 全为白名单进程边界（mock_app/FakeRunner/IPC 替身），无内部模块 mock；幂等用例齐（L152/154/212）；T8 格式列名合规。use-agent-chat 无显式异常行，属入参面透传、异常语义由后端 blank root 用例承载，判过。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个验收标准在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal L95-103 AC-1..AC-9 逐条出现在 test-design L11-19，验收条件原文摘录一致；AC-9 映射不可测试项 1（L437）"
+        },
+        {
+          "item": "T2 验收范围与单元测试双向对应",
+          "pass": true,
+          "evidence": "范围表 store/exec/db/workspaces/model_test.rs 均有对应 ### 章节（L27/135/163/192/243/71）；反向 17 章节均回溯 AC 或注释说明（L21 路由说明、L73/89/105/121/229/396/419），无缺失"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "store L52-54 字符串边界（24字截断/非法字符/空回退/分隔符大小写归一）、L59/61 损坏 Err；exec/explores/workspaces/db blank root 边界+异常矩阵（L154/182/183/210/259）；零用例章节无测试对象且注释说明；use-agent-chat 异常语义由后端 blank root 用例承载"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "Tauri 运行环境 mock_app（L160/189/221/267）、agent 子进程 FakeRunner 经 start_agent_run_with 注入（L222）、PATH 环境（L223）、IPC invoke 替身（L290/314/370/392/415）；文件系统不 mock tempfile 真开库（L68）"
+        },
+        {
+          "item": "T5 模板章节已填实质性内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/不可测试项三章齐备；17 个 ### 章节均含待测功能/用例/Mock策略三小节且顺序正确，零用例章节以注释说明理由（L77/93/109/125/233/322/338/423）"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "不要修改项（模型 shape/layout.rs/golden/workflow user 维度）无测试触碰；实现文件清单各项均有覆盖或不可测试项说明（lib/main/bindings/routes/package.json 见 L440-444）"
+        },
+        {
+          "item": "T7 写操作含幂等性验证",
+          "pass": true,
+          "evidence": "add_workspace 重加 upsert 幂等（L152）、remove 未注册 root 幂等 false（L154）、agent_stop 未注册 miss 幂等 Ok（L212）、AC-7 remove 后文件字节原样+重加历史可读（L149-150）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "17 个 ### 均为 源文件 -> 测试文件 双路径格式；三小节顺序一致；待测功能无序列表；用例表列名 测试对象|路径类型|测试条件|迭代类型（L45 等）；Mock表 Mock主体|Mock方案|应用场景（L66 等）；验收范围 3 列（L9）"
+        },
+        {
+          "item": "T9 Mock策略遵守最小 mock 原则",
+          "pass": true,
+          "evidence": "Mock 主体全部属白名单进程边界（运行环境/子进程/IPC/全局变量/文件系统）；内部模块真实组合：workflow 查询层不 mock（L190）、agent.rs 复用既有装置不独立设用例（L241）、信封经公共 API 委托触达（L105），无 vi.mock 仓库内模块路径"
+        }
+      ],
+      "start_at": "2026-09-29T11:42:02.281Z",
+      "timestamp": "2026-09-29T11:49:13.792Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "双库拆分实现与 design.md 全面吻合。store.rs 两组静态注册/双命名构造器/派生单点/WorkspaceStores 缓存齐备；四命令轨 + 前端接线 + bindings 再生成（root/scope/DbDimension 出线）+ 版本 0.3.9 全落地；blank root 矩阵、add 预开、remove 不驱逐、model.rs 仅注释（AC-8）均符合定夺。良性漏记：bindings.ts、Cargo.lock 在盘已改未入 file_log（生成物）。提示：store/envelope 单测仍引用已退役 Store::open，按设计边界归 test-gen 阶段修（server:check 为 fmt+clippy 无 --all-targets，不编译测试目标，任务声明成立）。",
+      "checklist": [
+        {
+          "item": "I1 design.md 每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "13 架构组件逐项落位：store.rs:90-118 两组静态注册、185-229 open_global/open_workspace/open_with、157-169 派生单点、603-652 WorkspaceStores；envelope.rs:47-123 dimension 标签；main.rs DATA_DIR 注入；四命令轨 + 前端三面 + routes.tsx 均实现；agent-transport.ts 零修改符合核对预期"
+        },
+        {
+          "item": "I2 变更清单所有条目均有对应实现（三态对账）",
+          "pass": true,
+          "evidence": "17 计划修改文件：15 在 files.written 且内容核对；bindings.ts/Cargo.lock 在盘已改但缺记（生成物/构建再生的 hook 不可见写路径，良性漏记，内容已验）；use-explore-session.ts 预期零修改且确未改；无新增/删除文件与计划一致"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "Result<T,String> 错误模板、中文 doc 注释、薄命令包装、sha2 workspace 级 pin + store { workspace = true }（Cargo.toml 双侧）、bindings:export 再生成流程均沿既有规范"
+        },
+        {
+          "item": "I4 所有路由/API 均已实现",
+          "pass": true,
+          "evidence": "14 命令签名与设计公共函数表逐项一致（含 db_models/db_records scope+root、agent_stop 复合键、explore 五命令签名不变）；blank root 矩阵按定夺 7 落地（查询空/写 Err/start Err/stop 幂等 Ok）"
+        },
+        {
+          "item": "I5 tasks.md 所有任务标记 [x]",
+          "pass": true,
+          "evidence": "tasks.md 阶段一至四共 22 任务复选框全部 [x]"
+        },
+        {
+          "item": "I6 无与变更无关的代码",
+          "pass": true,
+          "evidence": "清单外仅 commands/mod.rs 一行 doc 注释级联 + 3 个既有前端测试文件 invoke 签名适配（均与本变更直接相关，无删除）；deleted=[] 与设计零删除一致"
+        },
+        {
+          "item": "I7 设计决策在实现中得到遵守",
+          "pass": true,
+          "evidence": "定夺 1-9 全部落位：desktop-global.redb（store.rs:122）、{可读段}-{hash}.redb SHA-256 前 16 字节（157-169）、进程常开缓存不驱逐、scope 默认 workspace + aria-pressed + 切换重置、model.rs 仅注释与 dir_name 可见性（AC-8 零 shape 变化）、add_workspace 注册后预开、for_root 不校验归属"
+        }
+      ],
+      "start_at": "2026-09-29T11:49:33.355Z",
+      "timestamp": "2026-09-29T12:25:42.467Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "G3/G4 不过，余 6 项过。G4：db-inspector-view.test.tsx vi.mock('./hooks/use-db-inspector') 内部模块替身无 Mock策略条目（表列为 IPC invoke 替身），应真实组合该模块；hook 替身系 HEAD 既有，但行2联动断言降级。G3：exec/mod_test.rs blank root agent_start Err 仅断 is_blank_root 谓词（L566-568），无命令面携空 root 期待 Err 用例；PATH 半边 L781 已覆盖。范围对账：声明文件均在盘，lib/main/bindings.test.ts 未建合规，bindings/mod_test.rs 存量适配判过。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "store_test.rs 覆盖 WorkspaceStores.open/global/for_root 与 open_global/open_workspace/list_models/scan（L151/181/290/474/548）；四命令轨 mod_test 各命令均有调用+断言用例；前端 useAgentChat/useAgentRunHistory/useDbInspector 及两视图用例齐；is_blank_root 为 exec/mod.rs:75-158 真实守卫非 test-only 导出；lib_test/main_test/bindings.test.ts 未建合规"
+        },
+        {
+          "item": "G2 测试文件命名遵循规范且与源码共置",
+          "pass": true,
+          "evidence": "Rust *_test.rs 与源同目录且有 mod 声明（store lib.rs:50-54、exec mod.rs:28、workspaces:63、explores:21、db:17、bindings:51）；TS *.test.ts(x) 与源共置；无错名或孤儿测试文件"
+        },
+        {
+          "item": "G3 用例表每行已生成对应测试骨架",
+          "pass": false,
+          "evidence": "新增行 16/17 落位；唯 exec/mod_test.rs「agent_start→for_root 落库|异常」行 blank root 子句仅断 is_blank_root 谓词（L566-568），无携空 root 调 start_agent_run 期待 Err 的用例（唯一调用 L792 为真 root PATH 分支）；同矩阵 explores L592、db L326 均为命令面 Err 口径；该行 PATH 半边 L781 已覆盖"
+        },
+        {
+          "item": "G4 Mock策略已实现且声明合法",
+          "pass": false,
+          "evidence": "db-inspector-view.test.tsx L22 vi.mock('./hooks/use-db-inspector') 内部模块 mock 无 Mock策略条目，头注「不含 IPC 边界」与表列「IPC invoke 替身|全部 describe」不符，应真实组合该模块；hook 替身系 HEAD 既有，但 scope tab 行2「经 hook 重置语义联动」降级为 setScope 派发断言。其余全对应表条目：core 替身、mock_app+RunStopRegistry（exec L74-79）、FakeRunner 经 start_agent_run_with 泛型缝、capturing_channel、PATH_LOCK、tempfile 真开库"
+        },
+        {
+          "item": "G5 使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust #[test]/#[tokio::test] 走 cargo test（workspace 级注册）；TS 统一 import from 'vite-plus/test'（vp test 口径，与 design L21 一致）；agent_test.rs pub(crate) 装置（FakeRunner/capturing_channel/start_and_wait_terminal L211/279）复用符合设计泛型缝声明"
+        },
+        {
+          "item": "G6 边界情况已覆盖",
+          "pass": true,
+          "evidence": "哈希文件名/24字截断/非法字符/尾点空格/空回退（store_test L290/359-420）、大小写尾分隔符正反斜杠归一 L433、同 id 并行隔离 L598/307/576、损坏文件 Err L518/735、blank root 纪律矩阵（explores L592/db L326/exec L538）、null root 跳过（run-history L174）、limit500 与分页（db L385）、scope/root 切换重置（use-db-inspector L306/325）、欢迎态隔离（app L1063）"
+        },
+        {
+          "item": "G7 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "tempfile RAII 自动清理（装置注释 exec L39、store L42）；PATH 保存/还原 exec L790-802 且 PATH_LOCK 串行化；TS invokeMock.mockReset（use-agent-chat L127/150、run-history L70/246）、afterEach（use-db-inspector L80、app.test.tsx 多处）、db-view mockReset L61-63"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "全仓测试零 Store::open( 调用（grep 0 命中，list_models 四模型全量断言已退役）；命令面全部携 root/scope：app.test L954/987 db_models {scope,root}、L1005 agent_runs {root}、use-agent-chat chain/stop 携 root（L202/285/500/521）、use-db-inspector 全携 (scope,root)；无 rootless/无参退役形态残留"
+        }
+      ],
+      "start_at": "2026-09-29T12:26:14.683Z",
+      "timestamp": "2026-09-29T13:21:10.316Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "attempt2 复评 8 项全过。G3 已修：exec/mod_test.rs L576-616 新增 blank root agent_start 携空 root 经 start_agent_run_with 期待 Err，runner 捕获空 cwd 证入链（agent.rs:195-196 start 先于 for_root，骨架非空转），零落库零推送断言齐，PATH 半边 L827-866 在位。G4 已修：db-inspector-view.test.tsx 移除 vi.mock('./hooks/use-db-inspector')，仅剩 core/sonner 两表列替身，scope 切换经真实组合 invoke 面断言清单重取+选中复位（L521-529）。余 6 项复核维持，范围对账 attempt2 双文件在盘一致，lib/main/bindings.test.ts 未建合规。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "store_test.rs 覆盖 WorkspaceStores.open/global/for_root 与 open_global/open_workspace/list_models/scan；四命令轨各命令均有调用+断言；前端 useAgentChat/useAgentRunHistory/useDbInspector 及两视图用例齐；lib/main/bindings.test.ts 未建合规；attempt2 双文件只增改不删覆盖面"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码共存同目录",
+          "pass": true,
+          "evidence": "Rust *_test.rs 与源同目录且 mod 声明在位（store lib.rs:50-54、exec mod.rs:28、db:17、explores:21、workspaces:63、bindings:51、agent.rs:312 pub(crate) 装置共享）；TS *.test.ts(x) 与源共置，无孤儿错名"
+        },
+        {
+          "item": "G3 用例表每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "新增行 17/17 落位。attempt1 唯一缺口已补：exec/mod_test.rs L576-616 blank root agent_start 携空 root 经 start_agent_run_with 泛型缝 expect_err，断言 runner.captured_params 空 cwd（证明空 root 已入编排链）+workspace 库零 run 行+Channel 零推送；同矩阵 explores/db 均为命令面 Err 口径；PATH 失败分支 L827-866 装置复用"
+        },
+        {
+          "item": "G4 Mock策略已实现且声明合法",
+          "pass": true,
+          "evidence": "db-inspector-view.test.tsx L25/L27 仅 vi.mock core 与 sonner（两表列条目），内部模块 mock 已移除、useDbInspector 真实组合，头注声明最小 mock；exec mock_app+RunStopRegistry(L74-79)/FakeRunner 泛型缝/capturing_channel/PATH_LOCK/tempfile 全对表；grep 全 TS in-scope 文件无内部模块 mock（唯一命中 change-view.test.tsx 为清单外存量）"
+        },
+        {
+          "item": "G5 使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust #[test]/#[tokio::test] 走 cargo test workspace 级；TS 统一 import from 'vite-plus/test'（db-view L3；其余 TS 文件 attempt2 未改动，attempt1 已核）"
+        },
+        {
+          "item": "G6 边界情况已覆盖",
+          "pass": true,
+          "evidence": "哈希文件名/24字截断/非法字符/大小写归一（store_test）、blank root 纪律矩阵（exec L538-616 含新增 start Err 用例）、null root 跳过、分页边界与 120 字符截断（db-view L274-326）、scope 切换重置联动（L488-536）、同 id 并行隔离（exec L307）"
+        },
+        {
+          "item": "G7 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "tempfile RAII 自动清理（exec Env L39-43）；PATH 保存/还原 exec L837-849 且 PATH_LOCK 串行化；db-view 各 describe beforeEach mockReset（L122-126 等）；app/use-agent-chat 等 afterEach/mockReset attempt1 已核未动"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "grep 零 Store::open( 测试调用（env.open() 为装置方法非退役 API）；命令面全部携 root/scope：db-view 全断言 WS_PARAMS={scope,root}（L144/179/308/521）、exec 四命令全携 root；无 rootless/无参退役形态残留"
+        }
+      ],
+      "start_at": "2026-09-29T13:21:53.261Z",
+      "timestamp": "2026-09-29T13:51:19.795Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 585 个测试通过。Mutation score 84.17% ≥ threshold 80%（killed 452/539）。覆盖率达标: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)；override packages/desktop pass=true (47 files)。双套件计划（vite-plus + rust）执行 621s，conclusion=pass，problems 空。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 均存在且类型正确；coverage.measured 三维度为 null（规范允许）"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=585>0；conclusion=pass，problems=[]，无 execution_error"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true；measured 三维度 null 记 N/A (框架不支持)，不参与阈值比较；override packages/desktop pass=true"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，根因诊断自动通过"
+        }
+      ],
+      "start_at": "2026-09-29T13:51:48.976Z",
+      "timestamp": "2026-09-29T14:20:03.161Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1-C7 全过。C1 无注入/硬编码密钥，文件名派生清洗路径分隔与保留字符（store.rs:132-164）。C2 blank root 矩阵全覆盖、explore 名 store 单点校验、未知模型/limit>500 拦截。C3 九项定夺逐一落地，model.rs 仅注释，bindings/版本 0.3.9 到位；备注：graph.ts 删 eval 排序与 detail.rs 纯 fmt 为清单外修改（graph.ts 行为微变、设计未列，测试+变异门覆盖，建议留痕）。C4 空文件视同新建/哈希名回退/环防御齐备；低危备注：切 root 未清 run replay 选中（use-agent-run-history.ts:89-108）。C5 旧 open/models() 零残留。C6/C7 过。判定：pass",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep 无硬编码密钥/eval/exec/system 命中（仅测试夹具与文档注释）；workspace 库文件名派生清洗 / \\ : 与 Windows 保留字符、哈希段纯 hex（store.rs:132-164）；explore 名单分量校验防穿越（store.rs:61-68,396-399）"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "blank root 检查覆盖 exec/db/explores 全部 root 寻址命令（exec/mod.rs:45-47,75-77,117-119,136-138,158-160；db/mod.rs:20-22；explores/mod.rs:30-32）；DbDimension serde 枚举拒绝非法 scope；未知模型 Err、limit 截 500（envelope.rs:118-122）"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "9 项定夺逐一落地：双静态注册（store.rs:90-118）、desktop-global.redb（:122）、哈希+可读段派生单点（:154-169）、常开缓存（:603-651）、blank root 矩阵、add 预开序（workspaces/mod.rs:41-48）、for_root 不查归属；model.rs 仅注释+dir_name 可见性（AC-8）；bindings 出 root/scope/DbDimension；版本 0.3.9；use-explore-session/agent-transport 零修改如预期。备注：graph.ts 删 eval 排序、detail.rs 纯 fmt 为清单外修改（graph.ts 行为微变，测试+变异门覆盖，建议留痕）"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "空文件视同新建保留（store.rs:211-221）；可读段空回退纯哈希（:160-163）；链回溯环防御（:528-530）；run id 不匹配守卫（:310-315）。备注（低危）：use-agent-run-history 切 root 未清 replay 选中（use-agent-run-history.ts:89-108）；for_root 失败位于 runner.start 后（agent.rs:195-197，设计既定顺序，缺口类别既有）"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "旧 Store::open / models() 零引用残留；desktop-store.redb 仅存注释与 AC-4 冷启动测试夹具（store_test.rs:641,696,719）；is_blank_root 三份模块内复制系代码库既定「各自持有、口径一致」复制纪律"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "三件事命令纪律、Result<T,String> 错误模板、轨道模块文档风格与既有代码一致；命名与信封/派生单点术语沿用 design 用语"
+        },
+        {
+          "item": "C7 外部数据使用同来源数据类型",
+          "pass": true,
+          "evidence": "DbDimension 一型双职（信封维度标签+db scope 入参，store.rs:77-84）并出线 TS 绑定；命令直返 store 模型类型（WorkspaceRecord/AgentRunRecord/ExploreRecord），无自定义中间映射结构"
+        }
+      ],
+      "start_at": "2026-09-29T14:20:21.905Z",
+      "timestamp": "2026-09-29T14:28:16.204Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "acceptance 5 项全过。A1: AC-1~9 逐项有实现证据——双库注册/派生单点/WorkspaceStores、四命令 root 寻址+registry 复合键、db scope 双库、remove 保文件+重加历史可读、冷启动零迁移、模型 shape 零变化、维度 spec 自洽。A2: implement 写面=提案 12 文件+级联, 清单外仅 doc 注释级联与 workflow 域 graph.ts 工具微调(code-review 已留痕)。A3: 4 能力 12 文件+前端+bindings+0.3.9 全落地。A4: layout.rs/golden/model shape/workflow user 维度未触碰, 无迁移/清理/LRU/聚合清单代码。A5: 五风险缓解均在位(复合键+同 id 并行测试、单实例+缓存锁、哈希文件名)。tasks.md 22 任务全 [x]。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1: store.rs:90-118 两组注册/:122,:125 常量/:154-169 派生单点+store_test.rs:326 同root跨重开同路径; AC-2: workspaces/mod.rs:45-46 global注册+store_test.rs:548-595 run/explore落workspace库全局无混入; AC-3: store.rs:636-651 缓存复用+store_test.rs:433/474/496; AC-4: store_test.rs:694-732 旧文件字节原样+store.rs:211-221 零探测; AC-5: exec/mod.rs:63-166+agent.rs:61 (String,i64)键+mod_test.rs:307/:623; AC-6: db/mod.rs:29-66+envelope.rs:47-123+db/mod_test.rs:110/182/270; AC-7: workspaces/mod.rs:58-60+mod_test.rs:427-529 重加历史完整; AC-8: model.rs id/version 1/1·2/3·3/1·4/1不变+bindings.ts:403+golden零写入; AC-9: data-dimensions spec.md:5-7/:30/:73自洽"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "file_log implement 写面=提案12实现文件+级联4文件(routes.tsx/两Cargo.toml/Cargo.lock 均在design级联表); 清单外仅 commands/mod.rs 一行doc注释级联(implement I6已核良性)与graph.ts eval排序微调(14:01 workflow scope工具域非本变更功能面, code-review C3已留痕+测试变异门覆盖); 无新增API/组件超出in_scope"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "4修改能力全落地: workspace-store(store.rs双库+派生+WorkspaceStores、model.rs维度注释、envelope.rs维度标签、lib.rs:47导出)、data-dimensions(spec落盘反转+三笔账退役REMOVED)、agent-execution(exec/mod.rs四命令root+agent.rs复合键)、db-inspector(db/mod.rs scope+前端双tab); 12实现文件+前端接线+bindings.ts root/scope出线+version 0.3.9全在盘核实"
+        },
+        {
+          "item": "A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "grep desktop-store.redb 仅注释与AC-4测试夹具(store.rs:120,lib.rs:22,store_test.rs:641/696/719), 运行时零读改删; 零迁移/格式探测代码(仅doc措辞); remove仅删注册不触文件(workspaces/mod.rs:58-60); 无LRU(常开缓存store.rs:610); layout.rs resolve/domain_dir_name在位零file_log写入; workflow/tests/golden 15 fixture零写入; 跨库聚合清单未提供(agent_runs单root收窄)"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "run id跨库歧义→全命令root寻址+registry (String,i64)复合键(agent.rs:61)+同id并行测试(exec/mod_test.rs:307,623;store_test.rs:598); 双开敞口→tauri-plugin-single-instance(main.rs:22)+缓存锁跨开库串行化(store.rs:641)+Err(String)显式呈现; 路径泄露→哈希为主+可读段清洗截断无分隔符(store.rs:132-169,测试359-420); 存量废弃→旧文件字节原样断言(store_test.rs:716-726)+lib.rs:20-23立场留痕; 降级风险→零迁移+更新器单向前行留痕"
+        }
+      ],
+      "start_at": "2026-09-29T14:28:48.577Z",
+      "timestamp": "2026-09-29T14:34:22.048Z"
+    }
+  ]
+}

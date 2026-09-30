@@ -1,21 +1,27 @@
-//! Store 持久化：native_db 模型层操作面、打开流程与错误面。
+//! Store 持久化：native_db 模型层操作面、双库布局打开流程、workspace 库路径
+//! 派生单点与错误面。
 //!
 //! 公共 API 只暴露自有类型，`native_db::Database` 等 native_db / native_model
-//! 类型不出现在任何公共签名（native_db 类型不越 crate 公共面）；db 路径完全
-//! 来自 [`Store::open`] 入参。
+//! 类型不出现在任何公共签名（native_db 类型不越 crate 公共面）；两库路径均由
+//! 调用方注入——全局库路径来自 [`WorkspaceStores::open`] 的数据目录根入参，
+//! workspace 库路径经本模块派生单点从 canonical root 确定性导出（消费侧零
+//! 派生逻辑）。
 
 use std::collections::{HashMap, HashSet};
 use std::fmt;
-use std::path::Path;
-use std::sync::OnceLock;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex, OnceLock};
 
 use agent::AgentEvent;
 use native_db::{Builder, Database, Models};
+use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
+use specta::Type;
 
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
-    now_millis, AgentEventRecord, AgentEventRecordKey, AgentRunRecord, ExploreRecord,
+    dir_name, now_millis, AgentEventRecord, AgentEventRecordKey, AgentRunRecord, ExploreRecord,
     WorkspaceRecord,
 };
 
@@ -66,16 +72,38 @@ fn is_single_component_name(name: &str) -> bool {
 /// 级联删除的 runs。
 const EXPLORE_RUN_SOURCE: &str = "explore";
 
-/// 全部已注册模型（静态）：`Database` 借用 `&'static Models`，进程内初始化
-/// 一次。define 仅在编程错误（模型 id / version 重复）失败，expect 与
-/// native_db 文档口径一致。
-pub(crate) fn models() -> &'static Models {
+/// 数据维度（信封维度标签 + db 查看命令 scope 入参双职）：`User` 全局库 /
+/// `Workspace` workspace 库。serde 线值为 `"user"` / `"workspace"`。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "lowercase")]
+pub enum DbDimension {
+    /// user 维度（全局库，`WorkspaceRecord` 及未来 user 维度租户）
+    User,
+    /// workspace 维度（per-workspace 库，run / 事件 / explore 三模型）
+    Workspace,
+}
+
+/// 全局库模型组（静态，仅 user 维度 `WorkspaceRecord`）：`Database` 借用
+/// `&'static Models`，进程内初始化一次。define 仅在编程错误（模型 id /
+/// version 重复）失败，expect 与 native_db 文档口径一致。与 workspace 组无
+/// 交叉注册——维度混入在打开点即不可能。
+pub(crate) fn global_models() -> &'static Models {
     static MODELS: OnceLock<Models> = OnceLock::new();
     MODELS.get_or_init(|| {
         let mut models = Models::new();
         models
             .define::<WorkspaceRecord>()
             .expect("定义 WorkspaceRecord 失败");
+        models
+    })
+}
+
+/// workspace 库模型组（静态，仅 workspace 维度 run / 事件 / explore 三模型）：
+/// 注释同 [`global_models`]。
+pub(crate) fn workspace_models() -> &'static Models {
+    static MODELS: OnceLock<Models> = OnceLock::new();
+    MODELS.get_or_init(|| {
+        let mut models = Models::new();
         models
             .define::<AgentRunRecord>()
             .expect("定义 AgentRunRecord 失败");
@@ -89,26 +117,89 @@ pub(crate) fn models() -> &'static Models {
     })
 }
 
-/// `Database`（`'static` 借用静态 Models）必须 `Send + Sync` 才能挂 Tauri
-/// State（进程内 MVCC、单写多读）；编译期硬校验，回归即编译失败。
-const _: () = {
-    const fn assert_send_sync<T: Send + Sync>() {}
-    assert_send_sync::<Database<'static>>();
-};
+/// 全局库文件名（全局数据目录根直下；与旧单库 `desktop-store.redb` 换名使
+/// 新旧布局文件面彻底无歧义，免格式探测——旧文件惰性废弃零迁移）。
+pub(crate) const GLOBAL_DB_FILE_NAME: &str = "desktop-global.redb";
 
-/// native_db 本地库句柄：私有持有 [`Database`]，可安全挂 Tauri State，同步
-/// 调用无需 async。
+/// workspace 库子树目录名（全局数据目录根直下，每 workspace 恰一个 db 文件）。
+pub(crate) const WORKSPACES_DIR_NAME: &str = "workspaces";
+
+/// 可读段截断上限（字符数）：文件名防超长的清洗预算。
+const READABLE_SEGMENT_MAX_CHARS: usize = 24;
+
+/// 文件名非法字符（`/` `\` `:` 路径分隔与盘符、`< > " | ? *` Windows 保留、
+/// 控制字符不可见）：可读段清洗时逐字置换 `_`。
+fn is_illegal_name_char(c: char) -> bool {
+    matches!(c, '/' | '\\' | ':' | '*' | '?' | '"' | '<' | '>' | '|') || c.is_control()
+}
+
+/// workspace 库文件名可读段（与 `WorkspaceRecord::name` 同源取 `dir_name`
+/// 末段）清洗：非法字符置换 `_` → 按 char boundary 截断 ≤24 字符 → 去尾部
+/// `.` 与空格（Windows 保留语义）；清洗后为空返回 `None`。
+fn readable_segment(canonical_root: &str) -> Option<String> {
+    let cleaned: String = dir_name(canonical_root)
+        .chars()
+        .map(|c| if is_illegal_name_char(c) { '_' } else { c })
+        .collect();
+    let truncated: String = cleaned.chars().take(READABLE_SEGMENT_MAX_CHARS).collect();
+    let trimmed = truncated.trim_end_matches(['.', ' ']);
+    (!trimmed.is_empty()).then(|| trimmed.to_owned())
+}
+
+/// workspace 库文件名派生（**单点**，消费侧零派生逻辑）：`{可读段}-{hash}.redb`
+/// ——哈希 = SHA-256(canonical root UTF-8 字节) 前 16 字节的 32 位小写 hex
+/// （128-bit 抗碰撞，异根必不同名）；可读段 = [`readable_segment`] 清洗结果，
+/// 为空回退纯哈希名。纯函数确定性：同根恒同名、跨重启可复现；文件名不含路径
+/// 分隔符与 OS 非法字符。
+pub(crate) fn workspace_db_file_name(canonical_root: &str) -> String {
+    let digest = Sha256::digest(canonical_root.as_bytes());
+    let hash: String = digest[..16]
+        .iter()
+        .map(|byte| format!("{byte:02x}"))
+        .collect();
+    match readable_segment(canonical_root) {
+        Some(readable) => format!("{readable}-{hash}.redb"),
+        None => format!("{hash}.redb"),
+    }
+}
+
+/// workspace 库文件路径派生（收口单点）：`workspaces/` 子树 + 文件名单点。
+pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) -> PathBuf {
+    workspaces_dir.join(workspace_db_file_name(canonical_root))
+}
+
+/// native_db 本地库句柄：单文件句柄语义（注入式路径打开，模型组在打开点
+/// 锁定），私有持有 [`Database`] 与实例维度，可安全挂 Tauri State，同步调用
+/// 无需 async。全局库经 [`Store::open_global`]（仅 `WorkspaceRecord`）、
+/// workspace 库经 [`Store::open_workspace`]（run / 事件 / explore 三模型）。
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
     db: Database<'static>,
+    /// 实例维度（打开点锁定；信封 API 过滤依据）
+    dimension: DbDimension,
 }
 
 impl Store {
-    /// 打开（不存在则创建）db：`create_dir_all` 父目录 → 不存在（或空文件）
-    /// 则 native_db create → 存在则以 native_db open。打不开即 Err（dev-team
-    /// 据此 fail fast）。
-    pub fn open(path: &Path) -> Result<Self, StoreError> {
+    /// 打开全局库（user 维度模型组，仅 `WorkspaceRecord`）。
+    pub fn open_global(path: &Path) -> Result<Self, StoreError> {
+        Self::open_with(path, global_models(), DbDimension::User)
+    }
+
+    /// 打开 workspace 库（workspace 维度模型组，run / 事件 / explore 三模型）。
+    pub fn open_workspace(path: &Path) -> Result<Self, StoreError> {
+        Self::open_with(path, workspace_models(), DbDimension::Workspace)
+    }
+
+    /// 打开（不存在则创建）db 收口：`create_dir_all` 父目录 → 不存在（或空
+    /// 文件）则 native_db create → 存在则以 native_db open。打不开即 Err
+    /// （dev-team 据此 fail fast）。「空文件视同不存在」语义保留——全新文件组
+    /// 冷启动零迁移，无任何旧格式探测路径。
+    fn open_with(
+        path: &Path,
+        models: &'static Models,
+        dimension: DbDimension,
+    ) -> Result<Self, StoreError> {
         // native_db 建文件不建父目录，首启必须补齐；裸文件名（无父目录）跳过
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
@@ -124,17 +215,17 @@ impl Store {
                 .unwrap_or(false);
         if blank {
             let db = Builder::new()
-                .create(models(), path)
+                .create(models, path)
                 .map_err(|e| StoreError::Db(format!("创建 {} 失败: {e}", path.display())))?;
-            return Ok(Self { db });
+            return Ok(Self { db, dimension });
         }
-        let db = Builder::new().open(models(), path).map_err(|e| {
+        let db = Builder::new().open(models, path).map_err(|e| {
             StoreError::Db(format!(
                 "打开 {} 失败: {e}（无法识别的 db 格式）",
                 path.display()
             ))
         })?;
-        Ok(Self { db })
+        Ok(Self { db, dimension })
     }
 
     /// canonicalize + upsert：已存在 → 原记录原样返回（保留 `added_at`，
@@ -446,22 +537,23 @@ impl Store {
         Ok(chain)
     }
 
-    /// 全部已注册模型清单与记录计数（注册表驱动，计数 0 也列出；新模型登记
+    /// 本库已注册模型清单与记录计数（按实例维度过滤——全局库只列 user 维度
+    /// 模型、workspace 库只列 workspace 维度模型；计数 0 也列出；新模型登记
     /// 注册表一行即覆盖，见 [`crate::envelope`]）。
     pub fn list_models(&self) -> Result<Vec<ModelInfo>, StoreError> {
-        envelope::list_models(&self.db)
+        envelope::list_models(&self.db, self.dimension)
     }
 
     /// 按模型主键自然序分页扫描（`skip(offset).take(limit)`；`limit` 上限
-    /// 500 超出截断；未知模型名 Err）。key/value 均为 JSON 值，native_db
-    /// 类型不越信封。
+    /// 500 超出截断；未知模型名 Err——含跨维度模型名，维度由实例锁定）。
+    /// key/value 均为 JSON 值，native_db 类型不越信封。
     pub fn scan(
         &self,
         model: &str,
         offset: u32,
         limit: u32,
     ) -> Result<Vec<RecordEnvelope>, StoreError> {
-        envelope::scan(&self.db, model, offset, limit)
+        envelope::scan(&self.db, self.dimension, model, offset, limit)
     }
 
     /// 主键自然序全表读出（workspace / run 清单共用）。
@@ -502,3 +594,68 @@ impl Store {
         Ok(hit.is_some())
     }
 }
+
+/// 两级库注册表（挂 Tauri State）：[`WorkspaceStores::global`] → 全局库（user
+/// 维度注册表操作面），[`WorkspaceStores::for_root`] → workspace 库（per-root
+/// 实例缓存复用）。缓存策略为**进程生命周期常开**（不引入 LRU）：workspace
+/// 数量本机个位数，常开使重加同 root 即读即得，并免去驱逐后二次打开的锁竞争
+/// 面；`remove_workspace` 不驱逐缓存实例（db 文件保留语义的进程内对应面）。
+pub struct WorkspaceStores {
+    /// 全局库实例（`data_root/GLOBAL_DB_FILE_NAME`，打开点 fail fast）
+    global: Store,
+    /// `workspaces/` 子树根（workspace 库文件派生基准，由数据目录根注入）
+    workspaces_dir: PathBuf,
+    /// per-root 打开实例缓存（canonical root → 实例；缓存锁跨开库持有——
+    /// 并发 `for_root` 串行化，同一 db 文件进程内单开硬保证）
+    cache: Mutex<HashMap<String, Arc<Store>>>,
+}
+
+impl WorkspaceStores {
+    /// 打开全局库并记录 `workspaces/` 子树根：数据目录根由 desktop-app 注入
+    /// （本类型零环境解析）；全局库打开失败 `Err`（setup fail fast 口径同
+    /// 既有 `Store::open`）。
+    pub fn open(data_root: &Path) -> Result<Self, StoreError> {
+        let global = Store::open_global(&data_root.join(GLOBAL_DB_FILE_NAME))?;
+        Ok(Self {
+            global,
+            workspaces_dir: data_root.join(WORKSPACES_DIR_NAME),
+            cache: Mutex::new(HashMap::new()),
+        })
+    }
+
+    /// 全局库实例（user 维度注册表操作面：workspace 三命令等全局轨）。
+    pub fn global(&self) -> &Store {
+        &self.global
+    }
+
+    /// 按 canonical root 解析 workspace 库实例：root 先经 canonical 口径归一
+    /// （dunce，大小写 / 尾分隔符等价路径收敛同键，同根跨重开恒同名），路径
+    /// 派生收口单点后开库并缓存复用——同 root 恒返回同一实例（不触发 redb
+    /// 文件锁冲突），异根各自独立实例。不校验全局注册表归属：root 恒来自前端
+    /// 清单（canonical root），与 cwd 同一信任级别（blank root 在命令层已拦）。
+    pub fn for_root(&self, root: &str) -> Result<Arc<Store>, StoreError> {
+        let key = canonical::canonical_key(Path::new(root))
+            .map_err(StoreError::Canonicalize)?
+            .to_string_lossy()
+            .into_owned();
+        let mut cache = self.cache.lock().expect("workspace 库缓存锁不可中毒");
+        if let Some(store) = cache.get(&key) {
+            return Ok(store.clone());
+        }
+        let store = Arc::new(Store::open_workspace(&workspace_db_path(
+            &self.workspaces_dir,
+            &key,
+        ))?);
+        cache.insert(key, store.clone());
+        Ok(store)
+    }
+}
+
+/// `Database<'static>` 与 [`WorkspaceStores`] 必须均 `Send + Sync` 才能挂
+/// Tauri State（进程内 MVCC、单写多读 + per-root 缓存跨线程复用）；编译期硬
+/// 校验，回归即编译失败。
+const _: () = {
+    const fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Database<'static>>();
+    assert_send_sync::<WorkspaceStores>();
+};

@@ -83,14 +83,16 @@ function buildMessages(
   });
 }
 
-/** 链还原 + 逐 run 事件重放（store 链查询收口单点，hook 不拼链） */
+/** 链还原 + 逐 run 事件重放（store 链查询收口单点，hook 不拼链；root 寻址
+ * 所属 workspace 库——run id 与 explore 记录 id 均为库域内） */
 async function loadChain(
+  root: string,
   source: string,
   sourceRef: string,
 ): Promise<{ runs: AgentRunRecord[]; byRun: Map<number, AgentEvent[]> }> {
-  const runs = await commands.agentRunChain(source, sourceRef);
+  const runs = await commands.agentRunChain(root, source, sourceRef);
   const replays = await Promise.all(
-    runs.map(async (run) => [run.id, await commands.agentRunEvents(run.id)] as const),
+    runs.map(async (run) => [run.id, await commands.agentRunEvents(root, run.id)] as const),
   );
   return { runs, byRun: new Map(replays) };
 }
@@ -217,7 +219,7 @@ function useChainReplay(
     let cancelled = false;
     setLoading(true);
     setReplayError(null);
-    loadChain(source, sourceRef)
+    loadChain(root, source, sourceRef)
       .then(({ runs, byRun }) => {
         if (cancelled) return;
         mirrors.chainRef.current = runs;
@@ -279,9 +281,10 @@ function useSessionActions(
 
   const stop = useCallback(() => {
     const runId = mirrors.currentRunIdRef.current;
-    // 不调 chat.stop() 截断前端流：终态 record 部件与 finish 由后端闭流推入
-    if (runId !== null) void commands.agentStop(runId);
-  }, [mirrors.currentRunIdRef]);
+    // 不调 chat.stop() 截断前端流：终态 record 部件与 finish 由后端闭流推入；
+    // 停止寻址携 root（run id 为 workspace 库域内自增，复合键消解跨库歧义）
+    if (runId !== null && root !== null) void commands.agentStop(root, runId);
+  }, [mirrors.currentRunIdRef, root]);
 
   const reset = useCallback(() => {
     mirrors.clear();

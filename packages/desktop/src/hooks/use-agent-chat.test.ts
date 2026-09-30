@@ -199,11 +199,13 @@ function startCallArgs(): Record<string, unknown> {
 // ---------------------------------------------------------------------------
 
 describe('useAgentChat：重放装载', () => {
-  it('挂载发起 agent_run_chain（source 二元组）+ 逐 run agent_run_events，经适配层重建消息；链镜像与查询一致', async () => {
+  it('挂载发起 agent_run_chain 携 (root, source, sourceRef) 三参 + 逐 run agent_run_events 携 (root, run.id)，经适配层重建消息；链镜像与查询一致', async () => {
     const { result } = await mounted();
 
     const chainCalls = invokeMock.mock.calls.filter(([name]) => name === 'agent_run_chain');
-    expect(chainCalls).toEqual([['agent_run_chain', { source: 'explore', sourceRef: SOURCE_REF }]]);
+    expect(chainCalls).toEqual([
+      ['agent_run_chain', { root: ROOT, source: 'explore', sourceRef: SOURCE_REF }],
+    ]);
     expect(result.current.chain).toEqual(CHAIN);
     expect(result.current.events).toEqual([
       textEvent(0, '首轮结论'),
@@ -280,7 +282,7 @@ describe('useAgentChat：发送组装与停止', () => {
     expect(args['onEvent']).toBeInstanceOf(ChannelMock);
   });
 
-  it('stop() 调 invoke("agent_stop", { runId }) 且不截断前端流：Record 回流后 running 复位、消息含 record 部件', async () => {
+  it('stop() 调 invoke("agent_stop", { root, runId }) 复合键寻址且不截断前端流：Record 回流后 running 复位、消息含 record 部件', async () => {
     chainResult = [];
     const { result } = await mounted();
 
@@ -298,7 +300,7 @@ describe('useAgentChat：发送组装与停止', () => {
       result.current.stop();
     });
     await act(async () => {});
-    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { runId: 13 });
+    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { root: ROOT, runId: 13 });
 
     // 前端流不被截断：stop 后终态 record 经 Channel 回流并复位 running
     const terminal = run(13, null, null, 'stopped');
@@ -449,15 +451,17 @@ describe('useAgentChat：边界', () => {
 // 生成绑定调用面（AC-5 回归锁定）：agent_run_chain / agent_run_events /
 // agent_stop 裸 invoke → typed bindings 机械替换后，invoke 命令名与 camelCase
 // 参数逐字不变（生成绑定底层仍走 @tauri-apps/api/core 的 invoke，mock 机制
-// 切换后依旧生效）。
+// 切换后依旧生效）；root 寻址参数随双库拆分（desktop-workspace-db-split）
+// 进入链还原与停止三条命令。
 // ---------------------------------------------------------------------------
 
 describe('useAgentChat：生成绑定调用面', () => {
   it('发起经生成绑定入口后 invoke 收到 "agent_start" 与 7 个 camelCase 链参数逐字不变，返回 running 记录透传', async () => {
     const { result } = await mounted();
 
-    // 链发起：命令名与来源二元组逐字不变
+    // 链发起：命令名与 root 寻址三元组逐字不变
     expect(invokeMock).toHaveBeenCalledWith('agent_run_chain', {
+      root: ROOT,
       source: 'explore',
       sourceRef: SOURCE_REF,
     });
@@ -493,13 +497,13 @@ describe('useAgentChat：生成绑定调用面', () => {
     expect(result.current.running).toBe(true);
   });
 
-  it('逐 run 重放经生成绑定后 invoke 收到 "agent_run_events" 与 { runId }：空链零调用、多 run 逐 run 调用与消息重建不变', async () => {
+  it('逐 run 重放经生成绑定后 invoke 收到 "agent_run_events" 与 { root, runId }：空链零调用、多 run 逐 run 调用与消息重建不变', async () => {
     const { result } = await mounted();
 
-    // 多 run：每 run 恰一次重放调用，参数逐字 { runId }，消息重建不变
+    // 多 run：每 run 恰一次重放调用，参数逐字 { root, runId }，消息重建不变
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_run_events')).toEqual([
-      ['agent_run_events', { runId: 11 }],
-      ['agent_run_events', { runId: 12 }],
+      ['agent_run_events', { root: ROOT, runId: 11 }],
+      ['agent_run_events', { root: ROOT, runId: 12 }],
     ]);
     // 消息重建不变：逐 run 事件折叠 + 终态 record 部件交错（1+1+2+1 = 5 条）
     expect(result.current.messages).toHaveLength(5);
@@ -514,7 +518,7 @@ describe('useAgentChat：生成绑定调用面', () => {
     expect(empty.result.current.messages).toEqual([]);
   });
 
-  it('停止经生成绑定后 invoke 收到 "agent_stop" 与 { runId }；reject 路径 error 置位 / running 复位行为不变', async () => {
+  it('停止经生成绑定后 invoke 收到 "agent_stop" 与 { root, runId }；reject 路径 error 置位 / running 复位行为不变', async () => {
     chainResult = [];
     const { result } = await mounted();
 
@@ -527,7 +531,7 @@ describe('useAgentChat：生成绑定调用面', () => {
       result.current.stop();
     });
     await act(async () => {});
-    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { runId: 13 });
+    expect(invokeMock).toHaveBeenCalledWith('agent_stop', { root: ROOT, runId: 13 });
 
     // 终态 record 回流后 running 复位（停止路径行为不变）
     deliverRecord(run(13, null, null, 'stopped'));

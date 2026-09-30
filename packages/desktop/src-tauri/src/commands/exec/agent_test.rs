@@ -1,19 +1,18 @@
 //! `start_agent_run()` / `drive_agent_run()` 编排的单元 + 「编排 → tee 双路
-//! （Channel 实时 + store 落库）与状态收敛」集成关系测试（AC-1/AC-3/AC-4/AC-7，
-//! 决策 D1/D2/D5/D7/D8）。
+//! （Channel 实时 + store 落库）与状态收敛」集成关系测试。
 //!
 //! 本模块声明于 agent.rs 内（子模块），可触达私有失败收敛助手；dev-team 为
 //! 纯 binary crate，共置沿 workspaces/mod_test.rs 既有先例。假 runner 测试
 //! 替身注入泛型缝；AppHandle 以 `tauri::test::mock_app()`（MockRuntime）托管
-//! Store 与 RunStopRegistry——编排对 runtime 泛型，生产经命令注入 Wry 句柄；
-//! Channel 以 `tauri::ipc::Channel::new` 捕获回调（或返回 Err 构造「页面已关」）；
-//! store 不 mock（tempdir 真库）。提前 resolve 契约下同步段立即返回 running
-//! 记录、终态经 Channel Record 信封流出：tee 双路与 EOF 收敛语义以
-//! [`drive_agent_run`] 直驱锁定（同步 await 无竞态），spawn 链路（注册句柄 →
-//! 停止信号触达租户 → 后台收敛 → Record 流出 → 除名）以停止信号端到端用例
-//! 锁定。真实 claude 进程不引入（见 test-design 不可测试项）。
+//! `WorkspaceStores` 与 RunStopRegistry——编排对 runtime 泛型，生产经命令注入
+//! Wry 句柄；Channel 以 `tauri::ipc::Channel::new` 捕获回调（或返回 Err 构造
+//! 「页面已关」）；store 不 mock（tempdir 真库，双库布局下编排经
+//! `for_root` 落 cwd 对应的 workspace 库——start 泛型缝入参为 `WorkspaceStores`，
+//! drive 直驱入参仍为 `&Store`）。提前 resolve 契约下同步段立即返回 running
+//! 记录、终态经 Channel Record 信封流出。真实 claude 进程不引入。
 
-use std::path::Path;
+use std::fs;
+use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
@@ -24,7 +23,7 @@ use ::agent::{
     AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRun, AgentRunParams,
     AgentRunStatus, AgentRunner, AgentStartError, RunHandle,
 };
-use store::{AgentRunRecord, Store};
+use store::{AgentRunRecord, Store, WorkspaceStores};
 
 use super::{
     abort_with_store_failure, drive_agent_run, running_record, start_agent_run,
@@ -44,24 +43,33 @@ fn temp_store(tag: &str) -> (tempfile::TempDir, Store) {
         .tempdir()
         .expect("创建临时目录失败");
     let db_path = dir.path().join("test.redb");
-    let store = Store::open(&db_path).expect("打开测试 db 失败");
+    // drive_agent_run 直驱用例：workspace 维度库直开（编排落库载体即 workspace 库）
+    let store = Store::open_workspace(&db_path).expect("打开测试 workspace 库失败");
     (dir, store)
 }
 
-/// mock app（MockRuntime）托管 tempdir 真库与默认注册表（temp_store 的托管
-/// 形态）：dir 由调用方持活于测例作用域，store 经 `app.state::<Store>()` 取
-/// 用——编排同步段入参与后台任务取到的托管句柄指向同一实例；注册表须先于
-/// start 托管（同步段 `app.state::<RunStopRegistry>()` 未托管会 panic）。
-pub(crate) fn temp_app_store(tag: &str) -> (tempfile::TempDir, App<tauri::test::MockRuntime>) {
+/// mock app（MockRuntime）托管 tempdir 数据根上的真实 WorkspaceStores 与默认
+/// 注册表：dir 由调用方持活于测例作用域，stores 经 `app.state::<WorkspaceStores>()`
+/// 取用——编排同步段经 `for_root` 解析 workspace 库（cwd 恒为当前 workspace
+/// root，须为真实存在的目录，canonical 口径归一）；注册表须先于 start 托管
+/// （同步段 `app.state::<RunStopRegistry>()` 未托管会 panic）。
+pub(crate) fn temp_app_stores(tag: &str) -> (tempfile::TempDir, App<tauri::test::MockRuntime>) {
     let dir = tempfile::Builder::new()
         .prefix(&format!("agent-exec-test-{tag}-"))
         .tempdir()
         .expect("创建临时目录失败");
     let app = tauri::test::mock_app();
-    let store = Store::open(&dir.path().join("test.redb")).expect("打开测试 db 失败");
-    app.manage(store);
+    let stores = WorkspaceStores::open(dir.path()).expect("打开测试全局库失败");
+    app.manage(stores);
     app.manage(RunStopRegistry::default());
     (dir, app)
+}
+
+/// 在数据根下创建真实 workspace 目录（for_root canonicalize 的 cwd 基准）。
+pub(crate) fn real_ws_dir(data_root: &Path) -> PathBuf {
+    let ws = data_root.join("ws");
+    fs::create_dir_all(&ws).expect("创建 workspace 目录失败");
+    ws
 }
 
 fn params(cwd: &Path) -> AgentRunParams {
@@ -117,7 +125,7 @@ fn run_result(seq: u64, is_error: bool, num_turns: Option<u64>) -> AgentEvent {
 }
 
 /// 假 runner：预录事件经 mpsc 交付（后台任务投递），或返回可控启动错误。
-/// `pub(crate)`：mod_test 的链路级用例（集成关系 R2/R3）经 `start_agent_run_with`
+/// `pub(crate)`：mod_test 的链路级用例（集成关系）经 `start_agent_run_with`
 /// 泛型缝复用同一装置。
 pub(crate) struct FakeRunner {
     events: Vec<AgentEvent>,
@@ -215,7 +223,7 @@ pub(crate) fn capturing_channel() -> (Channel<AgentRunMessage>, Arc<Mutex<Vec<se
     (channel, captured)
 }
 
-/// 丢弃型 Channel：发送端恒失败（模拟页面已关，D1「发送失败不中断落库」）。
+/// 丢弃型 Channel：发送端恒失败（模拟页面已关，「发送失败不中断落库」）。
 fn failing_channel() -> Channel<AgentRunMessage> {
     Channel::new(|_| {
         Err(tauri::Error::Io(std::io::Error::new(
@@ -270,7 +278,7 @@ pub(crate) async fn wait_terminal_record(
 /// 返回 [发起时 running 记录, 终态记录]。
 pub(crate) async fn start_and_wait_terminal<R: AgentRunner + 'static>(
     app: &App<tauri::test::MockRuntime>,
-    store: &Store,
+    stores: &WorkspaceStores,
     runner: &R,
     captured: &Mutex<Vec<serde_json::Value>>,
     channel: Channel<AgentRunMessage>,
@@ -279,7 +287,7 @@ pub(crate) async fn start_and_wait_terminal<R: AgentRunner + 'static>(
 ) -> (AgentRunRecord, AgentRunRecord) {
     let running = start_agent_run_with(
         app.handle().clone(),
-        store,
+        stores,
         runner,
         channel,
         params,
@@ -317,7 +325,7 @@ fn begin_running(store: &Store) -> AgentRunRecord {
 }
 
 // ---------------------------------------------------------------------------
-// drive_agent_run：预录会话 tee 双 sink + 状态收敛（AC-4 tee 双 sink）
+// drive_agent_run：预录会话 tee 双 sink + 状态收敛
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
@@ -337,7 +345,7 @@ async fn 预录completed会话经tee双sink全链路落库且channel逐事件一
         .start(params(Path::new("C:\\ws")))
         .expect("假 runner 启动成功");
     let record = begin_running(&store);
-    registry.register(record.id, RunHandle::default());
+    registry.register("C:\\ws", record.id, RunHandle::default());
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
@@ -378,7 +386,10 @@ async fn 预录completed会话经tee双sink全链路落库且channel逐事件一
     assert_eq!(listed.len(), 1);
     assert_eq!(listed[0].id, record.id);
     assert_eq!(listed[0].status, AgentRunStatus::Completed);
-    assert!(!registry.request_stop(record.id), "终态除名后停止寻址 miss");
+    assert!(
+        !registry.request_stop("C:\\ws", record.id),
+        "终态除名后停止寻址 miss"
+    );
 }
 
 #[tokio::test]
@@ -392,14 +403,14 @@ async fn 预录is_error的result时返回ok的failed记录而非err() {
         .start(params(Path::new("C:\\ws")))
         .expect("假 runner 启动成功");
     let record = begin_running(&store);
-    registry.register(record.id, RunHandle::default());
+    registry.register("C:\\ws", record.id, RunHandle::default());
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
     assert_eq!(
         record.status,
         AgentRunStatus::Failed,
-        "D7：in-band 失败收敛 failed 记录"
+        "in-band 失败收敛 failed 记录"
     );
     assert_eq!(record.num_turns, Some(2));
     assert!(record.finished_at.is_some());
@@ -425,7 +436,7 @@ async fn eof时状态机已由run_result收敛则以状态机为准stop请求晚
         .expect("假 runner 启动成功");
     run.handle.request_stop();
     let record = begin_running(&store);
-    registry.register(record.id, RunHandle::default());
+    registry.register("C:\\ws", record.id, RunHandle::default());
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
@@ -448,7 +459,7 @@ async fn eof无result但停止信号已置位时显式收敛stopped且不记因(
         .expect("假 runner 启动成功");
     run.handle.request_stop();
     let record = begin_running(&store);
-    registry.register(record.id, RunHandle::default());
+    registry.register("C:\\ws", record.id, RunHandle::default());
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
@@ -469,7 +480,10 @@ async fn eof无result但停止信号已置位时显式收敛stopped且不记因(
         "信封出线值逐字 stopped（用户主动终止非失败语义不变）"
     );
     // 注册表终态除名
-    assert!(!registry.request_stop(record.id), "终态除名后停止寻址 miss");
+    assert!(
+        !registry.request_stop("C:\\ws", record.id),
+        "终态除名后停止寻址 miss"
+    );
 }
 
 #[tokio::test]
@@ -483,7 +497,7 @@ async fn 既无result又无stop请求的eof兜底收敛failed且error记因() {
         .start(params(Path::new("C:\\ws")))
         .expect("假 runner 启动成功");
     let record = begin_running(&store);
-    registry.register(record.id, RunHandle::default());
+    registry.register("C:\\ws", record.id, RunHandle::default());
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
@@ -504,19 +518,23 @@ async fn 既无result又无stop请求的eof兜底收敛failed且error记因() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 假runner启动失败时返回err且store零run行() {
-    let (_dir, store) = temp_store("tee-start-err");
-    // 启动失败路径不触达托管状态（Err 先于 begin 与注册表访问），仅取句柄
+fn 假runner启动失败时返回err且workspace库零run行() {
+    let dir = tempfile::Builder::new()
+        .prefix("agent-exec-test-start-err-")
+        .tempdir()
+        .expect("创建临时目录失败");
+    // 启动失败路径不触达托管状态与库解析（Err 先于 for_root 与 begin），仅取句柄
     let app = tauri::test::mock_app();
+    let stores = WorkspaceStores::open(dir.path()).expect("打开测试全局库失败");
     let runner = FakeRunner::failing(AgentStartError::CliMissing("PATH 上未发现".to_owned()));
     let (channel, captured) = capturing_channel();
 
     let result = start_agent_run_with(
         app.handle().clone(),
-        &store,
+        &stores,
         &runner,
         channel,
-        params(Path::new("C:\\ws")),
+        params(&real_ws_dir(dir.path())),
         RunProvenance::debug(),
     );
 
@@ -526,8 +544,13 @@ fn 假runner启动失败时返回err且store零run行() {
         "Err(String) 携带启动失败原因，实际: {err}"
     );
     assert!(
-        store.list_agent_runs().unwrap().is_empty(),
-        "D5：启动失败不留 run 行"
+        stores
+            .for_root(&real_ws_dir(dir.path()).to_string_lossy())
+            .expect("for_root 应成功")
+            .list_agent_runs()
+            .unwrap()
+            .is_empty(),
+        "启动失败不留 run 行"
     );
     assert!(
         captured.lock().unwrap().is_empty(),
@@ -552,13 +575,13 @@ async fn channel接收端先行关闭时落库继续完整且编排返回最终�
         .start(params(Path::new("C:\\ws")))
         .expect("假 runner 启动成功");
     let record = begin_running(&store);
-    registry.register(record.id, RunHandle::default());
+    registry.register("C:\\ws", record.id, RunHandle::default());
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
     assert_eq!(record.status, AgentRunStatus::Completed);
     let stored = store.list_agent_run_events(record.id).unwrap();
-    assert_eq!(stored.len(), 3, "D1：落库完整不因 Channel 失败而中断");
+    assert_eq!(stored.len(), 3, "落库完整不因 Channel 失败而中断");
 }
 
 #[tokio::test]
@@ -578,7 +601,7 @@ async fn seq缺口乱序时tee透传不重排落库key与事件自带seq一致()
         .start(params(Path::new("C:\\ws")))
         .expect("假 runner 启动成功");
     let record = begin_running(&store);
-    registry.register(record.id, RunHandle::default());
+    registry.register("C:\\ws", record.id, RunHandle::default());
 
     let record = drive_agent_run(&store, channel, run, record, &registry).await;
 
@@ -587,7 +610,7 @@ async fn seq缺口乱序时tee透传不重排落库key与事件自带seq一致()
         .iter()
         .map(|value| value["seq"].as_u64().expect("seq 为数值"))
         .collect();
-    assert_eq!(pushed_seqs, vec![5, 1, 9, 2], "D8：tee 透传不重排");
+    assert_eq!(pushed_seqs, vec![5, 1, 9, 2], "tee 透传不重排");
 
     // 落库 key 与事件自带 seq 一致：重放按 key 升序（而非推送序）
     let stored = store.list_agent_run_events(record.id).unwrap();
@@ -597,24 +620,27 @@ async fn seq缺口乱序时tee透传不重排落库key与事件自带seq一致()
 
 // ---------------------------------------------------------------------------
 // spawn 链路端到端：提前 resolve running 记录 + 注册表停止信号触达租户 →
-// 后台收敛 stopped → Record 流出 → 除名（AC-7）
+// 后台收敛 stopped → Record 流出 → 除名
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
 async fn stop请求经注册表触达租户后后台收敛stopped并流出record且除名() {
-    let (_dir, app) = temp_app_store("stop-e2e");
-    let state = app.state::<Store>();
+    let (dir, app) = temp_app_stores("stop-e2e");
+    let stores = app.state::<WorkspaceStores>();
     let registry = app.state::<RunStopRegistry>();
+    // cwd 恒为当前 workspace root：for_root canonicalize 要求真实目录
+    let ws_dir = real_ws_dir(dir.path());
+    let root = ws_dir.to_string_lossy().into_owned();
     let runner = FakeRunner::with_events_held_until_stop(vec![run_started(0)]);
     let (channel, captured) = capturing_channel();
 
     // 提前 resolve：start 即返回 running 记录（id 立即可用，终态未落）
     let running = start_agent_run_with(
         app.handle().clone(),
-        state.inner(),
+        stores.inner(),
         &runner,
         channel,
-        params(Path::new("C:\\ws")),
+        params(&ws_dir),
         RunProvenance::debug(),
     )
     .expect("start 提前 resolve running 记录");
@@ -626,8 +652,11 @@ async fn stop请求经注册表触达租户后后台收敛stopped并流出record
     assert_ne!(running.id, 0, "begin 已分配 id，agent_stop 可寻址");
     assert_eq!(running.finished_at, None, "调用方不被阻塞至终态");
 
-    // 停止寻址命中（同步段已登记句柄）：信号触达租户泵（wait_requested 半边）
-    assert!(registry.request_stop(running.id), "注册表已登记运行中句柄");
+    // 停止寻址命中（同步段已登记 (root, run id) 复合键句柄）：信号触达租户泵
+    assert!(
+        registry.request_stop(&root, running.id),
+        "注册表已登记运行中句柄"
+    );
 
     let record_value = wait_terminal_record(&captured).await;
     let record: AgentRunRecord =
@@ -640,12 +669,17 @@ async fn stop请求经注册表触达租户后后台收敛stopped并流出record
     assert_eq!(record.error, None, "用户主动终止不记因");
     assert!(record.finished_at.is_some(), "终态落 finished_at");
     assert_eq!(
-        state.list_agent_runs().unwrap()[0].status,
+        stores
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .list_agent_runs()
+            .unwrap()[0]
+            .status,
         AgentRunStatus::Stopped,
-        "终态整行替换落库"
+        "终态整行替换落库（该 root 的 workspace 库）"
     );
     assert!(
-        !registry.request_stop(running.id),
+        !registry.request_stop(&root, running.id),
         "终态除名后停止寻址 miss"
     );
 }
@@ -657,17 +691,21 @@ async fn stop请求经注册表触达租户后后台收敛stopped并流出record
 #[test]
 fn start_agent_run隔离path时走薄入口全链返回err且store无run行() {
     let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
-    let (_dir, store) = temp_store("thin-entry");
+    let dir = tempfile::Builder::new()
+        .prefix("agent-exec-test-thin-entry-")
+        .tempdir()
+        .expect("创建临时目录失败");
     let app = tauri::test::mock_app();
+    let stores = WorkspaceStores::open(dir.path()).expect("打开测试全局库失败");
     let empty_path = tempfile::tempdir().expect("创建空 PATH 目录失败");
 
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", empty_path.path());
     let result = start_agent_run(
         app.handle().clone(),
-        &store,
+        &stores,
         capturing_channel().0,
-        params(Path::new("C:\\ws")),
+        params(&real_ws_dir(dir.path())),
         RunProvenance::debug(),
     );
     match original {
@@ -675,24 +713,29 @@ fn start_agent_run隔离path时走薄入口全链返回err且store无run行() {
         None => std::env::remove_var("PATH"),
     }
 
-    let err = result.expect_err("CLI 不可发现必须 Err（AC-4）");
+    let err = result.expect_err("CLI 不可发现必须 Err");
     assert!(
         err.contains("CLI"),
         "Err(String) 透传 AgentStartError 文案，实际: {err}"
     );
     assert!(
-        store.list_agent_runs().unwrap().is_empty(),
-        "D5：不留 run 行"
+        stores
+            .for_root(&real_ws_dir(dir.path()).to_string_lossy())
+            .expect("for_root 应成功")
+            .list_agent_runs()
+            .unwrap()
+            .is_empty(),
+        "启动失败不留 run 行"
     );
 }
 
 // ---------------------------------------------------------------------------
-// store 写失败的失败收敛助手（D1：落库兜底失败不可静默）
+// store 写失败的失败收敛助手（落库兜底失败不可静默）
 // ---------------------------------------------------------------------------
 
 #[test]
 fn store写失败的收敛助手将run收敛failed且error记因并尽力落终态行() {
-    // 说明：redb 4.3 拒绝同文件双开写句柄（DatabaseAlreadyOpen），「以并行写
+    // 说明：redb 拒绝同文件双开写句柄（DatabaseAlreadyOpen），「以并行写
     // 事务独占 redb 文件」不可构造；此处直接驱动 tee 循环的失败收敛助手，
     // 锁定其收敛语义（status=failed / error 记因 / finished_at 落值 / 终态行
     // 尽力落库），tee 侧「Channel 已送达事件保留」由 channel_closed 用例承载。
@@ -750,15 +793,14 @@ fn abort_base_record() -> store::AgentRunRecord {
 }
 
 // ---------------------------------------------------------------------------
-// running_record 初值与 AgentRunMessage 信封线格式（枚举化跟改：直写枚举、
-// as_str().to_owned() + STATUS_* 常量组装退役；信封 serde 形态零变化是 tee
-// 双路对读断言的前提不变式）
+// running_record 初值与 AgentRunMessage 信封线格式（信封 serde 形态零变化是
+// tee 双路对读断言的前提不变式）
 // ---------------------------------------------------------------------------
 
 #[test]
 fn running_record初值三字段直写枚举且携带provenance来源() {
-    // 初值三字段直写枚举（原 as_str().to_owned() + STATUS_RUNNING 组装退役）：
-    // env 恒 Default、permission_mode 取入参档位变体、status 恒 Running
+    // 初值三字段直写枚举：env 恒 Default、permission_mode 取入参档位变体、
+    // status 恒 Running
     let mut params = params(Path::new("C:\\ws"));
     params.permission_mode = AgentPermissionMode::AcceptEdits;
     let provenance = RunProvenance {
@@ -789,7 +831,7 @@ fn running_record初值三字段直写枚举且携带provenance来源() {
 
 #[test]
 fn agent_run_message信封serde线格式双变体逐字不变() {
-    // 加 specta::Type 后信封 serde JSON 形态零变化：tag `ipc` camelCase 双变体
+    // 信封 serde JSON 形态零变化：tag `ipc` camelCase 双变体
     // {"ipc":"event","event":…} / {"ipc":"record","record":…}（tee 双路对读的
     // 前提不变式）
     let event = run_started(3);

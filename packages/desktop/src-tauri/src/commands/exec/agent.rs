@@ -37,7 +37,7 @@ use agent::{
     AgentRunStatus, AgentRunner, RunHandle, RunStateMachine,
 };
 use agent_cli::ClaudeCliRunner;
-use store::{AgentRunRecord, Store};
+use store::{AgentRunRecord, Store, WorkspaceStores};
 
 /// `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
 /// 事件与终态记录双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
@@ -52,27 +52,30 @@ pub enum AgentRunMessage {
 }
 
 /// 运行中 run 的停止句柄注册表（托管状态，与 `WatchRegistry` 同型）：
-/// run id → 逻辑终止信号句柄。`agent_start` 登记、`drive_agent_run` 终态
-/// 除名、`agent_stop` 查询；内存态与进程同生命周期（应用重启即清空）。
+/// `(root, run id)` 复合键 → 逻辑终止信号句柄。run id 为 workspace 库域内
+/// 自增，裸 id 跨库有歧义（双 workspace 同 id 并行），寻址键随 root 消解。
+/// `agent_start` 登记、`drive_agent_run` 终态除名、`agent_stop` 查询；内存态
+/// 与进程同生命周期（应用重启即清空）。
 #[derive(Default)]
 pub struct RunStopRegistry {
-    handles: Mutex<HashMap<i64, RunHandle>>,
+    handles: Mutex<HashMap<(String, i64), RunHandle>>,
 }
 
 impl RunStopRegistry {
     /// 登记运行中 run 的停止句柄（begin 落库分配 id 后立即注册）。
-    pub(crate) fn register(&self, run_id: i64, handle: RunHandle) {
+    pub(crate) fn register(&self, root: &str, run_id: i64, handle: RunHandle) {
         self.handles
             .lock()
             .expect("停止注册表锁不可中毒")
-            .insert(run_id, handle);
+            .insert((root.to_owned(), run_id), handle);
     }
 
-    /// 按 id 寻址置位停止信号；命中返回 true，非 running / 不存在返回
-    /// false（`agent_stop` 幂等忽略，不报错）。
-    pub(crate) fn request_stop(&self, run_id: i64) -> bool {
+    /// 按 `(root, run id)` 寻址置位停止信号；命中返回 true，非 running /
+    /// 不存在返回 false（`agent_stop` 幂等忽略，不报错——blank root 天然
+    /// miss，无副作用直接成功）。
+    pub(crate) fn request_stop(&self, root: &str, run_id: i64) -> bool {
         let handles = self.handles.lock().expect("停止注册表锁不可中毒");
-        match handles.get(&run_id) {
+        match handles.get(&(root.to_owned(), run_id)) {
             Some(handle) => {
                 handle.request_stop();
                 true
@@ -81,12 +84,12 @@ impl RunStopRegistry {
         }
     }
 
-    /// 终态除名（收敛落库后调用；除名后 `agent_stop` 对该 id 幂等忽略）。
-    pub(crate) fn remove(&self, run_id: i64) {
+    /// 终态除名（收敛落库后调用；除名后 `agent_stop` 对该键幂等忽略）。
+    pub(crate) fn remove(&self, root: &str, run_id: i64) {
         self.handles
             .lock()
             .expect("停止注册表锁不可中毒")
-            .remove(&run_id);
+            .remove(&(root.to_owned(), run_id));
     }
 }
 
@@ -157,25 +160,25 @@ fn running_record(params: &AgentRunParams, provenance: RunProvenance) -> AgentRu
 /// 薄入口：组装真实 CLI runner 后委托 [`start_agent_run_with`]。
 pub(crate) fn start_agent_run<T: Runtime>(
     app: AppHandle<T>,
-    store: &Store,
+    stores: &WorkspaceStores,
     on_event: Channel<AgentRunMessage>,
     params: AgentRunParams,
     provenance: RunProvenance,
 ) -> Result<AgentRunRecord, String> {
     let runner = ClaudeCliRunner::new();
-    start_agent_run_with(app, store, &runner, on_event, params, provenance)
+    start_agent_run_with(app, stores, &runner, on_event, params, provenance)
 }
 
-/// 泛型编排同步段：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ begin
-/// 落 `running` 行（初值携带 provenance 来源与链字段）→ 注册停止句柄 →
-/// spawn [`drive_agent_run`] 后台任务 → 立即返回 running 记录（提前 resolve；
-/// 终态经 Channel 流出）。后台任务经命令注入的 `AppHandle` 在任务内取托管
-/// 的 store 与注册表句柄（`native_db::Database` 非 Clone，AppHandle 取
-/// State 是零侵入方案）；runtime 泛型仅为测试注入 MockRuntime 句柄，生产
-/// 命令面解析为 Wry。
+/// 泛型编排同步段：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ 按
+/// root 预解析所属 workspace 库（`for_root`，同步段完成后 `Arc<Store>` 供
+/// 后台任务持有收尾——库实例跨 await 稳定借用，不经 AppHandle 二次取 State）
+/// → begin 落 `running` 行（初值携带 provenance 来源与链字段）→ 注册停止句
+/// 柄（`(root, run id)` 复合键）→ spawn [`drive_agent_run`] 后台任务 → 立即
+/// 返回 running 记录（提前 resolve；终态经 Channel 流出）。runtime 泛型仅为
+/// 测试注入 MockRuntime 句柄，生产命令面解析为 Wry。
 pub(crate) fn start_agent_run_with<R, T>(
     app: AppHandle<T>,
-    store: &Store,
+    stores: &WorkspaceStores,
     runner: &R,
     on_event: Channel<AgentRunMessage>,
     params: AgentRunParams,
@@ -186,17 +189,20 @@ where
     T: Runtime,
 {
     let running = running_record(&params, provenance);
+    // cwd 恒为当前 workspace root（前端固定传 root，见能力 spec），即注册表
+    // 复合键的 root 分量
+    let root = running.cwd.clone();
     let run = runner.start(params).map_err(|e| e.to_string())?;
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
     let record = store.begin_agent_run(&running).map_err(|e| e.to_string())?;
     app.state::<RunStopRegistry>()
-        .register(record.id, run.handle.clone());
+        .register(&root, record.id, run.handle.clone());
     let app = app.clone();
     let task_record = record.clone();
     // 后台任务走 tauri 异步运行时（命令层不直依赖 tokio；spawn 语义等价）
     tauri::async_runtime::spawn(async move {
-        let store = app.state::<Store>();
         let registry = app.state::<RunStopRegistry>();
-        drive_agent_run(store.inner(), on_event, run, task_record, registry.inner()).await;
+        drive_agent_run(&store, on_event, run, task_record, registry.inner()).await;
     });
     Ok(record)
 }
@@ -239,7 +245,7 @@ pub(crate) async fn drive_agent_run(
         {
             let failed =
                 abort_with_store_failure(store, record, format!("事件落库失败: {store_error}"));
-            registry.remove(failed.id);
+            registry.remove(&failed.cwd, failed.id);
             let _ = on_event.send(AgentRunMessage::Record {
                 record: failed.clone(),
             });
@@ -274,7 +280,8 @@ pub(crate) async fn drive_agent_run(
         // 终态落库失败同样不可静默：error 记因后仍尽力流出 Record
         record.error = Some(format!("终态落库失败: {store_error}"));
     }
-    registry.remove(record.id);
+    // 除名键 root 取 record.cwd（归属键同源：注册时 cwd 即当前 workspace root）
+    registry.remove(&record.cwd, record.id);
     let _ = on_event.send(AgentRunMessage::Record {
         record: record.clone(),
     });

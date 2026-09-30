@@ -319,7 +319,6 @@ fn skipped与stale标记随条目透出() {
     assert!(!detail.pipeline[5].attempts[0].skipped);
 }
 
-
 #[test]
 fn 线面契约缺省为null且时间戳为iso串() {
     let ws = TempWs::new("wire-shape");
@@ -348,8 +347,14 @@ fn 线面契约缺省为null且时间戳为iso串() {
     let value = serde_json::to_value(&detail).expect("线面序列化应成功");
 
     // 缺省 → null（golden 契约：线面与数据源形态一致，不省键）
-    assert_eq!(value["pipeline"][1]["attempts"][0]["startAt"], serde_json::Value::Null);
-    assert_eq!(value["pipeline"][1]["attempts"][0]["timestamp"], serde_json::Value::Null);
+    assert_eq!(
+        value["pipeline"][1]["attempts"][0]["startAt"],
+        serde_json::Value::Null
+    );
+    assert_eq!(
+        value["pipeline"][1]["attempts"][0]["timestamp"],
+        serde_json::Value::Null
+    );
     assert_eq!(value["fileLog"][1]["attempt"], serde_json::Value::Null);
     assert_eq!(value["fileLog"][1]["at"], serde_json::Value::Null);
 
@@ -366,7 +371,10 @@ fn 线面契约缺省为null且时间戳为iso串() {
     let ws_v1 = TempWs::new("wire-v1");
     ws_v1.change(
         "openspec/changes/wire-v1",
-        &[("workflow.json", r#"{ "workflow_type": "requirement", "eval": [] }"#)],
+        &[(
+            "workflow.json",
+            r#"{ "workflow_type": "requirement", "eval": [] }"#,
+        )],
     );
     let v1 = ws_v1.detail("wire-v1");
     let v1_value = serde_json::to_value(&v1).expect("线面序列化应成功");

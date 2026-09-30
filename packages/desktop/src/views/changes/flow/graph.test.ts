@@ -398,7 +398,7 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
     ]);
   });
 
-  it('eval 时间戳乱序（追加序 ≠ 时间序）→ 仍按站序 + 站内 attempts 序串联主链，不按时间重排', () => {
+  it('eval 按startAt时间重排', () => {
     const graph = buildFlowGraph(
       detail({
         pipeline: PIPELINE_PHASES.map((phase) => {
@@ -416,11 +416,11 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
       }),
     );
     expect(nodeIds(graph.nodes)).toEqual([
-      'eval:proposal:1',
       'eval:dev-design:1',
       'eval:dev-design:2',
+      'eval:proposal:1',
     ]);
-    expect(graph.edges.map((edge) => edge.kind)).toEqual(['forward', 'retry']);
+    expect(graph.edges.map((edge) => edge.kind)).toEqual(['retry', 'backtrack']);
   });
 
   it('startAt 早于全部 eval 锚点 → 插入为序列头（该节点无入边）', () => {
