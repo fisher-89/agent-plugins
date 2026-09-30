@@ -19,6 +19,7 @@ embed-resource = "3"
 [dependencies]
 agent = { workspace = true }
 agent-cli = { workspace = true }
+config = { workspace = true }
 foundation = { workspace = true }
 watch = { workspace = true }
 workflow = { workspace = true }
@@ -49,6 +50,7 @@ tauri = { workspace = true, features = ["test"] }
 resolver = "2"
 members = [
     "crates/core/agent",
+    "crates/core/config",
     "crates/core/foundation",
     "crates/core/workflow",
     "crates/infra/agent",
@@ -61,6 +63,7 @@ members = [
 [workspace.dependencies]
 agent = { path = "crates/core/agent" }
 agent-cli = { path = "crates/infra/agent" }
+config = { path = "crates/core/config" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
 notify = "8"

@@ -1,0 +1,13 @@
+[package]
+name = "config"
+version = "0.1.0"
+edition = "2021"
+
+# 工作区配置唯一出口：读 + 校验 + 默认值填充；依赖仅 foundation（取路径）+
+# serde 系 + specta——禁 Tauri、禁 workflow / agent / 任何 infra crate
+# （crate-layout 依赖规则由 crate 图机械保证）
+[dependencies]
+foundation = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+specta = { workspace = true }

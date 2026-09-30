@@ -141,6 +141,12 @@ export const commands = {
 	 *  目录存在但无被识别文件返回空 report（空态由前端呈现）。
 	 */
 	codeStats: (root: string, depth: number) => __TAURI_INVOKE<CodeStatsReport>("code_stats", { root, depth }),
+	/**
+	 *  工作区配置：root 有效性检查 → config crate 单次读取解析 → 信封平移。
+	 *  缺失 / 不可读 / 非目录 root 返回 `Err`（MUST NOT panic、MUST NOT 静默
+	 *  空报告）；配置文件缺失返回 `Ok` 报告（`fileMissing` 诊断在案）。
+	 */
+	workspaceConfig: (root: string) => __TAURI_INVOKE<WorkspaceConfigReport>("workspace_config", { root }).then((v) => (({...v,config:({...v.config,extra:v.config.extra.map(i=>i)})}) as typeof v)),
 };
 
 /* Types */
@@ -397,6 +403,58 @@ export type CodeTotals = {
 };
 
 /**
+ *  单条诊断：`path` 为点路径（文件级 `$`，suite 内形如
+ *  `tests[0].coverage.lines`），`message` 为中文人读文案（含违例原值与
+ *  所落默认值）。
+ */
+export type ConfigDiagnostic = {
+	/**  诊断类别 */
+	kind: DiagnosticKind,
+	/**  违例 / 吃默认字段的点路径 */
+	path: string,
+	/**  中文人读文案 */
+	message: string,
+};
+
+/**  顶层未知字段 passthrough 载体：key + 原文值原样保留、无诊断。 */
+export type ConfigExtraField = {
+	/**  未知字段名 */
+	key: string,
+	/**  原文值（嵌套形态无损保留；出线 TS `unknown`） */
+	value: unknown,
+};
+
+/**
+ *  覆盖率阈值（百分点 0–100）：三阈值恒有值——文件显式设值原样保留，
+ *  未设 / 非法吃默认（80 / 70 / 75）。
+ */
+export type CoverageThresholds = {
+	/**  行覆盖率阈值（默认 80） */
+	lines: number | null,
+	/**  分支覆盖率阈值（默认 70） */
+	branches: number | null,
+	/**  函数覆盖率阈值（默认 75） */
+	functions: number | null,
+};
+
+/**
+ *  诊断类别（前端状态面映射口径）：`fileMissing` → 空态；
+ *  `readFailed` / `jsonInvalid` → inline 错误；`invalidValue` /
+ *  `defaultApplied` → 警示区条目。
+ */
+export type DiagnosticKind = 
+/**  配置文件不存在（多数 workspace 常态，空态来源、非错误） */
+"fileMissing" | 
+/**  配置文件存在但不可读（inline 错误来源） */
+"readFailed" | 
+/**  JSON 语法非法（inline 错误来源） */
+"jsonInvalid" | 
+/**  字段违例（已按规则处置） */
+"invalidValue" | 
+/**  字段未设、吃默认值 */
+"defaultApplied";
+
+/**
  *  数据维度（信封维度标签 + db 查看命令 scope 入参双职）：`User` 全局库 /
  *  `Workspace` workspace 库。serde 线值为 `"user"` / `"workspace"`。
  */
@@ -551,6 +609,14 @@ export type ModelInfo = {
 	count: number,
 };
 
+/**  变异测试配置：`score` 恒有值（未设 / 非法吃默认 70）；`cwd` 无默认。 */
+export type MutationConfig = {
+	/**  突变执行目录（相对 root；未设为 `None`，由消费者按 LCA 计算） */
+	cwd: string | null,
+	/**  变异测试得分阈值（默认 70） */
+	score: number | null,
+};
+
 /**  一站流水线：该 phase 的全部 attempt 序列。 */
 export type PhaseEntry = {
 	phase: string,
@@ -563,6 +629,40 @@ export type RecordEnvelope = {
 	key: unknown,
 	/**  记录本体（serde 转 JSON 值） */
 	value: unknown,
+};
+
+/**  自定义规则配置，按工作流阶段分组；子字段为字符串列表或未设。 */
+export type RulesConfig = {
+	/**  提案阶段的自定义规则列表（未设为 `None`） */
+	proposal: string[] | null,
+	/**  任务阶段的自定义规则列表（未设为 `None`） */
+	tasks: string[] | null,
+};
+
+/**  测试框架八值枚举（CLI zod enum 同序同串；逐变体显式 rename 对齐 CLI 串） */
+export type TestFramework = "jest" | "vitest" | "vite-plus" | "bun" | "rust" | "node-test" | "go" | "pytest";
+
+/**
+ *  测试 suite 配置（合法 suite 原样保留 + 默认值填充；`root` / `framework`
+ *  非法的 suite 整体剔除并记 diagnostics）
+ */
+export type TestSuite = {
+	/**  suite 锚点路径（相对项目根，非空且无 glob 通配符） */
+	root: string,
+	/**  测试框架 */
+	framework: TestFramework,
+	/**  执行目录（相对 root，默认 `.`） */
+	cwd: string,
+	/**  框架配置文件路径（相对 root；未设为 `None`） */
+	config: string | null,
+	/**  匹配 glob 列表（相对 root；未设为 `None`） */
+	includes: string[] | null,
+	/**  排除 glob 列表（相对 root；未设为 `None`） */
+	excludes: string[] | null,
+	/**  覆盖率阈值（三阈值恒有值） */
+	coverage: CoverageThresholds,
+	/**  变异测试配置（score 恒有值） */
+	mutation: MutationConfig,
 };
 
 /**
@@ -579,8 +679,43 @@ export type TreeEntry =
 export type Verdict = "pass" | "fail";
 
 /**
- *  user 维度注册表一行（落全局库 `desktop-global.redb`，见 desktop-data-dimensions）：
- *  主键即 `root`（canonical 完整路径）。
+ *  永远合法的完整工作区配置：合法字段原样保留、违例字段吃默认、未知字段
+ *  进 `extra`。只序列化方向（组装层 `assemble` 从原文 `Value` 逐字段判定
+ *  处置，本类型从不反序列化）。
+ */
+export type WorkspaceConfig = {
+	/**  schema 规则文件引用（线面字段名 `$schema`） */
+	$schema: string | null,
+	/**  模式标识，固定为 `spec-driven`（未设 / 非法吃默认） */
+	schema: string,
+	/**  项目上下文描述（未设为 `None`） */
+	context: string | null,
+	/**  自定义规则配置（未设为 `None`） */
+	rules: RulesConfig | null,
+	/**  静态分析工具配置（未设为 `None`） */
+	staticAnalysis: string | null,
+	/**  测试 suite 配置列表（保序；违例 suite 剔除） */
+	tests: TestSuite[],
+	/**  写入保护配置（未设为 `None`） */
+	writeProtection: WriteProtection | null,
+	/**  顶层未知字段 passthrough（key + 原文值） */
+	extra: ConfigExtraField[],
+};
+
+/**
+ *  工作区配置报告（命令线面信封）：`config` 永远合法（违例字段以默认值
+ *  填充），`diagnostics` 逐条记录文件态 / 违例 / 吃默认项；配置文件缺失以
+ *  `fileMissing` 诊断在案（空态标记，非错误）。
+ */
+export type WorkspaceConfigReport = {
+	/**  永远合法的完整配置 */
+	config: WorkspaceConfig,
+	/**  逐条诊断 */
+	diagnostics: ConfigDiagnostic[],
+};
+
+/**
+ *  user 维度注册表一行：主键即 `root`（canonical 完整路径）。
  * 
  *  时间戳为 UTC unix 毫秒 `i64`——零解析零格式歧义，且 store 不引入 time 依赖。
  */
@@ -591,5 +726,19 @@ export type WorkspaceRecord = {
 	name: string,
 	/**  入库时间（UTC unix 毫秒） */
 	addedAt: number,
+};
+
+/**  写入保护配置。 */
+export type WriteProtection = {
+	/**  需要保护的文件 glob 模式列表（未设为 `None`） */
+	files: WriteProtectionFile[] | null,
+};
+
+/**  单条写入保护规则；`glob` 非空串或非字符串的整条剔除并记 diagnostics。 */
+export type WriteProtectionFile = {
+	/**  文件路径 glob 模式（未设为 `None`） */
+	glob: string | null,
+	/**  自定义拒绝原因（未设为 `None`） */
+	reason: string | null,
 };
 

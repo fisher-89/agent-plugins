@@ -9,8 +9,8 @@
 //! 解析语义（识别 / hidden / ignore）全部委托 tokei 默认行为
 //! （`Config::default()` 零字段覆写，不读任何 tokei 配置文件），命令层零自有
 //! 过滤规则；唯一显式排除是规约域目录（用户裁决：规约文档目录非被统计
-//! 代码资产），目录名经 `foundation::layout::domain_dir_name` 取全包唯一触点
-//! 字面量，走 `get_statistics` 的 `ignored_directories` 通道下发（CLI
+//! 代码资产），目录名经 `foundation::layout::domain_dir_name` 取全包唯一
+//! 触点字面量，走 `get_statistics` 的 `ignored_directories` 通道下发（CLI
 //! `--exclude` 同源，gitignore 裸名语义 = 任意层级同名目录整棵剪枝）。无
 //! State、无缓存、不落库——每次调用完整重新解析。
 //!

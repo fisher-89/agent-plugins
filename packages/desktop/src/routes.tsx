@@ -3,6 +3,7 @@ import { Navigate, Route, Routes } from 'react-router';
 import { type ChangeListState } from './hooks/use-change-list';
 import { AgentDebugView } from './views/agent/agent-debug-view';
 import { ChangeView } from './views/changes/change-view';
+import { ConfigView } from './views/config/config-view';
 import { DbInspectorView } from './views/db/db-inspector-view';
 import { ExploreView } from './views/explores/explore-view';
 import { InfoView } from './views/info/info-view';
@@ -15,6 +16,7 @@ export function AppRoutes({ root, list }: { root: string; list: ChangeListState 
       <Route path="/changes" element={<ChangeView list={list} root={root} />} />
       <Route path="/changes/:name" element={<ChangeView list={list} root={root} />} />
       <Route path="/info" element={<InfoView root={root} />} />
+      <Route path="/config" element={<ConfigView root={root} />} />
       <Route path="/agent" element={<AgentDebugView root={root} />} />
       <Route path="/explores" element={<ExploreView root={root} />} />
       <Route path="/explores/:name" element={<ExploreView root={root} />} />

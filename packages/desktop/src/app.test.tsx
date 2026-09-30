@@ -10,7 +10,7 @@ import type {
   RecordEnvelope,
   WorkspaceRecord,
 } from './types/dto';
-import type { CodeStatsReport } from './types/generated/bindings';
+import type { CodeStatsReport, WorkspaceConfigReport } from './types/generated/bindings';
 
 const { checkMock, getVersionMock, invokeMock, openMock } = vi.hoisted(() => ({
   checkMock: vi.fn(),
@@ -98,6 +98,47 @@ const CODE_STATS: CodeStatsReport = {
   ],
 };
 
+// 配置域 fixture：ConfigView 挂载即 invoke("workspace_config")，camelCase 信封
+// （config + diagnostics）；context 归属 root 由 configReportFor 注入（切换
+// 用例区分新旧根数据）
+const WORKSPACE_CONFIG: WorkspaceConfigReport = {
+  config: {
+    $schema: null,
+    schema: 'spec-driven',
+    context: null,
+    rules: { proposal: ['提案规则'], tasks: null },
+    staticAnalysis: 'clippy',
+    tests: [
+      {
+        root: 'packages/desktop',
+        framework: 'vite-plus',
+        cwd: 'packages/desktop',
+        config: null,
+        includes: null,
+        excludes: null,
+        coverage: { lines: 80, branches: 70, functions: 75 },
+        mutation: { cwd: null, score: 70 },
+      },
+    ],
+    writeProtection: null,
+    extra: [],
+  },
+  diagnostics: [
+    {
+      kind: 'defaultApplied',
+      path: 'tests[0].coverage.lines',
+      message: '覆盖率阈值 lines 未设置，使用默认值 80。',
+    },
+  ],
+};
+
+/** 配置报告 fixture 深拷贝（防用例间引用残留），context 承载归属 root。 */
+function configReportFor(root: string): WorkspaceConfigReport {
+  const report = JSON.parse(JSON.stringify(WORKSPACE_CONFIG)) as WorkspaceConfigReport;
+  report.config.context = root;
+  return report;
+}
+
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：IPC 按命令名分发；文件夹对话框按用例 resolve / reject / cancel；
 // 版本号固定 resolve。sonner <Toaster /> 不 mock：App 根真实挂载，toast 断言走
@@ -111,6 +152,8 @@ let addRecord: WorkspaceRecord | null = null;
 let removeReject: string | null = null;
 let removeMiss = false;
 let listReject: string | null = null;
+let configReject: string | null = null;
+let configPending = false;
 
 function mockIpc() {
   remaining = [FIRST, SECOND];
@@ -119,6 +162,8 @@ function mockIpc() {
   removeReject = null;
   removeMiss = false;
   listReject = null;
+  configReject = null;
+  configPending = false;
   invokeMock.mockImplementation(
     (
       command: string,
@@ -172,6 +217,13 @@ function mockIpc() {
       // fixture 深拷贝防用例间引用残留
       if (command === 'code_stats') {
         return Promise.resolve(JSON.parse(JSON.stringify(CODE_STATS)) as CodeStatsReport);
+      }
+      // 配置页挂载取数（useWorkspaceConfig 挂载发起 workspace_config）：
+      // resolve（context 归属 root）/ reject / 手动 pending 三态控制
+      if (command === 'workspace_config') {
+        if (configReject !== null) return Promise.reject(new Error(configReject));
+        if (configPending) return new Promise<WorkspaceConfigReport>(() => {});
+        return Promise.resolve(configReportFor(params?.root ?? ''));
       }
       return Promise.resolve(null);
     },
@@ -1324,5 +1376,142 @@ describe('App：/info 基础信息路由可达与欢迎态隔离（AC-1）', () 
     expect(screen.queryByTestId('info-view')).toBeNull();
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
     expect(countOf('code_stats')).toBe(0);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 关系六：/config 配置路由（AC-4 / AC-6 / AC-7 / AC-8）——侧栏 nav-config →
+// HashRouter /config 路由项 → ConfigView 真实挂载（AppRoutes / ConfigView /
+// useWorkspaceConfig 不 mock，进程边界收敛于 invoke 的 workspace_config 分支，
+// /info 路由套件先例同型）。路由表为组合声明文件、无独立测试路径，按链路
+// 入口挂靠规则以本套件组合用例承载。
+// ---------------------------------------------------------------------------
+
+describe('App：/config 配置路由可达与欢迎态隔离（AC-4/AC-6/AC-7）', () => {
+  beforeEach(() => {
+    // 路由化后 App 自含 HashRouter（design D6）：jsdom location 跨用例存活，
+    // 上一用例残留的 hash 会改变下一用例启动路由初态，先重置
+    window.location.hash = '';
+    getVersionMock.mockReset();
+    invokeMock.mockReset();
+    openMock.mockReset();
+    checkMock.mockReset();
+    checkMock.mockResolvedValue(null);
+    getVersionMock.mockResolvedValue('0.1.0');
+    toast.dismiss();
+    mockIpc();
+  });
+
+  afterEach(() => {
+    vi.unstubAllEnvs();
+  });
+
+  it('壳态点击 nav-config：hash 落 #/config、config-view 在场、nav-config 激活、变更页内容卸载、workspace_config 以 { root: 当前根 } 发起', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-config'));
+
+    await waitFor(() => expect(window.location.hash).toBe('#/config'));
+    // config-view 根节点 loading 期即在场：以数据到达后的分区在场为准
+    await waitFor(() => expect(screen.getByTestId('config-basic') !== null).toBe(true));
+    expect(screen.queryByText('add-feature')).toBeNull();
+    expect(screen.getByTestId('nav-config').getAttribute('data-active')).toBe('true');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
+    expect(invokeMock).toHaveBeenCalledWith('workspace_config', { root: FIRST.root });
+  });
+
+  it('启动前 hash 已为 #/config：深链直出配置页且 nav-config 激活，恰发起一次解析（对齐 /info 深链用例形态）', async () => {
+    window.location.hash = '#/config';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByTestId('config-basic') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/config');
+    expect(screen.getByTestId('nav-config').getAttribute('data-active')).toBe('true');
+    expect(countOf('workspace_config')).toBe(1);
+    // 变更页未挂载：无 change 内容、无详情取数
+    expect(screen.queryByText('add-feature')).toBeNull();
+    expect(countOf('get_change_detail')).toBe(0);
+  });
+
+  it('未知路径兜底回归：#/bogus 仍兜底落 #/changes（/config 插入不破 * 兜底语义）、不误触 workspace_config', async () => {
+    window.location.hash = '#/bogus';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/changes');
+    expect(screen.queryByTestId('config-view')).toBeNull();
+    expect(countOf('workspace_config')).toBe(0);
+  });
+
+  it('#/config/xyz（路由表无子段）：兜底落 #/changes、不空白不崩', async () => {
+    window.location.hash = '#/config/xyz';
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+
+    expect(window.location.hash).toBe('#/changes');
+    expect(screen.queryByTestId('config-view')).toBeNull();
+    expect(countOf('workspace_config')).toBe(0);
+  });
+
+  it('欢迎态（root=null）：无壳无 nav-config，#/config 不渲染配置页仅欢迎屏、解析零发起（AC-4 后半）', async () => {
+    window.location.hash = '#/config';
+    remaining = [];
+    render(<App />);
+
+    await waitFor(() => expect(screen.getByText('添加新文件夹') !== null).toBe(true));
+
+    expect(document.querySelector('[data-slot="sidebar-wrapper"]')).toBeNull();
+    expect(screen.queryByTestId('nav-config')).toBeNull();
+    expect(screen.queryByTestId('config-view')).toBeNull();
+    expect(screen.getByText(/还没有记录/) !== null).toBe(true);
+    expect(countOf('workspace_config')).toBe(0);
+  });
+
+  it('workspace_config reject（含无效 root Err reject）：config-error inline 呈现、无 toast 顶替、壳不崩（AC-7 全链核对）', async () => {
+    await restored();
+
+    configReject = 'root 无效（C:\\demo\\alpha）：不存在';
+    fireEvent.click(screen.getByTestId('nav-config'));
+
+    await waitFor(() => expect(screen.getByTestId('config-error') !== null).toBe(true));
+    expect(screen.getByTestId('config-error').textContent).toContain('解析失败');
+    expect(screen.getByTestId('config-error').textContent).toContain('root 无效');
+    // inline 持久、无 toast 顶替
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 20));
+    });
+    expect(screen.getByTestId('config-error') !== null).toBe(true);
+    expect(document.querySelector('[data-sonner-toast]')).toBeNull();
+
+    // 壳不崩：可切回变更页
+    fireEvent.click(screen.getByTestId('nav-changes'));
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+  });
+
+  it('切换 workspace（sidebar 清单项）后停留 /config：以新根重发 workspace_config、旧根配置不呈现（AC-6 切换重取的壳层核对）', async () => {
+    await restored();
+
+    fireEvent.click(screen.getByTestId('nav-config'));
+    await waitFor(() =>
+      expect(screen.getByTestId('config-view').textContent).toContain(FIRST.root),
+    );
+
+    fireEvent.click(itemByRoot(SECOND.root));
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('workspace_config', { root: SECOND.root }),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('config-view').textContent).toContain(SECOND.root),
+    );
+    // 旧根配置不呈现、恰以新旧根各重取一次
+    expect(screen.getByTestId('config-view').textContent).not.toContain(FIRST.root);
+    const configRoots = invokeMock.mock.calls
+      .filter(([name]) => name === 'workspace_config')
+      .map(([, params]) => (params as { root: string }).root);
+    expect(configRoots).toEqual([FIRST.root, SECOND.root]);
   });
 });

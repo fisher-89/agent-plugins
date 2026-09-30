@@ -1,4 +1,4 @@
-import { Bot, Compass, Database, GitBranch, Info, Plus } from 'lucide-react';
+import { Bot, Compass, Database, GitBranch, Info, Plus, Settings } from 'lucide-react';
 import { NavLink, useLocation } from 'react-router';
 
 import {
@@ -85,7 +85,33 @@ function WorkspaceItem({
   );
 }
 
-/** 页面导航组：[基础信息] [变更] [探索]，NavLink 路由入口（active 由当前 URL 派生） */
+/** 页面导航单项：SidebarMenuItem + NavLink 路由入口（active 由当前 URL 派生） */
+function PageNavItem({
+  to,
+  testId,
+  icon,
+  label,
+  active,
+}: {
+  to: string;
+  testId: string;
+  icon: React.JSX.Element;
+  label: string;
+  active: boolean;
+}): React.JSX.Element {
+  return (
+    <SidebarMenuItem>
+      <SidebarMenuButton asChild isActive={active} tooltip={label}>
+        <NavLink data-testid={testId} to={to}>
+          {icon}
+          <span>{label}</span>
+        </NavLink>
+      </SidebarMenuButton>
+    </SidebarMenuItem>
+  );
+}
+
+/** 页面导航组：[基础信息] [变更] [探索] [配置]，NavLink 路由入口（active 由当前 URL 派生） */
 function PageNavGroup(): React.JSX.Element {
   const { pathname } = useLocation();
   return (
@@ -93,41 +119,38 @@ function PageNavGroup(): React.JSX.Element {
       <SidebarGroupLabel>页面</SidebarGroupLabel>
       <SidebarGroupContent>
         <SidebarMenu>
-          <SidebarMenuItem>
-            {/* 基础信息项：/info（workspace 域内容页首位） */}
-            <SidebarMenuButton asChild isActive={pathname === '/info'} tooltip="基础信息">
-              <NavLink data-testid="nav-info" to="/info">
-                <Info />
-                <span>基础信息</span>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === '/changes' || pathname.startsWith('/changes/')}
-              tooltip="变更"
-            >
-              <NavLink data-testid="nav-changes" to="/changes">
-                <GitBranch />
-                <span>变更</span>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
-          <SidebarMenuItem>
-            {/* 探索项：/explores 与 /explores/:name（详情）均 active */}
-            <SidebarMenuButton
-              asChild
-              isActive={pathname === '/explores' || pathname.startsWith('/explores/')}
-              tooltip="探索"
-            >
-              <NavLink data-testid="nav-explores" to="/explores">
-                <Compass />
-                <span>探索</span>
-              </NavLink>
-            </SidebarMenuButton>
-          </SidebarMenuItem>
+          {/* 基础信息项：/info（workspace 域内容页首位） */}
+          <PageNavItem
+            active={pathname === '/info'}
+            icon={<Info />}
+            label="基础信息"
+            testId="nav-info"
+            to="/info"
+          />
+          {/* 变更项：/changes 与 /changes/:name（详情）均 active */}
+          <PageNavItem
+            active={pathname === '/changes' || pathname.startsWith('/changes/')}
+            icon={<GitBranch />}
+            label="变更"
+            testId="nav-changes"
+            to="/changes"
+          />
+          {/* 探索项：/explores 与 /explores/:name（详情）均 active */}
+          <PageNavItem
+            active={pathname === '/explores' || pathname.startsWith('/explores/')}
+            icon={<Compass />}
+            label="探索"
+            testId="nav-explores"
+            to="/explores"
+          />
+          {/* 配置项：/config（workspace 域内容页组内末位） */}
+          <PageNavItem
+            active={pathname === '/config'}
+            icon={<Settings />}
+            label="配置"
+            testId="nav-config"
+            to="/config"
+          />
         </SidebarMenu>
       </SidebarGroupContent>
     </SidebarGroup>
@@ -165,7 +188,7 @@ function SystemToolsGroup(): React.JSX.Element {
 }
 
 /**
- * 侧栏（仅壳态挂载）：上方「页面」导航组（[基础信息] [变更] [探索]），中部「工作区」清单组
+ * 侧栏（仅壳态挂载）：上方「页面」导航组（[基础信息] [变更] [探索] [配置]），中部「工作区」清单组
  * （语义不变），下方「系统工具」组（[Agent 调试] [数据库]，首次出现非
  * workspace 入口语义）。列表项点击切换（副文本父目录区分同名、Tooltip 完整
  * root），「＋」添加、右键 ContextMenu 移除。

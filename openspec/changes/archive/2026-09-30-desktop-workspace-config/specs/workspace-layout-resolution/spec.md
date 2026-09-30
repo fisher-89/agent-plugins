@@ -1,10 +1,6 @@
 # workspace-layout-resolution Specification
 
-## Purpose
-
-定义 foundation crate 对用户选定 workspace 根目录的布局解析契约：`resolve` 纯函数返回 `Layout` 结构，作为整个 desktop 包内唯一知晓磁盘目录名的位置，支撑 workspace 语义通用化（可读取任意项目根下的 change 记录）。
-
-## Requirements
+## MODIFIED Requirements
 
 ### Requirement: resolve 函数返回 Layout 结构
 
@@ -18,9 +14,9 @@ Layout {
 }
 ```
 
-layout/mod.rs SHALL 在模块顶部设**目录名常量组**：域目录名（`DOMAIN_DIR_NAME`）、`changes` / `archive` / `explores` 子目录名、`config.json` 文件名。`resolve` SHALL 全量引用常量组装路径（MUST NOT 行内字面量）；`domain_dir_name` 的 fn 形态 SHALL 收敛为常量（公开形态 design 定夺：导出 `pub const` 或保留 fn 包装），既有消费点（stats 轨道的 tokei `ignored_directories` 通道）随之更新、语义零变化。
+layout.rs SHALL 在模块顶部设**目录名常量组**：域目录名（`DOMAIN_DIR_NAME`）、`changes` / `archive` / `explores` 子目录名、`config.json` 文件名。`resolve` SHALL 全量引用常量组装路径（MUST NOT 行内字面量）；`domain_dir_name` 的 fn 形态 SHALL 收敛为常量（公开形态 design 定夺：导出 `pub const` 或保留 fn 包装），既有消费点（stats 轨道的 tokei `ignored_directories` 通道）随之更新、语义零变化。
 
-`resolve` 与常量组 SHALL 是整个 desktop 包内唯一知晓磁盘目录名、子目录名与 config.json 文件名的位置（字面量隔离执法见 desktop-crate-layout：`openspec` 与 `config.json` 双禁令）；目录或子目录未来改名 SHALL 只需修改 layout/mod.rs 常量组。`resolve` MUST NOT 访问文件系统（纯路径推导），对不存在的 root 亦 SHALL 正常返回 Layout（存在性检查交由上层查询处理）。
+`resolve` 与常量组 SHALL 是整个 desktop 包内唯一知晓磁盘目录名、子目录名与 config.json 文件名的位置（字面量隔离执法见 desktop-crate-layout：`openspec` 与 `config.json` 双禁令）；目录或子目录未来改名 SHALL 只需修改 layout.rs 常量组。`resolve` MUST NOT 访问文件系统（纯路径推导），对不存在的 root 亦 SHALL 正常返回 Layout（存在性检查交由上层查询处理）。
 
 #### Scenario: 从任意根解析布局
 
@@ -30,11 +26,11 @@ layout/mod.rs SHALL 在模块顶部设**目录名常量组**：域目录名（`D
 #### Scenario: 改名只动常量组
 
 - **WHEN** 假设磁盘目录 `openspec/` 或任一子目录 / config.json 文件名更名
-- **THEN** 仅需修改 layout/mod.rs 常量组，model / parse / queries / config / desktop-app 与前端零改动
+- **THEN** 仅需修改 layout.rs 常量组，model / parse / queries / config / desktop-app 与前端零改动
 
 #### Scenario: resolve 全量引用常量
 
-- **WHEN** 审查 `resolve` 实现与 `mod_test` 断言
+- **WHEN** 审查 `resolve` 实现与 `layout_test` 断言
 - **THEN** 路径组装全部经常量引用，无常量组之外的行内目录名 / 文件名字面量；常量组覆盖域目录名、三个子目录名与 config.json 文件名
 
 #### Scenario: 对不存在的根仍可解析
@@ -50,6 +46,8 @@ App SHALL 支持读取任意用户选定的项目根目录下的 change 记录�
 
 - **WHEN** 用户通过文件夹选择器选定另一个项目根目录
 - **THEN** 列表与详情取数均以新根为基准重新扫描
+
+## ADDED Requirements
 
 ### Requirement: config_path 提供 config.json 路径解析
 
@@ -76,4 +74,3 @@ foundation crate SHALL 提供 config.json 路径解析能力：给定 workspace 
 |------|------|----------|
 | `foundation::layout` | 磁盘布局解析 + 目录名常量组 | `resolve(root: &Path) -> Layout`；常量组覆盖域目录名 / `changes` / `archive` / `explores` / `config.json`；`config_path`（形态 design 定夺）同源引用常量；纯路径推导、无 IO；全包唯一字面量触点（`openspec` + `config.json` 双禁令） |
 | `domain_dir_name`（fn → 常量形态） | 域目录名裸名消费通道 | tokei `ignored_directories` 等裸名语义消费方经此取字面量；公开形态（`pub const` vs fn 包装）design 定夺，消费点语义零变化 |
-| `dev-team`（workspace 状态） | 当前 workspace 持有 | 持有选定的根目录 |

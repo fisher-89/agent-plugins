@@ -1,8 +1,9 @@
 //! `bindings` 的单元测试（AC-2 / AC-3 / AC-4）：`export_bindings()` 导出产物的覆盖性
-//! （23 条命令包装名 + invoke 命令名 + 全部出线 DTO 类型名）、Channel 参数
+//! （24 条命令包装名 + invoke 命令名 + 全部出线 DTO 类型名）、Channel 参数
 //! typed（`agent_start` / `watch_subscribe`）、AgentEvent 出线形态（PoC 判据
-//! 自动化留档）、特殊字段出线口径、code_stats 三面 DTO 包装形态、导出幂等、
-//! 过期产物纠正、目标目录缺失健壮性与 Result 错误通道形态。
+//! 自动化留档）、特殊字段出线口径、code_stats 三面 DTO 包装形态、workspace_config
+//! 配置域十二型出线形态、导出幂等、过期产物纠正、目标目录缺失健壮性与
+//! Result 错误通道形态。
 //!
 //! 文件系统为真实目标路径（`export_bindings` 以 `CARGO_MANIFEST_DIR` 定位
 //! `src/types/generated/bindings.ts`，无路径注入缝——按 test-design Mock策略
@@ -53,7 +54,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 23 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一对应）。
+/// 24 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一对应）。
 const COMMAND_WRAPPERS: &[&str] = &[
     "listChanges",
     "getChangeDetail",
@@ -78,9 +79,10 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "dbModels",
     "dbRecords",
     "codeStats",
+    "workspaceConfig",
 ];
 
-/// 23 条命令的 IPC 命令名（snake_case，invoke 目标）。
+/// 24 条命令的 IPC 命令名（snake_case，invoke 目标）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -105,6 +107,7 @@ const COMMAND_NAMES: &[&str] = &[
     "db_models",
     "db_records",
     "code_stats",
+    "workspace_config",
 ];
 
 /// 全部出线 DTO 类型名（产物 Types 段的 `export type` 全集）。
@@ -129,6 +132,10 @@ const DTO_TYPES: &[&str] = &[
     "ChecklistItem",
     "CodeStatsReport",
     "CodeTotals",
+    "ConfigDiagnostic",
+    "ConfigExtraField",
+    "CoverageThresholds",
+    "DiagnosticKind",
     "DirNode",
     "ExploreDoc",
     "ExploreRecord",
@@ -141,19 +148,41 @@ const DTO_TYPES: &[&str] = &[
     "Inventory",
     "LanguageStats",
     "ModelInfo",
+    "MutationConfig",
     "PhaseEntry",
     "RecordEnvelope",
+    "RulesConfig",
+    "TestFramework",
+    "TestSuite",
     "TreeEntry",
     "Verdict",
+    "WorkspaceConfig",
+    "WorkspaceConfigReport",
     "WorkspaceRecord",
+    "WriteProtection",
+    "WriteProtectionFile",
 ];
+
+/// 产物中某 `export type` 声明的完整文本段（自声明起至下一个顶层 `export` 前），
+/// 供逐字段出线形态对位（避免全文 contains 误命中同名字段）。
+fn type_section(content: &str, type_name: &str) -> String {
+    let marker = format!("export type {type_name} =");
+    let start = content
+        .find(&marker)
+        .unwrap_or_else(|| panic!("产物缺出线类型 {type_name}"));
+    let body_start = start + marker.len();
+    let end = content[body_start..]
+        .find("\nexport ")
+        .map_or(content.len(), |offset| body_start + offset);
+    content[start..end].to_owned()
+}
 
 // ---------------------------------------------------------------------------
 // export_bindings 覆盖性（AC-3）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 导出产物包含全部23条命令包装名与invoke命令名及出线dto类型名() {
+fn 导出产物包含全部24条命令包装名与invoke命令名及出线dto类型名() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -427,4 +456,146 @@ fn 命令错误面为promise_reject透传无result包装() {
         !content.contains("Result<"),
         "产物无 Result 包装（Throw 模式，非 Result 错误对象形态）"
     );
+}
+
+// ---------------------------------------------------------------------------
+// workspace_config 配置域出线形态（24 条扩面，AC-3）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn workspace_config绑定为root入参的report直返() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 包装形态逐字：camelCase 包装名 + (root: string) 入参 +
+    // `__TAURI_INVOKE<WorkspaceConfigReport>` 直返（Throw 模式 Promise，
+    // 错误面 reject 语义、无 Result 包装）
+    assert!(
+        content.contains(
+            "workspaceConfig: (root: string) => __TAURI_INVOKE<WorkspaceConfigReport>(\"workspace_config\", { root })"
+        ),
+        "workspaceConfig 包装形态不符（入参 / 返回类型 / invoke 命令名）"
+    );
+    assert!(
+        content.contains("export type WorkspaceConfigReport = {"),
+        "WorkspaceConfigReport DTO 应出线"
+    );
+}
+
+#[test]
+fn 配置域十二型出线且逐字段形态对位() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // WorkspaceConfigReport：信封双字段（config + diagnostics）
+    let report = type_section(&content, "WorkspaceConfigReport");
+    assert!(report.contains("config: WorkspaceConfig,"), "实际 {report}");
+    assert!(report.contains("diagnostics: ConfigDiagnostic[],"));
+
+    // WorkspaceConfig：系 camelCase 类型镜像（$schema 线面字段名保留）
+    let config = type_section(&content, "WorkspaceConfig");
+    for field in [
+        "$schema: string | null,",
+        "schema: string,",
+        "context: string | null,",
+        "rules: RulesConfig | null,",
+        "staticAnalysis: string | null,",
+        "tests: TestSuite[],",
+        "writeProtection: WriteProtection | null,",
+        "extra: ConfigExtraField[],",
+    ] {
+        assert!(config.contains(field), "WorkspaceConfig 缺字段出线 {field}");
+    }
+
+    // TestSuite：全字段 camelCase 镜像
+    let suite = type_section(&content, "TestSuite");
+    for field in [
+        "root: string,",
+        "framework: TestFramework,",
+        "cwd: string,",
+        "config: string | null,",
+        "includes: string[] | null,",
+        "excludes: string[] | null,",
+        "coverage: CoverageThresholds,",
+        "mutation: MutationConfig,",
+    ] {
+        assert!(suite.contains(field), "TestSuite 缺字段出线 {field}");
+    }
+
+    // CoverageThresholds / MutationConfig：裸 f64 出线 `number | null` 口径
+    let thresholds = type_section(&content, "CoverageThresholds");
+    for field in [
+        "lines: number | null,",
+        "branches: number | null,",
+        "functions: number | null,",
+    ] {
+        assert!(thresholds.contains(field), "CoverageThresholds 缺 {field}");
+    }
+    let mutation = type_section(&content, "MutationConfig");
+    assert!(mutation.contains("cwd: string | null,"));
+    assert!(mutation.contains("score: number | null,"));
+
+    // RulesConfig / WriteProtection / WriteProtectionFile
+    let rules = type_section(&content, "RulesConfig");
+    assert!(rules.contains("proposal: string[] | null,"));
+    assert!(rules.contains("tasks: string[] | null,"));
+    let protection = type_section(&content, "WriteProtection");
+    assert!(protection.contains("files: WriteProtectionFile[] | null,"));
+    let file_rule = type_section(&content, "WriteProtectionFile");
+    assert!(file_rule.contains("glob: string | null,"));
+    assert!(file_rule.contains("reason: string | null,"));
+
+    // ConfigExtraField / ConfigDiagnostic
+    let extra = type_section(&content, "ConfigExtraField");
+    assert!(extra.contains("key: string,"));
+    assert!(
+        extra.contains("value: unknown,"),
+        "serde_json::Value 出线 unknown（语义规则既有口径回归）"
+    );
+    let diagnostic = type_section(&content, "ConfigDiagnostic");
+    assert!(diagnostic.contains("kind: DiagnosticKind,"));
+    assert!(diagnostic.contains("path: string,"));
+    assert!(diagnostic.contains("message: string,"));
+}
+
+#[test]
+fn framework与diagnostic_kind出线为camel_case字面量联合() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // TestFramework：八字符串字面量联合（非 rename_all 可表达的 vite-plus /
+    // node-test 在册）
+    let framework = type_section(&content, "TestFramework");
+    for literal in [
+        "\"jest\"",
+        "\"vitest\"",
+        "\"vite-plus\"",
+        "\"bun\"",
+        "\"rust\"",
+        "\"node-test\"",
+        "\"go\"",
+        "\"pytest\"",
+    ] {
+        assert!(
+            framework.contains(literal),
+            "TestFramework 缺字面量 {literal}"
+        );
+    }
+    assert_eq!(
+        framework.matches('|').count(),
+        7,
+        "八值恰七分隔（不多不少，枚举 +1 侧不外溢）"
+    );
+
+    // DiagnosticKind：五值 camelCase 字面量联合（前端状态面映射口径）
+    let kind = type_section(&content, "DiagnosticKind");
+    for literal in [
+        "\"fileMissing\"",
+        "\"readFailed\"",
+        "\"jsonInvalid\"",
+        "\"invalidValue\"",
+        "\"defaultApplied\"",
+    ] {
+        assert!(kind.contains(literal), "DiagnosticKind 缺字面量 {literal}");
+    }
 }

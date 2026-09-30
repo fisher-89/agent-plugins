@@ -14,6 +14,7 @@ desktop 前端壳态页面导航 SHALL 以 react-router（v7 declarative 模式�
 - `/changes` → 变更清单页
 - `/changes/:name` → 变更详情页（`name` 为路由参数）
 - `/info` → 工作区基础信息页（当前根的代码统计，desktop-workspace-code-stats）
+- `/config` → 工作区配置页（当前根的 config.json 只读解析，desktop-workspace-config）
 - `/agent` → Agent 调试页
 - `/explores` → 探索清单页
 - `/explores/:name` → 探索详情页（`name` 为路由参数）
@@ -46,6 +47,11 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 - **WHEN** URL 为 `/info` 且壳态存在当前工作区根
 - **THEN** 渲染基础信息页，`code_stats` 以当前根与默认深度发起解析；根不来自 URL 参数（workspace 根为 sidebar 本地态，路由不新增根段）
 
+#### Scenario: 配置页按当前根渲染
+
+- **WHEN** URL 为 `/config` 且壳态存在当前工作区根
+- **THEN** 渲染配置页，`workspace_config` 以当前根发起解析；根不来自 URL 参数（路由不新增根段），只读语义随 desktop-workspace-config 承载
+
 ### Requirement: change 选中态 URL 化
 
 壳态下 change 选中状态 SHALL 由路由参数承载，MUST NOT 保留独立的 `selectedChange` 本地 state 与路由双轨并存：
@@ -72,7 +78,7 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 
 ### Requirement: Sidebar 页面导航 NavLink 化
 
-`AppSidebar` 页面导航组 SHALL 以 `NavLink`（或等价路由感知组件）承载，active 态 SHALL 由当前 URL 派生，MUST NOT 经独立 `page` state 或 `onPageChange` 回调同步。「页面」组 SHALL 为 [基础信息] [变更] [探索] 三项（三项同属 workspace 域内容页；`/explores` 与 `/explores/:name` 均使探索项 active，`/info` 使基础信息项 active；组内排序由 design 定夺）。`TopPage` 类型导出 SHALL 保持删除状态。测试挂钩 `data-testid="nav-changes"` / `data-testid="nav-agent"` SHALL 保持不变，`data-testid="nav-explores"` 随探索页变更新增，`data-testid="nav-info"` 随基础信息页变更新增。
+`AppSidebar` 页面导航组 SHALL 以 `NavLink`（或等价路由感知组件）承载，active 态 SHALL 由当前 URL 派生，MUST NOT 经独立 `page` state 或 `onPageChange` 回调同步。「页面」组 SHALL 为 [基础信息] [变更] [探索] [配置] 四项（四项同属 workspace 域内容页；`/explores` 与 `/explores/:name` 均使探索项 active，`/info` 使基础信息项 active，`/config` 使配置项 active；组内排序由 design 定夺）。`TopPage` 类型导出 SHALL 保持删除状态。测试挂钩 `data-testid="nav-changes"` / `data-testid="nav-agent"` SHALL 保持不变，`data-testid="nav-explores"` 随探索页变更新增，`data-testid="nav-info"` 随基础信息页变更新增，`data-testid="nav-config"` 随配置页变更新增。
 
 #### Scenario: active 态由 URL 派生
 
@@ -88,12 +94,17 @@ Router 类型 SHALL 为 HashRouter：Tauri 生产构建经自定义协议以静�
 #### Scenario: 基础信息入口 active 态
 
 - **WHEN** URL 为 `/info`
-- **THEN** `nav-info` 呈现 active 态，`nav-changes` / `nav-explores` 非 active
+- **THEN** `nav-info` 呈现 active 态，`nav-changes` / `nav-explores` / `nav-config` 非 active
+
+#### Scenario: 配置入口 active 态
+
+- **WHEN** URL 为 `/config`
+- **THEN** `nav-config` 呈现 active 态，`nav-changes` / `nav-explores` / `nav-info` 非 active
 
 #### Scenario: 导航 testid 稳定
 
 - **WHEN** 检查 `AppSidebar` 渲染产物
-- **THEN** `nav-changes` / `nav-agent` testid 存在且语义与路由化前一致，`nav-explores` 与 `nav-info` 在「页面」组内可达
+- **THEN** `nav-changes` / `nav-agent` testid 存在且语义与路由化前一致，`nav-explores` / `nav-info` / `nav-config` 在「页面」组内可达
 
 ### Requirement: 欢迎态路由隔离
 
@@ -149,8 +160,8 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `react-router`（新依赖，`packages/desktop/package.json`） | 路由运行时 | v7 declarative 模式（`react-router` 单包）；HashRouter；无第二路由库 |
-| `packages/desktop/src/app.tsx` | 路由表挂载 + 壳布局 | 路由表 `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/agent`、`/explores`、`/explores/:name`、`*` 兜底；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
-| `packages/desktop/src/components/app-sidebar.tsx` | NavLink 页面导航组 | active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持、`nav-explores` 新增 |
+| `packages/desktop/src/app.tsx` | 路由表挂载 + 壳布局 | 路由表 `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/info`、`/config`、`/agent`、`/explores`、`/explores/:name`、`*` 兜底；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
+| `packages/desktop/src/components/app-sidebar.tsx` | NavLink 页面导航组 | 「页面」组 [基础信息] [变更] [探索] [配置] 四项；active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持、`nav-explores` / `nav-info` / `nav-config` 在组内可达 |
 | `packages/desktop/src/views/changes/change-view.tsx` | 选中态 ↔ 路由参数接线（溶解与否 design 定） | `useParams` 承载选中；返回显式 `navigate('/changes')`；workspace 切换落 `/changes` |
 | `packages/desktop/src/hooks/use-change-detail.ts` 等 hooks | 取数契约不变 | 入参来源由 state 改为路由参数，hook 本体不动；显式刷新模型不变 |
 | 路由级测试（新，如 `src/__tests__/route_pages.test.tsx`） | 路由表 / 选中态 / 语义保留断言 | data-testid 挂钩；MemoryRouter vs HashRouter 挂载 design 定夺有据 |
