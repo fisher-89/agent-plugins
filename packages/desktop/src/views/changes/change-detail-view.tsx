@@ -11,7 +11,7 @@ import { FileLogTable } from './flow/file-log-table';
 import { buildFlowGraph } from './flow/graph';
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
 import type { ChangeDetailState } from './hooks/use-change-detail';
-import { ArtifactView } from './renderers/artifact-view';
+import { ArtifactTabs } from './renderers/artifact-tabs';
 
 // Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
 const INVENTORY_VARIANT: Record<Inventory, 'inv0' | 'inv1' | 'inv2'> = {
@@ -98,19 +98,25 @@ function FlowSection({
   );
 }
 
+/** 产物区：多文档经 ArtifactTabs 切换（共享组件，语义见 artifact-tabs.tsx）；
+ * 空清单以本节文案占位。 */
 function DetailSectionArtifacts({ artifacts }: { artifacts: ArtifactEnvelope[] }) {
+  if (artifacts.length === 0) {
+    return (
+      <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
+        <h2 className="m-0 mb-2.5 text-[15px]">
+          产物 <span className="text-muted-foreground">(0)</span>
+        </h2>
+        <div className="text-muted-foreground">（未发现可读产物）</div>
+      </section>
+    );
+  }
   return (
     <section className="mb-4 rounded-lg border border-border bg-card px-4 py-3.5">
       <h2 className="m-0 mb-2.5 text-[15px]">
         产物 <span className="text-muted-foreground">({artifacts.length})</span>
       </h2>
-      {artifacts.length === 0 ? (
-        <div className="text-muted-foreground">（未发现可读产物）</div>
-      ) : (
-        artifacts.map((envelope, index) => (
-          <ArtifactView key={`${envelope.kind}-${envelope.title}-${index}`} envelope={envelope} />
-        ))
-      )}
+      <ArtifactTabs artifacts={artifacts} />
     </section>
   );
 }

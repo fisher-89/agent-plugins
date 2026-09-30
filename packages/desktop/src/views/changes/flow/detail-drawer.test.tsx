@@ -154,6 +154,35 @@ describe('DetailDrawer：三分节内容组装', () => {
     expect(screen.getByTestId('detail-drawer').textContent).toContain('dev-design');
   });
 
+  it('本站文档多文档 → ArtifactTabs 切换：tab 按序、默认首项、切换仅渲染当前卡片', () => {
+    const state = world({
+      materials: {
+        columnDocs: {
+          'col:dev-design': [
+            envelope('markdown-doc', '设计文档', { markdown: '# 设计正文' }),
+            envelope('tasks-progress', '任务进度', { total: 4, done: 1, pending: 3 }),
+          ],
+        },
+      },
+    });
+    const { container } = renderDrawer(state, { scope: 'column', phase: 'dev-design' });
+
+    const docsSection = screen.getByTestId('drawer-docs-section');
+    const tabs = within(docsSection).getAllByTestId('artifact-tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['设计文档', '任务进度']);
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(within(docsSection).getAllByTestId('artifact-card')).toHaveLength(1);
+    expect(docsSection.textContent).toContain('设计正文');
+    expect(docsSection.textContent).not.toContain('25%');
+
+    // TabsTrigger 激活绑在 mousedown（Radix 1.1 行为），点击事件用 mouseDown 模拟
+    fireEvent.mouseDown(tabs[1]);
+    expect(within(docsSection).getAllByTestId('artifact-card')).toHaveLength(1);
+    expect(docsSection.textContent).toContain('25%');
+    expect(docsSection.textContent).not.toContain('设计正文');
+    expect(container.textContent).not.toContain('（无本站文档）');
+  });
+
   it('遮罩点击或关闭按钮 → onClose 回调触发', () => {
     const onClose = vi.fn();
     const state = world();

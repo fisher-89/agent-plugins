@@ -236,30 +236,60 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
     expect(clean.container.textContent).not.toContain('workflow.json 无法解析');
   });
 
-  it('产物区按信封顺序渲染 ArtifactView 列表；空清单「（未发现可读产物）」占位', () => {
+  it('产物区多文档 tab 切换：tab 按信封顺序、默认首项选中、点击切换仅渲染当前卡片；清单变短 active 收敛', () => {
+    const three = [
+      proposalDoc(),
+      envelope({ title: '任务进度' }),
+      envelope({
+        kind: 'unknown-kind',
+        title: '未知产物',
+        payload: null,
+        fallbackText: '未知保底',
+      }),
+    ];
     const { container, rerender } = render(
+      <ChangeDetailView state={state({ detail: detail(), artifacts: three })} onBack={() => {}} />,
+    );
+    const tabs = within(container).getAllByTestId('artifact-tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['提案', '任务进度', '未知产物']);
+    // 默认选中首项（TabsTrigger role=tab、选中态 aria-selected），且页面同时只有一张产物卡片
+    expect(tabs[0].getAttribute('aria-selected')).toBe('true');
+    expect(tabs[1].getAttribute('aria-selected')).toBe('false');
+    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
+    expect(container.textContent).toContain('提案正文');
+    expect(container.textContent).not.toContain('未知保底');
+
+    // TabsTrigger 激活绑在 mousedown（Radix 1.1 行为），点击事件用 mouseDown 模拟
+    fireEvent.mouseDown(tabs[2]);
+    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
+    expect(container.textContent).toContain('未知保底');
+    expect(container.textContent).not.toContain('提案正文');
+    expect(within(container).getAllByTestId('artifact-tab')[2].getAttribute('aria-selected')).toBe(
+      'true',
+    );
+
+    // 刷新后清单变短：active=2 越界收敛到末项（任务进度），不重置回首项
+    rerender(
       <ChangeDetailView
-        state={state({
-          detail: detail(),
-          artifacts: [
-            proposalDoc(),
-            envelope({ title: '任务进度' }),
-            envelope({
-              kind: 'unknown-kind',
-              title: '未知产物',
-              payload: null,
-              fallbackText: '未知保底',
-            }),
-          ],
-        })}
+        state={state({ detail: detail(), artifacts: three.slice(0, 2) })}
         onBack={() => {}}
       />,
     );
-    const cards = within(container).getAllByTestId('artifact-card');
-    expect(cards).toHaveLength(3);
-    expect(cards[0].textContent).toContain('提案正文');
-    expect(cards[1].textContent).toContain('100%');
-    expect(cards[2].textContent).toContain('未知保底');
+    const shrunk = within(container).getAllByTestId('artifact-tab');
+    expect(shrunk.map((tab) => tab.textContent)).toEqual(['提案', '任务进度']);
+    expect(shrunk[1].getAttribute('aria-selected')).toBe('true');
+    expect(container.textContent).toContain('100%');
+  });
+
+  it('产物区单文档不设 tab 条、卡片直接渲染；空清单「（未发现可读产物）」占位', () => {
+    const { container, rerender } = render(
+      <ChangeDetailView
+        state={state({ detail: detail(), artifacts: [proposalDoc()] })}
+        onBack={() => {}}
+      />,
+    );
+    expect(within(container).queryByTestId('artifact-tabs')).toBeNull();
+    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
     rerender(
       <ChangeDetailView state={state({ detail: detail(), artifacts: [] })} onBack={() => {}} />,
     );

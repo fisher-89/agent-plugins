@@ -92,7 +92,7 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 
 视图 SHALL 按 inventory 降级：
 
-- **v0**（无 workflow.json）：SHALL 呈现空图占位，产物区维持现有文档列表（图区 MUST NOT 挤掉产物区）；
+- **v0**（无 workflow.json）：SHALL 呈现空图占位，产物区照常呈现（图区 MUST NOT 挤掉产物区）；
 - **v1**（无 file_log，`fileLog === null`）：SHALL 正常绘制流程图（eval / active / interrupted 节点照常），节点文件区为空、抽屉文件表节呈空态；
 - **v2**：完整图（含 file_log 挂载与 workflow 独立面板）。
 
@@ -101,7 +101,7 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 #### Scenario: v0 纯文档形态
 
 - **WHEN** 打开 inventory 为 v0 的 change 详情
-- **THEN** 图区呈现空图占位，产物区文档列表照常展示，页面不报错
+- **THEN** 图区呈现空图占位，产物区照常展示，页面不报错
 
 #### Scenario: v1 无文件区
 

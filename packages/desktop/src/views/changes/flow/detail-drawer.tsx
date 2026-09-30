@@ -2,7 +2,8 @@
  * 右侧抽屉（单一交互入口）：列头与事件节点点击共用的三分节
  * 【本站文档 / eval report+checklist / 文件表】；selection 为 null 时不渲染。
  *
- * - 本站文档节：columnDocs[列 id] 逐个经 ArtifactView（renderers/registry）渲染；
+ * - 本站文档节：columnDocs[列 id] 经 ArtifactTabs 多文档 tab 切换（单文档直出，
+ *   逐卡片仍走 renderers/registry）；
  * - eval 节：record.report 文本 + checklist（有挂载 eval-checklist 信封走
  *   ArtifactView，无挂载时回退内联 record.checklist 条目）；active / interrupted
  *   与列头选中呈空态；
@@ -16,6 +17,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 import type { ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
+import { ArtifactTabs } from '../renderers/artifact-tabs';
 import { ArtifactView } from '../renderers/artifact-view';
 import { FileLogTable } from './file-log-table';
 import type { DrawerSelection, FileLogEntry, FlowGraph, FlowMaterials, FlowNode } from './types';
@@ -55,9 +57,7 @@ function DrawerDocsSection({ docs }: { docs: ArtifactEnvelope[] }): React.JSX.El
       {docs.length === 0 ? (
         <div className="text-muted-foreground">（无本站文档）</div>
       ) : (
-        docs.map((envelope, index) => (
-          <ArtifactView key={`${envelope.kind}-${envelope.title}-${index}`} envelope={envelope} />
-        ))
+        <ArtifactTabs artifacts={docs} />
       )}
     </section>
   );
@@ -143,7 +143,7 @@ export function DetailDrawer({
   return (
     <div className="fixed inset-0 z-50" data-testid="detail-drawer">
       <div aria-hidden className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <aside className="absolute inset-y-0 right-0 flex w-[420px] max-w-[85vw] flex-col overflow-y-auto border-l border-border bg-card px-4 py-4">
+      <aside className="absolute inset-y-0 right-0 flex w-[560px] max-w-[85vw] flex-col overflow-y-auto border-l border-border bg-card px-4 py-4">
         <header className="mb-3 flex items-center justify-between gap-2">
           <h2 className="m-0 truncate text-[15px]">{selectionTitle(selection, node)}</h2>
           <Button className="shrink-0" onClick={onClose}>
