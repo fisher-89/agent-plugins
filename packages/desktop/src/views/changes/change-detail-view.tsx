@@ -1,4 +1,5 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useNavigate, useParams } from 'react-router';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -10,7 +11,7 @@ import { DetailDrawer } from './flow/detail-drawer';
 import { FileLogTable } from './flow/file-log-table';
 import { buildFlowGraph } from './flow/graph';
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
-import type { ChangeDetailState } from './hooks/use-change-detail';
+import { useChangeDetail } from './hooks/use-change-detail';
 import { ArtifactTabs } from './renderers/artifact-tabs';
 
 // Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
@@ -176,19 +177,46 @@ function WorkflowPanel({ entries }: { entries: ChangeDetail['fileLog'] }) {
 }
 
 /**
- * change 详情视图：Header + attempt 级流程图 + workflow 独立面板 + 产物区 + 抽屉。
- * 三代际降级（design）：v0（pipeline 空）空图占位 + 产物区；v1（fileLog null）图
- * 正常绘制、无 workflow 面板、抽屉文件表节降级；v2 完整图。取数仍仅由显式 refresh
- * 触发（useChangeDetail 零改动），图数据仅随 state.detail 重算。
+ * 根切换抑制（原 ChangeView 语义迁入）：workspace 根变更（select / 移除当前根 /
+ * 添加新根）且详情仍带旧选中时，过渡轮以 null 抑制取数（防「新根 + 旧名」误发
+ * get_change_detail），effect 中 replace 导航回 /changes（URL 无 :name 段）；
+ * 落点后详情页随路由卸载，抑制位无须显式清位（清位早于落点提交反而会留出
+ * 「新根 + 旧名」中间提交，重新武装误发）。返回参与取数的 change 名。
  */
-export function ChangeDetailView({
-  state,
-  onBack,
-}: {
-  state: ChangeDetailState;
-  onBack: () => void;
-}) {
-  const { detail, artifacts, loading, error, refresh } = state;
+function useRootSwitchSuppress(root: string | null, selected: string | null): string | null {
+  const navigate = useNavigate();
+  const [prevRoot, setPrevRoot] = useState(root);
+  const [resetPending, setResetPending] = useState(false);
+
+  // 渲染期调整（沿用既有模式）：根切换且带旧选中 → 置待导航标记
+  if (prevRoot !== root) {
+    setPrevRoot(root);
+    if (selected !== null) setResetPending(true);
+  }
+
+  useEffect(() => {
+    if (resetPending) {
+      void navigate('/changes', { replace: true }); // workspace 切换落清单，URL 无 :name 段
+    }
+  }, [resetPending, navigate]);
+
+  return resetPending ? null : selected;
+}
+
+/**
+ * change 详情视图：详情页自取数（useChangeDetail 按 (root, URL name) 调
+ * get_change_detail，与清单页互不依赖；根切换抑制见 useRootSwitchSuppress）
+ * + Header + attempt 级流程图 + workflow 独立面板 + 产物区 + 抽屉。三代际降级
+ * （design）：v0（pipeline 空）空图占位 + 产物区；v1（fileLog null）图正常
+ * 绘制、无 workflow 面板、抽屉文件表节降级；v2 完整图。
+ */
+export function ChangeDetailView({ root }: { root: string | null }) {
+  const { name } = useParams<'name'>();
+  const selected = useRootSwitchSuppress(root, name ?? null);
+  const { detail, artifacts, loading, error, refresh } = useChangeDetail(root, selected);
+  const navigate = useNavigate();
+  const backToList = useCallback(() => navigate('/changes'), [navigate]); // 显式返回，不用 navigate(-1)
+
   const [selection, setSelection] = useState<DrawerSelection | null>(null);
   const graph = useMemo<FlowGraph>(
     () => (detail === null ? EMPTY_GRAPH : buildFlowGraph(detail)),
@@ -199,17 +227,17 @@ export function ChangeDetailView({
     [detail, graph, artifacts],
   );
   if (error !== null) {
-    return <DetailFallback message={`详情加载失败：${error}`} error onBack={onBack} />;
+    return <DetailFallback message={`详情加载失败：${error}`} error onBack={backToList} />;
   }
   if (loading && detail === null) {
-    return <DetailFallback message="加载中…" onBack={onBack} />;
+    return <DetailFallback message="加载中…" onBack={backToList} />;
   }
   if (detail === null) {
-    return <DetailFallback message="未找到该 change。" onBack={onBack} />;
+    return <DetailFallback message="未找到该 change。" onBack={backToList} />;
   }
   return (
     <div>
-      <DetailHeader detail={detail} loading={loading} onBack={onBack} refresh={refresh} />
+      <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
       {detail.unparsable && <UnparsableNote />}
       <FlowSection detail={detail} graph={graph} materials={materials} onSelect={setSelection} />
       {detail.fileLog !== null && <WorkflowPanel entries={materials.outsideFiles} />}

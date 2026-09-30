@@ -120,16 +120,16 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 
 路由化 MUST NOT 改变既有可观察行为：
 
-- 切页往返 MUST NOT 重发 `list_workspaces` / `list_changes`（清单数据驻留 App 层，查询仍显式触发）
+- `list_workspaces` 数据驻留 App 层，切页往返 MUST NOT 重发；change 清单改为清单页自取数（`useChangeList` 挂清单页、目录就近 `views/changes/hooks/`），落回 `/changes` 清单页重挂即重取 `list_changes`（挂载 / 显式刷新触发，无轮询）
 - 导航点击 MUST NOT 触发任何 workspace 命令（`add_workspace` / `remove_workspace` 等）
 - 进入详情 → 切 Agent 页 → 切回：选中随 URL 消失，显示清单，`get_change_detail` MUST NOT 以旧选中重发（现行 D10 语义）
 - 刷新取数模型不变：取数收口 hooks、无定时轮询；文件 watch 为 desktop-file-watch 认可的唯一推送例外（失效信号通道，非数据通道），既有页面的取数语义不变
 - `desktop-app-shell` 的错误呈现双轨、header 终态、折叠交互、workspace 选择契约不受影响
 
-#### Scenario: 切页不重发查询
+#### Scenario: 切页查询语义
 
 - **WHEN** 用户在变更页与 Agent 页之间往返切换
-- **THEN** `list_workspaces` 与 `list_changes` 调用次数不增加，清单数据照常呈现
+- **THEN** `list_workspaces` 调用次数不增加（驻留 App 层）；每次落回 `/changes` 清单页重挂、`list_changes` 重取一次，清单数据照常呈现
 
 #### Scenario: 导航零 workspace 命令
 
@@ -162,6 +162,7 @@ Router SHALL 仅在壳态（`root` 非 null）挂载：欢迎态（`root === nul
 | `react-router`（新依赖，`packages/desktop/package.json`） | 路由运行时 | v7 declarative 模式（`react-router` 单包）；HashRouter；无第二路由库 |
 | `packages/desktop/src/app.tsx` | 路由表挂载 + 壳布局 | 路由表 `/`→`/changes` 重定向、`/changes`、`/changes/:name`、`/info`、`/config`、`/agent`、`/explores`、`/explores/:name`、`*` 兜底；欢迎态 gate 在 Router 外；壳态 DOM 契约不变 |
 | `packages/desktop/src/components/app-sidebar.tsx` | NavLink 页面导航组 | 「页面」组 [基础信息] [变更] [探索] [配置] 四项；active 由 URL 派生；`TopPage` / `onPageChange` 删除；testid `nav-changes` / `nav-agent` 保持、`nav-explores` / `nav-info` / `nav-config` 在组内可达 |
-| `packages/desktop/src/views/changes/change-view.tsx` | 选中态 ↔ 路由参数接线（溶解与否 design 定） | `useParams` 承载选中；返回显式 `navigate('/changes')`；workspace 切换落 `/changes` |
-| `packages/desktop/src/hooks/use-change-detail.ts` 等 hooks | 取数契约不变 | 入参来源由 state 改为路由参数，hook 本体不动；显式刷新模型不变 |
+| `packages/desktop/src/views/changes/change-list-view.tsx` | 变更清单页（自取数） | `useChangeList(root)` 挂本页，重挂即重取；行点击 `navigate('/changes/<name>')` |
+| `packages/desktop/src/views/changes/change-detail-view.tsx` | 变更详情页（自取数 + 选中接线） | `useParams` 承载选中；`useChangeDetail(root, name)` 按路由参数取数；返回显式 `navigate('/changes')`；workspace 切换（根变更且带旧选中）过渡轮抑制取数并 replace 落 `/changes` |
+| `packages/desktop/src/views/changes/hooks/`（use-change-list / use-change-detail） | 取数契约 | hook 本体不变（目录随页面就近）；显式刷新模型不变 |
 | 路由级测试（新，如 `src/__tests__/route_pages.test.tsx`） | 路由表 / 选中态 / 语义保留断言 | data-testid 挂钩；MemoryRouter vs HashRouter 挂载 design 定夺有据 |

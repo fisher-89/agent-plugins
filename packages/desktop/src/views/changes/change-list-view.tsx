@@ -1,8 +1,11 @@
+import { useCallback } from 'react';
+import { useNavigate } from 'react-router';
+
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-import type { ChangeListState } from '../../hooks/use-change-list';
 import type { ChangeList, ChangeSummary, Inventory } from '../../types/dto';
+import { useChangeList } from './hooks/use-change-list';
 
 // Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
 const INVENTORY_VARIANT: Record<Inventory, 'inv0' | 'inv1' | 'inv2'> = {
@@ -94,16 +97,15 @@ function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (name: s
   );
 }
 
-/** change 列表视图：头部刷新行（始终渲染）+ 加载/error-note 空态 + 列表数据区；
+/** change 列表视图：清单页自取数（useChangeList 挂载 / root 变更 / 显式刷新触发，
+ * 页面重挂即重取）+ 头部刷新行（始终渲染）+ 加载/error-note 空态 + 列表数据区；
  * active 列表 + archive 按月分组（"未知时间"组置尾）、代际徽标、点击进详情 */
-export function ChangeListView({
-  state,
-  onSelect,
-}: {
-  state: ChangeListState;
-  onSelect: (name: string) => void;
-}) {
+export function ChangeListView({ root }: { root: string | null }) {
+  const state = useChangeList(root);
   const { data, loading, error } = state;
+
+  const navigate = useNavigate();
+  const openChange = useCallback((n: string) => navigate(`/changes/${n}`), [navigate]);
   return (
     <div>
       {/* 头部行（始终渲染）：刷新控件语义自 App header 迁入 */}
@@ -124,7 +126,7 @@ export function ChangeListView({
       {!loading && data === null && !error && (
         <div className="text-muted-foreground">暂无数据，点击刷新获取。</div>
       )}
-      {data !== null && <ListSections data={data} onSelect={onSelect} />}
+      {data !== null && <ListSections data={data} onSelect={openChange} />}
     </div>
   );
 }

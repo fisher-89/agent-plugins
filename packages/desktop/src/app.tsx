@@ -8,7 +8,6 @@ import { SidebarInset, SidebarProvider, SidebarTrigger } from '@/components/ui/s
 import { Toaster } from '@/components/ui/sonner';
 
 import { AppSidebar } from './components/app-sidebar';
-import { useChangeList } from './hooks/use-change-list';
 import { useUpdater, type UpdateState } from './hooks/use-updater';
 import { useWorkspaces } from './hooks/use-workspaces';
 import { AppRoutes } from './routes';
@@ -53,19 +52,8 @@ function ShellHeader({ update }: { update: UpdateState }): React.JSX.Element {
   );
 }
 
-/**
- * 应用壳：workspace 选择与恢复（启动自动恢复收在 useWorkspaces；清单切换/添加/
- * 移除收在 AppSidebar）+ 路由化顶层导航（HashRouter 内 AppRoutes 路由表，
- * change 选中由 /changes/:name 路由参数承载）。root === null 停欢迎屏，此时
- * 不挂 Router、不渲染 SidebarProvider / 侧栏 DOM；<Toaster /> 与条件渲染同级
- * 置于 App 根，欢迎态/壳态均覆盖。组件不直接 invoke，取数统一经 useWorkspaces /
- * useChangeList / useChangeDetail / agent 域 hooks。切页（路由切换）后 ChangeView
- * 卸载、选中 change 随 URL 消失（清单数据留 App 层不丢）；agent 页 remount 后
- * 经历史重放呈现已有内容。
- */
 export default function App() {
   const workspaceState = useWorkspaces();
-  const list = useChangeList(workspaceState.root);
   const update = useUpdater();
 
   // 对话框添加流经 useWorkspaces().add 入库；成功即以返回记录的 canonical
@@ -99,7 +87,7 @@ export default function App() {
             <SidebarInset>
               <ShellHeader update={update} />
               <div className="mx-auto flex min-h-0 w-full flex-1 flex-col px-4 py-4">
-                <AppRoutes list={list} root={workspaceState.root} />
+                <AppRoutes root={workspaceState.root} />
               </div>
             </SidebarInset>
           </SidebarProvider>

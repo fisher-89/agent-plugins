@@ -96,7 +96,6 @@ function ExploreListView({
  * 探索视图：/explores（清单）与 /explores/:name（详情）共用；选中记录由路由
  * 参数承载（useParams 派生，无本地 state 双轨），记录对象从清单按名派生。
  * workspace 根切换（select / 移除当前根 / 添加新根）时若带旧选中，照
- * ChangeView 模式：过渡轮抑制误发查询 → replace 导航回 /explores → 清抑制位。
  */
 export function ExploreView({ root }: { root: string }): React.JSX.Element {
   const { name } = useParams<'name'>();
@@ -106,7 +105,6 @@ export function ExploreView({ root }: { root: string }): React.JSX.Element {
   const [resetPending, setResetPending] = useState(false);
   const list = useExploreList(root);
 
-  // 渲染期调整（照 ChangeView）：根切换且带旧选中 → 置待导航标记；清位不可
   // 早于 navigate 过渡提交，否则留出「新根 + 旧名」中间提交重新武装查询
   if (prevRoot !== root) {
     setPrevRoot(root);

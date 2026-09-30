@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation, useNavigate } from 'react-router';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ArtifactEnvelope, AttemptRecord, ChangeDetail } from '../../types/dto';
@@ -7,11 +8,18 @@ import type { ChangeDetailState } from './hooks/use-change-detail';
 
 // ---------------------------------------------------------------------------
 // ChangeDetailView 单测：页面组装语义（Header + 流程图区 + workflow 独立面板 +
-// 产物区 + 抽屉挂载），state 以 ChangeDetailState 手工 fixture 直供（无跨进程
-// Mock）；Tauri invoke 的进程边界 mock 仅在 __tests__ 集成用例中使用。
-// 旧线性布局断言整体退役（test-design「废弃」项）：attempt 序列 / （无记录）/
-// 中断留档区块 / 页面级 filelog-table 矩阵等语义分别迁往 flow/*.test 与集成用例。
+// 产物区 + 抽屉挂载）。取数下沉后 useChangeDetail 在组件内调用：mock 为受控
+// vi.fn 回灌状态（布线 / 根切换抑制断言直接观察 hook 入参，hook 本体契约零
+// 改动）；MemoryRouter + /changes/:name 路由为测试装置（提供 useParams /
+// useNavigate 上下文并以 initialEntries 控制路由参数初态）。Tauri invoke 的
+// 进程边界 mock 仅在 __tests__ 集成用例中使用。旧线性布局断言整体退役
+// （test-design「废弃」项）：attempt 序列 / （无记录）/ 中断留档区块 / 页面级
+// filelog-table 矩阵等语义分别迁往 flow/*.test 与集成用例。
 // ---------------------------------------------------------------------------
+
+const { useChangeDetailMock } = vi.hoisted(() => ({ useChangeDetailMock: vi.fn() }));
+
+vi.mock('./hooks/use-change-detail', () => ({ useChangeDetail: useChangeDetailMock }));
 
 class ResizeObserverStub {
   observe = vi.fn();
@@ -29,6 +37,7 @@ beforeEach(() => {
   if (svgPrototype !== undefined && typeof svgPrototype.getBBox !== 'function') {
     svgPrototype.getBBox = () => ({ x: 0, y: 0, width: 0, height: 0 });
   }
+  useChangeDetailMock.mockReset();
 });
 
 afterEach(() => {
@@ -141,15 +150,69 @@ function proposalDoc(): ArtifactEnvelope {
   });
 }
 
+// ---------------------------------------------------------------------------
+// 路由装置（自 change-view.test 迁入的测试形态）：/changes/:name 直挂详情页；
+// /changes 以导航桩占位（真实清单页语义归 change-list-view.test），提供落点
+// 断言与再入详情的点击入口。
+// ---------------------------------------------------------------------------
+
+const ROOT = 'C:\\demo\\alpha';
+const SECOND = 'C:\\demo\\beta';
+
+/** URL 探针：把 MemoryRouter 当前 pathname 投影到 DOM 供断言。 */
+function LocationProbe() {
+  const { pathname } = useLocation();
+  return <span data-testid="location-probe">{pathname}</span>;
+}
+
+/** /changes 路由占位桩：模拟清单页再入详情的导航入口。 */
+function NavStub() {
+  const navigate = useNavigate();
+  return (
+    <button data-testid="nav-stub" onClick={() => navigate('/changes/beta-fix')}>
+      goto-beta-fix
+    </button>
+  );
+}
+
+function detailTree(root: string) {
+  return (
+    <>
+      <Routes>
+        <Route path="/changes" element={<NavStub />} />
+        <Route path="/changes/:name" element={<ChangeDetailView root={root} />} />
+      </Routes>
+      <LocationProbe />
+    </>
+  );
+}
+
+/** 装置：回灌受控详情态后渲染详情页（默认落 /changes/add-feature）。 */
+function renderDetail(s: ChangeDetailState, root: string = ROOT, initialEntry?: string) {
+  useChangeDetailMock.mockReturnValue(s);
+  return render(
+    <MemoryRouter initialEntries={[initialEntry ?? '/changes/add-feature']}>
+      {detailTree(root)}
+    </MemoryRouter>,
+  );
+}
+
+/** 已挂载详情页换根重渲染（根切换场景）：Router 实例保持、location 不重置。 */
+function rerenderDetail(view: ReturnType<typeof renderDetail>, s: ChangeDetailState, root: string) {
+  useChangeDetailMock.mockReturnValue(s);
+  view.rerender(
+    <MemoryRouter initialEntries={['/changes/add-feature']}>{detailTree(root)}</MemoryRouter>,
+  );
+}
+
+function probePathname(): string {
+  return screen.getByTestId('location-probe').textContent ?? '';
+}
+
 describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区 / 抽屉）', () => {
   it('v2 详情 → flow-graph 图区、workflow-panel 面板（内含 filelog-table）、产物区三者并存', async () => {
     const base = detail();
-    const { container } = render(
-      <ChangeDetailView
-        state={state({ detail: base, artifacts: [proposalDoc()] })}
-        onBack={() => {}}
-      />,
-    );
+    const { container } = renderDetail(state({ detail: base, artifacts: [proposalDoc()] }));
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
     const panel = screen.getByTestId('workflow-panel');
     expect(within(panel).getByTestId('filelog-table') !== null).toBe(true);
@@ -160,9 +223,7 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
   });
 
   it('Header 元信息：name / inventory 徽标（detail-header 域）/ source / created；activePhase 运行中 badge（startAt null 不拼时间与占位）', () => {
-    const { container } = render(
-      <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
-    );
+    const { container } = renderDetail(state({ detail: detail() }));
     const header = within(container).getByTestId('detail-header');
     expect(within(header).getByText('add-feature') !== null).toBe(true);
     expect(within(header).getByText('v2') !== null).toBe(true);
@@ -172,17 +233,14 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
     // activePhase 为 null → 无运行中 badge
     expect(screen.queryByText(/运行中/)).toBeNull();
 
-    const archived = render(
-      <ChangeDetailView
-        state={state({
-          detail: detail({
-            source: 'archive',
-            created: null,
-            activePhase: { phase: 'implement', attempt: 2, startAt: null },
-          }),
-        })}
-        onBack={() => {}}
-      />,
+    const archived = renderDetail(
+      state({
+        detail: detail({
+          source: 'archive',
+          created: null,
+          activePhase: { phase: 'implement', attempt: 2, startAt: null },
+        }),
+      }),
     );
     expect(archived.container.textContent).toContain('已归档');
     expect(archived.container.textContent).not.toContain('进行中');
@@ -198,12 +256,7 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
   });
 
   it('列头 / 节点点击 → detail-drawer 挂载（selection 状态在本组件）；关闭后卸载', async () => {
-    render(
-      <ChangeDetailView
-        state={state({ detail: detail(), artifacts: [proposalDoc()] })}
-        onBack={() => {}}
-      />,
-    );
+    renderDetail(state({ detail: detail(), artifacts: [proposalDoc()] }));
     await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(2));
 
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
@@ -218,20 +271,13 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
   });
 
   it('unparsable 警示条正负两例（warn-note 有 / 无）', () => {
-    const warned = render(
-      <ChangeDetailView
-        state={state({ detail: detail({ unparsable: true }) })}
-        onBack={() => {}}
-      />,
-    );
+    const warned = renderDetail(state({ detail: detail({ unparsable: true }) }));
     expect(within(warned.container).getByTestId('warn-note').textContent).toContain(
       'workflow.json 无法解析',
     );
     warned.unmount();
 
-    const clean = render(
-      <ChangeDetailView state={state({ detail: detail() })} onBack={() => {}} />,
-    );
+    const clean = renderDetail(state({ detail: detail() }));
     expect(within(clean.container).queryByTestId('warn-note')).toBeNull();
     expect(clean.container.textContent).not.toContain('workflow.json 无法解析');
   });
@@ -247,9 +293,8 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
         fallbackText: '未知保底',
       }),
     ];
-    const { container, rerender } = render(
-      <ChangeDetailView state={state({ detail: detail(), artifacts: three })} onBack={() => {}} />,
-    );
+    const view = renderDetail(state({ detail: detail(), artifacts: three }));
+    const { container } = view;
     const tabs = within(container).getAllByTestId('artifact-tab');
     expect(tabs.map((tab) => tab.textContent)).toEqual(['提案', '任务进度', '未知产物']);
     // 默认选中首项（TabsTrigger role=tab、选中态 aria-selected），且页面同时只有一张产物卡片
@@ -269,12 +314,7 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
     );
 
     // 刷新后清单变短：active=2 越界收敛到末项（任务进度），不重置回首项
-    rerender(
-      <ChangeDetailView
-        state={state({ detail: detail(), artifacts: three.slice(0, 2) })}
-        onBack={() => {}}
-      />,
-    );
+    rerenderDetail(view, state({ detail: detail(), artifacts: three.slice(0, 2) }), ROOT);
     const shrunk = within(container).getAllByTestId('artifact-tab');
     expect(shrunk.map((tab) => tab.textContent)).toEqual(['提案', '任务进度']);
     expect(shrunk[1].getAttribute('aria-selected')).toBe('true');
@@ -282,44 +322,36 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
   });
 
   it('产物区单文档不设 tab 条、卡片直接渲染；空清单「（未发现可读产物）」占位', () => {
-    const { container, rerender } = render(
-      <ChangeDetailView
-        state={state({ detail: detail(), artifacts: [proposalDoc()] })}
-        onBack={() => {}}
-      />,
-    );
-    expect(within(container).queryByTestId('artifact-tabs')).toBeNull();
-    expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
-    rerender(
-      <ChangeDetailView state={state({ detail: detail(), artifacts: [] })} onBack={() => {}} />,
-    );
-    expect(container.textContent).toContain('（未发现可读产物）');
+    const view = renderDetail(state({ detail: detail(), artifacts: [proposalDoc()] }));
+    expect(within(view.container).queryByTestId('artifact-tabs')).toBeNull();
+    expect(within(view.container).getAllByTestId('artifact-card')).toHaveLength(1);
+    rerenderDetail(view, state({ detail: detail(), artifacts: [] }), ROOT);
+    expect(view.container.textContent).toContain('（未发现可读产物）');
   });
 
-  it('点击「← 返回列表」回调触发；点击「刷新详情」触发 refresh 回调', () => {
-    const onBack = vi.fn();
+  it('点击「刷新详情」触发 refresh；点击「← 返回列表」显式 navigate 落 /changes（不用历史回退）', () => {
     const refresh = vi.fn();
-    render(<ChangeDetailView state={state({ detail: detail(), refresh })} onBack={onBack} />);
-    fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
-    expect(onBack).toHaveBeenCalledTimes(1);
+    renderDetail(state({ detail: detail(), refresh }));
     fireEvent.click(screen.getByRole('button', { name: '刷新详情' }));
     expect(refresh).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole('button', { name: '← 返回列表' }));
+    expect(probePathname()).toBe('/changes');
+    // 落点为 /changes（本装置以导航桩占位，真实清单页语义归 change-list-view.test）
+    expect(screen.getByTestId('nav-stub') !== null).toBe(true);
   });
 
   it('v0（inventory v0 + pipeline 空）→ 不挂 flow-graph，渲染 flow-empty 占位，产物区照常', () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({
-          detail: detail({
-            inventory: 'v0',
-            pipeline: [],
-            fileLog: null,
-            artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
-          }),
-          artifacts: [proposalDoc()],
-        })}
-        onBack={() => {}}
-      />,
+    const { container } = renderDetail(
+      state({
+        detail: detail({
+          inventory: 'v0',
+          pipeline: [],
+          fileLog: null,
+          artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
+        }),
+        artifacts: [proposalDoc()],
+      }),
     );
     expect(screen.queryByTestId('flow-graph')).toBeNull();
     expect(within(container).getByTestId('flow-empty').textContent).toContain(
@@ -330,11 +362,8 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
   });
 
   it('v1（fileLog null）→ flow-graph 正常渲染且无 workflow-panel', async () => {
-    const { container } = render(
-      <ChangeDetailView
-        state={state({ detail: detail({ inventory: 'v1', fileLog: null }) })}
-        onBack={() => {}}
-      />,
+    const { container } = renderDetail(
+      state({ detail: detail({ inventory: 'v1', fileLog: null }) }),
     );
     await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
     expect(screen.getAllByTestId('flow-node').length).toBeGreaterThan(0);
@@ -342,31 +371,70 @@ describe('ChangeDetailView：页面组装（图区 / workflow 面板 / 产物区
   });
 
   it('error / loading（无 detail）/ 未找到三态降级页与 detail-note / error-note 挂钩归属正确', () => {
-    const { container, rerender } = render(
-      <ChangeDetailView state={state({})} onBack={() => {}} />,
-    );
-    expect(container.textContent).toContain('未找到该 change。');
-    expect(within(container).getByTestId('detail-note') !== null).toBe(true);
-    expect(within(container).queryByTestId('error-note')).toBeNull();
+    const view = renderDetail(state({}));
+    expect(view.container.textContent).toContain('未找到该 change。');
+    expect(within(view.container).getByTestId('detail-note') !== null).toBe(true);
+    expect(within(view.container).queryByTestId('error-note')).toBeNull();
 
-    rerender(<ChangeDetailView state={state({ loading: true })} onBack={() => {}} />);
-    expect(container.textContent).toContain('加载中…');
-    expect(within(container).getByTestId('detail-note') !== null).toBe(true);
-    expect(within(container).queryByTestId('error-note')).toBeNull();
+    rerenderDetail(view, state({ loading: true }), ROOT);
+    expect(view.container.textContent).toContain('加载中…');
+    expect(within(view.container).getByTestId('detail-note') !== null).toBe(true);
+    expect(within(view.container).queryByTestId('error-note')).toBeNull();
 
-    rerender(<ChangeDetailView state={state({ error: 'IPC 断开' })} onBack={() => {}} />);
-    expect(container.textContent).toContain('详情加载失败：IPC 断开');
-    const note = within(container).getByTestId('error-note');
+    rerenderDetail(view, state({ error: 'IPC 断开' }), ROOT);
+    expect(view.container.textContent).toContain('详情加载失败：IPC 断开');
+    const note = within(view.container).getByTestId('error-note');
     expect(note.textContent).toContain('详情加载失败：IPC 断开');
-    expect(within(container).queryByTestId('detail-note')).toBeNull();
+    expect(within(view.container).queryByTestId('detail-note')).toBeNull();
   });
 
   it('loading 中已有 detail 不回落加载占位，刷新按钮禁用', () => {
-    render(
-      <ChangeDetailView state={state({ loading: true, detail: detail() })} onBack={() => {}} />,
-    );
+    renderDetail(state({ loading: true, detail: detail() }));
     expect(screen.queryByText('加载中…')).toBeNull();
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
     expect(screen.getByRole('button', { name: '刷新详情' }).hasAttribute('disabled')).toBe(true);
+  });
+});
+
+describe('ChangeDetailView：路由参数取数、深链与根切换抑制（页面自取数）', () => {
+  it('详情路由 /changes/:name：useChangeDetail 以 (root, name) 调用恰一次', () => {
+    renderDetail(state({ detail: detail() }));
+
+    expect(useChangeDetailMock).toHaveBeenCalledTimes(1);
+    expect(useChangeDetailMock).toHaveBeenCalledWith(ROOT, 'add-feature');
+  });
+
+  it('未知 change 深链透传（/changes/ghost）：选中态不做校验、以 (root, ghost) 调用，呈现交由 detail 态（降级页）且不崩', () => {
+    renderDetail(state({}), ROOT, '/changes/ghost');
+
+    expect(useChangeDetailMock).toHaveBeenCalledWith(ROOT, 'ghost');
+    // detail=null → 既有「未找到该 change。」降级兜底，返回入口在场
+    expect(screen.getByText('未找到该 change。') !== null).toBe(true);
+    expect(screen.getByRole('button', { name: '← 返回列表' }) !== null).toBe(true);
+  });
+
+  it('详情态以新 root 重渲染：过渡轮 useChangeDetail 以 (新root, null) 调用（旧名抑制），随后 replace 导航落 /changes；再入详情恢复 (新root, 新名) 取数', async () => {
+    const view = renderDetail(state({ detail: detail() }));
+    expect(useChangeDetailMock).toHaveBeenCalledWith(ROOT, 'add-feature');
+
+    rerenderDetail(view, state({ detail: detail() }), SECOND);
+
+    // 导航落点：/changes（URL 无 :name 段）
+    await waitFor(() => expect(probePathname()).toBe('/changes'));
+    expect(screen.getByTestId('nav-stub') !== null).toBe(true);
+
+    // 抑制不变量：一旦过渡轮 (新root, null) 出现，其后不再有 (新root, 非null) 入参
+    // （抑制位随组件卸载终结；端到端「无新根 + 旧名误发」由 app.test 的 invoke 记录承接）
+    const calls = useChangeDetailMock.mock.calls as Array<[string, string | null]>;
+    const firstSuppressed = calls.findIndex(([root, change]) => root === SECOND && change === null);
+    expect(firstSuppressed).toBeGreaterThan(-1);
+    expect(
+      calls.slice(firstSuppressed).some(([root, change]) => root === SECOND && change !== null),
+    ).toBe(false);
+
+    // 组件卸载后抑制不残留：再入详情（新根 + 新名）恢复正常取数
+    fireEvent.click(screen.getByTestId('nav-stub'));
+    expect(probePathname()).toBe('/changes/beta-fix');
+    expect(useChangeDetailMock).toHaveBeenLastCalledWith(SECOND, 'beta-fix');
   });
 });

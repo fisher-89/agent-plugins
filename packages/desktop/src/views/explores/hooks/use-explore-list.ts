@@ -65,7 +65,6 @@ function useExploreActions(
 /**
  * 探索清单 hook：root 变更与显式动作触发取数（invoke("list_explore_records")），
  * 无轮询。清单数据带归属 root 标记——root 切换的过渡轮不呈现旧根记录（抑制
- * 「新根 + 旧选中」串数据，照 ChangeView 过渡抑制哲学）。
  * create / rename / remove 为薄动作封装（invoke 后 refresh）；组件不直接 invoke。
  */
 export function useExploreList(root: string | null): ExploreListState {

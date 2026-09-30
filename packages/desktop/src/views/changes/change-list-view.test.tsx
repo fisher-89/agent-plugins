@@ -1,9 +1,39 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
+import { MemoryRouter, Route, Routes, useLocation } from 'react-router';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ChangeListState } from '../../hooks/use-change-list';
 import type { ChangeList } from '../../types/dto';
 import { ChangeListView } from './change-list-view';
+import type { ChangeListState } from './hooks/use-change-list';
+
+// 清单取数与行点击导航均下沉清单页（useChangeList / useNavigate 在组件内调用）：
+// 取数纪律已在 hooks 层被测，此处 mock 为受控 vi.fn 回灌状态（对齐
+// change-detail-view.test 对 useChangeDetail 的替身模式），布线断言直接观察
+// hook 入参；MemoryRouter + Routes 为测试装置，提供 useNavigate 上下文并以
+// LocationProbe 观察导航落点。
+const { useChangeListMock } = vi.hoisted(() => ({ useChangeListMock: vi.fn() }));
+
+vi.mock('./hooks/use-change-list', () => ({ useChangeList: useChangeListMock }));
+
+const ROOT = '/repo';
+
+/** URL 探针：把 MemoryRouter 当前 pathname 投影到 DOM 供断言。 */
+function LocationProbe() {
+  const { pathname } = useLocation();
+  return <span data-testid="location-probe">{pathname}</span>;
+}
+
+function listTree() {
+  return (
+    <MemoryRouter initialEntries={['/changes']}>
+      <Routes>
+        <Route path="/changes" element={<ChangeListView root={ROOT} />} />
+        <Route path="/changes/:name" element={<span data-testid="detail-stub" />} />
+      </Routes>
+      <LocationProbe />
+    </MemoryRouter>
+  );
+}
 
 /** 以 fixture DTO 构造列表状态（取数已在 hooks 层被测，此处直接注入状态）。 */
 function state(
@@ -16,6 +46,16 @@ function state(
     refresh: () => {},
     ...overrides,
   };
+}
+
+/** 装置：回灌受控列表态后渲染清单页（root 固定 '/repo'）。 */
+function renderList(s: ChangeListState) {
+  useChangeListMock.mockReturnValue(s);
+  return render(listTree());
+}
+
+function probePathname(): string {
+  return screen.getByTestId('location-probe').textContent ?? '';
 }
 
 const fixtureList: ChangeList = {
@@ -70,8 +110,13 @@ const fixtureList: ChangeList = {
 };
 
 describe('ChangeListView：分组列表、代际徽标与进入详情', () => {
+  it('清单页自取数布线：useChangeList 以 root 入参调用', () => {
+    renderList(state({ data: fixtureList }));
+    expect(useChangeListMock).toHaveBeenCalledWith(ROOT);
+  });
+
   it('active 列表逐条渲染并带正确代际徽标（v2 / v1 / v0）', () => {
-    render(<ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />);
+    renderList(state({ data: fixtureList }));
     expect(screen.getByText('add-feature') !== null).toBe(true);
     expect(screen.getByText('docs-only') !== null).toBe(true);
     // 徽标宿主为 Badge 组件（INVENTORY_VARIANT 显式映射），在各 change-row 作用域内收集文本
@@ -82,7 +127,7 @@ describe('ChangeListView：分组列表、代际徽标与进入详情', () => {
   });
 
   it('archive 按月分组渲染，month=null 的"未知时间"组渲染在序列尾', () => {
-    render(<ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />);
+    renderList(state({ data: fixtureList }));
     const headings = screen.getAllByRole('heading').map((h) => h.textContent ?? '');
     expect(headings.some((text) => text.startsWith('2026-09'))).toBe(true);
     expect(headings.some((text) => text.startsWith('2026-05'))).toBe(true);
@@ -92,45 +137,37 @@ describe('ChangeListView：分组列表、代际徽标与进入详情', () => {
     expect(screen.getByText('no-date-archived') !== null).toBe(true);
   });
 
-  it('点击 change 条目触发进入详情回调并携带 change 名', () => {
-    const onSelect = vi.fn();
-    render(<ChangeListView state={state({ data: fixtureList })} onSelect={onSelect} />);
+  it('点击 change 条目 → 显式 navigate 落 /changes/:name（携带 change 名）', () => {
+    renderList(state({ data: fixtureList }));
     fireEvent.click(screen.getByText('add-feature'));
-    expect(onSelect).toHaveBeenCalledWith('add-feature');
+    expect(probePathname()).toBe('/changes/add-feature');
+    expect(screen.getByTestId('detail-stub') !== null).toBe(true);
   });
 
   it('error 状态渲染错误提示，不白屏', () => {
-    render(<ChangeListView state={state({ error: 'IPC 断开' })} onSelect={() => {}} />);
+    renderList(state({ error: 'IPC 断开' }));
     expect(screen.getByText(/列表加载失败：IPC 断开/) !== null).toBe(true);
   });
 
   it('loading 态与空数据渲染空态提示', () => {
-    const { container, rerender } = render(
-      <ChangeListView state={state({ loading: true })} onSelect={() => {}} />,
-    );
-    expect(container.textContent).toContain('加载中');
+    const view = renderList(state({ loading: true }));
+    expect(view.container.textContent).toContain('加载中');
 
     // 空数据：无 active、无分组 → 引导文案
-    rerender(
-      <ChangeListView
-        state={state({ data: { active: [], archiveGroups: [] } })}
-        onSelect={() => {}}
-      />,
-    );
-    expect(container.textContent).toContain('未发现任何 change 目录');
+    useChangeListMock.mockReturnValue(state({ data: { active: [], archiveGroups: [] } }));
+    view.rerender(listTree());
+    expect(view.container.textContent).toContain('未发现任何 change 目录');
   });
 
   it('unparsable 条目附"无法解析"标注且仍入列', () => {
-    render(<ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />);
+    renderList(state({ data: fixtureList }));
     expect(screen.getByText('workflow.json 无法解析') !== null).toBe(true);
   });
 });
 
 describe('ChangeListView：created / 错误条 / 空态提示的分支形态', () => {
   it('created 为 null 的条目不渲染日期，非空条目渲染日期', () => {
-    const { container } = render(
-      <ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />,
-    );
+    const { container } = renderList(state({ data: fixtureList }));
     // 按钮名本身含日期前缀，因此必须精确断言 created 挂钩的文本而非整页 textContent
     const createdTexts = screen.getAllByTestId('created').map((span) => span.textContent ?? '');
     expect(createdTexts).toEqual(expect.arrayContaining(['2026-09-01', '2026-05-15']));
@@ -141,51 +178,37 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
   });
 
   it('无错误时不渲染错误提示条', () => {
-    render(<ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />);
+    renderList(state({ data: fixtureList }));
     expect(screen.queryByTestId('error-note')).toBeNull();
   });
 
   it('暂无数据提示仅在空闲、无数据且无错误时出现', () => {
-    const idle = render(<ChangeListView state={state({})} onSelect={() => {}} />);
+    const idle = renderList(state({}));
     expect(idle.container.textContent).toContain('暂无数据，点击刷新获取。');
 
-    const loadingState = render(
-      <ChangeListView state={state({ loading: true })} onSelect={() => {}} />,
-    );
+    const loadingState = renderList(state({ loading: true }));
     expect(loadingState.container.textContent).not.toContain('暂无数据');
     expect(loadingState.container.textContent).toContain('加载中');
 
-    const errorState = render(
-      <ChangeListView state={state({ error: 'IPC 断开' })} onSelect={() => {}} />,
-    );
+    const errorState = renderList(state({ error: 'IPC 断开' }));
     expect(errorState.container.textContent).not.toContain('暂无数据');
     expect(errorState.container.textContent).toContain('列表加载失败');
 
-    const withData = render(
-      <ChangeListView state={state({ data: fixtureList })} onSelect={() => {}} />,
-    );
+    const withData = renderList(state({ data: fixtureList }));
     expect(withData.container.textContent).not.toContain('暂无数据');
   });
 
   it('active 为空但 archive 有分组时提示无进行中而不提示 workspace 为空', () => {
     const firstGroup = fixtureList.archiveGroups[0];
-    const { container } = render(
-      <ChangeListView
-        state={state({ data: { active: [], archiveGroups: [firstGroup] } })}
-        onSelect={() => {}}
-      />,
-    );
+    const { container } = renderList(state({ data: { active: [], archiveGroups: [firstGroup] } }));
     expect(container.textContent).toContain('无进行中的 change。');
     expect(container.textContent).not.toContain('未发现任何 change 目录');
     expect(container.textContent).toContain('2026-09-01-first');
   });
 
   it('active 与 archive 均有内容时不提示 workspace 为空', () => {
-    const { container } = render(
-      <ChangeListView
-        state={state({ data: { active: [fixtureList.active[0]], archiveGroups: [] } })}
-        onSelect={() => {}}
-      />,
+    const { container } = renderList(
+      state({ data: { active: [fixtureList.active[0]], archiveGroups: [] } }),
     );
     expect(container.textContent).not.toContain('未发现任何 change 目录');
     expect(container.textContent).toContain('add-feature');
@@ -195,9 +218,7 @@ describe('ChangeListView：created / 错误条 / 空态提示的分支形态', (
 describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入）', () => {
   it('头部行先于 error-note 与数据区渲染，且 loading / error / 空数据 / 有数据四形态下「刷新列表」按钮均存在', () => {
     // error 态：头部行是根节点的第一个子元素，先于 error-note
-    const withError = render(
-      <ChangeListView state={state({ error: 'IPC 断开' })} onSelect={() => {}} />,
-    );
+    const withError = renderList(state({ error: 'IPC 断开' }));
     const root = withError.container.firstElementChild;
     const headerRow = screen.getByRole('button', { name: '刷新列表' }).parentElement;
     expect(headerRow).not.toBeNull();
@@ -213,7 +234,7 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
       state({ data: fixtureList }),
     ];
     for (const shape of shapes) {
-      const view = render(<ChangeListView state={shape} onSelect={() => {}} />);
+      const view = renderList(shape);
       expect(within(view.container).getByRole('button', { name: '刷新列表' }) !== null).toBe(true);
       view.unmount();
     }
@@ -221,7 +242,7 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
 
   it('点击「刷新列表」→ state.refresh 调用恰一次', () => {
     const refresh = vi.fn();
-    render(<ChangeListView state={state({ refresh })} onSelect={() => {}} />);
+    renderList(state({ refresh }));
 
     fireEvent.click(screen.getByRole('button', { name: '刷新列表' }));
 
@@ -230,7 +251,7 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
 
   it('loading=true：按钮 disabled、点击不触发 refresh（disabled={state.loading}）', () => {
     const refresh = vi.fn();
-    render(<ChangeListView state={state({ loading: true, refresh })} onSelect={() => {}} />);
+    renderList(state({ loading: true, refresh }));
 
     const button = screen.getByRole('button', { name: '刷新列表' });
     expect(button.hasAttribute('disabled')).toBe(true);
@@ -240,7 +261,7 @@ describe('ChangeListView：头部刷新行（刷新入口自 App header 迁入�
 
   it('空数据态（「暂无数据，点击刷新获取。」文案在场）：按钮仍可操作、点击触发 refresh', () => {
     const refresh = vi.fn();
-    render(<ChangeListView state={state({ data: null, refresh })} onSelect={() => {}} />);
+    renderList(state({ data: null, refresh }));
 
     expect(screen.getByText('暂无数据，点击刷新获取。') !== null).toBe(true);
     const button = screen.getByRole('button', { name: '刷新列表' });

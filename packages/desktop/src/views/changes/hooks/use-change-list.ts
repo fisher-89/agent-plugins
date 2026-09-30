@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type ChangeList } from '../types/generated/bindings';
+import { commands, type ChangeList } from '../../../types/generated/bindings';
 
 export interface ChangeListState {
   data: ChangeList | null;

@@ -58,7 +58,7 @@ header SHALL 瘦身为终态：折叠钮 + 标题（Desktop Terminal）+ 版本/
 #### Scenario: 导航组切换
 
 - **WHEN** 用户点击「页面」组的「变更」或「系统工具」组的「Agent 调试」/「数据库」
-- **THEN** 主内容区切至对应视图（ChangeView / AgentDebugView / DbInspectorView），依赖 router，workspace 清单组仍在
+- **THEN** 主内容区切至对应视图（变更页 ChangeListView / ChangeDetailView、AgentDebugView、DbInspectorView），依赖 router，workspace 清单组仍在
 - **AND** 点回「变更」经 `/changes` 路由恢复 change 视图；选中不保留——选中随 URL 消失显示清单（desktop-page-routing 能力「选中重置语义保持」）
 
 #### Scenario: 欢迎态隔离
@@ -364,7 +364,7 @@ desktop 前端样式 SHALL 以 Tailwind v4 为唯一样式体系:
 | `dev-team::commands::workspaces` | workspace 注册命令轨道 | list_workspaces / add_workspace / remove_workspace；`State<Store>`；`Result<T, String>` |
 | `dev-team::commands::exec` | 执行轨道（已开通） | `agent_start`（三件事，编排收 `run_agent()`）/ `agent_runs` / `agent_run_events`（薄包装）；`Result<T, String>`；无空壳 Executor trait |
 | `dev-team::commands::db`（新轨道） | db 查看命令轨道 | `db_models` / `db_records` 只读薄包装；`State<Store>` → 信封 API；`Result<T, String>`；命名 design 可调 |
-| 前端 `hooks/` | 取数收口 | useChangeList / useChangeDetail / useWorkspaces；显式刷新触发（useWorkspaces 启动自动一次） |
+| 前端 hooks | 取数收口 | useWorkspaces / useUpdater 留 App 域（`src/hooks/`）；页面域取数 hooks 就近页面（`views/**/hooks/`，如 use-change-list / use-change-detail）；显式刷新触发（useWorkspaces 启动自动一次） |
 | agent 域前端 hooks（新） | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 重放查询；查询仍显式触发 |
 | `packages/desktop/src/hooks/use-workspaces.ts` | 错误双轨收口 | 动作失败 toast（add/remove）；error 态收窄为清单加载失败（查询 inline 持久）；切换为本地 select（清单默认序不重排；root 在清单则保持、被移除顺延第一名）；add 成功直接以返回记录 root 为当前根 |
 | 前端视图 | 列表 / 流水线 / 产物区渲染 + 欢迎屏空态 / sidebar 侧栏 | 消费 DTO 与 ArtifactEnvelope；未注册 kind 由 Fallback 兜底 |

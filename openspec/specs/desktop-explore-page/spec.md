@@ -89,7 +89,7 @@ agent 会话中落盘的新 explore 文件 MUST NOT 自动进入清单（绑定�
 
 ### Requirement: workspace 切换回列表
 
-详情页在 workspace 切换（select / 移除当前根 / 添加新根）时 SHALL replace 导航回 `/explores`（照 `ChangeView` 既有模式：过渡轮抑制误发查询），MUST NOT 以旧 workspace 的选中名发起新根查询。watch 订阅生命周期 SHALL 即详情页生命周期（卸载即退订）。
+详情页在 workspace 切换（select / 移除当前根 / 添加新根）时 SHALL replace 导航回 `/explores`，MUST NOT 以旧 workspace 的选中名发起新根查询。watch 订阅生命周期 SHALL 即详情页生命周期（卸载即退订）。
 
 #### Scenario: 根切换落清单
 

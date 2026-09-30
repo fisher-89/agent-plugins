@@ -1,12 +1,5 @@
-import {
-  Background,
-  BackgroundVariant,
-  ReactFlow,
-  ReactFlowProvider,
-  useReactFlow,
-  type Edge,
-} from '@xyflow/react';
-import { useEffect, useMemo } from 'react';
+import { ReactFlow, ReactFlowProvider, type Edge } from '@xyflow/react';
+import { useMemo } from 'react';
 
 import '@xyflow/react/dist/style.css';
 
@@ -36,8 +29,6 @@ interface ChangeFlowGraphProps {
 
 const nodeTypes = { column: PhaseColumnNode, event: FlowEventNode };
 
-const fitOptions = { padding: 0.1, maxZoom: 1 };
-
 /** 列内事件数 → 列容器高度（COLUMN_HEADER_H + 列内节点数 × ROW_H + COLUMN_PAD_Y） */
 function columnHeight(graph: FlowGraph, columnId: string): number {
   let count = 0;
@@ -45,6 +36,23 @@ function columnHeight(graph: FlowGraph, columnId: string): number {
     if (node.parentId === columnId) count += 1;
   }
   return COLUMN_HEADER_H + count * ROW_H + COLUMN_PAD_Y;
+}
+
+/** 平移边距：内容包围盒向四周外扩量（视口最多越出节点范围至此） */
+const PAN_MARGIN = 24;
+
+/** 图内容包围盒 + PAN_MARGIN → translateExtent：平移不越出节点范围 + 少量边距 */
+function graphTranslateExtent(graph: FlowGraph): [[number, number], [number, number]] {
+  let maxX = 0;
+  let maxY = 0;
+  for (const column of graph.columns) {
+    maxX = Math.max(maxX, nodePosition(column).x + COL_W);
+    maxY = Math.max(maxY, columnHeight(graph, column.id));
+  }
+  return [
+    [-PAN_MARGIN, -PAN_MARGIN],
+    [maxX + PAN_MARGIN, maxY + PAN_MARGIN],
+  ];
 }
 
 function toChartNodes(
@@ -88,17 +96,15 @@ function toChartEdges(edges: FlowEdge[]): Edge[] {
   }));
 }
 
-/** 画布内层：图数据引用变化（显式 refresh 后新 graph）时重新 fitView */
+/** 画布内层：默认 100% 视口；滚轮（含 Ctrl+滚轮）平移画布而非缩放，平移范围
+ *  translateExtent 钳制在内容包围盒 + 少量边距内（无点背景，与周边 DOM 融合） */
 function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React.JSX.Element {
-  const { fitView } = useReactFlow();
   const nodes = useMemo(
     () => toChartNodes(graph, materials, onSelect),
     [graph, materials, onSelect],
   );
   const edges = useMemo(() => toChartEdges(graph.edges), [graph.edges]);
-  useEffect(() => {
-    void fitView({ ...fitOptions, duration: 120 });
-  }, [graph, fitView]);
+  const translateExtent = useMemo(() => graphTranslateExtent(graph), [graph]);
   const onNodeClick = (_event: unknown, node: ChartNode): void => {
     if (node.type === 'event') onSelect({ scope: 'node', nodeId: node.id });
   };
@@ -114,12 +120,12 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
         onNodeClick={onNodeClick}
         nodesDraggable={false}
         nodesConnectable={false}
-        fitView
-        fitViewOptions={fitOptions}
-        minZoom={0.15}
-      >
-        <Background variant={BackgroundVariant.Dots} />
-      </ReactFlow>
+        defaultViewport={{ x: 0, y: 0, zoom: 1 }}
+        translateExtent={translateExtent}
+        zoomOnScroll={false}
+        zoomOnPinch={false}
+        panOnScroll
+      />
     </div>
   );
 }

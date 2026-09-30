@@ -1,7 +1,7 @@
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { ChangeList } from '../types/dto';
+import type { ChangeList } from '../../../types/dto';
 import { useChangeList } from './use-change-list';
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));

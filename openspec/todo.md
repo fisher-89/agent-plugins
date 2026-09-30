@@ -30,7 +30,7 @@
 - [x] 【Desktop】移除移动端判断，系统只用在PC
 - [x] 【Desktop】接入页面路由
 - [x] 【Desktop】将agent会话抽出独立组件，agent调试和explore复用同一个底层
-- [ ] 【Desktop】调用agent支持配置api key，指定模型；收集会话耗时，循环轮次，消耗token数；
+- [ ] ⭐【Desktop】调用agent支持配置api key，指定模型；收集会话耗时，循环轮次，消耗token数；
 - [x] 【Desktop】数据库依赖升级为native_db；增加查看db页面，与调试agent一并收入“系统工具”；规划crates/infra/store架构，适应未来扩展更多的数据结构；
 - [x] 【Desktop】rust生成ts类型
 - [x] 【Desktop】移除store migrate
@@ -50,3 +50,4 @@
 - [x] 【Desktop】main.rs中DATA_DIR也一并收入常量文件
 - [x] 【Desktop】changeDetail 多个文档改为tab切换
 - [ ] 【Desktop】infra/store扩展文件读写能力，将内核中读取特定文件的能力改为infra注入，内核不应感知持久化存储是数据库还是文件
+- [ ] ⭐【【Desktop】增加全局agent管理，不关联工作区；每个agent可自定义名称，选择agent engine，配置url、api_key等参数；配置好的agent实例与workspace关联；

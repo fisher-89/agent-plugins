@@ -982,7 +982,7 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
   });
 
-  it('侧栏点击「Agent 调试」→ hash 落 #/agent、AgentDebugView 呈现、ChangeView 内容卸载；点击「变更」→ hash 回 #/changes 切回清单', async () => {
+  it('侧栏点击「Agent 调试」→ hash 落 #/agent、AgentDebugView 呈现、变更页内容卸载；点击「变更」→ hash 回 #/changes 切回清单', async () => {
     await restored();
 
     fireEvent.click(screen.getByTestId('nav-agent'));
@@ -1015,7 +1015,7 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
   });
 
-  it('切至 db 页再切回 changes：list_changes / list_workspaces 调用次数不增长（切页不触发取数）', async () => {
+  it('切至 db 页再切回 changes：清单页重挂重发 list_changes 恰一次、list_workspaces 不增长（清单取数入清单页）', async () => {
     await restored();
 
     const listChangesBefore = countOf('list_changes');
@@ -1026,7 +1026,8 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     fireEvent.click(screen.getByTestId('nav-changes'));
     await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
 
-    expect(countOf('list_changes')).toBe(listChangesBefore);
+    // 清单页卸载重挂即重取：list_changes 恰新增一次；workspace 清单仍留 App 层不重发
+    expect(countOf('list_changes')).toBe(listChangesBefore + 1);
     expect(countOf('list_workspaces')).toBe(listWorkspacesBefore);
   });
 
@@ -1079,7 +1080,7 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(countOf('get_change_detail')).toBe(1);
   });
 
-  it('useChangeList 留在 App 层不随路由切换卸载：切页往返不重发 list_workspaces（清单数据不丢）', async () => {
+  it('change 清单取数入清单页：切页往返 list_changes 随挂载重发、list_workspaces 仍留 App 层不重发', async () => {
     await restored();
 
     const workspacesBefore = countOf('list_workspaces');
@@ -1092,10 +1093,12 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
 
     expect(countOf('list_workspaces')).toBe(workspacesBefore);
-    expect(countOf('list_changes')).toBe(listChangesBefore);
-    // 清单数据仍驻留：切回 changes 后无需重取即可见
+    // /changes 重挂一次即重取一次（清单数据随清单页生命周期，不留 App 层）
+    expect(countOf('list_changes')).toBe(listChangesBefore + 1);
+    // 重挂取数后清单照常可见
     fireEvent.click(screen.getByTestId('nav-changes'));
-    expect(screen.getByText('add-feature') !== null).toBe(true);
+    await waitFor(() => expect(screen.getByText('add-feature') !== null).toBe(true));
+    expect(countOf('list_changes')).toBe(listChangesBefore + 2);
   });
 
   it('导航点击不触发任何 workspace 命令（两入口语义不串扰）', async () => {
@@ -1271,7 +1274,7 @@ describe('App：HashRouter 自含挂载与路由初态（D2/D6/D7）', () => {
     expect(window.location.hash).toBe('#/agent');
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('true');
     expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('false');
-    // Agent 页不挂 ChangeView：无 detail 取数
+    // Agent 页不挂变更页：无 detail 取数
     expect(countOf('get_change_detail')).toBe(0);
   });
 

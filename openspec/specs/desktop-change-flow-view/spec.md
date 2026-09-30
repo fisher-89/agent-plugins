@@ -28,7 +28,7 @@ interrupted 节点 SHALL 独立成节点，MUST NOT 与后续同号 eval 节点�
 
 ### Requirement: 9 列手工坐标布局
 
-布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = PIPELINE_PHASES.indexOf(phase) × COL_W`（9 列恒定，未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部事件 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章。COL_W / ROW_H 常量取值与 fitView 策略由 design 定夺。
+布局 SHALL 采用手工坐标，MUST NOT 引入 dagre / elk 等自动布局引擎：`x = PIPELINE_PHASES.indexOf(phase) × COL_W`（9 列恒定，未走过的站呈现空列），`y = 列内执行序 × ROW_H`。同 phase 的全部事件 SHALL 纵向对齐成一列。phase 列 SHALL 以 react-flow v12 subflow 承载（`parentId` + `extent: 'parent'`），列头展示 phase 名与该站过程文档徽章。COL_W / ROW_H 常量取值由 design 定夺。视口 SHALL 默认 100% 缩放（MUST NOT 初始 fitView 适配），滚轮 SHALL 平移画布（滚轮缩放 MUST NOT 触发），显式刷新重绘时 SHALL 保留当前视口。
 
 #### Scenario: 列对齐与空列恒定
 
@@ -145,7 +145,7 @@ phase 列头与 attempt 节点 SHALL 提供同一交互入口：点击打开右�
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
 | `packages/desktop/src/views/changes/flow/`（新，命名 design 定） | 纯函数转换层 | `detail → { nodes, edges }`：x = `PIPELINE_PHASES` 列索引 × COL_W、y = 列内执行序 × ROW_H；节点三分类；O(n) 时间序边推导；attempt 缺号 0 兜底；文档→列静态映射表；无 invoke、无 react 状态依赖 |
-| ReactFlow 渲染薄层组件（新） | 图呈现 | `@xyflow/react` v12 subflow（`parentId` + `extent: 'parent'`）；9 列恒定 + fitView；eval 实心 / active pulse / interrupted dashed / stale 半透明 |
+| ReactFlow 渲染薄层组件（新） | 图呈现 | `@xyflow/react` v12 subflow（`parentId` + `extent: 'parent'`）；9 列恒定 + 默认 100% 视口 + 滚轮平移（禁滚轮缩放）；eval 实心 / active pulse / interrupted dashed / stale 半透明 |
 | phase 列头 + 自定义节点组件（新） | 列容器与节点 | 列头：phase 名 + 过程文档徽章；节点：verdict 视觉 + attempt 序号；点击统一进抽屉 |
 | 右侧抽屉组件（新） | 素材详情 | 三分节【本站文档 / eval report+checklist / 文件表】；文档节复用 `renderers/registry`（`ArtifactView`）；单一交互入口 |
 | `packages/desktop/src/views/changes/change-detail-view.tsx` | 页面组装 | Header + 流程图 + workflow 独立面板（`scope='workflow'` file_log）+ 产物区；v0 空图占位 / v1 无文件区降级；`unparsable` 警示与降级页保留 |
