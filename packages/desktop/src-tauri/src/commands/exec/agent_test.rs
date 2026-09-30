@@ -26,8 +26,9 @@ use ::agent::{
 use store::{AgentRunRecord, Store, WorkspaceStores};
 
 use super::{
-    abort_with_store_failure, drive_agent_run, running_record, start_agent_run,
-    start_agent_run_with, AgentRunMessage, RunProvenance, RunStopRegistry,
+    abort_with_store_failure, drive_agent_run, find_events_by_session, running_record,
+    start_agent_run, start_agent_run_with, AgentRunMessage, RunProvenance, RunStopRegistry,
+    DEFAULT_ENGINE,
 };
 
 /// PATH 环境变量修改串行化（agent_start 同款用例经 mod_test 共享此锁）。
@@ -707,6 +708,7 @@ fn start_agent_run隔离path时走薄入口全链返回err且store无run行() {
         capturing_channel().0,
         params(&real_ws_dir(dir.path())),
         RunProvenance::debug(),
+        agent_runtime::EngineKind::Cli,
     );
     match original {
         Some(value) => std::env::set_var("PATH", value),
@@ -863,4 +865,273 @@ fn agent_run_message信封serde线格式双变体逐字不变() {
         serde_json::json!("running"),
         "记录内枚举出线为受控 camelCase 串"
     );
+}
+
+// ---------------------------------------------------------------------------
+// dyn 注入缝（v2 编排签名）：`Box<dyn AgentRunner>` 经 `&dyn` 缝注入编排，
+// tee 双 sink 与终态流出行为与原泛型形态一致（AC-1 / AC-8 编排零改动证据）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn box_dyn_runner经dyn缝注入编排_tee双sink与终态record流出与泛型形态一致() {
+    let (dir, app) = temp_app_stores("dyn-seam");
+    let stores = app.state::<WorkspaceStores>();
+    let ws_dir = real_ws_dir(dir.path());
+    let root = ws_dir.to_string_lossy().into_owned();
+    let seeded = vec![
+        run_started(0),
+        message(1, None),
+        run_result(2, false, Some(1)),
+    ];
+    // 门面产 `Box<dyn AgentRunner>`；假 runner 经同缝（&dyn）注入
+    let boxed: Box<dyn AgentRunner> = Box::new(FakeRunner::with_events(seeded.clone()));
+    let (channel, captured) = capturing_channel();
+
+    let running = start_agent_run_with(
+        app.handle().clone(),
+        stores.inner(),
+        boxed.as_ref(),
+        channel,
+        params(&ws_dir),
+        RunProvenance::debug(),
+    )
+    .expect("dyn 缝发起成功（提前 resolve running）");
+    assert_eq!(running.status, AgentRunStatus::Running);
+
+    let record_value = wait_terminal_record(&captured).await;
+    let terminal: AgentRunRecord =
+        serde_json::from_value(record_value["record"].clone()).expect("Record 信封携带终态记录");
+    assert_eq!(
+        terminal.status,
+        AgentRunStatus::Completed,
+        "RunResult 驱动收敛"
+    );
+
+    // store sink：全量落库，重放逐字段保真
+    let store = stores.for_root(&root).expect("for_root 应成功");
+    let stored = store.list_agent_run_events(terminal.id).expect("读回事件");
+    assert_eq!(stored, seeded, "dyn 缝下落库全量一致");
+    // Channel sink：逐事件一致
+    assert_eq!(
+        serde_json::Value::Array(pushed_event_bodies(&captured)),
+        serde_json::to_value(&stored).unwrap(),
+        "dyn 缝下 Channel 逐事件与落库一致"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 编排引擎中立（AC-8「编排代码无引擎分支」）：同一编排体分别驱动 CLI 形态与
+// SDK 形态假 runner（均经 dyn 缝），completed / stopped / failed 三收敛分支
+// 语义不因引擎形态漂移
+// ---------------------------------------------------------------------------
+
+/// CLI 形态预录事件（RunStarted 报 CLI 侧形状）。
+fn cli_shaped_events(is_error: bool) -> Vec<AgentEvent> {
+    vec![
+        run_started(0),
+        message(1, None),
+        run_result(2, is_error, Some(1)),
+    ]
+}
+
+/// SDK 形态预录事件（`sdk-` 前缀会话 + ToolUse/ToolResult 块形状）。
+fn sdk_shaped_events(is_error: bool) -> Vec<AgentEvent> {
+    vec![
+        AgentEvent::stamp(
+            0,
+            AgentEventKind::RunStarted {
+                model: Some("rig-model".to_owned()),
+                session_id: Some("sdk-0-1727000000000".to_owned()),
+                tools: vec!["read".to_owned(), "write".to_owned()],
+                mcp_servers: Vec::new(),
+            },
+        ),
+        AgentEvent::stamp(
+            1,
+            AgentEventKind::Message {
+                role: "assistant".to_owned(),
+                blocks: vec![::agent::AgentBlock::ToolUse {
+                    id: "tu_sdk".to_owned(),
+                    name: "read".to_owned(),
+                    input: serde_json::json!({ "path": "a.txt" }),
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        AgentEvent::stamp(
+            2,
+            AgentEventKind::Message {
+                role: "user".to_owned(),
+                blocks: vec![::agent::AgentBlock::ToolResult {
+                    id: "tu_sdk".to_owned(),
+                    content: "内容".to_owned(),
+                    is_error: false,
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        run_result(3, is_error, Some(2)),
+    ]
+}
+
+#[tokio::test]
+async fn 同一编排体驱动cli与sdk两形态假runner_三收敛分支语义不漂移() {
+    let (_dir, store) = temp_store("engine-neutral");
+    let registry = RunStopRegistry::default();
+
+    // completed / failed：两形态各自的 RunResult 驱动收敛一致
+    let cases: [(String, Vec<AgentEvent>, AgentRunStatus); 4] = [
+        (
+            "cli-completed".to_owned(),
+            cli_shaped_events(false),
+            AgentRunStatus::Completed,
+        ),
+        (
+            "sdk-completed".to_owned(),
+            sdk_shaped_events(false),
+            AgentRunStatus::Completed,
+        ),
+        (
+            "cli-failed".to_owned(),
+            cli_shaped_events(true),
+            AgentRunStatus::Failed,
+        ),
+        (
+            "sdk-failed".to_owned(),
+            sdk_shaped_events(true),
+            AgentRunStatus::Failed,
+        ),
+    ];
+    for (label, events, expected) in cases {
+        let boxed: Box<dyn AgentRunner> = Box::new(FakeRunner::with_events(events));
+        let (channel, captured) = capturing_channel();
+        let run = boxed
+            .start(params(Path::new("C:\\ws")))
+            .expect("假 runner 启动成功");
+        let record = begin_running(&store);
+        registry.register("C:\\ws", record.id, RunHandle::default());
+
+        let final_record = drive_agent_run(&store, channel, run, record, &registry).await;
+        assert_eq!(
+            final_record.status, expected,
+            "{label} 收敛分支不因引擎形态漂移"
+        );
+        let terminal = wait_terminal_record(&captured).await;
+        assert_eq!(
+            terminal["record"]["status"],
+            serde_json::to_value(&expected).unwrap(),
+            "{label} 终态信封出线一致"
+        );
+    }
+
+    // stopped：停止信号置位后两形态同收敛 stopped（不因引擎形态漂移）
+    for (label, mut events) in [
+        ("cli-stopped", cli_shaped_events(false)),
+        ("sdk-stopped", sdk_shaped_events(false)),
+    ] {
+        events.pop(); // 去掉 RunResult：流保持打开直至停止（无 result 可收敛）
+        let boxed: Box<dyn AgentRunner> = Box::new(FakeRunner::with_events_held_until_stop(events));
+        let (channel, _captured) = capturing_channel();
+        let run = boxed
+            .start(params(Path::new("C:\\ws")))
+            .expect("假 runner 启动成功");
+        run.handle.request_stop();
+        let record = begin_running(&store);
+        registry.register("C:\\ws", record.id, RunHandle::default());
+
+        let final_record = drive_agent_run(&store, channel, run, record, &registry).await;
+        assert_eq!(
+            final_record.status,
+            AgentRunStatus::Stopped,
+            "{label} 停止收敛语义一致"
+        );
+        assert_eq!(final_record.error, None, "{label} 停止不记因");
+    }
+}
+
+// ---------------------------------------------------------------------------
+// DEFAULT_ENGINE 硬编码位（v2）：常量恒等 Sdk 且 pub(crate) 可自消费点触达
+// ---------------------------------------------------------------------------
+
+#[test]
+fn default_engine硬编码位恒等sdk且与engine_config硬编码位同点成对() {
+    // 常量恒等 EngineKind::Sdk（mod.rs 消费点 unwrap_or(DEFAULT_ENGINE) 的
+    // 缺省收敛取值；pub(crate) 可达性由本用例编译期锚定）
+    assert_eq!(DEFAULT_ENGINE, agent_runtime::EngineKind::Sdk);
+    // 与 EngineConfig::from_hardcoded_slot() 同座位成对：换源时单一改动点
+    let _paired_slot = agent_runtime::EngineConfig::from_hardcoded_slot();
+    // serde 线格式镜像（IPC 缺省裁决取值的出线形态）
+    let serialized = serde_json::to_string(&DEFAULT_ENGINE).expect("序列化成功");
+    assert_eq!(serialized, "\"sdk\"");
+}
+
+// ---------------------------------------------------------------------------
+// find_events_by_session 辅助（store 既有 API 组合）与 ResumeTranscript
+// loader 组装（sdk 引擎续会话解析的唯一数据面）
+// ---------------------------------------------------------------------------
+
+/// 落一条带 session_id 的 run（begin + finish，落 workspace 库）。
+fn seed_run_with_session(store: &Store, session_id: &str, cwd: &str) -> store::AgentRunRecord {
+    let mut requested = abort_base_record();
+    requested.cwd = cwd.to_owned();
+    requested.session_id = Some(session_id.to_owned());
+    let record = store.begin_agent_run(&requested).expect("begin 应成功");
+    store
+        .finish_agent_run(record.id, &record)
+        .expect("finish 应成功");
+    record
+}
+
+#[test]
+fn find_events_by_session命中返回转录_未命中返回none() {
+    let (_dir, store) = temp_store("find-session");
+    let record = seed_run_with_session(&store, "sdk-1-1727000000000", "C:\\ws");
+    let seeded = vec![run_started(0), message(1, None)];
+    store
+        .append_agent_run_events(record.id, &seeded)
+        .expect("append 应成功");
+
+    // 命中：返回该 run 的事件转录（store 既有 API 组合，无 schema / API 变化）
+    let found = find_events_by_session(&store, "sdk-1-1727000000000").expect("读取应成功");
+    assert_eq!(found.expect("命中"), seeded, "转录逐字段保真");
+
+    // 无命中（不存在 session）：None（loader None 语义 = 会话不存在 / 非 SDK 产出）
+    let miss = find_events_by_session(&store, "sdk-404").expect("读取应成功");
+    assert!(miss.is_none(), "不存在 session 返回 None");
+
+    // 非 workspace 域的裸库（同型 Store 无该 run）同样 None
+    let (_other_dir, other_store) = temp_store("find-session-other");
+    let other = find_events_by_session(&other_store, "sdk-1-1727000000000").expect("读取应成功");
+    assert!(other.is_none(), "他库无该 session 返回 None");
+}
+
+#[test]
+fn resume_transcript_loader组装_sdk前缀命中转录_非sdk前缀返回none() {
+    let (_dir, store) = temp_store("loader-assembly");
+    let record = seed_run_with_session(&store, "sdk-7-1727000000000", "C:\\ws");
+    let seeded = vec![run_started(0), message(1, None)];
+    store
+        .append_agent_run_events(record.id, &seeded)
+        .expect("append 应成功");
+
+    // 组装（start_agent_run 薄入口同款闭包形态）：store 按值捕获进 Arc
+    let loader: agent_runtime::ResumeTranscript = {
+        let store = std::sync::Arc::new(store);
+        std::sync::Arc::new(move |session_id: &str| find_events_by_session(&store, session_id))
+    };
+
+    // `sdk-` 前缀 run 事件读回 Vec<AgentEvent> 转录
+    let transcript = loader("sdk-7-1727000000000")
+        .expect("loader 读取应成功")
+        .expect("sdk- 前缀命中");
+    assert_eq!(transcript, seeded);
+
+    // 非 `sdk-` 前缀 session_id → None（`sdk-` 前缀校验落点；store 侧以
+    // session_id 归属承载，非 sdk 产出会话不落 sdk 前缀 id 自然 miss）
+    let non_sdk = loader("cli-legacy-1").expect("loader 读取应成功");
+    assert!(non_sdk.is_none(), "非 sdk 前缀（无对应 run）返回 None");
+    // v2 起 explore 链 run 亦产 `sdk-` 前缀：同形 `sdk-` id 经组装 loader
+    // 同样命中（归属标记中立， loader 不解释来源）
+    let explore = loader("sdk-99-1727000000999").expect("loader 读取应成功");
+    assert!(explore.is_none(), "未落库的 sdk- 形态 id 同样走 None 语义");
 }

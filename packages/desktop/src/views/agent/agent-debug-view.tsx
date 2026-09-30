@@ -69,7 +69,10 @@ function RunErrorBanner({ error }: { error: string }): React.JSX.Element {
 /**
  * Agent 调试页：参数面 + 实时时间线（原始 JSONL 切换）+ 运行中停止入口 +
  * 历史运行区。页面状态经统一会话基建 use-agent-chat 承载（source="debug"、
- * sourceRef=null 不重放装载，每次发起先 reset 防串场）；时间线经 AgentTimeline
+ * sourceRef=null 不重放装载，每次发起先 reset 防串场）；start 全量透传
+ * AgentStartInput——含 engine 引擎选择（sdk 初始、与后端默认一致 / cli
+ * 显式可选项；引擎选择仅调试页暴露，正式场景无入口，sdk 配置未手填时
+ * 启动以错误横幅显式失败）；时间线经 AgentTimeline
  * 保真透镜、原始流消费 chat 的 events 镜像；run 表单 / 历史列表 / JSONL 开关
  * 为页面级 chrome，包在共享核心外圈。布局接入壳层 flex 链：根 flex-1，流视图
  * 区（时间线 / 原始 JSONL 二选一）填充剩余区域并内部滚动，表单 / 横幅 / 切换

@@ -141,7 +141,8 @@ describe('TauriAgentTransport：sendMessages', () => {
     void stream.cancel();
 
     const args = startCallArgs();
-    expect(args).toEqual({ ...CHAIN_BODY, onEvent: expect.any(ChannelMock) });
+    // engine 键恒在（body 无 engine → 缺席值 null 传递）
+    expect(args).toEqual({ ...CHAIN_BODY, engine: null, onEvent: expect.any(ChannelMock) });
     expect(args['root']).toBe(CHAIN_BODY.root);
     expect(args['prompt']).toBe(CHAIN_BODY.prompt);
     expect(args['permissionMode']).toBe('bypassPermissions');
@@ -149,6 +150,7 @@ describe('TauriAgentTransport：sendMessages', () => {
     expect(args['parentRunId']).toBe(12);
     expect(args['source']).toBe('explore');
     expect(args['sourceRef']).toBe('7');
+    expect(args['engine']).toBeNull();
   });
 
   it('Channel 事件信封逐条经 eventToChunk 转 chunk 流出，顺序保序不重排', async () => {
@@ -287,6 +289,53 @@ describe('TauriAgentTransport：启动失败', () => {
 });
 
 // ---------------------------------------------------------------------------
+// readChainParams engine 读取（v2）：engine 可缺席（null → 后端默认 agent），
+// 清单外值拒绝；invoke 第 9 位置参数面
+// ---------------------------------------------------------------------------
+
+describe('TauriAgentTransport：engine 链参数', () => {
+  it('body.engine="sdk" / "cli" → 读取透传至 invoke 第 9 位置参数', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+
+    for (const engine of ['sdk', 'cli'] as const) {
+      const transport = new TauriAgentTransport();
+      const stream = await send(transport, { ...CHAIN_BODY, engine });
+      void stream.cancel();
+      expect(startCallArgs()['engine']).toBe(engine);
+    }
+  });
+
+  it('body 无 engine → engine=null 传递不抛错（缺席校验为 null，引擎全链可缺席）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    // CHAIN_BODY 不携 engine：readChainParams 缺席承接 null，invoke 照常发起
+    const stream = await send(transport);
+    void stream.cancel();
+
+    expect(startCallArgs()['engine']).toBeNull();
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(1);
+  });
+
+  it('body.engine 显式 null → engine=null 传递（与缺席同口径）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport, { ...CHAIN_BODY, engine: null });
+    void stream.cancel();
+
+    expect(startCallArgs()['engine']).toBeNull();
+  });
+
+  it("body.engine='yolo'（清单外值）→ 「非法 engine」参数校验拒绝且不发起 invoke（对齐 permissionMode 校验口径）", async () => {
+    const transport = new TauriAgentTransport();
+
+    await expect(send(transport, { ...CHAIN_BODY, engine: 'yolo' })).rejects.toThrow('非法 engine');
+    expect(invokeMock).not.toHaveBeenCalled();
+  });
+});
+
+// ---------------------------------------------------------------------------
 // sendMessages：边界（空流即终 / 未知信封 / reconnect）
 // ---------------------------------------------------------------------------
 
@@ -346,15 +395,16 @@ describe('TauriAgentTransport：边界', () => {
 // ---------------------------------------------------------------------------
 
 describe('TauriAgentTransport：生成绑定调用面', () => {
-  it('经生成绑定入口发起后 invoke 收到 "agent_start"，链参数 7 字段 camelCase key 与值逐字不变且 body 原样穿透', async () => {
+  it('经生成绑定入口发起后 invoke 收到 "agent_start"，链参数 8 字段 camelCase key 与值逐字不变且 body 原样穿透', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
     const stream = await send(transport);
     void stream.cancel();
 
-    // 生成绑定位置参数 → invoke 参数对象：恰 8 个 key（链参数 7 + onEvent）
+    // 生成绑定位置参数 → invoke 参数对象：恰 9 个 key（链参数 8 + onEvent）
     expect(Object.keys(startCallArgs()).sort()).toEqual([
+      'engine',
       'onEvent',
       'parentRunId',
       'permissionMode',
@@ -364,7 +414,11 @@ describe('TauriAgentTransport：生成绑定调用面', () => {
       'source',
       'sourceRef',
     ]);
-    expect(startCallArgs()).toEqual({ ...CHAIN_BODY, onEvent: expect.any(ChannelMock) });
+    expect(startCallArgs()).toEqual({
+      ...CHAIN_BODY,
+      engine: null,
+      onEvent: expect.any(ChannelMock),
+    });
   });
 
   it('Channel<AgentRunMessage> 信封（ipc event / record 双变体）类型来自生成物：事件转 chunk 保序、Record 收尾关流、未知信封忽略流不断', async () => {

@@ -45,8 +45,8 @@
 - [ ] 【Desktop】src-tauri/src/bindings分离生成的类型文件和commands
 - [ ] 【Desktop】恢复src-tauri/build.rs，当前复杂适配原因“测试链接了 GUI 框架”
 - [ ] 【Desktop】自动升级时，可随版本号嵌入脚本；从<当前版本>到<目标版本>顺序执行，处理数据迁移/文件修正等事项
-- [ ] 【Desktop】将changeList从app.tsx移入到change列表页内部，详情页从接口获取单个change数据
+- [x] 【Desktop】将changeList从app.tsx移入到change列表页内部，详情页从接口获取单个change数据
 - [ ] 【Desktop】设置网关或者tauri校验，集中检查is_blank_root，当前分散到多个api中不易维护
 - [x] 【Desktop】main.rs中DATA_DIR也一并收入常量文件
 - [x] 【Desktop】changeDetail 多个文档改为tab切换
-- [ ] 【Desktop】infra/store扩展文件api，将内核中读取特定文件的能力改为infra注入，内核不应感知持久化存储是数据库还是文件；
+- [ ] 【Desktop】infra/store扩展文件读写能力，将内核中读取特定文件的能力改为infra注入，内核不应感知持久化存储是数据库还是文件

@@ -1,0 +1,92 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-30T09:27:07.822Z",
+  "duration_seconds": 550,
+  "total": 660,
+  "passed": 660,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 54,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 85.2,
+    "threshold": 80,
+    "measured": {
+      "killed": 282,
+      "survived": 44,
+      "timeout": 0,
+      "noCoverage": 5,
+      "compileError": 0,
+      "runtimeError": 1,
+      "ignored": 17,
+      "total": 349,
+      "detected": 282,
+      "undetected": 49
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 85.1963746223565,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 54,
+        "passed_count": 54
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/agent-sdk-rig-tenant/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/agent-sdk-rig-tenant/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All 660 tests passed (vite-plus 621, rust 39); no failures, skips, or execution errors across both in-scope plans.",
+    "vite-plus coverage meets thresholds (lines 92.94/90, branches 87.65/85, functions 91.36/90); rust lines 96.68/90 and functions 90.16/90 also pass.",
+    "Summary-level coverage.measured is null for all dimensions even though per-plan reports contain values - the top-level weighted average was not populated; use plans[].path/report.json coverage figures as authoritative.",
+    "Rust per-plan coverage reports branches as 0 (per-plan coverage.pass=false) yet no coverage_failure was raised; llvm-cov summary does not emit branch data, so the 0 is a parser placeholder for an unmeasurable dimension, not a real branch-coverage shortfall.",
+    "Mutation passed at 85.2% (threshold 80), but 44 mutants survived with 5 no-coverage and 1 runtime-error; these are the candidates to target if assertion strength is raised later.",
+    "The plugins/dev-team vite-plus suite was skipped by the change-scope gate (2/3 plan entries in scope); expected behavior for this change inventory, not a missing report."
+  ]
+}

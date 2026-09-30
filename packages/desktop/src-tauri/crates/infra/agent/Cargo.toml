@@ -1,14 +1,27 @@
 [package]
-name = "agent-cli"
+name = "agent-runtime"
 version = "0.1.0"
 edition = "2021"
 
-# agent 边界 CLI 租户实现：实现 core 契约、允许进程 spawn（本 workspace 唯一
-# spawn 触点）；禁 Tauri 系依赖
+# agent 边界的引擎门面与双引擎实现：`EngineFacade` 为引擎构造唯一 match 点
+# （cli / sdk），实现 core 契约；cli 引擎持有进程 spawn（本 workspace 唯一
+# spawn 触点），sdk 引擎经 rig-core 直连 openai 兼容端点；禁 Tauri 系依赖
 [dependencies]
 agent = { workspace = true }
+# EngineKind 线格式（serde camelCase）与 TS 镜像（specta Type）派生
+serde = { workspace = true }
+specta = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["process", "io-util", "rt", "macros"] }
+# sdk 引擎唯一新框架依赖：provider client（openai chat completions + 自定义
+# base_url）与消息/工具类型层；workspace `=` pin + default-features = false
+# + ["reqwest", "native-tls"]（design rig-core spike 裁定）
+rig-core = { workspace = true }
+# glob 工具实现：rig 传递依赖同款（0.3，已在入树），直连零新增足迹
+glob = { workspace = true }
+# rig 归一化流消费（Stream / StreamExt）：rig-core 直依赖同款已在入树，
+# 直连零新增足迹
+futures = { workspace = true }
 
 # discover 合成目录 / PATH 薄包装测试装置
 [dev-dependencies]

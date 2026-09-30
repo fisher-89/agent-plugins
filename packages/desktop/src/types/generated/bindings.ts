@@ -49,13 +49,21 @@ export const commands = {
 	 *  发起一次 agent 运行：run 记录落库进入 running 后**提前 resolve** 返回
 	 *  running 记录（含 id，可直接用于 `agent_stop` 寻址）；执行转后台任务，
 	 *  事件实时流与终态记录均经 `onEvent` Channel 流出。启动阶段失败（CLI
-	 *  缺失 / spawn 失败 / workspace 库解析失败）返回 `Err`。cwd 隐含为当前
-	 *  workspace root（前端 invoke 固定传 `root`，无 UI 输入）。四个可选参数：
-	 *  `resume_session_id` 续会话（进 runner 契约，组装 `--resume` flag）；
-	 *  `source` / `source_ref` / `parent_run_id` 来源三元组（旁路编排落库，
-	 *  `source` 缺省 `debug`）。
+	 *  缺失 / spawn 失败 / 配置缺失 / workspace 库解析失败）返回 `Err`。cwd
+	 *  隐含为当前 workspace root（前端 invoke 固定传 `root`，无 UI 输入）。
+	 *  可选参数：`resume_session_id` 续会话（进 runner 契约——CLI 组装
+	 *  `--resume` flag、sdk 引擎经转录装载缝重建对话史）；`source` /
+	 *  `source_ref` / `parent_run_id` 来源三元组（旁路编排落库，`source` 缺省
+	 *  `debug`）；`engine` 参数选择引擎（invoke body 携 engine 字段，壳层仅
+	 *  映射、缺省硬编码默认 agent（`DEFAULT_ENGINE`，当前 SDK/rig）：引擎选择
+	 *  仅调试页暴露，正式场景 MUST NOT 传 engine；引擎接线全在门面
+	 *  `EngineFacade::runner_for`，编排层零引擎分支）。
 	 */
-	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null) => __TAURI_INVOKE<AgentRunRecord>("agent_start", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId }),
+	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, engine: 
+/**  本机 claude CLI 租户（缺省） */
+"cli" | 
+/**  进程内 sdk 租户（rig-core 直连 openai 兼容端点） */
+"sdk" | null) => __TAURI_INVOKE<AgentRunRecord>("agent_start", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, engine }),
 	/**
 	 *  终止一次运行中 agent 运行：携 root 按 `(root, run id)` 复合键寻址停止
 	 *  句柄置位信号（租户泵击杀进程树、编排收敛 `stopped`、Channel 流出终态
@@ -486,6 +494,17 @@ export type DirNode = {
 	/**  直接子目录与直接文件叶（≤ depth 截断；目录在前、文件在后，各按 name 字典序） */
 	children: TreeEntry[],
 };
+
+/**
+ *  引擎二值：`agent_start` 的 `engine` 参数值域（serde/specta camelCase，
+ *  线格式 `"cli" | "sdk"`；`Option` 承载缺省，不传即 CLI 租户、行为与演进
+ *  前一致）。住 infra 门面，core 契约零污染。
+ */
+export type EngineKind = 
+/**  本机 claude CLI 租户（缺省） */
+"cli" | 
+/**  进程内 sdk 租户（rig-core 直连 openai 兼容端点） */
+"sdk";
 
 /**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
 export type ExploreDoc = {

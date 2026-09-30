@@ -30,16 +30,17 @@ mod mod_test;
 use std::path::Path;
 
 use tauri::ipc::Channel;
-use tauri::{AppHandle, State};
+use tauri::{AppHandle, Manager, State};
 
 // `mod agent`（本地编排模块）与外部 `agent` 契约 crate 同名：外部 crate
 // 以 `::agent::` 显式消歧
 use ::agent::{AgentEvent, AgentPermissionMode, AgentRunParams};
+use agent_runtime::EngineKind;
 use store::{AgentRunRecord, WorkspaceStores};
 
 pub use agent::RunStopRegistry;
 
-use agent::{AgentRunMessage, RunProvenance};
+use agent::{AgentRunMessage, RunProvenance, DEFAULT_ENGINE};
 
 /// root 显式格式检查：空/空白串不进入库解析链路（同 explores 轨道口径）。
 fn is_blank_root(root: &str) -> bool {
@@ -49,20 +50,26 @@ fn is_blank_root(root: &str) -> bool {
 /// 发起一次 agent 运行：run 记录落库进入 running 后**提前 resolve** 返回
 /// running 记录（含 id，可直接用于 `agent_stop` 寻址）；执行转后台任务，
 /// 事件实时流与终态记录均经 `onEvent` Channel 流出。启动阶段失败（CLI
-/// 缺失 / spawn 失败 / workspace 库解析失败）返回 `Err`。cwd 隐含为当前
-/// workspace root（前端 invoke 固定传 `root`，无 UI 输入）。四个可选参数：
-/// `resume_session_id` 续会话（进 runner 契约，组装 `--resume` flag）；
-/// `source` / `source_ref` / `parent_run_id` 来源三元组（旁路编排落库，
-/// `source` 缺省 `debug`）。
+/// 缺失 / spawn 失败 / 配置缺失 / workspace 库解析失败）返回 `Err`。cwd
+/// 隐含为当前 workspace root（前端 invoke 固定传 `root`，无 UI 输入）。
+/// 可选参数：`resume_session_id` 续会话（进 runner 契约——CLI 组装
+/// `--resume` flag、sdk 引擎经转录装载缝重建对话史）；`source` /
+/// `source_ref` / `parent_run_id` 来源三元组（旁路编排落库，`source` 缺省
+/// `debug`）；`engine` 参数选择引擎（invoke body 携 engine 字段，壳层仅
+/// 映射、缺省硬编码默认 agent（`DEFAULT_ENGINE`，当前 SDK/rig）：引擎选择
+/// 仅调试页暴露，正式场景 MUST NOT 传 engine；引擎接线全在门面
+/// `EngineFacade::runner_for`，编排层零引擎分支）。
 // 命令入参即扁平 IPC 参数面（三件事纪律的参数转换段），打包成结构体反而
-// 背离轨道模板，故豁免 clippy 参数数上限；`app` / `stores` 为 Tauri 注入
-// 项（非 IPC 参数），后台任务经前者取托管句柄
+// 背离轨道模板，故豁免 clippy 参数数上限；`app` 为 Tauri 注入项（非 IPC
+// 参数），后台任务经前者取托管句柄。stores 不再作注入形参：specta rc.25
+// 的 SpectaFn 实现上限 10 个 Rust 形参（engine 尾参入列前已顶格），而
+// `State<'_, WorkspaceStores>` 与 IPC 面无关（不出线、不进生成绑定），改经
+// `app.state()` 托管态取用等价，IPC 观测面零变化
 #[allow(clippy::too_many_arguments)]
 #[tauri::command]
 #[specta::specta]
 pub async fn agent_start(
     app: AppHandle,
-    stores: State<'_, WorkspaceStores>,
     on_event: Channel<AgentRunMessage>,
     root: String,
     prompt: String,
@@ -71,6 +78,7 @@ pub async fn agent_start(
     source: Option<String>,
     source_ref: Option<String>,
     parent_run_id: Option<i64>,
+    engine: Option<EngineKind>,
 ) -> Result<AgentRunRecord, String> {
     if is_blank_root(&root) {
         return Err("非法 root: 不得为空白（无 cwd 无从发起）".to_owned());
@@ -88,7 +96,16 @@ pub async fn agent_start(
     }
     provenance.source_ref = source_ref;
     provenance.parent_run_id = parent_run_id;
-    agent::start_agent_run(app, &stores, on_event, params, provenance)
+    // 引擎缺省收敛默认 agent（Option 保证不传 engine 的既有调用零改动）
+    let stores = app.state::<WorkspaceStores>();
+    agent::start_agent_run(
+        app.clone(),
+        stores.inner(),
+        on_event,
+        params,
+        provenance,
+        engine.unwrap_or(DEFAULT_ENGINE),
+    )
 }
 
 /// 终止一次运行中 agent 运行：携 root 按 `(root, run id)` 复合键寻址停止

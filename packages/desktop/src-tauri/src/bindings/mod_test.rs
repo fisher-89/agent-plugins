@@ -137,6 +137,7 @@ const DTO_TYPES: &[&str] = &[
     "CoverageThresholds",
     "DiagnosticKind",
     "DirNode",
+    "EngineKind",
     "ExploreDoc",
     "ExploreRecord",
     "ExploreScanEntry",
@@ -241,6 +242,53 @@ fn agent_start与watch_subscribe绑定为typed_channel参数() {
     );
     assert!(content.contains("export type FileWatchEvent ="));
     assert!(content.contains("path: string,"));
+}
+
+// ---------------------------------------------------------------------------
+// engine 尾参出线形态（AC-3 bindings 再生成含 engine 参数的镜像半边）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn agent_start绑定签名含尾部engine入参且invoke参数对象恒含engine键() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 尾部 engine 入参（EngineKind | null，行内字面量联合形态）：
+    // 「agentStart typed Channel 首参」逐字断言保持，engine 为末位位置参数
+    let wrapper_head = "agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, engine: ";
+    assert!(
+        content.contains(wrapper_head),
+        "agentStart 绑定签名以尾部 engine 入参收尾（typed Channel 首参保持）"
+    );
+    assert!(
+        content.contains(
+            "\"agent_start\", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, engine }"
+        ),
+        "invoke 参数对象恒含 engine 键（第 9 位置参）"
+    );
+}
+
+#[test]
+fn engine_kind出线为cli与sdk字面量联合() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // EngineKind 出线（AC-3 类型镜像半边）：`export type EngineKind =` + 两
+    // 字面量（serde/specta camelCase 线格式逐字）
+    let engine = type_section(&content, "EngineKind");
+    assert!(engine.contains("\"cli\""), "实际: {engine}");
+    assert!(engine.contains("\"sdk\""), "实际: {engine}");
+    assert_eq!(
+        engine.matches('|').count(),
+        1,
+        "二值恰一分隔（不多不少，枚举 +1 侧不外溢）"
+    );
+    // core 契约零污染：EngineKind 住 infra 门面，出线不携带 engine/rig 字样
+    // 的 core AgentRunParams 类型（core DTO 清单无 EngineRunParams 类条目）
+    assert!(
+        !content.contains("AgentRunParams"),
+        "core AgentRunParams 不出线（core 契约零污染）"
+    );
 }
 
 #[test]

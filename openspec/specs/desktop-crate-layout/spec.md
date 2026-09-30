@@ -34,23 +34,23 @@ crates/
 │   └── agent/                 # crate: agent 域中立契约（AgentEvent / AgentRunner / 状态机）
 ├── infra/                     # 基础设施侧命名空间（纯目录，不是 crate）
 │   ├── store/                 # crate: native_db 本地库（db 边界第一成员，底层 redb）
-│   └── agent/                 # 目录：agent 边界实现（crate 裸名 agent-cli，唯一性约束）
+│   └── agent/                 # 目录：agent 边界实现（crate 裸名 agent-runtime，唯一性约束）
 └── desktop-app/               # crate: Tauri 壳
 ```
 
-依赖规则 SHALL 为：`desktop-app → workflow → foundation`，且 `desktop-app → config → foundation`，且 `desktop-app → store`，且 `desktop-app → agent + agent-cli`、`agent-cli → agent`、`store → agent`（仅纯类型嵌装载荷）。`foundation` MUST NOT 依赖任何其他 crate；`config` SHALL 仅依赖 `foundation`，MUST NOT 依赖 `workflow` / `agent` / 任何 infra crate，MUST NOT 依赖 Tauri；`workflow` MUST NOT 依赖 `desktop-app`；`store` MUST NOT 依赖 core 行为，SHALL 仅依赖 `agent` 的纯类型（`AgentEvent` 等 derive-free 类型）作嵌装载荷（store 自身持有模型与版本治理，行为自含纪律不变），MUST NOT 依赖 Tauri（Tauri 只属于 desktop-app）；`agent` MUST NOT 依赖 workspace 内任何 crate；`agent-cli` SHALL 仅依赖 `agent`，MUST NOT 依赖 Tauri（进程 spawn 是 agent 边界自身的实现细节，允许 spawn，Tauri 仍然只属于 desktop-app）；core 任何 crate MUST NOT 依赖 `store`（由 crate 图机械保证有状态持久化进不了纯读域）。未来 `core/archi` crate 落地时 SHALL 满足 `desktop-app → archi → foundation` 且 `workflow` 与 `archi` 互不依赖；未来 db 边界新成员（如图数据库）SHALL 落位 `infra/` 下新 crate。
+依赖规则 SHALL 为：`desktop-app → workflow → foundation`，且 `desktop-app → config → foundation`，且 `desktop-app → store`，且 `desktop-app → agent + agent-runtime`、`agent-runtime → agent`、`store → agent`（仅纯类型嵌装载荷）。`foundation` MUST NOT 依赖任何其他 crate；`config` SHALL 仅依赖 `foundation`，MUST NOT 依赖 `workflow` / `agent` / 任何 infra crate，MUST NOT 依赖 Tauri；`workflow` MUST NOT 依赖 `desktop-app`；`store` MUST NOT 依赖 core 行为，SHALL 仅依赖 `agent` 的纯类型（`AgentEvent` 等 derive-free 类型）作嵌装载荷（store 自身持有模型与版本治理，行为自含纪律不变），MUST NOT 依赖 Tauri（Tauri 只属于 desktop-app）；`agent` MUST NOT 依赖 workspace 内任何 crate；`agent-runtime` SHALL 仅依赖 `agent`，MUST NOT 依赖 Tauri（进程 spawn 是 agent 边界自身的实现细节，允许 spawn，Tauri 仍然只属于 desktop-app）；core 任何 crate MUST NOT 依赖 `store`（由 crate 图机械保证有状态持久化进不了纯读域）。未来 `core/archi` crate 落地时 SHALL 满足 `desktop-app → archi → foundation` 且 `workflow` 与 `archi` 互不依赖；未来 db 边界新成员（如图数据库）SHALL 落位 `infra/` 下新 crate。
 
 **工作区配置唯一出口**（desktop-workspace-config 落地）：读取并校验工作区 config.json 属核心功能——`config` crate 是工作区配置的唯一合法出口，desktop-app 及未来任何需要配置的模块（`workflow` 等其他 core/infra crate 出现真实消费需求时）SHALL 经 `config` crate 获取配置项，MUST NOT 自行读取 config.json（由「配置文件名字面量隔离」requirement 机械保证）。本变更不预铺任何 `→ config` 消费依赖：首个真实消费者出现才立该边。
 
-`core/` 与 `infra/` SHALL 仅作目录名，内部 crate 使用 `foundation` / `config` / `workflow` / `archi` / `store` 等裸名（workspace 内唯一即可），MUST NOT 存在名为 `core` 的 crate（与 Rust 内置 core 撞名）。agent 两 crate 沿此规则取裸名 `agent`（core）与 `agent-cli`（infra，因唯一性不得复用 `agent`）。
+`core/` 与 `infra/` SHALL 仅作目录名，内部 crate 使用 `foundation` / `config` / `workflow` / `archi` / `store` 等裸名（workspace 内唯一即可），MUST NOT 存在名为 `core` 的 crate（与 Rust 内置 core 撞名）。agent 两 crate 沿此规则取裸名 `agent`（core）与 `agent-runtime`（infra，因唯一性不得复用 `agent`；原裸名 `agent-cli`，升格引擎门面时随 desktop-agent-execution 改名）。
 
-规则修订留痕：「store MUST NOT 依赖 core 任何 crate（自含模型）」原为其模型平凡前提下的局部特例；infra → core 依赖已有先例（`agent-cli → agent`），且 store 的事件流类型化建模（native-db-store-upgrade）需要 `agent::AgentEvent` 作嵌装载荷，故修订为「禁依赖 core 行为，可依赖 core 纯类型作嵌装载荷」。
+规则修订留痕：「store MUST NOT 依赖 core 任何 crate（自含模型）」原为其模型平凡前提下的局部特例；infra → core 依赖已有先例（`agent-runtime → agent`），且 store 的事件流类型化建模（native-db-store-upgrade）需要 `agent::AgentEvent` 作嵌装载荷，故修订为「禁依赖 core 行为，可依赖 core 纯类型作嵌装载荷」。
 
 #### Scenario: 依赖方向符合分层
 
 - **WHEN** 检查各 crate 的 `Cargo.toml` 依赖声明
-- **THEN** `desktop-app` 依赖 `workflow`、`config`、`foundation`、`store`、`agent`、`agent-cli`，`workflow` 依赖 `foundation`，`config` 仅依赖 `foundation`，`agent-cli` 依赖 `agent`，`store` 依赖 `agent`
-- **AND** `foundation` 无 workspace 内依赖；`config` 的 workspace 内依赖仅 `foundation` 且无 Tauri 依赖；`store` 的 workspace 内依赖仅 `agent` 且无 Tauri 依赖；`agent` 无 workspace 内依赖；`agent-cli` 与 `agent` 均无 Tauri 依赖
+- **THEN** `desktop-app` 依赖 `workflow`、`config`、`foundation`、`store`、`agent`、`agent-runtime`，`workflow` 依赖 `foundation`，`config` 仅依赖 `foundation`，`agent-runtime` 依赖 `agent`，`store` 依赖 `agent`
+- **AND** `foundation` 无 workspace 内依赖；`config` 的 workspace 内依赖仅 `foundation` 且无 Tauri 依赖；`store` 的 workspace 内依赖仅 `agent` 且无 Tauri 依赖；`agent` 无 workspace 内依赖；`agent-runtime` 与 `agent` 均无 Tauri 依赖
 
 #### Scenario: foundation 保持极小
 
@@ -117,9 +117,9 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 - **db 边界**：redb / native_db（现有 `crates/infra/store`）及未来数据库成员（落位 `infra/` 下新 crate）；
 - **文件边界**：workspace 文件读（现有，经 workflow/foundation 纯读域）与未来 workspace 文件写；
 - **api 边界**：未来后端服务（用途未定，先占位留痕）；
-- **agent 边界**：外部执行 agent 的接入与运行（本机 CLI / 进程内 SDK / 远程 API 三租户）——契约落位 `core/agent`，实现落位 `infra/`（现有成员 `agent-cli`）；允许进程 spawn，禁 Tauri。
+- **agent 边界**：外部执行 agent 的接入与运行（本机 CLI / 进程内 SDK / 远程 API 三租户）——契约落位 `core/agent`，实现落位 `infra/`（现有成员 `agent-runtime`）；允许进程 spawn，禁 Tauri。
 
-领域核心（change 域读模型、agent 域契约）与应用编排（现为 command）位于各边界之内：core 三 crate 纯依赖；`store` 不依赖 core 行为（仅依赖 `agent` 纯类型作嵌装载荷，规则修订见「crate 三层分组与依赖规则」），`agent-cli` 仅依赖其契约 `core/agent`；infra 各 crate 均不依赖 Tauri，依赖方向由 crate 图机械保证（既有 requirement 不变）。`infra/` 目录表达 db / api / agent 等边界的计划落位，但目录 MUST NOT 在首个成员出现前创建。
+领域核心（change 域读模型、agent 域契约）与应用编排（现为 command）位于各边界之内：core 三 crate 纯依赖；`store` 不依赖 core 行为（仅依赖 `agent` 纯类型作嵌装载荷，规则修订见「crate 三层分组与依赖规则」），`agent-runtime` 仅依赖其契约 `core/agent`；infra 各 crate 均不依赖 Tauri，依赖方向由 crate 图机械保证（既有 requirement 不变）。`infra/` 目录表达 db / api / agent 等边界的计划落位，但目录 MUST NOT 在首个成员出现前创建。
 
 #### Scenario: 边界归类完备
 
@@ -128,7 +128,7 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 
 #### Scenario: shell 依赖不越界
 
-- **WHEN** 检查 core 与 infra 各 crate（含 agent-cli）的依赖声明
+- **WHEN** 检查 core 与 infra 各 crate（含 agent-runtime）的依赖声明
 - **THEN** 无任何 Tauri 系依赖（tauri、tauri-plugin-* 等），shell 依赖仅存在于 desktop-app
 
 ### Requirement: 未来租户归位规则
@@ -141,14 +141,14 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 | workspace 读写 db | db | `infra/store` 的 workspace 维度 | 落盘策略见 desktop-data-dimensions 能力 |
 | 图数据库 | db | `infra/graph`（暂不建） | 暂不考虑；关系查询真实痛点出现再启，届时按 db 边界新成员落位 |
 | 后端 api | api | `infra/api`（不建） | 先占位留痕：用途未定，MUST NOT 建目录、MUST NOT 动代码 |
-| agent 执行 | agent | `core/agent`（契约）+ `infra/agent`（实现，裸名 `agent-cli`） | 已由 desktop-agent-execution 落地：三租户抽象 MVP 仅 CLI；进程 spawn 属 agent 边界实现细节，非 shell 边界 |
+| agent 执行 | agent | `core/agent`（契约）+ `infra/agent`（实现，裸名 `agent-runtime`） | 已由 desktop-agent-execution 落地：三租户抽象 MVP 落地 CLI 与 SDK（rig 进程内）双引擎，远程 API 未预建；进程 spawn 属 agent 边界实现细节，非 shell 边界 |
 
 `infra/fs` SHALL 在文件边界长出独立适配（区别于 workflow 内纯读逻辑的、可复用的 fs 基础设施）时再立，不预建。
 
 #### Scenario: 无预建目录
 
 - **WHEN** 检查 `crates/infra/` 目录树
-- **THEN** 仅 `store` 与 `agent` 两个成员（后者 crate 裸名 `agent-cli`），不存在 `infra/graph` / `infra/api` / `infra/fs` 空目录
+- **THEN** 仅 `store` 与 `agent` 两个成员（后者 crate 裸名 `agent-runtime`），不存在 `infra/graph` / `infra/api` / `infra/fs` 空目录
 
 #### Scenario: 图数据库与 api 决策留痕
 
@@ -168,13 +168,13 @@ Desktop 后端的外部依赖 SHALL 按边界分类组织，任何新特性落�
 | `packages/desktop`（包） | 独立桌面应用 | 自带 lockfile / 构建脚本；不进根 workspace、不进 `dist/` |
 | `crates/core/foundation` | 共享地基（今天仅 layout） | 无 workspace 内依赖；第二消费者出现才下沉新能力 |
 | `crates/core/workflow` | change 域纯读库 | 依赖 foundation；零 Tauri 依赖；无指令概念；不依赖 store |
-| `crates/core/agent`（裸名 `agent`） | agent 域中立契约 | 零 Tauri、零 spawn、零 workspace 内依赖、derive-free；不认识 claude；被 `agent-cli` 与 `store` 双向消费（契约 / 嵌装载荷） |
+| `crates/core/agent`（裸名 `agent`） | agent 域中立契约 | 零 Tauri、零 spawn、零 workspace 内依赖、derive-free；不认识 claude；被 `agent-runtime` 与 `store` 双向消费（契约 / 嵌装载荷） |
 | `crates/infra/store` | native_db 本地库（db 边界第一成员，底层 redb） | 行为自含、依赖 `agent` 纯类型作嵌装载荷；零 Tauri 依赖；db 路径由 desktop-app 注入 |
-| `store → agent` 依赖（新） | 依赖规则修订落痕 | 「禁依赖 core 行为，可依赖 core 纯类型作嵌装载荷」；修订理由与先例（agent-cli → agent）落痕于「crate 三层分组与依赖规则」 |
-| `crates/infra/agent`（新，crate 裸名 `agent-cli`） | agent 边界实现 | 仅依赖 `agent`；允许进程 spawn；禁 Tauri |
-| `crates/desktop-app` | Tauri 壳 | 依赖 workflow + foundation + store + agent + agent-cli；command 薄包装 |
+| `store → agent` 依赖（新） | 依赖规则修订落痕 | 「禁依赖 core 行为，可依赖 core 纯类型作嵌装载荷」；修订理由与先例（agent-runtime → agent）落痕于「crate 三层分组与依赖规则」 |
+| `crates/infra/agent`（新，crate 裸名 `agent-runtime`） | agent 边界实现 | 仅依赖 `agent`；允许进程 spawn；禁 Tauri |
+| `crates/desktop-app` | Tauri 壳 | 依赖 workflow + foundation + store + agent + agent-runtime；command 薄包装 |
 | 五类边界分类学 | 落位先声明边界 | shell（仅 desktop-app，runner 进程管理除外）/ db（infra 成员）/ 文件（workspace 读写）/ api（占位留痕）/ agent（core 契约 + infra 实现）；core 与 infra 禁 Tauri |
 | 未来租户归位表 | 特性 → 归位映射 | 写文件 → exec 轨道；读写 db → store workspace 维度；图数据库 → 暂不考虑；api → 不建目录；agent 执行 → core/agent + infra/agent（已落地） |
-| `crates/infra/` | 目录表达计划 | 仅 store 与 agent（裸名 agent-cli）两个成员；graph / api / fs 均不预建，成员出现才立 |
+| `crates/infra/` | 目录表达计划 | 仅 store 与 agent（裸名 agent-runtime）两个成员；graph / api / fs 均不预建，成员出现才立 |
 | `crates/core/config`（新，裸名 `config`） | 工作区配置唯一合法出口（读 + 校验 + 默认值） | 仅依赖 `foundation` + serde 系 + specta；禁 Tauri；未来模块取配置仅准经此，MUST NOT 自行读 config.json；首个真实消费者出现才立 `→ config` 边 |
 | `mod_test.rs` 命名隔离扫描（扩展） | 字面量执法不变量 | `openspec` 目录名 + `config.json` 文件名双禁令；唯一触点 layout/mod.rs 常量组；`*_test.rs` 排除、全文匹配含注释 |

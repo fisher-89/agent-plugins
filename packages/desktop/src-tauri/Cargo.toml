@@ -18,7 +18,7 @@ embed-resource = "3"
 
 [dependencies]
 agent = { workspace = true }
-agent-cli = { workspace = true }
+agent-runtime = { workspace = true }
 config = { workspace = true }
 foundation = { workspace = true }
 watch = { workspace = true }
@@ -62,16 +62,28 @@ members = [
 # workspace 级依赖版本收敛；core 与 infra 均禁 Tauri（Tauri 只属于 dev-team 壳）
 [workspace.dependencies]
 agent = { path = "crates/core/agent" }
-agent-cli = { path = "crates/infra/agent" }
+agent-runtime = { path = "crates/infra/agent" }
 config = { path = "crates/core/config" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
+# glob 工具实现（agent-runtime 直依赖）：rig-core 传递依赖同款已在入树
+glob = "0.3"
+# rig 归一化流消费（agent-runtime 直依赖）：rig-core 直依赖同款已在入树
+futures = "0.3"
 notify = "8"
 watch = { path = "crates/infra/watch" }
 workflow = { path = "crates/core/workflow" }
 # native_model pin 必须与 native_db 内部依赖（=0.4.20）严格一致，避免双版本 trait 失配
 native_db = "=0.8.2"
 native_model = "=0.4.20"
+# sdk 引擎 provider 框架（agent-runtime）：0.x 线无 semver 兼容承诺，`=` 精确
+# pin（纪律同 native_db / specta / tokei）；default-features = false 剥离
+# rustls（避免 aws-lc-sys + cmake C 工具链入树），reqwest 与 desktop 锁内
+# 0.13 同主版本共享，native-tls 走 Windows schannel（design rig-core spike 裁定）
+rig-core = { version = "=0.42.0", default-features = false, features = [
+    "reqwest",
+    "native-tls",
+] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 # store 直依赖：workspace 库文件名哈希成分（SHA-256 截断 128-bit）；

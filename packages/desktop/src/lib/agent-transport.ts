@@ -33,6 +33,7 @@ type AgentStartChainParams = {
   source: AgentStartArgs[5];
   sourceRef: AgentStartArgs[6];
   parentRunId: AgentStartArgs[7];
+  engine: AgentStartArgs[8];
 };
 
 /** transport 构造观测点：hook 注入（不承载状态，仅透传镜像） */
@@ -47,6 +48,14 @@ function readPermissionMode(value: unknown): AgentStartChainParams['permissionMo
     return value;
   }
   throw new Error(`非法 permissionMode: ${JSON.stringify(value)}`);
+}
+
+/** unknown → EngineKind | null（引擎可缺席——null → 后端默认 agent（硬编码
+ * SDK）；清单外值拒绝，transport 不改写） */
+function readEngine(value: unknown): AgentStartChainParams['engine'] {
+  if (value === undefined || value === null) return null;
+  if (value === 'cli' || value === 'sdk') return value;
+  throw new Error(`非法 engine: ${JSON.stringify(value)}`);
 }
 
 /** unknown → string | null（其余形态拒绝） */
@@ -79,6 +88,7 @@ function readChainParams(body: object | undefined): AgentStartChainParams {
     resumeSessionId: readNullableString(get('resumeSessionId'), 'resumeSessionId'),
     parentRunId: readNullableNumber(get('parentRunId'), 'parentRunId'),
     sourceRef: readNullableString(get('sourceRef'), 'sourceRef'),
+    engine: readEngine(get('engine')),
   };
 }
 
@@ -157,6 +167,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
         chain.source,
         chain.sourceRef,
         chain.parentRunId,
+        chain.engine,
       )
       .then((record) => {
         this.onRecord?.(record);

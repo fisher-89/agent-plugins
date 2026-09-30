@@ -25,7 +25,7 @@
 //! 状态机不被驱动成 failed）；兜底 failed 记因（进程异常终止无 result）。
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 use serde::Serialize;
 use specta::Type;
@@ -36,7 +36,7 @@ use agent::{
     AgentEnvMode, AgentEvent, AgentEventKind, AgentRun, AgentRunParams, AgentRunState,
     AgentRunStatus, AgentRunner, RunHandle, RunStateMachine,
 };
-use agent_cli::ClaudeCliRunner;
+use agent_runtime::{EngineConfig, EngineFacade, EngineKind, ResumeTranscript};
 use store::{AgentRunRecord, Store, WorkspaceStores};
 
 /// `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
@@ -157,35 +157,79 @@ fn running_record(params: &AgentRunParams, provenance: RunProvenance) -> AgentRu
     }
 }
 
-/// 薄入口：组装真实 CLI runner 后委托 [`start_agent_run_with`]。
+/// session_id → 事件转录（store 既有 API 组合，无 store 改动）：`list_agent_runs`
+/// 按 `session_id` 扫描定位 run → `list_agent_run_events` 取事件转录。
+/// `None` = 会话不存在；`Err` = 库读取失败——语义与门面 [`ResumeTranscript`]
+/// 缝约定逐字对齐（sdk 引擎续会话解析的唯一数据面）。
+fn find_events_by_session(
+    store: &Store,
+    session_id: &str,
+) -> Result<Option<Vec<AgentEvent>>, String> {
+    let hit = store
+        .list_agent_runs()
+        .map_err(|e| e.to_string())?
+        .into_iter()
+        .find(|run| run.session_id.as_deref() == Some(session_id));
+    match hit {
+        Some(run) => store
+            .list_agent_run_events(run.id)
+            .map(Some)
+            .map_err(|e| e.to_string()),
+        None => Ok(None),
+    }
+}
+
+/// 默认 agent 硬编码预留位（当前 rig/SDK 引擎）：`agent_start` 未传 engine
+/// 时的缺省收敛取值。与 [`EngineConfig::from_hardcoded_slot`] 同一座位：后续
+/// 与 api key 一起改为配置读取，换源时消费面（`mod.rs` 的 `unwrap_or` 消费
+/// 点与门面 `runner_for` 签名）零改动。
+pub(crate) const DEFAULT_ENGINE: EngineKind = EngineKind::Sdk;
+
+/// 薄入口：按 root 预解析所属 workspace 库组装 [`ResumeTranscript`] 装载缝
+/// → 门面按 `engine` 参数构造 runner（引擎接线全在 [`EngineFacade::runner_for`]，
+/// 命令面不直接构造引擎）→ 委托 [`start_agent_run_with`]。CLI 引擎持有装载
+/// 缝不消费（CLI 续会话仍走 `--resume` flag）；引擎配置取硬编码预留位
+/// （[`EngineConfig::from_hardcoded_slot`]，未手填时 sdk 启动显式失败）。
+/// `engine` 缺省收敛 [`DEFAULT_ENGINE`]（收敛在命令面，本函数恒收显式 kind）。
 pub(crate) fn start_agent_run<T: Runtime>(
     app: AppHandle<T>,
     stores: &WorkspaceStores,
     on_event: Channel<AgentRunMessage>,
     params: AgentRunParams,
     provenance: RunProvenance,
+    engine: EngineKind,
 ) -> Result<AgentRunRecord, String> {
-    let runner = ClaudeCliRunner::new();
-    start_agent_run_with(app, stores, &runner, on_event, params, provenance)
+    // cwd 恒为当前 workspace root（root 已由命令面 blank 检查，for_root 可解析）
+    let store = stores
+        .for_root(&params.cwd.to_string_lossy())
+        .map_err(|e| e.to_string())?;
+    let resume: ResumeTranscript = {
+        let store = Arc::clone(&store);
+        Arc::new(move |session_id: &str| find_events_by_session(&store, session_id))
+    };
+    let runner = EngineFacade::with_resume_transcript(resume)
+        .runner_for(engine, EngineConfig::from_hardcoded_slot());
+    start_agent_run_with(app, stores, runner.as_ref(), on_event, params, provenance)
 }
 
-/// 泛型编排同步段：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ 按
+/// 编排同步段：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ 按
 /// root 预解析所属 workspace 库（`for_root`，同步段完成后 `Arc<Store>` 供
 /// 后台任务持有收尾——库实例跨 await 稳定借用，不经 AppHandle 二次取 State）
 /// → begin 落 `running` 行（初值携带 provenance 来源与链字段）→ 注册停止句
 /// 柄（`(root, run id)` 复合键）→ spawn [`drive_agent_run`] 后台任务 → 立即
 /// 返回 running 记录（提前 resolve；终态经 Channel 流出）。runtime 泛型仅为
-/// 测试注入 MockRuntime 句柄，生产命令面解析为 Wry。
-pub(crate) fn start_agent_run_with<R, T>(
+/// 测试注入 MockRuntime 句柄，生产命令面解析为 Wry。runner 参数收敛为
+/// `&dyn AgentRunner`（门面产 `Box<dyn AgentRunner>`，假 runner 经动态派发
+/// 同缝注入，编排体零引擎分支）。
+pub(crate) fn start_agent_run_with<T>(
     app: AppHandle<T>,
     stores: &WorkspaceStores,
-    runner: &R,
+    runner: &dyn AgentRunner,
     on_event: Channel<AgentRunMessage>,
     params: AgentRunParams,
     provenance: RunProvenance,
 ) -> Result<AgentRunRecord, String>
 where
-    R: AgentRunner + 'static,
     T: Runtime,
 {
     let running = running_record(&params, provenance);

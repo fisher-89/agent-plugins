@@ -130,6 +130,10 @@ pub enum AgentStartError {
     CliMissing(String),
     /// 启动进程失败
     SpawnFailed(String),
+    /// 启动所需配置缺失或非法（认证凭据未配 / 模型标识缺失 / 引用的会话
+    /// 不存在或不属产出方等；消息区分成因）。中性命名：契约面不解释配置
+    /// 从何而来，也不出现任何引擎字样。
+    ConfigMissing(String),
 }
 
 impl fmt::Display for AgentStartError {
@@ -137,6 +141,7 @@ impl fmt::Display for AgentStartError {
         match self {
             Self::CliMissing(msg) => write!(f, "CLI 未找到: {msg}"),
             Self::SpawnFailed(msg) => write!(f, "启动失败: {msg}"),
+            Self::ConfigMissing(msg) => write!(f, "配置缺失: {msg}"),
         }
     }
 }

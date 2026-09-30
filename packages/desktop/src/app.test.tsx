@@ -1253,7 +1253,9 @@ describe('App：HashRouter 自含挂载与路由初态（D2/D6/D7）', () => {
       }),
     );
 
-    expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true);
+    await waitFor(() =>
+      expect(screen.getByRole('heading', { name: 'add-feature' }) !== null).toBe(true),
+    );
     expect(countOf('get_change_detail')).toBe(1);
     // 深链直达不产生行点击之外的清单动作命令
     expect(countOf('add_workspace')).toBe(0);

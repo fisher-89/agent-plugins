@@ -50,7 +50,7 @@ describe('AgentRunForm：参数面默认值与 prompt 必填（AC-5）', () => {
 });
 
 describe('AgentRunForm：onStart 回调与档位切换', () => {
-  it('填写后点击启动 → onStart 以 { prompt, permissionMode } 恰调用一次', () => {
+  it('填写后点击启动 → onStart 以 { prompt, permissionMode, engine } 恰调用一次（初始 engine=sdk）', () => {
     const { onStart } = mount();
 
     typePrompt('帮我跑一轮');
@@ -60,6 +60,7 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
     expect(onStart).toHaveBeenCalledWith({
       prompt: '帮我跑一轮',
       permissionMode: 'bypassPermissions',
+      engine: 'sdk',
     } satisfies AgentStartInput);
   });
 
@@ -74,6 +75,51 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
       fireEvent.change(select, { target: { value } });
       expect(select.value).toBe(value);
     }
+  });
+});
+
+describe('AgentRunForm：引擎二值下拉（调试页引擎选择，初始 sdk 与后端默认一致）', () => {
+  it('初始 agent-engine 下拉值为 sdk（对齐 permission-mode 默认档断言形态，与后端 DEFAULT_ENGINE 一致）', () => {
+    mount();
+
+    expect(selectOf('agent-engine').value).toBe('sdk');
+    // 可选面：cli / sdk 二值
+    const values = Array.from(selectOf('agent-engine').options).map((option) => option.value);
+    expect(values).toEqual(['cli', 'sdk']);
+  });
+
+  it('切至 cli 后启动 → onStart 以 { prompt, permissionMode, engine: "cli" } 恰调用一次', () => {
+    const { onStart } = mount();
+
+    fireEvent.change(selectOf('agent-engine'), { target: { value: 'cli' } });
+    expect(selectOf('agent-engine').value).toBe('cli');
+    typePrompt('显式 cli 调试轮');
+    fireEvent.click(startButton());
+
+    expect(onStart).toHaveBeenCalledTimes(1);
+    expect(onStart).toHaveBeenCalledWith({
+      prompt: '显式 cli 调试轮',
+      permissionMode: 'bypassPermissions',
+      engine: 'cli',
+    } satisfies AgentStartInput);
+  });
+
+  it('注入清单外 option 值（yolo）→ 不回填不触发 onChange，onStart 不携带非法 engine', () => {
+    const { onStart } = mount();
+
+    // ModeSelect 清单守卫：select 值被程序性改为清单外值时 onChange 不回填
+    // （fireEvent.change 携带 ENGINE_OPTIONS 之外的值，options.find 不命中）
+    fireEvent.change(selectOf('agent-engine'), { target: { value: 'yolo' } });
+    expect(selectOf('agent-engine').value).toBe('sdk');
+
+    typePrompt('清单外引擎轮');
+    fireEvent.click(startButton());
+    expect(onStart).toHaveBeenCalledWith({
+      prompt: '清单外引擎轮',
+      permissionMode: 'bypassPermissions',
+      engine: 'sdk',
+    } satisfies AgentStartInput);
+    expect(onStart.mock.calls[0]?.[0]).not.toHaveProperty('engine', 'yolo');
   });
 });
 
@@ -98,6 +144,7 @@ describe('AgentRunForm：禁用与输入保真（边界）', () => {
     expect(onStart).toHaveBeenCalledWith({
       prompt: longPrompt,
       permissionMode: 'bypassPermissions',
+      engine: 'sdk',
     } satisfies AgentStartInput);
   });
 

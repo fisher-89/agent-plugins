@@ -278,3 +278,93 @@ describe('AgentDebugView：区域滚动框架', () => {
     }
   });
 });
+
+// ---------------------------------------------------------------------------
+// 调试页引擎选择（AC-9）：engine 二值下拉初始 sdk（与后端 DEFAULT_ENGINE
+// 一致）；start 透传 input.engine 至 sendMessage；显式 cli 为调试页可选项；
+// sdk 运行复用既有时间线 / 落库 / 重放呈现面
+// ---------------------------------------------------------------------------
+
+/** sdk 形态事件 fixture：ToolUse / ToolResult 成对 + 思考块。 */
+function toolUseEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [
+      { kind: 'thinking', thinking: '先读文件' },
+      { kind: 'toolUse', id: 'tu_sdk_1', name: 'read', input: { path: 'a.txt' } },
+    ],
+    parentToolUseId: null,
+  };
+}
+
+function toolResultEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000001,
+    kind: 'message',
+    role: 'user',
+    blocks: [{ kind: 'toolResult', id: 'tu_sdk_1', content: '文件内容 🎉', isError: false }],
+    parentToolUseId: null,
+  };
+}
+
+function startCallEngine(): unknown {
+  const call = invokeMock.mock.calls.filter(([name]) => name === 'agent_start').at(-1);
+  if (!call) throw new Error('agent_start 未被调用');
+  return (call[1] as Record<string, unknown>)['engine'];
+}
+
+describe('AgentDebugView：调试页引擎选择（初始 sdk）', () => {
+  it('参数面呈现 engine 二值下拉且初始 sdk；不动下拉发起 → invoke 入参 engine 为 "sdk"（与后端默认一致）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+
+    const engineSelect = screen.getByTestId('agent-engine') as HTMLSelectElement;
+    expect(engineSelect.value).toBe('sdk');
+    const values = Array.from(engineSelect.options).map((option) => option.value);
+    expect(values).toEqual(['cli', 'sdk']);
+
+    await startRun();
+    expect(startCallEngine()).toBe('sdk');
+  });
+
+  it('切至 cli 后发起 → start 透传 input.engine 至 sendMessage，invoke 入参 engine 为 "cli"', async () => {
+    render(<AgentDebugView root={ROOT} />);
+
+    fireEvent.change(screen.getByTestId('agent-engine'), { target: { value: 'cli' } });
+    await startRun('显式 cli 调试轮');
+
+    expect(startCallEngine()).toBe('cli');
+  });
+
+  it('sdk 运行的 ToolUse / ToolResult 成对事件经既有时间线组件呈现，终态 record 回流（呈现面零改动复用）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun();
+
+    deliverEvent(toolUseEvent(0));
+    deliverEvent(toolResultEvent(1));
+    deliverEvent(runResult(2));
+    deliverRecord(run(1, 'completed'));
+    await waitFor(() => expect(screen.getByTestId('event-run-record') !== null).toBe(true));
+
+    // 成对块经既有时间线保真透镜呈现（block 级 testid 复用）
+    expect(screen.getByTestId('block-tool-use').getAttribute('data-tool-id')).toBe('tu_sdk_1');
+    expect(screen.getByTestId('block-tool-result').textContent).toContain('文件内容 🎉');
+    expect(screen.getByTestId('event-run-record').getAttribute('data-status')).toBe('completed');
+  });
+
+  it('SDK 启动失败（ConfigMissing 错误串）→ run-error 横幅呈现错误串（Err 抵达前端）', async () => {
+    startBehavior = {
+      mode: 'reject',
+      value: '配置缺失: 配置项未填: api_key / base_url / model（引擎配置硬编码位未手填）',
+    };
+    render(<AgentDebugView root={ROOT} />);
+    await startRun();
+
+    await waitFor(() => expect(screen.getByTestId('run-error') !== null).toBe(true));
+    expect(screen.getByTestId('run-error').textContent).toContain('配置缺失');
+    expect(screen.getByTestId('run-error').textContent).toContain('api_key');
+  });
+});

@@ -2,12 +2,15 @@ import { useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-import type { AgentPermissionMode } from '../../../types/dto';
+import type { AgentPermissionMode, EngineKind } from '../../../types/dto';
 
 /** 发起一次运行的入参（hooks 与表单共用；cwd 隐含当前 workspace root、model 不进 MVP，均无输入） */
 export interface AgentStartInput {
   prompt: string;
   permissionMode: AgentPermissionMode;
+  /** 引擎选择（镜像生成绑定 `EngineKind`）：sdk 初始（与后端默认一致）/
+   * cli 显式可选项；引擎选择仅调试页暴露，正式场景无选择入口 */
+  engine: EngineKind;
 }
 
 export interface AgentRunFormProps {
@@ -20,6 +23,14 @@ const PERMISSION_OPTIONS: { value: AgentPermissionMode; label: string }[] = [
   { value: 'bypassPermissions', label: 'bypassPermissions' },
   { value: 'acceptEdits', label: 'acceptEdits' },
   { value: 'default', label: 'default' },
+];
+
+/** 引擎二值下拉清单（引擎选择仅调试页暴露——正式场景无选择入口、不传
+ * engine 走后端默认 agent；cli 为显式可选项。sdk 引擎配置为硬编码预留位，
+ * 未手填时启动以错误横幅显式失败） */
+const ENGINE_OPTIONS: { value: EngineKind; label: string }[] = [
+  { value: 'cli', label: 'cli' },
+  { value: 'sdk', label: 'sdk' },
 ];
 
 /** 档位下拉：option 清单驱动，仅接受清单内的值（无类型断言） */
@@ -61,22 +72,33 @@ function ModeSelect<T extends string>({
   );
 }
 
-/** 启动工具行：permission-mode 档位 + 发起按钮 */
+/** 启动工具行：引擎二值下拉 + permission-mode 档位 + 发起按钮 */
 function StartToolbar({
   disabled,
   prompt,
+  engine,
   permissionMode,
+  onEngineChange,
   onPermissionModeChange,
   onStart,
 }: {
   disabled: boolean;
   prompt: string;
+  engine: EngineKind;
   permissionMode: AgentPermissionMode;
+  onEngineChange: (value: EngineKind) => void;
   onPermissionModeChange: (value: AgentPermissionMode) => void;
   onStart: (input: AgentStartInput) => void;
 }): React.JSX.Element {
   return (
     <div className="mb-3 flex flex-wrap items-center gap-4">
+      <ModeSelect
+        id="agent-engine"
+        label="engine"
+        options={ENGINE_OPTIONS}
+        value={engine}
+        onChange={onEngineChange}
+      />
       <ModeSelect
         id="agent-permission-mode"
         label="permission-mode"
@@ -88,7 +110,7 @@ function StartToolbar({
       <Button
         disabled={disabled}
         data-testid="agent-start"
-        onClick={() => onStart({ prompt, permissionMode })}
+        onClick={() => onStart({ prompt, permissionMode, engine })}
       >
         发起运行
       </Button>
@@ -97,13 +119,17 @@ function StartToolbar({
 }
 
 /**
- * 参数面（最小集）：prompt 必填（空则禁用启动）、
- * permission-mode 三档下拉默认 bypassPermissions（无头 default 档下需审批
- * 工具直接被拒，调试页以完整循环为默认）。bare 档不读 OAuth 凭据与系统
- * keychain，须 ANTHROPIC_API_KEY 等外部认证前提——开关旁固定提示。
+ * 参数面（最小集）：prompt 必填（空则禁用启动）、engine 引擎二值下拉初始
+ * sdk（与后端硬编码默认一致；cli 为显式可选项——引擎选择仅调试页暴露，
+ * 正式场景无选择入口；sdk 引擎直连 openai 兼容端点，配置为硬编码
+ * 预留位——未手填时启动显式失败）、permission-mode 三档下拉默认
+ * bypassPermissions（无头 default 档下需审批工具直接被拒，调试页以完整
+ * 循环为默认）。bare 档不读 OAuth 凭据与系统 keychain，须
+ * ANTHROPIC_API_KEY 等外部认证前提——开关旁固定提示。
  */
 export function AgentRunForm({ disabled, onStart }: AgentRunFormProps): React.JSX.Element {
   const [prompt, setPrompt] = useState('');
+  const [engine, setEngine] = useState<EngineKind>('sdk');
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
 
   return (
@@ -125,7 +151,9 @@ export function AgentRunForm({ disabled, onStart }: AgentRunFormProps): React.JS
       <StartToolbar
         disabled={disabled || prompt.trim().length === 0}
         prompt={prompt}
+        engine={engine}
         permissionMode={permissionMode}
+        onEngineChange={setEngine}
         onPermissionModeChange={setPermissionMode}
         onStart={onStart}
       />

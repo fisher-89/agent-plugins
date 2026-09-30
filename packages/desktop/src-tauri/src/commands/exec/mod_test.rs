@@ -30,7 +30,9 @@ use super::{
 use crate::commands::exec::agent::agent_test::{
     capturing_channel, pushed_event_bodies, start_and_wait_terminal, FakeRunner, PATH_LOCK,
 };
-use crate::commands::exec::agent::{start_agent_run, start_agent_run_with, RunProvenance};
+use crate::commands::exec::agent::{
+    start_agent_run, start_agent_run_with, RunProvenance, DEFAULT_ENGINE,
+};
 
 // ---------------------------------------------------------------------------
 // 装置
@@ -842,6 +844,7 @@ fn agent_start薄入口在cli不可发现时返回err且workspace库无run行且
         channel,
         run_params(Path::new(&root)),
         RunProvenance::debug(),
+        agent_runtime::EngineKind::Cli,
     );
     match original {
         Some(value) => std::env::set_var("PATH", value),
@@ -863,6 +866,115 @@ fn agent_start薄入口在cli不可发现时返回err且workspace库无run行且
         captured.lock().unwrap().is_empty(),
         "启动失败不推送任何事件"
     );
+}
+
+// ---------------------------------------------------------------------------
+// agent_start engine 缺省收敛（v2 默认 agent）：不传 engine →
+// unwrap_or(DEFAULT_ENGINE) 收敛 SDK 引擎（硬编码位未手填时启动校验即失败
+// 不触网络）；显式 cli 为调试页可选项，隔离 PATH 下 Err 为 CliMissing（既有
+// 薄入口用例已携显式 Cli 入参，零改动通过，不受缺省修订影响）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn agent_start_engine缺省收敛sdk_与显式some_sdk同路径同错误形态且零落库零推送() {
+    let env = Env::new("engine-default-sdk");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+
+    // DEFAULT_ENGINE 常量恒等 EngineKind::Sdk（v2 默认 agent 硬编码位）
+    assert_eq!(DEFAULT_ENGINE, agent_runtime::EngineKind::Sdk);
+
+    // 壳层收敛表达式逐字镜像：不传 engine（None）→ unwrap_or(DEFAULT_ENGINE)
+    let resolved_none: agent_runtime::EngineKind = None.unwrap_or(DEFAULT_ENGINE);
+    let (channel_none, captured_none) = capturing_channel();
+    let err_none = start_agent_run(
+        app.handle().clone(),
+        &state,
+        channel_none,
+        run_params(Path::new(&root)),
+        RunProvenance::debug(),
+        resolved_none,
+    )
+    .expect_err("sdk 硬编码位未手填时启动校验显式失败");
+    assert!(
+        err_none.contains("配置缺失"),
+        "收敛 SDK 的 Err 为 ConfigMissing 文案（启动校验即失败不触网络），实际: {err_none}"
+    );
+
+    // 显式 Some(Sdk)：同路径同错误形态
+    let resolved_some = Some(agent_runtime::EngineKind::Sdk).unwrap_or(DEFAULT_ENGINE);
+    let (channel_some, captured_some) = capturing_channel();
+    let err_some = start_agent_run(
+        app.handle().clone(),
+        &state,
+        channel_some,
+        run_params(Path::new(&root)),
+        RunProvenance::debug(),
+        resolved_some,
+    )
+    .expect_err("显式 sdk 同样启动校验失败");
+    assert_eq!(
+        err_none, err_some,
+        "缺省收敛与显式 Some(Sdk) 同路径同错误形态"
+    );
+
+    // 跨模块组合断言：Err(ConfigMissing) 抵达命令面（启动失败零残留）——
+    // workspace 库零 run 行、Channel 零推送
+    assert!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .list_agent_runs()
+            .unwrap()
+            .is_empty(),
+        "SDK 启动校验失败不留 run 行"
+    );
+    assert!(
+        captured_none.lock().unwrap().is_empty() && captured_some.lock().unwrap().is_empty(),
+        "启动校验失败零推送"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// agent_start engine 参数面稳定性（边界）：尾部末位可选参数，既有调用形态经
+// IPC 反序列化不受影响（Option 缺席即 None）；blank root 守卫先于引擎分发
+// ---------------------------------------------------------------------------
+
+#[test]
+fn engine尾部可选参数serde面_缺席即none_清单外值拒绝且守卫先于分发() {
+    use agent_runtime::EngineKind;
+
+    // Option 缺席即 None（serde null 承接；IPC 签名 v2 零变化）
+    assert_eq!(
+        serde_json::from_value::<Option<EngineKind>>(serde_json::json!(null)).expect("null 承接"),
+        None,
+        "engine 缺席反序列化为 None"
+    );
+    assert_eq!(
+        serde_json::to_value(None::<EngineKind>).unwrap(),
+        serde_json::json!(null),
+        "None 出线为 null"
+    );
+    // 两值清单逐字 camelCase 线格式
+    assert_eq!(
+        serde_json::from_value::<Option<EngineKind>>(serde_json::json!("cli")).expect("cli 承接"),
+        Some(EngineKind::Cli)
+    );
+    assert_eq!(
+        serde_json::from_value::<Option<EngineKind>>(serde_json::json!("sdk")).expect("sdk 承接"),
+        Some(EngineKind::Sdk)
+    );
+    // 清单外值：不静默兜底（值域受控）
+    assert!(
+        serde_json::from_value::<Option<EngineKind>>(serde_json::json!("yolo")).is_err(),
+        "清单外 engine 值拒绝"
+    );
+
+    // blank root 守卫先于引擎分发（四命令守卫口径不变：守卫谓词在轨道单点）
+    assert!(is_blank_root(""));
+    assert!(is_blank_root("   "));
+    assert!(!is_blank_root("C:\\ws"));
 }
 
 // ---------------------------------------------------------------------------

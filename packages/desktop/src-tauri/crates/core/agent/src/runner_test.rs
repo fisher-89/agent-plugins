@@ -236,6 +236,106 @@ fn start_error两变体display文案携带原因串可直抵前端() {
     );
 }
 
+// ---------------------------------------------------------------------------
+// AgentStartError::ConfigMissing（AC-2 新增中性变体）：Display 分支与载荷
+// 保真。中性命名（core 契约面不出现 sdk / engine 字样），承接 key 未配 /
+// 模型缺失 / 会话缺失三类成因。
+// ---------------------------------------------------------------------------
+
+#[test]
+fn config_missing变体display文案为配置缺失且携带原因串三类成因可区分() {
+    // 三类成因消息（key 未配 / 模型缺失 / 会话缺失）可区分、可直抵前端
+    let causes = [
+        ("key 未配", "配置项未填: api_key（引擎配置硬编码位未手填）"),
+        ("模型缺失", "模型标识缺失"),
+        ("会话缺失", "会话不存在或非 SDK 产出: sdk-404"),
+    ];
+    let errors: Vec<AgentStartError> = causes
+        .iter()
+        .map(|(_, message)| AgentStartError::ConfigMissing((*message).to_owned()))
+        .collect();
+    for ((cause, message), error) in causes.iter().zip(&errors) {
+        let text = error.to_string();
+        assert!(
+            text.starts_with("配置缺失: ") && text.contains(message),
+            "{cause} 成因文案应形如「配置缺失: {message}」，实际: {text}"
+        );
+    }
+    // 三成因互不重合（可区分）
+    assert_ne!(errors[0].to_string(), errors[1].to_string());
+    assert_ne!(errors[1].to_string(), errors[2].to_string());
+}
+
+#[test]
+fn config_missing变体非规整载荷display原样携带不截断且partial_eq精确匹配() {
+    // msg 含中文 / 空格 / 换行 / emoji / 超长（>1000 字符）：原样携带不截断
+    let long = "长".repeat(1001);
+    let payloads = [
+        ("中文", "配置项 缺失（中文载荷）"),
+        ("空格", "api_key / base_url"),
+        ("换行", "第一行\n第二行"),
+        ("emoji", "凭据未配 🎉🚀"),
+        ("超长", long.as_str()),
+        ("空串", ""),
+    ];
+    for (label, payload) in payloads {
+        let error = AgentStartError::ConfigMissing(payload.to_owned());
+        let text = error.to_string();
+        assert!(
+            text.contains(payload),
+            "{label} 载荷原样携带不截断，实际: {text}"
+        );
+    }
+    // 空串载荷：前缀「配置缺失: 」不变（前缀后无内容）
+    assert_eq!(
+        AgentStartError::ConfigMissing(String::new()).to_string(),
+        "配置缺失: ",
+        "空串载荷前缀不变"
+    );
+    // 超长载荷逐字保真
+    let long_error = AgentStartError::ConfigMissing(long.clone());
+    assert_eq!(
+        long_error.to_string(),
+        format!("配置缺失: {long}"),
+        "超长载荷不截断"
+    );
+    // PartialEq 按载荷精确匹配（同载荷等值、异载荷不等值）
+    assert_eq!(
+        AgentStartError::ConfigMissing("同一载荷".to_owned()),
+        AgentStartError::ConfigMissing("同一载荷".to_owned())
+    );
+    assert_ne!(
+        AgentStartError::ConfigMissing("载荷甲".to_owned()),
+        AgentStartError::ConfigMissing("载荷乙".to_owned())
+    );
+}
+
+#[test]
+fn start_error既有两变体回归_加法变体不改写既有display与匹配形态() {
+    // CliMissing / SpawnFailed 既有两变体 Display 文案逐字回归（加法变体
+    // ConfigMissing 不回归既有断言）
+    assert_eq!(
+        AgentStartError::CliMissing("原因甲".to_owned()).to_string(),
+        "CLI 未找到: 原因甲"
+    );
+    assert_eq!(
+        AgentStartError::SpawnFailed("原因乙".to_owned()).to_string(),
+        "启动失败: 原因乙"
+    );
+    // 匹配形态回归：三变体互不重合（match 闭包可全枚举）
+    let variant_of = |error: &AgentStartError| match error {
+        AgentStartError::CliMissing(_) => "cli_missing",
+        AgentStartError::SpawnFailed(_) => "spawn_failed",
+        AgentStartError::ConfigMissing(_) => "config_missing",
+    };
+    assert_eq!(variant_of(&AgentStartError::CliMissing("x".to_owned())), "cli_missing");
+    assert_eq!(variant_of(&AgentStartError::SpawnFailed("x".to_owned())), "spawn_failed");
+    assert_eq!(
+        variant_of(&AgentStartError::ConfigMissing("x".to_owned())),
+        "config_missing"
+    );
+}
+
 #[test]
 fn run_params的cwd含中文空格与尾分隔符时字段保真() {
     // AgentRunParams 为逻辑入参（非线格式类型，derive 仅 Debug/Clone/PartialEq）：
