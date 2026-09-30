@@ -1,18 +1,4 @@
-//! Tauri command 七轨：config（工作区配置解析，无状态解析）、queries（change
-//! 域查询 + workspace 注册）、exec（执行；承载 agent 命令）、explores
-//! （explore 读面 + 记录面）、watch（单文件失效信号订阅）、db（db 查看轨道，
-//! 只读）与 stats（工作区代码统计，无状态解析）。
-//!
-//! Command body 纪律（决策出处：desktop-app-shell 能力 spec，
-//! `specs/desktop-app-shell/spec.md`，路径相对域根）：每条命令的 body 仅允许三件事——
-//! 参数转换（IPC 入参 → 领域/store 入参）、调用（core 函数或 store 操作）、
-//! 错误映射（领域/Store 错误 → `Err(String)`）。两条禁令：领域解释 SHALL 下推 core；
-//! 跨边界协调 SHALL 触发 app crate 决策（五条翻转信号见 spec），
-//! MUST NOT 以「先塞进命令里」的方式消化编排增长。
-//! `commands/workspaces` 的 `*_inner(&WorkspaceStores)` 纯函数模式与 `commands/exec` 的
-//! `start_agent_run()` / `drive_agent_run()` 编排函数同为 app 层微形态，将来
-//! 抽 app crate 时平移复用（函数边界升 crate 边界）、不重写、不内联回命令体。
-
+pub mod agents;
 pub mod config;
 pub mod db;
 pub mod exec;
@@ -22,10 +8,7 @@ pub mod stats;
 pub mod watch;
 pub mod workspaces;
 
-/// 全量命令清单（单一登记面，纯路径注入零依赖）：24 条命令路径（迁自旧版
-/// `main.rs` `generate_handler!`）注入调用方传入的宏——运行时 `main` 传原生
-/// `tauri::generate_handler`，导出 `bindings` 传 `tauri_specta::collect_commands`，
-/// 新增命令只改此处，两侧自动同步。`commands` 自身不依赖 tauri_specta。
+/// 全量命令清单（单一登记面，纯路径注入零依赖）
 #[macro_export]
 macro_rules! all_commands {
     ($mac:ident) => {
@@ -36,6 +19,13 @@ macro_rules! all_commands {
             $crate::commands::workspaces::list_workspaces,
             $crate::commands::workspaces::add_workspace,
             $crate::commands::workspaces::remove_workspace,
+            $crate::commands::agents::list_agent_providers,
+            $crate::commands::agents::save_agent_provider,
+            $crate::commands::agents::delete_agent_provider,
+            $crate::commands::agents::list_agent_instances,
+            $crate::commands::agents::save_agent_instance,
+            $crate::commands::agents::delete_agent_instance,
+            $crate::commands::agents::set_default_agent_instance,
             $crate::commands::exec::agent_start,
             $crate::commands::exec::agent_stop,
             $crate::commands::exec::agent_runs,

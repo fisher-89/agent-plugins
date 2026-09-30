@@ -448,37 +448,37 @@ describe('useAgentChat：边界', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 发送组装 engine 穿透（v2）：body 组装 `engine: input.engine ?? null`——
-// 缺席透传不注入（缺省裁决权归后端 unwrap_or(DEFAULT_ENGINE)；debug 链显式
-// 传、explore 等正式链缺席透传）
+// 发送组装 agent 穿透：body 组装 `agent: input.agent ?? null`——缺席透传不
+// 注入（缺省裁决权归后端解析默认 agent；debug 链显式传 id、explore 等正式链
+// 缺席透传）
 // ---------------------------------------------------------------------------
 
-describe('useAgentChat：发送组装 engine 穿透', () => {
-  it('sendMessage input.engine="sdk" → body.engine="sdk"（invoke 入参断言）', async () => {
+describe('useAgentChat：发送组装 agent 穿透', () => {
+  it('sendMessage input.agent=7 → body.agent=7（invoke 入参断言）', async () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.sendMessage({ ...SEND_INPUT, engine: 'sdk' });
+      result.current.sendMessage({ ...SEND_INPUT, agent: 7 });
     });
     await act(async () => {});
 
-    expect(startCallArgs()['engine']).toBe('sdk');
+    expect(startCallArgs()['agent']).toBe(7);
   });
 
-  it('sendMessage input.engine="cli" → body.engine="cli"（调试链显式传值穿透）', async () => {
+  it('sendMessage input.agent=3 → body.agent=3（调试链显式传值穿透）', async () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.sendMessage({ ...SEND_INPUT, engine: 'cli' });
+      result.current.sendMessage({ ...SEND_INPUT, agent: 3 });
     });
     await act(async () => {});
 
-    expect(startCallArgs()['engine']).toBe('cli');
+    expect(startCallArgs()['agent']).toBe(3);
   });
 
-  it('input.engine 不传 → body.engine=null（缺席透传不注入，explore 链缺省安全）', async () => {
-    // DEBUG_PARAMS 即 explore 形态（来源侧不传 engine）：explore 会话链
-    // 发送 body.engine=null → 后端缺省收敛 DEFAULT_ENGINE（Sdk）
+  it('input.agent 不传 → body.agent=null（缺席透传不注入，explore 链缺省安全）', async () => {
+    // DEBUG_PARAMS 即 explore 形态（来源侧不传 agent）：explore 会话链
+    // 发送 body.agent=null → 后端缺省解析默认 agent
     const { result } = await mounted();
 
     act(() => {
@@ -486,34 +486,34 @@ describe('useAgentChat：发送组装 engine 穿透', () => {
     });
     await act(async () => {});
 
-    expect(startCallArgs()['engine']).toBeNull();
+    expect(startCallArgs()['agent']).toBeNull();
   });
 
-  it('input.engine 为类型面外运行时异常值（yolo）→ hook 不做清单校验原样入 body，由 transport readEngine 层拒绝（职责分界留痕）', async () => {
+  it('input.agent 为类型面外运行时异常值（yolo）→ hook 不做清单校验原样入 body，由 transport readAgentId 层拒绝（职责分界留痕）', async () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.sendMessage({ ...SEND_INPUT, engine: 'yolo' as 'sdk' });
+      result.current.sendMessage({ ...SEND_INPUT, agent: 'yolo' as unknown as number });
     });
-    await waitFor(() => expect(result.current.error).toContain('非法 engine'));
+    await waitFor(() => expect(result.current.error).toContain('非法 agent'));
 
     // hook 本体不炸：error 置位、running 复位；拒绝发生在 transport 层
     //（invoke 未发起），hook 侧零清单校验代码路径
     expect(result.current.running).toBe(false);
-    expect(result.current.error).toContain('非法 engine');
+    expect(result.current.error).toContain('非法 agent');
     expect(invokeMock.mock.calls.filter(([name]) => name === 'agent_start')).toHaveLength(0);
   });
 
-  it('engine 增补后 resumeSessionId / parentRunId / 来源三元组组装不变（互不串线，body 逐字段断言）', async () => {
+  it('agent 增补后 resumeSessionId / parentRunId / 来源三元组组装不变（互不串线，body 逐字段断言）', async () => {
     const { result } = await mounted();
 
     act(() => {
-      result.current.sendMessage({ ...SEND_INPUT, engine: 'sdk' });
+      result.current.sendMessage({ ...SEND_INPUT, agent: 7 });
     });
     await act(async () => {});
 
     const args = startCallArgs();
-    expect(args['engine']).toBe('sdk');
+    expect(args['agent']).toBe(7);
     expect(args['resumeSessionId']).toBe('s-tail');
     expect(args['parentRunId']).toBe(12);
     expect(args['root']).toBe(ROOT);
@@ -549,10 +549,10 @@ describe('useAgentChat：生成绑定调用面', () => {
     await waitFor(() => expect(result.current.running).toBe(true));
 
     // 生成绑定位置参数 → invoke 参数对象：恰 9 个 key（链参数 8 + onEvent）
-    // （engine 键恒在——transport 恒以第 9 位置参传 engine，缺席值 null）
+    // （agent 键恒在——transport 恒以第 9 位置参传 agent，缺席值 null）
     const args = startCallArgs();
     expect(Object.keys(args).sort()).toEqual([
-      'engine',
+      'agent',
       'onEvent',
       'parentRunId',
       'permissionMode',
@@ -566,7 +566,7 @@ describe('useAgentChat：生成绑定调用面', () => {
       root: ROOT,
       prompt: SEND_INPUT.prompt,
       permissionMode: 'bypassPermissions',
-      engine: null,
+      agent: null,
       resumeSessionId: 's-tail',
       parentRunId: 12,
       source: 'explore',

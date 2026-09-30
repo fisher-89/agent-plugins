@@ -1,19 +1,12 @@
-//! `envelope`（信封 API 实现体）的单元测试：注册表结构（按实例维度分组列出）、
-//! scan 分页边界矩阵、key/value 信封形态（JSON 口径、u128 键可表达性）、未知
-//! 模型名异常面。
-//!
-//! 存储层不 mock：tempfile 真开库并经 `Store` 公共 API 写入构造数据（信封
-//! 实现体经 `Store::list_models` / `Store::scan` 委托触达）。双库布局下按
-//! 维度开库：注册表记录走 `Store::open_global`、run / 事件走
-//! `Store::open_workspace`（维度过滤的行为断言在 store_test.rs 的分维度
-//! list_models / scan 用例承载，本文件为分页边界与信封形态回归）。
-
 use std::fs;
 use std::path::{Path, PathBuf};
 
 use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
 
-use crate::{AgentRunRecord, Store, StoreError};
+use crate::{
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+    Store, StoreError,
+};
 
 /// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -114,7 +107,7 @@ fn scan_err(store: &Store, model: &str) -> String {
 fn 注册表按维度分组列出模型且list_models计数与写入量一致() {
     let env = Env::new("registry");
 
-    // 全局库：仅 workspace 一行（含计数 1）
+    // 全局库：三模型组（workspace 注册表 + agent 管理两模型），计数与写入量一致
     let global = open_global_ok(&env.db_path("global"));
     add_ok(&global, &env.ws("one"));
     let global_models = global.list_models().unwrap();
@@ -123,8 +116,12 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
             .iter()
             .map(|model| (model.name.as_str(), model.count))
             .collect::<Vec<_>>(),
-        vec![("workspace", 1)],
-        "全局库静态注册表仅 workspace 一行，计数与写入量一致"
+        vec![
+            ("workspace", 1),
+            ("agent_provider", 0),
+            ("agent_instance", 0)
+        ],
+        "全局库静态注册表为三模型组（agent 管理两行计数 0 也列出），计数与写入量一致"
     );
     drop(global);
 
@@ -144,6 +141,158 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
     );
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
     assert_eq!(counts, vec![1, 1, 0], "计数与各模型写入量一致");
+}
+
+// ---------------------------------------------------------------------------
+// 新模型登记行（AC-11）：agent_provider / agent_instance 两信封注册行经
+// Store 公共 API 触达（登记行为断言不虚构 envelope 私有条目）
+// ---------------------------------------------------------------------------
+
+fn fixture_provider(name: &str) -> AgentProviderRecord {
+    AgentProviderRecord::new(
+        name.to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        AgentModelTiers {
+            high: "m-high".to_owned(),
+            medium: "m-medium".to_owned(),
+            low: "m-low".to_owned(),
+        },
+    )
+}
+
+fn upsert_provider_ok(store: &Store, provider: AgentProviderRecord) -> AgentProviderRecord {
+    store
+        .upsert_agent_provider(provider)
+        .unwrap_or_else(|e| panic!("upsert_agent_provider 应成功: {e}"))
+}
+
+fn upsert_agent_ok(store: &Store, agent: AgentInstanceRecord) -> AgentInstanceRecord {
+    store
+        .upsert_agent_instance(agent)
+        .unwrap_or_else(|e| panic!("upsert_agent_instance 应成功: {e}"))
+}
+
+#[test]
+fn open_global后list_models出现两新模型行_写入后计数与实有记录数一致() {
+    let env = Env::new("envelope-new-entries");
+
+    // 空库计数 0 也列出（信封 API 签名零变化：list_models 形参面与返回形态不变，
+    // 仅注册表数据行追加）
+    let global = open_global_ok(&env.db_path("global"));
+    let names: Vec<String> = global
+        .list_models()
+        .unwrap()
+        .into_iter()
+        .map(|model| model.name)
+        .collect();
+    assert!(
+        names.contains(&"agent_provider".to_owned())
+            && names.contains(&"agent_instance".to_owned()),
+        "open_global 后 list_models 出现 agent_provider / agent_instance 两行，实际: {names:?}"
+    );
+
+    // 写入后 list_models 计数与实有记录数一致
+    let provider = upsert_provider_ok(&global, fixture_provider("信封端点"));
+    let _agent = upsert_agent_ok(
+        &global,
+        AgentInstanceRecord::new(
+            "信封实例".to_owned(),
+            AgentEngineKind::Sdk,
+            Some(provider.id),
+        ),
+    );
+    let models = global.list_models().unwrap();
+    let count_of = |name: &str| {
+        models
+            .iter()
+            .find(|model| model.name == name)
+            .unwrap_or_else(|| panic!("模型 {name} 应在清单中"))
+            .count
+    };
+    assert_eq!(count_of("agent_provider"), 1, "provider 计数与实有记录数一致");
+    assert_eq!(count_of("agent_instance"), 1, "agent 计数与实有记录数一致");
+}
+
+#[test]
+fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封value为小驼峰json() {
+    let env = Env::new("envelope-new-scan");
+    let global = open_global_ok(&env.db_path("global"));
+    // 三 provider（乱序名写入，主键自然序断言与写入序无关）
+    let seeded: Vec<AgentProviderRecord> = ["丙", "甲", "乙"]
+        .iter()
+        .map(|name| upsert_provider_ok(&global, fixture_provider(name)))
+        .collect();
+    let _agent = upsert_agent_ok(
+        &global,
+        AgentInstanceRecord::new("扫描实例".to_owned(), AgentEngineKind::Cli, None),
+    );
+
+    // 分页扫描：offset/limit 翻页拼接不重不漏（主键自然序）
+    let page_keys = |model: &str, offset: u32, limit: u32| -> Vec<serde_json::Value> {
+        global
+            .scan(model, offset, limit)
+            .unwrap_or_else(|e| panic!("scan({model}) 应成功: {e}"))
+            .into_iter()
+            .map(|envelope| envelope.key)
+            .collect()
+    };
+    let mut union = page_keys("agent_provider", 0, 2);
+    union.extend(page_keys("agent_provider", 2, 2));
+    let ids: Vec<i64> = union
+        .iter()
+        .map(|key| key.as_i64().expect("key 为数值 id 信封"))
+        .collect();
+    assert_eq!(
+        ids,
+        seeded.iter().map(|record| record.id).collect::<Vec<i64>>(),
+        "agent_provider 分页拼接恰为全部记录主键自然序，不重不漏"
+    );
+
+    // agent_instance 同口径（单行）
+    let agent_page = global.scan("agent_instance", 0, 10).unwrap();
+    assert_eq!(agent_page.len(), 1);
+    assert!(
+        agent_page[0].key.is_i64(),
+        "agent_instance key 为数值 id 信封"
+    );
+
+    // value 为 camelCase JSON（db-inspector 查看器零改动触达前提）
+    let provider_page = global.scan("agent_provider", 0, 10).unwrap();
+    let value = &provider_page[0].value;
+    assert_eq!(value["name"], serde_json::json!("丙"));
+    assert_eq!(value["baseUrl"], serde_json::json!("https://api.example.com/v1"));
+    assert_eq!(value["apiKey"], serde_json::json!("sk-live-1234567890"));
+    assert_eq!(value["models"]["high"], serde_json::json!("m-high"));
+    let agent_value = &agent_page[0].value;
+    assert_eq!(agent_value["name"], serde_json::json!("扫描实例"));
+    assert_eq!(agent_value["engine"], serde_json::json!("cli"));
+    assert_eq!(agent_value["isDefault"], serde_json::json!(false));
+
+    // 空页边界：offset 恰等于总数返回空数组不报错（信封 API 签名零变化）
+    assert!(
+        global.scan("agent_provider", 3, 10).unwrap().is_empty(),
+        "offset 恰等于记录总数返回空数组"
+    );
+}
+
+#[test]
+fn workspace库实例scan新模型名err维度过滤_两新模型仅注册全局组() {
+    let env = Env::new("envelope-dimension-filter");
+    let ws = open_ws_ok(&env.db_path("ws"));
+
+    for name in ["agent_provider", "agent_instance"] {
+        let result = ws.scan(name, 0, 10);
+        let err = result.expect_err("workspace 库 scan 新模型名应 Err（维度过滤）");
+        assert!(
+            matches!(err, StoreError::Db(_)),
+            "变体为 Db，实际: {err:?}"
+        );
+        assert!(
+            err.to_string().contains("未知模型"),
+            "错误串含「未知模型」语境，实际: {err}"
+        );
+    }
 }
 
 // ---------------------------------------------------------------------------

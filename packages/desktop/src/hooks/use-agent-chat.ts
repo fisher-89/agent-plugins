@@ -30,7 +30,6 @@ import {
   type AgentEvent,
   type AgentPermissionMode,
   type AgentRunRecord,
-  type EngineKind,
 } from '../types/generated/bindings';
 
 /** 会话来源参数（source 二元组 + cwd；sourceRef=null 即不重放装载） */
@@ -40,13 +39,11 @@ export interface UseAgentChatParams {
   root: string | null;
 }
 
-/** 单次发送入参（文本已由来源侧组装完毕；engine 可选——仅调试页传入，
- * explore 链等正式场景不传、无选择 UI，缺席透传不注入缺省值，由后端
- * 默认 agent 生效） */
+/** 单次发送入参 */
 interface AgentChatSendInput {
   prompt: string;
   permissionMode: AgentPermissionMode;
-  engine?: EngineKind;
+  agent?: number | null;
 }
 
 /** 会话基建状态面（镜像 + 行为；类型经本面结构化流转，视图层不 import ai） */
@@ -273,7 +270,7 @@ function useSessionActions(
           root,
           prompt: input.prompt,
           permissionMode: input.permissionMode,
-          engine: input.engine ?? null,
+          agent: input.agent ?? null,
           resumeSessionId: tail?.sessionId ?? null,
           parentRunId: tail?.id ?? null,
           source,

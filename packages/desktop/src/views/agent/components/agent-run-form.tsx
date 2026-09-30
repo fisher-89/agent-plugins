@@ -1,21 +1,22 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
 
-import type { AgentPermissionMode, EngineKind } from '../../../types/dto';
+import type { AgentInstanceRecord, AgentPermissionMode } from '../../../types/generated/bindings';
 
-/** 发起一次运行的入参（hooks 与表单共用；cwd 隐含当前 workspace root、model 不进 MVP，均无输入） */
+/** 发起一次运行的入参（hooks 与表单共用；cwd 隐含当前 workspace root、model 不进本期，均无输入） */
 export interface AgentStartInput {
   prompt: string;
   permissionMode: AgentPermissionMode;
-  /** 引擎选择（镜像生成绑定 `EngineKind`）：sdk 初始（与后端默认一致）/
-   * cli 显式可选项；引擎选择仅调试页暴露，正式场景无选择入口 */
-  engine: EngineKind;
+  /** agent 实例 id（null = 缺省——由后端解析默认 agent；explore 链恒 null） */
+  agent: number | null;
 }
 
 export interface AgentRunFormProps {
   /** 已有运行进行中时禁用启动 */
   disabled: boolean;
+  /** agent 实例清单（选择器选项数据面，来自 useAgentOptions） */
+  agents: AgentInstanceRecord[];
   onStart: (input: AgentStartInput) => void;
 }
 
@@ -25,13 +26,50 @@ const PERMISSION_OPTIONS: { value: AgentPermissionMode; label: string }[] = [
   { value: 'default', label: 'default' },
 ];
 
-/** 引擎二值下拉清单（引擎选择仅调试页暴露——正式场景无选择入口、不传
- * engine 走后端默认 agent；cli 为显式可选项。sdk 引擎配置为硬编码预留位，
- * 未手填时启动以错误横幅显式失败） */
-const ENGINE_OPTIONS: { value: EngineKind; label: string }[] = [
-  { value: 'cli', label: 'cli' },
-  { value: 'sdk', label: 'sdk' },
-];
+/** agent 选择器缺省选项值（select 值域为 string：'' = 缺省（后端解析默认
+ * agent），数字串 = 显式实例 id） */
+const DEFAULT_OPTION_VALUE = '';
+
+/** agent 选择器：选项 = agent 实例清单（名称 + engine 标注），首项为缺省
+ * （清单为空时仅存缺省项——发起走后端缺省解析，无默认经错误横幅显式报错）。
+ * 清单守卫：仅接受已渲染 option 值，清单外程序值不回填不触发 onChange */
+function AgentSelect({
+  agents,
+  value,
+  onChange,
+}: {
+  agents: AgentInstanceRecord[];
+  value: number | null;
+  onChange: (value: number | null) => void;
+}): React.JSX.Element {
+  return (
+    <span className="flex items-center gap-1.5 text-sm">
+      <label className="text-xs text-muted-foreground" htmlFor="agent-select">
+        agent
+      </label>
+      <select
+        id="agent-select"
+        className="rounded-md border border-border bg-transparent px-1.5 py-0.5 text-sm"
+        data-testid="agent-select"
+        value={value === null ? DEFAULT_OPTION_VALUE : String(value)}
+        onChange={(e) => {
+          const raw = e.target.value;
+          if (raw !== DEFAULT_OPTION_VALUE && !agents.some((record) => String(record.id) === raw)) {
+            return;
+          }
+          onChange(raw === DEFAULT_OPTION_VALUE ? null : Number(raw));
+        }}
+      >
+        <option value={DEFAULT_OPTION_VALUE}>（默认 agent）</option>
+        {agents.map((record) => (
+          <option key={record.id} value={String(record.id)}>
+            {`${record.name}（${record.engine}）`}
+          </option>
+        ))}
+      </select>
+    </span>
+  );
+}
 
 /** 档位下拉：option 清单驱动，仅接受清单内的值（无类型断言） */
 function ModeSelect<T extends string>({
@@ -72,33 +110,29 @@ function ModeSelect<T extends string>({
   );
 }
 
-/** 启动工具行：引擎二值下拉 + permission-mode 档位 + 发起按钮 */
+/** 启动工具行：agent 选择器 + permission-mode 档位 + 发起按钮 */
 function StartToolbar({
   disabled,
   prompt,
-  engine,
+  agents,
+  agentId,
   permissionMode,
-  onEngineChange,
+  onAgentChange,
   onPermissionModeChange,
   onStart,
 }: {
   disabled: boolean;
   prompt: string;
-  engine: EngineKind;
+  agents: AgentInstanceRecord[];
+  agentId: number | null;
   permissionMode: AgentPermissionMode;
-  onEngineChange: (value: EngineKind) => void;
+  onAgentChange: (value: number | null) => void;
   onPermissionModeChange: (value: AgentPermissionMode) => void;
   onStart: (input: AgentStartInput) => void;
 }): React.JSX.Element {
   return (
     <div className="mb-3 flex flex-wrap items-center gap-4">
-      <ModeSelect
-        id="agent-engine"
-        label="engine"
-        options={ENGINE_OPTIONS}
-        value={engine}
-        onChange={onEngineChange}
-      />
+      <AgentSelect agents={agents} value={agentId} onChange={onAgentChange} />
       <ModeSelect
         id="agent-permission-mode"
         label="permission-mode"
@@ -110,7 +144,7 @@ function StartToolbar({
       <Button
         disabled={disabled}
         data-testid="agent-start"
-        onClick={() => onStart({ prompt, permissionMode, engine })}
+        onClick={() => onStart({ prompt, permissionMode, agent: agentId })}
       >
         发起运行
       </Button>
@@ -119,18 +153,23 @@ function StartToolbar({
 }
 
 /**
- * 参数面（最小集）：prompt 必填（空则禁用启动）、engine 引擎二值下拉初始
- * sdk（与后端硬编码默认一致；cli 为显式可选项——引擎选择仅调试页暴露，
- * 正式场景无选择入口；sdk 引擎直连 openai 兼容端点，配置为硬编码
- * 预留位——未手填时启动显式失败）、permission-mode 三档下拉默认
- * bypassPermissions（无头 default 档下需审批工具直接被拒，调试页以完整
- * 循环为默认）。bare 档不读 OAuth 凭据与系统 keychain，须
+ * 参数面（最小集）：prompt 必填（空则禁用启动）、agent 选择器（选项 =
+ * agent 实例清单，默认选中默认 agent；缺省项与空清单均可发起——走后端
+ * 缺省解析，无默认 agent 经错误横幅显式报错）、permission-mode 三档下拉
+ * 默认 bypassPermissions（无头 default 档下需审批工具直接被拒，调试页以
+ * 完整循环为默认）。bare 档不读 OAuth 凭据与系统 keychain，须
  * ANTHROPIC_API_KEY 等外部认证前提——开关旁固定提示。
  */
-export function AgentRunForm({ disabled, onStart }: AgentRunFormProps): React.JSX.Element {
+export function AgentRunForm({ disabled, agents, onStart }: AgentRunFormProps): React.JSX.Element {
   const [prompt, setPrompt] = useState('');
-  const [engine, setEngine] = useState<EngineKind>('sdk');
+  const [agentId, setAgentId] = useState<number | null>(null);
   const [permissionMode, setPermissionMode] = useState<AgentPermissionMode>('bypassPermissions');
+
+  // 默认选中默认 agent（清单装载后自动落位；用户显式改动不被回写）
+  const defaultId = agents.find((record) => record.isDefault)?.id ?? null;
+  useEffect(() => {
+    setAgentId((current) => (current === null && defaultId !== null ? defaultId : current));
+  }, [defaultId]);
 
   return (
     <section
@@ -151,9 +190,10 @@ export function AgentRunForm({ disabled, onStart }: AgentRunFormProps): React.JS
       <StartToolbar
         disabled={disabled || prompt.trim().length === 0}
         prompt={prompt}
-        engine={engine}
+        agents={agents}
+        agentId={agentId}
         permissionMode={permissionMode}
-        onEngineChange={setEngine}
+        onAgentChange={setAgentId}
         onPermissionModeChange={setPermissionMode}
         onStart={onStart}
       />

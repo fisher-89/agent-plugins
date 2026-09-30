@@ -1,6 +1,7 @@
 import { Navigate, Route, Routes } from 'react-router';
 
 import { AgentDebugView } from './views/agent/agent-debug-view';
+import { AgentsView } from './views/agents/agents-view';
 import { ChangeDetailView } from './views/changes/change-detail-view';
 import { ChangeListView } from './views/changes/change-list-view';
 import { ConfigView } from './views/config/config-view';
@@ -17,6 +18,7 @@ export function AppRoutes({ root }: { root: string }) {
       <Route path="/changes/:name" element={<ChangeDetailView root={root} />} />
       <Route path="/info" element={<InfoView root={root} />} />
       <Route path="/config" element={<ConfigView root={root} />} />
+      <Route path="/agents" element={<AgentsView />} />
       <Route path="/agent" element={<AgentDebugView root={root} />} />
       <Route path="/explores" element={<ExploreView root={root} />} />
       <Route path="/explores/:name" element={<ExploreView root={root} />} />

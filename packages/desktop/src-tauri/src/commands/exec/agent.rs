@@ -1,29 +1,3 @@
-//! agent 运行编排（app 层微形态，与 `commands::workspaces` 的 `*_inner`
-//! 同列）：[`start_agent_run`] 同步段（组装 runner → start → begin 落
-//! running 行 → 注册停止句柄 → spawn 后台任务 → 提前 resolve running 记
-//! 录），加 [`drive_agent_run`] 后台任务体（事件流 tee 双 sink → EOF 收敛
-//! → 终态落库 → Channel 流出 Record → 注册表除名）。
-//!
-//! 提前 resolve 契约（能力 spec `specs/desktop-agent-execution/spec.md`，
-//! 路径相对域根）：run id 在 begin 落库时即可用，命令在落库后立即返回
-//! running 记录，执行转后台任务继续；终态记录经 Channel 以
-//! [`AgentRunMessage::Record`] 信封流出，MUST NOT 再依赖 invoke 返回携带终态。
-//!
-//! 泛型缝 [`start_agent_run_with`] 让编排路径可被假 runner 测试（`AppHandle`
-//! 对 runtime 泛型：生产经命令注入 Wry 句柄，测试注入 `tauri::test` 的
-//! MockRuntime 句柄）；[`drive_agent_run`] 以 `&Store` + `&RunStopRegistry`
-//! 入参保持可注入。本文件独立于 mod.rs，将来抽 app crate 时单文件平移复用、
-//! 不重写。
-//!
-//! tee 循环节奏（背压策略）：`recv → 状态机 apply → store 逐事件单事务追加
-//! → Channel 发送`。Channel 发送失败（页面已关闭）不中断落库；store 写入
-//! 失败立即收敛 run 为 failed（error 记因）、尽力流出 Record 并终止 tee——
-//! 落库是兜底路径，失败不可静默。
-//!
-//! EOF 收敛优先级：状态机已收敛（RunResult 驱动）以状态机为准；否则停止
-//! 信号已置位 → 显式收敛 stopped（停止路径泵不合成 error_process_exit，
-//! 状态机不被驱动成 failed）；兜底 failed 记因（进程异常终止无 result）。
-
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
@@ -37,7 +11,7 @@ use agent::{
     AgentRunStatus, AgentRunner, RunHandle, RunStateMachine,
 };
 use agent_runtime::{EngineConfig, EngineFacade, EngineKind, ResumeTranscript};
-use store::{AgentRunRecord, Store, WorkspaceStores};
+use store::{AgentEngineKind, AgentRunRecord, Store, WorkspaceStores};
 
 /// `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
 /// 事件与终态记录双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
@@ -157,10 +131,7 @@ fn running_record(params: &AgentRunParams, provenance: RunProvenance) -> AgentRu
     }
 }
 
-/// session_id → 事件转录（store 既有 API 组合，无 store 改动）：`list_agent_runs`
-/// 按 `session_id` 扫描定位 run → `list_agent_run_events` 取事件转录。
-/// `None` = 会话不存在；`Err` = 库读取失败——语义与门面 [`ResumeTranscript`]
-/// 缝约定逐字对齐（sdk 引擎续会话解析的唯一数据面）。
+/// session_id → 事件转录（store 既有 API 组合，无 store 改动）
 fn find_events_by_session(
     store: &Store,
     session_id: &str,
@@ -179,25 +150,75 @@ fn find_events_by_session(
     }
 }
 
-/// 默认 agent 硬编码预留位（当前 rig/SDK 引擎）：`agent_start` 未传 engine
-/// 时的缺省收敛取值。与 [`EngineConfig::from_hardcoded_slot`] 同一座位：后续
-/// 与 api key 一起改为配置读取，换源时消费面（`mod.rs` 的 `unwrap_or` 消费
-/// 点与门面 `runner_for` 签名）零改动。
-pub(crate) const DEFAULT_ENGINE: EngineKind = EngineKind::Sdk;
+/// 运行发起解析产物（解析单点输出、编排薄入口 [`start_agent_run`] 尾参）：
+/// 引擎 kind + 组装好的连接配置。引擎具体类型不出本结构（门面 `runner_for`
+/// 签名与编排层零改动承诺的参数传递面）。
+pub(crate) struct ResolvedEngine {
+    /// 引擎二值（门面 `EngineKind`，自 store 本地 `AgentEngineKind` 映射）
+    kind: EngineKind,
+    /// 连接配置（sdk 臂由引用 provider 组装；cli 臂 `EngineConfig::empty()`
+    /// 占位，CLI 引擎不消费）
+    config: EngineConfig,
+}
 
-/// 薄入口：按 root 预解析所属 workspace 库组装 [`ResumeTranscript`] 装载缝
-/// → 门面按 `engine` 参数构造 runner（引擎接线全在 [`EngineFacade::runner_for`]，
-/// 命令面不直接构造引擎）→ 委托 [`start_agent_run_with`]。CLI 引擎持有装载
-/// 缝不消费（CLI 续会话仍走 `--resume` flag）；引擎配置取硬编码预留位
-/// （[`EngineConfig::from_hardcoded_slot`]，未手填时 sdk 启动显式失败）。
-/// `engine` 缺省收敛 [`DEFAULT_ENGINE`]（收敛在命令面，本函数恒收显式 kind）。
+/// 运行发起解析单点
+pub(crate) fn resolve_agent_engine(
+    stores: &WorkspaceStores,
+    agent: Option<i64>,
+) -> Result<ResolvedEngine, String> {
+    let global = stores.global();
+    let instance = match agent {
+        None => global
+            .default_agent_instance()
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| {
+                "未设置默认 agent：请前往 Agent 管理页（/agents）配置后再发起".to_owned()
+            })?,
+        Some(id) => global
+            .find_agent_instance(id)
+            .map_err(|e| e.to_string())?
+            .ok_or_else(|| format!("agent 不存在: id={id}"))?,
+    };
+    match instance.engine {
+        AgentEngineKind::Sdk => {
+            let provider_id = instance.provider_id.ok_or_else(|| {
+                format!(
+                    "agent {:?} 未配置 provider：请前往 Agent 管理页（/agents）修正",
+                    instance.name
+                )
+            })?;
+            let provider = global
+                .find_agent_provider(provider_id)
+                .map_err(|e| e.to_string())?
+                .ok_or_else(|| {
+                    format!(
+                        "agent {:?} 引用的 provider 不存在: id={provider_id}",
+                        instance.name
+                    )
+                })?;
+            Ok(ResolvedEngine {
+                kind: EngineKind::Sdk,
+                config: EngineConfig {
+                    api_key: provider.api_key,
+                    base_url: provider.base_url,
+                    model: provider.models.high,
+                },
+            })
+        }
+        AgentEngineKind::Cli => Ok(ResolvedEngine {
+            kind: EngineKind::Cli,
+            config: EngineConfig::empty(),
+        }),
+    }
+}
+
 pub(crate) fn start_agent_run<T: Runtime>(
     app: AppHandle<T>,
     stores: &WorkspaceStores,
     on_event: Channel<AgentRunMessage>,
     params: AgentRunParams,
     provenance: RunProvenance,
-    engine: EngineKind,
+    resolved: ResolvedEngine,
 ) -> Result<AgentRunRecord, String> {
     // cwd 恒为当前 workspace root（root 已由命令面 blank 检查，for_root 可解析）
     let store = stores
@@ -207,20 +228,11 @@ pub(crate) fn start_agent_run<T: Runtime>(
         let store = Arc::clone(&store);
         Arc::new(move |session_id: &str| find_events_by_session(&store, session_id))
     };
-    let runner = EngineFacade::with_resume_transcript(resume)
-        .runner_for(engine, EngineConfig::from_hardcoded_slot());
+    let runner =
+        EngineFacade::with_resume_transcript(resume).runner_for(resolved.kind, resolved.config);
     start_agent_run_with(app, stores, runner.as_ref(), on_event, params, provenance)
 }
 
-/// 编排同步段：runner 启动（启动阶段失败 → `Err`，不留 run 行）→ 按
-/// root 预解析所属 workspace 库（`for_root`，同步段完成后 `Arc<Store>` 供
-/// 后台任务持有收尾——库实例跨 await 稳定借用，不经 AppHandle 二次取 State）
-/// → begin 落 `running` 行（初值携带 provenance 来源与链字段）→ 注册停止句
-/// 柄（`(root, run id)` 复合键）→ spawn [`drive_agent_run`] 后台任务 → 立即
-/// 返回 running 记录（提前 resolve；终态经 Channel 流出）。runtime 泛型仅为
-/// 测试注入 MockRuntime 句柄，生产命令面解析为 Wry。runner 参数收敛为
-/// `&dyn AgentRunner`（门面产 `Box<dyn AgentRunner>`，假 runner 经动态派发
-/// 同缝注入，编排体零引擎分支）。
 pub(crate) fn start_agent_run_with<T>(
     app: AppHandle<T>,
     stores: &WorkspaceStores,

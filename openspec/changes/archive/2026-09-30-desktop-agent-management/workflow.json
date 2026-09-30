@@ -1,0 +1,804 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-09-30",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "at": "2026-09-30T12:03:11.231Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store.rs",
+      "at": "2026-09-30T12:04:23.879Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope.rs",
+      "at": "2026-09-30T12:04:54.599Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/lib.rs",
+      "at": "2026-09-30T12:05:02.048Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/agents/mod.rs",
+      "at": "2026-09-30T12:05:33.722Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-09-30T12:06:01.402Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/config.rs",
+      "at": "2026-09-30T12:06:21.457Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent.rs",
+      "at": "2026-09-30T12:06:56.426Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-09-30T12:07:27.469Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/examples/r1_additive_check.rs",
+      "at": "2026-09-30T12:09:29.836Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bindings/mod_test.rs",
+      "at": "2026-09-30T12:12:39.687Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-transport.ts",
+      "at": "2026-09-30T12:13:29.757Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.ts",
+      "at": "2026-09-30T12:22:04.222Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/hooks/use-agent-providers.ts",
+      "at": "2026-09-30T12:21:41.671Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/hooks/use-agent-instances.ts",
+      "at": "2026-09-30T12:21:55.707Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/masked-api-key.tsx",
+      "at": "2026-09-30T12:14:24.059Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/provider-panel.tsx",
+      "at": "2026-09-30T12:27:12.398Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/agent-panel.tsx",
+      "at": "2026-09-30T12:28:39.348Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/agents-view.tsx",
+      "at": "2026-09-30T12:16:23.689Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-options.ts",
+      "at": "2026-09-30T12:19:41.090Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-run-form.tsx",
+      "at": "2026-09-30T12:35:03.203Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.tsx",
+      "at": "2026-09-30T12:17:37.941Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/routes.tsx",
+      "at": "2026-09-30T12:17:50.026Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/app-sidebar.tsx",
+      "at": "2026-09-30T12:18:14.008Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-09-30T12:18:25.188Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/hooks/use-agent-chat.test.ts",
+      "at": "2026-09-30T12:34:15.658Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-run-form.test.tsx",
+      "at": "2026-09-30T12:41:51.486Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+      "at": "2026-09-30T12:37:53.185Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/lib/agent-transport.test.ts",
+      "at": "2026-09-30T12:43:42.153Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/app.test.tsx",
+      "at": "2026-09-30T12:44:01.865Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model_test.rs",
+      "at": "2026-09-30T13:19:55.440Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/store_test.rs",
+      "at": "2026-09-30T13:25:04.304Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/envelope_test.rs",
+      "at": "2026-09-30T13:19:50.500Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/config_test.rs",
+      "at": "2026-09-30T13:05:54.742Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner_test.rs",
+      "at": "2026-09-30T13:06:10.315Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/lib_test.rs",
+      "at": "2026-09-30T13:06:41.919Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/agent_test.rs",
+      "at": "2026-09-30T13:21:41.562Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-09-30T13:15:31.209Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/agents/mod_test.rs",
+      "at": "2026-09-30T13:36:18.640Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/agents/mod.rs",
+      "at": "2026-09-30T13:14:42.720Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-09-30T13:16:24.024Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/masked-api-key.test.tsx",
+      "at": "2026-09-30T13:31:14.035Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/db/mod_test.rs",
+      "at": "2026-09-30T13:22:15.708Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-options.test.ts",
+      "at": "2026-09-30T13:22:43.636Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/hooks/use-agent-providers.test.ts",
+      "at": "2026-09-30T13:39:25.017Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/hooks/use-agent-instances.test.ts",
+      "at": "2026-09-30T13:39:07.387Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/provider-panel.test.tsx",
+      "at": "2026-09-30T13:34:29.628Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/agent-panel.test.tsx",
+      "at": "2026-09-30T13:38:32.041Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/agents-view.test.tsx",
+      "at": "2026-09-30T13:39:54.001Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/components/app-sidebar.test.tsx",
+      "at": "2026-09-30T13:33:10.712Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 通过。R1 三处待决座位具体到文件路径+需求原文；R2 实现10文件/测试4组/不要修改6项；R3 四风险缓解具体（真机验证additive、三层机密防线、spike退事务查重）；R4 AC-1~12 对象+条件齐备；R5 D1~D8 均含理由+已否决备选；R6 golden冻结/零迁移纪律与CLAUDE.md一致；R7 无TODO/TBD/{{}}（「空占位」系描述既有代码非模板标记）；R8 各章节实质内容；R9 新增1+修改4；R10 5 specs 1:1；R11 AC-1~11 均映射 spec 场景，新增=ADDED、四修改=MODIFIED，删除语义/机密边界/high档口径一致，待决项 routed to design 非冲突。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-15 三处待决座位具体到文件：EngineConfig::from_hardcoded_slot()（crates/infra/agent/src/sdk/config.rs）、DEFAULT_ENGINE 常量（commands/exec/agent.rs）、DbDimension::User 租户预留；L17 引需求原文。"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+          "pass": true,
+          "evidence": "L52 实现文件 10 项（model.rs、store.rs、commands/agents/ 新轨道、routes.tsx 等）；L65 测试文件 4 组；L76 不要修改 6 项（crates/core/agent、tests/golden、legacy 迁移层等）。实现与测试均非空。"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L108-113 四风险均有非泛化缓解：additive 风险→「实现首步以存量 desktop-global.redb 真机验证（探索已留验证手段）」；机密面→「手写遮蔽 Debug+统一注释标记+机密边界表锚定 spec 三层防线」；唯一索引→「design 阶段 spike 先行；不支持则退事务内查重校验」。"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "L89-102 AC-1~12 均为对象+条件：AC-1「URL /agents 渲染管理页两栏…testid 可查」；AC-5「删被 agent 引用的 provider 返回 Err 且两类记录均不消失」；AC-9「无 derive(Debug) 且手写遮蔽 impl…sk-***abc 形态」；AC-12 跑 cargo test --workspace 与 pnpm check/test。"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L121-130 D1~D8 每行含理由+备选：D2「后端遮蔽 DTO（已否决——遮蔽即丢真值）/ DPAPI 加密（范围外）」；D4「name 作主键（改名破引用）」；D7「derive(Debug)（明文可泄漏）」。"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L78-83 不要修改 tests/golden（冻结契约）与 store legacy 迁移层（「零迁移纪律不变」），与项目 golden wire / 零迁移约定一致；本 change 属 packages/desktop 非 plugins/ 源，不触发插件 bump 规则。"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{...}}；L13「硬编码空占位」系描述既有待替换代码；L132-138 待决问题均显式 routed to design/实现阶段，属决策留痕非占位符。"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题（三处座位+需求原文）、提案（五要点 L23-31）、变更范围（四小节）、验收标准（AC-1~12）、风险（4 行表）均实质填写，无空章节。"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L35-46 `## 能力`：`### 新增能力` desktop-agent-management；`### 修改的能力` desktop-agent-execution / desktop-workspace-store / desktop-page-routing / desktop-data-dimensions，共 5 条非空。"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 下 5 个 spec.md：desktop-agent-management、desktop-agent-execution、desktop-workspace-store、desktop-page-routing、desktop-data-dimensions，与能力章节 5 条严格 1:1，无多余或缺失。"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "新增能力=ADDED（desktop-agent-management 5 requirements），四修改能力=MODIFIED（workspace-store 另含 ADDED 模型 requirement，与提案「新增管理记录模型与操作面」一致）。AC-2~11 均有对应场景：重名报错/删被引用阻止/删默认清标记/additive 打开/信封覆盖/遮蔽 Debug/消费面零改动。口径互证：删除语义（提案 L27=store spec L33）、model 取 high 档（L28=解析 requirement L43）、DEFAULT_ENGINE 与 from_hardcoded_slot 退役（L57-58=execution spec L17/L118-119）、nav-agents testid（L45=routing spec L60）。AC-12 全管线为过程性验收，无需 spec 场景，与既往裁决一致。"
+        }
+      ],
+      "start_at": "2026-09-30T10:49:41.832Z",
+      "timestamp": "2026-09-30T11:03:33.215Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "8/10 通过。D1 不通过：架构组件表「Agent 管理页」文件位置为目录 views/agents/ 而非具体文件（其余 12 行均为具体文件）。D10 不通过：新增文件 provider-panel.tsx / agent-panel.tsx 的组件 ProviderPanel / AgentPanel 未列入「公共函数 / API」表，而同类新组件 AgentsView / MaskedApiKey 已列，子表口径不一致；文件覆盖（proposal 10 条、tasks 双向）本身无缺。D9 通过：R1 为手工留痕验证非自动化测试，阶段六均为静态检查。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": false,
+          "evidence": "组件表 13 行中 12 行指向具体文件；「Agent 管理页」行文件位置为目录 packages/desktop/src/views/agents/（新），非具体文件"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表含 AgentProviderRecord / AgentInstanceRecord 等 5 行，字段与持久化列均实质填写（全局库 / workspace 库、native_model id 5/6）"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表 AC-1~AC-12 逐项给出设计落点，与 proposal 12 条 AC 一一对应（AC-6→定夺1 high 档、AC-10→定夺6 additive 留痕）"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "任务存在且全为 - [ ]；阶段一 store→二 命令→三 接线→四 bindings→五 前端（消费再生成绑定）→六 收尾，无后置任务被前置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每任务落到文件+符号+行为：derive 清单、native_model id、Err 文案、testid、函数签名均具体，无「实现功能」式条目"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "依赖节列运行时（无新增，附 store 不引入 agent-runtime 依据）与构建/测试（tauri-specta、cargo fmt/clippy、vp check、knip、tempfile）及用途"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "零迁移纪律、simplicity first（不设时间戳/不预挂 effort）、crates/core/agent 零触碰、store 本地枚举不拖引擎依赖，均与 CLAUDE.md 及既有约定一致"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增8+修改12+级联3）/数据模型/路由API/依赖/待决问题六章节实质填写；路由表 8 条命令入参返回齐备"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design 无测试策略章节；tasks 无单元/集成测试任务：R1 为手工留痕验证（明示非自动化测试），阶段六均为静态守线检查"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": false,
+          "evidence": "proposal 实现文件 10 条全覆盖、tasks↔清单双向一致；但新增文件 provider-panel.tsx / agent-panel.tsx 的组件 ProviderPanel / AgentPanel 未列入公共函数/API 表，同类新组件 AgentsView / MaskedApiKey 已列"
+        }
+      ],
+      "start_at": "2026-09-30T11:04:35.017Z",
+      "timestamp": "2026-09-30T11:26:20.172Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "D1–D10 全过。D1 组件表 14 行均含职责/依赖/技术/具体文件（Agent 管理页已落 agents-view.tsx，无 TBD）。D2 数据模型 4 行含字段/关系/持久化。D3 AC-1~12 专节逐项映射。D4 六阶段依赖序正确，无逆序依赖。D5 任务均具体到文件与操作。D6 运行时/构建测试依赖已列。D7 合零迁移/版本 bump 口径。D8 模板章节全填实质内容。D10 proposal 实现文件 10 条全覆盖，tasks 文件均在清单且清单均有对应任务，新增文件函数已全列公共函数表（ProviderPanel/AgentPanel 已补）。D9 无测试章节，测试归 test 阶段，阶段六仅静态守线。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表 14 行，四列齐备；Agent 管理页行文件位置为 packages/desktop/src/views/agents/agents-view.tsx（具体文件）；技术列均为具体技术（native_model derive、OnceLock 静态追加、fn-pointer 注册表、react hooks 等），无 TBD；「公共导出面」依赖「—」为显式无依赖"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表 4 行：AgentProviderRecord/AgentInstanceRecord 逐字段列出（id PK max+1、name 唯一查重、models 三档、provider_id、is_default），关系列（N:1 引用删除阻止、is_default 解析入口）、持久化列（全局库 desktop-global.redb，native_model id 5/6 v1）；既有模型标注零变化"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」表逐项映射 AC-1~AC-12：AC-1→routes/agents-view/sidebar；AC-6→resolve_agent_engine model:models.high；AC-7→缺省解析+core/agent 零触碰+定夺 9 边界；AC-9→无 derive(Debug)+遮蔽 impl+MaskedApiKey；AC-10→additive+R1 定夺 6；AC-12→test-execution 承接；均可回溯到变更清单与任务"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 全为 - [ ] 复选框，六阶段分组且依赖链声明：store 模型→操作面→命令轨道→运行接线→bindings 再生成→前端消费→收尾；阶段五内 agents-view.tsx(line 43) 先于 routes.tsx(line 49)；exec/mod.rs 消费 resolve_agent_engine 已在其后；无后续任务被前置依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每个任务点名具体文件与具体操作：native_model(id=5,version=1)、derive 清单、手写遮蔽 Debug 输出形态 sk-***abc、错误文案「未设置默认 agent：请前往 Agent 管理页」、all_commands! 24→31 条、testid nav-agents/agent-select；无「实现功能」类泛化任务"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "依赖节分运行时（无新增，native_db/native_model/serde/specta/tauri 系既有，定夺 8 保证 store 不引 agent-runtime）与构建/测试（tauri-specta/specta-typescript 供 bindings:export、cargo fmt/clippy/vp check/knip 守线、tempfile 测试临时目录），均注明用途"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "无迁移层（store no legacy compat 纪律）；版本 bump 0.3.12→0.3.13 仅因用户可见变更（desktop bump 口径）；simplicity first（无时间戳字段、不预挂 workspace 关联与 effort 参数）；无 test-only exports（公共函数表明注私有实现不列）；cargo test --workspace 口径一致"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单（新增 8+修改 12+级联 3+公共函数 31 行+类型定义+配置 0.3.13）/数据模型/路由 API（Tauri IPC 8 命令表，声明无 HTTP API）/依赖/待决问题 全部填实质内容；待决问题明确 proposal 路由的 5 项已在关键设计定夺落定"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节；变更清单明注测试文件由 test-design/test-gen 承接；tasks.md 无单测/集成测试任务，AC-12 全管线归 test-execution；阶段六标注「静态，不含测试执行」仅 server:check/client:check/bindings:check；R1 为手工真机验证留痕（非自动化测试），属风险缓解 spike"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal 实现文件 10 条全覆盖（store.rs 及 lib.rs、commands/agents/ 注册两侧、exec 两文件、config.rs、bindings 再生成两侧、routes/sidebar、views/agents 8 文件、agent-run-form）；tasks 引用文件均在清单、清单文件均有对应任务；上轮缺失的 ProviderPanel/AgentPanel 已入公共函数表（129/130 行），新增文件符号全列出；子表无矛盾"
+        }
+      ],
+      "start_at": "2026-09-30T11:26:52.485Z",
+      "timestamp": "2026-09-30T11:31:06.815Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "9/9 通过。proposal AC-1~12 全部映射验收范围（AC-12 执行门禁归不可测试项1）；验收范围测试文件与###章节双向闭合，3 个零用例排除节与不可测试项7/8/9互锚，半边挂靠由 L24 路由说明收口；异常/边界系统覆盖（重名、sdk缺provider、无默认解析、悬空引用、miss幂等、i64::MAX、空串遮蔽）；写操作幂等用例在场；mock 仅进程边界+显式入参例外，内部协作者真实组合，无仓库内模块 vi.mock；格式与模板一致。",
+      "checklist": [
+        {
+          "item": "T1 proposal 验收标准在验收范围映射",
+          "pass": true,
+          "evidence": "AC-1~AC-12 逐条见验收范围表 L11-22；AC-12 执行门禁路由不可测试项1并说明原因"
+        },
+        {
+          "item": "T2 验收范围与单元测试章节双向对应",
+          "pass": true,
+          "evidence": "验收范围 7 个测试文件均有对应###章节；lib/commands-mod/bindings 三零用例节与不可测试项7/8/9互锚，半边挂靠见 L24 路由说明，各节注释均标注 AC 归属"
+        },
+        {
+          "item": "T3 异常与边界覆盖充分",
+          "pass": true,
+          "evidence": "各承载节含异常（重名Err/sdk缺provider/无默认解析Err/悬空引用/非法engine串/维度过滤Err/ConfigMissing）与边界（空串、i64::MAX、负数id、miss幂等、max+1槽位复用、空库、超长emoji）；纯展示/组合节退化输入走边界，错误呈现由 hook/panel 节承载"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "IPC invoke、agent 子进程、Tauri runtime、Channel、PATH、sonner 均有策略表；db 文件显式「不 mock：tempfile 真开库」属明示策略"
+        },
+        {
+          "item": "T5 模板章节实质性内容",
+          "pass": true,
+          "evidence": "22 个###节均含待测功能/用例/Mock策略三章且按序；零用例节以注释说明排除理由并指向不可测试项；不可测试项 10 条均带原因"
+        },
+        {
+          "item": "T6 测试范围与 proposal 一致",
+          "pass": true,
+          "evidence": "不要修改清单（crates/core/agent、golden、viewer、legacy迁移层）零覆盖越界，AC-7 静态子句归不可测试项2；routes.tsx 经不可测试项4钳位；in_scope 实现文件均有章节或排除说明"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "remove miss 幂等 Ok(false)（L98/L106/L229）、set_default 重复标记幂等（L109）、重名失败无副作用（L91）、更新无半更新（L94）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "T8-U1 22 节 heading 均含 ->；U2 三章按序；U3 待测功能无序列表；U4 用例表列名正确无测试文件列；U5 Mock表列名正确；G1 验收范围 3 列模板表"
+        },
+        {
+          "item": "T9 Mock 遵守最小 mock 原则",
+          "pass": true,
+          "evidence": "mock 仅进程边界（IPC/子进程/runtime/PATH/Channel）与显式入参（state/fixture/onStart，均标注入参例外）；无仓库内模块 vi.mock；AgentRunForm/MaskedApiKey 内部协作者真实组合，db/时钟显式不 mock"
+        }
+      ],
+      "start_at": "2026-09-30T11:31:39.142Z",
+      "timestamp": "2026-09-30T11:53:50.479Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账:design 24 文件(8 新增+13 修改+3 级联)全部落地;bindings.ts 为 hook 不可见生成写(良性漏记),内容核对含七命令+agent 尾参+四类型;examples/r1_additive_check.rs 为 R1 手工验证临时架(写后已清,净态与清单一致);5 前端测试+bindings/mod_test.rs 为 engine→agent 机械适配,无非相关改动、零删除。I1-I7 全过:12 组件、公共函数/类型表、7+1 IPC、路由侧栏、10 定夺(model=high、事务内查重、is_default 唯一写口、机密标记四处、store 零新依赖)均核实;tasks 24 项全 [x]。遗留 Rust 测试引用已删 DEFAULT_ENGINE/from_hardcoded_slot 属 test-gen 期,server:check 无 --all-targets 不受累。",
+      "checklist": [
+        {
+          "item": "I1 design 架构组件均有实现",
+          "pass": true,
+          "evidence": "12 组件逐一核实:model.rs L203-338 两记录+两嵌套类型;store.rs global_models L92-107、操作面 L549-782 十方法;envelope.rs L71-84 两登记行;lib.rs L7-10 导出;commands/agents/mod.rs 七命令;commands/mod.rs L42-48 注册 31 条;exec/agent.rs resolve_agent_engine L201-249;config.rs empty();前端 agents-view/panels/hooks、routes.tsx L21、app-sidebar.tsx L161-172"
+        },
+        {
+          "item": "I2 变更清单逐项有实现",
+          "pass": true,
+          "evidence": "新增 8 文件在盘;修改 13 文件按行核对;级联 3 项:envelope+mod_test.rs 在 files,bindings.ts 内容含七命令/agent?:number|null(AgentStartArgs[8])/四类型;公共函数表 22 项与类型表 9 项全核实;package.json version 0.3.13"
+        },
+        {
+          "item": "I3 遵循项目规范",
+          "pass": true,
+          "evidence": "Rust 沿 OnceLock 静态组/db_err/StoreError::Db/中文文档注释/native_model derive 同型;TS 沿函数组件+就近 hooks+testid+use-workspaces 双轨错误呈现(toast 前缀+inline error),文件组织镜像 views/agent/"
+        },
+        {
+          "item": "I4 路由/API 均实现",
+          "pass": true,
+          "evidence": "/agents 路由(routes.tsx L21,不携 root);7 新命令+agent_start 尾参演进均实现且出线 bindings.ts L49-75/L91,与 design IPC 面表逐字一致"
+        },
+        {
+          "item": "I5 tasks 全部 [x]",
+          "pass": true,
+          "evidence": "tasks.md 六阶段 24 项复选框全部勾选,无遗漏"
+        },
+        {
+          "item": "I6 无计划外无关代码",
+          "pass": true,
+          "evidence": "files 额外项均为可接受级联:5 前端测试+mod_test.rs 为 engine→agent 机械适配(diff 核实);r1_additive_check.rs 为 R1 验证临时架写后已清,净态与清单一致;files.deleted 为空,无无关删除"
+        },
+        {
+          "item": "I7 设计定夺遵守",
+          "pass": true,
+          "evidence": "10 定夺全落实:model=provider.models.high(agent.rs L240);事务内查重无唯一索引(store.rs L589-594/L706-711);agent:Option<i64>(exec/mod.rs L81);is_default 唯一写口(upsert 新建强制 false/更新保留存量 L713-727,set_default 清旧置新,删默认同事务清);机密标记四处 grep 命中且无 derive Debug+手写遮蔽 impl(model.rs L291-301),错误串仅 name/id/计数;AgentEngineKind 本地枚举 store 零新依赖;编排 start_agent_run_with/drive_agent_run 签名零改动"
+        }
+      ],
+      "start_at": "2026-09-30T11:54:18.768Z",
+      "timestamp": "2026-09-30T12:50:43.451Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账：test-design 声明的 22 个测试文件全部在盘且内容核对通过，3 个排除文件（store lib_test.rs、commands/mod_test.rs、bindings.test.ts）确认未建；清单外 5 文件均为良性级联（runner_test/lib_test 按废弃行改写 empty() 构造源、db/mod_test 三模型注册期望、agents/mod.rs 测试模块注册、Cargo.toml dev-deps）。G1-G8 全过。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "model.rs 两构造器（model_test.rs L356/L452）；store.rs 十方法九项直测（store_test.rs L2213-2706），find_agent_instance 经 resolve_agent_engine 显式路径 hit/miss 双支断言（agent_test.rs L1191/L1227），合 test-design L24 路由；commands/agents 七命令全直调（mod_test.rs）；resolve/start_agent_run（agent_test.rs）；EngineConfig::empty（config_test.rs）；前端 12 公共 API（AgentsView/两 Panel/MaskedApiKey/三 hook/run-form/transport/use-agent-chat/sidebar）均有调用+断言用例"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存",
+          "pass": true,
+          "evidence": "Rust 侧 9 文件均 *_test.rs 与源码同目录且 #[cfg(test)] mod 注册（agents/mod.rs L18）；TS 侧 12 文件均 *.test.ts(x) 与源码同目录"
+        },
+        {
+          "item": "G3 单元测试>用例表每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "13 个含用例章节的新增行逐行核对齐：model 9/9、store 25/25（含组合链与注册期望改写）、envelope 4/4、config 4/4、agents 命令 10/10、exec/mod 5/5、agent.rs 6/6、agents-view 3/3、两 panel 11/11、masked-api-key 3/3、两 hook 10/10、use-agent-options 2/2、run-form 4/4、debug-view 1/1、transport 3/3、use-agent-chat 3/3、sidebar 2/2；路径类型分类与断言面一致"
+        },
+        {
+          "item": "G4 Mock策略已实现且声明合法",
+          "pass": true,
+          "evidence": "全部 vi.mock 仅 @tauri-apps/api/core 与 sonner（grep 核实，无仓库内模块 mock）；Rust 侧按策略不 mock：tempfile 真开库、mock_app 托管真实 WorkspaceStores/RunStopRegistry、FakeRunner 泛型缝/dyn 缝、capturing/failing Channel、PATH 隔离经 PATH_LOCK；存量库以 native_db 裸构造（fixture 非 mock）"
+        },
+        {
+          "item": "G5 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust 侧 #[test]/#[tokio::test] cargo test 共置模块；TS 侧统一 import from 'vite-plus/test'（@testing-library/react 渲染），无裸 vitest"
+        },
+        {
+          "item": "G6 test-design 边界情况已覆盖",
+          "pass": true,
+          "evidence": "类型映射边界齐备：空串/长度≤3 遮蔽（model_test L409、masked-api-key L43）、i64::MAX/负数/0 id（store_test L2436）、>1000 字符与 emoji/多字节（provider-panel L197、masked-api-key L53）、空库/miss 幂等（store_test 多处）、悬空引用 native_db 裸构造（agent_test L1246）、非数值/浮点 agent 尾参（exec/mod_test L1156）"
+        },
+        {
+          "item": "G7 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "Rust：tempfile TempDir RAII、PATH 保存-还原（agent_test L723、exec/mod_test L858）、PATH_LOCK 串行化、unmanage 显式释放 redb 文件锁（agents/mod_test L152）；TS：beforeEach invokeMock/toastErrorMock mockReset、masked-api-key afterEach cleanup、sidebar stubEnvironment 还原（unstubAllGlobals）"
+        },
+        {
+          "item": "G8 迭代类型=废弃的条目未生成新测试",
+          "pass": true,
+          "evidence": "grep 核实 DEFAULT_ENGINE/from_hardcoded_slot 仅存于描述退役的注释（agent_test L693、lib_test L33、config_test L2）；run-form engine 下拉三用例、transport readEngine 四用例、use-agent-chat engine 穿透五用例零残留；三处旧断言（store_test L153/L571/L1405、envelope_test L117）按废弃行改写为三模型组期望而非新测试"
+        }
+      ],
+      "start_at": "2026-09-30T12:51:11.336Z",
+      "timestamp": "2026-09-30T13:52:00.908Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 720 个测试通过（vite-plus 681/681；rust cargo test 642 通过、exit 0）；覆盖率: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)，coverage.pass=true；mutation 82.68% ≥ 80%。备注（非门禁失败）: 汇总层 coverage.measured 全 null 未合并 plan 级实测（vite-plus 93.78/87.52/92.56 达标；rust 96.90/0/89.76，branches=0 系 cargo-llvm-cov 不含分支数据）；summary total 因 rust 解析仅取首个 test result 块而低估；rust mutation 未执行（CLI 仅支持 StrykerJS）。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total(720)/passed(720)/failed(0)/skipped(0)/coverage/duration_seconds(737) 均存在且类型正确；coverage.measured 三维 null 属允许值"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=720；conclusion=pass，problems=[] 无 execution_error；mutation.pass=true (82.68% ≥ 80%)"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "按预计算 coverage.pass=true 判定通过；三维 measured 均 null 记 N/A (框架不支持)。异常备案: 汇总未合并 plan 级实测（vite-plus 93.78/87.52/92.56 达标；rust branches=0 系 cargo-llvm-cov 不支持），建议修复聚合逻辑"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例需诊断，自动通过"
+        }
+      ],
+      "start_at": "2026-09-30T13:52:26.109Z",
+      "timestamp": "2026-09-30T14:10:20.416Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1-C7 全过。无注入/硬编码密钥；api_key 明文为 D2 修订明示放宽，四处机密标记齐备（config.rs:15、model.rs:250/268、masked-api-key.tsx:4），遮蔽 Debug 手写（model.rs:291），错误串零机密（agents/mod_test.rs:422 锚定）。C3：定夺1-10 逐项对上（high 档 agent.rs:240、事务内查重 store.rs:589、默认唯一写口 store.rs:713/756、命令 24→31）。C4：miss 幂等/空表 max+1/无默认显式 Err 全覆盖。小注：remove_agent_instance 清标记写随后同事务删行（store.rs:744，无观察面）；file_log 残列 examples/r1_additive_check.rs 但盘上已删（R1 证据移至 store_test.rs:2709）。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep 无注入/eval/exec/硬编码密钥命中；api_key 明文为 proposal D2 修订明示放宽，四处机密标记齐备（config.rs:15、model.rs:250/268、masked-api-key.tsx:4），手写遮蔽 Debug（model.rs:291-301），错误串只含 name/id（agents/mod_test.rs:422 断言零明文）"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "store 校验 name 空白/重名/sdk 缺 provider/悬空引用（store.rs:577,589,680,687）；agent_start blank root 拦截（exec/mod.rs:83）；transport 逐字段运行时校验 body（agent-transport.ts:46-93）；IPC 类型走 specta 生成绑定单源"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "定夺1-10逐项对上：high 档 agent.rs:240、事务内查重 store.rs:589/706、agent:Option<i64> exec/mod.rs:81、默认唯一写口 store.rs:713/756、命令 24→31（commands/mod.rs）、bindings 快照 31 条、侧栏 nav-agents+Boxes、版本 0.3.13、编排零 diff 仅薄入口尾参换源"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "删除 miss 幂等（store.rs:616/741）、空表 max+1→1（store.rs:598/716）、无默认 agent 显式 Err 引导管理页（agent.rs:210）、解析悬空 provider 兜底 Err（agent.rs:229）、留空 key 回填 miss 走 upsert 行存在校验（agents/mod.rs:50-57）"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "from_hardcoded_slot/DEFAULT_ENGINE/exec 侧 EngineKind import/agent-run-form ENGINE_OPTIONS 全退役；小注：remove_agent_instance 清标记写随后同事务删行（store.rs:744，无观察面，属不变式留痕）；file_log 残列 examples/r1_additive_check.rs 盘上已删（R1 证据移至 store_test.rs:2709 自动化锚定）"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "命令体三件事/Result<T,String> 模板/轨道文档注释/中文命名测试与既有轨道一致；testid、就近取数 hook、双轨错误呈现沿 use-workspaces 口径"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "前端仅消费生成绑定类型（AgentProviderRecord/AgentInstanceRecord/AgentModelTiers/AgentEngineKind），AgentStartChainParams 派生自 Parameters<typeof commands.agentStart>（agent-transport.ts:25-37），零手写镜像 DTO；后端读写单 DTO 即记录本体（D2 裁决）"
+        }
+      ],
+      "start_at": "2026-09-30T14:10:45.349Z",
+      "timestamp": "2026-09-30T14:14:57.888Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "12 项 AC 全数追溯成立：/agents 路由+nav-agents、provider/agent CRUD（重名报错/留空回填/sdk 必填校验）、默认标记唯一写口、引用删除阻止不级联、models.high 档消费、缺省解析+无默认显式报错、调试页 agent 选择器、遮蔽 Debug+机密标记四处、存量库 additive 打开（自动化测试+R1 手工留痕）、信封零改动覆盖、全管线 720 测试全绿（test-execution 已过）。无范围蔓延：8 新+13 改+3 级联与 design 清单一致；core/agent、runner_for、golden、迁移层零触碰。A1-A5 全过，verdict pass。",
+      "checklist": [
+        {
+          "item": "A1 每个 AC 均有实现证据",
+          "pass": true,
+          "evidence": "AC-1 routes.tsx:21+app-sidebar.tsx:170 nav-agents; AC-2/3 两 panel CRUD+store 查重校验 store.rs:577-597/680-697+留空回填 agents/mod.rs:49-57; AC-4/5 set_default 清旧置新 store.rs:771-778、引用阻止 619-637、删默认清标记 744-748; AC-6 models.high agent.rs:240; AC-7 无默认报错 agent.rs:206-212+core runner.rs:61 无 agent/engine 字段+runner_for lib.rs:75 签名不变; AC-8 agent-select agent-run-form.tsx:53/169-172; AC-9 无 derive(Debug)+手写遮蔽 impl model.rs:255/291+token 四处; AC-10 additive 测试 store_test.rs:2729+R1 implement 留痕; AC-11 envelope.rs:72-83; AC-12 test-execution 720 全绿"
+        },
+        {
+          "item": "A2 无范围蔓延",
+          "pass": true,
+          "evidence": "实现面=design 清单 8 新增+13 修改+3 级联（implement 报告三态对账一致）；effort 进 run 参数/档位选择器/workspace 关联字段均未预挂（与 D1、spec 边界一致）；命令面恰七新命令+agent_start 演进（commands/mod.rs:42-48），无清单外 API/组件"
+        },
+        {
+          "item": "A3 in_scope 全实现",
+          "pass": true,
+          "evidence": "五能力落点齐：管理模型+十方法操作面（store.rs:556-782）、命令轨道（commands/agents/mod.rs 七命令 Result<T,String>）、运行接线（resolve_agent_engine agent.rs:201-249+DEFAULT_ENGINE/from_hardcoded_slot 已退役 grep 零命中）、/agents 页两栏+调试页选择器、user 维度留痕（envelope.rs:72-83 user 行）"
+        },
+        {
+          "item": "A4 不要修改项零触碰",
+          "pass": true,
+          "evidence": "core/agent AgentRunParams（runner.rs:61-70）仅 prompt/cwd/permission_mode/resume 四字段；runner_for 签名与 EngineConfig 三字段形态不变（lib.rs:75、config.rs:18-25）；workspace 三模型 id 1-4 原样；views/db 与 commands/db 零模型特判（grep 无匹配）；store 无迁移层（store.rs:91 零迁移声明+additive 测试断言无迁移路径）；golden 契约未动且随套件通过"
+        },
+        {
+          "item": "A5 风险均有代码缓解",
+          "pass": true,
+          "evidence": "R1 存量库 additive：手工真机验证（implement 期 examples/r1_additive_check.rs 临时架留痕已清）+自动化测试 store_test.rs:2729-2764；机密扩散：遮蔽 Debug model.rs:291+固定 token 四处 grep 命中+spec 边界表（changes/desktop-agent-management/specs/spec.md:98-120）；agent_start 回归：explore 链不传 agent（use-agent-chat.ts:42-44）+无默认报错单测；唯一索引不确定性：定夺 2 事务内查重落地 store.rs:589-594"
+        }
+      ],
+      "start_at": "2026-09-30T14:15:17.662Z",
+      "timestamp": "2026-09-30T14:20:42.089Z"
+    }
+  ]
+}

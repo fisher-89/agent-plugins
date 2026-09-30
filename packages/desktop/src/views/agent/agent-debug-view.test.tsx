@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, AgentRunRecord } from '../../types/dto';
+import type { AgentEvent, AgentInstanceRecord, AgentRunRecord } from '../../types/dto';
 import { AgentDebugView } from './agent-debug-view';
 
 // ---------------------------------------------------------------------------
@@ -84,9 +84,13 @@ function runResult(seq: number): AgentEvent {
 
 let startBehavior: { mode: 'resolve' | 'reject'; value: AgentRunRecord | string } | null = null;
 
+/** agent 实例清单 fixture（list_agent_instances 应答；默认空清单 = 缺省语义）。 */
+let instancesFixture: AgentInstanceRecord[] = [];
+
 function mockIpc() {
   ChannelMock.instances.length = 0;
   startBehavior = { mode: 'resolve', value: run(1, 'running') };
+  instancesFixture = [];
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => {
     if (command === 'agent_start') {
@@ -98,6 +102,7 @@ function mockIpc() {
     if (command === 'agent_stop') return Promise.resolve(null);
     if (command === 'agent_runs') return Promise.resolve([]);
     if (command === 'agent_run_events') return Promise.resolve([]);
+    if (command === 'list_agent_instances') return Promise.resolve(instancesFixture);
     return Promise.resolve(null);
   });
 }
@@ -280,9 +285,10 @@ describe('AgentDebugView：区域滚动框架', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 调试页引擎选择（AC-9）：engine 二值下拉初始 sdk（与后端 DEFAULT_ENGINE
-// 一致）；start 透传 input.engine 至 sendMessage；显式 cli 为调试页可选项；
-// sdk 运行复用既有时间线 / 落库 / 重放呈现面
+// 调试页 agent 选择（发起面演进）：agent 选择器选项 = 实例清单（useAgentOptions
+// 挂载取数），默认选中默认 agent，缺省项透传 null 由后端解析默认 agent；
+// start 透传 input.agent 至 sendMessage；sdk 运行复用既有时间线 / 落库 /
+// 重放呈现面
 // ---------------------------------------------------------------------------
 
 /** sdk 形态事件 fixture：ToolUse / ToolResult 成对 + 思考块。 */
@@ -311,32 +317,59 @@ function toolResultEvent(seq: number): AgentEvent {
   };
 }
 
-function startCallEngine(): unknown {
-  const call = invokeMock.mock.calls.filter(([name]) => name === 'agent_start').at(-1);
-  if (!call) throw new Error('agent_start 未被调用');
-  return (call[1] as Record<string, unknown>)['engine'];
+/** agent 实例 fixture（serde camelCase 线格式；providerId 对选择器面无关可空）。 */
+function agentInstance(
+  id: number,
+  name: string,
+  engine: AgentInstanceRecord['engine'],
+  isDefault = false,
+): AgentInstanceRecord {
+  return { id, name, engine, providerId: null, isDefault };
 }
 
-describe('AgentDebugView：调试页引擎选择（初始 sdk）', () => {
-  it('参数面呈现 engine 二值下拉且初始 sdk；不动下拉发起 → invoke 入参 engine 为 "sdk"（与后端默认一致）', async () => {
+function selectOf(testId: string): HTMLSelectElement {
+  return screen.getByTestId(testId);
+}
+
+function startCallAgent(): unknown {
+  const call = invokeMock.mock.calls.filter(([name]) => name === 'agent_start').at(-1);
+  if (!call) throw new Error('agent_start 未被调用');
+  return (call[1] as Record<string, unknown>)['agent'];
+}
+
+describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
+  it('空清单：agent-select 仅存缺省项；不动发起 → invoke 入参 agent 为 null（后端解析默认 agent）', async () => {
     render(<AgentDebugView root={ROOT} />);
 
-    const engineSelect = screen.getByTestId('agent-engine') as HTMLSelectElement;
-    expect(engineSelect.value).toBe('sdk');
-    const values = Array.from(engineSelect.options).map((option) => option.value);
-    expect(values).toEqual(['cli', 'sdk']);
+    expect(selectOf('agent-select').value).toBe('');
+    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
+    expect(values).toEqual(['']);
 
     await startRun();
-    expect(startCallEngine()).toBe('sdk');
+    expect(startCallAgent()).toBeNull();
   });
 
-  it('切至 cli 后发起 → start 透传 input.engine 至 sendMessage，invoke 入参 engine 为 "cli"', async () => {
+  it('清单含默认 agent：初始即选中默认 agent；不动发起 → invoke 入参 agent 为默认 id', async () => {
+    instancesFixture = [agentInstance(3, 'cli-a', 'cli'), agentInstance(7, 'sdk-b', 'sdk', true)];
     render(<AgentDebugView root={ROOT} />);
 
-    fireEvent.change(screen.getByTestId('agent-engine'), { target: { value: 'cli' } });
-    await startRun('显式 cli 调试轮');
+    await waitFor(() => expect(selectOf('agent-select').value).toBe('7'));
+    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
+    expect(values).toEqual(['', '3', '7']);
 
-    expect(startCallEngine()).toBe('cli');
+    await startRun();
+    expect(startCallAgent()).toBe(7);
+  });
+
+  it('切至显式 agent 后发起 → start 透传 input.agent 至 sendMessage，invoke 入参 agent 为显式 id', async () => {
+    instancesFixture = [agentInstance(3, 'cli-a', 'cli'), agentInstance(7, 'sdk-b', 'sdk', true)];
+    render(<AgentDebugView root={ROOT} />);
+    await waitFor(() => expect(selectOf('agent-select').value).toBe('7'));
+
+    fireEvent.change(selectOf('agent-select'), { target: { value: '3' } });
+    await startRun('显式 agent 调试轮');
+
+    expect(startCallAgent()).toBe(3);
   });
 
   it('sdk 运行的 ToolUse / ToolResult 成对事件经既有时间线组件呈现，终态 record 回流（呈现面零改动复用）', async () => {

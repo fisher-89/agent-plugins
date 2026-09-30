@@ -572,7 +572,7 @@ fn with_resume(resume_session_id: &str) -> AgentRunParams {
 
 #[test]
 fn 空缺省engine_cfg时start返回config_missing且零事件() {
-    let runner = SdkRunner::new(EngineConfig::from_hardcoded_slot(), None);
+    let runner = SdkRunner::new(EngineConfig::empty(), None);
     let error = runner
         .start(params(Path::new("C:\\ws")))
         .expect_err("空配置必须显式失败");
@@ -809,11 +809,11 @@ fn 门面sdk分发的trait_object启动校验与直构runner一致() {
 
     let facade = EngineFacade::new();
     let boxed: Box<dyn AgentRunner> =
-        facade.runner_for(crate::EngineKind::Sdk, EngineConfig::from_hardcoded_slot());
+        facade.runner_for(crate::EngineKind::Sdk, EngineConfig::empty());
     let error = boxed
         .start(params(Path::new("C:\\ws")))
         .expect_err("空配置显式失败");
-    let direct = SdkRunner::new(EngineConfig::from_hardcoded_slot(), None)
+    let direct = SdkRunner::new(EngineConfig::empty(), None)
         .start(params(Path::new("C:\\ws")))
         .expect_err("直构 runner 同样显式失败");
     assert_eq!(error, direct, "门面分发与直构启动校验行为一致");

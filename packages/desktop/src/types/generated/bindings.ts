@@ -45,31 +45,35 @@ export const commands = {
 	 *  db 文件与缓存实例保留（移除注册 ≠ 销毁历史，重加同 root 历史完整恢复）。
 	 */
 	removeWorkspace: (root: string) => __TAURI_INVOKE<boolean>("remove_workspace", { root }),
+	/**  provider 清单（主键 id 升序）。 */
+	listAgentProviders: () => __TAURI_INVOKE<AgentProviderRecord[]>("list_agent_providers"),
 	/**
-	 *  发起一次 agent 运行：run 记录落库进入 running 后**提前 resolve** 返回
-	 *  running 记录（含 id，可直接用于 `agent_stop` 寻址）；执行转后台任务，
-	 *  事件实时流与终态记录均经 `onEvent` Channel 流出。启动阶段失败（CLI
-	 *  缺失 / spawn 失败 / 配置缺失 / workspace 库解析失败）返回 `Err`。cwd
-	 *  隐含为当前 workspace root（前端 invoke 固定传 `root`，无 UI 输入）。
-	 *  可选参数：`resume_session_id` 续会话（进 runner 契约——CLI 组装
-	 *  `--resume` flag、sdk 引擎经转录装载缝重建对话史）；`source` /
-	 *  `source_ref` / `parent_run_id` 来源三元组（旁路编排落库，`source` 缺省
-	 *  `debug`）；`engine` 参数选择引擎（invoke body 携 engine 字段，壳层仅
-	 *  映射、缺省硬编码默认 agent（`DEFAULT_ENGINE`，当前 SDK/rig）：引擎选择
-	 *  仅调试页暴露，正式场景 MUST NOT 传 engine；引擎接线全在门面
-	 *  `EngineFacade::runner_for`，编排层零引擎分支）。
+	 *  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）：参数
+	 *  转换段——id 存在且入参 api_key 为空 → 读存量记录回填原值（前端编辑态
+	 *  api_key 恒空 + 遮蔽占位，「留空 = 保持原值」语义的后端承接半边，store 恒
+	 *  收全字段）；重名 reject（store 事务内查重）。
 	 */
-	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, engine: 
-/**  本机 claude CLI 租户（缺省） */
-"cli" | 
-/**  进程内 sdk 租户（rig-core 直连 openai 兼容端点） */
-"sdk" | null) => __TAURI_INVOKE<AgentRunRecord>("agent_start", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, engine }),
+	saveAgentProvider: (id: number | null, name: string, baseUrl: string, apiKey: string, models: AgentModelTiers) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, baseUrl, apiKey, models }),
 	/**
-	 *  终止一次运行中 agent 运行：携 root 按 `(root, run id)` 复合键寻址停止
-	 *  句柄置位信号（租户泵击杀进程树、编排收敛 `stopped`、Channel 流出终态
-	 *  Record）；对已终态（除名）或不存在键幂等 `Ok`，不报错、不改写既有终态
-	 *  （run id 为 workspace 库域内自增，裸 id 跨库歧义由 root 消解，不跨库误停）。
+	 *  删除 provider：被 agent 引用 reject（含引用方提示，不级联）；miss 幂等
+	 *  `Ok(false)`。
 	 */
+	deleteAgentProvider: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_provider", { id }),
+	/**  agent 实例清单（主键 id 升序）。 */
+	listAgentInstances: () => __TAURI_INVOKE<AgentInstanceRecord[]>("list_agent_instances"),
+	/**
+	 *  保存 agent 实例（新建 / 更新合一）：sdk 缺 provider / 悬空引用校验在
+	 *  store 单点；默认标记不由入参写（新建恒非默认、更新保留存量标记）。
+	 */
+	saveAgentInstance: (id: number | null, name: string, engine: AgentEngineKind, providerId: number | null) => __TAURI_INVOKE<AgentInstanceRecord>("save_agent_instance", { id, name, engine, providerId }),
+	/**
+	 *  删除 agent 实例：默认 agent 删除时同事务清标记（删后全局无默认，无顺延）；
+	 *  miss 幂等 `Ok(false)`。
+	 */
+	deleteAgentInstance: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_instance", { id }),
+	/**  标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。 */
+	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
+	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, agent: number | null) => __TAURI_INVOKE<AgentRunRecord>("agent_start", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, agent }),
 	agentStop: (root: string, runId: number) => __TAURI_INVOKE<null>("agent_stop", { root, runId }),
 	/**  当前 workspace 的历史运行清单（started_at 降序）；blank root → 空结果。 */
 	agentRuns: (root: string) => __TAURI_INVOKE<AgentRunRecord[]>("agent_runs", { root }),
@@ -177,6 +181,18 @@ export type AgentBlock =
 { kind: "toolResult"; id: string; content: string; isError: boolean };
 
 /**
+ *  agent 实例引擎二值（agent 管理域，store 本地枚举）：serde camelCase 线值
+ *  `"cli" | "sdk"` 与门面 `EngineKind` 同线值域。持久化的是配置值域而非引擎
+ *  实现——store 禁拖引擎门面 crate（零新增依赖），`AgentEngineKind` →
+ *  `EngineKind` 映射收运行发起解析单点（两臂 match）。
+ */
+export type AgentEngineKind = 
+/**  本机 claude CLI 租户 */
+"cli" | 
+/**  进程内 sdk 租户（rig-core 直连 openai 兼容端点） */
+"sdk";
+
+/**
  *  环境档位双档：`default`（完整环境）/ `bare`（纯净档；不读 OAuth 凭据，
  *  须 `ANTHROPIC_API_KEY` 等外部认证前提——提示责任在参数面，不在本 crate）。
  */
@@ -215,6 +231,40 @@ export type AgentEventKind =
 { kind: "raw"; eventType: string; rawJson: string };
 
 /**
+ *  agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（cli / sdk）
+ *  与 provider 引用（sdk 必填且引用存在、cli 可空）+ 默认标记（全局恒至多
+ *  一；写入只发生在 store 的 `set_default_agent_instance` 与删除清标记两处，
+ *  upsert 不参与写）。
+ */
+export type AgentInstanceRecord = {
+	/**  记录 id（主键，写事务内 max+1 分配；后续 workspace 关联引用锚点） */
+	id: number,
+	/**  展示名（唯一 = 写事务内查重） */
+	name: string,
+	/**  引擎二值（cli / sdk；映射到门面 `EngineKind` 收运行发起解析单点） */
+	engine: AgentEngineKind,
+	/**  引用 provider id（同库 [`AgentProviderRecord`] 主键；sdk 必填、cli 可空） */
+	providerId: number | null,
+	/**  默认标记（缺省运行解析入口；全局恒至多一） */
+	isDefault: boolean,
+};
+
+/**
+ *  provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
+ *  先例同 [`AgentEventRecord`] 的 `AgentEvent`）：high / medium / low 三档
+ *  模型标识，运行发起解析消费固定取 high 档（effort 进 run 参数与档位选择
+ *  器为后续迭代，本期只存不选）。
+ */
+export type AgentModelTiers = {
+	/**  high 档模型标识（运行发起解析消费档） */
+	high: string,
+	/**  medium 档模型标识（本期只存不选） */
+	medium: string,
+	/**  low 档模型标识（本期只存不选） */
+	low: string,
+};
+
+/**
  *  permission-mode 三档；无头模式下档位决定工具审批行为（档位语义由能力
  *  spec 留痕，本 crate 不解释）。
  */
@@ -225,6 +275,31 @@ export type AgentPermissionMode =
 "acceptEdits" | 
 /**  跳过全部审批（调试页默认档） */
 "bypassPermissions";
+
+/**
+ *  agent provider 记录（agent 管理域，user 维度落全局库，见
+ *  desktop-data-dimensions）：openai 兼容端点连接档案（base_url / api_key /
+ *  三档 model），被 [`AgentInstanceRecord`] 按 `provider_id` N:1 引用（删除
+ *  阻止），亦是后续 workspace→agent 关联链的引用锚点之一（稳定 id 主键）。
+ * 
+ *  // 机密面有意放宽:api_key 全链路明文（IPC body / 全局库文件 / 进程内存），
+ *  边界表见 specs/desktop-agent-management ——读写单 DTO 即记录本体（无遮蔽
+ *  信封臂），遮蔽只在前端展示层；结构保证明文不进日志：**不 derive
+ *  `Debug`**，手写遮蔽 impl（api_key 位 [`mask_api_key`] 形态），测试比较走
+ *  [`PartialEq`]。
+ */
+export type AgentProviderRecord = {
+	/**  记录 id（主键，写事务内 max+1 分配） */
+	id: number,
+	/**  展示名（唯一 = 写事务内查重） */
+	name: string,
+	/**  openai 兼容端点 base_url（含版本段，如 `https://…/v1`） */
+	baseUrl: string,
+	/**  认证凭据（bearer token，明文） */
+	apiKey: string,
+	/**  三档模型标识（运行发起解析消费固定取 high 档） */
+	models: AgentModelTiers,
+};
 
 /**
  *  `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
@@ -450,7 +525,10 @@ export type CoverageThresholds = {
  *  `Workspace` workspace 库。serde 线值为 `"user"` / `"workspace"`。
  */
 export type DbDimension = 
-/**  user 维度（全局库，`WorkspaceRecord` 及未来 user 维度租户） */
+/**
+ *  user 维度（全局库，`WorkspaceRecord` 与 agent 管理两模型——user 维度
+ *  已落地代表，desktop-data-dimensions 留痕）
+ */
 "user" | 
 /**  workspace 维度（per-workspace 库，run / 事件 / explore 三模型） */
 "workspace";
@@ -494,17 +572,6 @@ export type DirNode = {
 	/**  直接子目录与直接文件叶（≤ depth 截断；目录在前、文件在后，各按 name 字典序） */
 	children: TreeEntry[],
 };
-
-/**
- *  引擎二值：`agent_start` 的 `engine` 参数值域（serde/specta camelCase，
- *  线格式 `"cli" | "sdk"`；`Option` 承载缺省，不传即 CLI 租户、行为与演进
- *  前一致）。住 infra 门面，core 契约零污染。
- */
-export type EngineKind = 
-/**  本机 claude CLI 租户（缺省） */
-"cli" | 
-/**  进程内 sdk 租户（rig-core 直连 openai 兼容端点） */
-"sdk";
 
 /**  单篇 explore 笔记内容（纯文本 DTO，命令层直出，不套 change 域产物信封）。 */
 export type ExploreDoc = {

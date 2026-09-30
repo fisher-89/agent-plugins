@@ -1,17 +1,3 @@
-//! `bindings` 的单元测试（AC-2 / AC-3 / AC-4）：`export_bindings()` 导出产物的覆盖性
-//! （24 条命令包装名 + invoke 命令名 + 全部出线 DTO 类型名）、Channel 参数
-//! typed（`agent_start` / `watch_subscribe`）、AgentEvent 出线形态（PoC 判据
-//! 自动化留档）、特殊字段出线口径、code_stats 三面 DTO 包装形态、workspace_config
-//! 配置域十二型出线形态、导出幂等、过期产物纠正、目标目录缺失健壮性与
-//! Result 错误通道形态。
-//!
-//! 文件系统为真实目标路径（`export_bindings` 以 `CARGO_MANIFEST_DIR` 定位
-//! `src/types/generated/bindings.ts`，无路径注入缝——按 test-design Mock策略
-//! 的实现期定夺，对真实产物做内容快照比对）：导出幂等且确定性，测试重复导出
-//! 即恢复权威内容。产物文件为共享单一目标，测试经互斥锁串行化访问（同
-//! agent_test.rs PATH_LOCK 先例）；篡改 / 删目录两类变更测试挂 Drop 守卫，
-//! 即便断言失败也尽力重导出恢复权威产物。
-
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Mutex, OnceLock};
@@ -54,7 +40,7 @@ impl Drop for RestoreOnDrop {
     }
 }
 
-/// 24 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一对应）。
+/// 31 条命令的生成包装名（camelCase，与 `generate_handler!` 时代命令清单一一对应）。
 const COMMAND_WRAPPERS: &[&str] = &[
     "listChanges",
     "getChangeDetail",
@@ -62,6 +48,13 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "listWorkspaces",
     "addWorkspace",
     "removeWorkspace",
+    "listAgentProviders",
+    "saveAgentProvider",
+    "deleteAgentProvider",
+    "listAgentInstances",
+    "saveAgentInstance",
+    "deleteAgentInstance",
+    "setDefaultAgentInstance",
     "agentStart",
     "agentStop",
     "agentRuns",
@@ -82,7 +75,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "workspaceConfig",
 ];
 
-/// 24 条命令的 IPC 命令名（snake_case，invoke 目标）。
+/// 31 条命令的 IPC 命令名（snake_case，invoke 目标）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -90,6 +83,13 @@ const COMMAND_NAMES: &[&str] = &[
     "list_workspaces",
     "add_workspace",
     "remove_workspace",
+    "list_agent_providers",
+    "save_agent_provider",
+    "delete_agent_provider",
+    "list_agent_instances",
+    "save_agent_instance",
+    "delete_agent_instance",
+    "set_default_agent_instance",
     "agent_start",
     "agent_stop",
     "agent_runs",
@@ -114,10 +114,14 @@ const COMMAND_NAMES: &[&str] = &[
 const DTO_TYPES: &[&str] = &[
     "ActivePhase",
     "AgentBlock",
+    "AgentEngineKind",
     "AgentEnvMode",
     "AgentEvent",
     "AgentEventKind",
+    "AgentInstanceRecord",
+    "AgentModelTiers",
     "AgentPermissionMode",
+    "AgentProviderRecord",
     "AgentRunMessage",
     "AgentRunRecord",
     "AgentRunStatus",
@@ -137,7 +141,6 @@ const DTO_TYPES: &[&str] = &[
     "CoverageThresholds",
     "DiagnosticKind",
     "DirNode",
-    "EngineKind",
     "ExploreDoc",
     "ExploreRecord",
     "ExploreScanEntry",
@@ -183,7 +186,7 @@ fn type_section(content: &str, type_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 导出产物包含全部24条命令包装名与invoke命令名及出线dto类型名() {
+fn 导出产物包含全部31条命令包装名与invoke命令名及出线dto类型名() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -245,37 +248,37 @@ fn agent_start与watch_subscribe绑定为typed_channel参数() {
 }
 
 // ---------------------------------------------------------------------------
-// engine 尾参出线形态（AC-3 bindings 再生成含 engine 参数的镜像半边）
+// agent 尾参出线形态（AC-3 bindings 再生成含 agent 参数的镜像半边）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn agent_start绑定签名含尾部engine入参且invoke参数对象恒含engine键() {
+fn agent_start绑定签名含尾部agent入参且invoke参数对象恒含agent键() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    // 尾部 engine 入参（EngineKind | null，行内字面量联合形态）：
-    // 「agentStart typed Channel 首参」逐字断言保持，engine 为末位位置参数
-    let wrapper_head = "agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, engine: ";
+    // 尾部 agent 入参（number | null，第 8 IPC 参数位形态不变）：
+    // 「agentStart typed Channel 首参」逐字断言保持，agent 为末位位置参数
+    let wrapper_head = "agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, agent: number | null) => ";
     assert!(
         content.contains(wrapper_head),
-        "agentStart 绑定签名以尾部 engine 入参收尾（typed Channel 首参保持）"
+        "agentStart 绑定签名以尾部 agent 入参收尾（typed Channel 首参保持）"
     );
     assert!(
         content.contains(
-            "\"agent_start\", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, engine }"
+            "\"agent_start\", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, agent }"
         ),
-        "invoke 参数对象恒含 engine 键（第 9 位置参）"
+        "invoke 参数对象恒含 agent 键（第 9 位置参）"
     );
 }
 
 #[test]
-fn engine_kind出线为cli与sdk字面量联合() {
+fn agent_engine_kind出线为cli与sdk字面量联合() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    // EngineKind 出线（AC-3 类型镜像半边）：`export type EngineKind =` + 两
-    // 字面量（serde/specta camelCase 线格式逐字）
-    let engine = type_section(&content, "EngineKind");
+    // AgentEngineKind 出线（AC-3 类型镜像半边）：`export type AgentEngineKind =`
+    // + 两字面量（serde/specta camelCase 线格式逐字）
+    let engine = type_section(&content, "AgentEngineKind");
     assert!(engine.contains("\"cli\""), "实际: {engine}");
     assert!(engine.contains("\"sdk\""), "实际: {engine}");
     assert_eq!(
@@ -283,8 +286,9 @@ fn engine_kind出线为cli与sdk字面量联合() {
         1,
         "二值恰一分隔（不多不少，枚举 +1 侧不外溢）"
     );
-    // core 契约零污染：EngineKind 住 infra 门面，出线不携带 engine/rig 字样
-    // 的 core AgentRunParams 类型（core DTO 清单无 EngineRunParams 类条目）
+    // core 契约零污染：引擎 kind 住 infra 门面 / store 本地枚举，出线不携带
+    // engine/rig 字样的 core AgentRunParams 类型（core DTO 清单无
+    // EngineRunParams 类条目）
     assert!(
         !content.contains("AgentRunParams"),
         "core AgentRunParams 不出线（core 契约零污染）"
@@ -507,7 +511,7 @@ fn 命令错误面为promise_reject透传无result包装() {
 }
 
 // ---------------------------------------------------------------------------
-// workspace_config 配置域出线形态（24 条扩面，AC-3）
+// workspace_config 配置域出线形态（AC-3）
 // ---------------------------------------------------------------------------
 
 #[test]

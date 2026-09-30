@@ -30,7 +30,9 @@ fn params(cwd: &Path) -> AgentRunParams {
 }
 
 fn empty_config() -> EngineConfig {
-    EngineConfig::from_hardcoded_slot()
+    // 空缺省占位构造源：from_hardcoded_slot() 退役后改写为 empty()（断言面
+    // 零变化——三字段全空的占位形态由 config_test 锁定）
+    EngineConfig::empty()
 }
 
 // ---------------------------------------------------------------------------
@@ -95,8 +97,8 @@ fn runner_for_cli臂隔离path下start为cli_missing且engine_cfg不被消费() 
 #[tokio::test]
 async fn runner_for_sdk臂空缺省配置start返回config_missing且不产生任何事件() {
     // SDK 臂以真实 SdkRunner 走启动校验路径即失败（不触 rig 网络）；
-    // v2 起该分发路径同时是壳层缺省收敛路径（unwrap_or(DEFAULT_ENGINE)），
-    // 门面自身零缺省逻辑（恒收显式 EngineKind）
+    // 缺省收敛改由命令层解析单点承载后，该分发路径覆盖解析产物为空配置的
+    // sdk 臂，门面自身零缺省逻辑（恒收显式 EngineKind）
     let runner = EngineFacade::new().runner_for(EngineKind::Sdk, empty_config());
     let error = runner
         .start(params(Path::new("C:\\ws")))
@@ -211,7 +213,7 @@ fn crate根对外形状锚定_平移模块经根可达() {
     // （用例内使用锚定，任一 re-export 破坏即编译失败）
     let runner: crate::ClaudeCliRunner = crate::ClaudeCliRunner::new();
     let _ = runner;
-    let config: EngineConfig = EngineConfig::from_hardcoded_slot();
+    let config: EngineConfig = EngineConfig::empty();
     let _ = config;
     fn build_args_shape(params: &AgentRunParams) -> Vec<String> {
         crate::flags::build_args(params)

@@ -22,7 +22,10 @@ use ::agent::{
     AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunParams, AgentRunStatus,
     RunHandle,
 };
-use store::{AgentRunRecord, Store, WorkspaceStores};
+use store::{
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+    Store, WorkspaceStores,
+};
 
 use super::{
     agent_run_chain, agent_run_events, agent_runs, agent_stop, is_blank_root, RunStopRegistry,
@@ -31,7 +34,7 @@ use crate::commands::exec::agent::agent_test::{
     capturing_channel, pushed_event_bodies, start_and_wait_terminal, FakeRunner, PATH_LOCK,
 };
 use crate::commands::exec::agent::{
-    start_agent_run, start_agent_run_with, RunProvenance, DEFAULT_ENGINE,
+    resolve_agent_engine, start_agent_run, start_agent_run_with, RunProvenance,
 };
 
 // ---------------------------------------------------------------------------
@@ -823,7 +826,8 @@ async fn 单run千级seq连续产出后命令面重放序完整不回绕() {
 
 // ---------------------------------------------------------------------------
 // agent_start 失败分支：隔离 PATH 走命令委托薄入口（Err(String)，不留行）——
-// 命令体直调需 Wry AppHandle（MockRuntime 不可构造）
+// 命令体直调需 Wry AppHandle（MockRuntime 不可构造）。尾参经解析单点产物
+// （全局库真实写入 cli agent 后 resolve）。
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -836,6 +840,11 @@ fn agent_start薄入口在cli不可发现时返回err且workspace库无run行且
     let empty_path = tempfile::tempdir().expect("创建空 PATH 目录失败");
     let (channel, captured) = capturing_channel();
 
+    // 尾参换源：解析产物（cli agent 显式路径），命令体同款 resolve 调用
+    let cli_agent = seed_cli_agent(state.inner(), "薄入口cli实例");
+    let resolved =
+        resolve_agent_engine(state.inner(), Some(cli_agent.id)).expect("cli agent 解析应成功");
+
     let original = std::env::var_os("PATH");
     std::env::set_var("PATH", empty_path.path());
     let result = start_agent_run(
@@ -844,7 +853,7 @@ fn agent_start薄入口在cli不可发现时返回err且workspace库无run行且
         channel,
         run_params(Path::new(&root)),
         RunProvenance::debug(),
-        agent_runtime::EngineKind::Cli,
+        resolved,
     );
     match original {
         Some(value) => std::env::set_var("PATH", value),
@@ -869,58 +878,145 @@ fn agent_start薄入口在cli不可发现时返回err且workspace库无run行且
 }
 
 // ---------------------------------------------------------------------------
-// agent_start engine 缺省收敛（v2 默认 agent）：不传 engine →
-// unwrap_or(DEFAULT_ENGINE) 收敛 SDK 引擎（硬编码位未手填时启动校验即失败
-// 不触网络）；显式 cli 为调试页可选项，隔离 PATH 下 Err 为 CliMissing（既有
-// 薄入口用例已携显式 Cli 入参，零改动通过，不受缺省修订影响）
+// agent_start 尾参演进（AC-7 / AC-8）：`engine: Option<EngineKind>` →
+// `agent: Option<i64>`。缺省（None）= 命令体经 resolve_agent_engine 解析
+// 默认 agent（Err——无默认——reject 前端，不落库不推流，MUST NOT 静默回退
+// 硬编码引擎）；Some(id) = 调试页显式选择。命令体直调需 Wry AppHandle
+// （MockRuntime 不可构造），组合面经「镜像命令体参数转换段 + 编排缝」承载
+// （装置复用 agent_test.rs）。
 // ---------------------------------------------------------------------------
 
-#[test]
-fn agent_start_engine缺省收敛sdk_与显式some_sdk同路径同错误形态且零落库零推送() {
-    let env = Env::new("engine-default-sdk");
+/// 全局库写入一份 provider 记录并返回（管理操作面真实构造）。
+fn seed_provider(stores: &WorkspaceStores, name: &str) -> AgentProviderRecord {
+    stores
+        .global()
+        .upsert_agent_provider(AgentProviderRecord::new(
+            name.to_owned(),
+            "http://127.0.0.1:9/v1".to_owned(),
+            "sk-live-1234567890".to_owned(),
+            AgentModelTiers {
+                high: "m-high".to_owned(),
+                medium: "m-medium".to_owned(),
+                low: "m-low".to_owned(),
+            },
+        ))
+        .expect("provider 写入应成功")
+}
+
+/// 全局库写入一份 cli agent（provider 可空）并返回。
+fn seed_cli_agent(stores: &WorkspaceStores, name: &str) -> AgentInstanceRecord {
+    stores
+        .global()
+        .upsert_agent_instance(AgentInstanceRecord::new(
+            name.to_owned(),
+            AgentEngineKind::Cli,
+            None,
+        ))
+        .expect("cli agent 写入应成功")
+}
+
+/// 全局库写入一份 sdk agent（引用存量 provider）并返回。
+fn seed_sdk_agent(stores: &WorkspaceStores, name: &str, provider_id: i64) -> AgentInstanceRecord {
+    stores
+        .global()
+        .upsert_agent_instance(AgentInstanceRecord::new(
+            name.to_owned(),
+            AgentEngineKind::Sdk,
+            Some(provider_id),
+        ))
+        .expect("sdk agent 写入应成功")
+}
+
+#[tokio::test]
+async fn agent_start缺省解析_不传agent且全局库存在默认agent_经解析单点按解析产物真实发起() {
+    let env = Env::new("agent-default-resolve");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
     let root = env.root_of("alpha");
 
-    // DEFAULT_ENGINE 常量恒等 EngineKind::Sdk（v2 默认 agent 硬编码位）
-    assert_eq!(DEFAULT_ENGINE, agent_runtime::EngineKind::Sdk);
+    // explore 形态前置：全局库存在默认 agent（provider + sdk agent + set_default；
+    // provider 配置齐备——start 即成功，端点不可达性请求期才暴露）
+    let provider = seed_provider(state.inner(), "缺省解析端点");
+    let agent = seed_sdk_agent(state.inner(), "缺省解析实例", provider.id);
+    state.global().set_default_agent_instance(agent.id).unwrap();
 
-    // 壳层收敛表达式逐字镜像：不传 engine（None）→ unwrap_or(DEFAULT_ENGINE)
-    let resolved_none: agent_runtime::EngineKind = None.unwrap_or(DEFAULT_ENGINE);
-    let (channel_none, captured_none) = capturing_channel();
-    let err_none = start_agent_run(
+    // 命令体参数转换段镜像：agent=None → resolve_agent_engine 解析默认，
+    // 解析产物经薄入口真实发起（按解析产物发起的端到端观测）
+    let resolved = resolve_agent_engine(state.inner(), None).expect("缺省解析应命中默认 agent");
+    let (channel, captured) = capturing_channel();
+    let running = start_agent_run(
         app.handle().clone(),
         &state,
-        channel_none,
+        channel,
         run_params(Path::new(&root)),
         RunProvenance::debug(),
-        resolved_none,
+        resolved,
     )
-    .expect_err("sdk 硬编码位未手填时启动校验显式失败");
-    assert!(
-        err_none.contains("配置缺失"),
-        "收敛 SDK 的 Err 为 ConfigMissing 文案（启动校验即失败不触网络），实际: {err_none}"
-    );
+    .expect("缺省解析产物薄入口发起成功");
 
-    // 显式 Some(Sdk)：同路径同错误形态
-    let resolved_some = Some(agent_runtime::EngineKind::Sdk).unwrap_or(DEFAULT_ENGINE);
-    let (channel_some, captured_some) = capturing_channel();
-    let err_some = start_agent_run(
-        app.handle().clone(),
-        &state,
-        channel_some,
-        run_params(Path::new(&root)),
-        RunProvenance::debug(),
-        resolved_some,
-    )
-    .expect_err("显式 sdk 同样启动校验失败");
+    // 提前 resolve：running 记录落该 root 的 workspace 库，id 立即可用
     assert_eq!(
-        err_none, err_some,
-        "缺省收敛与显式 Some(Sdk) 同路径同错误形态"
+        running.status,
+        AgentRunStatus::Running,
+        "提前 resolve running"
+    );
+    assert_ne!(running.id, 0);
+    assert_eq!(
+        agent_runs(state.clone(), root.clone())
+            .expect("agent_runs 应成功")
+            .len(),
+        1,
+        "缺省解析发起的 run 落该 root 的 workspace 库"
     );
 
-    // 跨模块组合断言：Err(ConfigMissing) 抵达命令面（启动失败零残留）——
-    // workspace 库零 run 行、Channel 零推送
+    // 停止信号触达（同步段已注册句柄）→ 后台收敛 → 终态 Record 流出
+    let registry = app.state::<RunStopRegistry>();
+    assert!(registry.request_stop(&root, running.id), "停止句柄已注册");
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+    let record_value = loop {
+        let found = captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .find(|value| value["ipc"] == "record")
+            .cloned();
+        if let Some(record) = found {
+            break record;
+        }
+        assert!(
+            std::time::Instant::now() < deadline,
+            "等待终态 Record 超时（后台任务未收敛）"
+        );
+        tokio::task::yield_now().await;
+        std::thread::sleep(std::time::Duration::from_millis(5));
+    };
+    let terminal_status = record_value["record"]["status"]
+        .as_str()
+        .expect("status 出线");
+    assert!(
+        terminal_status == "stopped" || terminal_status == "failed",
+        "缺省解析发起的运行后台收敛终态并流出 Record，实际: {terminal_status}"
+    );
+}
+
+#[test]
+fn agent_start缺省解析_无默认agent_err引导管理页文案_零落库零推送不静默回退() {
+    let env = Env::new("agent-default-missing");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+
+    // 空全局库（无任何 agent）：缺省路径 MUST NOT 静默回退硬编码引擎
+    let resolved = resolve_agent_engine(state.inner(), None);
+
+    let err = match resolved {
+        Err(message) => message,
+        Ok(_) => panic!("无默认 agent 必须 reject 前端"),
+    };
+    assert!(
+        err.contains("Agent 管理页"),
+        "Err 引导管理页文案（零落库零推送在解析 Err 先于发起），实际: {err}"
+    );
     assert!(
         state
             .for_root(&root)
@@ -928,50 +1024,167 @@ fn agent_start_engine缺省收敛sdk_与显式some_sdk同路径同错误形态�
             .list_agent_runs()
             .unwrap()
             .is_empty(),
-        "SDK 启动校验失败不留 run 行"
-    );
-    assert!(
-        captured_none.lock().unwrap().is_empty() && captured_some.lock().unwrap().is_empty(),
-        "启动校验失败零推送"
+        "零落库"
     );
 }
 
+#[tokio::test]
+async fn agent_start显式agent_存量id按该agent引擎形态发起_cli与sdk两形态各验一轮() {
+    let env = Env::new("agent-explicit-forms");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+
+    let provider = seed_provider(state.inner(), "显式形态端点");
+    let cli_agent = seed_cli_agent(state.inner(), "显式cli实例");
+    let sdk_agent = seed_sdk_agent(state.inner(), "显式sdk实例", provider.id);
+
+    // cli 形态：显式 id 解析产物经薄入口（真实门面）在隔离 PATH 下 Err 为
+    // CliMissing——「按该 agent 引擎形态发起」的引擎路由观测
+    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+    let cli_resolved =
+        resolve_agent_engine(state.inner(), Some(cli_agent.id)).expect("cli agent 解析应成功");
+    let empty_path = tempfile::tempdir().expect("创建空 PATH 目录失败");
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", empty_path.path());
+    let cli_result = start_agent_run(
+        app.handle().clone(),
+        &state,
+        capturing_channel().0,
+        run_params(Path::new(&root)),
+        RunProvenance::debug(),
+        cli_resolved,
+    );
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+    let cli_err = cli_result.expect_err("cli 形态在隔离 PATH 下必须 Err");
+    assert!(
+        cli_err.contains("CLI"),
+        "cli 形态路由 CLI 引擎（CliMissing 文案），实际: {cli_err}"
+    );
+    drop(_guard);
+
+    // sdk 形态：显式 id 解析产物经薄入口真实发起成功（sdk 引擎路由），停止信号
+    // 触达后台收敛并流出终态 Record
+    let sdk_resolved =
+        resolve_agent_engine(state.inner(), Some(sdk_agent.id)).expect("sdk agent 解析应成功");
+    let (channel, captured) = capturing_channel();
+    let running = start_agent_run(
+        app.handle().clone(),
+        &state,
+        channel,
+        run_params(Path::new(&root)),
+        RunProvenance::debug(),
+        sdk_resolved,
+    )
+    .expect("sdk 形态齐备配置真实发起成功");
+    assert_eq!(
+        running.status,
+        AgentRunStatus::Running,
+        "提前 resolve running"
+    );
+
+    let registry = app.state::<RunStopRegistry>();
+    assert!(registry.request_stop(&root, running.id), "停止句柄已注册");
+    let record_value = {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(30);
+        loop {
+            let found = captured
+                .lock()
+                .expect("捕获锁不可中毒")
+                .iter()
+                .find(|value| value["ipc"] == "record")
+                .cloned();
+            if let Some(record) = found {
+                break record;
+            }
+            assert!(
+                std::time::Instant::now() < deadline,
+                "等待终态 Record 超时（后台任务未收敛）"
+            );
+            tokio::task::yield_now().await;
+            std::thread::sleep(std::time::Duration::from_millis(5));
+        }
+    };
+    let terminal_status = record_value["record"]["status"]
+        .as_str()
+        .expect("status 出线");
+    assert!(
+        terminal_status == "stopped" || terminal_status == "failed",
+        "sdk 形态发起的后台任务收敛终态并流出 Record，实际: {terminal_status}"
+    );
+}
+
+#[test]
+fn agent_start显式agent_不存在id_err且零落库零推送() {
+    let env = Env::new("agent-explicit-miss");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let (_channel, captured) = capturing_channel();
+
+    let resolved = resolve_agent_engine(state.inner(), Some(404));
+
+    let err = match resolved {
+        Err(message) => message,
+        Ok(_) => panic!("不存在的 agent id 应 Err"),
+    };
+    assert!(
+        err.contains("agent 不存在") && err.contains("404"),
+        "Err 含 agent 不存在语境，实际: {err}"
+    );
+    assert!(
+        state
+            .for_root(&root)
+            .expect("for_root 应成功")
+            .list_agent_runs()
+            .unwrap()
+            .is_empty(),
+        "零落库"
+    );
+    assert!(captured.lock().unwrap().is_empty(), "零推送");
+}
+
 // ---------------------------------------------------------------------------
-// agent_start engine 参数面稳定性（边界）：尾部末位可选参数，既有调用形态经
-// IPC 反序列化不受影响（Option 缺席即 None）；blank root 守卫先于引擎分发
+// agent 尾参 serde 面（边界）：尾部末位可选参数 Option<i64>，既有调用形态经
+// IPC 反序列化不受影响（Option 缺席即 None）；blank root 守卫先于分发
 // ---------------------------------------------------------------------------
 
 #[test]
-fn engine尾部可选参数serde面_缺席即none_清单外值拒绝且守卫先于分发() {
-    use agent_runtime::EngineKind;
-
-    // Option 缺席即 None（serde null 承接；IPC 签名 v2 零变化）
+fn agent尾部可选参数serde面_option_i64缺席承接null_数值承接some_非数值与浮点拒绝且守卫先于分发() {
+    // Option 缺席即 None（serde null 承接；IPC 签名演进零惊扰）
     assert_eq!(
-        serde_json::from_value::<Option<EngineKind>>(serde_json::json!(null)).expect("null 承接"),
+        serde_json::from_value::<Option<i64>>(serde_json::json!(null)).expect("null 承接"),
         None,
-        "engine 缺席反序列化为 None"
+        "agent 缺席反序列化为 None"
     );
     assert_eq!(
-        serde_json::to_value(None::<EngineKind>).unwrap(),
+        serde_json::to_value(None::<i64>).unwrap(),
         serde_json::json!(null),
         "None 出线为 null"
     );
-    // 两值清单逐字 camelCase 线格式
+    // 数值承接 Some（i64 值域；正负两态）
     assert_eq!(
-        serde_json::from_value::<Option<EngineKind>>(serde_json::json!("cli")).expect("cli 承接"),
-        Some(EngineKind::Cli)
+        serde_json::from_value::<Option<i64>>(serde_json::json!(7)).expect("数值承接"),
+        Some(7)
     );
     assert_eq!(
-        serde_json::from_value::<Option<EngineKind>>(serde_json::json!("sdk")).expect("sdk 承接"),
-        Some(EngineKind::Sdk)
+        serde_json::from_value::<Option<i64>>(serde_json::json!(-3)).expect("负数承接"),
+        Some(-3)
     );
-    // 清单外值：不静默兜底（值域受控）
+    // 非数值 / 浮点拒绝（守卫先于分发：值域受控不静默兜底）
     assert!(
-        serde_json::from_value::<Option<EngineKind>>(serde_json::json!("yolo")).is_err(),
-        "清单外 engine 值拒绝"
+        serde_json::from_value::<Option<i64>>(serde_json::json!("yolo")).is_err(),
+        "非数值 agent 值拒绝"
+    );
+    assert!(
+        serde_json::from_value::<Option<i64>>(serde_json::json!(1.5)).is_err(),
+        "浮点 agent 值拒绝"
     );
 
-    // blank root 守卫先于引擎分发（四命令守卫口径不变：守卫谓词在轨道单点）
+    // blank root 守卫先于 agent 分发（四命令守卫口径不变：守卫谓词在轨道单点）
     assert!(is_blank_root(""));
     assert!(is_blank_root("   "));
     assert!(!is_blank_root("C:\\ws"));

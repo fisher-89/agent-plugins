@@ -213,6 +213,11 @@ function mockIpc() {
       if (command === 'agent_runs' || command === 'agent_run_events') {
         return Promise.resolve([]);
       }
+      // agent 选择器挂载取数（useAgentOptions 发起 list_agent_instances）：同回
+      // 数组形态（null 会使实例清单置 null 而崩），页面切页断言不涉及其内容
+      if (command === 'list_agent_instances') {
+        return Promise.resolve([]);
+      }
       // 基础信息页挂载取数（useCodeStats 挂载发起 code_stats）：回三面 DTO，
       // fixture 深拷贝防用例间引用残留
       if (command === 'code_stats') {

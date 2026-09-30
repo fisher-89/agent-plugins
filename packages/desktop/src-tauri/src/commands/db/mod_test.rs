@@ -107,7 +107,7 @@ fn append_events(store: &store::Store, run_id: i64, seqs: &[u64]) {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn db_models_scope_global忽略root仅返回workspace一行且blank_root不影响() {
+fn db_models_scope_global忽略root仅返回user维度三行且blank_root不影响() {
     let env = Env::new("models-global");
     let app = app_with_stores(&env);
     let state = app.state::<WorkspaceStores>();
@@ -122,8 +122,12 @@ fn db_models_scope_global忽略root仅返回workspace一行且blank_root不影�
         .collect();
     assert_eq!(
         counts,
-        vec![("workspace".to_owned(), 2)],
-        "Global scope 仅返回全局库 workspace 一行（含计数）"
+        vec![
+            ("workspace".to_owned(), 2),
+            ("agent_provider".to_owned(), 0),
+            ("agent_instance".to_owned(), 0)
+        ],
+        "Global scope 仅返回全局库 user 维度三行（agent 管理两模型计数 0 也列出）"
     );
 
     // Global 忽略 root：blank root 同口径（不触发空结果分支）
@@ -280,14 +284,14 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
         models.iter().map(|model| model.name.as_str()).collect()
     }
 
-    // Global scope 不出现 agent_run / agent_event / explore 行
+    // Global scope 不出现 agent_run / agent_event / explore 行（user 维度三行）
     let global_models =
         db_models(state.clone(), DbDimension::User, root.clone()).expect("Global 清单应成功");
     let global_names = names_of(&global_models);
     assert_eq!(
         global_names,
-        vec!["workspace"],
-        "Global scope 仅 workspace 行"
+        vec!["workspace", "agent_provider", "agent_instance"],
+        "Global scope 恰 user 维度三行"
     );
     // Workspace scope 不出现 workspace 行
     let ws_models = db_models(state.clone(), DbDimension::Workspace, root.clone())
@@ -299,7 +303,8 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
         "Workspace scope 仅 workspace 维度三行"
     );
 
-    // 跨维度模型名扫描 Err（维度由实例锁定）
+    // 跨维度模型名扫描 Err（维度由实例锁定；workspace 库实例扫 user 维度
+    // 新模型名同口径）
     let err_global = db_records(
         state.clone(),
         DbDimension::User,
@@ -310,6 +315,19 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
     )
     .expect_err("Global scope 扫描 agent_run 应 Err");
     assert!(err_global.contains("未知模型"), "错误串可读: {err_global}");
+    let err_new_model = db_records(
+        state.clone(),
+        DbDimension::Workspace,
+        root.clone(),
+        "agent_provider".to_owned(),
+        0,
+        10,
+    )
+    .expect_err("Workspace scope 扫描 agent_provider 应 Err");
+    assert!(
+        err_new_model.contains("未知模型"),
+        "错误串可读: {err_new_model}"
+    );
     let err_ws = db_records(
         state.clone(),
         DbDimension::Workspace,

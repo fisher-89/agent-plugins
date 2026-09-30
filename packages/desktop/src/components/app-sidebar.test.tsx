@@ -577,3 +577,96 @@ describe('AppSidebar：页面导航组 nav-config 扩员（AC-4）', () => {
     expect(within(toolsGroup).getByTestId('nav-db').textContent).toContain('数据库');
   });
 });
+
+// ---------------------------------------------------------------------------
+// 系统工具组 [Agent 管理] 入口（AC-1）：nav-agents 归属「系统工具」组且居组
+// 内首位（组序 Agent 管理 → Agent 调试 → 数据库），active 由 pathname ===
+// '/agents' 派生。新增项不改变他项——「页面」组四项与既有 nav testid 零变化
+// （回归锚定）。
+// ---------------------------------------------------------------------------
+
+describe('AppSidebar：系统工具组 nav-agents 入口（AC-1）', () => {
+  let restore: () => void;
+
+  beforeEach(() => {
+    restore = stubEnvironment();
+  });
+
+  afterEach(() => {
+    restore();
+  });
+
+  it('nav-agents 在场且归属「系统工具」组：文案「Agent 管理」、tagName 为 A、href=/agents、带 svg 图标', () => {
+    mountNav('/changes');
+
+    const navAgents = screen.getByTestId('nav-agents');
+    expect(navAgents.tagName).toBe('A');
+    expect(navAgents.getAttribute('href')).toBe('/agents');
+    expect(navAgents.textContent).toContain('Agent 管理');
+    expect(navAgents.querySelector('svg') !== null).toBe(true);
+
+    const toolsGroup = groupOf('nav-agents');
+    expect(toolsGroup.textContent).toContain('系统工具');
+    expect(within(toolsGroup).getByTestId('nav-agent').textContent).toContain('Agent 调试');
+    expect(within(toolsGroup).getByTestId('nav-db').textContent).toContain('数据库');
+    expect(within(toolsGroup).queryByTestId('nav-changes')).toBeNull();
+  });
+
+  it('组内排序恰为 [Agent 管理] [Agent 调试] [数据库]（DOM 结构断言）', () => {
+    mountNav('/changes');
+
+    const toolsGroup = groupOf('nav-agents');
+    const navOrder = within(toolsGroup)
+      .getAllByTestId(/^nav-/)
+      .map((nav) => nav.getAttribute('data-testid'));
+    expect(navOrder).toEqual(['nav-agents', 'nav-agent', 'nav-db']);
+  });
+
+  it('/agents 路径下 nav-agents active 态成立、他路径下不成立（active 由 URL 派生）', () => {
+    const onAgents = mountNav('/agents', [FIRST]);
+    expect(screen.getByTestId('nav-agents').getAttribute('data-active')).toBe('true');
+    for (const id of [
+      'nav-info',
+      'nav-changes',
+      'nav-explores',
+      'nav-config',
+      'nav-agent',
+      'nav-db',
+    ]) {
+      expect(screen.getByTestId(id).getAttribute('data-active')).toBe('false');
+    }
+    onAgents.unmount();
+
+    const onChanges = mountNav('/changes', [FIRST]);
+    expect(screen.getByTestId('nav-agents').getAttribute('data-active')).toBe('false');
+    expect(screen.getByTestId('nav-changes').getAttribute('data-active')).toBe('true');
+    onChanges.unmount();
+
+    // 无匹配前缀（/bogus）降级口径一致
+    const onBogus = mountNav('/bogus', [FIRST]);
+    expect(screen.getByTestId('nav-agents').getAttribute('data-active')).toBe('false');
+    onBogus.unmount();
+  });
+
+  it('点击 nav-agents → location-probe 呈 /agents', () => {
+    mountNav('/changes');
+
+    fireEvent.click(screen.getByTestId('nav-agents'));
+
+    expect(screen.getByTestId('location-probe').textContent).toBe('/agents');
+  });
+
+  it('回归锚定：nav-agents 扩员后「页面」组四项与既有 nav testid 零变化', () => {
+    mountNav('/changes');
+
+    const pageGroup = groupOf('nav-changes');
+    const navOrder = within(pageGroup)
+      .getAllByTestId(/^nav-/)
+      .map((nav) => nav.getAttribute('data-testid'));
+    expect(navOrder).toEqual(['nav-info', 'nav-changes', 'nav-explores', 'nav-config']);
+    expect(groupOf('nav-agents')).not.toBe(pageGroup);
+    for (const id of ['nav-agents', 'nav-agent', 'nav-db']) {
+      expect(within(pageGroup).queryByTestId(id)).toBeNull();
+    }
+  });
+});

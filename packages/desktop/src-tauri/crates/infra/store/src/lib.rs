@@ -4,7 +4,10 @@ mod model;
 mod store;
 
 pub use envelope::{ModelInfo, RecordEnvelope};
-pub use model::{AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
+pub use model::{
+    AgentEngineKind, AgentEventRecord, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
+    AgentRunRecord, ExploreRecord, WorkspaceRecord,
+};
 pub use store::{DbDimension, Store, StoreError, WorkspaceStores};
 
 #[cfg(test)]

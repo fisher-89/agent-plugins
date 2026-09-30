@@ -1,7 +1,7 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentPermissionMode } from '../../../types/dto';
+import type { AgentInstanceRecord, AgentPermissionMode } from '../../../types/dto';
 import { AgentRunForm } from './agent-run-form';
 
 // AgentRunForm 为纯回调组件（onStart 以 vi.fn() 注入），无进程边界，不需要 Mock。
@@ -9,9 +9,19 @@ import { AgentRunForm } from './agent-run-form';
 
 type AgentStartInput = Parameters<React.ComponentProps<typeof AgentRunForm>['onStart']>[0];
 
-function mount(disabled = false) {
+/** agent 实例 fixture（serde camelCase 线格式；providerId 对表单面无关可空） */
+function agentInstance(
+  id: number,
+  name: string,
+  engine: AgentInstanceRecord['engine'],
+  isDefault = false,
+): AgentInstanceRecord {
+  return { id, name, engine, providerId: null, isDefault };
+}
+
+function mount(disabled = false, agents: AgentInstanceRecord[] = []) {
   const onStart = vi.fn();
-  render(<AgentRunForm disabled={disabled} onStart={onStart} />);
+  render(<AgentRunForm agents={agents} disabled={disabled} onStart={onStart} />);
   return { onStart };
 }
 
@@ -50,7 +60,7 @@ describe('AgentRunForm：参数面默认值与 prompt 必填（AC-5）', () => {
 });
 
 describe('AgentRunForm：onStart 回调与档位切换', () => {
-  it('填写后点击启动 → onStart 以 { prompt, permissionMode, engine } 恰调用一次（初始 engine=sdk）', () => {
+  it('填写后点击启动 → onStart 以 { prompt, permissionMode, agent } 恰调用一次（空清单 agent=null 缺省）', () => {
     const { onStart } = mount();
 
     typePrompt('帮我跑一轮');
@@ -60,7 +70,7 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
     expect(onStart).toHaveBeenCalledWith({
       prompt: '帮我跑一轮',
       permissionMode: 'bypassPermissions',
-      engine: 'sdk',
+      agent: null,
     } satisfies AgentStartInput);
   });
 
@@ -78,48 +88,57 @@ describe('AgentRunForm：onStart 回调与档位切换', () => {
   });
 });
 
-describe('AgentRunForm：引擎二值下拉（调试页引擎选择，初始 sdk 与后端默认一致）', () => {
-  it('初始 agent-engine 下拉值为 sdk（对齐 permission-mode 默认档断言形态，与后端 DEFAULT_ENGINE 一致）', () => {
+describe('AgentRunForm：agent 选择器（调试页 agent 选择，默认选中默认 agent）', () => {
+  it('空清单：agent-select 仅存缺省项且值为缺省（发起走后端缺省解析）', () => {
     mount();
 
-    expect(selectOf('agent-engine').value).toBe('sdk');
-    // 可选面：cli / sdk 二值
-    const values = Array.from(selectOf('agent-engine').options).map((option) => option.value);
-    expect(values).toEqual(['cli', 'sdk']);
+    expect(selectOf('agent-select').value).toBe('');
+    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
+    expect(values).toEqual(['']);
   });
 
-  it('切至 cli 后启动 → onStart 以 { prompt, permissionMode, engine: "cli" } 恰调用一次', () => {
-    const { onStart } = mount();
+  it('清单含默认 agent：初始即选中默认 agent（isDefault 记录 id）', () => {
+    mount(false, [agentInstance(3, 'cli-a', 'cli'), agentInstance(7, 'sdk-b', 'sdk', true)]);
 
-    fireEvent.change(selectOf('agent-engine'), { target: { value: 'cli' } });
-    expect(selectOf('agent-engine').value).toBe('cli');
-    typePrompt('显式 cli 调试轮');
+    expect(selectOf('agent-select').value).toBe('7');
+    const values = Array.from(selectOf('agent-select').options).map((option) => option.value);
+    expect(values).toEqual(['', '3', '7']);
+  });
+
+  it('切至显式 agent 后启动 → onStart 以 { prompt, permissionMode, agent: 3 } 恰调用一次', () => {
+    const { onStart } = mount(false, [
+      agentInstance(3, 'cli-a', 'cli'),
+      agentInstance(7, 'sdk-b', 'sdk', true),
+    ]);
+
+    fireEvent.change(selectOf('agent-select'), { target: { value: '3' } });
+    expect(selectOf('agent-select').value).toBe('3');
+    typePrompt('显式 agent 调试轮');
     fireEvent.click(startButton());
 
     expect(onStart).toHaveBeenCalledTimes(1);
     expect(onStart).toHaveBeenCalledWith({
-      prompt: '显式 cli 调试轮',
+      prompt: '显式 agent 调试轮',
       permissionMode: 'bypassPermissions',
-      engine: 'cli',
+      agent: 3,
     } satisfies AgentStartInput);
   });
 
-  it('注入清单外 option 值（yolo）→ 不回填不触发 onChange，onStart 不携带非法 engine', () => {
-    const { onStart } = mount();
+  it('程序性注入清单外 option 值（yolo）→ 不炸、发起不携带非法 agent（jsdom 归一缺省项）', () => {
+    const { onStart } = mount(false, [agentInstance(7, 'sdk-b', 'sdk', true)]);
 
-    // ModeSelect 清单守卫：select 值被程序性改为清单外值时 onChange 不回填
-    // （fireEvent.change 携带 ENGINE_OPTIONS 之外的值，options.find 不命中）
-    fireEvent.change(selectOf('agent-engine'), { target: { value: 'yolo' } });
-    expect(selectOf('agent-engine').value).toBe('sdk');
+    // 浏览器 select 不可能产生清单外选中值（守卫为 defense-in-depth）；jsdom
+    // 对无匹配 option 的 select.value 归一为 ''（缺省项），组件按缺省语义承接
+    fireEvent.change(selectOf('agent-select'), { target: { value: 'yolo' } });
 
-    typePrompt('清单外引擎轮');
+    typePrompt('清单外 agent 轮');
     fireEvent.click(startButton());
     expect(onStart).toHaveBeenCalledWith({
-      prompt: '清单外引擎轮',
+      prompt: '清单外 agent 轮',
       permissionMode: 'bypassPermissions',
-      engine: 'sdk',
+      agent: null,
     } satisfies AgentStartInput);
-    expect(onStart.mock.calls[0]?.[0]).not.toHaveProperty('engine', 'yolo');
+    expect(onStart.mock.calls[0]?.[0]).not.toHaveProperty('agent', 'yolo');
   });
 });
 
@@ -144,7 +163,7 @@ describe('AgentRunForm：禁用与输入保真（边界）', () => {
     expect(onStart).toHaveBeenCalledWith({
       prompt: longPrompt,
       permissionMode: 'bypassPermissions',
-      engine: 'sdk',
+      agent: null,
     } satisfies AgentStartInput);
   });
 

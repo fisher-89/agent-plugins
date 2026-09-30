@@ -1,25 +1,3 @@
-//! `store` 的单元测试（desktop-workspace-db-split 双库布局）：
-//! 模型注册分组（AC-1）+ workspace 库路径派生单点（AC-1/AC-3）+
-//! `WorkspaceStores` 进程内单开与复用（AC-3）+ 注册表 → workspace 库分流写入
-//! （AC-2 组合）+ 全新文件组冷启动零迁移（AC-4）+ workspace 三操作 +
-//! agent run begin / finish / list 存量回归 + 事件类型化（
-//! `append_agent_run_events` / `list_agent_run_events` 经 `AgentEvent` 构造）+
-//! 信封 API 分维度（`list_models` / `scan`）+ explore 记录 CRUD（建档 / 清单 /
-//! 寻址 / 改名 / 删除含 runs+events 级联）+ `restore_run_chain` 单链还原 +
-//! 来源三元组演进与三字段往返。
-//!
-//! tempdir 真开 db 文件（存储层不 mock）：直接构造器回归经
-//! `Store::open_global` / `Store::open_workspace`（维度在打开点锁定），两级
-//! 注册表回归经 `WorkspaceStores`（数据根注入 + per-root 缓存）。全部断言经
-//! 公共 API；路径派生单点（`workspace_db_file_name` / `workspace_db_path`，
-//! pub(crate) 收口点）格式与落位经 `for_root` 与 `workspaces/` 子树文件面
-//! 断言，清洗边界（OS 非法字符 / 尾点空格 / 空回退无法在真实目录构造）以
-//! pub(crate) 纯函数直测（无新增导出条目）。系统时钟不 mock：`added_at` /
-//! `started_at` 仅记录入库值，清单排序与获取时间无关。
-//!
-//! 原 `Store::open` 单库四模型打开用例随打开入口拆分退役（list_models 全量
-//! 四模型断言改写为按维度分组）。
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
@@ -29,8 +7,8 @@ use native_db::{Builder, Models};
 
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
 use crate::{
-    AgentEventRecord, AgentRunRecord, ExploreRecord, Store, StoreError, WorkspaceRecord,
-    WorkspaceStores,
+    AgentEngineKind, AgentEventRecord, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
+    AgentRunRecord, ExploreRecord, Store, StoreError, WorkspaceRecord, WorkspaceStores,
 };
 
 // ---------------------------------------------------------------------------
@@ -148,7 +126,7 @@ fn add_ok(store: &Store, dir: &Path) -> WorkspaceRecord {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn open_global仅列workspace一行_open_workspace仅列workspace维度三行() {
+fn open_global列user维度三模型_open_workspace仅列workspace维度三行() {
     let env = Env::new("registry-split");
 
     let global = open_global_ok(&env.db_path("global"));
@@ -158,8 +136,8 @@ fn open_global仅列workspace一行_open_workspace仅列workspace维度三行() 
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["workspace"],
-        "user 组静态注册仅 WorkspaceRecord（空库计数 0 也列出）"
+        vec!["workspace", "agent_provider", "agent_instance"],
+        "user 组静态注册恰 workspace 注册表 + agent 管理两模型（空库计数 0 也列出）"
     );
     assert!(global_models.iter().all(|model| model.count == 0));
     drop(global);
@@ -204,13 +182,15 @@ fn 跨维度模型名不可达_workspace库scan_workspace与全局库scan_agent_
     let env = Env::new("cross-dimension");
 
     let ws = open_workspace_ok(&env.db_path("ws"));
-    let err = ws
-        .scan("workspace", 0, 10)
-        .expect_err("workspace 库 scan(\"workspace\") 应 Err（模型分组使混入在打开点不可能）");
-    assert!(
-        err.to_string().contains("未知模型"),
-        "错误串含「未知模型」语境，实际: {err}"
-    );
+    for name in ["workspace", "agent_provider", "agent_instance"] {
+        let err = ws
+            .scan(name, 0, 10)
+            .expect_err("workspace 库 scan user 维度模型名应 Err（模型分组使混入在打开点不可能）");
+        assert!(
+            err.to_string().contains("未知模型"),
+            "错误串含「未知模型」语境，实际: {err}"
+        );
+    }
     drop(ws);
 
     let global = open_global_ok(&env.db_path("global"));
@@ -556,15 +536,16 @@ fn 组合链open注册后for_root落库run与explore且全局库无混入() {
     let run = begin_ok(&store, "分流首轮", 100);
     let explore = create_ok(&store, &record.root, "split-topic");
 
-    // 全局库仅 workspace 模型行（注册面），计数与注册记录数一致
+    // 全局库 user 维度模型行（注册面），注册表计数与注册记录数一致、两新管理
+    // 模型计数 0 也列出
     let global_models = stores.global().list_models().unwrap();
     assert_eq!(
         global_models
             .iter()
             .map(|model| (model.name.as_str(), model.count))
             .collect::<Vec<_>>(),
-        vec![("workspace", 1)],
-        "全局库仅 user 维度模型行"
+        vec![("workspace", 1), ("agent_provider", 0), ("agent_instance", 0)],
+        "全局库仅 user 维度模型行（三模型组）"
     );
     // workspace 库含 run / explore 行，注册表记录不混入
     let ws_models = store.list_models().unwrap();
@@ -1402,8 +1383,8 @@ fn list_models分维度计数与各库实有记录数一致() {
             .iter()
             .map(|model| (model.name.as_str(), model.count))
             .collect::<Vec<_>>(),
-        vec![("workspace", 2)],
-        "全局库 workspace 计数与注册记录数一致"
+        vec![("workspace", 2), ("agent_provider", 0), ("agent_instance", 0)],
+        "全局库 workspace 计数与注册记录数一致（agent 管理两模型计数 0 也列出）"
     );
     drop(global);
 
@@ -2162,5 +2143,659 @@ fn v1与v2语义run的事件记录照常经append与list重放() {
         reopened.list_agent_run_events(run_id).unwrap(),
         events,
         "显式来源 run 的事件重放逐字段保真"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// agent 管理操作面（user 维度，全局库）：provider upsert / remove / list /
+// find。tempdir 真开全局库（存储层不 mock 惯例），全部断言经公共 API。
+// ---------------------------------------------------------------------------
+
+/// 三档模型 fixture（三档可区分值，供逐字段与消费半边断言）。
+fn fixture_tiers() -> AgentModelTiers {
+    AgentModelTiers {
+        high: "m-high".to_owned(),
+        medium: "m-medium".to_owned(),
+        low: "m-low".to_owned(),
+    }
+}
+
+fn fixture_provider(name: &str) -> AgentProviderRecord {
+    AgentProviderRecord::new(
+        name.to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        fixture_tiers(),
+    )
+}
+
+fn upsert_provider_ok(store: &Store, provider: AgentProviderRecord) -> AgentProviderRecord {
+    store
+        .upsert_agent_provider(provider)
+        .unwrap_or_else(|e| panic!("upsert_agent_provider 应成功: {e}"))
+}
+
+fn fixture_agent(name: &str, engine: AgentEngineKind, provider_id: Option<i64>) -> AgentInstanceRecord {
+    AgentInstanceRecord::new(name.to_owned(), engine, provider_id)
+}
+
+fn upsert_agent_ok(store: &Store, agent: AgentInstanceRecord) -> AgentInstanceRecord {
+    store
+        .upsert_agent_instance(agent)
+        .unwrap_or_else(|e| panic!("upsert_agent_instance 应成功: {e}"))
+}
+
+#[test]
+fn provider_upsert新建_max加1分配id从1起_返回落库记录且清单可读() {
+    let env = Env::new("mgmt-provider-new");
+    let store = open_global_ok(&env.db_path("global"));
+
+    let saved = upsert_provider_ok(&store, fixture_provider("端点甲"));
+
+    assert_eq!(saved.id, 1, "空库新建 max+1 分配 id=1");
+    assert_eq!(saved.name, "端点甲");
+    assert_eq!(saved.api_key, "sk-live-1234567890", "返回落库记录含全字段");
+    assert_eq!(
+        store.list_agent_providers().unwrap(),
+        vec![saved.clone()],
+        "list_agent_providers 可读同记录"
+    );
+    // 直查命中同记录（save 回填原值的消费半边）
+    assert_eq!(store.find_agent_provider(saved.id).unwrap(), Some(saved));
+}
+
+#[test]
+fn provider_upsert同名重复新建err_清单不产生第二条() {
+    let env = Env::new("mgmt-provider-dup");
+    let store = open_global_ok(&env.db_path("global"));
+    let first = upsert_provider_ok(&store, fixture_provider("端点甲"));
+
+    let result = store.upsert_agent_provider(fixture_provider("端点甲"));
+
+    let err = match result {
+        Err(e) => e,
+        Ok(_) => panic!("同 name 重复新建应 Err（单写事务内查重）"),
+    };
+    assert!(
+        err.to_string().contains("端点甲"),
+        "错误串含 name 语境，实际: {err}"
+    );
+    assert_eq!(
+        store.list_agent_providers().unwrap(),
+        vec![first],
+        "失败无副作用：清单不产生第二条"
+    );
+}
+
+#[test]
+fn provider_upsert_name空白err_api_key空串允许落库() {
+    let env = Env::new("mgmt-provider-blank");
+    let store = open_global_ok(&env.db_path("global"));
+
+    for name in ["", "   ", "\n\t "] {
+        let result = store.upsert_agent_provider(fixture_provider(name));
+        assert!(
+            matches!(&result, Err(StoreError::Db(_))),
+            "name 空白 {name:?} 应 Err（空白校验拒绝），实际: {result:?}"
+        );
+    }
+    assert!(
+        store.list_agent_providers().unwrap().is_empty(),
+        "全部拒绝：不产生任何记录"
+    );
+
+    // api_key 空串允许落库（新建语义无原值可保）
+    let blank_key = AgentProviderRecord::new(
+        "空key端点".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        String::new(),
+        fixture_tiers(),
+    );
+    let saved = upsert_provider_ok(&store, blank_key);
+    assert_eq!(saved.api_key, "", "api_key 空串原样落库");
+}
+
+#[test]
+fn provider_upsert更新整行替换_id不变且查重排除自身() {
+    let env = Env::new("mgmt-provider-update");
+    let store = open_global_ok(&env.db_path("global"));
+    let first = upsert_provider_ok(&store, fixture_provider("端点甲"));
+
+    // 保留原名更新其他字段：查重排除自身，不误报重名
+    let mut updated = fixture_provider("端点甲");
+    updated.id = first.id;
+    updated.base_url = "https://changed.example.com/v1".to_owned();
+    updated.api_key = "sk-new-key-999".to_owned();
+    updated.models = AgentModelTiers {
+        high: "new-high".to_owned(),
+        medium: "new-medium".to_owned(),
+        low: "new-low".to_owned(),
+    };
+    let saved = upsert_provider_ok(&store, updated);
+
+    assert_eq!(saved.id, first.id, "更新臂 id 不变");
+    assert_eq!(saved.base_url, "https://changed.example.com/v1", "整行替换生效");
+    assert_eq!(saved.api_key, "sk-new-key-999");
+    assert_eq!(saved.models.high, "new-high");
+    assert_eq!(store.list_agent_providers().unwrap(), vec![saved]);
+}
+
+#[test]
+fn provider_upsert更新为他人已占name_err_两条记录均原样() {
+    let env = Env::new("mgmt-provider-conflict");
+    let store = open_global_ok(&env.db_path("global"));
+    let alpha = upsert_provider_ok(&store, fixture_provider("甲"));
+    let beta = upsert_provider_ok(&store, fixture_provider("乙"));
+
+    // 甲更新为乙的 name：Err 且两条记录均原样（不产生半更新）
+    let mut renamed = fixture_provider("乙");
+    renamed.id = alpha.id;
+    let result = store.upsert_agent_provider(renamed);
+
+    assert!(result.is_err(), "更新为他人已占 name 应 Err，实际: {result:?}");
+    let listed = store.list_agent_providers().unwrap();
+    assert_eq!(listed, vec![alpha, beta], "两条记录均原样");
+}
+
+#[test]
+fn provider_id分配_连续新建严格递增_删除最大id后新建复用槽位() {
+    let env = Env::new("mgmt-provider-ids");
+    let store = open_global_ok(&env.db_path("global"));
+    let first = upsert_provider_ok(&store, fixture_provider("甲"));
+    let second = upsert_provider_ok(&store, fixture_provider("乙"));
+    let third = upsert_provider_ok(&store, fixture_provider("丙"));
+    assert_eq!(
+        (first.id, second.id, third.id),
+        (1, 2, 3),
+        "连续新建 max+1 严格递增"
+    );
+
+    // 删除最大 id 记录后新建复用该槽位（max+1 口径、无永久计数器）
+    assert!(store.remove_agent_provider(third.id).unwrap());
+    let reused = upsert_provider_ok(&store, fixture_provider("丁"));
+    assert_eq!(reused.id, third.id, "删除表尾后新建复用 max+1 槽位");
+}
+
+#[test]
+fn remove_agent_provider被agent引用时err含引用方name_两类记录均原样保留() {
+    let env = Env::new("mgmt-provider-refused");
+    let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("被引用端点"));
+    let agent = upsert_agent_ok(
+        &store,
+        fixture_agent("引用方agent", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+
+    let result = store.remove_agent_provider(provider.id);
+
+    let err = result.expect_err("被 agent 引用时应 Err（引用完整性）");
+    assert!(
+        err.to_string().contains("引用方agent"),
+        "错误串含引用方 name 提示，实际: {err}"
+    );
+    // 不级联不静默删除：两类记录均原样保留
+    assert_eq!(
+        store.list_agent_providers().unwrap(),
+        vec![provider],
+        "provider 原样保留"
+    );
+    assert_eq!(
+        store.list_agent_instances().unwrap(),
+        vec![agent],
+        "agent 原样保留"
+    );
+}
+
+#[test]
+fn remove_agent_provider未被引用命中删除ok_true且清单不再含该项() {
+    let env = Env::new("mgmt-provider-remove");
+    let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("可删端点"));
+
+    let hit = store.remove_agent_provider(provider.id).unwrap();
+
+    assert!(hit, "命中删除返回 true");
+    assert!(
+        store.list_agent_providers().unwrap().is_empty(),
+        "清单不再含该项"
+    );
+}
+
+#[test]
+fn remove_agent_provider_miss幂等ok_false且库内容不变() {
+    let env = Env::new("mgmt-provider-remove-miss");
+    let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("在库端点"));
+
+    let hit = store.remove_agent_provider(999).unwrap();
+
+    assert!(!hit, "miss 幂等返回 false");
+    assert_eq!(
+        store.list_agent_providers().unwrap(),
+        vec![provider],
+        "库内容不变"
+    );
+}
+
+#[test]
+fn provider清单主键id升序与添加顺序无关_两次调用序稳定确定() {
+    let env = Env::new("mgmt-provider-order");
+    let store = open_global_ok(&env.db_path("global"));
+    // 刻意乱序添加
+    let gamma = upsert_provider_ok(&store, fixture_provider("丙"));
+    let alpha = upsert_provider_ok(&store, fixture_provider("甲"));
+    let beta = upsert_provider_ok(&store, fixture_provider("乙"));
+
+    let first = store.list_agent_providers().unwrap();
+    let second = store.list_agent_providers().unwrap();
+
+    let ids: Vec<i64> = first.iter().map(|record| record.id).collect();
+    // 丙先插入（id=1）、甲次之（id=2）、乙最后（id=3）：清单按主键 id 升序，
+    // 与添加顺序无关
+    assert_eq!(
+        ids,
+        vec![gamma.id, alpha.id, beta.id],
+        "主键 id 升序自然序，与添加顺序无关"
+    );
+    assert_eq!(first, second, "两次调用序稳定确定");
+}
+
+#[test]
+fn provider空库list空向量_find对不存在与0与负数与i64max均none() {
+    let env = Env::new("mgmt-provider-find-edge");
+    let store = open_global_ok(&env.db_path("global"));
+
+    assert!(
+        store.list_agent_providers().unwrap().is_empty(),
+        "空库 list 返回空向量"
+    );
+    for id in [404, 0, -1, i64::MAX] {
+        assert_eq!(
+            store.find_agent_provider(id).unwrap(),
+            None,
+            "find_agent_provider({id}) 不存在返回 None 不报错"
+        );
+    }
+}
+
+// ---------------------------------------------------------------------------
+// agent 实例操作面：engine 约束、name 查重、默认标记唯一写口、删除清标记、
+// set_default 标记即切换
+// ---------------------------------------------------------------------------
+
+#[test]
+fn agent_upsert_cli引擎provider可空_sdk选存量provider保存成功() {
+    let env = Env::new("mgmt-agent-engine");
+    let store = open_global_ok(&env.db_path("global"));
+
+    // cli 引擎 provider 可空（provider_id=None 保存成功）
+    let cli = upsert_agent_ok(&store, fixture_agent("cli实例", AgentEngineKind::Cli, None));
+    assert_eq!(cli.provider_id, None);
+    assert_eq!(cli.id, 1);
+
+    // sdk 引擎选存量 provider 保存成功
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let sdk = upsert_agent_ok(
+        &store,
+        fixture_agent("sdk实例", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+    assert_eq!(sdk.provider_id, Some(provider.id));
+    assert_eq!(
+        store.list_agent_instances().unwrap(),
+        vec![cli, sdk],
+        "两引擎实例并存"
+    );
+}
+
+#[test]
+fn agent_upsert_sdk缺provider_err_悬空引用err() {
+    let env = Env::new("mgmt-agent-sdk-require");
+    let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+
+    // sdk 引擎 provider_id=None Err
+    let missing = store.upsert_agent_instance(fixture_agent("sdk缺provider", AgentEngineKind::Sdk, None));
+    let err = missing.expect_err("sdk 引擎 provider_id=None 应 Err");
+    assert!(
+        err.to_string().contains("sdk缺provider"),
+        "错误串含 name 语境，实际: {err}"
+    );
+
+    // sdk 悬空引用（provider_id 指向不存在的 provider id）Err
+    let dangling = store.upsert_agent_instance(fixture_agent("sdk悬空", AgentEngineKind::Sdk, Some(999)));
+    let err = dangling.expect_err("sdk 悬空引用应 Err");
+    assert!(
+        err.to_string().contains("999"),
+        "错误串含 provider id 语境，实际: {err}"
+    );
+
+    assert!(
+        store.list_agent_instances().unwrap().is_empty(),
+        "失败无副作用：不产生任何 agent 记录"
+    );
+    assert_eq!(
+        store.list_agent_providers().unwrap(),
+        vec![provider],
+        "悬空引用拒绝不影响 provider 存量"
+    );
+}
+
+#[test]
+fn agent_upsert_name查重_同name重复新建与更新撞名err_name空白err() {
+    let env = Env::new("mgmt-agent-dup");
+    let store = open_global_ok(&env.db_path("global"));
+    let first = upsert_agent_ok(&store, fixture_agent("同名实例", AgentEngineKind::Cli, None));
+
+    // 同 name 重复新建 Err
+    let dup_new = store.upsert_agent_instance(fixture_agent("同名实例", AgentEngineKind::Sdk, None));
+    assert!(dup_new.is_err(), "同 name 重复新建应 Err");
+
+    // 更新撞名 Err
+    let second = upsert_agent_ok(&store, fixture_agent("另一实例", AgentEngineKind::Cli, None));
+    let mut renamed = fixture_agent("同名实例", AgentEngineKind::Cli, None);
+    renamed.id = second.id;
+    let dup_update = store.upsert_agent_instance(renamed);
+    assert!(dup_update.is_err(), "更新撞名应 Err");
+
+    // name 空白 Err
+    for name in ["", "  "] {
+        let blank = store.upsert_agent_instance(fixture_agent(name, AgentEngineKind::Cli, None));
+        assert!(matches!(&blank, Err(StoreError::Db(_))), "name 空白应 Err，实际: {blank:?}");
+    }
+
+    assert_eq!(
+        store.list_agent_instances().unwrap(),
+        vec![first, second],
+        "失败无副作用：两条记录原样"
+    );
+}
+
+#[test]
+fn agent_upsert默认标记写口_新建臂入参true被强制false_更新臂保留存量标记() {
+    let env = Env::new("mgmt-agent-default-write");
+    let store = open_global_ok(&env.db_path("global"));
+
+    // 新建臂：入参 is_default=true 被强制落 false（入参标记不参与写）
+    let mut requested = fixture_agent("新建臂", AgentEngineKind::Cli, None);
+    requested.is_default = true;
+    let created = upsert_agent_ok(&store, requested);
+    assert!(
+        !created.is_default,
+        "新建臂入参 is_default=true 强制落 false（默认标记唯一写口为 set_default）"
+    );
+    assert!(
+        store.default_agent_instance().unwrap().is_none(),
+        "新建后全局无默认"
+    );
+
+    // 更新臂：保留存量标记（默认 agent 改名 / 换 provider 后仍为默认）
+    assert!(store.set_default_agent_instance(created.id).is_ok());
+    let mut renamed = fixture_agent("改名后", AgentEngineKind::Cli, None);
+    renamed.id = created.id;
+    renamed.is_default = false; // 入参标记 false 同样不参与写
+    let updated = upsert_agent_ok(&store, renamed);
+    assert!(
+        updated.is_default,
+        "更新臂保留存量默认标记（入参标记不参与写）"
+    );
+    assert_eq!(
+        store.default_agent_instance().unwrap().map(|record| record.id),
+        Some(created.id),
+        "默认 agent 改名后仍为默认"
+    );
+}
+
+#[test]
+fn remove_agent_instance删默认agent_ok后default解析none且清单少一行() {
+    let env = Env::new("mgmt-agent-remove-default");
+    let store = open_global_ok(&env.db_path("global"));
+    let provider = upsert_provider_ok(&store, fixture_provider("端点"));
+    let agent = upsert_agent_ok(
+        &store,
+        fixture_agent("默认实例", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+    store.set_default_agent_instance(agent.id).unwrap();
+    let _survivor = upsert_agent_ok(&store, fixture_agent("幸存实例", AgentEngineKind::Cli, None));
+
+    let hit = store.remove_agent_instance(agent.id).unwrap();
+
+    assert!(hit, "命中删除返回 true");
+    assert_eq!(
+        store.default_agent_instance().unwrap(),
+        None,
+        "删默认 agent 后 default_agent_instance 返回 None（同事务清标记，无顺延）"
+    );
+    assert_eq!(store.list_agent_instances().unwrap().len(), 1, "清单少一行");
+}
+
+#[test]
+fn remove_agent_instance_miss幂等okfalse_删非默认不影响既有默认() {
+    let env = Env::new("mgmt-agent-remove-miss");
+    let store = open_global_ok(&env.db_path("global"));
+    let default_agent = upsert_agent_ok(&store, fixture_agent("默认", AgentEngineKind::Cli, None));
+    store.set_default_agent_instance(default_agent.id).unwrap();
+    let other = upsert_agent_ok(&store, fixture_agent("非默认", AgentEngineKind::Cli, None));
+
+    assert!(
+        !store.remove_agent_instance(999).unwrap(),
+        "miss 幂等返回 false"
+    );
+
+    // 删非默认 agent：既有默认不受影响
+    assert!(store.remove_agent_instance(other.id).unwrap());
+    let remaining_default = store
+        .default_agent_instance()
+        .unwrap()
+        .expect("默认 agent 不受删非默认影响");
+    assert_eq!(remaining_default.id, default_agent.id);
+}
+
+#[test]
+fn default_agent_instance有默认some无默认none() {
+    let env = Env::new("mgmt-agent-default-resolve");
+    let store = open_global_ok(&env.db_path("global"));
+
+    assert_eq!(
+        store.default_agent_instance().unwrap(),
+        None,
+        "无默认返回 None（清单扫 is_default，恒零或一）"
+    );
+
+    let agent = upsert_agent_ok(&store, fixture_agent("默认实例", AgentEngineKind::Cli, None));
+    store.set_default_agent_instance(agent.id).unwrap();
+    let resolved = store.default_agent_instance().unwrap().expect("有默认返回 Some");
+    assert_eq!(resolved.id, agent.id);
+    assert!(resolved.is_default);
+}
+
+#[test]
+fn set_default标记即切换_甲到乙全局恰一默认为乙_返回更新后记录() {
+    let env = Env::new("mgmt-agent-default-switch");
+    let store = open_global_ok(&env.db_path("global"));
+    let agent_a = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
+    let agent_b = upsert_agent_ok(&store, fixture_agent("乙", AgentEngineKind::Cli, None));
+    store.set_default_agent_instance(agent_a.id).unwrap();
+
+    let switched = store.set_default_agent_instance(agent_b.id).unwrap();
+
+    // 返回更新后记录（is_default=true）
+    assert_eq!(switched.id, agent_b.id);
+    assert!(switched.is_default, "返回更新后记录");
+    // 甲→乙切换后全局恰一默认为乙、甲标记自动清除
+    let listed = store.list_agent_instances().unwrap();
+    let defaults: Vec<i64> = listed
+        .iter()
+        .filter(|record| record.is_default)
+        .map(|record| record.id)
+        .collect();
+    assert_eq!(defaults, vec![agent_b.id], "全局恰一默认为乙，甲标记自动清除");
+    assert_eq!(
+        store.default_agent_instance().unwrap().map(|record| record.id),
+        Some(agent_b.id)
+    );
+}
+
+#[test]
+fn set_default重复标记同一agent幂等_切换后全清单is_default恰一true() {
+    let env = Env::new("mgmt-agent-default-idempotent");
+    let store = open_global_ok(&env.db_path("global"));
+    let agent = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
+    let other = upsert_agent_ok(&store, fixture_agent("乙", AgentEngineKind::Cli, None));
+    store.set_default_agent_instance(agent.id).unwrap();
+
+    let again = store.set_default_agent_instance(agent.id).unwrap();
+
+    assert!(again.is_default, "重复标记同一 agent 幂等（仍恰一默认）");
+    let default_count = store
+        .list_agent_instances()
+        .unwrap()
+        .iter()
+        .filter(|record| record.is_default)
+        .count();
+    assert_eq!(default_count, 1, "切换后全清单 is_default 恰一为 true");
+    assert_eq!(
+        store.default_agent_instance().unwrap().map(|record| record.id),
+        Some(agent.id),
+        "默认未漂移到 {other:?}"
+    );
+}
+
+#[test]
+fn set_default_miss_id_err且既有默认标记不变() {
+    let env = Env::new("mgmt-agent-default-miss");
+    let store = open_global_ok(&env.db_path("global"));
+    let agent = upsert_agent_ok(&store, fixture_agent("甲", AgentEngineKind::Cli, None));
+    store.set_default_agent_instance(agent.id).unwrap();
+
+    let result = store.set_default_agent_instance(999);
+
+    let err = result.expect_err("miss id 应 Err");
+    assert!(
+        err.to_string().contains("999"),
+        "错误串含 id 语境，实际: {err}"
+    );
+    assert_eq!(
+        store.default_agent_instance().unwrap().map(|record| record.id),
+        Some(agent.id),
+        "既有默认标记不变"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 存量库 additive 打开（AC-10）：native_db 裸构造仅 WorkspaceRecord 的存量
+// 全局库写盘（fixture 构造，非 mock）→ 新代码 open_global 成功读写。
+// ---------------------------------------------------------------------------
+
+/// 预置仅注册 WorkspaceRecord 并写入一条记录的存量全局库（native_db 裸
+/// 构造，不经 Store）：模拟 agent 管理两模型登记前的存量 desktop-global.redb。
+fn preset_global_with_workspace_only(path: &Path, root_key: &str) {
+    let mut models = Models::new();
+    models
+        .define::<WorkspaceRecord>()
+        .expect("定义 WorkspaceRecord 失败");
+    let db = Builder::new()
+        .create(&models, path)
+        .expect("预置存量全局库失败");
+    let rw = db.rw_transaction().expect("开启写事务失败");
+    rw.insert(WorkspaceRecord::from_root(root_key, 1000))
+        .expect("写入 workspace 记录失败");
+    rw.commit().expect("提交预置事务失败");
+}
+
+#[test]
+fn 存量库仅workspace注册时新代码additive打开成功_原记录可读_两新模型可写读() {
+    let env = Env::new("mgmt-additive-open");
+    let global_path = env.db_path("global");
+    let legacy_root = "C:\\ws\\legacy-demo";
+    preset_global_with_workspace_only(&global_path, legacy_root);
+
+    // 新代码 open_global 成功（additive 追加模型，无任何迁移代码路径）
+    let store = open_global_ok(&global_path);
+
+    // 原记录原样可读
+    let workspaces = store.list_workspaces().unwrap();
+    assert_eq!(workspaces.len(), 1, "存量 workspace 记录原样可读");
+    assert_eq!(workspaces[0].root, legacy_root);
+
+    // 两新模型可写入读出
+    let provider = upsert_provider_ok(&store, fixture_provider("additive 端点"));
+    let agent = upsert_agent_ok(
+        &store,
+        fixture_agent("additive 实例", AgentEngineKind::Sdk, Some(provider.id)),
+    );
+    assert_eq!(
+        store.list_agent_providers().unwrap(),
+        vec![provider.clone()],
+        "provider 写入读出"
+    );
+    assert_eq!(
+        store.list_agent_instances().unwrap(),
+        vec![agent],
+        "agent 写入读出"
+    );
+    drop(store);
+
+    // 重开同文件：三模型状态一致（additive 打开可复现）
+    let reopened = open_global_ok(&global_path);
+    assert_eq!(reopened.list_workspaces().unwrap().len(), 1);
+    assert_eq!(reopened.list_agent_providers().unwrap().len(), 1);
+    assert_eq!(reopened.list_agent_instances().unwrap().len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// 全局库单库贯通（组合）：三模型同库共存互不干扰，drop 重开状态一致
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 组合链provider新建_sdkagent新建引用_set_default_解析命中_重开同一库文件状态一致() {
+    let env = Env::new("mgmt-combined-chain");
+    let global_path = env.db_path("global");
+
+    let snapshot = {
+        let store = open_global_ok(&global_path);
+        // 组合链：provider 新建 → sdk agent 新建（引用）→ set_default → 解析命中
+        let provider = upsert_provider_ok(&store, fixture_provider("贯通端点"));
+        let agent = upsert_agent_ok(
+            &store,
+            fixture_agent("贯通实例", AgentEngineKind::Sdk, Some(provider.id)),
+        );
+        store.set_default_agent_instance(agent.id).unwrap();
+        let resolved = store.default_agent_instance().unwrap().expect("解析命中");
+        assert_eq!(resolved.id, agent.id);
+        assert!(resolved.is_default);
+
+        // 三模型同库共存：注册表与管理数据互不干扰（workspace 维度模型不在本库）
+        let models = store.list_models().unwrap();
+        assert_eq!(
+            models
+                .iter()
+                .map(|model| (model.name.as_str(), model.count))
+                .collect::<Vec<_>>(),
+            vec![("workspace", 0), ("agent_provider", 1), ("agent_instance", 1)],
+            "全局库单库贯通：三模型行共存，计数与实有记录一致"
+        );
+        (
+            provider,
+            store.list_agent_instances().unwrap(),
+            store.default_agent_instance().unwrap(),
+        )
+    };
+
+    // drop 重开同一库文件后全部状态一致
+    let reopened = open_global_ok(&global_path);
+    assert_eq!(
+        reopened.list_agent_providers().unwrap(),
+        vec![snapshot.0],
+        "provider 状态跨重开一致"
+    );
+    assert_eq!(
+        reopened.list_agent_instances().unwrap(),
+        snapshot.1,
+        "agent 清单跨重开一致"
+    );
+    assert_eq!(
+        reopened.default_agent_instance().unwrap(),
+        snapshot.2,
+        "默认标记跨重开一致"
     );
 }

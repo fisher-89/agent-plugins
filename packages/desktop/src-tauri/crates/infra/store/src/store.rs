@@ -21,8 +21,8 @@ use specta::Type;
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
-    dir_name, now_millis, AgentEventRecord, AgentEventRecordKey, AgentRunRecord, ExploreRecord,
-    WorkspaceRecord,
+    dir_name, now_millis, AgentEngineKind, AgentEventRecord, AgentEventRecordKey,
+    AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord,
 };
 
 /// store 内部错误面：两变体对应两类故障模式；`Display` 恒带 `db:` /
@@ -77,16 +77,14 @@ const EXPLORE_RUN_SOURCE: &str = "explore";
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "lowercase")]
 pub enum DbDimension {
-    /// user 维度（全局库，`WorkspaceRecord` 及未来 user 维度租户）
+    /// user 维度（全局库，`WorkspaceRecord` 与 agent 管理两模型——user 维度
+    /// 已落地代表，desktop-data-dimensions 留痕）
     User,
     /// workspace 维度（per-workspace 库，run / 事件 / explore 三模型）
     Workspace,
 }
 
-/// 全局库模型组（静态，仅 user 维度 `WorkspaceRecord`）：`Database` 借用
-/// `&'static Models`，进程内初始化一次。define 仅在编程错误（模型 id /
-/// version 重复）失败，expect 与 native_db 文档口径一致。与 workspace 组无
-/// 交叉注册——维度混入在打开点即不可能。
+/// 全局库模型组
 pub(crate) fn global_models() -> &'static Models {
     static MODELS: OnceLock<Models> = OnceLock::new();
     MODELS.get_or_init(|| {
@@ -95,11 +93,16 @@ pub(crate) fn global_models() -> &'static Models {
             .define::<WorkspaceRecord>()
             .expect("定义 WorkspaceRecord 失败");
         models
+            .define::<AgentProviderRecord>()
+            .expect("定义 AgentProviderRecord 失败");
+        models
+            .define::<AgentInstanceRecord>()
+            .expect("定义 AgentInstanceRecord 失败");
+        models
     })
 }
 
-/// workspace 库模型组（静态，仅 workspace 维度 run / 事件 / explore 三模型）：
-/// 注释同 [`global_models`]。
+/// workspace 库模型组
 pub(crate) fn workspace_models() -> &'static Models {
     static MODELS: OnceLock<Models> = OnceLock::new();
     MODELS.get_or_init(|| {
@@ -170,8 +173,9 @@ pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) -> 
 
 /// native_db 本地库句柄：单文件句柄语义（注入式路径打开，模型组在打开点
 /// 锁定），私有持有 [`Database`] 与实例维度，可安全挂 Tauri State，同步调用
-/// 无需 async。全局库经 [`Store::open_global`]（仅 `WorkspaceRecord`）、
-/// workspace 库经 [`Store::open_workspace`]（run / 事件 / explore 三模型）。
+/// 无需 async。全局库经 [`Store::open_global`]（workspace 注册表 + agent
+/// 管理三模型）、workspace 库经 [`Store::open_workspace`]（run / 事件 /
+/// explore 三模型）。
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
@@ -181,7 +185,7 @@ pub struct Store {
 }
 
 impl Store {
-    /// 打开全局库（user 维度模型组，仅 `WorkspaceRecord`）。
+    /// 打开全局库（user 维度模型组：workspace 注册表 + agent 管理两模型）。
     pub fn open_global(path: &Path) -> Result<Self, StoreError> {
         Self::open_with(path, global_models(), DbDimension::User)
     }
@@ -537,9 +541,236 @@ impl Store {
         Ok(chain)
     }
 
-    /// 本库已注册模型清单与记录计数（按实例维度过滤——全局库只列 user 维度
-    /// 模型、workspace 库只列 workspace 维度模型；计数 0 也列出；新模型登记
-    /// 注册表一行即覆盖，见 [`crate::envelope`]）。
+    /// provider 清单：主键 id 升序自然序（稳定可复现）。
+    pub fn list_agent_providers(&self) -> Result<Vec<AgentProviderRecord>, StoreError> {
+        self.read_all::<AgentProviderRecord>("遍历 provider 清单")
+    }
+
+    /// 主键直查 provider（运行发起解析与 save 回填原值消费）。
+    pub fn find_agent_provider(&self, id: i64) -> Result<Option<AgentProviderRecord>, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let hit: Option<AgentProviderRecord> = r
+            .get()
+            .primary(id)
+            .map_err(db_err("读取 provider 记录"))?;
+        Ok(hit)
+    }
+
+    /// provider upsert：id=0 新建（单写事务内 name 查重 + max+1 分配）/
+    /// id>0 整行替换（查重排除自身，行须存在）。name 空白 `Err`；重名 `Err`。
+    /// 返回落库记录。
+    pub fn upsert_agent_provider(
+        &self,
+        provider: AgentProviderRecord,
+    ) -> Result<AgentProviderRecord, StoreError> {
+        if provider.name.trim().is_empty() {
+            return Err(StoreError::Db("provider 名不得为空白".to_owned()));
+        }
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let all: Vec<AgentProviderRecord> = rw
+            .scan()
+            .primary::<AgentProviderRecord>()
+            .map_err(db_err("扫描 provider 清单"))?
+            .all()
+            .map_err(db_err("扫描 provider 清单"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描 provider 清单"))?;
+        if let Some(hit) = all
+            .iter()
+            .find(|record| record.name == provider.name && record.id != provider.id)
+        {
+            return Err(StoreError::Db(format!("provider 名已存在: {}", hit.name)));
+        }
+        let mut record = provider;
+        if record.id == 0 {
+            // 新建臂：主键自然序表尾 max+1（与插入原子）
+            record.id = all.last().map_or(1, |last| last.id + 1);
+        } else if !all.iter().any(|stored| stored.id == record.id) {
+            // 更新臂：整行替换要求行存在（不隐式插入任意 id）
+            return Err(StoreError::Db(format!("provider 不存在: id={}", record.id)));
+        }
+        rw.upsert(record.clone())
+            .map_err(db_err("写入 provider 记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 upsert_agent_provider 事务"))?;
+        Ok(record)
+    }
+
+    /// 删除 provider：被任一 agent `provider_id` 引用 → `Err`（含引用方 name
+    /// 提示，不级联不删除——引用完整性）；miss 幂等 `Ok(false)`。
+    pub fn remove_agent_provider(&self, id: i64) -> Result<bool, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<AgentProviderRecord> =
+            rw.get().primary(id).map_err(db_err("读取 provider 记录"))?;
+        let Some(record) = stored else {
+            return Ok(false); // miss 幂等
+        };
+        let referencing: Vec<String> = rw
+            .scan()
+            .primary::<AgentInstanceRecord>()
+            .map_err(db_err("扫描 agent 实例"))?
+            .all()
+            .map_err(db_err("扫描 agent 实例"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描 agent 实例"))?
+            .into_iter()
+            .filter(|agent| agent.provider_id == Some(id))
+            .map(|agent| agent.name)
+            .collect();
+        if !referencing.is_empty() {
+            return Err(StoreError::Db(format!(
+                "provider 被 agent 引用，禁止删除: id={id} 被 [{}] 引用",
+                referencing.join("、")
+            )));
+        }
+        rw.remove(record).map_err(db_err("删除 provider 记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 remove_agent_provider 事务"))?;
+        Ok(true)
+    }
+
+    /// agent 实例清单：主键 id 升序自然序。
+    pub fn list_agent_instances(&self) -> Result<Vec<AgentInstanceRecord>, StoreError> {
+        self.read_all::<AgentInstanceRecord>("遍历 agent 实例清单")
+    }
+
+    /// 主键直查 agent 实例（显式路径解析消费）。
+    pub fn find_agent_instance(&self, id: i64) -> Result<Option<AgentInstanceRecord>, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let hit: Option<AgentInstanceRecord> = r
+            .get()
+            .primary(id)
+            .map_err(db_err("读取 agent 记录"))?;
+        Ok(hit)
+    }
+
+    /// 默认 agent 实例（缺省运行解析入口）：清单扫 `is_default`，恒零或一
+    /// （标记唯一写口保证）。
+    pub fn default_agent_instance(&self) -> Result<Option<AgentInstanceRecord>, StoreError> {
+        Ok(self
+            .read_all::<AgentInstanceRecord>("遍历 agent 实例清单")?
+            .into_iter()
+            .find(|record| record.is_default))
+    }
+
+    /// agent 实例 upsert：id=0 新建（单写事务内 name 查重 + max+1 分配，
+    /// **强制 `is_default = false`**——默认标记唯一写口为
+    /// [`Store::set_default_agent_instance`]）/ id>0 整行替换（查重排除自身、
+    /// **保留存量默认标记**——入参标记不参与写，不变式免受前端入参影响）。
+    /// `engine == Sdk` 时 `provider_id` 必填且引用 provider 须存在（缺失 /
+    /// 悬空均 `Err`）；cli 可空（携引用同样校验悬空）。返回落库记录。
+    pub fn upsert_agent_instance(
+        &self,
+        agent: AgentInstanceRecord,
+    ) -> Result<AgentInstanceRecord, StoreError> {
+        if agent.name.trim().is_empty() {
+            return Err(StoreError::Db("agent 名不得为空白".to_owned()));
+        }
+        if agent.engine == AgentEngineKind::Sdk && agent.provider_id.is_none() {
+            return Err(StoreError::Db(format!(
+                "sdk agent 须选择 provider: {}",
+                agent.name
+            )));
+        }
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        if let Some(provider_id) = agent.provider_id {
+            let referenced: Option<AgentProviderRecord> = rw
+                .get()
+                .primary(provider_id)
+                .map_err(db_err("读取 provider 记录"))?;
+            if referenced.is_none() {
+                return Err(StoreError::Db(format!(
+                    "agent 引用的 provider 不存在: id={provider_id}"
+                )));
+            }
+        }
+        let all: Vec<AgentInstanceRecord> = rw
+            .scan()
+            .primary::<AgentInstanceRecord>()
+            .map_err(db_err("扫描 agent 实例"))?
+            .all()
+            .map_err(db_err("扫描 agent 实例"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描 agent 实例"))?;
+        if let Some(hit) = all
+            .iter()
+            .find(|record| record.name == agent.name && record.id != agent.id)
+        {
+            return Err(StoreError::Db(format!("agent 名已存在: {}", hit.name)));
+        }
+        let mut record = agent;
+        match record.id {
+            0 => {
+                // 新建臂：表尾 max+1 分配 + 恒非默认
+                record.id = all.last().map_or(1, |last| last.id + 1);
+                record.is_default = false;
+            }
+            id => {
+                // 更新臂：整行替换保留存量默认标记
+                let stored = all
+                    .iter()
+                    .find(|record| record.id == id)
+                    .ok_or_else(|| StoreError::Db(format!("agent 不存在: id={id}")))?;
+                record.is_default = stored.is_default;
+            }
+        }
+        rw.upsert(record.clone())
+            .map_err(db_err("写入 agent 记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 upsert_agent_instance 事务"))?;
+        Ok(record)
+    }
+
+    /// 删除 agent 实例：默认 agent 同事务先清标记再删（标记唯一写口纪律；
+    /// 删除后全局无默认，无顺延）；miss 幂等 `Ok(false)`。
+    pub fn remove_agent_instance(&self, id: i64) -> Result<bool, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let stored: Option<AgentInstanceRecord> =
+            rw.get().primary(id).map_err(db_err("读取 agent 记录"))?;
+        let Some(mut record) = stored else {
+            return Ok(false); // miss 幂等
+        };
+        if record.is_default {
+            record.is_default = false;
+            rw.upsert(record.clone()).map_err(db_err("清除默认标记"))?;
+        }
+        rw.remove(record).map_err(db_err("删除 agent 记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 remove_agent_instance 事务"))?;
+        Ok(true)
+    }
+
+    /// 标记即切换（默认标记唯一写口）：单写事务内清全部既有默认 → 置目标
+    /// （全局恒至多一）；miss `Err`；返回更新后记录。
+    pub fn set_default_agent_instance(&self, id: i64) -> Result<AgentInstanceRecord, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let all: Vec<AgentInstanceRecord> = rw
+            .scan()
+            .primary::<AgentInstanceRecord>()
+            .map_err(db_err("扫描 agent 实例"))?
+            .all()
+            .map_err(db_err("扫描 agent 实例"))?
+            .collect::<native_db::db_type::Result<Vec<_>>>()
+            .map_err(db_err("扫描 agent 实例"))?;
+        let mut target = all
+            .iter()
+            .find(|record| record.id == id)
+            .cloned()
+            .ok_or_else(|| StoreError::Db(format!("agent 不存在: id={id}")))?;
+        for mut record in all {
+            if record.is_default && record.id != id {
+                record.is_default = false;
+                rw.upsert(record).map_err(db_err("清除旧默认标记"))?;
+            }
+        }
+        target.is_default = true;
+        rw.upsert(target.clone()).map_err(db_err("写入默认标记"))?;
+        rw.commit()
+            .map_err(db_err("提交 set_default_agent_instance 事务"))?;
+        Ok(target)
+    }
+
+    /// 本库已注册模型清单与记录计数
     pub fn list_models(&self) -> Result<Vec<ModelInfo>, StoreError> {
         envelope::list_models(&self.db, self.dimension)
     }

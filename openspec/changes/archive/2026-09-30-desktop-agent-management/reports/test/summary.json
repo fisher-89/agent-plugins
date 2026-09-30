@@ -1,0 +1,91 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-09-30T14:04:59.517Z",
+  "duration_seconds": 737,
+  "total": 720,
+  "passed": 720,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "findings": [
+    "全绿无需修复测试：vite-plus 681/681 通过；rust 侧 cargo test --workspace 原始日志 22 个 test result 块共 642 通过 0 失败（exit 0）；mutation 82.68% ≥ 80（survived 122 / noCoverage 7）。",
+    "rust 计数被低估：rust plan 解析只取了 results.txt 第一个 test result 块（39），实际 12 个非零块合计 642 通过，summary total=720 低估真实总数约 1323；建议 rust 解析器累加所有 test result 行。",
+    "汇总层 coverage 聚合异常：summary.coverage.measured 三维均 null 且 pass=true，而两份 plan report 均有实测值（vite-plus 93.78/87.52/92.56 达标；rust 96.90/0/89.76），override 记 file_count 60 / passed_count 0；跨框架聚合未合并 plan 级数据，需排查 coverage 聚合逻辑。",
+    "rust 分支覆盖恒为 0：cargo-llvm-cov JSON 导出不含分支数据，plan 级 coverage.pass=false（branches 0 < 阈值 85），但该失败未进 summary.problems/conclusion；建议 rust 框架将 branches 视为 null（不支持，同 go-cover）或把 plan 级失败上抛门禁。",
+    "rust mutation 未执行：config.json 为 rust 配置 mutation 阈值 70，但 rust plan mutation=null（CLI 变异仅 StrykerJS 覆盖 TS）；变更清单 49 文件含多个 Rust 源文件，rust 变异门禁实际未生效。"
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 60,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 82.68,
+    "threshold": 80,
+    "measured": {
+      "killed": 616,
+      "survived": 122,
+      "timeout": 0,
+      "noCoverage": 7,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 55,
+      "total": 800,
+      "detected": 616,
+      "undetected": 129
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 82.68456375838926,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 60,
+        "passed_count": 60
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-agent-management/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-agent-management/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ]
+}

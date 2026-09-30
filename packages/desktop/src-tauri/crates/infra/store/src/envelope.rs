@@ -11,7 +11,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use specta::Type;
 
-use crate::model::{AgentEventRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord};
+use crate::model::{
+    AgentEventRecord, AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ExploreRecord,
+    WorkspaceRecord,
+};
 use crate::store::{db_err, DbDimension, StoreError};
 
 /// 模型清单一行：模型名 + 记录计数（计数 0 也列出）。
@@ -64,6 +67,20 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         count: count_model::<WorkspaceRecord>,
         scan: scan_workspaces,
         key_of: workspace_key,
+    },
+    ModelEntry {
+        name: "agent_provider",
+        dimension: DbDimension::User,
+        count: count_model::<AgentProviderRecord>,
+        scan: scan_agent_providers,
+        key_of: agent_provider_key,
+    },
+    ModelEntry {
+        name: "agent_instance",
+        dimension: DbDimension::User,
+        count: count_model::<AgentInstanceRecord>,
+        scan: scan_agent_instances,
+        key_of: agent_instance_key,
     },
     ModelEntry {
         name: "agent_run",
@@ -170,6 +187,24 @@ fn scan_workspaces(
     scan_model::<WorkspaceRecord>(db, offset, limit, key_of)
 }
 
+fn scan_agent_providers(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<AgentProviderRecord>(db, offset, limit, key_of)
+}
+
+fn scan_agent_instances(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<AgentInstanceRecord>(db, offset, limit, key_of)
+}
+
 fn scan_agent_runs(
     db: &Database<'static>,
     offset: u32,
@@ -200,6 +235,16 @@ fn scan_explores(
 /// workspace 主键 = canonical root。
 fn workspace_key(value: &Value) -> Value {
     value["root"].clone()
+}
+
+/// agent provider 主键 = id。
+fn agent_provider_key(value: &Value) -> Value {
+    value["id"].clone()
+}
+
+/// agent instance 主键 = id。
+fn agent_instance_key(value: &Value) -> Value {
+    value["id"].clone()
 }
 
 /// agent run 主键 = id。

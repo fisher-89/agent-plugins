@@ -200,6 +200,143 @@ impl AgentEventRecord {
     }
 }
 
+// --- agent 管理记录（user 维度，全局库 desktop-global.redb）----------------
+
+/// provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
+/// 先例同 [`AgentEventRecord`] 的 `AgentEvent`）：high / medium / low 三档
+/// 模型标识，运行发起解析消费固定取 high 档（effort 进 run 参数与档位选择
+/// 器为后续迭代，本期只存不选）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct AgentModelTiers {
+    /// high 档模型标识（运行发起解析消费档）
+    pub high: String,
+    /// medium 档模型标识（本期只存不选）
+    pub medium: String,
+    /// low 档模型标识（本期只存不选）
+    pub low: String,
+}
+
+/// agent 实例引擎二值（agent 管理域，store 本地枚举）：serde camelCase 线值
+/// `"cli" | "sdk"` 与门面 `EngineKind` 同线值域。持久化的是配置值域而非引擎
+/// 实现——store 禁拖引擎门面 crate（零新增依赖），`AgentEngineKind` →
+/// `EngineKind` 映射收运行发起解析单点（两臂 match）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentEngineKind {
+    /// 本机 claude CLI 租户
+    Cli,
+    /// 进程内 sdk 租户（rig-core 直连 openai 兼容端点）
+    Sdk,
+}
+
+/// api_key 遮蔽形态（`sk-***abc`：末 3 字符；空 / 过短恒 `sk-***`）。Debug
+/// 遮蔽实现与前端 `MaskedApiKey` 组件同口径（展示层遮蔽，非脱敏存储）。
+pub(crate) fn mask_api_key(api_key: &str) -> String {
+    let chars: Vec<char> = api_key.chars().collect();
+    if chars.len() > 3 {
+        let suffix: String = chars[chars.len() - 3..].iter().collect();
+        format!("sk-***{suffix}")
+    } else {
+        "sk-***".to_owned()
+    }
+}
+
+/// agent provider 记录（agent 管理域，user 维度落全局库，见
+/// desktop-data-dimensions）：openai 兼容端点连接档案（base_url / api_key /
+/// 三档 model），被 [`AgentInstanceRecord`] 按 `provider_id` N:1 引用（删除
+/// 阻止），亦是后续 workspace→agent 关联链的引用锚点之一（稳定 id 主键）。
+///
+/// // 机密面有意放宽:api_key 全链路明文（IPC body / 全局库文件 / 进程内存），
+/// 边界表见 specs/desktop-agent-management ——读写单 DTO 即记录本体（无遮蔽
+/// 信封臂），遮蔽只在前端展示层；结构保证明文不进日志：**不 derive
+/// `Debug`**，手写遮蔽 impl（api_key 位 [`mask_api_key`] 形态），测试比较走
+/// [`PartialEq`]。
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 5, version = 1)]
+#[native_db]
+pub struct AgentProviderRecord {
+    /// 记录 id（主键，写事务内 max+1 分配）
+    #[primary_key]
+    pub id: i64,
+    /// 展示名（唯一 = 写事务内查重）
+    pub name: String,
+    /// openai 兼容端点 base_url（含版本段，如 `https://…/v1`）
+    pub base_url: String,
+    /// 认证凭据（bearer token，明文）
+    // 机密面有意放宽:明文存储与传输（读写单 DTO 即记录本体，无遮蔽信封臂），
+    // 遮蔽只在前端展示层，边界表见 specs/desktop-agent-management
+    pub api_key: String,
+    /// 三档模型标识（运行发起解析消费固定取 high 档）
+    pub models: AgentModelTiers,
+}
+
+impl AgentProviderRecord {
+    /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
+    /// 传空即空（新建语义无原值可保）。
+    pub fn new(name: String, base_url: String, api_key: String, models: AgentModelTiers) -> Self {
+        Self {
+            id: 0,
+            name,
+            base_url,
+            api_key,
+            models,
+        }
+    }
+}
+
+/// 手写遮蔽 Debug（字段面与 derive 形态逐位对齐，仅 api_key 位遮蔽）：明文
+/// 不进任何日志 / 错误串（错误串只含 name / id / 计数）。
+impl std::fmt::Debug for AgentProviderRecord {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("AgentProviderRecord")
+            .field("id", &self.id)
+            .field("name", &self.name)
+            .field("base_url", &self.base_url)
+            .field("api_key", &mask_api_key(&self.api_key))
+            .field("models", &self.models)
+            .finish()
+    }
+}
+
+/// agent 实例记录（agent 管理域，user 维度落全局库）：引擎选择（cli / sdk）
+/// 与 provider 引用（sdk 必填且引用存在、cli 可空）+ 默认标记（全局恒至多
+/// 一；写入只发生在 store 的 `set_default_agent_instance` 与删除清标记两处，
+/// upsert 不参与写）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 6, version = 1)]
+#[native_db]
+pub struct AgentInstanceRecord {
+    /// 记录 id（主键，写事务内 max+1 分配；后续 workspace 关联引用锚点）
+    #[primary_key]
+    pub id: i64,
+    /// 展示名（唯一 = 写事务内查重）
+    pub name: String,
+    /// 引擎二值（cli / sdk；映射到门面 `EngineKind` 收运行发起解析单点）
+    pub engine: AgentEngineKind,
+    /// 引用 provider id（同库 [`AgentProviderRecord`] 主键；sdk 必填、cli 可空）
+    pub provider_id: Option<i64>,
+    /// 默认标记（缺省运行解析入口；全局恒至多一）
+    pub is_default: bool,
+}
+
+impl AgentInstanceRecord {
+    /// 由实例档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）、
+    /// `is_default = false`（默认标记唯一写口为 `set_default_agent_instance`，
+    /// 新建恒非默认）。
+    pub fn new(name: String, engine: AgentEngineKind, provider_id: Option<i64>) -> Self {
+        Self {
+            id: 0,
+            name,
+            engine,
+            provider_id,
+            is_default: false,
+        }
+    }
+}
+
 /// 复合键打包：高 64 位 run_id、低 64 位 seq。store 内唯一组装点。
 pub(crate) fn pack_event_key(run_id: i64, seq: u64) -> u128 {
     ((run_id as u128) << 64) | (seq as u128)

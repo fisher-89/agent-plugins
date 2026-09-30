@@ -1,15 +1,11 @@
-//! `model` 的单元测试：`AgentEventRecord` 键打包 + 嵌装往返（AC-4）；
-//! `AgentRunRecord` 三枚举线格式（AC-1）。
-//!
-//! 键打包与嵌装往返用例为内存构造，无 IO 无进程边界，无 mock。编解码经
-//! native_model 封装（serde_json codec）内存往返，只验证 store 包装层与 core
-//! flatten 类型的组装兼容，不重复验证 serde 自身语义。
-
 use agent::{
     AgentBlock, AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus,
 };
 
-use crate::model::{pack_event_key, AgentEventRecord, AgentRunRecord};
+use crate::model::{
+    pack_event_key, AgentEngineKind, AgentEventRecord, AgentInstanceRecord, AgentModelTiers,
+    AgentProviderRecord, AgentRunRecord,
+};
 
 // ---------------------------------------------------------------------------
 // 装置：固定时间戳事件构造（等值断言与钟面无关）
@@ -329,4 +325,234 @@ fn 三枚举全组合serde串值域逐字断言() {
         }
     }
     assert_eq!(combos, 24, "全组合恰 2×3×4=24 项穷尽");
+}
+
+// ---------------------------------------------------------------------------
+// agent 管理记录（AC-9 / AC-6 存储半边）：构造语义、遮蔽 Debug、嵌装往返、
+// serde 线格式（内存构造 + native_model 封装内存往返，无 mock）
+// ---------------------------------------------------------------------------
+
+/// 三档模型 fixture（high / medium / low 三档可区分，消费半边断言取 high 档）。
+fn tiers(high: &str, medium: &str, low: &str) -> AgentModelTiers {
+    AgentModelTiers {
+        high: high.to_owned(),
+        medium: medium.to_owned(),
+        low: low.to_owned(),
+    }
+}
+
+#[test]
+fn provider构造new三字段载荷与三档models逐字段保真且id置0比较走partial_eq与字段面() {
+    let record = AgentProviderRecord::new(
+        "自建端点".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+    );
+
+    // 新建语义构造：id 置 0（写事务 max+1 分配覆盖）
+    assert_eq!(record.id, 0, "new 构造 id 恒置 0");
+    // 逐字段保真（字段面比较，EngineConfig 同口径不走 Debug）
+    assert_eq!(record.name, "自建端点");
+    assert_eq!(record.base_url, "https://api.example.com/v1");
+    assert_eq!(record.api_key, "sk-live-1234567890");
+    assert_eq!(
+        record.models,
+        tiers("m-high", "m-medium", "m-low"),
+        "三档 models 逐字段保真（PartialEq）"
+    );
+
+    // Clone / PartialEq 保真
+    let cloned = record.clone();
+    assert_eq!(cloned, record, "Clone 后逐字段相等");
+}
+
+#[test]
+fn provider手写遮蔽debug输出api_key位为末三字符遮蔽形态_全文不含明文key() {
+    let record = AgentProviderRecord::new(
+        "遮蔽回归".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+    );
+
+    let debug_text = format!("{record:?}");
+
+    // 手写遮蔽 Debug：api_key 位呈现 sk-***abc 形态（前缀掩码 + 末 3 字符）
+    assert!(
+        debug_text.contains("sk-***890"),
+        "Debug 输出 api_key 位为「sk-*** + 末 3 字符」遮蔽形态，实际: {debug_text}"
+    );
+    // 结构保证明文不进日志：完整 key 全文不出现
+    assert!(
+        !debug_text.contains("sk-live-1234567890"),
+        "Debug 输出不得含 api_key 明文，实际: {debug_text}"
+    );
+    // 结构体名与字段名在位（字段面与 derive 形态对齐，仅 api_key 位遮蔽）
+    assert!(debug_text.contains("AgentProviderRecord"));
+    assert!(debug_text.contains("api_key"));
+    assert!(debug_text.contains("base_url"));
+}
+
+#[test]
+fn provider遮蔽debug在api_key空串或长度不足3字符时恒sk三星号全遮蔽兜底() {
+    for api_key in ["", "a", "ab", "abc"] {
+        let record = AgentProviderRecord::new(
+            "过短兜底".to_owned(),
+            "https://api.example.com/v1".to_owned(),
+            api_key.to_owned(),
+            tiers("h", "m", "l"),
+        );
+
+        let debug_text = format!("{record:?}");
+
+        assert!(
+            debug_text.contains("sk-***"),
+            "api_key={api_key:?} 过短时 Debug 恒含 sk-*** 掩码，实际: {debug_text}"
+        );
+        // 全遮蔽兜底：api_key 位恒为纯掩码（无末 3 字符回显，防 sk-***abc 恰为
+        // 原文泄露——恰 3 字符时回显后缀即泄露原文）
+        assert!(
+            debug_text.contains("api_key: \"sk-***\""),
+            "api_key={api_key:?} 过短时 api_key 位恒为 sk-*** 全遮蔽，实际: {debug_text}"
+        );
+    }
+}
+
+#[test]
+fn provider构造特殊字符字段clone与partial_eq保真且models三档全空串构造合法() {
+    let record = AgentProviderRecord::new(
+        "名 字 中文 🎉 \"引号\"\n换行".to_owned(),
+        "https://例子.测试/v1 🚀".to_owned(),
+        "带 空格 的 \"key\" 🎉\n".to_owned(),
+        tiers("", "", ""),
+    );
+
+    // 模型层不做字段校验：三档全空串构造合法（校验单点在 store）
+    assert_eq!(record.models.high, "");
+    assert_eq!(record.models.medium, "");
+    assert_eq!(record.models.low, "");
+
+    let cloned = record.clone();
+    assert_eq!(cloned, record, "特殊字符字段 Clone / PartialEq 保真");
+}
+
+#[test]
+fn instance构造new恒id0与is_defaultfalse且engine两变体与provider_id两态逐字段保真() {
+    // 构造器不产默认标记：is_default 恒 false（默认标记唯一写口为 set_default）
+    let cli_agent =
+        AgentInstanceRecord::new("cli-甲".to_owned(), AgentEngineKind::Cli, None);
+    assert_eq!(cli_agent.id, 0, "new 构造 id 恒置 0");
+    assert!(!cli_agent.is_default, "new 构造恒非默认");
+    assert_eq!(cli_agent.name, "cli-甲");
+    assert_eq!(cli_agent.engine, AgentEngineKind::Cli);
+    assert_eq!(cli_agent.provider_id, None, "cli 臂 provider 可空透传");
+
+    let sdk_agent =
+        AgentInstanceRecord::new("sdk-乙".to_owned(), AgentEngineKind::Sdk, Some(7));
+    assert_eq!(sdk_agent.id, 0);
+    assert!(!sdk_agent.is_default);
+    assert_eq!(sdk_agent.engine, AgentEngineKind::Sdk);
+    assert_eq!(sdk_agent.provider_id, Some(7), "provider_id Some 两态透传");
+
+    // Clone / PartialEq 保真
+    assert_eq!(sdk_agent.clone(), sdk_agent);
+    assert_ne!(cli_agent, sdk_agent, "两形态记录不等");
+}
+
+/// provider 记录的 native_model 内存往返（默认 bincode codec，不经 db 文件）。
+fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
+    let bytes = native_model::encode(record).expect("native_model encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+    assert_eq!(version, 1, "native_model 版本封装为 version 1（id 5 新登记不与既有 1–4 冲突由打开成功锚定）");
+    decoded
+}
+
+#[test]
+fn provider记录嵌装往返含三档models逐字段相等() {
+    let record = AgentProviderRecord::new(
+        "往返回归".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+    );
+
+    let decoded = provider_roundtrip(&record);
+
+    assert_eq!(decoded, record, "provider 记录（含三档 models）往返逐字段相等");
+}
+
+#[test]
+fn instance记录往返engine两变体与provider_id两态option语义经编解码不漂移() {
+    for engine in [AgentEngineKind::Cli, AgentEngineKind::Sdk] {
+        for provider_id in [None, Some(42)] {
+            let record =
+                AgentInstanceRecord::new(format!("实例-{engine:?}"), engine, provider_id);
+
+            let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+            let (decoded, version) = native_model::decode::<AgentInstanceRecord>(bytes)
+                .expect("native_model decode 应成功");
+            assert_eq!(version, 1, "native_model 版本封装为 version 1");
+            assert_eq!(decoded, record, "instance 记录往返保真");
+            assert_eq!(
+                decoded.provider_id, provider_id,
+                "Option 语义经编解码不漂移（None / Some 两态）"
+            );
+        }
+    }
+}
+
+#[test]
+fn 管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值() {
+    let provider = AgentProviderRecord::new(
+        "线格式".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+    );
+    let provider_value = serde_json::to_value(&provider).expect("serde 序列化应成功");
+    assert_eq!(provider_value["name"], serde_json::json!("线格式"));
+    assert_eq!(provider_value["baseUrl"], serde_json::json!("https://api.example.com/v1"));
+    assert_eq!(provider_value["apiKey"], serde_json::json!("sk-live-1234567890"));
+    assert_eq!(provider_value["models"]["high"], serde_json::json!("m-high"));
+    assert_eq!(provider_value["models"]["medium"], serde_json::json!("m-medium"));
+    assert_eq!(provider_value["models"]["low"], serde_json::json!("m-low"));
+
+    let instance = AgentInstanceRecord::new(
+        "线格式实例".to_owned(),
+        AgentEngineKind::Sdk,
+        Some(7),
+    );
+    let instance_value = serde_json::to_value(&instance).expect("serde 序列化应成功");
+    assert_eq!(instance_value["engine"], serde_json::json!("sdk"));
+    assert_eq!(instance_value["providerId"], serde_json::json!(7));
+    assert_eq!(instance_value["isDefault"], serde_json::json!(false));
+
+    let cli = AgentInstanceRecord::new(
+        "线格式cli".to_owned(),
+        AgentEngineKind::Cli,
+        None,
+    );
+    let cli_value = serde_json::to_value(&cli).expect("serde 序列化应成功");
+    assert_eq!(cli_value["engine"], serde_json::json!("cli"), "engine 出线 \"cli\"");
+    assert_eq!(cli_value["providerId"], serde_json::json!(null));
+
+    // 反序列化 roundtrip 一致（线格式双向受控）
+    let provider_back: AgentProviderRecord =
+        serde_json::from_value(provider_value).expect("反序列化成功");
+    assert_eq!(provider_back, provider);
+    let instance_back: AgentInstanceRecord =
+        serde_json::from_value(instance_value).expect("反序列化成功");
+    assert_eq!(instance_back, instance);
+}
+
+#[test]
+fn serde线格式非法engine串反序列化err() {
+    // 受控值域拒绝：非 "cli"/"sdk" 串反序列化 Err（与既有三枚举线格式口径同型）
+    let result = serde_json::from_value::<AgentEngineKind>(serde_json::json!("yolo"));
+    assert!(
+        result.is_err(),
+        "非法 engine 串应 Err，实际: {result:?}"
+    );
 }

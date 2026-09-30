@@ -1,15 +1,3 @@
-/**
- * Tauri 传输适配：ai-sdk v7 `ChatTransport` 的 Tauri IPC 实现（无状态转换器，
- * 不持链状态）。`sendMessages` 把 `options.body` 的链参数 + 提示词经生成绑定
- * `commands.agentStart` 穿透 invoke，Tauri `Channel<AgentRunMessage>` 消息逐条
- * 翻译为 `UIMessageChunk` 流：Event 信封经 `eventToChunk` 转 chunk；Record 信封
- * 转 `data-run-record` 部件 + finish 后关流（终态由后端闭流收尾，前端流不在
- * 停止时截断）。`reconnectToStream` 恒 null（重连诉求由重放装载承担）。
- *
- * 链状态归应用层：hook 经 `onEvent` / `onRecord` 观测点维护 events / chain
- * 镜像；transport 只转换不解释。
- */
-
 import { Channel } from '@tauri-apps/api/core';
 import type { ChatTransport } from 'ai';
 
@@ -33,7 +21,7 @@ type AgentStartChainParams = {
   source: AgentStartArgs[5];
   sourceRef: AgentStartArgs[6];
   parentRunId: AgentStartArgs[7];
-  engine: AgentStartArgs[8];
+  agent: AgentStartArgs[8];
 };
 
 /** transport 构造观测点：hook 注入（不承载状态，仅透传镜像） */
@@ -50,12 +38,12 @@ function readPermissionMode(value: unknown): AgentStartChainParams['permissionMo
   throw new Error(`非法 permissionMode: ${JSON.stringify(value)}`);
 }
 
-/** unknown → EngineKind | null（引擎可缺席——null → 后端默认 agent（硬编码
- * SDK）；清单外值拒绝，transport 不改写） */
-function readEngine(value: unknown): AgentStartChainParams['engine'] {
+/** unknown → number | null（agent 可缺席——null / 缺席 → 后端解析默认 agent；
+ * 清单外值拒绝，transport 不改写） */
+function readAgentId(value: unknown): AgentStartChainParams['agent'] {
   if (value === undefined || value === null) return null;
-  if (value === 'cli' || value === 'sdk') return value;
-  throw new Error(`非法 engine: ${JSON.stringify(value)}`);
+  if (typeof value === 'number') return value;
+  throw new Error(`非法 agent: ${JSON.stringify(value)}`);
 }
 
 /** unknown → string | null（其余形态拒绝） */
@@ -88,7 +76,7 @@ function readChainParams(body: object | undefined): AgentStartChainParams {
     resumeSessionId: readNullableString(get('resumeSessionId'), 'resumeSessionId'),
     parentRunId: readNullableNumber(get('parentRunId'), 'parentRunId'),
     sourceRef: readNullableString(get('sourceRef'), 'sourceRef'),
-    engine: readEngine(get('engine')),
+    agent: readAgentId(get('agent')),
   };
 }
 
@@ -167,7 +155,7 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
         chain.source,
         chain.sourceRef,
         chain.parentRunId,
-        chain.engine,
+        chain.agent,
       )
       .then((record) => {
         this.onRecord?.(record);

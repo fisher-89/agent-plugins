@@ -39,6 +39,9 @@ tokei = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
+# 命令层测试预置「绕过 store 校验的悬空引用」存量库（native_db 裸构造，同
+# store_test 既有口径）；仅测试构建启用
+native_db = { workspace = true }
 # 编排/命令层测试以 #[tokio::test] 驱动（drive_agent_run 直驱 / start_agent_run
 # 泛型缝 / agent_start 与 agent_stop 命令面）
 tokio = { workspace = true, features = ["rt", "macros"] }
