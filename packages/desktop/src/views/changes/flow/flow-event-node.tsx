@@ -11,10 +11,15 @@ import type { ActiveFlowNode, EvalFlowNode, FlowNode, InterruptedFlowNode } from
  * - active：pulse 运行中，无 verdict，列内接流末端；
  * - interrupted：dashed 灰显留档，展示 startAt ~ endAt（迁移旧中断留档语义）。
  *
- * 顶 / 底各一枚隐形 Handle 供链式边锚定（边锚点依赖 Handle 的 DOM 度量；
- * Handle 依赖 ReactFlow store context，脱离图直渲染本组件时需外包
- * ReactFlowProvider，不依赖 ResizeObserver）。
+ * 四侧隐形 Handle（id：top / bottom / left / right）供链式边按方向锚定：
+ * 跨列前进右出左入、回跳左出右入、同列重试下出上入（把手由
+ * ChangeFlowGraph.toChartEdges 按边 kind 选定；边锚点依赖 Handle 的
+ * DOM 度量，Handle 依赖 ReactFlow store context，脱离图直渲染本组件时
+ * 需外包 ReactFlowProvider，不依赖 ResizeObserver）。
  */
+
+/** 隐形把手公共样式：把手仅作边锚点，不参与交互连接，视觉上不可见 */
+const HIDDEN = { opacity: 0 };
 
 type EventNodeData = { node: FlowNode };
 
@@ -75,15 +80,44 @@ function InterruptedBody({ node }: { node: InterruptedFlowNode }): React.JSX.Ele
 export function FlowEventNode({ data }: NodeProps<EventFlowNode>): React.JSX.Element {
   return (
     <div className={nodeClass(data.node)} data-testid="flow-node">
-      <Handle type="target" position={Position.Top} isConnectable={false} style={{ opacity: 0 }} />
+      <Handle type="target" id="top" position={Position.Top} isConnectable={false} style={HIDDEN} />
+      <Handle
+        type="target"
+        id="left"
+        position={Position.Left}
+        isConnectable={false}
+        style={HIDDEN}
+      />
+      <Handle
+        type="target"
+        id="right"
+        position={Position.Right}
+        isConnectable={false}
+        style={HIDDEN}
+      />
       {data.node.kind === 'eval' && <EvalBody record={data.node.record} />}
       {data.node.kind === 'active' && <ActiveBody node={data.node} />}
       {data.node.kind === 'interrupted' && <InterruptedBody node={data.node} />}
       <Handle
         type="source"
+        id="bottom"
         position={Position.Bottom}
         isConnectable={false}
-        style={{ opacity: 0 }}
+        style={HIDDEN}
+      />
+      <Handle
+        type="source"
+        id="left"
+        position={Position.Left}
+        isConnectable={false}
+        style={HIDDEN}
+      />
+      <Handle
+        type="source"
+        id="right"
+        position={Position.Right}
+        isConnectable={false}
+        style={HIDDEN}
       />
     </div>
   );

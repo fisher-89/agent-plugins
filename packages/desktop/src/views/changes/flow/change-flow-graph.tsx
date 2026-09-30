@@ -13,9 +13,20 @@ import '@xyflow/react/dist/style.css';
 import { type EventFlowNode, FlowEventNode } from './flow-event-node';
 import { COL_W, COLUMN_HEADER_H, COLUMN_PAD_X, COLUMN_PAD_Y, ROW_H, nodePosition } from './layout';
 import { type ColumnFlowNode, PhaseColumnNode } from './phase-column-node';
-import type { DrawerSelection, FlowEdge, FlowGraph, FlowMaterials } from './types';
+import type { DrawerSelection, FlowEdge, FlowEdgeKind, FlowGraph, FlowMaterials } from './types';
 
 type ChartNode = ColumnFlowNode | EventFlowNode;
+
+/**
+ * 边 kind → 锚定把手 id（对应 FlowEventNode 四侧隐形 Handle）：布局为
+ * 9 列横向排布，跨列边水平锚定（前进右出左入、回跳左出右入），同列
+ * 重试保持垂直锚定（下出上入）。
+ */
+const EDGE_HANDLES: Record<FlowEdgeKind, { source: string; target: string }> = {
+  forward: { source: 'right', target: 'left' },
+  backtrack: { source: 'left', target: 'right' },
+  retry: { source: 'bottom', target: 'top' },
+};
 
 interface ChangeFlowGraphProps {
   graph: FlowGraph;
@@ -65,6 +76,8 @@ function toChartEdges(edges: FlowEdge[]): Edge[] {
     id: edge.id,
     source: edge.source,
     target: edge.target,
+    sourceHandle: EDGE_HANDLES[edge.kind].source,
+    targetHandle: EDGE_HANDLES[edge.kind].target,
     label: edge.label ?? undefined,
     style:
       edge.kind === 'backtrack'

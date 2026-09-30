@@ -438,6 +438,16 @@ export type CoverageThresholds = {
 };
 
 /**
+ *  数据维度（信封维度标签 + db 查看命令 scope 入参双职）：`User` 全局库 /
+ *  `Workspace` workspace 库。serde 线值为 `"user"` / `"workspace"`。
+ */
+export type DbDimension = 
+/**  user 维度（全局库，`WorkspaceRecord` 及未来 user 维度租户） */
+"user" | 
+/**  workspace 维度（per-workspace 库，run / 事件 / explore 三模型） */
+"workspace";
+
+/**
  *  诊断类别（前端状态面映射口径）：`fileMissing` → 空态；
  *  `readFailed` / `jsonInvalid` → inline 错误；`invalidValue` /
  *  `defaultApplied` → 警示区条目。
@@ -453,16 +463,6 @@ export type DiagnosticKind =
 "invalidValue" | 
 /**  字段未设、吃默认值 */
 "defaultApplied";
-
-/**
- *  数据维度（信封维度标签 + db 查看命令 scope 入参双职）：`User` 全局库 /
- *  `Workspace` workspace 库。serde 线值为 `"user"` / `"workspace"`。
- */
-export type DbDimension = 
-/**  user 维度（全局库，`WorkspaceRecord` 及未来 user 维度租户） */
-"user" | 
-/**  workspace 维度（per-workspace 库，run / 事件 / explore 三模型） */
-"workspace";
 
 /**
  *  目录树节点：统计为该目录子树内**全部**被解析文件合计（祖先链逐级累计，
@@ -715,7 +715,8 @@ export type WorkspaceConfigReport = {
 };
 
 /**
- *  user 维度注册表一行：主键即 `root`（canonical 完整路径）。
+ *  user 维度注册表一行（落全局库 `desktop-global.redb`，见 desktop-data-dimensions）：
+ *  主键即 `root`（canonical 完整路径）。
  * 
  *  时间戳为 UTC unix 毫秒 `i64`——零解析零格式歧义，且 store 不引入 time 依赖。
  */
