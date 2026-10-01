@@ -443,9 +443,7 @@ fn assemble_suite(
             ));
             return None;
         }
-        Some(Value::String(root))
-            if !root.is_empty() && !root.contains(['*', '?', '{', '[']) =>
-        {
+        Some(Value::String(root)) if !root.is_empty() && !root.contains(['*', '?', '{', '[']) => {
             root.clone()
         }
         Some(other) => {

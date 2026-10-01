@@ -49,8 +49,9 @@ impl Env {
     }
 }
 
-/// PATH 环境变量修改串行化（进程全局操作；agent_start CLI 臂用例共享）。
-static PATH_LOCK: Mutex<()> = Mutex::new(());
+/// PATH 环境变量修改串行化（进程全局操作；与 change_flow/mod_test 的 PATH
+/// 隔离窗口共用 commands 级共享锁）。
+use crate::commands::TEST_PATH_LOCK as PATH_LOCK;
 
 /// 以 MockRuntime 建测用 app，并在其中 manage 真实 WorkspaceStores（打开 env
 /// 数据根的全局库）与 `Arc<StopRegistry>`（内核治理面挂载，须先于 start 托管）。

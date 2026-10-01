@@ -91,7 +91,11 @@ fn 三轮全史转录重建含全部往返且逐条保序() {
         let expected_text = format!(
             "第{}{}",
             ["一", "二", "三"][index / 2],
-            if expected_role == "user" { "问" } else { "答" }
+            if expected_role == "user" {
+                "问"
+            } else {
+                "答"
+            }
         );
         match message {
             Message::User { content } => {
@@ -242,11 +246,14 @@ fn is_error结果以工具执行失败前缀回灌且miss名字落空串() {
     let Message::User { content } = &history[1] else {
         panic!("ToolResult 应重建为 user 消息");
     };
-    assert!(matches!(
-        &content[0],
-        UserContent::ToolResult(result)
-            if matches!(&result.content[0], ToolResultContent::Text(text) if text.text == "工具执行失败: 磁盘已满")
-    ), "is_error 结果回灌「工具执行失败: 」前缀保真");
+    assert!(
+        matches!(
+            &content[0],
+            UserContent::ToolResult(result)
+                if matches!(&result.content[0], ToolResultContent::Text(text) if text.text == "工具执行失败: 磁盘已满")
+        ),
+        "is_error 结果回灌「工具执行失败: 」前缀保真"
+    );
 
     // 先行 ToolUse 缺席：名字回溯 miss 落空串（openai result 面不消费名字）
     let orphan = vec![tool_result_event(0, "tu_missing", "孤儿结果", false)];
@@ -254,10 +261,13 @@ fn is_error结果以工具执行失败前缀回灌且miss名字落空串() {
     let Message::User { content } = &history[0] else {
         panic!("孤儿 ToolResult 应重建为 user 消息");
     };
-    assert!(matches!(
-        &content[0],
-        UserContent::ToolResult(result) if result.name.is_empty()
-    ), "名字 miss 落空串不炸重建");
+    assert!(
+        matches!(
+            &content[0],
+            UserContent::ToolResult(result) if result.name.is_empty()
+        ),
+        "名字 miss 落空串不炸重建"
+    );
 }
 
 // ---------------------------------------------------------------------------

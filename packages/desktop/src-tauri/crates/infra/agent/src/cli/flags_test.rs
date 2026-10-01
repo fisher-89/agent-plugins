@@ -68,10 +68,7 @@ fn 三档全组合组装结果与既有基线逐项相等() {
         // 档位段（基础五要素 -p/prompt/stream-json/verbose 之后、resume 之前）
         let tail = &args[5..];
         match expected_flags {
-            Some(expected) => assert_eq!(
-                tail, expected,
-                "组合 permission={mode:?} 档位段逐字一致"
-            ),
+            Some(expected) => assert_eq!(tail, expected, "组合 permission={mode:?} 档位段逐字一致"),
             None => assert!(
                 tail.is_empty(),
                 "组合 permission={mode:?} 无档位 flag，实际: {tail:?}"

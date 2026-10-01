@@ -207,7 +207,11 @@ fn open_global后list_models出现两新模型行_写入后计数与实有记录
             .unwrap_or_else(|| panic!("模型 {name} 应在清单中"))
             .count
     };
-    assert_eq!(count_of("agent_provider"), 1, "provider 计数与实有记录数一致");
+    assert_eq!(
+        count_of("agent_provider"),
+        1,
+        "provider 计数与实有记录数一致"
+    );
     assert_eq!(count_of("agent_instance"), 1, "agent 计数与实有记录数一致");
 }
 
@@ -258,7 +262,10 @@ fn scan两新模型分页主键自然序翻页不重不漏_key数值id信封valu
     let provider_page = global.scan("agent_provider", 0, 10).unwrap();
     let value = &provider_page[0].value;
     assert_eq!(value["name"], serde_json::json!("丙"));
-    assert_eq!(value["baseUrl"], serde_json::json!("https://api.example.com/v1"));
+    assert_eq!(
+        value["baseUrl"],
+        serde_json::json!("https://api.example.com/v1")
+    );
     assert_eq!(value["apiKey"], serde_json::json!("sk-live-1234567890"));
     assert_eq!(value["models"]["high"], serde_json::json!("m-high"));
     let agent_value = &agent_page[0].value;
@@ -281,10 +288,7 @@ fn workspace库实例scan新模型名err维度过滤_两新模型仅注册全局
     for name in ["agent_provider", "agent_instance"] {
         let result = ws.scan(name, 0, 10);
         let err = result.expect_err("workspace 库 scan 新模型名应 Err（维度过滤）");
-        assert!(
-            matches!(err, StoreError::Db(_)),
-            "变体为 Db，实际: {err:?}"
-        );
+        assert!(matches!(err, StoreError::Db(_)), "变体为 Db，实际: {err:?}");
         assert!(
             err.to_string().contains("未知模型"),
             "错误串含「未知模型」语境，实际: {err}"
@@ -374,8 +378,7 @@ fn scan_limit超过500截断为500上限语义() {
     let mut expected: Vec<String> = (0..505).map(|index| format!("ses-cap-{index}")).collect();
     expected.sort_unstable();
     assert_eq!(
-        union,
-        expected,
+        union, expected,
         "两页拼接覆盖全部 505 条不重不漏（同序逐字一致）"
     );
 }

@@ -41,10 +41,7 @@ fn 连续铸造多枚id均带ses前缀且两两互异() {
     let third = new_session_id();
 
     for id in [&first, &second, &third] {
-        assert!(
-            id.starts_with("ses-"),
-            "前缀逐字命中 ses-，实际: {id}"
-        );
+        assert!(id.starts_with("ses-"), "前缀逐字命中 ses-，实际: {id}");
     }
     assert_ne!(first, second, "连续铸造互异");
     assert_ne!(second, third, "连续铸造互异");
@@ -86,7 +83,10 @@ fn session_row全字段驼峰线格式往返逐字段相等() {
     let value = serde_json::to_value(&row).expect("序列化成功");
     assert_eq!(value["id"], json!("ses-1-1727000000000"));
     assert_eq!(value["remoteSessionId"], json!("sdk-7-1727000000001"));
-    assert!(value.get("configSnapshot").is_some(), "configSnapshot 驼峰键");
+    assert!(
+        value.get("configSnapshot").is_some(),
+        "configSnapshot 驼峰键"
+    );
     assert_eq!(value["provenance"]["source"], json!("explore"));
     assert_eq!(value["provenance"]["sourceRef"], json!("42"));
     assert_eq!(value["createdAt"], json!(1727000000000_i64));
@@ -152,7 +152,11 @@ fn 超长source_ref原样往返不截断() {
     };
 
     let value = serde_json::to_value(&row).expect("序列化成功");
-    assert_eq!(value["provenance"]["sourceRef"], json!(long), "超长 sourceRef 原样");
+    assert_eq!(
+        value["provenance"]["sourceRef"],
+        json!(long),
+        "超长 sourceRef 原样"
+    );
     let roundtrip: SessionRow = serde_json::from_value(value).expect("反序列化成功");
     assert_eq!(
         roundtrip.provenance.source_ref.as_deref(),
@@ -357,7 +361,10 @@ fn session_summary组装往返_turns空数组与多轮两形态() {
             input_tokens: Some(60),
             output_tokens: Some(140),
         },
-        turns: vec![running_summary(), finished_summary(AgentRunStatus::Completed, None)],
+        turns: vec![
+            running_summary(),
+            finished_summary(AgentRunStatus::Completed, None),
+        ],
     };
     let value = serde_json::to_value(&multi).expect("序列化成功");
     assert_eq!(value["turns"].as_array().expect("数组").len(), 2);

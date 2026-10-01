@@ -3,14 +3,13 @@
 //! 化保护并恢复）。文件系统候选以 tempfile 真开合成目录，不依赖真实 CLI。
 
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
 
 use agent::AgentStartError;
 
 use crate::discover::{discover, discover_in};
 
 /// PATH 环境变量修改串行化（同进程测试并行跑，set_var 为进程全局操作）。
-static PATH_LOCK: Mutex<()> = Mutex::new(());
+use crate::TEST_PATH_LOCK as PATH_LOCK;
 
 /// 当前平台应探测的候选文件名（与 discover_in 的平台分支对齐）。
 const PLATFORM_CANDIDATES: [&str; 3] = if cfg!(windows) {

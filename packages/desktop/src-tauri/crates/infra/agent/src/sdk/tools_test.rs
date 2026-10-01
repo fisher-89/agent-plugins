@@ -6,10 +6,10 @@
 
 use std::path::{Path, PathBuf};
 
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 
 use crate::sdk::sandbox::check;
-use crate::sdk::tools::{TOOL_NAMES, definitions, execute, input_path};
+use crate::sdk::tools::{definitions, execute, input_path, TOOL_NAMES};
 
 fn tempdir(tag: &str) -> tempfile::TempDir {
     tempfile::Builder::new()
@@ -43,7 +43,8 @@ fn 定义清单恰为六工具且名称_描述_schema齐全() {
     for def in &defs {
         assert!(!def.description.is_empty(), "{} 描述非空", def.name);
         assert_eq!(
-            def.parameters["type"], json!("object"),
+            def.parameters["type"],
+            json!("object"),
             "{} 入参为 JSON schema object",
             def.name
         );
@@ -53,15 +54,25 @@ fn 定义清单恰为六工具且名称_描述_schema齐全() {
             def.name
         );
         assert!(
-            def.parameters["required"].as_array().expect("required 数组").iter().all(Value::is_string),
+            def.parameters["required"]
+                .as_array()
+                .expect("required 数组")
+                .iter()
+                .all(Value::is_string),
             "{} required 为字符串数组",
             def.name
         );
     }
     // 关键入参形状抽查：glob 无 path 字段（pattern 驱动），其余五工具 path 必填
-    let glob = defs.iter().find(|def| def.name == "glob").expect("glob 定义");
+    let glob = defs
+        .iter()
+        .find(|def| def.name == "glob")
+        .expect("glob 定义");
     assert!(glob.parameters["properties"]["pattern"].is_object());
-    assert!(glob.parameters["properties"].get("path").is_none(), "glob 无 path 字段");
+    assert!(
+        glob.parameters["properties"].get("path").is_none(),
+        "glob 无 path 字段"
+    );
     for name in ["read", "grep", "ls", "write", "edit"] {
         let def = defs.iter().find(|def| def.name == name).expect("定义在场");
         assert!(
@@ -100,13 +111,18 @@ async fn read返回行号前缀内容且中文与emoji保真() {
     let root = root_of(&dir);
     let path = write_rel(&root, "note.md", "第一行 中文\nsecond line 🎉\n第三行");
 
-    let output = execute(&root, "read", &json!({ "path": path })).await.expect("读取成功");
+    let output = execute(&root, "read", &json!({ "path": path }))
+        .await
+        .expect("读取成功");
     let mut lines = output.lines();
     let first = lines.next().expect("首行");
     assert!(first.contains("第一行 中文"), "内容保真: {first}");
     assert!(first.contains('\t'), "行号前缀以制表符分隔: {first}");
     for line in lines {
-        assert!(line.contains("second line 🎉") || line.contains("第三行"), "{line}");
+        assert!(
+            line.contains("second line 🎉") || line.contains("第三行"),
+            "{line}"
+        );
     }
 }
 
@@ -124,8 +140,14 @@ async fn read_offset与limit截取行区间() {
     )
     .await
     .expect("读取成功");
-    assert!(output.contains("二") && output.contains("三"), "实际: {output}");
-    assert!(!output.contains("一") && !output.contains("四"), "窗口外行不出现: {output}");
+    assert!(
+        output.contains("二") && output.contains("三"),
+        "实际: {output}"
+    );
+    assert!(
+        !output.contains("一") && !output.contains("四"),
+        "窗口外行不出现: {output}"
+    );
 
     // 越界区间：不 panic，返回空区间占位
     let empty = execute(&root, "read", &json!({ "path": path, "offset": 99 })).await;
@@ -168,18 +190,17 @@ async fn grep多行多命中逐行返回且携路径行号() {
         "fn main() {}\nlet 线索 = 1;\nfn helper() {}\n// 无关行\nlet 线索二 = 2;",
     );
 
-    let output = execute(
-        &root,
-        "grep",
-        &json!({ "path": path, "pattern": "fn " }),
-    )
-    .await
-    .expect("grep 成功");
+    let output = execute(&root, "grep", &json!({ "path": path, "pattern": "fn " }))
+        .await
+        .expect("grep 成功");
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines.len(), 2, "两处命中逐行返回: {output}");
     let first = lines[0];
     let second = lines[1];
-    assert!(first.contains("1: fn main() {}"), "携路径:行号: 内容 — {first}");
+    assert!(
+        first.contains("1: fn main() {}"),
+        "携路径:行号: 内容 — {first}"
+    );
     assert!(second.contains("3: fn helper() {}"), "{second}");
 }
 
@@ -187,7 +208,11 @@ async fn grep多行多命中逐行返回且携路径行号() {
 async fn grep无命中与空文件返回非错误_匹配串按子串字面语义() {
     let dir = tempdir("grep-edge");
     let root = root_of(&dir);
-    let path = write_rel(&root, "text.txt", "包含 正则元字符 (.) 与 emoji 🎉 的行\n普通行");
+    let path = write_rel(
+        &root,
+        "text.txt",
+        "包含 正则元字符 (.) 与 emoji 🎉 的行\n普通行",
+    );
     let empty_path = write_rel(&root, "empty.txt", "");
 
     // 无命中：空清单语义（非错误的占位文案）
@@ -219,9 +244,11 @@ async fn grep无命中与空文件返回非错误_匹配串按子串字面语义
     }
 
     // 空 pattern：显式拒绝（非静默全行匹配）
-    assert!(execute(&root, "grep", &json!({ "path": path, "pattern": "" }))
-        .await
-        .is_err());
+    assert!(
+        execute(&root, "grep", &json!({ "path": path, "pattern": "" }))
+            .await
+            .is_err()
+    );
 }
 
 #[tokio::test]
@@ -232,13 +259,9 @@ async fn grep目录路径递归匹配跨层级文件() {
     let inner = write_rel(&root, "sub/inner.md", "线索 one\n无关");
     let leaf = write_rel(&root, "sub/deep/leaf.rs", "fn 线索() {}");
 
-    let output = execute(
-        &root,
-        "grep",
-        &json!({ "path": root, "pattern": "线索" }),
-    )
-    .await
-    .expect("目录递归非错误");
+    let output = execute(&root, "grep", &json!({ "path": root, "pattern": "线索" }))
+        .await
+        .expect("目录递归非错误");
     // 目录分支输出路径统一 `/` 分隔（与 glob 工具同口径），期望值同步归一
     let flat = |path: &PathBuf| path.to_string_lossy().replace('\\', "/");
     assert!(
@@ -279,9 +302,13 @@ async fn grep目录无命中返回占位_缺失路径回落文件读取错误() 
     let root = root_of(&dir);
     write_rel(&root, "plain.txt", "无关内容");
 
-    let none = execute(&root, "grep", &json!({ "path": root, "pattern": "不存在串" }))
-        .await
-        .expect("目录无命中非错误");
+    let none = execute(
+        &root,
+        "grep",
+        &json!({ "path": root, "pattern": "不存在串" }),
+    )
+    .await
+    .expect("目录无命中非错误");
     assert!(none.contains("无匹配行"), "实际: {none}");
 
     // metadata 失败（缺失路径）回落单文件分支：显式读取错误语义保留
@@ -312,13 +339,19 @@ async fn glob命中单层与跨目录模式且路径字典序() {
     let flat = execute(&root, "glob", &json!({ "pattern": "*.rs" }))
         .await
         .expect("glob 成功");
-    assert!(flat.contains("a.rs") && !flat.contains("b.rs"), "单层不跨目录: {flat}");
+    assert!(
+        flat.contains("a.rs") && !flat.contains("b.rs"),
+        "单层不跨目录: {flat}"
+    );
 
     // 跨目录模式（** 形态）
     let deep = execute(&root, "glob", &json!({ "pattern": "src/**/*.ts" }))
         .await
         .expect("跨目录 glob 成功");
-    assert!(deep.contains("app.ts") && deep.contains("util.ts"), "{deep}");
+    assert!(
+        deep.contains("app.ts") && deep.contains("util.ts"),
+        "{deep}"
+    );
 
     // 字典序
     let all = execute(&root, "glob", &json!({ "pattern": "**/*.rs" }))
@@ -335,7 +368,9 @@ async fn glob无匹配返回非错误_空模式行为锁定不炸() {
     let root = root_of(&dir);
     write_rel(&root, "only.txt", "x");
 
-    let none = execute(&root, "glob", &json!({ "pattern": "*.rs" })).await.expect("无匹配非错误");
+    let none = execute(&root, "glob", &json!({ "pattern": "*.rs" }))
+        .await
+        .expect("无匹配非错误");
     assert!(none.contains("无匹配"), "实际: {none}");
 
     // 空模式：不炸（行为锁定为非错误返回）
@@ -344,7 +379,9 @@ async fn glob无匹配返回非错误_空模式行为锁定不炸() {
 
     // 非法模式（非法字符序列）：显式 Err
     assert!(
-        execute(&root, "glob", &json!({ "pattern": "[" })).await.is_err(),
+        execute(&root, "glob", &json!({ "pattern": "[" }))
+            .await
+            .is_err(),
         "非法 glob 模式显式失败"
     );
 }
@@ -361,7 +398,9 @@ async fn ls列一级条目字母序且目录带斜杠后缀() {
     write_rel(&root, "alpha.txt", "a");
     write_rel(&root, "dir/inner.txt", "i");
 
-    let output = execute(&root, "ls", &json!({ "path": root })).await.expect("列目录成功");
+    let output = execute(&root, "ls", &json!({ "path": root }))
+        .await
+        .expect("列目录成功");
     let lines: Vec<&str> = output.lines().collect();
     assert_eq!(lines.len(), 3, "一级条目: {output}");
     assert_eq!(lines.first().copied(), Some("alpha.txt"));
@@ -377,7 +416,9 @@ async fn ls空目录返回占位_目标非目录返回错误() {
     std::fs::create_dir_all(&empty_dir).expect("创建空目录失败");
     let file = write_rel(&root, "plain.txt", "f");
 
-    let empty = execute(&root, "ls", &json!({ "path": empty_dir })).await.expect("空目录非错误");
+    let empty = execute(&root, "ls", &json!({ "path": empty_dir }))
+        .await
+        .expect("空目录非错误");
     assert_eq!(empty, "(空目录)");
 
     let not_dir = execute(&root, "ls", &json!({ "path": file }))
@@ -539,6 +580,8 @@ async fn edit旧串多处出现默认显式失败_replace_all全替换语义锁�
 async fn 未知工具名执行分发显式拒绝() {
     let dir = tempdir("unknown-tool");
     let root = root_of(&dir);
-    let error = execute(&root, "bash", &json!({})).await.expect_err("清单外工具显式拒绝");
+    let error = execute(&root, "bash", &json!({}))
+        .await
+        .expect_err("清单外工具显式拒绝");
     assert!(error.contains("未知工具"), "实际: {error}");
 }

@@ -1,8 +1,8 @@
+use rig_core::completion::Usage;
 use rig_core::message::{Reasoning, Text};
 use rig_core::streaming::{
     StreamFinal, StreamedAssistantContent, ToolCallDeltaContent, UnknownPayload,
 };
-use rig_core::completion::Usage;
 
 use agent::{AgentDelta, AgentEventKind};
 
@@ -123,7 +123,8 @@ fn 完整tool_call流项不出事件_轮末choice统一收进密封() {
 
 #[test]
 fn 簿记项final与tool_call_delta返回none不出事件() {
-    let final_item = StreamedAssistantContent::Final(StreamFinal::new("fake-provider", Usage::new()));
+    let final_item =
+        StreamedAssistantContent::Final(StreamFinal::new("fake-provider", Usage::new()));
     let delta_item = StreamedAssistantContent::ToolCallDelta {
         internal_call_id: "ic-1".to_owned(),
         content: ToolCallDeltaContent::Delta("{\"pa".to_owned()),
@@ -153,7 +154,11 @@ fn unknown流项透传为raw且event_type恒sdk_stream载荷原样() {
     let item = StreamedAssistantContent::Unknown(payload);
 
     let kind = stream_item(&item).expect("Unknown 必出事件（永不丢）");
-    let AgentEventKind::Raw { event_type, raw_json } = &kind else {
+    let AgentEventKind::Raw {
+        event_type,
+        raw_json,
+    } = &kind
+    else {
         panic!("Unknown 应归一化为 Raw，实际: {kind:?}");
     };
     assert_eq!(event_type, "sdk_stream", "event_type 恒 sdk_stream");

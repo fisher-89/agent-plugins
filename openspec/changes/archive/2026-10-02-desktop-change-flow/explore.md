@@ -122,3 +122,40 @@ hooks 不迁移、不改造、不关闭——随插件继续挂在桌面 spawn �
 - 决议权先例：`plugins/dev-team/agents/test-execution-evaluator.md`（Constraints）
 - 桌面装配：`packages/desktop/src-tauri/crates/infra/agent/src/compose.rs`、`cli/{discover,flags}.rs`
 - 派生图：`packages/desktop/src/views/changes/flow/graph.ts`、`core/workflow/src/queries/detail.rs`
+
+---
+
+## 转向拍板（2026-10-01，实现中途 — 推翻「CLI 子进程写通道」）
+
+> 触发：test-gen 评估暴露 5 处 CLI 边界语义分歧后，用户提出「walker 能否不依赖插件 CLI」。
+> 动机（用户原话归纳）：① 未来逐步下线插件，不想给插件追加功能；② core/workflow 已有读面，本次 change 在此基础上**补全写面**。
+> 本节推翻上文「倾向项」#1（写通道选 CLI 子进程）与 #2（file_log 方案 A/B）——后续以本节为准。
+
+### 方向：core/workflow 成为 workflow.json 的 Rust 单一权威（读 + 写）
+
+- walker 是「插件下线后的承接者」；承接者不应依赖被承接物的 CLI。原「Rust 直写否决」理由（两份实现永久同步漂移）在「TS 版冻结待下线、Rust 版是唯一未来」前提下失效——这是迁移，不是双实现。
+- 插件**零新增**：walker-* 六命令、walker-io.ts、CLI 注册、2.10.45 版本 bump 全部回退（均本次工作树内未发布，零遗留）；插件现有 MCP/hooks 冻结，后续独立下线。
+- D2 port 分层红利：walker 循环/解析器/control/prompt 层与 orchestration 测试面（fake port）基本不动；`ToolStepPort` 实现从「infra/devteam 子进程」换成「core/workflow 进程内适配」。infra/devteam crate（discover/runner）删除。
+
+### 四点拍板
+
+1. **写面落点**：core/workflow 补全写面，walker 进程内直调，零子进程写通道（AC-6 语义改写：Rust 进程内唯一写面）。移植清单：phase_next 路由状态机（`sessionAnchors` 进程内复活，V1 边界 #4「mid-phase interruption 不可达」消失）、backtrack（stale 标记 + 传播 + 白名单 + reason ≤500）、phase_start / phase_log、相位表收敛单源（walker 现硬编码单图，与插件相位表二源合一）。static-check 执行（spawn）留 infra 层——「spawn 不进 core」红线保持。
+2. **phase_log 已知 bug 顺手修**：backtrack 后 phase_log 丢重评条目（memory: project_bug_phase_log_skip）在 Rust 写面修复；插件侧冻结不修（长期无两套共存）。
+3. **desktop run 不记录 file_log**：file_log 的用途是让 agent 识别变更文件；desktop 的 prompt 降级为 **git diff** 提供变更文件上下文。→ walker-change-files / recordFileOps 移植 / D6 补录通道 / transcript `extract_write_paths` 全部出局；AC-3（节点文件区挂靠 via 补录）随之重写或删除；视图对既有（skill 路径）file_log 数据的显示不动。
+4. **等价性验收口径**：写面以**对照功能验收**为准（不建差分 oracle），长期单实现，接受微小漂移。
+
+### 随迁影响与过渡风险
+
+- 决策表翻转：「写通道 = CLI 子进程复用既有命令」→「core/workflow 写面」；「不迁移 CLI / MCP 工具」→「移植写语义到 core/workflow」。AC-6 重写；specs 两 capability 中 CLI 子进程字样的 scenario 改写；变更范围：walker-* 六命令出、core/workflow 写面入。
+- 双写并存窗口：过渡期 Claude 会话插件 MCP（skill 路径）与 Rust 写面写同一批 workflow.json——schema 兼容为既定事实（skill 与 desktop 路径本就并存），但 schema 权威 zod → serde 的移交时点需在设计中显式声明。
+- protect-files 实时护栏仍靠插件 hook（执行引擎 claude code CLI 加载用户级插件）——过渡期成立；插件真下线前需独立 change 补桌面原生护栏（内核 permission 层方向）。
+- record-files hook 在 desktop run 下本就未绑定 no-op（见上文矩阵），决策 3 使 file_log 断链修补（方案 A/B 之争）整体失去必要性。
+- 红线「图不持有转移规则」保持，语义升级：路由权威进 core/workflow 后与 walker 同进程，walker 每步过渡仍须问 core/workflow 的 phase_next，不自持规则。
+
+### crate 处置拍板（方案 A：不合并、职责重划）
+
+- **core/workflow = workflow.json 域权威**（sync、无 tokio）：读面（既有）+ 写面（新增：phase_next 相位状态机 / phase_start / phase_log / backtrack stale+传播）+ 相位表（含 executor/evaluator prompt 模板）单源收敛 + workflow.json 持久化。写面为命令层可达的独立能力（未来 UI「手动 backtrack/重试」按钮可直调，不必拉起 walker run）。
+- **core/orchestration = 运行时域**（async、tokio）：walker 循环、port 缝、agent 会话、control/state（IPC 类型）、prompt 组装与解析器。依赖方向 orchestration → workflow（snapshot.rs 先例）。
+- **orchestration 模块处置**：walker / port（语义换血：ToolStepPort 从「CLI 工具步」变「相位机+工具步」进程内缝）/ control / state / prompt / verdict / decision 保留；transcript 砍半（`extract_write_paths` 出局，`final_assistant_text` 保留）；views.rs（CLI JSON 封闭视图）删除；snapshot.rs 缩水或并入新缝；**infra/devteam crate（discover/runner）整体删除**。
+- **不合并的理由**：写面=相位状态机与 workflow.json schema 血亲，schema+门控同屋檐才是单一权威（TS 侧 phase-next.ts 住插件同理）；合并会把 tokio 拽进纯读叶库，读路径消费方陪跑运行时重编译；拆开放会让 workflow.json 知识跨两 crate（读在 workflow、写在 orchestration，最差形态）。
+- **合并信号（未来重估）**：若 workflow 相位机函数仅剩 walker 一个消费者、且 orchestration 只剩 walker 一个模块——届时边界只剩仪式感，合并更诚实。当前看不到该信号。

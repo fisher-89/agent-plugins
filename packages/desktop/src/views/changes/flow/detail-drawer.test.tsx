@@ -1,12 +1,30 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AttemptRecord, ChangeDetail } from '../../../types/dto';
+import type { AgentEvent, AttemptRecord, ChangeDetail, SessionSummary } from '../../../types/dto';
 import { mountMaterials } from './attachments';
 import { DetailDrawer } from './detail-drawer';
 import { buildFlowGraph } from './graph';
 import { PIPELINE_PHASES } from './layout';
-import type { DrawerSelection, FlowGraph, FlowMaterials } from './types';
+import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
+
+// ---------------------------------------------------------------------------
+// 会话转录联动引入进程边界 mock（desktop-change-flow 增量）：invoke 沿
+// use-change-list.test 同款 vi.hoisted + vi.mock('@tauri-apps/api/core') 装置。
+// 缺省实现恒返回 Promise（反查空清单 = 合法空态）——eval 选中本就渲染转录
+// 面板，既有用例在空态下面板呈「（暂无该会话转录）」，断言面不受影响。
+// ---------------------------------------------------------------------------
+
+const { defaultInvoke, invokeMock } = vi.hoisted(() => {
+  const defaultInvoke = (command: string): Promise<unknown> => {
+    if (command === 'agent_sessions') return Promise.resolve([]);
+    if (command === 'agent_session_transcript') return Promise.resolve([]);
+    return Promise.resolve(null);
+  };
+  return { defaultInvoke, invokeMock: vi.fn(defaultInvoke) };
+});
+
+vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock }));
 
 // ---------------------------------------------------------------------------
 // DetailDrawer 单测：右侧抽屉三分节（无跨进程 Mock —— ArtifactView 与
@@ -83,6 +101,9 @@ function renderDrawer(worldState: World, selection: DrawerSelection | null, onCl
       graph={worldState.graph}
       materials={worldState.materials}
       hasFileLog={worldState.hasFileLog}
+      root="root-a"
+      change="test-change"
+      liveEvents={[]}
       onClose={onClose}
     />,
   );
@@ -245,6 +266,9 @@ describe('DetailDrawer：三分节内容组装', () => {
         graph={graph}
         materials={state.materials}
         hasFileLog
+        root="root-a"
+        change="test-change"
+        liveEvents={[]}
         onClose={() => {}}
       />,
     );
@@ -257,5 +281,266 @@ describe('DetailDrawer：三分节内容组装', () => {
     expect(screen.getByTestId('drawer-files-section').textContent).toContain(
       '（无 file_log 数据：v1 及更早代际无此字段）',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 会话转录联动（desktop-change-flow 增量）：WorkerAgent 运行节点与历史 eval
+// 节点增会话转录联动区——role × attempt → sourceRef 定式
+// `<change>/<phase>/<role>/<attempt>` 反查 agentSessions（source='change'），
+// liveEvents 按选中节点的 sessionId 过滤下传；非会话选中无转录区（既有三分
+// 节零回归）。SessionTranscriptPanel 与既有分节组件真实组合，fixture 经
+// mock invoke 按命令名分发流入真实 useSessionTranscript。
+// ---------------------------------------------------------------------------
+
+/** 运行步节点 fixture（run-state.ts runStepNodes 同形投影的直构形态）。 */
+function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
+  return {
+    id: 'run:implement:2:executor',
+    kind: 'runtime',
+    phase: 'implement',
+    attempt: 2,
+    colIndex: 3,
+    order: 0,
+    parentId: 'col:implement',
+    runStepKind: 'executor',
+    group: 'workerAgent',
+    role: 'executor',
+    status: 'running',
+    sessionId: 'ses-exec-2',
+    detail: null,
+    ...overrides,
+  };
+}
+
+/** 会话清单项 fixture（agent_sessions 应答；轮行已收敛 = 重放形态）。 */
+function transcriptSession(sessionId: string, sourceRef: string): SessionSummary {
+  return {
+    row: {
+      id: sessionId,
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source: 'change', sourceRef },
+      createdAt: 1727000000000,
+      updatedAt: 1727000001000,
+    },
+    stats: { turnCount: 1, totalDurationMs: 1234, inputTokens: null, outputTokens: null },
+    turns: [
+      {
+        turnId: 1,
+        sessionId,
+        status: 'completed',
+        startedAt: 1727000000000,
+        finishedAt: 1727000001000,
+        numTurns: 1,
+        costUsd: 0.5,
+        durationMs: 1234,
+        error: null,
+      },
+    ],
+  };
+}
+
+/** 密封文本消息事件 fixture（message 块 → AgentTimeline block-text 呈现）。 */
+function textEvent(seq: number, role: 'user' | 'assistant', text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000 + seq,
+    kind: 'message',
+    role,
+    blocks: [{ kind: 'text', text }],
+    parentToolUseId: null,
+  };
+}
+
+/** 会话反查 / 转录重放 fixture 注册表（按 sourceRef / sessionId 寻址）。 */
+let sessionsFixture: Record<string, SessionSummary[]> = {};
+let transcriptFixture: Record<string, AgentEvent[]> = {};
+
+/** 含运行步节点的抽屉输入：真实 buildFlowGraph(detail, runNodes) + mountMaterials。 */
+function runtimeWorld(node: RuntimeFlowNode): World {
+  const base = detail();
+  const graph = buildFlowGraph(base, [node]);
+  return { graph, materials: mountMaterials(graph, base, []), hasFileLog: true };
+}
+
+/** 直挂 DetailDrawer（自定义 liveEvents；change 名沿用 renderDrawer 的 test-change）。 */
+function renderTranscriptDrawer(
+  worldState: World,
+  selection: DrawerSelection,
+  liveEvents: Array<{ sessionId: string; event: AgentEvent }> = [],
+) {
+  return render(
+    <DetailDrawer
+      selection={selection}
+      graph={worldState.graph}
+      materials={worldState.materials}
+      hasFileLog={worldState.hasFileLog}
+      root="root-a"
+      change="test-change"
+      liveEvents={liveEvents}
+      onClose={() => {}}
+    />,
+  );
+}
+
+describe('DetailDrawer：会话转录联动（role × attempt → sourceRef 反查）', () => {
+  beforeEach(() => {
+    sessionsFixture = {};
+    transcriptFixture = {};
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(
+      (command: string, args: { sourceRef?: string; sessionId?: string } = {}) => {
+        if (command === 'agent_sessions') {
+          return Promise.resolve(sessionsFixture[args.sourceRef ?? ''] ?? []);
+        }
+        if (command === 'agent_session_transcript') {
+          return Promise.resolve(transcriptFixture[args.sessionId ?? ''] ?? []);
+        }
+        return Promise.resolve(null);
+      },
+    );
+  });
+
+  afterEach(() => {
+    // 恢复缺省安全应答：用例乱序（sequence.shuffle）时既有用例不落 undefined 应答
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(defaultInvoke);
+  });
+
+  it('选中运行 executor 节点 → SessionTranscriptPanel 渲染且反查 sourceRef 按 <change>/<phase>/<role>/<attempt> 定式组装', async () => {
+    sessionsFixture = {
+      'test-change/implement/executor/2': [
+        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      ],
+    };
+    transcriptFixture = {
+      'ses-exec-2': [textEvent(0, 'user', '实现该功能'), textEvent(1, 'assistant', '开始实现')],
+    };
+    renderTranscriptDrawer(runtimeWorld(runtimeNode()), {
+      scope: 'node',
+      nodeId: 'run:implement:2:executor',
+    });
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    expect(panel.getAttribute('data-role')).toBe('executor');
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+        root: 'root-a',
+        source: 'change',
+        sourceRef: 'test-change/implement/executor/2',
+      }),
+    );
+    // 反查命中的重放转录经 AgentTimeline 呈现
+    await waitFor(() => expect(panel.textContent).toContain('开始实现'));
+  });
+
+  it('选中历史 eval 节点 → executor + evaluator 双会话联动：默认 executor 反查、切换 evaluator 重放对应 attempt', async () => {
+    sessionsFixture = {
+      'test-change/dev-design/executor/2': [
+        transcriptSession('ses-exec-2', 'test-change/dev-design/executor/2'),
+      ],
+      'test-change/dev-design/evaluator/2': [
+        transcriptSession('ses-eval-2', 'test-change/dev-design/evaluator/2'),
+      ],
+    };
+    transcriptFixture = {
+      'ses-exec-2': [textEvent(0, 'user', '执行会话正文')],
+      'ses-eval-2': [textEvent(0, 'assistant', '评估会话正文')],
+    };
+    renderDrawer(world(), { scope: 'node', nodeId: 'eval:dev-design:2' });
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    expect(panel.getAttribute('data-role')).toBe('executor');
+    const tabs = within(panel).getAllByTestId('transcript-role-tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['执行会话', '评估会话']);
+    await waitFor(() => expect(panel.textContent).toContain('执行会话正文'));
+
+    fireEvent.click(tabs[1]);
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'evaluator',
+      ),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').textContent).toContain('评估会话正文'),
+    );
+    expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+      root: 'root-a',
+      source: 'change',
+      sourceRef: 'test-change/dev-design/evaluator/2',
+    });
+  });
+
+  it('非会话选中（active / interrupted / role=null 运行步 / 列头）→ 无转录联动区，既有三分节保持', () => {
+    const base = detail({
+      activePhase: { phase: 'implement', attempt: 1, startAt: null },
+      interrupted: [{ phase: 'test-gen', attempt: 1, startAt: null, endAt: null }],
+    });
+    const toolNode = runtimeNode({
+      id: 'run:implement:1:staticCheck',
+      attempt: 1,
+      runStepKind: 'staticCheck',
+      group: 'toolStep',
+      role: null,
+      sessionId: null,
+    });
+    const graph = buildFlowGraph(base, [toolNode]);
+    const state: World = { graph, materials: mountMaterials(graph, base, []), hasFileLog: true };
+
+    const selections: DrawerSelection[] = [
+      { scope: 'node', nodeId: 'active:implement:1' },
+      { scope: 'node', nodeId: 'interrupted:test-gen:1' },
+      { scope: 'node', nodeId: 'run:implement:1:staticCheck' },
+      { scope: 'column', phase: 'implement' },
+    ];
+    for (const selection of selections) {
+      const view = renderTranscriptDrawer(state, selection);
+      expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
+      expect(screen.getByTestId('drawer-docs-section') !== null).toBe(true);
+      expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
+      expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
+      expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
+      view.unmount();
+    }
+  });
+
+  it('liveEvents 按选中节点的 sessionId 过滤下传：重放为底、实时事件按 seq 并入增长，异会话事件不混入', async () => {
+    sessionsFixture = {
+      'test-change/implement/executor/2': [
+        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      ],
+    };
+    transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '重放正文')] };
+    const state = runtimeWorld(runtimeNode());
+    const selection: DrawerSelection = { scope: 'node', nodeId: 'run:implement:2:executor' };
+    const { rerender } = renderTranscriptDrawer(state, selection);
+
+    // 重放先行落底
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').textContent).toContain('重放正文'),
+    );
+    // 运行中实时事件随后到站：面板收到选中节点的会话事件（seq 去重并入），异会话事件被过滤
+    rerender(
+      <DetailDrawer
+        selection={selection}
+        graph={state.graph}
+        materials={state.materials}
+        hasFileLog
+        root="root-a"
+        change="test-change"
+        liveEvents={[
+          { sessionId: 'ses-exec-2', event: textEvent(1, 'assistant', '实时增量正文') },
+          { sessionId: 'ses-other', event: textEvent(9, 'assistant', '别的会话不混入') },
+        ]}
+        onClose={() => {}}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').textContent).toContain('实时增量正文'),
+    );
+    const panel = screen.getByTestId('session-transcript-panel');
+    expect(panel.textContent).toContain('重放正文');
+    expect(panel.textContent).not.toContain('别的会话不混入');
   });
 });

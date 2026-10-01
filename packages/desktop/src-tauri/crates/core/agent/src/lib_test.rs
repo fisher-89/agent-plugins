@@ -82,9 +82,13 @@ fn crate根导出面锚定_session_port_kernel新模块类型可达() {
     let mut machine = RunStateMachine::new();
     assert_eq!(machine.apply(&event), AgentRunState::Running);
     assert!(event.kind.is_delta());
-    assert!(AgentBlock::Text { text: String::new() } != AgentBlock::Thinking {
-        thinking: String::new()
-    });
+    assert!(
+        AgentBlock::Text {
+            text: String::new()
+        } != AgentBlock::Thinking {
+            thinking: String::new()
+        }
+    );
 
     // 治理面 / 协议面形态
     registry.register("ses-anchor", RunHandle::default());

@@ -16,11 +16,19 @@
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-import type { ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
+import type { AgentEvent, ArtifactEnvelope, ChecklistItem } from '../../../types/dto';
 import { ArtifactTabs } from '../renderers/artifact-tabs';
 import { ArtifactView } from '../renderers/artifact-view';
 import { FileLogTable } from './file-log-table';
-import type { DrawerSelection, FileLogEntry, FlowGraph, FlowMaterials, FlowNode } from './types';
+import { SessionTranscriptPanel } from './session-transcript-panel';
+import type {
+  DrawerSelection,
+  FileLogEntry,
+  FlowGraph,
+  FlowMaterials,
+  FlowNode,
+  RoleSessionRef,
+} from './types';
 
 interface DetailDrawerProps {
   selection: DrawerSelection | null;
@@ -28,7 +36,45 @@ interface DetailDrawerProps {
   materials: FlowMaterials;
   /** detail.fileLog !== null（v1 及更早代际无此字段 → false，文件表节降级） */
   hasFileLog: boolean;
+  /** workspace root（会话转录反查） */
+  root: string | null;
+  /** change 名（sourceRef 定式组装 `<change>/<phase>/<role>/<attempt>`） */
+  change: string;
+  /** run 实时事件缓存（sessionId 载荷；抽屉按选中节点过滤） */
+  liveEvents: Array<{ sessionId: string; event: AgentEvent }>;
   onClose: () => void;
+}
+
+/**
+ * 选中对象 → 会话转录联动反查键组：WorkerAgent 运行节点取其 role × attempt；
+ * eval 节点取该 attempt 的 executor + evaluator 双会话；其余选中为空
+ *（不渲染转录区）。
+ */
+function selectionRoleRefs(
+  selection: DrawerSelection,
+  node: FlowNode | null,
+  change: string,
+): RoleSessionRef[] {
+  if (selection.scope !== 'node' || node === null) return [];
+  if (node.kind === 'runtime') {
+    if (node.role === null) return [];
+    return [
+      {
+        role: node.role,
+        sourceRef: `${change}/${node.phase}/${node.role}/${node.attempt}`,
+      },
+    ];
+  }
+  if (node.kind === 'eval') {
+    const attempt = node.record.attempt;
+    if (attempt === null) return [];
+    const roles = ['executor', 'evaluator'] as const;
+    return roles.map((role) => ({
+      role,
+      sourceRef: `${change}/${node.phase}/${role}/${attempt}`,
+    }));
+  }
+  return [];
 }
 
 function InlineChecklist({ items }: { items: ChecklistItem[] }): React.JSX.Element {
@@ -131,6 +177,9 @@ export function DetailDrawer({
   graph,
   materials,
   hasFileLog,
+  root,
+  change,
+  liveEvents,
   onClose,
 }: DetailDrawerProps): React.JSX.Element | null {
   if (selection === null) return null;
@@ -140,6 +189,13 @@ export function DetailDrawer({
       : null;
   const phase = selection.scope === 'column' ? selection.phase : (node?.phase ?? '');
   const columnId = `col:${phase}`;
+  const roleRefs = selectionRoleRefs(selection, node, change);
+  // 实时事件按选中节点的会话过滤（运行步节点携带 sessionId；历史节点无实时流）
+  const sessionId = node?.kind === 'runtime' ? node.sessionId : null;
+  const live =
+    sessionId === null
+      ? []
+      : liveEvents.filter((entry) => entry.sessionId === sessionId).map((entry) => entry.event);
   return (
     <div className="fixed inset-0 z-50" data-testid="detail-drawer">
       <div aria-hidden className="absolute inset-0 bg-black/50" onClick={onClose} />
@@ -160,6 +216,9 @@ export function DetailDrawer({
           files={node === null ? [] : (materials.nodeFiles[node.id] ?? [])}
           hasFileLog={hasFileLog}
         />
+        {roleRefs.length > 0 && (
+          <SessionTranscriptPanel root={root} roleRefs={roleRefs} liveEvents={live} />
+        )}
       </aside>
     </div>
   );

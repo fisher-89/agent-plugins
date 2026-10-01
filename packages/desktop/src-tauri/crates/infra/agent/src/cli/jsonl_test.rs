@@ -129,7 +129,11 @@ fn 纯tool_result的user行重标为tool_role() {
     let Some(AgentEventKind::Message { role, .. }) = normalize_line(USER_TOOL_RESULT_LINE) else {
         panic!("user 行应归一化为 Message");
     };
-    assert_eq!(role, AgentMessageRole::Tool, "CLI 以 user 型回灌工具结果，进 core 前重标 tool");
+    assert_eq!(
+        role,
+        AgentMessageRole::Tool,
+        "CLI 以 user 型回灌工具结果，进 core 前重标 tool"
+    );
 }
 
 #[test]
@@ -138,7 +142,11 @@ fn text与tool_result混排的user行保留user_role() {
     let Some(AgentEventKind::Message { role, blocks, .. }) = normalize_line(line) else {
         panic!("混排行应归一化为 Message");
     };
-    assert_eq!(role, AgentMessageRole::User, "混排（text + tool_result）是用户言语，不重标");
+    assert_eq!(
+        role,
+        AgentMessageRole::User,
+        "混排（text + tool_result）是用户言语，不重标"
+    );
     assert_eq!(blocks.len(), 2, "两块全保留");
 }
 
@@ -148,7 +156,11 @@ fn 空content的user行保留user_role不误重标() {
     let Some(AgentEventKind::Message { role, blocks, .. }) = normalize_line(line) else {
         panic!("空 content 行应归一化为 Message");
     };
-    assert_eq!(role, AgentMessageRole::User, "空块不构成纯 tool_result，不重标");
+    assert_eq!(
+        role,
+        AgentMessageRole::User,
+        "空块不构成纯 tool_result，不重标"
+    );
     assert!(blocks.is_empty());
 }
 

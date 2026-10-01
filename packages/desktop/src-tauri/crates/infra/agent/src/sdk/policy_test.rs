@@ -77,10 +77,7 @@ fn bash工具名三档均拒绝_缺席断言锁定() {
         AgentPermissionMode::AcceptEdits,
         AgentPermissionMode::BypassPermissions,
     ] {
-        assert!(
-            !allows(mode, "bash"),
-            "{mode:?} 档对缺席工具 bash 必须拒绝"
-        );
+        assert!(!allows(mode, "bash"), "{mode:?} 档对缺席工具 bash 必须拒绝");
     }
 }
 
@@ -109,8 +106,7 @@ fn 清单外工具名与大小写变体与空串一律拒绝() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id的is_error_tool_result()
-{
+fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id的is_error_tool_result() {
     // loop 侧拒绝合成契约（run 不中断的流出形态，AC-5 后半句）：决策表拒绝
     // 的工具（default 档 write）→ SystemNotice{subtype:"permission_denied"}
     // 信封 + 与 tool_use 同 id 的 is_error ToolResult。此处以决策表驱动同一
@@ -150,7 +146,11 @@ fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id
     let AgentEventKind::Message { role, blocks, .. } = &result else {
         panic!("合成产物必须携带 ToolResult 消息")
     };
-    assert_eq!(*role, AgentMessageRole::Tool, "工具结果管道以 tool role 密封");
+    assert_eq!(
+        *role,
+        AgentMessageRole::Tool,
+        "工具结果管道以 tool role 密封"
+    );
     let Some(AgentBlock::ToolResult {
         id,
         content,

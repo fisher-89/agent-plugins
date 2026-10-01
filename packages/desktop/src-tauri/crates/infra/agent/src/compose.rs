@@ -127,6 +127,13 @@ impl ComposedTurn {
             )
             .map_err(|e| e.to_string())
     }
+
+    /// 引擎二值观测（crate 内）：CLI 臂由 worker 轮前预检 CLI 可发现性
+    ///（CliMissing 收敛 `Err` + 零半成品记录）；SDK 臂不预检（ConfigMissing
+    /// 归 [`Self::begin`] 的 open 段显式 `Err`）。
+    pub(crate) fn is_cli_engine(&self) -> bool {
+        self.store_kind == AgentEngineKind::Cli
+    }
 }
 
 /// 运行发起解析单点（语义自命令层原样平移；解析产物含快照定型双面）。

@@ -8,9 +8,17 @@
  * - eval 节点    `eval:<phase>:<attempt>`（attempt 缺号按 0 兜底，同 id 撞车时加序号后缀）
  * - active 节点  `active:<phase>:<attempt>`
  * - interrupted  `interrupted:<phase>:<attempt>`
+ * - run 步节点   `run:<phase>:<attempt>:<step>[:<seq>]`（seq 仅同键重复步歧义时追加，
+ *                如 static-check 反馈边多次迭代；running → 终态同键归并同节点）
  * - 边           `edge:<source>-><target>`
  */
-import type { ArtifactEnvelope, AttemptRecord, ChangeDetail } from '../../../types/dto';
+import type {
+  ArtifactEnvelope,
+  AttemptRecord,
+  ChangeDetail,
+  ChangeStepKind,
+  ChangeStepStatus,
+} from '../../../types/dto';
 
 /**
  * file_log 条目前端镜像：由 ChangeDetail['fileLog'] 派生（dto 不导出该条目类型，
@@ -55,7 +63,40 @@ export interface InterruptedFlowNode extends FlowNodeBase {
   endAt: string | null;
 }
 
-export type FlowNode = EvalFlowNode | ActiveFlowNode | InterruptedFlowNode;
+/**
+ * 运行步节点三分类词汇（runStepNode 节点类型徽章可辨）：WorkerAgent 三角色 /
+ * ToolStep 四命令 / Gate 三门。
+ */
+export type RunStepGroup = 'workerAgent' | 'toolStep' | 'gate';
+
+/**
+ * role 标签（WorkerRole 线格式，与后端 sourceRef 定式第三段一致）：
+ * sourceRef = `<change>/<phase>/<role>/<attempt>`（D3），会话转录联动按此
+ * exact-match 反查 agentSessions（source='change'）。
+ */
+export type FlowRoleLabel = 'executor' | 'evaluator' | 'decision';
+
+/** 转录联动反查键：role × attempt → sourceRef 定式组装产物。 */
+export interface RoleSessionRef {
+  role: FlowRoleLabel;
+  sourceRef: string;
+}
+
+/** run 步事件：来自 RunUpdate::Step 流的图 overlay（run-state.ts 推导）。
+ * 节点载荷（runStepKind / group / role / status / sessionId / detail 六面）
+ * 即 react-flow 侧 `RunStepNodeData` 的字段源（run-step-node.tsx 按本投影
+ * 定义 `{ node: RuntimeFlowNode }` 载荷）。 */
+export interface RuntimeFlowNode extends FlowNodeBase {
+  kind: 'runtime';
+  runStepKind: ChangeStepKind;
+  group: RunStepGroup;
+  role: FlowRoleLabel | null;
+  status: ChangeStepStatus;
+  sessionId: string | null;
+  detail: string | null;
+}
+
+export type FlowNode = EvalFlowNode | ActiveFlowNode | InterruptedFlowNode | RuntimeFlowNode;
 
 /** phase 列容器（9 站恒定，未走的站呈现空列） */
 export interface FlowColumn {

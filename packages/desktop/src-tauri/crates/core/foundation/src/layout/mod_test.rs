@@ -311,7 +311,9 @@ fn config_path空root与尾分隔符root与文件root纯拼接不panic() {
     let trailing = format!("{base}/");
     assert_eq!(
         config_path(Path::new(&trailing)),
-        Path::new(&trailing).join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
+        Path::new(&trailing)
+            .join(DOMAIN_DIR_NAME)
+            .join(CONFIG_FILE_NAME)
     );
 
     // 指向普通文件的 root：无目录类型校验，仍按路径拼接返回
@@ -336,10 +338,7 @@ fn config_path对同一输入结果稳定且父目录恰为resolve的域目录()
     // 锚定基准不变量：config_path 的父目录恰为域目录（= resolve 的 changes
     // 产物父目录），配置文件与 changes / explores 同域
     let layout = resolve(&temp.0);
-    assert_eq!(
-        first.parent(),
-        Some(temp.0.join(DOMAIN_DIR_NAME).as_path())
-    );
+    assert_eq!(first.parent(), Some(temp.0.join(DOMAIN_DIR_NAME).as_path()));
     assert_eq!(
         first.parent(),
         layout.changes_root.parent(),

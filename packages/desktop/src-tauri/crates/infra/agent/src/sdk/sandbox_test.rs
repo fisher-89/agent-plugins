@@ -32,7 +32,9 @@ fn write_file(path: &Path, content: &str) {
 /// （需特权 / 开发者模式），无特权时以 junction 目录备选（两者均被
 /// canonicalize 解链，拦截口径一致）。
 fn create_dir_link(link: &Path, target: &Path) -> bool {
-    let _guard = LINK_LOCK.lock().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let _guard = LINK_LOCK
+        .lock()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     #[cfg(windows)]
     {
         if std::os::windows::fs::symlink_dir(target, link).is_ok() {
@@ -130,7 +132,10 @@ fn 符号链接指向root外目标时解链后按真实目标拦截() {
         "按解链后真实目标拦截，实际: {denied}"
     );
     // 穿过链接再进子段同样拦截
-    assert!(check(root, "link/inner.txt").is_err(), "经链接的子段路径拦截");
+    assert!(
+        check(root, "link/inner.txt").is_err(),
+        "经链接的子段路径拦截"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -208,7 +213,10 @@ fn 特殊形态入参_空串归root_中文空格emoji路径_大小写变体行�
     write_file(&root.join("带 空格 与中文-🚀.md"), "特殊名内容");
 
     // 空串路径：非绝对 → root.join("") 即 root 本身 → 放行为 root（锁定行为）
-    assert_eq!(check(root, "").expect("空串解析为 root 本身"), check(root, ".").unwrap());
+    assert_eq!(
+        check(root, "").expect("空串解析为 root 本身"),
+        check(root, ".").unwrap()
+    );
 
     // 含中文 / 空格 / emoji 的路径：保真放行
     let special = check(root, "带 空格 与中文-🚀.md").expect("特殊名路径放行");
@@ -280,5 +288,8 @@ fn glob模式预检_绝对与父段与波浪线拒绝_root相对放行() {
 
     // root 不可解析：兜底显式失败
     let missing_root = dir.path().join("no-such-root");
-    assert!(check_pattern(&missing_root, "*.rs").is_err(), "root 缺失显式失败");
+    assert!(
+        check_pattern(&missing_root, "*.rs").is_err(),
+        "root 缺失显式失败"
+    );
 }

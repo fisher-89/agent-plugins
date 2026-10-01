@@ -192,13 +192,15 @@ fn 假sink经arc_dyn注入五方法调用序与载荷原样记录() {
     let sink: Arc<dyn SessionSink> = Arc::new(fake);
     let event = sealed_event(5);
 
-    sink.create_session(&new_session_row()).expect("create 应成功");
+    sink.create_session(&new_session_row())
+        .expect("create 应成功");
     let turn_id = sink
         .begin_turn("ses-1-1727000000000", 1727000000000)
         .expect("begin 应成功");
     sink.append_sealed("ses-1-1727000000000", &event)
         .expect("append 应成功");
-    sink.finish_turn(turn_id, &outcome()).expect("finish 应成功");
+    sink.finish_turn(turn_id, &outcome())
+        .expect("finish 应成功");
     sink.bind_remote_session("ses-1-1727000000000", "sdk-3-1727000000009", 1727000006000)
         .expect("bind 应成功");
 
@@ -339,8 +341,11 @@ fn turn_outcome缺席两极与status四值线格式往返() {
         (AgentRunStatus::Failed, "failed"),
         (AgentRunStatus::Stopped, "stopped"),
     ] {
-        let value = serde_json::to_value(TurnOutcome { status, ..outcome() })
-            .expect("序列化成功");
+        let value = serde_json::to_value(TurnOutcome {
+            status,
+            ..outcome()
+        })
+        .expect("序列化成功");
         assert_eq!(value["status"], serde_json::json!(expected));
     }
 }
@@ -354,7 +359,8 @@ fn 假sink返回err时result语义原样传播不静默() {
     // 第 3 次调用（index 2 = append_sealed）失败
     let (fake, _calls) = FakeSink::failing_on(2);
     let sink: Arc<dyn SessionSink> = Arc::new(fake);
-    sink.create_session(&new_session_row()).expect("create 应成功");
+    sink.create_session(&new_session_row())
+        .expect("create 应成功");
     sink.begin_turn("ses-1", 1).expect("begin 应成功");
 
     let result = sink.append_sealed("ses-1", &sealed_event(0));
@@ -380,7 +386,8 @@ fn dyn_session_sink与dyn_session_query满足send_sync() {
     let (fake, _calls) = FakeSink::new();
     let sink: Arc<dyn SessionSink> = Arc::new(fake);
     let moved = std::thread::spawn(move || {
-        sink.begin_turn("ses-cross", 1).expect("跨线程 begin 应成功")
+        sink.begin_turn("ses-cross", 1)
+            .expect("跨线程 begin 应成功")
     })
     .join()
     .expect("线程正常结束");

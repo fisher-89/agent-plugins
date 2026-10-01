@@ -21,6 +21,7 @@ agent = { workspace = true }
 agent-runtime = { workspace = true }
 config = { workspace = true }
 foundation = { workspace = true }
+orchestration = { workspace = true }
 watch = { workspace = true }
 workflow = { workspace = true }
 serde = { workspace = true }
@@ -36,6 +37,8 @@ tauri-specta = { workspace = true }
 # 剥离 cli feature（clap 4 / colored / env_logger / num-format 不入树，纯库消费）；
 # 仅落 desktop-app 壳，MUST NOT 出现在任何 core / infra crate
 tokei = { workspace = true }
+# change-flow 命令面的 broadcast 订阅转发（sync 特性随 workspace 基面）
+tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
@@ -55,6 +58,7 @@ members = [
     "crates/core/agent",
     "crates/core/config",
     "crates/core/foundation",
+    "crates/core/orchestration",
     "crates/core/workflow",
     "crates/infra/agent",
     "crates/infra/store",
@@ -74,6 +78,7 @@ glob = "0.3"
 # rig 归一化流消费（agent-runtime 直依赖）：rig-core 直依赖同款已在入树
 futures = "0.3"
 notify = "8"
+orchestration = { path = "crates/core/orchestration" }
 watch = { path = "crates/infra/watch" }
 workflow = { path = "crates/core/workflow" }
 # native_model pin 必须与 native_db 内部依赖（=0.4.20）严格一致，避免双版本 trait 失配

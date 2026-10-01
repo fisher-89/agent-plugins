@@ -1,17 +1,20 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router';
 
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
-import type { ArtifactEnvelope, ChangeDetail, Inventory } from '../../types/dto';
+import type { AgentEvent, ArtifactEnvelope, ChangeDetail, Inventory } from '../../types/dto';
 import { mountMaterials } from './flow/attachments';
 import { ChangeFlowGraph } from './flow/change-flow-graph';
 import { DetailDrawer } from './flow/detail-drawer';
 import { FileLogTable } from './flow/file-log-table';
 import { buildFlowGraph } from './flow/graph';
+import { RunControlPanel } from './flow/run-control-panel';
+import { runStepNodes } from './flow/run-state';
 import type { DrawerSelection, FlowGraph, FlowMaterials } from './flow/types';
 import { useChangeDetail } from './hooks/use-change-detail';
+import { useChangeFlowRun } from './hooks/use-change-flow-run';
 import { ArtifactTabs } from './renderers/artifact-tabs';
 
 // Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
@@ -203,29 +206,65 @@ function useRootSwitchSuppress(root: string | null, selected: string | null): st
   return resetPending ? null : selected;
 }
 
+/** run 视图副作用：终态触发一次显式 refresh（图回落 ChangeDetail 派生规则；
+ * 状态迁移沿「非终局 → 终局」判定，重挂不重复触发）+ 实时事件展平（抽屉
+ * 过滤输入面）。 */
+function useRunViewEffects(
+  run: ReturnType<typeof useChangeFlowRun>,
+  refresh: () => void,
+): Array<{ sessionId: string; event: AgentEvent }> {
+  const prevStatus = useRef<string | null>(null);
+  const status = run.state?.status ?? null;
+  useEffect(() => {
+    const wasTerminal = prevStatus.current !== null && isTerminalStatus(prevStatus.current);
+    prevStatus.current = status;
+    if (!wasTerminal && status !== null && isTerminalStatus(status)) {
+      refresh();
+    }
+  }, [status, refresh]);
+  return useMemo(() => {
+    if (run.state === null) return [];
+    return Object.entries(run.state.liveEvents).flatMap(([sessionId, events]) =>
+      events.map((event) => ({ sessionId, event })),
+    );
+  }, [run.state]);
+}
+
+function isTerminalStatus(status: string): boolean {
+  return status === 'completed' || status === 'stopped' || status === 'failed';
+}
+
 /**
  * change 详情视图：详情页自取数（useChangeDetail 按 (root, URL name) 调
  * get_change_detail，与清单页互不依赖；根切换抑制见 useRootSwitchSuppress）
- * + Header + attempt 级流程图 + workflow 独立面板 + 产物区 + 抽屉。三代际降级
- * （design）：v0（pipeline 空）空图占位 + 产物区；v1（fileLog null）图正常
- * 绘制、无 workflow 面板、抽屉文件表节降级；v2 完整图。
+ * + Header + 运行控制面板 + attempt 级流程图（运行步 overlay 并入）+
+ * workflow 独立面板 + 产物区 + 抽屉（WorkerAgent 运行节点与 eval 节点的
+ * 会话转录联动）。三代际降级（design）：v0（pipeline 空）空图占位 + 产物区；
+ * v1（fileLog null）图正常绘制、无 workflow 面板、抽屉文件表节降级；v2 完整图。
+ *
+ * run 生命周期：useChangeFlowRun 承载 invoke 与订阅；run 终态时触发一次
+ * 显式 refresh（图回落派生规则——运行外显式刷新仍是唯一全量更新途径）。
  */
 export function ChangeDetailView({ root }: { root: string | null }) {
   const { name } = useParams<'name'>();
   const selected = useRootSwitchSuppress(root, name ?? null);
   const { detail, artifacts, loading, error, refresh } = useChangeDetail(root, selected);
+  const run = useChangeFlowRun({ root, change: selected });
   const navigate = useNavigate();
   const backToList = useCallback(() => navigate('/changes'), [navigate]); // 显式返回，不用 navigate(-1)
 
   const [selection, setSelection] = useState<DrawerSelection | null>(null);
+  const runNodes = useMemo(() => (run.state === null ? [] : runStepNodes(run.state)), [run.state]);
   const graph = useMemo<FlowGraph>(
-    () => (detail === null ? EMPTY_GRAPH : buildFlowGraph(detail)),
-    [detail],
+    () => (detail === null ? EMPTY_GRAPH : buildFlowGraph(detail, runNodes)),
+    [detail, runNodes],
   );
   const materials = useMemo<FlowMaterials>(
     () => (detail === null ? EMPTY_MATERIALS : mountMaterials(graph, detail, artifacts)),
     [detail, graph, artifacts],
   );
+  const liveEvents = useRunViewEffects(run, refresh);
+
   if (error !== null) {
     return <DetailFallback message={`详情加载失败：${error}`} error onBack={backToList} />;
   }
@@ -238,6 +277,7 @@ export function ChangeDetailView({ root }: { root: string | null }) {
   return (
     <div>
       <DetailHeader detail={detail} loading={loading} onBack={backToList} refresh={refresh} />
+      {selected !== null && <RunControlPanel change={selected} run={run} />}
       {detail.unparsable && <UnparsableNote />}
       <FlowSection detail={detail} graph={graph} materials={materials} onSelect={setSelection} />
       {detail.fileLog !== null && <WorkflowPanel entries={materials.outsideFiles} />}
@@ -247,6 +287,9 @@ export function ChangeDetailView({ root }: { root: string | null }) {
         graph={graph}
         materials={materials}
         hasFileLog={detail.fileLog !== null}
+        root={root}
+        change={detail.name}
+        liveEvents={liveEvents}
         onClose={() => setSelection(null)}
       />
     </div>

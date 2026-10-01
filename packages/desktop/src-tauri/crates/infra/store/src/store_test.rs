@@ -2,7 +2,9 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agent::{AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus};
+use agent::{
+    AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus,
+};
 use native_db::{Builder, Models};
 
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
@@ -221,7 +223,10 @@ fn open_global与open_workspace对不存在路径创建db文件与父目录且�
     let ws_path = env.db_dir.path().join("nested/ws/test.redb");
     let ws = open_workspace_ok(&ws_path);
     assert!(ws_path.exists(), "open_workspace 创建 db 文件");
-    assert!(ws.list_sessions(None, None).unwrap().is_empty(), "空库可 list");
+    assert!(
+        ws.list_sessions(None, None).unwrap().is_empty(),
+        "空库可 list"
+    );
     assert!(ws.list_explore_records("").unwrap().is_empty());
 }
 
@@ -546,7 +551,11 @@ fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
             .iter()
             .map(|model| (model.name.as_str(), model.count))
             .collect::<Vec<_>>(),
-        vec![("workspace", 1), ("agent_provider", 0), ("agent_instance", 0)],
+        vec![
+            ("workspace", 1),
+            ("agent_provider", 0),
+            ("agent_instance", 0)
+        ],
         "全局库仅 user 维度模型行（三模型组）"
     );
     // workspace 库含会话 / explore 行，注册表记录不混入
@@ -1348,7 +1357,10 @@ fn list_sessions清单聚合现算与降序稳定及过滤() {
     store
         .append_session_events(
             "ses-hot",
-            &[stamped(0, turn_done_kind(false)), stamped(1, turn_done_kind(false))],
+            &[
+                stamped(0, turn_done_kind(false)),
+                stamped(1, turn_done_kind(false)),
+            ],
         )
         .expect("append 应成功");
     let turn = store
@@ -1451,7 +1463,10 @@ fn list_session_events空洞容忍升序不补洞() {
     store
         .append_session_events(
             "ses-holes",
-            &[stamped(1, message_kind(AgentMessageRole::Assistant)), stamped(3, turn_done_kind(false))],
+            &[
+                stamped(1, message_kind(AgentMessageRole::Assistant)),
+                stamped(3, turn_done_kind(false)),
+            ],
         )
         .expect("append 应成功");
 
@@ -1491,7 +1506,10 @@ fn reconcile_session_stats从转录重算校正且密封转录逐字节不变() 
     store
         .append_session_events(
             "ses-rec",
-            &[stamped(0, turn_done_kind(false)), stamped(1, turn_done_kind(false))],
+            &[
+                stamped(0, turn_done_kind(false)),
+                stamped(1, turn_done_kind(false)),
+            ],
         )
         .expect("append 应成功");
     // 轮统计行落假数据（篡改）
@@ -1683,7 +1701,11 @@ fn list_models分维度计数与各库实有记录数一致() {
             .iter()
             .map(|model| (model.name.as_str(), model.count))
             .collect::<Vec<_>>(),
-        vec![("workspace", 2), ("agent_provider", 0), ("agent_instance", 0)],
+        vec![
+            ("workspace", 2),
+            ("agent_provider", 0),
+            ("agent_instance", 0)
+        ],
         "全局库 workspace 计数与注册记录数一致（agent 管理两模型计数 0 也列出）"
     );
     drop(global);
@@ -2098,7 +2120,10 @@ fn 删除记录级联清掉归属会话与其转录与轮统计行且复用id不
     store
         .append_session_events(
             session_id,
-            &[stamped(0, run_started_kind()), stamped(1, message_kind(AgentMessageRole::Assistant))],
+            &[
+                stamped(0, run_started_kind()),
+                stamped(1, message_kind(AgentMessageRole::Assistant)),
+            ],
         )
         .expect("落转录");
     let turn = store
@@ -2122,9 +2147,7 @@ fn 删除记录级联清掉归属会话与其转录与轮统计行且复用id不
     );
     let summaries = store.list_sessions(None, None).unwrap();
     assert!(
-        summaries
-            .iter()
-            .all(|summary| summary.row.id != session_id),
+        summaries.iter().all(|summary| summary.row.id != session_id),
         "轮统计行随会话级联删除（清单无该会话轮行）"
     );
     assert!(
@@ -2136,14 +2159,14 @@ fn 删除记录级联清掉归属会话与其转录与轮统计行且复用id不
 
     // 复用 id 后归属圈定为空：错链不再发生
     let c = create_ok(&store, "C:\\ws\\alpha", "combine-agent-and-explore-chat");
-    assert_eq!(c.id, b.id, "max+1 在幸存行上计算，id 仍会复用（级联后无害）");
+    assert_eq!(
+        c.id, b.id,
+        "max+1 在幸存行上计算，id 仍会复用（级联后无害）"
+    );
     let rebound = store
         .list_sessions(Some("explore"), Some(&c.id.to_string()))
         .unwrap();
-    assert!(
-        rebound.is_empty(),
-        "新记录（从未发过消息）归属圈定为空"
-    );
+    assert!(rebound.is_empty(), "新记录（从未发过消息）归属圈定为空");
 }
 
 /// 级联只圈 (source=explore, source_ref=本记录 id)：debug 来源同定位串、
@@ -2158,7 +2181,11 @@ fn 级联删除不波及无关会话与转录与轮行() {
     // 被删记录名下归属会话
     let bound = "ses-cascade-doomed";
     store
-        .create_session(&session_record(bound, "explore", Some(&doomed.id.to_string())))
+        .create_session(&session_record(
+            bound,
+            "explore",
+            Some(&doomed.id.to_string()),
+        ))
         .expect("落归属会话行");
     store
         .append_session_events(bound, &[stamped(0, run_started_kind())])
@@ -2193,18 +2220,19 @@ fn 级联删除不波及无关会话与转录与轮行() {
         .expect("落转录");
     let other_turn = store.begin_agent_turn(other_session, 300).expect("开轮行");
 
-    assert!(
-        store
-            .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
-            .unwrap()
-    );
+    assert!(store
+        .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
+        .unwrap());
 
     // 被删记录名下会话与转录与轮行清空
     assert!(store.find_session(bound).unwrap().is_none());
     assert!(store.list_session_events(bound).unwrap().is_empty());
 
     // 无关会话存活（记录 + 转录 + 轮行）
-    for (survivor, turn_id) in [(debug_session, debug_turn.id), (other_session, other_turn.id)] {
+    for (survivor, turn_id) in [
+        (debug_session, debug_turn.id),
+        (other_session, other_turn.id),
+    ] {
         let summary = store
             .list_sessions(None, None)
             .unwrap()
@@ -2261,7 +2289,11 @@ fn upsert_provider_ok(store: &Store, provider: AgentProviderRecord) -> AgentProv
         .unwrap_or_else(|e| panic!("upsert_agent_provider 应成功: {e}"))
 }
 
-fn fixture_agent(name: &str, engine: AgentEngineKind, provider_id: Option<i64>) -> AgentInstanceRecord {
+fn fixture_agent(
+    name: &str,
+    engine: AgentEngineKind,
+    provider_id: Option<i64>,
+) -> AgentInstanceRecord {
     AgentInstanceRecord::new(name.to_owned(), engine, provider_id)
 }
 
@@ -2360,7 +2392,10 @@ fn provider_upsert更新整行替换_id不变且查重排除自身() {
     let saved = upsert_provider_ok(&store, updated);
 
     assert_eq!(saved.id, first.id, "更新臂 id 不变");
-    assert_eq!(saved.base_url, "https://changed.example.com/v1", "整行替换生效");
+    assert_eq!(
+        saved.base_url, "https://changed.example.com/v1",
+        "整行替换生效"
+    );
     assert_eq!(saved.api_key, "sk-new-key-999");
     assert_eq!(saved.models.high, "new-high");
     assert_eq!(store.list_agent_providers().unwrap(), vec![saved]);
@@ -2378,7 +2413,10 @@ fn provider_upsert更新为他人已占name_err_两条记录均原样() {
     renamed.id = alpha.id;
     let result = store.upsert_agent_provider(renamed);
 
-    assert!(result.is_err(), "更新为他人已占 name 应 Err，实际: {result:?}");
+    assert!(
+        result.is_err(),
+        "更新为他人已占 name 应 Err，实际: {result:?}"
+    );
     let listed = store.list_agent_providers().unwrap();
     assert_eq!(listed, vec![alpha, beta], "两条记录均原样");
 }
@@ -2540,7 +2578,8 @@ fn agent_upsert_sdk缺provider_err_悬空引用err() {
     let provider = upsert_provider_ok(&store, fixture_provider("端点"));
 
     // sdk 引擎 provider_id=None Err
-    let missing = store.upsert_agent_instance(fixture_agent("sdk缺provider", AgentEngineKind::Sdk, None));
+    let missing =
+        store.upsert_agent_instance(fixture_agent("sdk缺provider", AgentEngineKind::Sdk, None));
     let err = missing.expect_err("sdk 引擎 provider_id=None 应 Err");
     assert!(
         err.to_string().contains("sdk缺provider"),
@@ -2548,7 +2587,8 @@ fn agent_upsert_sdk缺provider_err_悬空引用err() {
     );
 
     // sdk 悬空引用（provider_id 指向不存在的 provider id）Err
-    let dangling = store.upsert_agent_instance(fixture_agent("sdk悬空", AgentEngineKind::Sdk, Some(999)));
+    let dangling =
+        store.upsert_agent_instance(fixture_agent("sdk悬空", AgentEngineKind::Sdk, Some(999)));
     let err = dangling.expect_err("sdk 悬空引用应 Err");
     assert!(
         err.to_string().contains("999"),
@@ -2570,14 +2610,21 @@ fn agent_upsert_sdk缺provider_err_悬空引用err() {
 fn agent_upsert_name查重_同name重复新建与更新撞名err_name空白err() {
     let env = Env::new("mgmt-agent-dup");
     let store = open_global_ok(&env.db_path("global"));
-    let first = upsert_agent_ok(&store, fixture_agent("同名实例", AgentEngineKind::Cli, None));
+    let first = upsert_agent_ok(
+        &store,
+        fixture_agent("同名实例", AgentEngineKind::Cli, None),
+    );
 
     // 同 name 重复新建 Err
-    let dup_new = store.upsert_agent_instance(fixture_agent("同名实例", AgentEngineKind::Sdk, None));
+    let dup_new =
+        store.upsert_agent_instance(fixture_agent("同名实例", AgentEngineKind::Sdk, None));
     assert!(dup_new.is_err(), "同 name 重复新建应 Err");
 
     // 更新撞名 Err
-    let second = upsert_agent_ok(&store, fixture_agent("另一实例", AgentEngineKind::Cli, None));
+    let second = upsert_agent_ok(
+        &store,
+        fixture_agent("另一实例", AgentEngineKind::Cli, None),
+    );
     let mut renamed = fixture_agent("同名实例", AgentEngineKind::Cli, None);
     renamed.id = second.id;
     let dup_update = store.upsert_agent_instance(renamed);
@@ -2586,7 +2633,10 @@ fn agent_upsert_name查重_同name重复新建与更新撞名err_name空白err()
     // name 空白 Err
     for name in ["", "  "] {
         let blank = store.upsert_agent_instance(fixture_agent(name, AgentEngineKind::Cli, None));
-        assert!(matches!(&blank, Err(StoreError::Db(_))), "name 空白应 Err，实际: {blank:?}");
+        assert!(
+            matches!(&blank, Err(StoreError::Db(_))),
+            "name 空白应 Err，实际: {blank:?}"
+        );
     }
 
     assert_eq!(
@@ -2625,7 +2675,10 @@ fn agent_upsert默认标记写口_新建臂入参true被强制false_更新臂保
         "更新臂保留存量默认标记（入参标记不参与写）"
     );
     assert_eq!(
-        store.default_agent_instance().unwrap().map(|record| record.id),
+        store
+            .default_agent_instance()
+            .unwrap()
+            .map(|record| record.id),
         Some(created.id),
         "默认 agent 改名后仍为默认"
     );
@@ -2641,7 +2694,10 @@ fn remove_agent_instance删默认agent_ok后default解析none且清单少一行(
         fixture_agent("默认实例", AgentEngineKind::Sdk, Some(provider.id)),
     );
     store.set_default_agent_instance(agent.id).unwrap();
-    let _survivor = upsert_agent_ok(&store, fixture_agent("幸存实例", AgentEngineKind::Cli, None));
+    let _survivor = upsert_agent_ok(
+        &store,
+        fixture_agent("幸存实例", AgentEngineKind::Cli, None),
+    );
 
     let hit = store.remove_agent_instance(agent.id).unwrap();
 
@@ -2687,9 +2743,15 @@ fn default_agent_instance有默认some无默认none() {
         "无默认返回 None（清单扫 is_default，恒零或一）"
     );
 
-    let agent = upsert_agent_ok(&store, fixture_agent("默认实例", AgentEngineKind::Cli, None));
+    let agent = upsert_agent_ok(
+        &store,
+        fixture_agent("默认实例", AgentEngineKind::Cli, None),
+    );
     store.set_default_agent_instance(agent.id).unwrap();
-    let resolved = store.default_agent_instance().unwrap().expect("有默认返回 Some");
+    let resolved = store
+        .default_agent_instance()
+        .unwrap()
+        .expect("有默认返回 Some");
     assert_eq!(resolved.id, agent.id);
     assert!(resolved.is_default);
 }
@@ -2714,9 +2776,16 @@ fn set_default标记即切换_甲到乙全局恰一默认为乙_返回更新后�
         .filter(|record| record.is_default)
         .map(|record| record.id)
         .collect();
-    assert_eq!(defaults, vec![agent_b.id], "全局恰一默认为乙，甲标记自动清除");
     assert_eq!(
-        store.default_agent_instance().unwrap().map(|record| record.id),
+        defaults,
+        vec![agent_b.id],
+        "全局恰一默认为乙，甲标记自动清除"
+    );
+    assert_eq!(
+        store
+            .default_agent_instance()
+            .unwrap()
+            .map(|record| record.id),
         Some(agent_b.id)
     );
 }
@@ -2740,7 +2809,10 @@ fn set_default重复标记同一agent幂等_切换后全清单is_default恰一tr
         .count();
     assert_eq!(default_count, 1, "切换后全清单 is_default 恰一为 true");
     assert_eq!(
-        store.default_agent_instance().unwrap().map(|record| record.id),
+        store
+            .default_agent_instance()
+            .unwrap()
+            .map(|record| record.id),
         Some(agent.id),
         "默认未漂移到 {other:?}"
     );
@@ -2761,7 +2833,10 @@ fn set_default_miss_id_err且既有默认标记不变() {
         "错误串含 id 语境，实际: {err}"
     );
     assert_eq!(
-        store.default_agent_instance().unwrap().map(|record| record.id),
+        store
+            .default_agent_instance()
+            .unwrap()
+            .map(|record| record.id),
         Some(agent.id),
         "既有默认标记不变"
     );
@@ -2857,7 +2932,11 @@ fn 组合链provider新建_sdkagent新建引用_set_default_解析命中_重开�
                 .iter()
                 .map(|model| (model.name.as_str(), model.count))
                 .collect::<Vec<_>>(),
-            vec![("workspace", 0), ("agent_provider", 1), ("agent_instance", 1)],
+            vec![
+                ("workspace", 0),
+                ("agent_provider", 1),
+                ("agent_instance", 1)
+            ],
             "全局库单库贯通：三模型行共存，计数与实有记录一致"
         );
         (

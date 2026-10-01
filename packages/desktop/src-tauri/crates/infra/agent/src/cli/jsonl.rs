@@ -67,8 +67,10 @@ fn message_event(role: &str, parsed: &Value) -> AgentEventKind {
         _ => Vec::new(),
     };
     let role = if role == "user" {
-        let all_results =
-            !blocks.is_empty() && blocks.iter().all(|b| matches!(b, AgentBlock::ToolResult { .. }));
+        let all_results = !blocks.is_empty()
+            && blocks
+                .iter()
+                .all(|b| matches!(b, AgentBlock::ToolResult { .. }));
         if all_results {
             AgentMessageRole::Tool
         } else {

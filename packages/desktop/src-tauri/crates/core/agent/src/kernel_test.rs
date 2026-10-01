@@ -23,10 +23,23 @@ use crate::session::{NewSessionRow, SessionProvenance};
 #[derive(Debug, Clone, PartialEq)]
 enum SinkCall {
     CreateSession(NewSessionRow),
-    BeginTurn { session_id: String, started_at: i64 },
-    AppendSealed { session_id: String, seq: u64 },
-    FinishTurn { turn_id: i64, status: AgentRunStatus },
-    BindRemote { session_id: String, remote: String, updated_at: i64 },
+    BeginTurn {
+        session_id: String,
+        started_at: i64,
+    },
+    AppendSealed {
+        session_id: String,
+        seq: u64,
+    },
+    FinishTurn {
+        turn_id: i64,
+        status: AgentRunStatus,
+    },
+    BindRemote {
+        session_id: String,
+        remote: String,
+        updated_at: i64,
+    },
 }
 
 /// 假 sink：共享调用记录，begin_turn 返回自增轮 id（sink 分配序），可编程
@@ -186,14 +199,12 @@ impl AgentRunner for FakeRunner {
         if let Some(failure) = self.failure.clone() {
             return Err(failure);
         }
-        let (observation_tx, observation_rx) =
-            tokio::sync::mpsc::channel(self.capacity.max(1));
+        let (observation_tx, observation_rx) = tokio::sync::mpsc::channel(self.capacity.max(1));
         let (question_tx, mut question_rx) = tokio::sync::mpsc::channel::<TurnQuestion>(4);
         // 问题接收端持有任务：保持 ask 通道打开（问题投递恒成功），句柄置位
         // 或通道关闭时退出
-        let holder_handle = tokio::spawn(async move {
-            while question_rx.recv().await.is_some() {}
-        });
+        let holder_handle =
+            tokio::spawn(async move { while question_rx.recv().await.is_some() {} });
         self.feeders
             .lock()
             .expect("投喂锁不可中毒")
@@ -601,7 +612,10 @@ async fn drive密封事件write_through恰一次且载荷为盖戳后事件() {
     // 载荷为盖戳后事件：传输面观察与落库 seq 同源
     assert_eq!(observations.len(), 3);
     assert_eq!(
-        observations.iter().map(|event| event.seq).collect::<Vec<_>>(),
+        observations
+            .iter()
+            .map(|event| event.seq)
+            .collect::<Vec<_>>(),
         appends,
         "传输与落库两路 seq 同源同序"
     );
@@ -712,10 +726,7 @@ async fn drive_turn_done统计收口_唯一口径承接_除名流出终态() {
 #[tokio::test]
 async fn drive_append失败时failed收敛记因_finish尽力_除名后流出终态() {
     let (sink, calls) = FakeSink::new();
-    *sink
-        .append_failures_from
-        .lock()
-        .expect("失败锁不可中毒") = Some(2); // 第 2 条密封追加起失败
+    *sink.append_failures_from.lock().expect("失败锁不可中毒") = Some(2); // 第 2 条密封追加起失败
     let registry = Arc::new(StopRegistry::new());
     let kernel = SessionKernel::new(Arc::new(sink), Arc::clone(&registry));
     let runner = Arc::new(FakeRunner::with_capacity(16));
@@ -785,10 +796,7 @@ async fn drive停止置位后观察流关闭_stopped收敛不记因() {
         AgentRunStatus::Stopped,
         "状态机未收敛但停止信号已置位 → 显式收敛 stopped"
     );
-    assert_eq!(
-        outcome.error, None,
-        "用户主动终止非失败：error 不记因"
-    );
+    assert_eq!(outcome.error, None, "用户主动终止非失败：error 不记因");
     assert!(outcome.finished_at > 0);
     assert!(finished.is_some(), "TurnFinished 流出");
     // 已产出密封事件原样落库后收口
@@ -818,7 +826,11 @@ async fn drive空观察流无停止信号时兜底failed且不悬挂() {
     let (observations, _finished, outcome) = drive_all(running).await;
 
     assert!(observations.is_empty(), "空流零观察");
-    assert_eq!(outcome.status, AgentRunStatus::Failed, "无收敛事件兜底 failed");
+    assert_eq!(
+        outcome.status,
+        AgentRunStatus::Failed,
+        "无收敛事件兜底 failed"
+    );
     assert_eq!(
         outcome.error.as_deref(),
         Some("轮结束但未产出收敛事件"),
@@ -862,7 +874,10 @@ async fn drive观察洪峰经背压全量送达零丢失且seq全程单调() {
     assert_eq!(observations.len(), 66, "洪峰全量送达零丢失");
     let seqs: Vec<u64> = observations.iter().map(|event| event.seq).collect();
     let expected: Vec<u64> = (0..66).collect();
-    assert_eq!(seqs, expected, "seq 全程单调无跳号（delta 占号共享单调空间）");
+    assert_eq!(
+        seqs, expected,
+        "seq 全程单调无跳号（delta 占号共享单调空间）"
+    );
     assert_eq!(outcome.status, AgentRunStatus::Completed, "洪峰后正常收敛");
 }
 
@@ -875,7 +890,9 @@ async fn drive_on_output慢速消费时密封落库与收口时序不受阻塞�
     let running = kernel
         .begin_turn(runner.clone(), request(SessionRef::New))
         .expect("begin 应成功");
-    runner.feed(vec![message_kind(), turn_done_kind(false)]).await;
+    runner
+        .feed(vec![message_kind(), turn_done_kind(false)])
+        .await;
     runner.close_stream();
 
     // 慢速输出回调（tee 双路独立：回调耗时不得影响落库与收口完整性）

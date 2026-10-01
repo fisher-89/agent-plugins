@@ -6,9 +6,10 @@ import '@xyflow/react/dist/style.css';
 import { type EventFlowNode, FlowEventNode } from './flow-event-node';
 import { COL_W, COLUMN_HEADER_H, COLUMN_PAD_X, COLUMN_PAD_Y, ROW_H, nodePosition } from './layout';
 import { type ColumnFlowNode, PhaseColumnNode } from './phase-column-node';
+import { RunStepNode, type RunStepFlowNode } from './run-step-node';
 import type { DrawerSelection, FlowEdge, FlowEdgeKind, FlowGraph, FlowMaterials } from './types';
 
-type ChartNode = ColumnFlowNode | EventFlowNode;
+type ChartNode = ColumnFlowNode | EventFlowNode | RunStepFlowNode;
 
 /**
  * 边 kind → 锚定把手 id（对应 FlowEventNode 四侧隐形 Handle）：布局为
@@ -27,7 +28,7 @@ interface ChangeFlowGraphProps {
   onSelect: (selection: DrawerSelection) => void;
 }
 
-const nodeTypes = { column: PhaseColumnNode, event: FlowEventNode };
+const nodeTypes = { column: PhaseColumnNode, event: FlowEventNode, runStep: RunStepNode };
 
 /** 列内事件数 → 列容器高度（COLUMN_HEADER_H + 列内节点数 × ROW_H + COLUMN_PAD_Y） */
 function columnHeight(graph: FlowGraph, columnId: string): number {
@@ -67,15 +68,19 @@ function toChartNodes(
     style: { width: COL_W, height: columnHeight(graph, column.id) },
     data: { phase: column.phase, docs: materials.columnDocs[column.id] ?? [], onSelect },
   }));
-  const events: ChartNode[] = graph.nodes.map((node) => ({
-    id: node.id,
-    type: 'event',
-    parentId: node.parentId,
-    extent: 'parent',
-    position: nodePosition(node),
-    style: { width: COL_W - COLUMN_PAD_X * 2 },
-    data: { node },
-  }));
+  const events: ChartNode[] = graph.nodes.flatMap((node): ChartNode[] => {
+    const common = {
+      id: node.id,
+      parentId: node.parentId,
+      extent: 'parent' as const,
+      position: nodePosition(node),
+      style: { width: COL_W - COLUMN_PAD_X * 2 },
+    };
+    if (node.kind === 'runtime') {
+      return [{ ...common, type: 'runStep', data: { node } }];
+    }
+    return [{ ...common, type: 'event', data: { node } }];
+  });
   return [...columns, ...events];
 }
 
@@ -106,7 +111,10 @@ function FlowCanvas({ graph, materials, onSelect }: ChangeFlowGraphProps): React
   const edges = useMemo(() => toChartEdges(graph.edges), [graph.edges]);
   const translateExtent = useMemo(() => graphTranslateExtent(graph), [graph]);
   const onNodeClick = (_event: unknown, node: ChartNode): void => {
-    if (node.type === 'event') onSelect({ scope: 'node', nodeId: node.id });
+    // 事件节点与运行步节点共用同一抽屉入口（运行步节点抽屉含会话转录联动）
+    if (node.type === 'event' || node.type === 'runStep') {
+      onSelect({ scope: 'node', nodeId: node.id });
+    }
   };
   return (
     <div

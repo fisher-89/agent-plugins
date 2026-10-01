@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent::{
-    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, AgentStartError, SessionCtx,
-    SessionInjections, SessionOpen, SessionRef,
+    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, AgentStartError,
+    SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
 use crate::sdk::config::EngineConfig;
@@ -110,21 +110,30 @@ fn 空缺省配置open返回config_missing且三成因逐字可辨() {
 #[test]
 fn 单字段缺失open消息区分api_key_base_url_model成因() {
     let cases = [
-        ("api_key", EngineConfig {
-            api_key: String::new(),
-            base_url: "http://127.0.0.1:9/v1".to_owned(),
-            model: "m".to_owned(),
-        }),
-        ("base_url", EngineConfig {
-            api_key: "k".to_owned(),
-            base_url: String::new(),
-            model: "m".to_owned(),
-        }),
-        ("model", EngineConfig {
-            api_key: "k".to_owned(),
-            base_url: "http://127.0.0.1:9/v1".to_owned(),
-            model: String::new(),
-        }),
+        (
+            "api_key",
+            EngineConfig {
+                api_key: String::new(),
+                base_url: "http://127.0.0.1:9/v1".to_owned(),
+                model: "m".to_owned(),
+            },
+        ),
+        (
+            "base_url",
+            EngineConfig {
+                api_key: "k".to_owned(),
+                base_url: String::new(),
+                model: "m".to_owned(),
+            },
+        ),
+        (
+            "model",
+            EngineConfig {
+                api_key: "k".to_owned(),
+                base_url: "http://127.0.0.1:9/v1".to_owned(),
+                model: String::new(),
+            },
+        ),
     ];
     for (field, config) in cases {
         let runner = SdkRunner::new(config, None);
@@ -132,10 +141,7 @@ fn 单字段缺失open消息区分api_key_base_url_model成因() {
         let AgentStartError::ConfigMissing(message) = &error else {
             panic!("应为 ConfigMissing，实际: {error:?}");
         };
-        assert!(
-            message.contains(field),
-            "{field} 成因可辨，实际: {message}"
-        );
+        assert!(message.contains(field), "{field} 成因可辨，实际: {message}");
         // 其余两项成因不在消息中（只列缺失项）
         for other in ["api_key", "base_url", "model"] {
             if other != field {
@@ -255,9 +261,7 @@ async fn continue全史装载重建后open成功且new会话零装载调用() {
     // New：全新运行空史，装载缝零调用
     let (new_resume, new_calls) = loader(Ok(Some(minimal_transcript())));
     let new_runner = SdkRunner::new(complete_config(), Some(new_resume));
-    new_runner
-        .open_session(open_new())
-        .expect("New 会话应成功");
+    new_runner.open_session(open_new()).expect("New 会话应成功");
     assert_eq!(
         new_calls.load(std::sync::atomic::Ordering::Relaxed),
         0,
@@ -420,8 +424,8 @@ fn 门面sdk分发的启动校验行为与直构runner一致() {
 
     // 携装载缝的门面：Continue 校验同样一致
     let (resume, _) = loader(Ok(None));
-    let with_resume = EngineFacade::with_resume_transcript(resume)
-        .runner_for(EngineKind::Sdk, complete_config());
+    let with_resume =
+        EngineFacade::with_resume_transcript(resume).runner_for(EngineKind::Sdk, complete_config());
     let error = with_resume
         .open_session(open_continue("ses-facade"))
         .expect_err("门面 Continue 校验必须 Err");

@@ -1,11 +1,10 @@
 use std::path::Path;
-use std::sync::{Arc, Mutex};
 use std::sync::atomic::{AtomicUsize, Ordering};
-
+use std::sync::{Arc, Mutex};
 
 use crate::{
-    ClaudeCliRunner, EngineConfig, EngineFacade, EngineKind, ResumeTranscript, compose_turn,
-    session_query, ComposedTurn,
+    compose_turn, session_query, ClaudeCliRunner, ComposedTurn, EngineConfig, EngineFacade,
+    EngineKind, ResumeTranscript,
 };
 use store::WorkspaceStores;
 
@@ -67,7 +66,11 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
 fn engine_kind线格式值域逐字为cli与sdk且非法值拒绝() {
     for (kind, expected) in [(EngineKind::Cli, "cli"), (EngineKind::Sdk, "sdk")] {
         let serialized = serde_json::to_string(&kind).expect("序列化成功");
-        assert_eq!(serialized, format!("\"{expected}\""), "线格式逐字 {expected}");
+        assert_eq!(
+            serialized,
+            format!("\"{expected}\""),
+            "线格式逐字 {expected}"
+        );
         let roundtrip: EngineKind = serde_json::from_str(&serialized).expect("反序列化成功");
         assert_eq!(roundtrip, kind);
     }
@@ -91,10 +94,7 @@ fn resume_transcript缝类型形状入参str返回result_option_vec且闭包替�
     let direct = loader("ses-1").expect("Ok 形态返回 Ok");
     assert_eq!(direct, Some(Vec::new()), "Ok(Some(空史)) 形态原样透传");
     let (err_loader, err_calls) = counting_loader(Err("读取失败".to_owned()));
-    assert!(
-        err_loader("ses-2").is_err(),
-        "Err 形态原样返回 Err(String)"
-    );
+    assert!(err_loader("ses-2").is_err(), "Err 形态原样返回 Err(String)");
     let (none_loader, none_calls) = counting_loader(Ok(None));
     assert_eq!(
         none_loader("ses-3").expect("None 形态返回 Ok"),

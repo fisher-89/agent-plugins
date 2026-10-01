@@ -7,10 +7,12 @@
  * 2. 时间序归并：eval 追加序为主链不重排；interrupted / active 按 startAt
  *    （Date.parse 毫秒，解析失败或缺失视同 null）插入骨干中第一个锚点严格晚于它的
  *    eval 事件之前；骨干锚点为 null 的 eval 不作插入参考；无插入点者按列表序
- *    （先 interrupted[] 后 active）追加链尾；
+ *    （先 interrupted[] 后 active）追加链尾；run 步 overlay（可选第二参）恒追加
+ *    链尾——运行步是"正在发生"的最新事件，参与同一条链的边推导（执行图 = 展示图）；
  * 3. 链式边推导：归并序列头尾相连，每个非首事件恰一条入边，kind 由两端列索引差
  *    符号派生（>0 forward / =0 retry / <0 backtrack），回跳边 label 取目标
- *    eval 节点 record.backtrackReason。
+ *    eval 节点 record.backtrackReason。时间序边推导规则、9 列布局、attempt
+ *    缺号兜底不变；缺省 / 空参输出与无 overlay 现状完全一致。
  */
 import type { ChangeDetail, PhaseEntry } from '../../../types/dto';
 import { PIPELINE_PHASES } from './layout';
@@ -23,6 +25,7 @@ import type {
   FlowGraph,
   FlowNode,
   InterruptedFlowNode,
+  RuntimeFlowNode,
 } from './types';
 
 /** 锚点时间（毫秒）；null 或 Date.parse 产出 NaN（非法时间串）均视同 null，不参与比较 */
@@ -157,8 +160,10 @@ function deriveEdges(sequence: FlowNode[]): FlowEdge[] {
   return edges;
 }
 
-/** 详情聚合 → 流程图模型；`pipeline` 为空（v0 早期代际）返回空图（无列无节点） */
-export function buildFlowGraph(detail: ChangeDetail): FlowGraph {
+/** 详情聚合 → 流程图模型；`pipeline` 为空（v0 早期代际）返回空图（无列无节点）。
+ * `runNodes` 为运行步 overlay（run-state.ts 推导；缺省 / 空参即无运行态）：
+ * 节点按给定序恒追加归并链尾，参与同一条链的边推导。 */
+export function buildFlowGraph(detail: ChangeDetail, runNodes?: RuntimeFlowNode[]): FlowGraph {
   if (detail.pipeline.length === 0) {
     return { columns: [], nodes: [], edges: [] };
   }
@@ -173,6 +178,9 @@ export function buildFlowGraph(detail: ChangeDetail): FlowGraph {
     ...collectInterrupted(detail),
     ...collectActive(detail),
   ]);
+  for (const runNode of runNodes ?? []) {
+    sequence.push(runNode);
+  }
   assignOrders(sequence);
   return { columns, nodes: sequence, edges: deriveEdges(sequence) };
 }

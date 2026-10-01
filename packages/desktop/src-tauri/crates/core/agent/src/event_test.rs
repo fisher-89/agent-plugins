@@ -161,7 +161,8 @@ fn message_delta序列化判别值逐字为messageDelta且驼峰键在场() {
 
     let value = serde_json::to_value(&event).expect("序列化成功");
     assert_eq!(
-        value["kind"], json!("messageDelta"),
+        value["kind"],
+        json!("messageDelta"),
         "增量判别值逐字为 messageDelta（碎事件根因修复的传输词汇）"
     );
     assert!(
@@ -263,7 +264,8 @@ fn turn_done序列化判别值逐字为turnDone且驼峰统计键回归() {
 
     let value = serde_json::to_value(&event).expect("序列化成功");
     assert_eq!(
-        value["kind"], json!("turnDone"),
+        value["kind"],
+        json!("turnDone"),
         "收敛判别值逐字为 turnDone（runResult 线值退役）"
     );
     // is_error/numTurns/durationMs/costUsd/sessionId 驼峰键回归

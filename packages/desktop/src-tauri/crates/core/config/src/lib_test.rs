@@ -13,9 +13,7 @@ use std::path::{Path, PathBuf};
 
 use serde_json::Value;
 
-use super::{
-    assemble, load, ConfigReport, DiagnosticKind, TestSuite, WorkspaceConfig,
-};
+use super::{assemble, load, ConfigReport, DiagnosticKind, TestSuite, WorkspaceConfig};
 use foundation::layout::config_path;
 
 /// 临时 workspace 根 RAII：测试结束自动清理。
@@ -23,11 +21,8 @@ struct TempWs(PathBuf);
 
 impl TempWs {
     fn new(tag: &str) -> Self {
-        let dir = std::env::temp_dir().join(format!(
-            "config-lib-test-{}-{}",
-            std::process::id(),
-            tag
-        ));
+        let dir =
+            std::env::temp_dir().join(format!("config-lib-test-{}-{}", std::process::id(), tag));
         let _ = fs::remove_dir_all(&dir);
         Self(dir)
     }
@@ -316,7 +311,11 @@ fn 可选字符串字段显式null与缺失同处置_无诊断_null位语义() {
     assert!(report.config.schema_ref.is_none());
     assert!(report.config.context.is_none());
     assert!(report.config.static_analysis.is_none());
-    assert!(report.diagnostics.is_empty(), "null 位无诊断，实际 {:?}", report.diagnostics);
+    assert!(
+        report.diagnostics.is_empty(),
+        "null 位无诊断，实际 {:?}",
+        report.diagnostics
+    );
 }
 
 #[test]
@@ -356,7 +355,10 @@ fn schema字段非字面量落默认并记_invalid_value_缺失记_default_appli
 
 #[test]
 fn rules非对象_none加_invalid_value_显式null同缺失无诊断() {
-    for (tag, content) in [("array", r#"{"rules": []}"#), ("string", r#"{"rules": "x"}"#)] {
+    for (tag, content) in [
+        ("array", r#"{"rules": []}"#),
+        ("string", r#"{"rules": "x"}"#),
+    ] {
         let ws = TempWs::new(&format!("rules-{tag}"));
         ws.ensure_dir();
         ws.write_config(content);
@@ -386,8 +388,16 @@ fn rules子字段元素混入非字符串_该子字段none加_invalid_value_path
     let rules = report.config.rules.as_ref().expect("rules 对象本体保留");
     assert!(rules.proposal.is_none());
     assert!(rules.tasks.is_none());
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "rules.proposal"));
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "rules.tasks"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "rules.proposal"
+    ));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "rules.tasks"
+    ));
 }
 
 #[test]
@@ -405,7 +415,13 @@ fn rules子字段空数组与多元素列表合法原样保留_无诊断() {
     assert_eq!(rules.proposal, Some(Vec::new()), "空数组合法保留");
     assert_eq!(
         rules.tasks.as_deref(),
-        Some(&["规则一".to_owned(), "规则二".to_owned(), "规则三".to_owned()][..])
+        Some(
+            &[
+                "规则一".to_owned(),
+                "规则二".to_owned(),
+                "规则三".to_owned()
+            ][..]
+        )
     );
 }
 
@@ -415,12 +431,25 @@ fn rules子字段空数组与多元素列表合法原样保留_无诊断() {
 
 #[test]
 fn 合法多suite八框架枚举逐值各一_全部原样保留diagnostics为空() {
-    let frameworks = ["jest", "vitest", "vite-plus", "bun", "rust", "node-test", "go", "pytest"];
+    let frameworks = [
+        "jest",
+        "vitest",
+        "vite-plus",
+        "bun",
+        "rust",
+        "node-test",
+        "go",
+        "pytest",
+    ];
     let suites: Vec<String> = frameworks
         .iter()
         .enumerate()
         .map(|(index, framework)| {
-            full_suite(&format!("pkg-{index}-{framework}"), framework, r#"{"lines": 80, "branches": 70, "functions": 75}"#)
+            full_suite(
+                &format!("pkg-{index}-{framework}"),
+                framework,
+                r#"{"lines": 80, "branches": 70, "functions": 75}"#,
+            )
         })
         .collect();
     let ws = TempWs::new("suites-all-frameworks");
@@ -429,7 +458,11 @@ fn 合法多suite八框架枚举逐值各一_全部原样保留diagnostics为空
 
     let report = load(ws.root());
 
-    assert!(report.diagnostics.is_empty(), "实际诊断 {:?}", report.diagnostics);
+    assert!(
+        report.diagnostics.is_empty(),
+        "实际诊断 {:?}",
+        report.diagnostics
+    );
     assert_eq!(report.config.tests.len(), 8, "八框架逐值全保留");
     for (suite, framework) in report.config.tests.iter().zip(frameworks) {
         assert_eq!(framework_of(suite), framework);
@@ -486,7 +519,11 @@ fn suite元素非对象剔除并按索引记_invalid_value() {
     assert_eq!(report.config.tests[0].root, "keep");
     for index in 0..4 {
         assert!(
-            has_diag(&report, &DiagnosticKind::InvalidValue, &format!("tests[{index}]")),
+            has_diag(
+                &report,
+                &DiagnosticKind::InvalidValue,
+                &format!("tests[{index}]")
+            ),
             "tests[{index}] 应按索引记 InvalidValue"
         );
     }
@@ -501,9 +538,21 @@ fn suite必需字段root或framework缺失剔除整个suite() {
     let report = load(ws.root());
 
     assert!(report.config.tests.is_empty());
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].root"));
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[1].framework"));
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[2].root"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].root"
+    ));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[1].framework"
+    ));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[2].root"
+    ));
 }
 
 #[test]
@@ -519,7 +568,9 @@ fn suite_root空串或含通配符剔除整个suite() {
     ] {
         let ws = TempWs::new("suite-root-wildcard");
         ws.ensure_dir();
-        ws.write_config(&format!(r#"{{"tests": [{{"root": {root}, "framework": "bun"}}]}}"#));
+        ws.write_config(&format!(
+            r#"{{"tests": [{{"root": {root}, "framework": "bun"}}]}}"#
+        ));
 
         let report = load(ws.root());
 
@@ -539,9 +590,21 @@ fn suite_root空串或含通配符剔除整个suite() {
 fn suite_root超长换行emoji中文无通配符即合法保留() {
     let long_root = "a".repeat(1200);
     let suites = [
-        full_suite(&long_root, "bun", r#"{"lines": 80, "branches": 70, "functions": 75}"#),
-        full_suite("src\\n线", "rust", r#"{"lines": 80, "branches": 70, "functions": 75}"#),
-        full_suite("目录/🚀", "go", r#"{"lines": 80, "branches": 70, "functions": 75}"#),
+        full_suite(
+            &long_root,
+            "bun",
+            r#"{"lines": 80, "branches": 70, "functions": 75}"#,
+        ),
+        full_suite(
+            "src\\n线",
+            "rust",
+            r#"{"lines": 80, "branches": 70, "functions": 75}"#,
+        ),
+        full_suite(
+            "目录/🚀",
+            "go",
+            r#"{"lines": 80, "branches": 70, "functions": 75}"#,
+        ),
     ];
     let ws = TempWs::new("suite-root-edge-legal");
     ws.ensure_dir();
@@ -549,7 +612,11 @@ fn suite_root超长换行emoji中文无通配符即合法保留() {
 
     let report = load(ws.root());
 
-    assert!(report.diagnostics.is_empty(), "str 边界合法侧，实际 {:?}", report.diagnostics);
+    assert!(
+        report.diagnostics.is_empty(),
+        "str 边界合法侧，实际 {:?}",
+        report.diagnostics
+    );
     assert_eq!(report.config.tests.len(), 3);
     assert_eq!(report.config.tests[0].root, long_root);
     // JSON "\n" 转义解析为真实换行字符
@@ -570,7 +637,9 @@ fn suite_framework枚举外值剔除整个suite() {
     ] {
         let ws = TempWs::new("suite-framework-invalid");
         ws.ensure_dir();
-        ws.write_config(&format!(r#"{{"tests": [{{"root": "a", "framework": {framework}}}]}}"#));
+        ws.write_config(&format!(
+            r#"{{"tests": [{{"root": "a", "framework": {framework}}}]}}"#
+        ));
 
         let report = load(ws.root());
 
@@ -578,7 +647,11 @@ fn suite_framework枚举外值剔除整个suite() {
             report.config.tests.is_empty(),
             "framework={framework} 应剔除整个 suite"
         );
-        assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].framework"));
+        assert!(has_diag(
+            &report,
+            &DiagnosticKind::InvalidValue,
+            "tests[0].framework"
+        ));
     }
 }
 
@@ -590,7 +663,11 @@ fn suite_cwd缺失吃默认记default_applied_非法吃默认记invalid_value() 
     ws.write_config(&format!(r#"{{"tests": [{}]}}"#, minimal_suite("a", "bun")));
     let report = load(ws.root());
     assert_eq!(report.config.tests[0].cwd, ".");
-    assert!(has_diag(&report, &DiagnosticKind::DefaultApplied, "tests[0].cwd"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::DefaultApplied,
+        "tests[0].cwd"
+    ));
 
     // 非字符串 → "." + InvalidValue
     let ws = TempWs::new("cwd-invalid");
@@ -598,7 +675,11 @@ fn suite_cwd缺失吃默认记default_applied_非法吃默认记invalid_value() 
     ws.write_config(r#"{"tests": [{"root": "a", "framework": "bun", "cwd": 7}]}"#);
     let report = load(ws.root());
     assert_eq!(report.config.tests[0].cwd, ".");
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].cwd"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].cwd"
+    ));
 
     // 合法原样保留、无 cwd 诊断
     let ws = TempWs::new("cwd-legal");
@@ -606,8 +687,16 @@ fn suite_cwd缺失吃默认记default_applied_非法吃默认记invalid_value() 
     ws.write_config(r#"{"tests": [{"root": "a", "framework": "bun", "cwd": "packages/desktop"}]}"#);
     let report = load(ws.root());
     assert_eq!(report.config.tests[0].cwd, "packages/desktop");
-    assert!(!has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].cwd"));
-    assert!(!has_diag(&report, &DiagnosticKind::DefaultApplied, "tests[0].cwd"));
+    assert!(!has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].cwd"
+    ));
+    assert!(!has_diag(
+        &report,
+        &DiagnosticKind::DefaultApplied,
+        "tests[0].cwd"
+    ));
 }
 
 #[test]
@@ -632,10 +721,19 @@ fn suite_config空串或非字符串none加诊断_缺失与null无诊断_合法�
     // 合法非空串保留
     let ws = TempWs::new("suite-config-legal");
     ws.ensure_dir();
-    ws.write_config(r#"{"tests": [{"root": "a", "framework": "bun", "config": "vitest.config.ts"}]}"#);
+    ws.write_config(
+        r#"{"tests": [{"root": "a", "framework": "bun", "config": "vitest.config.ts"}]}"#,
+    );
     let report = load(ws.root());
-    assert_eq!(report.config.tests[0].config.as_deref(), Some("vitest.config.ts"));
-    assert!(!has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].config"));
+    assert_eq!(
+        report.config.tests[0].config.as_deref(),
+        Some("vitest.config.ts")
+    );
+    assert!(!has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].config"
+    ));
 
     // 缺失 / 显式 null → None 无诊断
     for config_value in ["", "null"] {
@@ -668,7 +766,11 @@ fn suite_includes_excludes类型违例none加诊断_空数组与缺失合法() {
     ws.write_config(r#"{"tests": [{"root": "a", "framework": "bun", "includes": "src/**"}]}"#);
     let report = load(ws.root());
     assert_eq!(report.config.tests[0].includes, None);
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].includes"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].includes"
+    ));
 
     // excludes 元素混入非字符串
     let ws = TempWs::new("excludes-non-string");
@@ -676,7 +778,11 @@ fn suite_includes_excludes类型违例none加诊断_空数组与缺失合法() {
     ws.write_config(r#"{"tests": [{"root": "a", "framework": "bun", "excludes": [1]}]}"#);
     let report = load(ws.root());
     assert_eq!(report.config.tests[0].excludes, None);
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].excludes"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].excludes"
+    ));
 
     // 空数组合法保留、无诊断（全字段显式设值，零 prefault 诊断）
     let ws = TempWs::new("includes-empty-legal");
@@ -687,7 +793,11 @@ fn suite_includes_excludes类型违例none加诊断_空数组与缺失合法() {
         r#"{"lines": 80, "branches": 70, "functions": 75}"#,
     )));
     let report = load(ws.root());
-    assert!(report.diagnostics.is_empty(), "实际 {:?}", report.diagnostics);
+    assert!(
+        report.diagnostics.is_empty(),
+        "实际 {:?}",
+        report.diagnostics
+    );
     assert_eq!(report.config.tests[0].includes, Some(Vec::new()));
     assert_eq!(report.config.tests[0].excludes, Some(Vec::new()));
 
@@ -698,8 +808,16 @@ fn suite_includes_excludes类型违例none加诊断_空数组与缺失合法() {
     let report = load(ws.root());
     assert_eq!(report.config.tests[0].includes, None);
     assert_eq!(report.config.tests[0].excludes, None);
-    assert!(!has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].includes"));
-    assert!(!has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].excludes"));
+    assert!(!has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].includes"
+    ));
+    assert!(!has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].excludes"
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -819,7 +937,11 @@ fn coverage阈值越界该字段吃默认记invalid_value_合法同侪不受波�
     assert_eq!(coverage.branches, 88.0, "合法同侪原样保留");
     assert_eq!(coverage.functions, 0.0, "端点 0 合法保留");
     assert_eq!(report.diagnostics.len(), 1, "仅 lines 一条违例");
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].coverage.lines"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].coverage.lines"
+    ));
 }
 
 #[test]
@@ -864,11 +986,19 @@ fn mutation缺失_score吃默认记default_applied_cwd为none无诊断() {
     assert_eq!(mutation.cwd, None, "cwd 无默认：缺失为 None");
     assert_eq!(mutation.score, 70.0);
     assert!(
-        has_diag(&report, &DiagnosticKind::DefaultApplied, "tests[0].mutation.score"),
+        has_diag(
+            &report,
+            &DiagnosticKind::DefaultApplied,
+            "tests[0].mutation.score"
+        ),
         "score 应记 DefaultApplied"
     );
     assert!(
-        !has_diag(&report, &DiagnosticKind::DefaultApplied, "tests[0].mutation.cwd"),
+        !has_diag(
+            &report,
+            &DiagnosticKind::DefaultApplied,
+            "tests[0].mutation.cwd"
+        ),
         "cwd 缺失无诊断"
     );
 }
@@ -892,7 +1022,11 @@ fn mutation非对象与null同走默认处置加invalid_value() {
             "mutation={value} 应记 InvalidValue"
         );
         assert!(
-            has_diag(&report, &DiagnosticKind::DefaultApplied, "tests[0].mutation.score"),
+            has_diag(
+                &report,
+                &DiagnosticKind::DefaultApplied,
+                "tests[0].mutation.score"
+            ),
             "mutation={value} 的 score 同缺失处置记 DefaultApplied"
         );
     }
@@ -927,8 +1061,16 @@ fn mutation_score越界或非数值吃默认记invalid_value_cwd非法none加诊
     let report = load(ws.root());
     assert_eq!(report.config.tests[0].mutation.cwd, None);
     assert_eq!(report.config.tests[0].mutation.score, 70.0);
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].mutation.cwd"));
-    assert!(has_diag(&report, &DiagnosticKind::DefaultApplied, "tests[0].mutation.score"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[0].mutation.cwd"
+    ));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::DefaultApplied,
+        "tests[0].mutation.score"
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -981,13 +1123,20 @@ fn write_protection缺失与null无诊断_非对象与files非数组none加inval
     }
 
     // 非对象 → None + InvalidValue
-    for content in [r#"{"write_protection": "x"}"#, r#"{"write_protection": []}"#] {
+    for content in [
+        r#"{"write_protection": "x"}"#,
+        r#"{"write_protection": []}"#,
+    ] {
         let ws = TempWs::new("protection-not-object");
         ws.ensure_dir();
         ws.write_config(content);
         let report = load(ws.root());
         assert!(report.config.write_protection.is_none());
-        assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "write_protection"));
+        assert!(has_diag(
+            &report,
+            &DiagnosticKind::InvalidValue,
+            "write_protection"
+        ));
     }
 
     // files 非数组 → files None + InvalidValue（path write_protection.files）
@@ -997,12 +1146,18 @@ fn write_protection缺失与null无诊断_非对象与files非数组none加inval
     let report = load(ws.root());
     let protection = report.config.write_protection.as_ref().expect("本体保留");
     assert!(protection.files.is_none());
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "write_protection.files"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "write_protection.files"
+    ));
 
     // files 显式 null → None 无诊断（null 位语义）
     let ws = TempWs::new("protection-files-null");
     ws.ensure_dir();
-    ws.write_config(r#"{"schema": "spec-driven", "tests": [], "write_protection": {"files": null}}"#);
+    ws.write_config(
+        r#"{"schema": "spec-driven", "tests": [], "write_protection": {"files": null}}"#,
+    );
     let report = load(ws.root());
     let protection = report.config.write_protection.as_ref().expect("本体保留");
     assert!(protection.files.is_none());
@@ -1110,7 +1265,10 @@ fn 多个未知字段完整保留且两次加载顺序稳定() {
     let keys_again: Vec<String> = second.config.extra.iter().map(|f| f.key.clone()).collect();
     assert_eq!(
         keys,
-        keys_again.iter().map(|key| key.as_str()).collect::<Vec<_>>(),
+        keys_again
+            .iter()
+            .map(|key| key.as_str())
+            .collect::<Vec<_>>(),
         "同一输入两次加载 extra 顺序稳定"
     );
 }
@@ -1201,7 +1359,11 @@ fn 两个suite一违一合_违例剔除记诊断_合法保序保留不殃及() {
 
     assert_eq!(report.config.tests.len(), 1, "仅合法 suite 保留");
     assert_eq!(report.config.tests[0].root, "ok-pkg");
-    assert!(has_diag(&report, &DiagnosticKind::InvalidValue, "tests[1].root"));
+    assert!(has_diag(
+        &report,
+        &DiagnosticKind::InvalidValue,
+        "tests[1].root"
+    ));
     assert!(
         !has_diag(&report, &DiagnosticKind::InvalidValue, "tests[0].root"),
         "剔除处置不殃及合法 suite"

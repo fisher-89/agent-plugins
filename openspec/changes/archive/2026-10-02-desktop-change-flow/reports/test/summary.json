@@ -1,0 +1,121 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-01T17:19:17.901Z",
+  "duration_seconds": 973,
+  "total": 3285,
+  "passed": 3285,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 0
+      },
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 66,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 81.24,
+    "threshold": 80,
+    "measured": {
+      "killed": 836,
+      "survived": 176,
+      "timeout": 0,
+      "noCoverage": 17,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 46,
+      "total": 1075,
+      "detected": 836,
+      "undetected": 193
+    },
+    "overrides": [
+      {
+        "glob": "plugins/dev-team",
+        "score": 70,
+        "threshold": 70,
+        "pass": true,
+        "file_count": 51,
+        "passed_count": 51
+      },
+      {
+        "glob": "packages/desktop",
+        "score": 81.24392614188532,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 66,
+        "passed_count": 66
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "plugins_dev-team_vite-plus",
+      "framework": "vite-plus",
+      "root": "plugins/dev-team",
+      "path": "openspec/changes/desktop-change-flow/reports/test/plugins_dev-team_vite-plus"
+    },
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-change-flow/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-change-flow/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All three suites green: plugins/dev-team 2402/2402, packages/desktop 805/805 (StrykerJS mutation 81.24% >= 80), rust workspace all binaries ok - no test fixes required.",
+    "Rust totals are undercounted: summary counts only the first cargo test binary (78), but the workspace run executed 861 tests across 24 test binaries, all passing (results.txt) - conclusion pass is unaffected, only the rust total is understated by 783.",
+    "Summary-level coverage gate passed vacuously: coverage.measured and both override entries are null although coverage-summary.json data exists and clears thresholds (plugins/dev-team 97.28/89.78/99.55, packages/desktop 94.71/88.84/93.19 vs 90/85/90) - the summary coverage parser failed to lift istanbul json-summary totals; per-plan report.json measured values are populated correctly.",
+    "Rust plan coverage disagrees with the summary gate: packages_desktop_src-tauri_rust/report.json has coverage.pass=false (branches 0, functions 88.40 vs 85/90) while summary.coverage.pass=true lists no rust override. branches=0 is a llvm-cov format artifact (region-based JSON has no istanbul-style branch totals, should be treated as unsupported/null like go-cover); functions 88.40<90 is the only substantive shortfall signal and is not surfaced in summary.problems.",
+    "Rust mutation declared but not executed: config.json sets mutation {score: 70} for packages/desktop/src-tauri, yet the rust plan report has mutation=null and no rust entry appears in summary.mutation.overrides (only StrykerJS ran for the two TS roots)."
+  ]
+}

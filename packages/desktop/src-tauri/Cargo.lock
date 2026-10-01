@@ -29,9 +29,12 @@ name = "agent-runtime"
 version = "0.1.0"
 dependencies = [
  "agent",
+ "config",
+ "foundation",
  "futures",
  "glob",
  "native_db",
+ "orchestration",
  "rig-core",
  "serde",
  "serde_json",
@@ -1106,6 +1109,7 @@ dependencies = [
  "embed-resource",
  "foundation",
  "native_db",
+ "orchestration",
  "serde",
  "serde_json",
  "specta",
@@ -3487,6 +3491,20 @@ name = "option-ext"
 version = "0.2.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "04744f49eae99ab78e0d5c0b603ab218f515ea8cfe5a456d7629ad883a3b6e7d"
+
+[[package]]
+name = "orchestration"
+version = "0.1.0"
+dependencies = [
+ "agent",
+ "foundation",
+ "serde",
+ "serde_json",
+ "specta",
+ "time",
+ "tokio",
+ "workflow",
+]
 
 [[package]]
 name = "ordered-float"

@@ -3,6 +3,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import type { AttemptRecord, ChangeDetail, PhaseEntry } from '../../../types/dto';
 import { buildFlowGraph } from './graph';
 import { PIPELINE_PHASES } from './layout';
+import type { RuntimeFlowNode } from './types';
 
 // ---------------------------------------------------------------------------
 // buildFlowGraph 单测：转换层为零 react / 零 @xyflow/react / 零 invoke 的纯函数，
@@ -478,3 +479,190 @@ function withReasonNodesWithoutReasonFixture(): ChangeDetail {
     ],
   });
 }
+
+// ---------------------------------------------------------------------------
+// 运行步 overlay（可选第二参 runNodes，desktop-change-flow 增量）：运行步节点
+// 恒追加归并链尾并参与同一条链的边推导（执行图 = 展示图）；缺省 / 空参输出与
+// 现状零 diff（AC-5 回归半边）。RuntimeFlowNode fixture 沿既有手工构造装置
+// 直构（run-state.ts runStepNodes 的同形投影）。
+// ---------------------------------------------------------------------------
+
+/** 运行步 overlay 节点 fixture（runStepNodes 同形投影的直构形态）。 */
+function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
+  return {
+    id: 'run:implement:1:executor',
+    kind: 'runtime',
+    phase: 'implement',
+    attempt: 1,
+    colIndex: PIPELINE_PHASES.indexOf('implement'),
+    order: 0,
+    parentId: 'col:implement',
+    runStepKind: 'executor',
+    group: 'workerAgent',
+    role: 'executor',
+    status: 'running',
+    sessionId: 'ses-exec-1',
+    detail: null,
+    ...overrides,
+  };
+}
+
+describe('buildFlowGraph：运行步 overlay（可选第二参 runNodes）', () => {
+  it('缺省与空参输出逐字段相等，且与既有场景基线一致（零 diff 回归）', () => {
+    const scenarios: ChangeDetail[] = [
+      twoStationDetail(),
+      detail({
+        pipeline: PIPELINE_PHASES.map((phase) =>
+          station(phase, phase === 'proposal' ? [attempt()] : []),
+        ),
+        interrupted: [{ phase: 'implement', attempt: 1, startAt: null, endAt: null }],
+        activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
+      }),
+      detail({ pipeline: [] }),
+    ];
+    for (const base of scenarios) {
+      expect(buildFlowGraph(base)).toEqual(buildFlowGraph(base, []));
+    }
+    // 基线锚：overlay 通道的存在不漂移既有派生输出（desktop-change-flow-view 既有场景全绿半边）
+    expect(nodeIds(buildFlowGraph(twoStationDetail()).nodes)).toEqual([
+      'eval:proposal:1',
+      'eval:dev-design:1',
+    ]);
+  });
+
+  it('传入 runNodes → 运行步节点按给定序追加归并链尾，每个非首节点恰一条入边延伸至运行步节点', () => {
+    const graph = buildFlowGraph(twoStationDetail(), [runNode()]);
+    expect(nodeIds(graph.nodes)).toEqual([
+      'eval:proposal:1',
+      'eval:dev-design:1',
+      'run:implement:1:executor',
+    ]);
+    // 边推导规则不变：链尾运行步恰一条入边，kind 由两端列差派生（col1 → col3 forward）
+    expect(graph.edges).toHaveLength(2);
+    expect(graph.edges[1]).toEqual({
+      id: 'edge:eval:dev-design:1->run:implement:1:executor',
+      source: 'eval:dev-design:1',
+      target: 'run:implement:1:executor',
+      kind: 'forward',
+      label: null,
+    });
+    expect(inDegree(graph.edges, 'run:implement:1:executor')).toBe(1);
+    expect(inDegree(graph.edges, 'eval:proposal:1')).toBe(0);
+  });
+
+  it('WorkerAgent / ToolStep / Gate 三类运行步节点经 overlay 上图，kind / runStepKind 载荷可辨', () => {
+    const graph = buildFlowGraph(detail(), [
+      runNode(),
+      runNode({
+        id: 'run:implement:1:staticCheck',
+        runStepKind: 'staticCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        detail: '2 处诊断',
+      }),
+      runNode({
+        id: 'run:implement:1:verdictGate',
+        runStepKind: 'verdictGate',
+        group: 'gate',
+        role: null,
+        sessionId: null,
+      }),
+    ]);
+    expect(graph.nodes.map((node) => node.kind)).toEqual(['runtime', 'runtime', 'runtime']);
+    const [worker, tool, gate] = graph.nodes;
+    if (worker.kind !== 'runtime' || tool.kind !== 'runtime' || gate.kind !== 'runtime') {
+      throw new Error('应为 runtime 节点');
+    }
+    expect(worker.group).toBe('workerAgent');
+    expect(worker.runStepKind).toBe('executor');
+    expect(worker.role).toBe('executor');
+    expect(tool.group).toBe('toolStep');
+    expect(tool.runStepKind).toBe('staticCheck');
+    expect(tool.detail).toBe('2 处诊断');
+    expect(gate.group).toBe('gate');
+    expect(gate.runStepKind).toBe('verdictGate');
+    // 空骨干上三类节点链式相连：同列 Δ=0 → 两条 retry 边，链头无入边
+    expect(graph.edges.map((edge) => edge.id)).toEqual([
+      'edge:run:implement:1:executor->run:implement:1:staticCheck',
+      'edge:run:implement:1:staticCheck->run:implement:1:verdictGate',
+    ]);
+    expect(graph.edges.map((edge) => edge.kind)).toEqual(['retry', 'retry']);
+    expect(inDegree(graph.edges, 'run:implement:1:executor')).toBe(0);
+  });
+
+  it('attempt 交错归并：overlay 恒链尾、列内 order 接续既有事件计数、attempt 缺号兜底不变', () => {
+    const graph = buildFlowGraph(
+      detail({
+        pipeline: PIPELINE_PHASES.map((phase) =>
+          station(
+            phase,
+            phase === 'proposal'
+              ? [attempt({ attempt: null, startAt: '2026-09-02T00:00:00Z' })]
+              : [],
+          ),
+        ),
+      }),
+      [
+        runNode({ id: 'run:implement:2:executor', phase: 'implement', attempt: 2 }),
+        runNode({
+          id: 'run:proposal:2:evaluator',
+          phase: 'proposal',
+          attempt: 2,
+          colIndex: PIPELINE_PHASES.indexOf('proposal'),
+          parentId: 'col:proposal',
+          runStepKind: 'evaluator',
+        }),
+      ],
+    );
+    expect(nodeIds(graph.nodes)).toEqual([
+      'eval:proposal:0',
+      'run:implement:2:executor',
+      'run:proposal:2:evaluator',
+    ]);
+    const [evalNode, implementRun, proposalRun] = graph.nodes;
+    expect(evalNode.order).toBe(0);
+    expect(implementRun.order).toBe(0);
+    // 交错体现在列内计数：proposal 列的运行步接续既有 eval 事件编号，骨干不重排
+    expect(proposalRun.order).toBe(1);
+    // 边推导规则不变：col0 → col3 forward、col3 → col0 backtrack
+    expect(graph.edges.map((edge) => edge.kind)).toEqual(['forward', 'backtrack']);
+    // attempt 缺号兜底不变（eval null → 0），overlay 节点 attempt 原样承接
+    expect(evalNode.attempt).toBe(0);
+    expect(proposalRun.attempt).toBe(2);
+  });
+
+  it('混合终态 overlay（failed / stopped / passed 混存）归并稳定不炸、终态载荷与链式边保留', () => {
+    const graph = buildFlowGraph(twoStationDetail(), [
+      runNode({ status: 'failed', detail: '会话失败：CLI 漂移' }),
+      runNode({
+        id: 'run:test-gen:1:phaseStart',
+        phase: 'test-gen',
+        runStepKind: 'phaseStart',
+        group: 'toolStep',
+        role: null,
+        status: 'stopped',
+        sessionId: null,
+      }),
+      runNode({
+        id: 'run:test-execution:1:evaluator',
+        phase: 'test-execution',
+        runStepKind: 'evaluator',
+        status: 'passed',
+        sessionId: 'ses-eval-1',
+      }),
+    ]);
+    expect(graph.nodes).toHaveLength(5);
+    expect(graph.nodes.map((node) => (node.kind === 'runtime' ? node.status : null))).toEqual([
+      null,
+      null,
+      'failed',
+      'stopped',
+      'passed',
+    ]);
+    expect(graph.edges).toHaveLength(4);
+    for (const node of graph.nodes.slice(1)) {
+      expect(inDegree(graph.edges, node.id)).toBe(1);
+    }
+  });
+});

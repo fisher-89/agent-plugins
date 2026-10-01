@@ -8,8 +8,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent::{
-    AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole, NewSessionRow, SessionQuery, SessionSink,
-    SessionStats, SessionProvenance,
+    AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole, NewSessionRow, SessionProvenance,
+    SessionQuery, SessionSink, SessionStats,
 };
 
 use crate::store_port::{StoreQuery, StoreSink};
@@ -150,10 +150,7 @@ fn create_session落库后bind_remote_session刷新双id与updated_at() {
         Some("sdk-11"),
         "remote 承接（直查双 id 映射落库半边）"
     );
-    assert_eq!(
-        after.updated_at, 1727000009000,
-        "updated_at 刷新承接"
-    );
+    assert_eq!(after.updated_at, 1727000009000, "updated_at 刷新承接");
     assert_eq!(after.created_at, before.created_at, "建档时间不变");
 }
 
@@ -243,7 +240,11 @@ fn append_sealed密封追加后transcript按seq升序全量重放() {
 
     let transcript = env.query.transcript("ses-s").expect("transcript 应成功");
     let seqs: Vec<u64> = transcript.iter().map(|event| event.seq).collect();
-    assert_eq!(seqs, vec![0, 2, 7], "seq 升序全量重放（write-through 原子落盘）");
+    assert_eq!(
+        seqs,
+        vec![0, 2, 7],
+        "seq 升序全量重放（write-through 原子落盘）"
+    );
 }
 
 #[test]
@@ -372,7 +373,10 @@ fn transcript不存在会话返回空vec且跨session隔离() {
         "不存在会话返回空 Vec"
     );
     assert!(
-        env.query.transcript("ses-b").expect("transcript 应成功").is_empty(),
+        env.query
+            .transcript("ses-b")
+            .expect("transcript 应成功")
+            .is_empty(),
         "B 会话转录不含 A 的事件"
     );
     assert_eq!(env.query.transcript("ses-a").expect("非空").len(), 1);
@@ -397,7 +401,10 @@ fn list_sessions聚合现算轮数累计墙钟累计token与降序稳定() {
     env.sink
         .append_sealed("ses-new", &turn_done(0, 10, 100))
         .expect("append 应成功");
-    let turn = env.sink.begin_turn("ses-new", 1727000000000).expect("begin");
+    let turn = env
+        .sink
+        .begin_turn("ses-new", 1727000000000)
+        .expect("begin");
     finish_turn_ok(&env.sink, turn, agent::AgentRunStatus::Completed);
     env.sink
         .bind_remote_session("ses-new", "sdk-1", 1727000009000)
@@ -449,7 +456,10 @@ fn list_sessions来源过滤生效且缺席缺省空库空清单() {
         .list_sessions(Some("explore"), None)
         .expect("list_sessions 应成功");
     assert_eq!(
-        explores.iter().map(|s| s.row.id.as_str()).collect::<Vec<_>>(),
+        explores
+            .iter()
+            .map(|s| s.row.id.as_str())
+            .collect::<Vec<_>>(),
         vec!["ses-explore"],
         "source 过滤生效"
     );
@@ -480,13 +490,11 @@ fn list_sessions来源过滤生效且缺席缺省空库空清单() {
 
     // 空库空清单
     let empty_env = Env::new("empty-list");
-    assert!(
-        empty_env
-            .query
-            .list_sessions(None, None)
-            .expect("空库清单应成功")
-            .is_empty()
-    );
+    assert!(empty_env
+        .query
+        .list_sessions(None, None)
+        .expect("空库清单应成功")
+        .is_empty());
 }
 
 // ---------------------------------------------------------------------------

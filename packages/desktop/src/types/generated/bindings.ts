@@ -85,6 +85,21 @@ export const commands = {
 	 *  空结果。
 	 */
 	agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent[]>("agent_session_transcript", { root, sessionId }),
+	changeFlowStart: (onEvent: Channel<RunUpdate>, root: string, change: string) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, change }),
+	changeFlowStop: (root: string, change: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, change }),
+	changeFlowAnswer: (root: string, change: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, change, answer }),
+	changeFlowConfirm: (root: string, change: string, proceed: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, change, proceed }),
+	changeFlowState: (root: string, change: string) => __TAURI_INVOKE<{
+	runId: string,
+	status: ChangeRunStatus,
+	/**  当前相位（停等定位用） */
+	phase: string | null,
+	/**  当前 attempt */
+	attempt: number | null,
+	/**  waitingAsk 时的中断载荷 */
+	ask: AskPayload | null,
+} | null>("change_flow_state", { root, change }),
+	changeFlowWatch: (onEvent: Channel<RunUpdate>, root: string, change: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, change }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
 	readExplore: (root: string, name: string) => __TAURI_INVOKE<{
 	/**  笔记名（= 文件 stem） */
@@ -361,6 +376,12 @@ export type ArtifactEnvelope = {
 	fallbackText: string | null,
 };
 
+/**  ask 载荷：决策会话 ask 动作的中断问题与候选选项。 */
+export type AskPayload = {
+	question: string,
+	options: string[],
+};
+
 /**  单次尝试记录：backtrack 目标与原因随条目可查。 */
 export type AttemptRecord = {
 	attempt: number | null,
@@ -396,8 +417,101 @@ export type ChangeList = {
 	archiveGroups: ArchiveGroup[],
 };
 
+/**
+ *  重挂快照：进程内 run 控制注册表在 view 重建时的状态恢复面（run 终态后
+ *  为 None——快照只覆盖运行期，终态由图派生规则承载）。
+ */
+export type ChangeRunSnapshot = {
+	runId: string,
+	status: ChangeRunStatus,
+	/**  当前相位（停等定位用） */
+	phase: string | null,
+	/**  当前 attempt */
+	attempt: number | null,
+	/**  waitingAsk 时的中断载荷 */
+	ask: AskPayload | null,
+};
+
+/**
+ *  run 状态六档（camelCase 线格式）：三态运行期（running / 两类停等）与
+ *  三态终局（completed / stopped / failed）。
+ */
+export type ChangeRunStatus = 
+/**  运行中 */
+"running" | 
+/**  phase 间停等用户确认 */
+"waitingConfirm" | 
+/**  ask 中断，等待自由文本应答 */
+"waitingAsk" | 
+/**  全相位 pass 走完（不触发归档，停等用户） */
+"completed" | 
+/**  受控终止（用户停止 / confirm=false / 决策 stop 动作） */
+"stopped" | 
+/**  失败终止（写面 / 会话失败 / 解析失败显式停给用户） */
+"failed";
+
+/**
+ *  发起提前 resolve 返回值：run_id 立即可知，运行态经 Channel 流出（与
+ *  agent_start 提前 resolve 契约同型）。
+ */
+export type ChangeRunSummary = {
+	runId: string,
+	status: ChangeRunStatus,
+};
+
 /**  change 来源：进行中 / 已归档。 */
 export type ChangeSource = "active" | "archive";
+
+/**
+ *  步词汇（三类节点可辨）：WorkerAgent 三角色 + 相位机 / 工具步三步 + Gate
+ *  三门。
+ */
+export type ChangeStepKind = 
+/**  executor 会话 */
+"executor" | 
+/**  evaluator 会话 */
+"evaluator" | 
+/**  决策会话 */
+"decision" | 
+/**  phase-start 相位机步 */
+"phaseStart" | 
+/**  static-check 工具步 */
+"staticCheck" | 
+/**  phase-log 相位机步 */
+"phaseLog" | 
+/**  verdict 解析门 */
+"verdictGate" | 
+/**  retry 预算门（phase-next 重试 / 上限分叉） */
+"retryGate" | 
+/**  backtrack 白名单门（决策越权预校验） */
+"whitelistGate";
+
+/**  步状态行：一次 `RunUpdate::Step` 的载荷，运行步节点推导的唯一输入面。 */
+export type ChangeStepState = {
+	/**  相位 id */
+	phase: string,
+	/**  attempt 号 */
+	attempt: number,
+	/**  步词汇 */
+	step: ChangeStepKind,
+	/**  步状态 */
+	status: ChangeStepStatus,
+	/**  WorkerAgent 步所属会话 id（工具步 / Gate 步为 None） */
+	sessionId: string | null,
+	/**  人读详情（失败记因 / 通过摘要） */
+	detail: string | null,
+};
+
+/**  步状态四档。 */
+export type ChangeStepStatus = 
+/**  步进行中（节点 pulse 运行态） */
+"running" | 
+/**  步通过 */
+"passed" | 
+/**  步失败（图上红节点） */
+"failed" | 
+/**  步因停止 / 终止收敛（非失败语义） */
+"stopped";
 
 /**  列表条目摘要。 */
 export type ChangeSummary = {
@@ -680,6 +794,22 @@ export type RulesConfig = {
 	/**  任务阶段的自定义规则列表（未设为 `None`） */
 	tasks: string[] | null,
 };
+
+/**
+ *  run 状态流信封（tag `ipc` 判别，TS 镜像经 bindings 再生成直出）：
+ *  步状态上图、会话事件透传转录面板、ask / 确认停等驱动控制面板、终态收口。
+ */
+export type RunUpdate = 
+/**  步状态变更（运行步节点上图输入） */
+{ ipc: "step"; step: ChangeStepState } | 
+/**  WorkerAgent 会话事件透传（转录面板实时流） */
+{ ipc: "sessionEvent"; sessionId: string; event: AgentEvent } | 
+/**  ask 中断（决策会话无法裁决 → UI 中断提问） */
+{ ipc: "ask"; question: string; options: string[] } | 
+/**  phase 间停等确认 */
+{ ipc: "confirmWait"; phase: string } | 
+/**  终态收口（walker 收敛唯一出口） */
+{ ipc: "finished"; status: ChangeRunStatus; reason: string | null };
 
 /**
  *  来源归属：来源受控字符串（debug | explore | …，缺省 debug）+ 来源内定位

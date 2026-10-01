@@ -45,10 +45,7 @@ impl FakeRunner {
 
     /// 已捕获的入参快照（按调用序）。
     fn captured_opens(&self) -> Vec<SessionOpen> {
-        self.captured
-            .lock()
-            .expect("捕获锁不可中毒")
-            .clone()
+        self.captured.lock().expect("捕获锁不可中毒").clone()
     }
 }
 
@@ -62,7 +59,8 @@ impl AgentRunner for FakeRunner {
             return Err(failure);
         }
         let (observation_tx, observation_rx) = tokio::sync::mpsc::channel(16);
-        let (question_tx, _question_rx) = tokio::sync::mpsc::channel::<crate::runner::TurnQuestion>(4);
+        let (question_tx, _question_rx) =
+            tokio::sync::mpsc::channel::<crate::runner::TurnQuestion>(4);
         let events = self.prerecorded.clone();
         tokio::spawn(async move {
             for event in events {
@@ -109,7 +107,10 @@ async fn open_session_new注入与上下文原样到达实现且返回三件套(
 
     // 三件套：观察回流 + 轮驱动 + 运行句柄
     let received = session.observations.recv().await.expect("观察可达");
-    assert!(matches!(received, AgentEventKind::Raw { .. }), "预录观察回流");
+    assert!(
+        matches!(received, AgentEventKind::Raw { .. }),
+        "预录观察回流"
+    );
     let _ = session
         .questions
         .send(crate::runner::TurnQuestion {
@@ -225,12 +226,18 @@ fn open_session三变体启动失败err原样传播且互不重合() {
 
 #[tokio::test]
 async fn 假runner可作trait_object注入且满足send_sync边界() {
-    let boxed: Box<dyn AgentRunner> = Box::new(FakeRunner::with_events(vec![AgentEventKind::Raw {
-        event_type: "x".to_owned(),
-        raw_json: "{}".to_owned(),
-    }]));
-    let mut session = boxed.open_session(new_open()).expect("trait object open 应成功");
-    assert!(session.observations.recv().await.is_some(), "trait object 观察可达");
+    let boxed: Box<dyn AgentRunner> =
+        Box::new(FakeRunner::with_events(vec![AgentEventKind::Raw {
+            event_type: "x".to_owned(),
+            raw_json: "{}".to_owned(),
+        }]));
+    let mut session = boxed
+        .open_session(new_open())
+        .expect("trait object open 应成功");
+    assert!(
+        session.observations.recv().await.is_some(),
+        "trait object 观察可达"
+    );
 
     // Send + Sync bound：AgentRunner: Send + Sync，实现随之可跨线程
     fn assert_send_sync<R: AgentRunner>(_: &R) {}
@@ -293,7 +300,10 @@ fn session_ctx序列化驼峰键且未知字段忽略往返无损() {
 fn session_injections默认形态tools与preamble均为none() {
     let default_injections = SessionInjections::default();
     assert_eq!(default_injections.preamble, None, "preamble None 即不注入");
-    assert_eq!(default_injections.tools, None, "tools None 即引擎默认工具面");
+    assert_eq!(
+        default_injections.tools, None,
+        "tools None 即引擎默认工具面"
+    );
 
     // tools None 与有值两形态可区分（切片③预留接口位的契约面）
     let narrowed = SessionInjections {
@@ -307,13 +317,26 @@ fn session_injections默认形态tools与preamble均为none() {
 fn session_ref两形态相等语义与互异() {
     assert_eq!(SessionRef::New, SessionRef::New);
     assert_eq!(
-        SessionRef::Continue { id: "ses-1".to_owned() },
-        SessionRef::Continue { id: "ses-1".to_owned() }
+        SessionRef::Continue {
+            id: "ses-1".to_owned()
+        },
+        SessionRef::Continue {
+            id: "ses-1".to_owned()
+        }
     );
-    assert_ne!(SessionRef::New, SessionRef::Continue { id: "ses-1".to_owned() });
     assert_ne!(
-        SessionRef::Continue { id: "ses-1".to_owned() },
-        SessionRef::Continue { id: "ses-2".to_owned() },
+        SessionRef::New,
+        SessionRef::Continue {
+            id: "ses-1".to_owned()
+        }
+    );
+    assert_ne!(
+        SessionRef::Continue {
+            id: "ses-1".to_owned()
+        },
+        SessionRef::Continue {
+            id: "ses-2".to_owned()
+        },
         "Continue 会话 id 参与相等语义"
     );
 }
@@ -407,9 +430,18 @@ async fn 挂起的wait_requested被request_stop唤醒且重复置位不二次异
 #[test]
 fn start_error三变体display文案携带原因串() {
     let cases = [
-        (AgentStartError::CliMissing("PATH 上未发现入口".to_owned()), "CLI 未找到"),
-        (AgentStartError::SpawnFailed("io error".to_owned()), "启动失败"),
-        (AgentStartError::ConfigMissing("api_key 未配".to_owned()), "配置缺失"),
+        (
+            AgentStartError::CliMissing("PATH 上未发现入口".to_owned()),
+            "CLI 未找到",
+        ),
+        (
+            AgentStartError::SpawnFailed("io error".to_owned()),
+            "启动失败",
+        ),
+        (
+            AgentStartError::ConfigMissing("api_key 未配".to_owned()),
+            "配置缺失",
+        ),
     ];
     for (error, prefix) in cases {
         let text = error.to_string();

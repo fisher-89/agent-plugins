@@ -125,11 +125,7 @@ fn raw_final(usage: Usage) -> RawStreamingChoice {
 }
 
 /// loop 直驱：灌未盖戳事件至 EOF 并回收全部事件（通道容量与真实泵同口径）。
-async fn drive_loop(
-    model: FakeModel,
-    turn: &LoopTurn,
-    handle: &RunHandle,
-) -> Vec<AgentEventKind> {
+async fn drive_loop(model: FakeModel, turn: &LoopTurn, handle: &RunHandle) -> Vec<AgentEventKind> {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let task = tokio::spawn({
         let turn = LoopTurn {
@@ -217,7 +213,12 @@ async fn 一轮文本加思考假流_delta逐发且轮末恰一条密封message�
     ]]);
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
 
     // 事件序：RunStarted → user 密封提示词 → delta 逐发（流序一致）→ 轮末密封
     // assistant → TurnDone
@@ -289,21 +290,19 @@ async fn 两轮工具假流_密封收口_tool_use与tool_result与续轮各就�
     let model = FakeModel::with_turns(vec![
         vec![
             raw_text("先读文件"),
-            raw_tool_call(
-                "tu_1",
-                "read",
-                serde_json::json!({ "path": "README.md" }),
-            ),
+            raw_tool_call("tu_1", "read", serde_json::json!({ "path": "README.md" })),
             raw_final(usage(5, 6)),
         ],
-        vec![
-            raw_text("文件内容已确认"),
-            raw_final(usage(7, 8)),
-        ],
+        vec![raw_text("文件内容已确认"), raw_final(usage(7, 8))],
     ]);
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
 
     // 事件序：RunStarted → user 提示词 → delta → assistant 密封(ToolUse) →
     // ToolResult 密封(user) → delta → assistant 密封(文本) → TurnDone
@@ -314,10 +313,13 @@ async fn 两轮工具假流_密封收口_tool_use与tool_result与续轮各就�
     let AgentEventKind::Message { blocks, .. } = sealed[0] else {
         panic!("应为密封 Message");
     };
-    assert!(matches!(
-        &blocks[blocks.len() - 1],
-        agent::AgentBlock::ToolUse { id, name, .. } if id == "tu_1" && name == "read"
-    ), "ToolUse 块收进首轮密封，实际: {blocks:?}");
+    assert!(
+        matches!(
+            &blocks[blocks.len() - 1],
+            agent::AgentBlock::ToolUse { id, name, .. } if id == "tu_1" && name == "read"
+        ),
+        "ToolUse 块收进首轮密封，实际: {blocks:?}"
+    );
 
     // ToolResult 密封（tool 消息，内容为真实读文件产物）
     let tool_results: Vec<&AgentEventKind> = events
@@ -331,11 +333,14 @@ async fn 两轮工具假流_密封收口_tool_use与tool_result与续轮各就�
     let AgentEventKind::Message { blocks, .. } = tool_results[0] else {
         panic!("应为 ToolResult 密封");
     };
-    assert!(matches!(
-        &blocks[0],
-        agent::AgentBlock::ToolResult { id, content, is_error }
-            if id == "tu_1" && content.contains("你好工作区") && !is_error
-    ), "工具真实执行（tempdir 读写），实际: {blocks:?}");
+    assert!(
+        matches!(
+            &blocks[0],
+            agent::AgentBlock::ToolResult { id, content, is_error }
+                if id == "tu_1" && content.contains("你好工作区") && !is_error
+        ),
+        "工具真实执行（tempdir 读写），实际: {blocks:?}"
+    );
 
     // 续轮密封 Message 收最终文本
     let AgentEventKind::Message { blocks, .. } = sealed[1] else {
@@ -358,16 +363,21 @@ async fn 工具轮第二请求的chat_history含成对tool_result且提示词在
     let dir = tempdir("tool-pair");
     write_file(&dir.path().join("a.txt"), "内容甲");
     let model = std::sync::Arc::new(FakeModel::with_turns(vec![
-        vec![raw_tool_call("tu_2", "read", serde_json::json!({ "path": "a.txt" }))],
+        vec![raw_tool_call(
+            "tu_2",
+            "read",
+            serde_json::json!({ "path": "a.txt" }),
+        )],
         vec![raw_text("完成")],
     ]));
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let model_ref = std::sync::Arc::clone(&model);
-    let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await
-    });
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+        );
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 
@@ -437,9 +447,8 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let model_ref = std::sync::Arc::clone(&model);
-    let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, history, sender, handle).await
-    });
+    let task =
+        tokio::spawn(async move { r#loop::run(&*model_ref, &turn, history, sender, handle).await });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 
@@ -471,13 +480,15 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
 #[tokio::test]
 async fn turn_done组装唯一口径_cost恒none_session_id收口_usage承接final() {
     let dir = tempdir("turn-done");
-    let model = FakeModel::with_turns(vec![vec![
-        raw_text("好"),
-        raw_final(usage(11, 22)),
-    ]]);
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(11, 22))]]);
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
 
     let AgentEventKind::TurnDone {
         subtype,
@@ -497,7 +508,8 @@ async fn turn_done组装唯一口径_cost恒none_session_id收口_usage承接fin
     assert!(duration_ms.is_some(), "durationMs 在场");
     assert_eq!(*cost_usd, None, "cost 恒 None（无价格表，缺席合法缺省）");
     assert_eq!(
-        done_usage["input_tokens"], serde_json::json!(11),
+        done_usage["input_tokens"],
+        serde_json::json!(11),
         "usage 承接 Final（引擎无第二统计口径）"
     );
     assert_eq!(done_usage["output_tokens"], serde_json::json!(22));
@@ -518,14 +530,20 @@ async fn 假流stream_err时api_error记因与is_error收敛且恒最后() {
     let model = FakeModel::failing(CompletionError::ProviderError("连接被重置".to_owned()));
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
 
     // RunStarted + user 提示词先产出（失败前已入史），随后记因 + 收敛
     let notices = notices_of(&events);
     assert_eq!(notices.len(), 1, "恰一条记因通知");
     assert_eq!(notices[0].0, "api_error");
     assert!(
-        serde_json::to_value(notices[0].1).expect("payload 序列化")
+        serde_json::to_value(notices[0].1)
+            .expect("payload 序列化")
             .to_string()
             .contains("连接被重置"),
         "记因携带流失败原因"
@@ -550,7 +568,12 @@ async fn 空流轮以正常收敛防死循环不悬挂() {
     let model = FakeModel::with_turns(vec![vec![]]); // 零流项 → choice 空
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
 
     assert!(
         !events
@@ -575,7 +598,11 @@ async fn 连续被拒工具轮耗尽上限时熔断收敛error_max_turns() {
     let turns: Vec<Vec<RawStreamingChoice>> = (0..50)
         .map(|_| {
             vec![
-                raw_tool_call("tu_x", "write", serde_json::json!({ "path": "x.txt", "content": "y" })),
+                raw_tool_call(
+                    "tu_x",
+                    "write",
+                    serde_json::json!({ "path": "x.txt", "content": "y" }),
+                ),
                 raw_final(usage(1, 1)),
             ]
         })
@@ -583,7 +610,12 @@ async fn 连续被拒工具轮耗尽上限时熔断收敛error_max_turns() {
     let model = FakeModel::with_turns(turns);
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::Default), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::Default),
+        &handle,
+    )
+    .await;
 
     let notices = notices_of(&events);
     assert!(
@@ -618,9 +650,8 @@ async fn 停止先置位时泵终止不合成turn_done且已产出事件保留()
 
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(16);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
-    let task = tokio::spawn(async move {
-        r#loop::run(&model, &turn, Vec::new(), sender, handle).await
-    });
+    let task =
+        tokio::spawn(async move { r#loop::run(&model, &turn, Vec::new(), sender, handle).await });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -634,7 +665,9 @@ async fn 停止先置位时泵终止不合成turn_done且已产出事件保留()
         AgentEventKind::Message { role, .. } if role == &AgentMessageRole::User
     ));
     assert!(
-        !events.iter().any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
+        !events
+            .iter()
+            .any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
         "停止路径不合成 TurnDone（为编排侧显式 stopped 收敛让路），实际: {events:?}"
     );
 }
@@ -642,21 +675,17 @@ async fn 停止先置位时泵终止不合成turn_done且已产出事件保留()
 #[tokio::test]
 async fn 消费端先行关闭时loop自行退出不悬挂且不合成收敛() {
     let dir = tempdir("consumer-gone");
-    let model = FakeModel::with_turns(vec![
-        vec![raw_text("第一片")],
-        vec![raw_text("第二片")],
-    ]);
+    let model = FakeModel::with_turns(vec![vec![raw_text("第一片")], vec![raw_text("第二片")]]);
     let (sender, receiver) = mpsc::channel::<AgentEventKind>(16);
     drop(receiver); // 接收端先行 drop（页面已关）
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let handle = RunHandle::default();
 
     // 自行退出：join 在有限时间内完成（悬挂则测试永不结束即失败）
-    let history = tokio::spawn(async move {
-        r#loop::run(&model, &turn, Vec::new(), sender, handle).await
-    })
-    .await
-    .expect("loop 自行退出");
+    let history =
+        tokio::spawn(async move { r#loop::run(&model, &turn, Vec::new(), sender, handle).await })
+            .await
+            .expect("loop 自行退出");
 
     // 返回累积史：消费端关闭先于任何事件送达（RunStarted 发送即失败），
     // loop 以未增史退出——不悬挂、不合成收敛
@@ -679,7 +708,12 @@ async fn delta与密封混合流按产出序排列且洪峰经容量256通道零
     let model = FakeModel::with_turns(vec![flood]);
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
 
     // 全量送达零丢失：RunStarted + user + 305 delta + 密封 + TurnDone
     assert_eq!(events.len(), 1 + 1 + 305 + 1 + 1, "洪峰全量送达零丢失");
@@ -694,10 +728,18 @@ async fn delta与密封混合流按产出序排列且洪峰经容量256通道零
         })
         .collect();
     let expected: Vec<String> = (0..305).map(|index| format!("片{index}")).collect();
-    assert_eq!(deltas, expected, "delta 按产出序全量保序（共享单调空间的产出半边）");
+    assert_eq!(
+        deltas, expected,
+        "delta 按产出序全量保序（共享单调空间的产出半边）"
+    );
     // 密封在全部增量之后、TurnDone 收尾
-    assert!(matches!(&events[307], AgentEventKind::Message { role, .. } if role == &AgentMessageRole::Assistant));
-    assert!(matches!(events.last(), Some(AgentEventKind::TurnDone { .. })));
+    assert!(
+        matches!(&events[307], AgentEventKind::Message { role, .. } if role == &AgentMessageRole::Assistant)
+    );
+    assert!(matches!(
+        events.last(),
+        Some(AgentEventKind::TurnDone { .. })
+    ));
 }
 
 // ---------------------------------------------------------------------------
@@ -708,12 +750,21 @@ async fn delta与密封混合流按产出序排列且洪峰经容量256通道零
 async fn policy拒绝时permission_denied记因与is_error回灌续轮不中断() {
     let dir = tempdir("policy-deny");
     let model = FakeModel::with_turns(vec![
-        vec![raw_tool_call("tu_3", "write", serde_json::json!({ "path": "x.txt", "content": "y" }))],
+        vec![raw_tool_call(
+            "tu_3",
+            "write",
+            serde_json::json!({ "path": "x.txt", "content": "y" }),
+        )],
         vec![raw_text("已按拒绝继续")],
     ]);
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::Default), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::Default),
+        &handle,
+    )
+    .await;
 
     let notices = notices_of(&events);
     assert_eq!(notices.len(), 1);
@@ -721,7 +772,9 @@ async fn policy拒绝时permission_denied记因与is_error回灌续轮不中断(
     let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
     assert_eq!(payload["tool"], serde_json::json!("write"));
     assert!(
-        payload["reason"].as_str().is_some_and(|reason| reason.contains("权限档位")),
+        payload["reason"]
+            .as_str()
+            .is_some_and(|reason| reason.contains("权限档位")),
         "拒绝记因携带档位语义，实际: {payload}"
     );
     // is_error ToolResult 密封
@@ -753,7 +806,12 @@ async fn 沙箱拦截时sandbox_denied记因与is_error回灌() {
     ]);
     let handle = RunHandle::default();
 
-    let events = drive_loop(model, &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions), &handle).await;
+    let events = drive_loop(
+        model,
+        &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
 
     let notices = notices_of(&events);
     assert_eq!(notices.len(), 1);

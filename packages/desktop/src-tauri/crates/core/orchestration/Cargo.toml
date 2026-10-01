@@ -1,0 +1,25 @@
+[package]
+name = "orchestration"
+version = "0.1.0"
+edition = "2021"
+
+# 编排 core crate：walker 相位循环、进程内工具步缝（相位机四步直调写面）、
+# verdict / 决策解析器、转录提取器、prompt 组装、run 控制注册表。纯编排——
+# 进程 spawn MUST NOT 进本 crate（ToolStep / WorkerAgent / StaticCheck /
+# DiffContext 均为 port 契约，实现落 infra）；禁 Tauri、禁 workflow.json 直写
+# （写触点全部经 workflow::write 写面进程内直调）。
+[dependencies]
+agent = { workspace = true }
+foundation = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+specta = { workspace = true }
+# 停等单次应答通道（oneshot）与取消等待的 select 组合（macros）；sync 特性随
+# workspace 基面（broadcast / watch / Mutex）
+tokio = { workspace = true, features = ["macros"] }
+workflow = { workspace = true }
+
+# walker 相位循环 async 测试驱动（假引擎 / 假 CLI 双缝直驱）
+[dev-dependencies]
+time = { workspace = true }
+tokio = { workspace = true, features = ["rt", "macros"] }

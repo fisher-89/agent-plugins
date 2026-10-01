@@ -4,10 +4,17 @@ version = "0.1.0"
 edition = "2021"
 
 # agent 边界的引擎门面与双引擎实现：`EngineFacade` 为引擎构造唯一 match 点
-# （cli / sdk），实现 core 契约；cli 引擎持有进程 spawn（本 workspace 唯一
-# spawn 触点），sdk 引擎经 rig-core 直连 openai 兼容端点；禁 Tauri 系依赖
+# （cli / sdk），实现 core 契约；cli 引擎持有进程 spawn，sdk 引擎经 rig-core
+# 直连 openai 兼容端点；static-check 与 git diff 两个编排 spawn 缝同样落本
+# crate（spawn 不进 core）；禁 Tauri 系依赖
 [dependencies]
 agent = { workspace = true }
+# WorkerAgentPort 内核适配的契约面（infra→core 边：port / state / transcript）
+orchestration = { workspace = true }
+# static-check 缝的 static_analysis 命令读取（core::config，无诊断消费面）
+config = { workspace = true }
+# static-check 缝的 workspace 根解析（foundation::layout config_path 同源）
+foundation = { workspace = true }
 # 内核组合根与 port 适配的持久面落点（infra→infra 边；core/agent 保持零
 # workspace 内依赖，desktop-crate-layout 仅 core→store 受限）
 store = { workspace = true }

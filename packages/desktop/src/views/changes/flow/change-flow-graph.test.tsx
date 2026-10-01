@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type {
@@ -10,7 +10,7 @@ import type {
 import { mountMaterials } from './attachments';
 import { ChangeFlowGraph } from './change-flow-graph';
 import { buildFlowGraph } from './graph';
-import type { DrawerSelection, FlowGraph, FlowMaterials } from './types';
+import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
 
 // ---------------------------------------------------------------------------
 // ChangeFlowGraph 单测：ReactFlow 薄层。jsdom 缺口垫片（环境 stub 而非业务
@@ -293,5 +293,90 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     const labels = [...document.querySelectorAll('.react-flow__edge-text')];
     expect(labels).toHaveLength(1);
     expect(labels[0].textContent).toBe('设计未对齐提案');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// runStep 运行步节点上图（desktop-change-flow 增量）：nodeTypes 增 runStep
+// 注册为加法——含 RuntimeFlowNode 的图渲染 runStep 组件可辨不炸；既有事件 /
+// 列节点渲染与交互上抛零回归。图数据来自真实 buildFlowGraph(detail, runNodes)。
+// ---------------------------------------------------------------------------
+
+/** 运行步 overlay 节点 fixture（run-state.ts runStepNodes 同形投影的直构形态）。 */
+function runNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
+  return {
+    id: 'run:implement:1:executor',
+    kind: 'runtime',
+    phase: 'implement',
+    attempt: 1,
+    colIndex: 3,
+    order: 0,
+    parentId: 'col:implement',
+    runStepKind: 'executor',
+    group: 'workerAgent',
+    role: 'executor',
+    status: 'running',
+    sessionId: 'ses-exec-1',
+    detail: null,
+    ...overrides,
+  };
+}
+
+describe('ChangeFlowGraph：runStep 运行步节点上图（overlay 加法回归）', () => {
+  it('含 RuntimeFlowNode 的图 → nodeTypes 解析渲染 runStep 组件：data-testid 可辨、徽章 / 状态 / detail 可读、不炸', async () => {
+    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+    const graph = buildFlowGraph(base, [
+      runNode(),
+      runNode({
+        id: 'run:implement:1:staticCheck',
+        runStepKind: 'staticCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        status: 'failed',
+        detail: '2 处诊断',
+      }),
+    ]);
+    renderGraph(graph, materialsFor(graph, base));
+
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    const running = within(screen.getByTestId('rf__node-run:implement:1:executor')).getByTestId(
+      'run-step-node',
+    );
+    expect(running.getAttribute('data-run-group')).toBe('workerAgent');
+    expect(running.getAttribute('data-run-status')).toBe('running');
+    expect(within(running).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
+    expect(within(running).getByTestId('run-step-kind').textContent).toBe('执行');
+    const failed = within(screen.getByTestId('rf__node-run:implement:1:staticCheck')).getByTestId(
+      'run-step-node',
+    );
+    expect(failed.getAttribute('data-run-status')).toBe('failed');
+    expect(within(failed).getByTestId('run-step-group').textContent).toBe('ToolStep');
+    expect(within(failed).getByTestId('run-step-detail').textContent).toBe('2 处诊断');
+  });
+
+  it('既有事件 / 列节点渲染与交互上抛零回归；点击 runStep 节点同样上抛 { scope: node, nodeId }', async () => {
+    const onSelect = vi.fn();
+    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+    const graph = buildFlowGraph(base, [
+      runNode({
+        id: 'run:dev-design:1:evaluator',
+        phase: 'dev-design',
+        runStepKind: 'evaluator',
+        status: 'passed',
+        sessionId: 'ses-eval-1',
+      }),
+    ]);
+    renderGraph(graph, materialsFor(graph, base), onSelect);
+
+    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
+    expect(screen.getAllByTestId('flow-column')).toHaveLength(9);
+
+    // 既有交互上抛：事件节点照旧
+    fireEvent.click(screen.getByTestId('flow-node'));
+    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'eval:proposal:1' });
+    // 加法分支：运行步节点共用同一抽屉入口
+    fireEvent.click(screen.getByTestId('rf__node-run:dev-design:1:evaluator'));
+    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'run:dev-design:1:evaluator' });
   });
 });

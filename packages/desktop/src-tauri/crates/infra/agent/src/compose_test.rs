@@ -1,9 +1,11 @@
 use std::path::{Path, PathBuf};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 
 use native_db::{Builder, Models};
 
-use agent::{AgentMessageRole, AgentPermissionMode, SessionCtx, SessionProvenance, SessionRef, StopRegistry};
+use agent::{
+    AgentMessageRole, AgentPermissionMode, SessionCtx, SessionProvenance, SessionRef, StopRegistry,
+};
 
 use crate::{compose_turn, ComposedTurn};
 use store::{
@@ -12,7 +14,7 @@ use store::{
 };
 
 /// PATH 环境变量修改串行化（CLI 臂真实驱动用例）。
-static PATH_LOCK: Mutex<()> = Mutex::new(());
+use crate::TEST_PATH_LOCK as PATH_LOCK;
 
 /// Err 半边摘取（ComposedTurn / RunningTurn 不实现 Debug，expect_err 不可用）。
 fn err_of<T>(result: Result<T, String>) -> String {
@@ -22,15 +24,13 @@ fn err_of<T>(result: Result<T, String>) -> String {
     }
 }
 
-
 // ---------------------------------------------------------------------------
 // 装置：tempdir 真库 WorkspaceStores + fixture 落库
 // ---------------------------------------------------------------------------
 
 /// 打开两级库注册表（数据根注入，零环境解析）。
 fn open_stores(data_root: &PathBuf) -> WorkspaceStores {
-    WorkspaceStores::open(data_root)
-        .unwrap_or_else(|e| panic!("WorkspaceStores::open 应成功: {e}"))
+    WorkspaceStores::open(data_root).unwrap_or_else(|e| panic!("WorkspaceStores::open 应成功: {e}"))
 }
 
 /// 数据根 + workspace 根双临时目录装置。
@@ -226,8 +226,13 @@ async fn 显式cli实例解析_快照engine为cli且模型为none() {
     let stores = env.stores();
     let cli_id = seed_cli_instance(&stores, "命令行实例");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), Some(cli_id))
-        .expect("显式 cli 解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        &env.root(),
+        Some(cli_id),
+    )
+    .expect("显式 cli 解析应成功");
 
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     let running = composed
@@ -270,7 +275,10 @@ fn 空库缺省解析err引导管理页且零落库() {
     // 解析失败不落库：workspace 库无会话行（组合根先解析后建行）
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     assert!(
-        store.list_sessions(None, None).expect("清单应成功").is_empty(),
+        store
+            .list_sessions(None, None)
+            .expect("清单应成功")
+            .is_empty(),
         "解析失败零落库"
     );
 }
@@ -286,10 +294,7 @@ fn 显式不存在agent的id解析err携id记因() {
         &env.root(),
         Some(404),
     ));
-    assert!(
-        error.contains("404"),
-        "Err 携 id 记因，实际: {error}"
-    );
+    assert!(error.contains("404"), "Err 携 id 记因，实际: {error}");
 }
 
 #[tokio::test]
@@ -480,8 +485,13 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
     let stores = env.stores();
     let cli_id = seed_cli_instance(&stores, "驱动实例");
 
-    let composed = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), Some(cli_id))
-        .expect("解析应成功");
+    let composed = compose_turn(
+        &stores,
+        Arc::new(StopRegistry::new()),
+        &env.root(),
+        Some(cli_id),
+    )
+    .expect("解析应成功");
 
     let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
     let original = std::env::var_os("PATH");
@@ -499,9 +509,7 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
         )
         .expect("begin 应成功");
 
-    let outcome = running
-        .drive(|_output| {})
-        .await;
+    let outcome = running.drive(|_output| {}).await;
 
     match original {
         Some(value) => std::env::set_var("PATH", value),
@@ -517,7 +525,10 @@ async fn 装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮
     let store = stores.for_root(&env.root()).expect("for_root 应成功");
     let summaries = store.list_sessions(None, None).expect("清单应成功");
     assert_eq!(summaries.len(), 1);
-    assert_eq!(summaries[0].row.provenance.source, "debug", "debug 缺省承接");
+    assert_eq!(
+        summaries[0].row.provenance.source, "debug",
+        "debug 缺省承接"
+    );
     assert_eq!(summaries[0].turns.len(), 1);
     assert_eq!(summaries[0].turns[0].status, agent::AgentRunStatus::Failed);
     // query 真实装配：转录重放含合成 TurnDone
@@ -542,8 +553,9 @@ async fn 装配产物含查询面_continue校验经真实库行成立() {
     seed_transcript(&store, "ses-query");
 
     // ComposedTurn 产物即真实装配（query 直查 store 行 → 校验通过形态复用）
-    let composed: ComposedTurn = compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
-        .expect("解析应成功");
+    let composed: ComposedTurn =
+        compose_turn(&stores, Arc::new(StopRegistry::new()), &env.root(), None)
+            .expect("解析应成功");
     composed
         .begin(
             SessionRef::Continue {
@@ -568,8 +580,7 @@ fn preset_global_with_providerless_sdk_instance(path: &Path, name: &str) {
         .create(&models, path)
         .expect("预置存量全局库失败");
     let rw = db.rw_transaction().expect("开启写事务失败");
-    let mut instance =
-        store::AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Sdk, None);
+    let mut instance = store::AgentInstanceRecord::new(name.to_owned(), AgentEngineKind::Sdk, None);
     instance.is_default = true;
     rw.insert(instance)
         .expect("写入缺 provider 的 sdk 实例失败");

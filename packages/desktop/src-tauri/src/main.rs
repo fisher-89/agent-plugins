@@ -9,6 +9,7 @@ use store::WorkspaceStores;
 use agent::StopRegistry;
 use dev_team::commands::all_commands;
 use dev_team::commands::watch::WatchRegistry;
+use orchestration::control::ChangeFlowControl;
 
 /// 全局数据目录名：`home_dir()` 根下（双库落位基准——全局库直居其下、
 /// workspace 库落 `workspaces/` 子树；库文件名与子树语义由 store 常量单点
@@ -49,6 +50,10 @@ fn main() {
             // 内核 begin_turn 登记 / drive 终态除名 / agent_stop 查询，此处
             // 只挂空表（Arc 承载跨内核实例共享，与 WatchRegistry 同型托管）
             app.manage(Arc::new(StopRegistry::default()));
+            // change-flow run 控制注册表（进程内，键 = change 名）：
+            // change_flow_* 命令面读写 / walker 持 RunGuard 写，此处只挂空表
+            //（Arc 承载跨 sink 桥共享，与 StopRegistry 同型托管）
+            app.manage(Arc::new(ChangeFlowControl::new()));
             Ok(())
         })
         .invoke_handler(all_commands!(generate_handler))

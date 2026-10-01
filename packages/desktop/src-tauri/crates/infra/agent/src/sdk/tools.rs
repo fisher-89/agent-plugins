@@ -54,8 +54,9 @@ pub fn definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "grep".to_owned(),
-            description: "行级子串匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件"
-                .to_owned(),
+            description:
+                "行级子串匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件"
+                    .to_owned(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {

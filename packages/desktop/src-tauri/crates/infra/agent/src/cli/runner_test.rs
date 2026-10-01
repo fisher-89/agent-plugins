@@ -14,14 +14,14 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 use agent::{
-    AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, RunHandle, SessionCtx,
-    SessionInjections, SessionOpen, SessionRef, TurnQuestion,
+    AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, RunHandle,
+    SessionCtx, SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 
 use crate::runner::{pump_lines, ClaudeCliRunner};
 
 /// PATH 环境变量修改串行化（同进程测试并行跑，set_var 为进程全局操作）。
-static PATH_LOCK: Mutex<()> = Mutex::new(());
+use crate::TEST_PATH_LOCK as PATH_LOCK;
 
 /// system/init 行。
 const INIT_LINE: &str = r#"{"type":"system","subtype":"init","model":"claude-opus","session_id":"s-1","tools":["Bash"],"mcp_servers":[]}"#;
@@ -34,11 +34,7 @@ const RESULT_LINE: &str = r#"{"type":"result","subtype":"success","is_error":fal
 
 /// 以内存行流驱动泵核心并回收全部未盖戳事件（通道容量取测试所需，洪峰 256）。
 /// 停止信号缝取默认句柄（未请求）、击杀缝取空闭包（停止路径用例经 StopRig）。
-async fn pump_all(
-    fixture: String,
-    capacity: usize,
-    exit_code: Option<i32>,
-) -> Vec<AgentEventKind> {
+async fn pump_all(fixture: String, capacity: usize, exit_code: Option<i32>) -> Vec<AgentEventKind> {
     let (sender, mut receiver) = mpsc::channel(capacity);
     let exit_code = std::future::ready(exit_code);
     pump_lines(
@@ -216,7 +212,11 @@ async fn 超容量洪峰315行经背压全量送达零丢失() {
     .await;
     let received = drain.await.expect("排空任务正常结束");
 
-    assert_eq!(received.len(), 315, "315 行全量送达（含 result 收尾），零丢失");
+    assert_eq!(
+        received.len(),
+        315,
+        "315 行全量送达（含 result 收尾），零丢失"
+    );
     // 到达序单调（盖戳序的可观测投影）：到达序即产出序
     let stamped = stamp_events(received);
     let seqs: Vec<u64> = stamped.iter().map(|event| event.seq).collect();
@@ -238,7 +238,11 @@ async fn 混入未知type与非json行时raw按产出序透传() {
     let fixture = format!("{INIT_LINE}\n{unknown}\n{not_json}\n\n{RESULT_LINE}\n");
     let events = stamp_events(pump_all(fixture, 256, None).await);
 
-    assert_eq!(events.len(), 4, "空白行跳过，未知/非 JSON 行以 Raw 占产出位");
+    assert_eq!(
+        events.len(),
+        4,
+        "空白行跳过，未知/非 JSON 行以 Raw 占产出位"
+    );
     assert!(matches!(
         &events[1].kind,
         AgentEventKind::Raw { event_type, raw_json }
