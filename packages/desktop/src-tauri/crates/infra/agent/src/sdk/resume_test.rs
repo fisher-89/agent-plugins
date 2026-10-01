@@ -1,6 +1,6 @@
 use rig_core::message::{AssistantContent, Message, ToolResultContent, UserContent};
 
-use agent::{AgentBlock, AgentEvent, AgentEventKind};
+use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
 
 use crate::sdk::resume::rebuild;
 
@@ -16,7 +16,7 @@ fn user_text(seq: u64, text: &str) -> AgentEvent {
     event(
         seq,
         AgentEventKind::Message {
-            role: "user".to_owned(),
+            role: AgentMessageRole::User,
             blocks: vec![AgentBlock::Text {
                 text: text.to_owned(),
             }],
@@ -29,7 +29,7 @@ fn assistant_text(seq: u64, text: &str) -> AgentEvent {
     event(
         seq,
         AgentEventKind::Message {
-            role: "assistant".to_owned(),
+            role: AgentMessageRole::Assistant,
             blocks: vec![AgentBlock::Text {
                 text: text.to_owned(),
             }],
@@ -50,7 +50,7 @@ fn tool_result_event(seq: u64, id: &str, content: &str, is_error: bool) -> Agent
     event(
         seq,
         AgentEventKind::Message {
-            role: "user".to_owned(),
+            role: AgentMessageRole::User,
             blocks: vec![AgentBlock::ToolResult {
                 id: id.to_owned(),
                 content: content.to_owned(),
@@ -151,7 +151,7 @@ fn 单条密封message收三块时重建为单条assistant消息不拆分() {
     let transcript = vec![event(
         0,
         AgentEventKind::Message {
-            role: "assistant".to_owned(),
+            role: AgentMessageRole::Assistant,
             blocks: vec![
                 AgentBlock::Text {
                     text: "结论先行".to_owned(),
@@ -198,7 +198,7 @@ fn tool_result成对回灌且工具名自先行tool_use回溯() {
         event(
             0,
             AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks: vec![tool_use_block("tu_7", "grep")],
                 parent_tool_use_id: None,
             },
@@ -231,7 +231,7 @@ fn is_error结果以工具执行失败前缀回灌且miss名字落空串() {
         event(
             0,
             AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks: vec![tool_use_block("tu_9", "write")],
                 parent_tool_use_id: None,
             },
@@ -308,7 +308,7 @@ fn 非对话密封事件与子代理归因事件不进对话史() {
         event(
             6,
             AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "子代理输出".to_owned(),
                 }],
@@ -334,22 +334,47 @@ fn 非对话密封事件与子代理归因事件不进对话史() {
 }
 
 #[test]
-fn 未知role跳过不炸重建() {
+fn tool_role结果消息归并回user位重建() {
+    // 引擎归一后的 tool role（工具结果管道）重建时归并回 rig user 位——
+    // rig 方言要求 result 挂 user 消息，此即协议 → rig 的反向归一
     let transcript = vec![
         event(
             0,
             AgentEventKind::Message {
-                role: "tool".to_owned(),
-                blocks: vec![AgentBlock::Text {
-                    text: "未知角色".to_owned(),
+                role: AgentMessageRole::Assistant,
+                blocks: vec![tool_use_block("tu_9", "read")],
+                parent_tool_use_id: None,
+            },
+        ),
+        event(
+            1,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Tool,
+                blocks: vec![AgentBlock::ToolResult {
+                    id: "tu_9".to_owned(),
+                    content: "文件内容".to_owned(),
+                    is_error: false,
                 }],
                 parent_tool_use_id: None,
             },
         ),
-        user_text(1, "提问"),
     ];
     let history = rebuild(&transcript).expect("重建应成功");
-    assert_eq!(history.len(), 1, "未知 role 跳过（不炸重建）");
+    assert_eq!(history.len(), 2, "assistant + tool 结果成对回灌");
+    let Message::User { content } = &history[1] else {
+        panic!("tool role 结果应重建为 rig user 消息");
+    };
+    assert!(
+        matches!(
+            &content[0],
+            UserContent::ToolResult(result)
+                if result.call.as_str() == "tu_9"
+                    && result.name == "read"
+                    && matches!(&result.content[0], ToolResultContent::Text(text) if text.text == "文件内容")
+        ),
+        "tool role 归并回 user 位且工具名回溯保真，实际: {:?}",
+        content[0]
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -392,7 +417,7 @@ fn 空史四形态重建返回err视同会话缺失() {
     let only_subagent = vec![event(
         0,
         AgentEventKind::Message {
-            role: "assistant".to_owned(),
+            role: AgentMessageRole::Assistant,
             blocks: Vec::new(),
             parent_tool_use_id: Some("tu_1".to_owned()),
         },

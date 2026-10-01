@@ -5,7 +5,7 @@
 
 use serde_json::{json, Value};
 
-use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind};
+use crate::event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 
 /// 测试侧当前时钟毫秒（镜像 event.rs 的取值口径，用于 stamp 边界断言）。
 fn millis_now() -> i64 {
@@ -39,7 +39,7 @@ fn variant_events() -> Vec<AgentEvent> {
         AgentEvent::stamp(
             2,
             AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "正文".to_owned(),
                 }],
@@ -406,7 +406,7 @@ fn message四类块混合数组往返无损且块判别值为驼峰() {
     let mixed = AgentEvent::stamp(
         11,
         AgentEventKind::Message {
-            role: "assistant".to_owned(),
+            role: AgentMessageRole::Assistant,
             blocks: vec![
                 AgentBlock::Text {
                     text: "文本".to_owned(),

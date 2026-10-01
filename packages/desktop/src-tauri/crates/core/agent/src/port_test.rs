@@ -5,7 +5,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::event::{AgentEvent, AgentEventKind};
+use crate::event::{AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::port::{SessionQuery, SessionSink, TurnOutcome};
 use crate::runner::AgentRunStatus;
 use crate::session::{NewSessionRow, SessionProvenance, SessionRow, SessionStats, SessionSummary};
@@ -161,7 +161,7 @@ fn sealed_event(seq: u64) -> AgentEvent {
     AgentEvent::stamp(
         seq,
         AgentEventKind::Message {
-            role: "assistant".to_owned(),
+            role: AgentMessageRole::Assistant,
             blocks: Vec::new(),
             parent_tool_use_id: None,
         },

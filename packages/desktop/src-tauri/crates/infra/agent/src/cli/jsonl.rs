@@ -1,4 +1,4 @@
-use agent::{AgentBlock, AgentEventKind};
+use agent::{AgentBlock, AgentEventKind, AgentMessageRole};
 use serde_json::Value;
 
 /// 单行归一化；空白行（纯空白）返回 `None`。
@@ -59,8 +59,6 @@ fn system_event(parsed: &Value) -> AgentEventKind {
     }
 }
 
-/// `type=assistant | user` → Message：blocks 由 `message.content` 数组映射；
-/// content 为字符串时降级为单个 Text 块（不丢正文）。
 fn message_event(role: &str, parsed: &Value) -> AgentEventKind {
     let content = parsed.get("message").and_then(|m| m.get("content"));
     let blocks = match content {
@@ -68,8 +66,19 @@ fn message_event(role: &str, parsed: &Value) -> AgentEventKind {
         Some(Value::String(text)) => vec![AgentBlock::Text { text: text.clone() }],
         _ => Vec::new(),
     };
+    let role = if role == "user" {
+        let all_results =
+            !blocks.is_empty() && blocks.iter().all(|b| matches!(b, AgentBlock::ToolResult { .. }));
+        if all_results {
+            AgentMessageRole::Tool
+        } else {
+            AgentMessageRole::User
+        }
+    } else {
+        AgentMessageRole::Assistant
+    };
     AgentEventKind::Message {
-        role: role.to_owned(),
+        role,
         blocks,
         parent_tool_use_id: optional_string(parsed.get("parent_tool_use_id")),
     }

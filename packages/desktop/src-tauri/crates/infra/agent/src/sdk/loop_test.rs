@@ -10,7 +10,7 @@ use rig_core::streaming::{
 };
 use tokio::sync::mpsc;
 
-use agent::{AgentDelta, AgentEventKind, AgentPermissionMode, RunHandle};
+use agent::{AgentDelta, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 
 use crate::sdk::r#loop::{self, LoopTurn};
 
@@ -164,7 +164,7 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
 fn sealed_messages(events: &[AgentEventKind]) -> Vec<&AgentEventKind> {
     events
         .iter()
-        .filter(|event| matches!(event, AgentEventKind::Message { role, .. } if role == "assistant"))
+        .filter(|event| matches!(event, AgentEventKind::Message { role, .. } if role == &AgentMessageRole::Assistant))
         .collect()
 }
 
@@ -224,7 +224,7 @@ async fn 一轮文本加思考假流_delta逐发且轮末恰一条密封message�
     assert!(matches!(&events[0], AgentEventKind::RunStarted { .. }));
     assert!(
         matches!(&events[1], AgentEventKind::Message { role, blocks, .. }
-            if role == "user" && matches!(&blocks[0], agent::AgentBlock::Text { text } if text == "帮我看下这个 workspace 🎉")),
+            if role == &AgentMessageRole::User && matches!(&blocks[0], agent::AgentBlock::Text { text } if text == "帮我看下这个 workspace 🎉")),
         "用户提示词密封入时间线"
     );
     let deltas: Vec<&AgentDelta> = events
@@ -261,7 +261,7 @@ async fn 一轮文本加思考假流_delta逐发且轮末恰一条密封message�
     else {
         panic!("应为密封 Message");
     };
-    assert_eq!(role, "assistant");
+    assert_eq!(*role, AgentMessageRole::Assistant);
     assert_eq!(*parent_tool_use_id, None);
     assert_eq!(blocks.len(), 2, "Text+Thinking 全部块收进同一条");
     assert!(
@@ -319,12 +319,12 @@ async fn 两轮工具假流_密封收口_tool_use与tool_result与续轮各就�
         agent::AgentBlock::ToolUse { id, name, .. } if id == "tu_1" && name == "read"
     ), "ToolUse 块收进首轮密封，实际: {blocks:?}");
 
-    // ToolResult 密封（user 消息，内容为真实读文件产物）
+    // ToolResult 密封（tool 消息，内容为真实读文件产物）
     let tool_results: Vec<&AgentEventKind> = events
         .iter()
         .filter(|event| {
             matches!(event, AgentEventKind::Message { role, blocks, .. }
-                if role == "user" && matches!(&blocks[0], agent::AgentBlock::ToolResult { .. }))
+                if role == &AgentMessageRole::Tool && matches!(&blocks[0], agent::AgentBlock::ToolResult { .. }))
         })
         .collect();
     assert_eq!(tool_results.len(), 1, "ToolResult 密封恰一条");
@@ -408,7 +408,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
         AgentEvent::stamp(
             0,
             AgentEventKind::Message {
-                role: "user".to_owned(),
+                role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮问".to_owned(),
                 }],
@@ -418,7 +418,7 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
         AgentEvent::stamp(
             1,
             AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮答 🎉".to_owned(),
                 }],
@@ -555,7 +555,7 @@ async fn 空流轮以正常收敛防死循环不悬挂() {
     assert!(
         !events
             .iter()
-            .any(|event| matches!(event, AgentEventKind::Message { role, .. } if role == "assistant")),
+            .any(|event| matches!(event, AgentEventKind::Message { role, .. } if role == &AgentMessageRole::Assistant)),
         "空轮不出密封 assistant 消息"
     );
     let AgentEventKind::TurnDone {
@@ -631,7 +631,7 @@ async fn 停止先置位时泵终止不合成turn_done且已产出事件保留()
     assert!(matches!(&events[0], AgentEventKind::RunStarted { .. }));
     assert!(matches!(
         &events[1],
-        AgentEventKind::Message { role, .. } if role == "user"
+        AgentEventKind::Message { role, .. } if role == &AgentMessageRole::User
     ));
     assert!(
         !events.iter().any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
@@ -696,7 +696,7 @@ async fn delta与密封混合流按产出序排列且洪峰经容量256通道零
     let expected: Vec<String> = (0..305).map(|index| format!("片{index}")).collect();
     assert_eq!(deltas, expected, "delta 按产出序全量保序（共享单调空间的产出半边）");
     // 密封在全部增量之后、TurnDone 收尾
-    assert!(matches!(&events[307], AgentEventKind::Message { role, .. } if role == "assistant"));
+    assert!(matches!(&events[307], AgentEventKind::Message { role, .. } if role == &AgentMessageRole::Assistant));
     assert!(matches!(events.last(), Some(AgentEventKind::TurnDone { .. })));
 }
 
@@ -727,7 +727,7 @@ async fn policy拒绝时permission_denied记因与is_error回灌续轮不中断(
     // is_error ToolResult 密封
     let has_error_result = events.iter().any(|event| {
         matches!(event, AgentEventKind::Message { role, blocks, .. }
-            if role == "user"
+            if role == &AgentMessageRole::Tool
                 && matches!(&blocks[0], agent::AgentBlock::ToolResult { is_error: true, .. }))
     });
     assert!(has_error_result, "拒绝合成 is_error ToolResult 回灌");
@@ -760,7 +760,7 @@ async fn 沙箱拦截时sandbox_denied记因与is_error回灌() {
     assert_eq!(notices[0].0, "sandbox_denied", "root 外路径沙箱拦截记因");
     let has_error_result = events.iter().any(|event| {
         matches!(event, AgentEventKind::Message { role, blocks, .. }
-            if role == "user"
+            if role == &AgentMessageRole::Tool
                 && matches!(&blocks[0], agent::AgentBlock::ToolResult { is_error: true, .. }))
     });
     assert!(has_error_result, "拦截合成 is_error ToolResult 回灌");

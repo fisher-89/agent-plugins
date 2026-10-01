@@ -239,11 +239,19 @@ describe('eventsToUIMessages：消息形状约定', () => {
     expect(messages[1]?.metadata).toEqual({ seq: 1, parentToolUseId: 'tu_9' });
   });
 
-  it('role 为其他字符串的 message 事件收窄为 assistant（非 user 即 assistant）', () => {
-    const odd = { ...message(5, []), role: 'tool' } as AgentEvent;
-    const messages = eventsToUIMessages([odd]);
+  it('tool role（工具结果管道）映射为 system：非对话行桶，对话透镜天然排除', () => {
+    const toolResult = {
+      ...message(5, [{ kind: 'toolResult', id: 'tu_1', content: 'ok', isError: false }]),
+      role: 'tool',
+    } as AgentEvent;
+    const messages = eventsToUIMessages([
+      message(4, [{ kind: 'toolUse', id: 'tu_1', name: 'read', input: {} }]),
+      toolResult,
+    ]);
 
-    expect(messages[0]?.role).toBe('assistant');
+    expect(messages.map((m) => m.role)).toEqual(['assistant', 'system']);
+    // 已配对结果折叠进工具卡，tool 消息自身零部件（由呈现层不变式跳过空行）
+    expect(messages[1]?.parts).toEqual([]);
   });
 
   it('非 message 事件各产出一条 system 角色消息携带单个 data 部件，seq 保序', () => {

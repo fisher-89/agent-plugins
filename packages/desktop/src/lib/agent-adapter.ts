@@ -1,6 +1,6 @@
 import type { UIMessage, UIMessageChunk } from 'ai';
 
-import type { AgentBlock, AgentEvent, TurnSummary } from '../types/dto';
+import type { AgentBlock, AgentEvent, AgentMessageRole, TurnSummary } from '../types/dto';
 
 /** 消息元数据：seq 保真（record 合成消息为 null）与子代理归因字段 */
 interface AgentMessageMetadata {
@@ -235,6 +235,14 @@ function blocksToParts(
   return parts;
 }
 
+/**
+ * `tool`（引擎工具结果管道，非对话言语）落 `system`——ai-sdk UIMessage 无 tool role
+ */
+function uiRole(role: AgentMessageRole): AgentUIMessage['role'] {
+  if (role === 'tool') return 'system';
+  return role;
+}
+
 /** 单事件 → UIMessage（message 事件按 role 收窄；其余 system 角色单 data 部件） */
 function eventToUIMessage(
   event: SealedAgentEvent,
@@ -247,7 +255,7 @@ function eventToUIMessage(
   if (event.kind === 'message') {
     return {
       id: messageId(event.seq),
-      role: event.role === 'user' ? 'user' : 'assistant',
+      role: uiRole(event.role),
       metadata,
       parts: blocksToParts(event.blocks, results),
     };

@@ -5,7 +5,7 @@ mod runner;
 mod session;
 mod state;
 
-pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind};
+pub use event::{AgentBlock, AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 pub use kernel::{KernelOutput, RunningTurn, SessionKernel, StopRegistry, TurnRequest};
 pub use port::{SessionQuery, SessionSink, TurnOutcome};
 pub use runner::{

@@ -1,4 +1,4 @@
-use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
+use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus};
 
 use crate::model::{
     pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentModelTiers,
@@ -34,7 +34,7 @@ fn message(seq: u64) -> AgentEvent {
     event(
         seq,
         AgentEventKind::Message {
-            role: "assistant".to_owned(),
+            role: AgentMessageRole::Assistant,
             blocks: vec![AgentBlock::Text {
                 text: "你好，世界".to_owned(),
             }],

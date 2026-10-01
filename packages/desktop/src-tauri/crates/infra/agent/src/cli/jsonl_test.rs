@@ -1,4 +1,4 @@
-use agent::AgentEventKind;
+use agent::{AgentEventKind, AgentMessageRole};
 
 use crate::jsonl::normalize_line;
 
@@ -58,7 +58,7 @@ fn assistant与user行归一化为message且blocks按类型映射() {
     else {
         panic!("assistant 行应归一化为 Message");
     };
-    assert_eq!(role, "assistant", "role 取自 type");
+    assert_eq!(role, AgentMessageRole::Assistant, "role 取自 type");
     assert_eq!(parent_tool_use_id, None);
     assert_eq!(blocks.len(), 2, "thinking + tool_use 两块");
     assert!(matches!(&blocks[0], agent::AgentBlock::Thinking { thinking } if thinking == "想一下"));
@@ -118,6 +118,47 @@ fn result行归一化为turn_done且字段名对齐() {
     assert_eq!(cost_usd, Some(0.42), "total_cost_usd → cost_usd 对齐");
     assert_eq!(usage, serde_json::json!({ "input_tokens": 10 }));
     assert_eq!(session_id.as_deref(), Some("s-1"));
+}
+
+// ---------------------------------------------------------------------------
+// user 型行按块构成归一 role（引擎抹平差异：纯 tool_result → tool）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 纯tool_result的user行重标为tool_role() {
+    let Some(AgentEventKind::Message { role, .. }) = normalize_line(USER_TOOL_RESULT_LINE) else {
+        panic!("user 行应归一化为 Message");
+    };
+    assert_eq!(role, AgentMessageRole::Tool, "CLI 以 user 型回灌工具结果，进 core 前重标 tool");
+}
+
+#[test]
+fn text与tool_result混排的user行保留user_role() {
+    let line = r#"{"type":"user","message":{"content":[{"type":"tool_result","id":"tu_5","content":"ok"},{"type":"text","text":"附带说明"}]}}"#;
+    let Some(AgentEventKind::Message { role, blocks, .. }) = normalize_line(line) else {
+        panic!("混排行应归一化为 Message");
+    };
+    assert_eq!(role, AgentMessageRole::User, "混排（text + tool_result）是用户言语，不重标");
+    assert_eq!(blocks.len(), 2, "两块全保留");
+}
+
+#[test]
+fn 空content的user行保留user_role不误重标() {
+    let line = r#"{"type":"user","message":{"content":[]},"parent_tool_use_id":"tu_9"}"#;
+    let Some(AgentEventKind::Message { role, blocks, .. }) = normalize_line(line) else {
+        panic!("空 content 行应归一化为 Message");
+    };
+    assert_eq!(role, AgentMessageRole::User, "空块不构成纯 tool_result，不重标");
+    assert!(blocks.is_empty());
+}
+
+#[test]
+fn 纯文本user行保留user_role() {
+    let line = r#"{"type":"user","message":{"content":"用户提问"}}"#;
+    let Some(AgentEventKind::Message { role, .. }) = normalize_line(line) else {
+        panic!("纯文本 user 行应归一化为 Message");
+    };
+    assert_eq!(role, AgentMessageRole::User);
 }
 
 // ---------------------------------------------------------------------------

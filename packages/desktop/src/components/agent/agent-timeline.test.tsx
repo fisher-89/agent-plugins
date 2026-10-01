@@ -211,6 +211,66 @@ describe('AgentTimeline：子代理归因分组', () => {
 });
 
 // ---------------------------------------------------------------------------
+// 零部件不变式：配对折叠后的工具结果载体不产生空行
+// ---------------------------------------------------------------------------
+
+/** 工具结果消息（role 可选：新协议 tool / 存量转录 user 形态） */
+function toolResultMessage(seq: number, id: string, role: 'tool' | 'user' = 'tool'): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'message',
+    role,
+    blocks: [{ kind: 'toolResult', id, content: '工具产物', isError: false }],
+    parentToolUseId: null,
+  };
+}
+
+describe('AgentTimeline：零部件消息不产生行', () => {
+  it('tool role 结果消息（已配对折叠）不产生顶层行，工具卡携带 output', () => {
+    const events = [
+      userMessage(0, '跑一下'),
+      message(1, [{ kind: 'toolUse', id: 'tu_1', name: 'read', input: {} }]),
+      toolResultMessage(2, 'tu_1'),
+      message(3, [{ kind: 'text', text: '结论' }]),
+    ];
+    render(<AgentTimeline messages={eventsToUIMessages(events)} running={false} />);
+
+    // 仅 user 提问 + assistant 工具卡 + assistant 结论三行，无空 user 行
+    const nodes = screen.getAllByTestId('event-message');
+    expect(nodes).toHaveLength(3);
+    expect(nodes.map((node) => node.getAttribute('data-role'))).toEqual([
+      'user',
+      'assistant',
+      'assistant',
+    ]);
+    // 结果折叠进工具卡 output（对读呈现）
+    const toolCard = screen.getByTestId('block-tool-use');
+    expect(within(toolCard).getByTestId('block-tool-result').textContent).toContain('工具产物');
+  });
+
+  it('存量转录 user 形态的配对结果同样不产生行（零部件不变式与 role 无关）', () => {
+    const events = [
+      message(1, [{ kind: 'toolUse', id: 'tu_1', name: 'read', input: {} }]),
+      toolResultMessage(2, 'tu_1', 'user'),
+    ];
+    render(<AgentTimeline messages={eventsToUIMessages(events)} running={false} />);
+
+    expect(screen.getAllByTestId('event-message')).toHaveLength(1);
+    expect(screen.queryByText('user')).toBeNull();
+  });
+
+  it('无主 toolResult（未配对）仍有部件，照常呈现占位卡', () => {
+    const events = [toolResultMessage(2, 'tu_orphan')];
+    render(<AgentTimeline messages={eventsToUIMessages(events)} running={false} />);
+
+    const nodes = screen.getAllByTestId('event-message');
+    expect(nodes).toHaveLength(1);
+    expect(within(nodes[0]).getByTestId('block-tool-result').textContent).toContain('工具产物');
+  });
+});
+
+// ---------------------------------------------------------------------------
 // raw 透传与 result 汇总可复制
 // ---------------------------------------------------------------------------
 

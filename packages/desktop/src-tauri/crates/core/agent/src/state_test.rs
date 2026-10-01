@@ -1,4 +1,4 @@
-use crate::event::{AgentDelta, AgentEvent, AgentEventKind};
+use crate::event::{AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::state::{AgentRunState, RunStateMachine};
 
 /// 构造一枚事件（不盖真实时钟也行——状态机只读 kind，stamp 即可）。
@@ -22,7 +22,7 @@ fn message(seq: u64) -> AgentEvent {
     event(
         seq,
         AgentEventKind::Message {
-            role: "assistant".to_owned(),
+            role: AgentMessageRole::Assistant,
             blocks: Vec::new(),
             parent_tool_use_id: None,
         },

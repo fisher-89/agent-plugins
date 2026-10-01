@@ -2,7 +2,7 @@
 //! 允许/拒绝）+ 拒绝流出形态（`SystemNotice{permission_denied}` + is_error
 //! ToolResult）合成形状。纯决策表无进程边界依赖，不需要 Mock。
 
-use agent::{AgentBlock, AgentEventKind, AgentPermissionMode};
+use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode};
 
 use crate::sdk::policy::allows;
 use crate::sdk::tools::TOOL_NAMES;
@@ -129,7 +129,7 @@ fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id
         payload: serde_json::json!({ "tool": denied_tool, "reason": reason }),
     };
     let result = AgentEventKind::Message {
-        role: "user".to_owned(),
+        role: AgentMessageRole::Tool,
         blocks: vec![AgentBlock::ToolResult {
             id: tool_use_id.to_owned(),
             content: reason.clone(),
@@ -150,7 +150,7 @@ fn 拒绝决策的合成产物形状为_system_notice_permission_denied_加同id
     let AgentEventKind::Message { role, blocks, .. } = &result else {
         panic!("合成产物必须携带 ToolResult 消息")
     };
-    assert_eq!(role.as_str(), "user");
+    assert_eq!(*role, AgentMessageRole::Tool, "工具结果管道以 tool role 密封");
     let Some(AgentBlock::ToolResult {
         id,
         content,

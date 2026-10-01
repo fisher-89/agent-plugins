@@ -5,7 +5,7 @@ use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::{AgentEventKind, AgentPermissionMode, StopRegistry};
+use ::agent::{AgentEventKind, AgentMessageRole, AgentPermissionMode, StopRegistry};
 use store::{
     AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
     SessionConfigSnapshot, SessionRecord, WorkspaceStores,
@@ -265,7 +265,7 @@ fn agent_session_transcript落库转录后按seq序全史重放() {
                 stamped(
                     2,
                     AgentEventKind::Message {
-                        role: "assistant".to_owned(),
+                        role: AgentMessageRole::Assistant,
                         blocks: Vec::new(),
                         parent_tool_use_id: None,
                     },

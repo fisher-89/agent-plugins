@@ -3,7 +3,7 @@ use std::sync::{Arc, Mutex};
 
 use native_db::{Builder, Models};
 
-use agent::{AgentPermissionMode, SessionCtx, SessionProvenance, SessionRef, StopRegistry};
+use agent::{AgentMessageRole, AgentPermissionMode, SessionCtx, SessionProvenance, SessionRef, StopRegistry};
 
 use crate::{compose_turn, ComposedTurn};
 use store::{
@@ -141,7 +141,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
         AgentEvent::stamp(
             0,
             AgentEventKind::Message {
-                role: "user".to_owned(),
+                role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮问".to_owned(),
                 }],
@@ -151,7 +151,7 @@ fn seed_transcript(store: &store::Store, session_id: &str) {
         AgentEvent::stamp(
             1,
             AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮答".to_owned(),
                 }],

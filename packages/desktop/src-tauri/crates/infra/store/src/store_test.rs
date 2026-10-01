@@ -2,7 +2,7 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agent::{AgentDelta, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
+use agent::{AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus};
 use native_db::{Builder, Models};
 
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
@@ -1172,7 +1172,7 @@ fn append_session_events批量密封追加后重放seq升序逐字段保真() {
     seed_session(&store, "ses-ape");
     let seeded = vec![
         stamped(0, run_started_kind()),
-        stamped(1, message_kind("assistant")),
+        stamped(1, message_kind(AgentMessageRole::Assistant)),
         stamped(2, system_notice_kind("api_retry")),
         stamped(3, turn_done_kind(false)),
         stamped(4, raw_kind("mystery-tag")),
@@ -1197,7 +1197,7 @@ fn append_session_events混入delta的批次ok且delta零记录() {
     let store = open_workspace_ok(&env.db_path("ws"));
     seed_session(&store, "ses-delta");
     let batch = vec![
-        stamped(0, message_kind("assistant")),
+        stamped(0, message_kind(AgentMessageRole::Assistant)),
         stamped(1, delta_kind()),
         stamped(2, turn_done_kind(false)),
     ];
@@ -1451,7 +1451,7 @@ fn list_session_events空洞容忍升序不补洞() {
     store
         .append_session_events(
             "ses-holes",
-            &[stamped(1, message_kind("assistant")), stamped(3, turn_done_kind(false))],
+            &[stamped(1, message_kind(AgentMessageRole::Assistant)), stamped(3, turn_done_kind(false))],
         )
         .expect("append 应成功");
 
@@ -1537,7 +1537,7 @@ fn reconcile_session_stats无turn_done转录缺省统计不报错() {
     store
         .append_session_events(
             "ses-rec-empty",
-            &[stamped(0, message_kind("assistant"))],
+            &[stamped(0, message_kind(AgentMessageRole::Assistant))],
         )
         .expect("append 应成功");
 
@@ -1603,9 +1603,9 @@ fn run_started_kind() -> AgentEventKind {
     }
 }
 
-fn message_kind(role: &str) -> AgentEventKind {
+fn message_kind(role: AgentMessageRole) -> AgentEventKind {
     AgentEventKind::Message {
-        role: role.to_owned(),
+        role,
         blocks: Vec::new(),
         parent_tool_use_id: None,
     }
@@ -2098,7 +2098,7 @@ fn 删除记录级联清掉归属会话与其转录与轮统计行且复用id不
     store
         .append_session_events(
             session_id,
-            &[stamped(0, run_started_kind()), stamped(1, message_kind("assistant"))],
+            &[stamped(0, run_started_kind()), stamped(1, message_kind(AgentMessageRole::Assistant))],
         )
         .expect("落转录");
     let turn = store

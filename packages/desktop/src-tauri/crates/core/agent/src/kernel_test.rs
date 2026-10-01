@@ -7,7 +7,7 @@
 
 use std::sync::{Arc, Mutex};
 
-use crate::event::{AgentDelta, AgentEvent, AgentEventKind};
+use crate::event::{AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole};
 use crate::kernel::{KernelOutput, SessionKernel, StopRegistry, TurnRequest};
 use crate::port::{SessionSink, TurnOutcome};
 use crate::runner::{
@@ -251,7 +251,7 @@ fn text_delta_kind(text: &str) -> AgentEventKind {
 
 fn message_kind() -> AgentEventKind {
     AgentEventKind::Message {
-        role: "assistant".to_owned(),
+        role: AgentMessageRole::Assistant,
         blocks: Vec::new(),
         parent_tool_use_id: None,
     }

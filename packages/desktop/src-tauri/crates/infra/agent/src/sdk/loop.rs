@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::time::Instant;
 
-use agent::{AgentBlock, AgentEventKind, AgentPermissionMode, RunHandle};
+use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 use futures::StreamExt;
 use rig_core::completion::{CompletionModel, CompletionRequest, Usage};
 use rig_core::message::{AssistantContent, Message, ToolCall};
@@ -69,7 +69,7 @@ where
     // 用户提示词：密封入史（时间线事件 + 入史；重建史尾追加新轮提示）
     let prompt_ok = sender
         .send(AgentEventKind::Message {
-            role: "user".to_owned(),
+            role: AgentMessageRole::User,
             blocks: vec![AgentBlock::Text {
                 text: turn.question.clone(),
             }],
@@ -184,7 +184,7 @@ where
         });
         if sender
             .send(AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks,
                 parent_tool_use_id: None,
             })
@@ -222,7 +222,9 @@ where
             };
             if sender
                 .send(AgentEventKind::Message {
-                    role: "user".to_owned(),
+                    // 工具结果管道以 tool role 密封（引擎归一：rig 以 user 位
+                    // 承载 result，进 core 前重标，core+ 不做引擎特判）
+                    role: AgentMessageRole::Tool,
                     blocks: vec![AgentBlock::ToolResult {
                         id: id.clone(),
                         content: content.clone(),
@@ -252,7 +254,7 @@ where
     history
 }
 
-/// 拒绝合成：`SystemNotice{subtype}` + is_error ToolResult 密封 user 消息
+/// 拒绝合成：`SystemNotice{subtype}` + is_error ToolResult 密封 tool 消息
 /// （与 tool_use 同 id，成对回灌；run 不中断）。
 async fn deny(
     sender: &mpsc::Sender<AgentEventKind>,
@@ -269,7 +271,7 @@ async fn deny(
         return; // 消费端关闭：外层续轮的下一发自然退出
     }
     let result = AgentEventKind::Message {
-        role: "user".to_owned(),
+        role: AgentMessageRole::Tool,
         blocks: vec![AgentBlock::ToolResult {
             id: id.to_owned(),
             content: reason.to_owned(),

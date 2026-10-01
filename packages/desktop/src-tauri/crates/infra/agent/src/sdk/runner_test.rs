@@ -2,7 +2,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent::{
-    AgentEventKind, AgentPermissionMode, AgentRunner, AgentStartError, SessionCtx,
+    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, AgentStartError, SessionCtx,
     SessionInjections, SessionOpen, SessionRef,
 };
 
@@ -69,7 +69,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
         AgentEvent::stamp(
             0,
             AgentEventKind::Message {
-                role: "user".to_owned(),
+                role: AgentMessageRole::User,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮问".to_owned(),
                 }],
@@ -79,7 +79,7 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
         AgentEvent::stamp(
             1,
             AgentEventKind::Message {
-                role: "assistant".to_owned(),
+                role: AgentMessageRole::Assistant,
                 blocks: vec![AgentBlock::Text {
                     text: "上一轮答".to_owned(),
                 }],
@@ -302,7 +302,7 @@ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_
     );
     assert!(matches!(
         &events[1],
-        AgentEventKind::Message { role, .. } if role == "user"
+        AgentEventKind::Message { role, .. } if role == &AgentMessageRole::User
     ));
     assert!(matches!(
         &events[2],
@@ -357,7 +357,7 @@ async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛()
     assert!(matches!(&events[0], AgentEventKind::RunStarted { .. }));
     assert!(matches!(
         &events[1],
-        AgentEventKind::Message { role, .. } if role == "user"
+        AgentEventKind::Message { role, .. } if role == &AgentMessageRole::User
     ));
     assert!(
         !events

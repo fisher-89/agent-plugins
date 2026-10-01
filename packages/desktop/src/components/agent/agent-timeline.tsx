@@ -27,7 +27,11 @@ export interface AgentTimelineProps {
   running: boolean;
 }
 
-/** 按 metadata.parentToolUseId 把子代理消息挂到父工具调用下（归因分组） */
+/**
+ * 按 metadata.parentToolUseId 把子代理消息挂到父工具调用下（归因分组）。
+ * 呈现不变式：零部件消息不产生行——配对折叠后的工具结果载体（`tool` role
+ * 消息及存量转录的 user 形态）parts 为空，跳过之（含嵌套桶），时间线无空行。
+ */
 function groupByParent(messages: AgentUIMessage[]): {
   topLevel: AgentUIMessage[];
   byParent: Map<string, AgentUIMessage[]>;
@@ -35,6 +39,7 @@ function groupByParent(messages: AgentUIMessage[]): {
   const topLevel: AgentUIMessage[] = [];
   const byParent = new Map<string, AgentUIMessage[]>();
   for (const message of messages) {
+    if (message.parts.length === 0) continue;
     const parentId = message.metadata?.parentToolUseId ?? null;
     if (parentId !== null && parentId !== '') {
       const bucket = byParent.get(parentId);

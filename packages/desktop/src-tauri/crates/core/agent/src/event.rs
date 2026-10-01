@@ -49,6 +49,17 @@ pub enum AgentDelta {
     Thinking { thinking: String },
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub enum AgentMessageRole {
+    /// 用户言语
+    User,
+    /// 模型回应
+    Assistant,
+    /// 引擎工具结果
+    Tool,
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
@@ -69,10 +80,9 @@ pub enum AgentEventKind {
         parent_tool_use_id: Option<String>,
         delta: AgentDelta,
     },
-    /// 对话消息（源自 assistant / user）：块序列 + 子代理归因。密封层：唯一
-    /// 落库与重放单元，密封粒度 = 引擎一次 assistant 回应（全部块收进）
+    /// 对话消息（user 言语 / assistant 回应 / tool 结果管道）
     Message {
-        role: String,
+        role: AgentMessageRole,
         blocks: Vec<AgentBlock>,
         parent_tool_use_id: Option<String>,
     },

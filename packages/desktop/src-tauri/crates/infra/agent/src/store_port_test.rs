@@ -8,7 +8,7 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent::{
-    AgentDelta, AgentEvent, AgentEventKind, NewSessionRow, SessionQuery, SessionSink,
+    AgentDelta, AgentEvent, AgentEventKind, AgentMessageRole, NewSessionRow, SessionQuery, SessionSink,
     SessionStats, SessionProvenance,
 };
 
@@ -69,7 +69,7 @@ fn sealed(seq: u64, kind: AgentEventKind) -> AgentEvent {
 
 fn message_kind() -> AgentEventKind {
     AgentEventKind::Message {
-        role: "assistant".to_owned(),
+        role: AgentMessageRole::Assistant,
         blocks: Vec::new(),
         parent_tool_use_id: None,
     }

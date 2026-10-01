@@ -218,11 +218,8 @@ export type AgentEventKind =
  *  `parent_tool_use_id` 词汇（子代理归因一处两用）
  */
 { kind: "messageDelta"; parentToolUseId: string | null; delta: AgentDelta } | 
-/**
- *  对话消息（源自 assistant / user）：块序列 + 子代理归因。密封层：唯一
- *  落库与重放单元，密封粒度 = 引擎一次 assistant 回应（全部块收进）
- */
-{ kind: "message"; role: string; blocks: AgentBlock[]; parentToolUseId: string | null } | 
+/**  对话消息（user 言语 / assistant 回应 / tool 结果管道） */
+{ kind: "message"; role: AgentMessageRole; blocks: AgentBlock[]; parentToolUseId: string | null } | 
 /**  system 通知（permission_denial / api_retry 等，subtype 不做封闭枚举） */
 { kind: "systemNotice"; subtype: string; payload: unknown } | 
 /**
@@ -251,6 +248,14 @@ export type AgentInstanceRecord = {
 	/**  默认标记（缺省运行解析入口；全局恒至多一） */
 	isDefault: boolean,
 };
+
+export type AgentMessageRole = 
+/**  用户言语 */
+"user" | 
+/**  模型回应 */
+"assistant" | 
+/**  引擎工具结果 */
+"tool";
 
 /**
  *  provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装

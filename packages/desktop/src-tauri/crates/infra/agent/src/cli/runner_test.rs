@@ -14,7 +14,7 @@ use tokio::io::{AsyncWriteExt, BufReader};
 use tokio::sync::mpsc;
 
 use agent::{
-    AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunner, RunHandle, SessionCtx,
+    AgentEvent, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, RunHandle, SessionCtx,
     SessionInjections, SessionOpen, SessionRef, TurnQuestion,
 };
 
@@ -102,7 +102,7 @@ async fn 完整会话fixture逐行入泵事件按序送达且线格式可被core
         assert_eq!(roundtrip, *event);
     }
 
-    // 事件序：init → assistant(tool_use) → user(tool_result) → result(TurnDone)
+    // 事件序：init → assistant(tool_use) → tool(tool_result) → result(TurnDone)
     assert!(matches!(
         &events[0].kind,
         AgentEventKind::RunStarted { model: Some(model), .. } if model == "claude-opus"
@@ -110,13 +110,13 @@ async fn 完整会话fixture逐行入泵事件按序送达且线格式可被core
     assert!(matches!(
         &events[1].kind,
         AgentEventKind::Message { role, blocks, .. }
-            if role == "assistant"
+            if role == &AgentMessageRole::Assistant
                 && matches!(&blocks[0], agent::AgentBlock::ToolUse { id, .. } if id == "tu_1")
     ));
     assert!(matches!(
         &events[2].kind,
         AgentEventKind::Message { role, blocks, .. }
-            if role == "user"
+            if role == &AgentMessageRole::Tool
                 && matches!(&blocks[0], agent::AgentBlock::ToolResult { id, is_error, .. } if id == "tu_1" && !is_error)
     ));
     assert!(matches!(
