@@ -61,22 +61,23 @@ fn empty经is_complete判定为缺失且sdk启动以config_missing失败且文�
     let empty = EngineConfig::empty();
     assert!(!empty.is_complete(), "三字段空串 → 配置缺失判定");
 
-    // 空缺省形状是 SdkRunner start 以 ConfigMissing 显式失败的前提（首个消费点
-    // 经门面分发锚定：缺省收敛改由解析单点承载后，该失败路径覆盖空配置的 sdk
-    // 臂）。门面构造的 SdkRunner 对空配置 start 即 Err。
+    // 空缺省形状是 SdkRunner open_session 以 ConfigMissing 显式失败的前提（首个
+    // 消费点经门面分发锚定）。门面构造的 SdkRunner 对空配置 open_session 即 Err。
     use crate::EngineFacade;
-    use agent::{AgentPermissionMode, AgentRunParams};
     use std::path::PathBuf;
 
     let runner = EngineFacade::new().runner_for(crate::EngineKind::Sdk, empty);
     let error = runner
-        .start(AgentRunParams {
-            prompt: "配置缺失轮".to_owned(),
-            cwd: PathBuf::from("C:\\ws"),
-            permission_mode: AgentPermissionMode::BypassPermissions,
-            resume_session_id: None,
+        .open_session(agent::SessionOpen {
+            injections: agent::SessionInjections::default(),
+            ctx: agent::SessionCtx {
+                workspace_root: PathBuf::from("C:\\ws"),
+                permission_mode: agent::AgentPermissionMode::BypassPermissions,
+            },
+            session: agent::SessionRef::New,
+            prior_handle: None,
         })
-        .expect_err("空配置 start 必须显式失败");
+        .expect_err("空配置 open_session 必须显式失败");
     assert!(
         matches!(error, AgentStartError::ConfigMissing(ref msg) if msg.contains("api_key") && msg.contains("base_url") && msg.contains("model")),
         "启动校验区分缺失字段成因，实际: {error:?}"

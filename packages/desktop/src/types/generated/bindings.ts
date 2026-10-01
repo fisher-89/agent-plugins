@@ -73,22 +73,18 @@ export const commands = {
 	deleteAgentInstance: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_instance", { id }),
 	/**  标记默认 agent（标记即切换，旧默认自动清除）：返回更新后记录。 */
 	setDefaultAgentInstance: (id: number) => __TAURI_INVOKE<AgentInstanceRecord>("set_default_agent_instance", { id }),
-	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, agent: number | null) => __TAURI_INVOKE<AgentRunRecord>("agent_start", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, agent }),
-	agentStop: (root: string, runId: number) => __TAURI_INVOKE<null>("agent_stop", { root, runId }),
-	/**  当前 workspace 的历史运行清单（started_at 降序）；blank root → 空结果。 */
-	agentRuns: (root: string) => __TAURI_INVOKE<AgentRunRecord[]>("agent_runs", { root }),
+	agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null) => __TAURI_INVOKE<TurnSummary>("agent_start", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent }),
+	agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>("agent_stop", { root, sessionId }),
 	/**
-	 *  单 run 事件重放（seq 升序）：store 事件 API 类型化，直接返回；
-	 *  blank root → 空结果。
+	 *  会话清单 + 聚合统计（来源过滤，`updated_at` 降序）：root 寻址所属
+	 *  workspace 库直查 DTO，无领域解释；blank root → 空结果。
 	 */
-	agentRunEvents: (root: string, runId: number) => __TAURI_INVOKE<AgentEvent[]>("agent_run_events", { root, runId }),
+	agentSessions: (root: string, source: string | null, sourceRef: string | null) => __TAURI_INVOKE<SessionSummary[]>("agent_sessions", { root, source, sourceRef }),
 	/**
-	 *  来源单链还原（发起顺序）：沿 `parent_run_id` 显式指针回溯整链，链拼接收
-	 *  口 store 单点；无链返回空数组。通用面查询（非 explore 专属）；
-	 *  `source_ref` 为 workspace 库域内的 explore 记录 id（root 寻址与库域内 id
-	 *  配套消解跨库歧义）；blank root → 空结果。
+	 *  会话全史转录重放（密封事件 seq 序，不要求运行进程存活）；blank root →
+	 *  空结果。
 	 */
-	agentRunChain: (root: string, source: string, sourceRef: string) => __TAURI_INVOKE<AgentRunRecord[]>("agent_run_chain", { root, source, sourceRef }),
+	agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent[]>("agent_session_transcript", { root, sessionId }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
 	readExplore: (root: string, name: string) => __TAURI_INVOKE<{
 	/**  笔记名（= 文件 stem） */
@@ -180,6 +176,13 @@ export type AgentBlock =
 /**  工具结果块（`content` 已扁平化为字符串；`is_error` 缺失视作 false） */
 { kind: "toolResult"; id: string; content: string; isError: boolean };
 
+/**  token 级增量载荷（思考/回复可辨；serde 内部 tag camelCase，与块模型同式）。 */
+export type AgentDelta = 
+/**  文本增量 */
+{ kind: "text"; text: string } | 
+/**  思考增量 */
+{ kind: "thinking"; thinking: string };
+
 /**
  *  agent 实例引擎二值（agent 管理域，store 本地枚举）：serde camelCase 线值
  *  `"cli" | "sdk"` 与门面 `EngineKind` 同线值域。持久化的是配置值域而非引擎
@@ -193,40 +196,40 @@ export type AgentEngineKind =
 "sdk";
 
 /**
- *  环境档位双档：`default`（完整环境）/ `bare`（纯净档；不读 OAuth 凭据，
- *  须 `ANTHROPIC_API_KEY` 等外部认证前提——提示责任在参数面，不在本 crate）。
- */
-export type AgentEnvMode = 
-/**  完整环境（页面默认档） */
-"default" | 
-/**  纯净档（显式开关） */
-"bare";
-
-/**
  *  统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
- *  `kind` 扁平进线格式（线格式 = 落库形态 = 前端 DTO 基准）。
+ *  `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
  */
 export type AgentEvent = {
-	/**  单调序号，每 run 从 0 递增；空白行跳过不占 seq */
+	/**
+	 *  单调序号，每轮从 0 递增；空白行跳过不占 seq。共享单调 seq 空间：
+	 *  增量同样占号（盖戳治理单点、传输/落库两路 seq 可比对），库内重放为
+	 *  密封事件 seq 升序、容忍空洞（排序键语义合法）
+	 */
 	seq: number,
 	/**  事件盖戳时刻（UTC unix 毫秒） */
 	timestampMs: number,
 } & AgentEventKind;
 
-/**
- *  事件类别五变体：`kind` 为 serde 内部 tag（camelCase 值），经
- *  [`AgentEvent`] 扁平进线格式。字段表与归一化映射见能力 spec
- *  `specs/desktop-agent-execution/spec.md`（路径相对域根）。
- */
 export type AgentEventKind = 
 /**  run 启动（源自 system/init）：模型、会话、工具与 MCP 服务器清单 */
 { kind: "runStarted"; model: string | null; sessionId: string | null; tools: string[]; mcpServers: string[] } | 
-/**  对话消息（源自 assistant / user）：块序列 + 子代理归因 */
+/**
+ *  token 级增量（ephemeral）：只上传输面，store 永不见；配对键沿用
+ *  `parent_tool_use_id` 词汇（子代理归因一处两用）
+ */
+{ kind: "messageDelta"; parentToolUseId: string | null; delta: AgentDelta } | 
+/**
+ *  对话消息（源自 assistant / user）：块序列 + 子代理归因。密封层：唯一
+ *  落库与重放单元，密封粒度 = 引擎一次 assistant 回应（全部块收进）
+ */
 { kind: "message"; role: string; blocks: AgentBlock[]; parentToolUseId: string | null } | 
 /**  system 通知（permission_denial / api_retry 等，subtype 不做封闭枚举） */
 { kind: "systemNotice"; subtype: string; payload: unknown } | 
-/**  run 收敛事件：唯一驱动状态机收敛的变体 */
-{ kind: "runResult"; subtype: string; isError: boolean; numTurns: number | null; durationMs: number | null; costUsd: number | null; usage: unknown; sessionId: string | null } | 
+/**
+ *  轮收敛事件：唯一驱动状态机收敛的变体，字段面 = 统计唯一口径（由内核
+ *  收口写轮行，引擎无第二口径）
+ */
+{ kind: "turnDone"; subtype: string; isError: boolean; numTurns: number | null; durationMs: number | null; costUsd: number | null; usage: unknown; sessionId: string | null } | 
 /**  未识别事件透传（未知 type / 非 JSON 行）：原文完整保留 */
 { kind: "raw"; eventType: string; rawJson: string };
 
@@ -251,7 +254,7 @@ export type AgentInstanceRecord = {
 
 /**
  *  provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
- *  先例同 [`AgentEventRecord`] 的 `AgentEvent`）：high / medium / low 三档
+ *  先例同转录单表的 `AgentEvent`）：high / medium / low 三档
  *  模型标识，运行发起解析消费固定取 high 档（effort 进 run 参数与档位选择
  *  器为后续迭代，本期只存不选）。
  */
@@ -303,66 +306,14 @@ export type AgentProviderRecord = {
 
 /**
  *  `agent_start` Channel 的消息信封（app 层 IPC 类型，非 core 契约）：实时
- *  事件与终态记录双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
- *  对齐）。信封不含 record 语义——终态记录塞进事件 usage 是反模式。
+ *  事件与终态轮行双变体，tag `ipc` 判别（TS 镜像放 transport，camelCase
+ *  对齐）。信封不含 record 语义——终态轮行塞进事件 usage 是反模式。
  */
 export type AgentRunMessage = 
 /**  实时事件（落库与流出同源同构） */
 { ipc: "event"; event: AgentEvent } | 
-/**  终态 run 记录（提前 resolve 契约的终态流出半边） */
-{ ipc: "record"; record: AgentRunRecord };
-
-/**
- *  agent 运行记录（workspace 维度，落所属 workspace 的独立 db 文件
- *  `workspaces/` 子树，cwd 恒为当前 workspace root 即归属键，见
- *  desktop-data-dimensions）：全平文字段；`status` / `env` / `permission_mode`
- *  为 core/agent 契约枚举（serde camelCase 值域与枚举化前受控字符串逐字一致，
- *  serde JSON 线格式零变化）。
- * 
- *  run id 为所属 workspace 库域内自增（写事务内 max+1），跨 workspace 不假定
- *  全局唯一，跨库定位携 root。
- * 
- *  时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
- * 
- *  字段演进：version 2 新增 `source` / `source_ref` / `parent_run_id` 三字段
- *  （来源归属与 resume 链显式指针）；version 3 三字段 String → 枚举。v1 / v2
- *  历史版本化结构与升级链已移除（不做旧库兼容定夺）：v1 / v2 版本头存量
- *  载荷不再可读，native_model 读路径版本不支持直接报错。
- */
-export type AgentRunRecord = {
-	/**  run id（主键，写事务内 max+1 分配） */
-	id: number,
-	/**  提示词原文 */
-	prompt: string,
-	/**  工作目录 */
-	cwd: string,
-	/**  环境档位（default | bare） */
-	env: AgentEnvMode,
-	/**  permission-mode 档位（default | acceptEdits | bypassPermissions） */
-	permissionMode: AgentPermissionMode,
-	/**  run 状态（running | completed | failed | stopped） */
-	status: AgentRunStatus,
-	/**  开始时间（UTC unix 毫秒） */
-	startedAt: number,
-	/**  结束时间；运行中为 None */
-	finishedAt: number | null,
-	/**  收敛轮数（来自 result 事件） */
-	numTurns: number | null,
-	/**  总成本美元（来自 result 事件） */
-	costUsd: number | null,
-	/**  运行时长毫秒（来自 result 事件） */
-	durationMs: number | null,
-	/**  会话 id（来自 result / init 事件，续会话入参来源） */
-	sessionId: string | null,
-	/**  失败原因（落库失败收敛 / 无 result 异常终止时填因） */
-	error: string | null,
-	/**  来源受控字符串（debug | explore | …），缺省 debug（调试链路语义不变） */
-	source?: string,
-	/**  来源内定位（explore 指向探索记录主键的十进制串；调试 run 为 None） */
-	sourceRef?: string | null,
-	/**  resume 链显式指针（本 run 的上游 run id；链首为 None） */
-	parentRunId?: number | null,
-};
+/**  终态轮行（提前 resolve 契约的终态流出半边，与重放两路同构） */
+{ ipc: "record"; record: TurnSummary };
 
 /**
  *  run 状态四档（落库 / 出线契约）：与 [`crate::state::AgentRunState`] 状态机
@@ -370,13 +321,13 @@ export type AgentRunRecord = {
  *  契约，状态机类型不出契约面（编排侧显式 `match` 映射）。
  */
 export type AgentRunStatus = 
-/**  运行中（run begin 落库行初值） */
+/**  运行中（轮 begin 落库行初值） */
 "running" | 
-/**  正常收敛（result 事件 is_error=false） */
+/**  正常收敛（TurnDone 事件 is_error=false） */
 "completed" | 
-/**  失败收敛（result 事件 is_error=true / 无 result 异常终止 / 落库失败） */
+/**  失败收敛（TurnDone 事件 is_error=true / 无 TurnDone 异常终止 / 落库失败） */
 "failed" | 
-/**  用户主动终止收敛（agent_stop 显式请求，语义区别于 CLI 失败） */
+/**  用户主动终止收敛（stop 显式请求，语义区别于引擎失败） */
 "stopped";
 
 /**  archive 月份分组；`month` 为 `None` 即"未知时间"组，固定排组序列尾。 */
@@ -530,7 +481,7 @@ export type DbDimension =
  *  已落地代表，desktop-data-dimensions 留痕）
  */
 "user" | 
-/**  workspace 维度（per-workspace 库，run / 事件 / explore 三模型） */
+/**  workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore 四模型） */
 "workspace";
 
 /**
@@ -725,6 +676,66 @@ export type RulesConfig = {
 	tasks: string[] | null,
 };
 
+/**
+ *  来源归属：来源受控字符串（debug | explore | …，缺省 debug）+ 来源内定位
+ *  （explore 指向探索记录主键的十进制串）。会话级来源，消费方经此寻址。
+ */
+export type SessionProvenance = {
+	/**  来源受控字符串 */
+	source: string,
+	/**  来源内定位（调试会话为 None） */
+	sourceRef: string | null,
+};
+
+/**
+ *  会话记录契约：id 为 core 铸造 id（字符串主键）；`remote_session_id` 为
+ *  引擎侧句柄（双 id 映射的内存半边，落库半边归 store）；`config_snapshot`
+ *  为装配配置快照的 JSON 形态（快照不透明——core 不解释装配概念，infra 侧
+ *  定型字段面），存快照而非跨库引用。
+ */
+export type SessionRow = {
+	/**  core 铸会话 id（主键） */
+	id: string,
+	/**  引擎侧句柄（cli / sdk 各自上报的会话标识；未上报为 None） */
+	remoteSessionId: string | null,
+	/**  装配配置快照（JSON 形态，core 不解释） */
+	configSnapshot: unknown,
+	/**  来源归属 */
+	provenance: SessionProvenance,
+	/**  建档时间（UTC unix 毫秒） */
+	createdAt: number,
+	/**  最近更新时间（UTC unix 毫秒） */
+	updatedAt: number,
+};
+
+/**
+ *  聚合统计：MVP 从轮行 / 转录现算，不维护累计列；统计与查询附带字段缺席
+ *  合法缺省（降级不违约）。
+ */
+export type SessionStats = {
+	/**  轮数（轮统计行行数） */
+	turnCount: number,
+	/**  累计墙钟毫秒（轮行时长求和；全部缺席为 None） */
+	totalDurationMs: number | null,
+	/**  累计输入 token（TurnDone usage 鸭子类型求和；缺席合法缺省） */
+	inputTokens: number | null,
+	/**  累计输出 token（TurnDone usage 鸭子类型求和；缺席合法缺省） */
+	outputTokens: number | null,
+};
+
+/**
+ *  会话清单项：会话记录 + 现算聚合统计 + 轮行随行返回（重放部件与历史展示
+ *  共用；core 契约类型，不引用 store 模型）。
+ */
+export type SessionSummary = {
+	/**  会话记录 */
+	row: SessionRow,
+	/**  聚合统计 */
+	stats: SessionStats,
+	/**  轮统计行（发起顺序） */
+	turns: TurnSummary[],
+};
+
 /**  测试框架八值枚举（CLI zod enum 同序同串；逐变体显式 rename 对齐 CLI 串） */
 export type TestFramework = "jest" | "vitest" | "vite-plus" | "bun" | "rust" | "node-test" | "go" | "pytest";
 
@@ -760,6 +771,32 @@ export type TreeEntry =
 { kind: "dir"; node: DirNode } | 
 /**  文件叶（单文件行统计，不可展开） */
 { kind: "file"; node: FileNode };
+
+/**
+ *  轮行 DTO（IPC 面）：轮统计行（每轮一行）的契约形态，取代旧 run 记录的
+ *  IPC 面。`agent_start` 提前 resolve 返回 running 态行、终态经 Channel 以
+ *  同构部件流出、重放按轮序对齐交错——实时与重放两路同构。
+ */
+export type TurnSummary = {
+	/**  轮 id（workspace 库域内自增） */
+	turnId: number,
+	/**  所属会话 id */
+	sessionId: string,
+	/**  轮状态（running | completed | failed | stopped） */
+	status: AgentRunStatus,
+	/**  开始时间（UTC unix 毫秒） */
+	startedAt: number,
+	/**  结束时间；运行中为 None */
+	finishedAt: number | null,
+	/**  收敛轮数（来自 TurnDone 事件） */
+	numTurns: number | null,
+	/**  总成本美元（来自 TurnDone 事件；缺席合法缺省） */
+	costUsd: number | null,
+	/**  运行时长毫秒（来自 TurnDone 事件；缺席合法缺省） */
+	durationMs: number | null,
+	/**  失败原因（落库失败收敛 / 无 TurnDone 异常终止时填因） */
+	error: string | null,
+};
 
 /**  评估 verdict。条目级严格：非法值触发该条降级跳过。 */
 export type Verdict = "pass" | "fail";

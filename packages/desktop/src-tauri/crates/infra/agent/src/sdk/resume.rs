@@ -1,25 +1,11 @@
-//! store 转录 → rig 对话历史重建纯函数。
-//!
-//! 重建口径：仅取顶层（`parent_tool_use_id = None`）非 Raw 事件——Raw /
-//! RunStarted / SystemNotice 不进对话史，子代理事件（parent 归因非空）压
-//! 平丢弃（保真度缺口已在能力 spec 留痕）。块映射：Text → 文本、Thinking →
-//! reasoning、ToolUse → tool call、ToolResult → tool result（`sdk-` 前缀
-//! 会话的归属校验由 [`owns_session`] 承载，前缀即引擎归属标记）。
-//!
-//! 重建空历史视同会话缺失（调用方以启动失败显式拒绝，不空转）。
-
 use std::collections::HashMap;
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind};
 use rig_core::message::{AssistantContent, Message, Reasoning, ToolResultContent, UserContent};
 
-/// sdk 会话 id 前缀（引擎归属标记）：`sdk-<进程内计数>-<毫秒时戳>`。
+/// sdk 引擎侧会话 id 铸造前缀：`sdk-<进程内计数>-<毫秒时戳>`（每轮铸造，
+/// 经 RunStarted / TurnDone 上报由内核记双 id 映射；不再承担归属校验）。
 pub const SESSION_PREFIX: &str = "sdk-";
-
-/// 会话 id 是否属 sdk 引擎产出（resume 归属校验；非前缀显式拒绝）。
-pub fn owns_session(session_id: &str) -> bool {
-    session_id.starts_with(SESSION_PREFIX)
-}
 
 /// 重建 rig 对话历史：转录事件序列 → user / assistant 消息序列（ToolUse ↔
 /// ToolResult 成对回灌）。空历史返回 `Err`（视同会话缺失）。
@@ -35,7 +21,7 @@ pub fn rebuild(events: &[AgentEvent]) -> Result<Vec<Message>, String> {
             parent_tool_use_id,
         } = &event.kind
         else {
-            continue; // RunStarted / SystemNotice / Raw 不进对话史
+            continue; // RunStarted / SystemNotice / Raw / delta 不进对话史
         };
         if parent_tool_use_id.is_some() {
             continue; // 子代理事件压平丢弃

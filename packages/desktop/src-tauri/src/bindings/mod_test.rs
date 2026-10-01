@@ -57,9 +57,8 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "setDefaultAgentInstance",
     "agentStart",
     "agentStop",
-    "agentRuns",
-    "agentRunEvents",
-    "agentRunChain",
+    "agentSessions",
+    "agentSessionTranscript",
     "readExplore",
     "scanExplores",
     "exploreDocPath",
@@ -75,7 +74,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "workspaceConfig",
 ];
 
-/// 31 条命令的 IPC 命令名（snake_case，invoke 目标）。
+/// 30 条命令的 IPC 命令名（snake_case，invoke 目标）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -92,9 +91,8 @@ const COMMAND_NAMES: &[&str] = &[
     "set_default_agent_instance",
     "agent_start",
     "agent_stop",
-    "agent_runs",
-    "agent_run_events",
-    "agent_run_chain",
+    "agent_sessions",
+    "agent_session_transcript",
     "read_explore",
     "scan_explores",
     "explore_doc_path",
@@ -115,7 +113,6 @@ const DTO_TYPES: &[&str] = &[
     "ActivePhase",
     "AgentBlock",
     "AgentEngineKind",
-    "AgentEnvMode",
     "AgentEvent",
     "AgentEventKind",
     "AgentInstanceRecord",
@@ -123,8 +120,11 @@ const DTO_TYPES: &[&str] = &[
     "AgentPermissionMode",
     "AgentProviderRecord",
     "AgentRunMessage",
-    "AgentRunRecord",
     "AgentRunStatus",
+    "SessionRow",
+    "SessionStats",
+    "SessionSummary",
+    "TurnSummary",
     "ArchiveGroup",
     "ArtifactDescriptor",
     "ArtifactEnvelope",
@@ -186,7 +186,7 @@ fn type_section(content: &str, type_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 导出产物包含全部31条命令包装名与invoke命令名及出线dto类型名() {
+fn 导出产物包含全部30条命令包装名与invoke命令名及出线dto类型名() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -226,13 +226,13 @@ fn agent_start与watch_subscribe绑定为typed_channel参数() {
         "agentStart 绑定首参为 typed Channel<AgentRunMessage>"
     );
     assert!(
-        content.contains("__TAURI_INVOKE<AgentRunRecord>(\"agent_start\""),
-        "agent_start invoke 目标与返回类型 typed"
+        content.contains("__TAURI_INVOKE<TurnSummary>(\"agent_start\""),
+        "agent_start invoke 目标与返回类型 typed（提前 resolve 契约返回 running 态轮行）"
     );
-    // 信封 ipc 双变体出自生成物（tag `ipc` camelCase）
+    // 信封 ipc 双变体出自生成物（tag `ipc` camelCase；Record 臂载 TurnSummary）
     assert!(content.contains("export type AgentRunMessage ="));
     assert!(content.contains("{ ipc: \"event\"; event: AgentEvent }"));
-    assert!(content.contains("{ ipc: \"record\"; record: AgentRunRecord }"));
+    assert!(content.contains("{ ipc: \"record\"; record: TurnSummary }"));
 
     // watch_subscribe：Channel<FileWatchEvent> typed 参数 + 载荷类型来自生成物
     assert!(
@@ -256,18 +256,19 @@ fn agent_start绑定签名含尾部agent入参且invoke参数对象恒含agent�
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
-    // 尾部 agent 入参（number | null，第 8 IPC 参数位形态不变）：
+    // 尾部 agent 入参（number | null，末位位置参数形态保持；会话域化后
+    // sessionId 取代 resumeSessionId/parentRunId）：
     // 「agentStart typed Channel 首参」逐字断言保持，agent 为末位位置参数
-    let wrapper_head = "agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, resumeSessionId: string | null, source: string | null, sourceRef: string | null, parentRunId: number | null, agent: number | null) => ";
+    let wrapper_head = "agentStart: (onEvent: Channel<AgentRunMessage>, root: string, prompt: string, permissionMode: AgentPermissionMode, sessionId: string | null, source: string | null, sourceRef: string | null, agent: number | null) => ";
     assert!(
         content.contains(wrapper_head),
         "agentStart 绑定签名以尾部 agent 入参收尾（typed Channel 首参保持）"
     );
     assert!(
         content.contains(
-            "\"agent_start\", { onEvent, root, prompt, permissionMode, resumeSessionId, source, sourceRef, parentRunId, agent }"
+            "\"agent_start\", { onEvent, root, prompt, permissionMode, sessionId, source, sourceRef, agent }"
         ),
-        "invoke 参数对象恒含 agent 键（第 9 位置参）"
+        "invoke 参数对象恒含 agent 键与 sessionId 键（会话域化参数面）"
     );
 }
 
@@ -312,12 +313,14 @@ fn agent_event出线为kind判别联合且seq摊平变体字面量camel_case() {
         "kind 判别联合经 intersection 摊平（PoC 判据：tag=\"kind\"）"
     );
 
-    // 五变体字面量 camelCase（rename_all_fields 出线形态留档）
+    // 六变体字面量 camelCase（rename_all_fields 出线形态留档；RunResult →
+    // TurnDone 更名 + MessageDelta 增量词汇入列）
     for literal in [
         "kind: \"runStarted\"",
+        "kind: \"messageDelta\"",
         "kind: \"message\"",
         "kind: \"systemNotice\"",
-        "kind: \"runResult\"",
+        "kind: \"turnDone\"",
         "kind: \"raw\"",
     ] {
         assert!(
@@ -325,7 +328,7 @@ fn agent_event出线为kind判别联合且seq摊平变体字面量camel_case() {
             "AgentEventKind 变体字面量缺失: {literal}"
         );
     }
-    // runResult 变体字段 camelCase（与 dto.ts 现镜像同构）
+    // turnDone 变体字段 camelCase（与 dto.ts 现镜像同构）
     for field in [
         "isError: boolean;",
         "numTurns: number | null;",
@@ -335,7 +338,7 @@ fn agent_event出线为kind判别联合且seq摊平变体字面量camel_case() {
     ] {
         assert!(
             content.contains(field),
-            "runResult camelCase 字段缺失: {field}"
+            "turnDone camelCase 字段缺失: {field}"
         );
     }
     // AgentBlock 四变体同为 kind 判别 + camelCase 字面量
@@ -361,7 +364,7 @@ fn json_value字段出线unknown且时间戳字段出线string() {
     // payload / usage / input / key / value 口径一致，前端 renderer 自行收窄）
     for field in [
         "payload: unknown,",
-        "usage: unknown;", // runResult 内联变体，分号分隔
+        "usage: unknown;", // turnDone 内联变体，分号分隔
         "input: unknown",  // union 变体内联形态，无尾分隔符
         "key: unknown,",
         "value: unknown,",
@@ -497,10 +500,10 @@ fn 命令错误面为promise_reject透传无result包装() {
 
     // ErrorHandlingMode::Throw：生成包装直返 `__TAURI_INVOKE<T>` 的 Promise，
     // Err 经 reject 抵达前端（前端 hook 既有 `.catch → error 态` 接线不变）；
-    // agent_stop 随 desktop-workspace-db-split 携 root（复合键寻址）
+    // agent_stop 会话域寻址（root + sessionId）
     assert!(
         content.contains(
-            "agentStop: (root: string, runId: number) => __TAURI_INVOKE<null>(\"agent_stop\", { root, runId })"
+            "agentStop: (root: string, sessionId: string) => __TAURI_INVOKE<null>(\"agent_stop\", { root, sessionId })"
         ),
         "命令包装直返 invoke Promise（错误面 reject 透传）"
     );

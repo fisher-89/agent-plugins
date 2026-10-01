@@ -2,13 +2,14 @@ use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
+use agent::{AgentDelta, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
 use native_db::{Builder, Models};
 
 use crate::store::{workspace_db_file_name, GLOBAL_DB_FILE_NAME};
 use crate::{
-    AgentEngineKind, AgentEventRecord, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
-    AgentRunRecord, ExploreRecord, Store, StoreError, WorkspaceRecord, WorkspaceStores,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+    ExploreRecord, SessionConfigSnapshot, SessionRecord, Store, StoreError, WorkspaceRecord,
+    WorkspaceStores,
 };
 
 // ---------------------------------------------------------------------------
@@ -126,7 +127,7 @@ fn add_ok(store: &Store, dir: &Path) -> WorkspaceRecord {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn open_global列user维度三模型_open_workspace仅列workspace维度三行() {
+fn open_global列user维度三模型_open_workspace仅列workspace维度四行() {
     let env = Env::new("registry-split");
 
     let global = open_global_ok(&env.db_path("global"));
@@ -149,8 +150,8 @@ fn open_global列user维度三模型_open_workspace仅列workspace维度三行()
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["agent_run", "agent_event", "explore"],
-        "workspace 组静态注册恰 run / 事件 / explore 三模型，两组无交叉"
+        vec!["agent_run", "session", "session_event", "explore"],
+        "workspace 组静态注册恰轮统计行 / 会话 / 转录 / explore 四模型（agent_event 退役出注册），两组无交叉"
     );
     assert!(ws_models.iter().all(|model| model.count == 0));
 }
@@ -220,7 +221,7 @@ fn open_global与open_workspace对不存在路径创建db文件与父目录且�
     let ws_path = env.db_dir.path().join("nested/ws/test.redb");
     let ws = open_workspace_ok(&ws_path);
     assert!(ws_path.exists(), "open_workspace 创建 db 文件");
-    assert!(ws.list_agent_runs().unwrap().is_empty(), "空库可 list");
+    assert!(ws.list_sessions(None, None).unwrap().is_empty(), "空库可 list");
     assert!(ws.list_explore_records("").unwrap().is_empty());
 }
 
@@ -303,17 +304,17 @@ fn for_root派生的workspace库文件落workspaces子树且名为可读段加32
 }
 
 #[test]
-fn 同root跨两级库生命周期派生同一路径_重开后run与explore完整可读() {
+fn 同root跨两级库生命周期派生同一路径_重开后会话与explore完整可读() {
     let env = StoresEnv::new("reopen-same-path");
     let root = env.root_of("persist");
 
-    let (run, explore, file_name) = {
+    let (session_id, explore, file_name) = {
         let stores = env.open();
         let store = stores.for_root(&root).expect("for_root 应成功");
-        let run = begin_ok(&store, "重开前首轮", 100);
+        let session_id = seed_session(&store, "ses-persist-1");
         let explore = create_ok(&store, &root, "topic");
         assert_eq!(env.workspace_db_files().len(), 1);
-        (run, explore, env.workspace_db_files()[0].clone())
+        (session_id, explore, env.workspace_db_files()[0].clone())
     }; // 整个 WorkspaceStores（含缓存实例）随作用域释放，文件锁归还
 
     let stores = env.open();
@@ -323,11 +324,9 @@ fn 同root跨两级库生命周期派生同一路径_重开后run与explore完�
         vec![file_name],
         "同 root 跨重开派生同一路径（不产生第二文件）"
     );
-    assert_eq!(
-        store.list_agent_runs().unwrap(),
-        vec![run],
-        "先写入的 run 重开后完整可读"
-    );
+    let summaries = store.list_sessions(None, None).unwrap();
+    assert_eq!(summaries.len(), 1, "先写入的会话重开后完整可读");
+    assert_eq!(summaries[0].row.id, session_id);
     assert_eq!(
         store.list_explore_records(&root).unwrap(),
         vec![explore],
@@ -464,12 +463,10 @@ fn 同root连续两次for_root返回同一共享实例且可连续读写() {
         "同 root 返回同一共享实例（不二次打开文件、无 redb 锁冲突）"
     );
     // 同一实例可连续读写
-    let run = begin_ok(&first, "连续读写", 100);
-    assert_eq!(
-        second.list_agent_runs().unwrap(),
-        vec![run],
-        "经同一实例的写入对二次解析立即可见"
-    );
+    let session_id = seed_session(&first, "ses-reuse");
+    let summaries = second.list_sessions(None, None).unwrap();
+    assert_eq!(summaries.len(), 1, "经同一实例的写入对二次解析立即可见");
+    assert_eq!(summaries[0].row.id, session_id);
 }
 
 #[test]
@@ -483,14 +480,19 @@ fn 不同root各自独立实例_写入互不可见_文件各自独立() {
     let store_b = stores.for_root(&root_b).expect("B for_root 应成功");
 
     assert!(!Arc::ptr_eq(&store_a, &store_b), "不同 root 各自独立实例");
-    let run_a = begin_ok(&store_a, "A 库首轮", 100);
+    seed_session(&store_a, "ses-only-a");
     assert!(
-        store_b.list_agent_runs().unwrap().is_empty(),
+        store_b.list_sessions(None, None).unwrap().is_empty(),
         "A 的写入对 B 不可见"
     );
-    let run_b = begin_ok(&store_b, "B 库首轮", 200);
-    assert_eq!(run_b.id, 1, "B 库 id 独立自增（不接续 A 库）");
-    assert_eq!(store_a.list_agent_runs().unwrap(), vec![run_a]);
+    seed_session(&store_b, "ses-only-b");
+    let ids_a: Vec<String> = store_a
+        .list_sessions(None, None)
+        .unwrap()
+        .iter()
+        .map(|summary| summary.row.id.clone())
+        .collect();
+    assert_eq!(ids_a, vec!["ses-only-a"], "A 库清单不含 B 的会话");
     assert_eq!(env.workspace_db_files().len(), 2, "两 root 文件各自独立");
 }
 
@@ -525,7 +527,7 @@ fn for_root派生路径上文件损坏时返回err不静默降级为空库() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 组合链open注册后for_root落库run与explore且全局库无混入() {
+fn 组合链open注册后for_root落库会话与explore且全局库无混入() {
     let env = StoresEnv::new("ac2-split");
     let stores = env.open();
 
@@ -533,8 +535,8 @@ fn 组合链open注册后for_root落库run与explore且全局库无混入() {
     let record = add_ok(stores.global(), &env.ws("split"));
     let root = record.root.clone();
     let store = stores.for_root(&root).expect("for_root 应成功");
-    let run = begin_ok(&store, "分流首轮", 100);
-    let explore = create_ok(&store, &record.root, "split-topic");
+    let session_id = seed_session(&store, "ses-split-1");
+    let explore = create_ok(&store, &root, "split-topic");
 
     // 全局库 user 维度模型行（注册面），注册表计数与注册记录数一致、两新管理
     // 模型计数 0 也列出
@@ -547,27 +549,30 @@ fn 组合链open注册后for_root落库run与explore且全局库无混入() {
         vec![("workspace", 1), ("agent_provider", 0), ("agent_instance", 0)],
         "全局库仅 user 维度模型行（三模型组）"
     );
-    // workspace 库含 run / explore 行，注册表记录不混入
+    // workspace 库含会话 / explore 行，注册表记录不混入
     let ws_models = store.list_models().unwrap();
     assert_eq!(
         ws_models
             .iter()
             .map(|model| (model.name.as_str(), model.count))
             .collect::<Vec<_>>(),
-        vec![("agent_run", 1), ("agent_event", 0), ("explore", 1)],
-        "workspace 库按新布局写入 run / explore，无注册表混入"
+        vec![
+            ("agent_run", 0),
+            ("session", 1),
+            ("session_event", 0),
+            ("explore", 1)
+        ],
+        "workspace 库按会话域布局写入 session / explore，无注册表混入"
     );
     assert_eq!(
         stores.global().list_workspaces().unwrap(),
         vec![record],
-        "全局库清单仅注册记录（run / explore 不在注册表）"
+        "全局库清单仅注册记录（会话 / explore 不在注册表）"
     );
     // 组合链写入各自完整可读
-    assert_eq!(
-        store.list_agent_runs().unwrap(),
-        vec![run],
-        "run 落 workspace 库"
-    );
+    let summaries = store.list_sessions(None, None).unwrap();
+    assert_eq!(summaries.len(), 1, "会话落 workspace 库");
+    assert_eq!(summaries[0].row.id, session_id);
     assert_eq!(
         store.list_explore_records(&root).unwrap(),
         vec![explore],
@@ -576,7 +581,7 @@ fn 组合链open注册后for_root落库run与explore且全局库无混入() {
 }
 
 #[test]
-fn 两workspace各自for_root同id并行写入互不串库() {
+fn 两workspace各自for_root同会话id并行写入互不串库() {
     let env = StoresEnv::new("ac2-parallel");
     let stores = env.open();
     let rec_a = add_ok(stores.global(), &env.ws("para-a"));
@@ -584,24 +589,33 @@ fn 两workspace各自for_root同id并行写入互不串库() {
     let store_a = stores.for_root(&rec_a.root).expect("A for_root 应成功");
     let store_b = stores.for_root(&rec_b.root).expect("B for_root 应成功");
 
-    // 两库各自 max+1 分配：同 id 并行（库域内自增，跨 workspace 不假定全局唯一）
-    let run_a = begin_ok(&store_a, "A 库首轮", 100);
-    let run_b = begin_ok(&store_b, "B 库首轮", 200);
-    assert_eq!((run_a.id, run_b.id), (1, 1), "同 id 并行");
+    // 两库各自独立：同 id 会话并行（库域内隔离，跨 workspace 不假定全局唯一）
+    seed_session(&store_a, "ses-parallel");
+    seed_session(&store_b, "ses-parallel");
     let explore_a = create_ok(&store_a, &rec_a.root, "同名话题");
     let explore_b = create_ok(&store_b, &rec_b.root, "同名话题");
 
     // A 库清单与 scan 不含 B 的任何记录
-    let runs_a = store_a.list_agent_runs().unwrap();
-    let prompts_a: Vec<&str> = runs_a.iter().map(|record| record.prompt.as_str()).collect();
-    assert_eq!(prompts_a, vec!["A 库首轮"], "A 库 run 清单不含 B 的记录");
-    let ids_a: Vec<i64> = store_a
-        .scan("agent_run", 0, 10)
+    let ids_a: Vec<String> = store_a
+        .list_sessions(None, None)
         .unwrap()
         .iter()
-        .map(|envelope| envelope.key.as_i64().expect("agent_run key 为数值"))
+        .map(|summary| summary.row.id.clone())
         .collect();
-    assert_eq!(ids_a, vec![1], "A 库 scan 恰本库一行");
+    assert_eq!(ids_a, vec!["ses-parallel"], "A 库会话清单恰本库一行");
+    let keys_a: Vec<String> = store_a
+        .scan("session", 0, 10)
+        .unwrap()
+        .iter()
+        .map(|envelope| {
+            envelope
+                .key
+                .as_str()
+                .expect("session key 为会话 id 字符串")
+                .to_owned()
+        })
+        .collect();
+    assert_eq!(keys_a, vec!["ses-parallel"], "A 库 scan 恰本库一行");
     assert_eq!(
         store_a.list_explore_records(&rec_a.root).unwrap(),
         vec![explore_a],
@@ -615,24 +629,14 @@ fn 两workspace各自for_root同id并行写入互不串库() {
     assert_eq!(env.workspace_db_files().len(), 2, "两库文件各自独立");
 }
 
-// ---------------------------------------------------------------------------
-// AC-4：全新文件组冷启动（零迁移）
-// ---------------------------------------------------------------------------
-
-/// 预置旧布局单库文件（`desktop-store.redb`，四模型静态注册 + 各写一条记录）：
-/// 新代码已无单库打开入口，直接以 native_db 裸构造四模型库写入（不经
-/// `Store`），模拟零迁移语义中的「旧布局残留」。返回写入后的文件字节。
+/// 预置旧布局单库文件（`desktop-store.redb`，注册表 + explore 各写一条记录）：
+/// 新代码已无单库打开入口，直接以 native_db 裸构造写盘（不经 `Store`），模拟
+/// 零迁移语义中的「旧布局残留」。返回写入后的文件字节。
 fn preset_old_layout_db(path: &Path, ws_root_key: &str) -> Vec<u8> {
     let mut models = Models::new();
     models
         .define::<WorkspaceRecord>()
         .expect("定义 WorkspaceRecord 失败");
-    models
-        .define::<AgentRunRecord>()
-        .expect("定义 AgentRunRecord 失败");
-    models
-        .define::<AgentEventRecord>()
-        .expect("定义 AgentEventRecord 失败");
     models
         .define::<ExploreRecord>()
         .expect("定义 ExploreRecord 失败");
@@ -643,27 +647,6 @@ fn preset_old_layout_db(path: &Path, ws_root_key: &str) -> Vec<u8> {
         let rw = db.rw_transaction().expect("开启写事务失败");
         rw.insert(WorkspaceRecord::from_root(ws_root_key, 1000))
             .expect("写入 workspace 记录失败");
-        rw.insert(AgentRunRecord {
-            id: 7,
-            prompt: "旧库首轮".to_owned(),
-            cwd: ws_root_key.to_owned(),
-            env: AgentEnvMode::Default,
-            permission_mode: AgentPermissionMode::BypassPermissions,
-            status: AgentRunStatus::Running,
-            started_at: 1100,
-            finished_at: None,
-            num_turns: None,
-            cost_usd: None,
-            duration_ms: None,
-            session_id: None,
-            error: None,
-            source: "debug".to_owned(),
-            source_ref: None,
-            parent_run_id: None,
-        })
-        .expect("写入 run 记录失败");
-        rw.insert(AgentEventRecord::new(7, stamped(0, run_started_kind())))
-            .expect("写入事件失败");
         rw.insert(ExploreRecord::new(ws_root_key, "旧档案", 1200))
             .expect("写入 explore 记录失败");
         rw.commit().expect("提交预置事务失败");
@@ -672,7 +655,7 @@ fn preset_old_layout_db(path: &Path, ws_root_key: &str) -> Vec<u8> {
 }
 
 #[test]
-fn 预置旧四模型单库文件后新布局冷启动照常成功且旧文件保持原样() {
+fn 预置旧布局单库文件后新布局冷启动照常成功且旧文件保持原样() {
     let env = StoresEnv::new("cold-start");
     let old_path = env.data_root.path().join("desktop-store.redb");
     // 旧库内注册的 workspace root（新布局不得读取该记录）
@@ -686,12 +669,12 @@ fn 预置旧四模型单库文件后新布局冷启动照常成功且旧文件�
         stores.global().list_workspaces().unwrap().is_empty(),
         "旧布局注册表不读入新全局库"
     );
-    // workspace 库从空开始按新布局写入：id 从 1 起不接续旧库 id 域
+    // workspace 库从空开始按新布局写入（会话域新库写入照常）
     let store = stores.for_root(&legacy_root).expect("for_root 应成功");
-    let run = begin_ok(&store, "新库首轮", 100);
-    assert_eq!(run.id, 1, "新库 id 域从 1 起（不接续旧库 id=7）");
+    let session_id = seed_session(&store, "ses-fresh-1");
+    assert_eq!(session_id, "ses-fresh-1", "新库写入照常");
     let explore = create_ok(&store, &legacy_root, "fresh");
-    assert_eq!(explore.id, 1, "新库 explore id 从 1 起（不接续旧库 id=5）");
+    assert_eq!(explore.id, 1, "新库 explore id 从 1 起（不接续旧库 id 域）");
 
     // 旧文件不读、不改名、不删除：文件名与字节保持原样
     assert!(old_path.exists(), "旧布局文件不被删除");
@@ -1013,196 +996,597 @@ fn 全链路add_list_remove后重开同一db文件清单状态与各操作返回
 }
 
 // ---------------------------------------------------------------------------
-// agent 域（workspace 库）：begin / finish / list_runs 存量回归
+// agent 会话域（workspace 库）：create_session / find_session /
+// begin_agent_turn / append_session_events / finish_agent_turn /
+// bind_session_remote / list_sessions / list_session_events /
+// reconcile_session_stats（write-through + 聚合现算 + 对账重导）。run 域旧
+// API（begin_agent_run / list_agent_runs / restore_run_chain 等）随会话一等
+// 公民退役，残留引用即编译失败。
 // ---------------------------------------------------------------------------
 
-/// 构造一份 running 形态的 run 记录（id 由 begin 分配，入参不参与匹配）。
-/// 三字段直写契约枚举（v3 起落库载体即枚举）。
-fn running_run(prompt: &str, started_at: i64) -> AgentRunRecord {
-    AgentRunRecord {
-        id: 0,
-        prompt: prompt.to_owned(),
-        cwd: "C:\\ws\\demo".to_owned(),
-        env: AgentEnvMode::Default,
-        permission_mode: AgentPermissionMode::BypassPermissions,
-        status: AgentRunStatus::Running,
-        started_at,
-        finished_at: None,
-        num_turns: None,
-        cost_usd: None,
-        duration_ms: None,
-        session_id: None,
-        error: None,
-        source: "debug".to_owned(),
-        source_ref: None,
-        parent_run_id: None,
+/// 会话行 fixture（id 由调用方给定；时间戳显式注入，与钟面无关）。
+fn session_record(id: &str, source: &str, source_ref: Option<&str>) -> SessionRecord {
+    SessionRecord {
+        id: id.to_owned(),
+        engine_session_id: None,
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Sdk,
+            model: Some("m-high".to_owned()),
+            permission_mode: AgentPermissionMode::BypassPermissions,
+        },
+        source: source.to_owned(),
+        source_ref: source_ref.map(str::to_owned),
+        created_at: 1727000000000,
+        updated_at: 1727000000000,
     }
 }
 
-fn begin_ok(store: &Store, prompt: &str, started_at: i64) -> AgentRunRecord {
+/// 落一份会话行并返回 id。
+fn seed_session(store: &Store, id: &str) -> String {
     store
-        .begin_agent_run(&running_run(prompt, started_at))
-        .unwrap_or_else(|e| panic!("begin_agent_run 应成功: {e}"))
+        .create_session(&session_record(id, "debug", None))
+        .unwrap_or_else(|e| panic!("create_session 应成功: {e}"));
+    id.to_owned()
+}
+
+/// 轮行终态收口入参壳（session_id / started_at 由 store 沿用存量行）。
+fn finish_shell(
+    turn_id: i64,
+    status: AgentRunStatus,
+    finished_at: Option<i64>,
+    num_turns: Option<u64>,
+    duration_ms: Option<u64>,
+    cost_usd: Option<f64>,
+) -> AgentRunRecord {
+    AgentRunRecord {
+        id: turn_id,
+        session_id: None,
+        status,
+        started_at: 0,
+        finished_at,
+        num_turns,
+        cost_usd,
+        duration_ms,
+        error: None,
+    }
 }
 
 #[test]
-fn begin_agent_run空库首跑返回id为1且status为running且started_at落值() {
-    let env = Env::new("agent-begin-first");
-    let store = open_workspace_ok(&env.db_path("ws"));
+fn create_session落库后find_session主键直查逐字段相等且跨workspace库隔离() {
+    let env = StoresEnv::new("session-crud");
+    let stores = env.open();
+    let root_a = env.root_of("alpha");
+    let root_b = env.root_of("beta");
+    let store_a = stores.for_root(&root_a).expect("A for_root 应成功");
+    let store_b = stores.for_root(&root_b).expect("B for_root 应成功");
 
-    let record = begin_ok(&store, "首轮", 1727000000000);
+    let record = session_record("ses-crud-1", "debug", None);
+    let created = store_a.create_session(&record).expect("create 应成功");
+    assert_eq!(created, record, "create 返回落库记录本体");
 
-    assert_eq!(record.id, 1, "空库首跑 max+1 分配 id=1");
-    assert_eq!(record.status, AgentRunStatus::Running, "落 running 行");
     assert_eq!(
-        record.started_at, 1727000000000,
-        "started_at 按调用方值落库"
+        store_a.find_session("ses-crud-1").unwrap(),
+        Some(record),
+        "主键直查逐字段相等"
     );
-    assert_eq!(record.finished_at, None, "running 行无结束时间");
-    // 清单可见 running 行
-    assert_eq!(store.list_agent_runs().unwrap(), vec![record.clone()]);
+    assert!(
+        store_b.find_session("ses-crud-1").unwrap().is_none(),
+        "跨 workspace 库隔离（for_root 双库各开各库）"
+    );
 }
 
 #[test]
-fn begin_agent_run连续begin时id严格递增() {
-    let env = Env::new("agent-begin-incr");
+fn create_session同id重复创建返回err不产半行() {
+    let env = Env::new("session-dup");
     let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-dup-1");
 
-    let first = begin_ok(&store, "第一跑", 100);
-    let second = begin_ok(&store, "第二跑", 200);
-    let third = begin_ok(&store, "第三跑", 300);
-
-    assert_eq!((first.id, second.id, third.id), (1, 2, 3), "max+1 严格递增");
+    let result = store.create_session(&session_record("ses-dup-1", "debug", None));
+    assert!(result.is_err(), "同 id 重复创建必须 Err（写事务原子性）");
+    assert_eq!(
+        store
+            .list_sessions(None, None)
+            .unwrap()
+            .iter()
+            .filter(|summary| summary.row.id == "ses-dup-1")
+            .count(),
+        1,
+        "不产半行（恰一行）"
+    );
 }
 
 #[test]
-fn begin_agent_run传入记录的id字段不参与匹配以分配id落行为准() {
-    let env = Env::new("agent-begin-id");
+fn find_session不存在id返回ok_none() {
+    let env = Env::new("session-find-miss");
     let store = open_workspace_ok(&env.db_path("ws"));
 
-    let mut requested = running_run("调用方自填 id", 1727000000000);
-    requested.id = 999;
-    let record = store.begin_agent_run(&requested).unwrap();
-
-    assert_eq!(record.id, 1, "id 由写事务内 max+1 分配，入参 id 被覆盖");
-    assert_eq!(store.list_agent_runs().unwrap()[0].id, 1, "以分配 id 落行");
+    assert_eq!(
+        store.find_session("ses-404").unwrap(),
+        None,
+        "Ok(None)（Continue 校验消费形态）"
+    );
 }
 
 #[test]
-fn append空切片返回ok且不产生行() {
-    let env = Env::new("agent-append-empty");
+fn begin_agent_turn同session连续三轮max加1递增且running初值挂core会话() {
+    let env = Env::new("turn-begin");
     let store = open_workspace_ok(&env.db_path("ws"));
-    let run = begin_ok(&store, "空事件流", 1727000000000);
+    seed_session(&store, "ses-turns");
 
-    store.append_agent_run_events(run.id, &[]).unwrap();
+    let first = store
+        .begin_agent_turn("ses-turns", 1727000000000)
+        .expect("begin 应成功");
+    let second = store
+        .begin_agent_turn("ses-turns", 1727000001000)
+        .expect("begin 应成功");
+    let third = store
+        .begin_agent_turn("ses-turns", 1727000002000)
+        .expect("begin 应成功");
 
-    assert!(store.list_agent_run_events(run.id).unwrap().is_empty());
+    // 轮 id max+1 递增、running 初值、session_id 挂 core 会话（AC-2 键位半边）
+    for (record, expected_id) in [(&first, 1), (&second, 2), (&third, 3)] {
+        assert_eq!(record.id, expected_id, "写事务内 max+1 分配");
+        assert_eq!(record.status, AgentRunStatus::Running, "running 初值");
+        assert_eq!(
+            record.session_id.as_deref(),
+            Some("ses-turns"),
+            "session_id 挂 core 会话"
+        );
+        assert_eq!(record.started_at, 1727000000000 + (expected_id - 1) * 1000);
+        assert_eq!(record.finished_at, None);
+    }
 }
 
 #[test]
-fn finish后整行替换为终态且list反映() {
-    let env = Env::new("agent-finish");
+fn begin_agent_turn跨session轮序独立分配互不串号() {
+    let env = Env::new("turn-cross-session");
     let store = open_workspace_ok(&env.db_path("ws"));
-    let run = begin_ok(&store, "待收敛", 1727000000000);
+    seed_session(&store, "ses-x");
+    seed_session(&store, "ses-y");
 
-    let mut finished = run.clone();
-    finished.status = AgentRunStatus::Completed;
-    finished.finished_at = Some(1727000001000);
-    finished.num_turns = Some(4);
-    finished.cost_usd = Some(0.5);
-    finished.duration_ms = Some(999);
-    finished.session_id = Some("s-1".to_owned());
+    let x1 = store.begin_agent_turn("ses-x", 100).expect("begin 应成功");
+    let y1 = store.begin_agent_turn("ses-y", 200).expect("begin 应成功");
+    let x2 = store.begin_agent_turn("ses-x", 300).expect("begin 应成功");
+
+    assert_eq!((x1.id, y1.id, x2.id), (1, 2, 3), "全局轮 id 独立自增");
+    // 按 session 圈定互不串号：x 恰 {1, 3}、y 恰 {2}
+    let summaries = store.list_sessions(None, None).unwrap();
+    let turns_of = |id: &str| {
+        summaries
+            .iter()
+            .find(|summary| summary.row.id == id)
+            .expect("会话在场")
+            .turns
+            .iter()
+            .map(|turn| turn.turn_id)
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(turns_of("ses-x"), vec![1, 3], "x 轮序（发起序）");
+    assert_eq!(turns_of("ses-y"), vec![2]);
+}
+
+#[test]
+fn append_session_events批量密封追加后重放seq升序逐字段保真() {
+    let env = Env::new("append-session");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-ape");
+    let seeded = vec![
+        stamped(0, run_started_kind()),
+        stamped(1, message_kind("assistant")),
+        stamped(2, system_notice_kind("api_retry")),
+        stamped(3, turn_done_kind(false)),
+        stamped(4, raw_kind("mystery-tag")),
+    ];
+
     store
-        .finish_agent_run(run.id, &finished)
+        .append_session_events("ses-ape", &seeded)
+        .unwrap_or_else(|e| panic!("批量追加应成功: {e}"));
+
+    let replayed = store.list_session_events("ses-ape").unwrap();
+    assert_eq!(
+        replayed, seeded,
+        "类型化批量落库后重放逐字段保真（含 Raw 逃生舱）——AC-2 落库半边 / AC-6"
+    );
+    let seqs: Vec<u64> = replayed.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, vec![0, 1, 2, 3, 4], "重放 seq 升序");
+}
+
+#[test]
+fn append_session_events混入delta的批次ok且delta零记录() {
+    let env = Env::new("append-delta");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-delta");
+    let batch = vec![
+        stamped(0, message_kind("assistant")),
+        stamped(1, delta_kind()),
+        stamped(2, turn_done_kind(false)),
+    ];
+
+    store
+        .append_session_events("ses-delta", &batch)
+        .expect("混入 delta 批次返回 Ok（防御性忽略）");
+
+    let replayed = store.list_session_events("ses-delta").unwrap();
+    assert_eq!(
+        replayed.len(),
+        2,
+        "store 中不存在任何 delta 记录（AC-2 断言半边）"
+    );
+    assert!(replayed.iter().all(|event| event.kind.is_sealed()));
+}
+
+#[test]
+fn append_session_events空批次ok无副作用() {
+    let env = Env::new("append-empty-batch");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-empty-batch");
+
+    store
+        .append_session_events("ses-empty-batch", &[])
+        .expect("空批次 Ok");
+
+    assert!(
+        store
+            .list_session_events("ses-empty-batch")
+            .unwrap()
+            .is_empty(),
+        "空批次无副作用"
+    );
+}
+
+#[test]
+fn finish_agent_turn终态整行替换且id与started_at不变() {
+    let env = Env::new("turn-finish");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-finish");
+    let running = store
+        .begin_agent_turn("ses-finish", 1727000000000)
+        .expect("begin 应成功");
+
+    store
+        .finish_agent_turn(
+            running.id,
+            &finish_shell(
+                running.id,
+                AgentRunStatus::Completed,
+                Some(1727000001000),
+                Some(4),
+                Some(999),
+                Some(0.5),
+            ),
+        )
         .unwrap_or_else(|e| panic!("finish 应成功: {e}"));
 
-    let listed = store.list_agent_runs().unwrap();
-    assert_eq!(listed.len(), 1);
-    assert_eq!(listed[0].status, AgentRunStatus::Completed, "终态整行替换");
-    assert_eq!(listed[0].num_turns, Some(4));
-    assert_eq!(listed[0].cost_usd, Some(0.5));
-    assert_eq!(listed[0].duration_ms, Some(999));
-    assert_eq!(listed[0].session_id.as_deref(), Some("s-1"));
-    assert_eq!(listed[0].finished_at, Some(1727000001000));
+    let summaries = store.list_sessions(None, None).unwrap();
+    assert_eq!(summaries.len(), 1);
+    let turn = &summaries[0].turns[0];
+    assert_eq!(turn.status, AgentRunStatus::Completed, "终态整行替换");
+    assert_eq!(turn.finished_at, Some(1727000001000));
+    assert_eq!(turn.num_turns, Some(4));
+    assert_eq!(turn.cost_usd, Some(0.5));
+    assert_eq!(turn.duration_ms, Some(999));
+    // id 与 started_at 不变（沿用存量行）
+    assert_eq!(turn.turn_id, running.id);
+    assert_eq!(turn.started_at, 1727000000000);
+    assert_eq!(turn.session_id, "ses-finish");
 }
 
 #[test]
-fn list_agent_runs按started_at降序并列时按id降序() {
-    let env = Env::new("agent-list-order");
+fn finish_agent_turn_stopped终态与error_none形态替换无损() {
+    let env = Env::new("turn-finish-stopped");
     let store = open_workspace_ok(&env.db_path("ws"));
-    // started_at 显式注入（排序依据由调用方落库值决定），无需 sleep
-    let early = begin_ok(&store, "早", 100);
-    let late = begin_ok(&store, "晚", 300);
-    let middle = begin_ok(&store, "中", 200);
+    seed_session(&store, "ses-stopped");
+    let running = store
+        .begin_agent_turn("ses-stopped", 1727000000000)
+        .expect("begin 应成功");
 
-    let ids: Vec<i64> = store
-        .list_agent_runs()
-        .unwrap()
-        .into_iter()
-        .map(|record| record.id)
-        .collect();
-    assert_eq!(ids, vec![late.id, middle.id, early.id], "started_at 降序");
+    store
+        .finish_agent_turn(
+            running.id,
+            &finish_shell(
+                running.id,
+                AgentRunStatus::Stopped,
+                Some(1727000002000),
+                None,
+                None,
+                None,
+            ),
+        )
+        .expect("stopped 终态应成功");
 
-    // 并列时 id 降序（顺序确定）
-    let tie_a = begin_ok(&store, "并列甲", 300);
-    let tie_b = begin_ok(&store, "并列乙", 300);
-    let top_two: Vec<i64> = store
-        .list_agent_runs()
-        .unwrap()
-        .into_iter()
-        .take(2)
-        .map(|record| record.id)
-        .collect();
-    assert_eq!(top_two, vec![tie_b.id, tie_a.id], "并列按 id 降序");
+    let turn = &store.list_sessions(None, None).unwrap()[0].turns[0];
+    assert_eq!(turn.status, AgentRunStatus::Stopped, "stopped 终态");
+    assert_eq!(
+        turn.error, None,
+        "error=None 形态无损（用户主动终止非失败）"
+    );
+    assert_eq!(turn.num_turns, None);
 }
 
 #[test]
-fn 空库list_agent_runs返回空向量不报错() {
-    let env = Env::new("agent-list-empty");
+fn bind_session_remote刷新engine_session_id与updated_at且none仅刷时间戳() {
+    let env = Env::new("bind-remote");
     let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-bind");
 
-    assert!(store.list_agent_runs().unwrap().is_empty());
+    store
+        .bind_session_remote("ses-bind", Some("sdk-11"), 1727000009000)
+        .expect("bind Some 应成功");
+    let bound = store.find_session("ses-bind").unwrap().expect("在场");
+    assert_eq!(bound.engine_session_id.as_deref(), Some("sdk-11"));
+    assert_eq!(bound.updated_at, 1727000009000, "updated_at 刷新");
+
+    // remote None：仅刷新时间戳（不清空既有标识）
+    store
+        .bind_session_remote("ses-bind", None, 1727000010000)
+        .expect("bind None 应成功");
+    let refreshed = store.find_session("ses-bind").unwrap().expect("在场");
+    assert_eq!(refreshed.engine_session_id.as_deref(), Some("sdk-11"));
+    assert_eq!(refreshed.updated_at, 1727000010000);
+
+    // miss：会话不存在 Err
+    assert!(
+        store
+            .bind_session_remote("ses-404", Some("sdk-x"), 1)
+            .is_err(),
+        "不存在会话 bind 必须 Err"
+    );
 }
 
 #[test]
-fn 不存在run_id的list_agent_run_events返回空向量不报错() {
-    let env = Env::new("agent-events-miss");
+fn list_sessions清单聚合现算与降序稳定及过滤() {
+    let env = Env::new("sessions-listing");
     let store = open_workspace_ok(&env.db_path("ws"));
+    // 三个会话：ses-hot（updated_at 最大、一轮终态）、ses-mid、ses-explore（过滤目标）
+    seed_session(&store, "ses-hot");
+    seed_session(&store, "ses-mid");
+    store
+        .create_session(&session_record("ses-explore", "explore", Some("42")))
+        .expect("create 应成功");
 
-    assert!(store.list_agent_run_events(42).unwrap().is_empty());
+    // ses-hot：转录 TurnDone（token 求和口径）+ 一轮终态行
+    store
+        .append_session_events(
+            "ses-hot",
+            &[stamped(0, turn_done_kind(false)), stamped(1, turn_done_kind(false))],
+        )
+        .expect("append 应成功");
+    let turn = store
+        .begin_agent_turn("ses-hot", 1727000000000)
+        .expect("begin 应成功");
+    store
+        .finish_agent_turn(
+            turn.id,
+            &finish_shell(
+                turn.id,
+                AgentRunStatus::Completed,
+                Some(1727000005000),
+                Some(2),
+                Some(3000),
+                None,
+            ),
+        )
+        .expect("finish 应成功");
+    store
+        .bind_session_remote("ses-hot", Some("sdk-1"), 1727000009000)
+        .expect("bind 应成功");
+    // ses-mid：updated_at 居中
+    store
+        .bind_session_remote("ses-mid", Some("sdk-0"), 1727000001000)
+        .expect("bind 应成功");
+
+    let summaries = store.list_sessions(None, None).unwrap();
+    let ids: Vec<String> = summaries.iter().map(|s| s.row.id.clone()).collect();
+    assert_eq!(
+        ids,
+        vec!["ses-hot", "ses-mid", "ses-explore"],
+        "updated_at 降序稳定（并列按 id 降序）"
+    );
+
+    // 聚合现算：轮数 / 累计墙钟 / 累计 token
+    let hot = &summaries[0];
+    assert_eq!(hot.stats.turn_count, 1, "轮数 = 轮统计行行数");
+    assert_eq!(hot.stats.total_duration_ms, Some(3000), "累计墙钟自轮行");
+    assert_eq!(
+        hot.stats.input_tokens,
+        Some(20),
+        "累计 token 自转录 TurnDone usage 鸭子类型求和（camelCase 键）"
+    );
+    assert_eq!(hot.turns.len(), 1, "轮统计行随行返回（发起序）");
+    assert_eq!(
+        hot.row.remote_session_id.as_deref(),
+        Some("sdk-1"),
+        "双 id 映射随行（SessionRow 形态）"
+    );
+
+    // source / source_ref 过滤生效
+    let explores = store.list_sessions(Some("explore"), None).unwrap();
+    assert_eq!(
+        explores
+            .iter()
+            .map(|s| s.row.id.as_str())
+            .collect::<Vec<_>>(),
+        vec!["ses-explore"],
+        "source 过滤"
+    );
+    let ref42 = store.list_sessions(Some("explore"), Some("42")).unwrap();
+    assert_eq!(ref42.len(), 1);
+    assert!(
+        store
+            .list_sessions(Some("explore"), Some("99"))
+            .unwrap()
+            .is_empty(),
+        "source_ref 不匹配为空"
+    );
+}
+
+#[test]
+fn list_sessions缺席缺省与空库空清单() {
+    let env = Env::new("sessions-defaults");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-bare");
+
+    let summaries = store.list_sessions(None, None).unwrap();
+    assert_eq!(summaries.len(), 1);
+    let stats = &summaries[0].stats;
+    assert_eq!(stats.turn_count, 0, "无轮行会话统计缺省（降级不违约）");
+    assert_eq!(stats.total_duration_ms, None);
+    assert_eq!(stats.input_tokens, None);
+    assert_eq!(stats.output_tokens, None);
+    assert!(summaries[0].turns.is_empty());
+
+    let empty = open_workspace_ok(&env.db_path("ws2"));
+    assert!(
+        empty.list_sessions(None, None).unwrap().is_empty(),
+        "空库空清单"
+    );
+}
+
+#[test]
+fn list_session_events空洞容忍升序不补洞() {
+    let env = Env::new("replay-holes");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-holes");
+    // 密封占 seq 1/3：库内空洞（delta 曾占 seq 2 的重放投影）升序返回不补洞
+    store
+        .append_session_events(
+            "ses-holes",
+            &[stamped(1, message_kind("assistant")), stamped(3, turn_done_kind(false))],
+        )
+        .expect("append 应成功");
+
+    let replayed = store.list_session_events("ses-holes").unwrap();
+    let seqs: Vec<u64> = replayed.iter().map(|event| event.seq).collect();
+    assert_eq!(seqs, vec![1, 3], "升序返回不补洞（排序键语义合法）");
+}
+
+#[test]
+fn list_session_events跨session隔离且不存在会话空vec() {
+    let env = Env::new("replay-isolation");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-iso-a");
+    seed_session(&store, "ses-iso-b");
+    store
+        .append_session_events("ses-iso-a", &[stamped(0, raw_kind("A"))])
+        .expect("append 应成功");
+    store
+        .append_session_events("ses-iso-b", &[stamped(0, raw_kind("B"))])
+        .expect("append 应成功");
+
+    let replay_a = store.list_session_events("ses-iso-a").unwrap();
+    assert_eq!(replay_a.len(), 1);
+    assert_eq!(raw_tag(&replay_a[0]), "A", "跨 session 转录互不串");
+    assert!(
+        store.list_session_events("ses-404").unwrap().is_empty(),
+        "不存在会话空 Vec"
+    );
+}
+
+#[test]
+fn reconcile_session_stats从转录重算校正且密封转录逐字节不变() {
+    let env = Env::new("reconcile");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-rec");
+    // 转录：两轮 TurnDone（token 10 + 20）
+    store
+        .append_session_events(
+            "ses-rec",
+            &[stamped(0, turn_done_kind(false)), stamped(1, turn_done_kind(false))],
+        )
+        .expect("append 应成功");
+    // 轮统计行落假数据（篡改）
+    let turn = store
+        .begin_agent_turn("ses-rec", 1727000000000)
+        .expect("begin 应成功");
+    store
+        .finish_agent_turn(
+            turn.id,
+            &finish_shell(
+                turn.id,
+                AgentRunStatus::Completed,
+                Some(2),
+                Some(99),
+                Some(99_999),
+                Some(9.9),
+            ),
+        )
+        .expect("篡改轮行");
+
+    let stats = store
+        .reconcile_session_stats("ses-rec")
+        .expect("重导应成功");
+    assert_eq!(stats.turn_count, 2, "轮数自转录 TurnDone 重算校正");
+    assert_eq!(stats.input_tokens, Some(20), "累计 token 校正");
+    assert_eq!(stats.output_tokens, Some(4));
+
+    // 不改转录纪律：密封转录逐字节不变
+    let before = store.list_session_events("ses-rec").unwrap();
+    store.reconcile_session_stats("ses-rec").expect("重导幂等");
+    assert_eq!(
+        store.list_session_events("ses-rec").unwrap(),
+        before,
+        "密封转录逐字节不变"
+    );
+}
+
+#[test]
+fn reconcile_session_stats无turn_done转录缺省统计不报错() {
+    let env = Env::new("reconcile-empty");
+    let store = open_workspace_ok(&env.db_path("ws"));
+    seed_session(&store, "ses-rec-empty");
+    store
+        .append_session_events(
+            "ses-rec-empty",
+            &[stamped(0, message_kind("assistant"))],
+        )
+        .expect("append 应成功");
+
+    let stats = store
+        .reconcile_session_stats("ses-rec-empty")
+        .expect("缺 TurnDone 不报错");
+    assert_eq!(stats.turn_count, 0, "缺省统计");
+    assert_eq!(stats.total_duration_ms, None);
+    assert_eq!(stats.input_tokens, None);
+    assert_eq!(stats.output_tokens, None);
 }
 
 // ---------------------------------------------------------------------------
-// workspace 库 native 格式重开直通（run 与事件）
+// workspace 库 native 格式重开直通（会话与转录）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn native格式已有库重开直通此前写入的run与事件完整读回() {
+fn native格式已有库重开直通此前写入的会话与转录完整读回() {
     let env = Env::new("reopen-native");
     let ws_path = env.db_path("ws");
 
-    let (run, events) = {
+    let (session_id, events) = {
         let store = open_workspace_ok(&ws_path);
-        let run = begin_ok(&store, "native 重开", 1727000000000);
+        let session_id = seed_session(&store, "ses-reopen");
         let events = vec![
             stamped(0, run_started_kind()),
             stamped(1, raw_kind("native")),
         ];
         store
-            .append_agent_run_events(run.id, &events)
+            .append_session_events("ses-reopen", &events)
             .unwrap_or_else(|e| panic!("append 应成功: {e}"));
-        (run, events)
+        (session_id, events)
     };
 
     // native 格式已有库：重开直通，全部记录完整读回
     let reopened = open_workspace_ok(&ws_path);
-    assert_eq!(reopened.list_agent_runs().unwrap(), vec![run.clone()]);
-    assert_eq!(reopened.list_agent_run_events(run.id).unwrap(), events);
+    let summaries = reopened.list_sessions(None, None).unwrap();
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].row.id, session_id);
+    assert_eq!(
+        reopened.list_session_events(&session_id).unwrap(),
+        events,
+        "先写入的转录重开后完整读回"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// 事件类型化：append / list_agent_run_events（五变体、重复合成主键、千级 seq、
-// 两 run 隔离）
+// 事件 fixture：stamped / 六变体 kind 构造（盖戳事件时间戳取当前钟面，排序
+// 断言仅依赖 seq；等值断言为同进程内构造-读回对读）
 // ---------------------------------------------------------------------------
 
 /// 以指定 kind 构造盖戳事件（seq 由调用方给定，时间戳取当前钟面）。
@@ -1234,8 +1618,8 @@ fn system_notice_kind(subtype: &str) -> AgentEventKind {
     }
 }
 
-fn run_result_kind(is_error: bool) -> AgentEventKind {
-    AgentEventKind::RunResult {
+fn turn_done_kind(is_error: bool) -> AgentEventKind {
+    AgentEventKind::TurnDone {
         subtype: if is_error {
             "error_max_turns"
         } else {
@@ -1246,8 +1630,18 @@ fn run_result_kind(is_error: bool) -> AgentEventKind {
         num_turns: Some(1),
         duration_ms: Some(1234),
         cost_usd: Some(0.5),
-        usage: serde_json::Value::Null,
+        usage: serde_json::json!({ "inputTokens": 10, "outputTokens": 2 }),
         session_id: Some("s-1".to_owned()),
+    }
+}
+
+/// delta 变体（store 防御性忽略的落库半边 fixture）。
+fn delta_kind() -> AgentEventKind {
+    AgentEventKind::MessageDelta {
+        parent_tool_use_id: None,
+        delta: AgentDelta::Text {
+            text: "增量".to_owned(),
+        },
     }
 }
 
@@ -1269,100 +1663,6 @@ fn raw_tag(event: &AgentEvent) -> &str {
             .unwrap_or_else(|| panic!("raw fixture 无 tag: {event:?}")),
         other => panic!("期望 Raw 变体，实际: {other:?}"),
     }
-}
-
-#[test]
-fn append五变体类型化批量追加后重放seq升序逐字段保真() {
-    let env = Env::new("append-five");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let run = begin_ok(&store, "五变体", 1727000000000);
-    let seeded = vec![
-        stamped(0, run_started_kind()),
-        stamped(1, message_kind("assistant")),
-        stamped(2, system_notice_kind("api_retry")),
-        stamped(3, run_result_kind(false)),
-        stamped(4, raw_kind("mystery-tag")),
-    ];
-
-    store
-        .append_agent_run_events(run.id, &seeded)
-        .unwrap_or_else(|e| panic!("批量追加应成功: {e}"));
-
-    let replayed = store.list_agent_run_events(run.id).unwrap();
-    assert_eq!(
-        replayed, seeded,
-        "类型化批量落库后重放逐字段保真（含 Raw 逃生舱）"
-    );
-    let seqs: Vec<u64> = replayed.iter().map(|event| event.seq).collect();
-    assert_eq!(seqs, vec![0, 1, 2, 3, 4], "重放 seq 升序");
-}
-
-#[test]
-fn 同run重复seq二次追加由合成主键冲突拒绝且重放恰一条() {
-    let env = Env::new("append-dup-seq");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let run = begin_ok(&store, "重复 seq", 1727000000000);
-    let first = stamped(0, raw_kind("first"));
-
-    store.append_agent_run_events(run.id, &[first]).unwrap();
-
-    // 同 (run_id, seq) 再追加：合成主键冲突（native_db insert 语义），二次追加报错
-    let second = stamped(0, raw_kind("second"));
-    let result = store.append_agent_run_events(run.id, &[second]);
-    assert!(
-        result.is_err(),
-        "同合成主键二次追加被拒绝，实际: {result:?}"
-    );
-
-    // 重放面恰一条：不产生重复行（与旧载体「重放不重」口径一致）
-    let replayed = store.list_agent_run_events(run.id).unwrap();
-    assert_eq!(replayed.len(), 1, "重放恰一条不重复");
-    assert_eq!(raw_tag(&replayed[0]), "first", "保留先写入的一条");
-}
-
-#[test]
-fn 单run千级seq批量追加后重放序完整不回绕() {
-    let env = Env::new("append-thousand");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let run = begin_ok(&store, "千级 seq", 1727000000000);
-    let seeded: Vec<AgentEvent> = (0..1000u64)
-        .map(|seq| stamped(seq, raw_kind(&seq.to_string())))
-        .collect();
-
-    store
-        .append_agent_run_events(run.id, &seeded)
-        .unwrap_or_else(|e| panic!("批量追加应成功: {e}"));
-
-    let replayed = store.list_agent_run_events(run.id).unwrap();
-    assert_eq!(replayed.len(), 1000, "千级事件一条不丢");
-    // u128 打包键在大 seq 下保序：重放序完整、严格单调不回绕
-    for (index, event) in replayed.iter().enumerate() {
-        assert_eq!(
-            event.seq, index as u64,
-            "重放第 {index} 条 seq 恰为 {index}"
-        );
-    }
-}
-
-#[test]
-fn 两run同seq区间互不串扰经run_id二级索引隔离() {
-    let env = Env::new("append-isolation");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let run_a = begin_ok(&store, "run A", 100);
-    let run_b = begin_ok(&store, "run B", 200);
-    assert_ne!(run_a.id, run_b.id);
-    let events_a: Vec<AgentEvent> = (0..4u64).map(|seq| stamped(seq, raw_kind("A"))).collect();
-    let events_b: Vec<AgentEvent> = (0..4u64).map(|seq| stamped(seq, raw_kind("B"))).collect();
-    // 两 run 落完全重叠的 seq 区间：run_id 高位隔离缺失即串扰
-    store.append_agent_run_events(run_a.id, &events_a).unwrap();
-    store.append_agent_run_events(run_b.id, &events_b).unwrap();
-
-    let replay_a = store.list_agent_run_events(run_a.id).unwrap();
-    assert_eq!(replay_a, events_a, "run A 重放恰为自己 seq 区间的四条");
-    assert!(replay_a.iter().all(|event| raw_tag(event) == "A"));
-    let replay_b = store.list_agent_run_events(run_b.id).unwrap();
-    assert_eq!(replay_b, events_b, "run B 重放恰为自己 seq 区间的四条");
-    assert!(replay_b.iter().all(|event| raw_tag(event) == "B"));
 }
 
 // ---------------------------------------------------------------------------
@@ -1388,11 +1688,11 @@ fn list_models分维度计数与各库实有记录数一致() {
     );
     drop(global);
 
-    // workspace 库：run 1 + 事件 3，explore 计数 0 也列出
+    // workspace 库：会话 1 + 转录 3，轮统计行与 explore 计数 0 也列出
     let ws = open_workspace_ok(&env.db_path("ws"));
-    let run = begin_ok(&ws, "计数复核", 1727000000000);
+    seed_session(&ws, "ses-counts");
     let events: Vec<AgentEvent> = (0..3u64).map(|seq| stamped(seq, raw_kind("c"))).collect();
-    ws.append_agent_run_events(run.id, &events).unwrap();
+    ws.append_session_events("ses-counts", &events).unwrap();
 
     let models = ws.list_models().unwrap();
     let count_of = |name: &str| {
@@ -1402,11 +1702,12 @@ fn list_models分维度计数与各库实有记录数一致() {
             .unwrap_or_else(|| panic!("模型 {name} 应在清单中"))
             .count
     };
-    assert_eq!(count_of("agent_run"), 1, "agent_run 计数与实有记录数一致");
+    assert_eq!(count_of("agent_run"), 0, "轮统计行计数 0 也列出");
+    assert_eq!(count_of("session"), 1, "session 计数与实有记录数一致");
     assert_eq!(
-        count_of("agent_event"),
+        count_of("session_event"),
         3,
-        "agent_event 计数与实有记录数一致"
+        "session_event 计数与实有记录数一致"
     );
     assert_eq!(count_of("explore"), 0, "计数 0 也列出");
 }
@@ -1772,36 +2073,37 @@ fn delete_miss幂等返回false() {
 }
 
 // ---------------------------------------------------------------------------
-// restore_run_chain：单链还原收口单点
+// delete_explore_record：级联圈定自 runs 平移至会话（AC-11 级联半边）
 // ---------------------------------------------------------------------------
 
-/// 级联回归（原错链 BUG 的修复语义）：删除记录时其名下 runs 与事件随记录
-/// 同事务删除——id 仍是幸存行上 max+1 的可复用计数,但悬空 `source_ref` 已清,
-/// 新建记录即使复用被删 id,链还原也不再捞到旧聊天。
+/// 级联回归：删除记录时其名下归属会话（source=explore 且 source_ref=记录 id）
+/// 及其转录与轮统计行随记录同事务删除——id 仍是幸存行上 max+1 的可复用计数，
+/// 但悬空 source_ref 已随会话删除，新建记录即使复用被删 id，归属圈定也不再
+/// 捞到旧聊天。
 #[test]
-fn 删除记录级联清掉名下runs与事件且复用id不错链() {
+fn 删除记录级联清掉归属会话与其转录与轮统计行且复用id不错链() {
     let env = Env::new("explore-delete-cascade");
     let store = open_workspace_ok(&env.db_path("ws"));
     let _a = create_ok(&store, "C:\\ws\\alpha", "old-topic");
     let b = create_ok(&store, "C:\\ws\\alpha", "to-be-deleted");
-    // 被删记录名下已有一段 agent 聊天（source_ref = b.id 十进制串）及其事件
-    let run = begin_provenance_run(
-        &store,
-        "旧聊天",
-        100,
-        "explore",
-        Some(&b.id.to_string()),
-        None,
-    );
+    // 被删记录名下已有一段 agent 聊天（source_ref = b.id 十进制串）及其转录与轮行
+    let session_id = "ses-cascade-bound";
     store
-        .append_agent_run_events(
-            run.id,
-            &[
-                stamped(0, run_started_kind()),
-                stamped(1, message_kind("assistant")),
-            ],
+        .create_session(&session_record(
+            session_id,
+            "explore",
+            Some(&b.id.to_string()),
+        ))
+        .expect("落归属会话行");
+    store
+        .append_session_events(
+            session_id,
+            &[stamped(0, run_started_kind()), stamped(1, message_kind("assistant"))],
         )
-        .unwrap();
+        .expect("落转录");
+    let turn = store
+        .begin_agent_turn(session_id, 1727000000000)
+        .expect("开轮行");
 
     assert!(
         store
@@ -1809,340 +2111,124 @@ fn 删除记录级联清掉名下runs与事件且复用id不错链() {
             .unwrap(),
         "命中删除返回 true"
     );
+    // 归属会话 + 其转录 + 轮统计行同事务删
     assert!(
-        store.list_agent_run_events(run.id).unwrap().is_empty(),
-        "名下事件随记录级联删除"
+        store.find_session(session_id).unwrap().is_none(),
+        "归属会话随记录级联删除"
     );
     assert!(
-        !store
-            .list_agent_runs()
-            .unwrap()
+        store.list_session_events(session_id).unwrap().is_empty(),
+        "名下转录随记录级联删除"
+    );
+    let summaries = store.list_sessions(None, None).unwrap();
+    assert!(
+        summaries
             .iter()
-            .any(|left| left.id == run.id),
-        "名下 run 随记录级联删除"
+            .all(|summary| summary.row.id != session_id),
+        "轮统计行随会话级联删除（清单无该会话轮行）"
+    );
+    assert!(
+        summaries
+            .iter()
+            .all(|summary| summary.turns.iter().all(|row| row.turn_id != turn.id)),
+        "轮统计行行级联删除"
     );
 
-    // 复用 id 后链还原为空：错链不再发生
+    // 复用 id 后归属圈定为空：错链不再发生
     let c = create_ok(&store, "C:\\ws\\alpha", "combine-agent-and-explore-chat");
-    assert_eq!(c.id, b.id, "max+1 在幸存行上计算,id 仍会复用（级联后无害）");
+    assert_eq!(c.id, b.id, "max+1 在幸存行上计算，id 仍会复用（级联后无害）");
+    let rebound = store
+        .list_sessions(Some("explore"), Some(&c.id.to_string()))
+        .unwrap();
     assert!(
-        store
-            .restore_run_chain("explore", &c.id.to_string())
-            .unwrap()
-            .is_empty(),
-        "新记录（从未发过消息）链还原为空"
+        rebound.is_empty(),
+        "新记录（从未发过消息）归属圈定为空"
     );
 }
 
 /// 级联只圈 (source=explore, source_ref=本记录 id)：debug 来源同定位串、
-/// 其他 source_ref 的 explore run 及其事件不波及。
+/// 其他 source_ref 的 explore 会话及其转录与轮行不波及。
 #[test]
-fn 级联删除不波及无关runs与事件() {
+fn 级联删除不波及无关会话与转录与轮行() {
     let env = Env::new("explore-delete-cascade-scope");
     let store = open_workspace_ok(&env.db_path("ws"));
     let doomed = create_ok(&store, "C:\\ws\\alpha", "to-be-deleted");
     let keeper = create_ok(&store, "C:\\ws\\alpha", "keeper-topic");
-    let bound = begin_provenance_run(
-        &store,
-        "被删链",
-        100,
-        "explore",
-        Some(&doomed.id.to_string()),
-        None,
-    );
-    // 干扰一：同 source_ref 不同 source（debug 来源同定位串）
-    let debug_run = begin_provenance_run(
-        &store,
-        "调试 run",
-        200,
-        "debug",
-        Some(&doomed.id.to_string()),
-        None,
-    );
-    // 干扰二：同 source 不同 source_ref（另一 explore 记录名下）
-    let other_explore = begin_provenance_run(
-        &store,
-        "隔壁链",
-        300,
-        "explore",
-        Some(&keeper.id.to_string()),
-        Some(bound.id),
-    );
-    for run in [&bound, &debug_run, &other_explore] {
-        store
-            .append_agent_run_events(run.id, &[stamped(0, run_started_kind())])
-            .unwrap();
-    }
 
-    assert!(store
-        .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
-        .unwrap());
-
-    assert!(
-        store.list_agent_run_events(bound.id).unwrap().is_empty(),
-        "被删记录名下事件清空"
-    );
-    for survivor in [debug_run.clone(), other_explore.clone()] {
-        assert!(
-            store
-                .list_agent_runs()
-                .unwrap()
-                .iter()
-                .any(|left| left.id == survivor.id),
-            "无关 run 存活: {:?}",
-            survivor.prompt
-        );
-        assert_eq!(
-            store.list_agent_run_events(survivor.id).unwrap().len(),
-            1,
-            "无关 run 事件存活: {:?}",
-            survivor.prompt
-        );
-    }
-    // 隔壁链还原不受牵连（parent 指向已删 run 的尾段仍由本链自身锚定）
-    let chain = store
-        .restore_run_chain("explore", &keeper.id.to_string())
-        .unwrap();
-    assert_eq!(
-        chain.len(),
-        1,
-        "隔壁链仍可还原（其 parent_run_id 指向已删 run 时截断回溯）"
-    );
-}
-
-/// 构造带来源三元组的 running 形态 run 记录（id 由 begin 分配）。
-fn provenance_run(
-    prompt: &str,
-    started_at: i64,
-    source: &str,
-    source_ref: Option<&str>,
-    parent_run_id: Option<i64>,
-) -> AgentRunRecord {
-    AgentRunRecord {
-        source: source.to_owned(),
-        source_ref: source_ref.map(str::to_owned),
-        parent_run_id,
-        ..running_run(prompt, started_at)
-    }
-}
-
-fn begin_provenance_run(
-    store: &Store,
-    prompt: &str,
-    started_at: i64,
-    source: &str,
-    source_ref: Option<&str>,
-    parent_run_id: Option<i64>,
-) -> AgentRunRecord {
+    // 被删记录名下归属会话
+    let bound = "ses-cascade-doomed";
     store
-        .begin_agent_run(&provenance_run(
-            prompt,
-            started_at,
-            source,
-            source_ref,
-            parent_run_id,
+        .create_session(&session_record(bound, "explore", Some(&doomed.id.to_string())))
+        .expect("落归属会话行");
+    store
+        .append_session_events(bound, &[stamped(0, run_started_kind())])
+        .expect("落转录");
+    let _bound_turn = store.begin_agent_turn(bound, 100).expect("开轮行");
+
+    // 干扰一：同 source_ref 不同 source（debug 来源同定位串）
+    let debug_session = "ses-cascade-debug";
+    store
+        .create_session(&session_record(
+            debug_session,
+            "debug",
+            Some(&doomed.id.to_string()),
         ))
-        .expect("begin_agent_run 应成功")
-}
+        .expect("落 debug 会话行");
+    store
+        .append_session_events(debug_session, &[stamped(0, run_started_kind())])
+        .expect("落转录");
+    let debug_turn = store.begin_agent_turn(debug_session, 200).expect("开轮行");
 
-#[test]
-fn 同source_source_ref两条链式run按发起序还原且链头在末位() {
-    let env = Env::new("chain-two");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let first = begin_provenance_run(&store, "首轮", 100, "explore", Some("7"), None);
-    let second = begin_provenance_run(&store, "续轮", 200, "explore", Some("7"), Some(first.id));
-
-    let chain = store.restore_run_chain("explore", "7").unwrap();
-
-    let ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
-    assert_eq!(
-        ids,
-        vec![first.id, second.id],
-        "按发起顺序还原，链头（最新）在末位"
-    );
-    assert_eq!(chain[0].parent_run_id, None, "链首无上游指针");
-    assert_eq!(chain[1].parent_run_id, Some(first.id), "链尾指向前一轮");
-}
-
-#[test]
-fn 未命中source_source_ref返回空vec() {
-    let env = Env::new("chain-miss");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    begin_provenance_run(&store, "首轮", 100, "explore", Some("7"), None);
+    // 干扰二：同 source 不同 source_ref（另一 explore 记录名下）
+    let other_session = "ses-cascade-keeper";
+    store
+        .create_session(&session_record(
+            other_session,
+            "explore",
+            Some(&keeper.id.to_string()),
+        ))
+        .expect("落隔壁会话行");
+    store
+        .append_session_events(other_session, &[stamped(0, run_started_kind())])
+        .expect("落转录");
+    let other_turn = store.begin_agent_turn(other_session, 300).expect("开轮行");
 
     assert!(
         store
-            .restore_run_chain("explore", "404")
+            .delete_explore_record("C:\\ws\\alpha", "to-be-deleted")
             .unwrap()
-            .is_empty(),
-        "无链返回空 Vec（起链语义）"
     );
-}
 
-#[test]
-fn 混入干扰记录均不入链() {
-    let env = Env::new("chain-decoy");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let first = begin_provenance_run(&store, "首轮", 100, "explore", Some("7"), None);
-    let second = begin_provenance_run(&store, "续轮", 200, "explore", Some("7"), Some(first.id));
-    // 干扰一：同 source_ref 不同 source（调试来源同定位串）
-    let _decoy_source = begin_provenance_run(&store, "调试 run", 300, "debug", Some("7"), None);
-    // 干扰二：同 source 不同 source_ref（另一 explore 记录），且 parent 指入本链
-    let _decoy_ref =
-        begin_provenance_run(&store, "隔壁链", 400, "explore", Some("8"), Some(second.id));
+    // 被删记录名下会话与转录与轮行清空
+    assert!(store.find_session(bound).unwrap().is_none());
+    assert!(store.list_session_events(bound).unwrap().is_empty());
 
-    let chain = store.restore_run_chain("explore", "7").unwrap();
-
-    let ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
-    assert_eq!(
-        ids,
-        vec![first.id, second.id],
-        "(source, source_ref) 双键过滤，干扰记录不入链"
-    );
-}
-
-#[test]
-fn parent_run_id成环时防环截断不悬挂且成员完整() {
-    let env = Env::new("chain-cycle");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let a = begin_provenance_run(&store, "A", 100, "explore", Some("7"), None);
-    let b = begin_provenance_run(&store, "B", 200, "explore", Some("7"), Some(a.id));
-    // 构造指针环 A→B→A：终态替换把 A 的上游改指 B
-    let mut cyclic = a.clone();
-    cyclic.parent_run_id = Some(b.id);
-    store.finish_agent_run(a.id, &cyclic).expect("构造环应成功");
-
-    let chain = store.restore_run_chain("explore", "7").expect("环不得悬挂");
-
-    let mut ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
-    ids.sort_unstable();
-    assert_eq!(
-        ids,
-        vec![a.id, b.id].into_iter().collect::<Vec<i64>>(),
-        "visited 集截断：成员完整不重复"
-    );
-}
-
-#[test]
-fn 分叉再汇聚还原为单链链头唯一取最新不重复不遗漏() {
-    let env = Env::new("chain-fork");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    let root = begin_provenance_run(&store, "链首", 100, "explore", Some("9"), None);
-    let late = begin_provenance_run(&store, "分叉晚", 300, "explore", Some("9"), Some(root.id));
-    let _early = begin_provenance_run(&store, "分叉早", 200, "explore", Some("9"), Some(root.id));
-
-    let chain = store.restore_run_chain("explore", "9").unwrap();
-
-    let ids: Vec<i64> = chain.iter().map(|record| record.id).collect();
-    assert_eq!(
-        ids,
-        vec![root.id, late.id],
-        "链头唯一取 (started_at, id) 最新：还原为单链（root → late），early 分叉不入列"
-    );
-}
-
-// ---------------------------------------------------------------------------
-// 来源三元组演进：三字段往返与两代写入语义并存
-// ---------------------------------------------------------------------------
-
-#[test]
-fn v2写入三字段非缺省重开db读回往返保真() {
-    let env = Env::new("explore-v2-roundtrip");
-    let ws_path = env.db_path("ws");
-
-    let seeded = {
-        let store = open_workspace_ok(&ws_path);
-        let parent = begin_provenance_run(&store, "上一轮", 100, "explore", Some("7"), None);
-        let mut requested = provenance_run(
-            "explore 续轮",
-            1727000000000,
-            "explore",
-            Some("7"),
-            Some(parent.id),
+    // 无关会话存活（记录 + 转录 + 轮行）
+    for (survivor, turn_id) in [(debug_session, debug_turn.id), (other_session, other_turn.id)] {
+        let summary = store
+            .list_sessions(None, None)
+            .unwrap()
+            .into_iter()
+            .find(|summary| summary.row.id == survivor)
+            .unwrap_or_else(|| panic!("无关会话 {survivor} 存活"));
+        assert_eq!(
+            store.list_session_events(survivor).unwrap().len(),
+            1,
+            "无关会话转录存活: {survivor}"
         );
-        requested.session_id = Some("s-tail".to_owned());
-        let mut record = store.begin_agent_run(&requested).expect("begin 应成功");
-        record.status = AgentRunStatus::Completed;
-        record.finished_at = Some(1727000001000);
+        assert!(
+            summary.turns.iter().any(|row| row.turn_id == turn_id),
+            "无关会话轮行存活: {survivor}"
+        );
+    }
+    // 隔壁归属圈定不受牵连
+    assert_eq!(
         store
-            .finish_agent_run(record.id, &record)
-            .expect("finish 应成功");
-        record
-    };
-    assert_eq!(seeded.source, "explore", "来源非缺省");
-    assert_eq!(seeded.source_ref.as_deref(), Some("7"), "定位非缺省");
-    assert!(seeded.parent_run_id.is_some(), "链指针非缺省");
-
-    // 重开同一 db 文件：v2 三字段往返保真
-    let reopened = open_workspace_ok(&ws_path);
-    let listed = reopened.list_agent_runs().unwrap();
-    let tail = listed
-        .iter()
-        .find(|record| record.id == seeded.id)
-        .expect("链尾应可读");
-    assert_eq!(tail.source, "explore");
-    assert_eq!(tail.source_ref.as_deref(), Some("7"));
-    assert_eq!(tail.parent_run_id, seeded.parent_run_id, "链指针往返保真");
-    assert_eq!(
-        tail.session_id.as_deref(),
-        Some("s-tail"),
-        "其余字段一并保真"
-    );
-}
-
-#[test]
-fn 缺省来源与显式来源记录并存全量可读且按started_at统一排序() {
-    let env = Env::new("explore-mixed");
-    let store = open_workspace_ok(&env.db_path("ws"));
-    // v1 时代写入语义（source 缺省 debug、两字段 None）与 v2 显式三元组并存
-    let legacy = begin_provenance_run(&store, "调试旧轮", 100, "debug", None, None);
-    let explore_run = begin_provenance_run(
-        &store,
-        "explore 轮",
-        300,
-        "explore",
-        Some("5"),
-        Some(legacy.id),
-    );
-    let middle = begin_provenance_run(&store, "调试新轮", 200, "debug", None, None);
-
-    let listed = store.list_agent_runs().unwrap();
-
-    let ids: Vec<i64> = listed.iter().map(|record| record.id).collect();
-    assert_eq!(ids.len(), 3, "两代写入语义的记录全量可读");
-    assert_eq!(
-        ids,
-        vec![explore_run.id, middle.id, legacy.id],
-        "按 (started_at, id) 统一排序"
-    );
-    assert_eq!(legacy.source, "debug");
-    assert_eq!(explore_run.source, "explore");
-    assert_eq!(explore_run.parent_run_id, Some(legacy.id));
-}
-
-#[test]
-fn v1与v2语义run的事件记录照常经append与list重放() {
-    // 事件表全局 run_id 锚定，不受 run 模型演进影响（重放前提）
-    let env = Env::new("explore-events");
-    let ws_path = env.db_path("ws");
-    let events: Vec<AgentEvent> = (0..3u64)
-        .map(|seq| stamped(seq, raw_kind(&seq.to_string())))
-        .collect();
-
-    let run_id = {
-        let store = open_workspace_ok(&ws_path);
-        let run = begin_provenance_run(&store, "explore 带事件", 100, "explore", Some("5"), None);
-        store
-            .append_agent_run_events(run.id, &events)
-            .expect("append 应成功");
-        run.id
-    };
-
-    let reopened = open_workspace_ok(&ws_path);
-    assert_eq!(
-        reopened.list_agent_run_events(run_id).unwrap(),
-        events,
-        "显式来源 run 的事件重放逐字段保真"
+            .list_sessions(Some("explore"), Some(&keeper.id.to_string()))
+            .unwrap()
+            .len(),
+        1,
+        "隔壁记录归属会话仍可圈定"
     );
 }
 

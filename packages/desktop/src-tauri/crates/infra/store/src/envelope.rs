@@ -12,8 +12,8 @@ use serde_json::Value;
 use specta::Type;
 
 use crate::model::{
-    AgentEventRecord, AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ExploreRecord,
-    WorkspaceRecord,
+    AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ExploreRecord, SessionEventRecord,
+    SessionRecord, WorkspaceRecord,
 };
 use crate::store::{db_err, DbDimension, StoreError};
 
@@ -90,11 +90,18 @@ const MODEL_ENTRIES: &[ModelEntry] = &[
         key_of: agent_run_key,
     },
     ModelEntry {
-        name: "agent_event",
+        name: "session",
         dimension: DbDimension::Workspace,
-        count: count_model::<AgentEventRecord>,
-        scan: scan_agent_events,
-        key_of: agent_event_key,
+        count: count_model::<SessionRecord>,
+        scan: scan_sessions,
+        key_of: session_key,
+    },
+    ModelEntry {
+        name: "session_event",
+        dimension: DbDimension::Workspace,
+        count: count_model::<SessionEventRecord>,
+        scan: scan_session_events,
+        key_of: session_event_key,
     },
     ModelEntry {
         name: "explore",
@@ -214,13 +221,22 @@ fn scan_agent_runs(
     scan_model::<AgentRunRecord>(db, offset, limit, key_of)
 }
 
-fn scan_agent_events(
+fn scan_sessions(
     db: &Database<'static>,
     offset: u32,
     limit: u32,
     key_of: KeyOfFn,
 ) -> Result<Vec<RecordEnvelope>, StoreError> {
-    scan_model::<AgentEventRecord>(db, offset, limit, key_of)
+    scan_model::<SessionRecord>(db, offset, limit, key_of)
+}
+
+fn scan_session_events(
+    db: &Database<'static>,
+    offset: u32,
+    limit: u32,
+    key_of: KeyOfFn,
+) -> Result<Vec<RecordEnvelope>, StoreError> {
+    scan_model::<SessionEventRecord>(db, offset, limit, key_of)
 }
 
 fn scan_explores(
@@ -252,9 +268,15 @@ fn agent_run_key(value: &Value) -> Value {
     value["id"].clone()
 }
 
-/// agent event 主键还原 `{runId, seq}` 形态（u128 打包键的 JSON 可读投影）。
-fn agent_event_key(value: &Value) -> Value {
-    serde_json::json!({ "runId": value["runId"], "seq": value["event"]["seq"] })
+/// session 主键 = core 铸会话 id。
+fn session_key(value: &Value) -> Value {
+    value["id"].clone()
+}
+
+/// session event 主键还原 `{sessionId, seq}` 形态（u128 打包键的 JSON 可读
+/// 投影）。
+fn session_event_key(value: &Value) -> Value {
+    serde_json::json!({ "sessionId": value["sessionId"], "seq": value["event"]["seq"] })
 }
 
 /// explore 主键 = id。

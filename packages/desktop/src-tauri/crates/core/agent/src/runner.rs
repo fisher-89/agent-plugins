@@ -1,9 +1,3 @@
-//! 运行契约：`AgentRunner` trait、运行参数、逻辑事件流与运行句柄。
-//!
-//! trait 面仅暴露逻辑事件与运行参数：`start` 返回「逻辑事件流 + 句柄」，
-//! 进程模型（spawn、stdout/stdin、退出码）MUST NOT 出现在 trait 面上。
-//! 三租户（本机 CLI / 进程内 SDK / 远程 API）都应落在本 trait 预留内。
-
 use std::fmt;
 use std::path::PathBuf;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -13,18 +7,7 @@ use serde::{Deserialize, Serialize};
 use specta::Type;
 use tokio::sync::Notify;
 
-use crate::event::AgentEvent;
-
-/// 环境档位双档：`default`（完整环境）/ `bare`（纯净档；不读 OAuth 凭据，
-/// 须 `ANTHROPIC_API_KEY` 等外部认证前提——提示责任在参数面，不在本 crate）。
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub enum AgentEnvMode {
-    /// 完整环境（页面默认档）
-    Default,
-    /// 纯净档（显式开关）
-    Bare,
-}
+use crate::event::AgentEventKind;
 
 /// permission-mode 三档；无头模式下档位决定工具审批行为（档位语义由能力
 /// spec 留痕，本 crate 不解释）。
@@ -45,37 +28,79 @@ pub enum AgentPermissionMode {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub enum AgentRunStatus {
-    /// 运行中（run begin 落库行初值）
+    /// 运行中（轮 begin 落库行初值）
     Running,
-    /// 正常收敛（result 事件 is_error=false）
+    /// 正常收敛（TurnDone 事件 is_error=false）
     Completed,
-    /// 失败收敛（result 事件 is_error=true / 无 result 异常终止 / 落库失败）
+    /// 失败收敛（TurnDone 事件 is_error=true / 无 TurnDone 异常终止 / 落库失败）
     Failed,
-    /// 用户主动终止收敛（agent_stop 显式请求，语义区别于 CLI 失败）
+    /// 用户主动终止收敛（stop 显式请求，语义区别于引擎失败）
     Stopped,
 }
 
-/// 一次运行的入参：trait 面只认逻辑参数；cwd 由壳层注入（隐含当前
-/// workspace root，无用户输入）。
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct AgentRunParams {
-    /// 提示词（必填，空串交由上层参数面禁用）
-    pub prompt: String,
-    /// 工作目录
-    pub cwd: PathBuf,
-    /// permission-mode 档位
-    pub permission_mode: AgentPermissionMode,
-    /// 续会话入参（唯一进契约的续会话参数）：非空时以该 session 续发新一轮，
-    /// 由实现方翻译为传输层形态（CLI 租户为 `--resume <id>` flag）；`None`
-    /// 即全新 one-shot 运行。`--continue` 隐式续会话不进参数面。
-    pub resume_session_id: Option<String>,
+/// 会话级注入：preamble（系统前导）与 tools（工具面）为切片③预留接口位，
+/// MVP 引擎忽略（整合方式——preamble / flag / 忽略——引擎自选，协议形状
+/// 不因整合方式改变）。
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct SessionInjections {
+    /// 会话级系统前导（None 即不注入）
+    pub preamble: Option<String>,
+    /// 会话级工具面收窄（None 即引擎默认工具面）
+    pub tools: Option<Vec<String>>,
 }
 
-/// 运行句柄：逻辑终止信号（trait 形状「事件流 + 句柄」的句柄半边）。信号
-/// 面零进程类型——句柄只承载「终止已请求」状态与等待原语，进程树击杀等
-/// kill 机制归租户实现（租户经 `wait_requested` 或 `stop_requested` 观测
-/// 信号后自行终止其进程模型）。`Clone` 共享同一信号：编排侧持有一份、
-/// 租户泵持有一份，任一置位双方可见。
+/// 轮级上下文：workspace root + permission-mode（首版字段面）。serde 不加
+/// `deny_unknown_fields`（未知字段忽略）——additive 演进不破线格式。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionCtx {
+    /// 工作目录（隐含当前 workspace root，无用户输入）
+    pub workspace_root: PathBuf,
+    /// permission-mode 档位
+    pub permission_mode: AgentPermissionMode,
+}
+
+/// 会话引用（协议寻址单位）：`New` 建立新会话；`Continue { id }` 以既有会话
+/// 续发新一轮。`--continue` 类隐式续会话不进参数面。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SessionRef {
+    /// 新建会话
+    New,
+    /// 以既有会话续发
+    Continue { id: String },
+}
+
+/// 会话建立参数（协议唯一入口的入参）：注入面 + 上下文 + 会话引用 + 引擎侧
+/// 先行句柄（Continue 时由编排侧自会话记录提取回供；New 恒 None）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SessionOpen {
+    /// 会话级注入（injections/轮分离不变量的会话级半边）
+    pub injections: SessionInjections,
+    /// 轮级上下文
+    pub ctx: SessionCtx,
+    /// 会话引用
+    pub session: SessionRef,
+    /// 引擎侧先行句柄（引擎自译为传输层形态；None 即全新会话）
+    pub prior_handle: Option<String>,
+}
+
+/// 轮级驱动词汇：一次提问。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TurnQuestion {
+    /// 提示词（必填，空串交由上层参数面禁用）
+    pub prompt: String,
+}
+
+#[derive(Debug)]
+pub struct AgentSession {
+    /// 观察回流：引擎产未盖戳事件种类，seq / 时间戳由内核统一盖戳
+    pub observations: tokio::sync::mpsc::Receiver<AgentEventKind>,
+    /// 轮驱动：逐轮送达提问（引擎按自身进程模型兑现）
+    pub questions: tokio::sync::mpsc::Sender<TurnQuestion>,
+    /// 运行句柄（逻辑终止信号，kill 机制归租户实现）
+    pub handle: RunHandle,
+}
+
 #[derive(Debug, Clone, Default)]
 pub struct RunHandle {
     /// 终止请求标志（置位后不可清除；首个收敛生效语义的信号半边）
@@ -113,17 +138,6 @@ impl RunHandle {
     }
 }
 
-/// 一次运行的产出：逻辑事件流（有界 mpsc）+ 运行句柄。
-#[derive(Debug)]
-pub struct AgentRun {
-    /// 逻辑事件流：消费端关闭后生产端自行停止
-    pub events: tokio::sync::mpsc::Receiver<AgentEvent>,
-    /// 运行句柄（逻辑终止信号，kill 机制归租户）
-    pub handle: RunHandle,
-}
-
-/// 启动阶段失败（区别于运行内失败——后者由 `RunResult.is_error` 表达）：
-/// 此形态的失败不产生 run 记录，直接以 `Err` 抵达前端。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AgentStartError {
     /// CLI 不可发现
@@ -146,9 +160,8 @@ impl fmt::Display for AgentStartError {
     }
 }
 
-/// agent 运行器中立契约：唯一方法 `start`，进程模型不可见。
-/// 实现方自泵事件入 [`AgentRun::events`]（seq 每 run 从 0 单调递增）。
 pub trait AgentRunner: Send + Sync {
-    /// 发起一次运行：启动阶段失败返回 [`AgentStartError`]，不产生任何事件。
-    fn start(&self, params: AgentRunParams) -> Result<AgentRun, AgentStartError>;
+    /// 建立会话：启动阶段失败返回 [`AgentStartError`]，不产生任何记录。
+    /// 返回的会话句柄随后经 questions 逐轮驱动（ask 语义）。
+    fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError>;
 }

@@ -3,7 +3,7 @@ import { fireEvent, render, screen, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import { eventsToUIMessages, runRecordToUIMessage } from '../../lib/agent-adapter';
-import type { AgentBlock, AgentEvent, AgentRunRecord } from '../../types/dto';
+import type { AgentBlock, AgentEvent, TurnSummary } from '../../types/dto';
 import { AgentTimeline } from './agent-timeline';
 
 // ---------------------------------------------------------------------------
@@ -48,18 +48,18 @@ function systemNotice(seq: number): AgentEvent {
   return { seq, timestampMs: TS, kind: 'systemNotice', subtype: 'api_retry', payload: {} };
 }
 
-function runResult(seq: number): AgentEvent {
+function turnDone(seq: number): AgentEvent {
   return {
     seq,
     timestampMs: TS,
-    kind: 'runResult',
+    kind: 'turnDone',
     subtype: 'success',
     isError: false,
     numTurns: 3,
     durationMs: 1234,
     costUsd: 0.42,
     usage: {},
-    sessionId: 's-1',
+    sessionId: 'ses-0-1727000000000',
   };
 }
 
@@ -73,24 +73,17 @@ function raw(seq: number): AgentEvent {
   };
 }
 
-function recordRow(status: AgentRunRecord['status']): AgentRunRecord {
+function recordRow(status: TurnSummary['status']): TurnSummary {
   return {
-    id: 5,
-    prompt: '调试一轮',
-    cwd: 'C:\\demo\\alpha',
-    env: 'default',
-    permissionMode: 'bypassPermissions',
+    turnId: 5,
+    sessionId: 'ses-0-1727000000000',
     status,
     startedAt: TS,
     finishedAt: TS + 999,
     numTurns: 3,
     costUsd: 0.42,
     durationMs: 1234,
-    sessionId: 's-1',
     error: null,
-    source: 'debug',
-    sourceRef: null,
-    parentRunId: null,
   };
 }
 
@@ -233,16 +226,16 @@ describe('AgentTimeline：raw 透传与可复制', () => {
 
   it('data-run-result 汇总卡呈现轮数 / 成本 / 时长且 session 可复制', () => {
     const writeText = stubClipboard();
-    render(<AgentTimeline messages={eventsToUIMessages([runResult(2)])} running={false} />);
+    render(<AgentTimeline messages={eventsToUIMessages([turnDone(2)])} running={false} />);
 
     expect(screen.getByTestId('event-result').getAttribute('data-is-error')).toBe('false');
     expect(screen.getByTestId('result-num-turns').textContent).toBe('3');
     expect(screen.getByTestId('result-cost').textContent).toBe('$0.42');
     expect(screen.getByTestId('result-duration').textContent).toBe('1234ms');
     const copyButton = screen.getByTestId('copy-value');
-    expect(copyButton.closest('span')?.textContent).toContain('s-1');
+    expect(copyButton.closest('span')?.textContent).toContain('ses-0-1727000000000');
     fireEvent.click(copyButton);
-    expect(writeText).toHaveBeenCalledWith('s-1');
+    expect(writeText).toHaveBeenCalledWith('ses-0-1727000000000');
   });
 });
 
@@ -253,7 +246,7 @@ describe('AgentTimeline：raw 透传与可复制', () => {
 describe('AgentTimeline：全量呈现含 system', () => {
   it('run-started / system-notice / raw / record 部件均可见（AC-6 loop 可见性数据面）', () => {
     const messages = [
-      ...eventsToUIMessages([runStarted(0), systemNotice(1), raw(2), runResult(3)]),
+      ...eventsToUIMessages([runStarted(0), systemNotice(1), raw(2), turnDone(3)]),
       runRecordToUIMessage(recordRow('stopped')),
     ];
     render(<AgentTimeline messages={messages} running={false} />);

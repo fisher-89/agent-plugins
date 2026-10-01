@@ -1,29 +1,6 @@
-/**
- * 事件适配层（纯函数）：AgentEvent 信封 → ai-sdk UIMessage / UIMessageChunk。
- *
- * 两条转换路（两路同构是硬不变量，spec：desktop-agent-chat-infra）：
- * - `eventsToUIMessages` 重放折叠：事件序列重建为 UIMessage 序列（重放装载
- *   与 run 结束后的状态归一共用）；
- * - `eventToChunk` 实时增量：单事件产出 chunk 组，经 useChat reducer 归约。
- *
- * 映射定稿（design）：runStarted → `data-run-started`；message.text → text
- * 部件（整块）；thinking → reasoning；toolUse → tool 部件 input；同 id
- * toolResult 并入该部件 output（配对收口于适配层，跨消息按 id）；无主
- * toolResult 就地合成占位部件；systemNotice → `data-system-notice`；
- * runResult → `data-run-result`；raw / 未知事件 → `data-raw` 原文透传。
- *
- * 保真锁定：seq 进 message id（`evt-<seq>`）与 message metadata（key 稳定、
- * 保序）；`parentToolUseId` 进 message metadata（子代理归因依赖）；未知事件
- * 一律 `data-raw` 透传不丢。
- *
- * 两路收敛口径：useChat reducer 单请求只产 assistant 角色消息，实时路的
- * 角色/配对呈现以 run 结束后的 `eventsToUIMessages` 归一为准（hook 在流收口
- * 时 setMessages 归一）；静止态两路产出同一状态形状。
- */
-
 import type { UIMessage, UIMessageChunk } from 'ai';
 
-import type { AgentBlock, AgentEvent, AgentRunRecord } from '../types/dto';
+import type { AgentBlock, AgentEvent, TurnSummary } from '../types/dto';
 
 /** 消息元数据：seq 保真（record 合成消息为 null）与子代理归因字段 */
 interface AgentMessageMetadata {
@@ -73,14 +50,14 @@ export interface AgentToolOutput {
   isError: boolean;
 }
 
-/** 五个 data 部件形状（`data-run-record` 的 data 即 AgentRunRecord 整行）。
+/** 五个 data 部件形状（`data-run-record` 的 data 即轮行 DTO 整行）。
  * 类型别名（非 interface）：ai 的 UIDataTypes 约束要求对 Record 隐式索引签名 */
 type AgentDataParts = {
   'run-started': AgentRunStartedData;
   'system-notice': AgentSystemNoticeData;
   'run-result': AgentRunResultData;
   raw: AgentRawData;
-  'run-record': AgentRunRecord;
+  'run-record': TurnSummary;
 };
 
 /** 前端对话状态一等模型 */
@@ -105,6 +82,9 @@ export type AgentToolPart =
       output: AgentToolOutput;
     };
 
+/** 密封事件（delta 以外全变体）：重放路径唯一消费面 */
+type SealedAgentEvent = Exclude<AgentEvent, { kind: 'messageDelta' }>;
+
 /** 非 message 事件的 data 部件 / chunk 公共形态（type + data） */
 type AuxData =
   | { type: 'data-run-started'; data: AgentRunStartedData }
@@ -123,8 +103,24 @@ function messageId(seq: number): string {
   return `evt-${seq}`;
 }
 
+/**
+ * provisional 消息键：配对键派生（adapter 与 transport 共用锚点）。delta 先
+ * 行累积于该键命名的 provisional 消息，密封 Message 到达以密封为准替换。
+ */
+export function provisionalMessageId(parentToolUseId: string | null): string {
+  return `delta-${parentToolUseId ?? 'none'}`;
+}
+
+/**
+ * delta 累积部件的稳定 part id（首 delta 开件、后续累积共用；text / thinking
+ * 各自一条，与密封整块部件 id `t-<seq>-<n>` 无碰撞域）。
+ */
+export function deltaPartId(key: string, part: 'text' | 'thinking'): string {
+  return part === 'text' ? `t-delta-${key}` : `r-delta-${key}`;
+}
+
 /** 同 id toolResult 收集（含跨消息；仅收 toolUse 已配对的 id，重复取首个） */
-function collectToolResults(events: AgentEvent[]): Map<string, ToolResultBlock> {
+function collectToolResults(events: SealedAgentEvent[]): Map<string, ToolResultBlock> {
   const useIds = new Set<string>();
   for (const event of events) {
     if (event.kind !== 'message') continue;
@@ -145,7 +141,7 @@ function collectToolResults(events: AgentEvent[]): Map<string, ToolResultBlock> 
 }
 
 /** 非 message 事件 → 单个 data 部件载荷（未知事件 `data-raw` 原文透传） */
-function auxEventData(event: Exclude<AgentEvent, { kind: 'message' }>): AuxData {
+function auxEventData(event: Exclude<SealedAgentEvent, { kind: 'message' }>): AuxData {
   const base = { seq: event.seq, timestampMs: event.timestampMs };
   switch (event.kind) {
     case 'runStarted':
@@ -164,7 +160,7 @@ function auxEventData(event: Exclude<AgentEvent, { kind: 'message' }>): AuxData 
         type: 'data-system-notice',
         data: { ...base, subtype: event.subtype, payload: event.payload },
       };
-    case 'runResult':
+    case 'turnDone':
       return {
         type: 'data-run-result',
         data: {
@@ -184,7 +180,7 @@ function auxEventData(event: Exclude<AgentEvent, { kind: 'message' }>): AuxData 
         data: { ...base, eventType: event.eventType, rawJson: event.rawJson },
       };
     default:
-      // 运行时未知事件（未来 CLI 新增）：整事件 JSON 透传，不解释不丢失
+      // 运行时未知事件（未来引擎新增）：整事件 JSON 透传，不解释不丢失
       return {
         type: 'data-raw',
         data: { ...base, eventType: 'unknown', rawJson: JSON.stringify(event) },
@@ -241,7 +237,7 @@ function blocksToParts(
 
 /** 单事件 → UIMessage（message 事件按 role 收窄；其余 system 角色单 data 部件） */
 function eventToUIMessage(
-  event: AgentEvent,
+  event: SealedAgentEvent,
   results: Map<string, ToolResultBlock>,
 ): AgentUIMessage {
   const metadata: AgentMessageMetadata = {
@@ -259,24 +255,19 @@ function eventToUIMessage(
   return { id: messageId(event.seq), role: 'system', metadata, parts: [auxEventData(event)] };
 }
 
-/**
- * 重放折叠：事件序列 → UIMessage 序列（顺序与 seq 一致）。工具同 id 配对
- * 就地收敛（input 与 output 同住一个 tool 部件），无主 result 合成占位
- * 部件，未知事件 `data-raw` 透传不丢。与 `eventToChunk` 流经 useChat 且
- * run 收口归一后的状态形状一致（两路同构）。
- */
 export function eventsToUIMessages(events: AgentEvent[]): AgentUIMessage[] {
-  const results = collectToolResults(events);
-  return events.map((event) => eventToUIMessage(event, results));
+  const sealed = events.filter((event): event is SealedAgentEvent => event.kind !== 'messageDelta');
+  const results = collectToolResults(sealed);
+  return sealed.map((event) => eventToUIMessage(event, results));
 }
 
 /**
- * 终态同构：run 记录 → `data-run-record` 部件消息（重放与实时两路共用；
- * metadata.seq 为 null）。链推进（续话取新链尾）从中取。
+ * 终态同构：轮统计行 → `data-run-record` 部件消息（重放与实时两路共用；
+ * metadata.seq 为 null）。续轮（取当前会话）从中取。
  */
-export function runRecordToUIMessage(record: AgentRunRecord): AgentUIMessage {
+export function runRecordToUIMessage(record: TurnSummary): AgentUIMessage {
   return {
-    id: `run-${record.id}`,
+    id: `turn-${record.turnId}`,
     role: 'system',
     metadata: { seq: null, parentToolUseId: null },
     parts: [{ type: 'data-run-record', data: record }],
@@ -331,7 +322,7 @@ function blocksToChunks(seq: number, blocks: AgentBlock[]): AgentUIMessageChunk[
       }
     } else if (!useIds.has(block.id)) {
       // 无主 / 跨消息 toolResult：就地合成占位部件的 chunk 组（reducer 只能
-      // 更新当前消息部件，跨消息并入由 run 收口归一承载）
+      // 更新当前消息部件，跨消息并入由轮收口归一承载）
       chunks.push({
         type: 'tool-input-available',
         toolCallId: block.id,
@@ -345,14 +336,22 @@ function blocksToChunks(seq: number, blocks: AgentBlock[]): AgentUIMessageChunk[
 }
 
 /**
- * 实时增量：单事件 → chunk 组。每组以 `start`（messageId = `evt-<seq>`，
- * metadata 携带 seq 与 `parentToolUseId`）开新消息、`reset-step` 把在编
- * 消息已累积的上一事件部件让位（先换 id 使旧消息成快照、再让位，已推送
- * 消息不受影响），再以部件 chunk 填充——逐组流入 useChat reducer 即得逐
- * 事件消息序列，化解 reducer「单请求单消息」的部件累积。非 message 事件
- * 产单个 data 部件 chunk。
+ * 实时增量：单事件 → chunk 组。
  */
 export function eventToChunk(event: AgentEvent): AgentUIMessageChunk[] {
+  if (event.kind === 'messageDelta') {
+    const key = event.parentToolUseId ?? '';
+    if (event.delta.kind === 'text') {
+      return [{ type: 'text-delta', id: deltaPartId(key, 'text'), delta: event.delta.text }];
+    }
+    return [
+      {
+        type: 'reasoning-delta',
+        id: deltaPartId(key, 'thinking'),
+        delta: event.delta.thinking,
+      },
+    ];
+  }
   const metadata: AgentMessageMetadata = {
     seq: event.seq,
     parentToolUseId: event.kind === 'message' ? event.parentToolUseId : null,

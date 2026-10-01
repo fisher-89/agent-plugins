@@ -1,16 +1,15 @@
-//! flag 组装纯函数：`AgentRunParams` → CLI 参数序列。
-//!
-//! 组装口径（能力 spec `specs/desktop-agent-execution/spec.md`，路径相对域根）：
-//! - `-p <prompt>` 与 `--output-format stream-json --verbose` 恒有（stream-json
-//!   官方示例全部搭配 `--verbose`，是唯一线上格式）
-//! - permission-mode=bypassPermissions → `--dangerously-skip-permissions`；
-//!   acceptEdits → `--permission-mode acceptEdits`；default → 无 flag
-//! - resume_session_id=Some(id) → 尾部追加 `--resume <id>`（显式续会话）；
-//!   `None` → 无此 flag
-//! - cwd 经 `Command::current_dir` 传递，非 flag；无 model /
-//!   partial-messages / `--continue` flag（MVP 边界，续话一律显式 session id）
+use agent::AgentPermissionMode;
 
-use agent::{AgentPermissionMode, AgentRunParams};
+/// 协议轮参数的 CLI 投影（ask 阶段组装输入；cwd 经 `current_dir` 传递不进
+/// 本形状）。
+pub struct TurnParams {
+    /// 轮提问
+    pub prompt: String,
+    /// permission-mode 档位
+    pub permission_mode: AgentPermissionMode,
+    /// 引擎侧先行句柄（`--resume <id>` 尾追加规则；None 即全新会话）
+    pub resume_handle: Option<String>,
+}
 
 /// `--permission-mode` flag 值（serde 序列化派生：值单一来源 = 线格式值域，
 /// 与落库 / IPC 命名逐字一致，无双轨字符串副本）。
@@ -22,7 +21,7 @@ fn permission_mode_flag_value() -> String {
 }
 
 /// 组装 CLI 参数序列（不含程序名本身，逐参传递）。
-pub fn build_args(params: &AgentRunParams) -> Vec<String> {
+pub fn build_args(params: &TurnParams) -> Vec<String> {
     let mut args = vec![
         "-p".to_owned(),
         params.prompt.clone(),
@@ -40,7 +39,7 @@ pub fn build_args(params: &AgentRunParams) -> Vec<String> {
         }
         AgentPermissionMode::Default => {}
     }
-    if let Some(session_id) = &params.resume_session_id {
+    if let Some(session_id) = &params.resume_handle {
         args.push("--resume".to_owned());
         args.push(session_id.clone());
     }

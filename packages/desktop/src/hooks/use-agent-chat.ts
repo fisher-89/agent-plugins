@@ -1,21 +1,3 @@
-/**
- * headless 会话基建 hook：ai-sdk v7 `useChat` + `TauriAgentTransport` 承载
- * agent 会话的 UIMessage 状态（spec：desktop-agent-chat-infra）。
- *
- * - 重放装载：`agent_run_chain` + 逐 run `agent_run_events` → 适配层重建 →
- *   setMessages；逐 run 交错合成 record 部件（终态 run 才有）。重放重建与
- *   实时收口归一后同一状态形状（重开恢复 = 重放）。
- * - 发送组装：链尾取最后一条**非 running** 记录（stop 后 record 未达的竞态
- *   防御），`resumeSessionId` / `parentRunId` 与来源三元组经 body 穿透；
- *   会话文本组装（如 explore stance 拼接）留在来源侧。运行中重复发送忽略。
- * - 停止：`stop` → `invoke("agent_stop")`，不调 chat.stop() 截断前端流
- *   （终态 record 部件与 finish 由后端闭流推入）。
- * - 收口归一：流结束时（含失败）按 events / chain 镜像重建一次消息状态，
- *   把实时路的角色/配对呈现归一到重放形状（两路同构）。
- *
- * transport 的 tee 回调经稳定引用注入（观测点不承载状态）；链状态归本 hook。
- */
-
 import { useChat } from '@ai-sdk/react';
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 
@@ -29,7 +11,8 @@ import {
   commands,
   type AgentEvent,
   type AgentPermissionMode,
-  type AgentRunRecord,
+  type SessionSummary,
+  type TurnSummary,
 } from '../types/generated/bindings';
 
 /** 会话来源参数（source 二元组 + cwd；sourceRef=null 即不重放装载） */
@@ -50,154 +33,212 @@ interface AgentChatSendInput {
 export interface UseAgentChatState {
   messages: AgentUIMessage[];
   events: AgentEvent[];
-  chain: AgentRunRecord[];
+  /** 当前会话镜像（重放装载为最新会话；运行中为 early-resolve 回写的会话） */
+  session: SessionSummary | null;
+  /** 轮统计行列表（发起顺序；运行中含 running 行） */
+  chain: TurnSummary[];
   loading: boolean;
   running: boolean;
   error: string | null;
-  currentRunId: number | null;
   sendMessage: (input: AgentChatSendInput) => void;
   stop: () => void;
   reset: () => void;
 }
 
-/** 链尾取最后一条非 running 记录（续话参数来源；running 过滤防御竞态） */
-function chainTail(chain: AgentRunRecord[]): AgentRunRecord | null {
-  for (let index = chain.length - 1; index >= 0; index -= 1) {
-    if (chain[index].status !== 'running') return chain[index];
-  }
-  return null;
-}
-
-/** 镜像扁平化：链序逐 run 拼接事件（实时与重放共用同一口径） */
-function flatEvents(chain: AgentRunRecord[], byRun: Map<number, AgentEvent[]>): AgentEvent[] {
-  return chain.flatMap((run) => byRun.get(run.id) ?? []);
-}
-
-/** 重放/归一重建：逐 run 事件折叠 + 终态 record 部件交错（running 无 record） */
-function buildMessages(
-  chain: AgentRunRecord[],
-  byRun: Map<number, AgentEvent[]>,
-): AgentUIMessage[] {
-  return chain.flatMap((run) => {
-    const replayed = eventsToUIMessages(byRun.get(run.id) ?? []);
-    return run.status === 'running' ? replayed : [...replayed, runRecordToUIMessage(run)];
+/**
+ * 重放/归一重建：密封转录折叠 + 轮统计行部件交错（每个 TurnDone 事件位后
+ * 插入对应轮行，按轮序对齐；无 TurnDone 的轮行尾部补齐——停止收敛等）。
+ */
+function buildMessages(events: AgentEvent[], turns: TurnSummary[]): AgentUIMessage[] {
+  const replayed = eventsToUIMessages(events);
+  const messages: AgentUIMessage[] = [];
+  let turnIndex = 0;
+  events.forEach((event, index) => {
+    messages.push(replayed[index]);
+    if (event.kind === 'turnDone' && turnIndex < turns.length) {
+      messages.push(runRecordToUIMessage(turns[turnIndex]));
+      turnIndex += 1;
+    }
   });
+  for (; turnIndex < turns.length; turnIndex += 1) {
+    messages.push(runRecordToUIMessage(turns[turnIndex]));
+  }
+  return messages;
 }
 
-/** 链还原 + 逐 run 事件重放（store 链查询收口单点，hook 不拼链；root 寻址
- * 所属 workspace 库——run id 与 explore 记录 id 均为库域内） */
-async function loadChain(
-  root: string,
+/** 会话镜像与轮行的会话域同步（row 不变、stats/turns 现算） */
+function withTurns(session: SessionSummary, turns: TurnSummary[]): SessionSummary {
+  return { ...session, stats: { ...session.stats, turnCount: turns.length }, turns };
+}
+
+/** 运行中轮行的会话镜像（early-resolve 回写；字段以轮行为准的运行时投影） */
+function sessionFromTurn(
+  record: TurnSummary,
   source: string,
-  sourceRef: string,
-): Promise<{ runs: AgentRunRecord[]; byRun: Map<number, AgentEvent[]> }> {
-  const runs = await commands.agentRunChain(root, source, sourceRef);
-  const replays = await Promise.all(
-    runs.map(async (run) => [run.id, await commands.agentRunEvents(root, run.id)] as const),
-  );
-  return { runs, byRun: new Map(replays) };
+  sourceRef: string | null,
+): SessionSummary {
+  return {
+    row: {
+      id: record.sessionId,
+      remoteSessionId: null,
+      configSnapshot: null,
+      provenance: { source, sourceRef },
+      createdAt: record.startedAt,
+      updatedAt: record.startedAt,
+    },
+    stats: { turnCount: 0, totalDurationMs: null, inputTokens: null, outputTokens: null },
+    turns: [],
+  };
 }
 
 /** 镜像内部态（ref 真相 + state 渲染双轨，transport 回调与发送组装读 ref） */
 interface SessionMirrors {
-  chain: AgentRunRecord[];
+  session: SessionSummary | null;
+  turns: TurnSummary[];
   events: AgentEvent[];
-  currentRunId: number | null;
-  chainRef: React.RefObject<AgentRunRecord[]>;
-  eventsByRunRef: React.RefObject<Map<number, AgentEvent[]>>;
-  currentRunIdRef: React.RefObject<number | null>;
+  sessionRef: React.RefObject<SessionSummary | null>;
+  turnsRef: React.RefObject<TurnSummary[]>;
+  eventsRef: React.RefObject<AgentEvent[]>;
+  currentSessionIdRef: React.RefObject<string | null>;
   handleEvent: (event: AgentEvent) => void;
-  handleRecord: (record: AgentRunRecord) => void;
-  setChain: (runs: AgentRunRecord[]) => void;
+  handleRecord: (record: TurnSummary) => void;
+  setSession: (session: SessionSummary | null) => void;
+  setTurns: (turns: TurnSummary[]) => void;
   setEvents: (events: AgentEvent[]) => void;
-  setCurrentRunId: (runId: number | null) => void;
   clear: () => void;
 }
 
-/** 链写入回调装配（upsert / 终态替换 / 清空）：纯回调，不持有状态 */
+/** 轮行写入回调装配（upsert / 终态替换 / 清空）：纯回调，不持有状态 */
 function chainWrites(
-  chainRef: React.RefObject<AgentRunRecord[]>,
-  eventsByRunRef: React.RefObject<Map<number, AgentEvent[]>>,
-  currentRunIdRef: React.RefObject<number | null>,
-  setChain: (runs: AgentRunRecord[]) => void,
+  sessionRef: React.RefObject<SessionSummary | null>,
+  turnsRef: React.RefObject<TurnSummary[]>,
+  eventsRef: React.RefObject<AgentEvent[]>,
+  currentSessionIdRef: React.RefObject<string | null>,
+  setSession: (session: SessionSummary | null) => void,
+  setTurns: (turns: TurnSummary[]) => void,
   setEvents: (events: AgentEvent[]) => void,
-  setCurrentRunId: (runId: number | null) => void,
+  source: string,
+  sourceRef: string | null,
 ): {
-  upsertRun: (record: AgentRunRecord) => void;
-  handleRecord: (record: AgentRunRecord) => void;
+  upsertTurn: (record: TurnSummary) => void;
+  handleRecord: (record: TurnSummary) => void;
   clear: () => void;
 } {
-  const upsertRun = (record: AgentRunRecord) => {
-    const next = [...chainRef.current];
-    const index = next.findIndex((run) => run.id === record.id);
+  const upsertTurn = (record: TurnSummary) => {
+    const next = [...turnsRef.current];
+    const index = next.findIndex((turn) => turn.turnId === record.turnId);
     if (index >= 0) next[index] = record;
     else next.push(record);
-    chainRef.current = next;
-    setChain(next);
-  };
-  // transport 观测点：early-resolve running 记录 / 终态 record 按 id 替换
-  const handleRecord = (record: AgentRunRecord) => {
-    upsertRun(record);
-    if (record.status === 'running') {
-      currentRunIdRef.current = record.id;
-      setCurrentRunId(record.id);
+    turnsRef.current = next;
+    setTurns(next);
+    const current = sessionRef.current;
+    if (current !== null) {
+      const synced = withTurns(current, next);
+      sessionRef.current = synced;
+      setSession(synced);
     }
   };
-  const clear = () => {
-    chainRef.current = [];
-    eventsByRunRef.current = new Map();
-    currentRunIdRef.current = null;
-    setChain([]);
-    setEvents([]);
-    setCurrentRunId(null);
+  // transport 观测点：early-resolve running 轮行（回写当前会话 id）/ 终态
+  // 轮行按轮 id 替换
+  const handleRecord = (record: TurnSummary) => {
+    currentSessionIdRef.current = record.sessionId;
+    if (sessionRef.current?.row.id !== record.sessionId) {
+      const mirror = sessionFromTurn(record, source, sourceRef);
+      sessionRef.current = mirror;
+      setSession(mirror);
+    }
+    upsertTurn(record);
   };
-  return { upsertRun, handleRecord, clear };
+  const clear = () => {
+    sessionRef.current = null;
+    turnsRef.current = [];
+    eventsRef.current = [];
+    currentSessionIdRef.current = null;
+    setSession(null);
+    setTurns([]);
+    setEvents([]);
+  };
+  return { upsertTurn, handleRecord, clear };
 }
 
-/** 镜像与 transport 观测回调：running 记录追加、终态按 id 替换、事件入桶 */
-function useSessionMirrors(): SessionMirrors {
-  const [chain, setChain] = useState<AgentRunRecord[]>([]);
+/** 镜像与 transport 观测回调：running 轮行回写会话、终态按轮 id 替换、密封
+ * 事件入镜像（delta 只上 chunk 流不入镜像） */
+function useSessionMirrors(source: string, sourceRef: string | null): SessionMirrors {
+  const [session, setSession] = useState<SessionSummary | null>(null);
+  const [turns, setTurns] = useState<TurnSummary[]>([]);
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [currentRunId, setCurrentRunId] = useState<number | null>(null);
-  const chainRef = useRef<AgentRunRecord[]>([]);
-  const eventsByRunRef = useRef<Map<number, AgentEvent[]>>(new Map());
-  const currentRunIdRef = useRef<number | null>(null);
+  const sessionRef = useRef<SessionSummary | null>(null);
+  const turnsRef = useRef<TurnSummary[]>([]);
+  const eventsRef = useRef<AgentEvent[]>([]);
+  const currentSessionIdRef = useRef<string | null>(null);
   const { handleRecord, clear } = chainWrites(
-    chainRef,
-    eventsByRunRef,
-    currentRunIdRef,
-    setChain,
+    sessionRef,
+    turnsRef,
+    eventsRef,
+    currentSessionIdRef,
+    setSession,
+    setTurns,
     setEvents,
-    setCurrentRunId,
+    source,
+    sourceRef,
   );
 
-  // transport 观测点：实时事件入当前 run 桶并同步扁平镜像
+  // transport 观测点：实时密封事件入镜像（append 保序）
   const handleEvent = useCallback((event: AgentEvent) => {
-    const runId = currentRunIdRef.current;
-    if (runId === null) return;
-    const bucket = eventsByRunRef.current.get(runId) ?? [];
-    eventsByRunRef.current.set(runId, [...bucket, event]);
-    setEvents(flatEvents(chainRef.current, eventsByRunRef.current));
+    if (event.kind === 'messageDelta') return; // delta 仅实时流可见
+    const next = [...eventsRef.current, event];
+    eventsRef.current = next;
+    setEvents(next);
   }, []);
 
   return {
-    chain,
+    session,
+    turns,
     events,
-    currentRunId,
-    chainRef,
-    eventsByRunRef,
-    currentRunIdRef,
+    sessionRef,
+    turnsRef,
+    eventsRef,
+    currentSessionIdRef,
     handleEvent,
     handleRecord,
-    setChain,
+    setSession,
+    setTurns,
     setEvents,
-    setCurrentRunId,
     clear,
   };
 }
 
+/** 重放取数：最新会话（`updated_at` 降序首项）+ 其全史密封转录（空会话空转录） */
+async function loadReplay(
+  root: string,
+  source: string,
+  sourceRef: string,
+): Promise<{ latest: SessionSummary | null; events: AgentEvent[] }> {
+  const sessions = await commands.agentSessions(root, source, sourceRef);
+  const latest = sessions[0] ?? null;
+  const events = latest !== null ? await commands.agentSessionTranscript(root, latest.row.id) : [];
+  return { latest, events };
+}
+
+/** 重放结果回写：镜像真相（ref）与渲染态、消息重建一并落位 */
+function applyReplay(
+  mirrors: SessionMirrors,
+  setMessages: (messages: AgentUIMessage[]) => void,
+  latest: SessionSummary | null,
+  events: AgentEvent[],
+): void {
+  mirrors.sessionRef.current = latest;
+  mirrors.turnsRef.current = latest?.turns ?? [];
+  mirrors.eventsRef.current = events;
+  mirrors.currentSessionIdRef.current = latest?.row.id ?? null;
+  mirrors.setSession(latest);
+  mirrors.setTurns(latest?.turns ?? []);
+  mirrors.setEvents(events);
+  setMessages(buildMessages(events, latest?.turns ?? []));
+}
+
 /** 重放装载：source 二元组变更触发；镜像与消息状态按查询结果重建 */
-function useChainReplay(
+function useSessionReplay(
   params: UseAgentChatParams,
   mirrorsRef: React.RefObject<SessionMirrors>,
   setMessages: (messages: AgentUIMessage[]) => void,
@@ -220,17 +261,10 @@ function useChainReplay(
     let cancelled = false;
     setLoading(true);
     setReplayError(null);
-    loadChain(root, source, sourceRef)
-      .then(({ runs, byRun }) => {
+    loadReplay(root, source, sourceRef)
+      .then(({ latest, events }) => {
         if (cancelled) return;
-        mirrors.chainRef.current = runs;
-        mirrors.eventsByRunRef.current = byRun;
-        const tail = chainTail(runs);
-        mirrors.currentRunIdRef.current = tail?.id ?? null;
-        mirrors.setChain(runs);
-        mirrors.setEvents(flatEvents(runs, byRun));
-        mirrors.setCurrentRunId(tail?.id ?? null);
-        setMessages(buildMessages(runs, byRun));
+        applyReplay(mirrors, setMessages, latest, events);
         setLoading(false);
       })
       .catch((cause: unknown) => {
@@ -246,7 +280,7 @@ function useChainReplay(
   return { loading, error: replayError };
 }
 
-/** 会话行为（发送组装 / 停止 / 重置）；链参数在此收口、body 穿透 transport */
+/** 会话行为（发送组装 / 停止 / 重置）；会话参数在此收口、body 穿透 transport */
 function useSessionActions(
   chat: ReturnType<typeof useChat<AgentUIMessage>>,
   mirrors: SessionMirrors,
@@ -264,29 +298,28 @@ function useSessionActions(
       if (root === null) return;
       // 运行中重复发送忽略（status 直读 chat 实例，同步无竞态）
       if (chat.status === 'submitted' || chat.status === 'streaming') return;
-      const tail = chainTail(mirrors.chainRef.current);
       void chat.sendMessage(undefined, {
         body: {
           root,
           prompt: input.prompt,
           permissionMode: input.permissionMode,
           agent: input.agent ?? null,
-          resumeSessionId: tail?.sessionId ?? null,
-          parentRunId: tail?.id ?? null,
+          // 当前会话 Continue（early-resolve 轮行回写）；无会话 New
+          sessionId: mirrors.currentSessionIdRef.current,
           source,
           sourceRef,
         },
       });
     },
-    [chat, mirrors.chainRef, root, source, sourceRef],
+    [chat, mirrors.currentSessionIdRef, root, source, sourceRef],
   );
 
   const stop = useCallback(() => {
-    const runId = mirrors.currentRunIdRef.current;
+    const sessionId = mirrors.currentSessionIdRef.current;
     // 不调 chat.stop() 截断前端流：终态 record 部件与 finish 由后端闭流推入；
-    // 停止寻址携 root（run id 为 workspace 库域内自增，复合键消解跨库歧义）
-    if (runId !== null && root !== null) void commands.agentStop(root, runId);
-  }, [mirrors.currentRunIdRef, root]);
+    // 停止寻址携 root（会话 id 即寻址键，root 寻址保留）
+    if (sessionId !== null && root !== null) void commands.agentStop(root, sessionId);
+  }, [mirrors.currentSessionIdRef, root]);
 
   const reset = useCallback(() => {
     mirrors.clear();
@@ -301,7 +334,7 @@ function useSessionActions(
  * 入参变更（source 二元组）触发重放装载；发送 / 停止 / 重置见模块文档。
  */
 export function useAgentChat(params: UseAgentChatParams): UseAgentChatState {
-  const mirrors = useSessionMirrors();
+  const mirrors = useSessionMirrors(params.source, params.sourceRef);
 
   const transport = useMemo(
     () => new TauriAgentTransport({ onEvent: mirrors.handleEvent, onRecord: mirrors.handleRecord }),
@@ -314,9 +347,7 @@ export function useAgentChat(params: UseAgentChatParams): UseAgentChatState {
     transport,
     onFinish: () => {
       // 流结束（含失败）按镜像重建，实时路与重放路同形状
-      setMessagesRef.current(
-        buildMessages(mirrors.chainRef.current, mirrors.eventsByRunRef.current),
-      );
+      setMessagesRef.current(buildMessages(mirrors.eventsRef.current, mirrors.turnsRef.current));
     },
   });
   const { messages, status, error, setMessages } = chat;
@@ -326,17 +357,17 @@ export function useAgentChat(params: UseAgentChatParams): UseAgentChatState {
   const mirrorsRef = useRef(mirrors);
   mirrorsRef.current = mirrors;
 
-  const replay = useChainReplay(params, mirrorsRef, setMessages);
+  const replay = useSessionReplay(params, mirrorsRef, setMessages);
   const actions = useSessionActions(chat, mirrorsRef.current, params, setMessages);
 
   return {
     messages,
     events: mirrors.events,
-    chain: mirrors.chain,
+    session: mirrors.session,
+    chain: mirrors.turns,
     loading: replay.loading,
     running: status === 'submitted' || status === 'streaming',
     error: replay.error ?? (error !== undefined ? error.message : null),
-    currentRunId: mirrors.currentRunId,
     ...actions,
   };
 }

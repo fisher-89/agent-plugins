@@ -1,12 +1,13 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 use std::path::PathBuf;
+use std::sync::Arc;
 
 use tauri::{generate_handler, Manager};
 
 use store::WorkspaceStores;
 
+use agent::StopRegistry;
 use dev_team::commands::all_commands;
-use dev_team::commands::exec::RunStopRegistry;
 use dev_team::commands::watch::WatchRegistry;
 
 /// 全局数据目录名：`home_dir()` 根下（双库落位基准——全局库直居其下、
@@ -44,9 +45,10 @@ fn main() {
             app.manage(stores);
             // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
             app.manage(WatchRegistry::default());
-            // agent 停止句柄注册表：agent_start 登记 / drive 终态除名 /
-            // agent_stop 查询，此处只挂空表（与 WatchRegistry 同型托管）
-            app.manage(RunStopRegistry::default());
+            // agent 停止注册表（内核治理面，键 = core session id）：
+            // 内核 begin_turn 登记 / drive 终态除名 / agent_stop 查询，此处
+            // 只挂空表（Arc 承载跨内核实例共享，与 WatchRegistry 同型托管）
+            app.manage(Arc::new(StopRegistry::default()));
             Ok(())
         })
         .invoke_handler(all_commands!(generate_handler))

@@ -1,6 +1,7 @@
 # rig 包选型探索(rig-core 直连 vs rig 门面包)
 
 > 状态:探索收敛(结论 = 维持 rig-core 直连),留痕供当前 change 与后续 change(MCP / memory / 上下文窗管理)引用
+> 二轮(2026-09-30):原则修正后结论不变,rig vs rig-core 讨论对修正后三腿开放(见「原则修正」节)
 > 日期:2026-09-30
 > 关联 change:`agent-sdk-rig-tenant`(implement 26/35 期间触发)
 > 探索触发:对比引入 `rig_core` 与 `rig` 包
@@ -68,9 +69,54 @@
 
 design「rig-core spike 结论」一处文本微修留痕:multi_turn 托管 0.42 实际住 rig-agent(facade 的 agent feature)而非 rig-core——裁定结论(手搓)不受影响,任务不碰,按既有「文本差异留痕」模式处理(design 文本修不修待裁定)。
 
+## 原则修正(二轮):适配目标恒为 core 协议,claude-code 非中转层
+
+> 触发:上节「rig-agent 适配评估」中「他们的 agent 状态机 → **我们的 claude-code 信封**」的表述把适配目标错认成 claude-code 模拟,自我加重了适配距离。本节修正归因;结论(维持 rig-core 直连)经重估后不变,但后续 rig vs rig-core 讨论只应押在修正后的腿上。
+
+### 三层模型
+
+- **claude-code 线格式**:CLI 租户私有源格式,在 `cli/jsonl.rs` 被翻译为 core 协议(system/init→RunStarted、total_cost_usd→cost_usd、subtype 原样透传)
+- **core 协议**:AgentEvent 五变体 + subtype 词典,自家所有、开放铸造;spec 已双约束——core「MUST NOT 认识 claude 与引擎」(specs/desktop-agent-execution/spec.md:13)、subtype「不做封闭枚举」(spec.md:45,174)
+- **引擎原生观察面**:rig-core 流项(normalize 无状态直译,已实现)或假想 rig-agent hook 面
+
+适配方向恒为「引擎原生 → core 协议」;claude-code 是词汇捐助者 + CLI 源格式,任何引擎不经它中转。协议不够用扩协议(自家的),不逼引擎演 claude-code 的戏。
+
+### 结构已达标,残留只在词汇层
+
+SDK 引擎无任何 claude-code 中间形态:normalize 直译、编排/状态机/落库/前端全租户共享。残留是 loop 合成事件借 CLI 词汇且注释框成「对齐」(sdk/loop.rs:43-44 `SUBTYPE_SUCCESS`「CLI 线格式口径」、:69「与 CLI init 对齐」、:325-327「CLI 合成收敛事件的命名口径」)。三处细节证词典实际已按 core 所有在运作:
+
+1. `sandbox_denied` 为 SDK 自铸(CLI 无沙箱概念)——开放铸造已在发生
+2. 借词未抄齐:event.rs 文档举 `permission_denial`(claude-code 拼法),loop 实铸 `permission_denied`
+3. 归档 change explore 原话:信封「本就照 agent loop 形状设计」——出发点是通用 agent loop,claude-code 只是恰好也是
+
+### 词典权威方向(待将来拍板,现状影响 ≈ 0)
+
+现状方向倒置:subtype 值域的事实源头 = claude-code 发什么(jsonl 原样透传),core 词典「恰好」包含借词。正道:core 定义正典词典,CLI 翻译折叠进正典(claude-code 新词经透传容忍,不重定义正典)。语义重合处字符串本就相同,差别只在明天谁跟谁变。纯文档层善后:loop.rs 三处「CLI 口径」注释下次碰文件顺手改为「core 协议 subtype」(内部注释,不 bump)。
+
+### 「三块补丁」归因重估
+
+| 原判 | 重估 |
+|---|---|
+| SystemNotice 合成(policy 拒绝) | 拒绝出事件是协议层需求;claude-code 的只是命名习惯 |
+| RunResult 字段对齐 | 普通协议映射,与 CLI 侧 total_cost_usd→cost_usd 同性质,非补丁 |
+| 取消句柄 | 运行时管制,与协议/观察面均无关 |
+
+三块全是 rig-agent **托管运行时**(占有工具执行/loop/取消)的成本,非 claude-code 模拟成本。观察面上真实存在的距离只剩:callback hook 模型 → 流式事件协议的有状态转换——这是 rig-agent 观察模型的成本,量到 core 协议为止。
+
+### 对 rig vs rig-core 讨论的净影响(本节唯一目的)
+
+修正后反对 rig-agent 路线的腿只剩三条,全部与 claude-code 无关:
+
+1. **经济账**:loop/runner 已写完,替换是重写,收益 ≈ 0(不变)
+2. **hook 面不透明**:根级公共面未文档化,事件粒度/取消句柄未实测(不变;翻案需 spike)
+3. **托管工具执行 vs policy/sandbox 插值**:rig-agent 管工具执行,我方 policy 插值(拒绝 + 合成 ToolResult)需挂进他们的执行路径(不变)
+
+若将来 spike 证实 hook 面粒度足够 + 托管执行可插 policy,观察面适配本身不再是障碍,争论收敛为纯经济账与托管管制贴合度。另注意两个正交性:①**选包(rig facade vs rig-core)与选运行时(rig-agent vs 手搓 loop)是两个正交问题**——facade 唯一增量是 feature 转发 + 家族 crate 门面,rig-agent 可不经 facade 直依赖(同 rig-memory 直连模式);②memory / 窗管理(候选 rig-memory 直连)与 rig-agent 无关,不构成 facade 加分项。
+
 ## 对话纪要
 
 1. 触发:对比引入 rig_core 与 rig 包;核实两包形状(facade vs 实现体、feature 转发、版本史)→ 维持 rig-core(三条理由 + 逃生门)。
 2. 拍板两原则:multi_turn core 持标记 / infra 实现循环(契约已长成,runner.rs:71);memory agent 特性不强制(含 rig 会话内整形 vs claude-code 跨会话注入的双义拆解)。
 3. 实测 rig-agent(hook 观察模型、事件面不透明)与 rig-memory(无 LLM 摘要、孤儿配对已处理)→ 适配评估「能≠值」+ memory 账本;发现 MVP 无窗管理缺口。
 4. 裁三档:A 纯留痕(零任务影响),剩余 9 项原样执行;留痕落独立 explore 文档(本文件)。
+5. 原则修正(二轮):适配目标恒为 core 协议、claude-code 非中转层(词汇捐助者 + CLI 源格式);结构已达标(normalize 直译 + spec 双约束),残留仅 loop 注释「CLI 口径」措辞与词典权威方向(待拍板,影响 ≈ 0)。「三块补丁」重估为 rig-agent 托管运行时成本;rig vs rig-core 后续讨论只押三腿:经济账 / hook 面不透明 / 托管执行 vs policy 插值,另注意选包与选运行时正交。

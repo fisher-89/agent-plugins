@@ -18,6 +18,9 @@ use serde_json::Value;
 /// glob 单次结果上限（防大目录扫描灌爆上下文）。
 const MAX_GLOB_RESULTS: usize = 200;
 
+/// grep 目录递归单次命中上限（同 glob 截断口径，防大目录扫描灌爆上下文）。
+const MAX_GREP_RESULTS: usize = 200;
+
 /// 六工具名（loop 的 RunStarted.tools 与 policy 决策表同源口径，见
 /// [`crate::sdk::policy`]）。
 pub const TOOL_NAMES: [&str; 6] = ["read", "grep", "glob", "ls", "write", "edit"];
@@ -51,11 +54,12 @@ pub fn definitions() -> Vec<ToolDefinition> {
         },
         ToolDefinition {
             name: "grep".to_owned(),
-            description: "单文件行级子串匹配：返回命中行（文件路径:行号: 内容）".to_owned(),
+            description: "行级子串匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件"
+                .to_owned(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
-                    "path": { "type": "string", "description": "workspace 内文件路径" },
+                    "path": { "type": "string", "description": "workspace 内文件或目录路径（目录时递归扫描）" },
                     "pattern": { "type": "string", "description": "子串匹配串（非正则）" }
                 },
                 "required": ["path", "pattern"]
@@ -167,27 +171,78 @@ async fn read(input: &Value) -> Result<String, String> {
     })
 }
 
-/// grep：单文件行级子串匹配，命中行以 `路径:行号: 内容` 输出。
+/// grep：行级子串匹配，命中行以 `路径:行号: 内容` 输出。path 为文件时单文件
+/// 匹配；为目录时递归扫描其下文件（不可读文件跳过、命中上限截断留痕）——
+/// 目录入参曾以「读取失败: 拒绝访问 (os error 5)」形态误导为权限拒绝，
+/// 递归分支即该形态的正解。metadata 失败（缺失路径）回落单文件分支，保留
+/// 显式读取错误语义。
 async fn grep(input: &Value) -> Result<String, String> {
     let path = string_field(input, "path")?;
     let pattern = string_field(input, "pattern")?;
     if pattern.is_empty() {
         return Err("pattern 不得为空".to_owned());
     }
+    let is_dir = tokio::fs::metadata(&path)
+        .await
+        .map(|meta| meta.is_dir())
+        .unwrap_or(false);
+    if is_dir {
+        return grep_dir(&path, &pattern).await;
+    }
     let text = tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| format!("读取失败: {e}"))?;
-    let hits: Vec<String> = text
-        .lines()
-        .enumerate()
-        .filter(|(_, line)| line.contains(&pattern))
-        .map(|(index, line)| format!("{}:{}: {}", path, index + 1, line))
-        .collect();
-    Ok(if hits.is_empty() {
+    Ok(hits_body(match_lines(&path, &text, &pattern), &pattern))
+}
+
+/// 目录递归分支：`{dir}/**/*` 枚举（glob 字典序，与 glob 工具同 crate 同
+/// 姿态），仅文件参与匹配；不可读文件（二进制 / 非 UTF-8）静默跳过——
+/// 目录扫描不因个别文件中断（单文件显式指定的读取失败语义不弱化）。
+async fn grep_dir(dir: &str, pattern: &str) -> Result<String, String> {
+    let base = dir.replace('\\', "/");
+    let full = format!("{}/**/*", base.trim_end_matches('/'));
+    let entries = glob::glob(&full).map_err(|e| format!("非法 glob 模式: {e}"))?;
+    let mut hits: Vec<String> = Vec::new();
+    let mut truncated = false;
+    for entry in entries.flatten() {
+        if !entry.is_file() {
+            continue;
+        }
+        // 输出路径统一 `/` 分隔（glob 条目在 Windows 上为字面前缀 + `\` 拼接
+        // 段的混合形态；与 glob 工具的归一口径一致）
+        let display = entry.to_string_lossy().replace('\\', "/");
+        if let Ok(text) = tokio::fs::read_to_string(&entry).await {
+            hits.extend(match_lines(&display, &text, pattern));
+            if hits.len() > MAX_GREP_RESULTS {
+                truncated = true;
+                break;
+            }
+        }
+    }
+    hits.truncate(MAX_GREP_RESULTS);
+    let mut body = hits_body(hits, pattern);
+    if truncated {
+        body.push_str(&format!("\n（结果超过 {MAX_GREP_RESULTS} 条已截断）"));
+    }
+    Ok(body)
+}
+
+/// 命中行清单 → 输出体（空清单的非错误占位与单文件分支同口径）。
+fn hits_body(hits: Vec<String>, pattern: &str) -> String {
+    if hits.is_empty() {
         format!("无匹配行: {pattern}")
     } else {
         hits.join("\n")
-    })
+    }
+}
+
+/// 单文件命中行收集（`路径:行号: 内容` 形态）。
+fn match_lines(path: &str, text: &str, pattern: &str) -> Vec<String> {
+    text.lines()
+        .enumerate()
+        .filter(|(_, line)| line.contains(pattern))
+        .map(|(index, line)| format!("{}:{}: {}", path, index + 1, line))
+        .collect()
 }
 
 /// glob：root 相对模式扫描（分隔符统一 `/`），路径字典序，结果截断留痕。

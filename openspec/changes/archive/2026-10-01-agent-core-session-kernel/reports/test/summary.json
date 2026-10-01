@@ -1,0 +1,92 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-01T00:44:53.086Z",
+  "duration_seconds": 765,
+  "total": 777,
+  "passed": 777,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 60,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 85.77,
+    "threshold": 80,
+    "measured": {
+      "killed": 651,
+      "survived": 98,
+      "timeout": 0,
+      "noCoverage": 10,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 4,
+      "total": 763,
+      "detected": 651,
+      "undetected": 108
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 85.7707509881423,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 60,
+        "passed_count": 60
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/agent-core-session-kernel/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/agent-core-session-kernel/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "修复已落地并验证(协调者授权的源修复):session_pump(crates/infra/agent/src/sdk/runner.rs tokio::select!)加 biased 且 loop 臂在前——停止先置位时两臂首轮 poll 同为 Ready,随机臂序曾让停止臂在 loop future 首次 poll 前获胜、先导事件丢失;固定臂序后先导事件恒达,停止臂仅在轮中途截停。验证:原翻车用例单独连跑 10/10 通过,workspace 单跑 681/681 全绿,CLI 内 rust 计划 exit 0。",
+    "本轮门禁全绿:conclusion=pass,777/777,problems 空;vite-plus 699/699、coverage 93.98/87.52/92.63 达标、mutation 85.77>=80;rust cargo test --workspace exit 0(results.txt 22 目标 681 passed/0 failed)。plugins/dev-team 因 change scope 跳过属预期。",
+    "rust mutation 仍未测量(计划级 null,threshold 70 未测):两轮 CLI 均只执行 StrykerJS(vite-plus),rust 计划无 cargo-mutants 执行步骤——失败轮与全绿轮皆然,属 CLI 能力缺口而非测试问题,需在 CLI 侧启用或另行验证;本 agent 未擅自以 ad-hoc cargo-mutants 顶替报告。",
+    "rust 解析器计数缺口仍在:report.json 仅计入首个目标(core/agent lib)的 78,results.txt 实际 22 目标 681 passed;顶层 total 777=699+78 少计 rust 603 例。本轮不影响判绿,但计划级通过数失真,建议 CLI 解析器聚合全部 \"test result:\" 行。",
+    "coverage 甄别(两轮稳定):rust 计划级 coverage.pass=false 需分辨——branches=0 是 cargo-llvm-cov 无分支数据(0/0)的编码,应视为不支持维度;functions 89.97(341/379)真实且两轮逐字节一致,差 0.03pp,再多覆盖 1 个函数(342/379=90.24%)即达标;该值为 src-tauri 全 workspace 口径,大量函数属本次变更之外的 crate。顶层 summary coverage.pass=true(全 null)与计划级 false 语义不一致,读门禁时需留意。",
+    "报告完整性验证通过:必填字段齐全,777=777+0+0 自洽,conclusion=pass 与 problems 空及 coverage/mutation pass 一致,两个执行计划均在 plans[] 且带 root/path。"
+  ]
+}

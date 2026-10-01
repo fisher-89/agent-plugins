@@ -1,373 +1,326 @@
-//! `runner` 的单元测试（AC-1）：`AgentRunner` trait 假实现经 mpsc 交付预录
-//! 事件（trait 测试替身，非外部进程 mock）、Send+Sync 注入面、三枚举 serde
-//! 线格式值域（含 `AgentRunStatus`；as_str 双轨口径随其退役删除，值域单一
-//! 来源 = serde camelCase）、`AgentStartError` Display 文案、`AgentRunParams`
-//! cwd 保真。
-
 use std::path::PathBuf;
+use std::sync::Mutex;
 
 use serde_json::json;
-use tokio::sync::mpsc;
 
-use crate::event::{AgentEvent, AgentEventKind};
+use crate::event::AgentEventKind;
 use crate::runner::{
-    AgentEnvMode, AgentPermissionMode, AgentRun, AgentRunParams, AgentRunStatus, AgentRunner,
-    AgentStartError, RunHandle,
+    AgentPermissionMode, AgentRunner, AgentSession, AgentStartError, RunHandle, SessionCtx,
+    SessionInjections, SessionOpen, SessionRef,
 };
 
-/// 假 runner：预录事件序列经 mpsc 交付（或直接返回可控启动错误）。
+/// 假 runner：捕获 SessionOpen 入参（参数转换断言缝）、预录未盖戳事件经
+/// mpsc 回流，或返回可编程启动错误。每次 open_session 产出独立通道（互不
+/// 共享运行态）。
 struct FakeRunner {
-    events: Vec<AgentEvent>,
+    captured: Mutex<Vec<SessionOpen>>,
+    prerecorded: Vec<AgentEventKind>,
     failure: Option<AgentStartError>,
 }
 
 impl FakeRunner {
-    fn with_events(events: Vec<AgentEvent>) -> Self {
+    fn capturing() -> Self {
         Self {
-            events,
+            captured: Mutex::new(Vec::new()),
+            prerecorded: Vec::new(),
+            failure: None,
+        }
+    }
+
+    fn with_events(events: Vec<AgentEventKind>) -> Self {
+        Self {
+            captured: Mutex::new(Vec::new()),
+            prerecorded: events,
             failure: None,
         }
     }
 
     fn failing(failure: AgentStartError) -> Self {
         Self {
-            events: Vec::new(),
+            captured: Mutex::new(Vec::new()),
+            prerecorded: Vec::new(),
             failure: Some(failure),
         }
+    }
+
+    /// 已捕获的入参快照（按调用序）。
+    fn captured_opens(&self) -> Vec<SessionOpen> {
+        self.captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .clone()
     }
 }
 
 impl AgentRunner for FakeRunner {
-    fn start(&self, _params: AgentRunParams) -> Result<AgentRun, AgentStartError> {
+    fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
+        self.captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .push(open.clone());
         if let Some(failure) = self.failure.clone() {
             return Err(failure);
         }
-        let (sender, receiver) = mpsc::channel(self.events.len().max(1));
-        let events = self.events.clone();
+        let (observation_tx, observation_rx) = tokio::sync::mpsc::channel(16);
+        let (question_tx, _question_rx) = tokio::sync::mpsc::channel::<crate::runner::TurnQuestion>(4);
+        let events = self.prerecorded.clone();
         tokio::spawn(async move {
             for event in events {
-                let _ = sender.send(event).await;
+                let _ = observation_tx.send(event).await;
             }
         });
-        Ok(AgentRun {
-            events: receiver,
+        Ok(AgentSession {
+            observations: observation_rx,
+            questions: question_tx,
             handle: RunHandle::default(),
         })
     }
 }
 
-fn text_event(seq: u64) -> AgentEvent {
-    AgentEvent::stamp(
-        seq,
-        AgentEventKind::Message {
-            role: "assistant".to_owned(),
-            blocks: Vec::new(),
-            parent_tool_use_id: None,
+/// New 会话的 open 入参底座。
+fn new_open() -> SessionOpen {
+    SessionOpen {
+        injections: SessionInjections {
+            preamble: Some("会话前导".to_owned()),
+            tools: Some(vec!["read".to_owned(), "grep".to_owned()]),
         },
-    )
-}
-
-fn params() -> AgentRunParams {
-    AgentRunParams {
-        prompt: "你好".to_owned(),
-        cwd: PathBuf::from("C:\\work\\demo"),
-        permission_mode: AgentPermissionMode::BypassPermissions,
-        resume_session_id: None,
+        ctx: SessionCtx {
+            workspace_root: PathBuf::from("D:\\工作区\\demo 🎉"),
+            permission_mode: AgentPermissionMode::BypassPermissions,
+        },
+        session: SessionRef::New,
+        prior_handle: None,
     }
 }
 
 // ---------------------------------------------------------------------------
-// AgentRunner.start（假 runner 事件流）
+// open_session：New 会话建立（injections 与 ctx 原样到达实现）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
-async fn 假runner预录事件经start返回的agentrun按序接收() {
-    let prerecorded = vec![
-        AgentEvent::stamp(
-            0,
-            AgentEventKind::RunStarted {
-                model: Some("claude-opus".to_owned()),
-                session_id: None,
-                tools: Vec::new(),
-                mcp_servers: Vec::new(),
-            },
-        ),
-        text_event(1),
-        AgentEvent::stamp(
-            2,
-            AgentEventKind::RunResult {
-                subtype: "success".to_owned(),
-                is_error: false,
-                num_turns: Some(1),
-                duration_ms: None,
-                cost_usd: None,
-                usage: serde_json::Value::Null,
-                session_id: None,
-            },
-        ),
-    ];
-    let runner = FakeRunner::with_events(prerecorded.clone());
+async fn open_session_new注入与上下文原样到达实现且返回三件套() {
+    let runner = FakeRunner::with_events(vec![AgentEventKind::Raw {
+        event_type: "x".to_owned(),
+        raw_json: "{}".to_owned(),
+    }]);
+    let open = new_open();
 
-    let mut run = runner.start(params()).expect("start 应成功");
-    let mut received = Vec::new();
-    while let Some(event) = run.events.recv().await {
-        received.push(event);
-    }
+    let mut session = runner.open_session(open).expect("open 应成功");
 
-    assert_eq!(received, prerecorded, "事件按预录顺序逐条交付");
+    // 三件套：观察回流 + 轮驱动 + 运行句柄
+    let received = session.observations.recv().await.expect("观察可达");
+    assert!(matches!(received, AgentEventKind::Raw { .. }), "预录观察回流");
+    let _ = session
+        .questions
+        .send(crate::runner::TurnQuestion {
+            prompt: "提问".to_owned(),
+        })
+        .await;
+    assert!(!session.handle.stop_requested(), "句柄初值未置位");
+
+    // 捕获缝断言：injections（会话级）与 ctx（轮级）原样到达实现
+    let captured = runner.captured_opens();
+    assert_eq!(captured.len(), 1, "恰捕获一次 open 入参");
+    assert_eq!(
+        captured[0].injections.preamble.as_deref(),
+        Some("会话前导"),
+        "preamble 原样传递（injections/轮分离不变量的会话半边）"
+    );
+    assert_eq!(
+        captured[0].injections.tools,
+        Some(vec!["read".to_owned(), "grep".to_owned()]),
+        "tools 原样传递"
+    );
+    assert_eq!(
+        captured[0].ctx.workspace_root,
+        PathBuf::from("D:\\工作区\\demo 🎉"),
+        "workspace_root 原样传递（中文/emoji 不失真）"
+    );
+    assert_eq!(
+        captured[0].ctx.permission_mode,
+        AgentPermissionMode::BypassPermissions
+    );
+    assert!(matches!(captured[0].session, SessionRef::New));
+    assert_eq!(captured[0].prior_handle, None, "New 恒 None");
 }
 
 #[tokio::test]
-async fn 假runner可作trait_object注入且满足send_sync边界() {
-    // trait object：三租户预留面的注入形态
-    let boxed: Box<dyn AgentRunner> = Box::new(FakeRunner::with_events(vec![text_event(0)]));
-    let mut run = boxed.start(params()).expect("start 应成功");
-    assert!(run.events.recv().await.is_some(), "trait object 事件可达");
+async fn open_session_continue携会话id与prior_handle原样传递() {
+    let runner = FakeRunner::capturing();
+    let open = SessionOpen {
+        injections: SessionInjections::default(),
+        ctx: SessionCtx {
+            workspace_root: PathBuf::from("C:\\ws"),
+            permission_mode: AgentPermissionMode::AcceptEdits,
+        },
+        session: SessionRef::Continue {
+            id: "ses-1-1727000000000".to_owned(),
+        },
+        prior_handle: Some("sdk-7-1727000000001".to_owned()),
+    };
 
-    // Send + Sync bound：AgentRunner: Send + Sync，实现随之可跨线程
-    fn assert_send_sync<R: AgentRunner>(_: &R) {}
-    let runner = FakeRunner::with_events(Vec::new());
-    assert_send_sync(&runner);
+    runner
+        .open_session(open)
+        .expect("Continue 引用的 open 应成功");
 
-    // 启动失败路径：start Err 语义（不产生任何事件）
-    let failing: Box<dyn AgentRunner> = Box::new(FakeRunner::failing(AgentStartError::CliMissing(
-        "未发现".to_owned(),
-    )));
-    let result = failing.start(params());
-    assert!(matches!(result, Err(AgentStartError::CliMissing(_))));
-}
-
-// ---------------------------------------------------------------------------
-// 三枚举 serde 线格式值域（AC-1：与枚举化前 String 值域逐字一致；值域单一
-// 来源 = serde camelCase，as_str 双轨口径已退役）
-// ---------------------------------------------------------------------------
-
-#[test]
-fn env_mode线格式回归两档仍逐字为default与bare且roundtrip一致() {
-    // 加 specta::Type 后线格式零变化（AC-1 边界回归）
-    for (mode, expected) in [
-        (AgentEnvMode::Default, "default"),
-        (AgentEnvMode::Bare, "bare"),
-    ] {
-        let serialized = serde_json::to_string(&mode).expect("序列化成功");
-        assert_eq!(serialized, format!("\"{expected}\""), "线格式逐字一致");
-        let roundtrip: AgentEnvMode = serde_json::from_str(&serialized).expect("反序列化成功");
-        assert_eq!(roundtrip, mode);
-    }
-}
-
-#[test]
-fn permission_mode线格式回归三档仍为受控驼峰串且roundtrip一致() {
-    // 加 specta::Type 后线格式零变化（AC-1 正向回归）
-    for (mode, expected) in [
-        (AgentPermissionMode::Default, "default"),
-        (AgentPermissionMode::AcceptEdits, "acceptEdits"),
-        (AgentPermissionMode::BypassPermissions, "bypassPermissions"),
-    ] {
-        let serialized = serde_json::to_string(&mode).expect("序列化成功");
-        assert_eq!(serialized, format!("\"{expected}\""), "线格式逐字一致");
-        let roundtrip: AgentPermissionMode =
-            serde_json::from_str(&serialized).expect("反序列化成功");
-        assert_eq!(roundtrip, mode);
-    }
-}
-
-#[test]
-fn run_status四档序列化逐字为running_completed_failed_stopped且roundtrip一致() {
-    // AgentRunStatus（新增枚举）：serde camelCase 值域与枚举化前 String 值域
-    // 逐字一致（AC-1 正向）
-    for (status, expected) in [
-        (AgentRunStatus::Running, "running"),
-        (AgentRunStatus::Completed, "completed"),
-        (AgentRunStatus::Failed, "failed"),
-        (AgentRunStatus::Stopped, "stopped"),
-    ] {
-        let serialized = serde_json::to_string(&status).expect("序列化成功");
-        assert_eq!(serialized, format!("\"{expected}\""), "线格式逐字一致");
-        let roundtrip: AgentRunStatus = serde_json::from_str(&serialized).expect("反序列化成功");
-        assert_eq!(roundtrip, status);
-    }
-}
-
-#[test]
-fn run_status清单外字符串反序列化返回err值域受控() {
-    // 大小写不符 / 前缀撞车 / 旧同义词 / 空串：清单外一律 Err（异常半边）
-    for invalid in ["Running", "run", "succeeded", "COMPLETE", "stop", ""] {
-        let result = serde_json::from_str::<AgentRunStatus>(invalid);
-        assert!(result.is_err(), "status 非法值 {invalid:?} 必须 Err");
-    }
-}
-
-#[test]
-fn 非法档位字符串反序列化返回err枚举边界() {
-    // env：大小写不符 / 前缀撞车 / 空串
-    for invalid in ["Bare", "DEFAULT", "ba", ""] {
-        let result = serde_json::from_str::<AgentEnvMode>(invalid);
-        assert!(result.is_err(), "env 非法值 {invalid:?} 必须 Err");
-    }
-    // permission-mode：非枚举值 / 撞前缀 / 空串
-    for invalid in ["bypass", "BypassPermissions", "accept_edits", ""] {
-        let result = serde_json::from_str::<AgentPermissionMode>(invalid);
-        assert!(
-            result.is_err(),
-            "permission-mode 非法值 {invalid:?} 必须 Err"
-        );
-    }
-}
-
-// ---------------------------------------------------------------------------
-// AgentStartError Display / AgentRunParams cwd 保真
-// ---------------------------------------------------------------------------
-
-#[test]
-fn start_error两变体display文案携带原因串可直抵前端() {
-    let missing = AgentStartError::CliMissing("PATH 上未发现入口".to_owned());
-    let spawn = AgentStartError::SpawnFailed("io error".to_owned());
-
-    let missing_text = missing.to_string();
-    let spawn_text = spawn.to_string();
+    let captured = runner.captured_opens();
     assert!(
-        missing_text.contains("CLI") && missing_text.contains("PATH 上未发现入口"),
-        "CliMissing 文案携带原因串，实际: {missing_text}"
+        matches!(
+            &captured[0].session,
+            SessionRef::Continue { id } if id == "ses-1-1727000000000"
+        ),
+        "会话 id 原样传递（双 id 映射的回供半边）"
     );
-    assert!(
-        spawn_text.contains("启动失败") && spawn_text.contains("io error"),
-        "SpawnFailed 文案携带原因串，实际: {spawn_text}"
+    assert_eq!(
+        captured[0].prior_handle.as_deref(),
+        Some("sdk-7-1727000000001"),
+        "引擎侧先行句柄原样回供引擎"
     );
 }
 
 // ---------------------------------------------------------------------------
-// AgentStartError::ConfigMissing（AC-2 新增中性变体）：Display 分支与载荷
-// 保真。中性命名（core 契约面不出现 sdk / engine 字样），承接 key 未配 /
-// 模型缺失 / 会话缺失三类成因。
+// open_session：启动失败三变体（变体集零改动回归）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn config_missing变体display文案为配置缺失且携带原因串三类成因可区分() {
-    // 三类成因消息（key 未配 / 模型缺失 / 会话缺失）可区分、可直抵前端
-    let causes = [
-        ("key 未配", "配置项未填: api_key（引擎配置硬编码位未手填）"),
-        ("模型缺失", "模型标识缺失"),
-        ("会话缺失", "会话不存在或非 SDK 产出: sdk-404"),
+fn open_session三变体启动失败err原样传播且互不重合() {
+    let failures = [
+        AgentStartError::ConfigMissing("凭据未配".to_owned()),
+        AgentStartError::CliMissing("PATH 上未发现".to_owned()),
+        AgentStartError::SpawnFailed("io error".to_owned()),
     ];
-    let errors: Vec<AgentStartError> = causes
-        .iter()
-        .map(|(_, message)| AgentStartError::ConfigMissing((*message).to_owned()))
-        .collect();
-    for ((cause, message), error) in causes.iter().zip(&errors) {
-        let text = error.to_string();
-        assert!(
-            text.starts_with("配置缺失: ") && text.contains(message),
-            "{cause} 成因文案应形如「配置缺失: {message}」，实际: {text}"
+    for failure in failures {
+        let runner = FakeRunner::failing(failure.clone());
+        let result = runner.open_session(new_open());
+        assert_eq!(
+            result.expect_err("启动失败必须 Err"),
+            failure,
+            "Err 原样传播（含载荷逐字）"
         );
     }
-    // 三成因互不重合（可区分）
-    assert_ne!(errors[0].to_string(), errors[1].to_string());
-    assert_ne!(errors[1].to_string(), errors[2].to_string());
-}
 
-#[test]
-fn config_missing变体非规整载荷display原样携带不截断且partial_eq精确匹配() {
-    // msg 含中文 / 空格 / 换行 / emoji / 超长（>1000 字符）：原样携带不截断
-    let long = "长".repeat(1001);
-    let payloads = [
-        ("中文", "配置项 缺失（中文载荷）"),
-        ("空格", "api_key / base_url"),
-        ("换行", "第一行\n第二行"),
-        ("emoji", "凭据未配 🎉🚀"),
-        ("超长", long.as_str()),
-        ("空串", ""),
-    ];
-    for (label, payload) in payloads {
-        let error = AgentStartError::ConfigMissing(payload.to_owned());
-        let text = error.to_string();
-        assert!(
-            text.contains(payload),
-            "{label} 载荷原样携带不截断，实际: {text}"
-        );
-    }
-    // 空串载荷：前缀「配置缺失: 」不变（前缀后无内容）
-    assert_eq!(
-        AgentStartError::ConfigMissing(String::new()).to_string(),
-        "配置缺失: ",
-        "空串载荷前缀不变"
-    );
-    // 超长载荷逐字保真
-    let long_error = AgentStartError::ConfigMissing(long.clone());
-    assert_eq!(
-        long_error.to_string(),
-        format!("配置缺失: {long}"),
-        "超长载荷不截断"
-    );
-    // PartialEq 按载荷精确匹配（同载荷等值、异载荷不等值）
-    assert_eq!(
-        AgentStartError::ConfigMissing("同一载荷".to_owned()),
-        AgentStartError::ConfigMissing("同一载荷".to_owned())
-    );
-    assert_ne!(
-        AgentStartError::ConfigMissing("载荷甲".to_owned()),
-        AgentStartError::ConfigMissing("载荷乙".to_owned())
-    );
-}
-
-#[test]
-fn start_error既有两变体回归_加法变体不改写既有display与匹配形态() {
-    // CliMissing / SpawnFailed 既有两变体 Display 文案逐字回归（加法变体
-    // ConfigMissing 不回归既有断言）
-    assert_eq!(
-        AgentStartError::CliMissing("原因甲".to_owned()).to_string(),
-        "CLI 未找到: 原因甲"
-    );
-    assert_eq!(
-        AgentStartError::SpawnFailed("原因乙".to_owned()).to_string(),
-        "启动失败: 原因乙"
-    );
-    // 匹配形态回归：三变体互不重合（match 闭包可全枚举）
+    // 变体集零改动回归：三变体互不重合（match 闭包可全枚举）
     let variant_of = |error: &AgentStartError| match error {
         AgentStartError::CliMissing(_) => "cli_missing",
         AgentStartError::SpawnFailed(_) => "spawn_failed",
         AgentStartError::ConfigMissing(_) => "config_missing",
     };
-    assert_eq!(variant_of(&AgentStartError::CliMissing("x".to_owned())), "cli_missing");
-    assert_eq!(variant_of(&AgentStartError::SpawnFailed("x".to_owned())), "spawn_failed");
     assert_eq!(
         variant_of(&AgentStartError::ConfigMissing("x".to_owned())),
         "config_missing"
     );
-}
-
-#[test]
-fn run_params的cwd含中文空格与尾分隔符时字段保真() {
-    // AgentRunParams 为逻辑入参（非线格式类型，derive 仅 Debug/Clone/PartialEq）：
-    // 保真口径为字段级——cwd 经 OsString 原样持有，含中文/空格/尾分隔符不失真
-    let raw_cwd = "D:\\项目 目录\\demo\\";
-    let cwd = PathBuf::from(raw_cwd);
-    let params = AgentRunParams {
-        prompt: "含 空格 与\n换行的提示词 🎉".to_owned(),
-        cwd: cwd.clone(),
-        permission_mode: AgentPermissionMode::AcceptEdits,
-        resume_session_id: None,
-    };
-
-    assert_eq!(params.cwd, cwd, "cwd 原样持有（中文/空格/尾分隔符）");
     assert_eq!(
-        params.cwd.to_string_lossy(),
-        raw_cwd,
-        "lossy 视图逐字符一致"
+        variant_of(&AgentStartError::CliMissing("x".to_owned())),
+        "cli_missing"
     );
-    // clone 后仍保真（编排函数按值/引用传递参数的语义前提）
-    let cloned = params.clone();
-    assert_eq!(cloned, params);
-    assert_eq!(cloned.cwd, PathBuf::from(raw_cwd));
-    // 构造面完整：prompt / permission_mode 三字段齐备（json 形态仅作形状示意）
-    let _shape = json!({ "prompt": params.prompt });
+    assert_eq!(
+        variant_of(&AgentStartError::SpawnFailed("x".to_owned())),
+        "spawn_failed"
+    );
 }
 
 // ---------------------------------------------------------------------------
-// RunHandle：逻辑终止信号（置位 / 同步观测 / 异步等待 / Clone 共享）。
-// 无外部依赖；tokio sync（Notify/AtomicBool）以真实实现参与，不需要 Mock。
-// 等待语义以「让步自旋 + JoinHandle::is_finished」断言（workspace tokio 无
-// time 特性，不引入 timeout）。
+// trait object 形态与运行态隔离
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn 假runner可作trait_object注入且满足send_sync边界() {
+    let boxed: Box<dyn AgentRunner> = Box::new(FakeRunner::with_events(vec![AgentEventKind::Raw {
+        event_type: "x".to_owned(),
+        raw_json: "{}".to_owned(),
+    }]));
+    let mut session = boxed.open_session(new_open()).expect("trait object open 应成功");
+    assert!(session.observations.recv().await.is_some(), "trait object 观察可达");
+
+    // Send + Sync bound：AgentRunner: Send + Sync，实现随之可跨线程
+    fn assert_send_sync<R: AgentRunner>(_: &R) {}
+    assert_send_sync(&FakeRunner::capturing());
+}
+
+#[tokio::test]
+async fn 重复open_session互不共享运行态_两会话观察各自独立() {
+    let runner = FakeRunner::with_events(vec![
+        AgentEventKind::Raw {
+            event_type: "first".to_owned(),
+            raw_json: "{}".to_owned(),
+        },
+        AgentEventKind::Raw {
+            event_type: "second".to_owned(),
+            raw_json: "{}".to_owned(),
+        },
+    ]);
+
+    let mut first = runner.open_session(new_open()).expect("第一次 open 应成功");
+    let mut second = runner.open_session(new_open()).expect("第二次 open 应成功");
+
+    // 各自独立的观察回流：first 恰收到其一、second 收到其二，互不串流
+    let _ = first.observations.recv().await.expect("第一会话观察可达");
+    let _ = second.observations.recv().await.expect("第二会话观察可达");
+    assert_eq!(
+        runner.captured_opens().len(),
+        2,
+        "两次 open 各自捕获（无共享运行态合并）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 协议类型 serde 线格式（SessionCtx 驼峰 + 未知字段忽略；SessionInjections
+// tools None 形态）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn session_ctx序列化驼峰键且未知字段忽略往返无损() {
+    let ctx = SessionCtx {
+        workspace_root: PathBuf::from("D:\\工作区"),
+        permission_mode: AgentPermissionMode::AcceptEdits,
+    };
+
+    let value = serde_json::to_value(&ctx).expect("序列化成功");
+    assert_eq!(value["workspaceRoot"], json!("D:\\工作区"), "驼峰键");
+    assert_eq!(value["permissionMode"], json!("acceptEdits"), "档位线值");
+
+    // 不加 deny_unknown_fields：多余 JSON 键反序列化成功（additive 演进）
+    let mut additive = value.clone();
+    additive["futureField"] = json!({ "any": true });
+    let roundtrip: SessionCtx = serde_json::from_value(additive).expect("未知字段忽略");
+    assert_eq!(roundtrip, ctx);
+
+    let back: SessionCtx = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, ctx);
+}
+
+#[test]
+fn session_injections默认形态tools与preamble均为none() {
+    let default_injections = SessionInjections::default();
+    assert_eq!(default_injections.preamble, None, "preamble None 即不注入");
+    assert_eq!(default_injections.tools, None, "tools None 即引擎默认工具面");
+
+    // tools None 与有值两形态可区分（切片③预留接口位的契约面）
+    let narrowed = SessionInjections {
+        preamble: None,
+        tools: Some(vec!["read".to_owned()]),
+    };
+    assert_ne!(default_injections, narrowed);
+}
+
+#[test]
+fn session_ref两形态相等语义与互异() {
+    assert_eq!(SessionRef::New, SessionRef::New);
+    assert_eq!(
+        SessionRef::Continue { id: "ses-1".to_owned() },
+        SessionRef::Continue { id: "ses-1".to_owned() }
+    );
+    assert_ne!(SessionRef::New, SessionRef::Continue { id: "ses-1".to_owned() });
+    assert_ne!(
+        SessionRef::Continue { id: "ses-1".to_owned() },
+        SessionRef::Continue { id: "ses-2".to_owned() },
+        "Continue 会话 id 参与相等语义"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// RunHandle：逻辑终止信号（置位 / 同步观测 / Clone 共享 / wait_requested
+// 短路与唤醒）——零改动承诺回归锁定
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -384,9 +337,8 @@ fn request_stop置位后stop_requested为true且重复置位幂等() {
     handle.request_stop();
     assert!(handle.stop_requested(), "request_stop 后同步观测为 true");
 
-    // 重复置位幂等：不 panic、状态不变
     handle.request_stop();
-    assert!(handle.stop_requested());
+    assert!(handle.stop_requested(), "重复置位幂等：状态不变不 panic");
 }
 
 #[test]
@@ -394,7 +346,6 @@ fn clone句柄共享信号置位双方可见() {
     let handle = RunHandle::default();
     let cloned = handle.clone();
 
-    // 租户泵侧的 Clone 置位 → 编排侧原句柄可见（共享 AtomicBool 语义）
     cloned.request_stop();
     assert!(handle.stop_requested(), "Clone 置位后原句柄可观测");
     handle.request_stop();
@@ -433,8 +384,6 @@ async fn 挂起的wait_requested被request_stop唤醒且重复置位不二次异
         async move { handle.wait_requested().await }
     });
 
-    // 让 waiter 先运行注册等待（wait_requested 内部「先注册、再复查」关闭
-    // 置位与注册的竞态：即便置位先落，复查也会短路完成）
     tokio::task::yield_now().await;
     tokio::task::yield_now().await;
     assert!(!waiter.is_finished(), "置位前等待方保持挂起");
@@ -449,4 +398,51 @@ async fn 挂起的wait_requested被request_stop唤醒且重复置位不二次异
         assert!(spins < 10_000, "request_stop 后等待方应被唤醒");
     }
     waiter.await.expect("等待任务正常结束");
+}
+
+// ---------------------------------------------------------------------------
+// AgentStartError 三变体 Display（变体集 MUST NOT 再增的回归锚）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn start_error三变体display文案携带原因串() {
+    let cases = [
+        (AgentStartError::CliMissing("PATH 上未发现入口".to_owned()), "CLI 未找到"),
+        (AgentStartError::SpawnFailed("io error".to_owned()), "启动失败"),
+        (AgentStartError::ConfigMissing("api_key 未配".to_owned()), "配置缺失"),
+    ];
+    for (error, prefix) in cases {
+        let text = error.to_string();
+        assert!(
+            text.contains(prefix) && text.ends_with(|c: char| !c.is_control()),
+            "Display 文案携带前缀与原因串，实际: {text}"
+        );
+    }
+    // 逐字前缀回归
+    assert_eq!(
+        AgentStartError::CliMissing("原因甲".to_owned()).to_string(),
+        "CLI 未找到: 原因甲"
+    );
+    assert_eq!(
+        AgentStartError::SpawnFailed("原因乙".to_owned()).to_string(),
+        "启动失败: 原因乙"
+    );
+    assert_eq!(
+        AgentStartError::ConfigMissing("原因丙".to_owned()).to_string(),
+        "配置缺失: 原因丙"
+    );
+    // 三变体 Display 互不重合（成因可区分）
+    let texts = [
+        AgentStartError::CliMissing("x".to_owned()).to_string(),
+        AgentStartError::SpawnFailed("x".to_owned()).to_string(),
+        AgentStartError::ConfigMissing("x".to_owned()).to_string(),
+    ];
+    assert_ne!(texts[0], texts[1]);
+    assert_ne!(texts[1], texts[2]);
+    assert_ne!(texts[0], texts[2]);
+    // PartialEq 按载荷精确匹配
+    assert_eq!(
+        AgentStartError::ConfigMissing("同一载荷".to_owned()),
+        AgentStartError::ConfigMissing("同一载荷".to_owned())
+    );
 }

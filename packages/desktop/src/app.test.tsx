@@ -208,9 +208,7 @@ function mockIpc() {
         const limit = params?.limit ?? 50;
         return Promise.resolve(DB_RECORDS.slice(offset, offset + limit).map((e) => ({ ...e })));
       }
-      // agent 调试页挂载取数（useAgentRunHistory 挂载发起 agent_runs）：回数组形态
-      // （null 会使 useRuns state.runs 置 null 而崩），页面切页往返断言不涉及其内容
-      if (command === 'agent_runs' || command === 'agent_run_events') {
+      if (command === 'agent_sessions' || command === 'agent_session_transcript') {
         return Promise.resolve([]);
       }
       // agent 选择器挂载取数（useAgentOptions 发起 list_agent_instances）：同回
@@ -1054,13 +1052,17 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.getByTestId('nav-agent').getAttribute('data-active')).toBe('false');
   });
 
-  it('侧栏点击「Agent 调试」→ agent_runs 挂载取数携当前 workspace root（返回 [] 数组形态不变）', async () => {
+  it('侧栏点击「Agent 调试」→ agent_sessions 挂载取数携当前 workspace root（返回 [] 数组形态不变）', async () => {
     await restored();
 
     fireEvent.click(screen.getByTestId('nav-agent'));
     await waitFor(() => expect(screen.getByTestId('agent-run-form') !== null).toBe(true));
 
-    expect(invokeMock).toHaveBeenCalledWith('agent_runs', { root: FIRST.root });
+    expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+      root: FIRST.root,
+      source: 'debug',
+      sourceRef: null,
+    });
   });
 
   it('进入 change 详情后切 Agent 页再切回：hash 落 /changes（无 :name 段）、选中重置回清单、get_change_detail 不以旧选中重发（D10 路由化保留）', async () => {
@@ -1132,8 +1134,8 @@ describe('App：路由化顶层页面切换（changes | agent | db）', () => {
     expect(screen.queryByText('系统工具')).toBeNull();
     expect(screen.queryByTestId('db-model-list')).toBeNull();
     expect(screen.getByText(/还没有记录/) !== null).toBe(true);
-    // 清单域取数形态不变：agent_runs / db_models 零调用，root 无从携带
-    expect(countOf('agent_runs')).toBe(0);
+    // 清单域取数形态不变：agent_sessions / db_models 零调用，root 无从携带
+    expect(countOf('agent_sessions')).toBe(0);
     expect(countOf('db_models')).toBe(0);
   });
 });

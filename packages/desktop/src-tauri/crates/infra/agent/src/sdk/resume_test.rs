@@ -1,62 +1,53 @@
-//! `resume` 的单元测试（AC-7）：store 转录 → rig 对话历史重建——顶层非 Raw
-//! 事件重建、ToolUse ↔ ToolResult 成对回灌、Raw 丢弃、子代理压平、
-//! `sdk-` 前缀归属校验、重建保真（长转录不丢不乱序）。转录输入以内存
-//! `Vec<AgentEvent>` fixture 构造（store 转录产物同构形态；store 本体不引入
-//! 不 mock）。
-
 use rig_core::message::{AssistantContent, Message, ToolResultContent, UserContent};
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind};
 
-use crate::sdk::resume::{owns_session, rebuild};
+use crate::sdk::resume::rebuild;
 
 // ---------------------------------------------------------------------------
-// fixture 构造（AgentEvent 内存同构 store 转录产物）
+// fixture 构造
 // ---------------------------------------------------------------------------
 
-fn stamped(seq: u64, kind: AgentEventKind) -> AgentEvent {
+fn event(seq: u64, kind: AgentEventKind) -> AgentEvent {
     AgentEvent::stamp(seq, kind)
 }
 
 fn user_text(seq: u64, text: &str) -> AgentEvent {
-    stamped(
+    event(
         seq,
         AgentEventKind::Message {
             role: "user".to_owned(),
-            blocks: vec![AgentBlock::Text { text: text.to_owned() }],
-            parent_tool_use_id: None,
-        },
-    )
-}
-
-fn assistant_text(seq: u64, text: &str) -> AgentEvent {
-    stamped(
-        seq,
-        AgentEventKind::Message {
-            role: "assistant".to_owned(),
-            blocks: vec![AgentBlock::Text { text: text.to_owned() }],
-            parent_tool_use_id: None,
-        },
-    )
-}
-
-fn assistant_tool_use(seq: u64, id: &str, name: &str, input: serde_json::Value) -> AgentEvent {
-    stamped(
-        seq,
-        AgentEventKind::Message {
-            role: "assistant".to_owned(),
-            blocks: vec![AgentBlock::ToolUse {
-                id: id.to_owned(),
-                name: name.to_owned(),
-                input,
+            blocks: vec![AgentBlock::Text {
+                text: text.to_owned(),
             }],
             parent_tool_use_id: None,
         },
     )
 }
 
-fn user_tool_result(seq: u64, id: &str, content: &str, is_error: bool) -> AgentEvent {
-    stamped(
+fn assistant_text(seq: u64, text: &str) -> AgentEvent {
+    event(
+        seq,
+        AgentEventKind::Message {
+            role: "assistant".to_owned(),
+            blocks: vec![AgentBlock::Text {
+                text: text.to_owned(),
+            }],
+            parent_tool_use_id: None,
+        },
+    )
+}
+
+fn tool_use_block(id: &str, name: &str) -> AgentBlock {
+    AgentBlock::ToolUse {
+        id: id.to_owned(),
+        name: name.to_owned(),
+        input: serde_json::json!({ "path": "README.md" }),
+    }
+}
+
+fn tool_result_event(seq: u64, id: &str, content: &str, is_error: bool) -> AgentEvent {
+    event(
         seq,
         AgentEventKind::Message {
             role: "user".to_owned(),
@@ -70,261 +61,377 @@ fn user_tool_result(seq: u64, id: &str, content: &str, is_error: bool) -> AgentE
     )
 }
 
-fn run_started(seq: u64) -> AgentEvent {
-    stamped(
-        seq,
-        AgentEventKind::RunStarted {
-            model: Some("rig-model".to_owned()),
-            session_id: Some("sdk-0-1727000000000".to_owned()),
-            tools: vec!["read".to_owned()],
-            mcp_servers: Vec::new(),
-        },
-    )
+/// 三轮全史转录（user / assistant 密封往返 x3）。
+fn three_rounds() -> Vec<AgentEvent> {
+    vec![
+        user_text(0, "第一问"),
+        assistant_text(1, "第一答"),
+        user_text(2, "第二问"),
+        assistant_text(3, "第二答"),
+        user_text(4, "第三问"),
+        assistant_text(5, "第三答"),
+    ]
 }
 
-fn raw_event(seq: u64) -> AgentEvent {
-    stamped(
-        seq,
-        AgentEventKind::Raw {
-            event_type: "sdk_stream".to_owned(),
-            raw_json: r#"{"type":"mystery"}"#.to_owned(),
-        },
-    )
+// ---------------------------------------------------------------------------
+// 全史重建：多轮往返（第 N 轮重建史含全部前 N-1 轮——AC-3 正解断言）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 三轮全史转录重建含全部往返且逐条保序() {
+    let history = rebuild(&three_rounds()).expect("全史重建应成功");
+
+    assert_eq!(
+        history.len(),
+        6,
+        "三轮往返全量还原（user/assistant 各三则）——第一轮不再丢失"
+    );
+    for (index, message) in history.iter().enumerate() {
+        let expected_role = if index % 2 == 0 { "user" } else { "assistant" };
+        let expected_text = format!(
+            "第{}{}",
+            ["一", "二", "三"][index / 2],
+            if expected_role == "user" { "问" } else { "答" }
+        );
+        match message {
+            Message::User { content } => {
+                assert_eq!(expected_role, "user", "保序错位: {index}");
+                assert!(
+                    matches!(&content[0], UserContent::Text(text) if text.text == expected_text),
+                    "第 {index} 条文本保真，实际: {:?}",
+                    content[0]
+                );
+            }
+            Message::Assistant { content, id } => {
+                assert_eq!(expected_role, "assistant", "保序错位: {index}");
+                assert!(id.is_none(), "重建史不携带 provider 消息 id");
+                assert!(
+                    matches!(&content[0], AssistantContent::Text(text) if text.text == expected_text),
+                    "第 {index} 条文本保真，实际: {:?}",
+                    content[0]
+                );
+            }
+            other => panic!("重建史仅含 user/assistant 消息，实际: {other:?}"),
+        }
+    }
 }
 
-/// 断言 user 消息携带文本内容并返回该文本。
-fn user_texts(message: &Message) -> Vec<String> {
-    let Message::User { content } = message else {
-        panic!("必须是 User 消息，实际: {message:?}");
-    };
-    content
+#[test]
+fn 链式续会话的第三轮重建史含全部前两轮往返() {
+    // AC-3 场景化断言：第 N 轮（N=3）续会话时重建史含前 N-1 轮全部往返
+    let history = rebuild(&three_rounds()).expect("重建应成功");
+    let texts: Vec<String> = history
         .iter()
-        .filter_map(|item| match item {
-            UserContent::Text(text) => Some(text.text.clone()),
+        .filter_map(|message| match message {
+            Message::User { content } => content.first().and_then(|item| match item {
+                UserContent::Text(text) => Some(text.text.clone()),
+                _ => None,
+            }),
+            Message::Assistant { content, .. } => content.first().and_then(|item| match item {
+                AssistantContent::Text(text) => Some(text.text.clone()),
+                _ => None,
+            }),
             _ => None,
         })
-        .collect()
-}
+        .collect();
 
-// ---------------------------------------------------------------------------
-// 正向：顶层非 Raw 转录重建
-// ---------------------------------------------------------------------------
-
-#[test]
-fn 顶层转录重建为对话历史_user_assistant重建与工具轮成对回灌() {
-    let transcript = vec![
-        run_started(0), // RunStarted 忽略（不进对话史）
-        user_text(1, "帮我看下这个目录"),
-        assistant_text(2, "我先列出目录 🎉"),
-        assistant_tool_use(3, "tu_1", "ls", serde_json::json!({ "path": "." })),
-        user_tool_result(4, "tu_1", "a.rs\nb.rs", false),
-        assistant_text(5, "目录里有 a.rs 与 b.rs"),
-    ];
-    let history = rebuild(&transcript).expect("重建成功");
-
-    // 六事件 → 五条历史消息（RunStarted 忽略）：user / assistant 交替序保持
-    assert_eq!(history.len(), 5, "实际: {history:?}");
-    assert_eq!(user_texts(&history[0]), vec!["帮我看下这个目录".to_owned()]);
-    assert!(matches!(&history[1], Message::Assistant { .. }), "assistant 重建");
-    // 工具轮成对回灌：assistant 的 ToolUse + user 的 ToolResult 双双入史
-    let Message::Assistant { content, .. } = &history[2] else {
-        panic!("第 3 条必须是 assistant");
-    };
-    let Some(AssistantContent::ToolCall(tool_call)) = content.first() else {
-        panic!("assistant 工具轮必须是 tool call，实际: {content:?}");
-    };
-    assert_eq!(tool_call.function.name.as_str(), "ls", "工具名回灌保真");
-
-    let Message::User { content } = &history[3] else {
-        panic!("第 4 条必须是 user（ToolResult 回灌）");
-    };
-    let Some(UserContent::ToolResult(result)) = content.first() else {
-        panic!("user 工具轮必须是 tool result，实际: {content:?}");
-    };
-    assert_eq!(result.call.as_str(), "tu_1", "与 ToolUse 同 id 成对");
-    assert!(
-        matches!(&history[4], Message::Assistant { .. }),
-        "收尾 assistant 文本"
-    );
-}
-
-#[test]
-fn tool_result回灌时错误结果与名字回溯保真() {
-    let transcript = vec![
-        user_text(0, "改一下"),
-        assistant_tool_use(1, "tu_err", "edit", serde_json::json!({ "path": "a.md" })),
-        user_tool_result(2, "tu_err", "old_string 未命中（先 read 确认原文）", true),
-    ];
-    let history = rebuild(&transcript).expect("重建成功");
-    assert_eq!(history.len(), 3);
-
-    let Message::User { content } = &history[2] else {
-        panic!("ToolResult 回灌为 user 消息");
-    };
-    let Some(UserContent::ToolResult(result)) = content.first() else {
-        panic!("实际: {content:?}");
-    };
-    // 名字回溯自先行 ToolUse（id → name 登记）
-    assert_eq!(result.call.as_str(), "tu_err");
-    // is_error 结果正文带失败前缀（openai chat completions 的 result 面语义）
-    let ToolResultContent::Text(text) = &result.content[0] else {
-        panic!("重建的 tool result 正文为文本块");
-    };
-    let body = text.text.clone();
-    assert!(
-        body.contains("工具执行失败") && body.contains("old_string 未命中"),
-        "错误结果记因: {body}"
+    assert_eq!(
+        texts,
+        vec!["第一问", "第一答", "第二问", "第二答", "第三问", "第三答"],
+        "首轮问答在重建史中在场（链式丢上下文根因修复）"
     );
 }
 
 // ---------------------------------------------------------------------------
-// 边界：Raw 丢弃 / 子代理压平
+// 密封 Message 多块重建（块保真不拆分）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn raw事件丢弃且子代理事件压平不进对话史() {
-    let transcript = vec![
-        raw_event(0), // Raw 丢弃
-        user_text(1, "顶层问句"),
-        stamped(
-            2,
-            AgentEventKind::Message {
-                role: "assistant".to_owned(),
-                blocks: vec![AgentBlock::Text { text: "子代理产出".to_owned() }],
-                parent_tool_use_id: Some("tu_parent".to_owned()), // 子代理归因非 None
-            },
-        ),
-        assistant_text(3, "顶层答复"),
-        stamped(
-            4,
-            AgentEventKind::RunResult {
-                subtype: "success".to_owned(),
-                is_error: false,
-                num_turns: Some(1),
-                duration_ms: None,
-                cost_usd: None,
-                usage: serde_json::Value::Null,
-                session_id: Some("sdk-0-1".to_owned()),
-            },
-        ), // RunResult 不进对话史
-    ];
-    let history = rebuild(&transcript).expect("重建成功");
-
-    // 仅顶层 user/assistant 两条（Raw / 子代理 / RunStarted / RunResult 全弃）
-    assert_eq!(history.len(), 2, "实际: {history:?}");
-    assert_eq!(user_texts(&history[0]), vec!["顶层问句".to_owned()]);
-    let Message::Assistant { content, .. } = &history[1] else {
-        panic!("第 2 条必须是 assistant");
-    };
-    let Some(AssistantContent::Text(text)) = content.first() else {
-        panic!("实际: {content:?}");
-    };
-    assert_eq!(text.text.as_str(), "顶层答复", "子代理事件压平丢弃，顶层保真");
-}
-
-// ---------------------------------------------------------------------------
-// 异常：sdk- 前缀归属校验
-// ---------------------------------------------------------------------------
-
-#[test]
-fn 非sdk前缀会话显式失败且消息含会话不存在语义() {
-    // 前缀校验为启动拒绝的第一道（Err 抵达前端，不空转）
-    assert!(!owns_session("cli-abc"), "cli 产出会话不归 sdk");
-    assert!(!owns_session("s-1"), "裸 session id 不归 sdk");
-    assert!(!owns_session(""), "空串不归 sdk");
-    assert!(owns_session("sdk-0-1727000000000"), "sdk- 前缀归属成立");
-    // 前缀本身即完整判据（仅前缀也命中——归属校验不做内部结构解析）
-    assert!(owns_session("sdk-"), "纯前缀命中（边界锁定）");
-
-    // 非前缀的显式失败消息语义（与 runner resolve_resume 同口径）
-    let session_id = "cli-abc";
-    let message = format!("会话不存在或非 SDK 产出: {session_id}");
-    assert!(message.contains("会话不存在或非 SDK 产出"));
-}
-
-// ---------------------------------------------------------------------------
-// 边界：重建空历史视同会话缺失
-// ---------------------------------------------------------------------------
-
-#[test]
-fn 空转录_仅raw_仅run_started重建空历史视同会话缺失() {
-    // 空转录
-    let empty = rebuild(&[]).expect_err("空转录显式失败");
-    assert!(empty.contains("重建历史为空"), "实际: {empty}");
-
-    // 仅 Raw / 仅 RunStarted / 仅子代理事件 → 无有效顶层转录 → 同样显式失败
-    let only_raw = vec![raw_event(0), raw_event(1)];
-    assert!(rebuild(&only_raw).is_err(), "仅 Raw 重建空历史显式失败");
-
-    let only_started = vec![run_started(0)];
-    assert!(rebuild(&only_started).is_err(), "仅 RunStarted 重建空历史显式失败");
-
-    let only_subagent = vec![stamped(
+fn 单条密封message收三块时重建为单条assistant消息不拆分() {
+    let transcript = vec![event(
         0,
         AgentEventKind::Message {
             role: "assistant".to_owned(),
-            blocks: vec![AgentBlock::Text { text: "子代理".to_owned() }],
-            parent_tool_use_id: Some("tu_parent".to_owned()),
+            blocks: vec![
+                AgentBlock::Text {
+                    text: "结论先行".to_owned(),
+                },
+                AgentBlock::Thinking {
+                    thinking: "推理过程".to_owned(),
+                },
+                tool_use_block("tu_1", "read"),
+            ],
+            parent_tool_use_id: None,
         },
     )];
-    assert!(rebuild(&only_subagent).is_err(), "仅子代理事件重建空历史显式失败");
+
+    let history = rebuild(&transcript).expect("重建应成功");
+    assert_eq!(history.len(), 1, "恰一条 rig assistant 消息（不拆分）");
+    let Message::Assistant { content, .. } = &history[0] else {
+        panic!("应为 assistant 消息");
+    };
+    assert_eq!(content.len(), 3, "三块全部收进（Text+Thinking+ToolUse）");
+    assert!(matches!(
+        &content[0],
+        AssistantContent::Text(text) if text.text == "结论先行"
+    ));
+    assert!(
+        matches!(&content[1], AssistantContent::Reasoning(reasoning) if reasoning.display_text() == "推理过程"),
+        "Thinking → reasoning 块保真"
+    );
+    assert!(matches!(
+        &content[2],
+        AssistantContent::ToolCall(tool_call)
+            if tool_call.id.as_str() == "tu_1"
+                && tool_call.function.name == "read"
+                && tool_call.function.arguments == serde_json::json!({ "path": "README.md" })
+    ));
 }
 
 // ---------------------------------------------------------------------------
-// 边界：重建保真（千级事件长转录不丢不乱序）
+// ToolResult 成对回灌（is_error 结果与工具名回溯保真）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 千级事件长转录重建不丢消息不乱序() {
-    // 工具轮 user / assistant 交替序：prompt → tool_use → tool_result → 答复
-    // × 250 轮 = 1000 事件（sdk- 前缀即 explore 链引擎归属的事实标记）
-    let mut transcript = Vec::new();
-    transcript.push(run_started(0));
-    let mut seq = 1u64;
-    for round in 0..250 {
-        transcript.push(user_text(seq, &format!("第 {round} 轮问句")));
-        seq += 1;
-        transcript.push(assistant_tool_use(
-            seq,
-            &format!("tu_{round}"),
-            "read",
-            serde_json::json!({ "path": format!("f{round}.txt") }),
-        ));
-        seq += 1;
-        transcript.push(user_tool_result(seq, &format!("tu_{round}"), "内容", false));
-        seq += 1;
-        transcript.push(assistant_text(seq, &format!("第 {round} 轮答复")));
-        seq += 1;
-    }
-    assert_eq!(transcript.len(), 1001);
+fn tool_result成对回灌且工具名自先行tool_use回溯() {
+    let transcript = vec![
+        event(
+            0,
+            AgentEventKind::Message {
+                role: "assistant".to_owned(),
+                blocks: vec![tool_use_block("tu_7", "grep")],
+                parent_tool_use_id: None,
+            },
+        ),
+        tool_result_event(1, "tu_7", "命中一行", false),
+    ];
 
-    let history = rebuild(&transcript).expect("长转录重建成功");
-    // 1000 Message 事件 → 1000 条历史消息（RunStarted 忽略），序与消息角色保真
-    assert_eq!(history.len(), 1000, "一条不丢");
-    for (index, message) in history.iter().enumerate() {
-        let round = index / 4;
-        let phase = index % 4;
-        match phase {
-            0 => {
-                let texts = user_texts(message);
-                assert_eq!(texts, vec![format!("第 {round} 轮问句")], "第 {index} 条问句保序");
-            }
-            2 => {
-                let Message::User { content } = message else {
-                    panic!("第 {index} 条必须是 user（tool result）");
-                };
-                assert!(matches!(content.first(), Some(UserContent::ToolResult(_))));
-            }
-            1 | 3 => {
-                let Message::Assistant { content, .. } = message else {
-                    panic!("第 {index} 条必须是 assistant");
-                };
-                assert!(
-                    matches!(content.first(), Some(AssistantContent::Text(_)) | Some(AssistantContent::ToolCall(_))),
-                    "assistant 块保真: {content:?}"
-                );
-            }
-            _ => unreachable!(),
-        }
+    let history = rebuild(&transcript).expect("重建应成功");
+    assert_eq!(history.len(), 2, "assistant + tool result 成对回灌");
+    let Message::User { content } = &history[1] else {
+        panic!("ToolResult 应重建为 user 消息");
+    };
+    assert!(
+        matches!(
+            &content[0],
+            UserContent::ToolResult(result)
+                if result.call.as_str() == "tu_7"
+                    && result.name == "grep"
+                    && matches!(&result.content[0], ToolResultContent::Text(text) if text.text == "命中一行")
+        ),
+        "工具名回溯自先行 ToolUse（id → name 映射），实际: {:?}",
+        content[0]
+    );
+}
+
+#[test]
+fn is_error结果以工具执行失败前缀回灌且miss名字落空串() {
+    // is_error 结果
+    let errored = vec![
+        event(
+            0,
+            AgentEventKind::Message {
+                role: "assistant".to_owned(),
+                blocks: vec![tool_use_block("tu_9", "write")],
+                parent_tool_use_id: None,
+            },
+        ),
+        tool_result_event(1, "tu_9", "磁盘已满", true),
+    ];
+    let history = rebuild(&errored).expect("重建应成功");
+    let Message::User { content } = &history[1] else {
+        panic!("ToolResult 应重建为 user 消息");
+    };
+    assert!(matches!(
+        &content[0],
+        UserContent::ToolResult(result)
+            if matches!(&result.content[0], ToolResultContent::Text(text) if text.text == "工具执行失败: 磁盘已满")
+    ), "is_error 结果回灌「工具执行失败: 」前缀保真");
+
+    // 先行 ToolUse 缺席：名字回溯 miss 落空串（openai result 面不消费名字）
+    let orphan = vec![tool_result_event(0, "tu_missing", "孤儿结果", false)];
+    let history = rebuild(&orphan).expect("重建应成功");
+    let Message::User { content } = &history[0] else {
+        panic!("孤儿 ToolResult 应重建为 user 消息");
+    };
+    assert!(matches!(
+        &content[0],
+        UserContent::ToolResult(result) if result.name.is_empty()
+    ), "名字 miss 落空串不炸重建");
+}
+
+// ---------------------------------------------------------------------------
+// 非对话事件丢弃
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 非对话密封事件与子代理归因事件不进对话史() {
+    let transcript = vec![
+        event(
+            0,
+            AgentEventKind::RunStarted {
+                model: Some("gpt-x".to_owned()),
+                session_id: Some("sdk-1".to_owned()),
+                tools: Vec::new(),
+                mcp_servers: Vec::new(),
+            },
+        ),
+        user_text(1, "提问"),
+        assistant_text(2, "回应"),
+        event(
+            3,
+            AgentEventKind::TurnDone {
+                subtype: "success".to_owned(),
+                is_error: false,
+                num_turns: Some(1),
+                duration_ms: Some(10),
+                cost_usd: None,
+                usage: serde_json::Value::Null,
+                session_id: Some("sdk-1".to_owned()),
+            },
+        ),
+        event(
+            4,
+            AgentEventKind::SystemNotice {
+                subtype: "api_retry".to_owned(),
+                payload: serde_json::json!({ "attempt": 2 }),
+            },
+        ),
+        event(
+            5,
+            AgentEventKind::Raw {
+                event_type: "sdk_stream".to_owned(),
+                raw_json: "{\"raw\":true}".to_owned(),
+            },
+        ),
+        // 子代理归因密封事件（parent_tool_use_id 非空）压平丢弃
+        event(
+            6,
+            AgentEventKind::Message {
+                role: "assistant".to_owned(),
+                blocks: vec![AgentBlock::Text {
+                    text: "子代理输出".to_owned(),
+                }],
+                parent_tool_use_id: Some("tu_1".to_owned()),
+            },
+        ),
+        // 增量词汇同理不进对话史（重建源是密封转录）
+        event(
+            7,
+            AgentEventKind::MessageDelta {
+                parent_tool_use_id: None,
+                delta: agent::AgentDelta::Text {
+                    text: "增量".to_owned(),
+                },
+            },
+        ),
+    ];
+
+    let history = rebuild(&transcript).expect("重建应成功");
+    assert_eq!(history.len(), 2, "仅顶层非 Raw 密封对话事件进史");
+    assert!(matches!(&history[0], Message::User { .. }));
+    assert!(matches!(&history[1], Message::Assistant { .. }));
+}
+
+#[test]
+fn 未知role跳过不炸重建() {
+    let transcript = vec![
+        event(
+            0,
+            AgentEventKind::Message {
+                role: "tool".to_owned(),
+                blocks: vec![AgentBlock::Text {
+                    text: "未知角色".to_owned(),
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        user_text(1, "提问"),
+    ];
+    let history = rebuild(&transcript).expect("重建应成功");
+    assert_eq!(history.len(), 1, "未知 role 跳过（不炸重建）");
+}
+
+// ---------------------------------------------------------------------------
+// 空史显式失败
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 空史四形态重建返回err视同会话缺失() {
+    // 空转录
+    let empty: Vec<AgentEvent> = Vec::new();
+    let error = rebuild(&empty).expect_err("空转录必须 Err");
+    assert!(
+        error.contains("重建历史为空"),
+        "空史 Err 语义保留，实际: {error}"
+    );
+
+    // 仅 Raw
+    let only_raw = vec![event(
+        0,
+        AgentEventKind::Raw {
+            event_type: "x".to_owned(),
+            raw_json: "{}".to_owned(),
+        },
+    )];
+    assert!(rebuild(&only_raw).is_err(), "仅 Raw 必须 Err");
+
+    // 仅 RunStarted
+    let only_started = vec![event(
+        0,
+        AgentEventKind::RunStarted {
+            model: None,
+            session_id: None,
+            tools: Vec::new(),
+            mcp_servers: Vec::new(),
+        },
+    )];
+    assert!(rebuild(&only_started).is_err(), "仅 RunStarted 必须 Err");
+
+    // 仅子代理归因密封事件
+    let only_subagent = vec![event(
+        0,
+        AgentEventKind::Message {
+            role: "assistant".to_owned(),
+            blocks: Vec::new(),
+            parent_tool_use_id: Some("tu_1".to_owned()),
+        },
+    )];
+    assert!(rebuild(&only_subagent).is_err(), "仅子代理必须 Err");
+}
+
+// ---------------------------------------------------------------------------
+// 千级长转录保真（会话全史规模护栏）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 千级长转录重建不丢消息不乱序() {
+    // 1000 枚密封事件（500 轮往返）
+    let mut transcript = Vec::with_capacity(1000);
+    for round in 0..500 {
+        transcript.push(user_text(round * 2, &format!("问{round}")));
+        transcript.push(assistant_text(round * 2 + 1, &format!("答{round}")));
+    }
+    assert_eq!(transcript.len(), 1000);
+
+    let history = rebuild(&transcript).expect("千级重建应成功");
+    assert_eq!(history.len(), 1000, "不丢消息");
+
+    // 保序抽查：首、中、尾三处
+    for index in [0usize, 499, 998] {
+        let round = index / 2;
+        let expected = format!("{}{round}", if index % 2 == 0 { "问" } else { "答" });
+        let text = match &history[index] {
+            Message::User { content } => match &content[0] {
+                UserContent::Text(text) => text.text.clone(),
+                other => panic!("应为文本，实际: {other:?}"),
+            },
+            Message::Assistant { content, .. } => match &content[0] {
+                AssistantContent::Text(text) => text.text.clone(),
+                other => panic!("应为文本，实际: {other:?}"),
+            },
+            other => panic!("应为对话消息，实际: {other:?}"),
+        };
+        assert_eq!(text, expected, "index={index} 保序");
     }
 }

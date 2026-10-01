@@ -31,10 +31,12 @@ dependencies = [
  "agent",
  "futures",
  "glob",
+ "native_db",
  "rig-core",
  "serde",
  "serde_json",
  "specta",
+ "store",
  "tempfile",
  "tokio",
 ]

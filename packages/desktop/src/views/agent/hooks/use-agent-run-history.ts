@@ -1,20 +1,20 @@
 import { useCallback, useEffect, useState } from 'react';
 
-import { commands, type AgentEvent, type AgentRunRecord } from '../../../types/generated/bindings';
+import { commands, type AgentEvent, type SessionSummary } from '../../../types/generated/bindings';
 
 export interface AgentRunHistoryState {
-  /** 运行清单（后端 started_at 降序）；挂载自动取数，refresh() 重取 */
-  runs: AgentRunRecord[];
-  /** 点开重放的事件流（seq 升序） */
+  /** 会话清单（后端 `updated_at` 降序）；挂载自动取数，refresh() 重取 */
+  sessions: SessionSummary[];
+  /** 点开重放的密封事件流（seq 升序） */
   events: AgentEvent[];
-  /** 当前重放的 run id；null 即未点开 */
-  selectedRunId: number | null;
+  /** 当前重放的会话 id；null 即未点开 */
+  selectedSessionId: string | null;
   loading: boolean;
   error: string | null;
-  /** 显式刷新运行清单 */
+  /** 显式刷新会话清单 */
   refresh: () => void;
-  /** 点开一条 run：invoke("agent_run_events") 重放落库事件 */
-  openRun: (runId: number) => void;
+  /** 点开一条会话：invoke("agent_session_transcript") 重放全史密封转录 */
+  openSession: (sessionId: string) => void;
 }
 
 interface QueryState {
@@ -24,18 +24,12 @@ interface QueryState {
 
 const IDLE: QueryState = { loading: false, error: null };
 
-/**
- * 运行清单轨道：挂载即自动取数（tick 从 0 起即触发 invoke("agent_runs")，
- * 携 root 寻址当前 workspace 库——清单收窄为本 workspace 历史），刷新仍经
- * tick 递增（refresh()）。root 为 null（未选定 workspace）跳过 invoke 保持
- * 空态。无轮询、无文件 watch。
- */
-function useRuns(root: string | null): {
-  runs: AgentRunRecord[];
+function useSessions(root: string | null): {
+  sessions: SessionSummary[];
   query: QueryState;
   refresh: () => void;
 } {
-  const [runs, setRuns] = useState<AgentRunRecord[]>([]);
+  const [sessions, setSessions] = useState<SessionSummary[]>([]);
   const [query, setQuery] = useState<QueryState>(IDLE);
   const [tick, setTick] = useState(0);
 
@@ -43,17 +37,17 @@ function useRuns(root: string | null): {
 
   useEffect(() => {
     if (root === null) {
-      setRuns([]);
+      setSessions([]);
       setQuery(IDLE);
       return;
     }
     let cancelled = false;
     setQuery({ loading: true, error: null });
     commands
-      .agentRuns(root)
+      .agentSessions(root, 'debug', null)
       .then((result) => {
         if (cancelled) return;
-        setRuns(result);
+        setSessions(result);
         setQuery(IDLE);
       })
       .catch((err: unknown) => {
@@ -65,37 +59,32 @@ function useRuns(root: string | null): {
     };
   }, [root, tick]);
 
-  return { runs, query, refresh };
+  return { sessions, query, refresh };
 }
 
-/**
- * 重放轨道：点开 run 触发 invoke("agent_run_events")（携 root 寻址所属
- * workspace 库），以落库事件还原时间线（不要求原运行进程存活）；root 为
- * null 跳过 invoke 保持空态。
- */
 function useReplay(root: string | null): {
   events: AgentEvent[];
-  selectedRunId: number | null;
+  selectedSessionId: string | null;
   query: QueryState;
-  openRun: (runId: number) => void;
+  openSession: (sessionId: string) => void;
 } {
   const [events, setEvents] = useState<AgentEvent[]>([]);
-  const [selectedRunId, setSelectedRunId] = useState<number | null>(null);
+  const [selectedSessionId, setSelectedSessionId] = useState<string | null>(null);
   const [query, setQuery] = useState<QueryState>(IDLE);
-  const [target, setTarget] = useState<number | null>(null);
+  const [target, setTarget] = useState<string | null>(null);
 
-  const openRun = useCallback((runId: number) => setTarget(runId), []);
+  const openSession = useCallback((sessionId: string) => setTarget(sessionId), []);
 
   useEffect(() => {
     if (target === null || root === null) return;
     let cancelled = false;
     setQuery({ loading: true, error: null });
     commands
-      .agentRunEvents(root, target)
+      .agentSessionTranscript(root, target)
       .then((result) => {
         if (cancelled) return;
         setEvents(result);
-        setSelectedRunId(target);
+        setSelectedSessionId(target);
         setQuery(IDLE);
       })
       .catch((err: unknown) => {
@@ -107,24 +96,22 @@ function useReplay(root: string | null): {
     };
   }, [root, target]);
 
-  return { events, selectedRunId, query, openRun };
+  return { events, selectedSessionId, query, openSession };
 }
 
 /**
- * 历史运行 hook：挂载即自动取当前 workspace 的运行清单（root 寻址；null 跳
- * 过取数保持空态），refresh() 显式重取，openRun(id) 重放事件；run 结束不自
- * 动刷新（design：查询取数显式触发，Channel 例外不外溢）、无轮询。
+ * 历史会话 hook
  */
 export function useAgentRunHistory(root: string | null): AgentRunHistoryState {
-  const runsState = useRuns(root);
+  const sessionsState = useSessions(root);
   const replayState = useReplay(root);
   return {
-    runs: runsState.runs,
+    sessions: sessionsState.sessions,
     events: replayState.events,
-    selectedRunId: replayState.selectedRunId,
-    loading: runsState.query.loading || replayState.query.loading,
-    error: runsState.query.error ?? replayState.query.error,
-    refresh: runsState.refresh,
-    openRun: replayState.openRun,
+    selectedSessionId: replayState.selectedSessionId,
+    loading: sessionsState.query.loading || replayState.query.loading,
+    error: sessionsState.query.error ?? replayState.query.error,
+    refresh: sessionsState.refresh,
+    openSession: replayState.openSession,
   };
 }

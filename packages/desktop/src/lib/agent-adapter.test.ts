@@ -3,10 +3,12 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import type { ChatTransport } from 'ai';
 import { describe, expect, it } from 'vite-plus/test';
 
-import type { AgentBlock, AgentEvent, AgentRunRecord } from '../types/dto';
+import type { AgentBlock, AgentEvent, TurnSummary } from '../types/dto';
 import {
+  deltaPartId,
   eventToChunk,
   eventsToUIMessages,
+  provisionalMessageId,
   runRecordToUIMessage,
   type AgentToolPart,
   type AgentUIMessage,
@@ -68,14 +70,14 @@ function systemNotice(seq: number): AgentEvent {
   };
 }
 
-function runResult(
+function turnDone(
   seq: number,
-  fields: Partial<Extract<AgentEvent, { kind: 'runResult' }>> = {},
+  fields: Partial<Extract<AgentEvent, { kind: 'turnDone' }>> = {},
 ): AgentEvent {
   return {
     seq,
     timestampMs: TS,
-    kind: 'runResult',
+    kind: 'turnDone',
     subtype: 'success',
     isError: false,
     numTurns: 3,
@@ -84,6 +86,20 @@ function runResult(
     usage: { input_tokens: 10 },
     sessionId: 's-1',
     ...fields,
+  };
+}
+
+function messageDelta(
+  seq: number,
+  delta: { kind: 'text'; text: string } | { kind: 'thinking'; thinking: string },
+  parentToolUseId: string | null = null,
+): AgentEvent {
+  return {
+    seq,
+    timestampMs: TS,
+    kind: 'messageDelta',
+    parentToolUseId,
+    delta,
   };
 }
 
@@ -97,24 +113,17 @@ function raw(seq: number): AgentEvent {
   };
 }
 
-function record(id: number, status: AgentRunRecord['status']): AgentRunRecord {
+function record(turnId: number, status: TurnSummary['status']): TurnSummary {
   return {
-    id,
-    prompt: '调试一轮',
-    cwd: 'C:\\demo\\alpha',
-    env: 'default',
-    permissionMode: 'bypassPermissions',
+    turnId,
+    sessionId: status === 'running' ? 's-live' : 's-done',
     status,
     startedAt: TS,
     finishedAt: status === 'running' ? null : TS + 999,
     numTurns: status === 'running' ? null : 2,
     costUsd: status === 'running' ? null : 0.2,
     durationMs: status === 'running' ? null : 800,
-    sessionId: status === 'running' ? null : 's-done',
-    error: status === 'failed' ? '进程结束但未产出 result 事件' : null,
-    source: 'debug',
-    sourceRef: null,
-    parentRunId: null,
+    error: status === 'failed' ? '进程结束但未产出收敛事件' : null,
   };
 }
 
@@ -182,8 +191,8 @@ describe('eventsToUIMessages：五变体映射', () => {
     });
   });
 
-  it('runResult 产 data-run-result 部件：subtype / usage 等汇总载荷保真', () => {
-    const messages = eventsToUIMessages([runResult(3)]);
+  it('turnDone 产 data-run-result 部件：subtype / usage 等汇总载荷保真', () => {
+    const messages = eventsToUIMessages([turnDone(3)]);
 
     expect(messages[0]?.parts[0]?.type).toBe('data-run-result');
     const part = messages[0]?.parts[0];
@@ -238,7 +247,7 @@ describe('eventsToUIMessages：消息形状约定', () => {
   });
 
   it('非 message 事件各产出一条 system 角色消息携带单个 data 部件，seq 保序', () => {
-    const events = [runStarted(0), systemNotice(1), runResult(2), raw(3)];
+    const events = [runStarted(0), systemNotice(1), turnDone(2), raw(3)];
     const messages = eventsToUIMessages(events);
 
     expect(messages.map((m) => m.id)).toEqual(['evt-0', 'evt-1', 'evt-2', 'evt-3']);
@@ -393,7 +402,7 @@ describe('runRecordToUIMessage', () => {
     const messages = [runRecordToUIMessage(row)];
 
     expect(messages).toHaveLength(1);
-    expect(messages[0]?.id).toBe('run-11');
+    expect(messages[0]?.id).toBe('turn-11');
     expect(messages[0]?.role).toBe('system');
     expect(messages[0]?.metadata).toEqual({ seq: null, parentToolUseId: null });
     expect(messages[0]?.parts).toEqual([{ type: 'data-run-record', data: row }]);
@@ -424,6 +433,36 @@ describe('runRecordToUIMessage', () => {
     expect(completedData?.type === 'data-run-record' && completedData.data.sessionId).toBe(
       's-done',
     );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 双层词汇：delta 防御跳过（密封-only 重放）+ provisional 键 / delta 路 chunk
+// ---------------------------------------------------------------------------
+
+describe('双层词汇：delta 防御跳过与 delta 路 chunk', () => {
+  it('eventsToUIMessages 防御跳过 messageDelta（delta 仅实时流可见，不进重放路径）', () => {
+    const messages = eventsToUIMessages([
+      messageDelta(0, { kind: 'text', text: '增量' }),
+      message(1, [{ kind: 'text', text: '密封' }]),
+    ]);
+
+    expect(messages.map((m) => m.id)).toEqual(['evt-1']);
+  });
+
+  it('eventToChunk 对 messageDelta 产出单条累积 delta chunk（text / thinking 可辨，稳定 part id 派生自配对键）', () => {
+    const textChunks = eventToChunk(messageDelta(2, { kind: 'text', text: '你' }));
+    const thinkingChunks = eventToChunk(
+      messageDelta(3, { kind: 'thinking', thinking: '想' }, 'tu_1'),
+    );
+
+    expect(textChunks).toEqual([{ type: 'text-delta', id: 't-delta-', delta: '你' }]);
+    expect(thinkingChunks).toEqual([{ type: 'reasoning-delta', id: 'r-delta-tu_1', delta: '想' }]);
+  });
+
+  it('provisionalMessageId 配对键派生（None 单通道）', () => {
+    expect(provisionalMessageId(null)).toBe('delta-none');
+    expect(provisionalMessageId('tu_1')).toBe('delta-tu_1');
   });
 });
 
@@ -498,7 +537,7 @@ describe('eventToChunk：两路同构不变量', () => {
       ]),
       systemNotice(3),
       raw(4),
-      runResult(5),
+      turnDone(5),
     ];
 
     const reduced = await reducedMessages(events);
@@ -597,5 +636,89 @@ describe('eventToChunk：增量边界', () => {
         },
       },
     ]);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 补遗：deltaPartId 直调 / provisionalMessageId 边界 / 纯 delta 折叠为空 /
+// runRecordToUIMessage running 形态（AC-8 锚点面）
+// ---------------------------------------------------------------------------
+
+describe('deltaPartId 直调：稳定性与互异契约', () => {
+  it('同键同类重复调用幂等；text / thinking 两类互异；不同键互异', () => {
+    // 同键同类幂等（delta 累积部件的稳定 part id 契约）
+    expect(deltaPartId('tu_1', 'text')).toBe(deltaPartId('tu_1', 'text'));
+    expect(deltaPartId('tu_1', 'thinking')).toBe(deltaPartId('tu_1', 'thinking'));
+    // 线格式逐字（与 eventToChunk 产出的 part id 同源）
+    expect(deltaPartId('tu_1', 'text')).toBe('t-delta-tu_1');
+    expect(deltaPartId('tu_1', 'thinking')).toBe('r-delta-tu_1');
+    // text / thinking 两类互异（同键双通道无碰撞）
+    expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_1', 'thinking'));
+    // 不同键互异
+    expect(deltaPartId('tu_1', 'text')).not.toBe(deltaPartId('tu_2', 'text'));
+    expect(deltaPartId('tu_1', 'thinking')).not.toBe(deltaPartId('tu_2', 'thinking'));
+  });
+
+  it('空串键与特殊字符键：part id 生成稳定不炸（None 单通道键形态）', () => {
+    // 空串键（provisionalMessageId(null) 的键投影形态）
+    expect(deltaPartId('', 'text')).toBe('t-delta-');
+    expect(deltaPartId('', 'text')).toBe(deltaPartId('', 'text'));
+    // 特殊字符（引号 / 换行 / emoji / 制表）原样拼接不失真
+    const weird = ' "q"\n🎉\t';
+    expect(deltaPartId(weird, 'text')).toBe(`t-delta-${weird}`);
+    expect(deltaPartId(weird, 'thinking')).toBe(`r-delta-${weird}`);
+    expect(deltaPartId(weird, 'text')).toBe(deltaPartId(weird, 'text'));
+    expect(deltaPartId('', 'text')).not.toBe(deltaPartId(weird, 'text'));
+  });
+});
+
+describe('provisionalMessageId 边界：空串与特殊字符配对键', () => {
+  it('空串配对键：键生成稳定不炸且可区分', () => {
+    expect(provisionalMessageId('')).toBe('delta-');
+    expect(provisionalMessageId('')).toBe(provisionalMessageId(''));
+    expect(provisionalMessageId('')).not.toBe(provisionalMessageId(null));
+    expect(provisionalMessageId('')).not.toBe(provisionalMessageId('tu_1'));
+  });
+
+  it('含特殊字符配对键：原样拼接稳定不炸', () => {
+    const weird = ' "q"\n🎉\t';
+    expect(provisionalMessageId(weird)).toBe(`delta-${weird}`);
+    expect(provisionalMessageId(weird)).toBe(provisionalMessageId(weird));
+    expect(provisionalMessageId(weird)).not.toBe(provisionalMessageId(''));
+  });
+});
+
+describe('纯 delta 序列折叠：密封-only 重放视图的空态', () => {
+  it('纯 delta 序列（无任何密封事件）折叠为空：不炸、不产部件', () => {
+    const messages = eventsToUIMessages([
+      messageDelta(0, { kind: 'text', text: '增量甲' }),
+      messageDelta(1, { kind: 'thinking', thinking: '增量乙' }),
+      messageDelta(2, { kind: 'text', text: '增量丙' }),
+    ]);
+
+    expect(messages).toEqual([]);
+  });
+});
+
+describe('runRecordToUIMessage running 形态', () => {
+  it('running 轮行（finishedAt null）→ data-run-record 部件逐字段承接：status=running、统计与 finishedAt 全 null', () => {
+    const row = record(0, 'running');
+    const messages = [runRecordToUIMessage(row)];
+
+    expect(messages).toHaveLength(1);
+    expect(messages[0]?.id).toBe('turn-0');
+    expect(messages[0]?.role).toBe('system');
+    expect(messages[0]?.metadata).toEqual({ seq: null, parentToolUseId: null });
+    // data 即 record 整行：running 形态字段面逐字段承接（IPC 信封 Record 臂与
+    // 重放轮行两路同构的 running 半边）
+    const part = messages[0]?.parts[0];
+    expect(part?.type).toBe('data-run-record');
+    expect(part?.type === 'data-run-record' && part.data).toEqual(row);
+    expect(part?.type === 'data-run-record' && part.data.status).toBe('running');
+    expect(part?.type === 'data-run-record' && part.data.finishedAt).toBeNull();
+    expect(part?.type === 'data-run-record' && part.data.sessionId).toBe('s-live');
+    expect(part?.type === 'data-run-record' && part.data.numTurns).toBeNull();
+    expect(part?.type === 'data-run-record' && part.data.durationMs).toBeNull();
+    expect(part?.type === 'data-run-record' && part.data.error).toBeNull();
   });
 });

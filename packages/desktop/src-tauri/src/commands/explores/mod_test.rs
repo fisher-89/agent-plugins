@@ -1,21 +1,10 @@
-//! explore 命令轨道七命令的单元测试 + 「workflow 扫描 → store 清单求差 →
-//! scan_explores 命令」集成关系（R1：求差 / 孤儿滤除 / 大小写精确比对）+
-//! 记录面经 `for_root` 路由至所属 workspace 库的半边（AC-2 / AC-5 回溯：命令
-//! 写读经 for_root 落该 workspace 库、跨库隔离、级联同库收敛）。
-//!
-//! `#[tauri::command]` 保留原函数可直调：以 `tauri::test::mock_app()`
-//! （MockRuntime）manage 真实 `WorkspaceStores`（tempdir 真开全局库与各
-//! workspace 库）后经 `app.state::<WorkspaceStores>()` 取 State；workspace
-//! 磁盘为 tempfile 真实文件树。本轨道命令零子进程（无 PATH 隔离面）；
-//! blank root 纪律与防穿越在命令边界断言。
-
 use std::fs;
 use std::path::PathBuf;
 
-use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
+use agent::{AgentEvent, AgentEventKind};
 use tauri::{App, Manager};
 
-use store::{AgentRunRecord, WorkspaceStores};
+use store::{AgentEngineKind, SessionConfigSnapshot, SessionRecord, WorkspaceStores};
 use workflow::queries as queries_lib;
 
 use super::{
@@ -78,31 +67,24 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     app
 }
 
-/// 带来源三元组的 running 形态 run 记录（id 由 begin 分配）。
-fn chain_run(
-    root: &str,
-    prompt: &str,
-    started_at: i64,
-    source_ref: Option<&str>,
-) -> AgentRunRecord {
-    AgentRunRecord {
-        id: 0,
-        prompt: prompt.to_owned(),
-        cwd: root.to_owned(),
-        env: AgentEnvMode::Default,
-        permission_mode: AgentPermissionMode::BypassPermissions,
-        status: AgentRunStatus::Running,
-        started_at,
-        finished_at: None,
-        num_turns: None,
-        cost_usd: None,
-        duration_ms: None,
-        session_id: None,
-        error: None,
-        source: "explore".to_owned(),
-        source_ref: source_ref.map(str::to_owned),
-        parent_run_id: None,
-    }
+/// 落一份 explore 归属会话行（source=explore，source_ref=记录 id 十进制串）。
+fn seed_chat_session(store: &store::Store, id: &str, source_ref: Option<&str>) -> String {
+    store
+        .create_session(&SessionRecord {
+            id: id.to_owned(),
+            engine_session_id: None,
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Sdk,
+                model: Some("m-high".to_owned()),
+                permission_mode: agent::AgentPermissionMode::BypassPermissions,
+            },
+            source: "explore".to_owned(),
+            source_ref: source_ref.map(str::to_owned),
+            created_at: 1727000000000,
+            updated_at: 1727000000000,
+        })
+        .expect("create_session 应成功");
+    id.to_owned()
 }
 
 /// 一条盖戳 Raw 事件（级联断言的最小载荷）。
@@ -407,21 +389,14 @@ fn rename保主键且delete级联名下runs与events在同一workspace库内收�
 
     let original =
         create_explore_record(state.clone(), env.root(), "话题".to_owned()).expect("建档应成功");
-    // 名下会话链（source=explore，source_ref=记录 id 十进制串）落同一 workspace 库
-    let run = {
+    // 名下归属会话（source=explore，source_ref=记录 id 十进制串）落同一 workspace 库
+    {
         let ws = state.for_root(&env.root()).expect("for_root 应成功");
-        let run = ws
-            .begin_agent_run(&chain_run(
-                &env.root(),
-                "链上首轮",
-                100,
-                Some(&original.id.to_string()),
-            ))
-            .expect("begin 应成功");
-        ws.append_agent_run_events(run.id, &[raw_event(0)])
+        let session_id =
+            seed_chat_session(&ws, "ses-route-cascade", Some(&original.id.to_string()));
+        ws.append_session_events(&session_id, &[raw_event(0)])
             .expect("append 应成功");
-        run
-    };
+    }
 
     // rename：in-place 保主键（保 source_ref 链绑定）
     let renamed = rename_explore_record(
@@ -441,15 +416,14 @@ fn rename保主键且delete级联名下runs与events在同一workspace库内收�
     );
     let ws = state.for_root(&env.root()).expect("for_root 应成功");
     assert!(
-        ws.list_agent_run_events(run.id).unwrap().is_empty(),
-        "名下事件随记录级联删除（同库收敛）"
+        ws.list_session_events("ses-route-cascade")
+            .unwrap()
+            .is_empty(),
+        "名下转录随记录级联删除（同库收敛）"
     );
     assert!(
-        !ws.list_agent_runs()
-            .unwrap()
-            .iter()
-            .any(|left| left.id == run.id),
-        "名下 run 随记录级联删除（同库收敛）"
+        ws.find_session("ses-route-cascade").unwrap().is_none(),
+        "归属会话随记录级联删除（同库收敛）"
     );
     assert!(
         ws.list_explore_records(&env.root()).unwrap().is_empty(),

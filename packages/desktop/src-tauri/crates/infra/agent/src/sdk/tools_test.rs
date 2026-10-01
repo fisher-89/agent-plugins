@@ -224,6 +224,77 @@ async fn grep无命中与空文件返回非错误_匹配串按子串字面语义
         .is_err());
 }
 
+#[tokio::test]
+async fn grep目录路径递归匹配跨层级文件() {
+    let dir = tempdir("grep-dir");
+    let root = root_of(&dir);
+    let top = write_rel(&root, "top.txt", "无关\n线索 here");
+    let inner = write_rel(&root, "sub/inner.md", "线索 one\n无关");
+    let leaf = write_rel(&root, "sub/deep/leaf.rs", "fn 线索() {}");
+
+    let output = execute(
+        &root,
+        "grep",
+        &json!({ "path": root, "pattern": "线索" }),
+    )
+    .await
+    .expect("目录递归非错误");
+    // 目录分支输出路径统一 `/` 分隔（与 glob 工具同口径），期望值同步归一
+    let flat = |path: &PathBuf| path.to_string_lossy().replace('\\', "/");
+    assert!(
+        output.contains(&format!("{}:2: 线索 here", flat(&top))),
+        "顶层文件命中: {output}"
+    );
+    assert!(
+        output.contains(&format!("{}:1: 线索 one", flat(&inner))),
+        "子目录命中: {output}"
+    );
+    assert!(
+        output.contains(&format!("{}:1: fn 线索() {{}}", flat(&leaf))),
+        "深层目录命中: {output}"
+    );
+}
+
+#[tokio::test]
+async fn grep目录递归跳过二进制且命中上限截断留痕() {
+    let dir = tempdir("grep-dir-edge");
+    let root = root_of(&dir);
+    // 205 行全命中的单文件：命中数越过上限，截断到 200 并留痕
+    write_rel(&root, "bulk.txt", &"命中行\n".repeat(205));
+    // 非 UTF-8 二进制：静默跳过不中断（glob 字典序下 blob.bin 先于 bulk.txt）
+    let binary = root.join("blob.bin");
+    std::fs::write(&binary, [0xFF, 0xFE, 0x00, 0x80]).expect("写二进制失败");
+
+    let output = execute(&root, "grep", &json!({ "path": root, "pattern": "命中行" }))
+        .await
+        .expect("二进制在场不中断");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 201, "200 命中 + 1 截断留痕: {output}");
+    assert!(lines.last().expect("末行").contains("已截断"), "{output}");
+}
+
+#[tokio::test]
+async fn grep目录无命中返回占位_缺失路径回落文件读取错误() {
+    let dir = tempdir("grep-dir-none");
+    let root = root_of(&dir);
+    write_rel(&root, "plain.txt", "无关内容");
+
+    let none = execute(&root, "grep", &json!({ "path": root, "pattern": "不存在串" }))
+        .await
+        .expect("目录无命中非错误");
+    assert!(none.contains("无匹配行"), "实际: {none}");
+
+    // metadata 失败（缺失路径）回落单文件分支：显式读取错误语义保留
+    let missing = execute(
+        &root,
+        "grep",
+        &json!({ "path": root.join("no-such"), "pattern": "x" }),
+    )
+    .await
+    .expect_err("缺失路径必须 Err");
+    assert!(missing.contains("读取失败"), "实际: {missing}");
+}
+
 // ---------------------------------------------------------------------------
 // glob 执行体
 // ---------------------------------------------------------------------------

@@ -1,7 +1,4 @@
-//! `state` 的单元测试（AC-1）：RunResult 驱动收敛、is_error 分向、收敛后
-//! 拒绝变更与 apply/current 一致性。无外部依赖，不需要 Mock。
-
-use crate::event::{AgentEvent, AgentEventKind};
+use crate::event::{AgentDelta, AgentEvent, AgentEventKind};
 use crate::state::{AgentRunState, RunStateMachine};
 
 /// 构造一枚事件（不盖真实时钟也行——状态机只读 kind，stamp 即可）。
@@ -32,6 +29,18 @@ fn message(seq: u64) -> AgentEvent {
     )
 }
 
+fn message_delta(seq: u64) -> AgentEvent {
+    event(
+        seq,
+        AgentEventKind::MessageDelta {
+            parent_tool_use_id: None,
+            delta: AgentDelta::Text {
+                text: "增量".to_owned(),
+            },
+        },
+    )
+}
+
 fn system_notice(seq: u64) -> AgentEvent {
     event(
         seq,
@@ -52,10 +61,10 @@ fn raw(seq: u64) -> AgentEvent {
     )
 }
 
-fn run_result(seq: u64, is_error: bool) -> AgentEvent {
+fn turn_done(seq: u64, is_error: bool) -> AgentEvent {
     event(
         seq,
-        AgentEventKind::RunResult {
+        AgentEventKind::TurnDone {
             subtype: if is_error {
                 "error_max_turns"
             } else {
@@ -72,6 +81,10 @@ fn run_result(seq: u64, is_error: bool) -> AgentEvent {
     )
 }
 
+// ---------------------------------------------------------------------------
+// TurnDone 驱动收敛（apply 匹配变体 RunResult → TurnDone 纯更名适配）
+// ---------------------------------------------------------------------------
+
 #[test]
 fn new后current为running() {
     let machine = RunStateMachine::new();
@@ -79,83 +92,43 @@ fn new后current为running() {
 }
 
 #[test]
-fn run_result且is_error为false时收敛completed() {
+fn turn_done且is_error为false时收敛completed() {
     let mut machine = RunStateMachine::new();
-    let state = machine.apply(&run_result(0, false));
+    let state = machine.apply(&turn_done(0, false));
     assert_eq!(state, AgentRunState::Completed);
     assert_eq!(machine.current(), AgentRunState::Completed);
 }
 
 #[test]
-fn run_result且is_error为true时收敛failed() {
+fn turn_done且is_error为true时收敛failed() {
     let mut machine = RunStateMachine::new();
-    let state = machine.apply(&run_result(0, true));
-    assert_eq!(state, AgentRunState::Failed, "AC-1：is_error 收敛 failed");
+    let state = machine.apply(&turn_done(0, true));
+    assert_eq!(state, AgentRunState::Failed, "is_error 收敛 failed");
     assert_eq!(machine.current(), AgentRunState::Failed);
 }
 
+// ---------------------------------------------------------------------------
+// 非收敛事件不改变状态（新增 delta 词汇不驱动收敛）
+// ---------------------------------------------------------------------------
+
 #[test]
-fn 非run_result事件不改变状态保持running() {
+fn 非turn_done事件不改变状态保持running() {
     let mut machine = RunStateMachine::new();
-    for event in [run_started(0), message(1), system_notice(2), raw(3)] {
+    for event in [
+        run_started(0),
+        message_delta(1),
+        message(2),
+        system_notice(3),
+        raw(4),
+    ] {
         let state = machine.apply(&event);
         assert_eq!(state, AgentRunState::Running, "seq={} 不收敛", event.seq);
         assert_eq!(machine.current(), AgentRunState::Running);
     }
 }
 
-#[test]
-fn 收敛后再apply任意事件终态不被改写() {
-    let mut machine = RunStateMachine::new();
-    machine.apply(&run_result(0, false));
-    assert_eq!(machine.current(), AgentRunState::Completed);
-
-    // 收敛后一切事件（含 is_error=true 的 RunResult）都不能改写终态
-    for event in [message(1), run_result(2, true), raw(3), system_notice(4)] {
-        let state = machine.apply(&event);
-        assert_eq!(state, AgentRunState::Completed, "拒绝变更（幂等终态）");
-    }
-
-    // failed 终态同理
-    let mut failed_machine = RunStateMachine::new();
-    failed_machine.apply(&run_result(0, true));
-    let state = failed_machine.apply(&run_result(1, false));
-    assert_eq!(
-        state,
-        AgentRunState::Failed,
-        "failed 不被后续 completed 改写"
-    );
-}
-
-#[test]
-fn 连续两个run_result时首个收敛生效() {
-    let mut machine = RunStateMachine::new();
-    let first = machine.apply(&run_result(0, false));
-    let second = machine.apply(&run_result(1, true));
-
-    assert_eq!(first, AgentRunState::Completed, "首个收敛生效");
-    assert_eq!(second, AgentRunState::Completed, "第二个 RunResult 被拒绝");
-}
-
-#[test]
-fn 每次apply返回值与随后current观测一致() {
-    let mut machine = RunStateMachine::new();
-
-    let applied = machine.apply(&run_started(0));
-    assert_eq!(applied, machine.current());
-
-    let applied = machine.apply(&message(1));
-    assert_eq!(applied, machine.current());
-
-    let applied = machine.apply(&run_result(2, true));
-    assert_eq!(applied, machine.current());
-
-    let applied = machine.apply(&message(3));
-    assert_eq!(applied, machine.current());
-}
-
 // ---------------------------------------------------------------------------
-// stop()：显式终止收敛（Running → Stopped；首个收敛生效，幂等终态不改写）
+// stopped 独立分支（running 调 stop 收敛；stopped 后 TurnDone 不改写终态）
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -172,8 +145,8 @@ fn stopped收敛后再apply任意事件终态保持stopped() {
     machine.stop();
     assert_eq!(machine.current(), AgentRunState::Stopped);
 
-    // Stopped 终态拒绝一切改写（含 is_error 的 RunResult）
-    for event in [message(1), run_result(2, true), system_notice(3), raw(4)] {
+    // Stopped 终态拒绝一切改写（含 TurnDone）
+    for event in [message(1), turn_done(2, true), system_notice(3), raw(4)] {
         let state = machine.apply(&event);
         assert_eq!(
             state,
@@ -184,10 +157,64 @@ fn stopped收敛后再apply任意事件终态保持stopped() {
     }
 }
 
+// ---------------------------------------------------------------------------
+// 终态幂等与首收敛生效
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 收敛后再apply任意事件终态不被改写() {
+    let mut machine = RunStateMachine::new();
+    machine.apply(&turn_done(0, false));
+    assert_eq!(machine.current(), AgentRunState::Completed);
+
+    // 收敛后一切事件（含 is_error=true 的 TurnDone）都不能改写终态
+    for event in [message(1), turn_done(2, true), raw(3), system_notice(4)] {
+        let state = machine.apply(&event);
+        assert_eq!(state, AgentRunState::Completed, "拒绝变更（幂等终态）");
+    }
+
+    // failed 终态同理
+    let mut failed_machine = RunStateMachine::new();
+    failed_machine.apply(&turn_done(0, true));
+    let state = failed_machine.apply(&turn_done(1, false));
+    assert_eq!(
+        state,
+        AgentRunState::Failed,
+        "failed 不被后续 completed 改写"
+    );
+}
+
+#[test]
+fn 连续两个turn_done时首个收敛生效() {
+    let mut machine = RunStateMachine::new();
+    let first = machine.apply(&turn_done(0, false));
+    let second = machine.apply(&turn_done(1, true));
+
+    assert_eq!(first, AgentRunState::Completed, "首个收敛生效");
+    assert_eq!(second, AgentRunState::Completed, "第二个 TurnDone 被拒绝");
+}
+
+#[test]
+fn 每次apply返回值与随后current观测一致() {
+    let mut machine = RunStateMachine::new();
+
+    let applied = machine.apply(&run_started(0));
+    assert_eq!(applied, machine.current());
+
+    let applied = machine.apply(&message(1));
+    assert_eq!(applied, machine.current());
+
+    let applied = machine.apply(&turn_done(2, true));
+    assert_eq!(applied, machine.current());
+
+    let applied = machine.apply(&message(3));
+    assert_eq!(applied, machine.current());
+}
+
 #[test]
 fn 已completed或failed终态调用stop原样返回不改写() {
     let mut completed = RunStateMachine::new();
-    completed.apply(&run_result(0, false));
+    completed.apply(&turn_done(0, false));
     assert_eq!(
         completed.stop(),
         AgentRunState::Completed,
@@ -196,7 +223,7 @@ fn 已completed或failed终态调用stop原样返回不改写() {
     assert_eq!(completed.current(), AgentRunState::Completed);
 
     let mut failed = RunStateMachine::new();
-    failed.apply(&run_result(0, true));
+    failed.apply(&turn_done(0, true));
     assert_eq!(
         failed.stop(),
         AgentRunState::Failed,
@@ -216,28 +243,28 @@ fn 连续两次stop首个收敛生效第二次原样返回stopped() {
 }
 
 #[test]
-fn stop与run_result竞态时首个收敛生效且双向不改写() {
-    // stop 先到：Stopped 定终态，后续 RunResult（含 is_error）不改写
+fn stop与turn_done双向竞态时首个收敛生效且互不改写() {
+    // stop 先到：Stopped 定终态，后续 TurnDone（含 is_error）不改写
     let mut stop_first = RunStateMachine::new();
     stop_first.stop();
     assert_eq!(
-        stop_first.apply(&run_result(0, false)),
+        stop_first.apply(&turn_done(0, false)),
         AgentRunState::Stopped,
-        "stop 先到收敛 → RunResult 不改写"
+        "stop 先到收敛 → TurnDone 不改写"
     );
 
-    // RunResult 先到：Completed 定终态，后续 stop 不改写
-    let mut result_first = RunStateMachine::new();
-    result_first.apply(&run_result(0, false));
+    // TurnDone 先到：Completed 定终态，后续 stop 不改写
+    let mut done_first = RunStateMachine::new();
+    done_first.apply(&turn_done(0, false));
     assert_eq!(
-        result_first.stop(),
+        done_first.stop(),
         AgentRunState::Completed,
-        "RunResult 先到收敛 → stop 不改写"
+        "TurnDone 先到收敛 → stop 不改写"
     );
 
-    // RunResult（is_error=true）先到：Failed 定终态，后续 stop 不改写
+    // TurnDone（is_error=true）先到：Failed 定终态，后续 stop 不改写
     let mut failed_first = RunStateMachine::new();
-    failed_first.apply(&run_result(0, true));
+    failed_first.apply(&turn_done(0, true));
     assert_eq!(
         failed_first.stop(),
         AgentRunState::Failed,

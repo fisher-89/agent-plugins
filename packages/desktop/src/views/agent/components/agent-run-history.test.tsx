@@ -2,40 +2,55 @@
 import { fireEvent, render, screen, within } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, AgentRunRecord } from '../../../types/dto';
+import type { AgentEvent, SessionSummary, TurnSummary } from '../../../types/dto';
 import type { AgentRunHistoryState } from '../hooks/use-agent-run-history';
 import { AgentRunHistory } from './agent-run-history';
 
 // state 对象（AgentRunHistoryState）以 fixture 直传，无进程边界，不需要 Mock。
 
-function record(id: number, status: AgentRunRecord['status'], prompt: string): AgentRunRecord {
+const TS = 1727000000000;
+
+function turn(turnId: number, status: TurnSummary['status']): TurnSummary {
   return {
-    id,
-    prompt,
-    cwd: 'C:\\demo\\beta',
-    env: 'default',
-    permissionMode: 'bypassPermissions',
+    turnId,
+    sessionId: `ses-${turnId}-1727000000000`,
     status,
-    startedAt: 1727000000000 + id,
-    finishedAt: null,
+    startedAt: TS + turnId,
+    finishedAt: status === 'running' ? null : TS + turnId + 999,
     numTurns: 4,
     costUsd: 0.2,
     durationMs: 800,
-    sessionId: `s-${id}`,
-    error: status === 'failed' ? '进程结束但未产出 result 事件' : null,
-    source: 'debug',
-    sourceRef: null,
-    parentRunId: null,
+    error: status === 'failed' ? '进程结束但未产出收敛事件' : null,
+  };
+}
+
+function session(
+  id: string,
+  status: TurnSummary['status'],
+  updatedAt: number,
+  turns: TurnSummary[] = [turn(1, status)],
+): SessionSummary {
+  return {
+    row: {
+      id,
+      remoteSessionId: `engine-${id}`,
+      configSnapshot: { engine: 'sdk', model: 'glm-high', permissionMode: 'bypassPermissions' },
+      provenance: { source: 'debug', sourceRef: null },
+      createdAt: TS,
+      updatedAt,
+    },
+    stats: { turnCount: turns.length, totalDurationMs: 800, inputTokens: null, outputTokens: null },
+    turns,
   };
 }
 
 function event(seq: number): AgentEvent {
   return {
     seq,
-    timestampMs: 1727000000000,
+    timestampMs: TS,
     kind: 'runStarted',
     model: 'claude-opus',
-    sessionId: 's-1',
+    sessionId: 'ses-0-1727000000000',
     tools: [],
     mcpServers: [],
   };
@@ -43,13 +58,13 @@ function event(seq: number): AgentEvent {
 
 function historyState(overrides: Partial<AgentRunHistoryState> = {}): AgentRunHistoryState {
   return {
-    runs: [],
+    sessions: [],
     events: [],
-    selectedRunId: null,
+    selectedSessionId: null,
     loading: false,
     error: null,
     refresh: vi.fn(),
-    openRun: vi.fn(),
+    openSession: vi.fn(),
     ...overrides,
   };
 }
@@ -58,35 +73,38 @@ function mount(state: AgentRunHistoryState) {
   render(<AgentRunHistory state={state} />);
 }
 
-describe('AgentRunHistory：run 列表与触发（AC-5 / D13）', () => {
-  it('runs 渲染状态 / 时间 / 摘要三要素', () => {
+describe('AgentRunHistory：会话列表与触发（AC-5 / D13）', () => {
+  it('sessions 渲染终态 / 轮数 / 时间三要素（会话行 = 最新轮终态 + 现算轮数）', () => {
     mount(
-      historyState({ runs: [record(1, 'completed', '第一跑'), record(2, 'failed', '第二跑')] }),
+      historyState({
+        sessions: [
+          session('ses-1-1727000000000', 'completed', TS + 1),
+          session('ses-2-1727000000000', 'failed', TS + 2),
+        ],
+      }),
     );
 
     const rows = screen.getAllByTestId('agent-run-row');
     expect(rows).toHaveLength(2);
     const statuses = screen.getAllByTestId('run-status').map((node) => node.textContent);
     expect(statuses).toEqual(['已完成', '失败']);
-    expect(rows[0]?.textContent).toContain('第一跑');
-    expect(rows[0]?.textContent).toContain('#1');
-    expect(rows[0]?.textContent).toContain('4 轮');
+    expect(rows[0]?.textContent).toContain('1 轮');
     // 时间以本地时区字符串呈现（非空即可，不绑定格式）
     expect((rows[0]?.textContent ?? '').length).toBeGreaterThan(0);
     expect(screen.getAllByTestId('run-row-error')).toHaveLength(1);
     expect(screen.getAllByTestId('run-row-error')[0]?.textContent).toContain(
-      '进程结束但未产出 result 事件',
+      '进程结束但未产出收敛事件',
     );
   });
 
-  it('status 为 stopped 的 run 行状态标签呈「已停止」，其余三态标签不回归', () => {
+  it('最新轮行 status 为 stopped 的会话行状态标签呈「已停止」，其余三态标签不回归', () => {
     mount(
       historyState({
-        runs: [
-          record(1, 'running', '运行中跑'),
-          record(2, 'completed', '完成跑'),
-          record(3, 'stopped', '停止跑'),
-          record(4, 'failed', '失败跑'),
+        sessions: [
+          session('ses-1-1727000000000', 'running', TS + 1),
+          session('ses-2-1727000000000', 'completed', TS + 2),
+          session('ses-3-1727000000000', 'stopped', TS + 3),
+          session('ses-4-1727000000000', 'failed', TS + 4),
         ],
       }),
     );
@@ -96,49 +114,52 @@ describe('AgentRunHistory：run 列表与触发（AC-5 / D13）', () => {
     const stoppedRow = screen
       .getAllByTestId('agent-run-row')
       .find((row) => row.getAttribute('data-status') === 'stopped');
-    expect(stoppedRow?.textContent).toContain('停止跑');
+    expect(stoppedRow?.getAttribute('data-session-id')).toBe('ses-3-1727000000000');
   });
 
-  it('点击 run 行 → openRun(id) 恰调用一次（重放触发半边）', () => {
-    const openRun = vi.fn();
-    mount(historyState({ runs: [record(7, 'completed', '目标 run')], openRun }));
+  it('点击会话行 → openSession(sessionId) 恰调用一次（重放触发半边）', () => {
+    const openSession = vi.fn();
+    const sessionId = 'ses-7-1727000000000';
+    mount(historyState({ sessions: [session(sessionId, 'completed', TS + 7)], openSession }));
 
     fireEvent.click(screen.getByTestId('agent-run-row'));
 
-    expect(openRun).toHaveBeenCalledTimes(1);
-    expect(openRun).toHaveBeenCalledWith(7);
+    expect(openSession).toHaveBeenCalledTimes(1);
+    expect(openSession).toHaveBeenCalledWith(sessionId);
   });
 
   it('点击刷新 → refresh() 恰调用一次（D13 显式触发）', () => {
     const refresh = vi.fn();
-    mount(historyState({ runs: [record(1, 'completed', 'x')], refresh }));
+    mount(historyState({ sessions: [session('ses-1-1727000000000', 'completed', TS)], refresh }));
 
     fireEvent.click(screen.getByTestId('history-refresh'));
 
     expect(refresh).toHaveBeenCalledTimes(1);
   });
 
-  it('selectedRunId 匹配时呈现重放区并还原时间线（与实时流同组件）', () => {
+  it('selectedSessionId 匹配时呈现重放区并还原全史时间线（与实时流同组件）', () => {
+    const sessionId = 'ses-7-1727000000000';
     mount(
       historyState({
-        runs: [record(7, 'completed', '已重放')],
+        sessions: [session(sessionId, 'completed', TS + 7)],
         events: [event(0)],
-        selectedRunId: 7,
+        selectedSessionId: sessionId,
       }),
     );
 
     const replay = screen.getByTestId('replay-area');
-    expect(replay.getAttribute('data-selected-run-id')).toBe('7');
+    expect(replay.getAttribute('data-selected-run-id')).toBe(sessionId);
     expect(within(replay).getByTestId('agent-timeline') !== null).toBe(true);
     expect(within(replay).getByTestId('event-run-started') !== null).toBe(true);
   });
 
   it('重放区限高滚动：max-h-96 overflow-y-auto 容器，内嵌 AgentTimeline 无 props 分叉', () => {
+    const sessionId = 'ses-7-1727000000000';
     mount(
       historyState({
-        runs: [record(7, 'completed', '限高重放')],
+        sessions: [session(sessionId, 'completed', TS + 7)],
         events: [event(0), event(1)],
-        selectedRunId: 7,
+        selectedSessionId: sessionId,
       }),
     );
 
@@ -154,7 +175,7 @@ describe('AgentRunHistory：run 列表与触发（AC-5 / D13）', () => {
 });
 
 describe('AgentRunHistory：空态 / loading / error（边界与异常）', () => {
-  it('runs 为空时呈现空态文案不崩', () => {
+  it('sessions 为空时呈现空态文案不崩', () => {
     mount(historyState());
 
     expect(screen.getByTestId('history-empty') !== null).toBe(true);
@@ -171,13 +192,13 @@ describe('AgentRunHistory：空态 / loading / error（边界与异常）', () =
     const refresh = vi.fn();
     mount(
       historyState({
-        runs: [record(1, 'completed', '仍在的 run')],
-        error: 'db: 事件读取失败',
+        sessions: [session('ses-1-1727000000000', 'completed', TS)],
+        error: 'db: 转录读取失败',
         refresh,
       }),
     );
 
-    expect(screen.getByTestId('history-error').textContent).toContain('db: 事件读取失败');
+    expect(screen.getByTestId('history-error').textContent).toContain('db: 转录读取失败');
     expect(screen.getAllByTestId('agent-run-row')).toHaveLength(1);
     // 错误态下刷新入口仍可触发
     fireEvent.click(screen.getByTestId('history-refresh'));

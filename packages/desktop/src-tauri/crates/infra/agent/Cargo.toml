@@ -8,6 +8,9 @@ edition = "2021"
 # spawn 触点），sdk 引擎经 rig-core 直连 openai 兼容端点；禁 Tauri 系依赖
 [dependencies]
 agent = { workspace = true }
+# 内核组合根与 port 适配的持久面落点（infra→infra 边；core/agent 保持零
+# workspace 内依赖，desktop-crate-layout 仅 core→store 受限）
+store = { workspace = true }
 # EngineKind 线格式（serde camelCase）与 TS 镜像（specta Type）派生
 serde = { workspace = true }
 specta = { workspace = true }
@@ -26,3 +29,6 @@ futures = { workspace = true }
 # discover 合成目录 / PATH 薄包装测试装置
 [dev-dependencies]
 tempfile = { workspace = true }
+# 组合根测试预置「绕过 store 写入口守卫的缺 provider 存量实例」存量库
+#（native_db 裸构造，同命令层测试先例；锁内既有版本零新增足迹）
+native_db = { workspace = true }

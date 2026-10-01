@@ -1,19 +1,10 @@
-//! `commands::db`（db_models / db_records）的单元 + 「store 信封 API → db 命令
-//! 轨道」集成关系测试（AC-6：DbDimension scope 寻址两库、两库互不混列、信封
-//! 分页语义不变）。
-//!
-//! `#[tauri::command]` 保留原函数可直调：以 `tauri::test::mock_app()`
-//! （MockRuntime，无窗口无事件循环）manage 真实 WorkspaceStores（tempdir 真
-//! 开全局库与各 workspace 库）后经 `app.state::<WorkspaceStores>()` 取 State，
-//! 沿 workspaces / exec 轨道既有惯例。
-
 use std::path::{Path, PathBuf};
 
-use ::agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
+use ::agent::{AgentEvent, AgentEventKind};
 use tauri::{App, Manager};
 
 use super::{db_models, db_records};
-use store::{AgentRunRecord, DbDimension, WorkspaceStores};
+use store::{AgentEngineKind, DbDimension, SessionConfigSnapshot, SessionRecord, WorkspaceStores};
 
 /// 数据根 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -61,30 +52,26 @@ fn add_workspace(stores: &WorkspaceStores, dir: &Path) -> store::WorkspaceRecord
         .expect("add_workspace 应成功")
 }
 
-fn begin_run(store: &store::Store, prompt: &str, started_at: i64) -> AgentRunRecord {
+fn seed_session(store: &store::Store, id: &str) -> String {
     store
-        .begin_agent_run(&AgentRunRecord {
-            id: 0,
-            prompt: prompt.to_owned(),
-            cwd: "C:\\ws\\demo".to_owned(),
-            env: AgentEnvMode::Default,
-            permission_mode: AgentPermissionMode::BypassPermissions,
-            status: AgentRunStatus::Running,
-            started_at,
-            finished_at: None,
-            num_turns: None,
-            cost_usd: None,
-            duration_ms: None,
-            session_id: None,
-            error: None,
+        .create_session(&SessionRecord {
+            id: id.to_owned(),
+            engine_session_id: None,
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Sdk,
+                model: Some("m-high".to_owned()),
+                permission_mode: ::agent::AgentPermissionMode::BypassPermissions,
+            },
             source: "debug".to_owned(),
             source_ref: None,
-            parent_run_id: None,
+            created_at: 1727000000000,
+            updated_at: 1727000000000,
         })
-        .expect("begin_agent_run 应成功")
+        .expect("create_session 应成功");
+    id.to_owned()
 }
 
-fn append_events(store: &store::Store, run_id: i64, seqs: &[u64]) {
+fn append_events(store: &store::Store, session_id: &str, seqs: &[u64]) {
     let events: Vec<AgentEvent> = seqs
         .iter()
         .map(|&seq| {
@@ -98,7 +85,7 @@ fn append_events(store: &store::Store, run_id: i64, seqs: &[u64]) {
         })
         .collect();
     store
-        .append_agent_run_events(run_id, &events)
+        .append_session_events(session_id, &events)
         .expect("append 应成功");
 }
 
@@ -189,8 +176,8 @@ fn db_models_scope_workspace返回三行且与直连serde一致() {
     let state = app.state::<WorkspaceStores>();
     let root = env.root_of("alpha");
     let ws = state.for_root(&root).expect("for_root 应成功");
-    let run = begin_run(&ws, "命令面复核", 100);
-    append_events(&ws, run.id, &[0, 1]);
+    let session_id = seed_session(&ws, "ses-cmd-review");
+    append_events(&ws, &session_id, &[0, 1]);
     ws.create_explore_record(&root, "topic")
         .expect("建档应成功");
 
@@ -210,11 +197,12 @@ fn db_models_scope_workspace返回三行且与直连serde一致() {
     assert_eq!(
         counts,
         vec![
-            ("agent_run".to_owned(), 1),
-            ("agent_event".to_owned(), 2),
+            ("agent_run".to_owned(), 0),
+            ("session".to_owned(), 1),
+            ("session_event".to_owned(), 2),
             ("explore".to_owned(), 1),
         ],
-        "Workspace scope 返回该 root 的 workspace 库三行（计数与实有记录数一致）"
+        "Workspace scope 返回该 root 的 workspace 库四行（计数与实有记录数一致）"
     );
 }
 
@@ -226,39 +214,42 @@ fn db_records_scope_workspace按主键自然序分页扫描拼接不重不漏() 
     let root = env.root_of("alpha");
     let ws = state.for_root(&root).expect("for_root 应成功");
     for index in 0..5 {
-        begin_run(&ws, &format!("run-{index}"), 100 + index);
+        seed_session(&ws, &format!("ses-page-{index}"));
     }
 
     // offset 0 → limit → 2·limit：透传不加工，翻页拼接覆盖全部记录
     let limit = 2u32;
-    let mut union: Vec<i64> = Vec::new();
+    let mut union: Vec<String> = Vec::new();
     for page in 0..3u32 {
         let page_records = db_records(
             state.clone(),
             DbDimension::Workspace,
             root.clone(),
-            "agent_run".to_owned(),
+            "session".to_owned(),
             page * limit,
             limit,
         )
         .expect("db_records 应成功");
-        union.extend(
-            page_records
-                .into_iter()
-                .map(|envelope| envelope.key.as_i64().expect("agent_run key 为数值")),
-        );
+        union.extend(page_records.into_iter().map(|envelope| {
+            envelope
+                .key
+                .as_str()
+                .expect("session key 为会话 id 字符串")
+                .to_owned()
+        }));
     }
     let mut sorted = union.clone();
     sorted.sort_unstable();
     sorted.dedup();
-    assert_eq!(sorted, vec![1, 2, 3, 4, 5], "主键自然序翻页拼接不重不漏");
+    let expected: Vec<String> = (0..5).map(|index| format!("ses-page-{index}")).collect();
+    assert_eq!(sorted, expected, "主键自然序翻页拼接不重不漏");
 
     // 越界 offset 幂等返回空数组而非错误
     let page = db_records(
         state.clone(),
         DbDimension::Workspace,
         root,
-        "agent_run".to_owned(),
+        "session".to_owned(),
         u32::MAX,
         10,
     )
@@ -278,13 +269,13 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
     add_workspace(&state, &env.ws("alpha"));
     let root = env.root_of("beta");
     let ws = state.for_root(&root).expect("for_root 应成功");
-    begin_run(&ws, "混列防线", 100);
+    seed_session(&ws, "ses-no-mixing");
 
     fn names_of(models: &[store::ModelInfo]) -> Vec<&str> {
         models.iter().map(|model| model.name.as_str()).collect()
     }
 
-    // Global scope 不出现 agent_run / agent_event / explore 行（user 维度三行）
+    // Global scope 不出现会话域与 explore 行（user 维度三行）
     let global_models =
         db_models(state.clone(), DbDimension::User, root.clone()).expect("Global 清单应成功");
     let global_names = names_of(&global_models);
@@ -299,8 +290,8 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
     let ws_names = names_of(&ws_models);
     assert_eq!(
         ws_names,
-        vec!["agent_run", "agent_event", "explore"],
-        "Workspace scope 仅 workspace 维度三行"
+        vec!["agent_run", "session", "session_event", "explore"],
+        "Workspace scope 仅 workspace 维度四行"
     );
 
     // 跨维度模型名扫描 Err（维度由实例锁定；workspace 库实例扫 user 维度
@@ -309,11 +300,11 @@ fn 两库清单互不混列_跨维度模型名扫描err() {
         state.clone(),
         DbDimension::User,
         root.clone(),
-        "agent_run".to_owned(),
+        "session".to_owned(),
         0,
         10,
     )
-    .expect_err("Global scope 扫描 agent_run 应 Err");
+    .expect_err("Global scope 扫描 session 应 Err");
     assert!(err_global.contains("未知模型"), "错误串可读: {err_global}");
     let err_new_model = db_records(
         state.clone(),
@@ -349,7 +340,7 @@ fn workspace_scope_blank_root的db_models与db_records同口径返回空结果()
     add_workspace(&state, &env.ws("alpha"));
     let root = env.root_of("alpha");
     let ws = state.for_root(&root).expect("for_root 应成功");
-    begin_run(&ws, "blank root 防线", 100);
+    seed_session(&ws, "ses-blank-guard");
 
     let models = db_models(state.clone(), DbDimension::Workspace, String::new())
         .expect("blank root db_models 空结果");
@@ -362,7 +353,7 @@ fn workspace_scope_blank_root的db_models与db_records同口径返回空结果()
         state.clone(),
         DbDimension::Workspace,
         "   ".to_owned(),
-        "agent_run".to_owned(),
+        "session".to_owned(),
         0,
         10,
     )
@@ -408,14 +399,14 @@ fn db_records_limit超500截断且截断后剩余可经offset续读() {
     let ws = state.for_root(&root).expect("for_root 应成功");
     // 505 条 > 上限 500：截断语义与「恰好 500 条」歧义区分
     for index in 0..505 {
-        begin_run(&ws, &format!("run-{index}"), index);
+        seed_session(&ws, &format!("ses-cap-{index}"));
     }
 
     let first_page = db_records(
         state.clone(),
         DbDimension::Workspace,
         root.clone(),
-        "agent_run".to_owned(),
+        "session".to_owned(),
         0,
         5000,
     )
@@ -426,21 +417,29 @@ fn db_records_limit超500截断且截断后剩余可经offset续读() {
         state.clone(),
         DbDimension::Workspace,
         root,
-        "agent_run".to_owned(),
+        "session".to_owned(),
         500,
         5000,
     )
     .expect("db_records 应成功");
     assert_eq!(rest.len(), 5, "截断后剩余记录可经 offset 续读");
-    let mut union: Vec<i64> = first_page
+    let mut union: Vec<String> = first_page
         .iter()
         .chain(rest.iter())
-        .map(|envelope| envelope.key.as_i64().unwrap())
+        .map(|envelope| {
+            envelope
+                .key
+                .as_str()
+                .expect("session key 为会话 id 字符串")
+                .to_owned()
+        })
         .collect();
     union.sort_unstable();
+    // 主键自然序为字符串字典序（session 主键即 core 铸会话 id 字符串）
+    let mut expected: Vec<String> = (0..505).map(|index| format!("ses-cap-{index}")).collect();
+    expected.sort_unstable();
     assert_eq!(
-        union,
-        (1..=505).collect::<Vec<i64>>(),
-        "两页拼接覆盖全部 505 条不重不漏"
+        union, expected,
+        "两页拼接覆盖全部 505 条不重不漏（同序逐字一致）"
     );
 }

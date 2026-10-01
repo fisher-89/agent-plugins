@@ -68,8 +68,7 @@ function RunErrorBanner({ error }: { error: string }): React.JSX.Element {
 }
 
 /**
- * Agent 调试页：参数面 + 实时时间线（原始 JSONL 切换）+ 运行中停止入口 +
- * 历史运行区。
+ * Agent 调试页
  */
 export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element {
   const history = useAgentRunHistory(root);
@@ -77,7 +76,8 @@ export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element
   const [showRaw, setShowRaw] = useState(false);
   const session = useAgentChat({ source: 'debug', sourceRef: null, root });
 
-  // 每跑重置：上一跑 messages / events / chain 清空，不串场
+  // 每跑重置（每跑 New 会话）：上一跑 messages / events / chain / 会话镜像
+  // 清空，不串场
   const start = (input: AgentStartInput) => {
     session.reset();
     session.sendMessage(input);

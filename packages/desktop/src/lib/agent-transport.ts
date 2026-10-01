@@ -3,35 +3,41 @@ import type { ChatTransport } from 'ai';
 
 import {
   commands,
+  type AgentDelta,
   type AgentEvent,
   type AgentRunMessage,
-  type AgentRunRecord,
+  type TurnSummary,
 } from '../types/generated/bindings';
-import { eventToChunk, type AgentUIMessage, type AgentUIMessageChunk } from './agent-adapter';
+import {
+  deltaPartId,
+  eventToChunk,
+  provisionalMessageId,
+  type AgentUIMessage,
+  type AgentUIMessageChunk,
+} from './agent-adapter';
 
 /** `commands.agentStart` 位置参数面（生成绑定派生，无手写镜像） */
 type AgentStartArgs = Parameters<typeof commands.agentStart>;
 
-/** 链参数 + 提示词（hook 发送时刻组装，body 原样穿透；形状派生自生成绑定） */
-type AgentStartChainParams = {
+/** 会话参数 + 提示词（hook 发送时刻组装，body 原样穿透；形状派生自生成绑定） */
+type AgentStartSessionParams = {
   root: AgentStartArgs[1];
   prompt: AgentStartArgs[2];
   permissionMode: AgentStartArgs[3];
-  resumeSessionId: AgentStartArgs[4];
+  sessionId: AgentStartArgs[4];
   source: AgentStartArgs[5];
   sourceRef: AgentStartArgs[6];
-  parentRunId: AgentStartArgs[7];
-  agent: AgentStartArgs[8];
+  agent: AgentStartArgs[7];
 };
 
 /** transport 构造观测点：hook 注入（不承载状态，仅透传镜像） */
 export interface TauriAgentTransportOptions {
   onEvent?: (event: AgentEvent) => void;
-  onRecord?: (record: AgentRunRecord) => void;
+  onRecord?: (record: TurnSummary) => void;
 }
 
 /** unknown → AgentPermissionMode（清单外值拒绝，transport 不改写） */
-function readPermissionMode(value: unknown): AgentStartChainParams['permissionMode'] {
+function readPermissionMode(value: unknown): AgentStartSessionParams['permissionMode'] {
   if (value === 'default' || value === 'acceptEdits' || value === 'bypassPermissions') {
     return value;
   }
@@ -40,7 +46,7 @@ function readPermissionMode(value: unknown): AgentStartChainParams['permissionMo
 
 /** unknown → number | null（agent 可缺席——null / 缺席 → 后端解析默认 agent；
  * 清单外值拒绝，transport 不改写） */
-function readAgentId(value: unknown): AgentStartChainParams['agent'] {
+function readAgentId(value: unknown): AgentStartSessionParams['agent'] {
   if (value === undefined || value === null) return null;
   if (typeof value === 'number') return value;
   throw new Error(`非法 agent: ${JSON.stringify(value)}`);
@@ -52,42 +58,66 @@ function readNullableString(value: unknown, field: string): string | null {
   throw new Error(`非法 ${field}: ${JSON.stringify(value)}`);
 }
 
-/** unknown → number | null（其余形态拒绝） */
-function readNullableNumber(value: unknown, field: string): number | null {
-  if (typeof value === 'number' || value === null) return value;
-  throw new Error(`非法 ${field}: ${JSON.stringify(value)}`);
-}
-
-/** body 逐字段读取（运行时校验，transport 不增删改写链参数） */
-function readChainParams(body: object | undefined): AgentStartChainParams {
+/** body 逐字段读取（运行时校验，transport 不增删改写会话参数） */
+function readSessionParams(body: object | undefined): AgentStartSessionParams {
   const get = (key: string): unknown =>
     Object.entries(body ?? {}).find(([name]) => name === key)?.[1];
   const root = get('root');
   const prompt = get('prompt');
   const source = get('source');
   if (typeof root !== 'string' || typeof prompt !== 'string' || typeof source !== 'string') {
-    throw new Error('缺少 agent_start 链参数（root / prompt / source）');
+    throw new Error('缺少 agent_start 会话参数（root / prompt / source）');
   }
   return {
     root,
     prompt,
     source,
     permissionMode: readPermissionMode(get('permissionMode')),
-    resumeSessionId: readNullableString(get('resumeSessionId'), 'resumeSessionId'),
-    parentRunId: readNullableNumber(get('parentRunId'), 'parentRunId'),
+    sessionId: readNullableString(get('sessionId'), 'sessionId'),
     sourceRef: readNullableString(get('sourceRef'), 'sourceRef'),
     agent: readAgentId(get('agent')),
   };
 }
 
+/** 增量事件累积部件种类（思考/回复可辨；`messageDelta` 以外不适用） */
+function deltaPartKind(delta: AgentDelta): 'text' | 'thinking' {
+  return delta.kind === 'text' ? 'text' : 'thinking';
+}
+
+/** provisional 开件 chunk 组：start（配对键派生键，metadata 携源 seq）+
+ * reset-step 让位 + part-start（首 delta 由 transport 流内簿记补发） */
+function openProvisionalChunks(
+  event: Extract<AgentEvent, { kind: 'messageDelta' }>,
+): AgentUIMessageChunk[] {
+  const key = event.parentToolUseId ?? '';
+  const part = deltaPartKind(event.delta);
+  return [
+    {
+      type: 'start',
+      messageId: provisionalMessageId(event.parentToolUseId),
+      messageMetadata: { seq: event.seq, parentToolUseId: event.parentToolUseId },
+    },
+    { type: 'reset-step' },
+    part === 'text'
+      ? { type: 'text-start', id: deltaPartId(key, 'text') }
+      : { type: 'reasoning-start', id: deltaPartId(key, 'thinking') },
+  ];
+}
+
 /**
  * Tauri `ChatTransport` 实现。发起新消息经 `agent_start` 提前 resolve
- * running 记录（经 `onRecord` 透传），事件与终态记录经 Channel 流入翻译为
+ * running 轮行（经 `onRecord` 透传），事件与终态轮行经 Channel 流入翻译为
  * chunk 流；Record 信封收尾（record 部件 + finish + 关流）。
+ *
+ * 流内首 delta 簿记：配对键 → 已开件标记（流闭包内局部状态，非会话状态——
+ * transport 为无状态转换器，该簿记禁的是会话参数进构造闭包 / ref 插线）。
+ * 首个 delta 补发 start(provisional 键) + reset-step + part-start，后续
+ * delta 直发累积 chunk；密封 Message 到达经 start + reset-step + 整块部件组
+ * 同键让位替换。
  */
 export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
   private readonly onEvent?: (event: AgentEvent) => void;
-  private readonly onRecord?: (record: AgentRunRecord) => void;
+  private readonly onRecord?: (record: TurnSummary) => void;
 
   constructor(options?: TauriAgentTransportOptions) {
     this.onEvent = options?.onEvent;
@@ -105,57 +135,88 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     if (options.trigger !== 'submit-message') {
       throw new Error('TauriAgentTransport 仅支持 submit-message 触发');
     }
-    const chain = readChainParams(options.body);
+    const session = readSessionParams(options.body);
     const channel = new Channel<AgentRunMessage>();
-    return new ReadableStream<AgentUIMessageChunk>({
-      start: (controller) => {
-        let closed = false;
-        channel.onmessage = (message) => {
-          if (closed) return;
-          if (message.ipc === 'event') {
-            this.onEvent?.(message.event);
-            for (const chunk of eventToChunk(message.event)) controller.enqueue(chunk);
-            return;
-          }
-          if (message.ipc === 'record') {
-            this.onRecord?.(message.record);
-            controller.enqueue({
-              type: 'start',
-              messageId: `run-${message.record.id}`,
-              messageMetadata: { seq: null, parentToolUseId: null },
-            });
-            controller.enqueue({ type: 'reset-step' });
-            controller.enqueue({ type: 'data-run-record', data: message.record });
-            controller.enqueue({ type: 'finish' });
-            closed = true;
-            controller.close();
-            return;
-          }
-          // 未知信封判别：忽略单条消息，流不断开
-        };
-        this.invokeStart(channel, chain, controller);
-      },
-    });
+    return new ReadableStream<AgentUIMessageChunk>({ start: this.streamStart(channel, session) });
   }
 
-  /** 发起运行（生成绑定穿透链参数 + Channel）：early-resolve 记录经
+  /** 流 start 回调装配：Channel 信封 → chunk 流（首 delta 簿记为流闭包内
+   * 局部状态，随流存亡）；Record 信封收尾（record 部件 + finish + 关流）。 */
+  private streamStart(
+    channel: Channel<AgentRunMessage>,
+    session: AgentStartSessionParams,
+  ): (controller: ReadableStreamDefaultController<AgentUIMessageChunk>) => void {
+    return (controller) => {
+      let closed = false;
+      /** 流内首 delta 簿记：配对键 → 已开件标记 */
+      const openedDeltas = new Set<string>();
+      channel.onmessage = (message) => {
+        if (closed) return;
+        if (message.ipc === 'event') {
+          this.onEvent?.(message.event);
+          for (const chunk of this.eventChunks(message.event, openedDeltas)) {
+            controller.enqueue(chunk);
+          }
+          return;
+        }
+        if (message.ipc === 'record') {
+          this.onRecord?.(message.record);
+          this.enqueueRecord(controller, message.record);
+          closed = true;
+          controller.close();
+          return;
+        }
+        // 未知信封判别：忽略单条消息，流不断开
+      };
+      this.invokeStart(channel, session, controller);
+    };
+  }
+
+  /** 单事件 → chunk 组：增量事件首见时补发 provisional 开件组（start +
+   * reset-step + part-start），后续 delta 直发累积 chunk；密封/aux 事件走
+   * adapter 逐事件 chunk 组。 */
+  private eventChunks(event: AgentEvent, openedDeltas: Set<string>): AgentUIMessageChunk[] {
+    if (event.kind === 'messageDelta') {
+      const key = event.parentToolUseId ?? '';
+      const chunks = openedDeltas.has(key) ? [] : openProvisionalChunks(event);
+      openedDeltas.add(key);
+      return [...chunks, ...eventToChunk(event)];
+    }
+    return eventToChunk(event);
+  }
+
+  /** 终态轮行 → 同构 record 部件 chunk 组（与重放两路同构）。 */
+  private enqueueRecord(
+    controller: ReadableStreamDefaultController<AgentUIMessageChunk>,
+    record: TurnSummary,
+  ): void {
+    controller.enqueue({
+      type: 'start',
+      messageId: `turn-${record.turnId}`,
+      messageMetadata: { seq: null, parentToolUseId: null },
+    });
+    controller.enqueue({ type: 'reset-step' });
+    controller.enqueue({ type: 'data-run-record', data: record });
+    controller.enqueue({ type: 'finish' });
+  }
+
+  /** 发起运行（生成绑定穿透会话参数 + Channel）：early-resolve 轮行经
    * `onRecord` 透传；invoke 失败（启动阶段失败）把错误灌入流。 */
   private invokeStart(
     channel: Channel<AgentRunMessage>,
-    chain: AgentStartChainParams,
+    session: AgentStartSessionParams,
     controller: ReadableStreamDefaultController<AgentUIMessageChunk>,
   ): void {
     commands
       .agentStart(
         channel,
-        chain.root,
-        chain.prompt,
-        chain.permissionMode,
-        chain.resumeSessionId,
-        chain.source,
-        chain.sourceRef,
-        chain.parentRunId,
-        chain.agent,
+        session.root,
+        session.prompt,
+        session.permissionMode,
+        session.sessionId,
+        session.source,
+        session.sourceRef,
+        session.agent,
       )
       .then((record) => {
         this.onRecord?.(record);

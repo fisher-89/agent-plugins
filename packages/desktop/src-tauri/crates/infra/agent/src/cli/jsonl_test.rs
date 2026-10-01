@@ -1,8 +1,3 @@
-//! `jsonl` 的单元测试（AC-2 / D8）：单行归一化口径——system init → RunStarted、
-//! 其余 system → SystemNotice、assistant/user → Message、result → RunResult、
-//! 未知 type / 非 JSON → Raw 透传（永不丢事件、永不炸解析）、空白行跳过不占
-//! seq。行 fixture 以内嵌常量构造，无进程/文件边界，不需要 Mock。
-
 use agent::AgentEventKind;
 
 use crate::jsonl::normalize_line;
@@ -102,8 +97,8 @@ fn tool_use与tool_result块的id_name_input与扁平content映射正确() {
 }
 
 #[test]
-fn result行归一化为run_result且字段名对齐() {
-    let Some(AgentEventKind::RunResult {
+fn result行归一化为turn_done且字段名对齐() {
+    let Some(AgentEventKind::TurnDone {
         subtype,
         is_error,
         num_turns,
@@ -113,7 +108,7 @@ fn result行归一化为run_result且字段名对齐() {
         session_id,
     }) = normalize_line(RESULT_LINE)
     else {
-        panic!("result 行应归一化为 RunResult");
+        panic!("result 行应归一化为 TurnDone");
     };
 
     assert_eq!(subtype, "success");
@@ -274,7 +269,7 @@ fn init缺model与session置null缺tools与mcp置空数组() {
 #[test]
 fn result缺汇总字段时置null与false() {
     let line = r#"{"type":"result"}"#;
-    let Some(AgentEventKind::RunResult {
+    let Some(AgentEventKind::TurnDone {
         subtype,
         is_error,
         num_turns,
@@ -284,7 +279,7 @@ fn result缺汇总字段时置null与false() {
         session_id,
     }) = normalize_line(line)
     else {
-        panic!("缺字段 result 行仍归一化为 RunResult");
+        panic!("缺字段 result 行仍归一化为 TurnDone");
     };
     assert_eq!(subtype, "");
     assert!(!is_error);
@@ -335,7 +330,7 @@ fn 多行混合fixture归一化序列仅含非空白行且空白行不占位() {
     assert!(matches!(kinds[0], AgentEventKind::RunStarted { .. }));
     assert!(matches!(kinds[1], AgentEventKind::Message { .. }));
     assert!(matches!(kinds[2], AgentEventKind::Message { .. }));
-    assert!(matches!(kinds[3], AgentEventKind::RunResult { .. }));
+    assert!(matches!(kinds[3], AgentEventKind::TurnDone { .. }));
 }
 
 #[test]

@@ -1,19 +1,22 @@
-//! 清单记录模型：native_db 模型注册（`#[native_model]` + `#[native_db]`）、
-//! 字段定义、name 提取、时间戳取值。纯层，无 IO。
-//!
-//! 编解码由 native_model 接管（id/version 封装 + 编码后端），模型不再手写
-//! `encode` / `decode`；serde camelCase 线格式不变，仅落库载体换 native_model
-//! 封装。字段面零变化——shape 演进经 native_model 版本机制治理。编码后端
-//! 按模型选型：默认 bincode（紧凑），`AgentEventRecord` 用 serde_json（serde
-//! flatten 要求自描述编码，见模型文档）。
-
 use std::path::Path;
 
-use agent::{AgentEnvMode, AgentEvent, AgentPermissionMode, AgentRunStatus};
+use agent::{AgentEvent, AgentPermissionMode, AgentRunStatus};
 use native_db::{native_db, ToKey};
 use native_model::{native_model, Model};
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use specta::Type;
+
+/// v3 历史形态的环境档位枚举（仅升级链解码用；线值与退役的 core 枚举一致，
+/// `default` | `bare`）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub(crate) enum AgentEnvModeLegacy {
+    /// 完整环境（页面默认档）
+    Default,
+    /// 纯净档（显式开关）
+    Bare,
+}
 
 /// user 维度注册表一行（落全局库 `desktop-global.redb`，见 desktop-data-dimensions）：
 /// 主键即 `root`（canonical 完整路径）。
@@ -44,40 +47,21 @@ impl WorkspaceRecord {
     }
 }
 
-/// `AgentRunRecord.source` 的 serde 缺省值：既有调试链路写入语义不变。
-fn default_run_source() -> String {
-    "debug".to_owned()
-}
-
-/// agent 运行记录（workspace 维度，落所属 workspace 的独立 db 文件
-/// `workspaces/` 子树，cwd 恒为当前 workspace root 即归属键，见
-/// desktop-data-dimensions）：全平文字段；`status` / `env` / `permission_mode`
-/// 为 core/agent 契约枚举（serde camelCase 值域与枚举化前受控字符串逐字一致，
-/// serde JSON 线格式零变化）。
-///
-/// run id 为所属 workspace 库域内自增（写事务内 max+1），跨 workspace 不假定
-/// 全局唯一，跨库定位携 root。
-///
-/// 时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
-///
-/// 字段演进：version 2 新增 `source` / `source_ref` / `parent_run_id` 三字段
-/// （来源归属与 resume 链显式指针）；version 3 三字段 String → 枚举。v1 / v2
-/// 历史版本化结构与升级链已移除（不做旧库兼容定夺）：v1 / v2 版本头存量
-/// 载荷不再可读，native_model 读路径版本不支持直接报错。
-#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+/// `AgentRunRecord` 的 version 3 历史形态（仅作 native_model 升级链的解码
+/// 目标，不注册进库模型组、不出公共查询面）：会话化前的 run 全平文字段。
+/// 存量 v3 行经版本机制自动升级为 v4 孤儿轮行（零迁移代码路径）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 2, version = 3)]
-#[native_db]
-pub struct AgentRunRecord {
+pub(crate) struct AgentRunRecordV3 {
     /// run id（主键，写事务内 max+1 分配）
-    #[primary_key]
     pub id: i64,
     /// 提示词原文
     pub prompt: String,
     /// 工作目录
     pub cwd: String,
     /// 环境档位（default | bare）
-    pub env: AgentEnvMode,
+    pub env: AgentEnvModeLegacy,
     /// permission-mode 档位（default | acceptEdits | bypassPermissions）
     pub permission_mode: AgentPermissionMode,
     /// run 状态（running | completed | failed | stopped）
@@ -92,11 +76,12 @@ pub struct AgentRunRecord {
     pub cost_usd: Option<f64>,
     /// 运行时长毫秒（来自 result 事件）
     pub duration_ms: Option<u64>,
-    /// 会话 id（来自 result / init 事件，续会话入参来源）
+    /// 引擎侧会话 id（来自 result / init 事件；会话化后归属以 `SessionRecord`
+    /// 为准，升级时不平移）
     pub session_id: Option<String>,
     /// 失败原因（落库失败收敛 / 无 result 异常终止时填因）
     pub error: Option<String>,
-    /// 来源受控字符串（debug | explore | …），缺省 debug（调试链路语义不变）
+    /// 来源受控字符串（debug | explore | …），缺省 debug
     #[serde(default = "default_run_source")]
     pub source: String,
     /// 来源内定位（explore 指向探索记录主键的十进制串；调试 run 为 None）
@@ -105,6 +90,101 @@ pub struct AgentRunRecord {
     /// resume 链显式指针（本 run 的上游 run id；链首为 None）
     #[serde(default)]
     pub parent_run_id: Option<i64>,
+}
+
+/// `AgentRunRecord.source` 的 serde 缺省值：v3 升级链解码缺省（既有调试链路
+/// 写入语义不变）。
+fn default_run_source() -> String {
+    "debug".to_owned()
+}
+
+/// agent 轮统计行（workspace 维度，落所属 workspace 的独立 db 文件
+/// `workspaces/` 子树，cwd 恒为当前 workspace root 即归属键，见
+/// desktop-data-dimensions）：会话一等公民落地后的 run 退化形态——每轮一行，
+/// 挂 core 会话外键；同 session 的轮序列即链（`started_at` 有序），转录
+/// 归属转录单表（`SessionEventRecord`）。
+///
+/// turn id 为所属 workspace 库域内自增（写事务内 max+1），跨 workspace 不
+/// 假定全局唯一，跨库定位携 root。
+///
+/// 时间戳均为 UTC unix 毫秒 `i64`，与 `WorkspaceRecord` 同口径。
+///
+/// 字段演进：version 2 新增 `source` / `source_ref` / `parent_run_id`；
+/// version 3 三字段 String → 枚举；version 4 轮统计行化（来源归属主平移至
+/// `SessionRecord`、链指针语义由会话归属取代）——字段面收敛为 id /
+/// `session_id`（core 会话外键）/ status / 起止时间戳 / TurnDone 统计三字段 /
+/// error；存量 v3 行升级为无会话归属孤儿轮行（`session_id = None`，统计与
+/// 时间戳保留），prompt / cwd / env / permission_mode / source / source_ref /
+/// parent_run_id 随版本退役。IPC 面由 core `TurnSummary` 承载（port 映射出），
+/// 本类型退为 store 持久化内部类型。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 2, version = 4, from = AgentRunRecordV3)]
+#[native_db]
+pub struct AgentRunRecord {
+    /// turn id（主键，写事务内 max+1 分配）
+    #[primary_key]
+    pub id: i64,
+    /// 所属 core 会话 id（`SessionRecord` 主键；新行恒 Some，存量升级行为
+    /// None 孤儿轮行）
+    pub session_id: Option<String>,
+    /// 轮状态（running | completed | failed | stopped）
+    pub status: AgentRunStatus,
+    /// 开始时间（UTC unix 毫秒）
+    pub started_at: i64,
+    /// 结束时间；运行中为 None
+    pub finished_at: Option<i64>,
+    /// 收敛轮数（来自 TurnDone 事件）
+    pub num_turns: Option<u64>,
+    /// 总成本美元（来自 TurnDone 事件）
+    pub cost_usd: Option<f64>,
+    /// 运行时长毫秒（来自 TurnDone 事件）
+    pub duration_ms: Option<u64>,
+    /// 失败原因（落库失败收敛 / 无 TurnDone 异常终止时填因）
+    pub error: Option<String>,
+}
+
+impl From<AgentRunRecordV3> for AgentRunRecord {
+    fn from(previous: AgentRunRecordV3) -> Self {
+        Self {
+            id: previous.id,
+            // 存量行升级为无会话归属孤儿轮行（统计字段保留；旧引擎侧会话 id
+            // 不平移——归属语义已由 core 会话取代）
+            session_id: None,
+            status: previous.status,
+            started_at: previous.started_at,
+            finished_at: previous.finished_at,
+            num_turns: previous.num_turns,
+            cost_usd: previous.cost_usd,
+            duration_ms: previous.duration_ms,
+            error: previous.error,
+        }
+    }
+}
+
+/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
+/// 退役字段以缺省占位——只保升级语义真实性，降级形态不作数据承诺）。
+impl From<AgentRunRecord> for AgentRunRecordV3 {
+    fn from(record: AgentRunRecord) -> Self {
+        Self {
+            id: record.id,
+            prompt: String::new(),
+            cwd: String::new(),
+            env: AgentEnvModeLegacy::Default,
+            permission_mode: AgentPermissionMode::Default,
+            status: record.status,
+            started_at: record.started_at,
+            finished_at: record.finished_at,
+            num_turns: record.num_turns,
+            cost_usd: record.cost_usd,
+            duration_ms: record.duration_ms,
+            session_id: None,
+            error: record.error,
+            source: default_run_source(),
+            source_ref: None,
+            parent_run_id: None,
+        }
+    }
 }
 
 /// explore 清单记录（workspace 维度，落所属 workspace 的独立 db 文件
@@ -147,54 +227,104 @@ impl ExploreRecord {
     }
 }
 
-/// agent 运行事件记录（workspace 维度，落所属 run 同一 workspace 库——同库
-/// 内 N:1 引用，无跨库引用）：包装 struct 打 native_db derive，嵌装
-/// core `agent::AgentEvent` 纯类型作载荷——core 保持 derive-free，native_model
-/// 版本治理全部留在 infra 侧。
+/// agent 会话记录（workspace 维度，落所属 workspace 的独立 db 文件
+/// `workspaces/` 子树，与名下转录 / 轮统计行同库——级联删除与全史重放同实例
+/// 收敛）：会话一等公民的落库形态，core 铸 id 直作字符串主键（`WorkspaceRecord.root`
+/// 字符串主键既有先例）。
+///
+/// `config_snapshot` 存装配配置快照而非跨库引用（`AgentInstanceRecord` 在
+/// 全局库、session 在 workspace 库，store 惯例禁跨库引用；实例改名 / 删除
+/// 不伤历史会话）。`source` / `source_ref` 为会话级来源归属（会话化后来源
+/// 圈定的主归属，explore 级联删除据此圈定）。
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 7, version = 1)]
+#[native_db]
+pub struct SessionRecord {
+    /// core 铸会话 id（字符串主键，`ses-` 前缀铸造格式由 core 单点承载）
+    #[primary_key]
+    pub id: String,
+    /// 引擎侧会话标识（双 id 映射落库半边；未上报为 None）
+    pub engine_session_id: Option<String>,
+    /// 装配配置快照（engine / model / permission；快照非引用）
+    pub config_snapshot: SessionConfigSnapshot,
+    /// 来源受控字符串（debug | explore | …），缺省 debug
+    pub source: String,
+    /// 来源内定位（explore 指向探索记录主键的十进制串；调试会话为 None）
+    pub source_ref: Option<String>,
+    /// 建档时间（UTC unix 毫秒）
+    pub created_at: i64,
+    /// 最近更新时间（UTC unix 毫秒，轮事件绑定引擎标识时刷新）
+    pub updated_at: i64,
+}
+
+/// 装配配置快照（store 本地定型，嵌套 struct 不落独立模型——嵌装先例同
+/// 转录单表的 `AgentEvent`）：engine / model / permission 三面。快照是记录
+/// 自证——续会话引擎路由凭此比对（core 契约不解释装配概念，core 侧以
+/// serde_json::Value 不透明承载）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionConfigSnapshot {
+    /// 引擎二值（cli / sdk，store 本地枚举同 [`AgentEngineKind`]）
+    pub engine: AgentEngineKind,
+    /// 模型标识（cli 引擎无模型装配概念，None）
+    pub model: Option<String>,
+    /// permission-mode 档位
+    pub permission_mode: AgentPermissionMode,
+}
+
+/// agent 会话转录单表（workspace 维度，落所属会话同一 workspace 库——同库
+/// 内 N:1 引用，无跨库引用）：密封事件**直挂 session** 的转录载体（会话全史
+/// = 重放与 resume 重建唯一来源），run 退化为轮统计行不再挂事件。包装 struct
+/// 打 native_db derive，嵌装 core `agent::AgentEvent` 纯类型作载荷——core
+/// 保持 derive-free，native_model 版本治理全部留在 infra 侧。**密封事件
+/// only**：`MessageDelta` 永不落库（sink 防御性忽略）。
 ///
 /// 编码后端为 serde_json（[`SerdeJsonCodec`]）：`AgentEvent` 内部 tag 枚举
 /// 经 `#[serde(flatten)]` 扁平进信封，serde 的 flatten 语义要求自描述编码，
 /// bincode 1.3 的定长 map 不支持；JSON 与 core「serde camelCase 线格式即
 /// 落库形态」口径一致。
 ///
-/// 主键为合成 u128 打包键（native_db 复合主键不受支持，见 design Spike①）：
-/// 高 64 位 run_id、低 64 位 seq，`to_key()` 大端字节序保证字典序即数值序，
-/// 同 run 内扫描自然序即重放序。`run_id` 另立非唯一二级索引承载重放查询。
+/// 主键为合成 u128 打包键（native_db 复合主键不受支持，既有 Spike① 留痕）：
+/// 高 64 位 `hash64(session_id)`、低 64 位 seq，`to_key()` 大端字节序保证
+/// 字典序即数值序，同会话内自然序即重放序（delta 占 seq 产生库内空洞，排序
+/// 键语义合法）。`session_id` 另立非唯一二级索引保查询形态。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
-#[native_model(id = 3, version = 1, with = SerdeJsonCodec)]
+#[native_model(id = 8, version = 1, with = SerdeJsonCodec)]
 #[native_db]
-pub struct AgentEventRecord {
-    /// 复合键打包：`(run_id as u128) << 64 | seq`
+pub struct SessionEventRecord {
+    /// 复合键打包：`(hash64(session_id) as u128) << 64 | seq`
     ///
     /// serde 定制为十六进制字符串：serde_json 无 u128 支持且打包值必超
     /// u64 上界（信封 API 要把记录转 JSON），字符串形态保住 JSON 可表达性。
     #[primary_key]
     #[serde(with = "event_key_serde")]
     pub event_key: u128,
-    /// 所属 run id（非唯一二级索引，重放查询入口）
+    /// 所属会话 id（非唯一二级索引，重放查询入口）
     #[secondary_key]
-    pub run_id: i64,
-    /// 事件载荷（嵌装 core 纯类型，含 `Raw` 逃生舱）
+    pub session_id: String,
+    /// 密封事件载荷（嵌装 core 纯类型，含 `Raw` 逃生舱；增量永不见）
     pub event: AgentEvent,
 }
 
-impl AgentEventRecord {
-    /// 由 run id 与事件构造记录：`event_key` 打包自 `run_id` + `event.seq`。
-    pub fn new(run_id: i64, event: AgentEvent) -> Self {
+impl SessionEventRecord {
+    /// 由会话 id 与事件构造记录：`event_key` 打包自 `hash64(session_id)` +
+    /// `event.seq`。
+    pub fn new(session_id: &str, event: AgentEvent) -> Self {
         Self {
-            event_key: pack_event_key(run_id, event.seq),
-            run_id,
+            event_key: pack_session_event_key(session_id, event.seq),
+            session_id: session_id.to_owned(),
             event,
         }
     }
 
-    /// 所属 run id（打包键还原口径，重放扫描方免解载荷）。
-    pub fn run_id(&self) -> i64 {
-        self.run_id
+    /// 所属会话 id（重放扫描方免解载荷）。
+    pub fn session_id(&self) -> &str {
+        &self.session_id
     }
 
-    /// 事件序号（同 run 内单调递增；打包键低 64 位，与 `event.seq` 同源）。
+    /// 事件序号（同会话内单调递增；打包键低 64 位，与 `event.seq` 同源）。
     pub fn seq(&self) -> u64 {
         self.event.seq
     }
@@ -203,7 +333,7 @@ impl AgentEventRecord {
 // --- agent 管理记录（user 维度，全局库 desktop-global.redb）----------------
 
 /// provider 三档模型档位（agent 管理域，纯嵌套 struct 不落独立模型——嵌装
-/// 先例同 [`AgentEventRecord`] 的 `AgentEvent`）：high / medium / low 三档
+/// 先例同转录单表的 `AgentEvent`）：high / medium / low 三档
 /// 模型标识，运行发起解析消费固定取 high 档（effort 进 run 参数与档位选择
 /// 器为后续迭代，本期只存不选）。
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
@@ -337,9 +467,18 @@ impl AgentInstanceRecord {
     }
 }
 
-/// 复合键打包：高 64 位 run_id、低 64 位 seq。store 内唯一组装点。
-pub(crate) fn pack_event_key(run_id: i64, seq: u64) -> u128 {
-    ((run_id as u128) << 64) | (seq as u128)
+/// 复合键打包：高 64 位 `hash64(session_id)`、低 64 位 seq。store 内唯一
+/// 组装点。
+pub(crate) fn pack_session_event_key(session_id: &str, seq: u64) -> u128 {
+    ((session_key_hash(session_id) as u128) << 64) | (seq as u128)
+}
+
+/// 会话键 64 位哈希：SHA-256(session_id UTF-8 字节) 前 8 字节大端 u64
+/// （sha2 既有依赖复用，与 workspace 库文件名哈希成分同源同族）。碰撞域
+/// 2^-64，同库会话量级下不可达；打包键内同会话高 64 位恒一致。
+fn session_key_hash(session_id: &str) -> u64 {
+    let digest = Sha256::digest(session_id.as_bytes());
+    u64::from_be_bytes(digest[..8].try_into().expect("SHA-256 摘要前 8 字节定长"))
 }
 
 /// `event_key` 的 serde 定制：u128 ↔ 十六进制字符串（serde_json 数字面不收
@@ -361,7 +500,7 @@ mod event_key_serde {
 }
 
 /// serde_json 编码后端（native_model 自定义 codec，`with = SerdeJsonCodec`）：
-/// 仅 [`AgentEventRecord`] 使用——serde flatten 要求自描述编码（bincode 不
+/// 仅转录单表 `SessionEventRecord` 使用——serde flatten 要求自描述编码（bincode 不
 /// 支持，见模型文档）；其余模型保持默认 bincode（紧凑，字段面平直）。
 pub(crate) struct SerdeJsonCodec;
 

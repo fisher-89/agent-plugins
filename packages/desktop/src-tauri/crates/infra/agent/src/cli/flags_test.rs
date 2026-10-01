@@ -1,45 +1,35 @@
-//! `flags` 的单元测试（AC-2 / AC-6）：`build_args` 纯函数的组装口径——
-//! `-p` + stream-json + verbose 恒有、permission-mode 映射、prompt 保真、
-//! cwd 不产生 flag、`--resume` 条件组装（`resume_session_id` 显式续会话）与
-//! 禁用 flag 全组合负向断言。无外部依赖，不需要 Mock。
+use agent::AgentPermissionMode;
 
-use std::path::PathBuf;
+use crate::flags::{build_args, TurnParams};
 
-use agent::{AgentPermissionMode, AgentRunParams};
-
-use crate::flags::build_args;
-
-fn params(prompt: &str, permission_mode: AgentPermissionMode) -> AgentRunParams {
-    AgentRunParams {
+fn params(prompt: &str, permission_mode: AgentPermissionMode) -> TurnParams {
+    TurnParams {
         prompt: prompt.to_owned(),
-        cwd: PathBuf::from("C:\\work\\demo"),
         permission_mode,
-        resume_session_id: None,
+        resume_handle: None,
     }
 }
 
-/// 带续会话入参的组装入参（其余字段同 [`params`]）。
+/// 带引擎侧先行句柄的组装入参（其余字段同 [`params`]）。
 fn params_with_resume(
     prompt: &str,
     permission_mode: AgentPermissionMode,
-    resume_session_id: Option<&str>,
-) -> AgentRunParams {
-    AgentRunParams {
-        resume_session_id: resume_session_id.map(str::to_owned),
+    resume_handle: Option<&str>,
+) -> TurnParams {
+    TurnParams {
+        resume_handle: resume_handle.map(str::to_owned),
         ..params(prompt, permission_mode)
     }
 }
 
 // ---------------------------------------------------------------------------
-// 组装口径（正向）
+// 四要素 flag 序列零回归（正向：三档全组合）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn default加bypass组装恰含四要素flag() {
+fn bypass档组装恰含四要素flag无多余项() {
     let args = build_args(&params("任务", AgentPermissionMode::BypassPermissions));
 
-    // AC-2 四 flag 断言：-p <prompt>、--output-format stream-json、--verbose、
-    // --dangerously-skip-permissions；且无多余项
     assert_eq!(
         args,
         vec![
@@ -55,29 +45,43 @@ fn default加bypass组装恰含四要素flag() {
 }
 
 #[test]
-fn permission_mode三档分别映射acceptedits与dangerously与无flag() {
-    let accept_edits = build_args(&params("任务", AgentPermissionMode::AcceptEdits));
-    let position = accept_edits
-        .iter()
-        .position(|arg| arg == "--permission-mode")
-        .expect("acceptEdits 组装含 --permission-mode flag");
-    assert_eq!(
-        accept_edits.get(position + 1).map(String::as_str),
-        Some("acceptEdits"),
-        "档位值与 serde 线格式值域同源（单一来源，无字符串副本）"
-    );
-
-    let default = build_args(&params("任务", AgentPermissionMode::Default));
-    assert!(
-        !default.iter().any(|arg| arg.contains("permission")),
-        "default 档无 permission flag（CLI -p 默认档），实际: {default:?}"
-    );
+fn 三档全组合组装结果与既有基线逐项相等() {
+    // Default（无 permission flag）/ AcceptEdits / BypassPermissions 三档穷尽：
+    // 组装结果与既有基线逐项相等（flag 输出序列零变化）
+    for (mode, expected_flags) in [
+        (AgentPermissionMode::Default, None),
+        (
+            AgentPermissionMode::AcceptEdits,
+            Some(["--permission-mode", "acceptEdits"].as_slice()),
+        ),
+        (
+            AgentPermissionMode::BypassPermissions,
+            Some(["--dangerously-skip-permissions"].as_slice()),
+        ),
+    ] {
+        let args = build_args(&params("任务", mode));
+        assert_eq!(
+            args,
+            legacy_args("任务", mode),
+            "组合 permission={mode:?} 与既有基线逐项相等"
+        );
+        // 档位段（基础五要素 -p/prompt/stream-json/verbose 之后、resume 之前）
+        let tail = &args[5..];
+        match expected_flags {
+            Some(expected) => assert_eq!(
+                tail, expected,
+                "组合 permission={mode:?} 档位段逐字一致"
+            ),
+            None => assert!(
+                tail.is_empty(),
+                "组合 permission={mode:?} 无档位 flag，实际: {tail:?}"
+            ),
+        }
+    }
 }
 
 #[test]
-fn 档位值改serde派生后accept_edits值串逐字不变且组装与基线逐项相等() {
-    // flag 值改由 serde 序列化派生（serde_json::to_value 取字符串）：值串与
-    // 枚举化前逐字一致（AC-1 行为不变回归锁定），组装序列与既有基线逐项相等
+fn accept_edits档位值与serde派生线值同源() {
     let derived =
         serde_json::to_value(AgentPermissionMode::AcceptEdits).expect("档位枚举序列化应成功");
     assert_eq!(
@@ -94,49 +98,17 @@ fn 档位值改serde派生后accept_edits值串逐字不变且组装与基线逐
     assert_eq!(
         args.get(position + 1).map(String::as_str),
         Some("acceptEdits"),
-        "flag 值串逐字为 acceptEdits"
-    );
-    assert_eq!(
-        args,
-        legacy_args("任务", AgentPermissionMode::AcceptEdits),
-        "组装序列与既有基线逐项相等"
+        "flag 值串逐字为 acceptEdits（单一来源，无字符串副本）"
     );
 }
 
 #[test]
-fn 三档全组合组装结果与改动前基线逐项相等() {
-    // Default（无 permission flag）/ AcceptEdits / BypassPermissions 三档穷尽：
-    // 组装结果与改动前基线逐项相等（边界穷尽，复用 legacy_args 基线对照装置）
-    for (mode, expected) in [
-        (AgentPermissionMode::Default, None),
-        (
-            AgentPermissionMode::AcceptEdits,
-            Some(["--permission-mode", "acceptEdits"].as_slice()),
-        ),
-        (
-            AgentPermissionMode::BypassPermissions,
-            Some(["--dangerously-skip-permissions"].as_slice()),
-        ),
-    ] {
-        let args = build_args(&params("任务", mode));
-        assert_eq!(
-            args,
-            legacy_args("任务", mode),
-            "组合 permission={mode:?} 与改动前基线逐项相等"
-        );
-        // 档位段（基础五要素 -p/prompt/stream-json/verbose 之后、resume 之前）逐字核对
-        let tail = &args[5..];
-        match expected {
-            Some(expected_flags) => assert_eq!(
-                tail, expected_flags,
-                "组合 permission={mode:?} 档位段逐字一致"
-            ),
-            None => assert!(
-                tail.is_empty(),
-                "组合 permission={mode:?} 无档位 flag，实际: {tail:?}"
-            ),
-        }
-    }
+fn default档无permission_flag() {
+    let default = build_args(&params("任务", AgentPermissionMode::Default));
+    assert!(
+        !default.iter().any(|arg| arg.contains("permission")),
+        "default 档无 permission flag（CLI -p 默认档），实际: {default:?}"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -147,7 +119,6 @@ fn 三档全组合组装结果与改动前基线逐项相等() {
 fn 空prompt仍组装空串arg作为单个参数() {
     let args = build_args(&params("", AgentPermissionMode::Default));
 
-    // 组装层恒有 -p（必填把关在 UI 层）：-p 后紧跟空串 arg
     assert_eq!(args.first().map(String::as_str), Some("-p"));
     assert_eq!(
         args.get(1).map(String::as_str),
@@ -182,58 +153,11 @@ fn 超长prompt完整保留于arg() {
 }
 
 // ---------------------------------------------------------------------------
-// AC-6 负向断言与 cwd（边界）
+// --resume 尾追加（prior_handle Some/None）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 全组合未传resume时均不含resume与禁用flag() {
-    // AC-6：resume 未传时无 --resume；--include-partial-messages / model flag
-    // 维持禁用（MVP 边界：--resume 随本变更解禁为条件 flag，其余禁用项不变）
-    let forbidden = ["--resume", "--include-partial-messages", "--model"];
-    for permission_mode in [
-        AgentPermissionMode::Default,
-        AgentPermissionMode::AcceptEdits,
-        AgentPermissionMode::BypassPermissions,
-    ] {
-        let args = build_args(&params("任务", permission_mode));
-        for flag in forbidden {
-            assert!(
-                !args.iter().any(|arg| arg.starts_with(flag)),
-                "组合 permission={permission_mode:?} 不得含 {flag}，实际: {args:?}"
-            );
-        }
-    }
-}
-
-// ---------------------------------------------------------------------------
-// resume 组装（AC-6：显式续会话条件 flag）
-// ---------------------------------------------------------------------------
-
-/// 演进前组装基线（不含 resume 字段时代的组装序列，逐项镜像）：
-/// 向后兼容回归的对照基准。
-fn legacy_args(prompt: &str, permission_mode: AgentPermissionMode) -> Vec<String> {
-    let mut args = vec![
-        "-p".to_owned(),
-        prompt.to_owned(),
-        "--output-format".to_owned(),
-        "stream-json".to_owned(),
-        "--verbose".to_owned(),
-    ];
-    match permission_mode {
-        AgentPermissionMode::BypassPermissions => {
-            args.push("--dangerously-skip-permissions".to_owned());
-        }
-        AgentPermissionMode::AcceptEdits => {
-            args.push("--permission-mode".to_owned());
-            args.push("acceptEdits".to_owned());
-        }
-        AgentPermissionMode::Default => {}
-    }
-    args
-}
-
-#[test]
-fn resume为some时尾部恰追加resume与id且前缀与基线一致() {
+fn prior_handle为some时尾部恰追加resume与id且前缀与基线一致() {
     let args = build_args(&params_with_resume(
         "任务",
         AgentPermissionMode::BypassPermissions,
@@ -249,12 +173,12 @@ fn resume为some时尾部恰追加resume与id且前缀与基线一致() {
     assert_eq!(
         &args[..args.len() - 2],
         baseline.as_slice(),
-        "resume 之外的前缀与既有四要素序列逐项相等（其余 flag 组装不变）"
+        "resume 之外的前缀与既有四要素序列逐项相等"
     );
 }
 
 #[test]
-fn resume为none时组装结果与既有基线逐项相等且无resume() {
+fn prior_handle为none时组装结果与既有基线逐项相等且无resume() {
     for permission_mode in [
         AgentPermissionMode::Default,
         AgentPermissionMode::AcceptEdits,
@@ -274,64 +198,7 @@ fn resume为none时组装结果与既有基线逐项相等且无resume() {
 }
 
 #[test]
-fn none时与改动前基线序列完全一致向后兼容回归() {
-    // AC-6 第三分句：组装层对 None 与「无 resume 字段的旧 params」不可区分——
-    // 九种档位组合下逐项等于演进前组装序列
-    for permission_mode in [
-        AgentPermissionMode::Default,
-        AgentPermissionMode::AcceptEdits,
-        AgentPermissionMode::BypassPermissions,
-    ] {
-        assert_eq!(
-            build_args(&params("回归", permission_mode)),
-            legacy_args("回归", permission_mode),
-            "组合 permission={permission_mode:?} 与改动前行为完全一致"
-        );
-    }
-}
-
-#[test]
-fn resume为空串仍组装resume与空arg单参数() {
-    let args = build_args(&params_with_resume(
-        "任务",
-        AgentPermissionMode::Default,
-        Some(""),
-    ));
-
-    // 组装层不把关（与空 prompt 同哲学）：--resume 后紧跟空串 arg
-    assert_eq!(
-        &args[args.len() - 2..],
-        ["--resume", ""],
-        "空串 resume 仍组装为 --resume + 空 arg 两项，实际: {args:?}"
-    );
-}
-
-#[test]
-fn resume含空格引号换行emoji超长时原样保留单个arg不拆分() {
-    let session_id = "s 1 \"quoted\"\nnext 🎉 中文";
-    let long = format!("{session_id}{}", "x".repeat(1000));
-    let args = build_args(&params_with_resume(
-        "任务",
-        AgentPermissionMode::Default,
-        Some(&long),
-    ));
-
-    assert_eq!(
-        args.last().map(String::as_str),
-        Some(long.as_str()),
-        "resume id 原样保留为单个 arg，不被空白/特殊字符拆分或截断"
-    );
-    assert_eq!(
-        args.iter().filter(|arg| *arg == "--resume").count(),
-        1,
-        "不因 id 内空白产生第二个 --resume flag"
-    );
-}
-
-#[test]
 fn 组合下resume恒在尾部且档位flag与相对次序不变() {
-    // resume 组装与 permission-mode 档位正交：追加恒在尾部，
-    // 前缀（档位 flag 面与相对次序）与 None 组装逐项相等
     for permission_mode in [
         AgentPermissionMode::Default,
         AgentPermissionMode::AcceptEdits,
@@ -353,29 +220,114 @@ fn 组合下resume恒在尾部且档位flag与相对次序不变() {
     }
 }
 
-#[test]
-fn cwd不产生任何flag且不影响组装结果() {
-    let base = AgentRunParams {
-        prompt: "任务".to_owned(),
-        cwd: PathBuf::from("C:\\work\\demo"),
-        permission_mode: AgentPermissionMode::BypassPermissions,
-        resume_session_id: None,
-    };
-    let other_cwd = AgentRunParams {
-        cwd: PathBuf::from("D:\\另一 个\\目录 🎉"),
-        ..base.clone()
-    };
+// ---------------------------------------------------------------------------
+// resume id 保真（边界）
+// ---------------------------------------------------------------------------
 
-    let args_a = build_args(&base);
-    let args_b = build_args(&other_cwd);
+#[test]
+fn prior_handle空串仍组装resume与空arg() {
+    let args = build_args(&params_with_resume(
+        "任务",
+        AgentPermissionMode::Default,
+        Some(""),
+    ));
+
     assert_eq!(
-        args_a, args_b,
-        "cwd 仅经 Command::current_dir 传递，不进 flag 序列"
+        &args[args.len() - 2..],
+        ["--resume", ""],
+        "空串 prior_handle 仍组装为 --resume + 空 arg 两项，实际: {args:?}"
     );
+}
+
+#[test]
+fn prior_handle含空格引号换行emoji超长时原样保留单个arg() {
+    let handle = "s 1 \"quoted\"\nnext 🎉 中文";
+    let long = format!("{handle}{}", "x".repeat(1000));
+    let args = build_args(&params_with_resume(
+        "任务",
+        AgentPermissionMode::Default,
+        Some(&long),
+    ));
+
+    assert_eq!(
+        args.last().map(String::as_str),
+        Some(long.as_str()),
+        "prior_handle 原样保留为单个 arg，不被空白/特殊字符拆分或截断"
+    );
+    assert_eq!(
+        args.iter().filter(|arg| *arg == "--resume").count(),
+        1,
+        "不因 id 内空白产生第二个 --resume flag"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 禁用 flag 负向与 cwd（边界）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 全组合不含禁用flag() {
+    let forbidden = ["--resume", "--include-partial-messages", "--model"];
+    for permission_mode in [
+        AgentPermissionMode::Default,
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ] {
+        let args = build_args(&params("任务", permission_mode));
+        for flag in forbidden {
+            assert!(
+                !args.iter().any(|arg| arg.starts_with(flag)),
+                "组合 permission={permission_mode:?} 不得含 {flag}，实际: {args:?}"
+            );
+        }
+    }
+}
+
+#[test]
+fn cwd不进协议轮参数形状_组装结果不含工作目录片段() {
+    // 协议轮参数形状（TurnParams）无 cwd 字段：cwd 仅经 Command::current_dir
+    // 传递（编译期锚定——本构造若需 cwd 即编译失败）；组装结果亦不含路径片段
+    let turn_params = TurnParams {
+        prompt: "任务".to_owned(),
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        resume_handle: None,
+    };
+    let args = build_args(&turn_params);
+
     assert!(
-        !args_a
+        !args
             .iter()
-            .any(|arg| arg.contains("work") || arg.contains("demo")),
-        "组装结果不含 cwd 片段，实际: {args_a:?}"
+            .any(|arg| arg.contains("work") || arg.contains("demo") || arg.contains('\\')),
+        "组装结果不含 cwd 片段，实际: {args:?}"
     );
+    // 三档组装互异性（档位 flag 面各自成立）
+    let default_args = build_args(&params("任务", AgentPermissionMode::Default));
+    let accept_args = build_args(&params("任务", AgentPermissionMode::AcceptEdits));
+    assert_ne!(args, default_args);
+    assert_ne!(args, accept_args);
+}
+
+// ---------------------------------------------------------------------------
+// 基线对照装置（演进前组装序列，逐项镜像）
+// ---------------------------------------------------------------------------
+
+fn legacy_args(prompt: &str, permission_mode: AgentPermissionMode) -> Vec<String> {
+    let mut args = vec![
+        "-p".to_owned(),
+        prompt.to_owned(),
+        "--output-format".to_owned(),
+        "stream-json".to_owned(),
+        "--verbose".to_owned(),
+    ];
+    match permission_mode {
+        AgentPermissionMode::BypassPermissions => {
+            args.push("--dangerously-skip-permissions".to_owned());
+        }
+        AgentPermissionMode::AcceptEdits => {
+            args.push("--permission-mode".to_owned());
+            args.push("acceptEdits".to_owned());
+        }
+        AgentPermissionMode::Default => {}
+    }
+    args
 }

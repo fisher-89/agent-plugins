@@ -1,14 +1,8 @@
-//! 事件信封：五变体逻辑事件模型 + 块模型 + 盖戳构造。纯类型，无 IO。
-//!
-//! 信封是三租户（CLI / SDK / API）共享的逻辑事件模型，非任何线上格式直译；
-//! serde camelCase 线格式同时是落库形态与前端 DTO 镜像基准。
-//! [`AgentEventKind::Raw`] 刻意承接未识别事件透传：永不丢事件、永不炸解析。
-
 use serde::{Deserialize, Serialize};
 use specta::Type;
 
 /// UTC unix 毫秒：std 唯一时间源（时钟早于 epoch 时取 0，不 panic）。
-fn now_millis() -> i64 {
+pub(crate) fn now_millis() -> i64 {
     std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
         .map(|d| d.as_millis() as i64)
@@ -41,9 +35,20 @@ pub enum AgentBlock {
     },
 }
 
-/// 事件类别五变体：`kind` 为 serde 内部 tag（camelCase 值），经
-/// [`AgentEvent`] 扁平进线格式。字段表与归一化映射见能力 spec
-/// `specs/desktop-agent-execution/spec.md`（路径相对域根）。
+/// token 级增量载荷（思考/回复可辨；serde 内部 tag camelCase，与块模型同式）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(
+    tag = "kind",
+    rename_all = "camelCase",
+    rename_all_fields = "camelCase"
+)]
+pub enum AgentDelta {
+    /// 文本增量
+    Text { text: String },
+    /// 思考增量
+    Thinking { thinking: String },
+}
+
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(
     tag = "kind",
@@ -58,7 +63,14 @@ pub enum AgentEventKind {
         tools: Vec<String>,
         mcp_servers: Vec<String>,
     },
-    /// 对话消息（源自 assistant / user）：块序列 + 子代理归因
+    /// token 级增量（ephemeral）：只上传输面，store 永不见；配对键沿用
+    /// `parent_tool_use_id` 词汇（子代理归因一处两用）
+    MessageDelta {
+        parent_tool_use_id: Option<String>,
+        delta: AgentDelta,
+    },
+    /// 对话消息（源自 assistant / user）：块序列 + 子代理归因。密封层：唯一
+    /// 落库与重放单元，密封粒度 = 引擎一次 assistant 回应（全部块收进）
     Message {
         role: String,
         blocks: Vec<AgentBlock>,
@@ -69,8 +81,9 @@ pub enum AgentEventKind {
         subtype: String,
         payload: serde_json::Value,
     },
-    /// run 收敛事件：唯一驱动状态机收敛的变体
-    RunResult {
+    /// 轮收敛事件：唯一驱动状态机收敛的变体，字段面 = 统计唯一口径（由内核
+    /// 收口写轮行，引擎无第二口径）
+    TurnDone {
         subtype: String,
         is_error: bool,
         num_turns: Option<u64>,
@@ -86,12 +99,28 @@ pub enum AgentEventKind {
     },
 }
 
+impl AgentEventKind {
+    /// 增量判别：仅 [`AgentEventKind::MessageDelta`] 为真（内核泵分类与
+    /// store sink 防御共用——增量只上传输面，永不落库）。
+    pub fn is_delta(&self) -> bool {
+        matches!(self, Self::MessageDelta { .. })
+    }
+
+    /// 密封判别：增量以外的五变体为真（durable 词汇面，与 [`Self::is_delta`]
+    /// 互补不重叠）。
+    pub fn is_sealed(&self) -> bool {
+        !self.is_delta()
+    }
+}
+
 /// 统一事件信封：每事件携带 `seq`（单调序号，入库排序键）与时间戳；
-/// `kind` 扁平进线格式（线格式 = 落库形态 = 前端 DTO 基准）。
+/// `kind` 扁平进线格式（线格式 = 落库形态（密封） = 前端 DTO 基准）。
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AgentEvent {
-    /// 单调序号，每 run 从 0 递增；空白行跳过不占 seq
+    /// 单调序号，每轮从 0 递增；空白行跳过不占 seq。共享单调 seq 空间：
+    /// 增量同样占号（盖戳治理单点、传输/落库两路 seq 可比对），库内重放为
+    /// 密封事件 seq 升序、容忍空洞（排序键语义合法）
     pub seq: u64,
     /// 事件盖戳时刻（UTC unix 毫秒）
     pub timestamp_ms: i64,

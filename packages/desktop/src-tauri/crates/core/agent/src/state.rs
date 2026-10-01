@@ -1,7 +1,3 @@
-//! run 状态机：running → completed | failed | stopped，由 `RunResult.is_error`
-//! 驱动收敛为 completed / failed，显式终止请求经 [`RunStateMachine::stop`]
-//! 独立分支收敛为 stopped；收敛后拒绝一切状态变更（幂等终态）。
-
 use crate::event::{AgentEvent, AgentEventKind};
 
 /// run 生命周期状态。
@@ -17,10 +13,6 @@ pub enum AgentRunState {
     Stopped,
 }
 
-/// 收敛状态机：`apply` 按事件流推进，[`AgentRunState::Running`] 之后由首个
-/// `RunResult` 事件一次性收敛，此后 `apply` 不再改变状态；显式终止经
-/// [`RunStateMachine::stop`] 收敛，首个收敛生效（RunResult 与 stop 竞态时
-/// 先到者定终态）。
 #[derive(Debug, Clone)]
 pub struct RunStateMachine {
     state: AgentRunState,
@@ -34,11 +26,11 @@ impl RunStateMachine {
         }
     }
 
-    /// 应用一个事件并返回应用后的状态：仅 `RunResult` 驱动收敛（is_error
+    /// 应用一个事件并返回应用后的状态：仅 `TurnDone` 驱动收敛（is_error
     /// → Failed / 否则 Completed），其余事件不改变状态；已收敛则原样返回。
     pub fn apply(&mut self, event: &AgentEvent) -> AgentRunState {
         if self.state == AgentRunState::Running {
-            if let AgentEventKind::RunResult { is_error, .. } = &event.kind {
+            if let AgentEventKind::TurnDone { is_error, .. } = &event.kind {
                 self.state = if *is_error {
                     AgentRunState::Failed
                 } else {

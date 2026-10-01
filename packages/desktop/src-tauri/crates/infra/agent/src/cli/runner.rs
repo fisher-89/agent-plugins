@@ -1,14 +1,8 @@
-//! `ClaudeCliRunner`：CLI 租户实现——CLI 发现 → spawn → stdout 逐行泵 →
-//! 逐行归一化发入有界 mpsc → EOF 无 result 补发合成收敛事件；停止信号到达
-//! 即进程树击杀并中止行读取（停止路径不合成 result）。
-//!
-//! 进程细节（`cmd /C` shim 包装、stderr 排水、stdin 关闭、树杀）全部封在
-//! 本模块，trait 面上只暴露逻辑事件流与句柄。
-
-use std::path::Path;
+use std::path::{Path, PathBuf};
 
 use agent::{
-    AgentEvent, AgentEventKind, AgentRun, AgentRunParams, AgentRunner, AgentStartError, RunHandle,
+    AgentEventKind, AgentRunner, AgentSession, AgentStartError, RunHandle, SessionOpen,
+    TurnQuestion,
 };
 use tokio::io::{AsyncBufReadExt, BufReader};
 use tokio::process::{ChildStdout, Command};
@@ -19,15 +13,18 @@ use crate::{discover, flags, jsonl};
 /// 事件通道有界容量（背压策略：泵任务阻塞在 `send`，事件不丢、内存有界）。
 const EVENT_CHANNEL_CAPACITY: usize = 256;
 
-/// EOF 无 result 事件时合成收敛事件的 subtype（design D6：收敛恒由
-/// RunResult 驱动，状态机不需要 EOF 特判）。
+/// 提问通道有界容量（逐轮送达；单会话单活动轮，容量 4 为余量）。
+const QUESTION_CHANNEL_CAPACITY: usize = 4;
+
+/// EOF 无 TurnDone 事件时合成收敛事件的 subtype（design D6：收敛恒由
+/// TurnDone 驱动，状态机不需要 EOF 特判）。
 const PROCESS_EXIT_SUBTYPE: &str = "error_process_exit";
 
 /// 无状态 runner 构造。
 pub struct ClaudeCliRunner;
 
 impl ClaudeCliRunner {
-    /// 无状态 runner：全部运行态在 `start` 产出的 [`AgentRun`] 内。
+    /// 无状态 runner：全部运行态在 `open_session` 产出的会话泵任务内。
     pub fn new() -> Self {
         Self
     }
@@ -40,46 +37,146 @@ impl Default for ClaudeCliRunner {
 }
 
 impl AgentRunner for ClaudeCliRunner {
-    fn start(&self, params: AgentRunParams) -> Result<AgentRun, AgentStartError> {
-        let program = discover::discover()?;
-        let args = flags::build_args(&params);
-        let mut command = build_command(&program, &args, &params.cwd);
-        let mut child = command.spawn().map_err(|e| {
-            AgentStartError::SpawnFailed(format!("{} 启动失败: {e}", program.display()))
-        })?;
-        let stdout = child
-            .stdout
-            .take()
-            .ok_or_else(|| AgentStartError::SpawnFailed("stdout 未按管道打开".to_owned()))?;
-        let stderr = child.stderr.take();
-        let (sender, receiver) = mpsc::channel::<AgentEvent>(EVENT_CHANNEL_CAPACITY);
-        // stderr 排水任务：不读会撑满管道缓冲导致子进程写阻塞（内容本期不消费）
-        if let Some(stderr) = stderr {
-            tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(_)) = lines.next_line().await {}
-            });
-        }
-        // 退出码任务：独占 child.wait()（EOF 后泵消费退出码）；停止路径经
-        // 击杀缝终止进程后 wait 随之返回，oneshot 发送端静默失败（接收端已关）
-        let pid = child.id();
-        let (exit_tx, exit_rx) = tokio::sync::oneshot::channel();
-        tokio::spawn(async move {
-            let _ = exit_tx.send(child.wait().await.ok().and_then(|status| status.code()));
-        });
+    /// open 段无 IO（CLI 发现延后至 ask——发现是文件系统扫描；injections 为
+    /// 会话级注入，CLI 租户 MVP 不消费，整合方式引擎自选：忽略）。
+    fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError> {
+        let (question_tx, question_rx) = mpsc::channel::<TurnQuestion>(QUESTION_CHANNEL_CAPACITY);
+        let (observation_tx, observation_rx) =
+            mpsc::channel::<agent::AgentEventKind>(EVENT_CHANNEL_CAPACITY);
         let handle = RunHandle::default();
-        tokio::spawn(pump_with_kill(stdout, exit_rx, sender, handle.clone(), pid));
-        Ok(AgentRun {
-            events: receiver,
+        tokio::spawn(session_pump(
+            open,
+            question_rx,
+            observation_tx,
+            handle.clone(),
+        ));
+        Ok(AgentSession {
+            observations: observation_rx,
+            questions: question_tx,
             handle,
         })
     }
 }
 
+/// 会话泵任务（ask 段）：逐轮等待提问 → CLI 发现 → spawn → 逐行泵（EOF /
+/// 停止）→ 回到等待下一轮；问题通道关闭（内核轮驱动半边已收）即退出。ask
+/// 阶段 spawn 失败（CLI 缺失 / 启动失败）以合成收敛事件收敛（failed 记因）
+/// 并终止会话——进程未起，无树可杀。
+async fn session_pump(
+    open: SessionOpen,
+    mut questions: mpsc::Receiver<TurnQuestion>,
+    observations: mpsc::Sender<agent::AgentEventKind>,
+    handle: RunHandle,
+) {
+    while let Some(question) = questions.recv().await {
+        let stopped = match spawn_turn(&open, &question, &handle) {
+            Ok(process) => process.run(observations.clone()).await,
+            Err(error) => {
+                let _ = observations
+                    .send(AgentEventKind::TurnDone {
+                        subtype: spawn_failure_subtype(&error),
+                        is_error: true,
+                        num_turns: None,
+                        duration_ms: None,
+                        cost_usd: None,
+                        usage: serde_json::Value::Null,
+                        session_id: None,
+                    })
+                    .await;
+                return;
+            }
+        };
+        if stopped {
+            return; // 停止后的会话不再接受续轮（编排侧已显式收敛）
+        }
+    }
+}
+
+/// spawn 失败合成收敛事件的 subtype（CLI 合成收敛事件的命名口径）。
+fn spawn_failure_subtype(error: &AgentStartError) -> String {
+    match error {
+        AgentStartError::CliMissing(_) => "error_cli_missing".to_owned(),
+        _ => "error_spawn_failed".to_owned(),
+    }
+}
+
+/// 单轮进程租户：spawn 产物（stdout 行流 + 退出码 oneshot + 击杀缝 + 停止
+/// 信号句柄）。每轮进程即逻辑 actor 的一次 ask 兑现。
+struct TurnProcess {
+    stdout: ChildStdout,
+    exit: tokio::sync::oneshot::Receiver<Option<i32>>,
+    kill: Box<dyn FnOnce() + Send>,
+    handle: RunHandle,
+}
+
+impl TurnProcess {
+    /// 逐行泵至轮终态：EOF（正常/异常）或停止路径。返回是否停止路径终止。
+    async fn run(self, observations: mpsc::Sender<agent::AgentEventKind>) -> bool {
+        let Self {
+            stdout,
+            exit,
+            kill,
+            handle,
+        } = self;
+        pump_lines(
+            BufReader::new(stdout),
+            async { exit.await.unwrap_or(None) },
+            observations,
+            &handle,
+            kill,
+        )
+        .await
+    }
+}
+
+/// spawn 单轮进程：CLI 发现 → flag 组装（`--resume` 走先行句柄）→ 命令组装
+/// → spawn。启动失败 `Err`（CliMissing / SpawnFailed）。
+fn spawn_turn(
+    open: &SessionOpen,
+    question: &TurnQuestion,
+    handle: &RunHandle,
+) -> Result<TurnProcess, AgentStartError> {
+    let program = discover::discover()?;
+    let args = flags::build_args(&flags::TurnParams {
+        prompt: question.prompt.clone(),
+        permission_mode: open.ctx.permission_mode,
+        resume_handle: open.prior_handle.clone(),
+    });
+    let mut command = build_command(&program, &args, &open.ctx.workspace_root);
+    let mut child = command.spawn().map_err(|e| {
+        AgentStartError::SpawnFailed(format!("{} 启动失败: {e}", program.display()))
+    })?;
+    let stdout = child
+        .stdout
+        .take()
+        .ok_or_else(|| AgentStartError::SpawnFailed("stdout 未按管道打开".to_owned()))?;
+    let stderr = child.stderr.take();
+    // stderr 排水任务：不读会撑满管道缓冲导致子进程写阻塞（内容本期不消费）
+    if let Some(stderr) = stderr {
+        tokio::spawn(async move {
+            let mut lines = BufReader::new(stderr).lines();
+            while let Ok(Some(_)) = lines.next_line().await {}
+        });
+    }
+    // 退出码任务：独占 child.wait()（EOF 后泵消费退出码）；停止路径经
+    // 击杀缝终止进程后 wait 随之返回，oneshot 发送端静默失败（接收端已关）
+    let pid = child.id();
+    let (exit_tx, exit_rx) = tokio::sync::oneshot::channel();
+    tokio::spawn(async move {
+        let _ = exit_tx.send(child.wait().await.ok().and_then(|status| status.code()));
+    });
+    Ok(TurnProcess {
+        stdout,
+        exit: exit_rx,
+        kill: Box::new(move || kill_process_tree(pid)),
+        handle: handle.clone(),
+    })
+}
+
 /// 组装 spawn 命令：Windows `.cmd` / `.bat` shim 不可直接 spawn，经
 /// `cmd /C` 包装（args 逐参传递）；cwd 经 `current_dir` 传递（非 flag）；
 /// stdout 按管道打开，stderr 按管道打开供排水，stdin 关闭（无头无输入）。
-fn build_command(program: &Path, args: &[String], cwd: &Path) -> Command {
+fn build_command(program: &Path, args: &[String], cwd: &PathBuf) -> Command {
     let needs_shim = cfg!(windows)
         && matches!(
             program.extension().and_then(std::ffi::OsStr::to_str),
@@ -101,31 +198,7 @@ fn build_command(program: &Path, args: &[String], cwd: &Path) -> Command {
     command
 }
 
-/// 真实进程泵：行流 + 退出码 oneshot + 击杀缝（捕获 spawn 时的 child pid）。
-/// 退出码经任务转交以化解「wait 独占 child」与「击杀需 pid」的借用冲突。
-async fn pump_with_kill(
-    stdout: ChildStdout,
-    exit_rx: tokio::sync::oneshot::Receiver<Option<i32>>,
-    sender: mpsc::Sender<AgentEvent>,
-    handle: RunHandle,
-    pid: Option<u32>,
-) {
-    pump_lines(
-        BufReader::new(stdout),
-        async { exit_rx.await.unwrap_or(None) },
-        sender,
-        &handle,
-        move || kill_process_tree(pid),
-    )
-    .await;
-}
-
-/// 进程树击杀（尽力语义，静默不重试不阻塞收敛）：Windows 下 `.cmd` shim 经
-/// `cmd /C` 包装 spawn，捕获的 pid 即 cmd 进程，`taskkill /PID <pid> /T /F`
-/// 连带 claude 孙进程整树终止；其余平台无包装、pid 即 claude 本进程，pid 级
-/// 强杀与 `child.start_kill()`（SIGKILL）等价直达。失败不报错（能力 spec
-/// `specs/desktop-agent-execution/spec.md`「进程树击杀失败」已知限制留痕，
-/// 路径相对域根）；经 [`pump_lines`] 停止路径的击杀缝触发。
+/// 进程树击杀（尽力语义，静默不重试不阻塞收敛）
 fn kill_process_tree(pid: Option<u32>) {
     let Some(pid) = pid else {
         return;
@@ -148,28 +221,20 @@ fn kill_process_tree(pid: Option<u32>) {
     }
 }
 
-/// 逐行泵核心（可注入缝，决策 D6/D8）：任意 AsyncRead 行流 + EOF 后退出码
-/// future + 停止信号句柄 + 击杀缝 → select 行流 vs 停止信号：信号到达即中止
-/// 行读取（已读事件保留）、调用击杀缝并直接返回——停止路径不取退出码、不补
-/// 发合成 [`AgentEventKind::RunResult`]（给编排侧 stopped 显式收敛让路）。
-/// 正常 EOF 后取退出码：未见 result 事件则补发合成 RunResult（subtype
-/// `error_process_exit`、is_error=true、退出码记入 usage），正常 result 后
-/// 退出不补发（design D6）。
-/// 真实进程经 [`ClaudeCliRunner::start`] 装配的击杀缝驱动；测试以内存行流 +
-/// 即成 future + 记录型击杀缝驱动，不 spawn 进程。
+/// 逐行泵核心
 pub(crate) async fn pump_lines<R, F, K>(
     reader: BufReader<R>,
     exit_code: F,
-    sender: mpsc::Sender<AgentEvent>,
+    sender: mpsc::Sender<agent::AgentEventKind>,
     handle: &RunHandle,
     kill: K,
-) where
+) -> bool
+where
     R: tokio::io::AsyncRead + Unpin,
     F: std::future::Future<Output = Option<i32>>,
     K: FnOnce(),
 {
     let mut lines = reader.lines();
-    let mut seq: u64 = 0;
     let mut saw_result = false;
     let stopped = loop {
         tokio::select! {
@@ -178,13 +243,12 @@ pub(crate) async fn pump_lines<R, F, K>(
                     let Some(kind) = jsonl::normalize_line(&line) else {
                         continue;
                     };
-                    if matches!(kind, AgentEventKind::RunResult { .. }) {
+                    if matches!(kind, AgentEventKind::TurnDone { .. }) {
                         saw_result = true;
                     }
-                    if sender.send(AgentEvent::stamp(seq, kind)).await.is_err() {
-                        return;
+                    if sender.send(kind).await.is_err() {
+                        return false;
                     }
-                    seq += 1;
                 }
                 _ => break false,
             },
@@ -195,14 +259,14 @@ pub(crate) async fn pump_lines<R, F, K>(
         // 尽力语义：击杀失败静默不重试不阻塞（能力 spec
         // `specs/desktop-agent-execution/spec.md` 已留痕已知限制，路径相对域根）
         kill();
-        return;
+        return true;
     }
     let usage = exit_code
         .await
         .map(|code| serde_json::json!({ "exitCode": code }))
         .unwrap_or(serde_json::Value::Null);
     if !saw_result {
-        let kind = AgentEventKind::RunResult {
+        let kind = AgentEventKind::TurnDone {
             subtype: PROCESS_EXIT_SUBTYPE.to_owned(),
             is_error: true,
             num_turns: None,
@@ -211,6 +275,7 @@ pub(crate) async fn pump_lines<R, F, K>(
             usage,
             session_id: None,
         };
-        let _ = sender.send(AgentEvent::stamp(seq, kind)).await;
+        let _ = sender.send(kind).await;
     }
+    false
 }

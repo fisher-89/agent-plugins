@@ -1,17 +1,3 @@
-//! stdout JSONL 逐行归一化：单行 → [`AgentEventKind`]（不盖 seq/时间戳，
-//! 由泵任务经 `AgentEvent::stamp` 统一补）。
-//!
-//! 归一化口径（能力 spec `specs/desktop-agent-execution/spec.md`，路径相对域根）：
-//! - 空白行：跳过（返回 `None`，不占 seq）
-//! - `type=system` + `subtype=init` → `RunStarted`（缺失字段置 null / 空表）
-//! - `type=system` 其余 subtype → `SystemNotice{subtype, payload=原 JSON}`
-//!   （subtype 不做封闭枚举，开放演进不炸解析）
-//! - `type=assistant | user` → `Message{role=type, blocks, parent_tool_use_id}`
-//! - `type=result` → `RunResult`（`total_cost_usd → cost_usd` 等字段对齐，缺失置 null）
-//! - 其余合法 JSON / 未知 `type` → `Raw{eventType=type, rawJson=原文}`
-//! - 非 JSON 行 → `Raw{eventType="unparsable", rawJson=原文}`——永不丢事件、
-//!   永不炸解析
-
 use agent::{AgentBlock, AgentEventKind};
 use serde_json::Value;
 
@@ -160,10 +146,10 @@ fn flatten_content(value: Option<&Value>) -> String {
     }
 }
 
-/// `type=result` → RunResult：`total_cost_usd` → `cost_usd` 等字段对齐，
+/// `type=result` → TurnDone：`total_cost_usd` → `cost_usd` 等字段对齐，
 /// 缺失置 null / false。
 fn result_event(parsed: &Value) -> AgentEventKind {
-    AgentEventKind::RunResult {
+    AgentEventKind::TurnDone {
         subtype: parsed
             .get("subtype")
             .and_then(Value::as_str)

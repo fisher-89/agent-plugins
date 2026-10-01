@@ -2,7 +2,7 @@
 import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, AgentInstanceRecord, AgentRunRecord } from '../../types/dto';
+import type { AgentEvent, AgentInstanceRecord, TurnSummary } from '../../types/dto';
 import { AgentDebugView } from './agent-debug-view';
 
 // ---------------------------------------------------------------------------
@@ -34,24 +34,19 @@ vi.mock('@tauri-apps/api/core', () => ({ invoke: invokeMock, Channel: ChannelMoc
 
 const ROOT = 'C:\\demo\\beta';
 
-function run(id: number, status: AgentRunRecord['status']): AgentRunRecord {
+const SESSION_ID = 'ses-1-1727000000000';
+
+function run(turnId: number, status: TurnSummary['status']): TurnSummary {
   return {
-    id,
-    prompt: '你好',
-    cwd: ROOT,
-    env: 'default',
-    permissionMode: 'bypassPermissions',
+    turnId,
+    sessionId: SESSION_ID,
     status,
     startedAt: 1727000000000,
     finishedAt: status === 'running' ? null : 1727000001000,
     numTurns: status === 'running' ? null : 3,
     costUsd: status === 'running' ? null : 0.5,
     durationMs: status === 'running' ? null : 1234,
-    sessionId: status === 'running' ? null : 's-1',
     error: null,
-    source: 'debug',
-    sourceRef: null,
-    parentRunId: null,
   };
 }
 
@@ -67,22 +62,43 @@ function runStarted(seq: number): AgentEvent {
   };
 }
 
-function runResult(seq: number): AgentEvent {
+function turnDone(seq: number): AgentEvent {
   return {
     seq,
     timestampMs: 1727000000001,
-    kind: 'runResult',
+    kind: 'turnDone',
     subtype: 'success',
     isError: false,
     numTurns: 3,
     durationMs: 1234,
     costUsd: 0.5,
     usage: {},
-    sessionId: 's-1',
+    sessionId: SESSION_ID,
   };
 }
 
-let startBehavior: { mode: 'resolve' | 'reject'; value: AgentRunRecord | string } | null = null;
+function textDeltaEvent(seq: number, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000002,
+    kind: 'messageDelta',
+    parentToolUseId: null,
+    delta: { kind: 'text', text },
+  };
+}
+
+function sealedTextEvent(seq: number, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000003,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [{ kind: 'text', text }],
+    parentToolUseId: null,
+  };
+}
+
+let startBehavior: { mode: 'resolve' | 'reject'; value: TurnSummary | string } | null = null;
 
 /** agent 实例清单 fixture（list_agent_instances 应答；默认空清单 = 缺省语义）。 */
 let instancesFixture: AgentInstanceRecord[] = [];
@@ -97,11 +113,11 @@ function mockIpc() {
       const behavior = startBehavior;
       if (behavior?.mode === 'resolve') return Promise.resolve(behavior.value);
       if (behavior?.mode === 'reject') return Promise.reject(behavior.value);
-      return new Promise<AgentRunRecord>(() => {});
+      return new Promise<TurnSummary>(() => {});
     }
     if (command === 'agent_stop') return Promise.resolve(null);
-    if (command === 'agent_runs') return Promise.resolve([]);
-    if (command === 'agent_run_events') return Promise.resolve([]);
+    if (command === 'agent_sessions') return Promise.resolve([]);
+    if (command === 'agent_session_transcript') return Promise.resolve([]);
     if (command === 'list_agent_instances') return Promise.resolve(instancesFixture);
     return Promise.resolve(null);
   });
@@ -131,7 +147,7 @@ function deliverEvent(event: AgentEvent) {
   });
 }
 
-function deliverRecord(record: AgentRunRecord) {
+function deliverRecord(record: TurnSummary) {
   act(() => {
     lastChannel().onmessage?.({ ipc: 'record', record });
   });
@@ -171,7 +187,7 @@ describe('AgentDebugView → AgentTimeline 接线', () => {
     await startRun();
 
     deliverEvent(runStarted(0));
-    deliverEvent(runResult(1));
+    deliverEvent(turnDone(1));
     deliverRecord(run(1, 'completed'));
     await waitFor(() => expect(screen.getByTestId('event-run-record') !== null).toBe(true));
 
@@ -186,7 +202,7 @@ describe('AgentDebugView → AgentTimeline 接线', () => {
     await startRun();
 
     deliverEvent(runStarted(0));
-    deliverEvent(runResult(1));
+    deliverEvent(turnDone(1));
     await act(async () => {});
 
     fireEvent.click(screen.getByTestId('toggle-raw'));
@@ -227,7 +243,7 @@ describe('AgentDebugView：停止入口与收敛呈现', () => {
 
     const stopCalls = invokeMock.mock.calls.filter(([name]) => name === 'agent_stop');
     expect(stopCalls).toHaveLength(1);
-    expect(stopCalls[0]).toEqual(['agent_stop', { root: ROOT, runId: 1 }]);
+    expect(stopCalls[0]).toEqual(['agent_stop', { root: ROOT, sessionId: SESSION_ID }]);
   });
 
   it('停止后终态 record 回流：event-run-record 呈现、running 复位、表单恢复可用', async () => {
@@ -378,7 +394,7 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
 
     deliverEvent(toolUseEvent(0));
     deliverEvent(toolResultEvent(1));
-    deliverEvent(runResult(2));
+    deliverEvent(turnDone(2));
     deliverRecord(run(1, 'completed'));
     await waitFor(() => expect(screen.getByTestId('event-run-record') !== null).toBe(true));
 
@@ -399,5 +415,64 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
     await waitFor(() => expect(screen.getByTestId('run-error') !== null).toBe(true));
     expect(screen.getByTestId('run-error').textContent).toContain('配置缺失');
     expect(screen.getByTestId('run-error').textContent).toContain('api_key');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 补遗：每跑重置 New 会话（AC-9 命令面投影）/ 流式呈现单条连续增长消息
+//（AC-1 UI 半边——碎行不复现）
+// ---------------------------------------------------------------------------
+
+describe('AgentDebugView：每跑重置', () => {
+  it('上一跑终态后再次发起：invoke 不携带旧 sessionId（每跑 New 会话）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+
+    // 第一跑：发起 → 终态 record 回流（会话镜像确立）
+    await startRun('第一跑');
+    deliverRecord(run(1, 'completed'));
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-start').hasAttribute('disabled')).toBe(false),
+    );
+
+    // 第二跑：重置后发起——agent_start 入参 sessionId 为 null（New 语义）
+    await startRun('第二跑');
+
+    const startCalls = invokeMock.mock.calls.filter(([name]) => name === 'agent_start');
+    expect(startCalls).toHaveLength(2);
+    const secondArgs = startCalls[1]?.[1] as Record<string, unknown>;
+    expect(secondArgs['sessionId']).toBeNull();
+    expect(secondArgs['root']).toBe(ROOT);
+  });
+});
+
+describe('AgentDebugView：流式呈现（AC-1 UI 半边）', () => {
+  it('delta 信封累积为单条连续增长消息（碎行不复现），密封到达同键让位替换仍单条', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await startRun();
+
+    // 两枚文本 delta：provisional 键单通道累积——时间线恰一条消息
+    deliverEvent(textDeltaEvent(0, '你好'));
+    deliverEvent(textDeltaEvent(1, '工作区'));
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-message')).toHaveLength(1);
+    });
+    expect(screen.getByTestId('block-text').textContent).toBe('你好工作区');
+
+    // 密封 Message 到达：整块部件组（start + reset-step + 整块）
+    deliverEvent(sealedTextEvent(2, '你好工作区'));
+    await act(async () => {});
+
+    // 终态收尾：流结束触发收口归一（events 镜像密封-only 重建）——
+    // provisional 同键让位不残留：时间线恰两条消息（密封消息 + 轮行 record），
+    // 文本块恰一处且以密封为准（无 provisional 碎行残留）
+    deliverRecord(run(1, 'completed'));
+    await waitFor(() =>
+      expect(screen.getByTestId('agent-start').hasAttribute('disabled')).toBe(false),
+    );
+    await waitFor(() => {
+      expect(screen.getAllByTestId('event-message')).toHaveLength(2);
+    });
+    const texts = screen.getAllByTestId('block-text').map((node) => node.textContent);
+    expect(texts).toEqual(['你好工作区']);
   });
 });

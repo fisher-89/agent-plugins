@@ -5,8 +5,8 @@ mod store;
 
 pub use envelope::{ModelInfo, RecordEnvelope};
 pub use model::{
-    AgentEngineKind, AgentEventRecord, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
-    AgentRunRecord, ExploreRecord, WorkspaceRecord,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
+    ExploreRecord, SessionConfigSnapshot, SessionEventRecord, SessionRecord, WorkspaceRecord,
 };
 pub use store::{DbDimension, Store, StoreError, WorkspaceStores};
 

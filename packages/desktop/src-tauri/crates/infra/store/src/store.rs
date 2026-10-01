@@ -1,28 +1,23 @@
-//! Store 持久化：native_db 模型层操作面、双库布局打开流程、workspace 库路径
-//! 派生单点与错误面。
-//!
-//! 公共 API 只暴露自有类型，`native_db::Database` 等 native_db / native_model
-//! 类型不出现在任何公共签名（native_db 类型不越 crate 公共面）；两库路径均由
-//! 调用方注入——全局库路径来自 [`WorkspaceStores::open`] 的数据目录根入参，
-//! workspace 库路径经本模块派生单点从 canonical root 确定性导出（消费侧零
-//! 派生逻辑）。
-
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, OnceLock};
 
-use agent::AgentEvent;
+use agent::{
+    AgentEvent, AgentEventKind, SessionProvenance, SessionRow, SessionStats, SessionSummary,
+    TurnSummary,
+};
 use native_db::{Builder, Database, Models};
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use sha2::{Digest, Sha256};
 use specta::Type;
 
 use crate::canonical;
 use crate::envelope::{self, ModelInfo, RecordEnvelope};
 use crate::model::{
-    dir_name, now_millis, AgentEngineKind, AgentEventRecord, AgentEventRecordKey,
-    AgentInstanceRecord, AgentProviderRecord, AgentRunRecord, ExploreRecord, WorkspaceRecord,
+    dir_name, now_millis, AgentEngineKind, AgentInstanceRecord, AgentProviderRecord,
+    AgentRunRecord, ExploreRecord, SessionEventRecord, SessionRecord, WorkspaceRecord,
 };
 
 /// store 内部错误面：两变体对应两类故障模式；`Display` 恒带 `db:` /
@@ -55,6 +50,78 @@ pub(crate) fn db_err<E: fmt::Display>(context: &str) -> impl Fn(E) -> StoreError
     move |e| StoreError::Db(format!("{context}: {e}"))
 }
 
+/// store 记录 → core 会话契约行（快照出线为 JSON 形态，core 不解释）。
+fn session_row(record: &SessionRecord) -> Result<SessionRow, String> {
+    Ok(SessionRow {
+        id: record.id.clone(),
+        remote_session_id: record.engine_session_id.clone(),
+        config_snapshot: serde_json::to_value(&record.config_snapshot)
+            .map_err(|e| format!("会话快照出线失败: {e}"))?,
+        provenance: SessionProvenance {
+            source: record.source.clone(),
+            source_ref: record.source_ref.clone(),
+        },
+        created_at: record.created_at,
+        updated_at: record.updated_at,
+    })
+}
+
+/// 轮统计行 → core 轮行 DTO（IPC 面；孤儿行 `session_id` 为 None 落空串，
+/// 孤儿行不出任何会话清单）。
+fn turn_summary(record: &AgentRunRecord) -> TurnSummary {
+    TurnSummary {
+        turn_id: record.id,
+        session_id: record.session_id.clone().unwrap_or_default(),
+        status: record.status,
+        started_at: record.started_at,
+        finished_at: record.finished_at,
+        num_turns: record.num_turns,
+        cost_usd: record.cost_usd,
+        duration_ms: record.duration_ms,
+        error: record.error.clone(),
+    }
+}
+
+/// 聚合统计现算：轮数自轮行行数、累计墙钟自轮行时长求和、累计 token 自转录
+/// `TurnDone.usage` 鸭子类型求和——统计字段缺席合法缺省（降级不违约）。
+fn aggregate_stats(
+    turn_count: usize,
+    turns: &[TurnSummary],
+    events: &[AgentEvent],
+) -> SessionStats {
+    SessionStats {
+        turn_count: turn_count as u64,
+        total_duration_ms: sum_present(turns.iter().map(|turn| turn.duration_ms)),
+        input_tokens: sum_usage_tokens(events, "inputTokens"),
+        output_tokens: sum_usage_tokens(events, "outputTokens"),
+    }
+}
+
+/// 可缺省数值求和：全缺席 → None（缺席合法缺省），部分在场合计在场的值。
+fn sum_present(values: impl Iterator<Item = Option<u64>>) -> Option<u64> {
+    values.fold(None, |acc, value| match (acc, value) {
+        (None, None) => None,
+        (acc, value) => Some(acc.unwrap_or(0).saturating_add(value.unwrap_or(0))),
+    })
+}
+
+/// 转录 `TurnDone.usage` 鸭子类型求和：以数值键（serde camelCase 线值）取
+/// token 口径，非对象 usage / 缺键 / 非数值不计——真实 usage 形状首次落库后
+/// 复核键集是否需扩展（design 待决问题留痕）。
+fn sum_usage_tokens(events: &[AgentEvent], key: &str) -> Option<u64> {
+    let mut total: u64 = 0;
+    let mut any = false;
+    for event in events {
+        if let AgentEventKind::TurnDone { usage, .. } = &event.kind {
+            if let Some(value) = usage.get(key).and_then(Value::as_u64) {
+                total = total.saturating_add(value);
+                any = true;
+            }
+        }
+    }
+    any.then_some(total)
+}
+
 /// 记录名单分量校验（非空、非 `.` / `..`、不含 `/` `\` `:`）：与 workflow 查询
 /// 层的 `is_single_component_name` 同口径（store 不依赖 workflow，校验各自
 /// 持有、口径一致）。
@@ -67,9 +134,8 @@ fn is_single_component_name(name: &str) -> bool {
         && !name.contains(':')
 }
 
-/// explore 来源受控字符串：与 app 层 `RunProvenance` 及前端 `EXPLORE_SOURCE`
-/// 口径一致（三处同字面量，改动需同步）。`delete_explore_record` 据此圈定
-/// 级联删除的 runs。
+/// explore 来源受控字符串：与前端 `EXPLORE_SOURCE` 口径一致（两处同字面量，
+/// 改动需同步）。`delete_explore_record` 据此圈定级联删除的归属会话。
 const EXPLORE_RUN_SOURCE: &str = "explore";
 
 /// 数据维度（信封维度标签 + db 查看命令 scope 入参双职）：`User` 全局库 /
@@ -80,7 +146,7 @@ pub enum DbDimension {
     /// user 维度（全局库，`WorkspaceRecord` 与 agent 管理两模型——user 维度
     /// 已落地代表，desktop-data-dimensions 留痕）
     User,
-    /// workspace 维度（per-workspace 库，run / 事件 / explore 三模型）
+    /// workspace 维度（per-workspace 库，轮统计行 / 会话 / 转录 / explore 四模型）
     Workspace,
 }
 
@@ -111,8 +177,11 @@ pub(crate) fn workspace_models() -> &'static Models {
             .define::<AgentRunRecord>()
             .expect("定义 AgentRunRecord 失败");
         models
-            .define::<AgentEventRecord>()
-            .expect("定义 AgentEventRecord 失败");
+            .define::<SessionRecord>()
+            .expect("定义 SessionRecord 失败");
+        models
+            .define::<SessionEventRecord>()
+            .expect("定义 SessionEventRecord 失败");
         models
             .define::<ExploreRecord>()
             .expect("定义 ExploreRecord 失败");
@@ -174,8 +243,8 @@ pub(crate) fn workspace_db_path(workspaces_dir: &Path, canonical_root: &str) -> 
 /// native_db 本地库句柄：单文件句柄语义（注入式路径打开，模型组在打开点
 /// 锁定），私有持有 [`Database`] 与实例维度，可安全挂 Tauri State，同步调用
 /// 无需 async。全局库经 [`Store::open_global`]（workspace 注册表 + agent
-/// 管理三模型）、workspace 库经 [`Store::open_workspace`]（run / 事件 /
-/// explore 三模型）。
+/// 管理两模型）、workspace 库经 [`Store::open_workspace`]（轮统计行 / 会话 /
+/// 转录 / explore 四模型）。
 ///
 /// 单进程约束：双开（如 dev 与正式版指向同一 db 文件）不保证安全，见 crate 文档。
 pub struct Store {
@@ -190,7 +259,8 @@ impl Store {
         Self::open_with(path, global_models(), DbDimension::User)
     }
 
-    /// 打开 workspace 库（workspace 维度模型组，run / 事件 / explore 三模型）。
+    /// 打开 workspace 库（workspace 维度模型组，轮统计行 / 会话 / 转录 /
+    /// explore 四模型）。
     pub fn open_workspace(path: &Path) -> Result<Self, StoreError> {
         Self::open_with(path, workspace_models(), DbDimension::Workspace)
     }
@@ -283,10 +353,34 @@ impl Store {
         Ok(true)
     }
 
-    /// 新开一次 agent 运行：写事务内 `max(id)+1` 分配 id（与插入原子，首行
-    /// id=1），落 `running` 行，返回含 id 的记录。调用方填充 prompt / cwd /
-    /// env / permission_mode / status / started_at。
-    pub fn begin_agent_run(&self, run: &AgentRunRecord) -> Result<AgentRunRecord, StoreError> {
+    // --- agent 会话域（会话一等公民：write-through 原子操作 + 查询/聚合现算
+    // + 对账重导显式入口）-----------------------------------------------
+
+    /// 会话行落库（id 来自 core 铸造，字符串主键直用）。
+    pub fn create_session(&self, session: &SessionRecord) -> Result<SessionRecord, StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        rw.insert(session.clone()).map_err(db_err("写入会话记录"))?;
+        rw.commit().map_err(db_err("提交 create_session 事务"))?;
+        Ok(session.clone())
+    }
+
+    /// 主键直查会话（Continue 校验与装配消费）。
+    pub fn find_session(&self, session_id: &str) -> Result<Option<SessionRecord>, StoreError> {
+        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
+        let hit: Option<SessionRecord> = r
+            .get()
+            .primary(session_id)
+            .map_err(db_err("读取会话记录"))?;
+        Ok(hit)
+    }
+
+    /// 轮统计行 begin：写事务内 `max(id)+1` 分配（与插入原子，首行 id=1），
+    /// `session_id` 挂 core 会话、`running` 初值，返回含 id 的记录。
+    pub fn begin_agent_turn(
+        &self,
+        session_id: &str,
+        started_at: i64,
+    ) -> Result<AgentRunRecord, StoreError> {
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
         // 主键自然序表尾即最大 id（双向迭代 next_back，与旧 last()+1 同口径）
         let next_id = match rw
@@ -301,70 +395,178 @@ impl Store {
             Some(Err(e)) => return Err(StoreError::Db(format!("读取最大 id: {e}"))),
             None => 1,
         };
-        let mut record = run.clone();
-        record.id = next_id;
-        rw.insert(record.clone()).map_err(db_err("写入 run 记录"))?;
-        rw.commit().map_err(db_err("提交 begin_agent_run 事务"))?;
+        let record = AgentRunRecord {
+            id: next_id,
+            session_id: Some(session_id.to_owned()),
+            status: agent::AgentRunStatus::Running,
+            started_at,
+            finished_at: None,
+            num_turns: None,
+            cost_usd: None,
+            duration_ms: None,
+            error: None,
+        };
+        rw.insert(record.clone()).map_err(db_err("写入轮记录"))?;
+        rw.commit().map_err(db_err("提交 begin_agent_turn 事务"))?;
         Ok(record)
     }
 
-    /// 收敛 run 终态：以传入记录整行替换（status / finished_at / 汇总 /
-    /// error 由调用方填充）。
-    pub fn finish_agent_run(&self, run_id: i64, record: &AgentRunRecord) -> Result<(), StoreError> {
-        if record.id != run_id {
-            return Err(StoreError::Db(format!(
-                "run id 不匹配: 记录 id {} ≠ 目标 run id {run_id}",
-                record.id
-            )));
-        }
-        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
-        rw.upsert(record.clone()).map_err(db_err("写入 run 记录"))?;
-        rw.commit().map_err(db_err("提交 finish_agent_run 事务"))?;
-        Ok(())
-    }
-
-    /// 运行清单：`started_at` 降序，并列按 id 降序（顺序确定，与 workspace
-    /// 清单同哲学）。全表读 + 内存排序——调试页数据量小，行为零变化优先；
-    /// 二级索引查询形态由 `AgentEventRecord.run_id` 兑现。
-    pub fn list_agent_runs(&self) -> Result<Vec<AgentRunRecord>, StoreError> {
-        let mut records = self.read_all::<AgentRunRecord>("遍历运行清单")?;
-        records.sort_by(|a, b| {
-            b.started_at
-                .cmp(&a.started_at)
-                .then_with(|| b.id.cmp(&a.id))
-        });
-        Ok(records)
-    }
-
-    /// 批量追加运行事件：单事务写入；`event_key` 由 `(run_id, seq)` 打包
-    /// （seq 取自事件本体，不存在「缺 seq」错误路径）。
-    pub fn append_agent_run_events(
+    /// 密封转录追加：单事务写入；`event_key` 由 `hash64(session_id) + seq`
+    /// 打包（seq 取自事件本体，不存在「缺 seq」错误路径）。增量防御性忽略
+    /// 不产生记录（内核泵只送密封事件，此处为纵深防御——store 中不存在任何
+    /// delta 行）。
+    pub fn append_session_events(
         &self,
-        run_id: i64,
+        session_id: &str,
         events: &[AgentEvent],
     ) -> Result<(), StoreError> {
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
         for event in events {
-            let record = AgentEventRecord::new(run_id, event.clone());
-            rw.insert(record).map_err(db_err("写入事件"))?;
+            if event.kind.is_delta() {
+                continue; // 增量永不见（碎事件根因的落库半边修复）
+            }
+            let record = SessionEventRecord::new(session_id, event.clone());
+            rw.insert(record).map_err(db_err("写入转录事件"))?;
         }
-        rw.commit().map_err(db_err("提交事件追加事务"))?;
+        rw.commit().map_err(db_err("提交转录追加事务"))?;
         Ok(())
     }
 
-    /// 单 run 事件重放：经 `run_id` 非唯一二级索引扫描，seq 升序返回
-    /// （打包主键大端序保证同 run 内自然序即重放序）。
-    pub fn list_agent_run_events(&self, run_id: i64) -> Result<Vec<AgentEvent>, StoreError> {
-        let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
-        let records: Vec<AgentEventRecord> = r
-            .scan()
-            .secondary(crate::model::AgentEventRecordKey::run_id)
-            .map_err(db_err("扫描运行事件"))?
-            .range(run_id..run_id.saturating_add(1))
-            .map_err(db_err("扫描运行事件"))?
-            .collect::<native_db::db_type::Result<Vec<_>>>()
-            .map_err(db_err("扫描运行事件"))?;
-        Ok(records.into_iter().map(|record| record.event).collect())
+    /// 轮行终态收口：按 turn id 取行，status / finished_at / 统计 / error
+    /// 整组替换（`session_id` / `started_at` 沿用存量行——终态装配侧不携带）。
+    pub fn finish_agent_turn(
+        &self,
+        turn_id: i64,
+        record: &AgentRunRecord,
+    ) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut stored: AgentRunRecord =
+            rw.get()
+                .primary(turn_id)
+                .map_err(db_err("读取轮记录"))?
+                .ok_or_else(|| StoreError::Db(format!("轮记录不存在: id={turn_id}")))?;
+        stored.status = record.status;
+        stored.finished_at = record.finished_at;
+        stored.num_turns = record.num_turns;
+        stored.cost_usd = record.cost_usd;
+        stored.duration_ms = record.duration_ms;
+        stored.error = record.error.clone();
+        rw.upsert(stored).map_err(db_err("写入轮记录终态"))?;
+        rw.commit().map_err(db_err("提交 finish_agent_turn 事务"))?;
+        Ok(())
+    }
+
+    /// 双 id 映射落库半边 + `updated_at` 刷新（引擎侧标识上报时调用；remote
+    /// 为 None 仅刷新时间戳）。会话不存在 `Err`。
+    pub fn bind_session_remote(
+        &self,
+        session_id: &str,
+        remote: Option<&str>,
+        updated_at: i64,
+    ) -> Result<(), StoreError> {
+        let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
+        let mut stored: SessionRecord = rw
+            .get()
+            .primary(session_id)
+            .map_err(db_err("读取会话记录"))?
+            .ok_or_else(|| StoreError::Db(format!("会话不存在: id={session_id}")))?;
+        if let Some(remote) = remote {
+            stored.engine_session_id = Some(remote.to_owned());
+        }
+        stored.updated_at = updated_at;
+        rw.upsert(stored).map_err(db_err("写入会话记录"))?;
+        rw.commit()
+            .map_err(db_err("提交 bind_session_remote 事务"))?;
+        Ok(())
+    }
+
+    /// 会话清单：来源过滤（`source` / `source_ref` 各自可选）+ `updated_at`
+    /// 降序稳定序（并列按 id 降序，与运行清单同哲学）+ 聚合统计现算（轮数 /
+    /// 累计墙钟自轮统计行、累计 token 自转录 TurnDone usage 鸭子类型求和，
+    /// 缺席合法缺省——MVP 不维护累计列）+ 轮统计行随行返回（发起顺序）。
+    /// 全表读 + 内存过滤——调试页数据量小，与清单读面同哲学。
+    pub fn list_sessions(
+        &self,
+        source: Option<&str>,
+        source_ref: Option<&str>,
+    ) -> Result<Vec<SessionSummary>, String> {
+        let sessions: Vec<SessionRecord> = self
+            .read_all::<SessionRecord>("遍历会话清单")
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|record| source.is_none_or(|src| record.source == src))
+            .filter(|record| {
+                source_ref.is_none_or(|reference| record.source_ref.as_deref() == Some(reference))
+            })
+            .collect();
+        let runs = self
+            .read_all::<AgentRunRecord>("遍历轮统计行")
+            .map_err(|e| e.to_string())?;
+        let mut summaries = Vec::with_capacity(sessions.len());
+        for session in &sessions {
+            let mut turns: Vec<TurnSummary> = runs
+                .iter()
+                .filter(|run| run.session_id.as_deref() == Some(session.id.as_str()))
+                .map(turn_summary)
+                .collect();
+            // 发起顺序：`started_at` 升序，并列按轮 id 升序（确定可复现）
+            turns.sort_by(|a, b| {
+                a.started_at
+                    .cmp(&b.started_at)
+                    .then(a.turn_id.cmp(&b.turn_id))
+            });
+            let events = self.list_session_events(&session.id)?;
+            let stats = aggregate_stats(turns.len(), &turns, &events);
+            summaries.push(SessionSummary {
+                row: session_row(session)?,
+                stats,
+                turns,
+            });
+        }
+        summaries.sort_by(|a, b| {
+            b.row
+                .updated_at
+                .cmp(&a.row.updated_at)
+                .then_with(|| b.row.id.cmp(&a.row.id))
+        });
+        Ok(summaries)
+    }
+
+    /// 转录重放：全表读 + 内存过滤出本会话（`session_id` 非唯一二级索引保
+    /// 查询形态），seq 升序返回（打包主键大端序保证同会话内自然序即重放序；
+    /// 增量占 seq 产生的库内空洞不破坏有序性），不要求运行进程存活。
+    pub fn list_session_events(&self, session_id: &str) -> Result<Vec<AgentEvent>, String> {
+        let mut events: Vec<AgentEvent> = self
+            .read_all::<SessionEventRecord>("遍历会话转录")
+            .map_err(|e| e.to_string())?
+            .into_iter()
+            .filter(|record| record.session_id == session_id)
+            .map(|record| record.event)
+            .collect();
+        events.sort_by_key(|event| event.seq);
+        Ok(events)
+    }
+
+    /// 对账纠偏重导显式入口：从转录 `TurnDone` 事件重算聚合（轮数 / 累计
+    /// 墙钟 / 累计 token），不改密封转录、不隐式挂读路径。轮统计行缺席或
+    /// 偏差时以转录为准的校正口径。
+    pub fn reconcile_session_stats(&self, session_id: &str) -> Result<SessionStats, String> {
+        let events = self.list_session_events(session_id)?;
+        let mut turn_count: u64 = 0;
+        let mut durations: Vec<Option<u64>> = Vec::new();
+        for event in &events {
+            if let AgentEventKind::TurnDone { duration_ms, .. } = &event.kind {
+                turn_count += 1;
+                durations.push(*duration_ms);
+            }
+        }
+        let total_duration_ms = sum_present(durations.into_iter());
+        Ok(SessionStats {
+            turn_count,
+            total_duration_ms,
+            input_tokens: sum_usage_tokens(&events, "inputTokens"),
+            output_tokens: sum_usage_tokens(&events, "outputTokens"),
+        })
     }
 
     /// explore 清单：按 root 过滤，主键 id 升序（读出自然序，稳定可复现）。
@@ -460,85 +662,67 @@ impl Store {
     }
 
     /// 删除 explore 记录：MUST NOT 触碰磁盘文件（文件是记录的可丢弃投影，
-    /// 删除方向亦然）；记录名下的会话 runs 及其事件随记录**同事务级联删除**
-    /// ——id 是幸存行上 max+1 的可复用计数，悬空 `source_ref` 不清则下次建档
-    /// 复用 id 时旧聊天经 `(source, source_ref)` 匹配错挂到新记录。miss 幂等
-    /// `Ok(false)`。
+    /// 删除方向亦然）；记录名下的**归属会话及其转录与轮统计行**随记录**同
+    /// 事务级联删除**（会话化后级联圈定自主平移至会话归属）——id 是幸存行上
+    /// max+1 的可复用计数，悬空 `source_ref` 不清则下次建档复用 id 时旧聊天
+    /// 经 `(source, source_ref)` 匹配错挂到新记录。miss 幂等 `Ok(false)`。
     pub fn delete_explore_record(&self, root: &str, name: &str) -> Result<bool, StoreError> {
         let Some(record) = self.find_explore_record(root, name)? else {
             return Ok(false);
         };
         let rw = self.db.rw_transaction().map_err(db_err("开启写事务"))?;
-        // 级联圈定：explore 来源且 source_ref 指向本记录 id 的 runs（全表读 +
+        // 级联圈定：explore 来源且 source_ref 指向本记录 id 的会话（全表读 +
         // 内存过滤，与清单读面同哲学——调试页数据量小）
         let source_ref = record.id.to_string();
-        let bound_runs: Vec<AgentRunRecord> = rw
+        let bound_sessions: Vec<SessionRecord> = rw
             .scan()
-            .primary::<AgentRunRecord>()
-            .map_err(db_err("扫描运行清单"))?
+            .primary::<SessionRecord>()
+            .map_err(db_err("扫描会话清单"))?
             .all()
-            .map_err(db_err("扫描运行清单"))?
+            .map_err(db_err("扫描会话清单"))?
             .collect::<native_db::db_type::Result<Vec<_>>>()
-            .map_err(db_err("扫描运行清单"))?
+            .map_err(db_err("扫描会话清单"))?
             .into_iter()
-            .filter(|run| {
-                run.source == EXPLORE_RUN_SOURCE && run.source_ref.as_deref() == Some(&source_ref)
+            .filter(|session| {
+                session.source == EXPLORE_RUN_SOURCE
+                    && session.source_ref.as_deref() == Some(&source_ref)
             })
             .collect();
-        for run in &bound_runs {
-            let events: Vec<AgentEventRecord> = rw
+        for session in &bound_sessions {
+            let events: Vec<SessionEventRecord> = rw
                 .scan()
-                .secondary(AgentEventRecordKey::run_id)
-                .map_err(db_err("扫描运行事件"))?
-                .range(run.id..run.id.saturating_add(1))
-                .map_err(db_err("扫描运行事件"))?
+                .primary::<SessionEventRecord>()
+                .map_err(db_err("扫描会话转录"))?
+                .all()
+                .map_err(db_err("扫描会话转录"))?
                 .collect::<native_db::db_type::Result<Vec<_>>>()
-                .map_err(db_err("扫描运行事件"))?;
-            for event in events {
-                rw.remove(event).map_err(db_err("删除运行事件"))?;
+                .map_err(db_err("扫描会话转录"))?
+                .into_iter()
+                .filter(|event_record| event_record.session_id() == session.id)
+                .collect();
+            for event_record in events {
+                rw.remove(event_record).map_err(db_err("删除转录事件"))?;
             }
-            rw.remove(run.clone()).map_err(db_err("删除运行记录"))?;
+            let turns: Vec<AgentRunRecord> = rw
+                .scan()
+                .primary::<AgentRunRecord>()
+                .map_err(db_err("扫描轮统计行"))?
+                .all()
+                .map_err(db_err("扫描轮统计行"))?
+                .collect::<native_db::db_type::Result<Vec<_>>>()
+                .map_err(db_err("扫描轮统计行"))?
+                .into_iter()
+                .filter(|run| run.session_id.as_deref() == Some(session.id.as_str()))
+                .collect();
+            for turn in turns {
+                rw.remove(turn).map_err(db_err("删除轮统计行"))?;
+            }
+            rw.remove(session.clone()).map_err(db_err("删除会话记录"))?;
         }
         rw.remove(record).map_err(db_err("删除探索记录"))?;
         rw.commit()
             .map_err(db_err("提交 delete_explore_record 事务"))?;
         Ok(true)
-    }
-
-    /// 单链还原（链查询收口单点，前端 hook 不拼链）：按 `(source, source_ref)`
-    /// 过滤 → `(started_at, id)` 最新为链头 → 沿 `parent_run_id` 回溯整链
-    /// （visited 集防环）→ 反转为发起顺序。无链返回空 `Vec`。
-    pub fn restore_run_chain(
-        &self,
-        source: &str,
-        source_ref: &str,
-    ) -> Result<Vec<AgentRunRecord>, StoreError> {
-        let all = self.read_all::<AgentRunRecord>("遍历运行清单")?;
-        let by_id: HashMap<i64, &AgentRunRecord> =
-            all.iter().map(|record| (record.id, record)).collect();
-        let head = all
-            .iter()
-            .filter(|record| {
-                record.source == source && record.source_ref.as_deref() == Some(source_ref)
-            })
-            .max_by_key(|record| (record.started_at, record.id));
-        let Some(head) = head else {
-            return Ok(Vec::new());
-        };
-        let mut chain = Vec::new();
-        let mut visited: HashSet<i64> = HashSet::new();
-        let mut current = Some(head);
-        while let Some(record) = current {
-            if !visited.insert(record.id) {
-                break; // 环防御：指针成环时截断，不无限回溯
-            }
-            chain.push(record.clone());
-            current = record
-                .parent_run_id
-                .and_then(|pid| by_id.get(&pid).copied());
-        }
-        chain.reverse();
-        Ok(chain)
     }
 
     /// provider 清单：主键 id 升序自然序（稳定可复现）。
@@ -549,10 +733,8 @@ impl Store {
     /// 主键直查 provider（运行发起解析与 save 回填原值消费）。
     pub fn find_agent_provider(&self, id: i64) -> Result<Option<AgentProviderRecord>, StoreError> {
         let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
-        let hit: Option<AgentProviderRecord> = r
-            .get()
-            .primary(id)
-            .map_err(db_err("读取 provider 记录"))?;
+        let hit: Option<AgentProviderRecord> =
+            r.get().primary(id).map_err(db_err("读取 provider 记录"))?;
         Ok(hit)
     }
 
@@ -637,10 +819,8 @@ impl Store {
     /// 主键直查 agent 实例（显式路径解析消费）。
     pub fn find_agent_instance(&self, id: i64) -> Result<Option<AgentInstanceRecord>, StoreError> {
         let r = self.db.r_transaction().map_err(db_err("开启读事务"))?;
-        let hit: Option<AgentInstanceRecord> = r
-            .get()
-            .primary(id)
-            .map_err(db_err("读取 agent 记录"))?;
+        let hit: Option<AgentInstanceRecord> =
+            r.get().primary(id).map_err(db_err("读取 agent 记录"))?;
         Ok(hit)
     }
 

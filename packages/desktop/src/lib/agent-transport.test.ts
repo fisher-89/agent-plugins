@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, AgentRunRecord } from '../types/dto';
+import type { AgentEvent, TurnSummary } from '../types/dto';
 import { eventToChunk, type AgentUIMessageChunk } from './agent-adapter';
 import { TauriAgentTransport } from './agent-transport';
 
@@ -52,33 +52,46 @@ function textEvent(seq: number, text: string): AgentEvent {
   };
 }
 
-function recordRow(id: number, status: AgentRunRecord['status']): AgentRunRecord {
+function textDelta(seq: number, text: string): AgentEvent {
   return {
-    id,
-    prompt: '调试一轮',
-    cwd: ROOT,
-    env: 'default',
-    permissionMode: 'bypassPermissions',
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'messageDelta',
+    parentToolUseId: null,
+    delta: { kind: 'text', text },
+  };
+}
+
+/** 子代理归因键的 delta（每配对键独立簿记断言的 fixture 半边）。 */
+function keyedTextDelta(seq: number, parentToolUseId: string, text: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'messageDelta',
+    parentToolUseId,
+    delta: { kind: 'text', text },
+  };
+}
+
+function recordRow(turnId: number, status: TurnSummary['status']): TurnSummary {
+  return {
+    turnId,
+    sessionId: status === 'running' ? 's-live' : 's-done',
     status,
     startedAt: 1727000000000,
     finishedAt: status === 'running' ? null : 1727000001000,
     numTurns: null,
     costUsd: null,
     durationMs: null,
-    sessionId: null,
     error: null,
-    source: 'debug',
-    sourceRef: null,
-    parentRunId: null,
   };
 }
 
-const CHAIN_BODY = {
+const SESSION_BODY = {
   root: ROOT,
   prompt: '帮我跑一轮 loop',
   permissionMode: 'bypassPermissions' as const,
-  resumeSessionId: 's-tail',
-  parentRunId: 12,
+  sessionId: 'ses-0-1727000000000',
   source: 'explore',
   sourceRef: '7',
 };
@@ -106,7 +119,7 @@ async function drain(stream: ReadableStream<AgentUIMessageChunk>): Promise<Agent
   return collected;
 }
 
-function send(transport: TauriAgentTransport, body: object = CHAIN_BODY) {
+function send(transport: TauriAgentTransport, body: object = SESSION_BODY) {
   return transport.sendMessages({
     trigger: 'submit-message',
     chatId: 'chat-1',
@@ -133,7 +146,7 @@ beforeEach(() => {
 // ---------------------------------------------------------------------------
 
 describe('TauriAgentTransport：sendMessages', () => {
-  it('body 链参数原样进入 agent_start 参数，transport 不增删改写任何字段', async () => {
+  it('body 会话参数原样进入 agent_start 参数，transport 不增删改写任何字段', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
@@ -142,12 +155,11 @@ describe('TauriAgentTransport：sendMessages', () => {
 
     const args = startCallArgs();
     // agent 键恒在（body 无 agent → 缺席值 null 传递）
-    expect(args).toEqual({ ...CHAIN_BODY, agent: null, onEvent: expect.any(ChannelMock) });
-    expect(args['root']).toBe(CHAIN_BODY.root);
-    expect(args['prompt']).toBe(CHAIN_BODY.prompt);
+    expect(args).toEqual({ ...SESSION_BODY, agent: null, onEvent: expect.any(ChannelMock) });
+    expect(args['root']).toBe(SESSION_BODY.root);
+    expect(args['prompt']).toBe(SESSION_BODY.prompt);
     expect(args['permissionMode']).toBe('bypassPermissions');
-    expect(args['resumeSessionId']).toBe('s-tail');
-    expect(args['parentRunId']).toBe(12);
+    expect(args['sessionId']).toBe(SESSION_BODY.sessionId);
     expect(args['source']).toBe('explore');
     expect(args['sourceRef']).toBe('7');
     expect(args['agent']).toBeNull();
@@ -170,7 +182,7 @@ describe('TauriAgentTransport：sendMessages', () => {
     const recordChunks: AgentUIMessageChunk[] = [
       {
         type: 'start',
-        messageId: 'run-13',
+        messageId: 'turn-13',
         messageMetadata: { seq: null, parentToolUseId: null },
       },
       { type: 'reset-step' },
@@ -178,6 +190,40 @@ describe('TauriAgentTransport：sendMessages', () => {
       { type: 'finish' },
     ];
     expect(collected).toEqual([...events.flatMap((event) => eventToChunk(event)), ...recordChunks]);
+  });
+
+  it('流内首 delta 簿记：首个 messageDelta 补发 provisional 开件组（start + reset-step + part-start），后续 delta 直发累积 chunk', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(0, '你') });
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(1, '好') });
+    // Record 信封收尾闭流（否则可读流不结束）
+    const row = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 0, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'text-start', id: 't-delta-' },
+      { type: 'text-delta', id: 't-delta-', delta: '你' },
+      { type: 'text-delta', id: 't-delta-', delta: '好' },
+      {
+        type: 'start',
+        messageId: 'turn-13',
+        messageMetadata: { seq: null, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'data-run-record', data: row },
+      { type: 'finish' },
+    ]);
   });
 
   it('Record 信封 → data-run-record 部件 + finish 后可读流关闭，后续信封无 chunk', async () => {
@@ -193,7 +239,7 @@ describe('TauriAgentTransport：sendMessages', () => {
     expect(collected).toEqual([
       {
         type: 'start',
-        messageId: 'run-13',
+        messageId: 'turn-13',
         messageMetadata: { seq: null, parentToolUseId: null },
       },
       { type: 'reset-step' },
@@ -211,7 +257,7 @@ describe('TauriAgentTransport：sendMessages', () => {
 // ---------------------------------------------------------------------------
 
 describe('TauriAgentTransport：构造观测点', () => {
-  it('注入 onEvent / onRecord 后逐条透传（含启动记录与终态 record）', async () => {
+  it('注入 onEvent / onRecord 后逐条透传（含启动轮行与终态轮行）', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const onEvent = vi.fn();
     const onRecord = vi.fn();
@@ -226,7 +272,7 @@ describe('TauriAgentTransport：构造观测点', () => {
 
     expect(onEvent).toHaveBeenCalledTimes(1);
     expect(onEvent).toHaveBeenCalledWith(runStarted(0));
-    // 启动 resolve 的 running 记录 + Channel 终态 record 双路透传
+    // 启动 resolve 的 running 轮行 + Channel 终态轮行双路透传
     expect(onRecord).toHaveBeenCalledTimes(2);
     expect(onRecord).toHaveBeenNthCalledWith(1, recordRow(13, 'running'));
     expect(onRecord).toHaveBeenNthCalledWith(2, row);
@@ -271,17 +317,17 @@ describe('TauriAgentTransport：启动失败', () => {
     await expect(reader.read()).rejects.toThrow('store 打开失败');
   });
 
-  it('缺少链参数（body 无 root/prompt/source）→ 参数校验先行拒绝，不发起 invoke', async () => {
+  it('缺少会话参数（body 无 root/prompt/source）→ 参数校验先行拒绝，不发起 invoke', async () => {
     const transport = new TauriAgentTransport();
 
-    await expect(send(transport, {})).rejects.toThrow('缺少 agent_start 链参数');
+    await expect(send(transport, {})).rejects.toThrow('缺少 agent_start 会话参数');
     expect(invokeMock).not.toHaveBeenCalled();
   });
 
   it('清单外 permissionMode → 参数校验拒绝并列出非法值', async () => {
     const transport = new TauriAgentTransport();
 
-    await expect(send(transport, { ...CHAIN_BODY, permissionMode: 'yolo' })).rejects.toThrow(
+    await expect(send(transport, { ...SESSION_BODY, permissionMode: 'yolo' })).rejects.toThrow(
       '非法 permissionMode',
     );
     expect(invokeMock).not.toHaveBeenCalled();
@@ -289,17 +335,17 @@ describe('TauriAgentTransport：启动失败', () => {
 });
 
 // ---------------------------------------------------------------------------
-// readChainParams agent 读取：agent 可缺席（null → 后端解析默认 agent），
-// 清单外值拒绝；invoke 第 9 位置参数面
+// readSessionParams agent 读取：agent 可缺席（null → 后端解析默认 agent），
+// 清单外值拒绝；sessionId 读取沿用 string | null 口径
 // ---------------------------------------------------------------------------
 
-describe('TauriAgentTransport：agent 链参数', () => {
-  it('body.agent=5 / 9 → 读取透传至 invoke 第 9 位置参数', async () => {
+describe('TauriAgentTransport：agent 会话参数', () => {
+  it('body.agent=5 / 9 → 读取透传至 invoke 位置参数', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
 
     for (const agent of [5, 9]) {
       const transport = new TauriAgentTransport();
-      const stream = await send(transport, { ...CHAIN_BODY, agent });
+      const stream = await send(transport, { ...SESSION_BODY, agent });
       void stream.cancel();
       expect(startCallArgs()['agent']).toBe(agent);
     }
@@ -309,7 +355,7 @@ describe('TauriAgentTransport：agent 链参数', () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
-    // CHAIN_BODY 不携 agent：readChainParams 缺席承接 null，invoke 照常发起
+    // SESSION_BODY 不携 agent：readSessionParams 缺席承接 null，invoke 照常发起
     const stream = await send(transport);
     void stream.cancel();
 
@@ -321,16 +367,26 @@ describe('TauriAgentTransport：agent 链参数', () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
-    const stream = await send(transport, { ...CHAIN_BODY, agent: null });
+    const stream = await send(transport, { ...SESSION_BODY, agent: null });
     void stream.cancel();
 
     expect(startCallArgs()['agent']).toBeNull();
   });
 
+  it('body.sessionId=null（New 语义）→ sessionId=null 传递不抛错', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport, { ...SESSION_BODY, sessionId: null });
+    void stream.cancel();
+
+    expect(startCallArgs()['sessionId']).toBeNull();
+  });
+
   it("body.agent='yolo'（清单外值）→ 「非法 agent」参数校验拒绝且不发起 invoke（对齐 permissionMode 校验口径）", async () => {
     const transport = new TauriAgentTransport();
 
-    await expect(send(transport, { ...CHAIN_BODY, agent: 'yolo' })).rejects.toThrow('非法 agent');
+    await expect(send(transport, { ...SESSION_BODY, agent: 'yolo' })).rejects.toThrow('非法 agent');
     expect(invokeMock).not.toHaveBeenCalled();
   });
 });
@@ -390,32 +446,31 @@ describe('TauriAgentTransport：边界', () => {
 // ---------------------------------------------------------------------------
 // 生成绑定调用面（AC-5 回归锁定）与 dto shim 兼容（AC-6）：裸 invoke 切生成
 // 绑定入口后，命令名 / 参数 key camelCase / 错误通道逐字不变（生成绑定底层
-// 仍走 @tauri-apps/api/core 的 invoke，mock 机制切换后依旧生效）；手写镜像
-// interface 退役后，fixture 类型导入改自生成物（经 dto shim）。
+// 仍走 @tauri-apps/api/core 的 invoke，mock 机制切换后依旧生效）；fixture
+// 类型导入自生成物（经 dto shim）。
 // ---------------------------------------------------------------------------
 
 describe('TauriAgentTransport：生成绑定调用面', () => {
-  it('经生成绑定入口发起后 invoke 收到 "agent_start"，链参数 8 字段 camelCase key 与值逐字不变且 body 原样穿透', async () => {
+  it('经生成绑定入口发起后 invoke 收到 "agent_start"，会话参数 7 字段 camelCase key 与值逐字不变且 body 原样穿透', async () => {
     invokeMock.mockResolvedValue(recordRow(13, 'running'));
     const transport = new TauriAgentTransport();
 
     const stream = await send(transport);
     void stream.cancel();
 
-    // 生成绑定位置参数 → invoke 参数对象：恰 9 个 key（链参数 8 + onEvent）
+    // 生成绑定位置参数 → invoke 参数对象：恰 8 个 key（会话参数 7 + onEvent）
     expect(Object.keys(startCallArgs()).sort()).toEqual([
       'agent',
       'onEvent',
-      'parentRunId',
       'permissionMode',
       'prompt',
-      'resumeSessionId',
       'root',
+      'sessionId',
       'source',
       'sourceRef',
     ]);
     expect(startCallArgs()).toEqual({
-      ...CHAIN_BODY,
+      ...SESSION_BODY,
       agent: null,
       onEvent: expect.any(ChannelMock),
     });
@@ -452,14 +507,10 @@ describe('TauriAgentTransport：生成绑定调用面', () => {
 
   it("dto shim（from '../types/dto' 导入）在 shim 化后编译与运行不受影响：recordRow fixture 与断言照常工作", async () => {
     // AC-6 自动化半边：漏网旧 import 经纯 re-export shim 不炸——fixture 构造
-    // （AgentRunRecord / AgentEvent 类型自 dto shim 导入）与断言语义不变
-    const row: AgentRunRecord = recordRow(7, 'stopped');
+    //（TurnSummary / AgentEvent 类型自 dto shim 导入）与断言语义不变
+    const row: TurnSummary = recordRow(7, 'stopped');
     const event: AgentEvent = runStarted(0);
-    expect([row.env, row.permissionMode, row.status]).toEqual([
-      'default',
-      'bypassPermissions',
-      'stopped',
-    ]);
+    expect([row.sessionId, row.status]).toEqual(['s-done', 'stopped']);
     expect(event.kind).toBe('runStarted');
 
     invokeMock.mockResolvedValue(recordRow(7, 'running'));
@@ -471,5 +522,97 @@ describe('TauriAgentTransport：生成绑定调用面', () => {
 
     const recordChunk = collected.find((chunk) => chunk.type === 'data-run-record');
     expect(recordChunk?.type === 'data-run-record' && recordChunk.data).toEqual(row);
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 补遗：每配对键独立簿记 / 无状态转换器约定（AC-1 前端半边锚点）
+// ---------------------------------------------------------------------------
+
+describe('TauriAgentTransport：流内簿记语义', () => {
+  it('每配对键独立簿记：键 null 与 tu_1 并行时各键独立开件互不串件（part id 按键派生）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    // 四枚 delta 交错投递：null 键两枚、tu_1 键两枚
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(0, '主通道首片') });
+    lastChannel().onmessage?.({ ipc: 'event', event: keyedTextDelta(1, 'tu_1', '子代理甲') });
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(2, '主通道续片') });
+    lastChannel().onmessage?.({ ipc: 'event', event: keyedTextDelta(3, 'tu_1', '子代理乙') });
+    const row = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      // null 键首 delta：独立开件组（provisionalMessageId(null) 键）
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 0, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'text-start', id: 't-delta-' },
+      { type: 'text-delta', id: 't-delta-', delta: '主通道首片' },
+      // tu_1 键首 delta：独立开件组（provisionalMessageId('tu_1') 键）——
+      // 不与 null 键串件（每配对键独立簿记半边）
+      {
+        type: 'start',
+        messageId: 'delta-tu_1',
+        messageMetadata: { seq: 1, parentToolUseId: 'tu_1' },
+      },
+      { type: 'reset-step' },
+      { type: 'text-start', id: 't-delta-tu_1' },
+      { type: 'text-delta', id: 't-delta-tu_1', delta: '子代理甲' },
+      // 各键后续 delta 直发累积，part id 恒定归位各自通道
+      { type: 'text-delta', id: 't-delta-', delta: '主通道续片' },
+      { type: 'text-delta', id: 't-delta-tu_1', delta: '子代理乙' },
+      {
+        type: 'start',
+        messageId: 'turn-13',
+        messageMetadata: { seq: null, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'data-run-record', data: row },
+      { type: 'finish' },
+    ]);
+  });
+
+  it('无状态转换器约定：同一 transport 连续两次 sendMessages，第二流首 delta 再次补发开件组（簿记为流闭包局部状态，跨流不残留）', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    // 流一：首 delta 簿记开件后以 Record 收尾
+    const firstStream = await send(transport);
+    const pumpingFirst = drain(firstStream);
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(0, '第一流增量') });
+    const rowOne = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: rowOne });
+    const first = await pumpingFirst;
+
+    // 流二：同一 transport 再次 sendMessages（新 Channel 实例）
+    const secondStream = await send(transport);
+    const pumpingSecond = drain(secondStream);
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(7, '第二流增量') });
+    const rowTwo = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: rowTwo });
+    const second = await pumpingSecond;
+
+    // 第二流首 delta 再次补发完整开件组（start + reset-step + part-start）——
+    // 簿记状态为流闭包局部，第一流的已开件不残留到第二流
+    expect(second.slice(0, 4)).toEqual([
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 7, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'text-start', id: 't-delta-' },
+      { type: 'text-delta', id: 't-delta-', delta: '第二流增量' },
+    ]);
+    // 两流对同输入的转换行为一致（收尾 Record 组逐块相同，无跨流泄漏）
+    expect(second.slice(-4)).toEqual(first.slice(-4));
+    expect(second[second.length - 1]).toEqual({ type: 'finish' });
   });
 });

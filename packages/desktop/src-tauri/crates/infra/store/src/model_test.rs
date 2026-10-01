@@ -1,10 +1,9 @@
-use agent::{
-    AgentBlock, AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus,
-};
+use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
 
 use crate::model::{
-    pack_event_key, AgentEngineKind, AgentEventRecord, AgentInstanceRecord, AgentModelTiers,
-    AgentProviderRecord, AgentRunRecord,
+    pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentModelTiers,
+    AgentProviderRecord, AgentRunRecord, AgentRunRecordV3, SessionConfigSnapshot, SessionEventRecord,
+    SessionRecord,
 };
 
 // ---------------------------------------------------------------------------
@@ -54,10 +53,10 @@ fn system_notice(seq: u64) -> AgentEvent {
     )
 }
 
-fn run_result(seq: u64) -> AgentEvent {
+fn turn_done(seq: u64) -> AgentEvent {
     event(
         seq,
-        AgentEventKind::RunResult {
+        AgentEventKind::TurnDone {
             subtype: "success".to_owned(),
             is_error: false,
             num_turns: Some(3),
@@ -80,113 +79,120 @@ fn raw(seq: u64) -> AgentEvent {
 }
 
 /// native_model 封装内存往返（serde_json codec）：不经 db 文件。
-fn roundtrip(record: &AgentEventRecord) -> AgentEventRecord {
+fn roundtrip(record: &SessionEventRecord) -> SessionEventRecord {
     let bytes = native_model::encode(record).expect("native_model encode 应成功");
     let (decoded, version) =
-        native_model::decode::<AgentEventRecord>(bytes).expect("native_model decode 应成功");
+        native_model::decode::<SessionEventRecord>(bytes).expect("native_model decode 应成功");
     assert_eq!(version, 1, "native_model 版本封装为 version 1");
     decoded
 }
 
 // ---------------------------------------------------------------------------
-// 键打包：同 run 保序、run 区间上移、极值不溢出、相邻 run 不串键
+// 键打包：同会话保序、跨会话隔离、极值不溢出（合成 u128 主键）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 键打包同run内seq增大则event_key严格增大() {
+fn 键打包同session内seq增大则event_key严格增大() {
     let keys: Vec<u128> = (0..5u64)
-        .map(|seq| AgentEventRecord::new(7, raw(seq)).event_key)
+        .map(|seq| SessionEventRecord::new("ses-1", raw(seq)).event_key)
         .collect();
 
     for pair in keys.windows(2) {
         assert!(
             pair[0] < pair[1],
-            "同 run 内 seq 增大则 event_key 严格增大: {keys:?}"
+            "同 session 内 seq 增大则 event_key 严格增大（大端序字典序 = seq 序）: {keys:?}"
         );
     }
 }
 
 #[test]
-fn 键打包run_id增大则整段键区间上移() {
-    // run 1 的全部键（seq 遍历全域小样本）必须整体小于 run 2 的最小键：
-    // 扫描自然序即「先 run 1 全部、后 run 2」的重放序前提
-    let run1_max = AgentEventRecord::new(1, raw(u64::MAX)).event_key;
-    let run2_min = AgentEventRecord::new(2, raw(0)).event_key;
+fn 键打包不同session同seq经hash高64位隔离不串键() {
+    let session_a = SessionEventRecord::new("ses-甲", raw(3)).event_key;
+    let session_b = SessionEventRecord::new("ses-乙", raw(3)).event_key;
 
-    assert!(
-        run1_max < run2_min,
-        "run_id 高 64 位隔离：run 1 最大键 < run 2 最小键"
+    assert_ne!(
+        session_a, session_b,
+        "不同 session_id 同 seq：键区间经 hash64 高 64 位隔离不串键"
     );
-}
-
-#[test]
-fn 键打包最小键与最大键不溢出不回绕() {
-    let min = pack_event_key(0, 0);
-    let max = pack_event_key(i64::MAX, u64::MAX);
-
-    assert_eq!(min, 0, "最小键 (run_id=0, seq=0) 打包为 0");
+    // 高 64 位不同（隔离区间），低 64 位同 seq
     assert_eq!(
-        max,
-        ((i64::MAX as u128) << 64) | (u64::MAX as u128),
-        "最大键 (run_id=i64::MAX, seq=u64::MAX) 打包不溢出"
+        session_a & (u64::MAX as u128),
+        session_b & (u64::MAX as u128),
+        "低 64 位为同源 seq"
     );
-    assert!(min < max);
-    // 打包往返一致（组装点唯一口径）
-    assert_eq!(pack_event_key(42, 7), ((42i64 as u128) << 64) | 7u128);
+    assert_ne!(
+        session_a >> 64,
+        session_b >> 64,
+        "高 64 位 hash64(session_id) 互异"
+    );
 }
 
 #[test]
-fn 键打包相邻run边界不串键高64位隔离() {
-    // 同一 seq 区间内，相邻 run 的键区间必须无缝且不重叠：
-    // run 1 尾键（seq=u64::MAX）紧邻 run 2 首键（seq=0）
-    let run1_tail = AgentEventRecord::new(1, raw(u64::MAX)).event_key;
-    let run2_head = AgentEventRecord::new(2, raw(0)).event_key;
+fn 键打包seq极值不溢出不回绕() {
+    // 同会话内比较（高 64 位恒一致，序完全由 seq 决定）
+    let min = pack_session_event_key("ses-x", 0);
+    let max = pack_session_event_key("ses-x", u64::MAX);
+
+    assert_eq!(min & (u64::MAX as u128), 0, "最小键低 64 位 seq=0");
+    assert_eq!(
+        max & (u64::MAX as u128),
+        u64::MAX as u128,
+        "seq=u64::MAX 极值不溢出（低 64 位满幅）"
+    );
+    assert!(min < max, "同会话 seq 极值保序（打包键低 64 位即 seq）");
+    // 打包口径：高 64 位 hash、低 64 位 seq（组装点唯一）
+    let packed = pack_session_event_key("ses-x", 7);
+    assert_eq!(packed & (u64::MAX as u128), 7u128);
+    // 同会话高 64 位恒一致
+    assert_eq!(
+        pack_session_event_key("ses-x", 0) >> 64,
+        pack_session_event_key("ses-x", u64::MAX) >> 64,
+        "同会话打包键高 64 位恒一致"
+    );
+}
+
+#[test]
+fn 记录构造event_key打包自session与seq且访问器与载荷同源() {
+    let record = SessionEventRecord::new("ses-9", message(4));
 
     assert_eq!(
-        run2_head - run1_tail,
-        1,
-        "相邻 run 边界键恰好相邻不重叠（高 64 位隔离）"
+        record.event_key,
+        pack_session_event_key("ses-9", 4),
+        "event_key 打包口径"
     );
-}
-
-#[test]
-fn 记录构造event_key打包自run_id与seq且访问器与载荷同源() {
-    let record = AgentEventRecord::new(9, message(4));
-
-    assert_eq!(record.event_key, pack_event_key(9, 4), "event_key 打包口径");
-    assert_eq!(record.run_id(), 9, "run_id 访问器");
+    assert_eq!(record.session_id(), "ses-9", "session_id 访问器");
     assert_eq!(record.seq(), 4, "seq 访问器与载荷 event.seq 同源");
 }
 
 // ---------------------------------------------------------------------------
-// 嵌装往返：五变体逐字段保真（native_model serde_json codec 封装）
+// 嵌装往返：密封事件逐字段保真（native_model serde_json codec，serde flatten）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 嵌装往返五变体各构造一条逐字段相等() {
-    let run_id = 3;
+fn 嵌装往返密封五变体各构造一条逐字段相等() {
+    let session_id = "ses-nest";
     let seeded = [
         run_started(0),
         message(1),
         system_notice(2),
-        run_result(3),
+        turn_done(3),
         raw(4),
     ];
 
     for original in seeded {
-        let record = AgentEventRecord::new(run_id, original.clone());
+        let record = SessionEventRecord::new(session_id, original.clone());
         let decoded = roundtrip(&record);
 
-        assert_eq!(decoded, record, "变体 {:?} 往返逐字段相等", original.seq);
+        assert_eq!(decoded, record, "变体 seq={} 往返逐字段相等", original.seq);
         assert_eq!(
             decoded.event, original,
-            "嵌装载荷与原事件逐字段相等（store 包装层与 core flatten 组装兼容）"
+            "嵌装载荷与原密封事件逐字段相等（serde flatten 承载）"
         );
     }
 }
 
 #[test]
-fn 嵌装往返raw变体中文emoji引号原文保真() {
+fn 嵌装往返raw逃生舱中文emoji引号原文保真() {
     let original = event(
         5,
         AgentEventKind::Raw {
@@ -194,7 +200,7 @@ fn 嵌装往返raw变体中文emoji引号原文保真() {
             raw_json: "{\"kind\":\"外星事件\",\"note\":\"引号\\\"与emoji🚀\"}".to_owned(),
         },
     );
-    let record = AgentEventRecord::new(11, original.clone());
+    let record = SessionEventRecord::new("ses-raw", original.clone());
 
     let decoded = roundtrip(&record);
 
@@ -206,130 +212,240 @@ fn 嵌装往返raw变体中文emoji引号原文保真() {
                 if event_type == "外星事件"
                     && raw_json == "{\"kind\":\"外星事件\",\"note\":\"引号\\\"与emoji🚀\"}"
         ),
-        "Raw 变体原文（中文/emoji/引号）嵌装往返保真"
+        "Raw 逃生舱原文（中文/emoji/引号）嵌装往返保真"
     );
 }
 
 #[test]
-fn 嵌装往返大seq与大run_id打包键经编解码不回绕() {
-    // u128 打包键超 u64 上界：经 serde 十六进制字符串 serde 化往返后仍还原一致
-    let record = AgentEventRecord::new(i64::MAX, raw(u64::MAX));
+fn 嵌装往返大seq打包键经编解码不回绕且十六进制串serde() {
+    // u128 打包键超 u64 上界：经 serde 十六进制字符串往返后仍还原一致
+    let record = SessionEventRecord::new("ses-huge", raw(u64::MAX));
 
     let decoded = roundtrip(&record);
 
     assert_eq!(decoded.event_key, record.event_key, "最大打包键往返一致");
-    assert_eq!(decoded.run_id(), i64::MAX);
     assert_eq!(decoded.seq(), u64::MAX);
-}
 
-#[test]
-fn 嵌装往返serde线格式event_key为十六进制字符串() {
-    // serde_json 无 u128 数字面：event_key 定制为十六进制字符串（信封 API 的
-    // JSON 可表达性前提）；此处断言 serde 层序列化形态（native_model 封装头
-    // 之外的载荷编码即此形态）
-    let record = AgentEventRecord::new(1, raw(2));
+    // serde 线格式：eventKey 十六进制字符串（serde_json 无 u128 数字面）
     let value = serde_json::to_value(&record).expect("serde 序列化应成功");
-
     assert_eq!(
         value["eventKey"],
         serde_json::json!(format!("{:#034x}", record.event_key)),
         "eventKey 以十六进制字符串呈现（合法 JSON、无二进制）"
     );
-    assert_eq!(value["runId"], serde_json::json!(1));
-    assert_eq!(value["event"]["seq"], serde_json::json!(2));
+    assert_eq!(value["sessionId"], serde_json::json!("ses-huge"));
+    assert_eq!(value["event"]["seq"], serde_json::json!(u64::MAX));
 }
 
 // ---------------------------------------------------------------------------
-// AgentRunRecord 三枚举线格式（AC-1）：serde 值域全组合
+// SessionRecord / SessionConfigSnapshot：serde 线格式往返
 // ---------------------------------------------------------------------------
 
 #[test]
-fn v3记录serde线格式三枚举字段为受控驼峰串与枚举化前逐字一致() {
-    // serde camelCase JSON 线格式零变化（AC-1）：env / permissionMode / status
-    // 出线为受控字符串，键名 camelCase
-    let record = AgentRunRecord {
-        id: 1,
-        prompt: "线格式回归".to_owned(),
-        cwd: "C:\\ws\\demo".to_owned(),
-        env: AgentEnvMode::Default,
-        permission_mode: AgentPermissionMode::BypassPermissions,
-        status: AgentRunStatus::Running,
+fn session_record全字段serde往返_camelCase线格式逐字段() {
+    let record = SessionRecord {
+        id: "ses-1-1727000000000".to_owned(),
+        engine_session_id: Some("sdk-7-1727000000001".to_owned()),
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Sdk,
+            model: Some("m-high".to_owned()),
+            permission_mode: AgentPermissionMode::BypassPermissions,
+        },
+        source: "explore".to_owned(),
+        source_ref: Some("42".to_owned()),
+        created_at: 1727000000000,
+        updated_at: 1727000005000,
+    };
+
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    assert_eq!(value["id"], serde_json::json!("ses-1-1727000000000"));
+    assert_eq!(
+        value["engineSessionId"],
+        serde_json::json!("sdk-7-1727000000001")
+    );
+    assert_eq!(
+        value["configSnapshot"]["engine"],
+        serde_json::json!("sdk"),
+        "快照嵌套（engine/model/permission）"
+    );
+    assert_eq!(value["configSnapshot"]["model"], serde_json::json!("m-high"));
+    assert_eq!(
+        value["configSnapshot"]["permissionMode"],
+        serde_json::json!("bypassPermissions")
+    );
+    assert_eq!(value["source"], serde_json::json!("explore"));
+    assert_eq!(value["sourceRef"], serde_json::json!("42"));
+    assert_eq!(value["createdAt"], serde_json::json!(1727000000000_i64));
+    assert_eq!(value["updatedAt"], serde_json::json!(1727000005000_i64));
+
+    let back: SessionRecord = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, record, "全字段往返逐字段相等");
+}
+
+#[test]
+fn session_config_snapshot三字段往返且model_none与engine_session_id_none形态() {
+    for (engine, model) in [
+        (AgentEngineKind::Cli, None),
+        (AgentEngineKind::Sdk, Some("m-high".to_owned())),
+    ] {
+        let snapshot = SessionConfigSnapshot {
+            engine,
+            model: model.clone(),
+            permission_mode: AgentPermissionMode::AcceptEdits,
+        };
+        let value = serde_json::to_value(&snapshot).expect("序列化应成功");
+        assert_eq!(
+            value["engine"],
+            serde_json::json!(if matches!(engine, AgentEngineKind::Cli) { "cli" } else { "sdk" })
+        );
+        let back: SessionConfigSnapshot = serde_json::from_value(value).expect("反序列化成功");
+        assert_eq!(back, snapshot);
+    }
+
+    // session 行的 remote None 形态可区分
+    let mut bare = SessionRecord {
+        id: "ses-bare".to_owned(),
+        engine_session_id: None,
+        config_snapshot: SessionConfigSnapshot {
+            engine: AgentEngineKind::Cli,
+            model: None,
+            permission_mode: AgentPermissionMode::Default,
+        },
+        source: "debug".to_owned(),
+        source_ref: None,
+        created_at: 1,
+        updated_at: 1,
+    };
+    let none_value = serde_json::to_value(&bare).expect("序列化应成功");
+    assert_eq!(none_value["engineSessionId"], serde_json::Value::Null);
+    let none_back: SessionRecord = serde_json::from_value(none_value).expect("反序列化成功");
+    assert_eq!(none_back, bare);
+    bare.engine_session_id = Some("sdk-1".to_owned());
+    assert_ne!(
+        serde_json::to_value(&bare).expect("序列化应成功")["engineSessionId"],
+        serde_json::Value::Null
+    );
+}
+
+// ---------------------------------------------------------------------------
+// AgentRunRecord：native_model 版本 3→4 原地演进（v4 轮统计行化）
+// ---------------------------------------------------------------------------
+
+/// v4 轮统计行底座。
+fn run_record_v4() -> AgentRunRecord {
+    AgentRunRecord {
+        id: 7,
+        session_id: Some("ses-1-1727000000000".to_owned()),
+        status: AgentRunStatus::Completed,
         started_at: 1727000000000,
-        finished_at: None,
-        num_turns: None,
+        finished_at: Some(1727000004000),
+        num_turns: Some(2),
         cost_usd: None,
-        duration_ms: None,
-        session_id: None,
+        duration_ms: Some(4000),
+        error: None,
+    }
+}
+
+#[test]
+fn agent_run_record_v4编解码版本断言4且往返逐字段相等() {
+    let record = run_record_v4();
+
+    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+    let (decoded, version) =
+        native_model::decode::<AgentRunRecord>(bytes).expect("native_model decode 应成功");
+    assert_eq!(version, 4, "native_model 版本封装为 version 4（轮统计行化）");
+    assert_eq!(decoded, record, "v4 往返逐字段相等");
+}
+
+#[test]
+fn v4线格式含session_id_option与统计字段且退役字段不在线格式() {
+    let record = run_record_v4();
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+
+    // 在场：sessionId Option / status / 起止时间戳 / 统计三字段 / error
+    assert_eq!(
+        value["sessionId"],
+        serde_json::json!("ses-1-1727000000000"),
+        "sessionId Option 承接"
+    );
+    for key in ["status", "startedAt", "finishedAt", "numTurns", "costUsd", "durationMs", "error"] {
+        assert!(value.get(key).is_some(), "v4 线格式含 {key}");
+    }
+
+    // 退役字段不在线格式（v3→v4 平移：来源归属主平移至 SessionRecord、链指针
+    // 语义由会话归属取代）
+    for retired in [
+        "prompt", "cwd", "env", "permissionMode", "source", "sourceRef", "parentRunId",
+    ] {
+        assert!(
+            value.get(retired).is_none(),
+            "退役字段 {retired} 不在 v4 线格式"
+        );
+    }
+
+    // session_id None 形态（孤儿轮行）往返
+    let mut orphan = run_record_v4();
+    orphan.session_id = None;
+    let value = serde_json::to_value(&orphan).expect("序列化应成功");
+    assert_eq!(value["sessionId"], serde_json::Value::Null);
+    let back: AgentRunRecord = serde_json::from_value(value).expect("反序列化成功");
+    assert_eq!(back, orphan);
+}
+
+#[test]
+fn 存量v3行经版本机制自动升级为孤儿轮行_session_id置none统计保留() {
+    // v3 历史形态（全平文字段，仅升级链解码目标）
+    let legacy = AgentRunRecordV3 {
+        id: 42,
+        prompt: "存量首轮".to_owned(),
+        cwd: "C:\\legacy".to_owned(),
+        env: crate::model::AgentEnvModeLegacy::Default,
+        permission_mode: AgentPermissionMode::BypassPermissions,
+        status: AgentRunStatus::Completed,
+        started_at: 1727000000000,
+        finished_at: Some(1727000004000),
+        num_turns: Some(2),
+        cost_usd: Some(0.1),
+        duration_ms: Some(4000),
+        session_id: Some("s-legacy-cli".to_owned()),
         error: None,
         source: "debug".to_owned(),
         source_ref: None,
-        parent_run_id: None,
+        parent_run_id: Some(41),
     };
-    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    let legacy_bytes = native_model::encode(&legacy).expect("encode v3 应成功");
+    // v3 载荷以 v3 模型 id 解出（版本机制识别 id=2 + version=3）
+    let (legacy_decoded, legacy_version) =
+        native_model::decode::<AgentRunRecordV3>(legacy_bytes.clone())
+            .expect("v3 载荷可按 v3 模型解码");
+    assert_eq!(legacy_version, 3, "存量形态封装为 version 3");
+    assert_eq!(legacy_decoded, legacy, "v3 载荷按 v3 解码逐字段相等");
 
-    assert_eq!(value["env"], "default");
-    assert_eq!(value["permissionMode"], "bypassPermissions");
-    assert_eq!(value["status"], "running");
-    // 反序列化 roundtrip 一致（线格式双向受控）
-    let roundtrip: AgentRunRecord = serde_json::from_value(value).expect("反序列化成功");
-    assert_eq!(roundtrip, record);
-}
-
-#[test]
-fn 三枚举全组合serde串值域逐字断言() {
-    // env 2 × permission-mode 3 × status 4 = 24 组合穷尽：serde 串值域的
-    // 机械化回归面（值域扫描结论的锁定形态，AC-1）
-    let env_wire = |mode: AgentEnvMode| match mode {
-        AgentEnvMode::Default => "default",
-        AgentEnvMode::Bare => "bare",
-    };
-    let mode_wire = |mode: AgentPermissionMode| match mode {
-        AgentPermissionMode::Default => "default",
-        AgentPermissionMode::AcceptEdits => "acceptEdits",
-        AgentPermissionMode::BypassPermissions => "bypassPermissions",
-    };
-    let status_wire = |status: AgentRunStatus| match status {
-        AgentRunStatus::Running => "running",
-        AgentRunStatus::Completed => "completed",
-        AgentRunStatus::Failed => "failed",
-        AgentRunStatus::Stopped => "stopped",
-    };
-
-    let mut combos = 0;
-    for env in [AgentEnvMode::Default, AgentEnvMode::Bare] {
-        for permission_mode in [
-            AgentPermissionMode::Default,
-            AgentPermissionMode::AcceptEdits,
-            AgentPermissionMode::BypassPermissions,
-        ] {
-            for status in [
-                AgentRunStatus::Running,
-                AgentRunStatus::Completed,
-                AgentRunStatus::Failed,
-                AgentRunStatus::Stopped,
-            ] {
-                let serialized = serde_json::to_string(&(env, permission_mode, status))
-                    .expect("组合序列化应成功");
-                assert_eq!(
-                    serialized,
-                    format!(
-                        "[\"{}\",\"{}\",\"{}\"]",
-                        env_wire(env),
-                        mode_wire(permission_mode),
-                        status_wire(status)
-                    ),
-                    "组合 ({env:?}, {permission_mode:?}, {status:?}) 串值域逐字一致"
-                );
-                combos += 1;
-            }
-        }
-    }
-    assert_eq!(combos, 24, "全组合恰 2×3×4=24 项穷尽");
+    // 同一载荷经版本机制自动升级为 v4：session_id 置 None（孤儿轮行）、统计与
+    // 时间戳保留、退役字段不入（零迁移代码路径）
+    let (upgraded, version) = native_model::decode::<AgentRunRecord>(legacy_bytes)
+        .expect("v3 载荷应经版本机制升级为 v4");
+    assert_eq!(
+        version, 3,
+        "decode 返回载荷头版本（升级链源版本）；升级由值面承载（下方逐字段）"
+    );
+    assert_eq!(upgraded.id, 42);
+    assert_eq!(
+        upgraded.session_id, None,
+        "存量行升级为无会话归属孤儿轮行（旧引擎侧会话 id 不平移）"
+    );
+    assert_eq!(upgraded.status, AgentRunStatus::Completed, "统计保留");
+    assert_eq!(upgraded.started_at, 1727000000000, "时间戳保留");
+    assert_eq!(upgraded.finished_at, Some(1727000004000));
+    assert_eq!(upgraded.num_turns, Some(2));
+    assert_eq!(upgraded.cost_usd, Some(0.1));
+    assert_eq!(upgraded.duration_ms, Some(4000));
+    assert_eq!(upgraded.error, None);
 }
 
 // ---------------------------------------------------------------------------
-// agent 管理记录（AC-9 / AC-6 存储半边）：构造语义、遮蔽 Debug、嵌装往返、
-// serde 线格式（内存构造 + native_model 封装内存往返，无 mock）
+// agent 管理记录回归：构造语义、遮蔽 Debug、嵌装往返、serde 线格式（内存构造
+// + native_model 封装内存往返，无 mock）
 // ---------------------------------------------------------------------------
 
 /// 三档模型 fixture（high / medium / low 三档可区分，消费半边断言取 high 档）。
@@ -437,35 +553,12 @@ fn provider构造特殊字符字段clone与partial_eq保真且models三档全空
     assert_eq!(cloned, record, "特殊字符字段 Clone / PartialEq 保真");
 }
 
-#[test]
-fn instance构造new恒id0与is_defaultfalse且engine两变体与provider_id两态逐字段保真() {
-    // 构造器不产默认标记：is_default 恒 false（默认标记唯一写口为 set_default）
-    let cli_agent =
-        AgentInstanceRecord::new("cli-甲".to_owned(), AgentEngineKind::Cli, None);
-    assert_eq!(cli_agent.id, 0, "new 构造 id 恒置 0");
-    assert!(!cli_agent.is_default, "new 构造恒非默认");
-    assert_eq!(cli_agent.name, "cli-甲");
-    assert_eq!(cli_agent.engine, AgentEngineKind::Cli);
-    assert_eq!(cli_agent.provider_id, None, "cli 臂 provider 可空透传");
-
-    let sdk_agent =
-        AgentInstanceRecord::new("sdk-乙".to_owned(), AgentEngineKind::Sdk, Some(7));
-    assert_eq!(sdk_agent.id, 0);
-    assert!(!sdk_agent.is_default);
-    assert_eq!(sdk_agent.engine, AgentEngineKind::Sdk);
-    assert_eq!(sdk_agent.provider_id, Some(7), "provider_id Some 两态透传");
-
-    // Clone / PartialEq 保真
-    assert_eq!(sdk_agent.clone(), sdk_agent);
-    assert_ne!(cli_agent, sdk_agent, "两形态记录不等");
-}
-
 /// provider 记录的 native_model 内存往返（默认 bincode codec，不经 db 文件）。
 fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
     let bytes = native_model::encode(record).expect("native_model encode 应成功");
     let (decoded, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
-    assert_eq!(version, 1, "native_model 版本封装为 version 1（id 5 新登记不与既有 1–4 冲突由打开成功锚定）");
+    assert_eq!(version, 1, "native_model 版本封装为 version 1");
     decoded
 }
 
@@ -487,8 +580,7 @@ fn provider记录嵌装往返含三档models逐字段相等() {
 fn instance记录往返engine两变体与provider_id两态option语义经编解码不漂移() {
     for engine in [AgentEngineKind::Cli, AgentEngineKind::Sdk] {
         for provider_id in [None, Some(42)] {
-            let record =
-                AgentInstanceRecord::new(format!("实例-{engine:?}"), engine, provider_id);
+            let record = AgentInstanceRecord::new(format!("实例-{engine:?}"), engine, provider_id);
 
             let bytes = native_model::encode(&record).expect("native_model encode 应成功");
             let (decoded, version) = native_model::decode::<AgentInstanceRecord>(bytes)
@@ -504,6 +596,27 @@ fn instance记录往返engine两变体与provider_id两态option语义经编解�
 }
 
 #[test]
+fn instance构造new恒id0与is_defaultfalse且engine两变体与provider_id两态逐字段保真() {
+    // 构造器不产默认标记：is_default 恒 false（默认标记唯一写口为 set_default）
+    let cli_agent = AgentInstanceRecord::new("cli-甲".to_owned(), AgentEngineKind::Cli, None);
+    assert_eq!(cli_agent.id, 0, "new 构造 id 恒置 0");
+    assert!(!cli_agent.is_default, "new 构造恒非默认");
+    assert_eq!(cli_agent.name, "cli-甲");
+    assert_eq!(cli_agent.engine, AgentEngineKind::Cli);
+    assert_eq!(cli_agent.provider_id, None, "cli 臂 provider 可空透传");
+
+    let sdk_agent = AgentInstanceRecord::new("sdk-乙".to_owned(), AgentEngineKind::Sdk, Some(7));
+    assert_eq!(sdk_agent.id, 0);
+    assert!(!sdk_agent.is_default);
+    assert_eq!(sdk_agent.engine, AgentEngineKind::Sdk);
+    assert_eq!(sdk_agent.provider_id, Some(7), "provider_id Some 两态透传");
+
+    // Clone / PartialEq 保真
+    assert_eq!(sdk_agent.clone(), sdk_agent);
+    assert_ne!(cli_agent, sdk_agent, "两形态记录不等");
+}
+
+#[test]
 fn 管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值() {
     let provider = AgentProviderRecord::new(
         "线格式".to_owned(),
@@ -513,27 +626,23 @@ fn 管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值() 
     );
     let provider_value = serde_json::to_value(&provider).expect("serde 序列化应成功");
     assert_eq!(provider_value["name"], serde_json::json!("线格式"));
-    assert_eq!(provider_value["baseUrl"], serde_json::json!("https://api.example.com/v1"));
+    assert_eq!(
+        provider_value["baseUrl"],
+        serde_json::json!("https://api.example.com/v1")
+    );
     assert_eq!(provider_value["apiKey"], serde_json::json!("sk-live-1234567890"));
     assert_eq!(provider_value["models"]["high"], serde_json::json!("m-high"));
     assert_eq!(provider_value["models"]["medium"], serde_json::json!("m-medium"));
     assert_eq!(provider_value["models"]["low"], serde_json::json!("m-low"));
 
-    let instance = AgentInstanceRecord::new(
-        "线格式实例".to_owned(),
-        AgentEngineKind::Sdk,
-        Some(7),
-    );
+    let instance =
+        AgentInstanceRecord::new("线格式实例".to_owned(), AgentEngineKind::Sdk, Some(7));
     let instance_value = serde_json::to_value(&instance).expect("serde 序列化应成功");
     assert_eq!(instance_value["engine"], serde_json::json!("sdk"));
     assert_eq!(instance_value["providerId"], serde_json::json!(7));
     assert_eq!(instance_value["isDefault"], serde_json::json!(false));
 
-    let cli = AgentInstanceRecord::new(
-        "线格式cli".to_owned(),
-        AgentEngineKind::Cli,
-        None,
-    );
+    let cli = AgentInstanceRecord::new("线格式cli".to_owned(), AgentEngineKind::Cli, None);
     let cli_value = serde_json::to_value(&cli).expect("serde 序列化应成功");
     assert_eq!(cli_value["engine"], serde_json::json!("cli"), "engine 出线 \"cli\"");
     assert_eq!(cli_value["providerId"], serde_json::json!(null));
@@ -551,8 +660,5 @@ fn 管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值() 
 fn serde线格式非法engine串反序列化err() {
     // 受控值域拒绝：非 "cli"/"sdk" 串反序列化 Err（与既有三枚举线格式口径同型）
     let result = serde_json::from_value::<AgentEngineKind>(serde_json::json!("yolo"));
-    assert!(
-        result.is_err(),
-        "非法 engine 串应 Err，实际: {result:?}"
-    );
+    assert!(result.is_err(), "非法 engine 串应 Err，实际: {result:?}");
 }

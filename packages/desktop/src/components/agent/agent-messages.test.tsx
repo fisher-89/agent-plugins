@@ -3,7 +3,7 @@ import { render, screen, within } from '@testing-library/react';
 import { describe, expect, it } from 'vite-plus/test';
 
 import { eventsToUIMessages, runRecordToUIMessage } from '../../lib/agent-adapter';
-import type { AgentBlock, AgentEvent, AgentRunRecord } from '../../types/dto';
+import type { AgentBlock, AgentEvent, TurnSummary } from '../../types/dto';
 import { AgentMessages } from './agent-messages';
 
 // ---------------------------------------------------------------------------
@@ -58,24 +58,17 @@ function raw(seq: number): AgentEvent {
   };
 }
 
-function recordRow(status: AgentRunRecord['status']): AgentRunRecord {
+function recordRow(status: TurnSummary['status']): TurnSummary {
   return {
-    id: 1,
-    prompt: '对话一轮',
-    cwd: 'C:\\demo\\alpha',
-    env: 'default',
-    permissionMode: 'bypassPermissions',
+    turnId: 1,
+    sessionId: 'ses-0-1727000000000',
     status,
     startedAt: TS,
     finishedAt: TS + 999,
     numTurns: 2,
     costUsd: 0.2,
     durationMs: 800,
-    sessionId: 's-1',
     error: null,
-    source: 'explore',
-    sourceRef: '7',
-    parentRunId: null,
   };
 }
 

@@ -1,23 +1,14 @@
-//! `commands::workspaces` 的单元测试 + 「workspace命令面 → WorkspaceStores 两库
-//! 持久化」集成关系（AC-7 组合：remove 仅删注册记录、workspace 库历史保留）。
-//!
-//! 三命令为薄包装（State 取 `WorkspaceStores` + String→Path 参数转换 +
-//! StoreError→Err(String) 映射）：`#[tauri::command]` 保留原函数可直调，测试
-//! 不启动真实 Tauri runtime——以 `tauri::test::mock_app()`（MockRuntime，无窗口
-//! 无事件循环）manage 真实 `WorkspaceStores`（tempdir 真开全局库与 workspace
-//! 库）后经 `app.state::<WorkspaceStores>()` 取 State。
-
 use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
+use agent::{AgentEvent, AgentEventKind};
 use serde_json::json;
 use tauri::{App, Manager};
 use tempfile::TempDir;
 
 use super::{add_workspace, list_workspaces, remove_workspace};
-use store::{AgentRunRecord, WorkspaceStores};
+use store::{AgentEngineKind, SessionConfigSnapshot, SessionRecord, WorkspaceStores};
 
 /// 数据根 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
 struct Env {
@@ -81,32 +72,29 @@ fn app_with_stores(env: &Env) -> App<tauri::test::MockRuntime> {
     app
 }
 
-/// 带来源三元组的 running 形态 run 记录（id 由 begin 分配）。
-fn chain_run(
-    root: &str,
-    prompt: &str,
-    started_at: i64,
+/// 落一份带来源三元组的会话行（会话域级联/历史断言的底座）。
+fn seed_chat_session(
+    store: &store::Store,
+    id: &str,
     source: &str,
     source_ref: Option<&str>,
-) -> AgentRunRecord {
-    AgentRunRecord {
-        id: 0,
-        prompt: prompt.to_owned(),
-        cwd: root.to_owned(),
-        env: AgentEnvMode::Default,
-        permission_mode: AgentPermissionMode::BypassPermissions,
-        status: AgentRunStatus::Running,
-        started_at,
-        finished_at: None,
-        num_turns: None,
-        cost_usd: None,
-        duration_ms: None,
-        session_id: None,
-        error: None,
-        source: source.to_owned(),
-        source_ref: source_ref.map(str::to_owned),
-        parent_run_id: None,
-    }
+) -> String {
+    store
+        .create_session(&SessionRecord {
+            id: id.to_owned(),
+            engine_session_id: None,
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Sdk,
+                model: Some("m-high".to_owned()),
+                permission_mode: agent::AgentPermissionMode::BypassPermissions,
+            },
+            source: source.to_owned(),
+            source_ref: source_ref.map(str::to_owned),
+            created_at: 1727000000000,
+            updated_at: 1727000000000,
+        })
+        .expect("create_session 应成功");
+    id.to_owned()
 }
 
 /// 一条盖戳 Raw 事件（级联与重放断言的最小载荷）。
@@ -437,16 +425,13 @@ fn remove仅删注册记录_重加同root后explore与会话链历史完整可�
         let explore = ws
             .create_explore_record(&record.root, "历史话题")
             .expect("建档应成功");
-        let run = ws
-            .begin_agent_run(&chain_run(
-                &record.root,
-                "历史首轮",
-                100,
-                "explore",
-                Some(&explore.id.to_string()),
-            ))
-            .expect("begin 应成功");
-        ws.append_agent_run_events(run.id, &[raw_event(0), raw_event(1)])
+        let session_id = seed_chat_session(
+            &ws,
+            "ses-history-bound",
+            "explore",
+            Some(&explore.id.to_string()),
+        );
+        ws.append_session_events(&session_id, &[raw_event(0), raw_event(1)])
             .expect("append 应成功");
     }
 
@@ -469,17 +454,19 @@ fn remove仅删注册记录_重加同root后explore与会话链历史完整可�
     let explores = ws.list_explore_records(&readded.root).unwrap();
     assert_eq!(explores.len(), 1, "explore 清单历史完整");
     assert_eq!(explores[0].name, "历史话题");
-    let runs = ws.list_agent_runs().unwrap();
-    assert_eq!(runs.len(), 1, "会话链历史完整");
+    let summaries = ws
+        .list_sessions(Some("explore"), Some(&explores[0].id.to_string()))
+        .unwrap();
+    assert_eq!(summaries.len(), 1, "归属会话历史完整");
     assert_eq!(
-        runs[0].source_ref.as_deref(),
+        summaries[0].row.provenance.source_ref.as_deref(),
         Some(explores[0].id.to_string().as_str()),
         "链绑定（source_ref）跨 remove-readd 保持"
     );
     assert_eq!(
-        ws.list_agent_run_events(runs[0].id).unwrap().len(),
+        ws.list_session_events("ses-history-bound").unwrap().len(),
         2,
-        "事件历史完整可读"
+        "转录历史完整可读"
     );
 }
 
@@ -494,11 +481,8 @@ fn remove后db文件名与字节保持原样不自动清理() {
         let state = app.state::<WorkspaceStores>();
         root = env.root_of("keep-bytes");
         let record = add_workspace(state.clone(), root.clone()).expect("add 应成功");
-        state
-            .for_root(&record.root)
-            .expect("for_root 应成功")
-            .begin_agent_run(&chain_run(&record.root, "占位轮", 100, "debug", None))
-            .expect("begin 应成功");
+        let ws = state.for_root(&record.root).expect("for_root 应成功");
+        seed_chat_session(&ws, "ses-keep-bytes", "debug", None);
         file_name = env.workspace_db_files()[0].clone();
         // tauri 托管值生命周期长于 App（redb 文件锁不随 App drop 释放）：
         // 显式取回注册表销毁，db 文件字节才能被外部读取
@@ -535,9 +519,7 @@ fn remove不驱逐缓存_重加同root经缓存实例即读即得() {
     let record = add_workspace(state.clone(), root).expect("add 应成功");
     let arc_before = state.for_root(&record.root).expect("for_root 应成功");
     // 缓存实例内写入一笔数据
-    arc_before
-        .begin_agent_run(&chain_run(&record.root, "缓存轮", 100, "debug", None))
-        .expect("begin 应成功");
+    seed_chat_session(&arc_before, "ses-keep-cache", "debug", None);
 
     // remove：注册记录消失，缓存实例保留
     assert!(remove_workspace(state.clone(), record.root.clone()).unwrap());
@@ -551,7 +533,7 @@ fn remove不驱逐缓存_重加同root经缓存实例即读即得() {
         "重加后命中同一缓存实例（remove 不驱逐缓存）"
     );
     assert_eq!(
-        arc_after.list_agent_runs().unwrap().len(),
+        arc_after.list_sessions(None, None).unwrap().len(),
         1,
         "缓存实例数据即读即得（remove-readd 不清空 workspace 库）"
     );

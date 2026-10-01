@@ -9,7 +9,7 @@ import Markdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 import type { AgentToolOutput, AgentToolPart, AgentUIMessage } from '../../lib/agent-adapter';
-import type { AgentRunRecord, AgentRunStatus } from '../../types/dto';
+import type { AgentRunStatus, TurnSummary } from '../../types/dto';
 
 /** 消息部件 → tool 部件收窄（`tool-<name>` 命名，dynamic-tool 不在信封内） */
 export function isToolPart(part: AgentUIMessage['parts'][number]): part is AgentToolPart {
@@ -152,8 +152,8 @@ function statusSuffix(status: AgentRunStatus): string {
   return '· 成功';
 }
 
-/** record 静默状态行：终态 run 记录的对话内低调呈现（不抢对话流） */
-export function RunRecordRow({ record }: { record: AgentRunRecord }): React.JSX.Element {
+/** record 静默状态行：终态轮行的对话内低调呈现（不抢对话流） */
+export function RunRecordRow({ record }: { record: TurnSummary }): React.JSX.Element {
   return (
     <div
       className="my-1.5 flex items-center gap-2 text-xs text-muted-foreground"
@@ -161,7 +161,7 @@ export function RunRecordRow({ record }: { record: AgentRunRecord }): React.JSX.
       data-status={record.status}
     >
       <span>
-        run 结束（{record.status}）{statusSuffix(record.status)}
+        轮结束（{record.status}）{statusSuffix(record.status)}
       </span>
       {record.error !== null && (
         <span className="break-all text-fail" data-testid="run-record-error">

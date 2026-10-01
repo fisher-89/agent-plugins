@@ -1,11 +1,11 @@
 use std::fs;
 use std::path::{Path, PathBuf};
 
-use agent::{AgentEnvMode, AgentEvent, AgentEventKind, AgentPermissionMode, AgentRunStatus};
+use agent::{AgentEvent, AgentEventKind};
 
 use crate::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
-    Store, StoreError,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
+    SessionConfigSnapshot, SessionRecord, Store, StoreError,
 };
 
 /// db 文件 + workspace 根目录临时环境：tempfile RAII，测试结束自动清理。
@@ -54,30 +54,26 @@ fn add_ok(store: &Store, dir: &Path) -> crate::WorkspaceRecord {
         .unwrap_or_else(|e| panic!("add_workspace 应成功: {e}"))
 }
 
-fn begin_run(store: &Store, prompt: &str, started_at: i64) -> crate::AgentRunRecord {
+fn seed_session(store: &Store, id: &str) -> String {
     store
-        .begin_agent_run(&AgentRunRecord {
-            id: 0,
-            prompt: prompt.to_owned(),
-            cwd: "C:\\ws\\demo".to_owned(),
-            env: AgentEnvMode::Default,
-            permission_mode: AgentPermissionMode::BypassPermissions,
-            status: AgentRunStatus::Running,
-            started_at,
-            finished_at: None,
-            num_turns: None,
-            cost_usd: None,
-            duration_ms: None,
-            session_id: None,
-            error: None,
+        .create_session(&SessionRecord {
+            id: id.to_owned(),
+            engine_session_id: None,
+            config_snapshot: SessionConfigSnapshot {
+                engine: AgentEngineKind::Sdk,
+                model: Some("m-high".to_owned()),
+                permission_mode: agent::AgentPermissionMode::BypassPermissions,
+            },
             source: "debug".to_owned(),
             source_ref: None,
-            parent_run_id: None,
+            created_at: 1727000000000,
+            updated_at: 1727000000000,
         })
-        .unwrap_or_else(|e| panic!("begin_agent_run 应成功: {e}"))
+        .unwrap_or_else(|e| panic!("create_session 应成功: {e}"));
+    id.to_owned()
 }
 
-fn append_raw(store: &Store, run_id: i64, seq: u64) {
+fn append_raw(store: &Store, session_id: &str, seq: u64) {
     let event = AgentEvent::stamp(
         seq,
         AgentEventKind::Raw {
@@ -86,7 +82,7 @@ fn append_raw(store: &Store, run_id: i64, seq: u64) {
         },
     );
     store
-        .append_agent_run_events(run_id, &[event])
+        .append_session_events(session_id, &[event])
         .unwrap_or_else(|e| panic!("append 应成功: {e}"));
 }
 
@@ -125,10 +121,11 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
     );
     drop(global);
 
-    // workspace 库：三行按登记序，计数与各模型写入量一致（explore 计数 0 也列出）
+    // workspace 库：四行按登记序，计数与各模型写入量一致（轮统计行与 explore
+    // 计数 0 也列出；agent_event 退役出注册）
     let ws = open_ws_ok(&env.db_path("ws"));
-    let run = begin_run(&ws, "注册表复核", 100);
-    append_raw(&ws, run.id, 0);
+    let session_id = seed_session(&ws, "ses-registry");
+    append_raw(&ws, &session_id, 0);
 
     let models = ws.list_models().unwrap();
     assert_eq!(
@@ -136,11 +133,11 @@ fn 注册表按维度分组列出模型且list_models计数与写入量一致() 
             .iter()
             .map(|model| model.name.as_str())
             .collect::<Vec<_>>(),
-        vec!["agent_run", "agent_event", "explore"],
-        "workspace 库静态注册表恰三行，顺序即登记序"
+        vec!["agent_run", "session", "session_event", "explore"],
+        "workspace 库静态注册表恰四行，顺序即登记序"
     );
     let counts: Vec<u64> = models.iter().map(|model| model.count).collect();
-    assert_eq!(counts, vec![1, 1, 0], "计数与各模型写入量一致");
+    assert_eq!(counts, vec![0, 1, 1, 0], "计数与各模型写入量一致");
 }
 
 // ---------------------------------------------------------------------------
@@ -296,7 +293,7 @@ fn workspace库实例scan新模型名err维度过滤_两新模型仅注册全局
 }
 
 // ---------------------------------------------------------------------------
-// scan 分页边界矩阵（以 agent_run 载荷承载：begin 分配 id 无目录依赖）
+// scan 分页边界矩阵（以 session 载荷承载：create_session 无目录依赖）
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -304,27 +301,37 @@ fn scan_offset首页恰为总数与超过总数三种形态返回正确() {
     let env = Env::new("scan-offset");
     let store = open_ws_ok(&env.db_path("ws"));
     for index in 0..3 {
-        begin_run(&store, &format!("run-{index}"), 100 + index);
+        seed_session(&store, &format!("ses-offset-{index}"));
     }
 
-    let ids = |offset: u32, limit: u32| -> Vec<i64> {
+    let ids = |offset: u32, limit: u32| -> Vec<String> {
         store
-            .scan("agent_run", offset, limit)
+            .scan("session", offset, limit)
             .unwrap()
             .iter()
-            .map(|envelope| envelope.key.as_i64().expect("agent_run key 为数值"))
+            .map(|envelope| {
+                envelope
+                    .key
+                    .as_str()
+                    .expect("session key 为会话 id 字符串")
+                    .to_owned()
+            })
             .collect()
     };
 
-    assert_eq!(ids(0, 10), vec![1, 2, 3], "offset=0 首页全量");
+    assert_eq!(
+        ids(0, 10),
+        vec!["ses-offset-0", "ses-offset-1", "ses-offset-2"],
+        "offset=0 首页全量"
+    );
     assert_eq!(
         ids(3, 10),
-        Vec::<i64>::new(),
+        Vec::<String>::new(),
         "offset 恰等于记录总数返回空页"
     );
     assert_eq!(
         ids(u32::MAX, 10),
-        Vec::<i64>::new(),
+        Vec::<String>::new(),
         "offset 超过记录总数（u32::MAX）返回空数组不报错"
     );
 }
@@ -334,10 +341,10 @@ fn scan_limit为零返回空大limit返回剩余全部() {
     let env = Env::new("scan-limit");
     let store = open_ws_ok(&env.db_path("ws"));
     for index in 0..3 {
-        begin_run(&store, &format!("run-{index}"), 100 + index);
+        seed_session(&store, &format!("ses-limit-{index}"));
     }
 
-    let len = |offset: u32, limit: u32| store.scan("agent_run", offset, limit).unwrap().len();
+    let len = |offset: u32, limit: u32| store.scan("session", offset, limit).unwrap().len();
 
     assert_eq!(len(0, 0), 0, "limit=0 返回空数组");
     assert_eq!(len(1, 100), 2, "limit 大于剩余记录数返回剩余全部");
@@ -350,23 +357,26 @@ fn scan_limit超过500截断为500上限语义() {
     let store = open_ws_ok(&env.db_path("ws"));
     // 505 条 > 上限 500：截断语义与「恰好 500 条」歧义区分
     for index in 0..505 {
-        begin_run(&store, &format!("run-{index}"), index);
+        seed_session(&store, &format!("ses-cap-{index}"));
     }
 
-    let first_page = store.scan("agent_run", 0, 5000).unwrap();
+    let first_page = store.scan("session", 0, 5000).unwrap();
     assert_eq!(first_page.len(), 500, "limit 超上限截断为 500");
-    let rest = store.scan("agent_run", 500, 5000).unwrap();
+    let rest = store.scan("session", 500, 5000).unwrap();
     assert_eq!(rest.len(), 5, "截断后剩余记录可经 offset 续读");
-    let mut union: Vec<i64> = first_page
+    let mut union: Vec<String> = first_page
         .iter()
         .chain(rest.iter())
-        .map(|envelope| envelope.key.as_i64().unwrap())
+        .map(|envelope| envelope.key.as_str().expect("session key 串").to_owned())
         .collect();
     union.sort_unstable();
+    // 主键自然序为字符串字典序（session 主键即 core 铸会话 id 字符串）
+    let mut expected: Vec<String> = (0..505).map(|index| format!("ses-cap-{index}")).collect();
+    expected.sort_unstable();
     assert_eq!(
         union,
-        (1..=505).collect::<Vec<i64>>(),
-        "两页拼接覆盖全部 505 条不重不漏"
+        expected,
+        "两页拼接覆盖全部 505 条不重不漏（同序逐字一致）"
     );
 }
 
@@ -390,26 +400,26 @@ fn scan_key信封workspace根串run数值event对象三口径各自成立() {
     );
     drop(global);
 
-    // agent_run → id 数值；agent_event → {runId, seq} JSON 形态（u128 打包键的
-    // 可读投影）——均在 workspace 库
+    // session → 会话 id 字符串；session_event → {sessionId, seq} JSON 形态
+    //（u128 打包键的可读投影）——均在 workspace 库
     let ws = open_ws_ok(&env.db_path("ws"));
-    let run = begin_run(&ws, "键口径", 100);
-    append_raw(&ws, run.id, 7);
+    let session_id = seed_session(&ws, "ses-keyed");
+    append_raw(&ws, &session_id, 7);
 
-    let run_page = ws.scan("agent_run", 0, 10).unwrap();
-    assert_eq!(run_page.len(), 1);
+    let session_page = ws.scan("session", 0, 10).unwrap();
+    assert_eq!(session_page.len(), 1);
     assert_eq!(
-        run_page[0].key,
-        serde_json::json!(run.id),
-        "agent_run key 信封为 id 数值"
+        session_page[0].key,
+        serde_json::json!(session_id),
+        "session key 信封为 core 铸会话 id 字符串"
     );
 
-    let event_page = ws.scan("agent_event", 0, 10).unwrap();
+    let event_page = ws.scan("session_event", 0, 10).unwrap();
     assert_eq!(event_page.len(), 1);
     assert_eq!(
         event_page[0].key,
-        serde_json::json!({ "runId": run.id, "seq": 7 }),
-        "agent_event key 信封为 runId/seq 对象形态"
+        serde_json::json!({ "sessionId": session_id, "seq": 7 }),
+        "session_event key 信封为 sessionId/seq 对象形态"
     );
 }
 
@@ -417,10 +427,10 @@ fn scan_key信封workspace根串run数值event对象三口径各自成立() {
 fn scan_event_value信封u128打包键为十六进制字符串合法json可还原() {
     let env = Env::new("envelope-u128");
     let store = open_ws_ok(&env.db_path("ws"));
-    let run = begin_run(&store, "u128 键", 100);
-    append_raw(&store, run.id, 3);
+    let session_id = seed_session(&store, "ses-packed");
+    append_raw(&store, &session_id, 3);
 
-    let page = store.scan("agent_event", 0, 10).unwrap();
+    let page = store.scan("session_event", 0, 10).unwrap();
     assert_eq!(page.len(), 1);
 
     let value = &page[0].value;
@@ -432,11 +442,15 @@ fn scan_event_value信封u128打包键为十六进制字符串合法json可还�
     let digits = event_key_text.trim_start_matches("0x");
     let packed = u128::from_str_radix(digits, 16).expect("十六进制可解析");
     assert_eq!(
-        packed,
-        ((run.id as u128) << 64) | 3u128,
-        "信封键还原恰为 (run_id << 64) | seq 打包值"
+        packed & (u64::MAX as u128),
+        3u128,
+        "打包键低 64 位还原恰为 seq"
     );
-    assert_eq!(value["runId"], serde_json::json!(run.id));
+    assert!(
+        (packed >> 64) > 0,
+        "高 64 位为 hash64(session_id)（超 u64 上界的十六进制串形态）"
+    );
+    assert_eq!(value["sessionId"], serde_json::json!(session_id));
     assert_eq!(value["event"]["seq"], serde_json::json!(3));
 }
 
@@ -462,20 +476,20 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
     assert_readable_json(ws_value);
     drop(global);
 
-    // agent_run value：camelCase 汇总字段面；agent_event value：嵌装载荷结构化
-    // 呈现——workspace 库
+    // session value：camelCase 快照字段面；session_event value：嵌装载荷
+    // 结构化呈现——workspace 库
     let ws = open_ws_ok(&env.db_path("ws"));
-    let run = begin_run(&ws, "可读性", 1727000000000);
-    append_raw(&ws, run.id, 0);
-    let run_value = &ws.scan("agent_run", 0, 10).unwrap()[0].value;
-    assert_eq!(run_value["prompt"], serde_json::json!("可读性"));
-    assert_eq!(run_value["startedAt"], serde_json::json!(1727000000000i64));
+    let session_id = seed_session(&ws, "ses-readable");
+    append_raw(&ws, &session_id, 0);
+    let session_value = &ws.scan("session", 0, 10).unwrap()[0].value;
+    assert_eq!(session_value["id"], serde_json::json!(session_id));
+    assert_eq!(session_value["source"], serde_json::json!("debug"));
     assert_eq!(
-        run_value["permissionMode"],
-        serde_json::json!("bypassPermissions")
+        session_value["configSnapshot"]["engine"],
+        serde_json::json!("sdk")
     );
 
-    let event_value = &ws.scan("agent_event", 0, 10).unwrap()[0].value;
+    let event_value = &ws.scan("session_event", 0, 10).unwrap()[0].value;
     assert_eq!(
         event_value["event"]["kind"],
         serde_json::json!("raw"),
@@ -485,7 +499,7 @@ fn scan_value信封为小驼峰结构化json人可读无二进制泄漏() {
         event_value["event"]["rawJson"],
         serde_json::json!(r#"{"type":"mystery","seq":0}"#)
     );
-    for value in [run_value, event_value] {
+    for value in [session_value, event_value] {
         assert_readable_json(value);
     }
 }
@@ -524,5 +538,5 @@ fn scan未知模型名与空串返回err且错误串含模型名() {
     );
 
     // 异常不产生副作用：本库已注册模型仍可扫描
-    assert!(store.scan("agent_run", 0, 10).unwrap().is_empty());
+    assert!(store.scan("session", 0, 10).unwrap().is_empty());
 }
