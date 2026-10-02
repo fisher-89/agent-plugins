@@ -1,0 +1,91 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-01T19:38:00.934Z",
+  "duration_seconds": 322,
+  "total": 895,
+  "passed": 895,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 89.29,
+    "threshold": 80,
+    "measured": {
+      "killed": 100,
+      "survived": 12,
+      "timeout": 0,
+      "noCoverage": 0,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 12,
+      "total": 124,
+      "detected": 100,
+      "undetected": 12
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 89.28571428571429,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 67
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-change-create/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-change-create/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All 895 tests pass across both in-scope suites (vite-plus 817, rust 78) with zero failures, zero skipped, and no execution errors; no environment or tooling fixes were required.",
+    "Mutation testing passed at 89.29% vs 80% threshold (100 killed, 12 survived, 12 ignored of 124); the 12 surviving mutants in packages/desktop are candidates for stronger assertions.",
+    "Summary-level coverage aggregate is all-null with pass vacuously true and override passed_count 0/67, even though both plans wrote parseable coverage-summary.json artifacts (istanbul total for vite-plus, llvm-cov data for rust) - the summary aggregator failed to ingest per-plan coverage, so the top-level coverage.pass does not reflect measured data.",
+    "Rust plan-level coverage.pass is false: branches=0 is absent data rather than a true 0% (llvm-cov JSON export contains zero branch regions across all 28 files, so branches is effectively unsupported), but functions 88.66% vs 90% is a real measurement (391/441 covered) driven by Tauri command-face wrappers, mainly src/commands/change_flow/mod.rs (-11), src/commands/explores/mod.rs (-9), and src/commands/exec/mod.rs (-5).",
+    "Coverage gap is pre-existing glue, not this change: none of the change-scope files (core/workflow write/create.rs, write/mod.rs, write/persist.rs, src/commands/changes/mod.rs, src/commands/mod.rs) has uncovered functions or lines below target."
+  ]
+}

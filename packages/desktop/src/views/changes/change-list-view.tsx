@@ -5,6 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
 import type { ChangeList, ChangeSummary, Inventory } from '../../types/dto';
+import { ChangeCreateDialog } from './components/change-create-dialog';
 import { useChangeList } from './hooks/use-change-list';
 
 // Tailwind 无法静态识别模板串类名：`badge-in${inventory}` 收敛为显式 variant 映射（spec 硬性要求）
@@ -98,14 +99,22 @@ function ListSections({ data, onSelect }: { data: ChangeList; onSelect: (name: s
 }
 
 /** change 列表视图：清单页自取数（useChangeList 挂载 / root 变更 / 显式刷新触发，
- * 页面重挂即重取）+ 头部刷新行（始终渲染）+ 加载/error-note 空态 + 列表数据区；
- * active 列表 + archive 按月分组（"未知时间"组置尾）、代际徽标、点击进详情 */
+ * 页面重挂即重取）+ 头部刷新行（始终渲染）+ 新建入口（root 非空时挂载）+
+ * 加载/error-note 空态 + 列表数据区；active 列表 + archive 按月分组（"未知时间"
+ * 组置尾）、代际徽标、点击进详情；创建成功刷新清单并导航进详情（不自动发起 run） */
 export function ChangeListView({ root }: { root: string | null }) {
   const state = useChangeList(root);
   const { data, loading, error } = state;
 
   const navigate = useNavigate();
   const openChange = useCallback((n: string) => navigate(`/changes/${n}`), [navigate]);
+  const onCreated = useCallback(
+    (name: string) => {
+      state.refresh();
+      void navigate(`/changes/${name}`);
+    },
+    [state.refresh, navigate],
+  );
   return (
     <div>
       {/* 头部行（始终渲染）：刷新控件语义自 App header 迁入 */}
@@ -114,6 +123,7 @@ export function ChangeListView({ root }: { root: string | null }) {
           刷新列表
         </Button>
       </div>
+      {root !== null && <ChangeCreateDialog root={root} onCreated={onCreated} />}
       {error !== null && (
         <div
           className="mb-3 break-all rounded-md bg-fail-bg px-3 py-2 text-fail"

@@ -1,0 +1,506 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-10-01",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/create.rs",
+      "at": "2026-10-01T18:51:52.723Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/mod.rs",
+      "at": "2026-10-01T18:52:10.302Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/persist.rs",
+      "at": "2026-10-01T18:52:18.304Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/changes/mod.rs",
+      "at": "2026-10-01T18:52:31.416Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-10-01T18:52:46.087Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/components/change-create-dialog.tsx",
+      "at": "2026-10-01T18:57:34.336Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/change-list-view.tsx",
+      "at": "2026-10-01T18:54:35.539Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/package.json",
+      "at": "2026-10-01T18:54:51.844Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "Cargo.toml",
+      "at": "2026-10-01T19:00:33.092Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "src/main.rs",
+      "at": "2026-10-01T19:00:33.092Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/create_test.rs",
+      "at": "2026-10-01T19:23:48.773Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/mod.rs",
+      "at": "2026-10-01T19:20:26.285Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/changes/mod.rs",
+      "at": "2026-10-01T19:20:27.682Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/changes/mod_test.rs",
+      "at": "2026-10-01T19:22:14.865Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/components/change-create-dialog.test.tsx",
+      "at": "2026-10-01T19:21:48.137Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/change-list-view.test.tsx",
+      "at": "2026-10-01T19:25:19.798Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 通过。R1 问题三痛点具体(引用 phase_table/prompt.rs/persist.rs)；R2 实现9文件+测试4文件+不要修改5项；R3 五风险缓解具体(fixture锚定/AC-5核对/边界MUST NOT条款/V1留痕)；R4 AC-1~7 对象+条件可测；R5 七决策均含被拒备选及原因；R6 插件冻结免 bump、desktop 0.4.1 合用户可见约定；R7 无占位符；R8 各章节实质内容；R9-R10 新增能力 desktop-change-create 与 1 spec 1:1；R11 ADDED 声明与 spec 一致，AC-1~7 全映射 scenario，形状/校验/版本口径两工件互证。",
+      "checklist": [
+        {
+          "item": "R1 问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-15: 桌面端只能浏览 change、无法创建，列三痛点并引用 phase_table.rs proposal 相位无 goal 通道、persist.rs「唯一创建者」注释、prompt.rs 仅拼角色要点"
+        },
+        {
+          "item": "R2 变更范围明确划分实现/测试/不要修改",
+          "pass": true,
+          "evidence": "L45-74: ### 实现文件 9 项、### 测试文件 4 项、### 不要修改 5 项（插件冻结/相位表/领域模型/四操作/基线 spec），均非空"
+        },
+        {
+          "item": "R3 风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L94-100: 形状漂移→插件输出 fixture 锚定；goal 未进提案→AC-5 静态核对+交接行 MUST 级；租户边界→spec MUST NOT 泛化条款+穿越校验；均非泛化"
+        },
+        {
+          "item": "R4 验收标准可测试",
+          "pass": true,
+          "evidence": "L82-88: AC-1 workflow.json 内容恰为三字段+尾换行；AC-3 各拒绝面 Err+零产生；AC-4 git diff 干净+DTO 仅 name/created；AC-7 version=0.4.1"
+        },
+        {
+          "item": "R5 关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L108-116 决策表 7 行：goal 载体取 explore.md 拒 workflow.json 字段（零新字段纪律）；创建主体取写面拒 CLI 子进程（红线）；等均含理由+备选"
+        },
+        {
+          "item": "R6 提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "插件零改动→无需 dev-team bump；desktop 0.4.0→0.4.1 为用户可见新功能合 bump 规则；spec L131 明示 Cargo.toml 不随动，与既有 desktop 交付惯例一致"
+        },
+        {
+          "item": "R7 无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{}}；L14/L24 的「<change> 占位」「占位符」均为描述既有 prompt 模板事实，非占位内容"
+        },
+        {
+          "item": "R8 非能力模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9-15)/提案(L19-27)/变更范围(L43-74)/验收标准(L78-88)/风险(L92-100) 均有实质内容，无空段或占位"
+        },
+        {
+          "item": "R9 能力章节存在且至少一个新增或修改条目",
+          "pass": true,
+          "evidence": "L31-39: ## 能力 下 ### 新增能力 含 desktop-change-create 一条（写面 create+IPC+对话框+校验面+V1 留痕）；修改能力明示无并附沿用说明"
+        },
+        {
+          "item": "R10 specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 仅 specs/desktop-change-create/spec.md，与能力章节唯一新增条目 1:1，无多余 spec"
+        },
+        {
+          "item": "R11 proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "spec 为 ADDED 8 Requirements 与「新增」声明一致；AC-1~7 分别映射形状/可见可发起/校验/IPC/goal 通道/清单入口/版本场景；kebab 正则、128 上限、DTO 字段、0.4.1、插件 2.10.44 冻结两工件一致"
+        }
+      ],
+      "start_at": "2026-10-01T17:58:12.767Z",
+      "timestamp": "2026-10-01T18:12:37.784Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "10/10 通过。D1 组件表7项均含职责/依赖/技术/具体路径,无TBD;D2 三个模型均含字段+持久化;D3 AC-1~7逐项对齐;D4 tasks六阶段依赖序写面→命令→绑定→前端→交付→守线无倒置;D5 任务含签名/键序/testid等具体操作;D6 运行时+构建依赖已列;D7 沿写面sync零Tauri纪律、插件冻结,无矛盾;D8 全章节实质内容,路由节省略已声明;D9 零测试章节/任务,测试归test-design/gen/execution;D10 清单9文件与proposal实现文件及tasks双向一致,公共函数/类型子表齐。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表7个组件(写面create操作/导出面/持久层/create_change命令/登记面/对话框/清单页挂载)均填职责+文件位置+依赖+技术4列;文件路径具体到文件,技术栈无TBD(如create.rs行:foundation/serde/serde_json/time/specta,Rust(sync))"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表3个模型:workflow.json(workflow_type/created/file_log字段+磁盘changes_root/<name>/workflow.json)、explore.md(goal字段+磁盘路径)、CreateOutcome(name/created+不持久化IPC瞬时面),字段与持久化两列均填"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表AC-1(键序定形D2)~AC-7(0.4.1+插件冻结)逐项给出设计落点,含AC-2的detect_inventory v2/zod解析、AC-3的D4校验序与零IO前置、AC-5的phase_table交接行+markdown_doc收录、AC-6的D6对话框与testid清单"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md存在,14个任务均为'- [ ]'复选框,分六阶段:阶段一写面→阶段二命令登记→阶段三绑定再生成→阶段四前端(消费bindings.createChange)→阶段五版本→阶段六守线;后置任务不被前置任务依赖,无倒置"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每任务含具体操作:create.rs任务给出完整签名pub fn create(layout:&Layout,name:&str,goal:&str)->Result<CreateOutcome,String>、键序workflow_type→created→file_log、2空格pretty+尾换行;前端任务列出6个data-testid;守线任务给出具体pnpm命令"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "运行时依赖:无新增外部依赖,列出既有foundation/serde/serde_json/specta/time用途(UTC日期用time,kebab不引regex)+tauri/specta出线;构建/测试依赖:vp check/knip/cargo workspace/bindings:export既有工具链"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "沿desktop-workflow-write-face既有纪律(sync零Tauri、serde schema权威)、零CLI子进程写通道、变更清单零plugins/dev-team/**条目(插件面冻结2.10.44)、desktop版本仅用户可见功能bump 0.4.0→0.4.1,与既有架构模式零矛盾"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件(7组件)/变更清单(新增3+修改6,两侧均非空)/数据模型(3模型)/依赖(两小节)/待决问题(3项:goal编辑能力、IO中途残留、归档同名歧义)均有实质内容;路由/API设计不适用已声明省略(IPC面由组件+AC-4覆盖)"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md无测试策略/测试架构章节,头部声明测试文件归test-design/test-gen/test-execution;tasks.md零单元/集成测试任务,阶段六明确'静态,不含测试执行'(fmt/clippy/knip/bindings:check),mod.rs任务注明create_test挂载位归test-gen阶段"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal实现文件9条↔design清单9文件(新增create.rs/commands/changes/mod.rs/dialog.tsx,修改mod.rs/persist.rs/commands/mod.rs/list-view/bindings.ts/package.json)一一对应;tasks引用文件均在清单内且清单内文件均有任务;公共函数表含create/create_change/ChangeCreateDialog,类型表含CreateOutcome/ChangeCreateDialogProps,子表间无矛盾"
+        }
+      ],
+      "start_at": "2026-10-01T18:13:25.238Z",
+      "timestamp": "2026-10-01T18:28:46.013Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "测试设计评估通过。T1 proposal AC-1..7 逐条映射验收范围且条件原文一致；T2 测试文件双向无缺失（AC-7 落不可测试项1，声明/生成物面章节显式不建文件）；T3 每测试对象含异常+边界，str 空/空白/特殊/超长系统覆盖；T4 仅 IPC invoke 进程边界 mock，fs 真实 tempdir 组合；T5 三大节实质填写、8 章节三小节按序；T6 冻结面零测试、in_scope 9 文件全落点；T7 重复 create 断言 Err+既有字节零变更；T8 标题/列名/小节顺序合规；T9 内部 hook 文件级替身显式废弃改真实组合，无仓库内模块 mock。",
+      "checklist": [
+        {
+          "item": "T1 proposal AC 与验收范围映射",
+          "pass": true,
+          "evidence": "proposal.md 验收标准 AC-1..AC-7（L82-88）逐条对应 test-design.md 验收范围表 L18-24，验收条件原文摘录一致（如 AC-1 逐字对照 proposal L82）"
+        },
+        {
+          "item": "T2 验收范围与单元测试双向对应",
+          "pass": true,
+          "evidence": "AC-1/2/3/5→write/create_test.rs（L36）、AC-4→commands/changes/mod_test.rs（L114）、AC-6→change-create-dialog.test.tsx（L157）均有 ### 章节；AC-7 落不可测试项1（L233）；反向 8 个 ### 章节覆盖 proposal 全部源文件；AC-6 清单页半边经 L13 注释路由 change-list-view.test.tsx"
+        },
+        {
+          "item": "T3 异常与边界覆盖充分",
+          "pass": true,
+          "evidence": "create_test L57-66：非法 kebab 全族/129字符/空白goal/已存在拒绝 + 恰128/单字符/校验顺序/>1000字符emoji多行goal；dialog L171-175：空缺禁提交/非法禁invoke/128端点/特殊字符透传；str 四类边界全覆盖"
+        },
+        {
+          "item": "T4 外部依赖 Mock 策略",
+          "pass": true,
+          "evidence": "各章节均含 Mock策略表：fs 以 tempdir RAII 真实组合（L72/L135），IPC invoke 按命令名分发 mock（L181/L206），无 mock 章节以「无」行显式声明"
+        },
+        {
+          "item": "T5 模板章节实质内容",
+          "pass": true,
+          "evidence": "验收范围（L16-24）/单元测试（L28-227）/不可测试项（L231-237）均实质填写；8 个 ### 章节均按序含 待测功能→用例→Mock策略 三小节"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "冻结面 plugins/dev-team、phase_table.rs、model/** 零测试覆盖、落不可测试项2/3（L233-235）；in_scope 9 个实现文件全部有测试落点（含 4 个声明/生成物面的不建文件声明）"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "L60 已存在同名拒绝：预置既有 change 再 create 同名 → Err 且既有 workflow.json/explore.md 字节零变更——重复调用返回一致结果、无副作用累积"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "### 标题均含 ' -> '；待测功能为 '- func(): 描述' 列表非表格；用例表 4 列（测试对象|路径类型|测试条件|迭代类型）；Mock策略表 3 列（Mock主体|Mock方案|应用场景）；验收范围 3 列（AC ID|验收条件|被测文件或模块）——均无测试文件列"
+        },
+        {
+          "item": "T9 Mock 最小原则",
+          "pass": true,
+          "evidence": "仅 mock 进程边界 @tauri-apps/api/core invoke；onCreated 以 vi.fn 经 props 注入（入参例外）；既有内部 hook 文件级 vi.mock 显式废弃改真实组合（L200/L207 废弃行），无仓库内协作模块 mock"
+        }
+      ],
+      "start_at": "2026-10-01T18:29:09.940Z",
+      "timestamp": "2026-10-01T18:45:58.161Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账：清单 9 文件全落地；bindings.ts 漏记 files 但已再生成（createChange/CreateOutcome 在位，良性）；files 多记 Cargo.toml/src/main.rs 而 git diff 零实变，判 hook 误录；零删除。create.rs 三道校验全 IO 前置(D4)、局部 Serialize 结构体声明序+pretty+尾换行、无 eval 键(D2)；字符级 kebab 无 regex(D3)；命令 sync 薄包装 blank root Err(D5)；对话框非 null props/trim/同口径正则/6 testid，root 非空挂载+refresh+navigate 不自动 run(D6)；explore.md goal 原文直写(D7)；persist.rs 双创建者注释换血；version 0.4.1；tasks 全 [x]；禁令字面量零出现。",
+      "checklist": [
+        {
+          "item": "I1 design 架构组件均有实现代码",
+          "pass": true,
+          "evidence": "7 组件全落地：create.rs / write/mod.rs 导出面 / persist.rs 注释 / commands/changes/mod.rs / commands/mod.rs 登记 / change-create-dialog.tsx / change-list-view.tsx"
+        },
+        {
+          "item": "I2 变更清单三态对账",
+          "pass": true,
+          "evidence": "git status：3 新增+6 修改与清单一致；bindings.ts 良性漏记（createChange/CreateOutcome 已在位）；Cargo.toml/src/main.rs 误录零实变；零删除"
+        },
+        {
+          "item": "I3 代码遵循项目规范",
+          "pass": true,
+          "evidence": "新 .rs 源码 openspec/config.json 字面量零出现；文件组织、导入序、data-testid 挂钩沿既有先例"
+        },
+        {
+          "item": "I4 路由/API 已实现",
+          "pass": true,
+          "evidence": "create_change 经 all_commands! 登记（commands/mod.rs:48）且 bindings.ts:107 typed 包装出线"
+        },
+        {
+          "item": "I5 tasks.md 全部 [x]",
+          "pass": true,
+          "evidence": "tasks.md 14 个复选框全部勾选（含守线静态自查项）"
+        },
+        {
+          "item": "I6 无清单外代码",
+          "pass": true,
+          "evidence": "git diff HEAD 仅触及清单内文件，无计划外源码改动与删除"
+        },
+        {
+          "item": "I7 设计决策 D1-D7 遵守",
+          "pass": true,
+          "evidence": "校验全 IO 前置(create.rs:89-106)、结构体声明序键序+尾换行+无 eval 键(35-43,110-120)、无 regex 字符级 kebab(49-70)、命令薄包装 blank root Err、对话框非 null props/trim/同口径正则/6 testid/root 非空挂载/不自动 run、explore.md goal 原文直写(123)"
+        }
+      ],
+      "start_at": "2026-10-01T18:46:23.626Z",
+      "timestamp": "2026-10-01T19:06:50.797Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账：声明 4 测试文件全落地（create_test.rs 18 用例、commands/changes/mod_test.rs 4、change-create-dialog.test.tsx 8、change-list-view.test.tsx 增补 4 新增+既有语义沿用），禁建 4 文件（write/mod_test、persist_test、commands/mod_test、bindings.test）均未创建；#[cfg(test)] 挂载双面在位。G1 全公开 API 行为断言非构造验证；G4 仅 invoke 进程边界 mock，内部模块全真实组合，废弃 hook 替身未沿用；G5 vite-plus/test 沿 41 文件先例、Rust 引用 API 实存；G6 边界全覆盖（名 14 态/goal 6 态/128±1/root blank）；G7 Drop RAII+mockReset+cleanup；G8 唯一废弃行改锚承接未复活。8/8 通过。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "create_test.rs 18 个 #[test] 逐一断言 create() Ok/Err 行为与 serde 形状；commands/changes/mod_test.rs 4 用例直调 create_change 断言薄包装等值/DTO 两键/blank root Err/透传；change-create-dialog.test.tsx 与 change-list-view.test.tsx 对两组件行为断言（toggle/提交/校验/流转）；write/mod.rs 与 commands/mod.rs 导出面经 create_test super::{create,CreateOutcome} 与 mod_test workflow::write 导入编译期承载"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存于同一目录",
+          "pass": true,
+          "evidence": "create_test.rs 与 create.rs 同目录（沿 phase_*_test.rs 先例）、mod_test.rs 与 commands/changes/mod.rs 同目录、change-create-dialog.test.tsx 与 change-list-view.test.tsx 与源码同目录；Rust *_test.rs、TSX *.test.tsx 均合规范"
+        },
+        {
+          "item": "G3 用例表新增行逐行生成对应测试骨架",
+          "pass": true,
+          "evidence": "create_test.rs 18/18 行逐一映射（合法建域/explore原文/空白树/serde线形状/清单读面/flow前置/详情读面/插件形态对照/kebab全族/129/空白goal/已存在/校验序两锚/128端点/正样本/goal保真两行）；mod_test.rs 4/4；dialog 8/8（describe 含链路方向标题）；list-view 4/4 新增行含「清单挂载 → 对话框提交 → refresh + navigate」组合行"
+        },
+        {
+          "item": "G4 Mock策略表 mock 已实现且声明合法",
+          "pass": true,
+          "evidence": "仅 vi.mock('@tauri-apps/api/core') 按命令名分发（dialog/flow resolve/reject 切换+入参记录）对应 Mock策略合法条目；create_test/mod_test 无进程边界 mock，TempWs RAII+字节比对如设计；list-view 无 vi.mock('./hooks/use-change-list')，useChangeList/ChangeCreateDialog/react-router 真实组合；onCreated 经 props 注入 vi.fn（入参例外）"
+        },
+        {
+          "item": "G5 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust 侧 #[test] cargo workspace 套件，导入 foundation::layout/time/serde_json/super 引用的 crate::queries::list_changes(list.rs:55)/change_detail(detail.rs:166)/ChangeSource/Inventory 均实存；前端 import 'vite-plus/test'（41 个既有测试同款先例）+ @testing-library/react + react-router 装置，与 test-design 指定框架一致"
+        },
+        {
+          "item": "G6 test-design 边界情况已覆盖",
+          "pass": true,
+          "evidence": "名称边界 14 态（空/大写/下划线/空格/前导数字/尾前导连字符/连号/a/b../x/恰128/超129/单字符/数字段）；goal 空/空白/\\n\\t/首尾空白保真/多行+emoji+超1000；root blank 两态；DTO 恰两键双侧"
+        },
+        {
+          "item": "G7 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "TempWs 实现 Drop 清理 tempdir 且 new 预清残留（create_test.rs:80-84、mod_test.rs:50-54）；dialog 测试 beforeEach invokeMock.mockReset()；list-view 测试 beforeEach mockReset + afterEach(cleanup)"
+        },
+        {
+          "item": "G8 废弃迭代类型条目未生成新测试",
+          "pass": true,
+          "evidence": "唯一废弃行「useChangeList hook 替身入参断言」的文件级替身未出现在 change-list-view.test.tsx；其语义按设计改锚为进程边界断言（it「清单页挂载即以 root 发起 list_changes 取数」断言 listCalls=[{root}]），非沿用被废弃形态"
+        }
+      ],
+      "start_at": "2026-10-01T19:07:03.592Z",
+      "timestamp": "2026-10-01T19:31:57.613Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "895/895 通过（vite-plus 817 + rust 78），零失败零跳过，conclusion=pass 无执行错误；mutation 89.29%≥80%（100 killed/12 survived/124 ignored）。覆盖率 pass=true 但三维 measured 均 null：两 plan 均写出 coverage 产物（istanbul/llvm-cov）而汇总聚合器未采集，判达标属口径内空真；rust plan 级 functions 88.66%<90% 属存量命令面胶水（change_flow/explores/exec），非本变更 in-scope 文件。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "summary.json L2-L90：phase/command/timestamp/total=895/passed=895/failed=0/skipped=0/coverage（pass+measured+thresholds+overrides 齐全）/duration_seconds=322 均在位且类型正确"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=895>0；双套件全绿（vite-plus 817、rust 78），problems=[] 无 execution_error，conclusion=pass"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（阈值 lines90/branches85/functions90），三维 measured 均 null 按 T3 口径不失败（N/A 框架不支持）；override packages/desktop pass=true。注意：两 plan 已写出 coverage 产物而汇总聚合器未采集（findings 第3条），pass 属空真，后续可修聚合器；rust plan 级 functions 88.66%<90% 为存量命令面非 in-scope 文件"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，自动通过，无失败根因判定需求"
+        }
+      ],
+      "start_at": "2026-10-01T19:32:26.933Z",
+      "timestamp": "2026-10-01T19:43:02.375Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "实现与 design 七项决策全一致：create.rs 三道校验全 IO 前置(D4)；结构体声明序键序写出与插件 change-create.ts:41-42 逐字段 parity(D2)；无 regex 字符级 kebab 判定与 TS 同口径正则字面量(D3)；sync 薄命令+specta+all_commands! 登记(D5)；对话框沿 explore-create-dialog 先例、root 非空挂载、trim 后提交(D6/D7)。无安全触点：kebab 校验拒绝路径穿越字符，错误经 React 文本转义。file_log 有幽灵条目(Cargo.toml/src/main.rs 磁盘不存在)且漏记 bindings.ts，属记录噪音非代码缺陷，实际文件面与 design 九文件清单精确对齐。",
+      "checklist": [
+        {
+          "item": "C1 变更代码无安全漏洞",
+          "pass": true,
+          "evidence": "grep password/secret/eval(/exec(/system( 零命中;create.rs:89-99 kebab 判定先于 create.rs:103 changes_root.join(name),拒绝 / \\ . ..;change-create-dialog.tsx:111-118 错误经 React 文本转义"
+        },
+        {
+          "item": "C2 外部输入格式检查",
+          "pass": true,
+          "evidence": "commands/changes/mod.rs:23-25 blank root 显式 Err;create.rs:89-102 name kebab+≤128、goal trim 非空白;dialog:13-28 同口径正则+长度+goal 非空禁提交不 invoke"
+        },
+        {
+          "item": "C3 与 design.md 一致",
+          "pass": true,
+          "evidence": "D1 签名/DTO 逐字匹配 create.rs:23-29,88;D2 结构体声明序+尾换行 create.rs:110-120 与插件 change-create.ts:41-42 逐字段 parity;D4 校验序 name→goal→exists 全 IO 前置;AC-4 bindings.ts 增 createChange+CreateOutcome;AC-7 version 0.4.1"
+        },
+        {
+          "item": "C4 无空值/边界遗漏",
+          "pass": true,
+          "evidence": "空名/空白 goal/已存在均前置 Err(create.rs:89-106);kebab 通过后 name 纯 ASCII,len==chars 计数一致;dialog:111 error 条件渲染,list-view:126 root!==null 挂载守卫;IO 中途失败非事务已 D4 留痕"
+        },
+        {
+          "item": "C5 无冗余死代码",
+          "pass": true,
+          "evidence": "create.rs 导入全用;InitialWorkflowDoc.created 复用于 CreateOutcome(create.rs:127)无重复算日期;局部 doc 结构体为 D2 键序契约必需;无未用导入/不可达分支"
+        },
+        {
+          "item": "C6 可读性与项目规范",
+          "pass": true,
+          "evidence": "对话框沿 explore-create-dialog 先例(toggle 卡片/testid/break-all 错误块/类名);命令组注释沿 queries 三件事模板;testid change-create-* 六挂钩齐"
+        },
+        {
+          "item": "C7 同来源数据类型",
+          "pass": true,
+          "evidence": "CreateOutcome 经 specta 直出 bindings.ts 类型,前端直用 commands.createChange 无自定义中间映射;InitialWorkflowDoc 为序列化面非数据映射"
+        }
+      ],
+      "start_at": "2026-10-01T19:43:30.521Z",
+      "timestamp": "2026-10-01T19:47:17.899Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "7/7 AC 全过：AC-1 create.rs:110-123 键序定形 workflow.json+explore.md goal 原文；AC-2 file_log 键判 v2（detect.rs:20）+create_test 字节级 parity；AC-3 三道校验全 IO 前置 create.rs:89-106；AC-4 all_commands!:48+bindings.ts:107/599+DTO 仅 name/created；AC-5 phase_table.rs:42-45 交接行零改动+markdown_doc.rs:24 探索条目+model 零 goal 字段；AC-6 dialog 六 testid+非法禁提交零 invoke+view:126/111 挂载流转；AC-7 0.4.1+插件 2.10.44 冻结。in_scope 9 实现文件+4 测试文件全在位，无范围蔓延，out_of_scope 零触达。",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 create.rs:110-123（InitialWorkflowDoc 声明序 workflow_type→created→file_log、to_string_pretty+尾换行、无 eval 键；explore.md 写 goal 原文）；AC-2 create.rs:42 file_log 恒在位→detect.rs:20 v2 判定，create_test.rs:386-403 断言 v2 识别+111-126 字节级对照插件形态；AC-3 create.rs:89-106 三拒绝全在 fs::create_dir_all(:108) 之前，已存在拒绝含目录路径；AC-4 commands/changes/mod.rs:20-28 specta 出线+blank root :23-25，commands/mod.rs:48 登记，bindings.ts:107/599，DTO 仅 name+created create.rs:25-29；AC-5 phase_table.rs:42-45 既有交接行零改动，markdown_doc.rs:24 (\"explore.md\",\"探索\")，model/** 零 goal 字段；AC-6 dialog testid 六处（:49/:77/:114/:122/:144/:151）+canSubmit :20-28 禁提交零 invoke+change-list-view.tsx:126/111-117；AC-7 package.json:3 version 0.4.1+plugins/dev-team/package.json:3 2.10.44"
+        },
+        {
+          "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "新增产品文件恰为清单三项（create.rs / commands/changes/mod.rs / change-create-dialog.tsx），views/changes/components/ 目录仅对话框+其测试无多余组件；零新增依赖（serde/serde_json/specta/time 均 design 依赖节声明的既有依赖）；前端 NameField/GoalField/CreateForm 为同文件内部辅助，非新公共 API"
+        },
+        {
+          "item": "proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "9 实现文件逐一在位：create.rs（校验+建树+双文件写出）、write/mod.rs:8/16/28（导出+测试挂载）、persist.rs:31-34（双创建者注释换血零逻辑改动）、commands/changes/mod.rs（新组）、commands/mod.rs:3/48（登记）、change-create-dialog.tsx、change-list-view.tsx:8/126、bindings.ts:107/599、package.json 0.4.1；4 测试文件（create_test/mod_test/dialog.test/list-view.test）全在"
+        },
+        {
+          "item": "proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "plugins/dev-team 冻结：package.json version 2.10.44、变更清单零 plugins/** 条目；phase_table.rs 不在变更清单且交接行为既有文本（proposal 问题节引用原文一致）；model/** 无 goal 相关新字段（grep 零命中）；创建后不自动发起 run（change-list-view.tsx:111-117 仅 refresh+navigate）；既有写面四操作导出零改动（write/mod.rs:15-19）"
+        },
+        {
+          "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "双创建者形状漂移→create.rs:1-7 parity 声明+create_test.rs:111-126 插件输出形态字节级锚定+persist.rs:31-34 双创建者注释；planner 忽略 explore.md→phase_table.rs:42-45 既有 MUST 交接行在位；租户边界→create.rs:3-4 路径全经 Layout、写触点仅域内两文件(:115/:122)；归档同名歧义→create.rs:104-106 仅拒 active 冲突（插件 parity）+清单 v2 徽标既有；goal 无编辑入口→V1 留痕 design 待决问题备案"
+        }
+      ],
+      "start_at": "2026-10-01T19:47:48.107Z",
+      "timestamp": "2026-10-01T19:50:42.803Z"
+    }
+  ]
+}

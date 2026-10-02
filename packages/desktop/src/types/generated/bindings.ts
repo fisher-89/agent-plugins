@@ -100,6 +100,11 @@ export const commands = {
 	ask: AskPayload | null,
 } | null>("change_flow_state", { root, change }),
 	changeFlowWatch: (onEvent: Channel<RunUpdate>, root: string, change: string) => __TAURI_INVOKE<null>("change_flow_watch", { onEvent, root, change }),
+	/**
+	 *  新建 change：目录建树、workflow.json 初始文档与 explore.md（落最初
+	 *  goal）写出均在写面 `create`；blank root 显式 `Err`。
+	 */
+	createChange: (root: string, name: string, goal: string) => __TAURI_INVOKE<CreateOutcome>("create_change", { root, name, goal }),
 	/**  读取单篇笔记全文；未知 stem、穿越名或文件缺失返回 `None`（不报错）。 */
 	readExplore: (root: string, name: string) => __TAURI_INVOKE<{
 	/**  笔记名（= 文件 stem） */
@@ -588,6 +593,13 @@ export type CoverageThresholds = {
 	branches: number | null,
 	/**  函数覆盖率阈值（默认 75） */
 	functions: number | null,
+};
+
+/**  创建产出（IPC DTO）：仅名称与创建日期，磁盘路径知识不下沉前端。 */
+export type CreateOutcome = {
+	name: string,
+	/**  UTC 日历日期 `YYYY-MM-DD`（写面铸出后随 DTO 直达命令返回，无需回读） */
+	created: string,
 };
 
 /**

@@ -5,6 +5,7 @@
 //!（W3：校验 / 写出实现权威自 zod 移交 serde）。
 
 mod backtrack;
+mod create;
 mod persist;
 mod phase_log;
 mod phase_next;
@@ -12,6 +13,7 @@ mod phase_start;
 mod phase_table;
 
 pub use backtrack::{backtrack, BacktrackInput, BacktrackOutcome};
+pub use create::{create, CreateOutcome};
 pub use phase_log::{phase_log, PhaseLogInput, PhaseLogOutcome};
 pub use phase_next::{phase_next, LastResult, PhaseNextError, PhaseNextOutcome, SessionAnchors};
 pub use phase_start::{phase_start, PhaseStartOutcome};
@@ -22,6 +24,8 @@ pub use phase_table::{
 
 #[cfg(test)]
 mod backtrack_test;
+#[cfg(test)]
+mod create_test;
 #[cfg(test)]
 mod phase_log_test;
 #[cfg(test)]

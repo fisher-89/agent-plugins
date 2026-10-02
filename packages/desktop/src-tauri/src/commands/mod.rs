@@ -1,5 +1,6 @@
 pub mod agents;
 pub mod change_flow;
+pub mod changes;
 pub mod config;
 pub mod db;
 pub mod exec;
@@ -44,6 +45,7 @@ macro_rules! all_commands {
             $crate::commands::change_flow::change_flow_confirm,
             $crate::commands::change_flow::change_flow_state,
             $crate::commands::change_flow::change_flow_watch,
+            $crate::commands::changes::create_change,
             $crate::commands::explores::read_explore,
             $crate::commands::explores::scan_explores,
             $crate::commands::explores::explore_doc_path,

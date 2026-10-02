@@ -28,9 +28,7 @@ pub(crate) struct ChangeDoc {
     pub typed: Workflow,
 }
 
-/// 载入 change 的 workflow.json：文件缺失 / JSON 非法 / 顶层非对象 /
-/// `eval` 键在位但非数组 → `Err`（`change_create` 是唯一创建者，写面从不
-/// 创建文件，与插件 appendEntry / writeEvalJson 前置一致）。
+/// 载入 change 的 workflow.json
 pub(crate) fn load_doc(layout: &Layout, change: &str) -> Result<ChangeDoc, String> {
     let path = layout.changes_root.join(change).join(WORKFLOW_FILE_NAME);
     let typed = match parse_workflow_file(&path) {
