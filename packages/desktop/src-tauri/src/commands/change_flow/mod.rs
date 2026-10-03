@@ -53,8 +53,9 @@ pub async fn change_flow_start(
     on_event: Channel<RunUpdate>,
     root: String,
     change: String,
+    auto_next_phase: bool,
 ) -> Result<ChangeRunSummary, String> {
-    change_flow_start_with(app, on_event, root, change).await
+    change_flow_start_with(app, on_event, root, change, auto_next_phase).await
 }
 
 /// [`change_flow_start`] 的泛型测试缝（生产注入 Wry 句柄、测试注入
@@ -64,6 +65,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     on_event: Channel<RunUpdate>,
     root: String,
     change: String,
+    auto_next_phase: bool,
 ) -> Result<ChangeRunSummary, String> {
     if is_blank(&root) {
         return Err("非法 root: 不得为空白（无 cwd 无从发起）".to_owned());
@@ -115,6 +117,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
         root,
         change: change.clone(),
         run_id: run_id.clone(),
+        auto_next_phase,
     };
 
     // 提前 resolve：run_id 立即可知，运行态经 Channel 流出（订阅先行于 walker 启动）

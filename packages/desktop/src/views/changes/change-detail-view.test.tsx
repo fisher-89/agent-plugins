@@ -715,13 +715,14 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     expect(within(container).getByTestId('workflow-panel') !== null).toBe(true);
     expect(within(container).getAllByTestId('artifact-card')).toHaveLength(1);
 
-    // 发起入口接通 useChangeFlowRun：change_flow_start 携 root/change 与 Channel 实例
+    // 发起入口接通 useChangeFlowRun：change_flow_start 携 root/change 与
     fireEvent.click(screen.getByTestId('run-start'));
     await waitFor(() =>
       expect(invokeMock).toHaveBeenCalledWith('change_flow_start', {
         onEvent: expect.anything(),
         root: ROOT,
         change: 'add-feature',
+        autoNextPhase: false,
       }),
     );
   });

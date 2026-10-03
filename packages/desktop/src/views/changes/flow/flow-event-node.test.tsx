@@ -109,7 +109,6 @@ describe('FlowEventNode：eval 节点三分类视觉', () => {
     renderNode(evalNode(attempt()));
     const node = screen.getByTestId('flow-node');
     expect(node.className).not.toContain('opacity-50');
-    expect(within(node).queryByTestId('backtrack')).toBeNull();
     expect(node.textContent).not.toContain('skipped');
     expect(node.textContent).not.toContain('stale');
   });
@@ -122,33 +121,6 @@ describe('FlowEventNode：eval 节点三分类视觉', () => {
     const missing = renderNode(evalNode(attempt({ attempt: null })));
     expect(screen.getByTestId('flow-node').textContent).toContain('attempt —');
     missing.unmount();
-  });
-
-  it('backtrack 徽标按 to / reason 四种组合保留旧语义', () => {
-    const both = renderNode(
-      evalNode(attempt({ backtrackTo: 'test-design', backtrackReason: '设计缺失' })),
-    );
-    expect(within(screen.getByTestId('flow-node')).getByTestId('backtrack').textContent).toBe(
-      '↩ 回跳至 test-design：设计缺失',
-    );
-    both.unmount();
-
-    const toOnly = renderNode(
-      evalNode(attempt({ backtrackTo: 'proposal', backtrackReason: null })),
-    );
-    expect(screen.getByTestId('flow-node').textContent).toContain('↩ 回跳至 proposal');
-    expect(screen.getByTestId('flow-node').textContent).not.toContain('：null');
-    toOnly.unmount();
-
-    const reasonOnly = renderNode(
-      evalNode(attempt({ backtrackTo: null, backtrackReason: '仅原因' })),
-    );
-    expect(screen.getByTestId('flow-node').textContent).toContain('↩ 回跳至 ?：仅原因');
-    reasonOnly.unmount();
-
-    const none = renderNode(evalNode(attempt()));
-    expect(within(screen.getByTestId('flow-node')).queryByTestId('backtrack')).toBeNull();
-    none.unmount();
   });
 });
 

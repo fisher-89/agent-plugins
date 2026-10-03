@@ -30,25 +30,44 @@ interface RunControlPanelProps {
   run: UseChangeFlowRunResult;
 }
 
-/** 发起 / 停止主操作行：终局（或无 run）呈现发起、运行期呈现停止。 */
+/** 发起 / 停止主操作行 */
 function RunActions({ run }: { run: UseChangeFlowRunResult }): React.JSX.Element {
   const active = run.state !== null && !isTerminal(run.state.status);
+  const [autoNextPhase, setAutoNextPhase] = useState(false);
   return (
-    <div className="flex items-center gap-2">
-      {active ? (
-        <Button onClick={() => void run.stop()} data-testid="run-stop">
-          停止
-        </Button>
-      ) : (
-        <Button onClick={() => void run.start()} data-testid="run-start">
-          发起运行
-        </Button>
-      )}
-      {run.state !== null && (
-        <Badge variant={run.state.status === 'failed' ? 'fail' : 'active'} data-testid="run-status">
-          {STATUS_LABEL[run.state.status]}
-        </Badge>
-      )}
+    <div className="flex flex-col items-end gap-1">
+      <div className="flex items-center gap-2">
+        <label className="flex items-center gap-1.5 text-[13px]">
+          <input
+            type="checkbox"
+            checked={autoNextPhase}
+            disabled={active}
+            onChange={(event) => setAutoNextPhase(event.target.checked)}
+            data-testid="run-auto-next-phase"
+          />
+          自动确认步骤
+        </label>
+        {active ? (
+          <Button onClick={() => void run.stop()} data-testid="run-stop">
+            停止
+          </Button>
+        ) : (
+          <Button onClick={() => void run.start(autoNextPhase)} data-testid="run-start">
+            发起运行
+          </Button>
+        )}
+        {run.state !== null && (
+          <Badge
+            variant={run.state.status === 'failed' ? 'fail' : 'active'}
+            data-testid="run-status"
+          >
+            {STATUS_LABEL[run.state.status]}
+          </Badge>
+        )}
+      </div>
+      <span className="text-xs text-muted-foreground">
+        自动确认：仅跳过相位间停等；ask 中断、失败与终态收口仍停下等待，不自动归档。
+      </span>
     </div>
   );
 }

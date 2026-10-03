@@ -2,7 +2,7 @@ import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ChangeRunSnapshot, ChangeStepState, RunUpdate } from '../../../types/dto';
-import { useChangeFlowRun } from './use-change-flow-run';
+import { useChangeFlowRun, type UseChangeFlowRunResult } from './use-change-flow-run';
 
 // ---------------------------------------------------------------------------
 // 进程边界 Mock：invoke 按命令名分发（六命令 change_flow_state / start / stop /
@@ -74,8 +74,8 @@ function textMessage(seq: number, text: string): RunUpdate {
 // 可编程 IPC：state / start 可切 reject（字符串 = reject 文本）
 // ---------------------------------------------------------------------------
 
-let stateResult: ChangeRunSnapshot | string | null;
-let startResult: string | null;
+let stateResult: ChangeRunSnapshot | string | null | undefined | Promise<ChangeRunSnapshot | null>;
+let startResult: string | Error | { code: number } | null;
 
 function mockIpc() {
   ChannelMock.instances.length = 0;
@@ -183,21 +183,79 @@ describe('useChangeFlowRun：挂载快照恢复（D9）', () => {
     expect(ChannelMock.instances).toHaveLength(0);
   });
 
+  it('终态快照（stopped / failed）：state 恢复但不补订（isTerminalStatus 三终局字面量逐档对齐——completed 之外两档同归零订阅零 Channel）', async () => {
+    for (const status of ['stopped', 'failed'] as const) {
+      invokeMock.mockClear();
+      ChannelMock.instances.length = 0;
+      stateResult = snapshot({ status, phase: 'implement', attempt: 3 });
+      const rendered = renderHook((input: Params) => useChangeFlowRun(input), {
+        initialProps: { root: ROOT, change: CHANGE },
+      });
+      await act(async () => {});
+      await waitFor(() => expect(rendered.result.current.state?.status).toBe(status));
+
+      expect(calls('change_flow_state')).toHaveLength(1);
+      expect(calls('change_flow_watch')).toHaveLength(0);
+      expect(ChannelMock.instances).toHaveLength(0);
+      rendered.unmount();
+    }
+  });
+
+  it('快照结果为 undefined（线面缺省退化）：nullish 归并双字面量守卫生效——state 降级 null、零订阅零 Channel', async () => {
+    stateResult = undefined;
+    const { result } = await mounted();
+
+    expect(result.current.state).toBeNull();
+    expect(calls('change_flow_state')).toHaveLength(1);
+    expect(calls('change_flow_watch')).toHaveLength(0);
+    expect(ChannelMock.instances).toHaveLength(0);
+  });
+
   it('root / change 为 null：零 invoke、state null（未选定 workspace 空闲态）', async () => {
     const { result } = await mounted({ root: null, change: null });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.state).toBeNull();
   });
+
+  it('混合 null 半边（root 有值 change null / root null change 有值）：恢复分支零 invoke 零 Channel、state null（守卫「||」两操作数各自独立可辨）；null 半边补齐 rerender 后恢复分支重新查快照（effect 依赖数组携带 root / change）', async () => {
+    const rootOnly = await mounted({ root: ROOT, change: null });
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(ChannelMock.instances).toHaveLength(0);
+    expect(rootOnly.result.current.state).toBeNull();
+    rootOnly.unmount();
+
+    const changeOnly = await mounted({ root: null, change: CHANGE });
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(ChannelMock.instances).toHaveLength(0);
+    expect(changeOnly.result.current.state).toBeNull();
+    changeOnly.unmount();
+
+    // 参数从 null 半边补齐（rerender 触发依赖比较）：恢复分支重新查快照——参数真正就绪才 invoke
+    const filled = renderHook<UseChangeFlowRunResult, Params>(
+      (input: Params) => useChangeFlowRun(input),
+      {
+        initialProps: { root: null, change: CHANGE },
+      },
+    );
+    await act(async () => {});
+    expect(calls('change_flow_state')).toHaveLength(0);
+    filled.rerender({ root: ROOT, change: CHANGE });
+    await waitFor(() => expect(calls('change_flow_state')).toHaveLength(1));
+    expect(filled.result.current.state).toBeNull();
+    expect(calls('change_flow_watch')).toHaveLength(0);
+    expect(ChannelMock.instances).toHaveLength(0);
+    filled.unmount();
+  });
 });
 
 describe('useChangeFlowRun：start 发起与订阅（运行期订阅）', () => {
-  it('start() → invoke change_flow_start 携 root/change 与新 Channel 实例（state 初值不臆造，保持快照面）', async () => {
+  it('start(false) → invoke change_flow_start 携 root/change 与新 Channel 实例（state 初值不臆造，保持快照面）', async () => {
     const { result } = await mounted();
     expect(ChannelMock.instances).toHaveLength(0);
 
     await act(async () => {
-      await result.current.start();
+      await result.current.start(false);
     });
 
     expect(calls('change_flow_start')).toHaveLength(1);
@@ -216,7 +274,7 @@ describe('useChangeFlowRun：start 发起与订阅（运行期订阅）', () => 
     expect(result.current.state).not.toBeNull();
 
     await act(async () => {
-      await result.current.start();
+      await result.current.start(false);
     });
 
     deliver({ ipc: 'step', step: stepRow() });
@@ -287,11 +345,95 @@ describe('useChangeFlowRun：start 发起与订阅（运行期订阅）', () => 
     expect(ChannelMock.instances).toHaveLength(1);
 
     await act(async () => {
-      await result.current.start();
+      await result.current.start(false);
     });
 
     expect(ChannelMock.instances).toHaveLength(1);
     expect(startCallArgs().onEvent).toBe(ChannelMock.instances[0]);
+  });
+
+  it('快照查询悬置时发起：Channel 由 start 侧惰性构造并被恢复路径复用——RunUpdate 经发起所建实例流入 state（发起侧订阅归并真实可达，非恢复侧代打）', async () => {
+    let resolveState!: (value: ChangeRunSnapshot | null) => void;
+    stateResult = new Promise<ChangeRunSnapshot | null>((resolve) => {
+      resolveState = resolve;
+    });
+    const rendered = renderHook((input: Params) => useChangeFlowRun(input), {
+      initialProps: { root: ROOT, change: CHANGE },
+    });
+    await act(async () => {});
+    expect(rendered.result.current.state).toBeNull();
+    expect(ChannelMock.instances).toHaveLength(0);
+
+    // 恢复尚未落定即发起：ensureChannel 此刻才建实例（发起侧所建，非恢复侧）
+    await act(async () => {
+      await rendered.result.current.start(false);
+    });
+    expect(ChannelMock.instances).toHaveLength(1);
+    expect(startCallArgs().onEvent).toBe(ChannelMock.instances[0]);
+
+    // 恢复落定：state 非空、watch 复用发起侧所建实例（不重挂）
+    await act(async () => {
+      resolveState(snapshot({ status: 'running', phase: 'implement', attempt: 2 }));
+    });
+    expect(rendered.result.current.state?.status).toBe('running');
+    await waitFor(() => expect(calls('change_flow_watch')).toHaveLength(1));
+    expect(calls('change_flow_watch')[0][1]).toHaveProperty('onEvent', ChannelMock.instances[0]);
+
+    // 实时流经发起侧 Channel 实例归并 state：step 入步表、sessionEvent 入缓存
+    deliver({ ipc: 'step', step: stepRow() });
+    expect(rendered.result.current.state).toMatchObject({
+      phase: 'implement',
+      attempt: 1,
+      steps: [stepRow()],
+    });
+
+    deliver(textMessage(0, '发起侧实时片段'));
+    expect(rendered.result.current.state?.liveEvents['ses-exec-1']).toHaveLength(1);
+  });
+});
+
+describe('useChangeFlowRun：start autoNextPhase 传参（停等节奏发起定格，D4）', () => {
+  it('start(true) → invoke change_flow_start 携 root / change / 新 Channel 实例外增 autoNextPhase: true（经真实 bindings 生成物出线，commands 模块不 mock）', async () => {
+    const { result } = await mounted();
+    expect(ChannelMock.instances).toHaveLength(0);
+
+    await act(async () => {
+      await result.current.start(true);
+    });
+
+    expect(calls('change_flow_start')).toHaveLength(1);
+    const args = startCallArgs();
+    expect(args.autoNextPhase).toBe(true);
+    expect(args.root).toBe(ROOT);
+    expect(args.change).toBe(CHANGE);
+    expect(args.onEvent).toBeInstanceOf(ChannelMock);
+  });
+
+  it('start(false) → autoNextPhase: false 显式出线（默认档亦为显式实参——签名必填无缺省，载荷键在场）', async () => {
+    const { result } = await mounted();
+
+    await act(async () => {
+      await result.current.start(false);
+    });
+
+    expect(calls('change_flow_start')).toHaveLength(1);
+    const args = startCallArgs();
+    expect(args.autoNextPhase).toBe(false);
+    expect(Object.keys(args)).toContain('autoNextPhase');
+  });
+
+  it('root / change 为 null 时 start(true / false) 均 no-op 零 invoke（守卫先行于传参）', async () => {
+    const { result } = await mounted({ root: null, change: null });
+
+    await act(async () => {
+      await result.current.start(true);
+    });
+    await act(async () => {
+      await result.current.start(false);
+    });
+
+    expect(invokeMock).not.toHaveBeenCalled();
+    expect(result.current.error).toBeNull();
   });
 });
 
@@ -343,23 +485,68 @@ describe('useChangeFlowRun：stop / confirm / answer 透传', () => {
     ]);
   });
 
-  it('root / change 为 null 时四操作均 no-op（零 invoke）', async () => {
-    const { result } = await mounted({ root: null, change: null });
+  it('root / change 为 null（双 null 与混合 null 半边）时四操作均 no-op（零 invoke 零 Channel——守卫「||」两操作数各自独立可辨）', async () => {
+    for (const params of [
+      { root: null, change: null },
+      { root: ROOT, change: null },
+      { root: null, change: CHANGE },
+    ] as Params[]) {
+      invokeMock.mockClear();
+      ChannelMock.instances.length = 0;
+      const { result } = await mounted(params);
+      await act(async () => {
+        await result.current.start(false);
+      });
+      await act(async () => {
+        await result.current.stop();
+      });
+      await act(async () => {
+        await result.current.confirm(true);
+      });
+      await act(async () => {
+        await result.current.answer('文本');
+      });
+
+      expect(invokeMock).not.toHaveBeenCalled();
+      expect(ChannelMock.instances).toHaveLength(0);
+      expect(result.current.error).toBeNull();
+    }
+  });
+});
+
+describe('useChangeFlowRun：参数变更 rerender（useCallback 依赖数组真实生效）', () => {
+  it('换根 rerender 后四操作以新 root 出线（旧闭包不滞留——start / stop / confirm / answer 依赖数组携带 root）', async () => {
+    const ROOT2 = 'C:\\demo\\flow-2';
+    const rendered = await mounted({ root: ROOT, change: CHANGE });
+    rendered.rerender({ root: ROOT2, change: CHANGE });
+    await act(async () => {});
+
     await act(async () => {
-      await result.current.start();
+      await rendered.result.current.start(false);
     });
     await act(async () => {
-      await result.current.stop();
+      await rendered.result.current.stop();
     });
     await act(async () => {
-      await result.current.confirm(true);
+      await rendered.result.current.confirm(true);
     });
     await act(async () => {
-      await result.current.answer('文本');
+      await rendered.result.current.answer('换根后应答');
     });
 
-    expect(invokeMock).not.toHaveBeenCalled();
-    expect(result.current.error).toBeNull();
+    expect(startCallArgs().root).toBe(ROOT2);
+    expect(calls('change_flow_stop').at(-1)).toEqual([
+      'change_flow_stop',
+      { root: ROOT2, change: CHANGE },
+    ]);
+    expect(calls('change_flow_confirm').at(-1)).toEqual([
+      'change_flow_confirm',
+      { root: ROOT2, change: CHANGE, proceed: true },
+    ]);
+    expect(calls('change_flow_answer').at(-1)).toEqual([
+      'change_flow_answer',
+      { root: ROOT2, change: CHANGE, answer: '换根后应答' },
+    ]);
   });
 });
 
@@ -388,13 +575,83 @@ describe('useChangeFlowRun：收口释放与重挂补订（D9）', () => {
   });
 });
 
+describe('useChangeFlowRun：恢复失败与迟到结果时序（disposed 收口补强）', () => {
+  it('卸载后快照结果迟到：不建 Channel、不补订（disposed 弃投递——真实收口零残余 invoke）', async () => {
+    let resolveState!: (value: ChangeRunSnapshot | null) => void;
+    stateResult = new Promise<ChangeRunSnapshot | null>((resolve) => {
+      resolveState = resolve;
+    });
+    const rendered = renderHook((input: Params) => useChangeFlowRun(input), {
+      initialProps: { root: ROOT, change: CHANGE },
+    });
+    await act(async () => {});
+    rendered.unmount();
+
+    await act(async () => {
+      resolveState(snapshot({ status: 'running', phase: 'implement', attempt: 2 }));
+    });
+
+    expect(calls('change_flow_watch')).toHaveLength(0);
+    expect(ChannelMock.instances).toHaveLength(0);
+  });
+
+  it('恢复二次查询 reject 且 state 已非空：state 降级复位 null（catch 体与 disposed 取反守卫真实生效——非空态可见复位）', async () => {
+    stateResult = snapshot({ status: 'running', phase: 'implement', attempt: 2 });
+    const rendered = renderHook((input: Params) => useChangeFlowRun(input), {
+      initialProps: { root: ROOT, change: CHANGE },
+    });
+    await act(async () => {});
+    await waitFor(() => expect(rendered.result.current.state?.status).toBe('running'));
+    expect(rendered.result.current.state).not.toBeNull();
+    expect(calls('change_flow_watch')).toHaveLength(1);
+
+    // 换根重挂：第二查询 reject → 空态降级覆盖既有非空 state
+    stateResult = 'db: 快照查询失败';
+    rendered.rerender({ root: 'C:\\demo\\flow-2', change: CHANGE });
+    await act(async () => {});
+
+    expect(rendered.result.current.state).toBeNull();
+    // reject 不补订：watch 维持首次的一条，迟到路径零叠加
+    expect(calls('change_flow_watch')).toHaveLength(1);
+  });
+
+  it('换根重挂时序：旧查询迟到结果不改写 state、不补订；新查询以全新 Channel 实例重建订阅（cleanup 释放 channelRef + disposed 置位真实生效）', async () => {
+    let resolveFirst!: (value: ChangeRunSnapshot | null) => void;
+    stateResult = new Promise<ChangeRunSnapshot | null>((resolve) => {
+      resolveFirst = resolve;
+    });
+    const rendered = renderHook((input: Params) => useChangeFlowRun(input), {
+      initialProps: { root: ROOT, change: CHANGE },
+    });
+    await act(async () => {});
+    expect(rendered.result.current.state).toBeNull();
+
+    // 换根：第二查询立即落定（waitingConfirm 快照）
+    stateResult = snapshot({ status: 'waitingConfirm', phase: 'dev-design', attempt: 1 });
+    rendered.rerender({ root: 'C:\\demo\\flow-2', change: CHANGE });
+    await waitFor(() => expect(rendered.result.current.state?.status).toBe('waitingConfirm'));
+    // channelRef 已被 cleanup 释放 → 新查询补订构造全新实例
+    expect(ChannelMock.instances).toHaveLength(1);
+
+    // 旧查询（属旧 root）迟到落定：不改写 state、不触发补订
+    await act(async () => {
+      resolveFirst(snapshot({ status: 'running', phase: 'implement', attempt: 9 }));
+    });
+
+    expect(rendered.result.current.state).toMatchObject({ status: 'waitingConfirm', attempt: 1 });
+    expect(calls('change_flow_state')).toHaveLength(2);
+    expect(calls('change_flow_watch')).toHaveLength(1);
+    expect(ChannelMock.instances).toHaveLength(1);
+  });
+});
+
 describe('useChangeFlowRun：invoke reject（异常面）', () => {
   it('start reject → error 呈现可重试：重试成功后 error 复位、订阅照常建立（Channel 复用不叠加）', async () => {
     const { result } = await mounted();
 
     startResult = '同 change 已有并行 run';
     await act(async () => {
-      await result.current.start();
+      await result.current.start(false);
     });
     expect(result.current.error).toBe('同 change 已有并行 run');
     // Channel 惰性构造先于 invoke：reject 时订阅已建立，重试复用同一实例
@@ -402,7 +659,7 @@ describe('useChangeFlowRun：invoke reject（异常面）', () => {
 
     startResult = null;
     await act(async () => {
-      await result.current.start();
+      await result.current.start(false);
     });
     expect(result.current.error).toBeNull();
     expect(calls('change_flow_start')).toHaveLength(2);
@@ -417,6 +674,22 @@ describe('useChangeFlowRun：invoke reject（异常面）', () => {
     expect(result.current.state).toBeNull();
     expect(result.current.error).toBeNull();
     expect(calls('change_flow_watch')).toHaveLength(0);
+  });
+
+  it('start reject 携非 string（Error 对象 / 普通对象）：error 归一为 String(cause) 文本（readError 非字符串分支真实参与——error 恒为 string）', async () => {
+    const { result } = await mounted();
+
+    startResult = new Error('db: 并行 run 冲突');
+    await act(async () => {
+      await result.current.start(false);
+    });
+    expect(result.current.error).toBe('Error: db: 并行 run 冲突');
+
+    startResult = { code: 42 };
+    await act(async () => {
+      await result.current.start(false);
+    });
+    expect(result.current.error).toBe('[object Object]');
   });
 });
 

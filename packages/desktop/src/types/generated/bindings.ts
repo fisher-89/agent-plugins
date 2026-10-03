@@ -85,7 +85,7 @@ export const commands = {
 	 *  空结果。
 	 */
 	agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent[]>("agent_session_transcript", { root, sessionId }),
-	changeFlowStart: (onEvent: Channel<RunUpdate>, root: string, change: string) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, change }),
+	changeFlowStart: (onEvent: Channel<RunUpdate>, root: string, change: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, change, autoNextPhase }),
 	changeFlowStop: (root: string, change: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, change }),
 	changeFlowAnswer: (root: string, change: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, change, answer }),
 	changeFlowConfirm: (root: string, change: string, proceed: boolean) => __TAURI_INVOKE<null>("change_flow_confirm", { root, change, proceed }),

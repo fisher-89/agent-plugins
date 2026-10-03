@@ -12,7 +12,7 @@ import { applyRunUpdate, initialRunState, type ChangeFlowRunState } from '../flo
 
 export interface UseChangeFlowRunResult {
   state: ChangeFlowRunState | null;
-  start: () => Promise<void>;
+  start: (autoNextPhase: boolean) => Promise<void>;
   stop: () => Promise<void>;
   confirm: (proceed: boolean) => Promise<void>;
   answer: (text: string) => Promise<void>;
@@ -54,19 +54,22 @@ function ensureChannel(
   return channel;
 }
 
+/** 六命令动作面返回型（`useRunActions` 专用，随 `UseChangeFlowRunResult` 对齐）。 */
+interface RunActionsFace {
+  start: (autoNextPhase: boolean) => Promise<void>;
+  stop: () => Promise<void>;
+  confirm: (proceed: boolean) => Promise<void>;
+  answer: (text: string) => Promise<void>;
+  error: string | null;
+}
+
 /** 六命令动作面：参数就绪检查 + 错误统一落 error 态（发起先行清错）。 */
 function useRunActions(
   root: string | null,
   change: string | null,
   channelRef: React.RefObject<Channel<RunUpdate> | null>,
   setState: React.Dispatch<React.SetStateAction<ChangeFlowRunState | null>>,
-): {
-  start: () => Promise<void>;
-  stop: () => Promise<void>;
-  confirm: (proceed: boolean) => Promise<void>;
-  answer: (text: string) => Promise<void>;
-  error: string | null;
-} {
+): RunActionsFace {
   const [error, setError] = useState<string | null>(null);
   const run = useCallback(async (invoke: () => Promise<unknown>): Promise<void> => {
     try {
@@ -75,14 +78,17 @@ function useRunActions(
       setError(readError(cause));
     }
   }, []);
-  const start = useCallback(() => {
-    if (root === null || change === null) return Promise.resolve();
-    setError(null);
-    const channel = ensureChannel(channelRef, (update) => {
-      setState((current) => applyRunUpdate(current, update));
-    });
-    return run(() => commands.changeFlowStart(channel, root, change));
-  }, [root, change, channelRef, run, setState]);
+  const start = useCallback(
+    (autoNextPhase: boolean) => {
+      if (root === null || change === null) return Promise.resolve();
+      setError(null);
+      const channel = ensureChannel(channelRef, (update) => {
+        setState((current) => applyRunUpdate(current, update));
+      });
+      return run(() => commands.changeFlowStart(channel, root, change, autoNextPhase));
+    },
+    [root, change, channelRef, run, setState],
+  );
   const stop = useCallback(() => {
     if (root === null || change === null) return Promise.resolve();
     return run(() => commands.changeFlowStop(root, change));

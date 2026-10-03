@@ -1,0 +1,316 @@
+{
+  "framework": "vite-plus",
+  "root": "packages/desktop",
+  "timestamp": "2026-10-03T06:48:50.819Z",
+  "exit_code": 0,
+  "duration_ms": 161664,
+  "summary": {
+    "total": 837,
+    "passed": 837,
+    "failed": 0,
+    "skipped": 0
+  },
+  "error_cases": [],
+  "test_files": [
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-change-flow-run.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/change-detail-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/utils.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/eval-checklist-renderer.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/explores/hooks/use-explore-session.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/components/agent-run-history.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/change-list-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/registry.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/components/provider-panel.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/artifact-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/hooks/use-workspace-config.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/tasks-progress-renderer.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/hooks/use-agent-instances.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/use-agent-chat.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/components/stats-summary.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/components/agent-run-form.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/info-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/components/masked-api-key.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/markdown-doc-renderer.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/use-workspaces.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/db/hooks/use-db-inspector.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/components/agent-raw-stream.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/hooks/use-agent-providers.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/extra-fields-section.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/config-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/agent-input.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/components/app-sidebar.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/change-flow-graph.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/tool-cards.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/fallback.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/file-log-table.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/components/dir-tree.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/run-control-panel.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-session-transcript.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/tests-section.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/components/agent-panel.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/explores/hooks/use-explore-list.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/write-protection-section.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/session-transcript-panel.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/agent-transport.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/diagnostics-section.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/run-step-node.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/agent-adapter.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/agent-messages.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/detail-drawer.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/agents-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/attachments.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/flow-event-node.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/components/language-table.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/explores/hooks/use-explore-doc.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/phase-column-node.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-change-detail.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-change-list.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/app.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/db/db-inspector-view.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/run-state.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/graph.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/use-updater.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/hooks/use-agent-options.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/hooks/use-code-stats.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/explore-stance.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/agent-timeline.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/layout.test.ts",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/components/change-create-dialog.test.tsx",
+    "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/basic-config-section.test.tsx"
+  ],
+  "source_files": [
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/app.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/agent-input.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/agent-messages.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/agent-timeline.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/components/agent/tool-cards.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/components/app-sidebar.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/use-agent-chat.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/use-updater.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/hooks/use-workspaces.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/agent-adapter.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/agent-transport.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/explore-stance.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/lib/utils.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/agent-debug-view.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/components/agent-raw-stream.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/components/agent-run-form.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/components/agent-run-history.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/hooks/use-agent-options.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agent/hooks/use-agent-run-history.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/agents-view.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/components/agent-panel.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/components/masked-api-key.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/components/provider-panel.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/hooks/use-agent-instances.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/agents/hooks/use-agent-providers.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/change-detail-view.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/change-list-view.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/components/change-create-dialog.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/attachments.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/change-flow-graph.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/detail-drawer.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/file-log-table.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/flow-event-node.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/graph.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/layout.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/phase-column-node.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/run-control-panel.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/run-state.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/run-step-node.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/flow/session-transcript-panel.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-change-detail.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-change-flow-run.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-change-list.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/hooks/use-session-transcript.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/artifact-view.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/eval-checklist-renderer.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/fallback.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/markdown-doc-renderer.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/registry.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/changes/renderers/tasks-progress-renderer.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/basic-config-section.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/diagnostics-section.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/extra-fields-section.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/tests-section.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/components/write-protection-section.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/config-view.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/config/hooks/use-workspace-config.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/db/db-inspector-view.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/db/hooks/use-db-inspector.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/explores/hooks/use-explore-doc.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/explores/hooks/use-explore-list.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/explores/hooks/use-explore-session.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/components/dir-tree.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/components/language-table.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/components/stats-summary.tsx"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/hooks/use-code-stats.ts"
+    },
+    {
+      "file": "D:/Projects/wps-claude-plugin/packages/desktop/src/views/info/info-view.tsx"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": 94.85,
+      "branches": 89.15,
+      "functions": 93.58
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    }
+  },
+  "mutation": {
+    "pass": true,
+    "score": 95.60975609756098,
+    "threshold": 80,
+    "measured": {
+      "killed": 196,
+      "survived": 9,
+      "timeout": 0,
+      "noCoverage": 0,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 7,
+      "total": 212,
+      "detected": 196,
+      "undetected": 9
+    }
+  }
+}

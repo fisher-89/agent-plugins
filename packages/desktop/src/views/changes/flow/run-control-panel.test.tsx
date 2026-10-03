@@ -6,13 +6,6 @@ import type { UseChangeFlowRunResult } from '../hooks/use-change-flow-run';
 import { RunControlPanel } from './run-control-panel';
 import type { ChangeFlowRunState } from './run-state';
 
-// ---------------------------------------------------------------------------
-// RunControlPanel 单测：hook 边界以 UseChangeFlowRunResult 替身直传（可编程
-// state 六态 fixture 与 start/stop/confirm/answer spy），无 invoke 参与——
-// hook 契约在 use-change-flow-run.test.ts 锁定。生命周期状态与可用操作对齐
-// 矩阵 / 确认卡片 / ask 卡片 / error 与终态记因（AC-5 控制入口 + AC-2 ask 半边）。
-// ---------------------------------------------------------------------------
-
 /** 宽松默认值构造 run 视图模型（run-state.ts ChangeFlowRunState 同形）。 */
 function runState(overrides: Partial<ChangeFlowRunState> = {}): ChangeFlowRunState {
   return {
@@ -57,6 +50,7 @@ describe('RunControlPanel：主操作与生命周期对齐', () => {
 
     fireEvent.click(screen.getByTestId('run-start'));
     expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenLastCalledWith(false);
   });
 
   it('running：停止为主操作且点击触发 stop、发起入口退位、状态徽章呈运行中', () => {
@@ -112,6 +106,110 @@ describe('RunControlPanel：主操作与生命周期对齐', () => {
   });
 });
 
+describe('RunControlPanel：发起区自动确认开关（AC-4）', () => {
+  it('默认关：复选框未选中；未勾选直接点击发起 → start 携 false 调用恰一次（data-testid 查询）', () => {
+    const start = vi.fn(async () => {});
+    renderPanel(runStub({ start }));
+
+    const checkbox = screen.getByTestId('run-auto-next-phase');
+    expect((checkbox as HTMLInputElement).checked).toBe(false);
+
+    fireEvent.click(screen.getByTestId('run-start'));
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenLastCalledWith(false);
+  });
+
+  it('勾选开关后点击发起 → start 携 true 调用恰一次（开启后 start 携 autoNextPhase=true）', () => {
+    const start = vi.fn(async () => {});
+    renderPanel(runStub({ start }));
+
+    const checkbox = screen.getByTestId('run-auto-next-phase');
+    fireEvent.click(checkbox);
+    expect((checkbox as HTMLInputElement).checked).toBe(true);
+
+    fireEvent.click(screen.getByTestId('run-start'));
+    expect(start).toHaveBeenCalledTimes(1);
+    expect(start).toHaveBeenLastCalledWith(true);
+  });
+
+  it('常驻轻提示文案：默认态与开启态均渲染同一行 muted 说明，不随开关状态条件渲染（D5）', () => {
+    renderPanel(runStub());
+
+    const hint = screen.getByText(/仅跳过相位间停等/);
+    expect(hint.textContent).toContain('仅跳过相位间停等');
+    expect(hint.textContent).toContain('ask 中断');
+    expect(hint.textContent).toContain('不自动归档');
+    expect(hint.className).toContain('text-muted-foreground');
+
+    // 开启态：同一行文案仍在场（同一 DOM 节点——非条件渲染重建）
+    fireEvent.click(screen.getByTestId('run-auto-next-phase'));
+    expect(screen.getByText(/仅跳过相位间停等/)).toBe(hint);
+  });
+
+  it('运行期三态开关 disabled 定格：当前取值保持可见非隐藏、开关冻结不可切（jsdom 的 fireEvent 不复现浏览器对 disabled 控件的事件抑制——「切档无效」以 disabled 门为断言面）', () => {
+    // 三运行态：开关在场（可见非隐藏）、disabled 定格、取值保留可见
+    for (const status of ['running', 'waitingConfirm', 'waitingAsk'] as const) {
+      const rendered = renderPanel(runStub({ state: runState({ status }) }));
+      const checkbox = screen.getByTestId<HTMLInputElement>('run-auto-next-phase');
+      expect(checkbox.disabled).toBe(true);
+      expect(checkbox.checked).toBe(false);
+      rendered.unmount();
+    }
+
+    // 定格前已勾选的取值同样保留可见（定格呈现，非隐藏归零——真实浏览器
+    // 中 disabled 控件不派发事件，切档无从发生）
+    const first = renderPanel(runStub());
+    fireEvent.click(screen.getByTestId('run-auto-next-phase'));
+    first.rerender(
+      <RunControlPanel
+        change="add-feature"
+        run={runStub({ state: runState({ status: 'running' }) })}
+      />,
+    );
+    const running = screen.getByTestId<HTMLInputElement>('run-auto-next-phase');
+    expect(running.disabled).toBe(true);
+    expect(running.checked).toBe(true);
+    first.unmount();
+  });
+
+  it('终局三态恢复可编辑且保留上次取值：勾选过的开关终局后仍选中（发起以点击时刻值为准）', () => {
+    const start = vi.fn(async () => {});
+    const first = renderPanel(runStub({ start }));
+    fireEvent.click(screen.getByTestId('run-auto-next-phase'));
+
+    for (const status of ['completed', 'stopped', 'failed'] as const) {
+      first.rerender(
+        <RunControlPanel
+          change="add-feature"
+          run={runStub({ start, state: runState({ status }) })}
+        />,
+      );
+      const checkbox = screen.getByTestId<HTMLInputElement>('run-auto-next-phase');
+      expect(checkbox.disabled).toBe(false);
+      expect(checkbox.checked).toBe(true);
+
+      // 发起以点击时刻开关值为实参：终局后可直接携 true 重发
+      fireEvent.click(screen.getByTestId('run-start'));
+      expect(start).toHaveBeenLastCalledWith(true);
+    }
+    first.unmount();
+  });
+
+  it('发起失败（error 非空、state 保持 null）时开关可编辑且取值保留（未进入运行态——可改档后重试发起）', () => {
+    const start = vi.fn(async () => {});
+    renderPanel(runStub({ error: '同 change 已有并行 run', start }));
+
+    const checkbox = screen.getByTestId<HTMLInputElement>('run-auto-next-phase');
+    expect(checkbox.disabled).toBe(false);
+    expect(checkbox.checked).toBe(false);
+
+    fireEvent.click(checkbox);
+    expect(checkbox.checked).toBe(true);
+    fireEvent.click(screen.getByTestId('run-start'));
+    expect(start).toHaveBeenLastCalledWith(true);
+  });
+});
+
 describe('RunControlPanel：waitingConfirm 卡片（phase 间拍板点）', () => {
   it('confirmPhase 非空：确认卡片呈现相位名；继续 / 终止分别触发 confirm(true / false)', () => {
     const confirm = vi.fn(async () => {});
@@ -160,6 +258,8 @@ describe('RunControlPanel：waitingAsk 卡片（AC-2 ask 卡片 UI 半边）', (
     expect(screen.getByTestId('run-ask-question').textContent).toBe('backtrack 到哪个相位？');
     const options = screen.getAllByTestId('run-ask-option');
     expect(options.map((option) => option.textContent)).toEqual(['dev-design', 'test-design']);
+    // 选项容器在场：卡片为「问题行 + 选项容器 + 应答行」三个直接子节点（守卫 true 半边）
+    expect(screen.getByTestId('run-ask-card').children).toHaveLength(3);
 
     fireEvent.click(options[1]);
     expect(answer).toHaveBeenCalledTimes(1);
@@ -198,10 +298,22 @@ describe('RunControlPanel：waitingAsk 卡片（AC-2 ask 卡片 UI 半边）', (
     );
 
     expect(screen.queryAllByTestId('run-ask-option')).toHaveLength(0);
+    // 选项容器整体缺席（非「空容器在场」）：守卫为 false 时卡片只余问题行 + 应答行
+    // 两个直接子节点——空壳包裹层不渲染（ask.options.length > 0 守卫可辨面）
+    expect(screen.getByTestId('run-ask-card').children).toHaveLength(2);
     fireEvent.change(screen.getByTestId('run-ask-input'), { target: { value: '继续' } });
     fireEvent.click(screen.getByTestId('run-ask-submit'));
     expect(answer).toHaveBeenCalledTimes(1);
     expect(answer).toHaveBeenLastCalledWith('继续');
+  });
+
+  it("ask 输入初值：挂载即空串（未输入前不携脏值——初值 useState('') 可辨）", () => {
+    renderPanel(
+      runStub({
+        state: runState({ status: 'waitingAsk', ask: { question: '继续还是停止？', options: [] } }),
+      }),
+    );
+    expect(screen.getByTestId<HTMLInputElement>('run-ask-input').value).toBe('');
   });
 
   it('ask 为 null（running）：无 ask 卡片', () => {
@@ -220,6 +332,11 @@ describe('RunControlPanel：error 呈现与终态记因', () => {
   it('finishedReason 非空：收口记因呈现（前缀「收口：」）', () => {
     renderPanel(runStub({ state: runState({ status: 'failed', finishedReason: 'CLI 漂移' }) }));
     expect(screen.getByTestId('run-finished-reason').textContent).toBe('收口：CLI 漂移');
+  });
+
+  it('state 非空且 finishedReason 为 null（running 运行中）：无收口记因（记因守卫不被 state 短路掩盖）', () => {
+    renderPanel(runStub({ state: runState({ status: 'running', finishedReason: null }) }));
+    expect(screen.queryByTestId('run-finished-reason')).toBeNull();
   });
 
   it('error 与 finishedReason 双 null：两者均不渲染（常态无占位）', () => {

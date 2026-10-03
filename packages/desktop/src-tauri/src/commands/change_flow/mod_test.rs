@@ -1,20 +1,3 @@
-//! `commands::change_flow` 六命令的单元测试（test-design「change_flow/mod.rs
-//! -> mod_test.rs」节）：前置校验三失败分支（W8 换血后）、start 提前 resolve
-//! 与组合根装配、stop / answer / confirm / state / watch 五命令保持面、参数
-//! 转换守卫。
-//!
-//! 装置沿 exec/mod_test.rs 既有先例：`#[tauri::command]` 保留原函数可直调，
-//! 以 `tauri::test::mock_app()`（MockRuntime）manage 真实 `WorkspaceStores`
-//! / `Arc<ChangeFlowControl>` / `Arc<StopRegistry>` 后直调 `*_with` 泛型测试
-//! 缝；`tauri::ipc::Channel::new` 捕获回调收下 RunUpdate 信封（IPC 边界捕
-//! 获）；前置校验 / 组合根以 tempdir 真实 change fixture 驱动（fs 进程边界
-//! 真实组合）。CLI env 替身随回退出局——引擎可达性以 PATH 隔离驱动（空
-//! PATH 下合成收敛，不 spawn 真实 claude）。
-//!
-//! 废弃注记（test-design 废弃行，断言不落）：「start 前置校验含 CLI 可发现
-//! 项（env 指坏路径显式报错）」随 discover_cli / DEV_TEAM_PLUGIN_ROOT 出局
-//! 退役——前置校验三道不再含 CLI 可发现分支。
-
 use std::fs;
 use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
@@ -83,6 +66,47 @@ fn app_with(env: &Env) -> App<tauri::test::MockRuntime> {
     app
 }
 
+/// cli 默认实例 fixture（组合根缺省解析可走通——发起链路真实驱动的用例共用）。
+fn seed_cli_default_instance(app: &App<tauri::test::MockRuntime>) {
+    let stores = app.state::<WorkspaceStores>();
+    let id = stores
+        .inner()
+        .global()
+        .upsert_agent_instance(AgentInstanceRecord::new(
+            "组合根实例".to_owned(),
+            AgentEngineKind::Cli,
+            None,
+        ))
+        .expect("落 cli 实例 fixture")
+        .id;
+    stores
+        .inner()
+        .global()
+        .set_default_agent_instance(id)
+        .expect("置默认实例 fixture");
+}
+
+/// PATH 隔离窗口开启（executor 会话以 CliMissing 合成收敛，不 spawn 真实
+/// claude）：返回原值供窗口关闭时恢复；窗口经 commands 级 PATH 锁串行化。
+fn isolate_path() -> (
+    std::sync::MutexGuard<'static, ()>,
+    Option<std::ffi::OsString>,
+) {
+    let guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+    let original = std::env::var_os("PATH");
+    std::env::set_var("PATH", "");
+    (guard, original)
+}
+
+/// PATH 隔离窗口关闭（先恢复原值再放锁——窗口过早关闭会把真实 CLI 泄入 run）。
+fn restore_path(guard: std::sync::MutexGuard<'static, ()>, original: Option<std::ffi::OsString>) {
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+    drop(guard);
+}
+
 /// 丢弃型 Channel（发送信封即弃）。
 fn discarding_channel() -> Channel<super::RunUpdate> {
     Channel::new(|_: InvokeResponseBody| Ok(()))
@@ -144,6 +168,7 @@ async fn start前置校验三失败分支各自err且成因互不重合() {
         discarding_channel(),
         root.clone(),
         "不存在的-change".to_owned(),
+        false,
     )
     .await
     .expect_err("未知 change 应 Err");
@@ -158,6 +183,7 @@ async fn start前置校验三失败分支各自err且成因互不重合() {
         discarding_channel(),
         root.clone(),
         "broken-change".to_owned(),
+        false,
     )
     .await
     .expect_err("不可解析应 Err");
@@ -172,6 +198,7 @@ async fn start前置校验三失败分支各自err且成因互不重合() {
         discarding_channel(),
         root,
         "bugfix-change".to_owned(),
+        false,
     )
     .await
     .expect_err("非 requirement 应 Err");
@@ -232,6 +259,7 @@ async fn start提前resolve返回running摘要且channel首事件到达后台驱
         channel,
         root.clone(),
         CHANGE.to_owned(),
+        false,
     )
     .await;
 
@@ -327,6 +355,7 @@ async fn start同change并行run冲突err() {
         discarding_channel(),
         env.root(),
         CHANGE.to_owned(),
+        false,
     )
     .await
     .expect_err("并行发起应 Err");
@@ -338,6 +367,208 @@ async fn start同change并行run冲突err() {
     assert_eq!(
         control.snapshot(CHANGE).map(|snap| snap.run_id),
         Some("run-existing".to_owned())
+    );
+}
+
+// ---------------------------------------------------------------------------
+// auto_next_phase 透传受理（AC-3：参数面受理与透传布线——auto 与手动的行为分叉
+// 语义直测归 orchestration walker_test，本节证明新尾参不破命令面受理契约）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn auto_next_phase_true透传受理零confirmwait照常后台收敛() {
+    let env = Env::new("auto-true");
+    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    let app = app_with(&env);
+    seed_cli_default_instance(&app);
+
+    // PATH 隔离：executor 会话以 CliMissing 合成收敛（窗口覆盖至后台 turn 收敛）
+    let (path_guard, original) = isolate_path();
+
+    let (channel, captured) = capturing_channel();
+    let result = change_flow_start_with(
+        app.handle().clone(),
+        channel,
+        env.root(),
+        CHANGE.to_owned(),
+        true,
+    )
+    .await;
+
+    // 受理契约：run_id 立即可知、running 态摘要（后台驱动不阻塞）
+    let summary = result.expect("auto_next_phase=true 合法受理");
+    assert!(
+        summary.run_id.starts_with("run-"),
+        "run-<millis> 铸造: {}",
+        summary.run_id
+    );
+    assert_eq!(
+        summary.status,
+        super::ChangeRunStatus::Running,
+        "提前 resolve 返回 running 态摘要"
+    );
+
+    // 订阅先行于 walker：run 登记即快照可见
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert_eq!(
+        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        Some(summary.run_id.clone())
+    );
+
+    // 后台 walker 真实驱动至收敛（PATH 隔离下 executor CliMissing → failed）
+    wait_for("Finished 信封", || {
+        captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .any(|value| value["ipc"] == "finished")
+    });
+
+    // 后台 turn 已收敛，隔离窗口可关闭
+    restore_path(path_guard, original);
+
+    // auto 参数达 walker：更新流全程零 confirmWait 信封
+    let updates = captured.lock().expect("捕获锁不可中毒");
+    assert!(
+        updates
+            .iter()
+            .all(|value| value["ipc"] != serde_json::json!("confirmWait")),
+        "auto 模式更新流零 confirmWait 信封: {:?}",
+        updates
+            .iter()
+            .map(|value| value["ipc"].clone())
+            .collect::<Vec<_>>()
+    );
+    let finished = updates
+        .iter()
+        .find(|value| value["ipc"] == "finished")
+        .expect("终态信封在场");
+    assert_eq!(
+        finished["status"], "failed",
+        "PATH 隔离下 executor CliMissing → 合成收敛 failed"
+    );
+    drop(updates);
+
+    // 终态收口除名 + phase-start 落盘证据（组合根装配照常）
+    wait_for("终态除名", || control.snapshot(CHANGE).is_none());
+    let workflow_text = fs::read_to_string(
+        env.ws_root
+            .path()
+            .join("openspec/changes")
+            .join(CHANGE)
+            .join("workflow.json"),
+    )
+    .expect("读 workflow.json 失败");
+    let doc: serde_json::Value = serde_json::from_str(&workflow_text).expect("应可解析");
+    assert!(
+        doc.get("active_phase").is_some(),
+        "phase-start 落盘证据在场（组合根 LocalToolSteps 直调写面）"
+    );
+}
+
+#[tokio::test]
+async fn auto_next_phase_false默认档受理面回归() {
+    let env = Env::new("auto-false");
+    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    let app = app_with(&env);
+    seed_cli_default_instance(&app);
+
+    let (path_guard, original) = isolate_path();
+
+    let (channel, captured) = capturing_channel();
+    let result = change_flow_start_with(
+        app.handle().clone(),
+        channel,
+        env.root(),
+        CHANGE.to_owned(),
+        false,
+    )
+    .await;
+
+    // 受理契约零变更：run- 前缀摘要 + running 态
+    let summary = result.expect("默认档合法受理");
+    assert!(summary.run_id.starts_with("run-"));
+    assert_eq!(summary.status, super::ChangeRunStatus::Running);
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert_eq!(
+        control.snapshot(CHANGE).map(|snap| snap.run_id),
+        Some(summary.run_id.clone()),
+        "begin_run 登记 + 订阅先行零变更"
+    );
+
+    // 订阅先行与后台驱动时序零变更：首事件先行、终态经 Channel 流出
+    wait_for("Channel 首事件", || {
+        !captured.lock().expect("捕获锁不可中毒").is_empty()
+    });
+    wait_for("Finished 信封", || {
+        captured
+            .lock()
+            .expect("捕获锁不可中毒")
+            .iter()
+            .any(|value| value["ipc"] == "finished")
+    });
+
+    restore_path(path_guard, original);
+
+    // 终态面语义不变：合成收敛 failed（步状态 + 终态信封照常流出）
+    let updates = captured.lock().expect("捕获锁不可中毒");
+    assert!(
+        updates.iter().any(|value| value["ipc"] == "step"),
+        "步状态信封照常流出"
+    );
+    let finished = updates
+        .iter()
+        .find(|value| value["ipc"] == "finished")
+        .expect("终态信封在场");
+    assert_eq!(
+        finished["status"], "failed",
+        "PATH 隔离下合成收敛 failed（终态面语义不变）"
+    );
+    drop(updates);
+
+    wait_for("终态除名", || control.snapshot(CHANGE).is_none());
+}
+
+#[tokio::test]
+async fn auto_next_phase_true不绕过守卫与前置校验() {
+    let env = Env::new("auto-guard");
+    env.change(CHANGE, REQUIREMENT_WORKFLOW);
+    let app = app_with(&env);
+    let root = env.root();
+
+    // blank root + true：Err（blank 守卫先行）
+    let err = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        "   ".to_owned(),
+        CHANGE.to_owned(),
+        true,
+    )
+    .await
+    .expect_err("blank root start 应 Err");
+    assert!(err.contains("root"), "blank 守卫 Err 文案: {err}");
+
+    // 不存在 change + true：Err 携 change 名（前置校验 1）
+    let err = change_flow_start_with(
+        app.handle().clone(),
+        discarding_channel(),
+        root,
+        "不存在的-change".to_owned(),
+        true,
+    )
+    .await
+    .expect_err("未知 change 应 Err");
+    assert!(
+        err.contains("不存在的-change") && err.contains("change 不存在"),
+        "成因（change miss）: {err}"
+    );
+
+    // 注册表零登记（auto 参数不绕过守卫直入运行态）
+    let control = app.state::<Arc<ChangeFlowControl>>();
+    assert!(control.snapshot(CHANGE).is_none(), "合法 change 零登记");
+    assert!(
+        control.snapshot("不存在的-change").is_none(),
+        "失败分支零登记"
     );
 }
 
@@ -501,6 +732,7 @@ async fn 参数转换守卫blank_root各命令模板保留() {
         discarding_channel(),
         blank.clone(),
         CHANGE.to_owned(),
+        false,
     )
     .await
     .expect_err("blank root start 应 Err");
@@ -545,6 +777,7 @@ async fn 参数转换守卫blank_change六缝各就位() {
         discarding_channel(),
         root.clone(),
         blank.clone(),
+        false,
     )
     .await
     .expect_err("blank change start 应 Err");

@@ -1,16 +1,3 @@
-//! 相位循环 walker：硬编码单图相位循环（phase-next 路由 → phase-start →
-//! executor 会话 → static-check 反馈边 → evaluator 会话 → verdict 解析 →
-//! phase-log 代写 → 下一轮 phase-next）。红线内化：
-//! - **图不持有转移规则**：每步过渡都问 phase-next，白名单经其缓存下发，
-//!   不自相位表推导；`STATIC_CHECK_PHASES` 是步门控布局常量，非路由权威。
-//! - **写通道唯一**：全程零 workflow.json 直写，状态变更全部经
-//!   [`ToolStepPort`] 进程内直调 `workflow::write` 写面。
-//! - **失败显式停给用户**：写面 Err / 解析漂移 / 会话失败不臆测、不静默。
-//!
-//! 停等节奏：phase 内自动推进（static-check 反馈边 / fail 重试预算内自走），
-//! phase 间停等确认——相位落账通过后经 [`RunGuard::wait_confirm`] 挂起至
-//! `change_flow_confirm` 应答方推进下一相位。
-
 use std::sync::Arc;
 
 use agent::{AgentPermissionMode, AgentRunStatus, SessionProvenance};
@@ -57,6 +44,7 @@ pub struct RunRequest {
     pub root: String,
     pub change: String,
     pub run_id: String,
+    pub auto_next_phase: bool,
 }
 
 /// 铸造 `run-<millis>` 会话窗口标识（每 run 发起一个；时钟早于 epoch 取 0，
@@ -236,16 +224,15 @@ async fn drive(
             return terminal.into_pair();
         }
 
-        // phase 间停等确认（拍板停等节奏：phase 内自动、phase 间停等确认）：
-        // ConfirmWait 先行广播（控制面板确认卡片 + 快照面 waitingConfirm），
-        // 挂起至 `change_flow_confirm` 应答；proceed=false / 等待期间取消信号
-        // 置位 → 受控 stopped（停止不必先应答）
-        guard.emit(RunUpdate::ConfirmWait {
-            phase: phase.clone(),
-        });
-        if !guard.wait_confirm().await {
-            return Terminal::stopped(&format!("phase \"{phase}\" 已通过，停等未获继续确认"))
-                .into_pair();
+        // phase 间停等确认 or 自动确认
+        if !request.auto_next_phase {
+            guard.emit(RunUpdate::ConfirmWait {
+                phase: phase.clone(),
+            });
+            if !guard.wait_confirm().await {
+                return Terminal::stopped(&format!("phase \"{phase}\" 已通过，停等未获继续确认"))
+                    .into_pair();
+            }
         }
 
         // ⑦ 回 phase-next：pass 推进 / fail 重试（预算内 walker 自走）/

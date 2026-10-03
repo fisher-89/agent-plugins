@@ -1,0 +1,686 @@
+{
+  "active_phase": null,
+  "created": "2026-10-03",
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "2 能力 ↔ 2 spec 1:1 (orchestration/view)。问题含 walker.rs drive()⑥ ConfirmWait 挂起根因与两痛点；范围三段齐(实现6/测试3/不改6)；4 风险均有具体缓解(封顶≤5/specta+tsc 直测)；AC-1~7 对象+条件可测且与 spec scenario 对应(reason 串逐字一致)；决策表 5 行均含否决备选；bump 0.4.2→0.4.3 符合用户可见规则；golden 不重写一致；无占位符，待决均 routed-to-design。11/11 pass。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11 引 orchestration/src/walker.rs drive()⑥ guard.emit(RunUpdate::ConfirmWait)+wait_confirm().await；L13-14 两痛点（逐相位确认税、无人值守挂死 waitingConfirm）；L16 需求定格为可选发起模式"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件 和 不要修改",
+          "pass": true,
+          "evidence": "L48-55 实现文件 6 项（walker.rs/mod.rs/bindings.ts/use-change-flow-run.ts/run-control-panel.tsx/package.json）；L57-61 测试文件 3 项；L67-74 不要修改 6 项；L63-65 删除文件=无"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L96 token 失控→既有封顶（重试≤5/static-check≤5）+ask/失败终态仍停人；L99 参数漂移→specta 编译期校验+tsc 拦截+walker_test/mod_test 直测；无泛化「监控并调整」"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1 walker_test 直测零 ConfirmWait 直通 completed；AC-3 mod_test 证明 auto 参数达 walker；AC-4 data-testid 查询；AC-7 cargo test/vp test/bindings:check 无 diff/knip 无新增豁免"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L109-113 决策表 5 行均有理由+否决项：生效层否决前端定时 confirm/注册表 watcher；粒度否决全局设置/运行中切换；ask 否决自动选第一项；终态否决自动 archive；UI 否决首开弹确认"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "L29 用户可见变更 bump desktop 0.4.2→0.4.3；L71 tests/golden 不可重写与 golden 契约一致；L74 plugins/dev-team 零触点符合插件规则"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{}} 标记；L117 待决问题（文案措辞、开关呈现形态）均显式 routed to design，非占位符"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题(L9-16)/提案(L20-29 六条)/变更范围(L46-74)/验收标准(L78-88 七条)/风险(L92-99 四条)/过程决策(L105-113)均有实质内容"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L33 ## 能力；L37 新增能力显式「无」；L39-42 修改的能力 2 条非空（desktop-change-orchestration、desktop-change-flow-view）"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力 2 条 ↔ specs/desktop-change-orchestration/spec.md 与 specs/desktop-change-flow-view/spec.md 1:1，无多余 spec 文件"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "AC-1↔orchestration「auto run 直通收口」reason 串逐字一致；AC-3↔「auto_confirm 随发起透传」；AC-4/5↔view 开关/确认卡片/ask 卡片 scenario；不要修改 control.rs/state.rs 与 Module Contract 零触点红线行互证；AC-6 版本过程性无需 spec"
+        }
+      ],
+      "start_at": "2026-10-03T03:59:42.860Z",
+      "timestamp": "2026-10-03T04:09:16.784Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "design 覆盖 AC-1..AC-7 全对齐（D1 分支/D3 透传+D6 重导/D4-D5 前端/D7 归档轨道版本）；组件表 5 项四列齐、无 TBD；数据模型 3 模型；tasks 8 项按 walker→命令→bindings→前端→守线依赖序；变更清单与 proposal 实现文件 6 项双向一致，子表无矛盾；无测试步骤（测试归 test 轨道）；依赖既有零新增；与 CLAUDE.md 无矛盾。10/10 通过。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表 5 组件各含职责/文件位置/依赖/技术四列，路径均为具体文件（walker.rs、change_flow/mod.rs、bindings.ts、use-change-flow-run.ts、run-control-panel.tsx），技术无 TBD"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表列 RunRequest/ChangeRunSummary/RunUpdate 三模型，字段列与持久化列均填写（auto_confirm 不落盘、IPC 瞬时面、广播+快照镜像）"
+        },
+        {
+          "item": "D3 设计覆盖 proposal 每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表逐条映射 AC-1..AC-7：AC-1→D1/D2、AC-2→D1 false 分支、AC-3→D3/D6、AC-4→D4/D5、AC-5→零触达+D5 文案、AC-6→D7、AC-7→阶段四静态面（执行面归 test-execution）"
+        },
+        {
+          "item": "D4 tasks.md 存在且任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在，8 个 - [ ] 任务按阶段分组，序为 walker 生效层→命令面透传→bindings 重导→hook→面板→守线，无后置任务被前置任务依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每任务含具体签名（start: (autoConfirm: boolean) => Promise<void>）、具体分支（if !request.auto_confirm 包住 emit+wait+stopped）、具体 testid 与文案，无泛化「实现功能」表述"
+        },
+        {
+          "item": "D6 运行时与构建/测试依赖已列出",
+          "pass": true,
+          "evidence": "依赖章节分运行时（tauri/specta/tokio/@tauri-apps/api/React 均既有，零新增）与构建/测试（server:check、client:check+knip、bindings:export/check 既有工具链）"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "walker 侧生效+specta 编译期拦截与既有架构一致；change_flow_start_with 沿 agent_start_with 既有纪律非 test-only 导出；原生 input 复用 AskCard 先例不新造组件；版本 bump 仅用户可见变更，与项目约定一致"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单/数据模型/路由IPC/依赖/待决问题均实质填写；变更清单含修改文件表 6 条（新增文件无，已注释说明）；待决问题两项由 D5 定稿收口"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/架构章节，测试仅以「归 test-design/test-gen/test-execution 轨道」边界声明出现；tasks 阶段四仅静态检查（fmt/clippy/vp check/knip/bindings 幂等/禁改面 diff 自查），明示不含测试执行"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "修改文件表精确覆盖 proposal 实现文件 6 项（package.json 归档轨道标注与 proposal「不在实现任务列表」一致）；tasks 触达文件均在清单内；公共函数/类型定义子表仅引用清单内文件，阶段四文件为禁改面核对目标与 proposal 不要修改一致，无矛盾"
+        }
+      ],
+      "start_at": "2026-10-03T04:09:54.838Z",
+      "timestamp": "2026-10-03T04:20:33.835Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "FAIL: bindings.ts->bindings.test.ts 章节(test-design L81-83)为空框架——无####待测功能/用例/Mock策略三子章节(T5/T8-U2),且标题声明本变更不建的测试文件,内部自相矛盾;该内容已由不可测试项2完整承载,应删除该章节(顺带消除 test-gen 生成空 bindings.test.ts 触发防空套件红灯的风险)。其余通过:T1 七AC全映射;T2 正向无缺(反向 bindings/use-change-flow-run 两标题无验收范围行,均属在册实现文件非缺失);T3 各对象有异常行+bool双值边界;T4 mock齐备;T6/T7 过;T9 经源码核验为注入依赖/prop注入,无内部模块vi.mock。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个 AC 在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal L82-88 AC-1..AC-7 与 test-design L11-17 验收范围表逐条对应;AC-6/AC-7 指向不可测试项1/3 且附原因"
+        },
+        {
+          "item": "T2 验收范围与单元测试 heading 双向对应",
+          "pass": true,
+          "evidence": "walker_test.rs(AC-1/2/5)、mod_test.rs(AC-3)、run-control-panel.test.tsx(AC-4) 均有对应 heading(L23/54/108);反向 bindings.test.ts 与 use-change-flow-run.test.ts 两标题无验收范围行,但对应在册实现文件,非覆盖缺失"
+        },
+        {
+          "item": "T3 异常与边界覆盖充分",
+          "pass": true,
+          "evidence": "六个测试对象均有≥1异常行(walker L38/41、mod L67/69、hook L98、panel L126);auto_confirm/autoConfirm bool 双值 true/false 边界齐备(walker L36-42、mod L65-70、hook L95-97、panel L121-125)"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "MockRuntime、tempdir Env 双根、PATH 环境变量、tauri ipc Channel、@tauri-apps/api/core 各节均有 Mock策略表(L46-52/76-79/104/132-134)"
+        },
+        {
+          "item": "T5 模板章节均含实质内容",
+          "pass": false,
+          "evidence": "bindings.ts -> bindings.test.ts 章节(L81-83)无 ####待测功能/用例/Mock策略,空框架仅注释;且标题声明本变更不建 bindings.test.ts 自相矛盾;其余章节完整"
+        },
+        {
+          "item": "T6 测试范围与 proposal 一致",
+          "pass": true,
+          "evidence": "不要修改清单(control.rs/state.rs/run-state.ts/workflow)零测试触点或仅真实组合;in_scope 实现文件全有章节或由不可测试项承载(bindings→不可测试项2+真实 bindings 隐式覆盖 L105)"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "本变更零新增写操作(bool 透传+UI开关);重复发起守卫已回归覆盖(mod_test L69 同 change 并行冲突、L67 blank 守卫)"
+        },
+        {
+          "item": "T8 产物结构与模板一致",
+          "pass": false,
+          "evidence": "T8-U2 违例——bindings 章节缺三子章节;T8-U1(五 heading 均含 ->)/U4(用例表4列)/U5(Mock表3列)/G1(验收范围3列)均合规"
+        },
+        {
+          "item": "T9 最小 mock 原则",
+          "pass": true,
+          "evidence": "源码核验:walk_run 四 port 为注入入参(walker.rs L104-107)、RunActions.run 为 prop 注入(run-control-panel.tsx L34)——均属注入依赖例外;bindings commands/run-state 真实组合不 mock(L105-106);其余为进程边界白名单(运行环境/tempdir/PATH/IPC)"
+        }
+      ],
+      "start_at": "2026-10-03T04:20:53.131Z",
+      "timestamp": "2026-10-03T04:38:47.896Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "T1 七条AC全映射验收范围（AC-6/7路由不可测试项1/3，随归档/聚合面承接）；T2 四个`###`章节与验收范围双向对应（use-change-flow-run.test.ts半边由不可测试项2归位AC-3/4）；T3 各测试对象均含异常+边界用例，auto_confirm bool两档true/false全覆盖+blank/null守卫；T4 IPC Channel/tempdir文件/PATH/tauri MockRuntime/引擎port mock齐备；T5 四章节待测功能-用例-Mock策略齐全；T6 不要修改面零测试触点、in_scope全covered；T7 零新写面（设计零持久化触点），并行冲突/除名断言在位；T8 标题`源->测`模式、子章节顺序、表列名与模板一致；T9 仅进程边界+注入依赖mock，bindings/run-state真实组合。全部通过。",
+      "checklist": [
+        {
+          "item": "T1 proposal每个AC在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md 验收标准 AC-1~AC-7 与 test-design.md 验收范围表 L11-17 逐条对应，验收条件为忠实摘录；AC-6/AC-7 标注 —（见不可测试项 1/3）承接"
+        },
+        {
+          "item": "T2 验收范围与单元测试章节双向对应",
+          "pass": true,
+          "evidence": "验收范围承载文件 walker_test.rs/mod_test.rs/run-control-panel.test.tsx 均有 `### 源 -> 测` 章节（L23/54/104）；第4章节 use-change-flow-run.test.ts（L81）承载 AC-3/4 的 start 传参与 bindings 布线半边，由不可测试项 2 显式归位，与已归档 desktop-change-flow 单值列先例一致"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常和边界",
+          "pass": true,
+          "evidence": "四个测试对象均含异常+边界行：walker（异常2/边界3，含 fail_on 失败终态、不接confirmer结构性直通、ask挂起）、mod（异常2/边界2）、hook（异常1/边界2，null守卫no-op）、panel（异常1/边界3）；唯一新参为 bool，true/false 两档全部覆盖"
+        },
+        {
+          "item": "T4 外部依赖有Mock策略",
+          "pass": true,
+          "evidence": "proposal 涉及 IPC/文件/环境/引擎：Mock策略覆盖 tauri ipc Channel、tempdir Env 双根 WorkspaceStores、PATH 隔离窗口、tauri MockRuntime、WorkerAgent/ToolStep/Diff/Snapshot 假 port（L46-52/76-79/100-102/129-130）"
+        },
+        {
+          "item": "T5 模板章节均已填写实质内容",
+          "pass": true,
+          "evidence": "验收范围 7 行；4 个章节均按序含 待测功能/用例/Mock策略 三小节且实质填充；不可测试项 4 条各带原因"
+        },
+        {
+          "item": "T6 测试设计与proposal范围一致",
+          "pass": true,
+          "evidence": "不要修改面（control.rs/state.rs/workflow/run-state.ts/ask协议）零测试目标——run-state.ts 仅作真实组合依赖出现在 Mock策略；实现清单五文件全部有测试承载（bindings 经真实 bindings 模块隐式覆盖、package.json 归不可测试项 1）"
+        },
+        {
+          "item": "T7 写操作测试含幂等性验证",
+          "pass": true,
+          "evidence": "本变更零新写面（design.md 数据模型：零 schema 变更、零持久化触点）；既有 run 发起写面副作用断言在位：同 change 并行冲突记因零漂移、失败分支零登记（mod 异常行）、终态注册表除名（walker/mod 用例）"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "U1 四个 `###` 标题均为 源文件 -> 测试文件；U2 待测功能→用例→Mock策略 顺序正确；U3 待测功能无序列表非表格；U4 用例表列 测试对象|路径类型|测试条件|迭代类型（L34/63/89/115）；U5 Mock表列 Mock主体|Mock方案|应用场景（L46/74/98/127）；G1 验收范围3列（L9）"
+        },
+        {
+          "item": "T9 Mock策略遵守最小mock原则",
+          "pass": true,
+          "evidence": "全部 Mock主体为进程边界（tempdir 数据文件、PATH 全局变量、tauri MockRuntime、IPC Channel、@tauri-apps/api）或注入依赖显式入参（四个 port、hook 结果 prop）；零仓库内模块 vi.mock——bindings commands 与 run-state.ts 均标注真实组合（L101-102）"
+        }
+      ],
+      "start_at": "2026-10-03T04:39:12.956Z",
+      "timestamp": "2026-10-03T04:44:28.817Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账：design 5 修改文件全部落地；bindings.ts 未入 files 但文件存在内容正确（良性漏记，pnpm 脚本写路径）；use-change-flow-run.test.ts 六处 start(false) 属测试轨道既定范围。walker D1 分支整体包住 emit+wait+stopped（L252-260）、D2 双模 doc（L10-14/62-66）；D3 双入口尾参透传（mod.rs L56/68/120）；D4 hook 必填签名；D5 开关默认关/disabled={active}/常驻文案逐字一致；D6 bindings 仅 changeFlowStart 单行；D7 package.json 0.4.2 未触。RunActionsFace 提取为 D4 连带类型面整理，行为零变。",
+      "checklist": [
+        {
+          "item": "I1 每个架构组件都有实现代码",
+          "pass": true,
+          "evidence": "五组件齐：walker.rs L58-66 RunRequest.auto_confirm + L246-260 确认点分支；change_flow/mod.rs L49-68 双入口尾参；bindings.ts L88 changeFlowStart；use-change-flow-run.ts L15/81-91 hook；run-control-panel.tsx L35-74 发起区开关"
+        },
+        {
+          "item": "I2 变更清单条目均有对应实现",
+          "pass": true,
+          "evidence": "design 5 修改文件全部落地且签名逐字一致；bindings.ts 未入 files 清单但文件存在内容正确（良性漏记：pnpm 脚本写路径）；公共函数表 3 项与类型定义 2 项均兑现；package.json 0.4.2 未触（归档轨道）"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "中文 doc 注释随模块既有口径；原生 input 沿 AskCard 先例未新造 ui 件；测试缝与生产入口同签名沿 agent_start_with 先例"
+        },
+        {
+          "item": "I4 所有路由/API 已实现",
+          "pass": true,
+          "evidence": "IPC change_flow_start 签名 + autoConfirm 尾参（bindings.ts L88 invoke 载荷含 autoConfirm）；confirm/answer/stop/state/watch 五命令零变化（bindings L89-92）"
+        },
+        {
+          "item": "I5 tasks.md 任务全勾选",
+          "pass": true,
+          "evidence": "tasks.md 四阶段共 9 个复选框全部 [x]"
+        },
+        {
+          "item": "I6 无计划外无关代码",
+          "pass": true,
+          "evidence": "git diff 触点 = 清单 5 文件 + use-change-flow-run.test.ts（tasks.md 阶段四既定六处 start(false) 机械补参）；RunActionsFace 提取为 D4 连带类型面收敛、行为零变；walker_test.rs cfg(test) 构造点由测试轨道承接（design 明示）；零删除"
+        },
+        {
+          "item": "I7 设计决策得到遵守",
+          "pass": true,
+          "evidence": "D1 分支整体包住 emit+wait+stopped 零位移；D2 模块 doc L10-14 双模口径、新注释零双禁令字面量；D3 尾参透传其余零改动；D4 必填无缺省；D5 文案逐字一致+disabled 非隐藏；D6 diff 仅单行；D7 未 bump"
+        }
+      ],
+      "start_at": "2026-10-03T04:44:50.030Z",
+      "timestamp": "2026-10-03T05:05:34.911Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账:4 声明测试文件全落地且已接线(orchestration lib.rs L68-69 / change_flow mod.rs L4-5 cfg test);清单多出 change-detail-view.test.tsx=既有页面集成族补参(autoConfirm:false 出线断言 L722-727),判定良性;zz-probe 已删。G1 四源公开面全有行为断言;G2 命名同目录合规;G3 用例表 24 行逐行在位(auto 直通零 confirmWait+reason 逐字、fail_on、ask 边界、手动三回归、mod 透传/守卫、hook 双档显式、panel 含既有卡片族承载行);G4 mock 与表一致,零仓库内模块 mock;G5 cargo test+vite-plus/test;G6 bool 双档+守卫边界齐;G7 TempRoot Drop/PATH 还原/mockReset;G8 全新增行。8/8 pass。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "walker.rs walk_run 23+ 用例行为断言(spawn_run 驱动;new_run_id/常量锚定 walker_test L2323-2329);mod.rs 六 *_with 全覆盖(start 守卫/受理,stop L608,answer/confirm L632,state L669,watch L710);hook start/stop/confirm/answer/return-shape;RunControlPanel 生命周期矩阵+开关"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码同目录",
+          "pass": true,
+          "evidence": "walker_test.rs 与 walker.rs 同目录(orchestration lib.rs L68-69 #[cfg(test)] mod);mod_test.rs 与 mod.rs 同目录(change_flow/mod.rs L4-5 #[cfg(test)] mod);use-change-flow-run.test.ts / run-control-panel.test.tsx 与源同目录,符合 *_test.rs 与 *.test.ts(x) 规范"
+        },
+        {
+          "item": "G3 用例表 24 行(7+6+4+7)逐行生成",
+          "pass": true,
+          "evidence": "walker 7 行:auto直通(L1574 零 confirmWait+phaseStart×2+reason 逐字)/不接confirmer(L1638)/fail_on failed(L1674)/ask 边界(L1727)/手动三回归(L1364/L1418/L1489)均携 auto_confirm;mod 6 行(L401/L495/L561/补参 L240/L169+L359/L751+L795);hook 4 行(L299/L315/L328/reject L437);panel 7 行,auto 零确认卡片按设计由既有卡片族承载(注释 L223-226+confirmPhase null L255)"
+        },
+        {
+          "item": "G4 Mock策略逐行实现且声明合法",
+          "pass": true,
+          "evidence": "walker:FakeWorker(PASS_JSON 缺省+with_decision_reports)/FakeTools(with_phase_next+fail_on)/FakeDiff/StubSnapshot vs FsSnapshot+TempRoot DECISION_FIXTURE(ask 行 L1753)/真实 Control+spawn_confirmer(手动接 auto 不接);mod:mock_app/Env 双根/PATH 隔离(isolate/restore+PATH_LOCK)/捕获与丢弃 Channel 按行;hook:仅 vi.mock('@tauri-apps/api/core') 进程边界(L25),bindings 真实组合(hook L10);panel:runStub prop 注入;全仓零内部模块 mock"
+        },
+        {
+          "item": "G5 框架与导入正确",
+          "pass": true,
+          "evidence": "Rust 用 tokio::test+cargo test 套件(src-tauri 根);TS 用 vite-plus/test(vp 工具链)+@testing-library/react(render/fireEvent);导入与 test-design 指定一致"
+        },
+        {
+          "item": "G6 边界情况覆盖",
+          "pass": true,
+          "evidence": "唯一新参 bool 双档 true/false 四对象全覆盖(walker L36-42/mod L65-70/hook L299-341/panel L121-221);blank root/blank change/null 守卫、fail_on 失败、≥2 相位、ask 挂起、PATH 隔离均在位"
+        },
+        {
+          "item": "G7 清理/还原逻辑",
+          "pass": true,
+          "evidence": "walker_test TempRoot Drop 删临时根(L91-95);mod_test tempfile RAII+restore_path 还原 PATH(L119-125/L319-323);hook beforeEach mockReset+instances 清零(L99-102);panel unmount+无模块级 mock;页面族 afterEach cleanup+unstubAllGlobals(L113-116)"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "用例表全部行迭代类型=新增,无废弃行可查;退役语义(补录步/CLI 可发现)零新测试,walker_test 模块注记 L20-23 显式断言不落,时间线断言 ①→⑦ 无补录步"
+        }
+      ],
+      "start_at": "2026-10-03T05:06:01.916Z",
+      "timestamp": "2026-10-03T05:38:27.608Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "Mutation score 77.07% < threshold 80%（158/205 killed，45 survived+2 noCoverage）。904/904 用例通过、coverage.pass=true，唯一未过门为 mutation。根因唯一且已核实：47 个未杀变异体全部集中于本次变更触及的 use-change-flow-run.ts（43）与 run-control-panel.tsx（4），属测试断言强度缺口（终态字面量仅测 completed、null 守卫仅测双 null、recovery 失败路径无先非 null 后 reject 用例、ask 初始值/空选项守卫/finishedReason 守卫未独立断言），非回归或环境问题；按 findings 建议补强用例（约 15+ 变异体）即可过 80%，无需改生产代码。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total=904/passed=904/failed=0/skipped=0/coverage/duration_seconds=422 全部在场且类型正确；coverage.measured 三维度 null 属允许形态"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": false,
+          "evidence": "用例面 904/904 通过（vite-plus 826 + rust 78）零失败，但 mutation 门未过：mutation.pass=false，score 77.07% < 阈值 80%（158 killed / 205 active，45 survived + 2 noCoverage，报告 conclusion=fail）"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（null 维度不判失败）；per-plan 实测 vite-plus lines 94.79%/branches 89.01%/functions 93.32% 达 90/85/90 阈值；聚合面三维度 null 系聚合解析未提升 per-plan 值的报告异常，不影响判定"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0 按规则自动通过；mutation 失败根因唯一且已核实：47 个未杀变异体全部集中于本次变更触及的 use-change-flow-run.ts（41 survived+2 noCoverage）与 run-control-panel.tsx（4 survived），经 mutation.json 与源码行号（L41/83/93/98/105/121/129/141-145/153；L112/127/181）比对确认——测试断言强度缺口，非回归/环境问题，与 test-design 无冲突"
+        }
+      ],
+      "backtrack_to": "test-gen",
+      "backtrack_reason": "mutation 77.07%<80：47 个存活变异体全部集中于本变更触及的 use-change-flow-run.ts(43) 与 run-control-panel.tsx(4)，诊断为测试断言强度缺口（terminal 状态字面量、混 null 守卫、非 string 拒绝面、recovery 失败路径、channel 投递、ask 初始值/空选项守卫/finishedReason 短路），需按 summary.json 14 条诊断补断言后重跑执行门。",
+      "start_at": "2026-10-03T05:38:56.008Z",
+      "timestamp": "2026-10-03T05:56:18.352Z",
+      "stale": true
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "三态对账:4 声明测试文件全落地已接线(orchestration lib.rs L69/change_flow mod.rs L5 cfg test);attempt2 重写 hook/panel 两文件,Rust 面未动经复核仍齐;清单多余 change-detail-view.test.tsx=既有页面族补 autoConfirm:false 载荷断言(L722-727)良性;zz-probe/stryker 探针/reports 全清。G3 24 行逐行在位:walker auto 直通零 confirmWait+reason 逐字/手动三回归携 false+confirmer,mod 三新用例+既有调用点全带 bool,panel 含卡片族承载行;attempt2 补强终态三字面量/undefined 退化/混合 null/迟到时序/非 string reject 归一/ask 初值与空选项守卫/finishedReason 短路,对应 backtrack 诊断。G4 mock 与表一致,零仓库内模块 mock。8/8 pass。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "walker walk_run 经 spawn_run 24+ 用例行为断言;mod.rs 六公开命令全覆盖(start L152/223/342/384/478/544+blank L734/778,stop L591,answer+confirm L614,state L651,watch L692);hook start(autoConfirm 必填)/stop/confirm/answer/恢复/reject 面全测;panel 生命周期矩阵+开关+卡片族全覆盖"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码同目录",
+          "pass": true,
+          "evidence": "walker_test.rs 与 walker.rs 同目录(orchestration lib.rs L69 mod walker_test);mod_test.rs 与 mod.rs 同目录(change_flow mod.rs L5 mod mod_test);use-change-flow-run.test.ts 与 run-control-panel.test.tsx 与源同目录,符合 *_test.rs / *.test.ts(x) 规范"
+        },
+        {
+          "item": "G3 用例表 24 行(7+6+4+7)逐行生成",
+          "pass": true,
+          "evidence": "walker 7 行:手动三回归 L1364/1418/1489 携 auto_confirm:false+spawn_confirmer;auto 四行 L1574(零 confirmWait+phaseStart×2+reason 逐字 L1628)/L1638(不接 confirmer)/L1674(fail_on L1679)/L1727(ask 挂起+FsSnapshot+TempRoot);mod 6 行 L384/478/544+既有补参(全部 change_flow_start_with 调用点携 bool 实参 L171/262/358/746/791);hook 4 行 L395/411/424/648;panel 7 行 L121/133/146/160/186/209+auto 零确认卡片由卡片族承载(注释 L223-226+confirmPhase null L255+ask 族 L261+start spy 补参 L64)"
+        },
+        {
+          "item": "G4 Mock策略逐行实现且声明合法",
+          "pass": true,
+          "evidence": "walker:FakeWorker(PASS_JSON 缺省+with_decision_reports L1733)/FakeTools(with_phase_next+fail_on)/FakeDiff 空队列/StubSnapshot vs FsSnapshot+TempRoot DECISION_FIXTURE(L1728-1753)/真实 Control+spawn_confirmer(手动三行接、auto 四行不接);mod:tauri::test::mock_app(L61)+Env tempfile 双根+PATH isolate/restore+PATH_LOCK+捕获/丢弃 Channel 按行;hook 仅 vi.mock('@tauri-apps/api/core')(L25 进程边界),bindings+run-state 真实组合;panel runStub prop 注入零模块 mock;全仓零仓库内内部模块 mock"
+        },
+        {
+          "item": "G5 框架与导入正确",
+          "pass": true,
+          "evidence": "Rust 用 #[tokio::test]+cargo test(src-tauri 根工作区);TS 用 'vite-plus/test'(vite-plus 工具链,两文件 L2)+@testing-library/react;与 test-design 指定一致"
+        },
+        {
+          "item": "G6 边界情况覆盖",
+          "pass": true,
+          "evidence": "唯一新参 bool 双档 true/false 四对象全覆盖(walker L1574-1851/mod L384-584/hook L394-437/panel L121-221);blank root/change(L734/778)、null 与混合 null 半边(L216/223/424/487)、fail_on 失败、≥2 相位、ask 挂起、PATH 隔离均在位;attempt2 增补终态三字面量(L188)/undefined 退化(L206)/迟到结果时序(L578-644)/非 string reject 归一(L678)/ask 初值与空选项守卫/finishedReason 短路(L353)"
+        },
+        {
+          "item": "G7 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "walker_test TempRoot Drop 删临时根(L91-95);mod_test tempfile RAII TempDir+restore_path 还原 PATH(L102/433/519);hook beforeEach mockReset+mockIpc 清 Channel instances(L101-104);panel 矩阵用例显式 unmount(L99/167/183/206)且无模块级 mock 需还原"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "test-design 用例表全部行迭代类型=新增,无废弃行;退役语义零新测试;未为不可测试项(bindings.test.ts/package.json/归档/聚合面)生成任何空测试文件"
+        }
+      ],
+      "start_at": "2026-10-03T05:56:47.869Z",
+      "timestamp": "2026-10-03T06:29:50.890Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "报告完整，915/915 全绿（vite-plus 837、rust 78），mutation 95.61% 达标（196 killed/9 survived）；一次 StrykerJS ENOENT 执行错误已修复并复跑通过。覆盖率按 summary coverage.pass=true 判过；measured 全 null 系聚合键不匹配产物（vite-plus 实测 94.85/89.15/93.58 达标）；rust 实测 functions 88.96% 低于 90 为唯一真实缺口（branches=0 系分支插桩未开），summary 未传播 per-plan fail。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total(915)/passed/failed/skipped/coverage/duration_seconds(208) 均存在且类型正确；含 conclusion、problems、mutation、plans、findings"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=915>0；conclusion=pass、problems 为空、mutation.pass=true（95.61% 对 80% 阈值，196/212 killed）"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（summary 口径，契约按此判定）；measured 三维 null 为 per-file 聚合键不匹配产物而非框架不支持：vite-plus 实测 lines 94.85 / branches 89.15 / functions 93.58 均超 90/85/90；rust 实测 functions 88.96%(411/462) 低于 90 为唯一真实缺口（branches=0 系 llvm-cov 未开分支插桩的配置问题），summary 未传播该 per-plan fail，缺口留待后续补测"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0 自动通过；唯一历史 execution_error（StrykerJS ENOENT copyfile rlib）已由 Executor 修复（CLI ignorePatterns 加 src-tauri/target/**，备份 /tmp/cli.cjs.2.10.44.bak）并复跑干净，非遗留问题"
+        }
+      ],
+      "start_at": "2026-10-03T06:30:24.054Z",
+      "timestamp": "2026-10-03T06:57:28.401Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C3/D2 矛盾：walker.rs:1 模块 doc 整删（含红线内化）而非「停等节奏」段按定稿双模口径改写；walker.rs:47 auto_confirm 字段零 doc（D2 要求钉死双模语义）；定稿口径文案全库未落；walker.rs:227 原停等语义注释被一行式替换。C6：walker.rs 成全 crate 唯一无模块 doc 文件（其余 19 文件均有 //!），mod_test.rs:1 同删而姊妹测试均保留，非扫描强制（lib.rs:18 仍含 workflow.json 字面量）。行为面 D1/D3/D4/D5/D6 全符；workflow write 3 文件纯 fmt 噪声越清单。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "变更仅 bool 透传 + 开关 UI，无注入/密钥/路径遍历面；grep password/secret/api_key/eval/exec 命中均为既有 provider 代码，本次未触碰"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "新外部输入仅 auto_confirm: bool（tauri/specta 反序列化定性，无格式检查面，D3 明示）；root/change blank 守卫与前置校验零改动"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "D2 三处矛盾：walker.rs:1 模块 doc 整删（含红线内化段）而非「停等节奏」段按定稿双模口径改写；walker.rs:47 auto_confirm 字段零 doc（D2 要求字段 doc 钉死双模语义）；定稿口径文案全库未落（grep 停等节奏仅命中 walker_test.rs）；另 walker.rs:227 原停等语义注释（proceed=false/等待期取消→受控 stopped）被一行式替换"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "bool 无空值面；auto 分支仍受 drive() loop 顶 check_cancel 管辖，停止/取消边界保持；RunRequest 构造点全量更新（mod.rs:116 + walker_test.rs:543），无遗漏点"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "无死代码/不可达分支；RunActionsFace 为在用返回型；workflow write create.rs 等 3 文件为纯 fmt 重排非死代码，但越出变更清单（proposal 不要修改域），扩大 diff 面"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "walker.rs 成 orchestration 全 crate 唯一无模块 doc 文件（其余 19 个 .rs 均有 //! 头），mod_test.rs:1 模块 doc 同删而姊妹 *_test.rs 均保留，且非扫描强制——lib.rs:18/decision.rs:37/snapshot.rs 仍含 workflow.json 字面量；run-control-panel.tsx RunActions doc 与 drive() ⑦ 步注简化"
+        },
+        {
+          "item": "C7 外部数据尽量使用同来源的数据类型",
+          "pass": true,
+          "evidence": "autoConfirm 全链路同源：specta→bindings.ts 生成物直出（仅单行 diff，D6 符），RunUpdate/DTO 零新增；RunActionsFace 为 hook 内部返回型非外部数据映射"
+        }
+      ],
+      "start_at": "2026-10-03T06:58:02.960Z",
+      "timestamp": "2026-10-03T07:03:40.274Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "7/7 AC 全有代码证据:AC-1 walker.rs:251-259 auto分支+walker_test.rs:1571 零ConfirmWait直通completed(reason不漂移);AC-2 手动档回归 walker_test.rs:1415 否决→stopped;AC-3 mod.rs:56/120 透传+bindings.ts:88 autoConfirm+mod_test.rs:384 auto达walker;AC-4 panel.tsx:36-55 开关默认关/disabled={active}/start(autoConfirm)+test:110;AC-5 walker_test.rs:1724 ask照常停等;AC-6 归档轨0.4.2未动合D7;AC-7 915/915绿+mutation 95.61。触面=清单内10文件,禁改面零diff,无蔓延。",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1 walker.rs:251-259 `if !request.auto_confirm` 分支 + walker_test.rs:1571/1635 零ConfirmWait信封直通completed;AC-2 walker.rs false支原语句块+walker_test.rs:1415(proceed=false→stopped)/1400(逐相位ConfirmWait)+mod_test.rs:478;AC-3 mod.rs:56/68/120 尾参透传+bindings.ts:88 changeFlowStart携autoConfirm+mod_test.rs:384-446 auto参数达walker零confirmWait;AC-4 run-control-panel.tsx:36默认false/:44 disabled={active}/:46 data-testid/:55 start(autoConfirm)+panel test:110-217;AC-5 walker_test.rs:1724 auto模式Ask信封照常停等应答+1622-1627 completed收口reason=ALL_PHASES_PASSED不触发归档;AC-6 package.json:3 仍0.4.2,归档轨bump合D7/tasks归档轨约定;AC-7 reports/test/summary.json 915/915 pass,mutation 95.61≥80,tasks阶段四 server:check/client:check绿、knip零豁免、bindings幂等单行"
+        },
+        {
+          "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "全仓检索 auto_confirm|autoConfirm 触面仅清单内5实现文件+5测试文件;use-change-flow-run.test.ts/change-detail-view.test.tsx 改动为 start 必填签名既有用例机械补 false 实参(tasks阶段四记载,test轨道),非新功能;无新命令/新组件/新DTO"
+        },
+        {
+          "item": "proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "walker 分支:walker.rs:59-67 RunRequest.auto_confirm 字段doc+251-259确认点分支+10-15模块doc双模口径;命令面:mod.rs:51-58 tauri command+63-69 start_with+116-121 RunRequest透传;bindings:bindings.ts:88 仅changeFlowStart单行;hook:use-change-flow-run.ts:15/59/81-91 start(autoConfirm)必填;面板:run-control-panel.tsx:36-58开关+68-70常驻轻提示文案"
+        },
+        {
+          "item": "proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "control.rs 仅既有 wait_confirm(control.rs:229)零auto_confirm;state.rs/run-state.ts/crates/core/workflow/plugins dev-team 全仓检索零命中;ask 应答(change_flow_answer)与归档路径零触达;package.json 零触点(0.4.2)"
+        },
+        {
+          "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "风险1/2(成本失控/误用):开关旁常驻muted文案 run-control-panel.tsx:68-70 明示仅跳过相位间停等、ask/失败/终态仍停不自动归档,既有重试预算封顶未动;风险3(重挂):零ConfirmWait事件/零新状态,DTO零改动,walker_test/mod_test 断言更新流零confirmWait;风险4(参数漂移):specta出线 bindings.ts:88 编译期校验+walker_test.rs:1571/mod_test.rs:384 双端直测"
+        }
+      ],
+      "start_at": "2026-10-03T07:44:00.164Z",
+      "timestamp": "2026-10-03T07:47:56.450Z"
+    }
+  ],
+  "file_log": [
+    {
+      "at": "2026-10-03T04:48:17.554Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker.rs",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T04:48:59.696Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/src/commands/change_flow/mod.rs",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T04:55:39.765Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-flow-run.ts",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T04:51:17.125Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/flow/run-control-panel.tsx",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T05:00:08.754Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-flow-run.test.ts",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T05:15:32.671Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker_test.rs",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T05:17:54.402Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/src/commands/change_flow/mod_test.rs",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T05:18:36.540Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-flow-run.test.ts",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T05:31:55.016Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/flow/run-control-panel.test.tsx",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T05:28:17.211Z",
+      "attempt": 1,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/change-detail-view.test.tsx",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T05:33:21.800Z",
+      "op": "delete",
+      "path": "packages/desktop/src/views/changes/flow/zz-probe.test.tsx",
+      "scope": "workflow"
+    },
+    {
+      "at": "2026-10-03T06:16:30.827Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/hooks/use-change-flow-run.test.ts",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T06:12:45.034Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "packages/desktop/src/views/changes/flow/run-control-panel.test.tsx",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T06:23:20.863Z",
+      "attempt": 2,
+      "op": "delete",
+      "path": "packages/desktop/stryker.config.verify-attempt2.json",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T06:17:08.037Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "reports/verify-attempt2-run.log",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T06:23:20.863Z",
+      "attempt": 2,
+      "op": "delete",
+      "path": "packages/desktop/reports/verify-attempt2",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T06:23:20.863Z",
+      "attempt": 2,
+      "op": "delete",
+      "path": "packages/desktop/reports/verify-attempt2-run.log",
+      "scope": "test-gen"
+    },
+    {
+      "at": "2026-10-03T07:08:04.886Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/create.rs",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T07:08:04.886Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/create_test.rs",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T07:08:04.886Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_log_test.rs",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T07:09:26.422Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker.rs",
+      "scope": "implement"
+    },
+    {
+      "at": "2026-10-03T07:09:41.122Z",
+      "attempt": 2,
+      "op": "write",
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker_test.rs",
+      "scope": "implement"
+    }
+  ],
+  "workflow_type": "requirement"
+}
