@@ -23,11 +23,11 @@ fn params_with_resume(
 }
 
 // ---------------------------------------------------------------------------
-// 四要素 flag 序列零回归（正向：三档全组合）
+// flag 序列零回归（正向：三档全组合，尾禁 ask 两枚恒最末）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bypass档组装恰含四要素flag无多余项() {
+fn bypass档组装恰含六要素flag尾禁ask两枚无多余项() {
     let args = build_args(&params("任务", AgentPermissionMode::BypassPermissions));
 
     assert_eq!(
@@ -39,15 +39,17 @@ fn bypass档组装恰含四要素flag无多余项() {
             "stream-json".to_owned(),
             "--verbose".to_owned(),
             "--dangerously-skip-permissions".to_owned(),
+            "--disallowedTools".to_owned(),
+            "AskUserQuestion".to_owned(),
         ],
-        "组装结果恰为四要素，无额外 flag"
+        "组装结果恰为六要素（含尾禁 ask 两枚），无额外 flag"
     );
 }
 
 #[test]
 fn 三档全组合组装结果与既有基线逐项相等() {
     // Default（无 permission flag）/ AcceptEdits / BypassPermissions 三档穷尽：
-    // 组装结果与既有基线逐项相等（flag 输出序列零变化）
+    // 组装结果与现行基线逐项相等（尾禁 ask 两枚恒在最末）
     for (mode, expected_flags) in [
         (AgentPermissionMode::Default, None),
         (
@@ -62,18 +64,28 @@ fn 三档全组合组装结果与既有基线逐项相等() {
         let args = build_args(&params("任务", mode));
         assert_eq!(
             args,
-            legacy_args("任务", mode),
-            "组合 permission={mode:?} 与既有基线逐项相等"
+            baseline_args("任务", mode),
+            "组合 permission={mode:?} 与现行基线逐项相等"
         );
-        // 档位段（基础五要素 -p/prompt/stream-json/verbose 之后、resume 之前）
-        let tail = &args[5..];
+        // 档位段（基础五要素 -p/prompt/stream-json/verbose 之后、禁 ask 尾两枚
+        // 之前）
+        let head = &args[..args.len() - 2];
         match expected_flags {
-            Some(expected) => assert_eq!(tail, expected, "组合 permission={mode:?} 档位段逐字一致"),
+            Some(expected) => assert_eq!(
+                &head[5..],
+                expected,
+                "组合 permission={mode:?} 档位段逐字一致"
+            ),
             None => assert!(
-                tail.is_empty(),
-                "组合 permission={mode:?} 无档位 flag，实际: {tail:?}"
+                head[5..].is_empty(),
+                "组合 permission={mode:?} 无档位 flag，实际: {head:?}"
             ),
         }
+        assert_eq!(
+            &args[args.len() - 2..],
+            ["--disallowedTools", "AskUserQuestion"],
+            "组合 permission={mode:?} 尾禁 ask 两枚恒在最末"
+        );
     }
 }
 
@@ -150,27 +162,35 @@ fn 超长prompt完整保留于arg() {
 }
 
 // ---------------------------------------------------------------------------
-// --resume 尾追加（prior_handle Some/None）
+// --resume 段与禁 ask 尾两枚（prior_handle Some/None）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn prior_handle为some时尾部恰追加resume与id且前缀与基线一致() {
+fn prior_handle为some时resume段紧邻尾禁ask两枚且前缀与基线一致() {
     let args = build_args(&params_with_resume(
         "任务",
         AgentPermissionMode::BypassPermissions,
         Some("s-1"),
     ));
 
+    // 禁 ask 两枚恒为参数序列最末两枚（Continue 组合同样成立）
     assert_eq!(
         &args[args.len() - 2..],
-        ["--resume", "s-1"],
-        "--resume <id> 恰在尾部，实际: {args:?}"
+        ["--disallowedTools", "AskUserQuestion"],
+        "禁 ask 两枚恒在最末，实际: {args:?}"
     );
+    // --resume <id> 两枚紧邻禁 ask 尾两枚之前（variadic flag 之后的唯一安全位）
+    assert_eq!(
+        &args[args.len() - 4..args.len() - 2],
+        ["--resume", "s-1"],
+        "--resume <id> 紧邻禁 ask 尾两枚之前，实际: {args:?}"
+    );
+    // resume 段之外的前缀与无 resume 基线逐项相等
     let baseline = build_args(&params("任务", AgentPermissionMode::BypassPermissions));
     assert_eq!(
-        &args[..args.len() - 2],
-        baseline.as_slice(),
-        "resume 之外的前缀与既有四要素序列逐项相等"
+        &args[..args.len() - 4],
+        &baseline[..baseline.len() - 2],
+        "resume 段之外的前缀与既有序列逐项相等"
     );
 }
 
@@ -188,14 +208,14 @@ fn prior_handle为none时组装结果与既有基线逐项相等且无resume() {
         );
         assert_eq!(
             args,
-            legacy_args("任务", permission_mode),
-            "None 组装与既有基线逐项相等（组合 permission={permission_mode:?}）"
+            baseline_args("任务", permission_mode),
+            "None 组装与现行基线逐项相等（组合 permission={permission_mode:?}）"
         );
     }
 }
 
 #[test]
-fn 组合下resume恒在尾部且档位flag与相对次序不变() {
+fn 组合下resume紧邻尾禁ask两枚且档位flag与相对次序不变() {
     for permission_mode in [
         AgentPermissionMode::Default,
         AgentPermissionMode::AcceptEdits,
@@ -204,14 +224,22 @@ fn 组合下resume恒在尾部且档位flag与相对次序不变() {
         let with_resume = build_args(&params_with_resume("任务", permission_mode, Some("s-1")));
         let without_resume = build_args(&params("任务", permission_mode));
 
+        // 禁 ask 两枚恒最末（New / Continue 组合位置一致）
         assert_eq!(
             &with_resume[with_resume.len() - 2..],
-            ["--resume", "s-1"],
-            "组合 permission={permission_mode:?}：--resume 恒在尾部"
+            ["--disallowedTools", "AskUserQuestion"],
+            "组合 permission={permission_mode:?}：禁 ask 两枚恒在最末"
         );
+        // --resume 段紧邻禁 ask 尾两枚之前
         assert_eq!(
-            &with_resume[..with_resume.len() - 2],
-            without_resume.as_slice(),
+            &with_resume[with_resume.len() - 4..with_resume.len() - 2],
+            ["--resume", "s-1"],
+            "组合 permission={permission_mode:?}：--resume 恒在禁 ask 两枚之前"
+        );
+        // resume 段之前与无 resume 组装逐项相等（档位 flag 面与相对次序不变）
+        assert_eq!(
+            &with_resume[..with_resume.len() - 4],
+            &without_resume[..without_resume.len() - 2],
             "组合 permission={permission_mode:?}：档位 flag 面与相对次序不变"
         );
     }
@@ -230,9 +258,14 @@ fn prior_handle空串仍组装resume与空arg() {
     ));
 
     assert_eq!(
-        &args[args.len() - 2..],
+        &args[args.len() - 4..args.len() - 2],
         ["--resume", ""],
-        "空串 prior_handle 仍组装为 --resume + 空 arg 两项，实际: {args:?}"
+        "空串 prior_handle 仍组装为 --resume + 空 arg 两项（禁 ask 两枚之前），实际: {args:?}"
+    );
+    assert_eq!(
+        &args[args.len() - 2..],
+        ["--disallowedTools", "AskUserQuestion"],
+        "禁 ask 两枚恒在最末"
     );
 }
 
@@ -246,8 +279,9 @@ fn prior_handle含空格引号换行emoji超长时原样保留单个arg() {
         Some(&long),
     ));
 
+    // resume id 处于禁 ask 尾两枚之前的末位 arg
     assert_eq!(
-        args.last().map(String::as_str),
+        args.get(args.len() - 3).map(String::as_str),
         Some(long.as_str()),
         "prior_handle 原样保留为单个 arg，不被空白/特殊字符拆分或截断"
     );
@@ -256,6 +290,44 @@ fn prior_handle含空格引号换行emoji超长时原样保留单个arg() {
         1,
         "不因 id 内空白产生第二个 --resume flag"
     );
+    assert_eq!(
+        &args[args.len() - 2..],
+        ["--disallowedTools", "AskUserQuestion"],
+        "禁 ask 两枚恒在最末"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// headless 禁 ask 尾两枚（--disallowedTools AskUserQuestion 恒最末）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 禁ask两枚恒为参数序列最末两枚_三档乘resume全组合() {
+    for permission_mode in [
+        AgentPermissionMode::Default,
+        AgentPermissionMode::AcceptEdits,
+        AgentPermissionMode::BypassPermissions,
+    ] {
+        for resume_handle in [None, Some("s-1")] {
+            let args = build_args(&params_with_resume("任务", permission_mode, resume_handle));
+            assert_eq!(
+                &args[args.len() - 2..],
+                ["--disallowedTools", "AskUserQuestion"],
+                "组合 permission={permission_mode:?} resume={resume_handle:?}：禁 ask 两枚恒为最末两枚，实际: {args:?}"
+            );
+            // 各恰一枚（variadic flag 无重复；工具名字面量 camelCase 逐字）
+            assert_eq!(
+                args.iter().filter(|arg| *arg == "--disallowedTools").count(),
+                1,
+                "组合 permission={permission_mode:?} resume={resume_handle:?}：--disallowedTools 恰一枚"
+            );
+            assert_eq!(
+                args.iter().filter(|arg| *arg == "AskUserQuestion").count(),
+                1,
+                "组合 permission={permission_mode:?} resume={resume_handle:?}：AskUserQuestion 恰一枚"
+            );
+        }
+    }
 }
 
 // ---------------------------------------------------------------------------
@@ -305,10 +377,12 @@ fn cwd不进协议轮参数形状_组装结果不含工作目录片段() {
 }
 
 // ---------------------------------------------------------------------------
-// 基线对照装置（演进前组装序列，逐项镜像）
+// 基线对照装置（现行组装序列，逐项镜像）
 // ---------------------------------------------------------------------------
 
-fn legacy_args(prompt: &str, permission_mode: AgentPermissionMode) -> Vec<String> {
+/// 无 resume 组装的现行基线：基础五要素 + 档位 flag + 尾禁 ask 两枚
+/// （`--resume` 段由各用例按 prior_handle 侧断言，不在此镜像）。
+fn baseline_args(prompt: &str, permission_mode: AgentPermissionMode) -> Vec<String> {
     let mut args = vec![
         "-p".to_owned(),
         prompt.to_owned(),
@@ -326,5 +400,7 @@ fn legacy_args(prompt: &str, permission_mode: AgentPermissionMode) -> Vec<String
         }
         AgentPermissionMode::Default => {}
     }
+    args.push("--disallowedTools".to_owned());
+    args.push("AskUserQuestion".to_owned());
     args
 }

@@ -14,7 +14,7 @@ use crate::ResumeTranscript;
 /// 事件通道有界容量（与 CLI 泵同策略：背压阻塞 send，事件不丢、内存有界）。
 const EVENT_CHANNEL_CAPACITY: usize = 256;
 
-/// 提问通道有界容量（逐轮送达；单会话单活动轮，容量 4 为余量）。
+/// 提问通道有界容量（单问送达；单会话单活动轮，容量 4 为余量）。
 const QUESTION_CHANNEL_CAPACITY: usize = 4;
 
 /// sdk 会话 id 进程内原子计数（配合毫秒时戳保证同毫秒不重号）。
@@ -129,10 +129,7 @@ fn build_model(config: &EngineConfig) -> Result<impl CompletionModel, AgentStart
     Ok(client.completion_model(config.model.clone()))
 }
 
-/// 会话泵任务（ask 段）：逐轮等待提问 → 铸造本轮引擎侧会话标识 → select
-/// 包裹 loop future 与停止信号（停止 drop future，不合成收敛、本轮增量史
-/// 随之丢弃）→ 正常收敛回灌累积史、回到等待下一轮；问题通道关闭（内核轮
-/// 驱动半边已收）即退出。
+/// 会话泵任务（ask 段）
 async fn session_pump<M>(
     model: M,
     model_name: String,
@@ -144,35 +141,31 @@ async fn session_pump<M>(
 ) where
     M: CompletionModel,
 {
-    // 史槽（Option 承载跨轮全史）：select 的停止臂 drop loop future 时本轮
-    // 增量史一并丢弃——停止后的会话不再续跑（编排侧已显式收敛）
-    let mut history_slot = Some(history);
-    while let Some(question) = questions.recv().await {
-        let Some(history) = history_slot.take() else {
-            return;
-        };
-        let turn = r#loop::LoopTurn {
-            question: question.prompt,
-            cwd: open.ctx.workspace_root.clone(),
-            permission_mode: open.ctx.permission_mode,
-            model_name: model_name.clone(),
-            session_id: SdkRunner::next_session_id(),
-        };
-        let pump_handle = handle.clone();
-        // biased：loop 臂先 poll。停止先置位时两臂首轮 poll 同为 Ready——
-        // wait_requested 已置位立即返回，loop future 也在首轮 poll 内发出
-        // RunStarted + user 两枚先导事件后经轮间快速路径返回（有界通道发送
-        // 不让渡）；随机臂序会让停止臂在 loop future 首次 poll 前获胜，先导
-        // 事件丢失、发送端随泵 return 全部 dropped、观测通道提前关闭。固定
-        // 臂序后先导事件恒达，停止臂仅在轮中途截停（drop future，不合成收敛）。
-        tokio::select! {
-            biased;
-            updated = r#loop::run(&model, &turn, history, observations.clone(), pump_handle.clone()) => {
-                history_slot = Some(updated);
-            }
-            _ = pump_handle.wait_requested() => {
-                return; // 停止后的会话不再接受续轮（编排侧已显式收敛）
-            }
+    let Some(question) = questions.recv().await else {
+        return; // 组合根半边先关：无问即无泵生命周期
+    };
+    let turn = r#loop::LoopTurn {
+        question: question.prompt,
+        cwd: open.ctx.workspace_root.clone(),
+        permission_mode: open.ctx.permission_mode,
+        model_name: model_name.clone(),
+        session_id: SdkRunner::next_session_id(),
+    };
+    let pump_handle = handle.clone();
+    // biased：loop 臂先 poll。停止先置位时两臂首轮 poll 同为 Ready——
+    // wait_requested 已置位立即返回，loop future 也在首轮 poll 内发出
+    // RunStarted + user 两枚先导事件后经轮间快速路径返回（有界通道发送
+    // 不让渡）；随机臂序会让停止臂在 loop future 首次 poll 前获胜，先导
+    // 事件丢失、发送端随泵 return 全部 dropped、观测通道提前关闭。固定
+    // 臂序后先导事件恒达，停止臂仅在轮中途截停（drop future，不合成收敛）。
+    tokio::select! {
+        biased;
+        _ = r#loop::run(&model, &turn, history, observations.clone(), pump_handle.clone()) => {
+            // 一轮一命：单轮收敛即泵生命周期终点；累积史（跨轮回灌）无
+            // 消费方，弃用
+        }
+        _ = pump_handle.wait_requested() => {
+            // 停止后的会话不再接受续轮（编排侧已显式收敛）
         }
     }
 }

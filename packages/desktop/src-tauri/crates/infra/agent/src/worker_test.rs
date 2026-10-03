@@ -1,13 +1,3 @@
-//! `worker`（[`KernelWorkerPort`] 的 `WorkerAgentPort` 实现）的单元测试
-//! （AC-7 装配半边 / AC-5 实时流来源）：change 来源请求装配（provenance /
-//! permission / continue 引用）、解析失败显式 Err、CLI 缺失收敛、泵收集密封
-//! 转录并以 `RunUpdate::SessionEvent` 透传假 sink、停止收敛与三角色
-//! sourceRef 定式。会话行 / 轮行经 tempdir 真库 WorkspaceStores 落盘断言；
-//! 引擎侧以「假 CLI shim」（PATH 指向合成 claude 入口，预录 JSONL 密封事件）
-//! 或 PATH 隔离驱动，PATH 进程全局变更以共享互斥锁串行化、测毕恢复，不
-//! spawn 真实 claude。shim 用例的会话收口经停止请求驱动（CLI 会话泵在成功
-//! 轮后回到等问态、观察流随停止请求闭合——停止收敛半边的同款语义）。
-
 use std::ffi::OsString;
 use std::path::Path;
 use std::sync::{Arc, Mutex};
@@ -139,11 +129,7 @@ fn shim_echo(json: &str) -> String {
     format!("echo '{json}'")
 }
 
-/// 合成 claude CLI shim 脚本：init 行先出，可选「轮中停顿」（为停止收敛用例
-/// 留出置位窗口）与「轮末停顿」（为泵收集用例留出停止驱动的会话收口窗口
-/// ——CLI 会话泵在成功轮后回到等问态、观察流随停止请求闭合），随后
-/// assistant + result 行（预录密封事件全集）。纯 ASCII 文本（cmd echo 无代
-/// 码页歧义）。
+/// 合成 claude CLI shim 脚本
 fn claude_shim_script(pause_mid_turn: bool, pause_tail: bool) -> String {
     const INIT: &str = r#"{"type":"system","subtype":"init","model":"claude-opus","session_id":"s-1","tools":["Bash"],"mcp_servers":[]}"#;
     const ASSISTANT: &str = r#"{"type":"assistant","message":{"role":"assistant","content":[{"type":"text","text":"final verdict pass"}]}}"#;
@@ -543,10 +529,7 @@ async fn path_isolated_cli_missing_errs_with_zero_half_records() {
         "CliMissing 零半成品记录（预检先于 begin）"
     );
     assert!(
-        updates
-            .lock()
-            .expect("事件捕获锁不可中毒")
-            .is_empty(),
+        updates.lock().expect("事件捕获锁不可中毒").is_empty(),
         "零 SessionEvent 透传（begin 未发生）"
     );
 }

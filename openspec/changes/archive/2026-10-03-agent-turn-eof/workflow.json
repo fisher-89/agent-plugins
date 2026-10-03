@@ -1,0 +1,374 @@
+{
+  "workflow_type": "bug-fix",
+  "created": "2026-10-02",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/kernel.rs",
+      "at": "2026-10-02T01:33:35.439Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/runner.rs",
+      "at": "2026-10-02T01:33:45.631Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/cli/flags.rs",
+      "at": "2026-10-02T01:33:54.549Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/cli/runner.rs",
+      "at": "2026-10-02T01:36:32.151Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner.rs",
+      "at": "2026-10-02T01:36:33.736Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-execution",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/cli/flags_test.rs",
+      "at": "2026-10-02T01:56:30.382Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-execution",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner_test.rs",
+      "at": "2026-10-02T01:57:11.289Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-execution",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/cli/runner_test.rs",
+      "at": "2026-10-02T02:00:04.948Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-execution",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/worker_test.rs",
+      "at": "2026-10-02T01:58:11.002Z"
+    }
+  ],
+  "active_phase": null,
+  "interrupted": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "start_at": "2026-10-02T01:02:58.714Z",
+      "end_at": "2026-10-02T01:12:05.261Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "start_at": "2026-10-02T01:16:11.068Z",
+      "end_at": "2026-10-02T01:27:31.185Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "start_at": "2026-10-02T01:30:58.151Z",
+      "end_at": "2026-10-02T01:39:11.527Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "start_at": "2026-10-02T01:44:50.581Z",
+      "end_at": "2026-10-02T02:08:03.467Z"
+    }
+  ],
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 pass. 问题含实测证据（会话 ses-0-1790900799465、13339 事件、workflow.json 无 eval）与根因 file:line，全部对代码核实：kernel.rs:221 observations 循环、cli/runner.rs:71 与 sdk/runner.rs:150 泵 questions.recv、sdk history_slot:149-171、drive 单处 questions 发送 kernel.rs:200、旧 ask 注释 runner.rs:165。变更范围三节齐备，5 风险均有具体缓解，6 决策均含被否备选，AC-1~6 可测。MODIFIED 标题与 baseline 一致，ADDED+MODIFIED 与提案口径一致，1 spec : 1 能力，无占位符。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "proposal.md:11-19 具体缺陷（0.3.14 起所有轮不收口）+ 实测证据（ses-0-1790900799465 共 13339 密封事件、末条 turnDone success 00:34:19.82Z、workflow.json 无 eval）+ 根因互持钥匙死锁并引 file:line（kernel.rs:221、cli/runner.rs:71-92、sdk/runner.rs:150-177），均与代码一致"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "proposal.md:54 实现文件 4 条、:61 测试文件 3 条、:71 不要修改 6 条，实现与测试均非空"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "5 风险均非泛化：第二提问风险以全库 questions.send 检索锚定（核实仅 kernel.rs:200 一处）+ 既有测试；variadic 位置风险以恒置末尾 + flags_test 全序断言；模型漂移以 AC-4 真实引擎冒烟；停止/spawn 路径以既有 return 语义 + runner_test 守卫；history_slot 以 store 全史转录唯一源 + resume_test 锚定"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~6 各含对象+条件：泵任务返回+recv None+EOF 收口（runner_test 证明）；history_slot grep 零命中；flags_test 末尾序断言；冒烟 Record 到达+walker 进 evaluator+停止可用；golden/前端/orchestration 零 diff；归档 bump 0.4.2"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "决策表 6 行均有理由+显式否决：泵生命周期否决 B 方案状态机 break 与保留多问循环；headless 路径否决审批反向通道与 --allowedTools 白名单；flag 位置否决置 --resume 前；SDK 否决保留 history_slot；drive 否决 stop select/break；版本否决不 bump"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "surgical：kernel drive 逻辑禁改仅注释口径、禁改面清单明确；版本沿「仅用户可见变更才提升」（用户可见缺陷 0.4.1→0.4.2）；测试落 crate 内 *_test.rs，符合 rust 套件注册于 src-tauri 根约定"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep TODO|TBD|placeholder|{{}}|待补|占位（忽略大小写）于 change 全目录：0 命中"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题（证据链+根因）、提案（5 点）、变更范围（3 小节）、验收标准（6 条）、风险（5 行）、决策（6 行）全实质；待决问题显式「无」并说明 design 相位仅需测试用例细节与注释措辞，非占位"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "proposal.md:35 ## 能力；:41 修改的能力含 desktop-agent-execution 非空条目；:38 新增能力显式「无」——既有先例（agent-core-session-kernel）确认显式空不算缺口"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "能力列恰 1 个修改能力 desktop-agent-execution；specs/ 恰 1 个 specs/desktop-agent-execution/spec.md，1:1。沿用节两项（chat-infra/orchestration）标注「语义不变仅被引用、零改动」，无需 spec 文件"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "MODIFIED 标题「MVP 边界与已知限制」与 baseline L423 一致，第 4 条改写与提案描述逐句对应；提案「新增 requirement + 修改第4条」= spec ADDED+MODIFIED 两节；AC-1~5 映射 spec scenarios（泵单轮收口/失败臂/disallowedTools 末尾/文本收口/契约保持），AC-6 bump 无 spec 属既有可接受形态；实现文件与 spec Module Contract 四行一致；用户拍板方向（一轮一命+末尾 flag+文本收口+Continue）为提案与 spec 共同唯一路径"
+        }
+      ],
+      "timestamp": "2026-10-02T01:15:07.192Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "design.md 10/10 通过。7 决策（D1-D7）与 proposal 单一路径一致，5 实现文件与 proposal 变更范围逐一对应，无范围蔓延；tasks.md 五阶段依赖序可执行；技术主张逐项对码核实（kernel.rs:221 观测循环、cli/runner.rs:71 多问循环、sdk/runner.rs:149-171 history_slot、flags.rs build_args 段序、D5 四注释位点逐字在场、kernel_test.rs:187 close_stream、loop.rs 返回 Vec<Message>、SessionRef::Continue/prior_handle、layout/mod.rs 在场）。内核 EOF 契约零改动、禁改面留痕、归档时 bump 合规。",
+      "checklist": [
+        {
+          "item": "D1 架构组件职责/依赖/技术栈/路径",
+          "pass": true,
+          "evidence": "架构组件表 5 组件，职责/文件位置/依赖/技术四列齐全，路径具体到 crates/infra/agent/src/cli/runner.rs 等文件，技术列为 Rust（tokio 任务）/Rust（仅注释），无 TBD"
+        },
+        {
+          "item": "D2 数据模型字段/关系/持久化",
+          "pass": true,
+          "evidence": "数据模型表 3 个既有模型（轮行/事件转录/双 id 映射），字段、关系、redb 持久化三列齐全；显式声明零 schema 变更，仅留痕终态写路径由不可达变可达"
+        },
+        {
+          "item": "D3 覆盖 proposal 全部验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表 AC-1..AC-6 逐项落点：AC-1→D1+D6，AC-2→D2+history_slot，AC-3→D3，AC-4→D1-D4 根因+冒烟归 acceptance，AC-5→D5+禁改面清单，AC-6→D7 归档时 bump"
+        },
+        {
+          "item": "D4 tasks.md 存在且依赖序正确",
+          "pass": true,
+          "evidence": "tasks.md 5 阶段全为 - [ ] 项；序：core 注释→CLI 组装→CLI 泵→SDK 泵→守线；守线（阶段五）依赖前四阶段产物，无前置任务依赖后置任务"
+        },
+        {
+          "item": "D5 任务具体可执行",
+          "pass": true,
+          "evidence": "每任务指明精确文件与操作：去 while let Some(question) 循环、追加 \"--disallowedTools\"+\"AskUserQuestion\" 两枚、逐字引用现注释原文及改后口径、spawn 失败 subtype 字面量 error_cli_missing/error_spawn_failed、零触碰清单"
+        },
+        {
+          "item": "D6 依赖项已列出",
+          "pass": true,
+          "evidence": "运行时依赖：无新增（tokio/serde_json/rig_core/core/agent 既有，注明用途）；构建/测试依赖：无新增（cargo workspace src-tauri 根注册、pnpm server:check/client:check 既有工具链）"
+        },
+        {
+          "item": "D7 与项目架构一致",
+          "pass": true,
+          "evidence": "对码核实 drive EOF 唯一收口缝零改动（kernel.rs:221）、不引状态机 break；surgical 最小 diff；无测试专用导出；归档时 bump 0.4.2 符合 repo 既有归档提交携带 bump 惯例与『仅用户可见变更才提升』"
+        },
+        {
+          "item": "D8 模板章节实质填写",
+          "pass": true,
+          "evidence": "架构组件/变更清单（修改文件 5 项）/公共函数（build_args 签名不变+追加语义）/数据模型/依赖/待决问题齐全；类型定义与配置子节以注释声明省略理由；路由/API 声明不适用（IPC 零新增）"
+        },
+        {
+          "item": "D9 不含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略章节，测试文件显式归 test-design/test-gen/test-execution；tasks.md 阶段五标注『静态，不含测试执行』，server:check/client:check 为 fmt+clippy+零 diff 静态守线，非单测/集成测试任务"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "清单 5 文件=proposal 实现文件 5/5 双向覆盖；tasks 引用文件均在清单内、清单文件均有对应任务；测试 3 文件显式划归测试阶段；无新增文件故公共函数子表无缺口；实现清单零 package.json 触点与 AC-6 归档口径一致"
+        }
+      ],
+      "timestamp": "2026-10-02T01:30:31.771Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "五文件清单与 design 完全一致，D1-D7 全部落实：cli/sdk 泵一轮一命（let-else 单问、run 后无条件终止、spawn 失败合成收敛保留、stopped 不消费）；history_slot 全树零命中；--disallowedTools AskUserQuestion 恒居最末（--resume 之后）；kernel/runner 四位点纯注释且 converge「ask 失败」保留；禁改面（golden/orchestration/前端/package.json/policy/sandbox/loop/resume/全部测试文件）零 diff；EOF 释放链机械成立；两处尾部 return; 移除属 clippy 合规、臂语义不变；tasks 全勾。",
+      "checklist": [
+        {
+          "item": "I1 design.md 每个架构组件有实现代码",
+          "pass": true,
+          "evidence": "5 架构组件逐项落地：cli/runner.rs session_pump 一轮一命（L68-97 let-else 单问、run 后无条件终止、spawn 失败合成 TurnDone 保留 L83-95）；sdk/runner.rs 同构 + history_slot 全树 grep 零命中；cli/flags.rs L49-50 尾追加两枚 arg；kernel.rs/runner.rs 纯注释。workflow_files 清单与 design 五文件双向一致"
+        },
+        {
+          "item": "I2 变更清单所有条目有对应实现",
+          "pass": true,
+          "evidence": "5 条修改文件全部兑现且内容与 design 描述逐条相符；deleted 空、无计划外文件；build_args 签名不变（flags.rs L24）；类型/配置零触点（package.json 零 diff，D7 归档时 bump）；open_session/TurnProcess/pump_lines/spawn_turn/sdk 侧 resolve_resume/loop.rs/resume.rs 均零改动"
+        },
+        {
+          "item": "I3 代码遵循项目现有规范",
+          "pass": true,
+          "evidence": "注释中文口径与代码库一致；spec 指针用相对域根定式（specs/desktop-agent-execution/spec.md，cli/runner.rs L64）；零新 import、零新依赖；clippy needless_return 尾部 return; 清理符合工具链约定"
+        },
+        {
+          "item": "I4 所有路由/API 已实现",
+          "pass": true,
+          "evidence": "design.md 明示「不涉及 HTTP API（IPC 命令面零新增零改动）」，无路由需实现"
+        },
+        {
+          "item": "I5 tasks.md 全部 [x]",
+          "pass": true,
+          "evidence": "tasks.md 10 个任务复选框全部 [x]（阶段一至五：core/agent 注释 ×2、flags ×1、cli 泵 ×1、sdk 泵 ×1、守线 ×5）"
+        },
+        {
+          "item": "I6 无无关代码改动",
+          "pass": true,
+          "evidence": "git diff --name-only 仅五清单文件 + openspec 簿记；禁改面零 diff：tests/golden、core/orchestration、前端 src/**、package.json、sdk/{policy,sandbox,loop,resume}.rs、全部 *_test.rs（grep 零命中）；零删除"
+        },
+        {
+          "item": "I7 设计决策 D1-D7 得到遵守",
+          "pass": true,
+          "evidence": "D1/D2 泵收口形态逐点符合（stopped 不消费、biased 臂序与先导事件论证注释原样保留、history 直传单轮、sdk/loop.rs 签名零动）；D3 flag 恒最末两枚（--resume 对之后，camelCase 字面量，L42-50）；D4 零新代码；D5 四注释位点纯注释且 drive 观测循环（kernel.rs L222）与 converge「ask 失败」措辞（L300）保留；D6 EOF 释放链机械成立——observation_tx 唯一发送端 move 进泵，克隆经 run→pump_lines 返回先释放、泵本体 return 随后释放，recv() 见 None 收敛；D7 package.json 零 diff"
+        }
+      ],
+      "timestamp": "2026-10-02T01:44:03.305Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 895 测试通过（rust 实测 885+前端 817，24 条 result 行 0 失败，CLI 计数 895 少记 rust）。3 项报告级发现均为工具缺陷非产品缺陷：①rust 解析器仅读首个二进制 result 行致计数失真（895→应 1702）；②summary.coverage 未折入 plan 实测致门槛空转通过，rust plan functions 88.66<90 为 workspace 聚合口径（main/bin 入口未覆盖），branches=0 系 llvm-cov 导出无分支数据；③mutation 声明未执行。需修 CLI 解析/聚合器，不回溯产品。",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "summary.json 含 phase/command/timestamp、total=895/passed=895/failed=0/skipped=0、coverage 对象(pass/measured/thresholds/overrides)、duration_seconds=71、conclusion=pass、problems=[]，字段齐备且类型正确"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=895>0；复核 results.txt 共 24 条 test result 行、13 个非零二进制合计 885 passed/0 failed，与独立 cargo test --workspace 复核一致；vite-plus 817/817；golden 套件未触碰（AC-5 零 diff 守线成立）"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "按预计算 coverage.pass=true 判达标；summary.measured 三维全 null（N/A）。plan 级实测：vite-plus 94.79/89.01/93.31≥90/85/90 真实达标；rust plan pass=false(functions 88.66<90、branches=0) 根因为聚合器未折入 plan 数据+llvm-cov 导出不含分支 totals（branches count=0 属缺数据非零覆盖），functions 缺口来自 workspace 聚合内 main.rs/bin 入口及存量未覆盖路径，非本变更回归（触达文件 file 级 99-100%）——列报告工具发现跟进，不判产品覆盖率失败"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，T4 自动通过。报告级 3 项发现根因唯一且均为 CLI 工具缺陷：①rust 结果解析器只读首条 result 行；②summary 聚合器不折算 plan 级 coverage、null 维度空转 pass；③mutation runner 未落地（config 声明 70/80 但无执行产物，mutation=null 非 pass=false，按规则不阻塞）。测试修复面与 design.md AC-1/AC-2/AC-3 契约一致，无设计冲突"
+        }
+      ],
+      "timestamp": "2026-10-02T02:11:41.806Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1: 仅常量 arg 走 argv 逐参传递,无注入面;C3: D1-D6 全对齐(D1 stopped 弃用、D2 history_slot 零残留、D3 尾两枚恒末位、D5 kernel/runner 纯注释、EOF 缝原样);C4: 双泵 let-else、spawn 失败合成保留、停止不合成+内核 Stopped 收敛;C5: 多问循环+史槽死代码移除,发送端链唯一无泵泄漏;C7: 零新中间类型。测试钉住收口契约(recv None+二问拒)与 3×2 flag 组合。备注: kernel_test.rs:142 \"ask 语义\"注释不在 D5 位点,FakeRunner 行为未变,非阻塞。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "flags.rs:49-50 常量 arg 经 argv 逐参传递（cli/runner.rs:197 command.args），无 shell 拼接；diff 无密钥/eval/exec/system；--disallowedTools 属 headless 收紧"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "无新外部输入面；prompt 以单 argv 原样保留（flags_test 特殊字符用例守卫）；JSONL normalize 返回 Option 既有校验未动"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "D1 cli/runner.rs:78-82 无条件 return+stopped 弃用；D2 sdk/runner.rs:149-175 且 history_slot grep 0 命中、loop.rs 零触点；D3 flags.rs:46-50 恒最末两枚；D5 kernel/runner diff 纯注释、drive EOF 缝 kernel.rs:222 原样"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "双泵 let-else 收口（cli/runner.rs:74-76、sdk/runner.rs:149-151）；spawn 失败合成 TurnDone 保留（:83-95）；停止臂不合成收敛（pump_lines:262-267）+ 内核 stop 收敛 kernel.rs:277-280"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "多问 while 循环与史槽死代码移除；发送端链唯一（observation_tx→泵→单 clone），泵 return 全 drop 无泄漏；TurnProcess::run 返回值保留属 D1 最小 diff 决策"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "注释口径统一一轮一命；shim 装置沿用 worker_test 既有模式+PATH_LOCK 纪律；用例命名沿 crate 惯例"
+        },
+        {
+          "item": "C7 外部数据同来源类型",
+          "pass": true,
+          "evidence": "零新中间类型：复用 TurnQuestion/AgentEventKind/rig Message/AgentPermissionMode serde 派生 flag 值"
+        }
+      ],
+      "start_at": "2026-10-02T02:12:20.698Z",
+      "timestamp": "2026-10-02T02:18:17.243Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "6/6 AC 达成。AC-1/2 双泵一轮一命落地且 lifecycle 测试断言 recv None+第二问拒；history_slot 全树零命中；AC-3 flag 恒末两枚 3×2 组合断言齐；AC-5 禁改面零触（kernel drive 无 break/select、orchestration/前端/golden 零触，file_log 仅 5 实现文件+测试面）；AC-4 真实引擎冒烟按 design 归档后用户复跑 desktop 确认（静态证据链完整）；AC-6 按归档时 bump（现 0.4.1）。tasks 10/10 [x]。",
+      "checklist": [
+        {
+          "item": "每个 AC 都有实现证据",
+          "pass": true,
+          "evidence": "AC-1: cli/runner.rs:74-82 单问 recv+无条件 return，EOF 释放链 47-52；测试 cli/runner_test.rs:419-483（recv None+二问拒）。AC-2: sdk/runner.rs:149-171 同构收口，history_slot 全树 grep 零命中；sdk/runner_test.rs:339-355/390-395/419-423。AC-3: flags.rs:46-50 恒末两枚；flags_test.rs:305-331 三档×resume 全组合+恰一枚断言，217-246 组合序。AC-4: 静态链完整（发送端 drop→kernel.rs:222 EOF 缝→converge 落终态 286-296），真实冒烟按 design 归 acceptance 由用户归档后复跑确认。AC-5: kernel.rs/runner.rs 纯注释（182-185/98-99/166-167），drive 无 break/select（grep 零命中）。AC-6: package.json 0.4.1 待归档 bump 0.4.2（D7）"
+        },
+        {
+          "item": "无范围蔓延",
+          "pass": true,
+          "evidence": "workflow.json file_log implement scope 恰为 design 5 清单文件；test-execution scope 为 3 设计测试文件+worker_test.rs（crate 级 TEST_PATH_LOCK 共享装置，cli/runner_test.rs:26 消费，纯测试基建）；零新 API/组件/依赖；IPC 面零新增"
+        },
+        {
+          "item": "in_scope 全部实现",
+          "pass": true,
+          "evidence": "proposal 实现文件 5/5 落地（cli/sdk 泵一轮一命、flags 禁 ask 尾追加、kernel/runner 注释口径）、测试文件 3/3 在场且 lifecycle/组合断言齐；tasks.md 10/10 [x]"
+        },
+        {
+          "item": "out_of_scope/禁改面未被触碰",
+          "pass": true,
+          "evidence": "kernel drive 逻辑零改动（无 break/select、观测循环 kernel.rs:222 唯一收口缝）；orchestration grep disallowedTools/一轮一命/history_slot 零命中；前端 file_log 零写入（src 中 AskUserQuestion 命中为既有 tool-cards 注册表）；golden/policy/sandbox/store 零触（implement I6+test-execution T2 审计）"
+        },
+        {
+          "item": "风险缓解在代码可见",
+          "pass": true,
+          "evidence": "第二问风险→泵终止后 send 被拒按 kernel.rs:199-217 failed 收敛（测试锚定）；variadic 位置→flags.rs:46-50 恒末+flags_test 全序断言；停止/spawn 回归→pump_lines 停止臂原样+停止用例全绿；history_slot 移除→resolve_resume store 全史重建唯一源不变（sdk/runner.rs:51-64）"
+        }
+      ],
+      "start_at": "2026-10-02T02:18:43.376Z",
+      "timestamp": "2026-10-02T02:22:28.530Z"
+    }
+  ]
+}

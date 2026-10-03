@@ -13,7 +13,7 @@ use crate::{discover, flags, jsonl};
 /// 事件通道有界容量（背压策略：泵任务阻塞在 `send`，事件不丢、内存有界）。
 const EVENT_CHANNEL_CAPACITY: usize = 256;
 
-/// 提问通道有界容量（逐轮送达；单会话单活动轮，容量 4 为余量）。
+/// 提问通道有界容量（单问送达；单会话单活动轮，容量 4 为余量）。
 const QUESTION_CHANNEL_CAPACITY: usize = 4;
 
 /// EOF 无 TurnDone 事件时合成收敛事件的 subtype（design D6：收敛恒由
@@ -58,36 +58,34 @@ impl AgentRunner for ClaudeCliRunner {
     }
 }
 
-/// 会话泵任务（ask 段）：逐轮等待提问 → CLI 发现 → spawn → 逐行泵（EOF /
-/// 停止）→ 回到等待下一轮；问题通道关闭（内核轮驱动半边已收）即退出。ask
-/// 阶段 spawn 失败（CLI 缺失 / 启动失败）以合成收敛事件收敛（failed 记因）
-/// 并终止会话——进程未起，无树可杀。
+/// 会话泵任务（ask 段）
 async fn session_pump(
     open: SessionOpen,
     mut questions: mpsc::Receiver<TurnQuestion>,
     observations: mpsc::Sender<agent::AgentEventKind>,
     handle: RunHandle,
 ) {
-    while let Some(question) = questions.recv().await {
-        let stopped = match spawn_turn(&open, &question, &handle) {
-            Ok(process) => process.run(observations.clone()).await,
-            Err(error) => {
-                let _ = observations
-                    .send(AgentEventKind::TurnDone {
-                        subtype: spawn_failure_subtype(&error),
-                        is_error: true,
-                        num_turns: None,
-                        duration_ms: None,
-                        cost_usd: None,
-                        usage: serde_json::Value::Null,
-                        session_id: None,
-                    })
-                    .await;
-                return;
-            }
-        };
-        if stopped {
-            return; // 停止后的会话不再接受续轮（编排侧已显式收敛）
+    let Some(question) = questions.recv().await else {
+        return; // 组合根半边先关：无问即无泵生命周期
+    };
+    match spawn_turn(&open, &question, &handle) {
+        Ok(process) => {
+            // 一轮一命：run 返回即泵生命周期终点（EOF 收敛与停止路径在
+            // `pump_lines` 内均已单轮终止），stopped 返回值不再消费
+            process.run(observations.clone()).await;
+        }
+        Err(error) => {
+            let _ = observations
+                .send(AgentEventKind::TurnDone {
+                    subtype: spawn_failure_subtype(&error),
+                    is_error: true,
+                    num_turns: None,
+                    duration_ms: None,
+                    cost_usd: None,
+                    usage: serde_json::Value::Null,
+                    session_id: None,
+                })
+                .await;
         }
     }
 }

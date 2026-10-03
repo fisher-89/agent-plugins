@@ -1,11 +1,3 @@
-//! `ClaudeCliRunner` 与 stdout 泵的单元/集成测试（AC-10 / AC-7 停止半边）：
-//! open / ask 两段形态（open 无 IO 不 spawn；ask 阶段 spawn + 逐行泵 + 树杀
-//! 缝）、泵核心 [`crate::runner::pump_lines`] 以内存行流 + 可注入退出码驱动
-//! （不 spawn 真实进程），验证「CLI stdout JSONL → core::agent 未盖戳观察
-//! 词汇」跨 crate 契约：线格式可被 core 表达、EOF 无 result 补发合成收敛
-//! （TurnDone 更名适配）、有界通道背压不丢事件、停止路径击杀缝恰一次。
-//! 真实 claude 进程端到端见 test-design 不可测试项。
-
 use std::io::Cursor;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -346,6 +338,138 @@ async fn ask段cli缺失时spawn失败以合成收敛记因且会话终止() {
     // 会话终止（观察流关闭）
     let rest = drain_events(&mut session.observations).await;
     assert!(rest.is_empty(), "spawn 失败后会话终止，实际: {rest:?}");
+
+    // 第二问送达被拒：spawn 失败臂终止泵（一轮一命），questions 接收端随之
+    // drop——第二问按「引擎侧已终止」失败收敛（内核 ask 失败臂的 seam 投影）
+    assert!(
+        session
+            .questions
+            .send(TurnQuestion {
+                prompt: "第二问".to_owned(),
+            })
+            .await
+            .is_err(),
+        "泵终止后第二问送达必须被拒（接收端已 drop）"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// 会话泵一轮一命（合成 claude shim：单问服务后泵终止、观测通道关闭）
+// ---------------------------------------------------------------------------
+
+/// 平台 JSONL echo 行（Windows cmd 双引号直出；其余平台单引号包裹）。
+#[cfg(windows)]
+fn shim_echo(json: &str) -> String {
+    format!("echo {json}")
+}
+
+/// 平台 JSONL echo 行（Unix 版）。
+#[cfg(not(windows))]
+fn shim_echo(json: &str) -> String {
+    format!("echo '{json}'")
+}
+
+/// 合成 claude CLI shim 脚本：init 行 + result 行（正常 result 收尾，EOF 由
+/// 脚本退出产生，不触发合成收敛）。纯 ASCII 文本（cmd echo 无代码页歧义）。
+fn claude_shim_script() -> String {
+    const INIT: &str = r#"{"type":"system","subtype":"init","model":"claude-opus","session_id":"s-fake","tools":["Bash"],"mcp_servers":[]}"#;
+    const RESULT: &str = r#"{"type":"result","subtype":"success","is_error":false,"num_turns":1,"duration_ms":9,"total_cost_usd":0,"usage":{},"session_id":"s-fake"}"#;
+    #[cfg(windows)]
+    let mut lines: Vec<String> = vec!["@echo off".to_owned()];
+    #[cfg(not(windows))]
+    let mut lines: Vec<String> = vec!["#!/bin/sh".to_owned()];
+    lines.push(shim_echo(INIT));
+    lines.push(shim_echo(RESULT));
+    lines.join("\n")
+}
+
+/// 合成 claude 入口目录（PATH 注入目标）：Windows 落 `claude.cmd`，其余平台
+/// 落带可执行位的 `claude`。
+fn claude_shim_dir(tag: &str) -> tempfile::TempDir {
+    let dir = tempfile::Builder::new()
+        .prefix(&format!("cli-runner-{tag}-shim-"))
+        .tempdir()
+        .expect("创建 shim 目录失败");
+    let script = claude_shim_script();
+    #[cfg(windows)]
+    {
+        std::fs::write(dir.path().join("claude.cmd"), script).expect("写 shim 失败");
+    }
+    #[cfg(not(windows))]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let path = dir.path().join("claude");
+        std::fs::write(&path, script).expect("写 shim 失败");
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755))
+            .expect("置 shim 可执行位失败");
+    }
+    dir
+}
+
+#[tokio::test]
+async fn ask泵一轮一命_单问服务后观测通道关闭且第二问送达被拒() {
+    let _guard = PATH_LOCK.lock().expect("PATH 锁不可中毒");
+    let shim = claude_shim_dir("one-turn");
+    let original = std::env::var_os("PATH");
+    std::env::set_var(
+        "PATH",
+        std::env::join_paths([shim.path()]).expect("拼接 PATH 值失败"),
+    );
+
+    let runner = ClaudeCliRunner::new();
+    let mut session = runner
+        .open_session(open_with(shim.path().to_path_buf()))
+        .expect("open 应成功");
+    let sent = session
+        .questions
+        .send(TurnQuestion {
+            prompt: "one-turn".to_owned(),
+        })
+        .await;
+    assert!(sent.is_ok(), "首问送达（泵存活）");
+
+    // 单轮事件：init → RunStarted，result → TurnDone（正常收尾不合成）
+    let first = session.observations.recv().await.expect("RunStarted 事件");
+    let second = session.observations.recv().await.expect("TurnDone 事件");
+    // PATH 还原（后续断言不再 spawn）
+    match original {
+        Some(value) => std::env::set_var("PATH", value),
+        None => std::env::remove_var("PATH"),
+    }
+
+    assert!(
+        matches!(&first, AgentEventKind::RunStarted { model: Some(model), .. } if model == "claude-opus"),
+        "init 行 → RunStarted 先导，实际: {first:?}"
+    );
+    assert!(
+        matches!(
+            &second,
+            AgentEventKind::TurnDone {
+                is_error: false,
+                num_turns: Some(1),
+                ..
+            }
+        ),
+        "result 行 → TurnDone 正常收敛，实际: {second:?}"
+    );
+
+    // 一轮一命收口：单问服务完毕即泵任务返回 → observations 发送端全 drop
+    // → 观测通道关闭（内核 EOF 收口缝：recv 返回 None）
+    assert!(
+        session.observations.recv().await.is_none(),
+        "单问服务后观测通道必须关闭（EOF 收口缝）"
+    );
+    // 第二问送达被拒：泵已终止，questions 接收端随之 drop
+    assert!(
+        session
+            .questions
+            .send(TurnQuestion {
+                prompt: "第二问".to_owned(),
+            })
+            .await
+            .is_err(),
+        "一轮一命：泵终止后第二问送达必须被拒（接收端已 drop）"
+    );
 }
 
 #[test]

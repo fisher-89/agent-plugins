@@ -291,7 +291,7 @@ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_
         .expect("问题送达");
 
     // 未盖戳观察词汇：泵产出 agent::AgentEventKind（盖戳收内核）。有界读取：
-    // 会话泵逐轮常驻（问题通道打开即存活），本轮恒产 4 事件后等待续轮
+    // 泵一轮一命，本轮恒产 4 事件后泵任务返回（观测通道随之关闭）
     let mut events = Vec::new();
     for _ in 0..4 {
         events.push(session.observations.recv().await.expect("本轮事件"));
@@ -335,6 +335,24 @@ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_
             _ => {}
         }
     }
+
+    // 一轮一命收口：单问服务完毕即泵任务返回 → observations 发送端全 drop
+    // → 观测通道关闭（内核 EOF 收口缝：recv 返回 None）
+    assert!(
+        session.observations.recv().await.is_none(),
+        "单轮收敛后观测通道必须关闭（EOF 收口缝）"
+    );
+    // 第二问送达被拒：泵已终止，questions 接收端随之 drop
+    assert!(
+        session
+            .questions
+            .send(agent::TurnQuestion {
+                prompt: "第二问".to_owned(),
+            })
+            .await
+            .is_err(),
+        "一轮一命：泵终止后第二问送达必须被拒（接收端已 drop）"
+    );
 }
 
 #[tokio::test]
@@ -352,8 +370,8 @@ async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛()
         .expect("问题送达");
 
     // 停止先置位：loop 轮间快速路径在先导事件后终止（select 停止臂 / 快速路径
-    // 两机制任一命中即不进入流消费）。有界读取：泵逐轮常驻（问题通道打开即
-    // 存活），本轮恒产 RunStarted + user 密封提示词两枚先导事件后不再产出
+    // 两机制任一命中即不进入流消费）。有界读取：泵一轮一命，本轮恒产
+    // RunStarted + user 密封提示词两枚先导事件后泵任务返回
     let mut events = Vec::new();
     for _ in 0..2 {
         events.push(session.observations.recv().await.expect("先导事件"));
@@ -369,8 +387,12 @@ async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛()
             .any(|event| matches!(event, AgentEventKind::TurnDone { .. })),
         "停止先置位：不合成 TurnDone，实际: {events:?}"
     );
-    // 泵与通道随会话句柄释放（drop 即泵退出）
-    drop(session);
+    // 一轮一命收口：停止截停后泵任务返回 → observations 发送端全 drop →
+    // 观测通道关闭（先导两枚之后无后续产出）
+    assert!(
+        session.observations.recv().await.is_none(),
+        "停止截停后泵终止，观测通道必须关闭"
+    );
 }
 
 #[tokio::test]
@@ -385,7 +407,7 @@ async fn 停止晚于eof时泵已收敛无二次收敛事件() {
         })
         .await
         .expect("问题送达");
-    // 本轮事件有界读取至收敛事件（泵逐轮常驻，通道随会话存活）
+    // 本轮事件有界读取至收敛事件（泵一轮一命，收敛即泵返回）
     let mut events = Vec::new();
     for _ in 0..4 {
         events.push(session.observations.recv().await.expect("本轮事件"));
@@ -394,9 +416,14 @@ async fn 停止晚于eof时泵已收敛无二次收敛事件() {
         events.last(),
         Some(AgentEventKind::TurnDone { .. })
     ));
+    // 一轮一命收口：单轮收敛后泵任务已返回，观测通道关闭
+    assert!(
+        session.observations.recv().await.is_none(),
+        "单轮收敛后观测通道必须关闭"
+    );
 
-    // EOF（本轮收敛）后停止：无二次收敛事件（下一轮不再被驱动——drop 会话，
-    // 问题通道关闭即泵退出）
+    // EOF（本轮收敛）后停止：无二次收敛事件（下一轮不再被驱动——泵已随单轮
+    // 服务终止，问题通道随接收端 drop 已关闭）
     session.handle.request_stop();
     drop(session);
 }

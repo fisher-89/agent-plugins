@@ -1,0 +1,64 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-02T02:04:28.291Z",
+  "duration_seconds": 71,
+  "total": 895,
+  "passed": 895,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "findings": [
+    "rust 套件计数被低估：plan 级与 summary 只记录了首个 cargo 测试二进制（agent 78 例）；results.txt 实含 24 条 `test result:` 行、合计 885 例 0 失败（本会话独立 cargo test --workspace 复核一致），summary.total 895 实际应为 1702（817 前端 + 885 rust）——CLI rust 解析器只读了第一条 result 行，计数失真非测试缺陷",
+    "coverage 聚合失真：vite-plus plan 实测 94.79/89.01/93.31 达阈值；rust plan 实测 lines 96.04 / branches 0 / functions 88.66 且 plan 级 pass=false（llvm-cov --json 导出不含 branch totals，branches=0 应视为解析缺数据而非真实零覆盖；functions 88.66 低于 90），但 summary.coverage.measured 全 null 且 pass=true——聚合器未折入 plan 级实测，90/85/90 门槛在 summary 层空转通过，需人工核对 plan 级数据",
+    "mutation 未执行：config.json 声明 rust 70 / vite-plus 80 阈值，但两 plan 的 mutation 均为 null 且 reports/test 下无 mutation 产物，门槛未评估（无 execution_error，非阻塞；如需守线须先落 mutation runner）",
+    "测试修复面（本轮）：flags_test 7 例过期「四要素/resume 在尾」断言改为「--disallowedTools AskUserQuestion 恒最末两枚」契约并新增三档×resume 全组合用例；sdk/runner_test 三泵用例去掉「逐轮常驻」断言改一轮一命口径并锚定单轮后观测通道关闭（recv→None）+ 第二问送达被拒；cli/runner_test 新增合成 claude shim 驱动的一轮一命用例（单问服务→通道关闭→第二问被拒）并扩展 spawn 失败用例同缝断言；worker_test 仅注释口径同步（不动断言）"
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": null,
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/agent-turn-eof/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/agent-turn-eof/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ]
+}

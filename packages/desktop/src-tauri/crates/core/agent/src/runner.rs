@@ -95,7 +95,8 @@ pub struct TurnQuestion {
 pub struct AgentSession {
     /// 观察回流：引擎产未盖戳事件种类，seq / 时间戳由内核统一盖戳
     pub observations: tokio::sync::mpsc::Receiver<AgentEventKind>,
-    /// 轮驱动：逐轮送达提问（引擎按自身进程模型兑现）
+    /// 轮驱动：单问送达（一轮一命——引擎泵服务恰此一问后返回，观测通道随
+    /// 之关闭）
     pub questions: tokio::sync::mpsc::Sender<TurnQuestion>,
     /// 运行句柄（逻辑终止信号，kill 机制归租户实现）
     pub handle: RunHandle,
@@ -161,7 +162,5 @@ impl fmt::Display for AgentStartError {
 }
 
 pub trait AgentRunner: Send + Sync {
-    /// 建立会话：启动阶段失败返回 [`AgentStartError`]，不产生任何记录。
-    /// 返回的会话句柄随后经 questions 逐轮驱动（ask 语义）。
     fn open_session(&self, open: SessionOpen) -> Result<AgentSession, AgentStartError>;
 }

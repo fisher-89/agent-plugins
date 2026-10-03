@@ -108,7 +108,7 @@ pub struct RunningTurn {
     sink: Arc<dyn SessionSink>,
     /// 停止注册表（终态除名）
     registry: Arc<StopRegistry>,
-    /// 轮提问（ask 语义的驱动载荷）
+    /// 轮提问
     question: String,
 }
 
@@ -179,9 +179,6 @@ impl SessionKernel {
 }
 
 impl RunningTurn {
-    /// 泵驱动（ask 语义）：送达提问 → 逐观察盖戳 → 增量只上输出回调、密封
-    /// write-through（失败 failed 收敛记因）→ 双 id 落库 → TurnDone 统计
-    /// 收口 → 注册表除名 → 流出 `TurnFinished`。
     pub async fn drive<F>(self, mut on_output: F) -> TurnOutcome
     where
         F: FnMut(KernelOutput),

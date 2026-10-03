@@ -43,5 +43,7 @@ pub fn build_args(params: &TurnParams) -> Vec<String> {
         args.push("--resume".to_owned());
         args.push(session_id.clone());
     }
+    args.push("--disallowedTools".to_owned());
+    args.push("AskUserQuestion".to_owned());
     args
 }
