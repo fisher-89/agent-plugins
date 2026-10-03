@@ -1,0 +1,1 @@
+将desktop queries command 下change相关的命令，搬迁到commands/change
