@@ -6,11 +6,7 @@ import { SessionTranscriptPanel } from './session-transcript-panel';
 import type { RoleSessionRef } from './types';
 
 // ---------------------------------------------------------------------------
-// 进程边界 Mock：invoke 按命令名分发（agent_sessions / agent_session_transcript，
-// fixture 化反查 / 转录响应经 use-session-transcript 底层流入真实 hook——
-// hook 不 mock）；AgentTimeline 真实实现参与渲染（沿 agent-run-history 先例）。
-// 覆盖：role 分页选择 / sourceRef 定式反查 / 时间线复用 / liveEvents 透传 /
-// 空态与单角色退化（AC-5 联动半边）。
+// 进程边界 Mock
 // ---------------------------------------------------------------------------
 
 const { invokeMock } = vi.hoisted(() => ({ invokeMock: vi.fn() }));
@@ -77,17 +73,19 @@ function textMessage(seq: number, text: string): AgentEvent {
 
 function roleRefs(): RoleSessionRef[] {
   return [
-    { role: 'executor', sourceRef: EXECUTOR_REF },
-    { role: 'evaluator', sourceRef: EVALUATOR_REF },
+    { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null },
+    { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: null },
   ];
 }
 
 // ---------------------------------------------------------------------------
-// 可编程 IPC：按 sourceRef 反查、按 sessionId 取转录
+// 可编程 IPC：按 sessionId 直查（session_detail）、按 sourceRef 反查、按
+// sessionId 取转录——三臂注册表
 // ---------------------------------------------------------------------------
 
 let sessionsByRef: Record<string, SessionSummary[]>;
 let transcriptBySession: Record<string, AgentEvent[]>;
+let detailBySession: Record<string, SessionSummary | null | string>;
 
 function mockIpc() {
   sessionsByRef = {
@@ -106,7 +104,23 @@ function mockIpc() {
     [EVALUATOR_SESSION]: [textMessage(0, '评估会话结论')],
     [DECISION_SESSION]: [textMessage(0, '决策会话问询')],
   };
+  detailBySession = {
+    [EXECUTOR_SESSION]: summary(EXECUTOR_SESSION, EXECUTOR_REF, [
+      turn(11, EXECUTOR_SESSION, 'completed'),
+    ]),
+    [EVALUATOR_SESSION]: summary(EVALUATOR_SESSION, EVALUATOR_REF, [
+      turn(12, EVALUATOR_SESSION, 'completed'),
+    ]),
+    [DECISION_SESSION]: summary(DECISION_SESSION, DECISION_REF, [
+      turn(13, DECISION_SESSION, 'completed'),
+    ]),
+  };
   invokeMock.mockImplementation((command: string, params?: Record<string, unknown>) => {
+    if (command === 'session_detail') {
+      const id = (params?.sessionId as string | undefined) ?? '';
+      const hit = detailBySession[id];
+      return typeof hit === 'string' ? Promise.reject(hit) : Promise.resolve(hit ?? null);
+    }
     if (command === 'agent_sessions') {
       const ref = (params?.sourceRef as string | undefined) ?? '';
       return Promise.resolve(sessionsByRef[ref] ?? []);
@@ -147,7 +161,7 @@ function sessionsCalls(): unknown[][] {
 }
 
 function panelTexts(): string[] {
-  return screen.getAllByTestId('block-text').map((node) => node.textContent);
+  return screen.queryAllByTestId('block-text').map((node) => node.textContent);
 }
 
 describe('SessionTranscriptPanel：role 分页与反查联动（AC-5 联动半边）', () => {
@@ -189,7 +203,7 @@ describe('SessionTranscriptPanel：role 分页与反查联动（AC-5 联动半�
   });
 
   it('单 role 退化：无分页 tab、直接呈现该 role 转录（无分页歧义）', async () => {
-    await mounted([{ role: 'decision', sourceRef: DECISION_REF }]);
+    await mounted([{ role: 'decision', sourceRef: DECISION_REF, sessionId: null }]);
     await waitFor(() => expect(panelTexts()).toEqual(['决策会话问询']));
 
     const panel = screen.getByTestId('session-transcript-panel');
@@ -257,10 +271,14 @@ describe('SessionTranscriptPanel：AgentTimeline 渲染与 liveEvents 透传', (
 
 describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => {
   it('反查无会话：transcript-empty 空态呈现不炸（节点尚无会话的合法空态）', async () => {
-    await mounted([{ role: 'executor', sourceRef: 'add-feature/code-review/executor/1' }]);
+    await mounted([
+      { role: 'executor', sourceRef: 'add-feature/code-review/executor/1', sessionId: null },
+    ]);
     await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
 
     expect(screen.queryByTestId('agent-timeline')).toBeNull();
+    // 无错不出错误占位（error 与 empty 占位互斥呈现面）
+    expect(screen.queryByTestId('transcript-error')).toBeNull();
   });
 
   it('root null：零 invoke、transcript-empty 空态', async () => {
@@ -278,5 +296,213 @@ describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => 
     await waitFor(() =>
       expect(screen.getByTestId('transcript-error').textContent).toBe('db: 会话查询失败'),
     );
+
+    // 错误态不出空态占位（error 门禁下 empty 分支收口）
+    expect(screen.queryByTestId('transcript-empty')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 三会话 tab（desktop-change-session-visibility，AC-7 / D8）：执行 / 评估 /
+// 决策三槽位 tab（tab key = sessionId ?? sourceRef ?? role 回退链）；decision
+// 双 null 空态零查询（MUST NOT 虚构 / 误挂）；直查 reject 同错误态锚点。
+// ---------------------------------------------------------------------------
+
+describe('SessionTranscriptPanel：三会话 tab（AC-7）', () => {
+  function detailCalls(): unknown[][] {
+    return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
+  }
+
+  it('refs 携三 role 槽位均在场：三枚 transcript-role-tab（执行 / 评估 / 决策），默认选中执行并直查其转录', async () => {
+    await mounted([
+      { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
+      { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
+      { role: 'decision', sourceRef: DECISION_REF, sessionId: DECISION_SESSION },
+    ]);
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+
+    const tabs = screen.getAllByTestId('transcript-role-tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['执行会话', '评估会话', '决策会话']);
+    expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+      'executor',
+    );
+    // 默认执行 tab：session_detail 直查（sessionId 透传）
+    expect(detailCalls()).toEqual([
+      ['session_detail', { root: ROOT, sessionId: EXECUTOR_SESSION }],
+    ]);
+  });
+
+  it('点击决策 tab → session_detail 直查其转录（sessionId 透传——AC-7）', async () => {
+    await mounted([
+      { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
+      { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
+      { role: 'decision', sourceRef: null, sessionId: DECISION_SESSION },
+    ]);
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[2]);
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'decision',
+      ),
+    );
+    await waitFor(() => expect(panelTexts()).toEqual(['决策会话问询']));
+
+    expect(detailCalls()[1]).toEqual([
+      'session_detail',
+      { root: ROOT, sessionId: DECISION_SESSION },
+    ]);
+  });
+
+  it('decision 双 null（槽位缺席）：决策 tab 呈 transcript-empty 空态、零查询、面板不渲染他 attempt 会话内容', async () => {
+    await mounted([
+      { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
+      { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
+      { role: 'decision', sourceRef: null, sessionId: null },
+    ]);
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[2]);
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'decision',
+      ),
+    );
+    await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
+
+    // 零查询：executor 直查恰一次（默认 tab），decision 无任何 invoke
+    expect(detailCalls()).toHaveLength(1);
+    // 面板不渲染他 attempt 会话内容（MUST NOT 虚构 / 误挂——单 ref 直渲染面）
+    expect(panelTexts()).not.toContain('执行会话首轮');
+    expect(panelTexts()).not.toContain('评估会话结论');
+  });
+
+  it('tab key 回退链：executor 反查 ref（sessionId null）与 decision 直查 ref（sessionId 在场）混合分页切换互不串页', async () => {
+    await mounted([
+      { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null },
+      { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: null },
+      { role: 'decision', sourceRef: null, sessionId: DECISION_SESSION },
+    ]);
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+
+    // 反查 tab（executor）→ 直查 tab（decision）→ 反查 tab 往返，转录各归其页
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[2]);
+    await waitFor(() => expect(panelTexts()).toEqual(['决策会话问询']));
+
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[0]);
+    await waitFor(() => expect(panelTexts()).toEqual(['执行会话首轮', '执行会话续文']));
+
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[2]);
+    await waitFor(() => expect(panelTexts()).toEqual(['决策会话问询']));
+
+    // executor 反查、decision 直查，转录互不串页
+    expect(panelTexts()).not.toContain('评估会话结论');
+  });
+
+  it('refs 变化（换节点选中）→ 分页复位到首个 role（前页选中不跨节点残留）', async () => {
+    const initial = [
+      { role: 'executor' as const, sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
+      { role: 'evaluator' as const, sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
+      { role: 'decision' as const, sourceRef: null, sessionId: DECISION_SESSION },
+    ];
+    const { rerender } = renderPanel(initial);
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+
+    // 切到决策 tab（activeIndex = 2）
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[2]);
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'decision',
+      ),
+    );
+
+    // 换节点：roleRefs 换为新数组（两 ref）→ 复位首页 executor
+    rerender(
+      <SessionTranscriptPanel
+        root={ROOT}
+        roleRefs={[
+          { role: 'executor', sourceRef: 'add-feature/code-review/executor/1', sessionId: null },
+          { role: 'decision', sourceRef: null, sessionId: null },
+        ]}
+        liveEvents={[]}
+      />,
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'executor',
+      ),
+    );
+    await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
+
+    // 复位后仅首页 ref 取数（新节点 executor 反查恰一次，决策页不残留取数）
+    const refs = sessionsCalls().map(
+      (call) => (call[1] as { sourceRef?: string } | undefined)?.sourceRef,
+    );
+    expect(refs).toEqual(['add-feature/code-review/executor/1']);
+  });
+
+  it('refs 收缩越界（activeIndex 2 → refs 仅剩 2 枚）：钳制取位不越界，复位首页不崩', async () => {
+    const initial = [
+      { role: 'executor' as const, sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
+      { role: 'evaluator' as const, sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
+      { role: 'decision' as const, sourceRef: null, sessionId: DECISION_SESSION },
+    ];
+    const { rerender } = renderPanel(initial);
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[2]);
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'decision',
+      ),
+    );
+
+    // 收缩为 2 枚 ref：activeIndex 2 越界 → 钳制到末位（渲染期不崩）→ effect 复位首页
+    expect(() =>
+      rerender(
+        <SessionTranscriptPanel
+          root={ROOT}
+          roleRefs={[
+            { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
+            { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
+          ]}
+          liveEvents={[]}
+        />,
+      ),
+    ).not.toThrow();
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'executor',
+      ),
+    );
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+  });
+
+  it('点击次序页（三 ref 的第 2 枚）→ 恰落 evaluator 页（页序精确——非首末两页）', async () => {
+    await mounted([
+      { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: EXECUTOR_SESSION },
+      { role: 'evaluator', sourceRef: EVALUATOR_REF, sessionId: EVALUATOR_SESSION },
+      { role: 'decision', sourceRef: null, sessionId: DECISION_SESSION },
+    ]);
+    await waitFor(() => expect(panelTexts()).toContain('执行会话首轮'));
+
+    fireEvent.click(screen.getAllByTestId('transcript-role-tab')[1]);
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'evaluator',
+      ),
+    );
+    await waitFor(() => expect(panelTexts()).toEqual(['评估会话结论']));
+  });
+
+  it('直查 reject → transcript-error 呈现（与反查 reject 同错误态锚点）', async () => {
+    detailBySession = { [DECISION_SESSION]: '会话不存在: id=ses-gone' };
+    await mounted([{ role: 'decision', sourceRef: null, sessionId: DECISION_SESSION }]);
+    await waitFor(() =>
+      expect(screen.getByTestId('transcript-error').textContent).toBe('会话不存在: id=ses-gone'),
+    );
+
+    // 错误态无转录内容（时间线空态，不虚构会话内容）
+    expect(screen.queryAllByTestId('block-text')).toHaveLength(0);
   });
 });

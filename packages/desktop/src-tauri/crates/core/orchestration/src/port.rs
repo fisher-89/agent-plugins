@@ -96,6 +96,12 @@ pub enum ToolCommand {
         phase: String,
         input: BacktrackInput,
     },
+    /// 决策会话槽位挂账（该相位最新 eval 条目定点改写，幂等覆写）
+    DecisionLog {
+        change: String,
+        phase: String,
+        session_id: String,
+    },
     /// static-check 门禁
     StaticCheck,
 }
@@ -116,6 +122,7 @@ pub enum ToolStepOutput {
     PhaseStart(PhaseStartOutcome),
     PhaseLog(workflow::write::PhaseLogOutcome),
     Backtrack(workflow::write::BacktrackOutcome),
+    DecisionLog(workflow::write::DecisionLogOutcome),
     StaticCheck(StaticCheckOutcome),
 }
 

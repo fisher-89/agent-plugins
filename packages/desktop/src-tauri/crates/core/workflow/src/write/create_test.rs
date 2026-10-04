@@ -14,7 +14,7 @@
 use std::fs;
 use std::path::PathBuf;
 
-use foundation::layout::{Layout, resolve};
+use foundation::layout::{resolve, Layout};
 use time::OffsetDateTime;
 
 use super::persist::load_doc;
@@ -243,9 +243,7 @@ fn goal多行emoji与超长字符保真() {
 fn 校验顺序_非法名与空白goal同投时归因名称() {
     let ws = TempWs::new("order-name-first");
 
-    let error = ws
-        .create("Bad_Name", "   ")
-        .expect_err("非法名应 Err");
+    let error = ws.create("Bad_Name", "   ").expect_err("非法名应 Err");
     assert!(
         error.contains("kebab-case"),
         "归因名称校验（D4 顺序第一锚），实际: {error}"
@@ -289,16 +287,16 @@ fn 校验顺序_合法名空白goal且同名已存在时归因goal() {
 fn 非法kebab全族拒绝且零产生() {
     let ws = TempWs::new("bad-names");
     let invalid_names = [
-        "Fix-Bug",   // 大写
-        "fix_bug",   // 下划线
-        "fix bug",   // 空格
-        "1fix",      // 前导数字
-        "fix-",      // 尾连字符
-        "-fix",      // 前导连字符
-        "fix--bug",  // 连号连字符
-        "",          // 空串
-        "a/b",       // 穿越分量
-        "../x",      // 穿越分量
+        "Fix-Bug",  // 大写
+        "fix_bug",  // 下划线
+        "fix bug",  // 空格
+        "1fix",     // 前导数字
+        "fix-",     // 尾连字符
+        "-fix",     // 前导连字符
+        "fix--bug", // 连号连字符
+        "",         // 空串
+        "a/b",      // 穿越分量
+        "../x",     // 穿越分量
     ];
 
     for name in invalid_names {
@@ -321,14 +319,8 @@ fn 超128字符拒绝且零产生() {
     assert_eq!(name.len(), 129, "前置：129 字节");
 
     let error = ws.create(&name, "越界 goal").expect_err("超 128 应 Err");
-    assert!(
-        error.contains("128"),
-        "错误归因长度限制，实际: {error}"
-    );
-    assert!(
-        ws.active_dir_names().is_empty(),
-        "零产生（校验全 IO 前置）"
-    );
+    assert!(error.contains("128"), "错误归因长度限制，实际: {error}");
+    assert!(ws.active_dir_names().is_empty(), "零产生（校验全 IO 前置）");
 }
 
 /// goal 空白拒绝："" / "   " / "\n\t" 各 Err 且目标目录与文件零产生（AC-3）。
@@ -340,10 +332,7 @@ fn goal空白拒绝且目标目录与文件零产生() {
         assert!(result.is_err(), "空白 goal {goal:?} 应 Err");
     }
 
-    assert!(
-        ws.active_dir_names().is_empty(),
-        "目标目录与文件零产生"
-    );
+    assert!(ws.active_dir_names().is_empty(), "目标目录与文件零产生");
 }
 
 /// 已存在同名拒绝：预置既有 change 再 create 同名，Err（错误串含目录路径）
@@ -388,7 +377,8 @@ fn 已存在同名拒绝且既有产物字节零变更() {
 fn 创建后既有清单读面识别为v2单条active() {
     let ws = TempWs::new("combo-list");
     let before = utc_date_today();
-    ws.create("combo-list", "组合用例 goal").expect("create 应 Ok");
+    ws.create("combo-list", "组合用例 goal")
+        .expect("create 应 Ok");
     let after = utc_date_today();
 
     let list = crate::queries::list_changes(&ws.layout());
@@ -437,10 +427,10 @@ fn 创建后flow前置三项_存在可解析相位表在位() {
 #[test]
 fn 创建后详情读面可达且产物清单含探索条目() {
     let ws = TempWs::new("combo-detail");
-    ws.create("combo-detail", "详情组合 goal").expect("create 应 Ok");
+    ws.create("combo-detail", "详情组合 goal")
+        .expect("create 应 Ok");
 
-    let detail = crate::queries::change_detail(&ws.layout(), "combo-detail")
-        .expect("详情应可达");
+    let detail = crate::queries::change_detail(&ws.layout(), "combo-detail").expect("详情应可达");
     assert_eq!(detail.name, "combo-detail");
     assert!(
         detail
@@ -461,18 +451,17 @@ fn 创建后详情读面可达且产物清单含探索条目() {
 #[test]
 fn 创建产物与插件create_change紧凑单行形状全等() {
     let ws = TempWs::new("combo-shape");
-    ws.create("combo-shape", "形状对照 goal").expect("create 应 Ok");
+    ws.create("combo-shape", "形状对照 goal")
+        .expect("create 应 Ok");
 
-    let disk_text =
-        fs::read_to_string(ws.change_dir("combo-shape").join("workflow.json"))
-            .expect("读 workflow.json 失败");
+    let disk_text = fs::read_to_string(ws.change_dir("combo-shape").join("workflow.json"))
+        .expect("读 workflow.json 失败");
     let disk: serde_json::Value = serde_json::from_str(&disk_text).expect("磁盘文档可解析");
 
     // 插件紧凑单行 fixture（created 与磁盘文档同日；序列化差异仅空白布局）
     let created = disk["created"].as_str().expect("created 为字符串");
-    let plugin_text = format!(
-        r#"{{"workflow_type":"requirement","created":"{created}","file_log":[]}}"#
-    );
+    let plugin_text =
+        format!(r#"{{"workflow_type":"requirement","created":"{created}","file_log":[]}}"#);
     let plugin: serde_json::Value =
         serde_json::from_str(&plugin_text).expect("插件 fixture 可解析");
 

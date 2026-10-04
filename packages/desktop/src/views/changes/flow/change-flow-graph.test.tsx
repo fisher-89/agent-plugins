@@ -131,6 +131,9 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
     timestamp: null,
     backtrackTo: null,
     backtrackReason: null,
+    executorSessionId: null,
+    evaluatorSessionId: null,
+    decisionSessionId: null,
     ...overrides,
   };
 }
@@ -216,10 +219,13 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
 
     fireEvent.click(screen.getByTestId('flow-node'));
+    expect(onSelect).toHaveBeenCalledTimes(1);
     expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'eval:proposal:1' });
 
     fireEvent.click(screen.getAllByTestId('flow-column')[0]);
-    expect(onSelect).toHaveBeenCalledWith({ scope: 'column', phase: 'proposal' });
+    // 列头点击恰一次上抛（onNodeClick 不越权重复触发列头选择）
+    expect(onSelect).toHaveBeenCalledTimes(2);
+    expect(onSelect).toHaveBeenLastCalledWith({ scope: 'column', phase: 'proposal' });
   });
 
   it('空 graph（columns / nodes 为空数组）→ 渲染空画布不抛错', () => {
@@ -233,6 +239,34 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     expect(screen.getByTestId('flow-graph') !== null).toBe(true);
     expect(screen.queryByTestId('flow-column')).toBeNull();
     expect(screen.queryByTestId('flow-node')).toBeNull();
+  });
+
+  it('布局常量经列尺寸 / 节点宽度机械换算落到 DOM：列宽高、列绝对坐标、节点宽逐项可核', async () => {
+    // proposal 列 2 枚 eval + implement 列 1 枚 active：列高按列内节点数非对称换算
+    const base = detail(
+      {
+        proposal: [
+          attempt({ startAt: '2026-09-01T00:00:00Z' }),
+          attempt({ startAt: '2026-09-01T12:00:00Z' }),
+        ],
+      },
+      { activePhase: { phase: 'implement', attempt: 1, startAt: '2026-09-02T00:00:00Z' } },
+    );
+    const graph = buildFlowGraph(base);
+    renderGraph(graph, materialsFor(graph, base));
+    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(3));
+    await measureNodes();
+
+    // 列容器：宽 COL_W=260；高 = HEADER 48 + 列内节点 2 × ROW_H 128 + PAD_Y 16 = 320
+    const proposalColumn = screen.getByTestId('rf__node-col:proposal');
+    expect(proposalColumn.style.width).toBe('260px');
+    expect(proposalColumn.style.height).toBe('320px');
+    // 单节点列高 = 48 + 1 × 128 + 16 = 192（列高随列内事件数变化，非全局常量）
+    expect(screen.getByTestId('rf__node-col:implement').style.height).toBe('192px');
+    // 列绝对坐标 x = colIndex × (COL_W + GAP)：implement colIndex 3 → 840（proposal colIndex 0 恒 0 不设断言）
+    expect(screen.getByTestId('rf__node-col:implement').style.transform).toContain('840px');
+    // 事件节点宽 = COL_W − PAD_X×2 = 224
+    expect(screen.getByTestId('rf__node-eval:proposal:1').style.width).toBe('224px');
   });
 
   it('graph props 引用变化（显式 refresh 后新 graph）→ 重渲染为新节点集合，无残留旧节点', async () => {
@@ -293,6 +327,63 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
     const labels = [...document.querySelectorAll('.react-flow__edge-text')];
     expect(labels).toHaveLength(1);
     expect(labels[0].textContent).toBe('设计未对齐提案');
+    // 边样式按 kind 分流：回跳边 warn 虚线、前进边 border 实线
+    const paths = [...document.querySelectorAll<SVGPathElement>('.react-flow__edge-path')];
+    expect(paths).toHaveLength(2);
+    const warnPaths = paths.filter((path) =>
+      (path.getAttribute('style') ?? '').includes('var(--warn)'),
+    );
+    const borderPaths = paths.filter((path) =>
+      (path.getAttribute('style') ?? '').includes('var(--border)'),
+    );
+    expect(warnPaths).toHaveLength(1);
+    expect(borderPaths).toHaveLength(1);
+    expect(warnPaths[0]?.getAttribute('style')).toContain('6 4');
+    expect(borderPaths[0]?.getAttribute('style')).not.toContain('6 4');
+    // 边标签着色随 warn 词汇（文本与底色两层）
+    expect(labels[0]?.getAttribute('style') ?? '').toContain('var(--warn)');
+    const labelBg = document.querySelector<SVGRectElement>('.react-flow__edge-textbg');
+    expect(labelBg?.getAttribute('style') ?? '').toContain('var(--warn-bg)');
+  });
+
+  it('graph.edges 变化的重渲染 → 边集随新图重建（边 memo 依赖不悬空）', async () => {
+    const withBacktrack = detail(
+      {
+        proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })],
+        'dev-design': [
+          attempt({
+            startAt: '2026-09-03T00:00:00Z',
+            backtrackTo: 'proposal',
+            backtrackReason: '设计未对齐提案',
+          }),
+        ],
+      },
+      {
+        interrupted: [
+          { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z', endAt: null },
+        ],
+      },
+    );
+    const firstGraph = buildFlowGraph(withBacktrack);
+    const { rerender } = renderGraph(firstGraph, materialsFor(firstGraph, withBacktrack));
+    await measureNodes();
+    await waitFor(() =>
+      expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(firstGraph.edges.length),
+    );
+    expect(firstGraph.edges).toHaveLength(2);
+
+    // 新图无边集 → DOM 边随新图归零（陈旧 memo 不残留旧边）
+    const plain = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+    const secondGraph = buildFlowGraph(plain);
+    expect(secondGraph.edges).toHaveLength(0);
+    rerender(
+      <ChangeFlowGraph
+        graph={secondGraph}
+        materials={materialsFor(secondGraph, plain)}
+        onSelect={() => {}}
+      />,
+    );
+    await waitFor(() => expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(0));
   });
 });
 
@@ -378,5 +469,71 @@ describe('ChangeFlowGraph：runStep 运行步节点上图（overlay 加法回归
     // 加法分支：运行步节点共用同一抽屉入口
     fireEvent.click(screen.getByTestId('rf__node-run:dev-design:1:evaluator'));
     expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'run:dev-design:1:evaluator' });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 「查看会话」入口注入（desktop-change-session-visibility，AC-8）：toChartNodes
+// 仅对 kind==='runtime' && group==='workerAgent' 节点注入 data.onOpenSession
+//（上抛与节点点击同一 DrawerSelection——打开同一抽屉转录联动，无独立会话
+// route）；ToolStep / Gate 节点 data 无 onOpenSession 键不渲染按钮。
+// ---------------------------------------------------------------------------
+
+describe('ChangeFlowGraph：查看会话入口注入（AC-8）', () => {
+  it('workerAgent 运行节点渲染 view-session 按钮；点击 → onSelect 与节点点击同参（打开同一抽屉）', async () => {
+    const onSelect = vi.fn();
+    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+    const graph = buildFlowGraph(base, [runNode()]);
+    renderGraph(graph, materialsFor(graph, base), onSelect);
+
+    const running = await waitFor(() =>
+      within(screen.getByTestId('rf__node-run:implement:1:executor')).getByTestId('view-session'),
+    );
+    expect(running.textContent).toBe('查看会话');
+
+    fireEvent.click(running);
+    // 与节点点击同一 DrawerSelection（同一 onSelect 载荷）
+    expect(onSelect).toHaveBeenCalledTimes(1);
+    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'run:implement:1:executor' });
+  });
+
+  it('toolStep / gate 节点 data 无 onOpenSession 键：不渲染 view-session 按钮', async () => {
+    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+    const graph = buildFlowGraph(base, [
+      runNode({
+        id: 'run:implement:1:staticCheck',
+        runStepKind: 'staticCheck',
+        group: 'toolStep',
+        role: null,
+        sessionId: null,
+        status: 'failed',
+      }),
+      runNode({
+        id: 'run:implement:1:verdictGate',
+        runStepKind: 'verdictGate',
+        group: 'gate',
+        role: null,
+        sessionId: null,
+        status: 'passed',
+      }),
+    ]);
+    renderGraph(graph, materialsFor(graph, base));
+
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    expect(screen.queryByTestId('view-session')).toBeNull();
+  });
+
+  it('注入后图结构逐项不变：节点集 / 边集与同 overlay 重建图一致（图结构零触达）', async () => {
+    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+    const graph = buildFlowGraph(base, [runNode()]);
+    renderGraph(graph, materialsFor(graph, base));
+
+    // 注入不增删节点：列 9 + 事件节点 1 + 运行步节点 1
+    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
+    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
+    expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
+    // 边集零触达：与同 overlay 输入的重建图逐 id 一致（onOpenSession 注入不产边）
+    const rebuilt = buildFlowGraph(base, [runNode()]);
+    expect(graph.edges.map((edge) => edge.id)).toEqual(rebuilt.edges.map((edge) => edge.id));
   });
 });

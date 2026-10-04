@@ -8,7 +8,7 @@ import { AgentRawStream } from './components/agent-raw-stream';
 import { AgentRunForm, type AgentStartInput } from './components/agent-run-form';
 import { AgentRunHistory } from './components/agent-run-history';
 import { useAgentOptions } from './hooks/use-agent-options';
-import { useAgentRunHistory } from './hooks/use-agent-run-history';
+import { useAgentRunHistory, type AgentHistorySource } from './hooks/use-agent-run-history';
 
 export interface AgentDebugViewProps {
   /** 当前 workspace root（cwd 隐含来源）；null 即未选定 workspace */
@@ -71,7 +71,8 @@ function RunErrorBanner({ error }: { error: string }): React.JSX.Element {
  * Agent 调试页
  */
 export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element {
-  const history = useAgentRunHistory(root);
+  const [source, setSource] = useState<AgentHistorySource>('debug');
+  const history = useAgentRunHistory(root, source);
   const agentOptions = useAgentOptions();
   const [showRaw, setShowRaw] = useState(false);
   const session = useAgentChat({ source: 'debug', sourceRef: null, root });
@@ -106,7 +107,7 @@ export function AgentDebugView({ root }: AgentDebugViewProps): React.JSX.Element
       ) : (
         <AgentTimeline messages={session.messages} running={session.running} />
       )}
-      <AgentRunHistory state={history} />
+      <AgentRunHistory state={history} source={source} onSourceChange={setSource} />
     </div>
   );
 }

@@ -1,7 +1,11 @@
 //! `write::phase_log` 的单元测试（test-design「phase_log.rs ->
 //! phase_log_test.rs」节）：verdict 推导（checklist 全 pass）、skipped 约束、
 //! report 长度门、纯追加落账（W9 缺陷修复回归——backtrack 回跳后同相位重评
-//! 逐条 append）、start_at 自 `active_phase` 继承、落账后清 `active_phase`。
+//! 逐条 append）、start_at 自 `active_phase` 继承、落账后清 `active_phase`；
+//! 会话槽位显式在位落账（AC-4）——仅 `Some` 槽位以 raw snake_case 键 insert
+//!（`executor_session_id` / `evaluator_session_id` / `decision_session_id`），
+//! 缺省槽位不产生键（条目形状与既有形态一致），落账产物经宽松解析面读回
+//! 三槽位值逐字还原。
 //!
 //! Mock策略：无进程边界 mock（fs 真实组合）——tempdir 真实 change fixture
 //! 真盘（含 backtrack 后形态 fixture 供缺陷回归行驱动）；「零写入」以调用
@@ -20,6 +24,7 @@ use foundation::layout::resolve;
 
 use super::phase_log::{phase_log, PhaseLogInput};
 use crate::model::ChecklistItem;
+use crate::parse::{parse_workflow_file, WorkflowFileParse};
 
 /// 临时 workspace 根 RAII（沿 detail_test 装置先例）。
 struct TempWs(PathBuf);
@@ -144,6 +149,9 @@ fn pass落账条目齐全且active_phase清除() {
                 report: "设计与任务拆解齐备".to_owned(),
                 checklist: pass_items(2),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect("落账应成功");
@@ -200,6 +208,9 @@ fn fail落账verdict推导为fail() {
                 report: "首轮未过".to_owned(),
                 checklist: with_fail_item(pass_items(1)),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect("落账应成功");
@@ -241,6 +252,9 @@ fn 纯追加回归_既有pass条目在场仍追加新条目() {
                 report: "回跳后重评通过".to_owned(),
                 checklist: pass_items(2),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect("回跳后重评应照常落账");
@@ -286,6 +300,9 @@ fn attempt推导含stale_pass_fail混合历史() {
                 report: "第四轮".to_owned(),
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect("落账应成功");
@@ -322,6 +339,9 @@ fn report恰500字符落账成功() {
                 report,
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect("恰 500 字符应落账成功（边界含端点）");
@@ -354,6 +374,9 @@ fn report超长501拒绝且eval零新增() {
                 report: "评".repeat(501),
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect_err("501 字符应 Err");
@@ -376,10 +399,7 @@ fn report超长501拒绝且eval零新增() {
 fn skipped形态落盘且约束两面各就位() {
     // 合法形态：skipped=true + 全 pass 清单
     let ws = TempWs::new("skipped-ok");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_TEST_GEN)),
-    );
+    ws.change(CHANGE, fixture_with_active_phase("", Some(ACTIVE_TEST_GEN)));
     let outcome = ws
         .log(
             CHANGE,
@@ -388,6 +408,9 @@ fn skipped形态落盘且约束两面各就位() {
                 report: "相位跳过".to_owned(),
                 checklist: pass_items(1),
                 skipped: true,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect("skipped=true 配 pass 清单不误拒");
@@ -402,10 +425,7 @@ fn skipped形态落盘且约束两面各就位() {
 
     // 约束另一面：skipped=true + 含 fail 项 → Err 零写入
     let ws_fail = TempWs::new("skipped-fail");
-    ws_fail.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_TEST_GEN)),
-    );
+    ws_fail.change(CHANGE, fixture_with_active_phase("", Some(ACTIVE_TEST_GEN)));
     let before = ws_fail.workflow_json_bytes(CHANGE);
     let err = ws_fail
         .log(
@@ -415,6 +435,9 @@ fn skipped形态落盘且约束两面各就位() {
                 report: "跳过但清单未过".to_owned(),
                 checklist: with_fail_item(Vec::new()),
                 skipped: true,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect_err("skipped=true 配 fail 清单应 Err");
@@ -456,6 +479,9 @@ fn 落账保形_file_log零触碰_pretty可再读() {
             report: "通过".to_owned(),
             checklist: pass_items(1),
             skipped: false,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
         },
     )
     .expect("落账应成功");
@@ -497,6 +523,9 @@ fn 无active_phase落账显式拒绝零写入() {
                 report: "无运行态落账".to_owned(),
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect_err("无 active_phase 应 Err（开相前置）");
@@ -513,10 +542,7 @@ fn 无active_phase落账显式拒绝零写入() {
 #[test]
 fn active_phase停留他相落账拒绝零写入() {
     let ws = TempWs::new("stale-active");
-    ws.change(
-        CHANGE,
-        fixture_with_active_phase("", Some(ACTIVE_PROPOSAL)),
-    );
+    ws.change(CHANGE, fixture_with_active_phase("", Some(ACTIVE_PROPOSAL)));
     let before = ws.workflow_json_bytes(CHANGE);
 
     let err = ws
@@ -527,6 +553,9 @@ fn active_phase停留他相落账拒绝零写入() {
                 report: "跨相落账".to_owned(),
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect_err("active_phase 停留 proposal 时落 dev-design 应 Err");
@@ -557,6 +586,9 @@ fn 非法相位落账拒绝零写入() {
                 report: "表外相位".to_owned(),
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect_err("表外相位应 Err");
@@ -586,6 +618,9 @@ fn workflow_type非requirement拒绝零写入() {
                 report: "任意".to_owned(),
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect_err("非 requirement 应 Err");
@@ -605,8 +640,253 @@ fn change不存在显式err() {
                 report: "任意".to_owned(),
                 checklist: pass_items(1),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         )
         .expect_err("未知 change 应 Err");
     assert!(!err.is_empty(), "Err 显式，实际: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// 会话槽位显式在位落账（AC-4）：仅 Some 槽位以 raw snake_case 键 insert，
+// 缺省槽位不产生键；宽松解析面读回逐字还原
+// ---------------------------------------------------------------------------
+
+/// 双槽位（executor + evaluator，decision None）落账：两 raw 键在场、值逐字
+/// 透传（写面不解释不改写），`decision_session_id` 键不在场。
+#[test]
+fn 双槽位显式在位落账_raw键逐字透传且decision键不在场() {
+    let ws = TempWs::new("slots-dual");
+    ws.change(
+        CHANGE,
+        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
+    );
+
+    ws.log(
+        CHANGE,
+        &PhaseLogInput {
+            phase: "dev-design".to_owned(),
+            report: "双槽位落账".to_owned(),
+            checklist: pass_items(1),
+            skipped: false,
+            executor_session_id: Some("ses-exec-1".to_owned()),
+            evaluator_session_id: Some("ses-eval-1".to_owned()),
+            decision_session_id: None,
+        },
+    )
+    .expect("落账应成功");
+
+    let entry = &parse_of(&ws, CHANGE)["eval"][0];
+    assert_eq!(
+        entry["executor_session_id"],
+        serde_json::json!("ses-exec-1"),
+        "raw snake_case 键、值逐字透传"
+    );
+    assert_eq!(
+        entry["evaluator_session_id"],
+        serde_json::json!("ses-eval-1")
+    );
+    assert!(
+        entry.get("decision_session_id").is_none(),
+        "decision 槽位不走本输入（归 decision_log 单点挂账），缺省不产生键"
+    );
+}
+
+/// 仅 executor 槽位（static-check 升格 fail 形态）：仅 `executor_session_id`
+/// 单键在场，其余两键不产生。
+#[test]
+fn 仅executor槽位落账单键在场() {
+    let ws = TempWs::new("slot-executor-only");
+    ws.change(
+        CHANGE,
+        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
+    );
+
+    ws.log(
+        CHANGE,
+        &PhaseLogInput {
+            phase: "dev-design".to_owned(),
+            report: "升格 fail".to_owned(),
+            checklist: with_fail_item(Vec::new()),
+            skipped: false,
+            executor_session_id: Some("ses-exec-2".to_owned()),
+            evaluator_session_id: None,
+            decision_session_id: None,
+        },
+    )
+    .expect("落账应成功");
+
+    let entry = &parse_of(&ws, CHANGE)["eval"][0];
+    assert_eq!(entry["verdict"], serde_json::json!("fail"));
+    assert_eq!(
+        entry["executor_session_id"],
+        serde_json::json!("ses-exec-2"),
+        "仅 executor 单键在场"
+    );
+    assert!(entry.get("evaluator_session_id").is_none());
+    assert!(entry.get("decision_session_id").is_none());
+}
+
+/// 三槽位全 None：条目形状与既有形态逐字段一致（零新键——显式在位纪律使
+/// 「缺省槽位条目与既有形态一致」静态保证）。
+#[test]
+fn 三槽位全none落账零新键_条目形状与既有形态一致() {
+    let ws = TempWs::new("slots-none");
+    ws.change(
+        CHANGE,
+        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
+    );
+
+    ws.log(
+        CHANGE,
+        &PhaseLogInput {
+            phase: "dev-design".to_owned(),
+            report: "无槽位形态".to_owned(),
+            checklist: pass_items(1),
+            skipped: false,
+            executor_session_id: None,
+            evaluator_session_id: None,
+            decision_session_id: None,
+        },
+    )
+    .expect("落账应成功");
+
+    let entry = &parse_of(&ws, CHANGE)["eval"][0];
+    let keys: Vec<&str> = entry
+        .as_object()
+        .expect("条目对象")
+        .keys()
+        .map(String::as_str)
+        .collect();
+    for key in &keys {
+        assert!(
+            !key.ends_with("_session_id"),
+            "零会话槽位新键，实际含: {key}"
+        );
+    }
+    // 条目形状与既有形态一致（phase / attempt / verdict / report / checklist /
+    // timestamp / start_at 七键）
+    assert_eq!(keys.len(), 7, "条目键集与既有形态一致: {keys:?}");
+}
+
+/// 旧 workflow.json（eval 条目无槽位键）在场时落新条目：全文件经宽松解析不
+/// 报错（`PhaseLog` `#[serde(default)]` 读兼容——旧条目槽位字段 None）；旧
+/// 条目原样、未知字段保形、file_log 零触碰。
+#[test]
+fn 旧workflow无槽位键条目在场落新条目宽松解析不报错() {
+    let ws = TempWs::new("legacy-compat");
+    ws.change(
+        CHANGE,
+        r#"{
+  "workflow_type": "requirement",
+  "created": "2026-03-03",
+  "custom_note": "保留我",
+  "file_log": [
+    { "op": "write", "scope": "workflow", "path": "a.md", "at": "2026-10-01T07:00:00Z" }
+  ],
+  "eval": [
+    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "旧形态条目", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" }
+  ],
+  "active_phase": { "phase": "dev-design", "attempt": 1, "start_at": "2026-10-01T08:15:00Z" }
+}"#,
+    );
+
+    ws.log(
+        CHANGE,
+        &PhaseLogInput {
+            phase: "dev-design".to_owned(),
+            report: "新条目携槽位".to_owned(),
+            checklist: pass_items(1),
+            skipped: false,
+            executor_session_id: Some("ses-exec-3".to_owned()),
+            evaluator_session_id: Some("ses-eval-3".to_owned()),
+            decision_session_id: None,
+        },
+    )
+    .expect("旧文件在场落新条目应成功");
+
+    let doc = parse_of(&ws, CHANGE);
+    assert_eq!(doc["eval"].as_array().map(Vec::len), Some(2), "纯追加");
+    // 旧条目原样（无槽位键、未知字段保留）
+    assert_eq!(doc["eval"][0]["report"], serde_json::json!("旧形态条目"));
+    assert!(doc["eval"][0].get("executor_session_id").is_none());
+    assert_eq!(doc["custom_note"], serde_json::json!("保留我"));
+    assert_eq!(doc["file_log"].as_array().map(Vec::len), Some(1));
+
+    // 全文件经宽松解析面读回不报错：旧条目槽位字段 None
+    let path =
+        ws.0.join("openspec/changes")
+            .join(CHANGE)
+            .join("workflow.json");
+    let typed = match parse_workflow_file(&path) {
+        WorkflowFileParse::Parsed(workflow) => workflow,
+        WorkflowFileParse::Unparsable { reason } => {
+            panic!("旧文件落新条目后应可宽松解析: {reason}")
+        }
+    };
+    assert_eq!(typed.eval.len(), 2);
+    assert_eq!(
+        typed.eval[0].executor_session_id, None,
+        "旧条目槽位字段 None（#[serde(default)] 读兼容）"
+    );
+    assert_eq!(typed.eval[0].evaluator_session_id, None);
+    assert_eq!(typed.eval[0].decision_session_id, None);
+    assert_eq!(
+        typed.eval[1].executor_session_id.as_deref(),
+        Some("ses-exec-3"),
+        "新条目槽位承接"
+    );
+}
+
+/// 落账产物经宽松解析面（`workflow::parse::parse_workflow_file`）读回：三槽
+/// 位值逐字还原（alias 承接 snake_case 磁盘键——「serde 写出仍可被插件解析
+/// 面读取」的 desktop 侧机械证明）。
+#[test]
+fn 落账产物经宽松解析面读回三槽位值逐字还原() {
+    let ws = TempWs::new("slots-roundtrip");
+    ws.change(
+        CHANGE,
+        fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
+    );
+
+    ws.log(
+        CHANGE,
+        &PhaseLogInput {
+            phase: "dev-design".to_owned(),
+            report: "三槽位往返".to_owned(),
+            checklist: pass_items(1),
+            skipped: false,
+            executor_session_id: Some("ses-1-1727000000001".to_owned()),
+            evaluator_session_id: Some("ses-2-1727000000002".to_owned()),
+            decision_session_id: Some("ses-3-1727000000003".to_owned()),
+        },
+    )
+    .expect("落账应成功");
+
+    let path =
+        ws.0.join("openspec/changes")
+            .join(CHANGE)
+            .join("workflow.json");
+    let typed = match parse_workflow_file(&path) {
+        WorkflowFileParse::Parsed(workflow) => workflow,
+        WorkflowFileParse::Unparsable { reason } => {
+            panic!("落账产物应可经宽松解析面读回: {reason}")
+        }
+    };
+    let entry = typed.eval.last().expect("新条目在场");
+    assert_eq!(
+        entry.executor_session_id.as_deref(),
+        Some("ses-1-1727000000001"),
+        "alias 承接 snake_case 磁盘键、值逐字还原"
+    );
+    assert_eq!(
+        entry.evaluator_session_id.as_deref(),
+        Some("ses-2-1727000000002")
+    );
+    assert_eq!(
+        entry.decision_session_id.as_deref(),
+        Some("ses-3-1727000000003")
+    );
 }

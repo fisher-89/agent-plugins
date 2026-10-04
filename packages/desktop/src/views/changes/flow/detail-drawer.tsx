@@ -46,9 +46,7 @@ interface DetailDrawerProps {
 }
 
 /**
- * 选中对象 → 会话转录联动反查键组：WorkerAgent 运行节点取其 role × attempt；
- * eval 节点取该 attempt 的 executor + evaluator 双会话；其余选中为空
- *（不渲染转录区）。
+ * 选中对象 → 会话转录联动寻址键组
  */
 function selectionRoleRefs(
   selection: DrawerSelection,
@@ -61,6 +59,7 @@ function selectionRoleRefs(
     return [
       {
         role: node.role,
+        sessionId: node.sessionId,
         sourceRef: `${change}/${node.phase}/${node.role}/${node.attempt}`,
       },
     ];
@@ -68,11 +67,24 @@ function selectionRoleRefs(
   if (node.kind === 'eval') {
     const attempt = node.record.attempt;
     if (attempt === null) return [];
-    const roles = ['executor', 'evaluator'] as const;
-    return roles.map((role) => ({
-      role,
-      sourceRef: `${change}/${node.phase}/${role}/${attempt}`,
-    }));
+    return [
+      {
+        role: 'executor',
+        sessionId: node.record.executorSessionId ?? null,
+        sourceRef: `${change}/${node.phase}/executor/${attempt}`,
+      },
+      {
+        role: 'evaluator',
+        sessionId: node.record.evaluatorSessionId ?? null,
+        sourceRef: `${change}/${node.phase}/evaluator/${attempt}`,
+      },
+      {
+        role: 'decision',
+        sessionId: node.record.decisionSessionId ?? null,
+        // decision 槽位缺席即双 null → 空态（不误挂他 attempt 会话）
+        sourceRef: null,
+      },
+    ];
   }
   return [];
 }

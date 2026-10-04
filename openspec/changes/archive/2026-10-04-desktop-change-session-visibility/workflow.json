@@ -1,0 +1,910 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-10-03",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/port.rs",
+      "at": "2026-10-03T09:41:08.024Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/store_port.rs",
+      "at": "2026-10-03T09:41:17.980Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod.rs",
+      "at": "2026-10-03T09:41:37.650Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/mod.rs",
+      "at": "2026-10-03T09:41:41.419Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/model/workflow.rs",
+      "at": "2026-10-03T09:41:58.459Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_log.rs",
+      "at": "2026-10-03T09:42:15.266Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/decision_log.rs",
+      "at": "2026-10-03T09:42:27.327Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/mod.rs",
+      "at": "2026-10-03T09:42:40.095Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/port.rs",
+      "at": "2026-10-03T09:42:59.699Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/steps.rs",
+      "at": "2026-10-03T09:43:05.020Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker.rs",
+      "at": "2026-10-03T09:44:46.758Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail.rs",
+      "at": "2026-10-03T09:45:21.331Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v3-a/proposal.md",
+      "at": "2026-10-03T09:46:26.976Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/v3-a/tasks.md",
+      "at": "2026-10-03T09:46:28.505Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/fixtures/README.md",
+      "at": "2026-10-03T09:46:34.761Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/tests/corpus_golden_test.rs",
+      "at": "2026-10-03T09:46:45.577Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.ts",
+      "at": "2026-10-03T09:48:03.070Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.tsx",
+      "at": "2026-10-03T09:48:10.492Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-run-history.tsx",
+      "at": "2026-10-03T09:55:41.241Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/types.ts",
+      "at": "2026-10-03T09:48:39.320Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-session-transcript.ts",
+      "at": "2026-10-03T09:54:32.170Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/detail-drawer.tsx",
+      "at": "2026-10-03T09:49:18.047Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/session-transcript-panel.tsx",
+      "at": "2026-10-03T09:49:50.153Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/run-step-node.tsx",
+      "at": "2026-10-03T09:50:01.907Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/change-flow-graph.tsx",
+      "at": "2026-10-03T09:50:08.987Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-change-detail.test.ts",
+      "at": "2026-10-03T09:52:18.818Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-run-history.test.tsx",
+      "at": "2026-10-03T09:52:48.207Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/session-transcript-panel.test.tsx",
+      "at": "2026-10-03T09:53:02.878Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-session-transcript.test.ts",
+      "at": "2026-10-03T09:53:15.061Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/agent/src/port_test.rs",
+      "at": "2026-10-03T10:19:55.027Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/store_port_test.rs",
+      "at": "2026-10-03T10:20:25.757Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/exec/mod_test.rs",
+      "at": "2026-10-03T10:21:52.686Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/bindings/mod_test.rs",
+      "at": "2026-10-03T10:22:28.321Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/decision_log_test.rs",
+      "at": "2026-10-03T10:38:02.034Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/write/phase_log_test.rs",
+      "at": "2026-10-03T10:34:06.944Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/queries/detail_test.rs",
+      "at": "2026-10-03T10:27:39.043Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/walker_test.rs",
+      "at": "2026-10-03T10:40:30.594Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+      "at": "2026-10-03T10:53:06.542Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/workflow/src/artifacts/eval_checklist_test.rs",
+      "at": "2026-10-03T10:33:56.704Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/core/orchestration/src/port_test.rs",
+      "at": "2026-10-03T10:35:44.372Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/components/agent-run-history.test.tsx",
+      "at": "2026-10-03T10:37:26.983Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "{",
+      "at": "2026-10-03T10:38:01.058Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agent/agent-debug-view.test.tsx",
+      "at": "2026-10-03T10:39:11.991Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/hooks/use-session-transcript.test.ts",
+      "at": "2026-10-03T10:49:31.771Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/detail-drawer.test.tsx",
+      "at": "2026-10-03T10:53:10.010Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/run-step-node.test.tsx",
+      "at": "2026-10-03T10:49:46.189Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/change-flow-graph.test.tsx",
+      "at": "2026-10-03T10:49:52.140Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/flow/session-transcript-panel.test.tsx",
+      "at": "2026-10-03T10:49:25.363Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/changes/change-detail-view.test.tsx",
+      "at": "2026-10-03T10:50:55.578Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/changes/hooks/use-session-transcript.test.ts",
+      "at": "2026-10-03T12:08:29.745Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/changes/flow/session-transcript-panel.test.tsx",
+      "at": "2026-10-03T12:05:44.522Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/agent/components/agent-run-history.test.tsx",
+      "at": "2026-10-03T12:04:40.188Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/agent/hooks/use-agent-run-history.test.ts",
+      "at": "2026-10-03T12:15:11.195Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/changes/flow/detail-drawer.test.tsx",
+      "at": "2026-10-03T12:06:40.258Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/changes/flow/change-flow-graph.test.tsx",
+      "at": "2026-10-03T12:07:43.021Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/changes/flow/__debug_dom.test.tsx",
+      "at": "2026-10-03T11:42:04.778Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/stryker-scoped.log",
+      "at": "2026-10-03T12:23:59.502Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "packages/desktop/src/views/changes/flow/run-step-node.test.tsx",
+      "at": "2026-10-03T12:07:58.713Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "stryker-scoped.log",
+      "at": "2026-10-03T12:14:20.540Z"
+    },
+    {
+      "op": "delete",
+      "scope": "test-gen",
+      "attempt": 2,
+      "path": "SilentlyContinue",
+      "at": "2026-10-03T12:23:59.502Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 pass. 问题节列三缺口含文件级证据 (L13-15: SessionQuery 无单查面 / use-agent-run-history.ts 硬编码 'debug' / sourceRef 反查歧义致 decision 不可达)。变更范围实现/测试/不要修改三节齐备且非空 (L50-91)。5 风险均有具体缓解 (L117-121: fixture 对照+坐实回退、design 三方案、AC-9 diff 留痕)。AC-1~11 均对象+条件可测 (L99-109)。6 决策均含理由+被拒备选 (L129-136)。修改能力 5 条 ↔ specs/ 5 目录 1:1；无 TODO/placeholder/{{；AC-4~9 与 spec scenarios 逐条互证；golden 冻结为显式突破 (L25/L135) 有 backtrack 先例，与项目约束一致。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "L11-15 三个具体缺口：SessionQuery 契约只有清单与转录两员无单查面；use-agent-run-history.ts 硬编码 source='debug'；eval 条目不记 session id、decision 会话不可达。均为具体描述非泛泛改进。"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "L50-66 实现文件 15 条（port.rs/store_port.rs/commands/walker.rs/detail.rs/bindings.ts/前端组件/package.json）；L68-77 测试文件 8 条；L83-91 不要修改 7 条。均非空。"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "L117-121 每条风险有具体缓解：golden diff→显式再生成+人工确认清单作 AC-9 证据；插件解析面 strict 风险→backtrack 先例+AC-4 fixture 对照+坐实则回退 desktop-only 另立 change；decision 时机→三方案 design 定稿+空态保底。无泛化'监控并调整'。"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~11 (L99-109) 均为对象+条件：AC-1 不存在 id 显式 Err/blank root 空结果+port/store_port 测试；AC-4 旧文件读解析不报错+fixture 对照绿；AC-6 三值 null 不报错+diff 守卫绿；AC-9 至少一个含槽位样本+DESKTOP_GOLDEN_REWRITE=1 再生成复核。"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "L129-136 决策表 6 行均含理由+被拒备选：Q1 拒独立 route（第二套交互面）；Q2 拒详情页另建清单面板；Q3 拒纯反查约定（decision 永久不可达）；Q4 拒 agent_sessions 加 id 参数（清单语义污染）；golden 拒不动 schema；Err 拒空态（需前端再辨语义）。"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "无 test-only export；surgical 范围（store schema 零变更、复用 AgentTimeline 不建第二套）；desktop 0.4.3→0.4.4 用户可见变更才 bump 符合项目口径；golden 冻结约束以显式再生成流程行使（L135 '冻结的动机由显式行为条款继续守护'），非静默矛盾。"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "grep TODO|TBD|placeholder|{{ 于变更目录：无匹配。待决问题 (L140-143) 均为带具体选项的 design 定稿路由，非占位符（沿既有评估口径）。"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题 (L9-15)、提案 (L19-28)、变更范围 (L48-91)、验收标准 (L95-109)、风险 (L113-121) 均为实质性内容，无空段或模板残留。"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "L32-44 ## 能力存在；### 新增能力 显式'无'（全为既有能力增强，沿既有评估口径不算缺口）；### 修改的能力 列 5 条：desktop-agent-execution / desktop-workflow-write-face / desktop-change-queries / desktop-change-flow-view / desktop-corpus-regression。"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 下恰 5 个 spec.md，与修改能力 5 条 1:1：desktop-agent-execution、desktop-workflow-write-face、desktop-change-queries、desktop-change-flow-view、desktop-corpus-regression；无多余 spec 文件；5 个能力均存在于 openspec/specs/ 既有面。"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "交叉验证一致：AC-4↔write-face scenarios（槽位随行落账/缺省不产键/旧文件兼容）；AC-6↔queries（三槽位透出/null 降级/bindings 守卫）；AC-7/8↔flow-view（直查优先+反查兜底/三 tab 空态不虚构）；AC-9↔corpus（显式再生成+人工 diff+样本零改写）；Err 语义 (L136)↔agent-execution '查无此 id 显式失败' scenario；decision 时机双侧均留 design 定稿；修改能力下 ADDED requirement 沿既有口径不算缺口。"
+        }
+      ],
+      "start_at": "2026-10-03T08:27:20.034Z",
+      "timestamp": "2026-10-03T08:40:23.946Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "dev-design D1-D10 全部通过。架构组件（21 行）/数据模型（4 模型）/路由API/依赖/待决章节实质填写；AC-1..11 逐条映射设计落点无缺漏；tasks.md 九阶段按依赖排序、全部 - [ ]，任务具体到签名与锚点；无测试策略章节、无测试执行任务（测试面显式移交测试轨道）；变更清单与 proposal 实现文件及 tasks 双向一致（lib.rs 登记点经核实修正为 all_commands! 宏并留痕，package.json 归档轨道口径一致）。verdict=pass。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表 21 行，职责/文件位置/依赖/技术四列全填、无 TBD；路径均为具体文件（如 crates/core/agent/src/port.rs、write/decision_log.rs、use-agent-run-history.ts）；fixture 行依赖为「—」（静态 JSON 无依赖，非 TBD）"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型表 4 模型（PhaseLog 磁盘形状/AttemptRecord 线面/会话域/SessionSummary），每行字段、关系、持久化三列齐全，附 golden 预期 diff 清单"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 每个验收标准",
+          "pass": true,
+          "evidence": "「验收标准对齐」AC-1..AC-11 逐条映射至 D1-D11 与阶段一..九；AC-10 静态面入设计、测试执行面明确移交 test-execution；AC-11 归档轨道与 proposal 口径一致，交叉验证无缺漏"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "tasks.md 存在且全为 - [ ]；阶段一→九按依赖排列（契约→命令→写面→walker→DTO/bindings→语料→前端→守线）；阶段二依赖阶段一、阶段四依赖阶段三、阶段五依赖阶段二+五、阶段八依赖阶段五 bindings，无前向依赖"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "每任务含具体签名（find_session_detail/decision_log/session_detail）、精确锚点（all_commands! 追加位置、serde alias 属性、data-testid history-source-filter/view-session）与显式零改动面，非泛化「实现功能」"
+        },
+        {
+          "item": "D6 依赖项（运行时和构建/测试）已列出",
+          "pass": true,
+          "evidence": "依赖节分运行时/构建测试两部分，均明确「无新增」并列出所依托的既有工具链（server:check、client:check、bindings:export、DESKTOP_GOLDEN_REWRITE、cargo workspace 注册零触达）"
+        },
+        {
+          "item": "D7 设计与项目架构一致（CLAUDE.md）",
+          "pass": true,
+          "evidence": "knip 零新增豁免、无 test-only 导出、desktop 版本按用户可见变更 bump（0.4.3→0.4.4）、插件侧零触达、TS 工具链沿 vp；golden 重写走 proposal 显式声明的 DESKTOP_GOLDEN_REWRITE 流程并人工 diff 留痕，非静默重写"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件、变更清单（新增 5 文件+修改 20+ 文件均非空）、数据模型、路由/API 设计（IPC 面）、依赖、待决问题六章节均实质填写；路由 API 节含新命令与既有命令零收窄声明"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design.md 无测试策略/测试架构章节，测试文件全部显式移交 test-design/test-gen/test-execution；tasks.md 仅含静态检查（server:check/client:check）与 golden 人工 diff 确认，不含单元/集成测试任务"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "清单覆盖 proposal 实现文件全部条目（lib.rs 登记点经核实修正为 commands/mod.rs 的 all_commands! 宏并双向留痕；package.json 归档轨道两处一致标注）；tasks 引用文件与清单双向一致；新增函数 decision_log/session_detail/find_session_detail 均列公共函数表、DecisionLogOutcome 列类型表，子表无矛盾"
+        }
+      ],
+      "start_at": "2026-10-03T08:41:18.729Z",
+      "timestamp": "2026-10-03T09:12:19.812Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "T1–T9 全过。AC-1~11 逐条映射验收范围（AC-10/11 路由不可测试项 1/2 并给因）；17 个「源->测试」章节与验收范围双向无缺；新增错误面均有异常用例（单查 Err 三处、decision_log 无条目/无 change 双 Err、挂账失败、直查 reject 不回退），参数边界系统化（空 session_id、blank root、三槽位 None/partial/全Some、枚举三值、tab key 回退链）；Mock 均为进程边界（redb/workflow.json/IPC/bindings.ts/运行环境垫片）或注入依赖，无仓库内模块 vi.mock；decision_log 同值二连写幂等、bindings 双导出逐字节一致；章节结构与表列名均合模板。",
+      "checklist": [
+        {
+          "item": "T1 proposal AC 全映射",
+          "pass": true,
+          "evidence": "proposal AC-1~11 逐条在 test-design.md 验收范围有行；AC-1/2/3/5/7/8 以「同上——半边」拆行补齐双半边；AC-10/11 以「—（见不可测试项 1/2）」映射且不可测试项给因"
+        },
+        {
+          "item": "T2 验收范围与单元测试双向对应",
+          "pass": true,
+          "evidence": "验收范围 17 个测试文件（port/store_port/exec mod/bindings/decision_log/phase_log/walker/detail/corpus_golden/use-agent-run-history/agent-debug-view/agent-run-history/use-session-transcript/detail-drawer/session-transcript-panel/run-step-node/change-flow-graph）与 17 个 ### 源->测试 章节一一对应，双向无缺失"
+        },
+        {
+          "item": "T3 异常与边界覆盖充分",
+          "pass": true,
+          "evidence": "异常：find_session_detail Err（port/store_port/exec 三处）、decision_log 无条目与 change 不存在双 Err、walker fail_on 挂账失败、直查 reject 不回退反查（use-session-transcript/session-transcript-panel）；边界：空 session_id、blank root、三槽位 None/partial/全Some、AgentHistorySource 三枚举值齐、tab key 回退链、跨 workspace 隔离；无异常行章节（bindings 断言清单/DTO 直读/语料/UI 按钮注入）变更面无错误语义，降级 null 与错误态锚点已由对应行覆盖"
+        },
+        {
+          "item": "T4 外部依赖 Mock 策略",
+          "pass": true,
+          "evidence": "redb 库（tempdir 真库）、workflow.json（TempWs/TempRoot 真盘）、bindings.ts 产物、fixtures/golden 语料、tauri IPC（invokeMock）、tauri MockRuntime 运行环境均有 Mock策略表逐节声明"
+        },
+        {
+          "item": "T5 模板章节实质填写",
+          "pass": true,
+          "evidence": "验收范围（17 行实质条目）、单元测试（每章节含 #### 待测功能/用例/Mock策略 三子节）、不可测试项（9 项各带原因）均实质填写"
+        },
+        {
+          "item": "T6 与 proposal 范围一致",
+          "pass": true,
+          "evidence": "out-of-scope（进行中会话清单推送时效）无测试覆盖，且以「静置无新增 agent_sessions 调用」守线显式刷新口径；proposal 实现文件全部有测试章节归属或不可测试项路由（bindings.ts/types.ts/model workflow.rs/commands mod.rs/write mod.rs/port+steps.rs/golden 人工确认）"
+        },
+        {
+          "item": "T7 写操作幂等性验证",
+          "pass": true,
+          "evidence": "decision_log「同值二连写后 workflow.json 字节逐位不变」+ walker「ask 续轮同会话同值重挂幂等」；bindings「连续两次导出逐字节一致、篡改产物重导恢复」；golden 显式重写后复核一致"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "17 个 ### 标题均含 -> 且两侧为路径（fixtures 章节源侧带括注，映射仍明确）；各章节子节顺序 待测功能→用例→Mock策略；用例表列「测试对象|路径类型|测试条件|迭代类型」、Mock表列「Mock主体|Mock方案|应用场景」无测试文件列；待测功能为无序列表；验收范围 3 列「AC ID|验收条件|被测文件或模块」"
+        },
+        {
+          "item": "T9 最小 mock 原则",
+          "pass": true,
+          "evidence": "仅进程边界 mock（@tauri-apps/api/core IPC、数据文件、jsdom 运行环境垫片 ResizeObserver/getBBox）与注入依赖（SessionQuery trait object、WorkerAgentPort/ToolStepPort 假件、回调 vi.fn）；内部协作模块（agent-adapter、useSessionTranscript、buildFlowGraph、LocalToolSteps 真盘写面）一律真实组合，无仓库内模块路径 vi.mock"
+        }
+      ],
+      "start_at": "2026-10-03T09:12:46.775Z",
+      "timestamp": "2026-10-03T09:37:27.859Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "三态对账通过：23 组件全部落地（单查契约/infra 两段式/session_detail/宏登记/三槽位/decision_log/walker 槽位与挂账/DTO/bindings/前端 7 文件/语料与 golden）。golden 7 份 diff 仅三 null 键 + v3-a 新增（hook 不可见写，内容已核）；清单外仅 corpus_golden_test.rs v3-a 注册与共置测试类型适配（tasks 阶段六/九留痕），零删除；package.json 保持 0.4.3（归档轨道 D11）。D1-D11 逐项在代码印证。",
+      "checklist": [
+        {
+          "item": "I1 架构组件均有实现",
+          "pass": true,
+          "evidence": "23 组件逐一核对：port.rs find_session_detail、store_port.rs 两段式、exec/mod.rs session_detail、commands/mod.rs all_commands!、workflow.rs 三槽位、phase_log.rs 槽位写、decision_log.rs 新文件、write/mod.rs 出口、orchestration port/steps/walker、detail.rs、bindings.ts、前端 7 文件、fixtures/v3-a 三件套 + golden/v3-a.json 均在盘且内容符合"
+        },
+        {
+          "item": "I2 变更清单条目全部对账",
+          "pass": true,
+          "evidence": "三态对账：计划×files×盘全对上；golden 7 份覆写与 fixtures/v3-a/workflow.json 为 hook 不可见写（良性漏记，内容已核对）；清单外仅 corpus_golden_test.rs v3-a 注册（tasks 阶段六留痕）与共置测试类型适配（阶段九留痕），无删除（deleted=[]），package.json 0.4.3 未触（归档轨道）"
+        },
+        {
+          "item": "I3 代码遵循项目规范",
+          "pass": true,
+          "evidence": "serde alias 沿 backtrack_to 先例逐字同型；raw 键显式在位 insert 沿 skipped/start_at 先例；aria-pressed 沿 StreamToggle 先例；中文模块 doc 风格一致；零双禁令字面量"
+        },
+        {
+          "item": "I4 IPC 命令面实现",
+          "pass": true,
+          "evidence": "session_detail 命令 + all_commands! 登记 + bindings sessionDetail 条目落地；blank root→Ok(None)、查无 id Err 透传；agent_sessions/agent_session_transcript/agent_start/agent_stop 签名与语义零收窄"
+        },
+        {
+          "item": "I5 任务全勾选",
+          "pass": true,
+          "evidence": "tasks.md 全部复选框 [x]，阶段一至九含留痕备注"
+        },
+        {
+          "item": "I6 无计划外代码",
+          "pass": true,
+          "evidence": "无无关源码改动或删除；golden 既有 diff 仅 attempts 非空条目三 null 键（v2-b 实测），layout-*/v0-*/v1-a 零 diff 符合预期清单"
+        },
+        {
+          "item": "I7 设计决策 D1-D11 遵守",
+          "pass": true,
+          "evidence": "D1 零新 DTO/D2 miss-fast/D3 map(Some)/D4 alias 同型/D5 verdict 双槽位+fail 仅 executor+decision 恒 None/D6 收口即挂账 parse 前+幂等覆写+无条目 Err 失败即 run 失败/D7 恒在场 null/D8 直查优先 Err 不回退+decision 双 null 空态+tab key 回退链/D9 'all'→null+history-source-filter/D10 v3-a 三形态值逐字一致/D11 版本归档轨道——全部在代码印证"
+        }
+      ],
+      "start_at": "2026-10-03T09:37:47.423Z",
+      "timestamp": "2026-10-03T10:07:54.847Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "8/8 过。17 个声明测试文件全在盘且逐行对上用例表：find_session_detail 三层（port 契约/store_port 两段式含跨库隔离/exec 命令五面）、decision_log 7 行（最新锚定/幂等/stale/保形/双 Err）、phase_log 槽位 5 行、walker 槽位+挂账 7 行（DecisionLog 臂捕获/收口先于 parse/ask 幂等重挂）、AttemptRecord wire 三键恒在场、v3-a 语料在册；前端 7 文件直查优先/反查兜底/双 null 空态/tab 回退链齐。仅 @tauri-apps/api/core 模块 mock 合 Mock策略；废弃行零复活。清单外 3 文件为三槽位/DecisionLog 机械适配（良性），\"{\"为畸形 hook 记录。",
+      "checklist": [
+        {
+          "item": "G1 源码公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "find_session_detail 三层覆盖（port_test.rs L306/L341 契约、store_port_test.rs L596-L721 两段式、exec/mod_test.rs L379-L502 命令面）；decision_log_test.rs 7 用例；phase_log_test.rs L660-L892 槽位 5 用例；walker_test.rs L2333-L2895 槽位与挂账；detail_test.rs L405-L490 AttemptRecord；corpus_golden_test.rs L36/L287 v3-a；前端 hook/组件行为断言非构造验证"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码共存",
+          "pass": true,
+          "evidence": "Rust *_test.rs 与源同目录（decision_log_test.rs 与 decision_log.rs 同目录）；前端 *.test.ts(x) 共置；corpus_golden_test.rs 在 tests/"
+        },
+        {
+          "item": "G3 用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "逐文件逐行核对：17 章节 新增 行均有对应 describe/it 且路径类型正确。备注：detail-drawer L507 第二路直查断言取 decision 槽位而非 evaluator（骨架在、槽位透传条件双重证明），不影响行覆盖"
+        },
+        {
+          "item": "G4 Mock策略已实现且声明合法",
+          "pass": true,
+          "evidence": "FakeQuery 单查臂/TempWs/TempRoot 真盘/mock_app/互斥锁/vi.hoisted invokeMock 全落地；模块 mock 仅 @tauri-apps/api/core（各章节 Mock策略 在册）；无仓库内模块 vi.mock；ResizeObserver 等为在册环境垫片"
+        },
+        {
+          "item": "G5 框架与导入正确",
+          "pass": true,
+          "evidence": "Rust 用 #[test]/#[tokio::test] 标准测试；前端统一 vite-plus/test + @testing-library/react（vp 工具链口径），无裸 vitest 导入"
+        },
+        {
+          "item": "G6 边界情况已覆盖",
+          "pass": true,
+          "evidence": "空 session_id（store_port L687）、blank root 空串/空白串（exec L463）、三槽位 None/仅 executor/双槽位/全 Some（phase_log L660-L892、detail L445）、source 三枚举（use-agent-run-history L328/L342）、tab key 回退链（panel L381）、attempt/role null（drawer L600/L619）、sessionDetail null（hook L447）、decision 双 null（panel L358）"
+        },
+        {
+          "item": "G7 测试代码含清理还原",
+          "pass": true,
+          "evidence": "TempDir/TempWs/TempRoot Drop RAII；exec PATH 恢复（L690/L794）；bindings RestoreOnDrop；change-flow-graph afterEach 还原 stubGlobal 与 prototype；drawer afterEach 恢复 defaultInvoke；各文件 beforeEach mockReset"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "单参 hook 调用、无 source/onSourceChange props、单键 RoleSessionRef 均未出现（构造点按设计补参/双键适配）；panel 新增 AC-7 用例全走 直查/双 null 二态，未生成 decision 经 sourceRef 反查新用例；既有「单 role 退化」回归行为 ② 指令的构造点适配保留，非本变更断言面"
+        }
+      ],
+      "start_at": "2026-10-03T10:08:26.407Z",
+      "timestamp": "2026-10-03T11:07:27.652Z",
+      "stale": true
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "fail",
+      "report": "Mutation score 75.08% < threshold 80%。全部 949 测试通过（vite-plus 869 + rust 80），coverage 门达标；唯一失败面为变异测试门：461 killed / 614 scored（149 Survived + 4 NoCoverage），需再杀 ≥31 个变体，主要幸存簇在 change-flow-graph / agent-run-history / detail-drawer / use-session-transcript / use-agent-run-history",
+      "checklist": [
+        {
+          "item": "T1 执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp、total=949/passed=949/failed=0/skipped=0、coverage{pass/measured/thresholds/overrides}、duration_seconds=571 均在场且类型正确；coverage.measured 三维度 null 属允许形态"
+        },
+        {
+          "item": "T2 所有测试通过",
+          "pass": true,
+          "evidence": "total=949, passed=949, failed=0, skipped=0（vite-plus 869 + rust 80）；conclusion=fail 仅由变异门触发，无 execution_error 条目"
+        },
+        {
+          "item": "T3 覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true（阈值 90/85/90，packages/desktop override 同阈值）；measured 维度均为 null 但 pass=true 时按检查项不失败。观察项：vite-plus coverage-summary.json 实有 lines 94.83/branches 89.79/functions 93.66 均高于阈值，聚合步骤产出 null（报告 finding 已记录，未修改报告字段）"
+        },
+        {
+          "item": "T4 失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无测试失败需诊断；唯一失败面为变异分数门，根因类型唯一明确"
+        },
+        {
+          "item": "M1 变异分数达标 (threshold 80%)",
+          "pass": false,
+          "evidence": "mutation.pass=false：score 75.08% < threshold 80%（killed 461 / scored 614 = total 655 − ignored 41；survived 149 + noCoverage 4）。需再杀至少 31 个变体。幸存簇：change-flow-graph.tsx 48（布局算术/translateExtent/ReactFlow 布尔 props）、agent-run-history.tsx 31（状态徽章三元/空态链）、detail-drawer.tsx 21+4 NoCoverage（roleRefs tab 数组）、use-session-transcript.ts 17（排序比较器/running 推导/typeof 三元）、use-agent-run-history.ts 14（refresh tick/cancelled 守卫）；多数为仅断言可杀的测试缺口，translateExtent 与 ReactFlow 布尔 props 非 jsdom 可观察，可考虑 stryker 排除"
+        }
+      ],
+      "backtrack_to": "test-gen",
+      "backtrack_reason": "Mutation gate 75.08% < 80% (461/614, need +31 kills); all 949 tests pass, coverage passes — failure is assertion strength, not execution. Survivors: use-session-transcript (seq sort/running derivation/reject cause), session-transcript-panel (tab reset/clamp), agent-run-history badges, use-agent-run-history refresh, detail-drawer tabs, change-flow-graph. Test strengthening is test-gen work.",
+      "start_at": "2026-10-03T11:07:56.483Z",
+      "timestamp": "2026-10-03T11:25:06.056Z",
+      "stale": true
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "回溯后 8/8 过。7 前端文件按幸存簇强化断言：seq 乱序升序装配（use-session-transcript L324）+Error reject cause 透传（L489）+running 复位（L549）；panel tab 复位（L408）/越界钳制（L450）/中页序（L487）/直查 reject（L504）；徽章三元逐臂+类名（agent-run-history L120/L298）；refresh 携 source+静置零轮询+双轨竞态守卫（use-agent-run-history L253/287/525）；drawer 三槽位各自直查且零反查（detail-drawer L552/617/568）；graph 布局算术落 DOM（L244）+边样式逐臂（L331）。17 声明文件全在盘，用例表逐行对上，模块 mock 仅 @tauri-apps/api/core（在册），废弃形态零复活，清理还原齐备。",
+      "checklist": [
+        {
+          "item": "G1 源码公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "find_session_detail 三层（port_test×4/store_port_test×13/exec mod_test×14）；decision_log_test 7 fn（最新锚定/幂等/stale 覆写/保形/双 Err）；walker_test DecisionLog 臂×19；detail_test wire 三键×6；bindings sessionDetail×8；前端 7 文件行为断言非构造验证（直查载荷/徽章文本/tab 切换均 toHaveBeenCalledWith+textContent 级）"
+        },
+        {
+          "item": "G2 测试文件命名规范且与源码共存",
+          "pass": true,
+          "evidence": "17 声明文件 Glob 全命中：*_test.rs 与源同目录（decision_log_test.rs ↔ write/decision_log.rs、walker_test.rs ↔ walker.rs）；前端 *.test.ts(x) 与组件共置；corpus_golden_test.rs 在 tests/（implement 侧写入，良性漏记，内容已核 v3-a 注册 L36/L287）"
+        },
+        {
+          "item": "G3 用例表每行已生成骨架",
+          "pass": true,
+          "evidence": "7 重写文件逐行核对新增行全数在位且路径类型正确；attempt-1 遗留观察（drawer 第二路直查仅 decision 槽位）已由 evaluator 槽位专行补齐（L578-628：session_detail ses-eval-9+agent_sessions 零调用）；Rust 6 文件 attempt-2 未触碰沿用既有核对；agent-debug-view 三态行 L437/456/505 在位"
+        },
+        {
+          "item": "G4 Mock策略已实现且声明合法",
+          "pass": true,
+          "evidence": "grep views 全部 test 文件：模块 mock 仅 @tauri-apps/api/core（agent-debug-view 增 Channel 为其 Mock策略在册项）；无仓库内模块 vi.mock；graph 垫片 ResizeObserver/DOMMatrixReadOnly/getBBox 与 offsetWidth getter 均为在册运行环境垫片且 afterEach 还原；agent-run-history 零 mock（fixture 直传=Mock策略声明）"
+        },
+        {
+          "item": "G5 框架与导入正确",
+          "pass": true,
+          "evidence": "前端统一 vite-plus/test 导入（无裸 vitest）；@testing-library/react 渲染；Rust #[test]/TempWs/TempRoot 装置未变"
+        },
+        {
+          "item": "G6 边界情况已覆盖",
+          "pass": true,
+          "evidence": "空态/异常面强化后更全：seq 乱序归并（L324）、Error 实例 reject String 归一（L489）、running→终态复位（hook L549）、panel tab 复位/收缩钳制/中页序（L408/450/487）、三槽位 None/partial/full（drawer L630/578/518）、source 三枚举+静置零轮询（use-agent-run-history L470/484/525）"
+        },
+        {
+          "item": "G7 测试代码含清理还原逻辑",
+          "pass": true,
+          "evidence": "detail-drawer afterEach 恢复 defaultInvoke（L418-422）；change-flow-graph afterEach unstubAllGlobals+prototype 还原（L102-112）；各文件 beforeEach mockReset+fixture 重建；run-step-node body 监听 try/finally 移除（L247-252）；Rust TempWs/TempRoot Drop RAII 未变"
+        },
+        {
+          "item": "G8 废弃条目未生成新测试",
+          "pass": true,
+          "evidence": "单参 useAgentRunHistory 调用 grep 零匹配；agent-run-history mount/render 全部携 source+onSourceChange；RoleSessionRef fixture 全数双键携 sessionId；panel AC-7 用例全走 直查/双 null 二态（保留的「单 role 退化」为既有 AC-5 回归按废弃行②构造点适配）"
+        }
+      ],
+      "start_at": "2026-10-03T11:25:56.030Z",
+      "timestamp": "2026-10-03T12:31:38.929Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "所有 974 个测试通过（vite-plus 894 + rust 80，双计划 exit_code=0，problems 为空）。覆盖率达标: lines=N/A (框架不支持), branches=N/A (框架不支持), functions=N/A (框架不支持)——coverage.pass=true，聚合级 measured 为 null，按预计算结果判定。Mutation score 90.23% >= 阈值 80%。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp、total=974/passed=974/failed=0/skipped=0、coverage 对象（pass/measured/thresholds/overrides）、duration_seconds=823 全部在位且类型正确"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=974>0；conclusion=pass，problems 为空（无 execution_error）；mutation.pass=true（90.23% >= 80%）"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "coverage.pass=true，按预计算结果判定不重算；measured 三维度聚合级为 null → lines/branches/functions=N/A (框架不支持)；overrides packages/desktop pass=true（67 文件）；per-plan 实测值见报告 findings 备注"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，无失败用例，无需根因诊断（自动通过）；与 test-design 无设计冲突"
+        }
+      ],
+      "timestamp": "2026-10-03T13:07:11.853Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1无漏洞；C2 blank-root守卫+查无id显式Err；C3 D1-D10逐项对齐，golden diff仅三null槽位键恰合D10预期清单；C4 锚定谓词保证条目为object，decision无条目显式Err；C5 无死代码（备注：create.rs仅rustfmt重排属清单外，stryker.config.ecbd9df7.json为未跟踪残留非变更代码）；C6 沿backtrack_to先例同型；C7 复用SessionSummary零新DTO。全部通过。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "全量 grep password/secret/token/eval(/exec(/system( 于变更文件零命中；api_key/token 命中均为既有 store_test/build.rs，非本变更"
+        },
+        {
+          "item": "C2 外部输入格式检查",
+          "pass": true,
+          "evidence": "commands/exec/mod.rs session_detail blank root 守卫 Ok(None)；store_port.rs:113 查无 id 双段显式 Err；decision_log.rs:30 无条目显式 Err"
+        },
+        {
+          "item": "C3 与 design.md 意图一致",
+          "pass": true,
+          "evidence": "D1-D10 逐项核实：port.rs trait/store_port 两段式/exec 薄包装+mod.rs 登记/workflow.rs 三槽位 alias/phase_log 显式在位/decision_log 幂等挂账/walker 双槽位+decision 收口即挂账/detail.rs 直读/bindings 三键恒在场/前端三态寻址/corpus v3-a；golden diff 仅三 null 槽位键恰合 D10 清单"
+        },
+        {
+          "item": "C4 空值/边界无遗漏",
+          "pass": true,
+          "evidence": "persist.rs:77 entry_phase 仅对象可命中谓词，decision_log.rs:35 as_object_mut 恒 Some；空 session_id 走 miss→Err；双 null 空态不查询（use-session-transcript.ts:90）"
+        },
+        {
+          "item": "C5 无冗余/死代码",
+          "pass": true,
+          "evidence": "无死代码；备注：write/create.rs 仅 rustfmt 重排（清单外零语义）；stryker.config.ecbd9df7.json 为未跟踪残留非变更代码"
+        },
+        {
+          "item": "C6 可读性与项目规范",
+          "pass": true,
+          "evidence": "serde alias/backtrack_to 先例同型（workflow.rs:110）；Outcome 形状沿既有惯例；注释措辞与模块 doc 演进符合 design"
+        },
+        {
+          "item": "C7 外部数据同源类型",
+          "pass": true,
+          "evidence": "SessionSummary 复用零新 DTO（D1）；AttemptRecord 纯 derive 直读透出；无自定义中间映射"
+        }
+      ],
+      "start_at": "2026-10-03T13:07:47.919Z",
+      "timestamp": "2026-10-03T13:12:25.925Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11/11 AC 全数在代码印证：AC-1 port.rs:75+store_port.rs:117 两段式；AC-2 exec/mod.rs:169+commands/mod.rs:42+bindings.ts:93；AC-3 三态筛选（hook/组件/页面）；AC-4/5 三槽位+decision_log 收口即挂账(walker.rs:718)；AC-6 detail.rs:122+bindings 三键；AC-7/8 直查优先+decision 双 null 空态+view-session 入口；AC-9 v3-a 三形态+golden 在册；AC-10 test-execution attempt2 pass（974 全绿 mutation 90.23%）；AC-11 归档轨道 0.4.3 未触合规。tasks 全 [x]，无范围蔓延，out_of_scope 零实现，5 风险缓解在位。",
+      "checklist": [
+        {
+          "item": "A1 proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1~11 逐条 file:line 印证：AC-1 port.rs:75+store_port.rs:117（跨库隔离 store_port_test.rs:702）；AC-2 exec/mod.rs:169+commands/mod.rs:42+bindings.ts:93；AC-3 use-agent-run-history.ts:53+agent-run-history.tsx:31；AC-4 workflow.rs:107-117+phase_log.rs:134-149；AC-5 walker.rs:482-484/538-540/718-728；AC-6 detail.rs:122-142+bindings.ts:418-420；AC-7/8 detail-drawer.tsx:85-87+use-session-transcript.ts:43-58；AC-9 fixtures/v3-a+golden/v3-a.json+corpus_golden_test.rs:36,287；AC-10 test-execution attempt2 pass（974 全绿 mutation 90.23%）；AC-11 归档轨道 design D11 声明，package.json:3 保持 0.4.3 实现期零触合规"
+        },
+        {
+          "item": "A2 无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "workflow.json file_log 触达仅清单内文件+tasks 阶段六/九留痕的测试轨道适配（共置测试类型适配+corpus v3-a 注册）；无会话 route（grep 零命中）；decision_log.rs 为 design 新增文件表在册；插件侧/plugins 零触达；无第二套时间线"
+        },
+        {
+          "item": "A3 proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "修改能力 5 条全落码：desktop-agent-execution（单查面+筛选）/desktop-workflow-write-face（三槽位+decision_log）/desktop-change-queries（AttemptRecord 三键）/desktop-change-flow-view（直查优先+三 tab+查看会话入口）/desktop-corpus-regression（v3-a+golden 对账）；proposal 15 项实现文件全部在盘"
+        },
+        {
+          "item": ": A4 proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "「进行中会话清单推送时效」未实现——use-agent-run-history.ts 全文无轮询/订阅（仅显式 refresh tick）；不要修改面零触达：file_log 无 store/run-state.ts/插件侧/既有 fixtures 样本记录，run-state.ts 仅既有 sessionEvent 词汇"
+        },
+        {
+          "item": "A5 proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "golden diff→显式 DESKTOP_GOLDEN_REWRITE 重写+人工 diff 留痕（tasks 阶段六）；插件 strict 解析→serde(default,alias) backtrack_to 同型先例（workflow.rs:109-117）+v3-a fixture；decision 时机→显式 amend 幂等挂账（walker.rs:718 parse 前）+槽位缺席空态不虚构（detail-drawer.tsx:87）；样本来源→合成 v3-a（D10）；Err 语义→显式 Err（store_port.rs:124,130）"
+        }
+      ],
+      "start_at": "2026-10-03T13:12:58.657Z",
+      "timestamp": "2026-10-03T13:17:42.500Z"
+    }
+  ],
+  "interrupted": [
+    {
+      "phase": "test-execution",
+      "attempt": 2,
+      "start_at": "2026-10-03T12:32:39.981Z",
+      "end_at": "2026-10-03T12:51:51.444Z"
+    }
+  ]
+}

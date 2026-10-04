@@ -32,6 +32,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "完好条目：应正常保留。",
             "skipped": false,
             "stale": false,
@@ -59,6 +62,9 @@
                 "pass": false
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "另一条完好条目：也应正常保留。",
             "skipped": false,
             "stale": false,

@@ -1,4 +1,7 @@
-//! `queries::change_detail` 的单元测试：9 站流水线聚合 + 运行状态 + 产物清单（AC-6）。
+//! `queries::change_detail` 的单元测试：9 站流水线聚合 + 运行状态 + 产物清单（AC-6）；
+//! AttemptRecord 三会话槽位透出（desktop-change-session-visibility）——
+//! `From<&PhaseLog>` 直读不派生不回填，旧条目三值均 null 不报错且 wire 三键
+//! 恒在场（纯 derive 零字段属性口径不变）。
 
 use std::fs;
 use std::path::{Path, PathBuf};
@@ -380,4 +383,108 @@ fn 线面契约缺省为null且时间戳为iso串() {
     let v1_value = serde_json::to_value(&v1).expect("线面序列化应成功");
     assert_eq!(v1_value["activePhase"], serde_json::Value::Null);
     assert_eq!(v1_value["fileLog"], serde_json::Value::Null);
+}
+
+// ---------------------------------------------------------------------------
+// AttemptRecord 三会话槽位透出（desktop-change-session-visibility，AC-6）：
+// `From<&PhaseLog>` 直读透出，无槽位三值 null 不报错，wire 三键恒在场
+// ---------------------------------------------------------------------------
+
+/// 三形态条目 fixture：三槽位齐全 pass 条目 / 仅 executor 槽位 fail 升格形态 /
+/// 无槽位键旧形态对照。
+const SLOTS_WORKFLOW: &str = r#"{
+  "workflow_type": "requirement",
+  "eval": [
+    { "phase": "implement", "attempt": 2, "verdict": "pass", "report": "三槽位齐全", "checklist": [], "executor_session_id": "ses-1-1727740000001", "evaluator_session_id": "ses-2-1727740000002", "decision_session_id": "ses-3-1727740000003" },
+    { "phase": "implement", "attempt": 1, "verdict": "fail", "report": "仅 executor 槽位（升格形态）", "checklist": [], "executor_session_id": "ses-4-1727740000004" },
+    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "无槽位键旧形态", "checklist": [] }
+  ]
+}"#;
+
+#[test]
+fn 三槽位键在场时attempt记录逐字直读透出() {
+    let ws = TempWs::new("slots-full");
+    ws.change(
+        "openspec/changes/slots",
+        &[("workflow.json", SLOTS_WORKFLOW)],
+    );
+
+    let detail = ws.detail("slots");
+    let implement = &detail.pipeline[3]; // "implement"
+    assert_eq!(implement.attempts.len(), 2);
+
+    // attempt 2（升序后末位）：三字段逐字直读（From 直读不派生不回填）
+    let full = &implement.attempts[1];
+    assert_eq!(full.attempt, Some(2));
+    assert_eq!(
+        full.executor_session_id.as_deref(),
+        Some("ses-1-1727740000001"),
+        "值与条目记录一致"
+    );
+    assert_eq!(
+        full.evaluator_session_id.as_deref(),
+        Some("ses-2-1727740000002")
+    );
+    assert_eq!(
+        full.decision_session_id.as_deref(),
+        Some("ses-3-1727740000003")
+    );
+
+    // attempt 1（升格形态）：仅 executor 承接，evaluator / decision null（缺字段
+    // 降级 null 不报错）
+    let partial = &implement.attempts[0];
+    assert_eq!(
+        partial.executor_session_id.as_deref(),
+        Some("ses-4-1727740000004")
+    );
+    assert_eq!(partial.evaluator_session_id, None);
+    assert_eq!(partial.decision_session_id, None);
+}
+
+#[test]
+fn 旧条目无槽位键投影三值均null且wire三键恒在场() {
+    let ws = TempWs::new("slots-legacy");
+    ws.change(
+        "openspec/changes/legacy",
+        &[("workflow.json", SLOTS_WORKFLOW)],
+    );
+
+    let detail = ws.detail("legacy");
+    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+
+    // 旧形态条目（proposal）：三字段均 None 不报错
+    let proposal = &detail.pipeline[0].attempts[0];
+    assert_eq!(proposal.executor_session_id, None);
+    assert_eq!(proposal.evaluator_session_id, None);
+    assert_eq!(proposal.decision_session_id, None);
+
+    // wire 三键恒在场、值 null 不省略（golden 线面「缺省字段 null」契约；纯
+    // derive 零字段属性口径不破）
+    let record = &value["pipeline"][0]["attempts"][0];
+    for key in [
+        "executorSessionId",
+        "evaluatorSessionId",
+        "decisionSessionId",
+    ] {
+        assert_eq!(
+            record.get(key),
+            Some(&serde_json::Value::Null),
+            "wire 键 {key} 恒在场（null 不省略）"
+        );
+    }
+
+    // 有值条目 wire 键逐字透出（camelCase 线面）
+    let full = &value["pipeline"][3]["attempts"][1];
+    assert_eq!(
+        full["executorSessionId"],
+        serde_json::json!("ses-1-1727740000001")
+    );
+    assert_eq!(
+        full["evaluatorSessionId"],
+        serde_json::json!("ses-2-1727740000002")
+    );
+    assert_eq!(
+        full["decisionSessionId"],
+        serde_json::json!("ses-3-1727740000003")
+    );
 }

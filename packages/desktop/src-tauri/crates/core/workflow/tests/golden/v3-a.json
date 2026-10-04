@@ -1,0 +1,168 @@
+{
+  "detail": {
+    "activePhase": null,
+    "artifacts": [
+      {
+        "kind": "tasks-progress",
+        "source": "tasks.md",
+        "title": "任务进度"
+      },
+      {
+        "kind": "eval-checklist",
+        "source": "0",
+        "title": "评估清单 · proposal · 第 1 次"
+      },
+      {
+        "kind": "eval-checklist",
+        "source": "1",
+        "title": "评估清单 · implement · 第 1 次"
+      },
+      {
+        "kind": "eval-checklist",
+        "source": "2",
+        "title": "评估清单 · implement · 第 2 次"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "proposal.md",
+        "title": "提案"
+      },
+      {
+        "kind": "markdown-doc",
+        "source": "tasks.md",
+        "title": "任务"
+      }
+    ],
+    "created": "2026-10-01",
+    "fileLog": null,
+    "interrupted": [],
+    "inventory": "v1",
+    "name": "v3-a",
+    "pipeline": [
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "三缺口均含文件级证据",
+                "item": "问题描述清晰",
+                "pass": true
+              },
+              {
+                "evidence": "AC 均为对象+条件",
+                "item": "验收标准可测试",
+                "pass": true
+              }
+            ],
+            "decisionSessionId": "ses-3-1727740000003",
+            "evaluatorSessionId": "ses-2-1727740000002",
+            "executorSessionId": "ses-1-1727740000001",
+            "report": "合成 v3 样本：三槽位齐全的 pass 条目（executor / evaluator / decision 会话 id 显式在位）。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": "2026-10-01T08:00:00Z",
+            "verdict": "pass"
+          }
+        ],
+        "phase": "proposal"
+      },
+      {
+        "attempts": [],
+        "phase": "dev-design"
+      },
+      {
+        "attempts": [],
+        "phase": "test-design"
+      },
+      {
+        "attempts": [
+          {
+            "attempt": 1,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "连续修复未通过，相位升格 fail",
+                "item": "静态检查",
+                "pass": false
+              }
+            ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": "ses-4-1727740000004",
+            "report": "合成 v3 样本：仅 executor 槽位（静态检查反馈边超限升格 fail 形态，evaluator 未跑）。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": "2026-10-02T09:00:00Z",
+            "verdict": "fail"
+          },
+          {
+            "attempt": 2,
+            "backtrackReason": null,
+            "backtrackTo": null,
+            "checklist": [
+              {
+                "evidence": "变更清单逐项落地",
+                "item": "实现完整",
+                "pass": true
+              }
+            ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
+            "report": "合成 v3 样本：无槽位键的旧形态对照条目（缺省槽位不产生键）。",
+            "skipped": false,
+            "stale": false,
+            "startAt": null,
+            "timestamp": "2026-10-02T10:30:00Z",
+            "verdict": "pass"
+          }
+        ],
+        "phase": "implement"
+      },
+      {
+        "attempts": [],
+        "phase": "test-gen"
+      },
+      {
+        "attempts": [],
+        "phase": "test-execution"
+      },
+      {
+        "attempts": [],
+        "phase": "code-review"
+      },
+      {
+        "attempts": [],
+        "phase": "acceptance"
+      },
+      {
+        "attempts": [],
+        "phase": "code-analyze"
+      }
+    ],
+    "source": "active",
+    "unparsable": false
+  },
+  "detect": "v1",
+  "fixture": "v3-a",
+  "parse": {
+    "activePhasePresent": false,
+    "created": "2026-10-01",
+    "evalCount": 3,
+    "evalSkipped": 0,
+    "evalStale": 0,
+    "evalWithBacktrack": 0,
+    "evalWithChecklist": 3,
+    "fileLog": "absent",
+    "fileLogCount": 0,
+    "interruptedCount": 0,
+    "outcome": "parsed",
+    "workflowType": "requirement"
+  }
+}

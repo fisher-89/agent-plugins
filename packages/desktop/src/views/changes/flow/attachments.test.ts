@@ -28,6 +28,9 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
     timestamp: null,
     backtrackTo: null,
     backtrackReason: null,
+    executorSessionId: null,
+    evaluatorSessionId: null,
+    decisionSessionId: null,
     ...overrides,
   };
 }

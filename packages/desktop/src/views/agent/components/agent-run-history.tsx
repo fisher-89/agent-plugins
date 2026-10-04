@@ -2,11 +2,46 @@ import { Button } from '@/components/ui/button';
 
 import { AgentTimeline } from '../../../components/agent';
 import { eventsToUIMessages } from '../../../lib/agent-adapter';
-import type { AgentRunStatus, SessionSummary } from '../../../types/dto';
-import type { AgentRunHistoryState } from '../hooks/use-agent-run-history';
+import type { AgentEvent, AgentRunStatus, SessionSummary } from '../../../types/dto';
+import type { AgentHistorySource, AgentRunHistoryState } from '../hooks/use-agent-run-history';
 
 export interface AgentRunHistoryProps {
   state: AgentRunHistoryState;
+  /** 来源筛选当前值（状态由页面持有） */
+  source: AgentHistorySource;
+  onSourceChange: (source: AgentHistorySource) => void;
+}
+
+/** 来源筛选三态选项（值 + 文案）。 */
+const SOURCE_OPTIONS: Array<{ value: AgentHistorySource; label: string }> = [
+  { value: 'debug', label: '调试' },
+  { value: 'change', label: '变更' },
+  { value: 'all', label: '全部' },
+];
+
+/** 来源筛选三态按钮组（aria-pressed 高亮当前项；状态由页面持有）。 */
+function SourceFilter({
+  source,
+  onChange,
+}: {
+  source: AgentHistorySource;
+  onChange: (source: AgentHistorySource) => void;
+}): React.JSX.Element {
+  return (
+    <div className="flex items-center gap-1.5" data-testid="history-source-filter">
+      {SOURCE_OPTIONS.map((option) => (
+        <Button
+          key={option.value}
+          aria-pressed={source === option.value}
+          className={source === option.value ? undefined : 'bg-muted text-muted-foreground'}
+          data-source={option.value}
+          onClick={() => onChange(option.value)}
+        >
+          {option.label}
+        </Button>
+      ))}
+    </div>
+  );
 }
 
 /** 状态文案（受控字符串直出） */
@@ -71,13 +106,34 @@ function SessionRow({
   );
 }
 
+/** 重放区：点开会话的全史密封转录（限高内部滚动，不撑高页面）。 */
+function ReplayArea({
+  sessionId,
+  events,
+}: {
+  sessionId: string;
+  events: AgentEvent[];
+}): React.JSX.Element {
+  return (
+    <div
+      className="mt-3 max-h-96 overflow-y-auto"
+      data-testid="replay-area"
+      data-selected-run-id={sessionId}
+    >
+      <div className="mb-1 text-xs text-muted-foreground">重放会话（密封转录）</div>
+      <AgentTimeline messages={eventsToUIMessages(events)} running={false} />
+    </div>
+  );
+}
+
 /**
- * 历史会话区：会话列表（更新时间 / 轮数 / 终态）→ 点开经 invoke 查询重放
- * 全史密封转录（不要求原运行进程存活）+ 显式刷新按钮。会话结束不自动刷新
- * ——列表仅经显式刷新 / 点开取得。重放区限高（max-h-96）内部滚动，不撑高
- * 页面（密封-only `eventsToUIMessages`，delta 仅实时流可见）。
+ * 历史会话区
  */
-export function AgentRunHistory({ state }: AgentRunHistoryProps): React.JSX.Element {
+export function AgentRunHistory({
+  state,
+  source,
+  onSourceChange,
+}: AgentRunHistoryProps): React.JSX.Element {
   return (
     <section
       className="rounded-lg border border-border bg-card px-4 py-3.5"
@@ -87,9 +143,12 @@ export function AgentRunHistory({ state }: AgentRunHistoryProps): React.JSX.Elem
         <h2 className="m-0 text-[15px]">
           历史会话 <span className="text-muted-foreground">({state.sessions.length})</span>
         </h2>
-        <Button disabled={state.loading} data-testid="history-refresh" onClick={state.refresh}>
-          刷新历史
-        </Button>
+        <div className="flex items-center gap-2">
+          <SourceFilter source={source} onChange={onSourceChange} />
+          <Button disabled={state.loading} data-testid="history-refresh" onClick={state.refresh}>
+            刷新历史
+          </Button>
+        </div>
       </div>
       {state.error !== null && (
         <div
@@ -113,14 +172,7 @@ export function AgentRunHistory({ state }: AgentRunHistoryProps): React.JSX.Elem
         <SessionRow key={session.row.id} session={session} onOpen={state.openSession} />
       ))}
       {state.selectedSessionId !== null && (
-        <div
-          className="mt-3 max-h-96 overflow-y-auto"
-          data-testid="replay-area"
-          data-selected-run-id={state.selectedSessionId}
-        >
-          <div className="mb-1 text-xs text-muted-foreground">重放会话（密封转录）</div>
-          <AgentTimeline messages={eventsToUIMessages(state.events)} running={false} />
-        </div>
+        <ReplayArea sessionId={state.selectedSessionId} events={state.events} />
       )}
     </section>
   );

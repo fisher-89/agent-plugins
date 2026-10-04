@@ -31,6 +31,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "时间戳非法但条目本身合法：条目保留、时间戳降级为空。",
             "skipped": false,
             "stale": false,

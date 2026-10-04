@@ -1,18 +1,11 @@
-import { render, screen, within } from '@testing-library/react';
+import { fireEvent, render, screen, within } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { ComponentProps } from 'react';
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 
 import type { ChangeStepKind } from '../../../types/dto';
 import { RunStepNode, type RunStepFlowNode } from './run-step-node';
 import type { RuntimeFlowNode } from './types';
-
-// ---------------------------------------------------------------------------
-// RunStepNode 单测：自定义节点为纯渲染组件，以最小 NodeProps 形态（data 注入
-// RuntimeFlowNode 载荷）直接 render；不挂载 ReactFlow 本体。Handle 依赖
-// ReactFlow store context，故外包 ReactFlowProvider（沿 flow-event-node 先例）。
-// 三分类徽章 / pulse 运行态 / 失败红态 / 静态终态 / 载荷缺省形态（AC-5 可辨半边）。
-// ---------------------------------------------------------------------------
 
 /** 宽松默认值构造运行步节点载荷（run-state.ts makeNode 投影同形）。 */
 function runtimeNode(overrides: Partial<RuntimeFlowNode> = {}): RuntimeFlowNode {
@@ -78,8 +71,8 @@ const FAMILIES: Array<{
 ];
 
 /** 最小 NodeProps 形态：仅注入 data 载荷，其余字段非本组件消费面。 */
-function renderNode(node: RuntimeFlowNode) {
-  const props = { data: { node } } as unknown as ComponentProps<typeof RunStepNode>;
+function renderNode(node: RuntimeFlowNode, onOpenSession?: () => void) {
+  const props = { data: { node, onOpenSession } } as unknown as ComponentProps<typeof RunStepNode>;
   return render(
     <ReactFlowProvider>
       <RunStepNode {...props} />
@@ -191,6 +184,9 @@ describe('RunStepNode：状态视觉（pulse 运行态 / 失败红态 / 静态�
     expect(node.textContent).not.toContain('运行中');
     expect(node.textContent).not.toContain('失败');
     expect(node.textContent).not.toContain('已停');
+    // 常态底样式在位（default 臂正向可辨，非空样式退化）
+    expect(node.className).toContain('border-border');
+    expect(node.className).toContain('bg-card');
   });
 
   it('status stopped → 灰态虚线收敛 + 已停缀语，无 pulse 无红态', () => {
@@ -222,5 +218,65 @@ describe('RunStepNode：载荷缺省形态（边界）', () => {
 
     renderNode(runtimeNode({ detail: '评估通过：verdict pass' }));
     expect(screen.getByTestId('run-step-detail').textContent).toBe('评估通过：verdict pass');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 「查看会话」显式入口（desktop-change-session-visibility，AC-8）：仅
+// workerAgent 节点由图层注入 onOpenSession 时渲染按钮，点击 stopPropagation
+// 后上抛（不冒泡至节点点击面——与节点点击同一 DrawerSelection 的图层承接）。
+// ---------------------------------------------------------------------------
+
+describe('RunStepNode：查看会话入口（AC-8）', () => {
+  it('workerAgent 节点 + onOpenSession 注入：view-session 按钮渲染；点击恰一次上抛且不冒泡至节点点击面', () => {
+    const onOpenSession = vi.fn();
+    const onNodeClick = vi.fn();
+    renderNode(runtimeNode(), onOpenSession);
+
+    const button = screen.getByTestId('view-session');
+    expect(button.textContent).toBe('查看会话');
+    // 节点点击面以 React root 之外的祖先监听代理（react-flow onNodeClick 同
+    // 挂载于容器链）：stopPropagation 后外层点击不触发
+    document.body.addEventListener('click', onNodeClick);
+    try {
+      fireEvent.click(button);
+    } finally {
+      document.body.removeEventListener('click', onNodeClick);
+    }
+
+    expect(onOpenSession).toHaveBeenCalledTimes(1);
+    expect(onNodeClick).not.toHaveBeenCalled();
+  });
+
+  it('onOpenSession 缺省（undefined）：workerAgent 节点不渲染按钮（三分类九步词汇既有渲染零回归）', () => {
+    renderNode(runtimeNode());
+
+    expect(screen.queryByTestId('view-session')).toBeNull();
+    expect(screen.getByTestId('run-step-node') !== null).toBe(true);
+  });
+
+  it('toolStep / gate 节点：无 view-session 按钮（ToolStep / Gate 无入口——沿用右侧抽屉步骤结果呈现）', () => {
+    const toolStep = renderNode(
+      runtimeNode({
+        id: 'run:implement:1:staticCheck',
+        runStepKind: 'staticCheck',
+        group: 'toolStep',
+        role: null,
+      }),
+      () => {},
+    );
+    expect(screen.queryByTestId('view-session')).toBeNull();
+    toolStep.unmount();
+
+    renderNode(
+      runtimeNode({
+        id: 'run:implement:1:verdictGate',
+        runStepKind: 'verdictGate',
+        group: 'gate',
+        role: null,
+      }),
+      () => {},
+    );
+    expect(screen.queryByTestId('view-session')).toBeNull();
   });
 });

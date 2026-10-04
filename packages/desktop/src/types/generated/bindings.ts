@@ -85,6 +85,19 @@ export const commands = {
 	 *  空结果。
 	 */
 	agentSessionTranscript: (root: string, sessionId: string) => __TAURI_INVOKE<AgentEvent[]>("agent_session_transcript", { root, sessionId }),
+	/**
+	 *  按 id 单查会话（行 + 聚合统计 + 轮行）：root 寻址所属 workspace 库直查
+	 *  DTO，跨库隔离与既有查询命令一致；blank root → 空结果（`None`）；查无此
+	 *  id 显式 `Err`（单查语义与清单空态区分）。
+	 */
+	sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<{
+	/**  会话记录 */
+	row: SessionRow,
+	/**  聚合统计 */
+	stats: SessionStats,
+	/**  轮统计行（发起顺序） */
+	turns: TurnSummary[],
+} | null>("session_detail", { root, sessionId }),
 	changeFlowStart: (onEvent: Channel<RunUpdate>, root: string, change: string, autoNextPhase: boolean) => __TAURI_INVOKE<ChangeRunSummary>("change_flow_start", { onEvent, root, change, autoNextPhase }),
 	changeFlowStop: (root: string, change: string) => __TAURI_INVOKE<null>("change_flow_stop", { root, change }),
 	changeFlowAnswer: (root: string, change: string, answer: string) => __TAURI_INVOKE<null>("change_flow_answer", { root, change, answer }),
@@ -387,7 +400,10 @@ export type AskPayload = {
 	options: string[],
 };
 
-/**  单次尝试记录：backtrack 目标与原因随条目可查。 */
+/**
+ *  单次尝试记录：backtrack 目标与原因随条目可查；会话槽位（executor /
+ *  evaluator / decision）自 eval 条目直读透出，无槽位字段三值均 `null`。
+ */
 export type AttemptRecord = {
 	attempt: number | null,
 	verdict: Verdict,
@@ -399,6 +415,9 @@ export type AttemptRecord = {
 	timestamp: string | null,
 	backtrackTo: string | null,
 	backtrackReason: string | null,
+	executorSessionId: string | null,
+	evaluatorSessionId: string | null,
+	decisionSessionId: string | null,
 };
 
 /**  change 详情聚合。 */

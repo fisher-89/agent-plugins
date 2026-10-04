@@ -90,6 +90,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "合成 v2 样本：proposal 评估通过。",
             "skipped": false,
             "stale": false,
@@ -113,6 +116,9 @@
                 "pass": false
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "合成 v2 样本：首轮设计评估未过。",
             "skipped": false,
             "stale": false,
@@ -131,6 +137,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "合成 v2 样本：回跳后第二次设计评估通过。",
             "skipped": false,
             "stale": false,
@@ -152,6 +161,9 @@
             "backtrackReason": null,
             "backtrackTo": null,
             "checklist": [],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "合成 v2 样本：实现阶段无 checklist 条目（验证空 checklist 不产信封）。",
             "skipped": false,
             "stale": false,

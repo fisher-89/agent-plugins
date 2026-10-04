@@ -12,13 +12,19 @@ use crate::write::persist::{eval_entries_mut, format_timestamp, load_doc, now_is
 use crate::write::phase_table::{phase_table, MAX_TEXT_CHARS};
 use foundation::layout::Layout;
 
-/// 落账输入（checklist 用 `workflow::model::ChecklistItem` 域类型）。
+/// 落账输入（checklist 用 `workflow::model::ChecklistItem` 域类型）。会话槽
+/// 位由调用方（walker）从 `WorkerTurnOutcome.session_id` 取值传入，写面不
+/// 解释不改写；decision 槽位不走本输入（归
+/// [`decision_log`](super::decision_log) 单点挂账），恒 `None`。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct PhaseLogInput {
     pub phase: String,
     pub report: String,
     pub checklist: Vec<ChecklistItem>,
     pub skipped: bool,
+    pub executor_session_id: Option<String>,
+    pub evaluator_session_id: Option<String>,
+    pub decision_session_id: Option<String>,
 }
 
 /// 落账产出。
@@ -114,7 +120,8 @@ pub fn phase_log(
         "timestamp": now_iso(),
     });
     if let Some(object) = entry.as_object_mut() {
-        // 扩展字段仅在显式在位时写入（与插件 buildEntry 同形态）
+        // 扩展字段仅在显式在位时写入（与插件 buildEntry 同形态）；会话槽位
+        // 缺省不产生键（条目形状与既有形态一致）
         if input.skipped {
             object.insert("skipped".to_owned(), Value::Bool(true));
         }
@@ -122,6 +129,24 @@ pub fn phase_log(
             object.insert(
                 "start_at".to_owned(),
                 Value::String(format_timestamp(start_at)),
+            );
+        }
+        if let Some(session_id) = &input.executor_session_id {
+            object.insert(
+                "executor_session_id".to_owned(),
+                Value::String(session_id.clone()),
+            );
+        }
+        if let Some(session_id) = &input.evaluator_session_id {
+            object.insert(
+                "evaluator_session_id".to_owned(),
+                Value::String(session_id.clone()),
+            );
+        }
+        if let Some(session_id) = &input.decision_session_id {
+            object.insert(
+                "decision_session_id".to_owned(),
+                Value::String(session_id.clone()),
             );
         }
     }

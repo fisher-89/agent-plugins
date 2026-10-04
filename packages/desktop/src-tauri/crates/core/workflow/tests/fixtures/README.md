@@ -12,6 +12,7 @@
 | `v1-c`      | archive 快照 `2026-09-18-move-files-write-into-workflow-module`（剔除 reports/ 构建产物） | eval + legacy `files{}` 桶与 `source` 未知键                                    |
 | `v2-a`      | active change 快照（workflow.json + 顶层 markdown + specs/）                              | file_log 键存在的临界形态                                                       |
 | `v2-b`      | 合成样本（非 archive 快照）                                                               | 全量 v2：file_log 三种 op、active_phase、interrupted、eval 含 backtrack         |
+| `v3-a`      | 合成样本（非归档快照）                                                                    | eval 条目会话槽位三形态：三槽位齐全 / 仅 executor 槽位 / 无槽位键（旧形态对照） |
 | `corrupt-*` | 合成样本 × 5                                                                              | 整体非法 JSON / 单条 eval 损坏 / 单条 file_log 损坏 / 非法 verdict / 非法时间戳 |
 
 `v1-b` / `v1-c` 的 `reports/` 目录仅含测试报告构建产物（JSON / HTML，合计约 9MB），

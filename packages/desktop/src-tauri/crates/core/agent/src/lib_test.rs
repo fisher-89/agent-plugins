@@ -145,6 +145,10 @@ impl SessionQuery for NoopQuery {
         Ok(Vec::new())
     }
 
+    fn find_session_detail(&self, _session_id: &str) -> Result<SessionSummary, String> {
+        Err("NoopQuery 不响应单查".to_owned())
+    }
+
     fn transcript(&self, _session_id: &str) -> Result<Vec<AgentEvent>, String> {
         Ok(Vec::new())
     }

@@ -1,8 +1,8 @@
 // @vitest-environment jsdom
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 
-import type { AgentEvent, AgentInstanceRecord, TurnSummary } from '../../types/dto';
+import type { AgentEvent, AgentInstanceRecord, SessionSummary, TurnSummary } from '../../types/dto';
 import { AgentDebugView } from './agent-debug-view';
 
 // ---------------------------------------------------------------------------
@@ -103,10 +103,14 @@ let startBehavior: { mode: 'resolve' | 'reject'; value: TurnSummary | string } |
 /** agent 实例清单 fixture（list_agent_instances 应答；默认空清单 = 缺省语义）。 */
 let instancesFixture: AgentInstanceRecord[] = [];
 
+/** 会话清单 fixture（agent_sessions 应答；默认空清单，来源筛选用例按需注入）。 */
+let historySessionsFixture: SessionSummary[] = [];
+
 function mockIpc() {
   ChannelMock.instances.length = 0;
   startBehavior = { mode: 'resolve', value: run(1, 'running') };
   instancesFixture = [];
+  historySessionsFixture = [];
   invokeMock.mockReset();
   invokeMock.mockImplementation((command: string) => {
     if (command === 'agent_start') {
@@ -116,7 +120,7 @@ function mockIpc() {
       return new Promise<TurnSummary>(() => {});
     }
     if (command === 'agent_stop') return Promise.resolve(null);
-    if (command === 'agent_sessions') return Promise.resolve([]);
+    if (command === 'agent_sessions') return Promise.resolve(historySessionsFixture);
     if (command === 'agent_session_transcript') return Promise.resolve([]);
     if (command === 'list_agent_instances') return Promise.resolve(instancesFixture);
     return Promise.resolve(null);
@@ -415,6 +419,110 @@ describe('AgentDebugView：调试页 agent 选择（缺省 / 显式）', () => {
     await waitFor(() => expect(screen.getByTestId('run-error') !== null).toBe(true));
     expect(screen.getByTestId('run-error').textContent).toContain('配置缺失');
     expect(screen.getByTestId('run-error').textContent).toContain('api_key');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 来源筛选接线（desktop-change-session-visibility，AC-3）：筛选状态由页面
+// 持有（useState<AgentHistorySource>('debug')）并下传 useAgentRunHistory 与
+// AgentRunHistory——点击枚后 onSourceChange 状态提升生效，agent_sessions 按
+// 新 source 重查（真实组合：fixture 经 mock invoke 流入真实 hook）。
+// ---------------------------------------------------------------------------
+
+describe('AgentDebugView：来源筛选接线（AC-3）', () => {
+  function sessionsCalls(): unknown[][] {
+    return invokeMock.mock.calls.filter(([name]) => name === 'agent_sessions');
+  }
+
+  it('页面挂载：history-source-filter 在场且 debug 枚高亮，agent_sessions 以 source: debug 取数（默认现状不变）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+
+    const filter = screen.getByTestId('history-source-filter');
+    const buttons = within(filter).getAllByRole('button');
+    expect(buttons.map((button) => button.getAttribute('aria-pressed'))).toEqual([
+      'true',
+      'false',
+      'false',
+    ]);
+
+    await waitFor(() => expect(sessionsCalls()).toHaveLength(1));
+    expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+      root: ROOT,
+      source: 'debug',
+      sourceRef: null,
+    });
+  });
+
+  it('点击 change 枚：onSourceChange 状态提升生效 → agent_sessions 按新 source 重查（筛选状态 → hook 取数链路）', async () => {
+    render(<AgentDebugView root={ROOT} />);
+    await waitFor(() => expect(sessionsCalls()).toHaveLength(1));
+
+    const buttons = within(screen.getByTestId('history-source-filter')).getAllByRole('button');
+    fireEvent.click(buttons[1]);
+
+    await waitFor(() => expect(sessionsCalls()).toHaveLength(2));
+    expect(invokeMock).toHaveBeenLastCalledWith('agent_sessions', {
+      root: ROOT,
+      source: 'change',
+      sourceRef: null,
+    });
+    expect(
+      within(screen.getByTestId('history-source-filter'))
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-pressed')),
+    ).toEqual(['false', 'true', 'false']);
+  });
+
+  it('点击全部枚：agent_sessions 携 source: null，混合来源清单渲染不炸（列表承接零新概念）', async () => {
+    historySessionsFixture = [
+      {
+        row: {
+          id: 'ses-debug-1',
+          remoteSessionId: null,
+          configSnapshot: null,
+          provenance: { source: 'debug', sourceRef: null },
+          createdAt: 1727000000000,
+          updatedAt: 1727000000300,
+        },
+        stats: { turnCount: 1, totalDurationMs: 100, inputTokens: null, outputTokens: null },
+        turns: [],
+      },
+      {
+        row: {
+          id: 'ses-change-1',
+          remoteSessionId: null,
+          configSnapshot: null,
+          provenance: { source: 'change', sourceRef: 'add-feature/implement/executor/1' },
+          createdAt: 1727000000000,
+          updatedAt: 1727000000200,
+        },
+        stats: { turnCount: 2, totalDurationMs: 200, inputTokens: null, outputTokens: null },
+        turns: [],
+      },
+    ];
+    render(<AgentDebugView root={ROOT} />);
+
+    const buttons = within(screen.getByTestId('history-source-filter')).getAllByRole('button');
+    fireEvent.click(buttons[2]);
+
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenLastCalledWith('agent_sessions', {
+        root: ROOT,
+        source: null,
+        sourceRef: null,
+      }),
+    );
+    const rows = await screen.findAllByTestId('agent-run-row');
+    expect(rows.map((row) => row.getAttribute('data-session-id'))).toEqual([
+      'ses-debug-1',
+      'ses-change-1',
+    ]);
+    // 高亮随页面状态切换（all 枚按下）
+    expect(
+      within(screen.getByTestId('history-source-filter'))
+        .getAllByRole('button')
+        .map((button) => button.getAttribute('aria-pressed')),
+    ).toEqual(['false', 'false', 'true']);
   });
 });
 

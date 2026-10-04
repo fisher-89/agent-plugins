@@ -12,13 +12,6 @@ import {
 } from './layout';
 import type { FlowColumn, FlowNode } from './types';
 
-// ---------------------------------------------------------------------------
-// nodePosition 单测：布局常量（COL_W / ROW_H / COLUMN_HEADER_H / COLUMN_PAD_X）
-// 经 nodePosition 输出间接断言；列容器为画布绝对坐标，事件节点为相对父列坐标
-// （坐标公式 x = 列索引 × (COL_W + 20 列距)、y = 执行序 × ROW_H 的 react-flow 落地）。
-// 节点取自真实 buildFlowGraph 产出，避免手拼模型漂移。
-// ---------------------------------------------------------------------------
-
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
   return {
     attempt: 1,
@@ -31,6 +24,9 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
     timestamp: null,
     backtrackTo: null,
     backtrackReason: null,
+    executorSessionId: null,
+    evaluatorSessionId: null,
+    decisionSessionId: null,
     ...overrides,
   };
 }

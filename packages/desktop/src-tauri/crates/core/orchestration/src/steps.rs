@@ -63,6 +63,14 @@ async fn execute(
             let outcome = workflow::write::backtrack(&layout, &change, &input)?;
             Ok(ToolStepOutput::Backtrack(outcome))
         }
+        ToolCommand::DecisionLog {
+            change,
+            phase,
+            session_id,
+        } => {
+            let outcome = workflow::write::decision_log(&layout, &change, &phase, &session_id)?;
+            Ok(ToolStepOutput::DecisionLog(outcome))
+        }
         ToolCommand::StaticCheck => static_check.run(&step.root).await,
     }
 }

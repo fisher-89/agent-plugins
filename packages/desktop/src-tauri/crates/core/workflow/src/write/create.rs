@@ -116,8 +116,7 @@ pub fn create(layout: &Layout, name: &str, goal: &str) -> Result<CreateOutcome, 
     let mut text = serde_json::to_string_pretty(&doc)
         .map_err(|error| format!("workflow.json 序列化失败: {error}"))?;
     text.push('\n');
-    fs::write(&workflow_path, text)
-        .map_err(|error| format!("写入 workflow.json 失败: {error}"))?;
+    fs::write(&workflow_path, text).map_err(|error| format!("写入 workflow.json 失败: {error}"))?;
 
     let explore_path = dir.join("explore.md");
     fs::write(&explore_path, goal).map_err(|error| format!("写入 explore.md 失败: {error}"))?;

@@ -1,5 +1,6 @@
 //! `port.rs`（编排 port 契约）的单元测试（test-design「port.rs -> port_test.rs」
-//! 节）：ToolCommand 五变体封闭集（match 穷尽编译期锚定）、ToolStepOutput 载荷
+//! 节）：ToolCommand 六变体封闭集（match 穷尽编译期锚定，DecisionLog 为
+//! desktop-change-session-visibility 增量）、ToolStepOutput 载荷
 //! 换血（写面原生类型逐字段相等）、StaticCheckOutcome 字段面、StaticCheckRunner
 //! / DiffContextPort trait 面（object safety + Send+Sync 编译锚）、BoxDiffFuture
 //! 别名跨 await、既有三契约保持回归（AC-1 双缝装置前提）。
@@ -10,7 +11,9 @@
 //!
 //! 废弃注记（test-design 废弃行，断言不落）：ToolCommand 含 ChangeFiles 变体、
 //! ToolStepError 三态映射两行随封闭集收缩与 `Result<_, String>` 换血退役——
-//! 六变体 / Spawn-Exit-Drift 断言不再存在即本节废弃行的承载形态。
+//! ChangeFiles / Spawn-Exit-Drift 断言不再存在即本节废弃行的承载形态（第六
+//! 变体 DecisionLog 为 desktop-change-session-visibility 在册增量，非废弃行
+//! 复活）。
 
 use std::sync::{Arc, Mutex};
 
@@ -23,8 +26,8 @@ use crate::port::{
 };
 use crate::state::RunUpdate;
 use workflow::write::{
-    BacktrackInput, BacktrackOutcome, PhaseLogInput, PhaseLogOutcome, PhaseNextOutcome,
-    PhaseStartOutcome,
+    BacktrackInput, BacktrackOutcome, DecisionLogOutcome, PhaseLogInput, PhaseLogOutcome,
+    PhaseNextOutcome, PhaseStartOutcome,
 };
 
 // ---------------------------------------------------------------------------
@@ -50,6 +53,9 @@ fn sample_phase_log_input() -> PhaseLogInput {
         report: "实现完成".to_owned(),
         checklist: Vec::new(),
         skipped: false,
+        executor_session_id: None,
+        evaluator_session_id: None,
+        decision_session_id: None,
     }
 }
 
@@ -143,13 +149,13 @@ impl RunEventSink for RecordingSink {
 }
 
 // ---------------------------------------------------------------------------
-// ToolCommand 五变体封闭集
+// ToolCommand 六变体封闭集
 // ---------------------------------------------------------------------------
 
-/// ToolCommand 五变体封闭集：五变体构造 + match 穷尽分发编译期锚定；载荷直载
+/// ToolCommand 六变体封闭集：六变体构造 + match 穷尽分发编译期锚定；载荷直载
 /// 写面输入类型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）。
 #[tokio::test]
-async fn tool_command五变体封闭集且match穷尽分发() {
+async fn tool_command六变体封闭集且match穷尽分发() {
     // match 穷尽：缺任一变体即编译失败（封闭集收缩形态的编译期锚）
     fn describe(command: &ToolCommand) -> &'static str {
         match command {
@@ -157,6 +163,7 @@ async fn tool_command五变体封闭集且match穷尽分发() {
             ToolCommand::PhaseStart { .. } => "phase-start",
             ToolCommand::PhaseLog { .. } => "phase-log",
             ToolCommand::Backtrack { .. } => "backtrack",
+            ToolCommand::DecisionLog { .. } => "decision-log",
             ToolCommand::StaticCheck => "static-check",
         }
     }
@@ -192,9 +199,17 @@ async fn tool_command五变体封闭集且match穷尽分发() {
             },
             "backtrack",
         ),
+        (
+            ToolCommand::DecisionLog {
+                change: "c".to_owned(),
+                phase: "implement".to_owned(),
+                session_id: "sess-1".to_owned(),
+            },
+            "decision-log",
+        ),
         (ToolCommand::StaticCheck, "static-check"),
     ];
-    assert_eq!(commands.len(), 5, "封闭集五变体");
+    assert_eq!(commands.len(), 6, "封闭集六变体");
 
     for (command, label) in &commands {
         assert_eq!(describe(command), *label, "变体 {label} 可辨");
@@ -240,8 +255,8 @@ async fn tool_command五变体封闭集且match穷尽分发() {
 }
 
 /// ToolStepOutput 载荷换血：各变体载荷（写面原生 PhaseNextOutcome /
-/// PhaseStartOutcome / PhaseLogOutcome / BacktrackOutcome / StaticCheckOutcome）
-/// 构造与提取逐字段相等；PhaseNext 大变体 Box 收敛尺寸差。
+/// PhaseStartOutcome / PhaseLogOutcome / BacktrackOutcome / DecisionLogOutcome /
+/// StaticCheckOutcome）构造与提取逐字段相等；PhaseNext 大变体 Box 收敛尺寸差。
 #[test]
 fn tool_step_output各变体载荷写面原生类型逐字段相等() {
     let next = sample_phase_next_outcome();
@@ -258,6 +273,9 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
         phase: "implement".to_owned(),
         target: "dev-design".to_owned(),
     };
+    let decision = DecisionLogOutcome {
+        phase: "implement".to_owned(),
+    };
     let check = StaticCheckOutcome {
         passed: false,
         diagnostics: "error[E0308]: mismatched".to_owned(),
@@ -268,9 +286,10 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
         ToolStepOutput::PhaseStart(start.clone()),
         ToolStepOutput::PhaseLog(log.clone()),
         ToolStepOutput::Backtrack(back.clone()),
+        ToolStepOutput::DecisionLog(decision.clone()),
         ToolStepOutput::StaticCheck(check.clone()),
     ];
-    assert_eq!(outputs.len(), 5, "产出封闭集五变体");
+    assert_eq!(outputs.len(), 6, "产出封闭集六变体");
 
     // 提取逐字段相等（TryFrom 窄化——walker 侧 run_tool 泛型的半边）
     match outputs[0].clone() {
@@ -296,6 +315,10 @@ fn tool_step_output各变体载荷写面原生类型逐字段相等() {
         _ => panic!("变体漂移"),
     }
     match outputs[4].clone() {
+        ToolStepOutput::DecisionLog(outcome) => assert_eq!(outcome, decision),
+        _ => panic!("变体漂移"),
+    }
+    match outputs[5].clone() {
         ToolStepOutput::StaticCheck(outcome) => assert_eq!(outcome, check),
         _ => panic!("变体漂移"),
     }

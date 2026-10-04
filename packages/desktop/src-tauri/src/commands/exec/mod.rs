@@ -160,3 +160,22 @@ pub fn agent_session_transcript(
     let store = stores.for_root(&root).map_err(|e| e.to_string())?;
     agent_runtime::session_query(store).transcript(&session_id)
 }
+
+/// 按 id 单查会话（行 + 聚合统计 + 轮行）：root 寻址所属 workspace 库直查
+/// DTO，跨库隔离与既有查询命令一致；blank root → 空结果（`None`）；查无此
+/// id 显式 `Err`（单查语义与清单空态区分）。
+#[tauri::command]
+#[specta::specta]
+pub fn session_detail(
+    stores: State<'_, WorkspaceStores>,
+    root: String,
+    session_id: String,
+) -> Result<Option<SessionSummary>, String> {
+    if is_blank_root(&root) {
+        return Ok(None);
+    }
+    let store = stores.for_root(&root).map_err(|e| e.to_string())?;
+    agent_runtime::session_query(store)
+        .find_session_detail(&session_id)
+        .map(Some)
+}

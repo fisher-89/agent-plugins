@@ -2,6 +2,9 @@ import { useCallback, useEffect, useState } from 'react';
 
 import { commands, type AgentEvent, type SessionSummary } from '../../../types/generated/bindings';
 
+/** 历史区来源筛选三态：'all' 在取数层映射 null（不过滤）。 */
+export type AgentHistorySource = 'debug' | 'change' | 'all';
+
 export interface AgentRunHistoryState {
   /** 会话清单（后端 `updated_at` 降序）；挂载自动取数，refresh() 重取 */
   sessions: SessionSummary[];
@@ -24,7 +27,10 @@ interface QueryState {
 
 const IDLE: QueryState = { loading: false, error: null };
 
-function useSessions(root: string | null): {
+function useSessions(
+  root: string | null,
+  source: AgentHistorySource,
+): {
   sessions: SessionSummary[];
   query: QueryState;
   refresh: () => void;
@@ -44,7 +50,7 @@ function useSessions(root: string | null): {
     let cancelled = false;
     setQuery({ loading: true, error: null });
     commands
-      .agentSessions(root, 'debug', null)
+      .agentSessions(root, source === 'all' ? null : source, null)
       .then((result) => {
         if (cancelled) return;
         setSessions(result);
@@ -57,7 +63,7 @@ function useSessions(root: string | null): {
     return () => {
       cancelled = true;
     };
-  }, [root, tick]);
+  }, [root, source, tick]);
 
   return { sessions, query, refresh };
 }
@@ -100,10 +106,14 @@ function useReplay(root: string | null): {
 }
 
 /**
- * 历史会话 hook
+ * 历史会话 hook：`source` 筛选会话来源（默认由调用方持 'debug'），切换即
+ * 重查；显式刷新（tick 重取）模式不变，无轮询无订阅。
  */
-export function useAgentRunHistory(root: string | null): AgentRunHistoryState {
-  const sessionsState = useSessions(root);
+export function useAgentRunHistory(
+  root: string | null,
+  source: AgentHistorySource,
+): AgentRunHistoryState {
+  const sessionsState = useSessions(root, source);
   const replayState = useReplay(root);
   return {
     sessions: sessionsState.sessions,

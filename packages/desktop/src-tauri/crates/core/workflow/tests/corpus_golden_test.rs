@@ -33,6 +33,7 @@ const CHANGE_FIXTURES: &[&str] = &[
     "v1-c",
     "v2-a",
     "v2-b",
+    "v3-a",
     "corrupt-bad-eval-entry",
     "corrupt-bad-filelog-entry",
     "corrupt-bad-timestamp",
@@ -283,6 +284,7 @@ change_fixture_golden_test!(golden_v1_b, "v1-b");
 change_fixture_golden_test!(golden_v1_c, "v1-c");
 change_fixture_golden_test!(golden_v2_a, "v2-a");
 change_fixture_golden_test!(golden_v2_b, "v2-b");
+change_fixture_golden_test!(golden_v3_a, "v3-a");
 change_fixture_golden_test!(golden_corrupt_bad_eval_entry, "corrupt-bad-eval-entry");
 change_fixture_golden_test!(
     golden_corrupt_bad_filelog_entry,

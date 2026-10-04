@@ -223,6 +223,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "评估 add-desktop-terminal proposal.md + 7 个 specs。问题含具体痛点、战略动机与三代数据表;范围四小节齐全;5 项风险均有具体缓解;AC-1..14 均可测;12 项决策含理由+被拒备选;CLAUDE.md bump 规则边界已显式声明(不触碰 plugins/**);无占位符;能力 7 项与 specs/ 7 个 spec 一一对应,全部 ADDED,AC 与 requirement 交叉一致无冲突。全部通过,verdict=pass。",
             "skipped": false,
             "stale": false,
@@ -291,6 +294,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "D1组件表5行含职责/依赖/技术/路径,无TBD;D2数据模型8行字段+持久化齐全;D3 AC-1~14逐项落点对应;D4任务9阶段依赖有序、勾选框齐全;D5任务指名文件与函数;D6运行时+构建依赖列用途;D7独立包与CLAUDE.md插件分发规则划界一致;D8模板章节全实质填写;D9无测试策略/测试任务(check/build/走查非测试);D10清单覆盖proposal实现文件(core前缀差异已声明),tasks与清单双向一致。全部通过。",
             "skipped": false,
             "stale": false,
@@ -349,6 +355,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "T1: AC-1..14与验收范围逐条映射齐全。T2: 单测型9条目与21个heading双向无缺失；5集成关系关联AC均在范围内，集成型AC-1/7/10/14均被引用。T3: 21个测试对象均含异常+边界(负attempt/空数组/None/非法枚举/超长/特殊字符/除零)。T4: 文件系统(temp+fixtures)与Tauri IPC(invoke/dialog)均有Mock策略。T5: 各章节实质填写无占位。T6: 第二刀项(exec/file-log等)无覆盖，file-log仅作未注册反例。T7: proposal纯读无写操作，不适用。T8: 单测21节/集成5节/验收范围列名与结构均合规。",
             "skipped": false,
             "stale": false,
@@ -402,6 +411,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "47 个声明文件全部存在（workflow_files 清单为空属 hook 不可见漏记，已按文件系统逐一核对内容）；公共 API/类型/配置逐项对上：三个 Tauri 命令、foundation 零依赖、workflow 无 tauri、serde camelCase 宽松两段解析、目录名仅 layout.rs:23-27 一处、静态注册表特化 kind 先于 markdown-doc、exec 空轨道、组件不直连 invoke、无轮询/watch/State，均落实。额外文件仅 .gitignore/Cargo.lock/icon.ico/pnpm-workspace.yaml 等构建必需物，无无关删除。唯一 fail：tasks.md:72 阶段9 全链路验证（cargo check/pnpm build/tauri dev 走查）复选框未勾选，其余 35 项均 [x]。",
             "skipped": false,
             "stale": false,
@@ -450,6 +462,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "7/7 通过。design 变更清单 49 个新增文件逐一核实落盘且内容对齐；files 清单 deleted[] 6 条为偏差注释声明的 crates/desktop-app 旧落位移除，盘面确认不存在，非无关删除。前次唯一失败项 I5 已修复：tasks.md 全部勾选且阶段 9 含 2026-09-20 用户验收完成注记。两处 GUI 修复在盘（MarkdownDocRenderer 挂 remark-gfm；list.rs scan_dir 经 layout 推导跳过 archive，目录名触点仍仅 layout.rs:23 一处）。",
             "skipped": false,
             "stale": false,

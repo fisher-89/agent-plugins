@@ -167,6 +167,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "proposal.md 11/11 通过。问题具体（写路径语义滞留 commands/ + gitignore 命中路径污染清单）；变更范围三段齐全且非空；5 项风险均有具体缓解（fail-open、实样用例、全量回归等）；AC-1~6 均含对象+条件+测试锚点；5 项决策均列被拒绝备选（git check-ignore、fail-closed、同步过滤等）；与 CLAUDE.md 版本/rebuild 规则及 knip 无 shim 约定一致；无 TODO/TBD/占位符。specs 2 个（change-files=MODIFIED、workflow-file-inventory=ADDED）与修改的能力 1:1；导出名 recordFileOps/appendFileOps/setFileBuckets、fail-open、change_files 不过滤、无 shim 等表述与 spec Module Contract 及 scenarios 一致，无逻辑冲突。",
             "skipped": false,
             "stale": false,
@@ -235,6 +238,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "逐项通过。D1 六组件表5列齐全无TBD；D2 两模型含字段/持久化；D3 AC-1~6逐项映射；D4 四阶段依赖序正确（依赖→过滤器→模块→命令→版本产物）；D5 任务含具体文件/函数/语义/命令；D6 ignore^7与既有工具已列；D7 符合CLAUDE.md版本+build规则，grep证实待删函数与version 2.10.38属实；D8 六章节实质填写；D9 无测试章节/任务；D10 提案7实现文件全覆盖，tasks文件集=清单集，新增函数入公共函数表。备注：gitignore API不进barrel为已论证收窄，与AC兼容。",
             "skipped": false,
             "stale": false,
@@ -293,6 +299,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "test-design 与 proposal 交叉验证通过:AC-1~AC-6 全部映射至验收范围;单测/集成双向无缺失(record.test.ts 等文件均在 AC 单元格中锚定);异常与边界系统覆盖(空串/特殊字符/空数组/100+批量/越界/缺 files 抛错/fail-open);Mock 策略完整(stdin 分流、session-registry、stderr spy,真盘节注明不 mock);out_of_scope 零新增覆盖、in_scope 全覆盖;幂等由 append 去重保 source、同批去重、折叠收敛锁定;T8 格式与模板逐项一致。备注:appendFileOps 无独立异常行,其异常面为共享 readFileInventory 前置,由 setFileBuckets 异常行及既有 readFileInventory 异常组传递覆盖。",
             "skipped": false,
             "stale": false,
@@ -346,6 +355,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "I1-I7 全过。6组件齐备: files/gitignore.ts(层级短路+深层优先+fail-open)、record.ts(规范化→排除→过滤→读折写, filter惰性单建, onWarn=record-files: stderr)、file-inventory.ts append/set(append不复用fold、保留source)、barrel扩导出、两命令层纯委托。package.json ignore ^7.0.0+2.10.39, lockfile 7.0.9, 三端产物已刷至2.10.39。无shim, lib/file-inventory.ts已删, tasks 8/8 [x]。计划外(files-query迁移/index.test导入/vite.config lint护栏)均与design文件位置及模块边界意图一致且无删除; files清单碎片条目磁盘无对应, 无关源码未被删。",
             "skipped": false,
             "stale": true,
@@ -394,6 +406,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "回溯处置已落实：vite.config.ts 恢复至 HEAD（diff 为空，无 no-restricted-imports 规则）。gitignore.ts/record.ts 新增，导出签名与 design 一致（层级求值、目录短路、深层优先、fail-open、onWarn）；file-inventory.ts 迁入 appendFileOps/setFileBuckets（不复用 foldFileOps、不接过滤、保留 source）；barrel 扩充且 gitignore 不进 barrel；两命令文件瘦身无 shim，legacy 抛错上传播；package.json ignore ^7.0.0 + 2.10.39，dist 三端产物已刷新。",
             "skipped": false,
             "stale": false,
@@ -457,6 +472,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "G1-G9 全过。6 个测试文件均在盘上且在 files.written；*.test.ts 与源码同目录，record-files.test.ts 按 design 未启用。单测新增行逐行落位（gitignore 13、record 14、file-inventory append/set 10、index 4、change-files AC-5 2），集成 3 关系用例均有骨架且既有 describe 组保持。Mock 逐项实现（stdin 分流、session-registry、stderr/exit spy、onWarn vi.fn、真盘不 mock）；gitignore.test.ts 额外 vi.mock('ignore') 解析哨兵为文件头注明的良性适配（v7 对非法内容不抛错）。框架 vite-plus/test 一致，清理/还原齐备。废弃项确认移除：index 无 4 键旧断言、hooks 无 barrel mock 观察点（grep 零命中）。",
             "skipped": false,
             "stale": true,
@@ -515,6 +533,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "G1-G9 全过（backtrack 恢复 vite.config.ts 后复核）。6 个测试文件均在盘上且在 files.written，三态一致；record-files.test.ts 按 design 未启用。单测新增行逐行落位（gitignore 13、record 14、file-inventory 10、index 4、change-files 2、hooks 观察点改造组+gitignore 接入 4），集成 3 关系 10 行均有骨架，既有 describe 组保持。Mock 逐项实现（stdin 分流、session-registry、stderr/exit spy、onWarn vi.fn、真盘不 mock）；良性超集 2 处：gitignore.test.ts vi.mock('ignore') 解析哨兵、hooks 的 project-root 透传 mock，均不替代 design 表内 mock。框架 vite-plus/test 一致，清理/还原齐备。废弃项移除：index 无 4 键旧断言、hooks 无 barrel mock 观察点。",
             "skipped": false,
             "stale": false,
@@ -553,6 +574,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "所有 2179 个测试通过（passed 2177 / failed 0 / skipped 2，duration 136s）。覆盖率达标: lines=96.98% (阈值90), branches=89.12% (阈值85), functions=99.5% (阈值90)；Mutation score 90.16% ≥ 70%。2 个跳过为构建产物缺失自跳过（archi-decide-retirement AC-09，可经 build 恢复），非失败。",
             "skipped": false,
             "stale": true,
@@ -586,6 +610,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "所有 2179 个测试通过（2177 passed / 0 failed / 2 skipped）。覆盖率达标: lines=96.98% (阈值90), branches=89.12% (阈值85), functions=99.5% (阈值90)。Mutation score 90.16% ≥ 阈值 70。2 个跳过为既有环境门控用例（archi-decide-retirement AC-09），与本次变更无关。注: coverage.overrides[\"plugins/dev-team\"] measured 为 null（数据映射问题），但 coverage.pass=true，无门控影响。",
             "skipped": false,
             "stale": false,
@@ -639,6 +666,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "C3 fail（其余全过）：vite.config.ts:46-56 新增 eslint no-restricted-imports 规则，未列入 design.md 变更清单/proposal 变更范围，亦不在 files.written——范围外且未记账的修改，与本 change 的清单记账主题相悖，需回补 design 或回退。其余逐项一致：record.ts 管线正序、append/set 与原 applyAppend/applySet 语义等价（含 source 保留差异）、无 shim、gitignore 不进 barrel（index.test 锁定）、fail-open+stderr 诊断、v2.10.39+ignore@7.0.9+产物已刷新。另：files.written 存在垃圾条目（path.join/k/x.type/rm 等），属过滤器上线前的存量噪音，按 proposal 不回溯，不计入本判。",
             "skipped": false,
             "stale": true,
@@ -687,6 +717,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "审查范围=workflow_files清单×文件系统×git diff。C1 过：无注入/硬编码密钥，record.ts:30 越界丢弃，gitignore.ts 全 fail-open 无 eval/exec。C2 过：stdin 逐字段 typeof 校验(record-files.ts:92-96)，change_files 上游 zod(mcp.ts:342)。C3 过：管线序/签名/append 不复用 foldFileOps(file-inventory.ts:222)/gitignore 不进 barrel/无 shim 均符 design，append/set 与原实现逐行等价。C4 过：空批早返回、空路径、缺失层、目录形态 .gitignore 均处理并有测试。C5/C6/C7 过：无残留死代码，风格一致，类型复用无中间映射。备注：本 change 自身 workflow.json 净状态含测试期 Bash 命中噪音，属运行时记录机制预期（只多记），非代码缺陷。",
             "skipped": false,
             "stale": false,
@@ -730,6 +763,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "验收通过。AC-1~6 逐项溯源成立：gitignore.ts 层级过滤器（深层优先/目录短路/fail-open）+ gitignore.test.ts 实样·层级·缺失失败层用例；record.ts:71-82 过滤接入 + hooks.test.ts:3040-3140；barrel 扩三导出、commands 零残留无 shim（index.test.ts:88-107 源码扫描锁定）；append/set 语义等价且不过滤（AC-5 change-files.test.ts:404-458）；v2.10.39 + ignore^7 + dist 三端产物含过滤代码。out_of_scope 七项未触碰；vite.config 回退项已核实恢复；tasks 8/8 [x]；test-execution attempt2 2179 测试 0 失败。",
             "skipped": false,
             "stale": false,

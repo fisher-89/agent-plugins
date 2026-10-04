@@ -77,7 +77,21 @@ function toChartNodes(
       style: { width: COL_W - COLUMN_PAD_X * 2 },
     };
     if (node.kind === 'runtime') {
-      return [{ ...common, type: 'runStep', data: { node } }];
+      return [
+        {
+          ...common,
+          type: 'runStep',
+          data: {
+            node,
+            // WorkerAgent 节点显式「查看会话」入口（上抛与节点点击同一
+            // DrawerSelection，单一交互入口不变）；ToolStep / Gate 无入口
+            onOpenSession:
+              node.group === 'workerAgent'
+                ? () => onSelect({ scope: 'node', nodeId: node.id })
+                : undefined,
+          },
+        },
+      ];
     }
     return [{ ...common, type: 'event', data: { node } }];
   });

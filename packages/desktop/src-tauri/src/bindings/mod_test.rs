@@ -59,6 +59,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "agentStop",
     "agentSessions",
     "agentSessionTranscript",
+    "sessionDetail",
     "readExplore",
     "scanExplores",
     "exploreDocPath",
@@ -74,7 +75,7 @@ const COMMAND_WRAPPERS: &[&str] = &[
     "workspaceConfig",
 ];
 
-/// 30 条命令的 IPC 命令名（snake_case，invoke 目标）。
+/// 31 条命令的 IPC 命令名（snake_case，invoke 目标）。
 const COMMAND_NAMES: &[&str] = &[
     "list_changes",
     "get_change_detail",
@@ -93,6 +94,7 @@ const COMMAND_NAMES: &[&str] = &[
     "agent_stop",
     "agent_sessions",
     "agent_session_transcript",
+    "session_detail",
     "read_explore",
     "scan_explores",
     "explore_doc_path",
@@ -186,7 +188,7 @@ fn type_section(content: &str, type_name: &str) -> String {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 导出产物包含全部30条命令包装名与invoke命令名及出线dto类型名() {
+fn 导出产物包含全部31条命令包装名与invoke命令名及出线dto类型名() {
     let _lock = lock();
     let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
 
@@ -611,6 +613,59 @@ fn 配置域十二型出线且逐字段形态对位() {
     assert!(diagnostic.contains("kind: DiagnosticKind,"));
     assert!(diagnostic.contains("path: string,"));
     assert!(diagnostic.contains("message: string,"));
+}
+
+// ---------------------------------------------------------------------------
+// session_detail 单查命令出线形态（desktop-change-session-visibility，AC-2 /
+// AC-6 bindings 再生成半边）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn session_detail绑定为root_session_id入参的nullable三件套直返() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 包装形态逐字：camelCase 包装名 + (root: string, sessionId: string) 入参 +
+    // 三件套内联返回 `| null`（blank root 空结果 Ok(None) 透传）+ invoke 命令名
+    assert!(
+        content.contains("sessionDetail: (root: string, sessionId: string) => __TAURI_INVOKE<{"),
+        "sessionDetail 包装形态不符（入参 / 返回三件套内联形态）"
+    );
+    assert!(
+        content.contains("} | null>(\"session_detail\", { root, sessionId })"),
+        "session_detail invoke 目标与 nullable 空结果形态"
+    );
+    // 三件套字段出线（SessionSummary 复用零新 DTO——row / stats / turns）
+    assert!(content.contains("row: SessionRow,"));
+    assert!(content.contains("stats: SessionStats,"));
+    assert!(content.contains("turns: TurnSummary[],"));
+    // 同步直查命令：出线形态与 codeStats / workspaceConfig 同族直返（Throw 模式
+    // Promise，错误面 reject 透传，无 Result 包装）
+    assert!(
+        !content.contains("Result<"),
+        "产物无 Result 包装（Throw 模式回归）"
+    );
+}
+
+#[test]
+fn attempt_record出线三会话槽位键恒在场且nullable() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // AttemptRecord 类型名已在 DTO_TYPES 在册（本变更零补录）：三槽位字段
+    // camelCase 出线、恒在场、无槽位 null（wire「缺省字段 null 不省键」契约面，
+    // golden diff 守卫的字段级承载）
+    let attempt = type_section(&content, "AttemptRecord");
+    for field in [
+        "executorSessionId: string | null,",
+        "evaluatorSessionId: string | null,",
+        "decisionSessionId: string | null,",
+    ] {
+        assert!(
+            attempt.contains(field),
+            "AttemptRecord 缺槽位出线 {field}，实际: {attempt}"
+        );
+    }
 }
 
 #[test]

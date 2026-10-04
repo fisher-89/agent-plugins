@@ -573,6 +573,154 @@ fn reconcile_stats无turn_done转录时缺省统计不报错() {
 }
 
 // ---------------------------------------------------------------------------
+// SessionQuery：find_session_detail 单查两段式（AC-6 单查半边：find_session
+// miss-fast 锚定 + 清单面收敛；运行状态自轮行推导；跨 workspace 库隔离）
+// ---------------------------------------------------------------------------
+
+/// seed 一轮完整轮行（TurnDone 转录 + begin/finish 轮行）的会话。
+fn seed_full_session(env: &Env, id: &str) {
+    env.sink
+        .create_session(&new_row(id, "debug", None))
+        .expect("create_session 应成功");
+    env.sink
+        .append_sealed(id, &turn_done(0, 10, 100))
+        .expect("append 应成功");
+    let turn = env
+        .sink
+        .begin_turn(id, 1727000000000)
+        .expect("begin 应成功");
+    finish_turn_ok(&env.sink, turn, agent::AgentRunStatus::Completed);
+}
+
+#[test]
+fn find_session_detail命中返回row_stats_turns三件套与清单面逐字段全等() {
+    let env = Env::new("find-hit");
+    seed_full_session(&env, "ses-x");
+    // 第二会话在库：单查仍精确定位目标行（清单面收敛取单条）
+    seed_full_session(&env, "ses-y");
+
+    let found = env.query.find_session_detail("ses-x").expect("单查应成功");
+    let listed = env
+        .query
+        .list_sessions(None, None)
+        .expect("list_sessions 应成功")
+        .into_iter()
+        .find(|summary| summary.row.id == "ses-x")
+        .expect("清单面含目标条目");
+    assert_eq!(
+        found, listed,
+        "单查与清单面对应条目逐字段全等（清单面是聚合形状的唯一既有路径）"
+    );
+
+    // 三件套逐面锚定：row（id / provenance / 双时间戳）+ stats（轮数 / 墙钟 / token 现算）+ turns 全量随行
+    assert_eq!(found.row.id, "ses-x");
+    assert_eq!(found.row.provenance.source, "debug");
+    assert_eq!(found.row.provenance.source_ref, None);
+    assert!(found.row.created_at > 0, "建档时间由落库侧取值");
+    assert!(found.row.updated_at >= found.row.created_at);
+    assert_eq!(found.stats.turn_count, 1, "轮数 = 轮统计行行数");
+    assert_eq!(found.stats.total_duration_ms, Some(4000), "累计墙钟现算");
+    assert_eq!(
+        found.stats.input_tokens,
+        Some(10),
+        "累计 token 自 TurnDone 求和"
+    );
+    assert_eq!(found.turns.len(), 1, "轮统计行全量随行");
+    assert_eq!(found.turns[0].status, agent::AgentRunStatus::Completed);
+    assert_eq!(found.turns[0].session_id, "ses-x");
+    assert_eq!(found.turns[0].duration_ms, Some(4000));
+}
+
+#[test]
+fn find_session_detail含未收轮时轮行呈running且无顶层状态字段() {
+    let env = Env::new("find-running");
+    env.sink
+        .create_session(&new_row("ses-r", "debug", None))
+        .expect("create_session 应成功");
+    // begin 后未 finish：有 running 轮行即 running
+    let _ = env
+        .sink
+        .begin_turn("ses-r", 1727000000000)
+        .expect("begin 应成功");
+
+    let found = env.query.find_session_detail("ses-r").expect("单查应成功");
+    assert_eq!(
+        found.turns.len(),
+        1,
+        "轮行清单为唯一状态事实源（与清单面 / 调试页同一推导式）"
+    );
+    assert_eq!(
+        found.turns[0].status,
+        agent::AgentRunStatus::Running,
+        "有 running 轮行即 running（自轮行推导）"
+    );
+    assert_eq!(found.turns[0].finished_at, None, "未收轮 finished_at 缺席");
+}
+
+#[test]
+fn find_session_detail查无此id两形态显式err不返回空清单() {
+    // 形态一：空库查无此 id（第一段 find_session miss-fast，不触全表）
+    let empty = Env::new("find-miss-empty");
+    let error = empty
+        .query
+        .find_session_detail("ses-404")
+        .expect_err("空库查无此 id 必须 Err");
+    assert!(
+        error.contains("会话不存在") && error.contains("ses-404"),
+        "显式 Err 非空态（单查语义与清单空态区分），实际: {error}"
+    );
+
+    // 形态二：有库未见 id
+    let env = Env::new("find-miss-present");
+    seed_full_session(&env, "ses-x");
+    let error = env
+        .query
+        .find_session_detail("ses-404")
+        .expect_err("有库未见 id 必须 Err");
+    assert!(
+        error.contains("会话不存在") && error.contains("ses-404"),
+        "同词 Err 记因，实际: {error}"
+    );
+}
+
+#[test]
+fn find_session_detail空session_id入参显式err不panic() {
+    let env = Env::new("find-blank-id");
+    seed_full_session(&env, "ses-x");
+
+    let error = env
+        .query
+        .find_session_detail("")
+        .expect_err("空 session_id 必须 Err（单查语义对调用方错误早暴露）");
+    assert!(
+        error.contains("会话不存在"),
+        "miss-fast 记因（不降级空态），实际: {error}"
+    );
+}
+
+#[test]
+fn find_session_detail跨workspace库隔离_会话落a库经b库单查显式err() {
+    let env_a = Env::new("find-iso-a");
+    let env_b = Env::new("find-iso-b");
+    seed_full_session(&env_a, "ses-in-a");
+
+    let found = env_a
+        .query
+        .find_session_detail("ses-in-a")
+        .expect("A 库单查应命中");
+    assert_eq!(found.row.id, "ses-in-a", "A 库会话经 A query 命中");
+
+    let error = env_b
+        .query
+        .find_session_detail("ses-in-a")
+        .expect_err("B 库单查必须 Err（按 root 隔离的库边界）");
+    assert!(
+        error.contains("会话不存在"),
+        "跨库 miss 显式 Err，实际: {error}"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 查询面构造：session_query 单点（crate 根可达形态）
 // ---------------------------------------------------------------------------
 

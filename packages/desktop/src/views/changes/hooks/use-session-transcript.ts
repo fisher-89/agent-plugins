@@ -1,9 +1,3 @@
-/**
- * 会话转录 hook：按 `source="change"` + sourceRef exact-match 反查会话 →
- * `agent_session_transcript` 密封转录重放 → agent-adapter 适配为
- * `AgentUIMessage` → 实时事件按 seq 去重并入。运行中实时 / 收口重放一致
- *（无第二套时间线——渲染面复用 AgentTimeline）。
- */
 import { useEffect, useRef, useState } from 'react';
 
 import { eventsToUIMessages, type AgentUIMessage } from '../../../lib/agent-adapter';
@@ -28,18 +22,45 @@ function assembleTranscript(replay: AgentEvent[], liveEvents: AgentEvent[]): Age
   return merged.sort((a, b) => a.seq - b.seq);
 }
 
+/** 库内装载产物：密封转录重放 + 运行状态（自轮行推导——有 running 轮行即
+ * running）；`null` 即空态（查无会话 / blank root）。 */
+interface TranscriptLoad {
+  transcript: AgentEvent[];
+  running: boolean;
+}
+
+/** 直查优先：槽位 id → `sessionDetail` 单查 → 密封转录重放（记录在案的 id
+ * 精确寻址，杜绝「同 ref 多会话取最近一条」反查歧义）。 */
+async function loadBySessionId(root: string, sessionId: string): Promise<TranscriptLoad | null> {
+  const detail = await commands.sessionDetail(root, sessionId);
+  if (detail === null) return null;
+  const transcript = await commands.agentSessionTranscript(root, sessionId);
+  return { transcript, running: detail.turns.some((turn) => turn.status === 'running') };
+}
+
+/** 反查兜底：sourceRef 定式 exact-match（旧数据，行为与升级前一致；同
+ * sourceRef 多会话取最近一条）。 */
+async function loadBySourceRef(root: string, sourceRef: string): Promise<TranscriptLoad | null> {
+  const summaries = await commands.agentSessions(root, 'change', sourceRef);
+  if (summaries.length === 0) return null;
+  const latest = summaries[summaries.length - 1];
+  const transcript = await commands.agentSessionTranscript(root, latest.row.id);
+  return { transcript, running: latest.turns.some((turn) => turn.status === 'running') };
+}
+
 /**
- * sourceRef 反查转录：`sourceRef` 变化即重查（运行步节点选中联动）；
+ * 会话寻址转录：`sessionId` / `sourceRef` 任一变化即重查（节点选中联动）；
  * `liveEvents` 为该会话的实时事件流（run 状态缓存按 sessionId 过滤后传入），
  * 与库内重放按 seq 归并——重放覆盖落库半边、实时覆盖在途半边，二者并流
- * 无缝。会话仍有 running 轮行时 `running` 置真（面板头部流式状态）。
+ * 无缝。
  */
 export function useSessionTranscript(params: {
   root: string | null;
   sourceRef: string | null;
+  sessionId: string | null;
   liveEvents: AgentEvent[];
 }): UseSessionTranscriptResult {
-  const { root, sourceRef, liveEvents } = params;
+  const { root, sourceRef, sessionId, liveEvents } = params;
   const [messages, setMessages] = useState<AgentUIMessage[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -47,7 +68,8 @@ export function useSessionTranscript(params: {
   const replayRef = useRef<AgentEvent[] | null>(null);
 
   useEffect(() => {
-    if (root === null || sourceRef === null) {
+    // 双 null：清空态不发起任何查询（槽位缺席且无反查键，不虚构会话）
+    if (root === null || (sessionId === null && sourceRef === null)) {
       replayRef.current = null;
       setMessages([]);
       setRunning(false);
@@ -55,23 +77,17 @@ export function useSessionTranscript(params: {
       return;
     }
     let disposed = false;
-    void commands
-      .agentSessions(root, 'change', sourceRef)
-      .then(async (summaries) => {
+    const load = (async (): Promise<TranscriptLoad | null> => {
+      if (sessionId !== null) return loadBySessionId(root, sessionId);
+      if (sourceRef !== null) return loadBySourceRef(root, sourceRef);
+      return null;
+    })();
+    load
+      .then((result) => {
         if (disposed) return;
-        if (summaries.length === 0) {
-          replayRef.current = null;
-          setMessages([]);
-          setRunning(false);
-          return;
-        }
-        // 同 sourceRef 多会话（重发同 attempt 的罕见形态）取最近一条
-        const latest = summaries[summaries.length - 1];
-        setRunning(latest.turns.some((turn) => turn.status === 'running'));
-        const transcript = await commands.agentSessionTranscript(root, latest.row.id);
-        if (disposed) return;
-        replayRef.current = transcript;
-        setMessages(eventsToUIMessages(transcript));
+        replayRef.current = result?.transcript ?? null;
+        setMessages(result === null ? [] : eventsToUIMessages(result.transcript));
+        setRunning(result?.running ?? false);
       })
       .catch((cause: unknown) => {
         if (!disposed) setError(typeof cause === 'string' ? cause : String(cause));
@@ -79,14 +95,15 @@ export function useSessionTranscript(params: {
     return () => {
       disposed = true;
     };
-  }, [root, sourceRef]);
+  }, [root, sourceRef, sessionId]);
 
   // 实时事件并入：以库内重放为底、seq 去重合并（重放未就绪时静默等待）
   useEffect(() => {
+    const key = sessionId ?? sourceRef;
     const base = replayRef.current;
-    if (sourceRef === null || base === null || liveEvents.length === 0) return;
+    if (key === null || base === null || liveEvents.length === 0) return;
     setMessages(eventsToUIMessages(assembleTranscript(base, liveEvents)));
-  }, [liveEvents, sourceRef]);
+  }, [liveEvents, sessionId, sourceRef]);
 
   return { messages, running, error };
 }

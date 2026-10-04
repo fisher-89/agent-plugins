@@ -5,13 +5,17 @@ use std::sync::{Arc, Mutex};
 use tauri::ipc::{Channel, InvokeResponseBody};
 use tauri::{App, Manager};
 
-use ::agent::{AgentEventKind, AgentMessageRole, AgentPermissionMode, StopRegistry};
+use ::agent::{
+    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunStatus, StopRegistry,
+};
 use store::{
-    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord,
+    AgentEngineKind, AgentInstanceRecord, AgentModelTiers, AgentProviderRecord, AgentRunRecord,
     SessionConfigSnapshot, SessionRecord, WorkspaceStores,
 };
 
-use super::{agent_session_transcript, agent_sessions, agent_start_with, agent_stop};
+use super::{
+    agent_session_transcript, agent_sessions, agent_start_with, agent_stop, session_detail,
+};
 
 // ---------------------------------------------------------------------------
 // 装置：tempdir 真库 + mock app 托管态 + fixture 落库
@@ -314,6 +318,187 @@ fn 不存在会话转录空数组且blank_root守卫空结果() {
     let blank_list =
         agent_sessions(state, String::new(), None, None).expect("blank root 清单返回空结果");
     assert!(blank_list.is_empty());
+}
+
+// ---------------------------------------------------------------------------
+// session_detail：按 id 单查（row + stats + turns 三件套，AC-6 命令面投影）
+// ---------------------------------------------------------------------------
+
+/// seed 已收轮 + 密封转录的完整会话（单查三件套断言底座），返回轮 id。
+fn seed_session_with_closed_turn(store: &store::Store, id: &str) -> i64 {
+    seed_sdk_session(store, id, None, "debug", None);
+    let turn = store
+        .begin_agent_turn(id, 1727000000000)
+        .expect("begin 轮行 fixture")
+        .id;
+    let record = AgentRunRecord {
+        id: turn,
+        session_id: Some(id.to_owned()),
+        status: AgentRunStatus::Completed,
+        started_at: 1727000000000,
+        finished_at: Some(1727000005000),
+        num_turns: Some(3),
+        cost_usd: Some(0.2),
+        duration_ms: Some(4000),
+        error: None,
+    };
+    store
+        .finish_agent_turn(turn, &record)
+        .expect("finish 轮行 fixture");
+    store
+        .append_session_events(
+            id,
+            &[
+                stamped(
+                    0,
+                    AgentEventKind::Message {
+                        role: AgentMessageRole::Assistant,
+                        blocks: Vec::new(),
+                        parent_tool_use_id: None,
+                    },
+                ),
+                stamped(
+                    2,
+                    AgentEventKind::TurnDone {
+                        subtype: "success".to_owned(),
+                        is_error: false,
+                        num_turns: Some(3),
+                        duration_ms: Some(4000),
+                        cost_usd: None,
+                        usage: serde_json::json!({ "inputTokens": 7, "outputTokens": 9 }),
+                        session_id: Some("s-1".to_owned()),
+                    },
+                ),
+            ],
+        )
+        .expect("落转录 fixture");
+    turn
+}
+
+#[test]
+fn session_detail直查返回三件套与清单面对应条目全等() {
+    let env = Env::new("detail-hit");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_session_with_closed_turn(&store, "ses-detail-1");
+
+    let found = session_detail(state.clone(), root.clone(), "ses-detail-1".to_owned())
+        .expect("单查应成功")
+        .expect("命中为 Some 包裹（查无此 id 才 Err）");
+
+    // 与清单面对应条目逐字段全等（聚合形状单一来源）
+    let listed = agent_sessions(state.clone(), root.clone(), None, None).expect("清单应成功");
+    assert_eq!(listed.len(), 1);
+    assert_eq!(found, listed[0], "命令面单查与清单面同形状");
+
+    // 三件套逐面锚定：row + stats（轮数 / 墙钟 / token 现算）+ turns 全量
+    assert_eq!(found.row.id, "ses-detail-1");
+    assert_eq!(
+        found.row.provenance.source, "debug",
+        "row 面（id / provenance / 双时间戳）随行"
+    );
+    assert_eq!(found.stats.turn_count, 1, "轮数 = 轮统计行行数");
+    assert_eq!(found.stats.total_duration_ms, Some(4000));
+    assert_eq!(
+        found.stats.input_tokens,
+        Some(7),
+        "token 自 TurnDone usage 求和"
+    );
+    assert_eq!(found.turns.len(), 1, "轮统计行全量随行");
+    assert_eq!(found.turns[0].status, AgentRunStatus::Completed);
+    assert_eq!(found.turns[0].duration_ms, Some(4000));
+}
+
+#[test]
+fn session_detail运行中会话轮行呈running且应答不加状态字段() {
+    let env = Env::new("detail-running");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+    let store = state.for_root(&root).expect("for_root 应成功");
+    seed_sdk_session(&store, "ses-running", None, "debug", None);
+    store
+        .begin_agent_turn("ses-running", 1727000000000)
+        .expect("begin 轮行 fixture（未收轮）");
+
+    let found = session_detail(state, root, "ses-running".to_owned())
+        .expect("单查应成功")
+        .expect("Some 包裹");
+
+    assert_eq!(found.turns.len(), 1, "轮行清单为唯一状态事实源");
+    assert_eq!(
+        found.turns[0].status,
+        AgentRunStatus::Running,
+        "有 running 轮行即 running（消费方自轮行推导）"
+    );
+    // 命令面不加状态字段：出线键恒为 row / stats / turns 三件
+    let value = serde_json::to_value(&found).expect("出线序列化应成功");
+    assert!(
+        value.get("status").is_none(),
+        "命令面不加顶层状态字段，实际: {value}"
+    );
+    assert!(
+        value.get("row").is_some() && value.get("stats").is_some() && value.get("turns").is_some()
+    );
+}
+
+#[test]
+fn session_detail查无此id_err透传不吞成none() {
+    let env = Env::new("detail-miss");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root = env.root_of("alpha");
+
+    let error = session_detail(state, root, "ses-404".to_owned())
+        .expect_err("查无此 id 必须 Err（悬挂 id 不伪装空态）");
+    assert!(
+        error.contains("会话不存在") && error.contains("ses-404"),
+        "core Err 原样透传，实际: {error}"
+    );
+}
+
+#[test]
+fn session_detail_blank_root守卫none先行于库寻址() {
+    let env = Env::new("detail-blank-root");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    // 空串
+    let none = session_detail(state.clone(), String::new(), "ses-x".to_owned())
+        .expect("blank root 返回空结果不报错");
+    assert!(
+        none.is_none(),
+        "空串 → Ok(None)（与 agent_sessions 同口径）"
+    );
+    // 空白串
+    let none = session_detail(state, "   ".to_owned(), "ses-x".to_owned())
+        .expect("空白 root 返回空结果不报错");
+    assert!(none.is_none(), "空白串 → Ok(None)");
+}
+
+#[test]
+fn session_detail跨root隔离_会话落a库经b库单查err() {
+    let env = Env::new("detail-iso");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let root_a = env.root_of("alpha");
+    let root_b = env.root_of("beta");
+    let store_a = state.for_root(&root_a).expect("for_root 应成功");
+    seed_session_with_closed_turn(&store_a, "ses-in-a");
+
+    let found = session_detail(state.clone(), root_a, "ses-in-a".to_owned())
+        .expect("A 库单查应成功")
+        .expect("A 库命中");
+    assert_eq!(found.row.id, "ses-in-a");
+
+    let error = session_detail(state, root_b, "ses-in-a".to_owned())
+        .expect_err("B 库单查必须 Err（for_root 按 root 寻址所属库）");
+    assert!(
+        error.contains("会话不存在"),
+        "跨库 miss 显式 Err，实际: {error}"
+    );
 }
 
 // ---------------------------------------------------------------------------

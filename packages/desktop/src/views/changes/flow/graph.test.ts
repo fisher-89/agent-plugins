@@ -5,12 +5,6 @@ import { buildFlowGraph } from './graph';
 import { PIPELINE_PHASES } from './layout';
 import type { RuntimeFlowNode } from './types';
 
-// ---------------------------------------------------------------------------
-// buildFlowGraph 单测：转换层为零 react / 零 @xyflow/react / 零 invoke 的纯函数，
-// 以手工构造的 ChangeDetail DTO fixture（v2-a / v2-b 夹具形态）直接喂公共入口。
-// 覆盖：列与坐标骨架 / 节点三分类 / 时间序归并与边推导（AC-1 / AC-2 / AC-3 / AC-8）。
-// ---------------------------------------------------------------------------
-
 /** 以宽松默认值构造单条 AttemptRecord，便于逐字段控制分支形态。 */
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
   return {
@@ -24,6 +18,9 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
     timestamp: null,
     backtrackTo: null,
     backtrackReason: null,
+    executorSessionId: null,
+    evaluatorSessionId: null,
+    decisionSessionId: null,
     ...overrides,
   };
 }

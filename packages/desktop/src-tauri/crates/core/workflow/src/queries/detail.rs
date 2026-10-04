@@ -104,7 +104,8 @@ impl From<&DiskFileLogEntry> for FileLogEntry {
     }
 }
 
-/// 单次尝试记录：backtrack 目标与原因随条目可查。
+/// 单次尝试记录：backtrack 目标与原因随条目可查；会话槽位（executor /
+/// evaluator / decision）自 eval 条目直读透出，无槽位字段三值均 `null`。
 #[derive(Debug, Clone, Serialize, Deserialize, Type)]
 #[serde(rename_all = "camelCase")]
 pub struct AttemptRecord {
@@ -118,6 +119,9 @@ pub struct AttemptRecord {
     pub timestamp: Option<String>,
     pub backtrack_to: Option<String>,
     pub backtrack_reason: Option<String>,
+    pub executor_session_id: Option<String>,
+    pub evaluator_session_id: Option<String>,
+    pub decision_session_id: Option<String>,
 }
 
 impl From<&PhaseLog> for AttemptRecord {
@@ -133,6 +137,9 @@ impl From<&PhaseLog> for AttemptRecord {
             timestamp: entry.timestamp.as_ref().map(to_iso),
             backtrack_to: entry.backtrack_to.clone(),
             backtrack_reason: entry.backtrack_reason.clone(),
+            executor_session_id: entry.executor_session_id.clone(),
+            evaluator_session_id: entry.evaluator_session_id.clone(),
+            decision_session_id: entry.decision_session_id.clone(),
         }
     }
 }

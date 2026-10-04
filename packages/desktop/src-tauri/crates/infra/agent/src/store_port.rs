@@ -110,6 +110,26 @@ impl SessionQuery for StoreQuery {
         self.store.list_sessions(source, source_ref)
     }
 
+    /// 单查两段式：`find_session` 主键直查锚定存在性（miss → 显式 `Err`，不
+    /// 触全表）→ 清单面收敛取单条聚合形状（轮行只经 `list_sessions` 可达，
+    /// store 无单会话轮行读面）。第二段未命中为类型完备性兜底（会话无删除
+    /// 路径），同词 `Err`。
+    fn find_session_detail(&self, session_id: &str) -> Result<SessionSummary, String> {
+        if self
+            .store
+            .find_session(session_id)
+            .map_err(|e| e.to_string())?
+            .is_none()
+        {
+            return Err(format!("会话不存在: id={session_id}"));
+        }
+        self.store
+            .list_sessions(None, None)?
+            .into_iter()
+            .find(|summary| summary.row.id == session_id)
+            .ok_or_else(|| format!("会话不存在: id={session_id}"))
+    }
+
     fn transcript(&self, session_id: &str) -> Result<Vec<AgentEvent>, String> {
         self.store.list_session_events(session_id)
     }

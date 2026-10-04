@@ -121,11 +121,13 @@ impl SessionSink for FakeSink {
     }
 }
 
-/// 假 query：三方法返回固定形态（查询契约的返回形态锚定）。
+/// 假 query：四方法返回固定形态（查询契约的返回形态锚定）。单查臂可编程
+/// 应答（Ok 预置三件套 / Err 查无此 id 记因——单查严格语义的契约面）。
 struct FakeQuery {
     summaries: Vec<SessionSummary>,
     events: Vec<AgentEvent>,
     stats: SessionStats,
+    detail: Result<SessionSummary, String>,
 }
 
 impl SessionQuery for FakeQuery {
@@ -135,6 +137,10 @@ impl SessionQuery for FakeQuery {
         _source_ref: Option<&str>,
     ) -> Result<Vec<SessionSummary>, String> {
         Ok(self.summaries.clone())
+    }
+
+    fn find_session_detail(&self, _session_id: &str) -> Result<SessionSummary, String> {
+        self.detail.clone()
     }
 
     fn transcript(&self, _session_id: &str) -> Result<Vec<AgentEvent>, String> {
@@ -179,6 +185,30 @@ fn outcome() -> TurnOutcome {
         usage: serde_json::json!({ "inputTokens": 10, "outputTokens": 20 }),
         error: None,
         remote_session_id: Some("sdk-3-1727000000009".to_owned()),
+    }
+}
+
+/// 单查预置三件套（row + stats + turns 逐字段断言的事实源）。
+fn preset_summary(id: &str) -> SessionSummary {
+    SessionSummary {
+        row: SessionRow {
+            id: id.to_owned(),
+            remote_session_id: Some("sdk-3-1727000000009".to_owned()),
+            config_snapshot: serde_json::json!({ "engine": "sdk" }),
+            provenance: SessionProvenance {
+                source: "debug".to_owned(),
+                source_ref: None,
+            },
+            created_at: 1727000000000,
+            updated_at: 1727000006000,
+        },
+        stats: SessionStats {
+            turn_count: 2,
+            total_duration_ms: Some(5000),
+            input_tokens: Some(10),
+            output_tokens: Some(20),
+        },
+        turns: Vec::new(),
     }
 }
 
@@ -228,27 +258,19 @@ fn 假sink经arc_dyn注入五方法调用序与载荷原样记录() {
 
 #[test]
 fn 假query经arc_dyn注入三方法返回形态编译锚定() {
+    let mut preset = preset_summary("ses-1-1727000000000");
+    preset.stats = SessionStats {
+        turn_count: 0,
+        total_duration_ms: None,
+        input_tokens: None,
+        output_tokens: None,
+    };
+    preset.row.remote_session_id = None;
+    preset.row.created_at = 1;
+    preset.row.updated_at = 1;
+    preset.row.config_snapshot = serde_json::json!({});
     let query: Arc<dyn SessionQuery> = Arc::new(FakeQuery {
-        summaries: vec![SessionSummary {
-            row: SessionRow {
-                id: "ses-1-1727000000000".to_owned(),
-                remote_session_id: None,
-                config_snapshot: serde_json::json!({}),
-                provenance: SessionProvenance {
-                    source: "debug".to_owned(),
-                    source_ref: None,
-                },
-                created_at: 1,
-                updated_at: 1,
-            },
-            stats: SessionStats {
-                turn_count: 0,
-                total_duration_ms: None,
-                input_tokens: None,
-                output_tokens: None,
-            },
-            turns: Vec::new(),
-        }],
+        summaries: vec![preset],
         events: vec![sealed_event(0)],
         stats: SessionStats {
             turn_count: 1,
@@ -256,6 +278,7 @@ fn 假query经arc_dyn注入三方法返回形态编译锚定() {
             input_tokens: None,
             output_tokens: None,
         },
+        detail: Err("假 query 缺省不响应单查".to_owned()),
     });
 
     let summaries = query
@@ -272,6 +295,69 @@ fn 假query经arc_dyn注入三方法返回形态编译锚定() {
     assert_eq!(events.len(), 1, "Vec<AgentEvent> 返回形态");
     assert_eq!(stats.turn_count, 1, "SessionStats 返回形态");
     assert_eq!(summaries[0].row.id, "ses-1-1727000000000");
+}
+
+// ---------------------------------------------------------------------------
+// SessionQuery 单查：find_session_detail（row/stats/turns 三件套复用
+// SessionSummary 聚合形状，零新 DTO；查无此 id 显式 Err 与清单空态区分）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 假query单查经arc_dyn注入可达且三件套逐字段锚定() {
+    let detail = preset_summary("ses-x-1727000000000");
+    let query: Arc<dyn SessionQuery> = Arc::new(FakeQuery {
+        summaries: Vec::new(),
+        events: Vec::new(),
+        stats: SessionStats {
+            turn_count: 0,
+            total_duration_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+        },
+        detail: Ok(detail.clone()),
+    });
+
+    let found = query
+        .find_session_detail("ses-x-1727000000000")
+        .expect("单查应成功");
+    // SessionSummary 复用零新 DTO：row / stats / turns 三件套逐字段
+    assert_eq!(found, detail, "返回形态即预置 SessionSummary（逐字段全等）");
+    assert_eq!(found.row.id, "ses-x-1727000000000");
+    assert_eq!(
+        found.row.remote_session_id.as_deref(),
+        Some("sdk-3-1727000000009")
+    );
+    assert_eq!(found.row.provenance.source, "debug");
+    assert_eq!(found.row.created_at, 1727000000000);
+    assert_eq!(found.row.updated_at, 1727000006000);
+    assert_eq!(found.stats.turn_count, 2, "聚合统计随行");
+    assert_eq!(found.stats.total_duration_ms, Some(5000));
+    assert_eq!(found.stats.input_tokens, Some(10));
+    assert_eq!(found.stats.output_tokens, Some(20));
+    assert!(found.turns.is_empty(), "轮行清单随行（Vec 形态编译锚定）");
+}
+
+#[test]
+fn 假query单查err原样传播不静默() {
+    let query: Arc<dyn SessionQuery> = Arc::new(FakeQuery {
+        summaries: Vec::new(),
+        events: Vec::new(),
+        stats: SessionStats {
+            turn_count: 0,
+            total_duration_ms: None,
+            input_tokens: None,
+            output_tokens: None,
+        },
+        detail: Err("会话不存在: id=ses-404".to_owned()),
+    });
+
+    let error = query
+        .find_session_detail("ses-404")
+        .expect_err("查无此 id 必须 Err（单查严格语义与清单空态区分）");
+    assert_eq!(
+        error, "会话不存在: id=ses-404",
+        "Err(String) 原样传播不静默"
+    );
 }
 
 // ---------------------------------------------------------------------------

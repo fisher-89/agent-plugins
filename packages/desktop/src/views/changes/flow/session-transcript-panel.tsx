@@ -1,9 +1,3 @@
-/**
- * 会话转录面板：role 分页选择 + `AgentTimeline` 渲染（运行中实时 / 收口
- * 重放一致——复用既有透镜，不建第二套时间线组件）。roleRefs 为节点 ↔ 会话
- * 联动的反查键组（role × attempt → sourceRef 定式）；liveEvents 已由调用方
- * 按选中会话过滤（运行步节点携带 sessionId）。
- */
 import { useEffect, useState } from 'react';
 
 import { Button } from '@/components/ui/button';
@@ -48,7 +42,7 @@ export function SessionTranscriptPanel({
         {roleRefs.length > 1 &&
           roleRefs.map((ref, index) => (
             <Button
-              key={ref.sourceRef}
+              key={ref.sessionId ?? ref.sourceRef ?? ref.role}
               onClick={() => setActiveIndex(index)}
               data-testid="transcript-role-tab"
             >
@@ -57,8 +51,9 @@ export function SessionTranscriptPanel({
           ))}
       </div>
       <RoleTranscript
-        key={active.sourceRef}
+        key={active.sessionId ?? active.sourceRef ?? active.role}
         root={root}
+        sessionId={active.sessionId}
         sourceRef={active.sourceRef}
         role={active.role}
         liveEvents={liveEvents}
@@ -67,19 +62,26 @@ export function SessionTranscriptPanel({
   );
 }
 
-/** 单 role 转录区：反查 + 重放 + 实时并入（useSessionTranscript）+ 时间线。 */
+/** 单 role 转录区：寻址 + 重放 + 实时并入（useSessionTranscript）+ 时间线。 */
 function RoleTranscript({
   root,
+  sessionId,
   sourceRef,
   role,
   liveEvents,
 }: {
   root: string | null;
-  sourceRef: string;
+  sessionId: string | null;
+  sourceRef: string | null;
   role: FlowRoleLabel;
   liveEvents: AgentEvent[];
 }): React.JSX.Element {
-  const { messages, running, error } = useSessionTranscript({ root, sourceRef, liveEvents });
+  const { messages, running, error } = useSessionTranscript({
+    root,
+    sessionId,
+    sourceRef,
+    liveEvents,
+  });
   return (
     <div data-transcript-role={role}>
       {error !== null && (

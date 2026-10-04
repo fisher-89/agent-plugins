@@ -4,8 +4,8 @@ use agent::{AgentPermissionMode, AgentRunStatus, SessionProvenance};
 use workflow::model::ChecklistItem;
 use workflow::queries::ChangeDetail;
 use workflow::write::{
-    BacktrackInput, BacktrackOutcome, PhaseLogInput, PhaseLogOutcome, PhaseNextError,
-    PhaseNextOutcome, PhaseStartOutcome,
+    BacktrackInput, BacktrackOutcome, DecisionLogOutcome, PhaseLogInput, PhaseLogOutcome,
+    PhaseNextError, PhaseNextOutcome, PhaseStartOutcome,
 };
 
 use crate::control::{ChangeFlowControl, RunGuard};
@@ -158,7 +158,10 @@ async fn drive(
             Err(terminal) => return terminal.into_pair(),
         };
 
-        // ③ executor 会话（prompt 组装前取 git diff 变更文件上下文）
+        // ③ executor 会话（prompt 组装前取 git diff 变更文件上下文）；会话 id
+        // 携出块作用域（evaluator 落账随行 executor 槽位 + static-check 反馈
+        // 边续注同会话保持稳定）
+        let mut executor_session: Option<String> = None;
         if let Some(executor) = &next.executor {
             let context = diff_context(diff, &request.root).await;
             let prompt = executor_prompt(&executor.agent_type, &executor.prompt, &context);
@@ -177,7 +180,6 @@ async fn drive(
                 Ok(outcome) => outcome,
                 Err(terminal) => return terminal.into_pair(),
             };
-            let executor_session = outcome.session_id;
 
             // ④ static-check 定向反馈边（implement / test-gen 门控）
             if STATIC_CHECK_PHASES.contains(&phase.as_str()) {
@@ -188,7 +190,7 @@ async fn drive(
                     request,
                     phase: &phase,
                     attempt,
-                    executor_session,
+                    executor_session: outcome.session_id.clone(),
                 };
                 match static_check_loop(loop_in).await {
                     Ok(StaticCheckFlow::Proceed) => {}
@@ -196,6 +198,7 @@ async fn drive(
                     Err(terminal) => return terminal.into_pair(),
                 }
             }
+            executor_session = Some(outcome.session_id);
         }
 
         // ⑤ evaluator 会话（prompt 组装前再取 diff——executor 落盘后递进可见）
@@ -217,9 +220,18 @@ async fn drive(
             Err(terminal) => return terminal.into_pair(),
         };
 
-        // ⑥ verdict 解析门 → 桌面代写 phase-log
-        if let Err(terminal) =
-            step_verdict_phase_log(tools, guard, request, &phase, attempt, &outcome).await
+        // ⑥ verdict 解析门 → 桌面代写 phase-log（executor + evaluator 双槽位
+        // 随行落账，decision 槽位归 decision-log 单点挂账恒缺省）
+        if let Err(terminal) = step_verdict_phase_log(
+            tools,
+            guard,
+            request,
+            &phase,
+            attempt,
+            executor_session,
+            &outcome,
+        )
+        .await
         {
             return terminal.into_pair();
         }
@@ -364,9 +376,18 @@ async fn static_check_loop(loop_in: FeedbackLoop<'_>) -> Result<StaticCheckFlow,
             Some(diagnose_brief(&outcome.diagnostics)),
         );
         if feedback >= STATIC_CHECK_FEEDBACK_LIMIT {
-            // 升格相位 fail（桌面代写，不跑 evaluator；消耗相位 retry 预算）
-            step_fail_phase_log(tools, guard, request, phase, attempt, &outcome.diagnostics)
-                .await?;
+            // 升格相位 fail（桌面代写，不跑 evaluator；消耗相位 retry 预算；
+            // 仅携 executor 槽位——evaluator 未跑无会话可记）
+            step_fail_phase_log(
+                tools,
+                guard,
+                request,
+                phase,
+                attempt,
+                &executor_session,
+                &outcome.diagnostics,
+            )
+            .await?;
             return Ok(StaticCheckFlow::Upgraded);
         }
         feedback += 1;
@@ -389,12 +410,15 @@ async fn static_check_loop(loop_in: FeedbackLoop<'_>) -> Result<StaticCheckFlow,
 }
 
 /// ⑥ verdict 解析门 → 桌面代写 phase-log（写通道唯一：落账经写面进程内直调）。
+/// 会话槽位随行：executor 槽位携出自主循环、evaluator 槽位取本次收口会话
+///（`WorkerTurnOutcome.session_id`），decision 槽位恒 `None`。
 async fn step_verdict_phase_log(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
     request: &RunRequest,
     phase: &str,
     attempt: u32,
+    executor_session: Option<String>,
     outcome: &WorkerTurnOutcome,
 ) -> Result<(), Terminal> {
     emit_step(
@@ -455,6 +479,9 @@ async fn step_verdict_phase_log(
                 report: checklist.report,
                 checklist: checklist.checklist,
                 skipped: false,
+                executor_session_id: executor_session,
+                evaluator_session_id: Some(outcome.session_id.clone()),
+                decision_session_id: None,
             },
         },
         "phase-log",
@@ -473,13 +500,15 @@ async fn step_verdict_phase_log(
 }
 
 /// D8 升格落账：桌面代写 fail checklist（静态检查反馈边超限），随后回
-/// phase-next 进重试 / 决策分叉。
+/// phase-next 进重试 / 决策分叉。fail 条目仅携 executor 槽位（反馈边续注
+/// 同一 executor 会话，id 稳定；evaluator 未跑）。
 async fn step_fail_phase_log(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
     request: &RunRequest,
     phase: &str,
     attempt: u32,
+    executor_session: &str,
     diagnostics: &str,
 ) -> Result<(), Terminal> {
     emit_step(
@@ -506,6 +535,9 @@ async fn step_fail_phase_log(
                     evidence: diagnostics.to_owned(),
                 }],
                 skipped: false,
+                executor_session_id: Some(executor_session.to_owned()),
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         },
         "phase-log",
@@ -561,7 +593,7 @@ async fn resolve_deadlock(
         }
     };
     let input = build_decision_input(&detail, fail_phase, allowed);
-    let action = match decision_session(worker, guard, request, &input).await {
+    let action = match decision_session(worker, tools, guard, request, &input).await {
         Ok(action) => action,
         Err(terminal) => return Deadlock::Terminal(terminal),
     };
@@ -657,9 +689,13 @@ async fn resolve_deadlock(
 }
 
 /// 决策会话：ask 动作 → UI 中断（`wait_answer`）→ 应答文本 Continue 同会话
-/// 重出封闭集；取消信号置位 → 受控 stopped。
+/// 重出封闭集；取消信号置位 → 受控 stopped。每轮收口即 `decision-log` 挂账
+///（置于 parse 之前——parse 失败路径同样留痕；ask 续轮同会话同值幂等重挂；
+/// 失败 / 停止收口的 decision 会话不挂账，转录仍在库内可经调试页 change 筛
+/// 选回查）。
 async fn decision_session(
     worker: &Arc<dyn WorkerAgentPort>,
+    tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
     request: &RunRequest,
     input: &DecisionInput,
@@ -676,6 +712,18 @@ async fn decision_session(
             WorkerRole::Decision,
             prompt.clone(),
             continue_session.clone(),
+        )
+        .await?;
+        // 决策会话槽位挂账（写面单点：最新 eval 条目定点改写，幂等覆写）
+        let _: DecisionLogOutcome = run_tool(
+            tools,
+            &request.root,
+            ToolCommand::DecisionLog {
+                change: request.change.clone(),
+                phase: input.phase.clone(),
+                session_id: outcome.session_id.clone(),
+            },
+            "decision-log",
         )
         .await?;
         let text = outcome
@@ -976,6 +1024,16 @@ impl TryFrom<ToolStepOutput> for workflow::write::BacktrackOutcome {
     fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
         match value {
             ToolStepOutput::Backtrack(outcome) => Ok(outcome),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<ToolStepOutput> for DecisionLogOutcome {
+    type Error = ();
+    fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
+        match value {
+            ToolStepOutput::DecisionLog(outcome) => Ok(outcome),
             _ => Err(()),
         }
     }

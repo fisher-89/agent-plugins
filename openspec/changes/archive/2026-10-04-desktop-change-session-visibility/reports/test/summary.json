@@ -1,0 +1,91 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-03T13:01:28.263Z",
+  "duration_seconds": 823,
+  "total": 974,
+  "passed": 974,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 90.23,
+    "threshold": 80,
+    "measured": {
+      "killed": 554,
+      "survived": 58,
+      "timeout": 0,
+      "noCoverage": 2,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 41,
+      "total": 655,
+      "detected": 554,
+      "undetected": 60
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 90.22801302931596,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 67
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/desktop-change-session-visibility/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/desktop-change-session-visibility/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "All gates green: 974/974 tests pass (vite-plus 894 + rust 80, both plans exit_code 0, zero error_cases), coverage gate pass, mutation 90.23% >= 80% threshold (554 detected / 614 scored, denominator = 655 total - 41 ignored).",
+    "Attempt-over-attempt delta: mutation 75.08% -> 90.23% (+15.15pt; killed 461 -> 554, Survived 149 -> 58, NoCoverage 4 -> 2) after the test-gen attempt-2 strengthening of the 7 frontend files (+25 vite-plus tests: 869 -> 894); no production source was touched by test-execution.",
+    "Remaining 58 Survived + 2 NoCoverage are within gate with wide margin (could lose 62 more kills and still pass); biggest residual clusters: change-flow-graph 22 (translateExtent/PAN_MARGIN arithmetic L46-55 and ReactFlow boolean props L143-148 are jsdom-unobservable), detail-drawer 11+2 NoCov (checklist badge literals L101-102 uncovered, roleRefs ternaries L202-234), use-agent-run-history 6 (refresh tick internals L42, cancelled guards L60/L97), use-session-transcript 6 (double-null guard L81, typeof-cause ternary L102, effect deps L113), agent-debug-view 5, session-transcript-panel 4 (tab key ?? fallback chains L52/L61).",
+    "Report completeness observation (repeat of attempt 1): coverage.pass=true but coverage.measured is null although per-plan data is real (vite-plus lines 94.83 / branches 90.22 / functions 93.66, all above 90/85/90; rust lines 96.17 / functions 88.98 with branches unsupported = null dimension, not a shortfall) - aggregation-level nulls, fields left unmodified.",
+    "Operational audit note: the first CLI invocation of this attempt aborted mid-stryker (process tree died after the vite-plus test phase, partial stdout ending in a truncated stryker progress label, no report written); an immediate clean re-run completed in 823s and produced this summary - treat the aborted run as superseded, no artifacts from it were consumed."
+  ]
+}

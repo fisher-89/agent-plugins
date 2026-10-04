@@ -1,17 +1,3 @@
-/**
- * 流程图视图模型类型（运行时派生物，不持久化；唯一事实源是经 get_change_detail
- * 取得的 ChangeDetail DTO）。零 react / 零 @xyflow/react / 零 invoke 依赖。
- *
- * 节点 id 方案（graph.ts 生成；素材挂载与抽屉选中按 phase / attempt 字段定位，
- * 不在挂载层重复拼写 id）：
- * - 列容器       `col:<phase>`
- * - eval 节点    `eval:<phase>:<attempt>`（attempt 缺号按 0 兜底，同 id 撞车时加序号后缀）
- * - active 节点  `active:<phase>:<attempt>`
- * - interrupted  `interrupted:<phase>:<attempt>`
- * - run 步节点   `run:<phase>:<attempt>:<step>[:<seq>]`（seq 仅同键重复步歧义时追加，
- *                如 static-check 反馈边多次迭代；running → 终态同键归并同节点）
- * - 边           `edge:<source>-><target>`
- */
 import type {
   ArtifactEnvelope,
   AttemptRecord,
@@ -76,10 +62,13 @@ export type RunStepGroup = 'workerAgent' | 'toolStep' | 'gate';
  */
 export type FlowRoleLabel = 'executor' | 'evaluator' | 'decision';
 
-/** 转录联动反查键：role × attempt → sourceRef 定式组装产物。 */
+/**
+ * 转录联动寻址键
+ */
 export interface RoleSessionRef {
   role: FlowRoleLabel;
-  sourceRef: string;
+  sourceRef: string | null;
+  sessionId: string | null;
 }
 
 /** run 步事件：来自 RunUpdate::Step 流的图 overlay（run-state.ts 推导）。

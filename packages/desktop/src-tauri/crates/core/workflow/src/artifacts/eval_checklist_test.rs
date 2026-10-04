@@ -40,6 +40,9 @@ fn entry(
         timestamp: None,
         backtrack_to: None,
         backtrack_reason: None,
+        executor_session_id: None,
+        evaluator_session_id: None,
+        decision_session_id: None,
     }
 }
 

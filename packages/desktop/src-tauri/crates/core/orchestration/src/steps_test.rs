@@ -243,6 +243,9 @@ async fn phase_log步链路追加eval条目() {
                 report: "重评通过".to_owned(),
                 checklist: Vec::new(),
                 skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
             },
         },
     )
@@ -400,6 +403,9 @@ async fn 写面err统一以err_string上抛() {
                     report: "r".to_owned(),
                     checklist: Vec::new(),
                     skipped: false,
+                    executor_session_id: None,
+                    evaluator_session_id: None,
+                    decision_session_id: None,
                 },
             },
         })

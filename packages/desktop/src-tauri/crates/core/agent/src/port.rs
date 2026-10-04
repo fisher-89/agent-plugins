@@ -68,6 +68,12 @@ pub trait SessionQuery: Send + Sync {
         source_ref: Option<&str>,
     ) -> Result<Vec<SessionSummary>, String>;
 
+    /// 按 session id 单查会话（行 + 聚合统计 + 轮行，复用
+    /// [`SessionSummary`] 聚合形状，零新 DTO）。查无此 id 显式 `Err`（单查
+    /// 语义与清单空态区分，查无此 id 视为调用方错误）；运行状态自轮行推导
+    ///（存在 running 轮行即 running，否则取终态）。
+    fn find_session_detail(&self, session_id: &str) -> Result<SessionSummary, String>;
+
     /// 会话全史转录重放（密封事件 seq 升序、容忍库内空洞）。
     fn transcript(&self, session_id: &str) -> Result<Vec<AgentEvent>, String>;
 

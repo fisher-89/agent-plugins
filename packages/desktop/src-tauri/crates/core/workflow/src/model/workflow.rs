@@ -103,6 +103,18 @@ pub struct PhaseLog {
     pub backtrack_to: Option<String>,
     #[serde(default, alias = "backtrack_reason")]
     pub backtrack_reason: Option<String>,
+    /// 会话槽位（desktop-change-session-visibility 裁定的 schema 唯一例外）：
+    /// 磁盘键 snake_case（`executor_session_id`），写面显式在位才写，缺省
+    /// 槽位不产生键；`#[serde(default)]` 读兼容无槽位旧文件，历史零迁移。
+    #[serde(default, alias = "executor_session_id")]
+    pub executor_session_id: Option<String>,
+    /// 评估会话槽位（磁盘键 `evaluator_session_id`，显式在位才写）。
+    #[serde(default, alias = "evaluator_session_id")]
+    pub evaluator_session_id: Option<String>,
+    /// 决策会话槽位（磁盘键 `decision_session_id`，经 `decision_log` 定点
+    /// 挂账，显式在位才写）。
+    #[serde(default, alias = "decision_session_id")]
+    pub decision_session_id: Option<String>,
 }
 
 /// file_log 记录的文件操作。

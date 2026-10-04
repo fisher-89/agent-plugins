@@ -141,6 +141,9 @@ function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
     timestamp: null,
     backtrackTo: null,
     backtrackReason: null,
+    executorSessionId: null,
+    evaluatorSessionId: null,
+    decisionSessionId: null,
     ...overrides,
   };
 }
@@ -665,11 +668,13 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
   let stateSnapshot: ChangeRunSnapshot | null;
   let sessionsFixture: Record<string, SessionSummary[]>;
   let transcriptFixture: Record<string, AgentEvent[]>;
+  let detailFixture: Record<string, SessionSummary | null>;
 
   beforeEach(() => {
     stateSnapshot = null;
     sessionsFixture = {};
     transcriptFixture = {};
+    detailFixture = {};
     invokeMock.mockImplementation(
       (command: string, args: { sourceRef?: string; sessionId?: string } = {}) => {
         // 详情取数经共享定向（useChangeDetail 真实组合的进程边界）
@@ -679,6 +684,10 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
         if (command === 'change_flow_state') return Promise.resolve(stateSnapshot);
         if (command === 'change_flow_start') {
           return Promise.resolve({ runId: 'run-1727', status: 'running' });
+        }
+        if (command === 'session_detail') {
+          const hit = detailFixture[args.sessionId ?? ''];
+          return Promise.resolve(hit ?? null);
         }
         if (command === 'agent_sessions') {
           return Promise.resolve(sessionsFixture[args.sourceRef ?? ''] ?? []);
@@ -773,12 +782,10 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
     expect(detailCalls().length).toBe(baseline + 1);
   });
 
-  it('抽屉选中运行步节点 → 转录 props 下传链路接通：反查携带 role×attempt sourceRef、实时事件经展平并入面板', async () => {
+  it('抽屉选中运行步节点 → 转录 props 下传链路接通：运行步实时 sessionId 直查 session_detail、实时事件经展平并入面板', async () => {
     stateSnapshot = flowSnapshot({ status: 'running', phase: 'implement', attempt: 1 });
-    sessionsFixture = {
-      'add-feature/implement/executor/1': [
-        transcriptSession('ses-exec', 'add-feature/implement/executor/1'),
-      ],
+    detailFixture = {
+      'ses-exec': transcriptSession('ses-exec', 'add-feature/implement/executor/1'),
     };
     transcriptFixture = { 'ses-exec': [textEvent(0, 'user', '重放正文')] };
     renderDetail({ detail: detail() });
@@ -793,10 +800,11 @@ describe('ChangeDetailView：run 控制面板与运行 overlay 组装', () => {
 
     const panel = await screen.findByTestId('session-transcript-panel');
     await waitFor(() => expect(panel.textContent).toContain('重放正文'));
-    expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+    // 运行步节点携实时 sessionId → 槽位 id 直查（desktop-change-session-visibility
+    // 直查优先半边的页面级投影）
+    expect(invokeMock).toHaveBeenCalledWith('session_detail', {
       root: ROOT,
-      source: 'change',
-      sourceRef: 'add-feature/implement/executor/1',
+      sessionId: 'ses-exec',
     });
 
     // 实时事件随后到站：liveEvents 展平身份变化 → 抽屉按 sessionId 过滤下传 → 面板按 seq 并入

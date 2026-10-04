@@ -212,6 +212,9 @@
                 "pass": false
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "10/11 pass. R1 concrete problems + 8-point git dependency table (L9-29); R2-R5,R8 substantive; R7 no placeholders; R9/R10: 10 capabilities ↔ 10 specs 1:1. FAIL R11: AC-9 (archi_check 清单支持, L165) and scope entries c4-cross-ref.ts (L117) + c4-cross-ref.test.ts (L138) lack any spec requirement or capability — archi_check/cross-ref absent from all 10 spec files (only incidental \"x.c4\" path, workflow-file-inventory spec L38). Remove from proposal or add capability+spec.",
             "skipped": false,
             "stale": false,
@@ -280,6 +283,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "11/11 pass (attempt 2). Fix verified: proposal L86 workflow-file-inventory capability now claims \"archi_check 清单消费（c4-cross-ref.ts 的 git staged 依赖退场）\"; spec gained \"Requirement: archi_check 支持清单文件列表\" (4 scenarios + Module row c4-cross-ref.ts getChangedFiles: git diff --cached → files.written). AC-9 now has a spec requirement; staged \"替代或降级\" matches AC-9 \"移除或降级\"; no-git-fallback and openspec/-exclusion rules consistent; R10 still 10↔10; no placeholders.",
             "skipped": false,
             "stale": true,
@@ -348,6 +354,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "回溯后复评通过。R1 问题含4项结构问题+8处git依赖定位表；R2 实现/测试/不要修改三节齐全非空；R3 7项风险均有具体缓解（如暂存-认领退化模式）；R4 AC-1~12均为对象+条件可测；R5 8项决策均含理由与被否备选；R6 符合slim插件架构约定；R7 grep占位符0命中；R8 各模板章节均有实质内容；R9 新增2+修改8条能力；R10 10能力与10 spec目录一一对应；R11 回溯核心语义（--change兼作突变入口、不引入--mutation-scope、--mutation-diff-only删除、--skip-mutation保留、净归零去噪）在提案L75/L94/AC-7与unit-test-executor spec逐条一致，实现文件与各spec Module Contract吻合，无冲突。",
             "skipped": false,
             "stale": false,
@@ -416,6 +425,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "D1 组件表14行均填职责/依赖/技术/路径，技术无TBD；D2 数据模型3项含字段/关系/持久化；D3 AC-1~13逐项映射设计落点；D4 tasks 8阶段依赖序正确，git.ts删除(Phase6)晚于消费方去引用(Phase5)；D5 任务均含具体签名/规则/matcher值；D6 运行时+构建依赖已列并注明simple-git移除；D7 符合slim架构与版本bump规则、无test-only exports；D8 六章节全部实质填写；D9 design无测试章节、tasks无测试任务；D10 proposal实现文件18组全覆盖，清单↔tasks双向一致，新增文件函数均入公共函数表",
             "skipped": false,
             "stale": false,
@@ -474,6 +486,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "13项AC全部映射至验收范围(T1)；单元测试11个heading与验收范围互逆无缺失，6条集成关系关联AC均在范围内且覆盖全部集成型AC-2/3/6/7/8/9/13(T2)；各测试对象均含异常+边界用例，含空串/超长/emoji路径、空数组、100+路径大列表、非法枚举、TTL阈值(T3)；git/stdin/os.tmpdir/文件系统均有Mock策略，纯函数以注释说明不mock(T4)；四章节实质填写(T5)；不可测试项仅限提示词语义与宿主平台运行时，未对不要修改项扩圈(T6)；幂等有同op去重/append去重/拒绝覆写断言(T7)；T8格式子项全部合规(T8)。",
             "skipped": false,
             "stale": false,
@@ -527,6 +542,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "fail（仅 I5）。I1/I2：16 组件与变更清单全部落地，4 个新文件未跟踪故不在 git diff 但已实现，git.ts/git.test.ts 已删、simple-git 移除，提示词/模板层齐备。I4：change_files 注册、archi_check change 入参与 staged 显式报错、test_resolve_paths 模式3、record-files 子命令均在。I3/I7：写盘纪律与设计决策（硬报错指引、exit0 fail-open、noMutation 惰性、git show 去噪、openspec 排除、backtrack 预检先行、cursor null 省略）均遵守。I5 fail：tasks.md Phase 8 复选框未勾选，但工作实际已完成（2.10.37、四产物含记录器、无旧 flag 残留）。I6 备注：build/env.ts 与 apply-env-tokens.ts 各 1 行纯格式改动。",
             "skipped": false,
             "stale": false,
@@ -575,6 +593,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "复评通过：I5 已解决——tasks.md Phase 1-8 全部勾选，Phase 8 版本 bump 2.10.36→2.10.37 并 rebuild（4 个产物树已刷新，无 --mutation-diff-only 残留，hooks.json 含 record-files/PostToolUse）。其余项维持：4 个新增 lib/schema/command 文件在盘，git.ts/git.test.ts 已删，simple-git 移除，build/env 与 apply-env-tokens 仅 lint 级改动可追溯，test-execution-executor.md 为连带修改（引用被删 flag）。I1-I7 全过。",
             "skipped": false,
             "stale": false,
@@ -638,6 +659,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "G3/G4 不通过。G3：change-files.test.ts 缺设计行「路径命中受保护范围（workflow.json 自身 / openspec/config.json / 自污染范围）→ 拒绝入清单(AC-10)」——无用例传入此类路径断言拒绝，schema 仅拦表单（绝对/反斜杠/../），纯 openspec/config.json 可通过。G4：bin/__tests__/archi-check-inventory/ 集成测试文件整体缺失（设计 5 行：清单直通/files 优先/空数组 no_changes/staged 抛错/无 files 硬报错）；file-inventory-recording 场景2 缺「建绑前未绑定事件丢弃且不影响其后建绑与归账」。其余单测约 130 行、Mock 策略、框架导入、清理还原、废弃退场均符合设计。",
             "skipped": false,
             "stale": false,
@@ -696,6 +720,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "All 9 pass. G3/G4 gaps closed: protected-path row (change-files.test.ts:300, deviation verified vs source), archi-check-inventory suite (5 rows), unbound-event row (file-inventory-recording:299). 11 unit tables + 6 integration suites map 1:1 to design rows with AC IDs. G5: c4-cross-ref uses real fixtures instead of vi.mock (matches pre-existing pattern cited). G9: lib/git, mutationDiffOnly, git-change, staged-effective absent or negative-only.",
             "skipped": false,
             "stale": false,
@@ -734,6 +761,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "所有 2095 个测试通过（failed=0, skipped=0），conclusion=pass，无 execution_error。覆盖率达标: lines=96.87%(阈值90%), branches=89.02%(阈值85%), functions=99.32%(阈值90%)。突变得分 78.68% ≥ 70%（1450 killed / 2112 突变体）。override plugins/dev-team measured 为 null（未评估，非未达标，不影响通过）。无需修复。",
             "skipped": false,
             "stale": false,
@@ -787,6 +817,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "C1：execFileSync 参数数组调 git show 无注入面；change-files schema 拒绝绝对路径/盘符/..（change-files.schema.ts:12-15）；hook stdin 逐字段收窄。C2：zod refine 双覆盖（test-resolve-paths/change-files.schema）。C3：与 design 一致——backtrack 预检先行（backtrack.ts:117-120）、突变清单惰性解析+净归零去噪仅 overstate、git 退场彻底、built hooks.json 含 PostToolUse 与展开 MCP matcher。连带观察：test-execution-executor.md 随 flag 删除同步（合理）；记录器不做 python/node 豁免（PreToolUse 保留，方向 overstate）。C4：readFileInventory 四类失败/越根丢弃/registry fail-open 齐备。C5：无死代码残留。C6/C7：类型同源 z.infer，符合规范。全部通过",
             "skipped": false,
             "stale": false,
@@ -830,6 +863,9 @@
                 "pass": true
               }
             ],
+            "decisionSessionId": null,
+            "evaluatorSessionId": null,
+            "executorSessionId": null,
             "report": "13/13 AC 逐条溯源通过。AC-1 change-create.ts:39；AC-2/3/13 hooks.ts:594-768 record-files＋session-registry.ts 绑定＋agent_type 旁挂(file-inventory.ts:100-106)；AC-4/5 extractFileOps(hooks.ts:356)＋checkBulkRevert(hooks.ts:404)；AC-6 backtrack.ts:43-46,119-136；AC-7 test-execution.ts:136-151 git show 去噪，git.ts/git.test.ts 已删、--mutation-diff-only 零残留；AC-8 test-resolve-paths.ts:166-179；AC-9 c4-cross-ref.ts:113-128；AC-10 mcp.ts:336；AC-11/12 提示词/模板/skills 齐备。tasks 全 [x]；无范围蔓延；out_of_scope 未动；7 风险均有代码缓解。",
             "skipped": false,
             "stale": false,

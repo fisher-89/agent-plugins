@@ -20,8 +20,8 @@ use crate::walker::{
 };
 use workflow::model::Verdict;
 use workflow::write::{
-    BacktrackOutcome, LastResult, PhaseLogOutcome, PhaseNextError, PhaseNextOutcome,
-    PhaseStartOutcome, SessionAnchors,
+    BacktrackOutcome, DecisionLogOutcome, LastResult, PhaseLogOutcome, PhaseNextError,
+    PhaseNextOutcome, PhaseStartOutcome, SessionAnchors,
 };
 
 // ---------------------------------------------------------------------------
@@ -170,7 +170,12 @@ impl WorkerAgentPort for FakeWorker {
             .expect("请求捕获锁不可中毒")
             .push(turn.clone());
         let role = turn.role;
-        let session_id = format!("sess-{}", self.counter.fetch_add(1, Ordering::SeqCst) + 1);
+        // continue_session 同会话续注回声（真实引擎 resume 同一核心会话 id 的
+        // 假件对应形态——槽位值续注不漂移断言的装置面）
+        let session_id = match turn.continue_session.as_deref() {
+            Some(reused) => reused.to_owned(),
+            None => format!("sess-{}", self.counter.fetch_add(1, Ordering::SeqCst) + 1),
+        };
         self.sessions
             .lock()
             .expect("会话登记锁不可中毒")
@@ -248,7 +253,8 @@ struct FakeTools {
     commands: Arc<Mutex<Vec<ToolCommand>>>,
     phase_next: Mutex<VecDeque<PhaseNextOutcome>>,
     static_check: Mutex<VecDeque<StaticCheckOutcome>>,
-    /// 命中即 Err 的步标签（phase-next / phase-start / phase-log / backtrack / static-check）
+    /// 命中即 Err 的步标签（phase-next / phase-start / phase-log / backtrack /
+    /// decision-log / static-check）
     fail_on: Mutex<Option<String>>,
     attempt_counter: AtomicUsize,
 }
@@ -292,6 +298,7 @@ fn command_label(command: &ToolCommand) -> &'static str {
         ToolCommand::PhaseStart { .. } => "phase-start",
         ToolCommand::PhaseLog { .. } => "phase-log",
         ToolCommand::Backtrack { .. } => "backtrack",
+        ToolCommand::DecisionLog { .. } => "decision-log",
         ToolCommand::StaticCheck => "static-check",
     }
 }
@@ -353,6 +360,12 @@ impl ToolStepPort for FakeTools {
                     target: input.to.clone(),
                 };
                 Box::pin(async move { Ok(ToolStepOutput::Backtrack(outcome)) })
+            }
+            // 决策会话槽位挂账臂：预录 DecisionLogOutcome（phase 随行；命令
+            // 载荷已经 commands 捕获——payload 断言的事实源）
+            ToolCommand::DecisionLog { phase, .. } => {
+                let outcome = DecisionLogOutcome { phase };
+                Box::pin(async move { Ok(ToolStepOutput::DecisionLog(outcome)) })
             }
             ToolCommand::StaticCheck => {
                 let outcome = self
@@ -596,6 +609,31 @@ fn step_rows(updates: &[RunUpdate]) -> Vec<(String, u32, String, String)> {
                     wire["status"].as_str().expect("status 串").to_owned(),
                 ))
             }
+            _ => None,
+        })
+        .collect()
+}
+
+/// 会话序摘取：某角色的登记 id 列表（槽位值对应断言的事实源）。
+fn sessions_of(sessions: &[(WorkerRole, String)], role: WorkerRole) -> Vec<String> {
+    sessions
+        .iter()
+        .filter(|(entry_role, _)| *entry_role == role)
+        .map(|(_, id)| id.clone())
+        .collect()
+}
+
+/// DecisionLog 命令载荷摘取（(change, phase, session_id) 三元——假写面捕获
+/// 面的载荷断言入口）。
+fn decision_log_payloads(commands: &[ToolCommand]) -> Vec<(String, String, String)> {
+    commands
+        .iter()
+        .filter_map(|command| match command {
+            ToolCommand::DecisionLog {
+                change,
+                phase,
+                session_id,
+            } => Some((change.clone(), phase.clone(), session_id.clone())),
             _ => None,
         })
         .collect()
@@ -2284,6 +2322,579 @@ fn 步门控常量锚定() {
 }
 
 // ---------------------------------------------------------------------------
+// AC-5：会话槽位落账与决策挂账（desktop-change-session-visibility）
+// ---------------------------------------------------------------------------
+
+/// walk_run 真实写面组合（LocalToolSteps + TempRoot 真盘）：verdict 条目落账
+/// 携 executor + evaluator 双槽位、值自 `WorkerTurnOutcome.session_id` 与假
+/// 引擎会话序逐一对应；decision 槽位在 verdict 落账时恒缺省（D5），决策会话
+/// 收口后经 decision_log 写面单点定点挂账（AC-5 全链真实组合）。
+#[tokio::test]
+async fn 真实写面组合_会话槽位落账与决策挂账全链对应() {
+    let root = TempRoot::new("slots-real-compose");
+    root.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![
+            Ok(fail_json("一")),
+            Ok(fail_json("二")),
+            Ok(fail_json("三")),
+            Ok(fail_json("四")),
+            Ok(fail_json("五")),
+        ])
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "预算耗尽人工介入" }"#.to_owned(),
+        ])
+        .assemble();
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(NullRunner),
+    ));
+    let (diff, _) = FakeDiff::new(vec![]).assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx) = spawn_run(
+        worker,
+        steps,
+        diff,
+        snapshot,
+        &control,
+        false,
+        &root.root_str(),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Stopped, "决策 stop 收敛受控停止");
+
+    // 假引擎会话序（槽位值对应断言的事实源）：executor / evaluator 交替五轮 + 决策一轮
+    let sessions = sessions.lock().expect("会话登记锁");
+    let executors = sessions_of(&sessions, WorkerRole::Executor);
+    let evaluators = sessions_of(&sessions, WorkerRole::Evaluator);
+    let decisions = sessions_of(&sessions, WorkerRole::Decision);
+    assert_eq!(executors.len(), 5, "五轮 executor（每 attempt 一会话）");
+    assert_eq!(evaluators.len(), 5, "五轮 evaluator");
+    assert_eq!(decisions.len(), 1, "决策会话恰一轮（收口即 completed）");
+    drop(sessions);
+
+    // verdict 条目落账：executor / evaluator 槽位与会话序逐一对应（取值自
+    // WorkerTurnOutcome.session_id——AC-5）
+    let doc = root.workflow_json(CHANGE);
+    let eval = doc["eval"].as_array().expect("eval 数组");
+    assert_eq!(eval.len(), 5, "五条 fail 条目纯追加");
+    for (idx, entry) in eval.iter().enumerate() {
+        assert_eq!(entry["phase"], serde_json::json!("proposal"));
+        assert_eq!(entry["verdict"], serde_json::json!("fail"));
+        assert_eq!(
+            entry["executor_session_id"],
+            serde_json::json!(executors[idx]),
+            "executor 槽位与会话序逐一对应"
+        );
+        assert_eq!(
+            entry["evaluator_session_id"],
+            serde_json::json!(evaluators[idx]),
+            "evaluator 槽位随行落账"
+        );
+    }
+    // verdict 落账时 decision 槽位恒缺省（D5）；决策收口后最新条目定点挂账
+    for entry in eval.iter().take(4) {
+        assert!(
+            entry.get("decision_session_id").is_none(),
+            "verdict 条目落账无 decision 槽位键"
+        );
+    }
+    assert_eq!(
+        eval[4]["decision_session_id"],
+        serde_json::json!(decisions[0]),
+        "决策会话收口后其 id 记录在案（walk_run → LocalToolSteps → decision_log 写面）"
+    );
+}
+
+/// 挂账先于决策解析（真实组合链留痕）：决策会话产出漂移文本 → parse 失败路
+/// 径 run 显式 failed，但 workflow.json 最新条目已携 decision_session_id——
+/// 写挂时机在 parse 之前，parse 失败同样留痕。
+#[tokio::test]
+async fn 真实写面组合_决策挂账先于解析_parse失败同样留痕() {
+    let root = TempRoot::new("relog-before-parse");
+    root.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline)
+        .with_evaluator_reports(vec![
+            Ok(fail_json("一")),
+            Ok(fail_json("二")),
+            Ok(fail_json("三")),
+            Ok(fail_json("四")),
+            Ok(fail_json("五")),
+        ])
+        .with_decision_reports(vec!["不是决策 JSON".to_owned()])
+        .assemble();
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(NullRunner),
+    ));
+    let (diff, _) = FakeDiff::new(vec![]).assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, mut rx) = spawn_run(
+        worker,
+        steps,
+        diff,
+        snapshot,
+        &control,
+        false,
+        &root.root_str(),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "决策解析失败显式 failed");
+
+    // 终态记因为解析失败（非挂账失败——挂账已成功先于 parse）
+    let mut finished = None;
+    while let Ok(update) = rx.try_recv() {
+        if let RunUpdate::Finished { .. } = &update {
+            finished = Some(update);
+        }
+    }
+    let value = wire(&finished.expect("Finished 信封流出"));
+    assert_eq!(value["status"], serde_json::json!("failed"));
+    assert!(
+        value["reason"]
+            .as_str()
+            .unwrap_or_default()
+            .contains("决策解析失败"),
+        "记因为解析失败（挂账不在失败路径）: {value}"
+    );
+
+    // 留痕：最新 fail 条目已携决策会话 id
+    let sessions = sessions.lock().expect("会话登记锁");
+    let decisions = sessions_of(&sessions, WorkerRole::Decision);
+    assert_eq!(decisions.len(), 1);
+    drop(sessions);
+    let doc = root.workflow_json(CHANGE);
+    let eval = doc["eval"].as_array().expect("eval 数组");
+    assert_eq!(eval.len(), 5);
+    assert_eq!(
+        eval[4]["decision_session_id"],
+        serde_json::json!(decisions[0]),
+        "parse 失败路径同样留痕"
+    );
+}
+
+/// static-check 反馈边超限升格（真实组合链）：fail 条目仅携 executor 单键
+///（evaluator 未跑无会话可记）；反馈修复轮 Continue 同 executor 会话——槽位
+/// 值续注不漂移；决策 stop 收口后最新 fail 条目携 decision 挂账键。前置三相
+/// 位预置 pass（fixture 让 implement 站先行——升格门控相位）。
+#[tokio::test]
+async fn 真实写面组合_升格fail条目仅携executor槽位且修复轮续注同会话() {
+    let root = TempRoot::new("upgrade-slots");
+    root.change(
+        CHANGE,
+        r#"{
+  "workflow_type": "requirement",
+  "eval": [
+    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [], "timestamp": "2026-10-01T08:00:00Z" },
+    { "phase": "dev-design", "attempt": 1, "verdict": "pass", "report": "设计通过", "checklist": [], "timestamp": "2026-10-01T08:10:00Z" },
+    { "phase": "test-design", "attempt": 1, "verdict": "pass", "report": "测试设计通过", "checklist": [], "timestamp": "2026-10-01T08:20:00Z" }
+  ]
+}"#,
+    );
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "stop", "reason": "反馈边与重试预算均耗尽" }"#.to_owned(),
+        ])
+        .assemble();
+    let steps: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(FailingRunner),
+    ));
+    let (diff, _) = FakeDiff::new(vec![]).assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx) = spawn_run(
+        worker,
+        steps,
+        diff,
+        snapshot,
+        &control,
+        false,
+        &root.root_str(),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Stopped,
+        "五轮升格 fail 耗尽重试预算后决策 stop 收敛"
+    );
+
+    // 会话面：升格路径零 evaluator；executor 每轮首发 + 修复轮 Continue 同会话
+    //（假件回声——同 attempt 六轮同 id，会话序即 attempt 分组）
+    let sessions = sessions.lock().expect("会话登记锁");
+    assert!(
+        sessions_of(&sessions, WorkerRole::Evaluator).is_empty(),
+        "升格路径零 evaluator 会话（前置相位已预置 pass，本 run 仅 implement 站）"
+    );
+    let decisions = sessions_of(&sessions, WorkerRole::Decision);
+    assert_eq!(decisions.len(), 1);
+    let executor_sessions = sessions_of(&sessions, WorkerRole::Executor);
+    assert_eq!(
+        executor_sessions.len(),
+        30,
+        "5 attempt ×（首发 1 + 修复 5）轮"
+    );
+    let attempt_sessions: Vec<String> = executor_sessions.iter().step_by(6).cloned().collect();
+    for (k, chunk) in executor_sessions.chunks(6).enumerate() {
+        assert!(
+            chunk.iter().all(|id| id == &attempt_sessions[k]),
+            "同 attempt 反馈修复轮续注同 executor 会话（槽位值不漂移）"
+        );
+    }
+    drop(sessions);
+
+    let requests = requests.lock().expect("请求锁");
+    let executor_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Executor)
+        .collect();
+    assert_eq!(executor_requests.len(), 30);
+    for (idx, request) in executor_requests.iter().enumerate() {
+        let attempt_idx = idx / 6;
+        let expected = if idx % 6 == 0 {
+            None
+        } else {
+            Some(attempt_sessions[attempt_idx].as_str())
+        };
+        assert_eq!(
+            request.continue_session.as_deref(),
+            expected,
+            "首发 New、修复轮 Continue 同会话"
+        );
+    }
+    drop(requests);
+
+    // fail 条目仅携 executor 单键（evaluator 未跑）；最新条目携决策挂账键
+    let doc = root.workflow_json(CHANGE);
+    let eval = doc["eval"].as_array().expect("eval 数组");
+    assert_eq!(eval.len(), 8, "预置三条 pass + 五轮升格 fail 纯追加");
+    let upgrades = &eval[3..];
+    for (idx, entry) in upgrades.iter().enumerate() {
+        assert_eq!(entry["phase"], serde_json::json!("implement"));
+        assert_eq!(entry["verdict"], serde_json::json!("fail"));
+        assert_eq!(
+            entry["executor_session_id"],
+            serde_json::json!(attempt_sessions[idx]),
+            "fail 条目仅携 executor 槽位、值续注该轮首发会话"
+        );
+        assert!(
+            entry.get("evaluator_session_id").is_none(),
+            "evaluator 未跑无槽位键"
+        );
+    }
+    for entry in upgrades.iter().take(4) {
+        assert!(entry.get("decision_session_id").is_none());
+    }
+    assert_eq!(
+        upgrades[4]["decision_session_id"],
+        serde_json::json!(decisions[0]),
+        "决策收口后最新 fail 条目定点挂账"
+    );
+}
+
+/// 决策会话收口即挂账（假写面 DecisionLog 臂适配）：ToolCommand::DecisionLog
+/// 载荷逐字段捕获（change / phase / session_id），时间线位次在决策会话收口
+/// 之后、phase-next 重路由之前。
+#[tokio::test]
+async fn 决策会话收口即挂账_decisionlog载荷逐字段捕获() {
+    let root = TempRoot::new("decisionlog-capture");
+    root.change(CHANGE, DECISION_FIXTURE);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, sessions) = FakeWorker::new(&timeline).assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+            done_outcome(),
+        ])
+        .assemble();
+    let (diff, _) = FakeDiff::new(vec![]).assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, _rx) = spawn_run(
+        worker,
+        tools,
+        diff,
+        snapshot,
+        &control,
+        false,
+        &root.root_str(),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(
+        status,
+        ChangeRunStatus::Completed,
+        "决策 retry 重路由 done 收敛"
+    );
+
+    let commands = commands.lock().expect("命令锁");
+    let payloads = decision_log_payloads(&commands);
+    assert_eq!(payloads.len(), 1, "首轮 completed 收口即挂账恰一次");
+    let decision_sessions = {
+        let sessions = sessions.lock().expect("会话登记锁");
+        sessions_of(&sessions, WorkerRole::Decision)
+    };
+    assert_eq!(decision_sessions.len(), 1);
+    assert_eq!(payloads[0].0, CHANGE, "change 载荷逐字段");
+    assert_eq!(payloads[0].1, "implement", "失败相位承载");
+    assert_eq!(
+        payloads[0].2, decision_sessions[0],
+        "session_id 取自 WorkerTurnOutcome.session_id"
+    );
+    drop(commands);
+
+    // 时间线位次：decision-log 在 decision 收口后、phase-next 重路由前
+    let timeline = timeline.lock().expect("时间线锁");
+    let decision_pos = timeline
+        .iter()
+        .position(|label| label == "decision")
+        .expect("decision 在时间线");
+    assert_eq!(
+        timeline[decision_pos + 1],
+        "decision-log",
+        "收口即挂账（先于决策解析与重路由）"
+    );
+    assert_eq!(timeline[decision_pos + 2], "phase-next", "挂账后回路由");
+}
+
+/// 挂账失败显式收敛 failed（假写面 fail_on 注入 Err）：决策动作未达
+/// parse_decision——决策产出故意漂移，若错误抵达解析将呈现「决策解析失败」，
+/// 记因为挂账失败即「挂账先于解析」的结构证明（写面严格语义，不静默吞）。
+#[tokio::test]
+async fn 决策挂账失败显式failed且未达解析() {
+    let root = TempRoot::new("decisionlog-fail");
+    root.change(CHANGE, DECISION_FIXTURE);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _requests, _sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec!["不是决策 JSON".to_owned()])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+        ])
+        .fail_on("decision-log")
+        .assemble();
+    let (diff, _) = FakeDiff::new(vec![]).assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, mut rx) = spawn_run(
+        worker,
+        tools,
+        diff,
+        snapshot,
+        &control,
+        false,
+        &root.root_str(),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Failed, "挂账失败显式失败停给用户");
+
+    let mut finished = None;
+    while let Ok(update) = rx.try_recv() {
+        if let RunUpdate::Finished { .. } = &update {
+            finished = Some(update);
+        }
+    }
+    let value = wire(&finished.expect("Finished 信封流出"));
+    let reason = value["reason"].as_str().unwrap_or_default();
+    assert!(
+        reason.contains("decision-log 失败"),
+        "记因为挂账失败: {value}"
+    );
+    assert!(
+        !reason.contains("决策解析失败"),
+        "决策动作未达 parse_decision（挂账先行的结构证明）"
+    );
+    // 挂账确曾发起（fail_on 命中前命令已捕获）
+    assert_eq!(
+        decision_log_payloads(&commands.lock().expect("命令锁")).len(),
+        1,
+        "挂账命令恰发起一次"
+    );
+}
+
+/// ask 续轮同会话同值重挂（D6）：应答回流 Continue 同会话收口后重挂——
+/// DecisionLog 调用序两次且载荷逐字段相同（写面幂等覆写的调用方面）。
+#[tokio::test]
+async fn ask续轮同会话重挂同值幂等() {
+    let root = TempRoot::new("ask-relog");
+    root.change(CHANGE, DECISION_FIXTURE);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, requests, sessions) = FakeWorker::new(&timeline)
+        .with_decision_reports(vec![
+            r#"{ "action": "ask", "question": "回溯目标选哪个?", "options": ["proposal", "dev-design"] }"#.to_owned(),
+            r#"{ "action": "stop", "reason": "用户裁决终止" }"#.to_owned(),
+        ])
+        .assemble();
+    let (tools, commands) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+        ])
+        .assemble();
+    let (diff, _) = FakeDiff::new(vec![]).assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, mut rx) = spawn_run(
+        worker,
+        tools,
+        diff,
+        snapshot,
+        &control,
+        false,
+        &root.root_str(),
+    );
+    let _confirmer = spawn_confirmer(&control, true);
+
+    // Ask 信封流出（current_thread 运行时以 try_recv 轮询，30s 上限防挂死）
+    let deadline = Instant::now() + Duration::from_secs(30);
+    loop {
+        if futures_poll(&mut rx).is_some() {
+            break;
+        }
+        assert!(Instant::now() < deadline, "等待 Ask 信封超时（30s）");
+        tokio::task::yield_now().await;
+        std::thread::sleep(Duration::from_millis(5));
+    }
+    control
+        .answer(CHANGE, "终止".to_owned())
+        .expect("应答回传应成功");
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Stopped, "决策 stop 收敛");
+
+    // 同会话续注：第二轮 continue_session == 首轮决策会话 id
+    let requests = requests.lock().expect("请求锁");
+    let decision_requests: Vec<&WorkerTurnRequest> = requests
+        .iter()
+        .filter(|request| request.role == WorkerRole::Decision)
+        .collect();
+    assert_eq!(decision_requests.len(), 2, "ask 应答后重出一次决策会话");
+    let first_session = {
+        let sessions = sessions.lock().expect("会话登记锁");
+        sessions_of(&sessions, WorkerRole::Decision)
+            .first()
+            .cloned()
+            .expect("首轮决策会话 id")
+    };
+    assert_eq!(
+        decision_requests[1].continue_session.as_deref(),
+        Some(first_session.as_str()),
+        "应答文本 Continue 同一决策会话"
+    );
+    drop(decision_requests);
+
+    // DecisionLog 调用序两次、载荷逐字段相同（同会话同值重挂）
+    let payloads = decision_log_payloads(&commands.lock().expect("命令锁"));
+    assert_eq!(payloads.len(), 2, "每轮收口即挂账");
+    assert_eq!(payloads[0], payloads[1], "同会话同值重挂（幂等覆写）");
+    assert_eq!(payloads[0].0, CHANGE);
+    assert_eq!(payloads[0].1, "implement");
+    assert_eq!(payloads[0].2, first_session, "两轮挂账同会话 id");
+}
+
+/// emit_step 词汇零新增（结构证明——run-state.ts 零触点的 proposal「不要修
+/// 改」口径）：决策挂账全程更新流的步词汇封闭于既有九词，无新步状态信封。
+#[tokio::test]
+async fn 步状态词汇零新增_决策挂账全程无新步信封() {
+    let root = TempRoot::new("vocab-closed");
+    root.change(CHANGE, DECISION_FIXTURE);
+
+    let timeline = Arc::new(Mutex::new(Vec::new()));
+    let (worker, _, _) = FakeWorker::new(&timeline).assemble();
+    let (tools, _) = FakeTools::new(&timeline)
+        .with_phase_next(vec![
+            route_outcome("implement", &["proposal", "dev-design", "implement"]),
+            max_retries_outcome(
+                "implement",
+                &["proposal", "dev-design", "implement"],
+                "首轮未过",
+            ),
+            done_outcome(),
+        ])
+        .assemble();
+    let (diff, _) = FakeDiff::new(vec![]).assemble();
+    let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.root_str()));
+    let control = Arc::new(ChangeFlowControl::new());
+
+    let (task, mut rx) = spawn_run(
+        worker,
+        tools,
+        diff,
+        snapshot,
+        &control,
+        true,
+        &root.root_str(),
+    );
+    let status = task.await.expect("run 任务正常结束");
+    assert_eq!(status, ChangeRunStatus::Completed);
+
+    let mut updates = Vec::new();
+    while let Ok(update) = rx.try_recv() {
+        updates.push(update);
+    }
+    let kinds: std::collections::BTreeSet<String> = step_rows(&updates)
+        .into_iter()
+        .map(|(_, _, kind, _)| kind)
+        .collect();
+    const VOCAB: [&str; 9] = [
+        "executor",
+        "evaluator",
+        "decision",
+        "phaseStart",
+        "staticCheck",
+        "phaseLog",
+        "verdictGate",
+        "retryGate",
+        "whitelistGate",
+    ];
+    for kind in &kinds {
+        assert!(
+            VOCAB.contains(&kind.as_str()),
+            "步状态词汇漂移（新增词 {kind}）——RunUpdate / ChangeStepKind 出新词汇即破坏零触点"
+        );
+    }
+    // 决策挂账链路确经更新流（决策角色 + 落账步 + verdict 门在场）
+    assert!(kinds.contains("decision"), "决策会话步在场");
+    assert!(kinds.contains("phaseLog"), "落账步在场");
+    assert!(kinds.contains("verdictGate"), "verdict 门在场");
+}
+
+// ---------------------------------------------------------------------------
 // 装置：无产出快照占位（假双缝用例不触快照面——决策分叉用例另用真实 FsSnapshot）
 // ---------------------------------------------------------------------------
 
@@ -2306,6 +2917,20 @@ struct NullRunner;
 impl StaticCheckRunner for NullRunner {
     fn run(&self, _root: &str) -> BoxToolFuture {
         Box::pin(async move { Ok(ToolStepOutput::StaticCheck(passing_check())) })
+    }
+}
+
+/// static-check 恒败 runner（反馈边超限升格路径驱动——六检五修后升格 fail）。
+struct FailingRunner;
+
+impl StaticCheckRunner for FailingRunner {
+    fn run(&self, _root: &str) -> BoxToolFuture {
+        Box::pin(async move {
+            Ok(ToolStepOutput::StaticCheck(StaticCheckOutcome {
+                passed: false,
+                diagnostics: "clippy 未过: E0308".to_owned(),
+            }))
+        })
     }
 }
 
