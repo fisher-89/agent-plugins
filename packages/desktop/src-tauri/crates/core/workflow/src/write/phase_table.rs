@@ -28,8 +28,12 @@ pub struct PhaseDefinition {
 /// 重试上限（与插件同名常量一致）。
 pub const MAX_RETRY_TIMES: u32 = 5;
 
-/// 落账 report / 回溯 reason 的长度上限（与插件 schema 500 上限同源）。
-pub(crate) const MAX_TEXT_CHARS: usize = 500;
+/// 落账 report 的长度上限（与插件 `phaseLogSchema.report` max 2000 同源）。
+pub(crate) const MAX_REPORT_CHARS: usize = 2000;
+
+/// 回溯 reason 的长度上限（与插件 `backtrackInputSchema.backtrack_reason`
+/// max 500 同源）。
+pub(crate) const MAX_REASON_CHARS: usize = 500;
 
 /// V1 唯一支持的相位表键（W8：其余 workflow_type 在发起前置校验显式拒绝）。
 const REQUIREMENT_WORKFLOW_TYPE: &str = "requirement";

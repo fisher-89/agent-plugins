@@ -10,8 +10,8 @@ use workflow::model::{ChecklistItem, Verdict};
 
 use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
+    MAX_REASON_CHARS,
 };
-use crate::verdict::MAX_REPORT_CHARS;
 
 #[test]
 fn 四动作合法解析封闭集逐变体() {
@@ -173,7 +173,7 @@ fn 结构漂移显式失败均err停给用户() {
 /// 「backtrack reason 超长拒绝」行为对端行；解析层不设第二道闸）。
 #[test]
 fn reason超长解析层原样承接不崩() {
-    let long_reason = "因".repeat(MAX_REPORT_CHARS + 1);
+    let long_reason = "因".repeat(MAX_REASON_CHARS + 1);
 
     // backtrack reason >500：解析成功且逐字符保真（不崩、不拒、不截断）
     let json =
@@ -198,7 +198,7 @@ fn reason超长解析层原样承接不崩() {
     );
 
     // 恰 500 字符边界同样通过（解析层无长度概念）
-    let exact = "因".repeat(MAX_REPORT_CHARS);
+    let exact = "因".repeat(MAX_REASON_CHARS);
     let json = format!(r#"{{ "action": "backtrack", "to": "proposal", "reason": "{exact}" }}"#);
     assert!(parse_decision(&json).is_ok(), "恰 500 字符边界通过");
 }

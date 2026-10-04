@@ -1,13 +1,8 @@
-//! 决策解析与白名单预校验：决策 agent 最终消息 → 四动作封闭集（backtrack /
-//! retry / stop / ask，tag `action` 判别）；backtrack 越权在 walker 侧先行
-//! 预校验（写面 `backtrack` 白名单二次校验兜底——坏决议损坏不了状态）。
-//! 结构漂移显式 `Err` 停给用户；reason 长度不在解析层设门——backtrack
-//! reason ≤500 由写面 [`workflow::write::backtrack`] 单点拒绝（解析层透传）。
-//! 白名单即写面下发的相位 id 串（`Vec<String>`），verdict 引用直用
-//! `workflow::model` 域类型。
-
 use serde::Deserialize;
 use workflow::model::{ChecklistItem, Verdict};
+
+/// 决策 reason 长度上限
+pub(crate) const MAX_REASON_CHARS: usize = 500;
 
 /// 决策四动作封闭集（JSON 形状见 `prompt.rs` 决策协议附录）。
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

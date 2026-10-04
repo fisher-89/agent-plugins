@@ -82,7 +82,7 @@ fn evaluator_prompt协议附录与checklist_json形状与diff段() {
         prompt.contains("\"verdict\"") && prompt.contains("\"checklist\""),
         "checklist JSON 形状约定在场"
     );
-    assert!(prompt.contains("500"), "report 上限约定在场");
+    assert!(prompt.contains("2000"), "report 上限约定在场");
     assert!(
         prompt.contains(phase_prompt),
         "已插值 phase prompt 主体保真（AC-2 evaluator 输出协议 + AC-3 prompt 半边）"

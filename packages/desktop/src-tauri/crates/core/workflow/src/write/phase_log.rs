@@ -1,15 +1,8 @@
-//! 评估落账写操作：verdict 推导（checklist 全 pass）、skipped 约束、report
-//! 长度门、表位与开相前置（相位在表中且 `active_phase` 匹配，未开相显式
-//! `Err`——写面严格语义，对照插件的宽容形态收紧）、纯追加落账（W9 缺陷修复
-//! 点——attempt 推导只数该相位既有条目加一，不因相位已有 pass 条目短路跳过，
-//! backtrack 回跳后同相位重评条目逐条 append）、start_at 自 `active_phase`
-//! 继承、落账后清 `active_phase`。
-
 use serde_json::Value;
 
 use crate::model::{ChecklistItem, Verdict};
 use crate::write::persist::{eval_entries_mut, format_timestamp, load_doc, now_iso, save};
-use crate::write::phase_table::{phase_table, MAX_TEXT_CHARS};
+use crate::write::phase_table::{phase_table, MAX_REPORT_CHARS};
 use foundation::layout::Layout;
 
 /// 落账输入（checklist 用 `workflow::model::ChecklistItem` 域类型）。会话槽
@@ -61,9 +54,9 @@ pub fn phase_log(
         ));
     }
     let report_chars = input.report.chars().count();
-    if report_chars > MAX_TEXT_CHARS {
+    if report_chars > MAX_REPORT_CHARS {
         return Err(format!(
-            "报告长度超过 {MAX_TEXT_CHARS} 字符限制（当前 {report_chars} 字符）。请精简报告内容。"
+            "报告长度超过 {MAX_REPORT_CHARS} 字符限制（当前 {report_chars} 字符）。请精简报告内容。"
         ));
     }
 

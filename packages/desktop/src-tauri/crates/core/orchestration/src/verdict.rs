@@ -6,9 +6,9 @@
 use serde::Deserialize;
 use workflow::model::{ChecklistItem, Verdict};
 
-/// report 长度上限（与插件 `phaseLogSchema.report` max 500 同源，超长在
+/// report 长度上限（与插件 `phaseLogSchema.report` max 2000 同源，超长在
 /// 桌面侧先行拒绝——写面落账前最后一道）。
-pub const MAX_REPORT_CHARS: usize = 500;
+pub const MAX_REPORT_CHARS: usize = 2000;
 
 /// verdict 封闭结构：evaluator 最终消息输出的 checklist JSON 形状。
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]

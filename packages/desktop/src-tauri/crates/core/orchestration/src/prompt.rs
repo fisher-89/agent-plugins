@@ -1,12 +1,4 @@
-//! prompt 组装：executor 角色要点前导（桌面内置静态表，剥离
-//! `__CALL_AGENT:<role>__` 取角色名——不指示会话 Read 插件 `agents/<role>.md`，
-//! 不依赖安装路径）+ evaluator 输出协议附录（禁调 MCP phase-log / 最终消息
-//! 输出 checklist JSON）+ 决策 prompt（有界输入组装）。executor / evaluator
-//! 双入口均组装 git diff 变更文件上下文段（AC-3：desktop run 的 file_log 零
-//! 新增，变更文件上下文降级 git diff；change / phase 已由写面插值进 phase
-//! prompt，协议附录不再携带 change / phase 参数）。
-
-use crate::decision::DecisionInput;
+use crate::decision::{DecisionInput, MAX_REASON_CHARS};
 use crate::verdict::MAX_REPORT_CHARS;
 
 /// 剥离 `__CALL_AGENT:<role>__` 令牌取角色名；裸 agent_type 原样返回。
@@ -134,9 +126,9 @@ pub fn decision_prompt(input: &DecisionInput) -> String {
 ## 可回溯白名单（仅可从中选择 backtrack 目标）\n\n{allowed}\n\n\
 ## 候选相位最近一次评估报告\n\n{candidates}\n\n\
 ## 决策协议（最终消息必须输出且仅输出一个 JSON 对象，四选一）\n\n\
-- {{\"action\": \"backtrack\", \"to\": \"<白名单内相位 id>\", \"reason\": \"<≤{MAX_REPORT_CHARS} 字符>\"}}：白名单内自主回溯，直接执行。\n\
+- {{\"action\": \"backtrack\", \"to\": \"<白名单内相位 id>\", \"reason\": \"<≤{MAX_REASON_CHARS} 字符>\"}}：白名单内自主回溯，直接执行。\n\
 - {{\"action\": \"retry\"}}：原相位重试。\n\
-- {{\"action\": \"stop\", \"reason\": \"<≤{MAX_REPORT_CHARS} 字符>\"}}：终止本次运行。\n\
+- {{\"action\": \"stop\", \"reason\": \"<≤{MAX_REASON_CHARS} 字符>\"}}：终止本次运行。\n\
 - {{\"action\": \"ask\", \"question\": \"<问题>\", \"options\": [\"<选项>\"]}}：无法裁决时中断提问。\n\n\
 红线：backtrack 目标不在白名单内的决议会被拒绝；reason 超长会被拒绝。",
         phase = input.phase,

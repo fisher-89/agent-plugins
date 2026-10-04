@@ -78,23 +78,23 @@ fn verdict值域封闭_越界字符串err() {
 
 #[test]
 fn report超长拒绝_解析层先拒() {
-    // report > 500 字符 → Err 拒绝（解析层先拒、写面落账层再拒双闸——AC-9）
+    // report > 2000 字符 → Err 拒绝（解析层先拒、写面落账层再拒双闸——AC-9）
     let long_report = "评".repeat(MAX_REPORT_CHARS + 1);
     let overflowing = format!(
         r#"{{ "phase": "implement", "attempt": 1, "verdict": "pass", "report": "{long_report}", "checklist": [] }}"#
     );
     let err = parse_verdict(&overflowing).expect_err("超长 report 应 Err");
     assert!(
-        err.contains("超长") && err.contains("500"),
+        err.contains("超长") && err.contains("2000"),
         "长度门记因，实际: {err}"
     );
 
-    // 恰 500 字符通过（边界含端点）
+    // 恰 2000 字符通过（边界含端点）
     let exact = "评".repeat(MAX_REPORT_CHARS);
     let exact_json = format!(
         r#"{{ "phase": "implement", "attempt": 1, "verdict": "pass", "report": "{exact}", "checklist": [] }}"#
     );
-    assert!(parse_verdict(&exact_json).is_ok(), "恰 500 字符边界通过");
+    assert!(parse_verdict(&exact_json).is_ok(), "恰 2000 字符边界通过");
 }
 
 #[test]

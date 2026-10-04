@@ -1,14 +1,9 @@
-//! 回溯写操作：白名单二次校验（越权 `Err` 不写——walker 侧 `ensure_backtrack_allowed`
-//! 预校验的兜底道）、reason 长度门、最新条目标记 backtrack_to / backtrack_reason、
-//! stale 标记与相位表依赖向后传播。backtrack 状态的唯一写入点（`phase_log`
-//! 不触 backtrack，与插件同分责）。
-
 use serde_json::Value;
 
 use crate::write::persist::{
     entry_phase, eval_entries_mut, latest_entry_index, load_doc, mark_phase_stale, save,
 };
-use crate::write::phase_table::{phase_table, MAX_TEXT_CHARS};
+use crate::write::phase_table::{phase_table, MAX_REASON_CHARS};
 use foundation::layout::Layout;
 
 /// 回溯输入（allowed 随行走带——phase_next 缓存白名单，写面二次校验兜底）。
@@ -76,9 +71,9 @@ pub fn backtrack(
         ));
     }
     let reason_chars = input.reason.chars().count();
-    if reason_chars > MAX_TEXT_CHARS {
+    if reason_chars > MAX_REASON_CHARS {
         return Err(format!(
-            "决策 reason 超长（{reason_chars} > {MAX_TEXT_CHARS}）"
+            "决策 reason 超长（{reason_chars} > {MAX_REASON_CHARS}）"
         ));
     }
 

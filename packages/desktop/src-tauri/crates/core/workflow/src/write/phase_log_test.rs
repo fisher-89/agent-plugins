@@ -314,23 +314,23 @@ fn attempt推导含stale_pass_fail混合历史() {
 }
 
 // ---------------------------------------------------------------------------
-// 边界：report 500 端点 / skipped 形态 / 保形与 file_log 零触碰
+// 边界：report 2000 端点 / skipped 形态 / 保形与 file_log 零触碰
 // ---------------------------------------------------------------------------
 
 // ---------------------------------------------------------------------------
 // 异常：开相前置（无 active_phase / 停留他相）/ 表外相位
 // ---------------------------------------------------------------------------
 
-/// report 恰 500 字符 → 落账成功（≤500 边界含端点）。
+/// report 恰 2000 字符 → 落账成功（≤2000 边界含端点）。
 #[test]
-fn report恰500字符落账成功() {
-    let ws = TempWs::new("report-500");
+fn report恰2000字符落账成功() {
+    let ws = TempWs::new("report-2000");
     ws.change(
         CHANGE,
         fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
     );
 
-    let report = "评".repeat(500);
+    let report = "评".repeat(2000);
     let outcome = ws
         .log(
             CHANGE,
@@ -344,7 +344,7 @@ fn report恰500字符落账成功() {
                 decision_session_id: None,
             },
         )
-        .expect("恰 500 字符应落账成功（边界含端点）");
+        .expect("恰 2000 字符应落账成功（边界含端点）");
     assert_eq!(outcome.attempt, 1);
     assert_eq!(
         parse_of(&ws, CHANGE)["eval"][0]["report"]
@@ -352,14 +352,14 @@ fn report恰500字符落账成功() {
             .expect("report 在场")
             .chars()
             .count(),
-        500
+        2000
     );
 }
 
-/// report 超长拒绝：501 字符 → Err 且 eval 零新增。
+/// report 超长拒绝：2001 字符 → Err 且 eval 零新增。
 #[test]
-fn report超长501拒绝且eval零新增() {
-    let ws = TempWs::new("report-501");
+fn report超长2001拒绝且eval零新增() {
+    let ws = TempWs::new("report-2001");
     ws.change(
         CHANGE,
         fixture_with_active_phase("", Some(ACTIVE_DEV_DESIGN)),
@@ -371,7 +371,7 @@ fn report超长501拒绝且eval零新增() {
             CHANGE,
             &PhaseLogInput {
                 phase: "dev-design".to_owned(),
-                report: "评".repeat(501),
+                report: "评".repeat(2001),
                 checklist: pass_items(1),
                 skipped: false,
                 executor_session_id: None,
@@ -379,10 +379,10 @@ fn report超长501拒绝且eval零新增() {
                 decision_session_id: None,
             },
         )
-        .expect_err("501 字符应 Err");
+        .expect_err("2001 字符应 Err");
 
     assert!(
-        err.contains("500") && err.contains("501"),
+        err.contains("2000") && err.contains("2001"),
         "错误携带上限与实际值，实际: {err}"
     );
     assert_eq!(
