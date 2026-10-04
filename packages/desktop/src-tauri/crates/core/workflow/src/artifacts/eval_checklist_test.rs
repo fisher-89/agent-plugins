@@ -61,7 +61,6 @@ fn workflow_with(eval: Vec<PhaseLog>) -> Workflow {
         eval,
         file_log: None,
         active_phase: None,
-        interrupted: Vec::new(),
     }
 }
 

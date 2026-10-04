@@ -161,29 +161,6 @@ pub struct ActivePhase {
     pub start_at: Option<OffsetDateTime>,
 }
 
-/// 中断留档（`workflow.json.interrupted[]` 条目）：ActivePhase 加 `end_at` 的扩展。
-/// 磁盘模型：不出线（线面由 queries 层 DTO 承载）。
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(rename_all = "camelCase")]
-pub struct InterruptedEntry {
-    pub phase: String,
-    pub attempt: u32,
-    #[serde(
-        default,
-        alias = "start_at",
-        deserialize_with = "lenient_timestamp::deserialize",
-        serialize_with = "lenient_timestamp::serialize"
-    )]
-    pub start_at: Option<OffsetDateTime>,
-    #[serde(
-        default,
-        alias = "end_at",
-        deserialize_with = "lenient_timestamp::deserialize",
-        serialize_with = "lenient_timestamp::serialize"
-    )]
-    pub end_at: Option<OffsetDateTime>,
-}
-
 /// `workflow.json` 的领域形状（v2）；v1 形状经宽松解析收敛到同一类型，
 /// 差异仅体现为 `file_log` 为 `None`。
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -198,6 +175,4 @@ pub struct Workflow {
     pub file_log: Option<Vec<FileLogEntry>>,
     #[serde(default, alias = "active_phase")]
     pub active_phase: Option<ActivePhase>,
-    #[serde(default)]
-    pub interrupted: Vec<InterruptedEntry>,
 }

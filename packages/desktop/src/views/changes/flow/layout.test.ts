@@ -44,7 +44,6 @@ function detailWithTwoEvals(): ChangeDetail {
       attempts: phase === 'proposal' || phase === 'dev-design' ? [attempt()] : [],
     })),
     activePhase: null,
-    interrupted: [],
     fileLog: [],
     artifacts: [],
   };

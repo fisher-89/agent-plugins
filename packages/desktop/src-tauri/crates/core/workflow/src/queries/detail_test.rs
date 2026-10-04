@@ -170,9 +170,6 @@ fn v2_b_fixture暴露active_phase与file_log条目() {
     assert_eq!(active.attempt, 2);
     assert!(active.start_at.is_some());
 
-    assert_eq!(detail.interrupted.len(), 1);
-    assert_eq!(detail.interrupted[0].phase, "test-gen");
-
     // file_log：三种 op 全量透出
     let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
     assert_eq!(file_log.len(), 3);
@@ -363,7 +360,6 @@ fn 线面契约缺省为null且时间戳为iso串() {
 
     // 有值时间戳 → ISO 串原样往返（含 AttemptRecord，修正前的组件数组伪影不再出现）
     assert_eq!(value["activePhase"]["startAt"], "2026-09-18T09:00:00Z");
-    assert_eq!(value["interrupted"][0]["endAt"], "2026-09-18T07:30:00Z");
     assert_eq!(value["fileLog"][0]["at"], "2026-09-18T07:00:00Z");
     assert_eq!(
         value["pipeline"][0]["attempts"][0]["timestamp"], "2026-09-18T08:30:00Z",
@@ -487,4 +483,97 @@ fn 旧条目无槽位键投影三值均null且wire三键恒在场() {
         full["decisionSessionId"],
         serde_json::json!("ses-3-1727740000003")
     );
+}
+
+// ---------------------------------------------------------------------------
+// 线面 interrupted 键删除（desktop-drawer-session-column，AC-6）：磁盘模型
+// 停提取 `interrupted` 后 detail 聚合投影不再携带该键（AC-5「存量留档不出图」
+// 的上游保证——detail 不再携带则转换层无从收集）；存量文件解析照常
+// ---------------------------------------------------------------------------
+
+/// 存量含 `interrupted[]` 的 v2 形态（磁盘 `interrupted[]` 键保留在场——
+/// fixture 形状实证，proposal「不要修改」；键由 serde 未知字段忽略承接）。
+const LEGACY_INTERRUPTED_WORKFLOW: &str = r#"{
+  "workflow_type": "requirement",
+  "created": "2026-09-01",
+  "eval": [
+    { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "提案通过", "checklist": [] }
+  ],
+  "active_phase": { "phase": "implement", "attempt": 1, "start_at": "2026-09-01T09:00:00Z" },
+  "interrupted": [
+    { "phase": "test-gen", "attempt": 1, "start_at": "2026-09-01T07:00:00Z", "end_at": "2026-09-01T07:30:00Z" }
+  ],
+  "file_log": [
+    { "op": "write", "scope": "workflow", "attempt": 1, "path": "a.md", "at": "2026-09-01T08:00:00Z" }
+  ]
+}"#;
+
+#[test]
+fn 含interrupted的存量文件detail照常聚合且wire无interrupted键() {
+    let ws = TempWs::new("detail-legacy-interrupted");
+    ws.change(
+        "openspec/changes/legacy-interrupted",
+        &[
+            ("workflow.json", LEGACY_INTERRUPTED_WORKFLOW),
+            ("tasks.md", "- [x] 任务"),
+        ],
+    );
+
+    // change_detail 返回 Some，聚合投影逐字段照常
+    let detail = ws.detail("legacy-interrupted");
+    assert_eq!(detail.name, "legacy-interrupted");
+    assert!(!detail.unparsable);
+    assert_eq!(detail.created.as_deref(), Some("2026-09-01"));
+
+    // pipeline 9 站聚合照常（proposal 站一条 pass 记录）
+    let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
+    assert_eq!(phases, PIPELINE_PHASES.to_vec());
+    assert_eq!(detail.pipeline[0].attempts.len(), 1);
+    assert_eq!(detail.pipeline[0].attempts[0].report, "提案通过");
+
+    // active_phase / fileLog 投影照常
+    let active = detail.active_phase.as_ref().expect("应有 active_phase");
+    assert_eq!(active.phase, "implement");
+    assert_eq!(active.attempt, 1);
+    assert_eq!(active.start_at.as_deref(), Some("2026-09-01T09:00:00Z"));
+    let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
+    assert_eq!(file_log.len(), 1);
+    assert_eq!(file_log[0].path, "a.md");
+
+    // 序列化 wire 无 interrupted 键（线面删除的直接证据）
+    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    assert!(
+        value.get("interrupted").is_none(),
+        "detail 线面不再携带 interrupted 键: {value}"
+    );
+}
+
+#[test]
+fn 含interrupted且eval条目损坏的存量文件宽松降级后照常聚合() {
+    // 一条 eval 条目损坏（checklist 非数组）：宽松解析跳过该条，其余照常聚合
+    // ——停提取 interrupted 不改变容错语义
+    let ws = TempWs::new("detail-legacy-corrupted");
+    ws.change(
+        "openspec/changes/legacy-corrupted",
+        &[(
+            "workflow.json",
+            r#"{
+              "workflow_type": "requirement",
+              "eval": [
+                { "phase": "proposal", "attempt": 1, "verdict": "pass", "report": "完好", "checklist": [] },
+                { "phase": "dev-design", "attempt": 1, "verdict": "pass", "report": "损坏", "checklist": "不是数组" }
+              ],
+              "interrupted": [ { "phase": "test-gen", "attempt": 1, "start_at": null, "end_at": null } ]
+            }"#,
+            )],
+    );
+
+    let detail = ws.detail("legacy-corrupted");
+    assert!(!detail.unparsable, "单条损坏不整体降级");
+    // proposal 站保留完好条目，dev-design 站损坏条目被跳过
+    assert_eq!(detail.pipeline[0].attempts.len(), 1);
+    assert!(detail.pipeline[1].attempts.is_empty(), "损坏条目跳过后站内无记录");
+
+    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    assert!(value.get("interrupted").is_none(), "容错路径同样不携带 interrupted 键");
 }

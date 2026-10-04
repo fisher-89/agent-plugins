@@ -63,7 +63,6 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
       attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
     })),
     activePhase: null,
-    interrupted: [],
     fileLog: [],
     artifacts: [],
     ...overrides,
@@ -246,36 +245,6 @@ describe('DetailDrawer：三分节内容组装', () => {
     expect(within(checklist).getByTestId('checklist-verdict').textContent).toBe('fail');
     // 无挂载文件 → 文件表节空态占位
     expect(screen.getByTestId('drawer-files-section').textContent).toContain('（空）');
-  });
-
-  it('active / interrupted 节点选中 → eval 节空态（无 report / checklist 内容）', () => {
-    const base = detail({
-      activePhase: { phase: 'implement', attempt: 1, startAt: null },
-      interrupted: [{ phase: 'test-gen', attempt: 1, startAt: null, endAt: null }],
-    });
-    const graph = buildFlowGraph(base);
-    const state: World = {
-      graph,
-      materials: mountMaterials(graph, base, []),
-      hasFileLog: true,
-    };
-    const { rerender } = renderDrawer(state, { scope: 'node', nodeId: 'active:implement:1' });
-    expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（无评估记录）');
-    expect(screen.queryByTestId('checklist')).toBeNull();
-
-    rerender(
-      <DetailDrawer
-        selection={{ scope: 'node', nodeId: 'interrupted:test-gen:1' }}
-        graph={graph}
-        materials={state.materials}
-        hasFileLog
-        root="root-a"
-        change="test-change"
-        liveEvents={[]}
-        onClose={() => {}}
-      />,
-    );
-    expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（无评估记录）');
   });
 
   it('v1 代际（hasFileLog=false）→ 文件表节呈降级文案', () => {
@@ -660,7 +629,7 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     expect(sessionRefs).toEqual(['test-change/dev-design/executor/2']);
   });
 
-  it('eval 节点 attempt 为 null → ref 组为空、无转录区（既有退化语义不回归）', () => {
+  it('eval 节点 attempt 为 null → ref 组为空、左列呈 drawer-session-empty 空态占位（零 invoke；attempt — 标题占位保留）', () => {
     const state = world({
       detail: {
         pipeline: PIPELINE_PHASES.map((phase) => ({
@@ -675,7 +644,9 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     // attempt 缺号按 0 兜底成节点 id（graph.ts 装置）
     renderDrawer(state, { scope: 'node', nodeId: 'eval:dev-design:0' });
 
+    // D2 恒渲染：ref 组为空 → 面板呈空态占位（非整块消失，双列结构不跳变）
     expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
+    expect(screen.getByTestId('drawer-session-empty').textContent).toBe('（当前选中无关联会话）');
     expect(invokeMock).not.toHaveBeenCalled();
     // 标题占位：attempt 缺号呈 —（非空串占位）；无文档列呈空态文案（非渲染产物条目）
     expect(screen.getByTestId('detail-drawer').textContent).toContain(
@@ -686,47 +657,16 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（清单为空）');
   });
 
-  it('节点 id 未命中 graph（悬空 selection）→ 标题中性占位「事件节点」不崩', () => {
+  it('节点 id 未命中 graph（悬空 selection）→ 标题中性占位「事件节点」不崩、左列空态占位承接', () => {
     renderDrawer(world(), { scope: 'node', nodeId: 'eval:nowhere:9' });
 
     expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
     expect(screen.getByTestId('detail-drawer').textContent).toContain('事件节点');
+    // 悬空节点无 ref 组 → 左列空态占位承接（D2 恒渲染），双列结构保持
+    expect(screen.getByTestId('drawer-session-empty') !== null).toBe(true);
     // 未命中节点无素材面内容：文档节空态、eval 节空态
     expect(screen.getByTestId('drawer-docs-section').textContent).toContain('（无本站文档）');
     expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（无评估记录）');
-  });
-
-  it('非会话选中（active / interrupted / role=null 运行步 / 列头）→ 无转录联动区，既有三分节保持', () => {
-    const base = detail({
-      activePhase: { phase: 'implement', attempt: 1, startAt: null },
-      interrupted: [{ phase: 'test-gen', attempt: 1, startAt: null, endAt: null }],
-    });
-    const toolNode = runtimeNode({
-      id: 'run:implement:1:staticCheck',
-      attempt: 1,
-      runStepKind: 'staticCheck',
-      group: 'toolStep',
-      role: null,
-      sessionId: null,
-    });
-    const graph = buildFlowGraph(base, [toolNode]);
-    const state: World = { graph, materials: mountMaterials(graph, base, []), hasFileLog: true };
-
-    const selections: DrawerSelection[] = [
-      { scope: 'node', nodeId: 'active:implement:1' },
-      { scope: 'node', nodeId: 'interrupted:test-gen:1' },
-      { scope: 'node', nodeId: 'run:implement:1:staticCheck' },
-      { scope: 'column', phase: 'implement' },
-    ];
-    for (const selection of selections) {
-      const view = renderTranscriptDrawer(state, selection);
-      expect(screen.getByTestId('detail-drawer') !== null).toBe(true);
-      expect(screen.getByTestId('drawer-docs-section') !== null).toBe(true);
-      expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
-      expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
-      expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
-      view.unmount();
-    }
   });
 
   it('liveEvents 按选中节点的 sessionId 过滤下传：重放为底、实时事件按 seq 并入增长，异会话事件不混入', async () => {
@@ -764,5 +704,257 @@ describe('DetailDrawer：会话转录联动（双键寻址：直查优先 / 反�
     const panel = screen.getByTestId('session-transcript-panel');
     expect(panel.textContent).toContain('重放正文');
     expect(panel.textContent).not.toContain('别的会话不混入');
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 双列壳（desktop-drawer-session-column，AC-1 / D1）：aside w-[960px] +
+// max-w-[85vw]、去整列单滚、内容行 flex min-h-0 flex-1、左列 w-[60%] min-w-0
+// 会话区恒渲染 / 右列 min-w-0 flex-1 overflow-y-auto 三分节——jsdom 无布局
+// 引擎，以类契约断言列结构
+// ---------------------------------------------------------------------------
+
+describe('DetailDrawer：双列壳布局（AC-1 / D1）', () => {
+  it('打开抽屉（eval 节点选中）→ 左列会话区与右列三分节同时渲染；壳类含 w-[960px] 与 max-w-[85vw]、右列容器列内滚动', () => {
+    const { container } = renderDrawer(world(), { scope: 'node', nodeId: 'eval:dev-design:2' });
+
+    // 抽屉壳：定宽 + 视口钳制
+    const aside = container.querySelector('aside');
+    expect(aside?.className).toContain('w-[960px]');
+    expect(aside?.className).toContain('max-w-[85vw]');
+    // 左列：会话面板宿主列 w-[60%] min-w-0（元信息 + 转录拉满滚动）
+    const leftColumn = screen.getByTestId('session-transcript-panel').parentElement;
+    expect(leftColumn?.className).toContain('w-[60%]');
+    expect(leftColumn?.className).toContain('min-w-0');
+    // 内容行：flex min-h-0 flex-1（双列并排、整列单滚移除）
+    const contentRow = leftColumn?.parentElement;
+    expect(contentRow?.className).toContain('flex');
+    expect(contentRow?.className).toContain('min-h-0');
+    expect(contentRow?.className).toContain('flex-1');
+    // 右列三分节同时渲染，容器 min-w-0 flex-1 overflow-y-auto（列内滚动）
+    expect(screen.getByTestId('drawer-docs-section') !== null).toBe(true);
+    expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
+    expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
+    const rightColumn = screen.getByTestId('drawer-docs-section').parentElement;
+    expect(rightColumn?.className).toContain('min-w-0');
+    expect(rightColumn?.className).toContain('flex-1');
+    expect(rightColumn?.className).toContain('overflow-y-auto');
+  });
+
+  it('列头选中（非会话选中）→ 左列 drawer-session-empty 空态占位、右列三分节保持、双列结构不跳变', () => {
+    renderDrawer(world(), { scope: 'column', phase: 'dev-design' });
+
+    expect(screen.getByTestId('drawer-session-empty') !== null).toBe(true);
+    expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
+    expect(screen.getByTestId('drawer-docs-section') !== null).toBe(true);
+    expect(screen.getByTestId('drawer-eval-section') !== null).toBe(true);
+    expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
+  });
+
+  it('role=null 运行步选中（ToolStep）→ 左列 drawer-session-empty、右列三分节保持（ToolStep / Gate 呈现不变）', () => {
+    const toolStep = runtimeNode({
+      id: 'run:implement:2:staticCheck',
+      runStepKind: 'staticCheck',
+      group: 'toolStep',
+      role: null,
+      sessionId: null,
+    });
+    renderTranscriptDrawer(runtimeWorld(toolStep), {
+      scope: 'node',
+      nodeId: 'run:implement:2:staticCheck',
+    });
+
+    expect(screen.getByTestId('drawer-session-empty') !== null).toBe(true);
+    expect(screen.getByTestId('drawer-eval-section').textContent).toContain('（无评估记录）');
+    expect(screen.getByTestId('drawer-files-section') !== null).toBe(true);
+    // 抽屉标题：phase · attempt · runtime（ToolStep 词汇不变）
+    expect(screen.getByTestId('detail-drawer').textContent).toContain(
+      'implement · attempt 2 · runtime',
+    );
+  });
+});
+
+// ---------------------------------------------------------------------------
+// active 节点三会话反查（desktop-drawer-session-column，AC-2 / D3）：
+// selectionRoleRefs 补 `kind === 'active'` 分支——executor / evaluator /
+// decision 三 ref，sessionId 恒 null、sourceRef 定式
+// `<change>/<phase>/<role>/<attempt>`；全程不发起实时事件流订阅（liveEvents
+// 按 sessionId 过滤恒空的结构保证）
+// ---------------------------------------------------------------------------
+
+/** active 事件节点世界：activePhase implement attempt 2（buildFlowGraph 真实产出 active 节点）。 */
+function activeWorld(): World {
+  const base = detail({
+    activePhase: { phase: 'implement', attempt: 2, startAt: '2026-09-05T00:00:00Z' },
+  });
+  const graph = buildFlowGraph(base);
+  return { graph, materials: mountMaterials(graph, base, []), hasFileLog: true };
+}
+
+describe('DetailDrawer：active 节点三会话反查（AC-2 / D3）', () => {
+  beforeEach(() => {
+    sessionsFixture = {};
+    transcriptFixture = {};
+    detailFixture = {};
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(
+      (command: string, args: { sourceRef?: string; sessionId?: string } = {}) => {
+        if (command === 'session_detail') {
+          const hit = detailFixture[args.sessionId ?? ''];
+          return Promise.resolve(hit ?? null);
+        }
+        if (command === 'agent_sessions') {
+          return Promise.resolve(sessionsFixture[args.sourceRef ?? ''] ?? []);
+        }
+        if (command === 'agent_session_transcript') {
+          return Promise.resolve(transcriptFixture[args.sessionId ?? ''] ?? []);
+        }
+        return Promise.resolve(null);
+      },
+    );
+  });
+
+  afterEach(() => {
+    invokeMock.mockReset();
+    invokeMock.mockImplementation(defaultInvoke);
+  });
+
+  it('active 节点选中 → 三转录 tab（执行 / 评估 / 决策）；executor 反查 agent_sessions 携定式 sourceRef、session_detail 恒零调用', async () => {
+    sessionsFixture = {
+      'test-change/implement/executor/2': [
+        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      ],
+    };
+    transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '已流出正文')] };
+    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    expect(panel.getAttribute('data-role')).toBe('executor');
+    const tabs = within(panel).getAllByTestId('transcript-role-tab');
+    expect(tabs.map((tab) => tab.textContent)).toEqual(['执行会话', '评估会话', '决策会话']);
+    // 反查定式：source 恒 change + sourceRef `<change>/<phase>/<role>/<attempt>`
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+        root: 'root-a',
+        source: 'change',
+        sourceRef: 'test-change/implement/executor/2',
+      }),
+    );
+    await waitFor(() => expect(panel.textContent).toContain('已流出正文'));
+    // sessionId 恒 null → session_detail 恒零调用（直查不发起）
+    expect(invokeMock.mock.calls.filter(([name]) => name === 'session_detail')).toHaveLength(0);
+  });
+
+  it('已开跑角色（反查命中、轮行含 running 的进行中形态）→ 已流出转录重放呈现在左列（建档即落库的查询时快照面）', async () => {
+    const runningSession = transcriptSession('ses-exec-2', 'test-change/implement/executor/2');
+    runningSession.turns = [{ ...runningSession.turns[0], status: 'running', finishedAt: null }];
+    sessionsFixture = {
+      'test-change/implement/executor/2': [runningSession],
+    };
+    transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '进行中已流出正文')] };
+    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
+
+    await waitFor(() => expect(panelTexts()).toEqual(['进行中已流出正文']));
+    // 进行中会话同源推导：timeline-running 标记随轮行呈现
+    expect(screen.getByTestId('timeline-running') !== null).toBe(true);
+  });
+
+  it('切 decision tab → decision 走反查（active 无槽位，反查是该 phase / attempt 下 decision 会话唯一寻址）', async () => {
+    sessionsFixture = {
+      'test-change/implement/decision/2': [
+        transcriptSession('ses-decision-2', 'test-change/implement/decision/2'),
+      ],
+    };
+    transcriptFixture = { 'ses-decision-2': [textEvent(0, 'assistant', '决策已落库正文')] };
+    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
+
+    await screen.findByTestId('session-transcript-panel');
+    fireEvent.click(
+      within(screen.getByTestId('session-transcript-panel')).getAllByTestId(
+        'transcript-role-tab',
+      )[2],
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId('session-transcript-panel').getAttribute('data-role')).toBe(
+        'decision',
+      ),
+    );
+    await waitFor(() =>
+      expect(invokeMock).toHaveBeenCalledWith('agent_sessions', {
+        root: 'root-a',
+        source: 'change',
+        sourceRef: 'test-change/implement/decision/2',
+      }),
+    );
+    await waitFor(() => expect(panelTexts()).toEqual(['决策已落库正文']));
+  });
+
+  it('未开跑角色（反查空清单）→ 切该 tab 呈 transcript-empty「（暂无该会话转录）」、零进一步查询', async () => {
+    sessionsFixture = {
+      'test-change/implement/executor/2': [
+        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      ],
+    };
+    transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '执行正文')] };
+    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
+
+    await waitFor(() => expect(panelTexts()).toEqual(['执行正文']));
+    fireEvent.click(
+      within(screen.getByTestId('session-transcript-panel')).getAllByTestId(
+        'transcript-role-tab',
+      )[1],
+    );
+    await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
+    expect(screen.getByTestId('transcript-empty').textContent).toBe('（暂无该会话转录）');
+    // 反查恰 executor + evaluator 两路（decision tab 未激活不取数）；转录重放仅命中会话一路
+    const sessionRefs = (invokeMock.mock.calls as unknown[][])
+      .filter((call) => call[0] === 'agent_sessions')
+      .map((call) => (call[1] as { sourceRef?: string } | undefined)?.sourceRef);
+    expect(sessionRefs).toEqual([
+      'test-change/implement/executor/2',
+      'test-change/implement/evaluator/2',
+    ]);
+    expect(
+      (invokeMock.mock.calls as unknown[][]).filter(
+        (call) => call[0] === 'agent_session_transcript',
+      ),
+    ).toHaveLength(1);
+  });
+
+  it('liveEvents 非空传入 → 面板转录不含任何实时事件（active 无 sessionId → 过滤恒空，结构上不订阅实时流）', async () => {
+    sessionsFixture = {
+      'test-change/implement/executor/2': [
+        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      ],
+    };
+    transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '仅重放正文')] };
+    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' }, [
+      { sessionId: 'ses-exec-2', event: textEvent(1, 'assistant', '实时增量不出现') },
+    ]);
+
+    await waitFor(() => expect(panelTexts()).toEqual(['仅重放正文']));
+    expect(screen.getByTestId('session-transcript-panel').textContent).not.toContain(
+      '实时增量不出现',
+    );
+  });
+
+  it('sourceRef 定式与 active 节点 id 同参：active:<phase>:<attempt> 与 <change>/<phase>/<role>/<attempt> 同 attempt 组装', async () => {
+    sessionsFixture = {
+      'test-change/implement/executor/2': [
+        transcriptSession('ses-exec-2', 'test-change/implement/executor/2'),
+      ],
+    };
+    transcriptFixture = { 'ses-exec-2': [textEvent(0, 'user', '同参正文')] };
+    renderTranscriptDrawer(activeWorld(), { scope: 'node', nodeId: 'active:implement:2' });
+
+    const panel = await screen.findByTestId('session-transcript-panel');
+    await waitFor(() => expect(panelTexts()).toEqual(['同参正文']));
+    // 四段定式第二三段与节点 id `active:implement:2` 的 phase / attempt 同参
+    const call = (invokeMock.mock.calls as unknown[][]).find(
+      (entry) => entry[0] === 'agent_sessions',
+    );
+    const params = call?.[1] as { sourceRef?: string } | undefined;
+    expect(params?.sourceRef).toBe('test-change/implement/executor/2');
+    expect(panel.getAttribute('data-role')).toBe('executor');
   });
 });

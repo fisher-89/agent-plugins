@@ -156,7 +156,6 @@
         "scope": "workflow"
       }
     ],
-    "interrupted": [],
     "inventory": "v2",
     "name": "v2-a",
     "pipeline": [
@@ -511,7 +510,6 @@
     "evalWithChecklist": 5,
     "fileLog": "entries",
     "fileLogCount": 10,
-    "interruptedCount": 0,
     "outcome": "parsed",
     "workflowType": "requirement"
   }

@@ -15,7 +15,6 @@ export const commands = {
 	unparsable: boolean,
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
-	interrupted: InterruptedEntry[],
 	/**  v1 及更早代际无此字段 → `None`，对应区块降级留空 */
 	fileLog: FileLogEntry[] | null,
 	artifacts: ArtifactDescriptor[],
@@ -429,7 +428,6 @@ export type ChangeDetail = {
 	unparsable: boolean,
 	pipeline: PhaseEntry[],
 	activePhase: ActivePhase | null,
-	interrupted: InterruptedEntry[],
 	/**  v1 及更早代际无此字段 → `None`，对应区块降级留空 */
 	fileLog: FileLogEntry[] | null,
 	artifacts: ArtifactDescriptor[],
@@ -746,14 +744,6 @@ export type FileNode = {
 export type FileWatchEvent = {
 	/**  被修改目标的订阅路径 */
 	path: string,
-};
-
-/**  中断留档（线面）。 */
-export type InterruptedEntry = {
-	phase: string,
-	attempt: number,
-	startAt: string | null,
-	endAt: string | null,
 };
 
 /**

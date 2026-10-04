@@ -179,7 +179,6 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
             : [],
     })),
     activePhase: null,
-    interrupted: [],
     fileLog: [{ op: 'write', scope: 'workflow', attempt: null, path: 'workflow.json', at: null }],
     artifacts: [{ kind: 'markdown-doc', source: 'proposal.md', title: '提案' }],
     ...overrides,

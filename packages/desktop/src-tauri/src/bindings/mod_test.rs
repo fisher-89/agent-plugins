@@ -150,7 +150,6 @@ const DTO_TYPES: &[&str] = &[
     "FileLogOp",
     "FileNode",
     "FileWatchEvent",
-    "InterruptedEntry",
     "Inventory",
     "LanguageStats",
     "ModelInfo",
@@ -708,4 +707,77 @@ fn framework与diagnostic_kind出线为camel_case字面量联合() {
     ] {
         assert!(kind.contains(literal), "DiagnosticKind 缺字面量 {literal}");
     }
+}
+
+// ---------------------------------------------------------------------------
+// interrupted 词汇出线退役（desktop-drawer-session-column，AC-7）：
+// `InterruptedEntry` 类型删除 + `ChangeDetail.interrupted` 键删除——清单与产物
+// 集重新一致（清单不残留幽灵条目；本变更零新命令，COMMAND 清单零增删）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn interrupted_entry类型与detail的interrupted键从产物退役() {
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+
+    // 产物文本不含 InterruptedEntry 类型名（bindings:export 再生后的直接证据）
+    assert!(
+        !content.contains("InterruptedEntry"),
+        "产物不应含已删除的 InterruptedEntry 类型名"
+    );
+
+    // getChangeDetail 返回面无 interrupted 键：ChangeDetail 类型段逐字段清点
+    let detail = type_section(&content, "ChangeDetail");
+    assert!(
+        !detail.contains("interrupted"),
+        "ChangeDetail 出线面不应含 interrupted 字段，实际: {detail}"
+    );
+    // 返回面收敛后的字段集仍在场（线面其余口径零变化）
+    for field in [
+        "name: string,",
+        "inventory: Inventory,",
+        "pipeline: PhaseEntry[],",
+        "activePhase: ActivePhase | null,",
+        "fileLog: FileLogEntry[] | null,",
+        "artifacts: ArtifactDescriptor[],",
+    ] {
+        assert!(detail.contains(field), "ChangeDetail 缺字段出线 {field}");
+    }
+}
+
+#[test]
+fn dto_types清单不残留interrupted幽灵条目() {
+    // 门禁语义回归：DTO_TYPES 与产物集强耦合（产物缺出线类型 panic）——移除
+    // InterruptedEntry 后清单必须不残留该条目，否则覆盖性用例在产物侧命中
+    // 不到类型声明即挂（删类型后不随动必挂的反向证明即本断言恢复绿）
+    assert!(
+        !DTO_TYPES.contains(&"InterruptedEntry"),
+        "DTO_TYPES 清单不应残留已删除的 InterruptedEntry 条目"
+    );
+    // 清单与产物集重新一致：既有覆盖性用例所遍历的每个类型名都能在产物命中
+    let _lock = lock();
+    let content = String::from_utf8(authoritative_snapshot()).expect("产物为 UTF-8 文本");
+    for dto in DTO_TYPES {
+        assert!(
+            content.contains(&format!("export type {dto} =")),
+            "清单条目 {dto} 在产物缺出线类型声明（清单与产物集漂移）"
+        );
+    }
+}
+
+#[test]
+fn command清单零变化_本变更无新命令不补录() {
+    // COMMAND_NAMES / COMMAND_WRAPPERS 零增删（含语义对历史滞后容忍的既有
+    // 口径不变）：条目数与首尾锚点逐项一致
+    assert_eq!(COMMAND_NAMES.len(), 31, "命令清单条目数不变");
+    assert_eq!(COMMAND_WRAPPERS.len(), 31, "包装清单条目数不变");
+    assert_eq!(COMMAND_NAMES.first(), Some(&"list_changes"));
+    assert_eq!(COMMAND_NAMES.last(), Some(&"workspace_config"));
+    // 无 interrupted 相关命令混入（本变更零新命令）
+    assert!(
+        COMMAND_NAMES
+            .iter()
+            .all(|name| !name.contains("interrupted")),
+        "命令清单不应含 interrupted 相关命令"
+    );
 }

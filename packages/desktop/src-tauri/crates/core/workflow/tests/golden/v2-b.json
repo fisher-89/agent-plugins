@@ -61,14 +61,6 @@
         "scope": "workflow"
       }
     ],
-    "interrupted": [
-      {
-        "attempt": 1,
-        "endAt": "2026-08-02T12:00:00Z",
-        "phase": "test-gen",
-        "startAt": "2026-08-02T11:00:00Z"
-      }
-    ],
     "inventory": "v2",
     "name": "v2-b",
     "pipeline": [
@@ -210,7 +202,6 @@
     "evalWithChecklist": 3,
     "fileLog": "entries",
     "fileLogCount": 3,
-    "interruptedCount": 1,
     "outcome": "parsed",
     "workflowType": "requirement"
   }

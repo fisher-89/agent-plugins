@@ -67,7 +67,6 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
       attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
     })),
     activePhase: null,
-    interrupted: [],
     fileLog: [],
     artifacts: [],
     ...overrides,
@@ -188,42 +187,6 @@ describe('mountMaterials：记录挂节点（eval-checklist / file_log）', () =
     expect(materials.outsideFiles).toHaveLength(1);
   });
 
-  it('同号仅 active / 仅 interrupted（eval 缺席）时 checklist 定位依次降级：eval → active → interrupted', () => {
-    const activeOnly = detail({
-      pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
-      activePhase: { phase: 'dev-design', attempt: 2, startAt: null },
-    });
-    const checklist = envelope('eval-checklist', '评估清单', {
-      phase: 'dev-design',
-      attempt: 2,
-      verdict: null,
-      items: [],
-    });
-    const activeMaterials = mountMaterials(buildFlowGraph(activeOnly), activeOnly, [checklist]);
-    expect(Object.keys(activeMaterials.nodeChecklists)).toEqual(['active:dev-design:2']);
-
-    const interruptedOnly = detail({
-      pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
-      interrupted: [{ phase: 'dev-design', attempt: 2, startAt: null, endAt: null }],
-    });
-    const interruptedMaterials = mountMaterials(buildFlowGraph(interruptedOnly), interruptedOnly, [
-      checklist,
-    ]);
-    expect(Object.keys(interruptedMaterials.nodeChecklists)).toEqual(['interrupted:dev-design:2']);
-
-    // 三类并存时 eval 优先
-    const all = detail({
-      pipeline: PIPELINE_PHASES.map((phase) => ({
-        phase,
-        attempts: phase === 'dev-design' ? [attempt({ attempt: 2 })] : [],
-      })),
-      activePhase: { phase: 'dev-design', attempt: 2, startAt: null },
-      interrupted: [{ phase: 'dev-design', attempt: 2, startAt: null, endAt: null }],
-    });
-    const allMaterials = mountMaterials(buildFlowGraph(all), all, [checklist]);
-    expect(Object.keys(allMaterials.nodeChecklists)).toEqual(['eval:dev-design:2']);
-  });
-
   it('scope 为非 9 站字符串（未知 phase）或该站无任何事件节点 → outsideFiles', () => {
     const base = detail({
       fileLog: [
@@ -296,5 +259,65 @@ describe('mountMaterials：聚合与空态', () => {
       nodeFiles: {},
       outsideFiles: [],
     });
+  });
+});
+
+// ---------------------------------------------------------------------------
+// NODE_PRECEDENCE 两段收敛（desktop-drawer-session-column，AC-5）：checklist
+// 定位降级链 eval → active 两段（interrupted 段无构造输入）；挂载规则本体
+// （文档挂列 / checklist 挂节点 / file_log 挂节点 / outsideFiles 兜底）零改动
+// ---------------------------------------------------------------------------
+
+describe('mountMaterials：NODE_PRECEDENCE 两段收敛（eval → active）', () => {
+  it('仅 active 在场（eval 缺席）→ checklist 与 file_log 条目挂 active:<phase>:<attempt> 节点（降级链末段语义保留）', () => {
+    const base = detail({
+      pipeline: PIPELINE_PHASES.map((phase) => ({ phase, attempts: [] })),
+      activePhase: { phase: 'dev-design', attempt: 3, startAt: '2026-09-05T00:00:00Z' },
+      fileLog: [fileEntry({ scope: 'dev-design', attempt: 3, path: 'src/active.ts' })],
+    });
+    const checklist = envelope('eval-checklist', '评估清单', {
+      phase: 'dev-design',
+      attempt: 3,
+      verdict: 'pass',
+      items: [],
+    });
+    const materials = mountMaterials(buildFlowGraph(base), base, [checklist]);
+    expect(Object.keys(materials.nodeChecklists)).toEqual(['active:dev-design:3']);
+    expect(materials.nodeChecklists['active:dev-design:3']).toEqual([checklist]);
+    expect(materials.nodeFiles['active:dev-design:3'].map((entry) => entry.path)).toEqual([
+      'src/active.ts',
+    ]);
+    expect(materials.outsideFiles).toEqual([]);
+  });
+
+  it('eval 与 active 并存 → checklist 恒挂 eval 节点（优先级首位断言；不重复挂 active）', () => {
+    const base = detail({
+      activePhase: { phase: 'dev-design', attempt: 2, startAt: '2026-09-05T00:00:00Z' },
+    });
+    const checklist = envelope('eval-checklist', '评估清单', {
+      phase: 'dev-design',
+      attempt: 2,
+      verdict: null,
+      items: [],
+    });
+    const materials = mountMaterials(buildFlowGraph(base), base, [checklist]);
+    expect(Object.keys(materials.nodeChecklists)).toEqual(['eval:dev-design:2']);
+    expect(materials.nodeChecklists['active:dev-design:2']).toBeUndefined();
+  });
+
+  it('同号 eval / active 均缺席（仅他号节点在场）→ checklist 与 file_log 条目均不误挂他号节点（miss 兜底）', () => {
+    const base = detail({
+      fileLog: [fileEntry({ scope: 'implement', attempt: 1, path: 'src/miss.ts' })],
+    });
+    const checklist = envelope('eval-checklist', '评估清单', {
+      phase: 'implement',
+      attempt: 1,
+      verdict: 'pass',
+      items: [],
+    });
+    const materials = mountMaterials(buildFlowGraph(base), base, [checklist]);
+    expect(materials.nodeChecklists).toEqual({});
+    expect(materials.nodeFiles).toEqual({});
+    expect(materials.outsideFiles.map((entry) => entry.path)).toEqual(['src/miss.ts']);
   });
 });

@@ -39,7 +39,6 @@ function detail(overrides: Partial<ChangeDetail> = {}): ChangeDetail {
     unparsable: false,
     pipeline: PIPELINE_PHASES.map((phase) => station(phase, [])),
     activePhase: null,
-    interrupted: [],
     fileLog: [],
     artifacts: [],
     ...overrides,
@@ -133,7 +132,7 @@ describe('buildFlowGraph：列与坐标骨架', () => {
   });
 });
 
-describe('buildFlowGraph：节点三分类', () => {
+describe('buildFlowGraph：节点两分类', () => {
   it('eval 记录 → kind=eval 节点原样携带 record 且 parentId 为所属列容器 id', () => {
     const record = attempt({ verdict: 'fail', stale: true });
     const graph = buildFlowGraph(detail({ pipeline: [station('proposal', [record])] }));
@@ -164,56 +163,6 @@ describe('buildFlowGraph：节点三分类', () => {
     expect('record' in active).toBe(false);
     expect(graph.nodes[0].order).toBe(0);
     expect(active.order).toBe(1);
-  });
-
-  it('interrupted 非空 → 独立节点携带 startAt / endAt，与同号 eval 并存不合并（v2-b 形态）', () => {
-    const graph = buildFlowGraph(
-      detail({
-        pipeline: PIPELINE_PHASES.map((phase) =>
-          station(
-            phase,
-            phase === 'test-design' ? [attempt({ startAt: '2026-09-03T10:00:00Z' })] : [],
-          ),
-        ),
-        interrupted: [
-          {
-            phase: 'test-design',
-            attempt: 1,
-            startAt: '2026-09-03T16:00:00Z',
-            endAt: '2026-09-03T17:00:00Z',
-          },
-        ],
-      }),
-    );
-    // 同 phase 同 attempt：eval 与 interrupted 各自成节点，不合并
-    expect(nodeIds(graph.nodes)).toEqual(['eval:test-design:1', 'interrupted:test-design:1']);
-    const interrupted = graph.nodes[1];
-    if (interrupted.kind !== 'interrupted') throw new Error('应为 interrupted 节点');
-    expect(interrupted.startAt).toBe('2026-09-03T16:00:00Z');
-    expect(interrupted.endAt).toBe('2026-09-03T17:00:00Z');
-    expect('record' in interrupted).toBe(false);
-  });
-
-  it('interrupted 与 activePhase 同时存在 → 两类节点共存、各自恰一条入边', () => {
-    const graph = buildFlowGraph(
-      detail({
-        pipeline: PIPELINE_PHASES.map((phase) =>
-          station(phase, phase === 'proposal' || phase === 'dev-design' ? [attempt()] : []),
-        ),
-        interrupted: [{ phase: 'implement', attempt: 1, startAt: null, endAt: null }],
-        activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
-      }),
-    );
-    expect(nodeIds(graph.nodes)).toEqual([
-      'eval:proposal:1',
-      'eval:dev-design:1',
-      'interrupted:implement:1',
-      'active:test-gen:1',
-    ]);
-    expect(graph.edges).toHaveLength(3);
-    for (const id of ['eval:dev-design:1', 'interrupted:implement:1', 'active:test-gen:1']) {
-      expect(inDegree(graph.edges, id)).toBe(1);
-    }
   });
 });
 
@@ -252,8 +201,8 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
   });
 
   it('backtrack 边 label = 目标节点 record.backtrackReason；reason 为 null 的回跳边 label 为 null', () => {
-    // 中断站列靠后（test-execution），其 startAt 插入点在 implement eval 之前，
-    // 归并后形成「靠后列中断 → 靠前列 eval」的回跳边
+    // active 站列靠后（test-execution），其 startAt 插入点在 implement eval 之前，
+    // 归并后形成「靠后列 active → 靠前列 eval」的回跳边
     const withReason = buildFlowGraph(
       detail({
         pipeline: PIPELINE_PHASES.map((phase) => {
@@ -277,9 +226,7 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
           }
           return station(phase, []);
         }),
-        interrupted: [
-          { phase: 'test-execution', attempt: 1, startAt: '2026-09-04T12:00:00Z', endAt: null },
-        ],
+        activePhase: { phase: 'test-execution', attempt: 1, startAt: '2026-09-04T12:00:00Z' },
       }),
     );
     const sequence = nodeIds(withReason.nodes);
@@ -287,11 +234,11 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
       'eval:proposal:1',
       'eval:dev-design:1',
       'eval:test-design:1',
-      'interrupted:test-execution:1',
+      'active:test-execution:1',
       'eval:implement:1',
     ]);
     const backtrack = withReason.edges.find((edge) => edge.kind === 'backtrack');
-    expect(backtrack?.source).toBe('interrupted:test-execution:1');
+    expect(backtrack?.source).toBe('active:test-execution:1');
     expect(backtrack?.target).toBe('eval:implement:1');
     expect(backtrack?.label).toBe('实现缺陷回改');
 
@@ -302,7 +249,7 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
     expect(nullBacktrack?.label).toBeNull();
   });
 
-  it('interrupted / active 按 startAt 插入骨干中第一个锚点严格晚于它的 eval 事件之前', () => {
+  it('active 按 startAt 插入骨干中第一个锚点严格晚于它的 eval 事件之前', () => {
     const graph = buildFlowGraph(
       detail({
         pipeline: PIPELINE_PHASES.map((phase) => {
@@ -317,12 +264,6 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
           }
           return station(phase, []);
         }),
-        interrupted: [
-          // 插入 test-design eval 之前（唯一锚点更晚者）
-          { phase: 'implement', attempt: 1, startAt: '2026-09-02T12:00:00Z', endAt: null },
-          // 锚点与 test-design eval 相等：不满足「严格晚于」→ 无插入点，追加链尾
-          { phase: 'code-review', attempt: 1, startAt: '2026-09-03T00:00:00Z', endAt: null },
-        ],
         activePhase: { phase: 'test-design', attempt: 2, startAt: '2026-09-01T12:00:00Z' },
       }),
     );
@@ -330,9 +271,7 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
       'eval:proposal:1',
       'active:test-design:2',
       'eval:dev-design:1',
-      'interrupted:implement:1',
       'eval:test-design:1',
-      'interrupted:code-review:1',
     ]);
   });
 
@@ -342,21 +281,16 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
     expect(inDegree(graph.edges, 'eval:proposal:1')).toBe(0);
   });
 
-  it('startAt 为 null 的 interrupted / active → 按列表序（先 interrupted[] 后 active）追加链尾', () => {
+  it('startAt 为 null 的 active → 追加链尾', () => {
     const graph = buildFlowGraph(
       detail({
         pipeline: PIPELINE_PHASES.map((phase) =>
           station(phase, phase === 'proposal' ? [attempt()] : []),
         ),
-        interrupted: [{ phase: 'implement', attempt: 1, startAt: null, endAt: null }],
         activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
       }),
     );
-    expect(nodeIds(graph.nodes)).toEqual([
-      'eval:proposal:1',
-      'interrupted:implement:1',
-      'active:test-gen:1',
-    ]);
+    expect(nodeIds(graph.nodes)).toEqual(['eval:proposal:1', 'active:test-gen:1']);
   });
 
   it('startAt 为非法时间串（Date.parse 产出 NaN）→ 视同 null 追加链尾，不抛错', () => {
@@ -365,12 +299,12 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
         pipeline: PIPELINE_PHASES.map((phase) =>
           station(phase, phase === 'proposal' ? [attempt()] : []),
         ),
-        interrupted: [{ phase: 'implement', attempt: 1, startAt: 'not-a-timestamp', endAt: null }],
+        activePhase: { phase: 'implement', attempt: 1, startAt: 'not-a-timestamp' },
       }),
     );
-    expect(nodeIds(graph.nodes)).toEqual(['eval:proposal:1', 'interrupted:implement:1']);
+    expect(nodeIds(graph.nodes)).toEqual(['eval:proposal:1', 'active:implement:1']);
     expect(graph.edges).toHaveLength(1);
-    expect(graph.edges[0].target).toBe('interrupted:implement:1');
+    expect(graph.edges[0].target).toBe('active:implement:1');
   });
 
   it('骨干 eval 锚点为 null → 不作插入参考，插入点跳过 null 锚点落位', () => {
@@ -383,15 +317,13 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
           }
           return station(phase, []);
         }),
-        interrupted: [
-          { phase: 'test-design', attempt: 1, startAt: '2026-09-01T00:00:00Z', endAt: null },
-        ],
+        activePhase: { phase: 'test-design', attempt: 1, startAt: '2026-09-01T00:00:00Z' },
       }),
     );
     // 首 eval（proposal）锚点 null 不参考：插入点为首个锚点更晚的 dev-design eval 之前
     expect(nodeIds(graph.nodes)).toEqual([
       'eval:proposal:1',
-      'interrupted:test-design:1',
+      'active:test-design:1',
       'eval:dev-design:1',
     ]);
   });
@@ -424,21 +356,19 @@ describe('buildFlowGraph：时间序归并与边推导', () => {
   it('startAt 早于全部 eval 锚点 → 插入为序列头（该节点无入边）', () => {
     const graph = buildFlowGraph(
       detail({
-        interrupted: [
-          { phase: 'implement', attempt: 1, startAt: '2026-09-01T00:00:00Z', endAt: null },
-        ],
+        activePhase: { phase: 'implement', attempt: 1, startAt: '2026-09-01T00:00:00Z' },
         ...twoStationOverrides(),
       }),
     );
-    expect(graph.nodes[0].id).toBe('interrupted:implement:1');
-    expect(graph.nodes[0].kind).toBe('interrupted');
-    expect(inDegree(graph.edges, 'interrupted:implement:1')).toBe(0);
+    expect(graph.nodes[0].id).toBe('active:implement:1');
+    expect(graph.nodes[0].kind).toBe('active');
+    expect(inDegree(graph.edges, 'active:implement:1')).toBe(0);
     // 3 事件链式相连：恰 2 条边，首事件无入边
     expect(graph.edges).toHaveLength(2);
   });
 });
 
-/** 两站骨干 + 末列中断夹具（startAt 早于全部锚点用例）。 */
+/** 两站骨干 + 末列 active 夹具（startAt 早于全部锚点用例）。 */
 function twoStationOverrides(): Partial<ChangeDetail> {
   return {
     pipeline: PIPELINE_PHASES.map((phase) => {
@@ -471,9 +401,7 @@ function withReasonNodesWithoutReasonFixture(): ChangeDetail {
       }
       return station(phase, []);
     }),
-    interrupted: [
-      { phase: 'test-execution', attempt: 1, startAt: '2026-09-04T12:00:00Z', endAt: null },
-    ],
+    activePhase: { phase: 'test-execution', attempt: 1, startAt: '2026-09-04T12:00:00Z' },
   });
 }
 
@@ -512,7 +440,6 @@ describe('buildFlowGraph：运行步 overlay（可选第二参 runNodes）', () 
         pipeline: PIPELINE_PHASES.map((phase) =>
           station(phase, phase === 'proposal' ? [attempt()] : []),
         ),
-        interrupted: [{ phase: 'implement', attempt: 1, startAt: null, endAt: null }],
         activePhase: { phase: 'test-gen', attempt: 1, startAt: null },
       }),
       detail({ pipeline: [] }),
@@ -661,5 +588,51 @@ describe('buildFlowGraph：运行步 overlay（可选第二参 runNodes）', () 
     for (const node of graph.nodes.slice(1)) {
       expect(inDegree(graph.edges, node.id)).toBe(1);
     }
+  });
+});
+
+// ---------------------------------------------------------------------------
+// FlowNodeKind 两分类收敛（desktop-drawer-session-column，AC-5）：
+// `collectInterrupted` 删除、归并列表只余 `collectActive(detail)`——事件节点
+// kind ∈ { eval, active }、运行步节点 kind = runtime，无第三分类可走
+// ---------------------------------------------------------------------------
+
+describe('buildFlowGraph：FlowNodeKind 两分类收敛（AC-5）', () => {
+  it('输出节点 kind 穷举：事件节点 kind ∈ {eval, active}、运行步节点 kind = runtime（无第三分类）', () => {
+    const graph = buildFlowGraph(
+      detail({
+        pipeline: PIPELINE_PHASES.map((phase) =>
+          station(phase, phase === 'proposal' ? [attempt()] : []),
+        ),
+        activePhase: { phase: 'implement', attempt: 1, startAt: null },
+      }),
+      [runNode()],
+    );
+    // 事件节点两分类穷举（collectInterrupted 删除后无第三事件分类可产出）
+    const eventKinds = [
+      ...new Set(graph.nodes.filter((node) => node.kind !== 'runtime').map((node) => node.kind)),
+    ].sort();
+    expect(eventKinds).toEqual(['active', 'eval']);
+    for (const node of graph.nodes) {
+      expect(['eval', 'active', 'runtime']).toContain(node.kind);
+    }
+    // 运行步节点 kind 恒 runtime
+    expect(graph.nodes.at(-1)?.kind).toBe('runtime');
+  });
+
+  it('同号 eval 缺席的 active → 独立成节点且恰一条入边（归并链收敛后唯一事件分类的正向锚）', () => {
+    const graph = buildFlowGraph(
+      detail({
+        pipeline: PIPELINE_PHASES.map((phase) =>
+          station(phase, phase === 'proposal' ? [attempt()] : []),
+        ),
+        activePhase: { phase: 'implement', attempt: 2, startAt: '2026-09-04T00:00:00Z' },
+      }),
+    );
+    // active 单节点归并：同号 eval 缺席时独立成节点、非首事件恰一条入边
+    expect(nodeIds(graph.nodes)).toEqual(['eval:proposal:1', 'active:implement:2']);
+    expect(inDegree(graph.edges, 'active:implement:2')).toBe(1);
+    expect(graph.edges).toHaveLength(1);
+    expect(graph.edges[0].kind).toBe('forward');
   });
 });

@@ -12,8 +12,8 @@ import type {
  */
 export type FileLogEntry = NonNullable<ChangeDetail['fileLog']>[number];
 
-/** 事件节点三分类 */
-export type FlowNodeKind = 'eval' | 'active' | 'interrupted';
+/** 事件节点两分类 */
+export type FlowNodeKind = 'eval' | 'active';
 
 /** 边类型：由两端列索引差 Δ 的符号派生（>0 前进 / =0 重试 / <0 回跳） */
 export type FlowEdgeKind = 'forward' | 'retry' | 'backtrack';
@@ -40,13 +40,6 @@ export interface EvalFlowNode extends FlowNodeBase {
 export interface ActiveFlowNode extends FlowNodeBase {
   kind: 'active';
   startAt: string | null;
-}
-
-/** interrupted 事件：来自 interrupted[]，dashed 灰显留档；独立成节点不与同号 eval 合并 */
-export interface InterruptedFlowNode extends FlowNodeBase {
-  kind: 'interrupted';
-  startAt: string | null;
-  endAt: string | null;
 }
 
 /**
@@ -85,7 +78,7 @@ export interface RuntimeFlowNode extends FlowNodeBase {
   detail: string | null;
 }
 
-export type FlowNode = EvalFlowNode | ActiveFlowNode | InterruptedFlowNode | RuntimeFlowNode;
+export type FlowNode = EvalFlowNode | ActiveFlowNode | RuntimeFlowNode;
 
 /** phase 列容器（9 站恒定，未走的站呈现空列） */
 export interface FlowColumn {

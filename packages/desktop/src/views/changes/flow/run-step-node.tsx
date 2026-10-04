@@ -5,7 +5,7 @@ import { Badge } from '@/components/ui/badge';
 import type { ChangeStepKind, ChangeStepStatus } from '../../../types/dto';
 import type { RunStepGroup, RuntimeFlowNode } from './types';
 
-type RunStepNodeData = { node: RuntimeFlowNode; onOpenSession?: () => void };
+type RunStepNodeData = { node: RuntimeFlowNode };
 
 export type RunStepFlowNode = Node<RunStepNodeData, 'runStep'>;
 
@@ -87,7 +87,7 @@ function StepHandles(): React.JSX.Element {
 
 /** 运行步节点：类型徽章 + 步文案 + 状态视觉。 */
 export function RunStepNode({ data }: NodeProps<RunStepFlowNode>): React.JSX.Element {
-  const { node, onOpenSession } = data;
+  const { node } = data;
   return (
     <div
       className={`relative rounded-md border px-2 py-1.5 text-[11px] ${statusClass(node.status)}`}
@@ -97,20 +97,6 @@ export function RunStepNode({ data }: NodeProps<RunStepFlowNode>): React.JSX.Ele
     >
       <StepHandles />
       <RunStepHeader node={node} />
-      {node.group === 'workerAgent' && onOpenSession !== undefined && (
-        <button
-          type="button"
-          className="mt-1 block w-full cursor-pointer rounded-sm border border-border bg-background px-1 py-0.5 text-left text-[10px] hover:text-primary"
-          data-testid="view-session"
-          onClick={(event) => {
-            // 阻断 react-flow 节点拖拽 / 选中语义，与节点点击同一上抛入口
-            event.stopPropagation();
-            onOpenSession();
-          }}
-        >
-          查看会话
-        </button>
-      )}
       {node.detail !== null && (
         <div className="mt-1 break-words text-muted-foreground" data-testid="run-step-detail">
           {node.detail}

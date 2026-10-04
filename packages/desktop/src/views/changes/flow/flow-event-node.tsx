@@ -2,7 +2,7 @@ import { Handle, Position, type Node, type NodeProps } from '@xyflow/react';
 
 import { Badge } from '@/components/ui/badge';
 
-import type { ActiveFlowNode, EvalFlowNode, FlowNode, InterruptedFlowNode } from './types';
+import type { ActiveFlowNode, EvalFlowNode, FlowNode } from './types';
 
 /** 隐形把手公共样式：把手仅作边锚点，不参与交互连接，视觉上不可见 */
 const HIDDEN = { opacity: 0 };
@@ -18,8 +18,7 @@ function nodeClass(node: FlowNode): string {
       node.record.verdict === 'pass' ? 'border-pass bg-pass-bg' : 'border-fail bg-fail-bg';
     return `${base} ${tone}${node.record.stale ? ' opacity-50' : ''}`;
   }
-  if (node.kind === 'active') return `${base} border-primary bg-card animate-pulse`;
-  return `${base} border-dashed border-muted-foreground bg-muted/30 text-muted-foreground`;
+  return `${base} border-primary bg-card animate-pulse`;
 }
 
 function EvalBody({ record }: { record: EvalFlowNode['record'] }): React.JSX.Element {
@@ -46,17 +45,7 @@ function ActiveBody({ node }: { node: ActiveFlowNode }): React.JSX.Element {
   );
 }
 
-function InterruptedBody({ node }: { node: InterruptedFlowNode }): React.JSX.Element {
-  return (
-    <div className="flex flex-col gap-0.5">
-      <span>中断留档 · attempt {node.attempt}</span>
-      <span>start: {node.startAt ?? '—'}</span>
-      <span>end: {node.endAt ?? '—'}</span>
-    </div>
-  );
-}
-
-/** 事件节点：按 kind 三分类视觉；事件点击的上抛由 ChangeFlowGraph 的 onNodeClick 承接 */
+/** 事件节点：按 kind 两分类视觉；事件点击的上抛由 ChangeFlowGraph 的 onNodeClick 承接 */
 export function FlowEventNode({ data }: NodeProps<EventFlowNode>): React.JSX.Element {
   return (
     <div className={nodeClass(data.node)} data-testid="flow-node">
@@ -77,7 +66,6 @@ export function FlowEventNode({ data }: NodeProps<EventFlowNode>): React.JSX.Ele
       />
       {data.node.kind === 'eval' && <EvalBody record={data.node.record} />}
       {data.node.kind === 'active' && <ActiveBody node={data.node} />}
-      {data.node.kind === 'interrupted' && <InterruptedBody node={data.node} />}
       <Handle
         type="source"
         id="bottom"

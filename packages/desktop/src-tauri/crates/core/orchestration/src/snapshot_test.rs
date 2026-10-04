@@ -147,13 +147,10 @@ fn detail_assembles_fields_from_real_fs_fixture() {
     // 未覆盖站 attempts 为空
     assert!(detail.pipeline[4].attempts.is_empty(), "test-gen 站无记录");
 
-    // 运行态：active_phase + interrupted 留档
     let active = detail.active_phase.as_ref().expect("v2 应有 active_phase");
     assert_eq!(active.phase, "dev-design");
     assert_eq!(active.attempt, 2);
     assert_eq!(active.start_at.as_deref(), Some("2026-10-01T09:00:00Z"));
-    assert_eq!(detail.interrupted.len(), 1);
-    assert_eq!(detail.interrupted[0].phase, "test-gen");
 
     // file_log：条目字段面（op / scope / attempt / path / at）
     let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
@@ -276,4 +273,55 @@ fn two_roots_resolve_changes_independently() {
         .detail(&b_str, "only-in-a")
         .expect_err("root B 不应跨树取到 A 的 change");
     assert!(err.contains("only-in-a"), "错误显式携带 change 名: {err}");
+}
+
+// ---------------------------------------------------------------------------
+// interrupted 断言随动（desktop-drawer-session-column，AC-6 半边）：
+// `Workflow.interrupted` / `ChangeDetail.interrupted` 删除后跨 crate 消费面的
+// detail 线面零漂移证据——VALID_WORKFLOW fixture 的 `interrupted[]` 磁盘键
+// 保留在场（磁盘形状零改写），端到端全链路不炸、wire 无该键
+// ---------------------------------------------------------------------------
+
+/// 含 `interrupted[]` 留档的 fixture 上 snapshot 全链路端到端不炸：detail 聚合
+/// 照常（active_phase / pipeline 9 站 / file_log 逐字段）且序列化 wire 无
+/// interrupted 键（停解析后读路径零漂移——删除仅限断言面）。
+#[test]
+fn interrupted留档fixture全链路装配不炸且wire无interrupted键() {
+    let root = TempRoot::new("interrupted-legacy");
+    root.change("demo-change", VALID_WORKFLOW);
+    let root_str = root.root_str();
+
+    let snapshot = FsSnapshot::new(root_str);
+    let detail = snapshot
+        .detail(&root.root_str(), "demo-change")
+        .expect("含 interrupted[] 留档的存量 fixture 应照常装配");
+
+    // 聚合面零漂移：active_phase / 9 站 / file_log 逐字段照常
+    let phases: Vec<&str> = detail.pipeline.iter().map(|s| s.phase.as_str()).collect();
+    assert_eq!(phases, PIPELINE_PHASES.to_vec());
+    let active = detail.active_phase.as_ref().expect("应有 active_phase");
+    assert_eq!(active.phase, "dev-design");
+    let file_log = detail.file_log.as_ref().expect("v2 应有 file_log");
+    assert_eq!(file_log.len(), 2);
+
+    // wire 无 interrupted 键（detail 线面收敛的跨 crate 直接证据）
+    let value = serde_json::to_value(&detail).expect("线面序列化应成功");
+    assert!(
+        value.get("interrupted").is_none(),
+        "detail 线面不再携带 interrupted 键: {value}"
+    );
+}
+
+/// VALID_WORKFLOW fixture 的 `interrupted[]` 键保留在场（磁盘形状实证——
+/// proposal「不要修改」；键由 serde 未知字段忽略承接，fixture 本身不改写）。
+#[test]
+fn valid_workflow_fixture的interrupted磁盘键保留在场() {
+    let root = TempRoot::new("fixture-shape");
+    root.change("demo-change", VALID_WORKFLOW);
+
+    let raw = String::from_utf8(root.workflow_json_bytes("demo-change")).expect("fixture 为 UTF-8");
+    assert!(
+        raw.contains("\"interrupted\""),
+        "fixture 的 interrupted[] 键应原样保留（磁盘形状零改写）: {raw}"
+    );
 }

@@ -14,7 +14,6 @@
     ],
     "created": null,
     "fileLog": null,
-    "interrupted": [],
     "inventory": "v1",
     "name": "corrupt-bad-timestamp",
     "pipeline": [
@@ -92,7 +91,6 @@
     "evalWithChecklist": 1,
     "fileLog": "absent",
     "fileLogCount": 0,
-    "interruptedCount": 0,
     "outcome": "parsed",
     "workflowType": "requirement"
   }

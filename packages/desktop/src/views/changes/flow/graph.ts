@@ -1,19 +1,3 @@
-/**
- * 核心转换纯函数：ChangeDetail 聚合 → 流程图模型（buildFlowGraph）。
- *
- * 三步（O(n)）：
- * 1. 三分类事件收集：eval 按站序 + 站内 attempts 序（后端已按 attempt 稳定排序，
- *    追加序即事实执行序）、interrupted[]、activePhase（phase 不在 9 站内的事件跳过）；
- * 2. 时间序归并：eval 追加序为主链不重排；interrupted / active 按 startAt
- *    （Date.parse 毫秒，解析失败或缺失视同 null）插入骨干中第一个锚点严格晚于它的
- *    eval 事件之前；骨干锚点为 null 的 eval 不作插入参考；无插入点者按列表序
- *    （先 interrupted[] 后 active）追加链尾；run 步 overlay（可选第二参）恒追加
- *    链尾——运行步是"正在发生"的最新事件，参与同一条链的边推导（执行图 = 展示图）；
- * 3. 链式边推导：归并序列头尾相连，每个非首事件恰一条入边，kind 由两端列索引差
- *    符号派生（>0 forward / =0 retry / <0 backtrack），回跳边 label 取目标
- *    eval 节点 record.backtrackReason。时间序边推导规则、9 列布局、attempt
- *    缺号兜底不变；缺省 / 空参输出与无 overlay 现状完全一致。
- */
 import type { ChangeDetail, PhaseEntry } from '../../../types/dto';
 import { PIPELINE_PHASES } from './layout';
 import type {
@@ -24,7 +8,6 @@ import type {
   FlowEdgeKind,
   FlowGraph,
   FlowNode,
-  InterruptedFlowNode,
   RuntimeFlowNode,
 } from './types';
 
@@ -68,26 +51,6 @@ function collectEvals(pipeline: PhaseEntry[]): EvalFlowNode[] {
   );
 }
 
-function collectInterrupted(detail: ChangeDetail): InterruptedFlowNode[] {
-  const nodes: InterruptedFlowNode[] = [];
-  for (const entry of detail.interrupted) {
-    const colIndex = colIndexOf(entry.phase);
-    if (colIndex < 0) continue;
-    nodes.push({
-      id: `interrupted:${entry.phase}:${entry.attempt}`,
-      kind: 'interrupted',
-      phase: entry.phase,
-      attempt: entry.attempt,
-      colIndex,
-      order: 0,
-      parentId: `col:${entry.phase}`,
-      startAt: entry.startAt,
-      endAt: entry.endAt,
-    });
-  }
-  return nodes;
-}
-
 function collectActive(detail: ChangeDetail): ActiveFlowNode[] {
   const active = detail.activePhase;
   if (active === null) return [];
@@ -107,11 +70,8 @@ function collectActive(detail: ChangeDetail): ActiveFlowNode[] {
   ];
 }
 
-/** 骨干 eval 追加序 + interrupted / active 按 startAt 插入（先 interrupted 后 active 追加链尾） */
-function mergeByStartAt(
-  backbone: EvalFlowNode[],
-  merging: (ActiveFlowNode | InterruptedFlowNode)[],
-): FlowNode[] {
+/** 骨干 eval 追加序 + active 按 startAt 插入（无插入点者追加链尾） */
+function mergeByStartAt(backbone: EvalFlowNode[], merging: ActiveFlowNode[]): FlowNode[] {
   const merged: FlowNode[] = [...backbone];
   for (const event of merging) {
     const anchor = anchorMs(event.startAt);
@@ -173,11 +133,7 @@ export function buildFlowGraph(detail: ChangeDetail, runNodes?: RuntimeFlowNode[
     colIndex,
   }));
   const backbone = collectEvals(detail.pipeline);
-  // 归并列表序：先 interrupted[] 后 active（两者 startAt 均无插入点时的链尾次序）
-  const sequence = mergeByStartAt(backbone, [
-    ...collectInterrupted(detail),
-    ...collectActive(detail),
-  ]);
+  const sequence = mergeByStartAt(backbone, collectActive(detail));
   for (const runNode of runNodes ?? []) {
     sequence.push(runNode);
   }

@@ -1,7 +1,7 @@
-import { fireEvent, render, screen, within } from '@testing-library/react';
+import { render, screen, within } from '@testing-library/react';
 import { ReactFlowProvider } from '@xyflow/react';
 import type { ComponentProps } from 'react';
-import { describe, expect, it, vi } from 'vite-plus/test';
+import { describe, expect, it } from 'vite-plus/test';
 
 import type { ChangeStepKind } from '../../../types/dto';
 import { RunStepNode, type RunStepFlowNode } from './run-step-node';
@@ -70,9 +70,9 @@ const FAMILIES: Array<{
   { runStepKind: 'whitelistGate', group: 'gate', badge: 'Gate', label: '白名单门', role: null },
 ];
 
-/** 最小 NodeProps 形态：仅注入 data 载荷，其余字段非本组件消费面。 */
-function renderNode(node: RuntimeFlowNode, onOpenSession?: () => void) {
-  const props = { data: { node, onOpenSession } } as unknown as ComponentProps<typeof RunStepNode>;
+/** 最小 NodeProps 形态 */
+function renderNode(node: RuntimeFlowNode) {
+  const props = { data: { node } } as unknown as ComponentProps<typeof RunStepNode>;
   return render(
     <ReactFlowProvider>
       <RunStepNode {...props} />
@@ -222,61 +222,45 @@ describe('RunStepNode：载荷缺省形态（边界）', () => {
 });
 
 // ---------------------------------------------------------------------------
-// 「查看会话」显式入口（desktop-change-session-visibility，AC-8）：仅
-// workerAgent 节点由图层注入 onOpenSession 时渲染按钮，点击 stopPropagation
-// 后上抛（不冒泡至节点点击面——与节点点击同一 DrawerSelection 的图层承接）。
+// RunStepNodeData 收敛 `{ node }`（desktop-drawer-session-column，AC-4）：
+// `onOpenSession` prop 与「查看会话」按钮块删除——data 无多余键，渲染输出
+// 不含 button 元素（workerAgent 在场亦然）；点击节点本体打开抽屉入口回归
+// change-flow-graph 的 onNodeClick 承接
 // ---------------------------------------------------------------------------
 
-describe('RunStepNode：查看会话入口（AC-8）', () => {
-  it('workerAgent 节点 + onOpenSession 注入：view-session 按钮渲染；点击恰一次上抛且不冒泡至节点点击面', () => {
-    const onOpenSession = vi.fn();
-    const onNodeClick = vi.fn();
-    renderNode(runtimeNode(), onOpenSession);
+describe('RunStepNode：RunStepNodeData 收敛 { node }（AC-4）', () => {
+  it('workerAgent 节点渲染不炸且输出不含 button 元素（「查看会话」按钮块删除的组件级锚）', () => {
+    const { container } = renderNode(runtimeNode());
 
-    const button = screen.getByTestId('view-session');
-    expect(button.textContent).toBe('查看会话');
-    // 节点点击面以 React root 之外的祖先监听代理（react-flow onNodeClick 同
-    // 挂载于容器链）：stopPropagation 后外层点击不触发
-    document.body.addEventListener('click', onNodeClick);
-    try {
-      fireEvent.click(button);
-    } finally {
-      document.body.removeEventListener('click', onNodeClick);
-    }
-
-    expect(onOpenSession).toHaveBeenCalledTimes(1);
-    expect(onNodeClick).not.toHaveBeenCalled();
-  });
-
-  it('onOpenSession 缺省（undefined）：workerAgent 节点不渲染按钮（三分类九步词汇既有渲染零回归）', () => {
-    renderNode(runtimeNode());
-
+    const node = screen.getByTestId('run-step-node');
+    expect(node.querySelector('button')).toBeNull();
+    expect(container.querySelector('button')).toBeNull();
     expect(screen.queryByTestId('view-session')).toBeNull();
-    expect(screen.getByTestId('run-step-node') !== null).toBe(true);
+    // 收敛后渲染面零回归：分组徽章 / 步词汇照常可辨
+    expect(within(node).getByTestId('run-step-group').textContent).toBe('WorkerAgent');
+    expect(within(node).getByTestId('run-step-kind').textContent).toBe('执行');
   });
 
-  it('toolStep / gate 节点：无 view-session 按钮（ToolStep / Gate 无入口——沿用右侧抽屉步骤结果呈现）', () => {
-    const toolStep = renderNode(
-      runtimeNode({
+  it('三组各抽一步穷举：data 收敛后 toolStep / gate 输出同样不含 button 元素与 view-session 入口', () => {
+    for (const overrides of [
+      {
         id: 'run:implement:1:staticCheck',
-        runStepKind: 'staticCheck',
-        group: 'toolStep',
+        runStepKind: 'staticCheck' as const,
+        group: 'toolStep' as const,
         role: null,
-      }),
-      () => {},
-    );
-    expect(screen.queryByTestId('view-session')).toBeNull();
-    toolStep.unmount();
-
-    renderNode(
-      runtimeNode({
+      },
+      {
         id: 'run:implement:1:verdictGate',
-        runStepKind: 'verdictGate',
-        group: 'gate',
+        runStepKind: 'verdictGate' as const,
+        group: 'gate' as const,
         role: null,
-      }),
-      () => {},
-    );
-    expect(screen.queryByTestId('view-session')).toBeNull();
+      },
+    ]) {
+      const rendered = renderNode(runtimeNode(overrides));
+      const node = screen.getByTestId('run-step-node');
+      expect(node.querySelector('button')).toBeNull();
+      expect(screen.queryByTestId('view-session')).toBeNull();
+      rendered.unmount();
+    }
   });
 });

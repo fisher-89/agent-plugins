@@ -1,18 +1,3 @@
-/**
- * 右侧抽屉（单一交互入口）：列头与事件节点点击共用的三分节
- * 【本站文档 / eval report+checklist / 文件表】；selection 为 null 时不渲染。
- *
- * - 本站文档节：columnDocs[列 id] 经 ArtifactTabs 多文档 tab 切换（单文档直出，
- *   逐卡片仍走 renderers/registry）；
- * - eval 节：record.report 文本 + checklist（有挂载 eval-checklist 信封走
- *   ArtifactView，无挂载时回退内联 record.checklist 条目）；active / interrupted
- *   与列头选中呈空态；
- * - 文件表节：节点选中渲染 nodeFiles[nodeId]；列头选中呈空态（attempt 作用域
- *   未定，不虚构聚合）；v1（hasFileLog = false）呈降级文案。
- *
- * hasFileLog 为 design 抽屉内容规则（v1 降级文案）的最小传参：v1 判定信号
- * （detail.fileLog === null）由页面组装层下探到抽屉文件表节。
- */
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 
@@ -27,6 +12,7 @@ import type {
   FlowGraph,
   FlowMaterials,
   FlowNode,
+  FlowRoleLabel,
   RoleSessionRef,
 } from './types';
 
@@ -85,6 +71,14 @@ function selectionRoleRefs(
         sourceRef: null,
       },
     ];
+  }
+  if (node.kind === 'active') {
+    const ref = (role: FlowRoleLabel): RoleSessionRef => ({
+      role,
+      sessionId: null,
+      sourceRef: `${change}/${node.phase}/${role}/${node.attempt}`,
+    });
+    return [ref('executor'), ref('evaluator'), ref('decision')];
   }
   return [];
 }
@@ -183,6 +177,35 @@ function selectionTitle(selection: DrawerSelection, node: FlowNode | null): stri
   return `${node.phase} · attempt ${attempt ?? '—'} · ${node.kind}`;
 }
 
+/** 右列三分节（本站文档 / 评估记录 / 文件表）：列内滚动，节结构与 data-testid
+ * 锚点零变化。 */
+function RightSections({
+  node,
+  materials,
+  columnId,
+  hasFileLog,
+}: {
+  node: FlowNode | null;
+  materials: FlowMaterials;
+  columnId: string;
+  hasFileLog: boolean;
+}): React.JSX.Element {
+  return (
+    <div className="min-w-0 flex-1 overflow-y-auto">
+      <DrawerDocsSection docs={materials.columnDocs[columnId] ?? []} />
+      <DrawerEvalSection
+        node={node}
+        checklists={node === null ? [] : (materials.nodeChecklists[node.id] ?? [])}
+      />
+      <DrawerFilesSection
+        nodeId={node?.id ?? null}
+        files={node === null ? [] : (materials.nodeFiles[node.id] ?? [])}
+        hasFileLog={hasFileLog}
+      />
+    </div>
+  );
+}
+
 /** 右侧抽屉：遮罩点击或关闭按钮置 selection 为 null（由页面组装层承载状态） */
 export function DetailDrawer({
   selection,
@@ -211,26 +234,24 @@ export function DetailDrawer({
   return (
     <div className="fixed inset-0 z-50" data-testid="detail-drawer">
       <div aria-hidden className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <aside className="absolute inset-y-0 right-0 flex w-[560px] max-w-[85vw] flex-col overflow-y-auto border-l border-border bg-card px-4 py-4">
+      <aside className="absolute inset-y-0 right-0 flex w-[960px] max-w-[85vw] flex-col border-l border-border bg-card px-4 py-4">
         <header className="mb-3 flex items-center justify-between gap-2">
           <h2 className="m-0 truncate text-[15px]">{selectionTitle(selection, node)}</h2>
           <Button className="shrink-0" onClick={onClose}>
             关闭
           </Button>
         </header>
-        <DrawerDocsSection docs={materials.columnDocs[columnId] ?? []} />
-        <DrawerEvalSection
-          node={node}
-          checklists={node === null ? [] : (materials.nodeChecklists[node.id] ?? [])}
-        />
-        <DrawerFilesSection
-          nodeId={node?.id ?? null}
-          files={node === null ? [] : (materials.nodeFiles[node.id] ?? [])}
-          hasFileLog={hasFileLog}
-        />
-        {roleRefs.length > 0 && (
-          <SessionTranscriptPanel root={root} roleRefs={roleRefs} liveEvents={live} />
-        )}
+        <div className="flex min-h-0 flex-1">
+          <div className="flex w-[60%] min-w-0 flex-col">
+            <SessionTranscriptPanel root={root} roleRefs={roleRefs} liveEvents={live} />
+          </div>
+          <RightSections
+            node={node}
+            materials={materials}
+            columnId={columnId}
+            hasFileLog={hasFileLog}
+          />
+        </div>
       </aside>
     </div>
   );

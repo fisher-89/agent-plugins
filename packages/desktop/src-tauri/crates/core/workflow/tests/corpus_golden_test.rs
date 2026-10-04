@@ -121,7 +121,6 @@ fn project_change_fixture(fixture: &str) -> serde_json::Value {
                 },
                 "fileLogCount": workflow.file_log.as_ref().map(Vec::len).unwrap_or(0),
                 "activePhasePresent": workflow.active_phase.is_some(),
-                "interruptedCount": workflow.interrupted.len(),
             })
         }
         workflow::parse::WorkflowFileParse::Unparsable { .. } => {
@@ -356,4 +355,143 @@ fn 语料完整性_golden目录与语料集合一致() {
         .collect();
     actual.sort();
     assert_eq!(actual, expected, "golden 文件集应与语料集合一致");
+}
+
+// ---------------------------------------------------------------------------
+// interrupted 词汇 golden 对账（desktop-drawer-session-column，AC-7）：显式
+// 重写后 detail 段无 interrupted 键（v2-b 实数据数组整键删、其余空数组键删）、
+// parse 摘要段无 interruptedCount 投影行；fixtures 磁盘样本零改写（存量
+// `interrupted[]` 键保留在场——「存量文件照常解析」的实证语料路径）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn 语料golden_detail段无interrupted键且parse段无interruptedCount键() {
+    for fixture in CHANGE_FIXTURES {
+        let path = golden_dir().join(format!("{fixture}.json"));
+        let text = fs::read_to_string(&path)
+            .unwrap_or_else(|err| panic!("golden {fixture}.json 应存在: {err}"));
+        let value: serde_json::Value = serde_json::from_str(&text)
+            .unwrap_or_else(|err| panic!("golden {fixture}.json 应为合法 JSON: {err}"));
+
+        // detail 段无 interrupted 键（实数据数组与空数组两形态整键删）
+        let detail = value
+            .get("detail")
+            .unwrap_or_else(|| panic!("golden {fixture}.json 应含 detail 段"));
+        assert!(
+            detail.get("interrupted").is_none(),
+            "golden {fixture} 的 detail 段不应含 interrupted 键"
+        );
+
+        // parse 摘要段无 interruptedCount 投影行（投影删除的直接投影面）
+        let parse = value
+            .get("parse")
+            .unwrap_or_else(|| panic!("golden {fixture}.json 应含 parse 摘要段"));
+        assert!(
+            parse.get("interruptedCount").is_none(),
+            "golden {fixture} 的 parse 摘要段不应含 interruptedCount 键"
+        );
+    }
+}
+
+#[test]
+fn 语料golden_detect段与外围件零变化且fixture样本零改写() {
+    // golden README 对账说明在位
+    assert!(
+        golden_dir().join("README.md").is_file(),
+        "golden/README.md 应存在"
+    );
+
+    for fixture in CHANGE_FIXTURES {
+        let path = golden_dir().join(format!("{fixture}.json"));
+        let text = fs::read_to_string(&path).expect("golden 应存在");
+        let value: serde_json::Value =
+            serde_json::from_str(&text).expect("golden 应为合法 JSON");
+        // detect 段零变化（代际判定不受停提取影响）
+        assert!(
+            value.get("detect").is_some(),
+            "golden {fixture} 应保留 detect 段"
+        );
+    }
+
+    // v2-b fixture workflow.json 的 `interrupted[]` 原样保留（磁盘形状零改写）
+    let v2b = fs::read_to_string(fixtures_root().join("v2-b").join("workflow.json"))
+        .expect("v2-b fixture workflow.json 应存在");
+    assert!(
+        v2b.contains("\"interrupted\""),
+        "v2-b fixture 的 interrupted[] 键应原样保留（存量解析实证语料）"
+    );
+
+    // layout 语料三份 golden 在场（layout 投影零触达）
+    for layout in LAYOUT_FIXTURES {
+        assert!(
+            golden_dir().join(format!("{layout}.json")).is_file(),
+            "layout golden {layout}.json 应存在"
+        );
+    }
+}
+
+#[test]
+fn corrupt语料族重写后投影形态与既有容错语义一致() {
+    // 停提取 interrupted 不改变宽松解析降级（D7 骨架不变）：parse 摘要段
+    // 其余键零变化——parsed 族 eval 统计键齐备、unparsable 族仅 outcome
+    let parsed_expected_keys: &[&str] = &[
+        "activePhasePresent",
+        "created",
+        "evalCount",
+        "evalSkipped",
+        "evalStale",
+        "evalWithBacktrack",
+        "evalWithChecklist",
+        "fileLog",
+        "fileLogCount",
+        "outcome",
+        "workflowType",
+    ];
+    for fixture in [
+        "corrupt-bad-eval-entry",
+        "corrupt-bad-filelog-entry",
+        "corrupt-bad-timestamp",
+        "corrupt-bad-verdict",
+    ] {
+        let text = fs::read_to_string(golden_dir().join(format!("{fixture}.json")))
+            .expect("corrupt golden 应存在");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("应为合法 JSON");
+        let parse = value.get("parse").expect("应含 parse 摘要段");
+        assert_eq!(
+            parse.get("outcome").and_then(|v| v.as_str()),
+            Some("parsed"),
+            "{fixture} 应为宽松降级 parsed 形态"
+        );
+        for key in parsed_expected_keys {
+            assert!(
+                parse.get(key).is_some(),
+                "{fixture} parse 摘要段缺既有键 {key}（容错投影零变化）"
+            );
+        }
+        let detail = value.get("detail").expect("应含 detail 段");
+        assert_eq!(
+            detail.get("unparsable").and_then(|v| v.as_bool()),
+            Some(false),
+            "{fixture} detail 的 unparsable 旗标保持 false"
+        );
+    }
+
+    // 整体坏 JSON：unparsable 形态仅 outcome 单键
+    let text =
+        fs::read_to_string(golden_dir().join("corrupt-invalid-json.json")).expect("golden 应存在");
+    let value: serde_json::Value = serde_json::from_str(&text).expect("应为合法 JSON");
+    let parse = value.get("parse").expect("应含 parse 摘要段");
+    let parse_obj = parse.as_object().expect("parse 摘要段应为对象");
+    assert_eq!(
+        parse_obj.len(),
+        1,
+        "unparsable 形态 parse 摘要段仅 outcome 单键"
+    );
+    assert_eq!(parse_obj.get("outcome").and_then(|v| v.as_str()), Some("unparsable"));
+    let detail = value.get("detail").expect("应含 detail 段");
+    assert_eq!(
+        detail.get("unparsable").and_then(|v| v.as_bool()),
+        Some(true),
+        "整体坏 JSON 的 unparsable 旗标保持 true"
+    );
 }

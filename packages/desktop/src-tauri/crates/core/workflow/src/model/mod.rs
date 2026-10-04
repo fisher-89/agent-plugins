@@ -5,6 +5,5 @@ pub mod workflow;
 
 pub use inventory::Inventory;
 pub use workflow::{
-    ActivePhase, ChecklistItem, FileLogEntry, FileLogOp, InterruptedEntry, PhaseLog, Verdict,
-    Workflow,
+    ActivePhase, ChecklistItem, FileLogEntry, FileLogOp, PhaseLog, Verdict, Workflow,
 };

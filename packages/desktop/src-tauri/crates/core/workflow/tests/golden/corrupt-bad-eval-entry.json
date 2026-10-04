@@ -15,7 +15,6 @@
     ],
     "created": "2026-08-10",
     "fileLog": null,
-    "interrupted": [],
     "inventory": "v1",
     "name": "corrupt-bad-eval-entry",
     "pipeline": [
@@ -115,7 +114,6 @@
     "evalWithChecklist": 2,
     "fileLog": "absent",
     "fileLogCount": 0,
-    "interruptedCount": 0,
     "outcome": "parsed",
     "workflowType": "requirement"
   }

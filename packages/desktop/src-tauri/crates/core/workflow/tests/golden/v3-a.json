@@ -35,7 +35,6 @@
     ],
     "created": "2026-10-01",
     "fileLog": null,
-    "interrupted": [],
     "inventory": "v1",
     "name": "v3-a",
     "pipeline": [
@@ -161,7 +160,6 @@
     "evalWithChecklist": 3,
     "fileLog": "absent",
     "fileLogCount": 0,
-    "interruptedCount": 0,
     "outcome": "parsed",
     "workflowType": "requirement"
   }

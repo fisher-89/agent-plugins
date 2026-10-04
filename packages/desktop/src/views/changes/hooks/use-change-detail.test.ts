@@ -40,7 +40,6 @@ function fakeDetail(artifacts: ArtifactDescriptor[]): ChangeDetail {
       },
     ],
     activePhase: null,
-    interrupted: [],
     fileLog: [],
     artifacts,
   };

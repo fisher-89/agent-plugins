@@ -1,12 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 
 import { eventsToUIMessages, type AgentUIMessage } from '../../../lib/agent-adapter';
-import { commands, type AgentEvent } from '../../../types/generated/bindings';
+import { commands, type AgentEvent, type SessionSummary } from '../../../types/generated/bindings';
 
 export interface UseSessionTranscriptResult {
   messages: AgentUIMessage[];
   running: boolean;
   error: string | null;
+  /** 查询时快照三件套（row + stats + turns）：查无会话 / 未开跑角色为 null */
+  summary: SessionSummary | null;
 }
 
 /** 转录事件装配：重放 + 实时事件按 seq 去重合并、seq 升序。 */
@@ -22,11 +24,11 @@ function assembleTranscript(replay: AgentEvent[], liveEvents: AgentEvent[]): Age
   return merged.sort((a, b) => a.seq - b.seq);
 }
 
-/** 库内装载产物：密封转录重放 + 运行状态（自轮行推导——有 running 轮行即
- * running）；`null` 即空态（查无会话 / blank root）。 */
+/** 库内装载产物 */
 interface TranscriptLoad {
   transcript: AgentEvent[];
   running: boolean;
+  summary: SessionSummary;
 }
 
 /** 直查优先：槽位 id → `sessionDetail` 单查 → 密封转录重放（记录在案的 id
@@ -35,7 +37,11 @@ async function loadBySessionId(root: string, sessionId: string): Promise<Transcr
   const detail = await commands.sessionDetail(root, sessionId);
   if (detail === null) return null;
   const transcript = await commands.agentSessionTranscript(root, sessionId);
-  return { transcript, running: detail.turns.some((turn) => turn.status === 'running') };
+  return {
+    transcript,
+    running: detail.turns.some((turn) => turn.status === 'running'),
+    summary: detail,
+  };
 }
 
 /** 反查兜底：sourceRef 定式 exact-match（旧数据，行为与升级前一致；同
@@ -45,7 +51,11 @@ async function loadBySourceRef(root: string, sourceRef: string): Promise<Transcr
   if (summaries.length === 0) return null;
   const latest = summaries[summaries.length - 1];
   const transcript = await commands.agentSessionTranscript(root, latest.row.id);
-  return { transcript, running: latest.turns.some((turn) => turn.status === 'running') };
+  return {
+    transcript,
+    running: latest.turns.some((turn) => turn.status === 'running'),
+    summary: latest,
+  };
 }
 
 /**
@@ -64,6 +74,7 @@ export function useSessionTranscript(params: {
   const [messages, setMessages] = useState<AgentUIMessage[]>([]);
   const [running, setRunning] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [summary, setSummary] = useState<SessionSummary | null>(null);
   // 最近一次库内重放事件（实时并入的合并底座；ref 直读不触发重渲染）
   const replayRef = useRef<AgentEvent[] | null>(null);
 
@@ -74,6 +85,7 @@ export function useSessionTranscript(params: {
       setMessages([]);
       setRunning(false);
       setError(null);
+      setSummary(null);
       return;
     }
     let disposed = false;
@@ -88,6 +100,7 @@ export function useSessionTranscript(params: {
         replayRef.current = result?.transcript ?? null;
         setMessages(result === null ? [] : eventsToUIMessages(result.transcript));
         setRunning(result?.running ?? false);
+        setSummary(result?.summary ?? null);
       })
       .catch((cause: unknown) => {
         if (!disposed) setError(typeof cause === 'string' ? cause : String(cause));
@@ -105,5 +118,5 @@ export function useSessionTranscript(params: {
     setMessages(eventsToUIMessages(assembleTranscript(base, liveEvents)));
   }, [liveEvents, sessionId, sourceRef]);
 
-  return { messages, running, error };
+  return { messages, running, error, summary };
 }

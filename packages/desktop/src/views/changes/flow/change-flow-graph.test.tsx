@@ -12,14 +12,6 @@ import { ChangeFlowGraph } from './change-flow-graph';
 import { buildFlowGraph } from './graph';
 import type { DrawerSelection, FlowGraph, FlowMaterials, RuntimeFlowNode } from './types';
 
-// ---------------------------------------------------------------------------
-// ChangeFlowGraph 单测：ReactFlow 薄层。jsdom 缺口垫片（环境 stub 而非业务
-// mock）：ReactFlow 挂载与节点度量依赖 ResizeObserver（design 已备案），垫片
-// 捕获回调并在 measureNodes() 中重放，使 handleBounds 度量真实发生、边可渲染。
-// 图数据一律来自真实 buildFlowGraph / mountMaterials 产出；react-flow 库自身
-// 渲染语义（fitView 数值、subflow 约束）不做逐项断言（AC-8）。
-// ---------------------------------------------------------------------------
-
 class ResizeObserverStub {
   static instances: ResizeObserverStub[] = [];
   callback: ResizeObserverCallback;
@@ -177,7 +169,6 @@ function detail(
       'code-analyze',
     ].map((phase) => ({ phase, attempts: attemptsByPhase[phase] ?? [] })),
     activePhase: null,
-    interrupted: [],
     fileLog: [],
     artifacts: [DOC_DESCRIPTOR],
     ...overrides,
@@ -297,7 +288,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
   });
 
   it('label 为 null 的常规边与带 label 的回跳边混存 → 均正常渲染不抛错', async () => {
-    // 中断站列（code-review）startAt 插入 dev-design eval 之前 → 归并后成回跳边
+    // active 站列（code-review）startAt 插入 dev-design eval 之前 → 归并后成回跳边
     const base = detail(
       {
         proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })],
@@ -310,9 +301,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
         ],
       },
       {
-        interrupted: [
-          { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z', endAt: null },
-        ],
+        activePhase: { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z' },
       },
     );
     const graph = buildFlowGraph(base);
@@ -359,9 +348,7 @@ describe('ChangeFlowGraph：ReactFlow 薄层挂载与交互上抛', () => {
         ],
       },
       {
-        interrupted: [
-          { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z', endAt: null },
-        ],
+        activePhase: { phase: 'code-review', attempt: 1, startAt: '2026-09-02T00:00:00Z' },
       },
     );
     const firstGraph = buildFlowGraph(withBacktrack);
@@ -473,67 +460,54 @@ describe('ChangeFlowGraph：runStep 运行步节点上图（overlay 加法回归
 });
 
 // ---------------------------------------------------------------------------
-// 「查看会话」入口注入（desktop-change-session-visibility，AC-8）：toChartNodes
-// 仅对 kind==='runtime' && group==='workerAgent' 节点注入 data.onOpenSession
-//（上抛与节点点击同一 DrawerSelection——打开同一抽屉转录联动，无独立会话
-// route）；ToolStep / Gate 节点 data 无 onOpenSession 键不渲染按钮。
+// toChartNodes onOpenSession 注入删除（desktop-drawer-session-column，AC-4）：
+// runtime 分支 data 收敛 `{ node }`——渲染输出恒不含 view-session testid
+// （workerAgent 运行节点在场亦然），注入形态收敛不触图结构
 // ---------------------------------------------------------------------------
 
-describe('ChangeFlowGraph：查看会话入口注入（AC-8）', () => {
-  it('workerAgent 运行节点渲染 view-session 按钮；点击 → onSelect 与节点点击同参（打开同一抽屉）', async () => {
-    const onSelect = vi.fn();
+describe('ChangeFlowGraph：onOpenSession 注入删除收敛（AC-4）', () => {
+  it('workerAgent 运行节点在场 → 渲染输出恒不含 view-session testid（图层仍注入 / 组件仍渲染的残留检测）', async () => {
     const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
     const graph = buildFlowGraph(base, [runNode()]);
-    renderGraph(graph, materialsFor(graph, base), onSelect);
+    const { container } = renderGraph(graph, materialsFor(graph, base));
 
-    const running = await waitFor(() =>
-      within(screen.getByTestId('rf__node-run:implement:1:executor')).getByTestId('view-session'),
-    );
-    expect(running.textContent).toBe('查看会话');
-
-    fireEvent.click(running);
-    // 与节点点击同一 DrawerSelection（同一 onSelect 载荷）
-    expect(onSelect).toHaveBeenCalledTimes(1);
-    expect(onSelect).toHaveBeenCalledWith({ scope: 'node', nodeId: 'run:implement:1:executor' });
-  });
-
-  it('toolStep / gate 节点 data 无 onOpenSession 键：不渲染 view-session 按钮', async () => {
-    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
-    const graph = buildFlowGraph(base, [
-      runNode({
-        id: 'run:implement:1:staticCheck',
-        runStepKind: 'staticCheck',
-        group: 'toolStep',
-        role: null,
-        sessionId: null,
-        status: 'failed',
-      }),
-      runNode({
-        id: 'run:implement:1:verdictGate',
-        runStepKind: 'verdictGate',
-        group: 'gate',
-        role: null,
-        sessionId: null,
-        status: 'passed',
-      }),
-    ]);
-    renderGraph(graph, materialsFor(graph, base));
-
-    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+    expect(
+      within(screen.getByTestId('rf__node-run:implement:1:executor')).getByTestId('run-step-group')
+        .textContent,
+    ).toBe('WorkerAgent');
+    // 图层注入删除后的整树残留检测：任意路径均无 view-session 入口
     expect(screen.queryByTestId('view-session')).toBeNull();
+    expect(container.querySelector('[data-testid="view-session"]')).toBeNull();
   });
 
-  it('注入后图结构逐项不变：节点集 / 边集与同 overlay 重建图一致（图结构零触达）', async () => {
-    const base = detail({ proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] });
+  it('注入形态收敛后图结构零回归：9 列 + 节点集逐 id 一致、DOM 边集与图边集逐 id 一致', async () => {
+    const base = detail(
+      { proposal: [attempt({ startAt: '2026-09-01T00:00:00Z' })] },
+      { activePhase: { phase: 'dev-design', attempt: 1, startAt: '2026-09-02T00:00:00Z' } },
+    );
     const graph = buildFlowGraph(base, [runNode()]);
     renderGraph(graph, materialsFor(graph, base));
 
-    // 注入不增删节点：列 9 + 事件节点 1 + 运行步节点 1
-    await waitFor(() => expect(screen.getAllByTestId('flow-column')).toHaveLength(9));
-    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(1));
-    expect(screen.getAllByTestId('run-step-node')).toHaveLength(1);
-    // 边集零触达：与同 overlay 输入的重建图逐 id 一致（onOpenSession 注入不产边）
-    const rebuilt = buildFlowGraph(base, [runNode()]);
-    expect(graph.edges.map((edge) => edge.id)).toEqual(rebuilt.edges.map((edge) => edge.id));
+    // 事件节点两枚（eval + active）+ 运行步节点一枚
+    await waitFor(() => expect(screen.getAllByTestId('flow-node')).toHaveLength(2));
+    await waitFor(() => expect(screen.getAllByTestId('run-step-node')).toHaveLength(1));
+    expect(screen.getAllByTestId('flow-column')).toHaveLength(9);
+    // 节点集逐 id 一致（注入不增删节点；列容器 id `col:*` 不在 graph.nodes 计）
+    const renderedNodeIds = screen
+      .getAllByTestId(/^rf__node-/)
+      .map((element) => element.getAttribute('data-testid')?.slice('rf__node-'.length) ?? '')
+      .filter((id) => !id.startsWith('col:'))
+      .sort();
+    expect(renderedNodeIds).toEqual(graph.nodes.map((node) => node.id).sort());
+    // DOM 边集与图边集逐 id 一致（注入不产边）
+    await measureNodes();
+    await waitFor(() =>
+      expect(document.querySelectorAll('.react-flow__edge')).toHaveLength(graph.edges.length),
+    );
+    const domEdgeIds = [...document.querySelectorAll('.react-flow__edge')].map(
+      (element) => element.getAttribute('data-id') ?? '',
+    );
+    expect(domEdgeIds.sort()).toEqual(graph.edges.map((edge) => edge.id).sort());
   });
 });

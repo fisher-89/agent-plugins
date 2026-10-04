@@ -5,14 +5,7 @@ import { describe, expect, it } from 'vite-plus/test';
 
 import type { AttemptRecord } from '../../../types/dto';
 import { FlowEventNode } from './flow-event-node';
-import type { ActiveFlowNode, EvalFlowNode, FlowNode, InterruptedFlowNode } from './types';
-
-// ---------------------------------------------------------------------------
-// FlowEventNode 单测：自定义节点为纯渲染组件，以最小 NodeProps 形态（data 注入
-// FlowNode 载荷）直接 render；不挂载 ReactFlow 本体，无 ResizeObserver 依赖。
-// Handle 依赖 ReactFlow store context，故外包 ReactFlowProvider（组件头注约定）。
-// 三分类视觉迁移旧页面 Attempt 块语义（AC-2）。
-// ---------------------------------------------------------------------------
+import type { ActiveFlowNode, EvalFlowNode, FlowNode } from './types';
 
 function attempt(overrides: Partial<AttemptRecord> = {}): AttemptRecord {
   return {
@@ -56,21 +49,6 @@ function activeNode(overrides: Partial<ActiveFlowNode> = {}): ActiveFlowNode {
     order: 0,
     parentId: 'col:implement',
     startAt: '2026-09-04T09:00:00Z',
-    ...overrides,
-  };
-}
-
-function interruptedNode(overrides: Partial<InterruptedFlowNode> = {}): InterruptedFlowNode {
-  return {
-    id: 'interrupted:implement:2',
-    kind: 'interrupted',
-    phase: 'implement',
-    attempt: 2,
-    colIndex: 3,
-    order: 0,
-    parentId: 'col:implement',
-    startAt: '2026-09-03T20:00:00Z',
-    endAt: '2026-09-04T08:00:00Z',
     ...overrides,
   };
 }
@@ -127,17 +105,7 @@ describe('FlowEventNode：eval 节点三分类视觉', () => {
   });
 });
 
-describe('FlowEventNode：interrupted / active 节点', () => {
-  it('interrupted → dashed 灰显标记 + startAt / endAt 文案', () => {
-    renderNode(interruptedNode());
-    const node = screen.getByTestId('flow-node');
-    expect(node.className).toContain('border-dashed');
-    expect(node.className).toContain('text-muted-foreground');
-    expect(node.textContent).toContain('中断留档 · attempt 2');
-    expect(node.textContent).toContain('start: 2026-09-03T20:00:00Z');
-    expect(node.textContent).toContain('end: 2026-09-04T08:00:00Z');
-  });
-
+describe('FlowEventNode：active 节点', () => {
   it('active → pulse 运行中标记且无 verdict 徽标', () => {
     renderNode(activeNode());
     const node = screen.getByTestId('flow-node');
@@ -145,28 +113,38 @@ describe('FlowEventNode：interrupted / active 节点', () => {
     expect(node.textContent).toContain('运行中 · attempt 2');
     expect(within(node).queryByTestId('attempt-verdict')).toBeNull();
   });
+});
 
-  it('interrupted startAt 与 endAt 双 null → 两侧均「—」占位', () => {
-    renderNode(interruptedNode({ startAt: null, endAt: null }));
-    const node = screen.getByTestId('flow-node');
-    expect(node.textContent).toContain('start: —');
-    expect(node.textContent).toContain('end: —');
-    expect(node.textContent).not.toContain('null');
+// ---------------------------------------------------------------------------
+// 两分类收敛（desktop-drawer-session-column，AC-5）：`InterruptedBody` 组件与
+// `kind === 'interrupted'` 渲染分支删、`nodeClass` 收敛 eval / active 两分支
+// （dashed 回退分支删）——渲染输出恒不含 dashed 类名与「中断留档」词汇
+// ---------------------------------------------------------------------------
+
+describe('FlowEventNode：两分类收敛（AC-5）', () => {
+  it('eval / active 两 kind 穷举：渲染输出恒不含 dashed 类名与「中断留档」词汇（无路径可产出）', () => {
+    const evalRendered = renderNode(evalNode(attempt()));
+    let node = screen.getByTestId('flow-node');
+    expect(node.className).not.toContain('dashed');
+    expect(node.textContent).not.toContain('中断留档');
+    evalRendered.unmount();
+
+    const activeRendered = renderNode(activeNode());
+    node = screen.getByTestId('flow-node');
+    expect(node.className).not.toContain('dashed');
+    expect(node.textContent).not.toContain('中断留档');
+    activeRendered.unmount();
   });
 
-  it('以最小 NodeProps 形态直渲染三种 kind（interrupted / active 无 record 字段）→ 各自取用独有字段不抛错', () => {
-    const evalRender = renderNode(evalNode(attempt()));
-    expect(evalRender.container.querySelector('[data-testid="flow-node"]') !== null).toBe(true);
-    evalRender.unmount();
+  it('eval 退化形态（attempt 缺号 + 空 checklist）与 active 无 startAt 形态渲染不炸、无 dashed 回退分支', () => {
+    const degraded = renderNode(evalNode(attempt({ attempt: null, checklist: [] })));
+    expect(screen.getByTestId('flow-node').textContent).toContain('attempt —');
+    degraded.unmount();
 
-    const activeRender = renderNode(activeNode());
-    expect('record' in activeNode()).toBe(false);
-    expect(screen.getByTestId('flow-node').textContent).toContain('运行中');
-    activeRender.unmount();
-
-    const interruptedRender = renderNode(interruptedNode());
-    expect('record' in interruptedNode()).toBe(false);
-    expect(screen.getByTestId('flow-node').textContent).toContain('中断留档');
-    interruptedRender.unmount();
+    renderNode(activeNode({ startAt: null }));
+    const node = screen.getByTestId('flow-node');
+    expect(node.className).toContain('animate-pulse');
+    expect(node.className).not.toContain('dashed');
+    expect(node.textContent).toContain('运行中 · attempt 2');
   });
 });

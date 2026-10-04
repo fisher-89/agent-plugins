@@ -1,19 +1,8 @@
-/**
- * 素材挂载纯函数（mountMaterials）：文档挂列、记录挂节点。
- *
- * - markdown-doc / tasks-progress 信封经模块私有静态映射 docColumn(source) 归列
- *   （列头徽章，每站一份不随 attempt 重复）；映射表外文档（explore.md、旧代际
- *   phases/**、其余路径）不入图——产物区全量列表天然兜底，不误挂任何站；
- * - eval-checklist 信封以最小形状守卫收窄 payload { phase, attempt } 后按节点
- *   定位优先级（eval → active → interrupted）挂节点；
- * - file_log 条目 scope 为 9 站 phase id 且 attempt 非 null 时挂节点，
- *   scope='workflow' 与未命中节点的条目归 outsideFiles 图外展示，信息不丢。
- */
 import type { ArtifactEnvelope, ChangeDetail } from '../../../types/dto';
 import type { FlowGraph, FlowMaterials, FlowNode, FlowNodeKind } from './types';
 
-/** 同号多类节点并存时的挂载定位优先级：eval 优先，其次 active、interrupted */
-const NODE_PRECEDENCE: readonly FlowNodeKind[] = ['eval', 'active', 'interrupted'];
+/** 同号多类节点并存时的挂载定位优先级：eval 优先，其次 active */
+const NODE_PRECEDENCE: readonly FlowNodeKind[] = ['eval', 'active'];
 
 /**
  * 文档 → 列静态映射（模块私有，不导出——knip 会把仅测试引用的导出判为未用；

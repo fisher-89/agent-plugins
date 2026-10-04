@@ -17,7 +17,7 @@ use super::locate_change;
 use crate::artifacts::{discover_artifacts, ArtifactDescriptor};
 use crate::model::{
     ActivePhase as DiskActivePhase, ChecklistItem, FileLogEntry as DiskFileLogEntry, FileLogOp,
-    InterruptedEntry as DiskInterruptedEntry, Inventory, PhaseLog, Verdict,
+    Inventory, PhaseLog, Verdict,
 };
 use crate::parse::{detect_inventory, parse_workflow_file, WorkflowFileParse, WORKFLOW_FILE_NAME};
 use foundation::layout::Layout;
@@ -56,27 +56,6 @@ impl From<&DiskActivePhase> for ActivePhase {
             phase: entry.phase.clone(),
             attempt: entry.attempt,
             start_at: entry.start_at.as_ref().map(to_iso),
-        }
-    }
-}
-
-/// 中断留档（线面）。
-#[derive(Debug, Clone, Serialize, Deserialize, Type)]
-#[serde(rename_all = "camelCase")]
-pub struct InterruptedEntry {
-    pub phase: String,
-    pub attempt: u32,
-    pub start_at: Option<String>,
-    pub end_at: Option<String>,
-}
-
-impl From<&DiskInterruptedEntry> for InterruptedEntry {
-    fn from(entry: &DiskInterruptedEntry) -> Self {
-        InterruptedEntry {
-            phase: entry.phase.clone(),
-            attempt: entry.attempt,
-            start_at: entry.start_at.as_ref().map(to_iso),
-            end_at: entry.end_at.as_ref().map(to_iso),
         }
     }
 }
@@ -163,7 +142,6 @@ pub struct ChangeDetail {
     pub unparsable: bool,
     pub pipeline: Vec<PhaseEntry>,
     pub active_phase: Option<ActivePhase>,
-    pub interrupted: Vec<InterruptedEntry>,
     /// v1 及更早代际无此字段 → `None`，对应区块降级留空
     pub file_log: Option<Vec<FileLogEntry>>,
     pub artifacts: Vec<ArtifactDescriptor>,
@@ -227,15 +205,6 @@ pub fn change_detail(layout: &Layout, name: &str) -> Option<ChangeDetail> {
     let active_phase = workflow
         .and_then(|workflow| workflow.active_phase.as_ref())
         .map(ActivePhase::from);
-    let interrupted = workflow
-        .map(|workflow| {
-            workflow
-                .interrupted
-                .iter()
-                .map(InterruptedEntry::from)
-                .collect()
-        })
-        .unwrap_or_default();
     let file_log = workflow
         .and_then(|workflow| workflow.file_log.as_ref())
         .map(|entries| entries.iter().map(FileLogEntry::from).collect());
@@ -249,7 +218,6 @@ pub fn change_detail(layout: &Layout, name: &str) -> Option<ChangeDetail> {
         unparsable,
         pipeline,
         active_phase,
-        interrupted,
         file_log,
         artifacts,
     })

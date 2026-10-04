@@ -119,14 +119,84 @@ fn 合法v2全字段解析为强类型() {
     assert_eq!(file_log[1].attempt, None);
     assert_eq!(file_log[1].at, None);
 
-    // active_phase / interrupted
+    // active_phase
     let active = workflow.active_phase.expect("应有 active_phase");
     assert_eq!(active.phase, "implement");
     assert_eq!(active.attempt, 2);
     assert!(active.start_at.is_some());
-    assert_eq!(workflow.interrupted.len(), 1);
-    assert_eq!(workflow.interrupted[0].phase, "test-gen");
-    assert!(workflow.interrupted[0].end_at.is_some());
+}
+
+// ---------------------------------------------------------------------------
+// interrupted 停提取（desktop-drawer-session-column，AC-6）：`Workflow` 字段面
+// 收敛五字段后，磁盘 `interrupted[]` 键由 serde 未知字段忽略承接——存量文件
+// 照常解析、键值形态不再类型敏感（desktop-interrupted-backtrack 删减的读面退役）
+// ---------------------------------------------------------------------------
+
+/// 存量实数据形态（`interrupted[]` 一条实数据，磁盘形状实证——fixture 不改写）。
+const LEGACY_INTERRUPTED_ONE: &str = r#"{
+  "workflow_type": "requirement",
+  "created": "2026-08-01",
+  "active_phase": { "phase": "implement", "attempt": 2, "start_at": "2026-08-03T10:00:00Z" },
+  "interrupted": [
+    { "phase": "test-gen", "attempt": 1, "start_at": "2026-08-02T11:00:00Z", "end_at": "2026-08-02T12:00:00Z" }
+  ],
+  "eval": [],
+  "file_log": []
+}"#;
+
+#[test]
+fn 含interrupted条目的存量workflow_json照常解析且不产生interrupted字段() {
+    // 形态一：一条实数据（v2-b 语料同型）
+    let temp = TempDir::new("legacy-interrupted-one");
+    let path = temp.write_workflow(LEGACY_INTERRUPTED_ONE);
+
+    let WorkflowFileParse::Parsed(workflow) = parse_workflow_file(&path) else {
+        panic!("含 interrupted[] 的存量文件应照常解析（未知字段忽略）");
+    };
+    // 五字段逐字段照常
+    assert_eq!(workflow.workflow_type, "requirement");
+    assert_eq!(workflow.created.as_deref(), Some("2026-08-01"));
+    assert!(workflow.eval.is_empty());
+    assert!(workflow.file_log.as_ref().expect("v2 应有 file_log").is_empty());
+    let active = workflow.active_phase.as_ref().expect("应有 active_phase");
+    assert_eq!(active.phase, "implement");
+    assert_eq!(active.attempt, 2);
+    // 停提取：字段面无 interrupted（序列化线面无该键）
+    let value = serde_json::to_value(&workflow).expect("线面序列化应成功");
+    assert!(
+        value.get("interrupted").is_none(),
+        "停提取后不产生 interrupted 字段: {value}"
+    );
+
+    // 形态二：空数组
+    let temp_empty = TempDir::new("legacy-interrupted-empty");
+    let path_empty = temp_empty.write_workflow(
+        r#"{ "workflow_type": "requirement", "interrupted": [] }"#,
+    );
+    let WorkflowFileParse::Parsed(workflow_empty) = parse_workflow_file(&path_empty) else {
+        panic!("interrupted 空数组的存量文件应照常解析");
+    };
+    assert_eq!(workflow_empty.workflow_type, "requirement");
+    let value_empty = serde_json::to_value(&workflow_empty).expect("线面序列化应成功");
+    assert!(value_empty.get("interrupted").is_none());
+}
+
+#[test]
+fn interrupted键为非数组形态时解析照常成功() {
+    // 键不再有类型敏感的提取分支：任意值形态均由未知字段忽略承接
+    for (tag, raw) in [
+        ("object", r#"{ "workflow_type": "requirement", "interrupted": { "phase": "implement" } }"#),
+        ("string", r#"{ "workflow_type": "requirement", "interrupted": "中断留档" }"#),
+        ("number", r#"{ "workflow_type": "requirement", "interrupted": 3 }"#),
+        ("null", r#"{ "workflow_type": "requirement", "interrupted": null }"#),
+    ] {
+        let temp = TempDir::new(&format!("interrupted-shape-{tag}"));
+        let path = temp.write_workflow(raw);
+        let WorkflowFileParse::Parsed(workflow) = parse_workflow_file(&path) else {
+            panic!("interrupted 键为 {tag} 形态时应照常解析成功（未知字段忽略）");
+        };
+        assert_eq!(workflow.workflow_type, "requirement", "形态 {tag}");
+    }
 }
 
 #[test]

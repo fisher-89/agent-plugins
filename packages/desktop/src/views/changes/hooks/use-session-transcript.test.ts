@@ -261,24 +261,26 @@ describe('useSessionTranscript：running 标志（面板头部流式状态）', 
 });
 
 describe('useSessionTranscript：空闲与空态（边界）', () => {
-  it('sourceRef null（未选中节点）：零 invoke、messages 空、running false、error null', async () => {
+  it('sourceRef null（未选中节点）：零 invoke、messages 空、running false、error null、summary null', async () => {
     const { result } = await mounted({ sourceRef: null });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.messages).toEqual([]);
     expect(result.current.running).toBe(false);
     expect(result.current.error).toBeNull();
+    expect(result.current.summary).toBeNull();
   });
 
-  it('root null：零 invoke、空态（未选定 workspace）', async () => {
+  it('root null：零 invoke、空态（未选定 workspace）、summary null', async () => {
     const { result } = await mounted({ root: null });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.messages).toEqual([]);
     expect(result.current.error).toBeNull();
+    expect(result.current.summary).toBeNull();
   });
 
-  it('反查空清单：messages 空、running false、error null、不触发转录重放（节点尚无会话的合法空态）', async () => {
+  it('反查空清单：messages 空、running false、error null、summary null、不触发转录重放（节点尚无会话的合法空态）', async () => {
     sessionsResult = [];
     const { result } = await mounted();
     await waitFor(() => expect(sessionsCalls()).toHaveLength(1));
@@ -286,6 +288,7 @@ describe('useSessionTranscript：空闲与空态（边界）', () => {
     expect(result.current.messages).toEqual([]);
     expect(result.current.running).toBe(false);
     expect(result.current.error).toBeNull();
+    expect(result.current.summary).toBeNull();
     expect(
       invokeMock.mock.calls.filter(([name]) => name === 'agent_session_transcript'),
     ).toHaveLength(0);
@@ -639,7 +642,7 @@ describe('useSessionTranscript：直查优先（D8）', () => {
     expect(sessionsCalls()).toHaveLength(0);
   });
 
-  it('sessionDetail 应答 null（blank root 空结果透传）：空态呈现，不发起 agent_session_transcript', async () => {
+  it('sessionDetail 应答 null（blank root 空结果透传）：空态呈现、summary null，不发起 agent_session_transcript', async () => {
     detailResult = null;
     const { result } = await mounted({
       sessionId: 'ses-slot-1',
@@ -650,17 +653,92 @@ describe('useSessionTranscript：直查优先（D8）', () => {
     expect(result.current.messages).toEqual([]);
     expect(result.current.running).toBe(false);
     expect(result.current.error).toBeNull();
+    expect(result.current.summary).toBeNull();
     expect(
       invokeMock.mock.calls.filter(([name]) => name === 'agent_session_transcript'),
     ).toHaveLength(0);
   });
 
-  it('sessionId 与 sourceRef 双 null（decision 槽位缺席）：清空态零 invoke（不误挂他 attempt 会话）', async () => {
+  it('sessionId 与 sourceRef 双 null（decision 槽位缺席）：清空态零 invoke、summary null（不误挂他 attempt 会话）', async () => {
     const { result } = await mounted({ sessionId: null, sourceRef: null });
 
     expect(invokeMock).not.toHaveBeenCalled();
     expect(result.current.messages).toEqual([]);
     expect(result.current.running).toBe(false);
     expect(result.current.error).toBeNull();
+    expect(result.current.summary).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// summary 三件套（desktop-drawer-session-column，AC-3 / D4）：返回面增
+// `summary: SessionSummary | null`（row + stats + turns）——与 messages 同一次
+// 取数（直查 sessionDetail 应答 / 反查清单 latest），不重复发 invoke；错误态
+// 与空态下 summary 恒 null（不虚构元信息）。
+// ---------------------------------------------------------------------------
+
+describe('useSessionTranscript：summary 三件套（AC-3 / D4）', () => {
+  function detailCalls(): unknown[][] {
+    return invokeMock.mock.calls.filter(([name]) => name === 'session_detail');
+  }
+
+  it('直查命中：summary = session_detail 应答三件套逐字段（row / stats / turns），且与 messages 同一次直查取数', async () => {
+    const direct = summary('ses-slot-1', [turn(11, 'running')]);
+    detailResult = direct;
+    transcriptResult = REPLAY;
+    const { result } = await mounted({ sessionId: 'ses-slot-1', sourceRef: null });
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    // 逐字段同源：row 身份面 / provenance / stats / turns 全量透出
+    expect(result.current.summary).not.toBeNull();
+    expect(result.current.summary?.row.id).toBe('ses-slot-1');
+    expect(result.current.summary?.row.remoteSessionId).toBe(direct.row.remoteSessionId);
+    expect(result.current.summary?.row.provenance).toEqual(direct.row.provenance);
+    expect(result.current.summary?.row.createdAt).toBe(direct.row.createdAt);
+    expect(result.current.summary?.stats).toEqual(direct.stats);
+    expect(result.current.summary?.turns).toEqual(direct.turns);
+    // 与 messages 同一次直查取数：session_detail 恰一次，不重复发 invoke
+    expect(detailCalls()).toHaveLength(1);
+    expect(result.current.running).toBe(true);
+  });
+
+  it('反查命中：summary = 清单 latest 会话三件套（同 ref 多会话取末位口径对 summary 同样成立）', async () => {
+    const latest = summary('ses-latest', [turn(12, 'completed')]);
+    sessionsResult = [summary('ses-old', [turn(11, 'completed')]), latest];
+    transcriptResult = REPLAY;
+    const { result } = await mounted();
+    await waitFor(() => expect(result.current.messages).toHaveLength(2));
+
+    expect(result.current.summary?.row.id).toBe('ses-latest');
+    expect(result.current.summary?.row.provenance).toEqual(latest.row.provenance);
+    expect(result.current.summary?.stats).toEqual(latest.stats);
+    expect(result.current.summary?.turns).toEqual(latest.turns);
+  });
+
+  it('sourceRef 变化重查：summary 随新会话更新（与 messages / running 同一 effect 重查链）', async () => {
+    const { result, rerender } = await mounted();
+    await waitFor(() => expect(result.current.summary?.row.id).toBe(SESSION_ID));
+
+    const nextRef = 'add-feature/implement/evaluator/1';
+    sessionsResult = [summary('ses-evaluator-1', [turn(21, 'completed')], nextRef)];
+    transcriptResult = [textMessage(0, '评估会话输出')];
+    rerender(propsWith({ sourceRef: nextRef }));
+    await waitFor(() => expect(result.current.summary?.row.id).toBe('ses-evaluator-1'));
+
+    expect(result.current.summary?.row.provenance.sourceRef).toBe(nextRef);
+    expect(result.current.messages.map((message) => message.id)).toEqual(['evt-0']);
+  });
+
+  it('reject 错误态：error 呈现、summary 保持 null（错误态不虚构元信息）', async () => {
+    sessionsResult = 'db: 会话查询失败';
+    const fallback = await mounted();
+    await waitFor(() => expect(fallback.result.current.error).toBe('db: 会话查询失败'));
+    expect(fallback.result.current.summary).toBeNull();
+    fallback.unmount();
+
+    detailResult = '会话不存在: id=ses-gone';
+    const direct = await mounted({ sessionId: 'ses-gone', sourceRef: null });
+    await waitFor(() => expect(direct.result.current.error).toBe('会话不存在: id=ses-gone'));
+    expect(direct.result.current.summary).toBeNull();
   });
 });

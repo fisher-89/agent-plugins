@@ -211,11 +211,12 @@ describe('SessionTranscriptPanel：role 分页与反查联动（AC-5 联动半�
     expect(screen.queryByTestId('transcript-role-tab')).toBeNull();
   });
 
-  it('roleRefs 空（未选中会话节点）：面板不渲染、零 invoke', async () => {
+  it('roleRefs 空（列头 / ToolStep 选中）：面板渲染 drawer-session-empty 空态占位、零 invoke（恒渲染结构，AC-1 / D2）', async () => {
     const { container } = await mounted([]);
 
     expect(screen.queryByTestId('session-transcript-panel')).toBeNull();
-    expect(container.childElementCount).toBe(0);
+    expect(screen.getByTestId('drawer-session-empty').textContent).toBe('（当前选中无关联会话）');
+    expect(container.childElementCount).toBe(1);
     expect(invokeMock).not.toHaveBeenCalled();
   });
 });
@@ -270,13 +271,14 @@ describe('SessionTranscriptPanel：AgentTimeline 渲染与 liveEvents 透传', (
 });
 
 describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => {
-  it('反查无会话：transcript-empty 空态呈现不炸（节点尚无会话的合法空态）', async () => {
+  it('反查无会话：transcript-empty 空态呈现不炸、session-meta 整体不渲染（元信息不虚构会话——D4）', async () => {
     await mounted([
       { role: 'executor', sourceRef: 'add-feature/code-review/executor/1', sessionId: null },
     ]);
     await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
 
     expect(screen.queryByTestId('agent-timeline')).toBeNull();
+    expect(screen.queryByTestId('session-meta')).toBeNull();
     // 无错不出错误占位（error 与 empty 占位互斥呈现面）
     expect(screen.queryByTestId('transcript-error')).toBeNull();
   });
@@ -288,7 +290,7 @@ describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => 
     expect(screen.getByTestId('transcript-empty') !== null).toBe(true);
   });
 
-  it('反查 reject → transcript-error 呈现（面板可感知）', async () => {
+  it('反查 reject → transcript-error 呈现、session-meta 同样不渲染（错误态无元信息可呈）', async () => {
     invokeMock.mockImplementation((command: string) =>
       command === 'agent_sessions' ? Promise.reject('db: 会话查询失败') : Promise.resolve(null),
     );
@@ -299,6 +301,96 @@ describe('SessionTranscriptPanel：空态与错误（边界 / 异常）', () => 
 
     // 错误态不出空态占位（error 门禁下 empty 分支收口）
     expect(screen.queryByTestId('transcript-empty')).toBeNull();
+    expect(screen.queryByTestId('session-meta')).toBeNull();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// 会话元信息区与恒渲染（desktop-drawer-session-column，AC-1 / AC-3 / D2 / D4 /
+// D5）：`SessionMeta` 元信息区（session id 等宽截断 + title 全量、运行徽章、
+// 轮数、token 合计 null → 「—」）；summary null 整体不渲染；高度语义改填充
+// 宿主列（时间线容器 min-h-0 flex-1，根节 h-full——jsdom 无布局引擎，以类
+// 契约断言）
+// ---------------------------------------------------------------------------
+
+describe('SessionTranscriptPanel：会话元信息区（SessionMeta）', () => {
+  function metaText(testId: string): string {
+    return screen.getByTestId(testId).textContent ?? '';
+  }
+
+  it('summary 在场（轮行含 running）：session id、「运行中」徽章、轮数、token 合计逐项可辨', async () => {
+    const runningSummary = summary(EXECUTOR_SESSION, EXECUTOR_REF, [
+      turn(11, EXECUTOR_SESSION, 'running'),
+    ]);
+    runningSummary.stats = { ...runningSummary.stats, inputTokens: 120, outputTokens: 88 };
+    sessionsByRef[EXECUTOR_REF] = [runningSummary];
+
+    await mounted([{ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null }]);
+    await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
+
+    expect(metaText('session-meta-id')).toBe(EXECUTOR_SESSION);
+    expect(metaText('session-meta-status')).toBe('运行中');
+    expect(metaText('session-meta-turns')).toBe('轮数 1');
+    expect(metaText('session-meta-tokens')).toBe('tokens 120 / 88');
+    // 同源推导：running 徽章与时间线运行标记同时呈现
+    expect(screen.getByTestId('timeline-running') !== null).toBe(true);
+  });
+
+  it('summary 在场（全部终态轮行）：徽章「已收口」（与 timeline-running 消失同源推导——状态单一事实源为轮行清单）', async () => {
+    await mounted([{ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null }]);
+    await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
+
+    expect(metaText('session-meta-status')).toBe('已收口');
+    expect(screen.queryByTestId('timeline-running')).toBeNull();
+  });
+
+  it('stats.inputTokens / outputTokens null → 「—」占位（不渲染字符串 "null"）；id 截断为 CSS 面、title 属性携全量', async () => {
+    const first = await mounted([{ role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null }]);
+    await waitFor(() => expect(screen.getByTestId('session-meta') !== null).toBe(true));
+
+    expect(metaText('session-meta-tokens')).toBe('tokens — / —');
+    expect(metaText('session-meta-tokens')).not.toContain('null');
+    first.unmount();
+
+    const longId = 'ses-' + 'x'.repeat(200);
+    const longSummary = summary(longId, EXECUTOR_REF, [turn(11, longId, 'completed')]);
+    sessionsByRef[EXECUTOR_REF] = [longSummary];
+    const rerendered = renderPanel([
+      { role: 'executor', sourceRef: EXECUTOR_REF, sessionId: null },
+    ]);
+    await waitFor(() =>
+      expect(screen.getByTestId('session-meta-id').getAttribute('title')).toBe(longId),
+    );
+
+    const idSpan = screen.getByTestId('session-meta-id');
+    expect(idSpan.className).toContain('truncate');
+    expect(idSpan.textContent).toBe(longId);
+    rerendered.unmount();
+  });
+
+  it('summary null（反查无会话 / 未开跑角色）：session-meta 整体不渲染、transcript-empty 承担（D4）', async () => {
+    await mounted([
+      { role: 'executor', sourceRef: 'add-feature/code-review/executor/1', sessionId: null },
+    ]);
+    await waitFor(() => expect(screen.getByTestId('transcript-empty') !== null).toBe(true));
+    expect(screen.queryByTestId('session-meta')).toBeNull();
+    expect(screen.queryByTestId('session-meta-id')).toBeNull();
+    expect(screen.queryByTestId('session-meta-status')).toBeNull();
+  });
+
+  it('高度语义改填充宿主列：时间线容器 min-h-0 flex-1 overflow-y-auto、不含 max-h-[480px]；根节含 h-full（AC-1「转录拉满左列」）', async () => {
+    await mounted();
+    const panel = screen.getByTestId('session-transcript-panel');
+    await waitFor(() => expect(within(panel).getAllByTestId('block-text')).toHaveLength(2));
+
+    expect(panel.className).toContain('h-full');
+    expect(panel.className).toContain('min-h-0');
+    const timeline = within(panel).getByTestId('agent-timeline');
+    const scroller = timeline.parentElement;
+    expect(scroller?.className).toContain('min-h-0');
+    expect(scroller?.className).toContain('flex-1');
+    expect(scroller?.className).toContain('overflow-y-auto');
+    expect(scroller?.className).not.toContain('max-h-[480px]');
   });
 });
 

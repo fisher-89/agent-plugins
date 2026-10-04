@@ -56,7 +56,6 @@ const fakeDetail: ChangeDetail = {
   unparsable: false,
   pipeline: [],
   activePhase: null,
-  interrupted: [],
   fileLog: [],
   artifacts: [],
 };

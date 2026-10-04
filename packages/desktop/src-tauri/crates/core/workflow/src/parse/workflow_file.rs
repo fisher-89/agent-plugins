@@ -1,17 +1,10 @@
-//! `workflow.json` 的两段式宽松解析。
-//!
-//! 第一段整读为 `serde_json::Value`（未知字段天然忽略，含 legacy `files` 桶、
-//! `source` 旁挂映射）；第二段逐字段、逐条目 `from_value`——单条 eval /
-//! file_log / interrupted 条目损坏时跳过该条、其余数据照常返回；
-//! 必填核心字段 `workflow_type` 缺失或非法时整体降级为 Unparsable，绝不 panic。
-
 use std::fs;
 use std::path::Path;
 
 use serde_json::Value;
 
 use super::WORKFLOW_FILE_NAME;
-use crate::model::{ActivePhase, FileLogEntry, InterruptedEntry, PhaseLog, Workflow};
+use crate::model::{ActivePhase, FileLogEntry, PhaseLog, Workflow};
 
 /// 单份 workflow.json 的解析结果：正常解析或整体降级标记。
 #[derive(Debug, Clone)]
@@ -96,20 +89,11 @@ fn parse_workflow_text(text: &str) -> WorkflowFileParse {
         _ => None,
     };
 
-    let interrupted = match object.get("interrupted") {
-        Some(Value::Array(items)) => items
-            .iter()
-            .filter_map(|item| serde_json::from_value::<InterruptedEntry>(item.clone()).ok())
-            .collect(),
-        _ => Vec::new(),
-    };
-
     WorkflowFileParse::Parsed(Workflow {
         workflow_type: workflow_type.to_string(),
         created,
         eval,
         file_log,
         active_phase,
-        interrupted,
     })
 }

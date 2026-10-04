@@ -19,7 +19,6 @@
         "scope": "workflow"
       }
     ],
-    "interrupted": [],
     "inventory": "v2",
     "name": "corrupt-bad-filelog-entry",
     "pipeline": [
@@ -75,7 +74,6 @@
     "evalWithChecklist": 0,
     "fileLog": "entries",
     "fileLogCount": 2,
-    "interruptedCount": 0,
     "outcome": "parsed",
     "workflowType": "requirement"
   }

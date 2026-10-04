@@ -4,7 +4,6 @@
     "artifacts": [],
     "created": null,
     "fileLog": null,
-    "interrupted": [],
     "inventory": "v2",
     "name": "corrupt-invalid-json",
     "pipeline": [
