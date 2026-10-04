@@ -49,6 +49,18 @@ fn system其余subtype归一化为system_notice且payload存原json() {
 }
 
 #[test]
+fn system_thinking_tokens行估算遥测丢弃返回none() {
+    // CLI 思考流式期间每几 token 一条（estimated_tokens 累计估算，权威口径
+    // 已由 result → TurnDone.usage 收口）：不进密封词面，同空白行不占 seq
+    let line = r#"{"type":"system","subtype":"thinking_tokens","estimated_tokens":27,"estimated_tokens_delta":1,"uuid":"u-1","session_id":"s-1"}"#;
+    assert_eq!(
+        normalize_line(line),
+        None,
+        "thinking_tokens 为流式估算遥测，应丢弃不占归一化位"
+    );
+}
+
+#[test]
 fn assistant与user行归一化为message且blocks按类型映射() {
     let Some(AgentEventKind::Message {
         role,

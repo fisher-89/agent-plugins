@@ -102,10 +102,24 @@ export interface AgentRunResultCardData {
   costUsd: number | null;
   durationMs: number | null;
   sessionId: string | null;
+  /** 轮末权威 usage（透传不解释；token 取数见 [`usageTokenCounts`]） */
+  usage?: unknown;
 }
 
-/** run 结束汇总卡：轮数 / 成本 / 时长 / session（可读、session 可复制） */
+/** usage 线格式取数：CLI result 与 SDK rig Usage 的 token 字段同为 snake_case
+ *  `input_tokens` / `output_tokens`（缓存类字段两侧命名不一，不并入）；usage
+ *  缺省或任一字段非数 → null（token 项不呈现，维持既有 stat 行为） */
+function usageTokenCounts(usage: unknown): { input: number; output: number } | null {
+  if (typeof usage !== 'object' || usage === null) return null;
+  const input = (usage as { input_tokens?: unknown }).input_tokens;
+  const output = (usage as { output_tokens?: unknown }).output_tokens;
+  if (typeof input !== 'number' || typeof output !== 'number') return null;
+  return { input, output };
+}
+
+/** run 结束汇总卡：轮数 / 成本 / 时长 / tokens / session（可读、session 可复制） */
 export function ResultCard({ data }: { data: AgentRunResultCardData }): React.JSX.Element {
+  const tokens = usageTokenCounts(data.usage);
   return (
     <div
       className={`my-2 rounded-md border px-3 py-2.5 text-sm ${data.isError ? 'border-fail bg-fail-bg text-fail' : 'border-border bg-muted'}`}
@@ -131,6 +145,14 @@ export function ResultCard({ data }: { data: AgentRunResultCardData }): React.JS
             {data.durationMs !== null ? `${data.durationMs}ms` : '—'}
           </strong>
         </span>
+        {tokens !== null && (
+          <span>
+            tokens：
+            <strong data-testid="result-tokens">
+              入 {tokens.input} / 出 {tokens.output}
+            </strong>
+          </span>
+        )}
         <span className="flex items-center gap-1">
           session：
           {data.sessionId !== null ? (

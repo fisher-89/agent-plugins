@@ -1,7 +1,7 @@
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole};
 use serde_json::Value;
 
-/// 单行归一化；空白行（纯空白）返回 `None`。
+/// 单行归一化；空白行（纯空白）与 thinking_tokens 估算遥测行返回 `None`。
 pub fn normalize_line(line: &str) -> Option<AgentEventKind> {
     if line.trim().is_empty() {
         return None;
@@ -12,7 +12,7 @@ pub fn normalize_line(line: &str) -> Option<AgentEventKind> {
     };
     let event_type = parsed.get("type").and_then(Value::as_str);
     match event_type {
-        Some("system") => Some(system_event(&parsed)),
+        Some("system") => system_event(&parsed),
         Some(role @ ("assistant" | "user")) => Some(message_event(role, &parsed)),
         Some("result") => Some(result_event(&parsed)),
         Some(event_type) => Some(raw(event_type, line)),
@@ -36,27 +36,33 @@ fn unparsable(line: &str) -> AgentEventKind {
     }
 }
 
-/// `type=system`：`subtype=init` → RunStarted，其余 → SystemNotice（payload
-/// 存原 JSON，不封闭枚举）。
-fn system_event(parsed: &Value) -> AgentEventKind {
+/// `type=system`：`subtype=init` → RunStarted；`subtype=thinking_tokens` →
+/// None（思考流式 token 估算遥测：每几 token 一条的高频进度信号，估算口径
+/// 已被 result → TurnDone.usage 权威收口，不进密封词面——不落库不上传输
+/// 面，同空白行不占 seq）；其余 → SystemNotice（payload 存原 JSON，不封闭
+/// 枚举）。
+fn system_event(parsed: &Value) -> Option<AgentEventKind> {
     let subtype = parsed
         .get("subtype")
         .and_then(Value::as_str)
         .unwrap_or_default();
+    if subtype == "thinking_tokens" {
+        return None;
+    }
     if subtype == "init" {
         let tools = string_list(parsed.get("tools"));
         let mcp_servers = string_list(parsed.get("mcp_servers"));
-        return AgentEventKind::RunStarted {
+        return Some(AgentEventKind::RunStarted {
             model: optional_string(parsed.get("model")),
             session_id: optional_string(parsed.get("session_id")),
             tools,
             mcp_servers,
-        };
+        });
     }
-    AgentEventKind::SystemNotice {
+    Some(AgentEventKind::SystemNotice {
         subtype: subtype.to_owned(),
         payload: parsed.clone(),
-    }
+    })
 }
 
 fn message_event(role: &str, parsed: &Value) -> AgentEventKind {

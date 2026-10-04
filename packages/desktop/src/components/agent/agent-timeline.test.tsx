@@ -48,7 +48,7 @@ function systemNotice(seq: number): AgentEvent {
   return { seq, timestampMs: TS, kind: 'systemNotice', subtype: 'api_retry', payload: {} };
 }
 
-function turnDone(seq: number): AgentEvent {
+function turnDone(seq: number, usage: unknown = {}): AgentEvent {
   return {
     seq,
     timestampMs: TS,
@@ -58,7 +58,7 @@ function turnDone(seq: number): AgentEvent {
     numTurns: 3,
     durationMs: 1234,
     costUsd: 0.42,
-    usage: {},
+    usage,
     sessionId: 'ses-0-1727000000000',
   };
 }
@@ -292,10 +292,23 @@ describe('AgentTimeline：raw 透传与可复制', () => {
     expect(screen.getByTestId('result-num-turns').textContent).toBe('3');
     expect(screen.getByTestId('result-cost').textContent).toBe('$0.42');
     expect(screen.getByTestId('result-duration').textContent).toBe('1234ms');
+    expect(screen.queryByTestId('result-tokens') === null).toBe(true);
     const copyButton = screen.getByTestId('copy-value');
     expect(copyButton.closest('span')?.textContent).toContain('ses-0-1727000000000');
     fireEvent.click(copyButton);
     expect(writeText).toHaveBeenCalledWith('ses-0-1727000000000');
+  });
+
+  it('usage 携带 snake_case token 字段时汇总卡追加 tokens 项（CLI result / SDK rig 同形）', () => {
+    const usageBearing = turnDone(2, {
+      input_tokens: 2,
+      cache_read_input_tokens: 37376,
+      output_tokens: 32,
+      output_tokens_details: { thinking_tokens: 0 },
+    });
+    render(<AgentTimeline messages={eventsToUIMessages([usageBearing])} running={false} />);
+
+    expect(screen.getByTestId('result-tokens').textContent).toBe('入 2 / 出 32');
   });
 });
 
