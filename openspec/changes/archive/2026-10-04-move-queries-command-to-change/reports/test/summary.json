@@ -1,0 +1,66 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-04T06:55:30.572Z",
+  "duration_seconds": 95,
+  "total": 975,
+  "passed": 975,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": null,
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/move-queries-command-to-change/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/move-queries-command-to-change/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ],
+  "findings": [
+    "全绿通过(4e)：975/975 测试通过（vite-plus 895 + rust 80，两 plan exit_code 0、error_cases 均为 0、problems 为空），summary 覆盖率门 pass，计数自洽 975=895+80+0、plans[] 双条目齐全。",
+    "变更随迁面核实：rust results.txt 实证 commands::changes::mod_test 11/11 ok（7 个随迁 queries 用例 + 4 个既有 create_change 用例，与 AC-3 的 7+4 计数一致）、commands::explores::mod_test 23/23 ok（含 D4 断言消息 re-point 的 read_explore 穿越分量名用例）。",
+    "报告完整性观察：rust plan 的 summary 仅取 cargo 输出首个 test result 块（80，parseCargoOutput 首块即返回），而 cargo test --workspace 实际跨 24 个 target 执行 928 个测试全 ok（results.txt 无 FAILED 行、全部 result 块 0 failed）；失败检测不受影响（exit_code!=0 且 failed=0 会升级为 execution_error），仅计数口径偏低，字段未改动。",
+    "覆盖率聚合观察（沿前次归档运行同形）：summary 与 packages/desktop override 的 measured 全 null、passed_count 0/67，但 per-plan 数据真实——vite-plus lines 94.85 / branches 90.22 / functions 93.67（均 >= 90/85/90），rust lines 96.08；聚合层 null 属已知形态，字段未改动。",
+    "rust 原子报告 coverage.pass=false（functions 88.94 < 90；branches 为 llvm-cov 汇总缺失维度记 0）不进入 summary 门（未产生 coverage_failure problem、conclusion 仍 pass）；前次归档运行同维为 88.98，属 workspace 既有属性而非本变更引入，本相位禁改源码/测试，仅记录不处置。",
+    "mutation=null 系范围性跳过而非缺陷：变更清单 7 个 written 文件全为 .rs，唯一注册 mutation 运行器的 vite-plus 套件与该范围的 TS 交集为空（runMutationPhase 空 scope 直接返回 null），rust 框架无 mutation 运行器；附带影响：reuse 门会判本 summary 过期（mutationRequired=true 而 mutation=null）导致下次调用重跑，属预期行为。"
+  ]
+}

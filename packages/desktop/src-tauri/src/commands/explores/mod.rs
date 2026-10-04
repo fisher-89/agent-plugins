@@ -1,7 +1,7 @@
 //! explore 命令轨道（查询 + 显式写）：七条命令——三读（单文件读取 / 导入
 //! 扫描 / 文档路径派生）+ 四记录面（清单 / 建档 / 改名 / 删除）。
 //!
-//! 三件事纪律沿 `commands/queries` 模板：参数转换 → 调用（workflow 查询或
+//! 三件事纪律沿 `commands/changes` 模板：参数转换 → 调用（workflow 查询或
 //! store 操作）→ 错误映射；blank root 纪律同口径（空/空白 root 不进入查询
 //! 与 store 链路：查询直接空结果语义、写命令 `Err`——写无空结果语义，无
 //! panic 无错误弹窗）。记录面经 `for_root(&root)` 路由至**所属 workspace 库**
@@ -26,7 +26,7 @@ use foundation::layout::resolve;
 use store::{ExploreRecord, WorkspaceStores};
 use workflow::queries::{self, ExploreDoc, ExploreScanEntry};
 
-/// root 显式格式检查：空/空白串不进入查询链路（同 `commands::queries` 口径）。
+/// root 显式格式检查：空/空白串不进入查询链路（同 `commands::changes` 口径）。
 fn is_blank_root(root: &str) -> bool {
     root.trim().is_empty()
 }

@@ -150,7 +150,7 @@ fn read_explore穿越分量名在命令边界拒绝返回none() {
         assert_eq!(
             read_explore(env.root(), name.to_owned()),
             None,
-            "敌意名 {name:?} 在命令边界拒绝（同 commands/queries 敌意 source 口径）"
+            "敌意名 {name:?} 在命令边界拒绝（同 commands/changes 敌意 source 口径）"
         );
     }
 }

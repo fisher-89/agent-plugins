@@ -3,7 +3,7 @@
 //! `workspace_config_inner` 领域组装纯函数（`*_inner` app 层微形态先例，
 //! 离 Tauri 运行时可测）。
 //!
-//! 三件事纪律沿 `commands/queries` 模板：参数转换 → 调用 → 错误映射。与
+//! 三件事纪律沿 `commands/changes` 模板：参数转换 → 调用 → 错误映射。与
 //! code_stats 裁定同式：无效 root（缺失 / 不可读 / 非目录 / 空白）统一
 //! `Err`（壳态 root 恒有值，blank 只能来自调用 bug）；配置文件缺失不是
 //! `Err`（多数 workspace 常态），以报告内 `fileMissing` 诊断标记、页面

@@ -69,7 +69,7 @@ desktop 桌面端补充"新建变更"入口：用户在变更清单页输入 cha
 
 ### Requirement: create_change IPC 命令面
 
-desktop-app 命令层 SHALL 新增 `create_change` 命令（落位 `commands/changes/` 新命令组）：三件事纪律薄包装（参数转换 → 调写面 `create` → 错误映射），blank root 显式 `Err`，返回 `Result<T, String>`，返回 DTO 仅含 `name` 与 `created`（磁盘路径知识 MUST NOT 下沉前端）。命令 SHALL 经 `#[specta::specta]` 出线并登记入 `all_commands!`，TS bindings 随既有管线重导出且一致性守卫通过。
+desktop-app 命令层 SHALL 新增 `create_change` 命令（落位 `commands/changes/` 命令组；该组自 move-queries-command-to-change 起同组承载 change 域读命令 `list_changes` / `get_change_detail` / `read_artifact`——读 + 记录面同组沿 explores 组先例，组内 blank root 双口径并存且不互换，见 desktop-app-shell「Tauri command 轨道组织」）：三件事纪律薄包装（参数转换 → 调写面 `create` → 错误映射），blank root 显式 `Err`，返回 `Result<T, String>`，返回 DTO 仅含 `name` 与 `created`（磁盘路径知识 MUST NOT 下沉前端）。命令 SHALL 经 `#[specta::specta]` 出线并登记入 `all_commands!`，TS bindings 随既有管线重导出且一致性守卫通过。
 
 #### Scenario: 命令注册与类型出线
 
@@ -145,7 +145,7 @@ desktop-app 命令层 SHALL 新增 `create_change` 命令（落位 `commands/cha
 |------|------|----------|
 | `packages/desktop/src-tauri/crates/core/workflow/src/write/create.rs`（新） | change 创建域操作 | kebab-case（`^[a-z][a-z0-9]*(-[a-z0-9]+)*$`、≤128）+ goal 非空白校验；`create_dir_all` 建树；workflow.json `{workflow_type:"requirement", created:<UTC YYYY-MM-DD>, file_log:[]}`（键序固定、无 eval 键、2 空格 pretty + 尾换行）+ explore.md goal 原文；已存在拒绝零副作用；sync、零 Tauri、仅依赖 foundation |
 | `packages/desktop/src-tauri/crates/core/workflow/src/write/mod.rs` | 写面导出面 | 追加导出 `create`（入参 `&Layout` / name / goal；签名与返回 DTO 形状 design 定稿）；既有四操作导出不变 |
-| `packages/desktop/src-tauri/src/commands/changes/mod.rs`（新组） | `create_change` IPC 命令 | 三件事薄包装；blank root → `Err`；`Result<T, String>`；返回 DTO 仅 `name` + `created`（路径不下沉）；`#[specta::specta]` |
+| `packages/desktop/src-tauri/src/commands/changes/mod.rs`（change 域读 + 记录面命令组） | `create_change` IPC 命令（与三读命令同组） | 三件事薄包装；blank root → `Err`；`Result<T, String>`；返回 DTO 仅 `name` + `created`（路径不下沉）；`#[specta::specta]` |
 | `packages/desktop/src-tauri/src/commands/mod.rs` | 单一登记面 | `all_commands!` 追加 `create_change` |
 | `packages/desktop/src/types/generated/bindings.ts`（重导出） | 前端唯一 IPC 类型面 | `createChange` typed 包装 + 返回 DTO 出线；check/build 前置重导出 + diff 守卫既有管线 |
 | `packages/desktop/src/views/changes/components/change-create-dialog.test.tsx` 同目录 `change-create-dialog.tsx`（新） | 新建对话框 | toggle 展开；名称（kebab-case 本地校验）+ goal 必填；不合法禁提交不发起 invoke；错误行内呈现；data-testid 挂钩 |

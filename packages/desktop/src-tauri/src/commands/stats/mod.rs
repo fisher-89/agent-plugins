@@ -2,7 +2,7 @@
 //! 产出三面 DTO（汇总 / 语言行 / 目录树），无状态薄包装 + `code_stats_inner`
 //! 领域组装纯函数（`*_inner` app 层微形态先例，离 Tauri 运行时可测）。
 //!
-//! 三件事纪律沿 `commands/queries` 模板：参数转换 → 调用 → 错误映射。与既有
+//! 三件事纪律沿 `commands/changes` 模板：参数转换 → 调用 → 错误映射。与既有
 //! 查询轨道的 blank root → 空结果语义反向：spec 裁定无效 root（缺失 / 不可读 /
 //! 非目录 / 空白）统一 `Err`（壳态 root 恒有值，blank 只能来自调用 bug），
 //! `code_stats_inner` 前置 `fs::metadata` 有效性检查作为 Err 通道唯一来源。

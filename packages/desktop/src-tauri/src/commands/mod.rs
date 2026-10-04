@@ -5,7 +5,6 @@ pub mod config;
 pub mod db;
 pub mod exec;
 pub mod explores;
-pub mod queries;
 pub mod stats;
 pub mod watch;
 pub mod workspaces;
@@ -22,9 +21,9 @@ pub(crate) static TEST_PATH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new((
 macro_rules! all_commands {
     ($mac:ident) => {
         $mac![
-            $crate::commands::queries::list_changes,
-            $crate::commands::queries::get_change_detail,
-            $crate::commands::queries::read_artifact,
+            $crate::commands::changes::list_changes,
+            $crate::commands::changes::get_change_detail,
+            $crate::commands::changes::read_artifact,
             $crate::commands::workspaces::list_workspaces,
             $crate::commands::workspaces::add_workspace,
             $crate::commands::workspaces::remove_workspace,

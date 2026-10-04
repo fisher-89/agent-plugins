@@ -1,0 +1,1049 @@
+
+running 80 tests
+test event_test::message_delta变体is_delta为真且sealed判别为假 ... ok
+test event_test::agent_delta两变体序列化判别值逐字为text与thinking且往返一致 ... ok
+test event_test::message_delta序列化判别值逐字为messageDelta且驼峰键在场 ... ok
+test event_test::message四类块混合数组往返无损且块判别值为驼峰 ... ok
+test event_test::raw变体原文json逐字节保留含中文emoji换行引号 ... ok
+test event_test::stamp以0盖戳产出seq为0且时间戳为当前时钟毫秒 ... ok
+test event_test::stamp对u64最大seq原样保留不截断且往返无损 ... ok
+test event_test::thinking_delta往返保真且与text增量可辨 ... ok
+test event_test::turn_done全字段缺席形态serde往返无损 ... ok
+test event_test::turn_done序列化判别值逐字为turnDone且驼峰统计键回归 ... ok
+test event_test::六变体判别矩阵_仅message_delta为增量_其余五变体为密封 ... ok
+test event_test::六变体各自反序列化往返逐字段相等 ... ok
+test event_test::六变体序列化含seq与时间戳顶层键且判别值为驼峰 ... ok
+test event_test::增量判别对parent归因与thinking两形态同真 ... ok
+test event_test::旧线值run_result反序列化返回err更名不别名 ... ok
+test event_test::缺seq或时间戳必填键的json反序列化返回err不产半成品事件 ... ok
+test kernel_test::begin_turn_new同步段sink调用序恰为建会话_开轮_登记且三字段承接 ... ok
+test kernel_test::begin_turn_continue不重复建会话行且多轮轮id递增承接sink分配序 ... ok
+test kernel_test::begin_turn_open失败时err传播且假sink零调用 ... ok
+test kernel_test::begin_turn_sink失败时err映射传播且错误映射单点在内核 ... ok
+test kernel_test::drive_append失败时failed收敛记因_finish尽力_除名后流出终态 ... ok
+test kernel_test::drive_turn_done统计收口_唯一口径承接_除名流出终态 ... ok
+test kernel_test::drive停止置位后观察流关闭_stopped收敛不记因 ... ok
+test kernel_test::drive增量只上输出回调_盖戳补齐单调且sink零append ... ok
+test kernel_test::drive密封事件write_through恰一次且载荷为盖戳后事件 ... ok
+test kernel_test::drive空观察流无停止信号时兜底failed且不悬挂 ... ok
+test kernel_test::多session并行登记互不串扰且同键重复登记以新句柄覆盖 ... ok
+test kernel_test::未登记与除名后置位miss幂等返回false不改终态 ... ok
+test kernel_test::drive观察洪峰经背压全量送达零丢失且seq全程单调 ... ok
+test kernel_test::注册表登记后置位命中返回true且句柄同步观测为true ... ok
+test lib_test::crate根trait导出可实现且退役协议类型不再出现在根面 ... ok
+test lib_test::crate根导出面锚定_session_port_kernel新模块类型可达 ... ok
+test port_test::turn_outcome全字段驼峰线格式往返逐字段相等 ... ok
+test port_test::dyn_session_sink与dyn_session_query满足send_sync ... ok
+test port_test::turn_outcome缺席两极与status四值线格式往返 ... ok
+test port_test::假query单查err原样传播不静默 ... ok
+test port_test::假query单查经arc_dyn注入可达且三件套逐字段锚定 ... ok
+test port_test::假query经arc_dyn注入三方法返回形态编译锚定 ... ok
+test port_test::假sink经arc_dyn注入五方法调用序与载荷原样记录 ... ok
+test port_test::假sink返回err时result语义原样传播不静默 ... ok
+test runner_test::clone句柄共享信号置位双方可见 ... ok
+test runner_test::open_session_continue携会话id与prior_handle原样传递 ... ok
+test runner_test::open_session三变体启动失败err原样传播且互不重合 ... ok
+test runner_test::open_session_new注入与上下文原样到达实现且返回三件套 ... ok
+test runner_test::request_stop置位后stop_requested为true且重复置位幂等 ... ok
+test runner_test::session_ctx序列化驼峰键且未知字段忽略往返无损 ... ok
+test runner_test::session_injections默认形态tools与preamble均为none ... ok
+test runner_test::session_ref两形态相等语义与互异 ... ok
+test runner_test::start_error三变体display文案携带原因串 ... ok
+test runner_test::初始句柄未置位停止信号 ... ok
+test runner_test::假runner可作trait_object注入且满足send_sync边界 ... ok
+test runner_test::已置位时wait_requested经先复查短路立即返回 ... ok
+test runner_test::挂起的wait_requested被request_stop唤醒且重复置位不二次异常唤醒 ... ok
+test runner_test::重复open_session互不共享运行态_两会话观察各自独立 ... ok
+test session_test::config_snapshot不透明value任意json保真 ... ok
+test session_test::new_session_row字段面仅id快照与provenance且无时间戳语义 ... ok
+test session_test::remote_session_id_null与有值两形态可区分 ... ok
+test session_test::session_row全字段驼峰线格式往返逐字段相等 ... ok
+test kernel_test::drive_on_output慢速消费时密封落库与收口时序不受阻塞影响 ... ok
+test session_test::session_stats全none形态与全有值形态均往返无损 ... ok
+test runner_test::未请求终止时wait_requested持续挂起不完成 ... ok
+test session_test::session_summary组装往返_turns空数组与多轮两形态 ... ok
+test session_test::turn_summary_running形态统计全null且终态形态统计齐备 ... ok
+test session_test::turn_summary_status四值线格式running_completed_failed_stopped ... ok
+test session_test::缺必填字段id或provenance反序列化err不产半成品 ... ok
+test session_test::超长source_ref原样往返不截断 ... ok
+test session_test::连续铸造多枚id均带ses前缀且两两互异 ... ok
+test state_test::new后current为running ... ok
+test state_test::running状态调用stop收敛stopped且current观测一致 ... ok
+test session_test::千次铸造零碰撞且id形态稳定无空白与非法字符 ... ok
+test state_test::stopped收敛后再apply任意事件终态保持stopped ... ok
+test state_test::stop与turn_done双向竞态时首个收敛生效且互不改写 ... ok
+test state_test::turn_done且is_error为false时收敛completed ... ok
+test state_test::turn_done且is_error为true时收敛failed ... ok
+test state_test::已completed或failed终态调用stop原样返回不改写 ... ok
+test state_test::收敛后再apply任意事件终态不被改写 ... ok
+test state_test::每次apply返回值与随后current观测一致 ... ok
+test state_test::连续两个turn_done时首个收敛生效 ... ok
+test state_test::连续两次stop首个收敛生效第二次原样返回stopped ... ok
+test state_test::非turn_done事件不改变状态保持running ... ok
+
+test result: ok. 80 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 197 tests
+test cli::discover_test::path缺失视同cli缺失 ... ok
+test cli::flags_test::accept_edits档位值与serde派生线值同源 ... ok
+test cli::flags_test::bypass档组装恰含六要素flag尾禁ask两枚无多余项 ... ok
+test cli::flags_test::cwd不进协议轮参数形状_组装结果不含工作目录片段 ... ok
+test cli::flags_test::default档无permission_flag ... ok
+test cli::flags_test::prior_handle为none时组装结果与既有基线逐项相等且无resume ... ok
+test cli::flags_test::prior_handle为some时resume段紧邻尾禁ask两枚且前缀与基线一致 ... ok
+test cli::discover_test::以合成path薄包装可发现伪cli且恢复原path ... ok
+test cli::discover_test::合成目录含平台首选候选时发现并返回该路径 ... ok
+test cli::flags_test::prior_handle含空格引号换行emoji超长时原样保留单个arg ... ok
+test cli::flags_test::prior_handle空串仍组装resume与空arg ... ok
+test cli::flags_test::prompt含空格引号换行中文emoji时原样保留不拆分 ... ok
+test cli::discover_test::目录列表为空或全部无候选时返回cli_missing且display含检索线索 ... ok
+test cli::discover_test::目录列表含不存在目录时跳过不panic ... ok
+test cli::flags_test::三档全组合组装结果与既有基线逐项相等 ... ok
+test cli::flags_test::全组合不含禁用flag ... ok
+test cli::flags_test::禁ask两枚恒为参数序列最末两枚_三档乘resume全组合 ... ok
+test cli::flags_test::空prompt仍组装空串arg作为单个参数 ... ok
+test cli::flags_test::组合下resume紧邻尾禁ask两枚且档位flag与相对次序不变 ... ok
+test cli::flags_test::超长prompt完整保留于arg ... ok
+test cli::jsonl_test::assistant与user行归一化为message且blocks按类型映射 ... ok
+test cli::discover_test::仅bat或仅exe时依序降级发现对应文件 ... ok
+test cli::discover_test::同目录三候选并存时按cmd_bat_exe优先序取cmd ... ok
+test cli::discover_test::多目录各含候选时先声明目录优先 ... ok
+test cli::jsonl_test::init缺model与session置null缺tools与mcp置空数组 ... ok
+test cli::jsonl_test::message含未知块类型时跳过该块不堵信封 ... ok
+test cli::jsonl_test::message的content为字符串时降级为单个text块 ... ok
+test cli::jsonl_test::message行携parent_tool_use_id时提取为有值形态 ... ok
+test cli::jsonl_test::result缺汇总字段时置null与false ... ok
+test cli::jsonl_test::result行归一化为turn_done且字段名对齐 ... ok
+test cli::jsonl_test::system_init行归一化为run_started并提取四字段 ... ok
+test cli::jsonl_test::system_thinking_tokens行估算遥测丢弃返回none ... ok
+test cli::jsonl_test::system其余subtype归一化为system_notice且payload存原json ... ok
+test cli::jsonl_test::text与tool_result混排的user行保留user_role ... ok
+test cli::jsonl_test::tool_result的content为数组时拼接为非数组时json序列化兜底 ... ok
+test cli::jsonl_test::tool_result的is_error缺失视作false有true时保真 ... ok
+test cli::jsonl_test::tool_use与tool_result块的id_name_input与扁平content映射正确 ... ok
+test cli::jsonl_test::多行混合fixture归一化序列仅含非空白行且空白行不占位 ... ok
+test cli::jsonl_test::未知type合法json归一化为raw且原文透传 ... ok
+test cli::jsonl_test::深嵌套payload与超长字符串不炸且保真 ... ok
+test cli::jsonl_test::空content的user行保留user_role不误重标 ... ok
+test cli::jsonl_test::空白行跳过返回none不占seq ... ok
+test cli::jsonl_test::纯tool_result的user行重标为tool_role ... ok
+test cli::jsonl_test::纯文本user行保留user_role ... ok
+test cli::jsonl_test::三百行混合fixture全部产出事件不丢不炸 ... ok
+test cli::jsonl_test::缺type键的合法json归一化为unknown形态raw ... ok
+test cli::jsonl_test::零行输入产出零事件不报错 ... ok
+test cli::jsonl_test::非json行归一化为unparsable且永不炸解析 ... ok
+test cli::runner_test::eof无result且携带退出码时补发合成turn_done ... ok
+test cli::runner_test::两次new实例互不共享状态 ... ok
+test cli::runner_test::ask段cli缺失时spawn失败以合成收敛记因且会话终止 ... ok
+test cli::runner_test::信号晚于eof时泵已按eof语义收敛无二次合成且击杀缝不被调 ... ok
+test cli::runner_test::停止信号中止泵且击杀缝以捕获pid被调恰一次且剩余行不再产出 ... ok
+test cli::runner_test::停止路径不合成收敛已产出事件原样保留 ... ok
+test cli::runner_test::完整会话fixture逐行入泵事件按序送达且线格式可被core表达 ... ok
+test cli::runner_test::无pid时停止路径仍收敛且击杀缝以none被调不panic ... ok
+test cli::runner_test::混入未知type与非json行时raw按产出序透传 ... ok
+test cli::runner_test::空白行不占号混入fixture时盖戳序全程单调 ... ok
+test cli::runner_test::空输出流即退出时仅一条合成turn_done且占零号 ... ok
+test cli::runner_test::超容量洪峰315行经背压全量送达零丢失 ... ok
+test cli::runner_test::ask泵一轮一命_单问服务后观测通道关闭且第二问送达被拒 ... ok
+test cli::runner_test::open段无io_不依赖cli可发现且三件套在场 ... ok
+test compose::compose_test::显式不存在agent的id解析err携id记因 ... ok
+test git_diff_test::非git目录err显式 ... ok
+test lib_test::cli分发路径持有装载缝不消费_调用计数恒零 ... ok
+test lib_test::cli臂隔离path下ask段以cli_missing合成收敛 ... ok
+test lib_test::crate根导出面锚定_组合根与查询面与既有门面re_export可达 ... ok
+test lib_test::engine_kind线格式值域逐字为cli与sdk且非法值拒绝 ... ok
+test lib_test::resume_transcript缝类型形状入参str返回result_option_vec且闭包替身可注入 ... ok
+test lib_test::sdk臂空配置open以config_missing显式失败 ... ok
+test sdk::config_test::empty经is_complete判定为缺失且sdk启动以config_missing失败且文案区分三字段名 ... ok
+test sdk::config_test::empty返回api_key_base_url_model三字段全空串 ... ok
+test sdk::config_test::手填齐备形态三字段齐备is_complete判定翻正 ... ok
+test sdk::config_test::重复调用empty返回等值结构且特殊字符字段构造保真 ... ok
+test sdk::loop_test::delta与密封混合流按产出序排列且洪峰经容量256通道零丢失 ... ok
+test sdk::loop_test::loop_turn字段面完整构造锚定 ... ok
+test sdk::loop_test::policy拒绝时permission_denied记因与is_error回灌续轮不中断 ... ok
+test sdk::loop_test::turn_done组装唯一口径_cost恒none_session_id收口_usage承接final ... ok
+test sdk::loop_test::一轮文本加思考假流_delta逐发且轮末恰一条密封message两块收进 ... ok
+test sdk::loop_test::两轮工具假流_密封收口_tool_use与tool_result与续轮各就位 ... ok
+test sdk::loop_test::假流stream_err时api_error记因与is_error收敛且恒最后 ... ok
+test sdk::loop_test::停止先置位时泵终止不合成turn_done且已产出事件保留 ... ok
+test sdk::loop_test::工具轮第二请求的chat_history含成对tool_result且提示词在史首 ... ok
+test sdk::loop_test::沙箱拦截时sandbox_denied记因与is_error回灌 ... ok
+test sdk::loop_test::消费端先行关闭时loop自行退出不悬挂且不合成收敛 ... ok
+test sdk::loop_test::空流轮以正常收敛防死循环不悬挂 ... ok
+test sdk::loop_test::连续被拒工具轮耗尽上限时熔断收敛error_max_turns ... ok
+test sdk::loop_test::重建史注入首轮请求的chat_history尾部追加新轮提示词 ... ok
+test sdk::normalize_test::reasoning_delta流项归一化为thinking增量逐片段出delta ... ok
+test sdk::normalize_test::text流项归一化为message_delta文本增量且逐字保真 ... ok
+test sdk::normalize_test::unknown流项透传为raw且event_type恒sdk_stream载荷原样 ... ok
+test sdk::normalize_test::同一流项重复归一化结果一致且空文本delta形态合法 ... ok
+test sdk::normalize_test::完整reasoning块同样归一化为thinking_delta无第二密封通道 ... ok
+test sdk::normalize_test::完整tool_call流项不出事件_轮末choice统一收进密封 ... ok
+test sdk::normalize_test::簿记项final与tool_call_delta返回none不出事件 ... ok
+test sdk::policy_test::accept_edits档只读加写面全允许 ... ok
+test sdk::policy_test::bash工具名三档均拒绝_缺席断言锁定 ... ok
+test sdk::policy_test::bypass_permissions档六工具全放行且为六工具清单逐一命中 ... ok
+test sdk::policy_test::default档只读四工具允许且write_edit拒绝 ... ok
+test sdk::policy_test::拒绝决策的合成产物形状为_system_notice_permission_denied_加同id的is_error_tool_result ... ok
+test sdk::policy_test::清单外工具名与大小写变体与空串一律拒绝 ... ok
+test sdk::resume_test::is_error结果以工具执行失败前缀回灌且miss名字落空串 ... ok
+test compose::compose_test::空库缺省解析err引导管理页且零落库 ... ok
+test sdk::resume_test::tool_result成对回灌且工具名自先行tool_use回溯 ... ok
+test sdk::resume_test::tool_role结果消息归并回user位重建 ... ok
+test sdk::resume_test::三轮全史转录重建含全部往返且逐条保序 ... ok
+test sdk::resume_test::单条密封message收三块时重建为单条assistant消息不拆分 ... ok
+test sdk::resume_test::空史四形态重建返回err视同会话缺失 ... ok
+test sdk::resume_test::千级长转录重建不丢消息不乱序 ... ok
+test sdk::resume_test::链式续会话的第三轮重建史含全部前两轮往返 ... ok
+test sdk::resume_test::非对话密封事件与子代理归因事件不进对话史 ... ok
+test sdk::runner_test::continue全史装载重建后open成功且new会话零装载调用 ... ok
+test sdk::runner_test::continue装载器未注入时显式失败不静默空史 ... ok
+test sdk::runner_test::continue装载缝err形态报转录读取失败并记因 ... ok
+test sdk::runner_test::continue装载缝none形态报会话不存在且成因可区分 ... ok
+test sdk::runner_test::continue重建空史报会话缺失语义且三成因互不重合 ... ok
+test sdk::runner_test::停止先置位时泵select停止臂命中_future_drop不合成收敛 ... ok
+test compose::compose_test::continue会话不存在时显式失败 ... ok
+test sdk::runner_test::单字段缺失open消息区分api_key_base_url_model成因 ... ok
+test sdk::runner_test::空缺省配置open返回config_missing且三成因逐字可辨 ... ok
+test sdk::runner_test::门面sdk分发的启动校验行为与直构runner一致 ... ok
+test sdk::sandbox_test::glob模式预检_绝对与父段与波浪线拒绝_root相对放行 ... ok
+test compose::compose_test::continue跨引擎续会话被快照比对拒绝 ... ok
+test compose::compose_test::continue引擎句柄缺失时拒绝且三成因消息互不重合 ... ok
+test sdk::sandbox_test::read_write_edit三类工具入参路径过同一校验函数root外同样拦截 ... ok
+test compose::compose_test::缺省解析默认sdk实例_快照承接provider组装与high档模型 ... ok
+test sdk::sandbox_test::不存在路径_存在段逃逸显式失败_root缺失显式失败_均不静默放行 ... ok
+test sdk::sandbox_test::root内相对_绝对_子目录嵌套路径经校验放行且返回规范形态 ... ok
+test sdk::sandbox_test::相对逃逸与root外绝对路径拦截 ... ok
+test sdk::sandbox_test::特殊形态入参_空串归root_中文空格emoji路径_大小写变体行为锁定 ... ok
+test sdk::tools_test::bash不在工具面且清单外无多余条目 ... ok
+test sdk::sandbox_test::恰等于root本身放行_相似名兄弟目录拦截_尾分隔符root行为锁定 ... ok
+test compose::compose_test::显式cli实例解析_快照engine为cli且模型为none ... ok
+test compose::compose_test::continue快照校验通过时begin成功且会话行不重复建 ... ok
+test sdk::tools_test::edit目标串不存在返回错误且不落盘 ... ok
+test compose::compose_test::provider引用完整性守卫使悬空成因不可达_解析照常成功 ... ok
+test compose::compose_test::装配产物含查询面_continue校验经真实库行成立 ... ok
+test sdk::tools_test::edit旧串多处出现默认显式失败_replace_all全替换语义锁定 ... ok
+test sdk::tools_test::edit精确串替换成功含中文与emoji目标串且替换后落盘 ... ok
+test sdk::tools_test::grep多行多命中逐行返回且携路径行号 ... ok
+test compose::compose_test::sdk实例缺provider_id的存量形态解析err引导管理页 ... ok
+test sdk::tools_test::grep无命中与空文件返回非错误_匹配串按子串字面语义 ... ok
+test sdk::tools_test::grep目录无命中返回占位_缺失路径回落文件读取错误 ... ok
+test sdk::tools_test::glob无匹配返回非错误_空模式行为锁定不炸 ... ok
+test sdk::tools_test::ls空目录返回占位_目标非目录返回错误 ... ok
+test sdk::tools_test::read_offset与limit截取行区间 ... ok
+test sdk::tools_test::ls列一级条目字母序且目录带斜杠后缀 ... ok
+test sdk::tools_test::grep目录递归跳过二进制且命中上限截断留痕 ... ok
+test sdk::tools_test::read返回行号前缀内容且中文与emoji保真 ... ok
+test sdk::tools_test::定义清单恰为六工具且名称_描述_schema齐全 ... ok
+test sdk::tools_test::read文件不存在返回is_error内容_root外路径经沙箱链拒绝 ... ok
+test sdk::tools_test::未知工具名执行分发显式拒绝 ... ok
+test sdk::tools_test::write_root外路径沙箱链拒绝_bypass下唯一护栏不旁路 ... ok
+test sdk::tools_test::grep目录路径递归匹配跨层级文件 ... ok
+test sdk::tools_test::glob命中单层与跨目录模式且路径字典序 ... ok
+test sdk::tools_test::write新建文件含缺失父目录自动创建_已有文件覆写替换 ... ok
+test static_check_test::相对路径不可达err显式 ... ok
+test static_check_test::无配置或空命令直接过 ... ok
+Junction created for C:\Users\wps\AppData\Local\Temp\sdk-sandbox-test-symlink-kLnTg1\link <<===>> C:\Users\wps\AppData\Local\Temp\sdk-sandbox-test-symlink-outside-mp2Ruy\real
+test sdk::sandbox_test::符号链接指向root外目标时解链后按真实目标拦截 ... ok
+test static_check_test::命令不存在err显式不静默 ... ok
+test git_diff_test::git缺失path时err显式 ... ok
+test static_check_test::失败形态_passed假_诊断捕获不丢 ... ok
+test static_check_test::通过形态_passed真_诊断空_cwd为root ... ok
+test static_check_test::非零退出码判定_诊断空亦不误判通过 ... ok
+test store_port::store_port_test::append_sealed批次混入delta时返回ok且零记录产生 ... ok
+test store_port::store_port_test::create_session快照定型反解非法json显式失败 ... ok
+test store_port::store_port_test::bind_remote_none仅刷新时间戳且miss会话err传播 ... ok
+test store_port::store_port_test::append与begin不校验会话存在而bind与finish的err面传播 ... ok
+test store_port::store_port_test::append_sealed密封追加后transcript按seq升序全量重放 ... ok
+test store_port::store_port_test::begin_turn分配轮id且finish_turn终态整行替换挂core会话 ... ok
+test store_port::store_port_test::create_session落库后bind_remote_session刷新双id与updated_at ... ok
+test store_port::store_port_test::find_session_detail含未收轮时轮行呈running且无顶层状态字段 ... ok
+test store_port::store_port_test::find_session_detail命中返回row_stats_turns三件套与清单面逐字段全等 ... ok
+test store_port::store_port_test::find_session_detail空session_id入参显式err不panic ... ok
+test store_port::store_port_test::reconcile_stats无turn_done转录时缺省统计不报错 ... ok
+test store_port::store_port_test::session_query构造返回core查询契约实现 ... ok
+test store_port::store_port_test::list_sessions聚合现算轮数累计墙钟累计token与降序稳定 ... ok
+test store_port::store_port_test::reconcile_stats从转录重算校正篡改的轮行统计且转录逐字节不变 ... ok
+test store_port::store_port_test::transcript不存在会话返回空vec且跨session隔离 ... ok
+test store_port::store_port_test::transcript跨多轮重放seq升序且空洞容忍不破坏有序 ... ok
+test store_port::store_port_test::find_session_detail查无此id两形态显式err不返回空清单 ... ok
+test store_port::store_port_test::find_session_detail跨workspace库隔离_会话落a库经b库单查显式err ... ok
+test store_port::store_port_test::list_sessions来源过滤生效且缺席缺省空库空清单 ... ok
+test git_diff_test::变更清单与补丁拼接_porcelain含untracked ... ok
+test worker::worker_test::empty_store_default_resolution_errs_with_management_hint ... ok
+test worker::worker_test::open_stage_failure_propagates_err_without_half_records ... ok
+test git_diff_test::干净工作树空态为空串 ... ok
+test sdk::runner_test::停止晚于eof时泵已收敛无二次收敛事件 ... ok
+test sdk::runner_test::ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_sdk前缀上报 ... ok
+test git_diff_test::超长diff截断且带省略标记 ... ok
+test compose::compose_test::装配产物真实驱动_cli臂隔离path下failed收敛且会话行轮行转录齐落库 ... ok
+test worker::worker_test::change_provenance_and_permission_are_assembled_into_session_row ... ok
+test worker::worker_test::continue_session_reuses_existing_row_without_duplicates ... ok
+test worker::worker_test::path_isolated_cli_missing_errs_with_zero_half_records ... ok
+test worker::worker_test::mid_drive_stop_converges_stopped_and_keeps_collected_events ... ok
+test worker::worker_test::sealed_pump_collects_transcript_and_forwards_session_events ... ok
+test worker::worker_test::three_roles_map_verbatim_into_source_ref_segments ... ok
+
+test result: ok. 197 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 4.96s
+
+
+running 40 tests
+test lib_test::coverage缺失三阈值吃默认并逐字段记default_applied ... ok
+test lib_test::coverage三阈值值域端点与浮点合法保留_浮点忠实出线 ... ok
+test lib_test::coverage阈值非数值吃默认并逐字段记invalid_value ... ok
+test lib_test::mutation缺失_score吃默认记default_applied_cwd为none无诊断 ... ok
+test lib_test::rules子字段元素混入非字符串_该子字段none加_invalid_value_path对位 ... ok
+test lib_test::rules子字段空数组与多元素列表合法原样保留_无诊断 ... ok
+test lib_test::suite_root超长换行emoji中文无通配符即合法保留 ... ok
+test lib_test::suite元素非对象剔除并按索引记_invalid_value ... ok
+test lib_test::suite必需字段root或framework缺失剔除整个suite ... ok
+test lib_test::write_protection合法_逐条glob与reason原样保留diagnostics为空 ... ok
+test lib_test::tests显式空数组保留且无default_applied_与缺省形态可区分 ... ok
+test lib_test::两个suite一违一合_违例剔除记诊断_合法保序保留不殃及 ... ok
+test lib_test::suite_cwd缺失吃默认记default_applied_非法吃默认记invalid_value ... ok
+test lib_test::rules非对象_none加_invalid_value_显式null同缺失无诊断 ... ok
+test lib_test::全字段合法完整配置_逐字段原样保留且diagnostics为空 ... ok
+test lib_test::coverage非对象与null三阈值全默认并记invalid_value ... ok
+test lib_test::写保护规则glob空串或非字符串剔除该条_其余合法条目保留 ... ok
+test lib_test::可选字符串字段显式null与缺失同处置_无诊断_null位语义 ... ok
+test lib_test::mutation非对象与null同走默认处置加invalid_value ... ok
+test lib_test::suite_includes_excludes类型违例none加诊断_空数组与缺失合法 ... ok
+test lib_test::可选字符串字段非字符串_none加逐字段_invalid_value ... ok
+test lib_test::合法多suite八框架枚举逐值各一_全部原样保留diagnostics为空 ... ok
+test lib_test::坏json语法_全默认config加_json_invalid_诊断 ... ok
+test lib_test::有效root无配置文件_全默认config加_file_missing_诊断_path_为文件级根 ... ok
+test lib_test::默认基线逐字段对位且过assemble零诊断 ... ok
+test lib_test::多个未知字段完整保留且两次加载顺序稳定 ... ok
+test lib_test::suite_config空串或非字符串none加诊断_缺失与null无诊断_合法保留 ... ok
+test lib_test::未知字段值为超长字符串或深嵌套对象时原样无损保留 ... ok
+test lib_test::配置路径被同名目录占据_全默认config加_read_failed_诊断 ... ok
+test lib_test::顶层未知字段passthrough进extra_已知字段不进 ... ok
+test lib_test::coverage阈值越界该字段吃默认记invalid_value_合法同侪不受波及 ... ok
+test lib_test::违例矩阵抽样产出的config重序列化回写再组装恒零诊断 ... ok
+test lib_test::mutation_score越界或非数值吃默认记invalid_value_cwd非法none加诊断 ... ok
+test lib_test::空文件与仅空白字符落json_invalid分支不panic ... ok
+test lib_test::tests非数组与null落空列表并记_invalid_value ... ok
+test lib_test::suite_root空串或含通配符剔除整个suite ... ok
+test lib_test::suite_framework枚举外值剔除整个suite ... ok
+test lib_test::顶层非对象三形态_全默认config加_invalid_value_path_为文件级根不失败 ... ok
+test lib_test::write_protection缺失与null无诊断_非对象与files非数组none加invalid_value ... ok
+test lib_test::schema字段非字面量落默认并记_invalid_value_缺失记_default_applied ... ok
+
+test result: ok. 40 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 157 tests
+test bindings::mod_test::agent_engine_kind出线为cli与sdk字面量联合 ... ok
+test bindings::mod_test::agent_event出线为kind判别联合且seq摊平变体字面量camel_case ... ok
+test bindings::mod_test::agent_start与watch_subscribe绑定为typed_channel参数 ... ok
+test commands::agents::mod_test::agent命令_cli新建provider可空ok_sdk选存量provider_ok ... ok
+test commands::agents::mod_test::agent命令_sdk缺provider与悬空引用reject_store校验单点透传 ... ok
+test bindings::mod_test::agent_start绑定签名含尾部agent入参且invoke参数对象恒含agent键 ... ok
+test bindings::mod_test::attempt_record出线三会话槽位键恒在场且nullable ... ok
+test commands::agents::mod_test::agent命令_set_default_miss_id_err_删除miss幂等okfalse ... ok
+test commands::agents::mod_test::agent命令_删默认agent后default解析none_set_default标记即切换返回更新后记录_list恰一默认 ... ok
+test bindings::mod_test::code_stats绑定为root_depth入参的三面dto直返 ... ok
+test commands::agents::mod_test::provider命令_重名保存err清单不变_更新miss_id_err_name空白err ... ok
+test commands::agents::mod_test::provider删除语义_命中oktrue_被引用err透传_miss幂等okfalse_空库list空数组 ... ok
+test bindings::mod_test::framework与diagnostic_kind出线为camel_case字面量联合 ... ok
+test commands::agents::mod_test::save_agent_provider_id存在且api_key空串_读存量回填原值 ... ok
+test commands::agents::mod_test::save_agent_provider_id存在且api_key非空_直接落新值_新建传空key空值落库 ... ok
+test bindings::mod_test::json_value字段出线unknown且时间戳字段出线string ... ok
+test commands::agents::mod_test::全部命令面err错误串不含api_key明文_错误只含name与id语境 ... ok
+test commands::change_flow::mod_test::answer与confirm无等待方时err透传 ... ok
+test bindings::mod_test::session_detail绑定为root_session_id入参的nullable三件套直返 ... ok
+test commands::change_flow::mod_test::auto_next_phase_true不绕过守卫与前置校验 ... ok
+test bindings::mod_test::workspace_config绑定为root入参的report直返 ... ok
+test commands::change_flow::mod_test::start前置校验三失败分支各自err且成因互不重合 ... ok
+test commands::change_flow::mod_test::start同change并行run冲突err ... ok
+test commands::changes::mod_test::blank_root显式err不进写面链路 ... ok
+test commands::change_flow::mod_test::state快照查询运行中some_无run与终态后none ... ok
+test commands::changes::mod_test::create_change命令到磁盘产物_与直调写面serde等值 ... ok
+test commands::changes::mod_test::get_change_detail未知change返回none而非错误 ... ok
+test commands::changes::mod_test::get_change_detail已知change返回完整详情dto ... ok
+test commands::agents::mod_test::管理命令组合链save新建_list呈现_save更新_delete删除_重开后状态一致 ... ok
+test commands::change_flow::mod_test::stop运行中置位且幂等忽略不报错 ... ok
+test commands::changes::mod_test::read_artifact正向路径返回五字段信封 ... ok
+test commands::changes::mod_test::root为空字符串时经resolve空路径得空列表不panic ... ok
+test commands::changes::mod_test::写面拒绝透传_非法名与空白goal经命令层err且零产生 ... ok
+test commands::change_flow::mod_test::watch补订运行中接收后续信封_无run时ok非错误 ... ok
+test commands::change_flow::mod_test::auto_next_phase_false默认档受理面回归 ... ok
+test commands::changes::mod_test::list_changes命令与core查询结果一致_纯透传无加工 ... ok
+test commands::change_flow::mod_test::参数转换守卫blank_change六缝各就位 ... ok
+test commands::config::mod_test::root指向普通文件返回err ... ok
+test commands::changes::mod_test::read_artifact未注册kind或不存在source返回none ... ok
+test commands::change_flow::mod_test::参数转换守卫blank_root各命令模板保留 ... ok
+test commands::config::mod_test::不存在root路径返回err不panic ... ok
+test commands::config::mod_test::workspace_config以string原签名直调_无state薄包装结构证明 ... ok
+test commands::changes::mod_test::返回dto恰name_created两键零磁盘路径字段 ... ok
+test commands::config::mod_test::空白root返回err ... ok
+test commands::config::mod_test::workspace_config命令与inner纯函数结果逐字段一致_命令层零加工 ... ok
+test commands::config::mod_test::有效root无配置文件返回ok加file_missing诊断与全默认config ... ok
+test commands::config::mod_test::超长不存在路径root返回err不panic ... ok
+test commands::config::mod_test::合法配置文件返回ok_diagnostics为空且信封字段平移一致 ... ok
+test commands::config::mod_test::坏json返回ok加json_invalid诊断与默认config_两通道分层 ... ok
+test commands::changes::mod_test::read_artifact敌意source在命令边界被拒绝不逃逸change目录 ... ok
+test commands::config::mod_test::连续两次调用各自完整读取_改写文件后结果随之变化 ... ok
+test bindings::mod_test::产物父目录缺失时create_dir_all先行导出成功 ... ok
+test commands::config::mod_test::不可读root返回err_windows下以悬空junction使metadata失败 ... ok
+test commands::exec::agent::agent_test::outcome_summary与turn_summary同构_终态部件与重放同形状 ... ok
+test commands::exec::agent::agent_test::outcome_summary装配逐字段承接_status与统计与finished_at ... ok
+test commands::exec::agent::agent_test::running_summary签名锚定_自中性数据装配running形态轮行 ... ok
+test commands::exec::agent::agent_test::信封event变体序列化tag为ipc判别event且载荷camelCase ... ok
+test commands::exec::agent::agent_test::信封record变体序列化tag为ipc判别record且轮行camelCase ... ok
+test commands::change_flow::mod_test::auto_next_phase_true透传受理零confirmwait照常后台收敛 ... ok
+test commands::db::mod_test::db_records未知模型名返回err错误串与store层一致不静默吞错 ... ok
+test bindings::mod_test::同输入连续两次导出产物逐字节一致且无机器路径嵌入 ... ok
+test commands::db::mod_test::db_records_scope_global扫描全局库记录信封_key为root串 ... ok
+test commands::db::mod_test::db_models_scope_global忽略root仅返回user维度三行且blank_root不影响 ... ok
+test bindings::mod_test::命令错误面为promise_reject透传无result包装 ... ok
+test commands::change_flow::mod_test::start提前resolve返回running摘要且channel首事件到达后台驱动不阻塞 ... ok
+test bindings::mod_test::导出产物包含全部31条命令包装名与invoke命令名及出线dto类型名 ... ok
+test commands::db::mod_test::workspace_scope_blank_root的db_models与db_records同口径返回空结果 ... ok
+test commands::db::mod_test::db_models_scope_workspace返回三行且与直连serde一致 ... ok
+test commands::db::mod_test::两库清单互不混列_跨维度模型名扫描err ... ok
+test bindings::mod_test::配置域十二型出线且逐字段形态对位 ... ok
+test commands::exec::mod_test::agent_session_transcript落库转录后按seq序全史重放 ... ok
+test commands::db::mod_test::db_records_scope_workspace按主键自然序分页扫描拼接不重不漏 ... ok
+test commands::exec::mod_test::agent_sessions携root直查dto且source过滤透传 ... ok
+test commands::exec::mod_test::agent_stop命中登记句柄置位成功返回ok ... ok
+test commands::exec::mod_test::session_detail_blank_root守卫none先行于库寻址 ... ok
+test commands::exec::mod_test::agent_stop对未运行会话与不存在session_id幂等ok ... ok
+test commands::exec::mod_test::agent_start_sdk空配置时config_missing映射err直抵前端 ... ok
+test commands::exec::mod_test::agent_start_blank_root守卫err且零落库 ... ok
+test commands::exec::mod_test::agent_start参数转换_session引用与来源与agent透传 ... ok
+test commands::exec::mod_test::agent_start_kernelscoped_stopregistry托管的命中链经channel流出终态部件 ... ok
+test bindings::mod_test::预先篡改产物文件后重导出恢复权威内容 ... ok
+test commands::exec::mod_test::agent_start无默认agent时err引导管理页 ... ok
+test commands::explores::mod_test::blank_root纪律矩阵_list与scan空结果_create与rename与delete为err ... ok
+test commands::exec::mod_test::session_detail查无此id_err透传不吞成none ... ok
+test commands::explores::mod_test::explore_doc_path有效root与合法name返回与布局派生逐段相等的路径 ... ok
+test commands::explores::mod_test::explore_doc_path穿越名与blank_root返回none ... ok
+test commands::exec::mod_test::不存在会话转录空数组且blank_root守卫空结果 ... ok
+test commands::explores::mod_test::read_explore_blank_root返回none不panic ... ok
+test commands::exec::mod_test::session_detail运行中会话轮行呈running且应答不加状态字段 ... ok
+test commands::exec::mod_test::session_detail直查返回三件套与清单面对应条目全等 ... ok
+test commands::exec::mod_test::agent_start成功链路提前resolve返回running轮行且会话行轮行已落库 ... ok
+test commands::explores::mod_test::read_explore有效root与已落盘笔记返回与workflow直查serde等值的doc ... ok
+test commands::explores::mod_test::create_explore_record建档返回记录dto且list可见 ... ok
+test commands::explores::mod_test::read_explore穿越分量名在命令边界拒绝返回none ... ok
+test commands::explores::mod_test::create_explore_record重复名store错误透传为命令err字符串 ... ok
+test commands::explores::mod_test::create_explore_record携root经for_root落该workspace库 ... ok
+test commands::explores::mod_test::list_explore_records_blank_root返回空数组 ... ok
+test commands::explores::mod_test::list_explore_records有两条记录返回与for_root直连serde等值的两条dto ... ok
+test commands::explores::mod_test::scan_explores_blank_root返回空数组不进入查询链路 ... ok
+test commands::explores::mod_test::delete_explore_record删除已绑定记录返回true再删返回false幂等 ... ok
+test commands::exec::mod_test::session_detail跨root隔离_会话落a库经b库单查err ... ok
+test commands::stats::mod_test::root指向普通文件返回err ... ok
+test commands::explores::mod_test::rename_explore_record改名后返回更新记录且新名可寻址 ... ok
+test commands::stats::mod_test::share值域0到100且与code降序单调一致_计数非负 ... ok
+test commands::stats::mod_test::code_stats以string加u32原签名直调_无state薄包装结构证明 ... ok
+test commands::stats::mod_test::不存在root路径返回err不panic ... ok
+test commands::explores::mod_test::三文件一经绑定b后导入候选恰为未绑定的a与c ... ok
+test commands::explores::mod_test::scan_explores求差结果与workflow扫描减workspace库绑定手工求差一致 ... ok
+test commands::stats::mod_test::不可读root返回err_windows下以悬空junction使metadata失败 ... ok
+test commands::explores::mod_test::全部文件已绑定时导入候选为空数组 ... ok
+test commands::explores::mod_test::rename保主键且delete级联名下runs与events在同一workspace库内收敛 ... ok
+test commands::stats::mod_test::depth0树无目录节点_根层直属文件仍为顶层文件叶 ... ok
+test commands::stats::mod_test::depth1树仅顶层一层且节点聚合为子树全量 ... ok
+test commands::explores::mod_test::大小写差异文件按记录name精确求差不引入文件系统折叠 ... ok
+test commands::stats::mod_test::code_stats命令与inner纯函数结果逐字段一致_命令层零加工 ... ok
+test commands::stats::mod_test::两语言code相等的tie按语言名字典序 ... ok
+test commands::explores::mod_test::目录缺失且无绑定时导入候选为空数组两空集求差 ... ok
+test commands::stats::mod_test::仅注释与空行的语言_code为0_share为0 ... ok
+test commands::explores::mod_test::非法记录名建档在命令边界返回err ... ok
+test commands::stats::mod_test::空白root返回err ... ok
+test commands::stats::mod_test::超长不存在路径root返回err不panic ... ok
+test commands::stats::mod_test::任意层级名为openspec的目录同样排除 ... ok
+test commands::explores::mod_test::两workspace同名建档各自独立_甲库建档后乙库清单为空 ... ok
+test commands::explores::mod_test::绑定记录的文件已删孤儿仍被滤除不回入候选 ... ok
+test commands::stats::mod_test::含空格与中文名的目录_path出线保持原名 ... ok
+test commands::stats::mod_test::多语言fixture汇总面与语言面同源自洽且按code降序 ... ok
+test commands::stats::mod_test::文件叶行统计与目录聚合自洽_四项均叶加子目录 ... ok
+test commands::watch::mod_test::未知id与重复退订均返回false幂等 ... ok
+test commands::stats::mod_test::嵌套fixture树面posix路径_末段名与children字典序 ... ok
+test commands::stats::mod_test::文件叶挂于父目录children_同父条目目录先于文件 ... ok
+test commands::stats::mod_test::根层直属文件为顶层文件叶_不计入任何目录节点聚合 ... ok
+test commands::stats::mod_test::根层openspec目录整棵排除_三面均无其文件 ... ok
+test commands::watch::mod_test::目标文件不存在时订阅返回ok且文件出现后修改信号送达 ... ok
+test commands::watch::mod_test::订阅返回id且修改后channel收到仅含path的信号帧 ... ok
+test commands::stats::mod_test::深度外文件不出叶_仅并入最深可达祖先聚合 ... ok
+test commands::watch::mod_test::不同路径分别订阅各自独立id且事件互不串扰 ... ok
+test commands::stats::mod_test::深度为聚合截断参数_depth1与depth10的汇总语言面完全相等 ... ok
+test commands::stats::mod_test::目录存在但无被识别文件返回空report而非err ... ok
+test commands::workspaces::mod_test::add传入不存在的目录返回err且含canonicalize前缀 ... ok
+test commands::stats::mod_test::五十个顶层子目录混合命名children字典序稳定全量呈现 ... ok
+test commands::workspaces::mod_test::add_workspace返回值序列化顶层键恰为三字段驼峰命名无redb概念泄漏 ... ok
+test commands::workspaces::mod_test::空库经命令面list返回空数组 ... ok
+test commands::workspaces::mod_test::add传入书写不等价string返回root与库内canonical_key同源 ... ok
+test commands::workspaces::mod_test::add_workspace后注册记录落全局库且对应workspace库文件已创建 ... ok
+test commands::workspaces::mod_test::remove不驱逐缓存_重加同root经缓存实例即读即得 ... ok
+test commands::workspaces::mod_test::空字符串root时add为err而remove为ok_false两命令语义一致 ... ok
+test commands::workspaces::mod_test::大小写不同string二次add经命令面仅一条且原记录原样返回 ... ok
+test commands::workspaces::mod_test::未注册root的remove经命令面返回false幂等 ... ok
+test commands::workspaces::mod_test::remove仅删注册记录_重加同root后explore与会话链历史完整可读 ... ok
+test commands::workspaces::mod_test::三命令结果与直连两级库注册表公共api结果serde一致_薄包装不加工 ... ok
+test commands::workspaces::mod_test::等价路径经命令面remove命中同一条无孤儿条目 ... ok
+test commands::workspaces::mod_test::workspace库文件损坏时add_workspace返回err且注册记录保留 ... ok
+test commands::workspaces::mod_test::remove后db文件名与字节保持原样不自动清理 ... ok
+test commands::workspaces::mod_test::经命令面add_list顺序与直连一致_删除与重开后状态经命令面可复现 ... ok
+test commands::db::mod_test::db_records_limit超500截断且截断后剩余可经offset续读 ... ok
+test commands::watch::mod_test::同一路径重复订阅返回同一subscription_id且信号帧数与单订阅一致不翻倍 ... ok
+test commands::watch::mod_test::以有效id退订返回true且此后修改channel无后续帧 ... ok
+
+test result: ok. 157 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 5.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 13 tests
+test layout::mod_test::root_为空路径时返回相对形式且不_panic ... ok
+test layout::mod_test::root_带尾部分隔符或重复分隔符时join不追加新分隔符 ... ok
+test layout::mod_test::常量组五员与既有磁盘名逐字一致且archive相对changes锚定 ... ok
+test layout::mod_test::不存在的_root_纯推导正常返回 ... ok
+test layout::mod_test::config_path等于root与域目录名和配置文件名的纯拼接_不存在root纯推导正常返回 ... ok
+test layout::mod_test::测试文件排除先例_被扫字面量在test文件自身合法且不入产品源码清单 ... ok
+test layout::mod_test::resolve_三棵子树与常量组合路径逐字相等_体内全量常量引用的结构证明 ... ok
+test layout::mod_test::config_path对同一输入结果稳定且父目录恰为resolve的域目录 ... ok
+test layout::mod_test::存在的_root_返回以_root为前缀的三棵子树 ... ok
+test layout::mod_test::resolve_对同一输入结果稳定且可比较 ... ok
+test layout::mod_test::config_path空root与尾分隔符root与文件root纯拼接不panic ... ok
+test layout::mod_test::root_指向文件而非目录时仍正常拼接路径 ... ok
+test layout::mod_test::全包产品源码双禁令扫描_openspec与config_json字面量_layout_为唯一例外 ... ok
+
+test result: ok. 13 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.13s
+
+
+running 100 tests
+test control_test::begin_run_registers_and_detects_parallel_conflict ... ok
+test control_test::answer_returns_text_to_suspended_waiter ... ok
+test control_test::cancel_interrupts_pending_waits ... ok
+test control_test::answer_without_waiter_errors ... ok
+test control_test::confirm_resolves_suspended_waiter_single_shot ... ok
+test control_test::confirm_without_waiter_errors ... ok
+test control_test::emit_flows_to_broadcast_subscriber ... ok
+test control_test::cross_change_parallel_isolation ... ok
+test control_test::finish_single_shot_consumes_terminal_state ... ok
+test control_test::finish_removes_entry_and_allows_rebegin ... ok
+test control_test::publish_mirrors_snapshot_state_machine ... ok
+test control_test::request_stop_sets_cancel_flag_and_miss_is_idempotent ... ok
+test control_test::session_slot_set_clear_roundtrip ... ok
+test control_test::subscribe_some_with_run_none_without ... ok
+test decision_test::decision_input有界组装边界形态构造合法 ... ok
+test decision_test::reason超长解析层原样承接不崩 ... ok
+test decision_test::四动作合法解析封闭集逐变体 ... ok
+test decision_test::围栏代码块与混杂叙述容忍提取解析成功 ... ok
+test decision_test::白名单命中放行_写面二次校验仍兜底 ... ok
+test decision_test::空白名单任何backtrack均err无跳转出口 ... ok
+test decision_test::结构漂移显式失败均err停给用户 ... ok
+test decision_test::越权backtrack预校验err_walker第一道闸 ... ok
+test port_test::box_diff_future别名跨await持有可用 ... ok
+test port_test::diff_context_port假实现经arc注入且resolve结果串 ... ok
+test port_test::static_check_outcome字段面双值双诊断形态 ... ok
+test port_test::static_check_runner假实现经arc注入且root透传 ... ok
+test port_test::tool_command六变体封闭集且match穷尽分发 ... ok
+test port_test::tool_step_output各变体载荷写面原生类型逐字段相等 ... ok
+test port_test::既有三契约与中性类型保持 ... ok
+test prompt_test::decision_prompt有界组装五段在场 ... ok
+test prompt_test::decision_prompt空集三态组装不崩段落缺席稳定 ... ok
+test prompt_test::evaluator_prompt协议附录与checklist_json形状与diff段 ... ok
+test prompt_test::executor_prompt三段组装角色要点与prompt主体与diff段 ... ok
+test prompt_test::executor_prompt空diff_context降级缺席形态稳定 ... ok
+test prompt_test::prompt确定性_同输入重复组装逐字节一致 ... ok
+test state_test::change_run_status六值线格式逐字断言 ... ok
+test state_test::change_step_kind九值词汇线格式逐字且三类可辨 ... ok
+test state_test::change_step_state四档状态与缺省字段往返无损 ... ok
+test state_test::finished变体reason双形态出线 ... ok
+test state_test::run_update五变体线格式tag_ipc判别且驼峰键 ... ok
+test state_test::session_event变体携session_id与密封事件载荷保真 ... ok
+test state_test::specta_type可达编译期锚定 ... ok
+test state_test::快照与摘要全字段serde往返 ... ok
+test state_test::终态判别矩阵is_terminal互补 ... ok
+test transcript_test::empty_transcript_yields_none_text ... ok
+test transcript_test::final_assistant_text_absence_shapes_return_none ... ok
+test transcript_test::final_assistant_text_joins_text_blocks_in_order ... ok
+test verdict_test::checklist行解析_空数组多行与attempt缺席 ... ok
+test verdict_test::report超长拒绝_解析层先拒 ... ok
+test verdict_test::skipped三形态解析 ... ok
+test verdict_test::verdict值域封闭_越界字符串err ... ok
+test verdict_test::合法裸json解析逐字段相等且checklist落域类型 ... ok
+test verdict_test::围栏代码块包裹与混杂叙述容忍提取解析成功 ... ok
+test verdict_test::结构漂移显式失败均err停给用户 ... ok
+test steps_test::runner_err原样透传 ... ok
+test steps_test::static_check步委托注入runner且root透传 ... ok
+test walker_test::auto确认不接confirmer不挂起自行推进completed ... ok
+test walker_test::auto确认写面失败显式failed零confirmwait ... ok
+test walker_test::auto确认多相位直通零confirmwait信封终态口径不漂移 ... ok
+test walker_test::confirm否决收敛stopped且不再发起新相位 ... ok
+test walker_test::diff上下文每轮取新且attempt递进可见 ... ok
+test walker_test::diff源err降级不阻断run ... ok
+test walker_test::fail预算内重试attempt递增重跑 ... ok
+test walker_test::pass自动推进至done且载荷逐条对齐 ... ok
+test walker_test::retry预算内决策agent零调用 ... ok
+test walker_test::static_check步门控implement站必经非门控相位零调用 ... ok
+test walker_test::停止置位收敛stopped且不再发起新相位 ... ok
+test walker_test::全循环工具调用序恰为七步相位循环 ... ok
+test steps_test::phase_start步链路落盘active_phase ... ok
+test steps_test::phase_next步链路直调写面产出与直调一致 ... ok
+test steps_test::backtrack步链路落盘stale标记 ... ok
+test steps_test::phase_log步链路追加eval条目 ... ok
+test walker_test::反馈边恰五次且超限升格相位fail不跑evaluator ... ok
+test walker_test::反馈边诊断同会话注入修复 ... ok
+test walker_test::工具步失败显式failed且原因流出 ... ok
+test walker_test::步状态流出三类节点逐档可辨 ... ok
+test walker_test::步门控常量锚定 ... ok
+test walker_test::相位间停等确认confirm流出且proceed继续推进 ... ok
+test steps_test::锚点实例随steps复用且run_id隔离 ... ok
+test walker_test::backtrack决议携白名单执行并重路由 ... ok
+test steps_test::写面err统一以err_string上抛 ... ok
+test walker_test::auto确认ask照常停等应答回流后收敛全程零confirmwait ... ok
+test snapshot_test::corrupt_workflow_json_yields_explicit_error ... ok
+test snapshot_test::detail_assembles_fields_from_real_fs_fixture ... ok
+test snapshot_test::missing_change_yields_explicit_error ... ok
+test walker_test::决策会话收口即挂账_decisionlog载荷逐字段捕获 ... ok
+test walker_test::决策挂账失败显式failed且未达解析 ... ok
+test walker_test::决策分叉唤起恰一次且输入有界 ... ok
+test walker_test::步状态词汇零新增_决策挂账全程无新步信封 ... ok
+test snapshot_test::detail_call_leaves_workflow_json_bytes_unchanged ... ok
+test walker_test::空白名单backtrack决议被拒 ... ok
+test walker_test::越权backtrack预校验拒绝零发起 ... ok
+test walker_test::重入自active_phase续走不重跑已pass相位 ... ok
+test walker_test::真实写面组合_决策挂账先于解析_parse失败同样留痕 ... ok
+test walker_test::真实写面组合_会话槽位落账与决策挂账全链对应 ... ok
+test snapshot_test::two_roots_resolve_changes_independently ... ok
+test walker_test::真实写面组合_升格fail条目仅携executor槽位且修复轮续注同会话 ... ok
+test walker_test::真实写面组合全程演进对照一致 ... ok
+test walker_test::ask中断与应答回流continue决策会话 ... ok
+test walker_test::ask续轮同会话重挂同值幂等 ... ok
+
+test result: ok. 100 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.12s
+
+
+running 123 tests
+test model_test::agent_run_record_v4编解码版本断言4且往返逐字段相等 ... ok
+test model_test::instance构造new恒id0与is_defaultfalse且engine两变体与provider_id两态逐字段保真 ... ok
+test model_test::instance记录往返engine两变体与provider_id两态option语义经编解码不漂移 ... ok
+test model_test::provider手写遮蔽debug输出api_key位为末三字符遮蔽形态_全文不含明文key ... ok
+test model_test::provider构造new三字段载荷与三档models逐字段保真且id置0比较走partial_eq与字段面 ... ok
+test model_test::provider构造特殊字符字段clone与partial_eq保真且models三档全空串构造合法 ... ok
+test model_test::provider记录嵌装往返含三档models逐字段相等 ... ok
+test model_test::provider遮蔽debug在api_key空串或长度不足3字符时恒sk三星号全遮蔽兜底 ... ok
+test model_test::serde线格式非法engine串反序列化err ... ok
+test model_test::session_config_snapshot三字段往返且model_none与engine_session_id_none形态 ... ok
+test model_test::session_record全字段serde往返_camelCase线格式逐字段 ... ok
+test model_test::v4线格式含session_id_option与统计字段且退役字段不在线格式 ... ok
+test model_test::存量v3行经版本机制自动升级为孤儿轮行_session_id置none统计保留 ... ok
+test model_test::嵌装往返raw逃生舱中文emoji引号原文保真 ... ok
+test model_test::嵌装往返大seq打包键经编解码不回绕且十六进制串serde ... ok
+test model_test::管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值 ... ok
+test model_test::嵌装往返密封五变体各构造一条逐字段相等 ... ok
+test model_test::记录构造event_key打包自session与seq且访问器与载荷同源 ... ok
+test model_test::键打包seq极值不溢出不回绕 ... ok
+test model_test::键打包不同session同seq经hash高64位隔离不串键 ... ok
+test model_test::键打包同session内seq增大则event_key严格增大 ... ok
+test envelope_test::scan未知模型名与空串返回err且错误串含模型名 ... ok
+test envelope_test::open_global后list_models出现两新模型行_写入后计数与实有记录数一致 ... ok
+test envelope_test::workspace库实例scan新模型名err维度过滤_两新模型仅注册全局组 ... ok
+test store_test::add不存在的目录返回canonicalize错误 ... ok
+test envelope_test::scan_event_value信封u128打包键为十六进制字符串合法json可还原 ... ok
+test store_test::add新目录返回canonical完整路径name为目录名末段 ... ok
+test store_test::add目录名含空格中文emoji的路径name提取正确且记录往返无损 ... ok
+test envelope_test::scan两新模型分页主键自然序翻页不重不漏_key数值id信封value为小驼峰json ... ok
+test envelope_test::scan_limit为零返回空大limit返回剩余全部 ... ok
+test store_test::add大小写不同的等价路径仅一条且原记录原样返回保留首添added_at ... ok
+test envelope_test::scan_offset首页恰为总数与超过总数三种形态返回正确 ... ok
+test store_test::add尾分隔符与正反斜杠混写路径与已存key去重为一条 ... ok
+test store_test::add空路径返回canonicalize错误不panic ... ok
+test store_test::agent_upsert_cli引擎provider可空_sdk选存量provider保存成功 ... ok
+test envelope_test::注册表按维度分组列出模型且list_models计数与写入量一致 ... ok
+test envelope_test::scan_key信封workspace根串run数值event对象三口径各自成立 ... ok
+test store_test::agent_upsert_sdk缺provider_err_悬空引用err ... ok
+test envelope_test::scan_value信封为小驼峰结构化json人可读无二进制泄漏 ... ok
+test store_test::agent_upsert_name查重_同name重复新建与更新撞名err_name空白err ... ok
+test store_test::append_session_events空批次ok无副作用 ... ok
+test store_test::create_explore_record两次建档id递增且created_at等于updated_at ... ok
+test store_test::append_session_events批量密封追加后重放seq升序逐字段保真 ... ok
+test store_test::agent_upsert默认标记写口_新建臂入参true被强制false_更新臂保留存量标记 ... ok
+test store_test::append_session_events混入delta的批次ok且delta零记录 ... ok
+test store_test::bind_session_remote刷新engine_session_id与updated_at且none仅刷时间戳 ... ok
+test store_test::begin_agent_turn同session连续三轮max加1递增且running初值挂core会话 ... ok
+test store_test::begin_agent_turn跨session轮序独立分配互不串号 ... ok
+test store_test::create_session同id重复创建返回err不产半行 ... ok
+test store_test::find_session不存在id返回ok_none ... ok
+test store_test::find_explore_record未命中name或root返回none ... ok
+test store_test::default_agent_instance有默认some无默认none ... ok
+test store_test::find_explore_record命中root与name返回some ... ok
+test store_test::delete_miss幂等返回false ... ok
+test store_test::delete后find为none返回true且磁盘同名文件保留 ... ok
+test store_test::finish_agent_turn终态整行替换且id与started_at不变 ... ok
+test store_test::finish_agent_turn_stopped终态与error_none形态替换无损 ... ok
+test store_test::list_explore_records仅返回入参root的记录且id升序 ... ok
+test store_test::list_session_events空洞容忍升序不补洞 ... ok
+test store_test::for_root对同一目录的等价书写派生同一文件并复用同一缓存实例 ... ok
+test store_test::list_session_events跨session隔离且不存在会话空vec ... ok
+test store_test::list顺序确定可复现不因读写抖动 ... ok
+test store_test::list按canonical_root字典序升序与添加顺序无关 ... ok
+test store_test::list_models分维度计数与各库实有记录数一致 ... ok
+test store_test::provider_id分配_连续新建严格递增_删除最大id后新建复用槽位 ... ok
+test store_test::list_sessions清单聚合现算与降序稳定及过滤 ... ok
+test store_test::for_root派生路径上文件损坏时返回err不静默降级为空库 ... ok
+test store_test::create_session落库后find_session主键直查逐字段相等且跨workspace库隔离 ... ok
+test store_test::provider_upsert_name空白err_api_key空串允许落库 ... ok
+test store_test::native格式已有库重开直通此前写入的会话与转录完整读回 ... ok
+test store_test::for_root派生的workspace库文件落workspaces子树且名为可读段加32位小写hex哈希 ... ok
+test store_test::provider_upsert同名重复新建err_清单不产生第二条 ... ok
+test store_test::open_global列user维度三模型_open_workspace仅列workspace维度四行 ... ok
+test store_test::open_global与open_workspace对不存在路径创建db文件与父目录且空库可list ... ok
+test store_test::list_sessions缺席缺省与空库空清单 ... ok
+test store_test::provider_upsert新建_max加1分配id从1起_返回落库记录且清单可读 ... ok
+test store_test::provider_upsert更新为他人已占name_err_两条记录均原样 ... ok
+test store_test::provider空库list空向量_find对不存在与0与负数与i64max均none ... ok
+test store_test::provider_upsert更新整行替换_id不变且查重排除自身 ... ok
+test store_test::provider清单主键id升序与添加顺序无关_两次调用序稳定确定 ... ok
+test store_test::reconcile_session_stats从转录重算校正且密封转录逐字节不变 ... ok
+test store_test::reconcile_session_stats无turn_done转录缺省统计不报错 ... ok
+test store_test::remove_agent_instance_miss幂等okfalse_删非默认不影响既有默认 ... ok
+test store_test::remove_agent_instance删默认agent_ok后default解析none且清单少一行 ... ok
+test store_test::remove_agent_provider_miss幂等ok_false且库内容不变 ... ok
+test store_test::store_error两变体display携带db与canonicalize前缀 ... ok
+test store_test::remove_agent_provider未被引用命中删除ok_true且清单不再含该项 ... ok
+test store_test::workspace库文件损坏时open_workspace返回err不静默降级为空库 ... ok
+test store_test::remove_agent_provider被agent引用时err含引用方name_两类记录均原样保留 ... ok
+test store_test::remove已存在key返回true且list不再含该项 ... ok
+test store_test::remove大小写不同等价路径命中删除同一条无孤儿条目 ... ok
+test store_test::全局库文件损坏时两级库open返回err不静默降级 ... ok
+test store_test::remove目录消失后回退匹配命中删除 ... ok
+test store_test::remove未注册路径返回false且库内容不变 ... ok
+test store_test::rename被改记录miss返回err ... ok
+test store_test::rename原地改名主键不变旧名不再命中新名命中 ... ok
+test store_test::rename目标名已存在返回err且原记录不被破坏 ... ok
+test store_test::scan未知模型名与空串返回err不panic且错误串可读 ... ok
+test store_test::派生单点纯函数可读段清洗_截断_非法字符_尾点空格与空回退 ... ok
+test store_test::父路径被同名普通文件占据时open_global返回db错误不panic ... ok
+test store_test::set_default_miss_id_err且既有默认标记不变 ... ok
+test store_test::scan分页按offset_limit返回主键自然序翻页拼接不重不漏 ... ok
+test store_test::set_default标记即切换_甲到乙全局恰一默认为乙_返回更新后记录 ... ok
+test store_test::set_default重复标记同一agent幂等_切换后全清单is_default恰一true ... ok
+test store_test::两级库open后经global操作注册表add与list落全局库 ... ok
+test store_test::同root同name重复建档返回err ... ok
+test store_test::删除记录级联清掉归属会话与其转录与轮统计行且复用id不错链 ... ok
+test store_test::同名不同root各建一档互不影响 ... ok
+test store_test::空库list返回空向量不报错 ... ok
+test store_test::空root串清单返回空vec ... ok
+test store_test::级联删除不波及无关会话与转录与轮行 ... ok
+test store_test::非法记录名建档返回err ... ok
+test store_test::同root连续两次for_root返回同一共享实例且可连续读写 ... ok
+test store_test::全链路add_list_remove后重开同一db文件清单状态与各操作返回一致 ... ok
+test store_test::存量库仅workspace注册时新代码additive打开成功_原记录可读_两新模型可写读 ... ok
+test store_test::组合链provider新建_sdkagent新建引用_set_default_解析命中_重开同一库文件状态一致 ... ok
+test store_test::组合链open注册后for_root落库会话与explore且全局库无混入 ... ok
+test store_test::不同root各自独立实例_写入互不可见_文件各自独立 ... ok
+test store_test::跨维度模型名不可达_workspace库scan_workspace与全局库scan_agent_run均未知模型err ... ok
+test store_test::两workspace各自for_root同会话id并行写入互不串库 ... ok
+test store_test::同root跨两级库生命周期派生同一路径_重开后会话与explore完整可读 ... ok
+test store_test::预置旧布局单库文件后新布局冷启动照常成功且旧文件保持原样 ... ok
+test envelope_test::scan_limit超过500截断为500上限语义 ... ok
+
+test result: ok. 123 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 2.81s
+
+
+running 6 tests
+test lib_test::信号序列化形态仅含path键无任何内容字节键 ... ok
+test lib_test::目标不存在时订阅返回ok且文件后出现再修改信号生效送达 ... ok
+test lib_test::文件删除后重建再修改信号仍送达 ... ok
+test lib_test::订阅已存在文件后rename_replace修改在超时窗口内收到仅含path的信号 ... ok
+test lib_test::短窗口多次修改信号流就绪不丢不挂 ... ok
+test lib_test::watcher_drop后修改文件超时窗口内收不到任何信号 ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.51s
+
+
+running 169 tests
+test artifacts::eval_checklist_test::checklist为空的条目不产出信封 ... ok
+test artifacts::eval_checklist_test::fallback_text为checklist文本化清单且非空 ... ok
+test artifacts::eval_checklist_test::v0无workflow时不产出任何信封 ... ok
+test artifacts::eval_checklist_test::evidence长文本与特殊字符item名原样保留 ... ok
+test artifacts::eval_checklist_test::含非空checklist的条目产出payload全量信封 ... ok
+test artifacts::eval_checklist_test::大量条目逐条产出_序号与条目一一对应 ... ok
+test artifacts::registry_test::change目录为空或不存在时返回空清单不报错 ... ok
+test artifacts::markdown_doc_test::空md文件命中且markdown为空串 ... ok
+test artifacts::markdown_doc_test::目录树内md命中_payload与fallback同为文件原文 ... ok
+test artifacts::markdown_doc_test::超长markdown完整保留不截断 ... ok
+test artifacts::registry_test::同一候选多kind命中并存_无排他 ... ok
+test artifacts::registry_test::未注册的kind返回none ... ok
+test artifacts::tasks_progress_test::fallback_text为统计结果文本 ... ok
+test artifacts::markdown_doc_test::子目录内md一并收录_目录树全量 ... ok
+test artifacts::registry_test::eval候选的source序号串与discover寻址一致可回放 ... ok
+test parse::detect_test::change_dir不存在时_判定为v0 ... ok
+test artifacts::registry_test::无插件命中时返回空清单 ... ok
+test artifacts::markdown_doc_test::文件名含中文空格特殊字符时source为相对posix路径 ... ok
+test artifacts::markdown_doc_test::非md文件不命中matches ... ok
+test artifacts::registry_test::source指向不存在文件或越界eval序号时返回none ... ok
+test parse::detect_test::v2_a_fixture判定为v2_v1_b_fixture判定为v1 ... ok
+test artifacts::tasks_progress_test::混合勾选计数正确且三者自洽 ... ok
+test artifacts::registry_test::已注册kind与有效source返回五字段齐全的信封 ... ok
+test parse::detect_test::遗留eval_json不干扰判定_fixture_v0_a仍为v0 ... ok
+test artifacts::registry_test::敌意source在注册表层被拒绝_不逃逸change目录 ... ok
+test artifacts::tasks_progress_test::tasks_md不存在时matcher按名命中但解析产出none ... ok
+test artifacts::tasks_progress_test::空tasks_md产出零计数信封 ... ok
+test artifacts::tasks_progress_test::缩进嵌套复选框计数_普通行与行内字样不计入 ... ok
+test parse::detect_test::file_log为空数组时_仍判定为v2 ... ok
+test parse::detect_test::无workflow_json_判定为v0 ... ok
+test parse::detect_test::workflow_json整体非法_json时_按现役代际假设判定v2 ... ok
+test parse::detect_test::有workflow_json且含file_log键_判定为v2 ... ok
+test artifacts::registry_test::文件树与eval候选全部命中为descriptor清单 ... ok
+test parse::detect_test::目录名无日期前缀不影响判定 ... ok
+test parse::detect_test::有workflow_json无file_log键_判定为v1 ... ok
+test parse::workflow_file_test::attempt缺失为none_负数条目整体跳过 ... ok
+test parse::workflow_file_test::未知顶层键被忽略_fixture_v1_c正常解析 ... ok
+test artifacts::tasks_progress_test::全部勾选与全部未勾两个极端 ... ok
+test parse::workflow_file_test::eval为空数组时解析为空vec ... ok
+test parse::workflow_file_test::checklist条目缺失evidence时按损坏条目降级跳过 ... ok
+test parse::workflow_file_test::load_workflow_对缺失与损坏文件的_none语义 ... ok
+test parse::workflow_file_test::单条eval条目checklist损坏时跳过该条其余保留 ... ok
+test parse::workflow_file_test::单条eval的verdict为非法枚举时该条降级跳过 ... ok
+test artifacts::markdown_doc_test::legacy名单命中时title标注与排序生效 ... ok
+test parse::workflow_file_test::单条file_log条目op非法时该条跳过其余保留 ... ok
+test parse::workflow_file_test::合法v2全字段解析为强类型 ... ok
+test parse::workflow_file_test::文件整体非法json时返回_unparsable ... ok
+test parse::workflow_file_test::非法时间戳降级为none_条目本身保留 ... ok
+test parse::workflow_file_test::超长与含特殊字符的report原样保留 ... ok
+test parse::workflow_file_test::file_log空数组为some空vec_与缺失的none严格区分 ... ok
+test parse::workflow_file_test::workflow_type缺失时整体_unparsable_不返回半份数据 ... ok
+test queries::detail_test::attempt记录携带verdict_report_checklist全量字段 ... ok
+test queries::detail_test::skipped与stale标记随条目透出 ... ok
+test queries::detail_test::v1_change缺file_log时区块留空其余正常 ... ok
+test queries::detail_test::v0_change为空流水线加纯文档形态不报错 ... ok
+test queries::detail_test::eval未覆盖的phase站点仍在且attempts为空 ... ok
+test queries::explore_test::目录缺失返回空vec不报错 ... ok
+test queries::explore_test::同名md位置实为目录时返回none ... ok
+test queries::detail_test::三槽位键在场时attempt记录逐字直读透出 ... ok
+test queries::detail_test::未知change名返回none ... ok
+test queries::detail_test::无attempt字段的条目归入对应站且不影响其他条目排序 ... ok
+test queries::detail_test::同phase多attempt折叠为单站且attempts升序 ... ok
+test queries::detail_test::旧条目无槽位键投影三值均null且wire三键恒在场 ... ok
+test queries::explore_test::含foo_md的workspace读取返回名称与全文 ... ok
+test queries::explore_test::只列顶层md不递归不收其他扩展名 ... ok
+test queries::explore_test::目录存在但为空返回空vec ... ok
+test queries::explore_test::三个md返回stem升序且modified_at为文件修改时间 ... ok
+test queries::explore_test::未知stem返回none而非错误 ... ok
+test queries::explore_test::含分隔符或穿越分量的名一律拒绝返回none ... ok
+test queries::detail_test::v2_b_fixture暴露active_phase与file_log条目 ... ok
+test queries::explore_test::空串名返回none ... ok
+test queries::explore_test::非utf8内容读失败归一为none ... ok
+test queries::explore_test::超长名返回none不panic ... ok
+test queries::list_test::changes_root存在但为空时全空 ... ok
+test queries::detail_test::线面契约缺省为null且时间戳为iso串 ... ok
+test queries::list_test::changes或archive目录缺失时返回空结果而非报错 ... ok
+test queries::list_test::workflow_json不可解析的change标注unparsable且仍入列 ... ok
+test queries::list_test::单月单元素分组正确成组 ... ok
+test write::backtrack_test::reason恰500字符成功 ... ok
+test write::create_test::create_outcome_serde线形状恰两键零磁盘路径字段 ... ok
+test queries::list_test::archive按月前缀折叠_组间新月份在前_组内新名在前 ... ok
+test write::backtrack_test::reason超长501拒绝零写入 ... ok
+test queries::list_test::无日期前缀的archive目录归入未知时间组置尾 ... ok
+test write::backtrack_test::无eval条目拒绝 ... ok
+test write::backtrack_test::stale按依赖向后传播且更早相位不动 ... ok
+test queries::list_test::目录树混入普通文件时被忽略 ... ok
+test write::create_test::goal空白拒绝且目标目录与文件零产生 ... ok
+test write::backtrack_test::白名单内回溯落盘且最新条目带标记 ... ok
+test write::backtrack_test::回溯保形_file_log零触碰_pretty可再读 ... ok
+test write::backtrack_test::目标为表首时全部既有条目标stale ... ok
+test queries::list_test::active与archive全量返回_代际标注与磁盘事实一致 ... ok
+test write::backtrack_test::空白名单拒绝零写入 ... ok
+test write::backtrack_test::越权回溯拒绝且字节零变更 ... ok
+test write::create_test::校验顺序_非法名与空白goal同投时归因名称 ... ok
+test write::backtrack_test::非法目标相位与未来目标拒绝零写入 ... ok
+test write::create_test::explore_md落goal原文零包装 ... ok
+test write::create_test::goal多行emoji与超长字符保真 ... ok
+test write::create_test::超128字符拒绝且零产生 ... ok
+test write::create_test::非法kebab全族拒绝且零产生 ... ok
+test write::create_test::goal首尾空白保真_写面零trim ... ok
+test write::create_test::创建产物与插件create_change紧凑单行形状全等 ... ok
+test write::create_test::创建后flow前置三项_存在可解析相位表在位 ... ok
+test write::decision_log_test::change不存在显式err零写入 ... ok
+test write::create_test::合法输入建域_ok返回名称与当日且workflow_json字节定形 ... ok
+test write::create_test::创建后既有清单读面识别为v2单条active ... ok
+test write::create_test::校验顺序_合法名空白goal且同名已存在时归因goal ... ok
+test write::create_test::创建后详情读面可达且产物清单含探索条目 ... ok
+test write::create_test::已存在同名拒绝且既有产物字节零变更 ... ok
+test write::create_test::恰128字符合法名放行 ... ok
+test write::create_test::单字符与数字段名放行 ... ok
+test write::phase_log_test::change不存在显式err ... ok
+test write::create_test::空白树深层建树_全链不存在时建全树且两文件落位 ... ok
+test write::decision_log_test::stale条目仍被锚定改写且覆写旧值以新值生效 ... ok
+test write::decision_log_test::同相位多条目挂账锚定最新条目且更早条目逐字节不动 ... ok
+test write::decision_log_test::挂账保形_既有槽位与回溯键与未知键零触碰_file_log零触碰_pretty可再读 ... ok
+test write::phase_log_test::active_phase停留他相落账拒绝零写入 ... ok
+test write::decision_log_test::挂账幂等同值二连写字节逐位不变 ... ok
+test write::phase_log_test::attempt推导含stale_pass_fail混合历史 ... ok
+test write::phase_log_test::pass落账条目齐全且active_phase清除 ... ok
+test write::phase_log_test::fail落账verdict推导为fail ... ok
+test write::phase_log_test::report超长501拒绝且eval零新增 ... ok
+test write::phase_log_test::report恰500字符落账成功 ... ok
+test write::phase_log_test::workflow_type非requirement拒绝零写入 ... ok
+test write::phase_log_test::三槽位全none落账零新键_条目形状与既有形态一致 ... ok
+test write::phase_log_test::仅executor槽位落账单键在场 ... ok
+test write::phase_log_test::无active_phase落账显式拒绝零写入 ... ok
+test write::phase_log_test::双槽位显式在位落账_raw键逐字透传且decision键不在场 ... ok
+test write::decision_log_test::该相位无eval条目拒绝且字节零变化 ... ok
+test write::phase_log_test::纯追加回归_既有pass条目在场仍追加新条目 ... ok
+test write::phase_log_test::旧workflow无槽位键条目在场落新条目宽松解析不报错 ... ok
+test write::phase_next_test::change不存在时显式err不静默空产出 ... ok
+test write::phase_log_test::非法相位落账拒绝零写入 ... ok
+test write::phase_log_test::落账产物经宽松解析面读回三槽位值逐字还原 ... ok
+test write::phase_log_test::skipped形态落盘且约束两面各就位 ... ok
+test queries::list_test::created优先取workflow_json_archive无created时回退目录名前缀 ... ok
+test write::phase_log_test::落账保形_file_log零触碰_pretty可再读 ... ok
+test write::phase_next_test::pass推进到下一相位且round归位白名单随行 ... ok
+test write::phase_next_test::fail预算内重试同相位且round递增 ... ok
+test write::phase_next_test::workflow_json不可解析时err显式不臆测路由 ... ok
+test write::phase_next_test::workflow_type非requirement时err显式分层出口 ... ok
+test write::phase_start_test::change不存在显式err ... ok
+test queries::detail_test::v1_b_fixture的backtrack字段随条目暴露 ... ok
+test write::phase_next_test::中断重入承接active_phase不跳相位不重置已落账 ... ok
+test write::phase_next_test::上限前一手仍重试不提前触发 ... ok
+test write::phase_next_test::全部pass终态done收敛 ... ok
+test write::phase_next_test::初始路由落首相位且prompt已插值白名单为空 ... ok
+test write::phase_table_test::interpolate_phase缺席时占位符保留而change照常替换 ... ok
+test write::phase_table_test::interpolate双占位符全量替换且其余字节保真 ... ok
+test write::phase_table_test::interpolate无占位符原样返回且未知占位符不误替换 ... ok
+test write::phase_table_test::phase_table_requirement返回全表且相位序与插件逐项对照一致 ... ok
+test write::phase_table_test::phase_table_非requirement类型拒绝返回none ... ok
+test write::phase_table_test::白名单未知相位返回空vec不臆测 ... ok
+test write::phase_table_test::白名单返回表序前置集含自身 ... ok
+test write::phase_table_test::白名单首相位为空集无前置可回溯 ... ok
+test write::phase_table_test::重试上限常量锚定为5与插件一致 ... ok
+test write::phase_next_test::last_result快照携最近条目全字段 ... ok
+test write::phase_next_test::白名单随行下发与表序前置集一致 ... ok
+test write::phase_next_test::只读路由不改workflow_json字节 ... ok
+test write::phase_start_test::attempt自既有eval条目数递增 ... ok
+test write::phase_next_test::锚点按run_id隔离且同run复用基线 ... ok
+test write::phase_start_test::workflow_type非requirement拒绝 ... ok
+test write::phase_start_test::file_log既有条目写前后零触碰 ... ok
+test write::phase_start_test::pretty写回可再读且键集形状不变 ... ok
+test write::phase_next_test::锚点首见登记条目数基线且窗口外历史不重复记账 ... ok
+test write::phase_start_test::开相位落盘active_phase三字段与outcome一致 ... ok
+test write::phase_start_test::未知字段与legacy字段写后原样保留 ... ok
+test write::phase_next_test::重试上限恰达返回max_retries_exceeded ... ok
+test write::phase_start_test::非法相位拒绝且文件零变更 ... ok
+test write::phase_start_test::重入开相位attempt再递增且start_at刷新 ... ok
+
+test result: ok. 169 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.24s
+
+
+running 8 tests
+test source指向已被删除的文件时返回none而非报错 ... ok
+test eval_checklist信封payload契约形状符合设计表 ... ok
+test 未注册kind与无效source返回none ... ok
+test tasks_md双kind并存且各自读出正确信封 ... ok
+test read_artifact敌意source与kind被拒绝不逃逸change目录 ... ok
+test v2_b的detail产物清单与discover输出一致 ... ok
+test v2_b的每个descriptor都能回放出五字段齐全的信封 ... ok
+test v0_change的产物清单等于全部md的markdown_doc清单 ... ok
+
+test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.07s
+
+
+running 18 tests
+test golden_layout_empty_空目录树 ... ok
+test 语料完整性_fixtures目录与清单表逐项对应 ... ok
+test 语料完整性_golden目录与语料集合一致 ... ok
+test golden_corrupt_invalid_json ... ok
+test golden_corrupt_bad_filelog_entry ... ok
+test golden_corrupt_bad_eval_entry ... ok
+test golden_corrupt_bad_timestamp ... ok
+test golden_corrupt_bad_verdict ... ok
+test golden_v3_a ... ok
+test golden_v2_b ... ok
+test golden_layout_mixed_混入文件的目录树 ... ok
+test golden_layout_workspace_workspace树全量 ... ok
+test golden_v1_c ... ok
+test golden_v1_a ... ok
+test golden_v0_a ... ok
+test golden_v0_b ... ok
+test golden_v2_a ... ok
+test golden_v1_b ... ok
+
+test result: ok. 18 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.10s
+
+
+running 11 tests
+test v0_fixtures判定v0且无workflow可解析 ... ok
+test 非法verdict条目跳过_合法条目保留 ... ok
+test 非法时间戳降级none条目保留_且active_phase同步降级 ... ok
+test 整体非法json的fixture降级且detect仍按文件存在性判定代际 ... ok
+test 单条file_log损坏的fixture跳过该条其余保留 ... ok
+test 单条eval损坏的fixture跳过该条其余条目与区块完整 ... ok
+test v1_c的未知键被忽略且eval正常还原 ... ok
+test v2_fixtures判定v2且解析还原file_log ... ok
+test 非法时间戳与非法verdict叠加的条目只被跳过一次 ... ok
+test v1_fixtures判定v1且file_log严格为none ... ok
+test file_log空数组的v2样本与v1的none严格区分 ... ok
+
+test result: ok. 11 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.01s
+
+
+running 6 tests
+test root指向文件时list_changes返回空不panic ... ok
+test changes子树整体缺失时list_changes空结果 ... ok
+test workspace缺explores子目录时resolve正常查询不受影响 ... ok
+test change名含路径分隔符或点点时返回none不逃逸 ... ok
+test change_detail命中active与archive各一_archive经archive_root定位 ... ok
+test resolve到list_changes全链路_归属与月分组和磁盘一致 ... ok
+
+test result: ok. 6 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.02s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
+
+running 0 tests
+
+test result: ok. 0 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; finished in 0.00s
+
