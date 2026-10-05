@@ -3,18 +3,19 @@ use std::time::Instant;
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 use futures::StreamExt;
-use rig_core::completion::{CompletionModel, CompletionRequest, Usage};
-use rig_core::message::{AssistantContent, Message, ToolCall};
-use rig_core::streaming::StreamedAssistantContent;
+use rig::completion::{CompletionModel, CompletionRequest, Usage};
+use rig::message::{AssistantContent, Message, ToolCall};
+use rig::streaming::StreamedAssistantContent;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
-use crate::sdk::{normalize, policy, sandbox, tools};
+use crate::sdk::context::{ContextDefense, DefenseNotice};
+use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
 
 /// 轮数上限（熔断）：模型持续要求工具而不收敛时以失败收敛，防失控烧 token。
 const MAX_TURNS: u64 = 50;
 
-/// 正常收敛 / 失败收敛的 `TurnDone.subtype`（CLI 线格式口径）。
+/// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";
 
 /// 单轮驱动入参（协议轮参数的 loop 投影；引擎侧会话标识每轮铸造）。
@@ -25,11 +26,13 @@ pub(crate) struct LoopTurn {
     pub cwd: PathBuf,
     /// permission-mode 档位
     pub permission_mode: AgentPermissionMode,
-    /// 模型标识（RunStarted 上报口径与 CLI init 对齐）
+    /// 模型标识（RunStarted 上报口径）
     pub model_name: String,
     /// 引擎侧会话标识（每轮 `sdk-` 前缀铸造，经 RunStarted / TurnDone 上报，
     /// 内核写双 id 映射落库半边）
     pub session_id: String,
+    /// 上下文窗防线（runner 侧解析缺省；引擎内部通道，core 契约零触）
+    pub defense: ContextDefense,
 }
 
 /// loop 主体：灌未盖戳事件至有界通道，收敛时发送 `TurnDone`（停止 / 消费端
@@ -50,7 +53,7 @@ where
     let mut usage = Usage::new();
     let definitions = tools::definitions();
 
-    // run 启动事件（model / session / tools 口径与 CLI init 对齐；MCP 恒空）
+    // run 启动事件（core 协议 RunStarted 的 model / session / tools 口径；MCP 恒空）
     let started_ok = sender
         .send(AgentEventKind::RunStarted {
             model: Some(turn.model_name.clone()),
@@ -87,9 +90,14 @@ where
         if handle.stop_requested() {
             return history;
         }
+        // 上下文防线（每次发请求前，第二调用点）：L2 prune → notice 转发 →
+        // 水位过 L3 触发比则 LLM compaction（失败降级硬裁）。只作用请求史，
+        // store 转录全量不变。
+        history = defend(model, history, &turn.defense, &sender).await;
         let request = CompletionRequest {
             model: None,
-            preamble: None,
+            // 系统提示词每轮重读（会话中改动 AGENT.md 下一轮生效；缺席 None）
+            preamble: preamble::load(&turn.cwd).await,
             chat_history: history.clone(),
             documents: Vec::new(),
             tools: definitions.clone(),
@@ -282,6 +290,66 @@ async fn deny(
     let _ = sender.send(result).await;
 }
 
+/// 上下文防线编排（loop 请求前调用点）：L2 prune → notice 转发 → 水位过
+/// L3 触发比则 `compact::summarize`（成功发 `context_compacted`，失败降级
+/// `hard_prune` 并以 `fallback:true` 留痕），run 不失败收敛。notice 消费端
+/// 关闭时尽力流出（外层续轮的下一发自然退出）。
+async fn defend<M>(
+    model: &M,
+    history: Vec<Message>,
+    defense: &ContextDefense,
+    sender: &mpsc::Sender<AgentEventKind>,
+) -> Vec<Message>
+where
+    M: CompletionModel,
+{
+    let (pruned, notices) = context::prune(history, defense);
+    for notice in &notices {
+        forward_notice(sender, notice).await;
+    }
+    let current = pruned;
+    if !defense.over_l3(&current) {
+        return current;
+    }
+    let before = context::estimate_history(&current);
+    match compact::summarize(model, &current, defense).await {
+        Ok(compacted) => {
+            let after = context::estimate_history(&compacted);
+            forward_notice(
+                sender,
+                &DefenseNotice {
+                    subtype: "context_compacted".to_owned(),
+                    payload: serde_json::json!({
+                        "before": before,
+                        "after": after,
+                        "layer": "l3"
+                    }),
+                },
+            )
+            .await;
+            compacted
+        }
+        Err(_) => {
+            // 降级路径：摘要失败不打断 run，L2 硬裁收口（fallback 留痕在
+            // hard_prune 的 notice 载荷内）
+            let (hard, notice) = context::hard_prune(current, defense);
+            forward_notice(sender, &notice).await;
+            hard
+        }
+    }
+}
+
+/// 防线 notice 转发：`SystemNotice{subtype, payload}` 经密封通道流出落库
+/// （开放词典 subtype，非 delta 事件）。
+async fn forward_notice(sender: &mpsc::Sender<AgentEventKind>, notice: &DefenseNotice) {
+    let _ = sender
+        .send(AgentEventKind::SystemNotice {
+            subtype: notice.subtype.clone(),
+            payload: notice.payload.clone(),
+        })
+        .await;
+}
+
 /// sandbox 校验与入参改写：路径类工具（path 字段）经 [`sandbox::check`]
 /// 解析后回写 `path`；glob 无 path 字段，以 [`sandbox::check_pattern`] 预检
 /// pattern（执行体以 root 为基座拼接）。未知工具无路径面，原样放行（policy
@@ -327,7 +395,7 @@ async fn finish_success(
 
 /// 失败收敛：`SystemNotice{api_error}` 记因 + `TurnDone{is_error:true}`
 /// （`result_subtype` 区分成因：API 失败 `api_error`、轮数熔断
-/// `error_max_turns`——CLI 合成收敛事件的命名口径）。
+/// `error_max_turns`——core 协议收敛事件的命名口径）。
 async fn finish_error(
     sender: &mpsc::Sender<AgentEventKind>,
     turns: u64,

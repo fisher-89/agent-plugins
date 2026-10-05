@@ -2,8 +2,8 @@ use std::path::PathBuf;
 use std::sync::Arc;
 
 use agent::{
-    AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner, AgentStartError,
-    SessionCtx, SessionInjections, SessionOpen, SessionRef,
+    AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, AgentRunner,
+    AgentStartError, SessionCtx, SessionInjections, SessionOpen, SessionRef,
 };
 
 use crate::sdk::config::EngineConfig;
@@ -64,7 +64,7 @@ fn loader(
 
 /// 两枚密封往返的最小全史转录（重建非空的前提）。
 fn minimal_transcript() -> Vec<agent::AgentEvent> {
-    use agent::{AgentBlock, AgentEvent, AgentEventKind};
+    use agent::{AgentEvent, AgentEventKind};
     vec![
         AgentEvent::stamp(
             0,
@@ -89,13 +89,66 @@ fn minimal_transcript() -> Vec<agent::AgentEvent> {
     ]
 }
 
+/// 超水位全史转录：工具轮回灌形态（assistant tool_use + 超门槛老 tool_result
+/// 约 25k tokens）+ 大块 filler user（约 50k tokens，越过保护窗）——重建史
+/// 触发第一调用点 L2 先行剪裁的底座。
+fn oversized_transcript() -> Vec<agent::AgentEvent> {
+    use agent::{AgentEvent, AgentEventKind};
+    vec![
+        AgentEvent::stamp(
+            0,
+            AgentEventKind::Message {
+                role: AgentMessageRole::User,
+                blocks: vec![AgentBlock::Text {
+                    text: "上一轮问".to_owned(),
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        AgentEvent::stamp(
+            1,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Assistant,
+                blocks: vec![AgentBlock::ToolUse {
+                    id: "tu_big".to_owned(),
+                    name: "read".to_owned(),
+                    input: serde_json::json!({ "path": "big.txt" }),
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        AgentEvent::stamp(
+            2,
+            AgentEventKind::Message {
+                role: AgentMessageRole::Tool,
+                blocks: vec![AgentBlock::ToolResult {
+                    id: "tu_big".to_owned(),
+                    content: "x".repeat(100_000),
+                    is_error: false,
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+        AgentEvent::stamp(
+            3,
+            AgentEventKind::Message {
+                role: AgentMessageRole::User,
+                blocks: vec![AgentBlock::Text {
+                    text: "f".repeat(200_000),
+                }],
+                parent_tool_use_id: None,
+            },
+        ),
+    ]
+}
+
 // ---------------------------------------------------------------------------
 // open 段：配置三件套校验（启动失败不产生记录）
 // ---------------------------------------------------------------------------
 
 #[test]
 fn 空缺省配置open返回config_missing且三成因逐字可辨() {
-    let runner = SdkRunner::new(EngineConfig::empty(), None);
+    let runner = SdkRunner::new(EngineConfig::empty(), None, None);
 
     let error = runner.open_session(open_new()).expect_err("空配置必须 Err");
     let AgentStartError::ConfigMissing(message) = &error else {
@@ -136,7 +189,7 @@ fn 单字段缺失open消息区分api_key_base_url_model成因() {
         ),
     ];
     for (field, config) in cases {
-        let runner = SdkRunner::new(config, None);
+        let runner = SdkRunner::new(config, None, None);
         let error = runner.open_session(open_new()).expect_err("缺项必须 Err");
         let AgentStartError::ConfigMissing(message) = &error else {
             panic!("应为 ConfigMissing，实际: {error:?}");
@@ -161,7 +214,7 @@ fn 单字段缺失open消息区分api_key_base_url_model成因() {
 #[test]
 fn continue装载缝none形态报会话不存在且成因可区分() {
     let (resume, calls) = loader(Ok(None));
-    let runner = SdkRunner::new(complete_config(), Some(resume));
+    let runner = SdkRunner::new(complete_config(), Some(resume), None);
 
     let error = runner
         .open_session(open_continue("ses-404"))
@@ -183,7 +236,7 @@ fn continue装载缝none形态报会话不存在且成因可区分() {
 #[test]
 fn continue装载缝err形态报转录读取失败并记因() {
     let (resume, _calls) = loader(Err("库读取失败".to_owned()));
-    let runner = SdkRunner::new(complete_config(), Some(resume));
+    let runner = SdkRunner::new(complete_config(), Some(resume), None);
 
     let error = runner
         .open_session(open_continue("ses-err"))
@@ -200,7 +253,7 @@ fn continue装载缝err形态报转录读取失败并记因() {
 #[test]
 fn continue重建空史报会话缺失语义且三成因互不重合() {
     let (resume, _calls) = loader(Ok(Some(Vec::new())));
-    let runner = SdkRunner::new(complete_config(), Some(resume));
+    let runner = SdkRunner::new(complete_config(), Some(resume), None);
 
     let error = runner
         .open_session(open_continue("ses-empty"))
@@ -215,12 +268,12 @@ fn continue重建空史报会话缺失语义且三成因互不重合() {
 
     // 三形态成因互不重合（可区分）
     let (none_loader, _) = loader(Ok(None));
-    let none_message = SdkRunner::new(complete_config(), Some(none_loader))
+    let none_message = SdkRunner::new(complete_config(), Some(none_loader), None)
         .open_session(open_continue("ses-a"))
         .expect_err("")
         .to_string();
     let (err_loader, _) = loader(Err("读取失败".to_owned()));
-    let err_message = SdkRunner::new(complete_config(), Some(err_loader))
+    let err_message = SdkRunner::new(complete_config(), Some(err_loader), None)
         .open_session(open_continue("ses-b"))
         .expect_err("")
         .to_string();
@@ -233,7 +286,7 @@ fn continue重建空史报会话缺失语义且三成因互不重合() {
 #[test]
 fn continue装载器未注入时显式失败不静默空史() {
     // resume 缝未注入（直构 runner 无 loader）的 Continue：显式 ConfigMissing
-    let runner = SdkRunner::new(complete_config(), None);
+    let runner = SdkRunner::new(complete_config(), None, None);
     let error = runner
         .open_session(open_continue("ses-noloader"))
         .expect_err("装载器未注入必须 Err");
@@ -249,7 +302,7 @@ fn continue装载器未注入时显式失败不静默空史() {
 #[tokio::test]
 async fn continue全史装载重建后open成功且new会话零装载调用() {
     let (resume, calls) = loader(Ok(Some(minimal_transcript())));
-    let runner = SdkRunner::new(complete_config(), Some(resume));
+    let runner = SdkRunner::new(complete_config(), Some(resume), None);
 
     // Continue：全史转录重建非空 → open 成功（全史装载半边；重建史注入首轮
     // 请求由 loop_test 捕获缝承载）
@@ -260,7 +313,7 @@ async fn continue全史装载重建后open成功且new会话零装载调用() {
 
     // New：全新运行空史，装载缝零调用
     let (new_resume, new_calls) = loader(Ok(Some(minimal_transcript())));
-    let new_runner = SdkRunner::new(complete_config(), Some(new_resume));
+    let new_runner = SdkRunner::new(complete_config(), Some(new_resume), None);
     new_runner.open_session(open_new()).expect("New 会话应成功");
     assert_eq!(
         new_calls.load(std::sync::atomic::Ordering::Relaxed),
@@ -274,12 +327,131 @@ async fn continue全史装载重建后open成功且new会话零装载调用() {
 }
 
 // ---------------------------------------------------------------------------
+// 上下文窗防线装配（AC-6 resume 重建后第一调用点 + AC-9 窗长承接半边）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn continue携超门槛工具结果的小窗runner_防线notice先于runstarted() {
+    let (resume, _calls) = loader(Ok(Some(oversized_transcript())));
+    // 显式小窗：window = 64 → L2 水位 48 tokens，重建史必然越线
+    let runner = SdkRunner::new(complete_config(), Some(resume), Some(64));
+
+    let mut session = runner
+        .open_session(open_continue("ses-defense"))
+        .expect("超水位重建史防线剪裁后 open 仍成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "续会话一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    // 事件序：SystemNotice{context_pruned}（重建史防线留痕，泵内先行转发）先于
+    // RunStarted（同任务同通道 FIFO 保序）
+    let notice = session.observations.recv().await.expect("防线 notice");
+    let AgentEventKind::SystemNotice {
+        subtype, payload, ..
+    } = &notice
+    else {
+        panic!("首事件应为防线 notice，实际: {notice:?}");
+    };
+    assert_eq!(subtype.as_str(), "context_pruned", "重建史 L2 剪裁留痕");
+    let payload = serde_json::to_value(payload).expect("payload 序列化");
+    assert_eq!(payload["layer"], serde_json::json!("l2"), "layer 记剪裁层");
+    assert!(
+        payload["after"].as_u64() < payload["before"].as_u64(),
+        "重建史剪裁有效减重: {payload}"
+    );
+
+    let started = session.observations.recv().await.expect("RunStarted");
+    assert!(
+        matches!(&started, AgentEventKind::RunStarted { .. }),
+        "防线 notice 先于 RunStarted，实际: {started:?}"
+    );
+    drop(session);
+}
+
+#[tokio::test]
+async fn 防线continue时全史事件仍全量进入重建_装载缝无写通道零反写() {
+    let transcript = oversized_transcript();
+    let (resume, calls) = loader(Ok(Some(transcript.clone())));
+    let runner = SdkRunner::new(complete_config(), Some(resume), Some(64));
+
+    let mut session = runner
+        .open_session(open_continue("ses-full"))
+        .expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "全量重建一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    // notice 载荷 before == 全史重建史的估算 tokens：防线只作用请求史，
+    // 装载缝返回的全量事件完整进入重建（未因防线缩水）
+    let notice = session.observations.recv().await.expect("防线 notice");
+    let AgentEventKind::SystemNotice { payload, .. } = &notice else {
+        panic!("应为防线 notice，实际: {notice:?}");
+    };
+    let payload = serde_json::to_value(payload).expect("payload 序列化");
+    let rebuilt = crate::sdk::resume::rebuild(&transcript).expect("重建应成功");
+    assert_eq!(
+        payload["before"],
+        serde_json::json!(crate::sdk::context::estimate_history(&rebuilt)),
+        "before == 全史重建估算（全量事件进入防线）"
+    );
+    // 装载缝无写通道：调用计数恰一（读侧单点，无反写）
+    assert_eq!(
+        calls.load(std::sync::atomic::Ordering::Relaxed),
+        1,
+        "装载缝恰调用一次（无写通道零反写）"
+    );
+    drop(session);
+}
+
+// ---------------------------------------------------------------------------
 // ask 泵：未盖戳观察词汇与流失败收敛（真实泵 + 拒连端点）
 // ---------------------------------------------------------------------------
 
 #[tokio::test]
+async fn runstarted_tools恰七工具清单() {
+    use crate::sdk::tools::TOOL_NAMES;
+
+    let runner = SdkRunner::new(complete_config(), None, None);
+    let mut session = runner.open_session(open_new()).expect("open 应成功");
+    session
+        .questions
+        .send(agent::TurnQuestion {
+            prompt: "工具清单一轮".to_owned(),
+        })
+        .await
+        .expect("问题送达");
+
+    let started = session.observations.recv().await.expect("RunStarted");
+    let AgentEventKind::RunStarted {
+        tools,
+        mcp_servers,
+        ..
+    } = &started
+    else {
+        panic!("首事件应为 RunStarted，实际: {started:?}");
+    };
+    assert_eq!(
+        tools.as_slice(),
+        TOOL_NAMES.as_slice(),
+        "RunStarted.tools 与 TOOL_NAMES 同源（恰七工具，bash 在册）"
+    );
+    assert_eq!(tools.len(), 7, "恰七工具");
+    assert!(tools.contains(&"bash".to_owned()), "bash 在工具清单内");
+    assert!(mcp_servers.is_empty(), "MCP 恒空（本期无 MCP 面）");
+    drop(session);
+}
+
+#[tokio::test]
 async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_sdk前缀上报() {
-    let runner = SdkRunner::new(complete_config(), None);
+    let runner = SdkRunner::new(complete_config(), None, None);
     let mut session = runner.open_session(open_new()).expect("open 应成功");
 
     session
@@ -357,7 +529,7 @@ async fn ask泵观察回流未盖戳词汇_变体序以收敛收尾且remote_id_
 
 #[tokio::test]
 async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛() {
-    let runner = SdkRunner::new(complete_config(), None);
+    let runner = SdkRunner::new(complete_config(), None, None);
     let mut session = runner.open_session(open_new()).expect("open 应成功");
     session.handle.request_stop(); // 停止先置位
 
@@ -397,7 +569,7 @@ async fn 停止先置位时泵select停止臂命中_future_drop不合成收敛()
 
 #[tokio::test]
 async fn 停止晚于eof时泵已收敛无二次收敛事件() {
-    let runner = SdkRunner::new(complete_config(), None);
+    let runner = SdkRunner::new(complete_config(), None, None);
     let mut session = runner.open_session(open_new()).expect("open 应成功");
 
     session
@@ -436,7 +608,7 @@ async fn 停止晚于eof时泵已收敛无二次收敛事件() {
 fn 门面sdk分发的启动校验行为与直构runner一致() {
     // 空配置：门面产物与直构 runner 同样以 ConfigMissing 拒绝且消息一致
     let via_facade = EngineFacade::new().runner_for(EngineKind::Sdk, EngineConfig::empty());
-    let via_direct = SdkRunner::new(EngineConfig::empty(), None);
+    let via_direct = SdkRunner::new(EngineConfig::empty(), None, None);
 
     let facade_error = via_facade
         .open_session(open_new())

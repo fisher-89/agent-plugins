@@ -6,6 +6,8 @@ use crate::{
     compose_turn, session_query, ClaudeCliRunner, ComposedTurn, EngineConfig, EngineFacade,
     EngineKind, ResumeTranscript,
 };
+use crate::sdk::runner::SdkRunner;
+use agent::AgentRunner;
 use store::WorkspaceStores;
 
 /// PATH 环境变量修改串行化（进程全局操作）。
@@ -60,6 +62,11 @@ fn crate根导出面锚定_组合根与查询面与既有门面re_export可达()
     assert!(!config.api_key.is_empty());
     let empty = EngineConfig::empty();
     assert!(empty.api_key.is_empty() && empty.base_url.is_empty() && empty.model.is_empty());
+
+    // with_context_window 经门面可达（builder 缝锚定；不新增顶层 re-export 面
+    // ——方法挂在 EngineFacade 上，无 crate 根 re-export）
+    let windowed = EngineFacade::new().with_context_window(Some(200_000));
+    let _ = windowed;
 }
 
 #[test]
@@ -227,4 +234,94 @@ fn sdk臂空配置open以config_missing显式失败() {
             if message.contains("api_key") && message.contains("base_url") && message.contains("model")),
         "Sdk 臂空配置 ConfigMissing 区分三成因，实际: {error:?}"
     );
+}
+
+// ---------------------------------------------------------------------------
+// with_context_window builder 缝（AC-9 门面半边）
+// ---------------------------------------------------------------------------
+
+/// 直调 open_session 的 Continue 形态底座。
+fn open_continue(session_id: &str) -> agent::SessionOpen {
+    agent::SessionOpen {
+        injections: agent::SessionInjections::default(),
+        ctx: agent::SessionCtx {
+            workspace_root: Path::new("C:\\ws").to_path_buf(),
+            permission_mode: agent::AgentPermissionMode::BypassPermissions,
+        },
+        session: agent::SessionRef::Continue {
+            id: session_id.to_owned(),
+        },
+        prior_handle: Some(session_id.to_owned()),
+    }
+}
+
+#[test]
+fn with_context_window_builder链式构造且分发行为与直构一致() {
+    // 链式构造：new() → with_context_window(Some)（builder 缝，链式语义）
+    let via_facade = EngineFacade::new()
+        .with_context_window(Some(200_000))
+        .runner_for(EngineKind::Sdk, EngineConfig::empty());
+    let via_direct = SdkRunner::new(EngineConfig::empty(), None, Some(200_000));
+
+    // 门面分发行为与直构一致（open 校验错误面等价断言，沿既有门面分发一致性口径）
+    let facade_error = via_facade
+        .open_session(open_continue("ses-window"))
+        .expect_err("空配置必须 Err");
+    let direct_error = via_direct
+        .open_session(open_continue("ses-window"))
+        .expect_err("直构同口径 Err");
+    assert_eq!(
+        facade_error, direct_error,
+        "with_context_window 门面分发与直构 SdkRunner::new 三参一致"
+    );
+
+    // with_context_window(None) 同为合法载荷（透传 None = 缺省防线）
+    let none_facade = EngineFacade::new()
+        .with_context_window(None)
+        .runner_for(EngineKind::Sdk, EngineConfig::empty());
+    let none_direct = SdkRunner::new(EngineConfig::empty(), None, None);
+    assert_eq!(
+        none_facade
+            .open_session(open_continue("ses-window-none"))
+            .expect_err("")
+            .to_string(),
+        none_direct
+            .open_session(open_continue("ses-window-none"))
+            .expect_err("")
+            .to_string(),
+        "None 载荷分发行为一致"
+    );
+}
+
+#[test]
+fn 既有构造路径缺省none不变_续会话校验行为与现状一致() {
+    // with_resume_transcript 产物（不携窗长）→ runner_for(Sdk)：Continue 校验
+    // 行为与直构 SdkRunner::new(cfg, loader, None) 一致（缺省防线装配不改校验面）
+    let (loader, _calls) = counting_loader(Ok(None));
+    let via_facade =
+        EngineFacade::with_resume_transcript(loader).runner_for(EngineKind::Sdk, complete_cfg());
+    let (direct_loader, _direct_calls) = counting_loader(Ok(None));
+    let via_direct = SdkRunner::new(complete_cfg(), Some(direct_loader), None);
+
+    let facade_error = via_facade
+        .open_session(open_continue("ses-facade-default"))
+        .expect_err("会话不存在必须 Err");
+    let direct_error = via_direct
+        .open_session(open_continue("ses-facade-default"))
+        .expect_err("直构同口径 Err");
+    assert_eq!(
+        facade_error, direct_error,
+        "不携窗长（缺省 None）行为与现状一致，既有断言零漂移"
+    );
+    let _ = _calls;
+    let _ = _direct_calls;
+}
+
+/// 完整配置底座（与 runner_test 同款拒连端点）。
+fn complete_cfg() -> EngineConfig {
+    EngineConfig {
+        api_key: "sk-test".to_owned(),
+        base_url: "http://127.0.0.1:9/v1".to_owned(),
+        model: "rig-test-model".to_owned(),
+    }
 }

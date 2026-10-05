@@ -1,6 +1,6 @@
-use rig_core::completion::Usage;
-use rig_core::message::{Reasoning, Text};
-use rig_core::streaming::{
+use rig::completion::Usage;
+use rig::message::{Reasoning, Text};
+use rig::streaming::{
     StreamFinal, StreamedAssistantContent, ToolCallDeltaContent, UnknownPayload,
 };
 
@@ -32,8 +32,8 @@ fn reasoning_item(reasoning: &str) -> StreamedAssistantContent {
 
 /// 完整工具调用流项（复用 AssistantContent 构造器取 rig ToolCall）。
 fn tool_call_item() -> StreamedAssistantContent {
-    let rig_core::message::AssistantContent::ToolCall(tool_call) =
-        rig_core::message::AssistantContent::tool_call(
+    let rig::message::AssistantContent::ToolCall(tool_call) =
+        rig::message::AssistantContent::tool_call(
             "tu_1",
             "read",
             serde_json::json!({ "path": "README.md" }),

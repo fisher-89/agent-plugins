@@ -50,9 +50,10 @@ export const commands = {
 	 *  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）：参数
 	 *  转换段——id 存在且入参 api_key 为空 → 读存量记录回填原值（前端编辑态
 	 *  api_key 恒空 + 遮蔽占位，「留空 = 保持原值」语义的后端承接半边，store 恒
-	 *  收全字段）；重名 reject（store 事务内查重）。
+	 *  收全字段）；`context_length` 可空平参（前端留空 = `None` 未配置，MUST NOT
+	 *  落 0 / 128000 缺省字面）；重名 reject（store 事务内查重）。
 	 */
-	saveAgentProvider: (id: number | null, name: string, baseUrl: string, apiKey: string, models: AgentModelTiers) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, baseUrl, apiKey, models }),
+	saveAgentProvider: (id: number | null, name: string, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, baseUrl, apiKey, models, contextLength }),
 	/**
 	 *  删除 provider：被 agent 引用 reject（含引用方提示，不级联）；miss 幂等
 	 *  `Ok(false)`。
@@ -319,8 +320,9 @@ export type AgentPermissionMode =
 /**
  *  agent provider 记录（agent 管理域，user 维度落全局库，见
  *  desktop-data-dimensions）：openai 兼容端点连接档案（base_url / api_key /
- *  三档 model），被 [`AgentInstanceRecord`] 按 `provider_id` N:1 引用（删除
- *  阻止），亦是后续 workspace→agent 关联链的引用锚点之一（稳定 id 主键）。
+ *  三档 model / 可空 context_length），被 [`AgentInstanceRecord`] 按
+ *  `provider_id` N:1 引用（删除阻止），亦是后续 workspace→agent 关联链的
+ *  引用锚点之一（稳定 id 主键）。
  * 
  *  // 机密面有意放宽:api_key 全链路明文（IPC body / 全局库文件 / 进程内存），
  *  边界表见 specs/desktop-agent-management ——读写单 DTO 即记录本体（无遮蔽
@@ -339,6 +341,12 @@ export type AgentProviderRecord = {
 	apiKey: string,
 	/**  三档模型标识（运行发起解析消费固定取 high 档） */
 	models: AgentModelTiers,
+	/**
+	 *  provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
+	 *  `None` = 未配置（缺省走 128K 启发式；编辑语义留空 = 未配置，MUST NOT
+	 *  落 0 或缺省字面）
+	 */
+	contextLength?: number | null,
 };
 
 /**

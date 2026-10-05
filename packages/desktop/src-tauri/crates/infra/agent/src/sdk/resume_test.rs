@@ -1,4 +1,4 @@
-use rig_core::message::{AssistantContent, Message, ToolResultContent, UserContent};
+use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
 

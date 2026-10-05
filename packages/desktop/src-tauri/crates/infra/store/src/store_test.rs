@@ -2280,6 +2280,7 @@ fn fixture_provider(name: &str) -> AgentProviderRecord {
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         fixture_tiers(),
+        None,
     )
 }
 
@@ -2368,6 +2369,7 @@ fn provider_upsert_name空白err_api_key空串允许落库() {
         "https://api.example.com/v1".to_owned(),
         String::new(),
         fixture_tiers(),
+        None,
     );
     let saved = upsert_provider_ok(&store, blank_key);
     assert_eq!(saved.api_key, "", "api_key 空串原样落库");

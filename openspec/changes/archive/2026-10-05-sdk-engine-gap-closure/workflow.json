@@ -1,0 +1,711 @@
+{
+  "workflow_type": "requirement",
+  "created": "2026-10-04",
+  "file_log": [
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/Cargo.toml",
+      "at": "2026-10-04T15:51:19.302Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/Cargo.toml",
+      "at": "2026-10-04T15:59:27.711Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop.rs",
+      "at": "2026-10-04T16:11:24.959Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preamble.rs",
+      "at": "2026-10-04T15:54:07.731Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/mod.rs",
+      "at": "2026-10-04T16:09:03.377Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/tools.rs",
+      "at": "2026-10-04T16:00:44.995Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/bash.rs",
+      "at": "2026-10-04T16:01:46.016Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/policy.rs",
+      "at": "2026-10-04T16:01:08.218Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/context.rs",
+      "at": "2026-10-04T16:17:38.329Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/compact.rs",
+      "at": "2026-10-04T16:08:56.029Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner.rs",
+      "at": "2026-10-04T16:21:03.564Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model.rs",
+      "at": "2026-10-04T16:14:18.495Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/lib.rs",
+      "at": "2026-10-04T16:14:34.118Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/compose.rs",
+      "at": "2026-10-04T16:14:46.364Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/agents/mod.rs",
+      "at": "2026-10-04T16:14:56.633Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/hooks/use-agent-providers.ts",
+      "at": "2026-10-04T16:18:58.771Z"
+    },
+    {
+      "op": "write",
+      "scope": "implement",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/provider-panel.tsx",
+      "at": "2026-10-04T16:19:54.656Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/preamble_test.rs",
+      "at": "2026-10-04T16:50:40.593Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/bash_test.rs",
+      "at": "2026-10-04T17:14:46.331Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/context_test.rs",
+      "at": "2026-10-04T17:20:43.651Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/compact_test.rs",
+      "at": "2026-10-04T16:56:11.486Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/mod.rs",
+      "at": "2026-10-04T16:56:23.693Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/policy_test.rs",
+      "at": "2026-10-04T16:56:58.629Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/tools_test.rs",
+      "at": "2026-10-04T17:20:28.419Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/loop_test.rs",
+      "at": "2026-10-04T17:20:52.803Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/runner_test.rs",
+      "at": "2026-10-04T17:04:53.899Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/lib_test.rs",
+      "at": "2026-10-04T17:09:24.224Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/compose_test.rs",
+      "at": "2026-10-04T17:06:14.114Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/store/src/model_test.rs",
+      "at": "2026-10-04T17:31:11.721Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/src/commands/agents/mod_test.rs",
+      "at": "2026-10-04T17:07:43.259Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src-tauri/crates/infra/agent/src/sdk/context.rs",
+      "at": "2026-10-04T17:13:55.232Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "{",
+      "at": "2026-10-04T17:17:25.302Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "crates/infra/agent/src/sdk/loop_test.rs",
+      "at": "2026-10-04T17:18:05.935Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "0,",
+      "at": "2026-10-04T17:21:26.342Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "0",
+      "at": "2026-10-04T17:21:26.342Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/hooks/use-agent-providers.test.ts",
+      "at": "2026-10-04T17:25:18.090Z"
+    },
+    {
+      "op": "write",
+      "scope": "test-gen",
+      "attempt": 1,
+      "path": "packages/desktop/src/views/agents/components/provider-panel.test.tsx",
+      "at": "2026-10-04T17:27:05.518Z"
+    }
+  ],
+  "active_phase": null,
+  "eval": [
+    {
+      "phase": "proposal",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "六项补全打包提案过检。R1 五缺口带 file:line；R2 实现/测试/不要修改均非空；R3 六风险各有具体缓解（spike 退路、L3 降级 L2 硬裁等）；R4 AC-1~11 对象+条件可测；R5 十决策均含被拒备选与理由；R6 版本 bump 0.4.7→0.4.8 合规；R7 无占位符（待决归 design 属惯例）；R8 章节实质内容齐；R9 新增能力显式空+修改两条非空；R10 两 spec 与两修改能力 1:1；R11 ADDED 归修改能力属先例，AC-2~10 与 spec 场景逐条对应，三档矩阵/七工具/=0.42.x/保首条 user/core 零 diff 口径两侧一致。",
+      "checklist": [
+        {
+          "item": "问题描述清晰，包含背景和动机",
+          "pass": true,
+          "evidence": "问题段（proposal.md:9-17）列五个编号缺口并带 file:line 证据（sdk/loop.rs:92 裸模型 preamble None、sdk/tools.rs:180-197 grep 子串匹配），动机明确：协议层对齐但产品层差距，bash 缺席为最大刀刃缺口"
+        },
+        {
+          "item": "变更范围明确划分为实现文件、测试文件和不要修改",
+          "pass": true,
+          "evidence": "### 实现文件（:56-69，Cargo.toml/sdk 模块/model.rs/管理页等非空）、### 测试文件（:71-79，policy/tools/loop/防线/bash/preamble 测试非空）、### 不要修改（:86-95，core/agent 零 diff 等）均存在且非空"
+        },
+        {
+          "item": "风险包含具体的缓解措施",
+          "pass": true,
+          "evidence": "六风险（:119-126）均具体：facade 失败退路=维持 rig-core 直连并拆分本 change；L3 失败降级 L2 硬裁不打断 run；bash 显式知情留痕+超时/进程树活性护栏；窗长 128K 缺省+L4 兜底+prompt_too_large 细分；非泛化『监控并调整』"
+        },
+        {
+          "item": "验收标准可测试",
+          "pass": true,
+          "evidence": "AC-1~11（:101-113）均有对象+条件：AC-1 rig_core:: grep 零残留+cargo test 全绿；AC-2 fixture 逐字/缺席 None/下一轮生效；AC-4 三档矩阵逐格断言+进程树清理；AC-6 占位符+配对完整+两调用点可考；AC-11 0.4.7→0.4.8"
+        },
+        {
+          "item": "关键决策包含理由和被拒绝的备选方案",
+          "pass": true,
+          "evidence": "决策表（:134-145）十条均含理由与备选列：窗长来源拒『硬编码模型表/每次探测』（维护必腐化）；bash 三档拒『三档均放/均拒/新增第四档』；依赖策略拒『维持直连（旧结论翻案）/升最新版』"
+        },
+        {
+          "item": "提案与项目 CLAUDE.md 约定一致",
+          "pass": true,
+          "evidence": "AC-11 用户可见变更归档时 bump packages/desktop/package.json 0.4.7→0.4.8 符合版本提升规则；『不要修改』清零 core/cli 面、六工具外能力显式缓行体现 surgical changes 与 simplicity first"
+        },
+        {
+          "item": "无占位符或 TODO 内容",
+          "pass": true,
+          "evidence": "全文无 TODO/TBD/placeholder/{{...}}；『占位符』（:31/:108）指 prune 时 tool_result 的占位符替换机制非模板标记；『待决问题（归 design）』（:147-157）为显式路由非空缺"
+        },
+        {
+          "item": "所有非能力的模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "问题（五缺口）、提案（六项打包+阶段化）、变更范围（实现/测试/删除/不要修改）、验收标准（11 条）、风险（6 行表）均实质内容，无空章节"
+        },
+        {
+          "item": "能力章节存在且至少有一个新增或修改条目",
+          "pass": true,
+          "evidence": "## 能力（:41）存在；### 修改的能力（:47-50）两条非空：desktop-agent-execution 与 desktop-agent-management；### 新增能力显式空并声明 MUST NOT 新立能力 spec（既有先例：修改能力下 ADDED requirement 属深化非新能力）"
+        },
+        {
+          "item": "specs/ 文件与能力章节一一对应",
+          "pass": true,
+          "evidence": "specs/ 下恰两文件：specs/desktop-agent-execution/spec.md 与 specs/desktop-agent-management/spec.md，与修改的能力两条 1:1，无孤儿 spec"
+        },
+        {
+          "item": "proposal.md 与 specs/ 之间无逻辑冲突",
+          "pass": true,
+          "evidence": "AC-2↔AGENT.md 四场景、AC-4↔三档矩阵/超时清理/Windows 兜底、AC-6↔prune/resume 剪裁、AC-7↔compaction 收窄/失败降级、AC-9↔context_length 携带/编辑/缺省启发式、AC-10↔MVP 边界第4条改写『bash 无沙箱』；三档口径（Default 拒/AcceptEdits 与 Bypass 放）、七工具、=0.42.x 锁版、保首条 user、store 转录全量、core/cli 零 diff 两侧一致；execution spec MODIFIED 能力下 ADDED 4 条+MODIFIED 5 条属既有先例非冲突"
+        }
+      ],
+      "start_at": "2026-10-04T14:16:54.725Z",
+      "timestamp": "2026-10-04T14:33:09.105Z"
+    },
+    {
+      "phase": "dev-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "D1-D10全过。D1:19组件行职责/依赖/技术/路径全填无TBD。D2:3模型字段与持久化齐。D3:AC-1..11均有落点,AC-2 compose零diff与AC-9接线冲突已入待决#1显式收口。D4:九阶段分组依赖正向,runner五阶段改签名六阶段改调用方为瞬态非逆序。D5:常量与签名级具体。D6:rig/rig-core/regex/tokio附用途,构建无新增。D7:core与cli零diff,envelope v1→2沿先例,vp工具链一致。D8:各章实质,路由不适用以函数表承载API。D9:design无测试章节,tasks仅静态守线。D10:proposal实现文件全覆盖(config.rs零diff有据),tasks与清单双向一致,新增函数均入公共函数表。",
+      "checklist": [
+        {
+          "item": "D1 架构组件已列出职责、依赖、技术栈和文件路径",
+          "pass": true,
+          "evidence": "架构组件表19行,职责/文件位置/依赖/技术四列全填,路径均指向具体文件,无TBD"
+        },
+        {
+          "item": "D2 数据模型已列出字段、关系和持久化",
+          "pass": true,
+          "evidence": "数据模型3条:AgentProviderRecord v2/AgentProviderRecordV1 legacy/防线SystemNotice,字段+关系+持久化齐"
+        },
+        {
+          "item": "D3 设计覆盖 proposal.md 中每个验收标准",
+          "pass": true,
+          "evidence": "验收标准对齐表AC-1..AC-11逐项有设计落点;AC-2 compose零diff与AC-9接线的字面冲突在待决#1显式声明核验口径"
+        },
+        {
+          "item": "D4 tasks.md 存在且所有任务遵循依赖顺序",
+          "pass": true,
+          "evidence": "九阶段分组全为复选框;依赖正向(阶段六依赖阶段五SdkRunner::new三参,阶段五依赖阶段一依赖面);五改签名/六改调用方为瞬态非逆序"
+        },
+        {
+          "item": "D5 任务具体且可执行",
+          "pass": true,
+          "evidence": "任务含具体常量/签名/操作(MAX_READ_LINES=2000/MAX_RESULT_BYTES=30_000/0.75-0.90水位/timeout钳位[1s,600s]),无泛化项"
+        },
+        {
+          "item": "D6 依赖项(运行时和构建/测试)已列出",
+          "pass": true,
+          "evidence": "运行时rig=0.42.0/rig-core解析钉子/regex=1/tokio process各附用途;构建测试依赖显式声明无新增"
+        },
+        {
+          "item": "D7 设计与项目架构一致(CLAUDE.md)",
+          "pass": true,
+          "evidence": "core与cli零diff、kill_process_tree形状复制不引cli依赖、envelope v1→2沿v3→v4先例、守线用vp check符合仓内vp工具链"
+        },
+        {
+          "item": "D8 所有模板章节已填写实质性内容",
+          "pass": true,
+          "evidence": "架构组件/变更清单(新增4行+修改约19行)/数据模型/公共函数API/类型/依赖/待决问题均实质填写;无HTTP路由,API面以公共函数表承载"
+        },
+        {
+          "item": "D9 不包含测试步骤",
+          "pass": true,
+          "evidence": "design无测试策略章节;tasks守线仅静态(fmt/clippy/knip/git diff/grep自查),测试显式移交test-design→test-gen→test-execution"
+        },
+        {
+          "item": "D10 变更清单完整且与 tasks 一致",
+          "pass": true,
+          "evidence": "proposal实现文件全覆盖(sdk/config.rs零rig_core::触点零diff有据注记);tasks引用文件与清单双向一致;新增文件函数全入公共函数表且签名一致,子表无矛盾"
+        }
+      ],
+      "start_at": "2026-10-04T14:39:04.631Z",
+      "timestamp": "2026-10-04T15:12:02.940Z"
+    },
+    {
+      "phase": "test-design",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "T1-T9 全过：11 个 AC 全部映射验收范围（含半边扩行），16 个源->测试章节与验收范围双向闭合；异常用例 7 节显式、5 节引既有错误套件（拒连端点/错误面/空史 Err），边界按类型映射系统化（0 钳位、-1/1.5 拒、空串、空史、恰阈值/超 1、None 三处、枚举非法值）；外部依赖均有 Mock 策略（tempfile/真库/拒连端点/IPC 替身，无仓库内模块 mock）；写操作幂等由双向翻转+重开一致+往返双态承载；静态半边（AC-1 配置、AC-11 版本等）归不可测试项 7 条留痕。normalize/resume 待测功能为注释体（design 声明无 API 变更），可接受。",
+      "checklist": [
+        {
+          "item": "T1 proposal 每个 AC 在验收范围有映射",
+          "pass": true,
+          "evidence": "proposal.md L103-113 AC-1~AC-11 逐条映射 test-design 验收范围表 L14-42，含同上半边扩行；AC-11 映射「—」并归不可测试项 4"
+        },
+        {
+          "item": "T2 验收范围与单元测试双向对应",
+          "pass": true,
+          "evidence": "验收范围 16 个被测测试文件（L14-42）与 ## 单元测试 16 个 ### 章节（L53-489）双向无缺失，L51 注明 16 模块全部解析成功"
+        },
+        {
+          "item": "T3 单元测试充分覆盖异常与边界",
+          "pass": true,
+          "evidence": "7 节显式异常用例（preamble 缺席/读失败、bash 非零退出/未知命令、tools 非法正则、compact 两次失败/空史、loop 降级、panel 非正整数）；runner/lib/compose/commands/hook 引既有错误套件（拒连端点/错误面/错误串/错误双轨）；边界覆盖 0（timeout_ms 钳位 L96、resolve Some(0) L188）、-1/1.5（L480）、空串（L125/L478）、空史/仅首条 user（L199/L227）、恰阈值/超 1（32KB/2000 行/30KB/20k/200 命中）、None（context_length 三处 L187/L430/L454）、枚举非法值（清单外/大小写 L125）"
+        },
+        {
+          "item": "T4 外部依赖有 Mock 策略",
+          "pass": true,
+          "evidence": "文件=tempfile 真盘（L74/L167）、DB=tempdir 真开 WorkspaceStores（L385/L439）、子进程=真实短命进程+fabricated PATH（L106）、网络=拒连端点（L294）、IPC=vi.mock invoke（L462）"
+        },
+        {
+          "item": "T5 模板章节均填写实质内容",
+          "pass": true,
+          "evidence": "验收范围/单元测试/不可测试项均实质填写；16 个 per-file 章节均含待测功能/用例/Mock策略三子节；normalize/resume 待测功能为注释体（L302/L322），声明 design.md L92-93 纯路径迁移无公共 API 变更，用例表承载回归锚"
+        },
+        {
+          "item": "T6 测试设计与 proposal 范围一致",
+          "pass": true,
+          "evidence": "out_of_scope（core/agent 零 diff、bash 沙箱、MCP、rig 升级、golden wire）零测试覆盖，零 diff 子句归不可测试项 2（L496）；in_scope 11 AC 全覆盖"
+        },
+        {
+          "item": "T7 写操作测试含幂等性验证",
+          "pass": true,
+          "evidence": "save_agent_provider：编辑态双向翻转两次编辑均按入参落库（L431）+落库重开一致（L429）+envelope 往返双态（L403）+store 转录无反写（L285），重复写入收敛入参、无副作用累积"
+        },
+        {
+          "item": "T8 产物结构与模板格式一致",
+          "pass": true,
+          "evidence": "全部 ### 为「源->测试」格式（U1）；三子节齐且按序（U2）；待测功能无序列表（U3）；用例表 4 列、Mock 表 3 列与模板一致（U4/U5）；验收范围 3 列 AC ID|验收条件|被测文件或模块（G1）"
+        },
+        {
+          "item": "T9 Mock策略遵守最小 mock 原则",
+          "pass": true,
+          "evidence": "Mock 主体均为进程边界（文件/DB/子进程/网络/IPC/toast）或入参/注入依赖（CompletionModel、loader 闭包、state 入参）；loop 明示 preamble/context/compact 真实组合不 mock（L269），tools bash 臂真实组合 sdk::bash::execute（L168），无仓库内模块 import mock"
+        }
+      ],
+      "start_at": "2026-10-04T15:27:05.198Z",
+      "timestamp": "2026-10-04T15:45:47.275Z"
+    },
+    {
+      "phase": "implement",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "17组件全落地：4新模块(preamble/bash/context/compact)签名与design定值全符(32KB/30KB/2000行/0.75/0.90/40k/20k/128K/120-600s钳位)；rig facade =0.42.0双条目钉死+regex；rig_core::零残留，core/cli/sandbox/config/policy_test/tools_test/package.json零diff；store v2+V1 From双向；facade/compose/命令/前端/bindings全链接线；三处CLI口径注释改core口径；两调用点notice先于RunStarted。8个计划有/files无文件均存在且内容核验(良性漏记)；计划外diff仅编译必需测试级联，零删除。版本bump按design归档时执行。阶段1-8全[x]，全部通过。",
+      "checklist": [
+        {
+          "item": "I1 架构组件全实现",
+          "pass": true,
+          "evidence": "preamble.rs:15 load/32KB截断(24-33)；bash.rs:46 execute+probe_windows_shell(138)+kill_process_tree(223)；context.rs:34 resolve(0.75/0.90/40k/20k,128K缺省16)+prune(93)+hard_prune(129)；compact.rs:25 summarize一次重试(58)；lib.rs with_context_window；compose.rs:69,186,194 接线；model.rs:443 version=2+V1 From双向(386-421)+new五参(459)；tools.rs:41 TOOL_NAMES七工具"
+        },
+        {
+          "item": "I2 变更清单三态对账",
+          "pass": true,
+          "evidence": "17 written 全符；计划有/files 无/文件存在的8项(normalize/resume/三test/bindings.ts/mod_test.rs)均存在且内容核验=rig::纯路径迁移与contextLength再生成；bindings/mod_test.rs 仅名称清单断言故零diff合理；package.json 0.4.8 为 design 拍板归档时执行项非漏实现"
+        },
+        {
+          "item": "I3 项目规范一致",
+          "pass": true,
+          "evidence": "中文模块头文档、workspace 依赖声明、平参命令模板(commands/agents/mod.rs:47)、config-driven 表单(provider-panel.tsx PROVIDER_FIELDS)均沿既有惯例"
+        },
+        {
+          "item": "I4 API/命令面实现",
+          "pass": true,
+          "evidence": "design 无路由面；save_agent_provider 增 context_length 平参(commands/agents/mod.rs:47)并传入记录构造，未落 0/128000 字面"
+        },
+        {
+          "item": "I5 tasks.md 完成度",
+          "pass": true,
+          "evidence": "阶段1-8全[x]；阶段9版本bump为design变更清单标注「归档时执行」的交付阶段任务，不属本阶段实现范围"
+        },
+        {
+          "item": "I6 无计划外改动",
+          "pass": true,
+          "evidence": "计划外diff仅Cargo.lock与7个测试文件的编译必需机械级联(AgentProviderRecord::new补None、save补contextLength:null、LoopTurn补defense)，零断言语义翻转；零删除；core/agent、cli/、sandbox.rs、config.rs、policy_test.rs、tools_test.rs、package.json 均零diff(git diff --stat 空输出)"
+        },
+        {
+          "item": "I7 设计定值遵守",
+          "pass": true,
+          "evidence": "双条目钉死(Cargo.toml rig+rig-core 均=0.42.0)；组合根旁路(EngineConfig/runner_for签名/SessionCtx不动)；estimate=serde字节÷4 div_ceil(context.rs:84)；read 2000行+offset留痕(tools.rs:228-236)；L1 30000字节Ok/Err双路(tools.rs:176-180)；grep正则+context窗口合并--分隔(tools.rs:335-371)；bash超时钳位[1s,600s]缺省120s+taskkill /T /F形状；notice载荷形状含fallback:true(hard_prune:147)；两调用点且resume notice先于RunStarted(runner.rs:178-186)；三处CLI口径注释已改core协议(loop.rs:18,56,398)"
+        }
+      ],
+      "start_at": "2026-10-04T15:46:21.200Z",
+      "timestamp": "2026-10-04T16:34:20.492Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "16个声明测试文件全部生成,三态对账过(normalize/resume为既有文件良性漏记,rig::回归锚内容核验齐)。逐表核对:新增用例全落地(preamble6/bash10/policy3/tools12/context17/compact7/loop8/runner4/lib3/compose3/model7/命令4/hook4/panel6),废弃行旧语义全数消失(六工具面/bash缺席断言/四参new/两参构造/rm_rf反例/defense字段翻转);Mock全按策略表(tempfile真盘/FakeModel捕获缝/loader替身/拒连端点/vi.mock IPC/fakeState),无仓库内模块mock;边界(恰阈值超1/0钳位/空串/32KB char边界/None三处)齐;TempDir RAII+PATH还原+mockReset清理;框架vite-plus/test与cargo test正确。file_log含4条误捕获路径(\"{\"、\"0\"、\"0,\"、相对loop_test)盘上不存在,无实质影响。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "逐方法交叉验证:preamble::load(preamble_test:27-160)、bash::execute/probe_windows_shell(bash_test)、policy::allows(policy_test:80-96)、tools::TOOL_NAMES/definitions/execute/input_path(tools_test:40/833-917)、context五函数(context_test:108-548)、compact::summarize(compact_test:107-265)、loop run/LoopTurn、runner SdkRunner::new、normalize::stream_item、resume::rebuild、lib with_context_window(lib_test:258-294)、compose resolve_agent_engine(compose_test:651-694)、model new五参/V1 From、save_agent_provider(mod_test:479-603)、hook save透传、panel表单——全部有调用+断言,非仅构造验证"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存",
+          "pass": true,
+          "evidence": "14个Rust文件全为 *_test.rs 且与源码同目录(sdk/7个、agent/src/2个、store/src/、commands/agents/、lib/compose);2个TS为 *.test.ts(x) 同目录(hooks/、components/);sdk/mod.rs:16-39 cfg(test) 模块声明齐"
+        },
+        {
+          "item": "G3 单元测试用例表每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "迭代类型=新增各行逐条核验:preamble6/6、bash10/10、policy3新增行(矩阵+回归+清单外)、tools12新增行、context17/17、compact7/7、loop8新增行、runner4新增行(RunStarted七工具/三参小窗/全量半边/None缺省)、lib3/3、compose3/3、model7新增行、命令4新增行、hook4/4、panel6/6;normalize/resume回归锚行断言集在场"
+        },
+        {
+          "item": "G4 Mock策略表中mock已实现且声明合法",
+          "pass": true,
+          "evidence": "逐行核验:tempfile真盘承载文件(preamble/bash/tools/loop);probe以OsStr入参+TEST_PATH_LOCK串行化(bash_test:19/275);FakeModel/SummaryModel捕获CompletionRequest+预编程序列(loop_test:42-147、compact_test:25-71,均为Mock表声明条目);loader替身+计数(runner_test:49);拒连端点(runner_test:21);tauri mock_app真库(mod_test:44);vi.mock IPC+sonner(hook_test:18-24);fakeState vi.fn(panel_test:32);policy/context/model/normalize/resume的(无)行零mock;无仓库内模块mock,preamble/context/compact真实组合"
+        },
+        {
+          "item": "G5 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust侧 #[test]/#[tokio::test] 归 cargo test --workspace,导入 crate::sdk::/store::/agent:: 与 design 一致;TS侧 describe/it/expect/vi 自 'vite-plus/test'(hook_test:2、panel_test:2)+ @testing-library/react,与 test-design 声明的 vp test 框架一致"
+        },
+        {
+          "item": "G6 test-design中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "恰阈值/超1全数:32KB(preamble_test:87-137含中文emoji char边界不劈半)、2000行(tools_test:231-310)、30KB Ok/Err双路(tools_test:833-876)、20k门槛(tools同context_test:293-316)、200命中、0.75/0.90恰过线(context_test:109-136);0钳位(bash timeout_ms=0、resolve Some(0));-1/1.5/abc(panel_test:283-304);空串(policy/bash command/contextLength留空);空史与仅首条user(context/compact);None三态(serde null/缺席、缺列透传、编辑清空)"
+        }
+      ],
+      "start_at": "2026-10-04T16:34:46.944Z",
+      "timestamp": "2026-10-04T17:40:31.098Z"
+    },
+    {
+      "phase": "test-gen",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "补全评定(同一次评定,前条清单漏G7/G8两项,以本条8项完整清单为准)。G1-G6过:16个声明测试文件全部生成,三态对账过(normalize/resume既有文件良性漏记,回归锚齐);新增用例逐行落地,Mock全按策略表且无仓库内模块mock,框架vite-plus/test与cargo test正确,边界齐。G7过:TempDir RAII+PATH三处保存还原+unmanage释锁+mockReset/clearAllMocks。G8过:六工具/bash缺席/四参new/两参构造/rm_rf反例/defense字段等废弃旧语义全数消失,翻转形态逐条归位。file_log含4条误捕获路径(\"{\"、\"0\"、\"0,\"、相对loop_test)盘上不存在,无实质影响。verdict: pass。",
+      "checklist": [
+        {
+          "item": "G1 源码中每个公开方法均被测试覆盖",
+          "pass": true,
+          "evidence": "逐方法交叉验证:preamble::load(preamble_test:27-160)、bash::execute/probe_windows_shell(bash_test)、policy::allows(policy_test:80-96)、tools::TOOL_NAMES/definitions/execute/input_path(tools_test:40/833-917)、context五函数(context_test:108-548)、compact::summarize(compact_test:107-265)、loop run/LoopTurn、runner SdkRunner::new、normalize::stream_item、resume::rebuild、lib with_context_window(lib_test:258-294)、compose resolve_agent_engine(compose_test:651-694)、model new五参/V1 From、save_agent_provider(mod_test:479-603)、hook save透传、panel表单——全部有调用+断言,非仅构造验证"
+        },
+        {
+          "item": "G2 测试文件命名遵循语言规范且与源码共存",
+          "pass": true,
+          "evidence": "14个Rust文件全为 *_test.rs 且与源码同目录(sdk/7个、agent/src/2个、store/src/、commands/agents/、lib/compose);2个TS为 *.test.ts(x) 同目录(hooks/、components/);sdk/mod.rs:16-39 cfg(test) 模块声明齐"
+        },
+        {
+          "item": "G3 单元测试用例表每行已生成对应测试骨架",
+          "pass": true,
+          "evidence": "迭代类型=新增各行逐条核验:preamble6/6、bash10/10、policy3新增行(矩阵+回归+清单外)、tools12新增行、context17/17、compact7/7、loop8新增行、runner4新增行(RunStarted七工具/三参小窗/全量半边/None缺省)、lib3/3、compose3/3、model7新增行、命令4新增行、hook4/4、panel6/6;normalize/resume回归锚行断言集在场"
+        },
+        {
+          "item": "G4 Mock策略表中mock已实现且声明合法",
+          "pass": true,
+          "evidence": "逐行核验:tempfile真盘承载文件(preamble/bash/tools/loop);probe以OsStr入参+TEST_PATH_LOCK串行化(bash_test:19/275);FakeModel/SummaryModel捕获CompletionRequest+预编程序列(loop_test:42-147、compact_test:25-71,均为Mock表声明条目);loader替身+计数(runner_test:49);拒连端点(runner_test:21);tauri mock_app真库(mod_test:44);vi.mock IPC+sonner(hook_test:18-24);fakeState vi.fn(panel_test:32);policy/context/model/normalize/resume的(无)行零mock;无仓库内模块mock,preamble/context/compact真实组合"
+        },
+        {
+          "item": "G5 测试文件使用正确的框架和导入",
+          "pass": true,
+          "evidence": "Rust侧 #[test]/#[tokio::test] 归 cargo test --workspace,导入 crate::sdk::/store::/agent:: 与 design 一致;TS侧 describe/it/expect/vi 自 'vite-plus/test'(hook_test:2、panel_test:2)+ @testing-library/react,与 test-design 声明的 vp test 框架一致"
+        },
+        {
+          "item": "G6 test-design中的边界情况已覆盖",
+          "pass": true,
+          "evidence": "恰阈值/超1全数:32KB(preamble_test:87-137含中文emoji char边界不劈半)、2000行(tools_test:231-310)、30KB Ok/Err双路(tools_test:833-876)、20k门槛(context_test:293-316)、200命中、0.75/0.90恰过线(context_test:109-136);0钳位(bash timeout_ms=0、resolve Some(0));-1/1.5/abc(panel_test:283-304);空串(policy/bash command/contextLength留空);空史与仅首条user(context/compact);None三态(serde null/缺席、缺列透传、编辑清空)"
+        },
+        {
+          "item": "G7 测试代码包含清理/还原逻辑",
+          "pass": true,
+          "evidence": "TempDir RAII 自动清理遍布全部文件;PATH 改写三处均保存还原(bash_test:284-287、lib_test:153-156/203-206、compose_test:539-542)+crate级 TEST_PATH_LOCK 串行化;WorkspaceStores 显式 unmanage 释放 redb 文锁(mod_test:153-154/506-507);hook beforeEach mockReset(hook_test:94-98/262-266);panel beforeEach vi.clearAllMocks(panel_test:73-75等)"
+        },
+        {
+          "item": "G8 迭代类型=废弃的条目未生成新测试",
+          "pass": true,
+          "evidence": "旧语义全数缺席:policy「三档均拒绝」与「六工具全放行」旧断言无(policy_test:55-73为七工具翻转面);tools 无六工具定义用例、无bash缺席断言、未知工具反例已改 rm_rf(tools_test:910-922);loop 旧无 defense 构造面不可编译(loop_test:949-960扩defense);runner 全部三参构造无两参残留;model 无四参 new、旧v1往返名无(model_test:487-526五参+611-632 v2往返);命令面 helpers 均扩第七参(mod_test:70-102);各废弃行条件列明示翻转,生成物均落翻转形态"
+        }
+      ],
+      "timestamp": "2026-10-04T17:41:27.732Z"
+    },
+    {
+      "phase": "test-execution",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "所有 997 个测试通过（vite-plus 917 + rust 80），零失败零跳过，无执行错误；mutation 80.79% ≥ 80% 达标。summary 级 coverage.pass=true 按 T3 判达标，但汇总三维 measured 均为 null 属聚合缺口：计划级 vite-plus 94.82/90.21/93.67 达标；rust 计划级 coverage.pass=false（functions 89.12<90，branches 量测为 0 疑非真实维度）未上抛 summary——聚合器缺陷留档待修。",
+      "checklist": [
+        {
+          "item": "执行报告结构完整",
+          "pass": true,
+          "evidence": "phase/command/timestamp/total/passed/failed/skipped/coverage/duration_seconds 全部存在且类型正确；coverage 为嵌套对象含 pass/measured/thresholds/overrides，measured 三维为 null（允许）；duration_seconds=335"
+        },
+        {
+          "item": "所有测试通过",
+          "pass": true,
+          "evidence": "failed=0 且 total=997>0；conclusion=pass；problems=[] 无 execution_error；skipped=0；两个计划 vite-plus 917 + rust 80 全绿"
+        },
+        {
+          "item": "覆盖率达标",
+          "pass": true,
+          "evidence": "summary 级 coverage.pass=true 且 measured 三维 null——按清单 null 维度+pass=true 不失败。已核实计划级数据：vite-plus 94.82/90.21/93.67 均超 90/85/90 达标；rust 计划级 coverage.pass=false（functions 89.12<90，branches 量测输出 0 疑为 llvm-cov 无分支维度而非真实 0），该计划级失败未被聚合进 summary——汇总聚合器缺陷已留档（summary findings 第2条），按契约采信 summary 标志位判过，聚合缺口与 0.88pt functions 短板待用户裁决是否追修"
+        },
+        {
+          "item": "失败诊断根因明确",
+          "pass": true,
+          "evidence": "failed=0，T4 仅在 failed>0 时评估，自动通过"
+        }
+      ],
+      "start_at": "2026-10-04T17:42:01.336Z",
+      "timestamp": "2026-10-04T17:56:27.806Z"
+    },
+    {
+      "phase": "code-review",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "C1-C7 全过。C1 无硬编码密钥/注入面（taskkill 仅数值 pid），bash 任意执行为 design 知情边界留痕。C2 入参校验齐（command/timeout 钳位、regex 校验、read 钳位、前端单点 parse、preamble 失败 None）。C3 十三 API 签名与全部设计定值对上，双条目钉死锁 0.42.0+rig-memory 入树，两调用点与 notice 序对上，core/cli/sandbox/config 零 diff，bindings.ts 已再生成（mod_test 快照仅锁类型名免动），版本 0.4.7 留归档。C4 注：tools.rs:252 grep context 未钳位，极端 u64 入参可溢出（低危，建议 clamp）。C5/C6/C7 过。",
+      "checklist": [
+        {
+          "item": "C1 变更代码中无安全漏洞",
+          "pass": true,
+          "evidence": "grep 无硬编码密钥（命中均为既有 config.rs api_key 字段与测试假 key）；kill_process_tree 仅数值 pid 拼 taskkill 参数无注入面；bash 任意执行为 proposal/design 显式知情边界（policy.rs 模块头 + bash.rs:15 留痕），非遗漏"
+        },
+        {
+          "item": "C2 所有外部输入都有格式检查",
+          "pass": true,
+          "evidence": "bash.rs:47-54 command 必填非空、:109-115 timeout 钳位 [1s,600s]；tools.rs:246-251 pattern 非空+regex 校验、:203-212 offset/limit 钳位；provider-panel.tsx:62-71 parseContextLength 单点校验（空=null、非正整数拒绝提交）；preamble.rs 读取失败一律 None"
+        },
+        {
+          "item": "C3 实现与 design.md 意图一致",
+          "pass": true,
+          "evidence": "13 个公共 API 签名逐一与 design API 表一致；定值 75/90/40k/20k/128K/30KB/2000行/120-600s/32KB 全部落码；Cargo.lock rig=rig-core=rig-memory=0.42.0 双条目钉死成立；两防线调用点（runner.rs resume 后 + loop.rs defend）与 notice 先于 RunStarted（session_pump 先转发）对上；EngineConfig/runner_for/core/cli/sandbox/config.rs 零 diff；bindings.ts 已再生成；package.json 0.4.7 未动=归档时执行口径"
+        },
+        {
+          "item": "C4 无空值/边界处理遗漏",
+          "pass": true,
+          "evidence": "窗长 0 走缺省、char 边界截断（preamble/cap_result）、空史/空中段显式 Err、孤儿配对清扫、「(空区间)/(无输出)/(空目录)」占位、恰 2000 行过线；测试覆盖恰边界与多字节不劈半。低危注记：tools.rs:252-256 grep context 未钳位，u64::MAX 级入参使 :339 hit+context+1 溢出（debug panic/release 环绕），建议同文件 clamp 惯例收口"
+        },
+        {
+          "item": "C5 无冗余或死代码",
+          "pass": true,
+          "evidence": "V1 降级 From 为 native_model from 属性框架要求且有注释；policy.rs Bypass/AcceptEdits 两臂同表达式系既有决策表形态，行为（两写档放 bash）与 AC-4 矩阵一致；新模块无未使用导入，pub(crate) 面均有生产调用方"
+        },
+        {
+          "item": "C6 代码可读性良好且遵循项目规范",
+          "pass": true,
+          "evidence": "中文模块头/文档注释、pub(crate) 可见性纪律、纯决策表与纯函数探测形态、测试中文命名均与仓库既有模式一致；bash/context/compact/preamble 测试 63 个用例覆盖档位/超时/翻页/恰边界/重试降级"
+        },
+        {
+          "item": "C7 外部数据使用同来源数据类型",
+          "pass": true,
+          "evidence": "rig Message/ToolResult/ToolCall 全链复用（loop/context/compact/resume 零自研中间消息类型）；工具入参按 rig ToolDefinition 惯例走 serde_json Value；context_length 以自身 Option<u64> 字段类型贯穿 store→compose→facade；TS 侧消费 export-bindings 生成类型"
+        }
+      ],
+      "start_at": "2026-10-04T17:56:56.455Z",
+      "timestamp": "2026-10-04T18:06:22.452Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 1,
+      "verdict": "pass",
+      "report": "11项AC逐条溯源通过：AC-1 facade=Cargo.toml:96-100且rig_core::零残留；AC-2 preamble.rs:15+loop.rs:100每轮重读；AC-3/5 tools.rs:33/41/165-196截断翻页正则上下文30KB收口；AC-4 bash.rs+policy.rs:36三档矩阵+七工具；AC-6/7/8 context.rs+compact.rs+runner.rs:109/loop.rs:96两调用点+SystemNotice{before,after,layer}密封流出；AC-9 model.rs:455可空列V1兼容全链至bindings.ts:349；AC-10 spec:215 bash无沙箱知情边界。A4核验无MCP/子代理/沙箱/rig升级蔓延，无新命令。注意：AC-11未执行——package.json仍0.4.7，proposal定义bump随归档提交执行（tasks阶段九未勾属预期），非违规，归档时须补。",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1~AC-10均溯到file:line实现与测试（facade条目/preamble每轮重读/read-grep质量/bash三档执行体/L1 30KB/prune+compaction两调用点/SystemNotice载荷/context_length全链/spec知情边界）。AC-11为归档时bump（proposal:113明定归档时执行），package.json仍0.4.7属预期未到期，非缺口"
+        },
+        {
+          "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "实现恰为design变更清单：4新sdk模块+清单内修改文件；bindings mod_test.rs:769断言无新命令；无新能力spec（仅改两个既有spec delta）；条件性rig-core删除按design拍板不触发（解析钉保留）"
+        }
+      ],
+      "start_at": "2026-10-04T18:06:53.167Z",
+      "timestamp": "2026-10-04T18:12:43.783Z"
+    },
+    {
+      "phase": "acceptance",
+      "attempt": 2,
+      "verdict": "pass",
+      "report": "完整清单版：11项AC逐条溯源通过（AC-1~AC-10实现+测试证据齐全，AC-11归档时bump未到期非缺口，归档时须补0.4.7→0.4.8）；in_scope全实现、无范围蔓延、out_of_scope零泄漏、六项风险缓解均在代码可见。验收通过。",
+      "checklist": [
+        {
+          "item": "proposal.md 中每个验收标准都有实现证据",
+          "pass": true,
+          "evidence": "AC-1~AC-10均溯到实现与测试：AC-1 facade条目Cargo.toml:96-100+rig_core::零残留；AC-2 preamble.rs:15+loop.rs:100每轮重读+缺席None无兑底；AC-3 tools.rs:33/201-238截断翻页+正则+context；AC-4 bash.rs:46-243+policy.rs:36三档+RunStarted七工具loop.rs:61；AC-5 tools.rs:165-196 30KB双路收口；AC-6 context.rs:93-258+两调用点runner.rs:109/loop.rs:96；AC-7 compact.rs:25-75+降级loop.rs:332-338；AC-8载荷before/after/layer；AC-9 model.rs:435,455全链至bindings.ts:349；AC-10 spec.md:215知情边界。AC-11为归档时bump（proposal:113明定），package.json仍0.4.7属预期未到期非缺口，归档时须补"
+        },
+        {
+          "item": "无范围蔓延 — 实现不超过 proposal.md 定义的范围",
+          "pass": true,
+          "evidence": "实现恰为design变更清单：4新sdk模块（preamble/bash/context/compact）+清单内修改文件；bindings mod_test.rs:769断言无新命令；无新能力spec（仅改两个既有能力delta）；条件性rig-core条目删除按design拍板不触发（解析钉保留Cargo.toml:105-108）"
+        },
+        {
+          "item": "proposal 中所有 in_scope 项均已实现",
+          "pass": true,
+          "evidence": "逐项验证：workspace+crate Cargo.toml facade/regex条目；五文件rig::迁移零残留；loop.rs注释core口径；tools七工具+read/grep质量+L1；policy执行面常量+bash行；store v2列+V1 From双向+Debug补位（model_test.rs:487-792）；facade with_context_window（lib.rs:69）；compose旁路（:70,188,SessionInjections default:126未动）；命令面平参；hook/panel/bindings再生成；零diff边界核验：core/cli无防线标识符泄漏"
+        },
+        {
+          "item": "proposal 中 out_of_scope 项未被实现",
+          "pass": true,
+          "evidence": "grep核验：MCP/子代理未出现（mcp_servers恒空loop.rs:65）；Image忽略维持（loop.rs:186）；cost恒None（loop.rs:442）；bash授权/沙箱/白名单未实现（policy.rs:11-16知情留痕）；rig锁=0.42.0未升级；EngineConfig三字段与runner_for签名未动（config.rs零防线触点）；无prompt_too_large细分（design定不做，维持api_error）；SessionInjections恒default"
+        },
+        {
+          "item": "proposal.md 中所有风险都有对应的代码缓解措施",
+          "pass": true,
+          "evidence": "facade风险→显式features+spike收口（tasks#4[x]）；L3循环→勿重复前缀compact.rs:14+失败降级loop.rs:332-338；bash护栏为零→知情边界policy.rs:11-16+spec:215+超时/进程树清理bash.rs:223-243；窗长失准→128K缺省context.rs:16+管理页提示provider-panel.tsx:59+L4 api_error兑底；升级债→双条目=pin；store旧库读兼容→V1+serde(default)+model_test.rs:651-700"
+        }
+      ],
+      "timestamp": "2026-10-04T18:13:23.645Z"
+    }
+  ]
+}

@@ -5,20 +5,20 @@ import type { AgentProviderRecord } from '../../../types/generated/bindings';
 import type { AgentProvidersState } from '../hooks/use-agent-providers';
 import { ProviderPanel } from './provider-panel';
 
-// ---------------------------------------------------------------------------
-// state（AgentProvidersState）为被测组件显式入参：fixture + vi.fn() 动作
-// （save / remove 可编程 resolve / reject）注入（入参例外）；MaskedApiKey
-// 内部协作者真实组合；组件不触 invoke（取数收口在 hook 层，无 IPC）。
-// ---------------------------------------------------------------------------
-
-/** provider 记录 fixture（serde camelCase 线格式）。 */
-function provider(id: number, name: string, apiKey = 'sk-live-1234567890'): AgentProviderRecord {
+/** provider 记录 fixture（serde camelCase 线格式，可空 contextLength）。 */
+function provider(
+  id: number,
+  name: string,
+  apiKey = 'sk-live-1234567890',
+  contextLength: number | null = null,
+): AgentProviderRecord {
   return {
     id,
     name,
     baseUrl: 'https://api.example.com/v1',
     apiKey,
     models: { high: 'm-high', medium: 'm-medium', low: 'm-low' },
+    contextLength,
   };
 }
 
@@ -68,7 +68,7 @@ describe('ProviderPanel：表单与提交（AC-2 前端半）', () => {
     vi.clearAllMocks();
   });
 
-  it('新建表单提交 → state.save 以 (null, name, base_url, api_key, models 三档) 恰调用一次', async () => {
+  it('新建表单提交 → state.save 以 (null, name, base_url, api_key, models 三档, contextLength null) 恰调用一次', async () => {
     const state = mount(fakeState());
 
     fireEvent.click(screen.getByTestId('provider-new'));
@@ -87,7 +87,22 @@ describe('ProviderPanel：表单与提交（AC-2 前端半）', () => {
       baseUrl: 'https://new.example.com/v1',
       apiKey: 'sk-new-key-999',
       models: { high: 'high-1', medium: 'mid-1', low: 'low-1' },
+      contextLength: null,
     });
+  });
+
+  it('新建表单填窗长提交 → state.save 入参 contextLength: 200000', async () => {
+    const state = mount(fakeState());
+
+    fireEvent.click(screen.getByTestId('provider-new'));
+    typeInto('provider-name', '窗长端点');
+    typeInto('provider-base-url', 'https://new.example.com/v1');
+    typeInto('provider-api-key', 'sk-new-key-999');
+    typeInto('provider-context-length', '200000');
+    fireEvent.click(screen.getByTestId('provider-save'));
+
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(expect.objectContaining({ contextLength: 200000 }));
   });
 
   it('编辑态 api_key 输入框恒空 + 提交 api_key 空串（留空 = 保持原值，回填语义由命令层承载）', async () => {
@@ -110,7 +125,30 @@ describe('ProviderPanel：表单与提交（AC-2 前端半）', () => {
       baseUrl: 'https://api.example.com/v1',
       apiKey: '',
       models: { high: 'm-high', medium: 'm-medium', low: 'm-low' },
+      contextLength: null,
     });
+  });
+
+  it('编辑态 contextLength 回填：null → 空串；200000 → "200000"（toFormState 映射）', async () => {
+    const state = mount(
+      fakeState({
+        providers: [provider(7, '缺列存量'), provider(8, '窗长存量', 'sk-live-1234567890', 200000)],
+      }),
+    );
+
+    // contextLength null → 输入框空串
+    fireEvent.click(screen.getAllByTestId('provider-edit')[0]);
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('');
+    fireEvent.click(screen.getByTestId('provider-cancel'));
+
+    // contextLength 200000 → 输入框 "200000"，提交原样入参
+    fireEvent.click(screen.getAllByTestId('provider-edit')[1]);
+    expect(screen.getByTestId<HTMLInputElement>('provider-context-length').value).toBe('200000');
+    fireEvent.click(screen.getByTestId('provider-save'));
+    await waitFor(() => expect(state.save).toHaveBeenCalledTimes(1));
+    expect(state.save).toHaveBeenCalledWith(
+      expect.objectContaining({ id: 8, contextLength: 200000 }),
+    );
   });
 
   it('保存成功收起表单；保存失败（save resolve null）表单保持（清单不变）', async () => {
@@ -212,6 +250,7 @@ describe('ProviderPanel：表单校验（边界）', () => {
       baseUrl: longUrl,
       apiKey: 'sk-new-key-999',
       models: { high: '', medium: '', low: '' },
+      contextLength: null,
     });
   });
 
@@ -231,7 +270,42 @@ describe('ProviderPanel：表单校验（边界）', () => {
       baseUrl: 'https://new.example.com/v1',
       apiKey: 'sk-new-key-999',
       models: { high: '', medium: '', low: '' },
+      contextLength: null,
     });
+  });
+
+  it('context_length 非正整数（0 / -1 / 1.5 / 非数字）提交被拒：保存禁用且 state.save 不被调用', () => {
+    const state = mount(fakeState());
+
+    fireEvent.click(screen.getByTestId('provider-new'));
+    typeInto('provider-name', '边界端点');
+    typeInto('provider-base-url', 'https://new.example.com/v1');
+    typeInto('provider-api-key', 'sk-new-key-999');
+
+    for (const invalid of ['0', '-1', '1.5', 'abc']) {
+      typeInto('provider-context-length', invalid);
+      expect(
+        screen.getByTestId<HTMLButtonElement>('provider-save').disabled,
+        `非法形态 ${invalid} 应禁用保存`,
+      ).toBe(true);
+      fireEvent.click(screen.getByTestId('provider-save'));
+      expect(state.save, `非法形态 ${invalid} 不得提交`).not.toHaveBeenCalled();
+    }
+
+    // 合法正整数恢复可提交
+    typeInto('provider-context-length', '131072');
+    expect(screen.getByTestId<HTMLButtonElement>('provider-save').disabled).toBe(false);
+  });
+
+  it('context_length 字段在场且携「留空跟随缺省 128K」语义提示（PROVIDER_FIELDS 增行）', () => {
+    mount(fakeState());
+
+    fireEvent.click(screen.getByTestId('provider-new'));
+
+    const field = screen.getByTestId<HTMLInputElement>('provider-context-length');
+    expect(field).toBeDefined();
+    expect(field.placeholder).toContain('留空');
+    expect(field.placeholder).toContain('128K');
   });
 });
 

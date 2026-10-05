@@ -18,6 +18,9 @@ struct ResolvedEngine {
     /// 连接配置（sdk 臂由引用 provider 组装；cli 臂 `EngineConfig::empty()`
     /// 占位，CLI 引擎不消费）
     config: EngineConfig,
+    /// sdk 引擎上下文窗长（provider `context_length` 列旁路，不经
+    /// `EngineConfig`；`None` = 未配置走 128K 缺省；cli 臂恒 None）
+    context_window: Option<u64>,
 }
 
 /// 组合根装配产物：内核 + 解析好的 runner + store 查询面（Continue 校验）+
@@ -63,7 +66,9 @@ pub fn compose_turn(
         EngineKind::Sdk => (AgentEngineKind::Sdk, Some(resolved.config.model.clone())),
     };
     let runner: Arc<dyn AgentRunner> = Arc::from(
-        EngineFacade::with_resume_transcript(resume).runner_for(resolved.kind, resolved.config),
+        EngineFacade::with_resume_transcript(resume)
+            .with_context_window(resolved.context_window)
+            .runner_for(resolved.kind, resolved.config),
     );
     Ok(ComposedTurn {
         kernel,
@@ -178,11 +183,15 @@ fn resolve_agent_engine(
                     base_url: provider.base_url,
                     model: provider.models.high,
                 },
+                // 窗长旁路：provider 可空列原样携带（None = 缺省启发式在
+                // runner 侧解析，不落缺省字面）
+                context_window: provider.context_length,
             })
         }
         AgentEngineKind::Cli => Ok(ResolvedEngine {
             kind: EngineKind::Cli,
             config: EngineConfig::empty(),
+            context_window: None,
         }),
     }
 }

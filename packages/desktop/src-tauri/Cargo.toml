@@ -73,43 +73,35 @@ agent-runtime = { path = "crates/infra/agent" }
 config = { path = "crates/core/config" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }
-# glob 工具实现（agent-runtime 直依赖）：rig-core 传递依赖同款已在入树
 glob = "0.3"
-# rig 归一化流消费（agent-runtime 直依赖）：rig-core 直依赖同款已在入树
 futures = "0.3"
 notify = "8"
 orchestration = { path = "crates/core/orchestration" }
 watch = { path = "crates/infra/watch" }
 workflow = { path = "crates/core/workflow" }
-# native_model pin 必须与 native_db 内部依赖（=0.4.20）严格一致，避免双版本 trait 失配
 native_db = "=0.8.2"
 native_model = "=0.4.20"
-# sdk 引擎 provider 框架（agent-runtime）：0.x 线无 semver 兼容承诺，`=` 精确
-# pin（纪律同 native_db / specta / tokei）；default-features = false 剥离
-# rustls（避免 aws-lc-sys + cmake C 工具链入树），reqwest 与 desktop 锁内
-# 0.13 同主版本共享，native-tls 走 Windows schannel（design rig-core spike 裁定）
+regex = "1"
+rig = { version = "=0.42.0", default-features = false, features = [
+    "reqwest",
+    "native-tls",
+    "memory",
+] }
 rig-core = { version = "=0.42.0", default-features = false, features = [
     "reqwest",
     "native-tls",
 ] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-# store 直依赖：workspace 库文件名哈希成分（SHA-256 截断 128-bit）；
-# 锁内既有传递依赖，无新包入树
 sha2 = "0.10"
-# specta 三件套 `=` 精确 pin + lockstep（RC 间无 semver 兼容，升级事件驱动不追新）；
-# specta-typescript 0.0.12 与 specta rc.25 配对（tauri-specta rc.25 内部依赖同一 pin）
 specta = { version = "=2.0.0-rc.25", features = ["derive", "serde_json", "time"] }
 specta-typescript = "=0.0.12"
 tauri-specta = { version = "=2.0.0-rc.25", features = ["typescript"] }
 store = { path = "crates/infra/store" }
 tempfile = "3"
 time = { version = "0.3", features = ["parsing", "formatting", "serde"] }
-# tokei 13 稳定线（2025-11 发布）：工作区遍历 / 语言识别 / 行计数唯一提供方，
-# 纯库消费（default-features = false 剥离 cli 栈）
 tokei = { version = "=13.0.0", default-features = false }
 tokio = { version = "1", default-features = false, features = ["sync"] }
-# specta 特性：tauri 出线类型（含 ipc::Channel<T>）的 Type 远程 impl
 tauri = { version = "2", features = ["specta"] }
 tauri-build = { version = "2", features = [] }
 tauri-plugin-dialog = "2"

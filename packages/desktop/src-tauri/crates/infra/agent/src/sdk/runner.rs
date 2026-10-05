@@ -1,14 +1,15 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use agent::{AgentRunner, AgentSession, AgentStartError, RunHandle, SessionOpen, TurnQuestion};
-use rig_core::client::CompletionClient;
-use rig_core::completion::CompletionModel;
-use rig_core::message::Message;
-use rig_core::providers::openai;
+use rig::client::CompletionClient;
+use rig::completion::CompletionModel;
+use rig::message::Message;
+use rig::providers::openai;
 use tokio::sync::mpsc;
 
 use crate::sdk::config::EngineConfig;
-use crate::sdk::{r#loop, resume};
+use crate::sdk::context::{ContextDefense, DefenseNotice};
+use crate::sdk::{context, r#loop, resume};
 use crate::ResumeTranscript;
 
 /// 事件通道有界容量（与 CLI 泵同策略：背压阻塞 send，事件不丢、内存有界）。
@@ -20,17 +21,27 @@ const QUESTION_CHANNEL_CAPACITY: usize = 4;
 /// sdk 会话 id 进程内原子计数（配合毫秒时戳保证同毫秒不重号）。
 static SESSION_COUNTER: AtomicU64 = AtomicU64::new(0);
 
-/// sdk 引擎 runner：持有连接配置与会话全史转录装载缝；无跨会话共享运行态
-/// （全部运行态在 `open_session` 产出的泵任务内）。
+/// sdk 引擎 runner：持有连接配置、窗长载荷与会话全史转录装载缝；无跨会话
+/// 共享运行态（全部运行态在 `open_session` 产出的泵任务内）。
 pub struct SdkRunner {
     config: EngineConfig,
     resume: Option<ResumeTranscript>,
+    /// provider 上下文窗长（组合根旁路载荷；None = 128K 缺省启发式）
+    context_window: Option<u64>,
 }
 
 impl SdkRunner {
-    /// runner 构造（配置与装载缝由门面注入，引擎细节不出门面）。
-    pub fn new(config: EngineConfig, resume: Option<ResumeTranscript>) -> Self {
-        Self { config, resume }
+    /// runner 构造（配置、窗长与装载缝由门面注入，引擎细节不出门面）。
+    pub fn new(
+        config: EngineConfig,
+        resume: Option<ResumeTranscript>,
+        context_window: Option<u64>,
+    ) -> Self {
+        Self {
+            config,
+            resume,
+            context_window,
+        }
     }
 
     /// `sdk-<进程内计数>-<毫秒时戳>` 引擎侧会话 id（每轮铸造；前缀仅保留为
@@ -91,11 +102,20 @@ impl AgentRunner for SdkRunner {
         let (observation_tx, observation_rx) =
             mpsc::channel::<agent::AgentEventKind>(EVENT_CHANNEL_CAPACITY);
         let handle = RunHandle::default();
+        // 上下文防线装配（组合根旁路载荷 → 缺省解析）+ 第一调用点：resume
+        // 重建史超 L2 水位即先行剪裁；notice 交泵先于 RunStarted 转发（同
+        // 任务同通道 FIFO 保序，重建史防线留痕）
+        let defense = ContextDefense::resolve(self.context_window);
+        let (history, resume_notices) = context::prune(history, &defense);
         tokio::spawn(session_pump(
             model,
             model_name,
             open,
-            history,
+            PumpPayload {
+                history,
+                defense,
+                resume_notices,
+            },
             question_rx,
             observation_tx,
             handle.clone(),
@@ -129,12 +149,23 @@ fn build_model(config: &EngineConfig) -> Result<impl CompletionModel, AgentStart
     Ok(client.completion_model(config.model.clone()))
 }
 
+/// 泵任务的防线与史载荷（参数面收敛分组：重建史 + 防线配置 + 重建剪裁的
+/// notice 留痕）。
+struct PumpPayload {
+    /// resume 重建史（已经第一调用点 L2 先行剪裁）
+    history: Vec<Message>,
+    /// 上下文窗防线配置
+    defense: ContextDefense,
+    /// 重建剪裁产出的 notice（泵内先于 RunStarted 转发）
+    resume_notices: Vec<DefenseNotice>,
+}
+
 /// 会话泵任务（ask 段）
 async fn session_pump<M>(
     model: M,
     model_name: String,
     open: SessionOpen,
-    history: Vec<Message>,
+    payload: PumpPayload,
     mut questions: mpsc::Receiver<TurnQuestion>,
     observations: mpsc::Sender<agent::AgentEventKind>,
     handle: RunHandle,
@@ -144,12 +175,22 @@ async fn session_pump<M>(
     let Some(question) = questions.recv().await else {
         return; // 组合根半边先关：无问即无泵生命周期
     };
+    // resume 重建防线 notice 先行转发（泵的 RunStarted 之先，重建史留痕）
+    for DefenseNotice { subtype, payload } in &payload.resume_notices {
+        let _ = observations
+            .send(agent::AgentEventKind::SystemNotice {
+                subtype: subtype.clone(),
+                payload: payload.clone(),
+            })
+            .await;
+    }
     let turn = r#loop::LoopTurn {
         question: question.prompt,
         cwd: open.ctx.workspace_root.clone(),
         permission_mode: open.ctx.permission_mode,
         model_name: model_name.clone(),
         session_id: SdkRunner::next_session_id(),
+        defense: payload.defense,
     };
     let pump_handle = handle.clone();
     // biased：loop 臂先 poll。停止先置位时两臂首轮 poll 同为 Ready——
@@ -160,7 +201,7 @@ async fn session_pump<M>(
     // 臂序后先导事件恒达，停止臂仅在轮中途截停（drop future，不合成收敛）。
     tokio::select! {
         biased;
-        _ = r#loop::run(&model, &turn, history, observations.clone(), pump_handle.clone()) => {
+        _ = r#loop::run(&model, &turn, payload.history, observations.clone(), pump_handle.clone()) => {
             // 一轮一命：单轮收敛即泵生命周期终点；累积史（跨轮回灌）无
             // 消费方，弃用
         }

@@ -1,8 +1,10 @@
-//! sdk 六工具面（read / grep / glob / ls / write / edit）的定义与执行体测试
-//! （AC-5 / AC-6 的工具半边）：定义清单封闭性、逐工具执行体正反例与边界。
-//! tempfile tempdir 真实目录驱动，glob 库以真实实现参与（workspace 直连依赖，
-//! 不 mock）；执行体信任 loop 沙箱改写后的路径（不内嵌检查），沙箱链拒绝
-//! 半边经 input_path → check 组合断言与 runner_test 假流缝全链承载。
+//! sdk 七工具面（read / grep / glob / ls / write / edit / bash）的定义与执行
+//! 体测试（AC-3 / AC-5 / AC-10 的工具半边）：定义清单封闭性、逐工具执行体
+//! 正反例与边界、L1 单结果字节上限收口（Ok / Err 双路）。tempfile tempdir
+//! 真实目录驱动，glob 库以真实实现参与（workspace 直连依赖，不 mock）；
+//! bash 臂经 `sdk::bash::execute` 真实组合（短命 echo 类命令）；执行体信任
+//! loop 沙箱改写后的路径（不内嵌检查），沙箱链拒绝半边经 input_path → check
+//! 组合断言与 runner_test 假流缝全链承载。
 
 use std::path::{Path, PathBuf};
 
@@ -31,13 +33,13 @@ fn write_rel(root: &Path, rel: &str, content: &str) -> PathBuf {
 }
 
 // ---------------------------------------------------------------------------
-// 六工具定义面（正向 + 封闭性边界）
+// 七工具定义面（正向 + 封闭性边界）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn 定义清单恰为六工具且名称_描述_schema齐全() {
+fn 定义清单恰为七工具且名称_描述_schema齐全() {
     let defs = definitions();
-    assert_eq!(defs.len(), 6, "恰为六工具");
+    assert_eq!(defs.len(), 7, "恰为七工具（bash 入册后的封闭清单）");
     let names: Vec<&str> = defs.iter().map(|def| def.name.as_str()).collect();
     assert_eq!(names, TOOL_NAMES.to_vec(), "定义面与 TOOL_NAMES 同源同序");
     for def in &defs {
@@ -63,7 +65,7 @@ fn 定义清单恰为六工具且名称_描述_schema齐全() {
             def.name
         );
     }
-    // 关键入参形状抽查：glob 无 path 字段（pattern 驱动），其余五工具 path 必填
+    // 关键入参形状抽查：glob 无 path 字段（pattern 驱动），其余六工具 path 必填
     let glob = defs
         .iter()
         .find(|def| def.name == "glob")
@@ -84,21 +86,66 @@ fn 定义清单恰为六工具且名称_描述_schema齐全() {
             "{name} 的 path 必填"
         );
     }
-}
-
-#[test]
-fn bash不在工具面且清单外无多余条目() {
-    // bash MUST NOT 进 MVP 工具面（缺席断言）
-    assert!(!TOOL_NAMES.contains(&"bash"), "bash 不得进 MVP 工具面");
+    // bash 条目形状：command 必填、timeout_ms 可选（缺省与钳位语义见描述）
+    let bash = defs
+        .iter()
+        .find(|def| def.name == "bash")
+        .expect("bash 定义在场");
+    let bash_required = bash.parameters["required"]
+        .as_array()
+        .expect("bash required 数组");
     assert!(
-        definitions().iter().all(|def| def.name != "bash"),
-        "定义面无 bash 条目"
+        bash_required.iter().any(|value| value == "command"),
+        "bash 的 command 必填"
     );
-    // 封闭清单：无清单外多余条目
-    let allowed = ["read", "grep", "glob", "ls", "write", "edit"];
-    for name in TOOL_NAMES {
-        assert!(allowed.contains(&name), "清单外条目 {name}");
+    assert!(
+        bash_required.iter().all(|value| value != "timeout_ms"),
+        "bash 的 timeout_ms 可选（不入 required）"
+    );
+    assert!(
+        bash.parameters["properties"]["timeout_ms"].is_object(),
+        "bash 声明 timeout_ms 属性"
+    );
+    assert!(
+        bash.parameters["properties"]["command"]["type"] == json!("string"),
+        "bash 的 command 为字符串"
+    );
+
+    // read schema：offset / limit 在场且描述承载截断语义
+    let read = defs.iter().find(|def| def.name == "read").expect("read 定义");
+    for field in ["offset", "limit"] {
+        assert!(
+            read.parameters["properties"][field].is_object(),
+            "read 声明 {field} 属性"
+        );
     }
+    let read_desc = format!(
+        "{} {}",
+        read.description, read.parameters["properties"]["limit"]["description"]
+    );
+    assert!(
+        read_desc.contains("2000") && read_desc.contains("截断") && read_desc.contains("offset"),
+        "read 定义含 offset/limit 描述与截断语义（翻页口径）: {read_desc}"
+    );
+
+    // grep schema：context 参数在场、pattern 描述改正则口径
+    let grep = defs.iter().find(|def| def.name == "grep").expect("grep 定义");
+    assert!(
+        grep.parameters["properties"]["context"].is_object(),
+        "grep 声明 context 属性"
+    );
+    let grep_pattern_desc =
+        grep.parameters["properties"]["pattern"]["description"]
+            .as_str()
+            .expect("pattern 描述");
+    assert!(
+        grep_pattern_desc.contains("正则"),
+        "pattern 描述改正则口径（regex 语义）: {grep_pattern_desc}"
+    );
+    assert!(
+        !TOOL_NAMES.contains(&"Bash"),
+        "封闭清单精确匹配（大小写变体不在册）"
+    );
 }
 
 // ---------------------------------------------------------------------------
@@ -177,6 +224,92 @@ async fn read文件不存在返回is_error内容_root外路径经沙箱链拒绝
 }
 
 // ---------------------------------------------------------------------------
+// read：2000 行截断 + 翻页（AC-3 工具质量半边）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn read超2000行截断尾部留痕且offset翻页取回后续窗口() {
+    let dir = tempdir("read-paginate");
+    let root = root_of(&dir);
+    // 短行 fixture：2000 行输出体积须低于 L1 单结果 30KB 上限（行截断半边
+    // 独立可考，不被字节上限先行截断）
+    let body: String = (1..=2001).map(|line| format!("L{line}\n")).collect();
+    let path = write_rel(&root, "big.txt", &body);
+
+    let output = execute(&root, "read", &json!({ "path": path }))
+        .await
+        .expect("读取成功");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 2001, "前 2000 行 + 1 行尾部留痕: {}", lines.len());
+    assert!(
+        output.contains("2000\tL2000"),
+        "第 2000 行在场: {output}"
+    );
+    assert!(
+        !output.contains("L2001"),
+        "第 2001 行不在本段窗口"
+    );
+    let tail = lines.last().expect("尾部留痕");
+    assert!(
+        tail.contains("已截断") && tail.contains("offset=2001"),
+        "尾部留痕指明翻页 offset: {tail}"
+    );
+
+    // offset 翻页：取回第 2001 行窗口
+    let paged = execute(&root, "read", &json!({ "path": path, "offset": 2001 }))
+        .await
+        .expect("翻页读取成功");
+    assert!(
+        paged.contains("2001\tL2001"),
+        "offset 翻页取回后续窗口: {paged}"
+    );
+    assert!(!paged.contains("L2000"), "翻页窗口不含前段行: {paged}");
+}
+
+#[tokio::test]
+async fn read恰2000行不截断无留痕() {
+    let dir = tempdir("read-exact");
+    let root = root_of(&dir);
+    let body: String = (1..=2000).map(|line| format!("L{line}\n")).collect();
+    let path = write_rel(&root, "exact.txt", &body);
+
+    let output = execute(&root, "read", &json!({ "path": path }))
+        .await
+        .expect("读取成功");
+    let lines: Vec<&str> = output.lines().collect();
+    assert_eq!(lines.len(), 2000, "恰阈值全量返回");
+    assert!(
+        output.contains("2000\tL2000"),
+        "末行在场（恰阈值过）: {output}"
+    );
+    assert!(
+        !output.contains("已截断"),
+        "恰 2000 行无截断留痕"
+    );
+}
+
+#[tokio::test]
+async fn readlimit缺省与显式2000行为一致() {
+    let dir = tempdir("read-limit");
+    let root = root_of(&dir);
+    let body: String = (1..=2500).map(|line| format!("L{line}\n")).collect();
+    let path = write_rel(&root, "long.txt", &body);
+
+    let default_read = execute(&root, "read", &json!({ "path": path }))
+        .await
+        .expect("缺省读取成功");
+    let explicit_read = execute(&root, "read", &json!({ "path": path, "limit": 2000 }))
+        .await
+        .expect("显式 limit 读取成功");
+
+    assert_eq!(
+        default_read, explicit_read,
+        "缺省与显式 limit=2000 行为一致（缺省即上限口径）"
+    );
+    assert!(default_read.contains("已截断"), "超限文件两形态均留痕");
+}
+
+// ---------------------------------------------------------------------------
 // grep 执行体
 // ---------------------------------------------------------------------------
 
@@ -205,7 +338,7 @@ async fn grep多行多命中逐行返回且携路径行号() {
 }
 
 #[tokio::test]
-async fn grep无命中与空文件返回非错误_匹配串按子串字面语义() {
+async fn grep无命中与空文件返回非错误占位() {
     let dir = tempdir("grep-edge");
     let root = root_of(&dir);
     let path = write_rel(
@@ -235,19 +368,139 @@ async fn grep无命中与空文件返回非错误_匹配串按子串字面语义
     .expect("空文件非错误");
     assert!(on_empty.contains("无匹配行"));
 
-    // 中文 / emoji / 正则元字符按子串字面语义（非正则）
-    for pattern in ["元字符 (.) 与", "🎉"] {
-        let hit = execute(&root, "grep", &json!({ "path": path, "pattern": pattern }))
-            .await
-            .expect("子串命中");
-        assert!(hit.contains("1: "), "命中首行: {hit}");
-    }
-
     // 空 pattern：显式拒绝（非静默全行匹配）
     assert!(
         execute(&root, "grep", &json!({ "path": path, "pattern": "" }))
             .await
             .is_err()
+    );
+}
+
+#[tokio::test]
+async fn grep正则语义匹配替换子串字面_中文与emoji行内容保真() {
+    let dir = tempdir("grep-regex");
+    let root = root_of(&dir);
+    let path = write_rel(
+        &root,
+        "code.rs",
+        "fn main() {}\nfn helper() {}\n// 无关行\n包含 正则元字符 (.) 与 emoji 🎉 的行",
+    );
+
+    // 正则通配：`fn.m` 以 `.` 通配命中（字面子串 "fn.m" 不在文中——翻转旧
+    // 「元字符按子串字面语义」断言，元字符按正则解释）
+    let wildcard = execute(&root, "grep", &json!({ "path": path, "pattern": "fn.m" }))
+        .await
+        .expect("正则命中");
+    assert!(wildcard.contains("1: fn main() {}"), "{wildcard}");
+    assert!(
+        !wildcard.contains("fn helper"),
+        "通配窗仅覆盖通配符位（helper 行不含 fn.m 形态）: {wildcard}"
+    );
+
+    // 元字符 pattern 按正则解释命中（`.` 通配任意单字符；字面 "正则(.)字"
+    // 不在文中——翻转旧「元字符按子串字面语义」断言）
+    let metachar = execute(
+        &root,
+        "grep",
+        &json!({ "path": path, "pattern": "正则(.)字" }),
+    )
+    .await
+    .expect("正则语义命中");
+    assert!(metachar.contains("4: "), "元字符行命中: {metachar}");
+
+    // 中文与 emoji 行内容保真不变
+    let emoji = execute(&root, "grep", &json!({ "path": path, "pattern": "🎉" }))
+        .await
+        .expect("emoji 命中");
+    assert!(
+        emoji.contains("包含 正则元字符 (.) 与 emoji 🎉 的行"),
+        "命中行内容保真: {emoji}"
+    );
+
+    // 非法正则：显式 Err（不静默空匹配）
+    let invalid = execute(&root, "grep", &json!({ "path": path, "pattern": "[" }))
+        .await
+        .expect_err("非法正则必须 Err");
+    assert!(invalid.contains("非法正则"), "记因指明非法正则: {invalid}");
+}
+
+#[tokio::test]
+async fn grep_context上下文行窗口合并去重且组间以分隔符隔离() {
+    let dir = tempdir("grep-context");
+    let root = root_of(&dir);
+    // 命中位：第 2、3 行（相邻窗口合并）与第 7 行（独立组）
+    let path = write_rel(
+        &root,
+        "lines.txt",
+        "L1\nM1\nM2\nL4\nL5\nL6\nM3\n",
+    );
+
+    // context=1：命中行 ± 1；相邻命中窗口合并去重（每行恰一次）；不连续组间 `--`
+    let with_context = execute(
+        &root,
+        "grep",
+        &json!({ "path": path, "pattern": "M\\d", "context": 1 }),
+    )
+    .await
+    .expect("context 命中成功");
+    let shown = path.to_string_lossy().into_owned();
+    let expected: Vec<String> = vec![
+        format!("{shown}:1: L1"),
+        format!("{shown}:2: M1"),
+        format!("{shown}:3: M2"),
+        format!("{shown}:4: L4"),
+        "--".to_owned(),
+        format!("{shown}:6: L6"),
+        format!("{shown}:7: M3"),
+    ];
+    assert_eq!(
+        with_context.lines().collect::<Vec<_>>(),
+        expected,
+        "窗口合并去重 + 组间 -- 分隔: {with_context}"
+    );
+    assert_eq!(
+        with_context.matches("--").count(),
+        1,
+        "恰一组分隔（两组）"
+    );
+
+    // context 缺省 0：维持逐行口径（无上下文行、无分隔符）
+    let bare = execute(
+        &root,
+        "grep",
+        &json!({ "path": path, "pattern": "M\\d" }),
+    )
+    .await
+    .expect("缺省 context 命中成功");
+    let bare_expected: Vec<String> = vec![
+        format!("{shown}:2: M1"),
+        format!("{shown}:3: M2"),
+        format!("{shown}:7: M3"),
+    ];
+    assert_eq!(
+        bare.lines().collect::<Vec<_>>(),
+        bare_expected,
+        "context 缺省 0 维持逐行口径: {bare}"
+    );
+}
+
+#[tokio::test]
+async fn grep单文件context为0时窗口退化为裸命中行() {
+    let dir = tempdir("grep-context-zero");
+    let root = root_of(&dir);
+    let path = write_rel(&root, "tiny.txt", "甲\n乙\n丙\n");
+    let output = execute(
+        &root,
+        "grep",
+        &json!({ "path": path, "pattern": "乙", "context": 0 }),
+    )
+    .await
+    .expect("context=0 显式传参成功");
+    let shown = path.to_string_lossy().into_owned();
+    assert_eq!(
+        output.lines().collect::<Vec<_>>(),
+        vec![format!("{shown}:2: 乙")],
+        "context=0 与缺省同口径"
     );
 }
 
@@ -573,6 +826,83 @@ async fn edit旧串多处出现默认显式失败_replace_all全替换语义锁�
 }
 
 // ---------------------------------------------------------------------------
+// L1 单结果字节上限收口（AC-5：Ok / Err 双路截断留痕）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn execute_l1字节上限ok路截断留痕() {
+    let dir = tempdir("l1-ok");
+    let root = root_of(&dir);
+    // 单行超 30KB 的文件：read 输出越过单结果上限
+    let path = write_rel(&root, "huge-line.txt", &"a".repeat(40_000));
+
+    let output = execute(&root, "read", &json!({ "path": path }))
+        .await
+        .expect("读取成功（L1 收口不炸）");
+
+    assert!(
+        output.contains("已截断：单结果超 30000 字节上限"),
+        "截断留痕: {output}"
+    );
+    assert!(
+        output.len() < 30_000 + 200,
+        "输出钳在 30KB 上限附近（含留痕）: {}",
+        output.len()
+    );
+}
+
+#[tokio::test]
+async fn execute_l1字节上限err路截断留痕() {
+    let dir = tempdir("l1-err");
+    let root = root_of(&dir);
+    // Err 内容超限载体：bash 臂产出 40KB stdout 后以非零码退出（错误串携带
+    // 全部输出）；powershell 经 git-bash / cmd 两底座均在册可达
+    let command = "powershell -NoProfile -Command \"Write-Output ('x' * 40000); exit 3\"";
+
+    let error = execute(&root, "bash", &json!({ "command": command }))
+        .await
+        .expect_err("非零退出必须 Err（内容超限走同款收口）");
+
+    assert!(
+        error.contains("已截断：单结果超 30000 字节上限"),
+        "Err 路同款截断留痕（Ok / Err 双路收口）: {}",
+        &error[..error.len().min(400)]
+    );
+    assert!(
+        error.len() < 30_000 + 200,
+        "Err 内容钳在 30KB 上限附近: {}",
+        error.len()
+    );
+}
+
+// ---------------------------------------------------------------------------
+// bash 臂分发接入（AC-4 / AC-10 翻转半边）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn bash臂分发接入_缺command报必填而非未知工具() {
+    let dir = tempdir("bash-dispatch");
+    let root = root_of(&dir);
+
+    let output = execute(&root, "bash", &json!({ "command": "echo bash-arm-ok" }))
+        .await
+        .expect("bash 臂真实执行成功");
+    assert!(output.contains("bash-arm-ok"), "{output}");
+
+    let missing = execute(&root, "bash", &json!({}))
+        .await
+        .expect_err("缺 command 必须 Err");
+    assert!(
+        missing.contains("command"),
+        "记因指明 command 必填: {missing}"
+    );
+    assert!(
+        !missing.contains("未知工具"),
+        "bash 已入册：缺参错误非「未知工具」拒绝"
+    );
+}
+
+// ---------------------------------------------------------------------------
 // 未知工具（执行体分发兜底）
 // ---------------------------------------------------------------------------
 
@@ -580,8 +910,13 @@ async fn edit旧串多处出现默认显式失败_replace_all全替换语义锁�
 async fn 未知工具名执行分发显式拒绝() {
     let dir = tempdir("unknown-tool");
     let root = root_of(&dir);
-    let error = execute(&root, "bash", &json!({}))
+    // 反例改用真实清单外名（bash 已入册，不再充当清单外反例）
+    let error = execute(&root, "rm_rf", &json!({}))
         .await
         .expect_err("清单外工具显式拒绝");
     assert!(error.contains("未知工具"), "实际: {error}");
+    assert!(
+        !TOOL_NAMES.contains(&"rm_rf"),
+        "前置：反例名确在封闭清单之外"
+    );
 }

@@ -79,6 +79,7 @@ fn save_new_provider(
         "https://api.example.com/v1".to_owned(),
         api_key.to_owned(),
         fixture_tiers(),
+        None,
     )
 }
 
@@ -96,6 +97,7 @@ fn save_provider_with_key(
         "https://api.example.com/v1".to_owned(),
         api_key.to_owned(),
         fixture_tiers(),
+        None,
     )
 }
 
@@ -240,6 +242,7 @@ fn provider命令_重名保存err清单不变_更新miss_id_err_name空白err() 
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         fixture_tiers(),
+        None,
     );
     assert!(blank.is_err(), "name 空白应 Err");
 }
@@ -466,4 +469,135 @@ fn 全部命令面err错误串不含api_key明文_错误只含name与id语境() 
     }
     // 错误只含 name / id / 计数语境（非空可读）
     assert!(errors.iter().all(|err| !err.is_empty()));
+}
+
+// ---------------------------------------------------------------------------
+// save_agent_provider context_length 平参（AC-9 命令面半边）：留空 = None
+// 未配置语义（MUST NOT 落 0 / 128000 字面）；与 api_key 回填语义正交
+// ---------------------------------------------------------------------------
+
+#[test]
+fn save携context_length落库且重开一致() {
+    let env = Env::new("ctx-window");
+    let list_snapshot;
+    {
+        let app = app_with_stores(&env);
+        let state = app.state::<WorkspaceStores>();
+
+        // 新建携 Some(200_000)：命令面平参直入记录构造
+        let created = save_agent_provider(
+            state.clone(),
+            None,
+            "窗长端点".to_owned(),
+            "https://api.example.com/v1".to_owned(),
+            "sk-live-1234567890".to_owned(),
+            fixture_tiers(),
+            Some(200_000),
+        )
+        .expect("新建应成功");
+        assert_eq!(created.context_length, Some(200_000), "命令面平参落记录");
+
+        // list 读回一致（组合链扩字段）
+        let listed = list_agent_providers(state.clone()).expect("list 应成功");
+        assert_eq!(listed[0].context_length, Some(200_000), "清单读回一致");
+
+        // tauri 托管值生命周期：显式 unmanage 后重开
+        list_snapshot = listed;
+        #[allow(deprecated)]
+        let _stores = app.unmanage::<WorkspaceStores>().expect("应处于托管中");
+    }
+
+    // WorkspaceStores 重开后一致（可空列落全局库持久化）
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    assert_eq!(
+        list_agent_providers(state.clone()).unwrap(),
+        list_snapshot,
+        "重开后 context_length 与删除前状态一致"
+    );
+}
+
+#[test]
+fn save留空context_length为none不落0或128000字面() {
+    let env = Env::new("ctx-blank");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+
+    // 留空提交 = None（未配置），非 0 非缺省字面
+    let created = save_new_provider(&state, "留空端点", "sk-live-1234567890").expect("新建应成功");
+    assert_eq!(created.context_length, None, "留空 = None 未配置语义");
+    // 库中读回复核：无 0 / 128_000 字面
+    let listed = list_agent_providers(state.clone()).unwrap();
+    assert_eq!(listed[0].context_length, None, "库中无 0 / 128_000 字面");
+}
+
+#[test]
+fn save编辑态context_length双向翻转按入参落库() {
+    let env = Env::new("ctx-flip");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let created = save_new_provider(&state, "翻转端点", "sk-live-1234567890").expect("新建应成功");
+
+    // None → Some(N)：编辑补窗长
+    let with_window = save_agent_provider(
+        state.clone(),
+        Some(created.id),
+        "翻转端点".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "".to_owned(),
+        fixture_tiers(),
+        Some(131_072),
+    )
+    .expect("补窗长编辑应成功");
+    assert_eq!(
+        with_window.context_length,
+        Some(131_072),
+        "None → Some(N) 按入参落库"
+    );
+
+    // Some(N) → None：编辑清窗长（留空 = 未配置）
+    let cleared = save_agent_provider(
+        state.clone(),
+        Some(created.id),
+        "翻转端点".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "".to_owned(),
+        fixture_tiers(),
+        None,
+    )
+    .expect("清窗长编辑应成功");
+    assert_eq!(
+        cleared.context_length, None,
+        "Some(N) → None 按入参落库（可空列双向翻转）"
+    );
+}
+
+#[test]
+fn save_api_key回填与新context_length参正交() {
+    let env = Env::new("ctx-key-orthogonal");
+    let app = app_with_stores(&env);
+    let state = app.state::<WorkspaceStores>();
+    let created = save_new_provider(&state, "正交端点", "sk-live-1234567890").expect("新建应成功");
+
+    // 编辑态 api_key 传空（回填原值）+ context_length 传 Some(N)：两语义互不干扰
+    let saved = save_agent_provider(
+        state.clone(),
+        Some(created.id),
+        "正交端点".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "".to_owned(),
+        fixture_tiers(),
+        Some(200_000),
+    )
+    .expect("编辑应成功");
+
+    assert_eq!(
+        saved.api_key, "sk-live-1234567890",
+        "api_key 留空回填原值语义不变"
+    );
+    assert_eq!(
+        saved.context_length,
+        Some(200_000),
+        "context_length 无回填语义（有值即落，与 api_key 区分）"
+    );
 }

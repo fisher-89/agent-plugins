@@ -23,14 +23,20 @@ vi.mock('sonner', () => ({
   toast: { error: toastErrorMock },
 }));
 
-/** provider 记录 fixture（serde camelCase 线格式，三档 models）。 */
-function provider(id: number, name: string, apiKey = 'sk-live-1234567890'): AgentProviderRecord {
+/** provider 记录 fixture（serde camelCase 线格式，三档 models + 可空 contextLength）。 */
+function provider(
+  id: number,
+  name: string,
+  apiKey = 'sk-live-1234567890',
+  contextLength: number | null = null,
+): AgentProviderRecord {
   return {
     id,
     name,
     baseUrl: 'https://api.example.com/v1',
     apiKey,
     models: { high: 'm-high', medium: 'm-medium', low: 'm-low' },
+    contextLength,
   };
 }
 
@@ -55,12 +61,14 @@ function mockDispatch() {
       return Promise.resolve([...stored]);
     }
     if (command === 'save_agent_provider') {
+      const rawContextLength = params?.['contextLength'];
       const record: AgentProviderRecord = {
         id: numOr('id', stored.length + 1),
         name: textOf('name'),
         baseUrl: textOf('baseUrl'),
         apiKey: textOf('apiKey'),
         models: TIERS,
+        contextLength: typeof rawContextLength === 'number' ? rawContextLength : null,
       };
       stored = [...stored.filter((row) => row.id !== record.id), record];
       return Promise.resolve(record);
@@ -139,6 +147,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        contextLength: null,
       });
       expect(saved?.name).toBe('新端点');
     });
@@ -149,11 +158,82 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
       baseUrl: 'https://api.example.com/v1',
       apiKey: 'sk-live-1234567890',
       models: TIERS,
+      contextLength: null,
     });
     await waitFor(() => expect(countOf('list_agent_providers')).toBe(2));
     await waitFor(() =>
       expect(result.current.providers.map((row) => row.name)).toContain('新端点'),
     );
+  });
+
+  it('save 透传 contextLength 数字：invoke 入参携 contextLength: 200000', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(1, '窗长端点', 'sk-live-1234567890', 200000));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      const saved = await result.current.save({
+        id: null,
+        name: '窗长端点',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'sk-live-1234567890',
+        models: TIERS,
+        contextLength: 200000,
+      });
+      expect(saved?.contextLength).toBe(200000);
+    });
+
+    expect(invokeMock).toHaveBeenCalledWith('save_agent_provider', {
+      id: null,
+      name: '窗长端点',
+      baseUrl: 'https://api.example.com/v1',
+      apiKey: 'sk-live-1234567890',
+      models: TIERS,
+      contextLength: 200000,
+    });
+  });
+
+  it('save 透传 contextLength null：invoke 入参 contextLength: null（不落 0）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') return Promise.resolve([]);
+      return Promise.resolve(provider(1, '缺列端点'));
+    });
+    const { result } = renderHook(() => useAgentProviders());
+    await settleLoaded();
+
+    await act(async () => {
+      const saved = await result.current.save({
+        id: null,
+        name: '缺列端点',
+        baseUrl: 'https://api.example.com/v1',
+        apiKey: 'sk-live-1234567890',
+        models: TIERS,
+        contextLength: null,
+      });
+      expect(saved?.contextLength).toBeNull();
+    });
+
+    const saveCall = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider');
+    expect(saveCall).toBeDefined();
+    expect((saveCall?.[1] as Record<string, unknown>)['contextLength']).toBeNull();
+  });
+
+  it('库存往返保真：list 回读 contextLength 字段原样（provider fixture 库存形态）', async () => {
+    invokeMock.mockImplementation((command: string) => {
+      if (command === 'list_agent_providers') {
+        return Promise.resolve([provider(1, '窗长端点', 'sk-live-1234567890', 131072)]);
+      }
+      return Promise.resolve(null);
+    });
+    const { result } = renderHook(() => useAgentProviders());
+
+    await waitFor(() => expect(result.current.loading).toBe(false));
+
+    expect(result.current.providers).toHaveLength(1);
+    expect(result.current.providers[0].contextLength).toBe(131072);
   });
 
   it('remove 动作：invoke delete_agent_provider 后清单刷新', async () => {
@@ -212,6 +292,7 @@ describe('useAgentProviders：错误双轨', () => {
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        contextLength: null,
       });
       expect(saved).toBeNull();
     });
@@ -272,6 +353,7 @@ describe('useAgentProviders：错误双轨', () => {
         baseUrl: 'https://api.example.com/v1',
         apiKey: 'sk-live-1234567890',
         models: TIERS,
+        contextLength: null,
       });
     });
     await act(async () => {

@@ -1,19 +1,26 @@
-//! sdk 引擎六工具面：read / grep / glob / ls / write / edit 的定义（名称 /
-//! 描述 / JSON schema 入参）与异步执行体。
+//! sdk 引擎七工具面：read / grep / glob / ls / write / edit / bash 的定义
+//! （名称 / 描述 / JSON schema 入参）与异步执行体（bash 执行体见
+//! [`crate::sdk::bash`]）。
 //!
 //! 边界：执行体不内嵌 policy / sandbox 检查（由 loop 统一插值——拒绝时
-//! 不进执行体）；bash 不进 MVP 工具面（无进程执行）。错误统一 `Err(String)`
-//! （is_error ToolResult 的内容来源）；成功 `Ok(String)` 为扁平文本结果。
+//! 不进执行体）。错误统一 `Err(String)`（is_error ToolResult 的内容来源）；
+//! 成功 `Ok(String)` 为扁平文本结果。分发出口统一 L1 单结果字节上限收口
+//! （Ok / Err 双路截断留痕，bash 输出同归此层）。
 //!
 //! 路径约定：入参 `input` 的 `path` 字段已被 loop 经 sandbox 校验后改写为
 //! workspace 内规范路径（[`crate::sdk::sandbox`]），执行体直接信任之；
 //! glob 工具无 `path` 字段，以 root 相对 pattern 驱动（pattern 合法性同经
-//! sandbox 的 [`crate::sdk::sandbox::check_pattern`] 预检）。
+//! sandbox 的 [`crate::sdk::sandbox::check_pattern`] 预检）；bash 无路径面
+//! （cwd = root，命令执行不在路径沙箱射程内——知情边界见
+//! [`crate::sdk::policy`]）。
 
 use std::path::Path;
 
-use rig_core::completion::ToolDefinition;
+use regex::Regex;
+use rig::completion::ToolDefinition;
 use serde_json::Value;
+
+use crate::sdk::bash;
 
 /// glob 单次结果上限（防大目录扫描灌爆上下文）。
 const MAX_GLOB_RESULTS: usize = 200;
@@ -21,9 +28,17 @@ const MAX_GLOB_RESULTS: usize = 200;
 /// grep 目录递归单次命中上限（同 glob 截断口径，防大目录扫描灌爆上下文）。
 const MAX_GREP_RESULTS: usize = 200;
 
-/// 六工具名（loop 的 RunStarted.tools 与 policy 决策表同源口径，见
+/// read 单次读取行数上限（缺省与显式 limit 同上限）：截断尾部留痕，offset
+/// 翻页取回后续窗口。
+const MAX_READ_LINES: usize = 2000;
+
+/// L1 单结果字节上限（上下文防线第一层）：全工具统一收口（Ok / Err 双路），
+/// 超限截断留痕；bash 输出同归此层。
+const MAX_RESULT_BYTES: usize = 30_000;
+
+/// 七工具名（loop 的 RunStarted.tools 与 policy 决策表同源口径，见
 /// [`crate::sdk::policy`]）。
-pub const TOOL_NAMES: [&str; 6] = ["read", "grep", "glob", "ls", "write", "edit"];
+pub const TOOL_NAMES: [&str; 7] = ["read", "grep", "glob", "ls", "write", "edit", "bash"];
 
 /// 模型入参字符串字段提取（缺失或非字符串 → Err）。
 fn string_field(input: &Value, field: &str) -> Result<String, String> {
@@ -40,14 +55,15 @@ pub fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "read".to_owned(),
-            description: "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）"
+            description: "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）；\
+                          单次至多 2000 行，超限截断留痕，可用 offset 翻页读取后续窗口"
                 .to_owned(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "workspace 内文件路径" },
                     "offset": { "type": "integer", "description": "起始行号（1 起始，缺省 1）" },
-                    "limit": { "type": "integer", "description": "读取行数（缺省读到文件尾）" }
+                    "limit": { "type": "integer", "description": "读取行数（缺省至多 2000 行读到文件尾）" }
                 },
                 "required": ["path"]
             }),
@@ -55,13 +71,15 @@ pub fn definitions() -> Vec<ToolDefinition> {
         ToolDefinition {
             name: "grep".to_owned(),
             description:
-                "行级子串匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件"
+                "行级正则匹配：返回命中行（文件路径:行号: 内容）；path 传目录时递归扫描其下文件；\
+                 可选 context 携带匹配行上下文（命中行 ± N 行）"
                     .to_owned(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
                     "path": { "type": "string", "description": "workspace 内文件或目录路径（目录时递归扫描）" },
-                    "pattern": { "type": "string", "description": "子串匹配串（非正则）" }
+                    "pattern": { "type": "string", "description": "正则表达式（regex 语法，非法正则报错）" },
+                    "context": { "type": "integer", "description": "匹配行上下文行数（命中行 ± N，缺省 0；窗口合并去重，不连续组间以 -- 分隔）" }
                 },
                 "required": ["path", "pattern"]
             }),
@@ -116,6 +134,21 @@ pub fn definitions() -> Vec<ToolDefinition> {
                 "required": ["path", "old_string", "new_string"]
             }),
         },
+        ToolDefinition {
+            name: "bash".to_owned(),
+            description: "执行 shell 命令并返回合并输出（stdout 段在前、stderr 段带 [stderr] \
+                          标记在后）；cwd 为 workspace root，非零退出码报错并携带输出。超时为活性\
+                          护栏，超时即终止进程树"
+                .to_owned(),
+            parameters: serde_json::json!({
+                "type": "object",
+                "properties": {
+                    "command": { "type": "string", "description": "待执行的命令行（git-bash / sh unix 语法优先，探测失败退 cmd）" },
+                    "timeout_ms": { "type": "integer", "description": "超时毫秒（缺省 120000，钳位 1000-600000，超时终止进程树）" }
+                },
+                "required": ["command"]
+            }),
+        },
     ]
 }
 
@@ -126,21 +159,45 @@ pub fn input_path<'a>(name: &str, input: &'a Value) -> Option<&'a str> {
     input.get(field).and_then(Value::as_str)
 }
 
-/// 工具执行分发：按工具名调用执行体。root 仅 glob 消费（模式拼接基座）。
+/// 工具执行分发：按工具名调用执行体。root 仅 glob / bash 消费（模式拼接
+/// 基座 / 进程 cwd）。出口统一 L1 收口：单结果超 [`MAX_RESULT_BYTES`] 截断
+/// 留痕（Ok / Err 双路，全工具覆盖）。
 pub async fn execute(root: &Path, name: &str, input: &Value) -> Result<String, String> {
-    match name {
+    let outcome = match name {
         "read" => read(input).await,
         "grep" => grep(input).await,
         "glob" => glob(root, input).await,
         "ls" => list_dir(input).await,
         "write" => write(input).await,
         "edit" => edit(input).await,
+        "bash" => bash::execute(root, input).await,
         other => Err(format!("未知工具: {other}")),
+    };
+    match outcome {
+        Ok(text) => Ok(cap_result(text)),
+        Err(error) => Err(cap_result(error)),
     }
 }
 
+/// L1 收口：超 30KB 截至字节上限（char 边界回退）并尾部留痕（is_error
+/// ToolResult 的错误串同形态截断，事件面不炸）。
+fn cap_result(text: String) -> String {
+    if text.len() <= MAX_RESULT_BYTES {
+        return text;
+    }
+    let mut end = MAX_RESULT_BYTES;
+    while !text.is_char_boundary(end) {
+        end -= 1;
+    }
+    format!(
+        "{}\n（已截断：单结果超 {MAX_RESULT_BYTES} 字节上限，仅保留前 {end} 字节）",
+        &text[..end]
+    )
+}
+
 /// read：行号前缀输出（`行号\t内容`，cat -n 形态），offset（1 起始）与
-/// limit 截取。
+/// limit 截取；单次至多 [`MAX_READ_LINES`] 行（缺省与显式 limit 同上限），
+/// 截断时尾部留痕「已截断，可用 offset 翻页」。
 async fn read(input: &Value) -> Result<String, String> {
     let path = string_field(input, "path")?;
     let offset = input
@@ -151,59 +208,77 @@ async fn read(input: &Value) -> Result<String, String> {
     let limit = input
         .get("limit")
         .and_then(Value::as_u64)
-        .map(|n| n as usize);
+        .map(|n| (n as usize).min(MAX_READ_LINES))
+        .unwrap_or(MAX_READ_LINES);
     let text = tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| format!("读取失败: {e}"))?;
     let lines: Vec<&str> = text.lines().collect();
     let start = (offset - 1).min(lines.len());
-    let end = limit
-        .map(|l| (start + l).min(lines.len()))
-        .unwrap_or(lines.len());
+    let end = (start + limit).min(lines.len());
     let numbered: Vec<String> = lines[start..end]
         .iter()
         .enumerate()
         .map(|(index, line)| format!("{:>6}\t{}", start + index + 1, line))
         .collect();
-    Ok(if numbered.is_empty() {
-        "(空区间)".to_owned()
-    } else {
-        numbered.join("\n")
-    })
+    if numbered.is_empty() {
+        return Ok("(空区间)".to_owned());
+    }
+    let mut body = numbered.join("\n");
+    if end < lines.len() {
+        body.push_str(&format!(
+            "\n（已截断：本段为第 {}-{} 行，文件共 {} 行，可用 offset={} 翻页读取后续窗口）",
+            start + 1,
+            end,
+            lines.len(),
+            end + 1
+        ));
+    }
+    Ok(body)
 }
 
-/// grep：行级子串匹配，命中行以 `路径:行号: 内容` 输出。path 为文件时单文件
-/// 匹配；为目录时递归扫描其下文件（不可读文件跳过、命中上限截断留痕）——
-/// 目录入参曾以「读取失败: 拒绝访问 (os error 5)」形态误导为权限拒绝，
-/// 递归分支即该形态的正解。metadata 失败（缺失路径）回落单文件分支，保留
-/// 显式读取错误语义。
+/// grep：行级正则匹配（regex 语法，非法正则 `Err`），命中行以
+/// `路径:行号: 内容` 输出。path 为文件时单文件匹配；为目录时递归扫描其下
+/// 文件（不可读文件跳过、命中上限截断留痕）——目录入参曾以「读取失败:
+/// 拒绝访问 (os error 5)」形态误导为权限拒绝，递归分支即该形态的正解。
+/// metadata 失败（缺失路径）回落单文件分支，保留显式读取错误语义。
 async fn grep(input: &Value) -> Result<String, String> {
     let path = string_field(input, "path")?;
     let pattern = string_field(input, "pattern")?;
     if pattern.is_empty() {
         return Err("pattern 不得为空".to_owned());
     }
+    let matcher = Regex::new(&pattern).map_err(|e| format!("非法正则: {e}"))?;
+    let context = input
+        .get("context")
+        .and_then(Value::as_u64)
+        .map(|n| n as usize)
+        .unwrap_or(0);
     let is_dir = tokio::fs::metadata(&path)
         .await
         .map(|meta| meta.is_dir())
         .unwrap_or(false);
     if is_dir {
-        return grep_dir(&path, &pattern).await;
+        return grep_dir(&path, &matcher, context).await;
     }
     let text = tokio::fs::read_to_string(&path)
         .await
         .map_err(|e| format!("读取失败: {e}"))?;
-    Ok(hits_body(match_lines(&path, &text, &pattern), &pattern))
+    let lines: Vec<&str> = text.lines().collect();
+    let hits = match_line_indices(&lines, &matcher);
+    Ok(hits_body(render_file_hits(&path, &lines, &hits, context), &pattern))
 }
 
 /// 目录递归分支：`{dir}/**/*` 枚举（glob 字典序，与 glob 工具同 crate 同
 /// 姿态），仅文件参与匹配；不可读文件（二进制 / 非 UTF-8）静默跳过——
-/// 目录扫描不因个别文件中断（单文件显式指定的读取失败语义不弱化）。
-async fn grep_dir(dir: &str, pattern: &str) -> Result<String, String> {
+/// 目录扫描不因个别文件中断（单文件显式指定的读取失败语义不弱化）。命中
+/// 上限以命中行数计，超限截断留痕（末文件仅保留未溢出的前段命中）。
+async fn grep_dir(dir: &str, matcher: &Regex, context: usize) -> Result<String, String> {
     let base = dir.replace('\\', "/");
     let full = format!("{}/**/*", base.trim_end_matches('/'));
     let entries = glob::glob(&full).map_err(|e| format!("非法 glob 模式: {e}"))?;
-    let mut hits: Vec<String> = Vec::new();
+    let mut output: Vec<String> = Vec::new();
+    let mut hit_count = 0usize;
     let mut truncated = false;
     for entry in entries.flatten() {
         if !entry.is_file() {
@@ -213,15 +288,23 @@ async fn grep_dir(dir: &str, pattern: &str) -> Result<String, String> {
         // 段的混合形态；与 glob 工具的归一口径一致）
         let display = entry.to_string_lossy().replace('\\', "/");
         if let Ok(text) = tokio::fs::read_to_string(&entry).await {
-            hits.extend(match_lines(&display, &text, pattern));
-            if hits.len() > MAX_GREP_RESULTS {
+            let lines: Vec<&str> = text.lines().collect();
+            let hits = match_line_indices(&lines, matcher);
+            if hits.is_empty() {
+                continue;
+            }
+            let kept = hit_count + hits.len();
+            if kept > MAX_GREP_RESULTS {
                 truncated = true;
+                let fit = MAX_GREP_RESULTS - hit_count;
+                output.extend(render_file_hits(&display, &lines, &hits[..fit], context));
                 break;
             }
+            hit_count = kept;
+            output.extend(render_file_hits(&display, &lines, &hits, context));
         }
     }
-    hits.truncate(MAX_GREP_RESULTS);
-    let mut body = hits_body(hits, pattern);
+    let mut body = hits_body(output, matcher.as_str());
     if truncated {
         body.push_str(&format!("\n（结果超过 {MAX_GREP_RESULTS} 条已截断）"));
     }
@@ -237,13 +320,54 @@ fn hits_body(hits: Vec<String>, pattern: &str) -> String {
     }
 }
 
-/// 单文件命中行收集（`路径:行号: 内容` 形态）。
-fn match_lines(path: &str, text: &str, pattern: &str) -> Vec<String> {
-    text.lines()
+/// 单文件命中行号收集（正则语义匹配，行号升序）。
+fn match_line_indices(lines: &[&str], matcher: &Regex) -> Vec<usize> {
+    lines
+        .iter()
         .enumerate()
-        .filter(|(_, line)| line.contains(pattern))
-        .map(|(index, line)| format!("{}:{}: {}", path, index + 1, line))
+        .filter(|(_, line)| matcher.is_match(line))
+        .map(|(index, _)| index)
         .collect()
+}
+
+/// 命中行号 ± context 的半开区间列表（相邻 / 重叠窗口合并——窗口合并去重，
+/// 输出每行恰一次）。
+fn merged_windows(hits: &[usize], context: usize, total: usize) -> Vec<(usize, usize)> {
+    let mut windows: Vec<(usize, usize)> = Vec::new();
+    for &hit in hits {
+        let start = hit.saturating_sub(context);
+        let end = (hit + context + 1).min(total);
+        match windows.last_mut() {
+            Some(window) if start <= window.1 => window.1 = end,
+            _ => windows.push((start, end)),
+        }
+    }
+    windows
+}
+
+/// 单文件命中渲染：context = 0 即裸命中行；context > 0 时窗口展开，不连续
+/// 组间以 `--` 分隔（`路径:行号: 内容` 形态不变）。
+fn render_file_hits(path: &str, lines: &[&str], hits: &[usize], context: usize) -> Vec<String> {
+    if hits.is_empty() {
+        return Vec::new();
+    }
+    if context == 0 {
+        return hits
+            .iter()
+            .map(|&index| format!("{}:{}: {}", path, index + 1, lines[index]))
+            .collect();
+    }
+    let mut output: Vec<String> = Vec::new();
+    for (group, (start, end)) in merged_windows(hits, context, lines.len()).into_iter().enumerate()
+    {
+        if group > 0 {
+            output.push("--".to_owned());
+        }
+        output.extend(
+            (start..end).map(|index| format!("{}:{}: {}", path, index + 1, lines[index])),
+        );
+    }
+    output
 }
 
 /// glob：root 相对模式扫描（分隔符统一 `/`），路径字典序，结果截断留痕。

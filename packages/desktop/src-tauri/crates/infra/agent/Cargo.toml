@@ -3,39 +3,22 @@ name = "agent-runtime"
 version = "0.1.0"
 edition = "2021"
 
-# agent 边界的引擎门面与双引擎实现：`EngineFacade` 为引擎构造唯一 match 点
-# （cli / sdk），实现 core 契约；cli 引擎持有进程 spawn，sdk 引擎经 rig-core
-# 直连 openai 兼容端点；static-check 与 git diff 两个编排 spawn 缝同样落本
-# crate（spawn 不进 core）；禁 Tauri 系依赖
 [dependencies]
 agent = { workspace = true }
-# WorkerAgentPort 内核适配的契约面（infra→core 边：port / state / transcript）
 orchestration = { workspace = true }
-# static-check 缝的 static_analysis 命令读取（core::config，无诊断消费面）
 config = { workspace = true }
-# static-check 缝的 workspace 根解析（foundation::layout config_path 同源）
 foundation = { workspace = true }
-# 内核组合根与 port 适配的持久面落点（infra→infra 边；core/agent 保持零
-# workspace 内依赖，desktop-crate-layout 仅 core→store 受限）
 store = { workspace = true }
-# EngineKind 线格式（serde camelCase）与 TS 镜像（specta Type）派生
 serde = { workspace = true }
 specta = { workspace = true }
 serde_json = { workspace = true }
-tokio = { workspace = true, features = ["process", "io-util", "rt", "macros"] }
-# sdk 引擎唯一新框架依赖：provider client（openai chat completions + 自定义
-# base_url）与消息/工具类型层；workspace `=` pin + default-features = false
-# + ["reqwest", "native-tls"]（design rig-core spike 裁定）
+tokio = { workspace = true, features = ["process", "io-util", "rt", "macros", "time"] }
+rig = { workspace = true }
 rig-core = { workspace = true }
-# glob 工具实现：rig 传递依赖同款（0.3，已在入树），直连零新增足迹
+regex = { workspace = true }
 glob = { workspace = true }
-# rig 归一化流消费（Stream / StreamExt）：rig-core 直依赖同款已在入树，
-# 直连零新增足迹
 futures = { workspace = true }
 
-# discover 合成目录 / PATH 薄包装测试装置
 [dev-dependencies]
 tempfile = { workspace = true }
-# 组合根测试预置「绕过 store 写入口守卫的缺 provider 存量实例」存量库
-#（native_db 裸构造，同命令层测试先例；锁内既有版本零新增足迹）
 native_db = { workspace = true }

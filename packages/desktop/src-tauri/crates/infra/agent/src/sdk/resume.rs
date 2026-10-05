@@ -1,7 +1,7 @@
 use std::collections::HashMap;
 
 use agent::{AgentBlock, AgentEvent, AgentEventKind, AgentMessageRole};
-use rig_core::message::{AssistantContent, Message, Reasoning, ToolResultContent, UserContent};
+use rig::message::{AssistantContent, Message, Reasoning, ToolResultContent, UserContent};
 
 /// sdk 引擎侧会话 id 铸造前缀：`sdk-<进程内计数>-<毫秒时戳>`（每轮铸造，
 /// 经 RunStarted / TurnDone 上报由内核记双 id 映射；不再承担归属校验）。

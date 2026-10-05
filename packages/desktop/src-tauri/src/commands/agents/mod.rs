@@ -30,10 +30,7 @@ pub fn list_agent_providers(
         .map_err(|e| e.to_string())
 }
 
-/// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）：参数
-/// 转换段——id 存在且入参 api_key 为空 → 读存量记录回填原值（前端编辑态
-/// api_key 恒空 + 遮蔽占位，「留空 = 保持原值」语义的后端承接半边，store 恒
-/// 收全字段）；重名 reject（store 事务内查重）。
+/// 保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）
 #[tauri::command]
 #[specta::specta]
 pub fn save_agent_provider(
@@ -43,8 +40,9 @@ pub fn save_agent_provider(
     base_url: String,
     api_key: String,
     models: AgentModelTiers,
+    context_length: Option<u64>,
 ) -> Result<AgentProviderRecord, String> {
-    let mut record = AgentProviderRecord::new(name, base_url, api_key, models);
+    let mut record = AgentProviderRecord::new(name, base_url, api_key, models, context_length);
     record.id = id.unwrap_or(0);
     if record.id != 0 && record.api_key.is_empty() {
         // 留空 key 回填原值：读存量记录（miss 由 upsert 的行存在校验统一报错）
@@ -61,8 +59,7 @@ pub fn save_agent_provider(
         .map_err(|e| e.to_string())
 }
 
-/// 删除 provider：被 agent 引用 reject（含引用方提示，不级联）；miss 幂等
-/// `Ok(false)`。
+/// 删除 provider：被 agent 引用 reject（含引用方提示，不级联）
 #[tauri::command]
 #[specta::specta]
 pub fn delete_agent_provider(stores: State<'_, WorkspaceStores>, id: i64) -> Result<bool, String> {

@@ -155,6 +155,7 @@ fn fixture_provider(name: &str) -> AgentProviderRecord {
             medium: "m-medium".to_owned(),
             low: "m-low".to_owned(),
         },
+        None,
     )
 }
 

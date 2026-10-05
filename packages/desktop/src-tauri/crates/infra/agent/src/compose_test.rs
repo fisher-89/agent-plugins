@@ -13,6 +13,30 @@ use store::{
     SessionConfigSnapshot, SessionRecord, WorkspaceStores,
 };
 
+/// sdk provider fixture 的可指定窗长变体（AC-9 组合根接线用）。
+fn seed_provider_with_context_length(
+    stores: &WorkspaceStores,
+    name: &str,
+    context_length: Option<u64>,
+) -> i64 {
+    let provider = AgentProviderRecord::new(
+        name.to_owned(),
+        "http://127.0.0.1:9/v1".to_owned(),
+        "sk-compose".to_owned(),
+        AgentModelTiers {
+            high: "m-high".to_owned(),
+            medium: "m-medium".to_owned(),
+            low: "m-low".to_owned(),
+        },
+        context_length,
+    );
+    stores
+        .global()
+        .upsert_agent_provider(provider)
+        .expect("落 provider fixture")
+        .id
+}
+
 /// PATH 环境变量修改串行化（CLI 臂真实驱动用例）。
 use crate::TEST_PATH_LOCK as PATH_LOCK;
 
@@ -72,6 +96,7 @@ fn seed_provider(stores: &WorkspaceStores, name: &str) -> i64 {
             medium: "m-medium".to_owned(),
             low: "m-low".to_owned(),
         },
+        None,
     );
     stores
         .global()
@@ -616,5 +641,70 @@ fn sdk实例缺provider_id的存量形态解析err引导管理页() {
             .expect("清单应成功")
             .is_empty(),
         "解析失败零落库"
+    );
+}
+
+// ---------------------------------------------------------------------------
+// resolve Sdk 臂 context_length 透传（AC-9 组合根接线唯一触点）
+// ---------------------------------------------------------------------------
+
+#[test]
+fn resolve_sdk臂透传provider的context_length() {
+    let env = DualEnv::new("ctx-window");
+    let stores = env.stores();
+    let provider_id = seed_provider_with_context_length(&stores, "窗长供应", Some(200_000));
+    let instance_id = seed_sdk_instance(&stores, "窗长实例", Some(provider_id));
+
+    // 解析单点产物（compose_test 为 compose 子模块，可考私有解析产物）：
+    // context_window == Some(200_000)，其余装配面不变
+    let resolved = match super::resolve_agent_engine(&stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    };
+    assert_eq!(
+        resolved.context_window,
+        Some(200_000),
+        "provider context_length 原样旁路（不落缺省字面）"
+    );
+    assert!(
+        matches!(resolved.kind, crate::EngineKind::Sdk),
+        "kind 装配面不变"
+    );
+    assert_eq!(resolved.config.model, "m-high", "high 档模型装配不变");
+    assert_eq!(resolved.config.base_url, "http://127.0.0.1:9/v1");
+    assert_eq!(resolved.config.api_key, "sk-compose");
+}
+
+#[test]
+fn resolve_provider缺列时透传none不落128k字面() {
+    let env = DualEnv::new("ctx-none");
+    let stores = env.stores();
+    // seed_provider 固定 context_length = None（含 V1 升级读入的旧记录形态）
+    let provider_id = seed_provider(&stores, "缺列供应");
+    let instance_id = seed_sdk_instance(&stores, "缺列实例", Some(provider_id));
+
+    let resolved = match super::resolve_agent_engine(&stores, Some(instance_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("解析应成功: {error}"),
+    };
+    assert_eq!(
+        resolved.context_window, None,
+        "缺列透传 None（缺省启发式归 ContextDefense::resolve，组合根不落 128_000 字面）"
+    );
+}
+
+#[test]
+fn resolve_cli臂context_window恒none() {
+    let env = DualEnv::new("ctx-cli");
+    let stores = env.stores();
+    let cli_id = seed_cli_instance(&stores, "cli窗长实例");
+
+    let resolved = match super::resolve_agent_engine(&stores, Some(cli_id)) {
+        Ok(resolved) => resolved,
+        Err(error) => panic!("cli 解析应成功: {error}"),
+    };
+    assert_eq!(
+        resolved.context_window, None,
+        "cli 臂恒 None（窗长载荷为 sdk 引擎旁路，CLI 不消费）"
     );
 }

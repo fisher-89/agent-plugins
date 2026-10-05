@@ -10,11 +10,11 @@
 
 命令层 SHALL 新增全局 agent 管理命令轨道（命名与文件分组由 design 定稿，落 `commands/` 全局轨，经 `WorkspaceStores::global()` 全局库实例执行，MUST NOT 误路由 workspace 库），承载两类实例的 CRUD 与默认标记：
 
-- **provider 实例**：新增 / 更新 / 删除 / 清单。name SHALL 全局唯一（重名保存 SHALL 以 `Err` 报错）；base_url、api_key、models 三档（high / medium / low）随记录保存；api_key 编辑语义 SHALL 为留空 = 保持原值不变（前端遮蔽占位配套，见「Agent 管理页」）；
+- **provider 实例**：新增 / 更新 / 删除 / 清单。name SHALL 全局唯一（重名保存 SHALL 以 `Err` 报错）；base_url、api_key、models 三档（high / medium / low）、**可空 `context_length`**（provider 上下文窗长，token 数；sdk 引擎上下文防线消费，缺席走 128K 缺省启发式——desktop-agent-execution「SDK 引擎上下文窗防线（L2 剪裁与 L3 compaction）」）随记录保存；`context_length` 编辑语义 SHALL 为留空 = 未配置（存 `None`，MUST NOT 落 0 或把缺省启发式字面写库）；api_key 编辑语义 SHALL 为留空 = 保持原值不变（前端遮蔽占位配套，见「Agent 管理页」）；
 - **agent 实例**：新增 / 更新 / 删除 / 清单与默认标记。name 全局唯一；engine 二值（`cli` | `sdk`）；engine 为 `sdk` 时 SHALL 必选 provider 引用（缺失 SHALL 报错），engine 为 `cli` 时 provider 引用 SHALL 可空（CLI 引擎不消费 provider，避免"必须选 provider 但引擎不用"）；
 - **删除语义**：删被 agent 引用的 provider SHALL 阻止并报错（错误信息提示引用方，MUST NOT 级联删除）；删默认 agent SHALL 清空默认标记后删除（默认不顺延到其他 agent），MUST NOT 报错。
 
-错误约定沿用既有 `Result<T, String>` 模板（store `StoreError` MUST NOT 进入命令签名）；校验失败与 db 读写失败 MUST NOT 被静默吞掉。
+错误约定沿用既有 `Result<T, String>` 模板（store `StoreError` MUST NOT 进入命令签名）；校验失败与 db 读写失败 MUST NOT 被静默吞掉。`context_length` 的消费接线 MUST NOT 经 `EngineConfig`（三字段结构不动承诺维持），抵达 sdk 引擎经 compose `ResolvedEngine` → `EngineFacade::with_context_window`。
 
 #### Scenario: provider 重名报错
 
@@ -35,6 +35,12 @@
 
 - **WHEN** 删除被标记为默认的 agent
 - **THEN** 删除成功且默认标记消失（无其他 agent 被顺延标记）；此后缺省运行发起显式报错（见「默认 agent 与运行发起解析」）
+
+#### Scenario: context_length 携带与留空语义
+
+- **WHEN** 保存 provider 携带 `context_length = 200000`，随后读取清单
+- **THEN** 记录携带该值原样返回；再次保存留空提交
+- **AND** 记录的 `context_length` 为未配置（`None`），而非 0 或 128000 字面值
 
 ### Requirement: 默认 agent 与运行发起解析
 
@@ -72,7 +78,7 @@ agent 实例 SHALL 支持「默认」标记，全局至多一个；标记新默�
 
 前端 SHALL 提供全局 Agent 管理页（路由 `/agents`，侧栏「系统工具」组新增入口，`data-testid="nav-agents"`，命名 design 可调）：
 
-- **单页两栏**：Providers 清单 + Agents 清单，各自承载新建 / 编辑 / 删除交互；Agents 栏另承载默认标记切换（标记即切换，至多一个默认）；
+- **单页两栏**：Providers 清单 + Agents 清单，各自承载新建 / 编辑 / 删除交互；Agents 栏另承载默认标记切换（标记即切换，至多一个默认）；Providers 栏编辑表单 SHALL 增可空 `context_length` 数字字段（留空 = 未配置，跟随缺省启发式的语义提示在场）；
 - **api_key 遮蔽展示**：列表与详情 SHALL 呈现遮蔽形态（`sk-***abc`）；编辑态输入框 SHALL 展示遮蔽占位，留空提交 = 保持原值不变；
 - **错误呈现**：删除被引用 provider、保存重名、无默认发起等错误 SHALL 以既有 error 态呈现，MUST NOT 静默；
 - **取数模型**：清单经取数 hooks 收口、显式动作触发，MUST NOT 轮询（管理数据无文件 watch 例外）。
@@ -88,6 +94,12 @@ agent 实例 SHALL 支持「默认」标记，全局至多一个；标记新默�
 
 - **WHEN** 编辑既有 provider 且 api_key 输入框留空提交
 - **THEN** 保存成功且记录的 api_key 保持原值；列表中该 provider 的 key 呈现 `sk-***abc` 遮蔽形态而非明文
+
+#### Scenario: context_length 编辑与清空
+
+- **WHEN** 在 provider 编辑表单填 `context_length = 200000` 保存后重开编辑态
+- **THEN** 字段显示 200000；清空该字段再保存
+- **AND** 记录回到未配置态，表单呈现「跟随缺省」语义而非 0
 
 #### Scenario: 删除阻止错误呈现
 
@@ -141,10 +153,11 @@ api_key SHALL 按「后端全链路明文 + 前端展示遮蔽」的机密边界
 
 | 模块 | 职责 | 关键契约 |
 |------|------|----------|
-| `crates/infra/store`（模型 + 操作面） | 管理记录持久化 | `AgentProviderRecord` / `AgentInstanceRecord` 落全局库；稳定 id 主键 + name 唯一二级索引；默认标记至多一（切换原子清旧）；引用删除阻止、删默认清标记；手写遮蔽 Debug（provider）；信封 API 零改动覆盖 |
-| `commands/agents/`（新轨道） | 管理命令面 | provider / agent CRUD + 默认标记薄包装；全局库实例路由（`global()`）；`Result<T, String>` 模板；重名 / sdk 缺 provider / 引用删除均 `Err` |
+| `crates/infra/store`（模型 + 操作面） | 管理记录持久化 | `AgentProviderRecord` / `AgentInstanceRecord` 落全局库；稳定 id 主键 + name 唯一二级索引；默认标记至多一（切换原子清旧）；引用删除阻止、删默认清标记；手写遮蔽 Debug（provider）；信封 API 零改动覆盖；`AgentProviderRecord.context_length` 可空列（serde 缺省读兼容旧记录，envelope v2 + V1 `From` 双向，不做 legacy 迁移层；`None` = 未配置语义贯穿存储层） |
+| `commands/agents/`（新轨道） | 管理命令面 | provider / agent CRUD + 默认标记薄包装；全局库实例路由（`global()`）；`Result<T, String>` 模板；重名 / sdk 缺 provider / 引用删除均 `Err`；保存 / 清单 DTO 携带 `context_length`（留空 = `None`，MUST NOT 落 0 或缺省字面值） |
 | `commands/exec`（消费接线） | 运行发起命令面 | 引擎与连接配置解析已下沉内核组合根（desktop-agent-execution），命令层无引擎/agent 解析残留；`DEFAULT_ENGINE` 与 `from_hardcoded_slot()` 退役 |
 | 内核组合根（落点见 desktop-agent-execution） | 运行发起解析单点（自 `commands/exec` 下沉） | 缺省解析默认 agent / 显式 agent → (`EngineKind`, `EngineConfig`)；model 取 high 档；无默认 `Err` 引导管理页；`runner_for` / `EngineConfig` 零 diff |
-| `packages/desktop/src/views/agents/`（新） | 管理页 | `/agents` 两栏 CRUD + 默认标记 + api_key 遮蔽展示（留空保持原值）；hooks 取数收口、无轮询 |
+| `packages/desktop/src/views/agents/`（新） | 管理页 | `/agents` 两栏 CRUD + 默认标记 + api_key 遮蔽展示（留空保持原值）；provider 表单 `context_length` 数字字段（留空 = 未配置 + 「跟随缺省 128K」提示，非正整数拒绝提交）；hooks 取数收口、无轮询 |
+| `EngineConfig`（core 组合根） | `context_length` 接线零侵入 | 三字段结构与 `runner_for` 签名不动；`context_length` 经 compose `ResolvedEngine` → `EngineFacade::with_context_window` 抵达 sdk 引擎（MUST NOT 经 `EngineConfig`） |
 | `packages/desktop/src/views/agent/components/agent-run-form.tsx` | 调试页发起面 | engine 下拉 → agent 选择器（默认选中默认 agent） |
 | `packages/desktop/src-tauri/src/bindings/` | IPC 类型镜像 | 经 export-bindings 再生成（管理 DTO 与 agent 参数变化），非手改 |

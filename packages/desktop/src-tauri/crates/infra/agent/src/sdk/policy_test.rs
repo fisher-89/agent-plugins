@@ -1,6 +1,7 @@
-//! `policy` 的单元测试（AC-5）：权限三档纯决策表逐格断言（档位 × 工具名 →
-//! 允许/拒绝）+ 拒绝流出形态（`SystemNotice{permission_denied}` + is_error
-//! ToolResult）合成形状。纯决策表无进程边界依赖，不需要 Mock。
+//! `policy` 的单元测试（AC-4 / AC-10）：权限三档纯决策表逐格断言（档位 ×
+//! 工具名 → 允许/拒绝；bash 行为三档首次真实分化）+ 拒绝流出形态
+//! （`SystemNotice{permission_denied}` + is_error ToolResult）合成形状。
+//! 纯决策表无进程边界依赖，不需要 Mock。
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode};
 
@@ -11,6 +12,8 @@ use crate::sdk::tools::TOOL_NAMES;
 const READONLY: [&str; 4] = ["read", "grep", "glob", "ls"];
 /// 写面两工具（acceptEdits 档追加放行）。
 const WRITE: [&str; 2] = ["write", "edit"];
+/// 执行面 bash（acceptEdits / bypassPermissions 档追加放行、default 档拒绝）。
+const EXECUTE: [&str; 1] = ["bash"];
 
 // ---------------------------------------------------------------------------
 // 三档决策表（正向逐格）
@@ -49,9 +52,13 @@ fn accept_edits档只读加写面全允许() {
 }
 
 #[test]
-fn bypass_permissions档六工具全放行且为六工具清单逐一命中() {
-    // 与六工具定义面同源口径：清单内逐一放行
-    assert_eq!(READONLY.len() + WRITE.len(), TOOL_NAMES.len());
+fn bypass_permissions档七工具全放行且与工具面清单逐一命中() {
+    // 与七工具定义面同源口径：只读 + 写面 + 执行面 == 工具清单（清单长度等价断言）
+    assert_eq!(
+        READONLY.len() + WRITE.len() + EXECUTE.len(),
+        TOOL_NAMES.len(),
+        "决策表三清单与工具面清单同源（bash 入册后的封闭口径）"
+    );
     for tool in TOOL_NAMES {
         assert!(
             allows(AgentPermissionMode::BypassPermissions, tool),
@@ -66,20 +73,31 @@ fn bypass_permissions档六工具全放行且为六工具清单逐一命中() {
 }
 
 // ---------------------------------------------------------------------------
-// 缺席与清单外（边界）
+// bash 行为三档首次真实分化（AC-4 矩阵逐格）
 // ---------------------------------------------------------------------------
 
 #[test]
-fn bash工具名三档均拒绝_缺席断言锁定() {
-    // bash 不进 MVP 工具面：三档均拒绝（将来引入 bash 时的预留档位语义）
-    for mode in [
-        AgentPermissionMode::Default,
-        AgentPermissionMode::AcceptEdits,
-        AgentPermissionMode::BypassPermissions,
-    ] {
-        assert!(!allows(mode, "bash"), "{mode:?} 档对缺席工具 bash 必须拒绝");
-    }
+fn allows_bash三档矩阵逐格_default拒accept与bypass放() {
+    // Default 拒（只读档不给执行权）
+    assert!(
+        !allows(AgentPermissionMode::Default, "bash"),
+        "default 档必须拒绝执行面 bash"
+    );
+    // AcceptEdits 放
+    assert!(
+        allows(AgentPermissionMode::AcceptEdits, "bash"),
+        "acceptEdits 档必须放行 bash（写档含执行面）"
+    );
+    // BypassPermissions 放
+    assert!(
+        allows(AgentPermissionMode::BypassPermissions, "bash"),
+        "bypassPermissions 档必须放行 bash（调试页默认档，无沙箱知情边界见 policy 模块文档）"
+    );
 }
+
+// ---------------------------------------------------------------------------
+// 缺席与清单外（边界）
+// ---------------------------------------------------------------------------
 
 #[test]
 fn 清单外工具名与大小写变体与空串一律拒绝() {

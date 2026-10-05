@@ -37,15 +37,21 @@ pub type ResumeTranscript =
     std::sync::Arc<dyn Fn(&str) -> Result<Option<Vec<agent::AgentEvent>>, String> + Send + Sync>;
 
 /// 引擎门面：`runner_for` 为引擎构造唯一 match 点（编排层零引擎分支）。
-/// `resume` 装载缝随门面持有，按引擎分发（CLI 臂不消费）。
+/// `resume` 装载缝与 sdk 引擎窗长载荷随门面持有，按引擎分发（CLI 臂不消费）。
 pub struct EngineFacade {
     resume: Option<ResumeTranscript>,
+    /// sdk 引擎上下文窗长（组合根旁路载荷，不经 `EngineConfig` 三字段；
+    /// `None` = 128K 缺省启发式）
+    context_window: Option<u64>,
 }
 
 impl EngineFacade {
     /// 无续会话注入的门面（CLI 路径零成本）。
     pub fn new() -> Self {
-        Self { resume: None }
+        Self {
+            resume: None,
+            context_window: None,
+        }
     }
 
     /// 携 store 转录装载缝的门面：sdk 引擎续会话经此解析，CLI 引擎持有
@@ -53,6 +59,17 @@ impl EngineFacade {
     pub fn with_resume_transcript(loader: ResumeTranscript) -> Self {
         Self {
             resume: Some(loader),
+            context_window: None,
+        }
+    }
+
+    /// 携 sdk 引擎上下文窗长的门面（builder 缝，与 `with_resume_transcript`
+    /// 同型）：provider 记录 `context_length` 列经组合根旁路抵达 sdk 引擎
+    /// （`EngineConfig` 三字段与 `runner_for` 签名不动）。
+    pub fn with_context_window(self, context_window: Option<u64>) -> Self {
+        Self {
+            resume: self.resume,
+            context_window,
         }
     }
 
@@ -61,9 +78,11 @@ impl EngineFacade {
     pub fn runner_for(&self, kind: EngineKind, engine_cfg: EngineConfig) -> Box<dyn AgentRunner> {
         match kind {
             EngineKind::Cli => Box::new(ClaudeCliRunner::new()),
-            EngineKind::Sdk => {
-                Box::new(sdk::runner::SdkRunner::new(engine_cfg, self.resume.clone()))
-            }
+            EngineKind::Sdk => Box::new(sdk::runner::SdkRunner::new(
+                engine_cfg,
+                self.resume.clone(),
+                self.context_window,
+            )),
         }
     }
 }

@@ -6,8 +6,6 @@ import type { AgentProviderRecord } from '../../../types/generated/bindings';
 import type { AgentProvidersState } from '../hooks/use-agent-providers';
 import { MaskedApiKey } from './masked-api-key';
 
-/** 表单态（编辑态 api_key 恒空——「留空 = 保持原值」语义的前端半边，后端
- * save_agent_provider 参数转换段回填原值） */
 interface ProviderFormState {
   id: number | null;
   name: string;
@@ -16,6 +14,7 @@ interface ProviderFormState {
   high: string;
   medium: string;
   low: string;
+  contextLength: string;
 }
 
 const EMPTY_FORM: ProviderFormState = {
@@ -26,6 +25,7 @@ const EMPTY_FORM: ProviderFormState = {
   high: '',
   medium: '',
   low: '',
+  contextLength: '',
 };
 
 /** 表单字段配置（映射驱动渲染；row 圈定换行分组） */
@@ -48,9 +48,28 @@ const PROVIDER_FIELDS: {
   { row: 2, id: 'provider-model-high', label: 'model high', key: 'high' },
   { row: 2, id: 'provider-model-medium', label: 'model medium', key: 'medium' },
   { row: 2, id: 'provider-model-low', label: 'model low', key: 'low' },
+  {
+    row: 2,
+    id: 'provider-context-length',
+    label: 'context_length',
+    key: 'contextLength',
+    placeholder: '留空 = 跟随缺省 128K',
+  },
 ];
 
-/** 编辑记录 → 表单初值（null = 新建；api_key 恒空，留空提交由后端回填原值） */
+/** context_length 保存边界 parse（单点）：空串 = 未配置（null）；正整数 =
+ * 窗长 token 数；其余形态（非数字 / 零 / 负数 / 小数）undefined = 非法，
+ * canSave 拒绝提交 */
+function parseContextLength(value: string): number | null | undefined {
+  const trimmed = value.trim();
+  if (trimmed === '') return null;
+  const parsed = Number(trimmed);
+  if (!Number.isInteger(parsed) || parsed <= 0) return undefined;
+  return parsed;
+}
+
+/** 编辑记录 → 表单初值（null = 新建；api_key 恒空，留空提交由后端回填原值；
+ * contextLength 缺列 → 空串未配置语义） */
 function toFormState(editing: AgentProviderRecord | null): ProviderFormState {
   return editing === null
     ? EMPTY_FORM
@@ -62,6 +81,7 @@ function toFormState(editing: AgentProviderRecord | null): ProviderFormState {
         high: editing.models.high,
         medium: editing.models.medium,
         low: editing.models.low,
+        contextLength: editing.contextLength == null ? '' : String(editing.contextLength),
       };
 }
 
@@ -180,6 +200,8 @@ function ProviderForm({
   const [form, setForm] = useState<ProviderFormState>(() => toFormState(editing));
   const [busy, setBusy] = useState(false);
   const submit = async (): Promise<void> => {
+    const contextLength = parseContextLength(form.contextLength);
+    if (contextLength === undefined) return; // 非法形态不提交（canSave 已拦，兜底）
     setBusy(true);
     const saved = await state.save({
       id: form.id,
@@ -187,6 +209,7 @@ function ProviderForm({
       baseUrl: form.baseUrl,
       apiKey: form.apiKey,
       models: { high: form.high, medium: form.medium, low: form.low },
+      contextLength,
     });
     setBusy(false);
     if (saved !== null) onDone();
@@ -194,7 +217,8 @@ function ProviderForm({
   const canSave =
     form.name.trim() !== '' &&
     form.baseUrl.trim() !== '' &&
-    (form.id !== null || form.apiKey.trim() !== '');
+    (form.id !== null || form.apiKey.trim() !== '') &&
+    parseContextLength(form.contextLength) !== undefined;
   const onField = (field: keyof ProviderFormState, value: string) =>
     setForm((f) => ({ ...f, [field]: value }));
   return (

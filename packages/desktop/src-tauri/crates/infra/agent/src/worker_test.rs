@@ -210,6 +210,7 @@ fn seed_sdk_default_with_blank_provider(stores: &WorkspaceStores) {
                 medium: String::new(),
                 low: String::new(),
             },
+            None,
         ))
         .expect("落空配置 provider fixture")
         .id;

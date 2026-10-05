@@ -13,13 +13,15 @@ const ACTION_ERROR_PREFIX = {
   remove: '删除 provider 失败：',
 } as const;
 
-/** save 动作入参（id null 新建 / number 更新；apiKey 留空 = 保持原值，由后端回填） */
+/** save 动作入参（id null 新建 / number 更新；apiKey 留空 = 保持原值，由后端回填；
+ * contextLength 留空 = 未配置存 null，MUST NOT 落 0 / 128000 缺省字面） */
 interface AgentProviderSaveInput {
   id: number | null;
   name: string;
   baseUrl: string;
   apiKey: string;
   models: AgentModelTiers;
+  contextLength: number | null;
 }
 
 export interface AgentProvidersState {
@@ -86,6 +88,7 @@ function useAgentProvidersActions(refresh: () => void) {
           input.baseUrl,
           input.apiKey,
           input.models,
+          input.contextLength,
         );
         refresh();
         return record;

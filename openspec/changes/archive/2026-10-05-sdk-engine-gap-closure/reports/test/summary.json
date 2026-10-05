@@ -1,0 +1,89 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-04T17:47:53.894Z",
+  "duration_seconds": 335,
+  "total": 997,
+  "passed": 997,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "findings": [
+    "All 997 tests passed across both in-scope plans (vite-plus 917, rust 80) with zero failures, skips, and no execution errors; mutation 80.79% cleared the 80% threshold, so no fixes were required.",
+    "Summary coverage aggregation is inconsistent with the plan reports: summary.json coverage.measured is null for all three dimensions with overrides passed_count 0/67 and pass defaulted to true, while vite-plus parsed 94.82/90.21/93.67 (all above 90/85/90) and rust parsed 96.25 lines / 0 branches / 89.12 functions with plan-level coverage.pass=false (packages_desktop_src-tauri_rust/report.json) that was NOT propagated into the summary conclusion -- verify the summary-level coverage parser/override file matching for glob 'packages/desktop', and confirm whether llvm-cov's absent branch metric (emitted as 0 rather than null) should be a null dimension and whether the rust functions shortfall (89.12 vs threshold 90) should gate this phase.",
+    "Mutation passes with only a 0.79-point margin (80.79 vs 80): all 29 survived mutants cluster in exactly two files that this change itself modified -- src/views/agents/components/provider-panel.tsx (18) and src/views/agents/hooks/use-agent-providers.ts (11) -- indicating weak assertions in the new provider-panel/use-agent-providers code rather than scattered noise; targeted assertions there are the cheapest lever to lift the score back above threshold safely."
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": {
+      "lines": null,
+      "branches": null,
+      "functions": null
+    },
+    "thresholds": {
+      "lines": 90,
+      "branches": 85,
+      "functions": 90
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "thresholds": {
+          "lines": 90,
+          "branches": 85,
+          "functions": 90
+        },
+        "measured": {
+          "lines": null,
+          "branches": null,
+          "functions": null
+        },
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 0
+      }
+    ]
+  },
+  "mutation": {
+    "pass": true,
+    "score": 80.79,
+    "threshold": 80,
+    "measured": {
+      "killed": 122,
+      "survived": 29,
+      "timeout": 0,
+      "noCoverage": 0,
+      "compileError": 0,
+      "runtimeError": 0,
+      "ignored": 40,
+      "total": 191,
+      "detected": 122,
+      "undetected": 29
+    },
+    "overrides": [
+      {
+        "glob": "packages/desktop",
+        "score": 80.79470198675497,
+        "threshold": 80,
+        "pass": true,
+        "file_count": 67,
+        "passed_count": 67
+      }
+    ]
+  },
+  "plans": [
+    {
+      "id": "packages_desktop_vite-plus",
+      "framework": "vite-plus",
+      "root": "packages/desktop",
+      "path": "openspec/changes/sdk-engine-gap-closure/reports/test/packages_desktop_vite-plus"
+    },
+    {
+      "id": "packages_desktop_src-tauri_rust",
+      "framework": "rust",
+      "root": "packages/desktop/src-tauri",
+      "path": "openspec/changes/sdk-engine-gap-closure/reports/test/packages_desktop_src-tauri_rust"
+    }
+  ]
+}

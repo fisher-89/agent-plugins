@@ -372,19 +372,57 @@ pub(crate) fn mask_api_key(api_key: &str) -> String {
     }
 }
 
-/// agent provider 记录（agent 管理域，user 维度落全局库，见
-/// desktop-data-dimensions）：openai 兼容端点连接档案（base_url / api_key /
-/// 三档 model），被 [`AgentInstanceRecord`] 按 `provider_id` N:1 引用（删除
-/// 阻止），亦是后续 workspace→agent 关联链的引用锚点之一（稳定 id 主键）。
-///
-/// // 机密面有意放宽:api_key 全链路明文（IPC body / 全局库文件 / 进程内存），
-/// 边界表见 specs/desktop-agent-management ——读写单 DTO 即记录本体（无遮蔽
-/// 信封臂），遮蔽只在前端展示层；结构保证明文不进日志：**不 derive
-/// `Debug`**，手写遮蔽 impl（api_key 位 [`mask_api_key`] 形态），测试比较走
-/// [`PartialEq`]。
-#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+/// `AgentProviderRecord` 的 version 1 历史形态（仅作 native_model 升级链的
+/// 解码目标，不注册进库模型组）：无 `context_length` 列。存量 v1 行经版本
+/// 机制自动升级为 v2（`context_length = None` 未配置语义，零迁移代码路径）。
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[native_model(id = 5, version = 1)]
+pub(crate) struct AgentProviderRecordV1 {
+    /// 记录 id（主键）
+    pub id: i64,
+    /// 展示名
+    pub name: String,
+    /// openai 兼容端点 base_url
+    pub base_url: String,
+    /// 认证凭据（明文）
+    pub api_key: String,
+    /// 三档模型标识
+    pub models: AgentModelTiers,
+}
+
+impl From<AgentProviderRecordV1> for AgentProviderRecord {
+    fn from(previous: AgentProviderRecordV1) -> Self {
+        Self {
+            id: previous.id,
+            name: previous.name,
+            base_url: previous.base_url,
+            api_key: previous.api_key,
+            models: previous.models,
+            // 缺列读兼容：旧记录无窗长配置，未配置语义入列
+            context_length: None,
+        }
+    }
+}
+
+/// 降级半边（native_model `from` 属性要求双向 `From`；运行时无降级读取路径，
+/// `context_length` 以缺省占位——只保升级语义真实性，降级形态不作数据承诺）。
+impl From<AgentProviderRecord> for AgentProviderRecordV1 {
+    fn from(record: AgentProviderRecord) -> Self {
+        Self {
+            id: record.id,
+            name: record.name,
+            base_url: record.base_url,
+            api_key: record.api_key,
+            models: record.models,
+        }
+    }
+}
+
+/// agent provider 记录
+#[derive(Clone, PartialEq, Eq, Serialize, Deserialize, Type)]
+#[serde(rename_all = "camelCase")]
+#[native_model(id = 5, version = 2, from = AgentProviderRecordV1)]
 #[native_db]
 pub struct AgentProviderRecord {
     /// 记录 id（主键，写事务内 max+1 分配）
@@ -400,18 +438,30 @@ pub struct AgentProviderRecord {
     pub api_key: String,
     /// 三档模型标识（运行发起解析消费固定取 high 档）
     pub models: AgentModelTiers,
+    /// provider 上下文窗长（token 数；sdk 引擎上下文防线消费）：可空列，
+    /// `None` = 未配置（缺省走 128K 启发式；编辑语义留空 = 未配置，MUST NOT
+    /// 落 0 或缺省字面）
+    #[serde(default)]
+    pub context_length: Option<u64>,
 }
 
 impl AgentProviderRecord {
     /// 由连接档案构造新记录：`id` 置 0（写事务内 max+1 分配覆盖）；api_key
-    /// 传空即空（新建语义无原值可保）。
-    pub fn new(name: String, base_url: String, api_key: String, models: AgentModelTiers) -> Self {
+    /// 传空即空（新建语义无原值可保）；`context_length` 传 `None` 即未配置。
+    pub fn new(
+        name: String,
+        base_url: String,
+        api_key: String,
+        models: AgentModelTiers,
+        context_length: Option<u64>,
+    ) -> Self {
         Self {
             id: 0,
             name,
             base_url,
             api_key,
             models,
+            context_length,
         }
     }
 }
@@ -426,6 +476,7 @@ impl std::fmt::Debug for AgentProviderRecord {
             .field("base_url", &self.base_url)
             .field("api_key", &mask_api_key(&self.api_key))
             .field("models", &self.models)
+            .field("context_length", &self.context_length)
             .finish()
     }
 }

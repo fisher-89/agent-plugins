@@ -4,8 +4,8 @@ use agent::{
 
 use crate::model::{
     pack_session_event_key, AgentEngineKind, AgentInstanceRecord, AgentModelTiers,
-    AgentProviderRecord, AgentRunRecord, AgentRunRecordV3, SessionConfigSnapshot,
-    SessionEventRecord, SessionRecord,
+    AgentProviderRecord, AgentProviderRecordV1, AgentRunRecord, AgentRunRecordV3,
+    SessionConfigSnapshot, SessionEventRecord, SessionRecord,
 };
 
 // ---------------------------------------------------------------------------
@@ -484,29 +484,45 @@ fn tiers(high: &str, medium: &str, low: &str) -> AgentModelTiers {
 }
 
 #[test]
-fn provider构造new三字段载荷与三档models逐字段保真且id置0比较走partial_eq与字段面() {
+fn provider构造new五参载荷与三档models与context_length逐字段保真且id置0() {
+    // 显式窗长：五参构造逐字段保真
+    let windowed = AgentProviderRecord::new(
+        "自建端点".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+        Some(200_000),
+    );
+    assert_eq!(windowed.id, 0, "new 构造 id 恒置 0");
+    assert_eq!(windowed.name, "自建端点");
+    assert_eq!(windowed.base_url, "https://api.example.com/v1");
+    assert_eq!(windowed.api_key, "sk-live-1234567890");
+    assert_eq!(
+        windowed.models,
+        tiers("m-high", "m-medium", "m-low"),
+        "三档 models 逐字段保真（PartialEq）"
+    );
+    assert_eq!(
+        windowed.context_length,
+        Some(200_000),
+        "context_length 逐字段保真（None = 未配置语义入存储层）"
+    );
+
+    // 未配置：None 语义入列（不落 0 / 128000 字面）
     let record = AgentProviderRecord::new(
         "自建端点".to_owned(),
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
     );
-
-    // 新建语义构造：id 置 0（写事务 max+1 分配覆盖）
     assert_eq!(record.id, 0, "new 构造 id 恒置 0");
-    // 逐字段保真（字段面比较，EngineConfig 同口径不走 Debug）
-    assert_eq!(record.name, "自建端点");
-    assert_eq!(record.base_url, "https://api.example.com/v1");
-    assert_eq!(record.api_key, "sk-live-1234567890");
-    assert_eq!(
-        record.models,
-        tiers("m-high", "m-medium", "m-low"),
-        "三档 models 逐字段保真（PartialEq）"
-    );
+    assert_eq!(record.context_length, None, "未配置 None 原样承载");
 
     // Clone / PartialEq 保真
     let cloned = record.clone();
     assert_eq!(cloned, record, "Clone 后逐字段相等");
+    assert_ne!(cloned, windowed, "context_length 双态记录可区分");
 }
 
 #[test]
@@ -516,6 +532,7 @@ fn provider手写遮蔽debug输出api_key位为末三字符遮蔽形态_全文�
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
     );
 
     let debug_text = format!("{record:?}");
@@ -544,6 +561,7 @@ fn provider遮蔽debug在api_key空串或长度不足3字符时恒sk三星号全
             "https://api.example.com/v1".to_owned(),
             api_key.to_owned(),
             tiers("h", "m", "l"),
+            None,
         );
 
         let debug_text = format!("{record:?}");
@@ -568,6 +586,7 @@ fn provider构造特殊字符字段clone与partial_eq保真且models三档全空
         "https://例子.测试/v1 🚀".to_owned(),
         "带 空格 的 \"key\" 🎉\n".to_owned(),
         tiers("", "", ""),
+        None,
     );
 
     // 模型层不做字段校验：三档全空串构造合法（校验单点在 store）
@@ -584,25 +603,196 @@ fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
     let bytes = native_model::encode(record).expect("native_model encode 应成功");
     let (decoded, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
-    assert_eq!(version, 1, "native_model 版本封装为 version 1");
+    assert_eq!(version, 2, "native_model 版本封装为 version 2（context_length 演进落位）");
     decoded
 }
 
 #[test]
-fn provider记录嵌装往返含三档models逐字段相等() {
+fn provider嵌装往返v2含context_length双态逐字段相等() {
+    for context_length in [Some(200_000u64), None] {
+        let record = AgentProviderRecord::new(
+            "往返回归".to_owned(),
+            "https://api.example.com/v1".to_owned(),
+            "sk-live-1234567890".to_owned(),
+            tiers("m-high", "m-medium", "m-low"),
+            context_length,
+        );
+
+        let decoded = provider_roundtrip(&record);
+
+        assert_eq!(
+            decoded, record,
+            "provider 记录（含三档 models + context_length {context_length:?}）往返逐字段相等"
+        );
+        assert_eq!(
+            decoded.context_length, context_length,
+            "context_length 双态经编解码不漂移"
+        );
+    }
+}
+
+#[test]
+fn provider记录编解码版本断言2() {
+    // envelope 版本演进落位：v2 编码载荷按 v2 解出（版本头 = 2）
     let record = AgentProviderRecord::new(
-        "往返回归".to_owned(),
+        "版本头".to_owned(),
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        Some(200_000),
     );
+    let bytes = native_model::encode(&record).expect("native_model encode 应成功");
+    let (_decoded, version) =
+        native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
+    assert_eq!(version, 2, "native_model 版本封装为 version 2");
+}
 
-    let decoded = provider_roundtrip(&record);
+#[test]
+fn 存量v1行经版本机制升级读入且context_length置none() {
+    // v1 历史形态（无 context_length 列，仅升级链解码目标）
+    let legacy = AgentProviderRecordV1 {
+        id: 9,
+        name: "存量供应".to_owned(),
+        base_url: "https://legacy.example.com/v1".to_owned(),
+        api_key: "sk-legacy-1234567890".to_owned(),
+        models: tiers("v1-high", "v1-medium", "v1-low"),
+    };
+    let legacy_bytes = native_model::encode(&legacy).expect("encode v1 应成功");
+    // v1 载荷以 v1 模型解出（版本机制识别 id=5 + version=1）
+    let (legacy_decoded, legacy_version) =
+        native_model::decode::<AgentProviderRecordV1>(legacy_bytes.clone())
+            .expect("v1 载荷可按 v1 模型解码");
+    assert_eq!(legacy_version, 1, "存量形态封装为 version 1");
+    assert_eq!(legacy_decoded, legacy, "v1 载荷按 v1 解码逐字段相等");
 
+    // 同一载荷经版本机制自动升级为 v2：context_length = None（旧记录缺列读
+    // 兼容，v3→v4 先例同型），五字段原值保留
+    let (upgraded, version) =
+        native_model::decode::<AgentProviderRecord>(legacy_bytes).expect("v1 载荷应升级为 v2");
     assert_eq!(
-        decoded, record,
-        "provider 记录（含三档 models）往返逐字段相等"
+        version, 1,
+        "decode 返回载荷头版本（升级链源版本）；升级由值面承载（下方逐字段）"
     );
+    assert_eq!(upgraded.id, 9, "id 保留");
+    assert_eq!(upgraded.name, "存量供应");
+    assert_eq!(upgraded.base_url, "https://legacy.example.com/v1");
+    assert_eq!(upgraded.api_key, "sk-legacy-1234567890");
+    assert_eq!(upgraded.models, tiers("v1-high", "v1-medium", "v1-low"));
+    assert_eq!(
+        upgraded.context_length, None,
+        "升级读入 context_length = None（未配置语义）"
+    );
+}
+
+#[test]
+fn v1_from双向upgrade补none与downgrade丢新字段无损() {
+    // upgrade：V1 → 记录，补 context_length = None
+    let legacy = AgentProviderRecordV1 {
+        id: 3,
+        name: "双向供应".to_owned(),
+        base_url: "https://api.example.com/v1".to_owned(),
+        api_key: "sk-live-1234567890".to_owned(),
+        models: tiers("h", "m", "l"),
+    };
+    let upgraded = AgentProviderRecord::from(legacy.clone());
+    assert_eq!(
+        upgraded.context_length, None,
+        "升级补 context_length = None（缺列读兼容）"
+    );
+    assert_eq!(upgraded.id, legacy.id);
+    assert_eq!(upgraded.name, legacy.name);
+    assert_eq!(upgraded.base_url, legacy.base_url);
+    assert_eq!(upgraded.api_key, legacy.api_key);
+    assert_eq!(upgraded.models, legacy.models);
+
+    // downgrade：记录 → V1，丢新字段无损（五字段原形还原；id / name 对齐后比较）
+    let mut record = AgentProviderRecord::new(
+        "双向供应".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("h", "m", "l"),
+        Some(200_000),
+    );
+    record.id = legacy.id;
+    let downgraded = AgentProviderRecordV1::from(record);
+    assert_eq!(downgraded, legacy, "降级还原五字段原形（新字段丢弃无损）");
+}
+
+#[test]
+fn provider遮蔽debug补context_length位且api_key位仍遮蔽() {
+    let record = AgentProviderRecord::new(
+        "窗长遮蔽".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+        Some(200_000),
+    );
+
+    let debug_text = format!("{record:?}");
+
+    // 字段清单对齐：context_length 字段位在 Debug 输出（含值）
+    assert!(
+        debug_text.contains("context_length: Some(200000)"),
+        "Debug 输出含 context_length 字段位，实际: {debug_text}"
+    );
+    // api_key 位仍为遮蔽形态（明文不进 Debug，新字段不破坏既有遮蔽）
+    assert!(debug_text.contains("sk-***890"));
+    assert!(!debug_text.contains("sk-live-1234567890"));
+
+    // None 形态同在位
+    let none_record = AgentProviderRecord::new(
+        "缺列遮蔽".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+        None,
+    );
+    assert!(
+        format!("{none_record:?}").contains("context_length: None"),
+        "None 形态 context_length 位在 Debug 输出"
+    );
+}
+
+#[test]
+fn provider_serde线格式含context_length键且null与缺席均解为none() {
+    let record = AgentProviderRecord::new(
+        "线窗长".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+        Some(200_000),
+    );
+    let value = serde_json::to_value(&record).expect("serde 序列化应成功");
+    assert_eq!(
+        value["contextLength"],
+        serde_json::json!(200_000),
+        "serde camelCase 线格式含 contextLength 键"
+    );
+
+    // null 形态：解为 None
+    let none_record = AgentProviderRecord::new(
+        "线缺列".to_owned(),
+        "https://api.example.com/v1".to_owned(),
+        "sk-live-1234567890".to_owned(),
+        tiers("m-high", "m-medium", "m-low"),
+        None,
+    );
+    let none_value = serde_json::to_value(&none_record).expect("序列化应成功");
+    assert_eq!(none_value["contextLength"], serde_json::Value::Null);
+    let none_back: AgentProviderRecord =
+        serde_json::from_value(none_value.clone()).expect("反序列化成功");
+    assert_eq!(none_back.context_length, None, "null 解为 None");
+
+    // 缺席形态：serde default 承接（缺列读兼容的 serde 半边）
+    let mut absent = none_value.clone();
+    absent.as_object_mut().expect("object 形态").remove("contextLength");
+    let absent_back: AgentProviderRecord =
+        serde_json::from_value(absent).expect("缺席键反序列化成功");
+    assert_eq!(
+        absent_back.context_length, None,
+        "缺席键经 serde default 解为 None（旧线格式读兼容）"
+    );
+    assert_eq!(absent_back, none_record, "缺席与 null 两形态等价 None");
 }
 
 #[test]
@@ -652,6 +842,7 @@ fn 管理记录serde线格式键名为小驼峰且engine出线cli与sdk串值() 
         "https://api.example.com/v1".to_owned(),
         "sk-live-1234567890".to_owned(),
         tiers("m-high", "m-medium", "m-low"),
+        None,
     );
     let provider_value = serde_json::to_value(&provider).expect("serde 序列化应成功");
     assert_eq!(provider_value["name"], serde_json::json!("线格式"));

@@ -1,6 +1,6 @@
 use agent::{AgentDelta, AgentEventKind};
-use rig_core::message::{Reasoning, Text};
-use rig_core::streaming::StreamedAssistantContent;
+use rig::message::{Reasoning, Text};
+use rig::streaming::StreamedAssistantContent;
 
 /// Thinking 块提取：reasoning 全块按可显示文本（text / summary 类块按行
 /// 拼接）拍平；加密 / 涂改块无明文，落空串占位（块不丢、正文不可还原）。
