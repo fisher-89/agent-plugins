@@ -73,6 +73,41 @@ function keyedTextDelta(seq: number, parentToolUseId: string, text: string): Age
   };
 }
 
+/** thinking 增量（推理流半边；跨轮再流式回归的 fixture）。 */
+function thinkingDelta(seq: number, thinking: string): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'messageDelta',
+    parentToolUseId: null,
+    delta: { kind: 'thinking', thinking },
+  };
+}
+
+/** 密封 assistant 消息（携工具调用）：sdk loop 轮末收口事件形态。 */
+function toolUseEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'message',
+    role: 'assistant',
+    blocks: [{ kind: 'toolUse', id: 'tu_1', name: 'Bash', input: { command: 'ls' } }],
+    parentToolUseId: null,
+  };
+}
+
+/** 密封 tool 结果消息（工具执行回灌的事件形态）。 */
+function toolResultEvent(seq: number): AgentEvent {
+  return {
+    seq,
+    timestampMs: 1727000000000,
+    kind: 'message',
+    role: 'tool',
+    blocks: [{ kind: 'toolResult', id: 'tu_1', content: '目录内容', isError: false }],
+    parentToolUseId: null,
+  };
+}
+
 function recordRow(turnId: number, status: TurnSummary['status']): TurnSummary {
   return {
     turnId,
@@ -568,6 +603,120 @@ describe('TauriAgentTransport：流内簿记语义', () => {
       // 各键后续 delta 直发累积，part id 恒定归位各自通道
       { type: 'text-delta', id: 't-delta-', delta: '主通道续片' },
       { type: 'text-delta', id: 't-delta-tu_1', delta: '子代理乙' },
+      {
+        type: 'start',
+        messageId: 'turn-13',
+        messageMetadata: { seq: null, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'data-run-record', data: row },
+      { type: 'finish' },
+    ]);
+  });
+
+  it('跨轮再流式回归：密封事件让位（reset-step 清活跃 part）后，下一批 delta 重新开件——reasoning-delta 前必有 reasoning-start', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    // 轮一：thinking 增量流式 → 密封 assistant（携工具调用）→ 工具结果密封
+    lastChannel().onmessage?.({ ipc: 'event', event: thinkingDelta(0, '先想一步') });
+    lastChannel().onmessage?.({ ipc: 'event', event: toolUseEvent(1) });
+    lastChannel().onmessage?.({ ipc: 'event', event: toolResultEvent(2) });
+    // 轮二：模型再次流式，thinking delta 再至（裸 delta 会在 reducer 抛
+    // missing reasoning part "r-delta-"，即 agent debug 运行发起失败报错）
+    lastChannel().onmessage?.({ ipc: 'event', event: thinkingDelta(3, '再想一步') });
+    const row = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      // 轮一 thinking 首片：完整开件组
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 0, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'reasoning-start', id: 'r-delta-' },
+      { type: 'reasoning-delta', id: 'r-delta-', delta: '先想一步' },
+      // 密封 assistant（工具调用）让位替换
+      {
+        type: 'start',
+        messageId: 'evt-1',
+        messageMetadata: { seq: 1, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      {
+        type: 'tool-input-available',
+        toolCallId: 'tu_1',
+        toolName: 'Bash',
+        input: { command: 'ls' },
+      },
+      // 密封 tool 结果让位（无主 toolResult 就地合成占位部件）
+      {
+        type: 'start',
+        messageId: 'evt-2',
+        messageMetadata: { seq: 2, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'tool-input-available', toolCallId: 'tu_1', toolName: '工具调用', input: null },
+      {
+        type: 'tool-output-available',
+        toolCallId: 'tu_1',
+        output: { content: '目录内容', isError: false },
+      },
+      // 轮二 thinking 再至：簿记已重武装，重新补发完整开件组
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 3, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'reasoning-start', id: 'r-delta-' },
+      { type: 'reasoning-delta', id: 'r-delta-', delta: '再想一步' },
+      // Record 收尾
+      {
+        type: 'start',
+        messageId: 'turn-13',
+        messageMetadata: { seq: null, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'data-run-record', data: row },
+      { type: 'finish' },
+    ]);
+  });
+
+  it('同键跨 kind 补 part-start：text 增量后 thinking 增量到达仅补 reasoning-start（不再 reset-step 剪除已累积文本），同 kind 后续直发累积', async () => {
+    invokeMock.mockResolvedValue(recordRow(13, 'running'));
+    const transport = new TauriAgentTransport();
+
+    const stream = await send(transport);
+    const pumping = drain(stream);
+    lastChannel().onmessage?.({ ipc: 'event', event: textDelta(0, '正文先到') });
+    lastChannel().onmessage?.({ ipc: 'event', event: thinkingDelta(1, '思考后至') });
+    lastChannel().onmessage?.({ ipc: 'event', event: thinkingDelta(2, '思考续片') });
+    const row = recordRow(13, 'completed');
+    lastChannel().onmessage?.({ ipc: 'record', record: row });
+    const collected = await pumping;
+
+    expect(collected).toEqual([
+      // text 首片：完整开件组
+      {
+        type: 'start',
+        messageId: 'delta-none',
+        messageMetadata: { seq: 0, parentToolUseId: null },
+      },
+      { type: 'reset-step' },
+      { type: 'text-start', id: 't-delta-' },
+      { type: 'text-delta', id: 't-delta-', delta: '正文先到' },
+      // 同键新 kind：仅补 part-start（无 start / reset-step，文本部件不被剪除）
+      { type: 'reasoning-start', id: 'r-delta-' },
+      { type: 'reasoning-delta', id: 'r-delta-', delta: '思考后至' },
+      // 同 kind 后续：直发累积 chunk
+      { type: 'reasoning-delta', id: 'r-delta-', delta: '思考续片' },
+      // Record 收尾
       {
         type: 'start',
         messageId: 'turn-13',

@@ -84,13 +84,19 @@ function deltaPartKind(delta: AgentDelta): 'text' | 'thinking' {
   return delta.kind === 'text' ? 'text' : 'thinking';
 }
 
+/** part-start chunk（text / reasoning 按 kind 各一，id 与 delta 累积同源） */
+function partStartChunk(key: string, part: 'text' | 'thinking'): AgentUIMessageChunk {
+  return part === 'text'
+    ? { type: 'text-start', id: deltaPartId(key, 'text') }
+    : { type: 'reasoning-start', id: deltaPartId(key, 'thinking') };
+}
+
 /** provisional 开件 chunk 组：start（配对键派生键，metadata 携源 seq）+
  * reset-step 让位 + part-start（首 delta 由 transport 流内簿记补发） */
 function openProvisionalChunks(
   event: Extract<AgentEvent, { kind: 'messageDelta' }>,
 ): AgentUIMessageChunk[] {
   const key = event.parentToolUseId ?? '';
-  const part = deltaPartKind(event.delta);
   return [
     {
       type: 'start',
@@ -98,22 +104,12 @@ function openProvisionalChunks(
       messageMetadata: { seq: event.seq, parentToolUseId: event.parentToolUseId },
     },
     { type: 'reset-step' },
-    part === 'text'
-      ? { type: 'text-start', id: deltaPartId(key, 'text') }
-      : { type: 'reasoning-start', id: deltaPartId(key, 'thinking') },
+    partStartChunk(key, deltaPartKind(event.delta)),
   ];
 }
 
 /**
- * Tauri `ChatTransport` 实现。发起新消息经 `agent_start` 提前 resolve
- * running 轮行（经 `onRecord` 透传），事件与终态轮行经 Channel 流入翻译为
- * chunk 流；Record 信封收尾（record 部件 + finish + 关流）。
- *
- * 流内首 delta 簿记：配对键 → 已开件标记（流闭包内局部状态，非会话状态——
- * transport 为无状态转换器，该簿记禁的是会话参数进构造闭包 / ref 插线）。
- * 首个 delta 补发 start(provisional 键) + reset-step + part-start，后续
- * delta 直发累积 chunk；密封 Message 到达经 start + reset-step + 整块部件组
- * 同键让位替换。
+ * Tauri `ChatTransport` 实现
  */
 export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
   private readonly onEvent?: (event: AgentEvent) => void;
@@ -148,13 +144,13 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
   ): (controller: ReadableStreamDefaultController<AgentUIMessageChunk>) => void {
     return (controller) => {
       let closed = false;
-      /** 流内首 delta 簿记：配对键 → 已开件标记 */
-      const openedDeltas = new Set<string>();
+      /** 流内 delta 簿记：配对键 → 已开 part kind 集 */
+      const openedParts = new Map<string, Set<'text' | 'thinking'>>();
       channel.onmessage = (message) => {
         if (closed) return;
         if (message.ipc === 'event') {
           this.onEvent?.(message.event);
-          for (const chunk of this.eventChunks(message.event, openedDeltas)) {
+          for (const chunk of this.eventChunks(message.event, openedParts)) {
             controller.enqueue(chunk);
           }
           return;
@@ -172,16 +168,35 @@ export class TauriAgentTransport implements ChatTransport<AgentUIMessage> {
     };
   }
 
-  /** 单事件 → chunk 组：增量事件首见时补发 provisional 开件组（start +
-   * reset-step + part-start），后续 delta 直发累积 chunk；密封/aux 事件走
-   * adapter 逐事件 chunk 组。 */
-  private eventChunks(event: AgentEvent, openedDeltas: Set<string>): AgentUIMessageChunk[] {
+  /** 单事件 → chunk 组：键首 delta 补发 provisional 开件组（start +
+   * reset-step + part-start），同键新 kind 仅补 part-start（再发 reset-step
+   * 会剪除本步已累积的另一种部件），同键同 kind 直发累积 chunk；密封/aux
+   * 事件走 adapter 逐事件 chunk 组，簿记整体重武装。 */
+  private eventChunks(
+    event: AgentEvent,
+    openedParts: Map<string, Set<'text' | 'thinking'>>,
+  ): AgentUIMessageChunk[] {
     if (event.kind === 'messageDelta') {
       const key = event.parentToolUseId ?? '';
-      const chunks = openedDeltas.has(key) ? [] : openProvisionalChunks(event);
-      openedDeltas.add(key);
+      const part = deltaPartKind(event.delta);
+      const opened = openedParts.get(key);
+      const chunks =
+        opened === undefined
+          ? openProvisionalChunks(event)
+          : opened.has(part)
+            ? []
+            : [partStartChunk(key, part)];
+      if (opened === undefined) {
+        openedParts.set(key, new Set([part]));
+      } else {
+        opened.add(part);
+      }
       return [...chunks, ...eventToChunk(event)];
     }
+    // 密封/aux 事件经 start + reset-step 开新消息：reset-step 在 reducer 侧
+    // 清空全部活跃 part，簿记随之整体清空——工具轮后模型再次流式时，裸 delta
+    // 会因 part 已被清而抛 missing reasoning/text part
+    openedParts.clear();
     return eventToChunk(event);
   }
 
