@@ -27,7 +27,7 @@ pub use cli::{discover, flags, jsonl, runner};
 pub enum EngineKind {
     /// 本机 claude CLI 租户（缺省）
     Cli,
-    /// 进程内 sdk 租户（rig-core 直连 openai 兼容端点）
+    /// 进程内 sdk 租户
     Sdk,
 }
 

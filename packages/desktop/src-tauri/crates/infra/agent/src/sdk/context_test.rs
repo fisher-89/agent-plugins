@@ -1,4 +1,4 @@
-use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
+use rig::message::{AssistantContent, CallId, Message, ToolName, ToolResultContent, UserContent};
 use serde_json::json;
 
 use crate::sdk::context::{estimate_history, hard_prune, protected_start, prune, ContextDefense};
@@ -6,6 +6,11 @@ use crate::sdk::context::{estimate_history, hard_prune, protected_start, prune, 
 // ---------------------------------------------------------------------------
 // 装置：防线底座、消息构造、精确 tokens 构造（自校准）、史抽取
 // ---------------------------------------------------------------------------
+
+/// 全部 fixture 共用的 read 工具名（0.43 起 ToolName 不可空字面量）。
+fn read_tool() -> ToolName {
+    ToolName::new("read").expect("工具名非空")
+}
 
 /// L2 触发水位 tokens（窗长 × 3/4，与实现推导式同源）。
 fn l2_threshold_of(window: u64) -> u64 {
@@ -39,7 +44,7 @@ fn tool_result_content_overhead() -> usize {
 /// 构造正文估算恰为 `tokens` 的 tool_result 消息（单体门槛的精确边界基座）。
 fn tool_result_at_tokens(call: &str, tokens: u64) -> Message {
     let body = "a".repeat(tokens as usize * 4 - tool_result_content_overhead());
-    Message::tool_result(call, "read", body)
+    Message::tool_result(CallId::from_wire(call), read_tool(), body)
 }
 
 /// 携单枚工具调用的 assistant 消息（tool_use 半边）。
@@ -48,7 +53,7 @@ fn assistant_with_call(id: &str) -> Message {
         id: None,
         content: vec![AssistantContent::tool_call(
             id,
-            "read",
+            read_tool(),
             json!({ "path": "a.txt" }),
         )],
     }
@@ -58,7 +63,7 @@ fn assistant_with_call(id: &str) -> Message {
 fn tool_result_text(history: &[Message], call: &str) -> Option<String> {
     history.iter().find_map(|message| match message {
         Message::User { content } => content.iter().find_map(|item| match item {
-            UserContent::ToolResult(result) if result.call.as_str() == call => {
+            UserContent::ToolResult(result) if result.call.wire().as_ref() == call => {
                 match &result.content[0] {
                     ToolResultContent::Text(text) => Some(text.text.clone()),
                     _ => None,
@@ -78,7 +83,7 @@ fn tool_call_ids(history: &[Message]) -> Vec<String> {
             Message::Assistant { content, .. } => content
                 .iter()
                 .filter_map(|item| match item {
-                    AssistantContent::ToolCall(call) => Some(call.id.as_str().to_owned()),
+                    AssistantContent::ToolCall(call) => Some(call.id.wire().into_owned()),
                     _ => None,
                 })
                 .collect::<Vec<_>>(),
@@ -228,7 +233,7 @@ fn estimate_history字节启发式与手工口径一致且中文emoji多字节�
 fn estimate_history多条线性求和无跨条压缩或常数底() {
     let first = Message::user("第一条");
     let second = assistant_with_call("tu_1");
-    let third = Message::tool_result("tu_1", "read", "工具产物");
+    let third = Message::tool_result(CallId::from_wire("tu_1"), read_tool(), "工具产物");
 
     let sum = estimate_history(&[first.clone(), second.clone(), third.clone()]);
     assert_eq!(
@@ -430,7 +435,7 @@ fn prune未越水位时原史原样返回且零notice() {
     let history = vec![
         Message::user("任务"),
         Message::assistant("回应"),
-        Message::tool_result("tu_1", "read", "小产物"),
+        Message::tool_result(CallId::from_wire("tu_1"), read_tool(), "小产物"),
     ];
     assert!(
         defense_small().over_l2(&history),

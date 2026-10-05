@@ -1,15 +1,15 @@
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
-use rig::completion::{
-    CompletionError, CompletionModel, CompletionRequest, CompletionResponse, Usage,
-};
-use rig::message::{AssistantContent, Message, ReasoningContent};
-use rig::streaming::{
-    RawStreamingChoice, RawStreamingToolCall, StreamFinal, StreamingCompletionResponse,
-    StreamingResult,
-};
+use futures::StreamExt;
+use rig::completion::{CompletionRequest, CompletionResponse, Usage};
+use rig::driver::{DynModel, Exchange, Model, Opened, Opening, Transport};
+use rig::error::ProviderError;
+use rig::message::{AssistantContent, CallId, Message, ToolName, UserContent};
+use rig::operation::Completion;
+use rig::test_utils::{mock_final, MockFrame, MockScript, MockStreamEvent};
+use rig::wire::Mode;
 use tokio::sync::mpsc;
 
 use agent::{AgentDelta, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
@@ -18,7 +18,7 @@ use crate::sdk::context::ContextDefense;
 use crate::sdk::r#loop::{self, LoopTurn};
 
 // ---------------------------------------------------------------------------
-// 装置：tempdir cwd、假流缝模型、loop 直驱回收
+// 装置：tempdir cwd、假流缝模型（MockScript wire + 脚本化 transport）、loop 直驱回收
 // ---------------------------------------------------------------------------
 
 fn tempdir(tag: &str) -> tempfile::TempDir {
@@ -35,175 +35,245 @@ fn write_file(path: &Path, content: &str) {
     std::fs::write(path, content).expect("写文件失败");
 }
 
-/// 假流缝模型：逐轮预录 rig 原始流项（内存流替身）
-struct FakeModel {
-    turns: Mutex<VecDeque<Vec<RawStreamingChoice>>>,
+/// 假流缝状态：逐轮预录流事件脚本 + unary 摘要结局序列 + 请求捕获 + 流起手
+/// 失败 + 悬挂装置 + 轮间改写钩子（经 Arc 由模型句柄与 transport 克隆共享）。
+struct FakeState {
+    turns: Mutex<VecDeque<Vec<MockStreamEvent>>>,
     requests: Mutex<Vec<CompletionRequest>>,
-    stream_failure: Option<CompletionError>,
-    completion_outcomes: Mutex<VecDeque<Result<String, CompletionError>>>,
+    stream_failure: Option<String>,
+    completion_outcomes: Mutex<VecDeque<Result<String, String>>>,
     rewrite_on_first_stream: Mutex<Option<(PathBuf, String)>>,
     hang: Option<HangPoint>,
 }
 
-/// 悬挂点：`Request` = `stream` 调用永不返回（响应头前死）；`Stream` = 流
-/// 零帧且永不 EOF（帧间死）。
+/// 悬挂点：`Request` = 首帧永不到达（发送 / 响应头相位死）；`Stream` = 首帧
+/// 之后无新帧且永不 EOF（帧间死）。
 #[derive(Clone, Copy)]
 enum HangPoint {
     Request,
     Stream,
 }
 
+/// 假流缝模型句柄（断言面：请求捕获 / 钩子装配；`erased` 产物供 loop 消费）。
+#[derive(Clone)]
+struct FakeModel {
+    state: Arc<FakeState>,
+}
+
 impl FakeModel {
-    fn with_turns(turns: Vec<Vec<RawStreamingChoice>>) -> Self {
+    fn with_turns(turns: Vec<Vec<MockStreamEvent>>) -> Self {
         Self {
-            turns: Mutex::new(turns.into()),
-            requests: Mutex::new(Vec::new()),
-            stream_failure: None,
-            completion_outcomes: Mutex::new(VecDeque::new()),
-            rewrite_on_first_stream: Mutex::new(None),
-            hang: None,
+            state: Arc::new(FakeState {
+                turns: Mutex::new(turns.into()),
+                ..empty_state()
+            }),
         }
     }
 
-    fn failing(error: CompletionError) -> Self {
+    fn failing(error: &str) -> Self {
         Self {
-            turns: Mutex::new(VecDeque::new()),
-            requests: Mutex::new(Vec::new()),
-            stream_failure: Some(error),
-            completion_outcomes: Mutex::new(VecDeque::new()),
-            rewrite_on_first_stream: Mutex::new(None),
-            hang: None,
+            state: Arc::new(FakeState {
+                stream_failure: Some(error.to_owned()),
+                ..empty_state()
+            }),
         }
     }
 
     fn hanging(point: HangPoint) -> Self {
         Self {
-            hang: Some(point),
-            ..Self::with_turns(Vec::new())
+            state: Arc::new(FakeState {
+                hang: Some(point),
+                ..empty_state()
+            }),
         }
     }
 
-    /// 两轮假流 + L3 摘要 completion 预编程序列（摘要成功文本 / Err 驱动降级）。
+    /// 两轮假流 + L3 摘要 unary 预编程序列（摘要成功文本 / Err 驱动降级）。
     fn with_turns_and_completions(
-        turns: Vec<Vec<RawStreamingChoice>>,
-        outcomes: Vec<Result<String, CompletionError>>,
+        turns: Vec<Vec<MockStreamEvent>>,
+        outcomes: Vec<Result<String, String>>,
     ) -> Self {
         let model = Self::with_turns(turns);
-        *model.completion_outcomes.lock().expect("序列锁不可中毒") = outcomes.into();
+        *model
+            .state
+            .completion_outcomes
+            .lock()
+            .expect("序列锁不可中毒") = outcomes.into();
         model
     }
 
-    /// 首次 stream 请求时改写文件（模拟 agent 会话中自改 AGENT.md，下一轮
+    /// 首次流请求时改写文件（模拟 agent 会话中自改 AGENT.md，下一轮
     /// preamble 重读即生效）。
-    fn rewrite_file_on_first_stream(&mut self, path: PathBuf, content: &str) {
-        *self.rewrite_on_first_stream.lock().expect("改写锁不可中毒") =
-            Some((path, content.to_owned()));
+    fn rewrite_file_on_first_stream(&self, path: PathBuf, content: &str) {
+        *self
+            .state
+            .rewrite_on_first_stream
+            .lock()
+            .expect("改写锁不可中毒") = Some((path, content.to_owned()));
     }
 
     fn captured_requests(&self) -> Vec<CompletionRequest> {
-        self.requests.lock().expect("请求捕获锁不可中毒").clone()
-    }
-}
-
-impl CompletionModel for FakeModel {
-    async fn completion(
-        &self,
-        _request: CompletionRequest,
-    ) -> Result<CompletionResponse, CompletionError> {
-        match self
-            .completion_outcomes
-            .lock()
-            .expect("序列锁不可中毒")
-            .pop_front()
-        {
-            Some(Ok(text)) => Ok(CompletionResponse::new(
-                vec![AssistantContent::text(text)],
-                Usage::new(),
-                "fake-summary-provider",
-            )),
-            Some(Err(error)) => Err(error),
-            None => Err(CompletionError::ProviderError(
-                "unary 路径未被 loop 消费".to_owned(),
-            )),
-        }
-    }
-
-    async fn stream(
-        &self,
-        request: CompletionRequest,
-    ) -> Result<StreamingCompletionResponse, CompletionError> {
-        self.requests
+        self.state
+            .requests
             .lock()
             .expect("请求捕获锁不可中毒")
-            .push(request);
-        // 轮间改写钩子：首轮请求捕获后执行（次轮 preamble 重读见改后内容）
-        if let Some((path, content)) = self
-            .rewrite_on_first_stream
-            .lock()
-            .expect("改写锁不可中毒")
-            .take()
-        {
-            std::fs::write(path, content).expect("轮间改写 AGENT.md 失败");
+            .clone()
+    }
+
+    /// loop 消费面的擦除模型（MockScript wire + 同状态 transport，经真实
+    /// driver 驱动——0.43 起 mock 面从模型 trait 挪到 transport 层）。
+    fn erased(&self) -> DynModel<Completion> {
+        Model::new(
+            MockScript::default(),
+            FakeTransport {
+                state: Arc::clone(&self.state),
+            },
+        )
+        .erase()
+    }
+}
+
+/// 空基座状态（构造器 `..` 展开基）。
+fn empty_state() -> FakeState {
+    FakeState {
+        turns: Mutex::new(VecDeque::new()),
+        requests: Mutex::new(Vec::new()),
+        stream_failure: None,
+        completion_outcomes: Mutex::new(VecDeque::new()),
+        rewrite_on_first_stream: Mutex::new(None),
+        hang: None,
+    }
+}
+
+/// 假流缝 transport：脚本化 [`MockScript`] wire transport——请求捕获、逐轮
+/// 流事件脚本（缺终局帧时补缺省 FinalResponse，沿 0.42「EOF 即收口」语义）、
+/// unary 摘要结局、流起手失败与两相位悬挂装置。
+#[derive(Clone)]
+struct FakeTransport {
+    state: Arc<FakeState>,
+}
+
+impl Transport<MockScript> for FakeTransport {
+    // 帧流恒 Ok（Err 面由 Opened::failed 承载）；Err 变体尺寸为 rig
+    // ProviderError 自身形态，非本装置可裁
+    #[allow(clippy::result_large_err)]
+    fn send(&self, request: CompletionRequest, exchange: Exchange) -> Opening<MockFrame> {
+        // 请求捕获仅流请求（沿旧装置口径：loop 断言面只看 stream 位；unary
+        // 摘要请求归 compact_test 自己的捕获装置）
+        if matches!(exchange.mode, Mode::Streaming) {
+            self.state
+                .requests
+                .lock()
+                .expect("请求捕获锁不可中毒")
+                .push(request);
         }
-        if let Some(error) = &self.stream_failure {
-            return Err(CompletionError::ProviderError(error.to_string()));
-        }
-        // 悬挂装置：请求相位死 = 调用永不返回；流帧死 = 零帧且永不 EOF
-        match self.hang {
-            Some(HangPoint::Request) => return std::future::pending::<
-                Result<StreamingCompletionResponse, CompletionError>,
-            >()
-            .await,
-            Some(HangPoint::Stream) => {
-                let raw: StreamingResult = Box::pin(futures::stream::pending());
-                return Ok(StreamingCompletionResponse::stream("fake-provider", raw));
+        match exchange.mode {
+            Mode::Unary => {
+                match self
+                    .state
+                    .completion_outcomes
+                    .lock()
+                    .expect("序列锁不可中毒")
+                    .pop_front()
+                {
+                    Some(Ok(text)) => Opening::ready(Opened::new(futures::stream::iter([Ok(
+                        MockFrame::Response(Box::new(CompletionResponse::new(
+                            vec![AssistantContent::text(text)],
+                            Usage::default(),
+                            "fake-summary-provider",
+                            serde_json::Value::Null,
+                        ))),
+                    )]))),
+                    Some(Err(message)) => {
+                        Opening::ready(Opened::failed(ProviderError::Provider(message)))
+                    }
+                    None => Opening::ready(Opened::failed(ProviderError::Provider(
+                        "unary 路径未被 loop 消费".to_owned(),
+                    ))),
+                }
             }
-            None => {}
+            Mode::Streaming => {
+                // 轮间改写钩子：首轮流请求捕获后执行（次轮 preamble 重读见改后内容）
+                if let Some((path, content)) = self
+                    .state
+                    .rewrite_on_first_stream
+                    .lock()
+                    .expect("改写锁不可中毒")
+                    .take()
+                {
+                    std::fs::write(path, content).expect("轮间改写 AGENT.md 失败");
+                }
+                if let Some(error) = &self.state.stream_failure {
+                    return Opening::ready(Opened::failed(ProviderError::Provider(error.clone())));
+                }
+                // 悬挂装置：请求相位死 = 首帧永不到达；流帧死 = 首帧后无新帧且永不 EOF
+                match self.state.hang {
+                    Some(HangPoint::Request) => {
+                        return Opening::new(std::future::pending());
+                    }
+                    Some(HangPoint::Stream) => {
+                        return Opening::ready(Opened::new(
+                            futures::stream::iter([Ok(MockFrame::Event(MockStreamEvent::Text(
+                                "首帧".to_owned(),
+                            )))])
+                            .chain(futures::stream::pending()),
+                        ));
+                    }
+                    None => {}
+                }
+                let mut items = self
+                    .state
+                    .turns
+                    .lock()
+                    .expect("轮队列锁不可中毒")
+                    .pop_front()
+                    .unwrap_or_default();
+                // 隐式终局：脚本未排终局帧时补缺省 FinalResponse（provider 收
+                // 口在场，finish() 可折叠完整响应）
+                if !matches!(items.last(), Some(MockStreamEvent::FinalResponse(_))) {
+                    items.push(MockStreamEvent::FinalResponse(mock_final(Usage::default())));
+                }
+                // 恒 Ok 帧流（Err 面由 Opened::failed 承载），显式标注 Err 类型
+                // 免超大 Err 变体告警
+                Opening::ready(Opened::new(futures::stream::iter(
+                    items
+                        .into_iter()
+                        .map(|event| Ok::<_, ProviderError>(MockFrame::Event(event))),
+                )))
+            }
         }
-        let items = self
-            .turns
-            .lock()
-            .expect("轮队列锁不可中毒")
-            .pop_front()
-            .unwrap_or_default();
-        let raw: StreamingResult = Box::pin(futures::stream::iter(
-            items.into_iter().map(Ok::<_, CompletionError>),
-        ));
-        Ok(StreamingCompletionResponse::stream("fake-provider", raw))
     }
 }
 
-// 原始流项 fixture 构造（rig 类型内存构造，不经 provider client）
-fn raw_text(text: &str) -> RawStreamingChoice {
-    RawStreamingChoice::Message(text.to_owned())
+// 原始流项 fixture 构造（rig test-utils 内存构造，经真实 wire 解码出流事件）
+fn raw_text(text: &str) -> MockStreamEvent {
+    MockStreamEvent::Text(text.to_owned())
 }
 
-fn raw_reasoning(text: &str) -> RawStreamingChoice {
-    RawStreamingChoice::Reasoning {
-        id: "r-1".to_owned().into(),
-        provider_id: None,
-        content: ReasoningContent::Text {
-            text: text.to_owned(),
-            signature: None,
-        },
+fn raw_reasoning(text: &str) -> MockStreamEvent {
+    MockStreamEvent::ReasoningDelta {
+        id: "r-1".to_owned(),
+        reasoning: text.to_owned(),
     }
 }
 
-fn raw_tool_call(id: &str, name: &str, arguments: serde_json::Value) -> RawStreamingChoice {
-    RawStreamingChoice::ToolCall(RawStreamingToolCall::new(
-        id.to_owned(),
-        name.to_owned(),
+fn raw_tool_call(id: &str, name: &str, arguments: serde_json::Value) -> MockStreamEvent {
+    MockStreamEvent::ToolCall {
+        id: id.to_owned(),
+        name: name.to_owned(),
         arguments,
-    ))
+        call_id: None,
+    }
 }
 
-fn raw_final(usage: Usage) -> RawStreamingChoice {
-    RawStreamingChoice::FinalResponse(StreamFinal::new("fake-provider", usage))
+fn raw_final(usage: Usage) -> MockStreamEvent {
+    MockStreamEvent::FinalResponse(mock_final(usage))
 }
 
 /// loop 直驱：灌未盖戳事件至 EOF 并回收全部事件（通道容量与真实泵同口径）。
-async fn drive_loop(model: FakeModel, turn: &LoopTurn, handle: &RunHandle) -> Vec<AgentEventKind> {
+async fn drive_loop(model: &FakeModel, turn: &LoopTurn, handle: &RunHandle) -> Vec<AgentEventKind> {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
+    let dyn_model = model.erased();
     let task = tokio::spawn({
         let turn = LoopTurn {
             question: turn.question.clone(),
@@ -215,7 +285,7 @@ async fn drive_loop(model: FakeModel, turn: &LoopTurn, handle: &RunHandle) -> Ve
             liveness: turn.liveness,
         };
         let handle = handle.clone();
-        async move { r#loop::run(&model, &turn, Vec::new(), sender, handle).await }
+        async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await }
     });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
@@ -269,8 +339,9 @@ async fn drive_loop_with_history(
 ) -> Vec<AgentEventKind> {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
+    let dyn_model = model.erased();
     let task =
-        tokio::spawn(async move { r#loop::run(&model, &turn, history, sender, handle).await });
+        tokio::spawn(async move { r#loop::run(&dyn_model, &turn, history, sender, handle).await });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -308,16 +379,16 @@ fn turn_done_of(events: &[AgentEventKind]) -> &AgentEventKind {
     last
 }
 
-/// 全量 usage 底座（rig Usage 全字段面）。
+/// 全量 usage 底座（rig Usage 全字段面，0.43 起字段为 Option 计数）。
 fn usage(input: u64, output: u64) -> Usage {
     Usage {
-        input_tokens: input,
-        output_tokens: output,
-        total_tokens: input + output,
-        cached_input_tokens: 0,
-        cache_creation_input_tokens: 0,
-        tool_use_prompt_tokens: 0,
-        reasoning_tokens: 0,
+        input_tokens: Some(input),
+        output_tokens: Some(output),
+        total_tokens: Some(input + output),
+        cached_input_tokens: Some(0),
+        cache_creation_input_tokens: Some(0),
+        tool_use_prompt_tokens: Some(0),
+        reasoning_tokens: Some(0),
     }
 }
 
@@ -325,9 +396,9 @@ fn usage(input: u64, output: u64) -> Usage {
 /// 超门槛老 tool_result（约 25k tokens）, 大块 filler user（约 50k tokens，
 /// 使尾部越过 40k 保护窗）]。
 fn oversized_seed_history() -> Vec<Message> {
-    let call = rig::message::AssistantContent::tool_call(
+    let call = AssistantContent::tool_call(
         "tu_big",
-        "read",
+        ToolName::new("read").expect("工具名非空"),
         serde_json::json!({ "path": "big.txt" }),
     );
     vec![
@@ -336,7 +407,11 @@ fn oversized_seed_history() -> Vec<Message> {
             id: None,
             content: vec![call],
         },
-        Message::tool_result("tu_big", "read", "x".repeat(100_000)),
+        Message::tool_result(
+            CallId::from_wire("tu_big"),
+            ToolName::new("read").expect("工具名非空"),
+            "x".repeat(100_000),
+        ),
         Message::user("f".repeat(200_000)),
     ]
 }
@@ -345,7 +420,7 @@ fn oversized_seed_history() -> Vec<Message> {
 fn history_tool_result_text(history: &[Message], call: &str) -> Option<String> {
     history.iter().find_map(|message| match message {
         Message::User { content } => content.iter().find_map(|item| match item {
-            rig::message::UserContent::ToolResult(result) if result.call.as_str() == call => {
+            UserContent::ToolResult(result) if result.call.wire().as_ref() == call => {
                 match &result.content[0] {
                     rig::message::ToolResultContent::Text(text) => Some(text.text.clone()),
                     _ => None,
@@ -373,7 +448,7 @@ async fn 一轮文本加思考假流_delta逐发且轮末恰一条密封message�
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -457,7 +532,7 @@ async fn 两轮工具假流_密封收口_tool_use与tool_result与续轮各就�
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -521,21 +596,21 @@ async fn 两轮工具假流_密封收口_tool_use与tool_result与续轮各就�
 async fn 工具轮第二请求的chat_history含成对tool_result且提示词在史首() {
     let dir = tempdir("tool-pair");
     write_file(&dir.path().join("a.txt"), "内容甲");
-    let model = std::sync::Arc::new(FakeModel::with_turns(vec![
+    let model = FakeModel::with_turns(vec![
         vec![raw_tool_call(
             "tu_2",
             "read",
             serde_json::json!({ "path": "a.txt" }),
         )],
         vec![raw_text("完成")],
-    ]));
+    ]);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task =
         tokio::spawn(
-            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
         );
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -548,19 +623,19 @@ async fn 工具轮第二请求的chat_history含成对tool_result且提示词在
             .chat_history
             .iter()
             .any(|message| matches!(message, Message::Assistant { content, .. }
-                if content.iter().any(|item| matches!(item, rig::message::AssistantContent::ToolCall(tool_call) if tool_call.id.as_str() == "tu_2")))),
+                if content.iter().any(|item| matches!(item, AssistantContent::ToolCall(tool_call) if tool_call.id.wire().as_ref() == "tu_2")))),
         "回灌史含 assistant ToolCall 消息"
     );
     assert!(
         second.chat_history.iter().any(|message| matches!(message, Message::User { content }
-            if content.iter().any(|item| matches!(item, rig::message::UserContent::ToolResult(result) if result.name == "read")))),
+            if content.iter().any(|item| matches!(item, UserContent::ToolResult(result) if result.name.as_str() == "read")))),
         "回灌史含成对 ToolResult（工具名 read）"
     );
     // 提示词在史首
     assert!(matches!(
         second.chat_history.first(),
         Some(Message::User { content })
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
+            if matches!(&content[0], UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
     ));
 }
 
@@ -598,16 +673,13 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
     let history = crate::sdk::resume::rebuild(&transcript).expect("重建应成功");
     assert_eq!(history.len(), 2);
 
-    let model = std::sync::Arc::new(FakeModel::with_turns(vec![vec![
-        raw_text("本轮回应"),
-        raw_final(usage(1, 1)),
-    ]]));
+    let model = FakeModel::with_turns(vec![vec![raw_text("本轮回应"), raw_final(usage(1, 1))]]);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task =
-        tokio::spawn(async move { r#loop::run(&*model_ref, &turn, history, sender, handle).await });
+        tokio::spawn(async move { r#loop::run(&dyn_model, &turn, history, sender, handle).await });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 
@@ -615,20 +687,25 @@ async fn 重建史注入首轮请求的chat_history尾部追加新轮提示词()
     assert_eq!(requests.len(), 1);
     let first = &requests[0];
     assert!(
-        first.chat_history.iter().any(|message| matches!(message, Message::User { content }
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "上一轮问"))),
+        first
+            .chat_history
+            .iter()
+            .any(|message| matches!(message, Message::User { content }
+            if matches!(&content[0], UserContent::Text(text) if text.text == "上一轮问"))),
         "重建史首条（上轮提问）注入首轮请求"
     );
     assert!(
-        first.chat_history.iter().any(|message| matches!(message, Message::Assistant { content, .. }
-            if matches!(&content[0], rig::message::AssistantContent::Text(text) if text.text == "上一轮答 🎉"))),
+        first.chat_history.iter().any(
+            |message| matches!(message, Message::Assistant { content, .. }
+            if matches!(&content[0], AssistantContent::Text(text) if text.text == "上一轮答 🎉"))
+        ),
         "重建史上轮回应注入首轮请求"
     );
     // 尾部追加新轮提示词（本轮提问在史尾）
     assert!(matches!(
         first.chat_history.last(),
         Some(Message::User { content })
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
+            if matches!(&content[0], UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
     ));
 }
 
@@ -643,7 +720,7 @@ async fn turn_done组装唯一口径_cost恒none_session_id收口_usage承接fin
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -669,7 +746,7 @@ async fn turn_done组装唯一口径_cost恒none_session_id收口_usage承接fin
     assert_eq!(
         done_usage["input_tokens"],
         serde_json::json!(11),
-        "usage 承接 Final（引擎无第二统计口径）"
+        "usage 承接终局记录（引擎无第二统计口径）"
     );
     assert_eq!(done_usage["output_tokens"], serde_json::json!(22));
     assert_eq!(
@@ -686,11 +763,11 @@ async fn turn_done组装唯一口径_cost恒none_session_id收口_usage承接fin
 #[tokio::test]
 async fn 假流stream_err时api_error记因与is_error收敛且恒最后() {
     let dir = tempdir("api-error");
-    let model = FakeModel::failing(CompletionError::ProviderError("连接被重置".to_owned()));
+    let model = FakeModel::failing("连接被重置");
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -724,11 +801,11 @@ async fn 假流stream_err时api_error记因与is_error收敛且恒最后() {
 #[tokio::test]
 async fn 请求相位悬挂时活性护栏超时失败收敛api_error不悬挂() {
     let dir = tempdir("hang-request");
-    let model = FakeModel::hanging(HangPoint::Request); // stream 调用永不返回
+    let model = FakeModel::hanging(HangPoint::Request); // 首帧永不到达
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn_with_fast_liveness(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -757,11 +834,11 @@ async fn 请求相位悬挂时活性护栏超时失败收敛api_error不悬挂()
 #[tokio::test]
 async fn 流帧空闲悬挂时活性护栏超时失败收敛api_error不悬挂() {
     let dir = tempdir("hang-stream");
-    let model = FakeModel::hanging(HangPoint::Stream); // 零帧且永不 EOF
+    let model = FakeModel::hanging(HangPoint::Stream); // 首帧后无新帧且永不 EOF
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn_with_fast_liveness(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -798,7 +875,7 @@ async fn 空流轮以正常收敛防死循环不悬挂() {
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -824,7 +901,7 @@ async fn 空流轮以正常收敛防死循环不悬挂() {
 async fn 连续被拒工具轮耗尽上限时熔断收敛error_max_turns() {
     let dir = tempdir("max-turns");
     // default 档 write 工具恒被 policy 拒绝（无 IO，50 轮快速耗尽）
-    let turns: Vec<Vec<RawStreamingChoice>> = (0..50)
+    let turns: Vec<Vec<MockStreamEvent>> = (0..50)
         .map(|_| {
             vec![
                 raw_tool_call(
@@ -840,7 +917,7 @@ async fn 连续被拒工具轮耗尽上限时熔断收敛error_max_turns() {
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::Default),
         &handle,
     )
@@ -879,8 +956,11 @@ async fn 停止先置位时泵终止不合成turn_done且已产出事件保留()
 
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(16);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
+    let dyn_model = model.erased();
     let task =
-        tokio::spawn(async move { r#loop::run(&model, &turn, Vec::new(), sender, handle).await });
+        tokio::spawn(
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+        );
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -911,10 +991,13 @@ async fn 消费端先行关闭时loop自行退出不悬挂且不合成收敛() {
     let handle = RunHandle::default();
 
     // 自行退出：join 在有限时间内完成（悬挂则测试永不结束即失败）
+    let dyn_model = model.erased();
     let history =
-        tokio::spawn(async move { r#loop::run(&model, &turn, Vec::new(), sender, handle).await })
-            .await
-            .expect("loop 自行退出");
+        tokio::spawn(
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
+        )
+        .await
+        .expect("loop 自行退出");
 
     // 返回累积史：消费端关闭先于任何事件送达（RunStarted 发送即失败），
     // loop 以未增史退出——不悬挂、不合成收敛
@@ -929,7 +1012,7 @@ async fn 消费端先行关闭时loop自行退出不悬挂且不合成收敛() {
 async fn delta与密封混合流按产出序排列且洪峰经容量256通道零丢失() {
     let dir = tempdir("flood");
     // 单轮 305 文本增量（> 通道容量 256）+ 密封 + 收敛
-    let mut flood: Vec<RawStreamingChoice> = Vec::with_capacity(306);
+    let mut flood: Vec<MockStreamEvent> = Vec::with_capacity(306);
     for index in 0..305 {
         flood.push(raw_text(&format!("片{index}")));
     }
@@ -938,7 +1021,7 @@ async fn delta与密封混合流按产出序排列且洪峰经容量256通道零
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -989,7 +1072,7 @@ async fn policy拒绝时permission_denied记因与is_error回灌续轮不中断(
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::Default),
         &handle,
     )
@@ -1036,7 +1119,7 @@ async fn 沙箱拦截时sandbox_denied记因与is_error回灌() {
     let handle = RunHandle::default();
 
     let events = drive_loop(
-        model,
+        &model,
         &loop_turn(dir.path(), AgentPermissionMode::BypassPermissions),
         &handle,
     )
@@ -1082,9 +1165,9 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
     let dir = tempdir("preamble-reload");
     let agent_md = dir.path().join("AGENT.md");
     write_file(&agent_md, "第一版系统提示词");
-    // 两轮假流：首轮以工具调用续轮（text-only 轮即收敛），首轮 stream 请求
-    // 捕获后改写 AGENT.md（模拟 agent 会话中自改）
-    let mut fake = FakeModel::with_turns(vec![
+    // 两轮假流：首轮以工具调用续轮（text-only 轮即收敛），首轮流请求捕获后
+    // 改写 AGENT.md（模拟 agent 会话中自改）
+    let fake = FakeModel::with_turns(vec![
         vec![
             raw_tool_call("tu_pre", "read", serde_json::json!({ "path": "README.md" })),
             raw_final(usage(3, 3)),
@@ -1093,14 +1176,13 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
     ]);
     fake.rewrite_file_on_first_stream(agent_md, "第二版系统提示词 🚀");
     write_file(&dir.path().join("README.md"), "占位内容");
-    let model = std::sync::Arc::new(fake);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = fake.erased();
     let task =
         tokio::spawn(
-            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
         );
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
@@ -1108,18 +1190,19 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
     }
     task.await.expect("loop 正常结束");
 
-    // 首轮请求 preamble 逐字含文件内容；轮间改写 → 次轮请求 preamble 为改后内容
-    let requests = model.captured_requests();
+    // 首轮请求系统提示词逐字含文件内容；轮间改写 → 次轮请求为改后内容
+    // （0.43 承载口径：chat_history 首条 System 消息）
+    let requests = fake.captured_requests();
     assert_eq!(requests.len(), 2, "两轮请求（工具续轮）");
     assert_eq!(
-        requests[0].preamble.as_deref(),
+        requests[0].system_instructions(),
         Some("第一版系统提示词"),
-        "首轮请求 preamble 逐字含 AGENT.md 内容"
+        "首轮请求系统提示词逐字含 AGENT.md 内容"
     );
     assert_eq!(
-        requests[1].preamble.as_deref(),
+        requests[1].system_instructions(),
         Some("第二版系统提示词 🚀"),
-        "轮间改写文件 → 次轮请求 preamble 为改后内容（每轮重读无缓存）"
+        "轮间改写文件 → 次轮请求为改后内容（每轮重读无缓存）"
     );
     let AgentEventKind::TurnDone { is_error, .. } = turn_done_of(&events) else {
         panic!("应为 TurnDone");
@@ -1128,55 +1211,52 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
 }
 
 #[tokio::test]
-async fn preamble缺席时请求preamble为none不注入空串() {
+async fn preamble缺席时请求无system消息不注入空串() {
     let dir = tempdir("preamble-absent");
-    let model = std::sync::Arc::new(FakeModel::with_turns(vec![vec![
-        raw_text("好"),
-        raw_final(usage(1, 1)),
-    ]]));
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task =
         tokio::spawn(
-            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
         );
     while receiver.recv().await.is_some() {}
     let _history = task.await.expect("loop 正常结束");
 
     let requests = model.captured_requests();
     assert_eq!(requests.len(), 1);
-    assert_eq!(
-        requests[0].preamble, None,
-        "root 无 AGENT.md → 请求 preamble 为 None（不注入空串）"
+    assert!(
+        !requests[0]
+            .chat_history
+            .iter()
+            .any(|message| matches!(message, Message::System { .. })),
+        "root 无 AGENT.md → 请求不注入 System 消息（不注入空串）"
     );
 }
 
 #[tokio::test]
-async fn preamble在场时请求preamble逐字含文件内容() {
+async fn preamble在场时请求系统提示词逐字含文件内容() {
     let dir = tempdir("preamble-capture");
     write_file(&dir.path().join("AGENT.md"), "# 约定 🎉\n- 提交信息用中文");
-    let model = std::sync::Arc::new(FakeModel::with_turns(vec![vec![
-        raw_text("好"),
-        raw_final(usage(1, 1)),
-    ]]));
+    let model = FakeModel::with_turns(vec![vec![raw_text("好"), raw_final(usage(1, 1))]]);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions);
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task =
         tokio::spawn(
-            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
         );
     while receiver.recv().await.is_some() {}
     let _history = task.await.expect("loop 正常结束");
 
     let requests = model.captured_requests();
     assert_eq!(
-        requests[0].preamble.as_deref(),
+        requests[0].system_instructions(),
         Some("# 约定 🎉\n- 提交信息用中文"),
-        "请求 preamble 逐字含文件内容（含中文 / emoji / 换行）"
+        "请求系统提示词逐字含文件内容（含中文 / emoji / 换行）"
     );
 }
 
@@ -1229,10 +1309,7 @@ async fn 小窗防线超水位假史_l2剪裁context_pruned流出且正常收敛
 #[tokio::test]
 async fn l2剪裁后捕获请求的chat_history老工具结果为占位符() {
     let dir = tempdir("l2-capture");
-    let model = std::sync::Arc::new(FakeModel::with_turns(vec![vec![
-        raw_text("完成"),
-        raw_final(usage(2, 2)),
-    ]]));
+    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(2, 2))]]);
     // 窗长 65_536：L2 过线剪裁、L3 不过线（水位推导见上一用例注释）
     let turn = loop_turn_with_defense(
         dir.path(),
@@ -1241,9 +1318,9 @@ async fn l2剪裁后捕获请求的chat_history老工具结果为占位符() {
     );
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, oversized_seed_history(), sender, handle).await
+        r#loop::run(&dyn_model, &turn, oversized_seed_history(), sender, handle).await
     });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -1255,7 +1332,7 @@ async fn l2剪裁后捕获请求的chat_history老工具结果为占位符() {
     assert!(matches!(
         history.first(),
         Some(Message::User { content })
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "任务书")
+            if matches!(&content[0], UserContent::Text(text) if text.text == "任务书")
     ));
     // 老工具结果已被占位符替换（请求史而非 store 转录面收口）
     let placeholder = history_tool_result_text(history, "tu_big").expect("tool_result 配对保留");
@@ -1268,7 +1345,7 @@ async fn l2剪裁后捕获请求的chat_history老工具结果为占位符() {
     assert!(matches!(
         history.last(),
         Some(Message::User { content })
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
+            if matches!(&content[0], UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
     ));
 }
 
@@ -1319,10 +1396,10 @@ async fn l3水位触发摘要_下一请求史为摘要置顶加首条user加最�
 #[tokio::test]
 async fn l3摘要成功后请求史形态为摘要加首条加保护窗() {
     let dir = tempdir("l3-capture");
-    let model = std::sync::Arc::new(FakeModel::with_turns_and_completions(
+    let model = FakeModel::with_turns_and_completions(
         vec![vec![raw_text("完成"), raw_final(usage(2, 2))]],
         vec![Ok("摘要要点".to_owned())],
-    ));
+    );
     let turn = loop_turn_with_defense(
         dir.path(),
         AgentPermissionMode::BypassPermissions,
@@ -1330,9 +1407,9 @@ async fn l3摘要成功后请求史形态为摘要加首条加保护窗() {
     );
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, oversized_seed_history(), sender, handle).await
+        r#loop::run(&dyn_model, &turn, oversized_seed_history(), sender, handle).await
     });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -1345,7 +1422,7 @@ async fn l3摘要成功后请求史形态为摘要加首条加保护窗() {
         matches!(
             &history[0],
             Message::User { content }
-                if matches!(&content[0], rig::message::UserContent::Text(text) if text.text.starts_with("[历史摘要]"))
+                if matches!(&content[0], UserContent::Text(text) if text.text.starts_with("[历史摘要]"))
         ),
         "摘要消息置顶带 [历史摘要] 头"
     );
@@ -1353,7 +1430,7 @@ async fn l3摘要成功后请求史形态为摘要加首条加保护窗() {
         matches!(
             &history[1],
             Message::User { content }
-                if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "任务书")
+                if matches!(&content[0], UserContent::Text(text) if text.text == "任务书")
         ),
         "原首条 user 保留"
     );
@@ -1368,10 +1445,7 @@ async fn l3摘要失败降级硬裁_notice携fallback且run不失败收敛() {
     let dir = tempdir("l3-fallback");
     let model = FakeModel::with_turns_and_completions(
         vec![vec![raw_text("完成"), raw_final(usage(2, 2))]],
-        vec![
-            Err(CompletionError::ProviderError("端点过载".to_owned())),
-            Err(CompletionError::ProviderError("端点仍过载".to_owned())),
-        ],
+        vec![Err("端点过载".to_owned()), Err("端点仍过载".to_owned())],
     );
     let turn = loop_turn_with_defense(
         dir.path(),
@@ -1425,13 +1499,10 @@ async fn l3摘要失败降级硬裁_notice携fallback且run不失败收敛() {
 #[tokio::test]
 async fn l3降级硬裁后请求史为硬裁形态() {
     let dir = tempdir("l3-hard-capture");
-    let model = std::sync::Arc::new(FakeModel::with_turns_and_completions(
+    let model = FakeModel::with_turns_and_completions(
         vec![vec![raw_text("完成"), raw_final(usage(2, 2))]],
-        vec![
-            Err(CompletionError::ProviderError("端点过载".to_owned())),
-            Err(CompletionError::ProviderError("端点仍过载".to_owned())),
-        ],
-    ));
+        vec![Err("端点过载".to_owned()), Err("端点仍过载".to_owned())],
+    );
     let turn = loop_turn_with_defense(
         dir.path(),
         AgentPermissionMode::BypassPermissions,
@@ -1439,9 +1510,9 @@ async fn l3降级硬裁后请求史为硬裁形态() {
     );
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, oversized_seed_history(), sender, handle).await
+        r#loop::run(&dyn_model, &turn, oversized_seed_history(), sender, handle).await
     });
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -1453,12 +1524,12 @@ async fn l3降级硬裁后请求史为硬裁形态() {
     assert!(matches!(
         &history[0],
         Message::User { content }
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "任务书")
+            if matches!(&content[0], UserContent::Text(text) if text.text == "任务书")
     ));
     assert!(matches!(
         &history[1],
         Message::User { content }
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
+            if matches!(&content[0], UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
     ));
     assert!(
         history_tool_result_text(history, "tu_big").is_none(),
@@ -1473,17 +1544,14 @@ async fn l3降级硬裁后请求史为硬裁形态() {
 #[tokio::test]
 async fn 未触水位时请求史原样且零防线notice() {
     let dir = tempdir("no-defense");
-    let model = std::sync::Arc::new(FakeModel::with_turns(vec![vec![
-        raw_text("完成"),
-        raw_final(usage(1, 1)),
-    ]]));
+    let model = FakeModel::with_turns(vec![vec![raw_text("完成"), raw_final(usage(1, 1))]]);
     let turn = loop_turn(dir.path(), AgentPermissionMode::BypassPermissions); // 宽窗缺省防线
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let model_ref = std::sync::Arc::clone(&model);
+    let dyn_model = model.erased();
     let task =
         tokio::spawn(
-            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+            async move { r#loop::run(&dyn_model, &turn, Vec::new(), sender, handle).await },
         );
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
@@ -1494,6 +1562,6 @@ async fn 未触水位时请求史原样且零防线notice() {
     assert!(matches!(
         &history[0],
         Message::User { content }
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
+            if matches!(&content[0], UserContent::Text(text) if text.text == "帮我看下这个 workspace 🎉")
     ));
 }

@@ -180,14 +180,15 @@ fn 单条密封message收三块时重建为单条assistant消息不拆分() {
         AssistantContent::Text(text) if text.text == "结论先行"
     ));
     assert!(
-        matches!(&content[1], AssistantContent::Reasoning(reasoning) if reasoning.display_text() == "推理过程"),
-        "Thinking → reasoning 块保真"
+        matches!(&content[1], AssistantContent::Reasoning(reasoning)
+            if reasoning.open(reasoning.issuer()).is_some_and(|value| value.display_text() == "推理过程")),
+        "Thinking → reasoning 块保真（本地发行方密封可开）"
     );
     assert!(matches!(
         &content[2],
         AssistantContent::ToolCall(tool_call)
-            if tool_call.id.as_str() == "tu_1"
-                && tool_call.function.name == "read"
+            if tool_call.id.wire().as_ref() == "tu_1"
+                && tool_call.function.name.as_str() == "read"
                 && tool_call.function.arguments == serde_json::json!({ "path": "README.md" })
     ));
 }
@@ -219,8 +220,8 @@ fn tool_result成对回灌且工具名自先行tool_use回溯() {
         matches!(
             &content[0],
             UserContent::ToolResult(result)
-                if result.call.as_str() == "tu_7"
-                    && result.name == "grep"
+                if result.call.wire().as_ref() == "tu_7"
+                    && result.name.as_str() == "grep"
                     && matches!(&result.content[0], ToolResultContent::Text(text) if text.text == "命中一行")
         ),
         "工具名回溯自先行 ToolUse（id → name 映射），实际: {:?}",
@@ -229,7 +230,7 @@ fn tool_result成对回灌且工具名自先行tool_use回溯() {
 }
 
 #[test]
-fn is_error结果以工具执行失败前缀回灌且miss名字落空串() {
+fn is_error结果以工具执行失败前缀回灌且孤儿结果剔除() {
     // is_error 结果
     let errored = vec![
         event(
@@ -255,18 +256,22 @@ fn is_error结果以工具执行失败前缀回灌且miss名字落空串() {
         "is_error 结果回灌「工具执行失败: 」前缀保真"
     );
 
-    // 先行 ToolUse 缺席：名字回溯 miss 落空串（openai result 面不消费名字）
-    let orphan = vec![tool_result_event(0, "tu_missing", "孤儿结果", false)];
+    // 先行 ToolUse 缺席（孤儿结果）：0.43 起 ToolName 不可空且 provider 侧
+    // 要求配对——孤儿结果自重建史剔除（与请求史防线 sweep_orphans 同口径）
+    let orphan = vec![
+        user_text(0, "任务书"),
+        tool_result_event(1, "tu_missing", "孤儿结果", false),
+    ];
     let history = rebuild(&orphan).expect("重建应成功");
-    let Message::User { content } = &history[0] else {
-        panic!("孤儿 ToolResult 应重建为 user 消息");
-    };
+    assert_eq!(
+        history.len(),
+        1,
+        "孤儿 ToolResult 剔除（仅任务书 user 消息存续），实际: {history:?}"
+    );
     assert!(
-        matches!(
-            &content[0],
-            UserContent::ToolResult(result) if result.name.is_empty()
-        ),
-        "名字 miss 落空串不炸重建"
+        !matches!(&history[0], Message::User { content }
+            if content.iter().any(|item| matches!(item, UserContent::ToolResult(_)))),
+        "孤儿结果不进重建史（无空名回灌形态）"
     );
 }
 
@@ -378,8 +383,8 @@ fn tool_role结果消息归并回user位重建() {
         matches!(
             &content[0],
             UserContent::ToolResult(result)
-                if result.call.as_str() == "tu_9"
-                    && result.name == "read"
+                if result.call.wire().as_ref() == "tu_9"
+                    && result.name.as_str() == "read"
                     && matches!(&result.content[0], ToolResultContent::Text(text) if text.text == "文件内容")
         ),
         "tool role 归并回 user 位且工具名回溯保真，实际: {:?}",

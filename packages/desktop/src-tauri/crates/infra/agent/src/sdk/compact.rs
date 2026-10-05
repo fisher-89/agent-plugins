@@ -1,5 +1,7 @@
-use rig::completion::{CompletionModel, CompletionRequest};
+use rig::completion::CompletionRequest;
+use rig::driver::DynModel;
 use rig::message::{AssistantContent, Message};
+use rig::operation::Completion;
 
 use crate::sdk::context::{protected_start, ContextDefense};
 
@@ -15,8 +17,8 @@ const SUMMARY_INSTRUCTION: &str = "这是历史摘要，请勿重复已完成的
 
 /// L3 摘要：成功返回 `[摘要（[历史摘要] 头 user 置顶）, 首条 user, 保护窗]`
 /// 新史；失败 `Err`（调用方降级硬裁）。
-pub(crate) async fn summarize<M: CompletionModel>(
-    model: &M,
+pub(crate) async fn summarize(
+    model: &DynModel<Completion>,
     history: &[Message],
     defense: &ContextDefense,
 ) -> Result<Vec<Message>, String> {
@@ -32,10 +34,13 @@ pub(crate) async fn summarize<M: CompletionModel>(
         serde_json::to_string(middle).map_err(|e| format!("待摘要历史序列化失败: {e}"))?;
     let request = CompletionRequest {
         model: None,
-        preamble: Some("你是对话历史摘要器：只输出摘要正文，不执行任何工具。".to_owned()),
-        chat_history: vec![Message::user(format!(
-            "{SUMMARY_INSTRUCTION}\n\n<待摘要历史>\n{transcript}\n</待摘要历史>"
-        ))],
+        // 摘要器系统提示词以 chat_history 首条 System 消息承载（0.43 口径）
+        chat_history: vec![
+            Message::system("你是对话历史摘要器：只输出摘要正文，不执行任何工具。"),
+            Message::user(format!(
+                "{SUMMARY_INSTRUCTION}\n\n<待摘要历史>\n{transcript}\n</待摘要历史>"
+            )),
+        ],
         documents: Vec::new(),
         // 禁工具：摘要请求不携带工具面（工具选择不在摘要语义内）
         tools: Vec::new(),
@@ -49,7 +54,7 @@ pub(crate) async fn summarize<M: CompletionModel>(
     // 一次重试：空响应与请求失败同列（摘要必须非空才有置换资格）
     let mut last_error = String::new();
     for _ in 0..2 {
-        match model.completion(request.clone()).await {
+        match model.call(request.clone()).await {
             Ok(response) => {
                 let summary = response_text(&response.choice);
                 if !summary.trim().is_empty() {

@@ -216,7 +216,7 @@ export type AgentDelta =
 export type AgentEngineKind = 
 /**  本机 claude CLI 租户 */
 "cli" | 
-/**  进程内 sdk 租户（rig-core 直连 openai 兼容端点） */
+/**  进程内 sdk 租户 */
 "sdk";
 
 /**

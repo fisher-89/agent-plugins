@@ -3,9 +3,10 @@ use std::time::{Duration, Instant};
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 use futures::StreamExt;
-use rig::completion::{CompletionModel, CompletionRequest, Usage};
+use rig::completion::{CompletionRequest, Usage};
+use rig::driver::DynModel;
 use rig::message::{AssistantContent, Message, ToolCall};
-use rig::streaming::StreamedAssistantContent;
+use rig::operation::Completion;
 use serde_json::Value;
 use tokio::sync::mpsc;
 
@@ -60,22 +61,16 @@ pub(crate) struct LoopTurn {
     pub liveness: StreamLiveness,
 }
 
-/// loop 主体：灌未盖戳事件至有界通道，收敛时发送 `TurnDone`（停止 / 消费端
-/// 关闭路径除外），返回累积后的对话史（会话泵任务跨轮续跑的全史）。`model`
-/// 为 rig completion model（openai chat completions 形态）；`history` 为续
-/// 会话重建史（全新运行为空史）。
-pub(crate) async fn run<M>(
-    model: &M,
+/// loop 主体
+pub(crate) async fn run(
+    model: &DynModel<Completion>,
     turn: &LoopTurn,
     mut history: Vec<Message>,
     sender: mpsc::Sender<AgentEventKind>,
     handle: RunHandle,
-) -> Vec<Message>
-where
-    M: CompletionModel,
-{
+) -> Vec<Message> {
     let started = Instant::now();
-    let mut usage = Usage::new();
+    let mut usage = Usage::default();
     let definitions = tools::definitions();
 
     // run 启动事件（core 协议 RunStarted 的 model / session / tools 口径；MCP 恒空）
@@ -127,15 +122,17 @@ where
             ));
             return history;
         }
-        // 上下文防线（每次发请求前，第二调用点）：L2 prune → notice 转发 →
-        // 水位过 L3 触发比则 LLM compaction（失败降级硬裁）。只作用请求史，
-        // store 转录全量不变。
+        // 上下文防线（每次发请求前，第二调用点）
         history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
+        // 系统提示词每轮重读
+        let mut chat_history = Vec::with_capacity(history.len() + 1);
+        if let Some(preamble) = preamble::load(&turn.cwd).await {
+            chat_history.push(Message::system(preamble));
+        }
+        chat_history.extend(history.iter().cloned());
         let request = CompletionRequest {
             model: None,
-            // 系统提示词每轮重读（会话中改动 AGENT.md 下一轮生效；缺席 None）
-            preamble: preamble::load(&turn.cwd).await,
-            chat_history: history.clone(),
+            chat_history,
             documents: Vec::new(),
             tools: definitions.clone(),
             temperature: None,
@@ -145,61 +142,65 @@ where
             output_schema: None,
             record_telemetry_content: false,
         };
-        // 请求相位活性护栏：响应头前超时即失败收敛（悬挂轮的观测半边）
-        let mut response =
-            match tokio::time::timeout(turn.liveness.request, model.stream(request)).await {
-                Ok(Ok(response)) => response,
-                Ok(Err(error)) => {
-                    finish_error(
-                        &sender,
-                        turn_index,
-                        started,
-                        &usage,
-                        turn,
-                        "api_error",
-                        format!("API 请求失败: {error}"),
-                    )
-                    .await;
-                    return history;
-                }
-                Err(_) => {
-                    finish_error(
-                        &sender,
-                        turn_index,
-                        started,
-                        &usage,
-                        turn,
-                        "api_error",
-                        format!(
-                            "API 请求超时（{} s 无响应头）",
-                            turn.liveness.request.as_secs()
-                        ),
-                    )
-                    .await;
-                    return history;
-                }
-            };
-        // 流消费至 EOF（可恢复帧错误 drain 不中断，rig 契约：Err 非必然终局）；
-        // 帧间空闲活性护栏：无新帧超时即失败收敛（流死悬挂的观测半边）
+        // 0.43 起 `stream` 同步返回（编码错误即时 Err；请求发送推迟到首次轮
+        // 询），请求相位活性护栏挪至首帧等待
+        let mut response = match model.stream(request) {
+            Ok(response) => response,
+            Err(error) => {
+                finish_error(
+                    &sender,
+                    turn_index,
+                    started,
+                    &usage,
+                    turn,
+                    "api_error",
+                    format!("API 请求失败: {error}"),
+                )
+                .await;
+                return history;
+            }
+        };
+
         let mut stream_error: Option<String> = None;
+        let mut first_frame = true;
         loop {
-            let item = match tokio::time::timeout(turn.liveness.frame, response.next()).await {
+            let budget = if first_frame {
+                turn.liveness.request
+            } else {
+                turn.liveness.frame
+            };
+            let item = match tokio::time::timeout(budget, response.next()).await {
                 Ok(item) => item,
                 Err(_) => {
-                    stream_error.get_or_insert(format!(
-                        "API 流空闲超时（{} s 无新帧）",
-                        turn.liveness.frame.as_secs()
-                    ));
-                    break;
+                    let cause = if first_frame {
+                        format!(
+                            "API 请求超时（{} s 无响应帧）",
+                            turn.liveness.request.as_secs()
+                        )
+                    } else {
+                        format!(
+                            "API 流空闲超时（{} s 无新帧）",
+                            turn.liveness.frame.as_secs()
+                        )
+                    };
+                    finish_error(
+                        &sender,
+                        turn_index,
+                        started,
+                        &usage,
+                        turn,
+                        "api_error",
+                        cause,
+                    )
+                    .await;
+                    return history;
                 }
             };
+            first_frame = false;
             let Some(item) = item else {
                 break;
             };
             match item {
-                Ok(StreamedAssistantContent::Final(record)) => {
-                    usage += record.usage;
-                }
                 Ok(item) => {
                     if let Some(kind) = normalize::stream_item(&item) {
                         if sender.send(kind).await.is_err() {
@@ -213,6 +214,7 @@ where
                 }
                 Err(error) => {
                     stream_error.get_or_insert_with(|| error.to_string());
+                    break; // 0.43 契约：Err 即流尾
                 }
             }
         }
@@ -229,8 +231,29 @@ where
             .await;
             return history;
         }
-        // 轮末聚合：choice 整体复用为 rig assistant 消息回灌
-        let choice = std::mem::take(&mut response.choice);
+        // 轮末收口：`finish` 把已读帧折叠为完整响应（choice 与 usage 单口
+        // 径；0.43 起终局记录不再以独立流帧出现）
+        let rig::completion::CompletionResponse {
+            choice,
+            usage: turn_usage,
+            ..
+        } = match response.finish().await {
+            Ok(response) => response,
+            Err(error) => {
+                finish_error(
+                    &sender,
+                    turn_index,
+                    started,
+                    &usage,
+                    turn,
+                    "api_error",
+                    format!("API 流失败: {error}"),
+                )
+                .await;
+                return history;
+            }
+        };
+        usage += turn_usage;
         if choice.is_empty() {
             // 空轮（无文本无工具调用）：以正常收敛防死循环
             finish_success(&sender, turn_index, started, &usage, turn).await;
@@ -245,13 +268,18 @@ where
                 AssistantContent::Text(text) => blocks.push(AgentBlock::Text {
                     text: text.text.clone(),
                 }),
+                // 0.43 起 reasoning 以 Sealed 承载（发行方才可读）：以自身发行
+                // 方打开取可显示文本（text / summary 块按行拼接）
                 AssistantContent::Reasoning(reasoning) => blocks.push(AgentBlock::Thinking {
-                    thinking: reasoning.display_text(),
+                    thinking: reasoning
+                        .open(reasoning.issuer())
+                        .map(|value| value.display_text())
+                        .unwrap_or_default(),
                 }),
                 AssistantContent::ToolCall(tool_call) => {
                     blocks.push(AgentBlock::ToolUse {
-                        id: tool_call.id.as_str().to_owned(),
-                        name: tool_call.function.name.clone(),
+                        id: tool_call.id.to_string(),
+                        name: tool_call.function.name.as_str().to_owned(),
                         input: tool_call.function.arguments.clone(),
                     });
                     tool_calls.push(tool_call.clone());
@@ -282,22 +310,31 @@ where
             finish_success(&sender, turn_index, started, &usage, turn).await;
             return history;
         }
-        // 工具调用逐个：policy → sandbox → 执行 → 回灌（run 不中断）
+        // 工具调用逐个：policy → sandbox → 执行 → 回灌（run 不中断）；0.43 起
+        // tool_result 以 CallId / ToolName 构造（与 tool_use 同源配对）
         for tool_call in tool_calls {
-            let id = tool_call.id.as_str().to_owned();
-            let name = tool_call.function.name.clone();
+            let id = tool_call.id.to_string();
+            let name = tool_call.function.name.as_str().to_owned();
             let input = tool_call.function.arguments.clone();
             if !policy::allows(turn.permission_mode, &name) {
                 let reason = format!("权限档位不允许该工具: {name}");
                 deny(&sender, "permission_denied", &name, &reason, &id).await;
-                history.push(Message::tool_result(id, name, reason));
+                history.push(Message::tool_result(
+                    tool_call.id,
+                    tool_call.function.name,
+                    reason,
+                ));
                 continue;
             }
             let sandboxed = match sandbox_rewrite(&turn.cwd, &name, &input) {
                 Ok(rewritten) => rewritten,
                 Err(reason) => {
                     deny(&sender, "sandbox_denied", &name, &reason, &id).await;
-                    history.push(Message::tool_result(id, name, reason));
+                    history.push(Message::tool_result(
+                        tool_call.id,
+                        tool_call.function.name,
+                        reason,
+                    ));
                     continue;
                 }
             };
@@ -326,7 +363,11 @@ where
                 ));
                 return history; // 消费端关闭：泵自行退出
             }
-            history.push(Message::tool_result(id, name, content));
+            history.push(Message::tool_result(
+                tool_call.id,
+                tool_call.function.name,
+                content,
+            ));
         }
     }
     // 轮数熔断：以失败收敛（模型持续要求工具不收敛）
@@ -376,16 +417,13 @@ async fn deny(
 /// 降级 `hard_prune` 并以 `fallback:true` 留痕），run 不失败收敛。notice
 /// 消费端关闭时尽力流出（外层续轮的下一发自然退出）。摘要调用带请求相位
 /// 活性预算（悬挂的摘要请求同样会挂起整轮）。
-async fn defend<M>(
-    model: &M,
+async fn defend(
+    model: &DynModel<Completion>,
     history: Vec<Message>,
     defense: &ContextDefense,
     liveness: &StreamLiveness,
     sender: &mpsc::Sender<AgentEventKind>,
-) -> Vec<Message>
-where
-    M: CompletionModel,
-{
+) -> Vec<Message> {
     let (pruned, notices) = context::prune(history, defense);
     for notice in &notices {
         forward_notice(sender, notice).await;
@@ -543,7 +581,7 @@ async fn finish(
         num_turns: turns,
         duration_ms: Some(started.elapsed().as_millis() as u64),
         cost_usd: None,
-        usage: if usage.has_values() {
+        usage: if usage.is_reported() {
             serde_json::to_value(usage).unwrap_or(Value::Null)
         } else {
             Value::Null

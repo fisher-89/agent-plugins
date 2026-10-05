@@ -1,10 +1,10 @@
 use std::sync::atomic::{AtomicU64, Ordering};
 
 use agent::{AgentRunner, AgentSession, AgentStartError, RunHandle, SessionOpen, TurnQuestion};
-use rig::client::CompletionClient;
-use rig::completion::CompletionModel;
+use rig::driver::DynModel;
 use rig::message::Message;
-use rig::providers::openai;
+use rig::operation::Completion;
+use rig::providers::openai::OpenAIConfig;
 use tokio::sync::mpsc;
 
 use crate::sdk::config::EngineConfig;
@@ -96,7 +96,7 @@ impl AgentRunner for SdkRunner {
         // Continue：经装载缝取会话全史转录重建（New 空史）；先行句柄 sdk 引擎
         // 不消费（引擎侧标识每轮铸造，重建源即会话全史转录）
         let history = self.resolve_resume(&continue_session_id(&open))?;
-        let model = build_model(&self.config)?;
+        let model = build_model(&self.config);
         let model_name = self.config.model.clone();
         let (question_tx, question_rx) = mpsc::channel::<TurnQuestion>(QUESTION_CHANNEL_CAPACITY);
         let (observation_tx, observation_rx) =
@@ -136,17 +136,16 @@ fn continue_session_id(open: &SessionOpen) -> Option<String> {
     }
 }
 
-/// rig client 组装：openai 兼容端点（自定义 base_url）+ chat completions
-/// API + 模型标识。端点不可达性在请求期才暴露（构造失败仅 URL/凭据形态
-/// 非法），落 `ConfigMissing`（启动失败单一中性变体）。
-fn build_model(config: &EngineConfig) -> Result<impl CompletionModel, AgentStartError> {
-    let client = openai::Client::builder()
-        .api_key(config.api_key.clone())
-        .base_url(&config.base_url)
-        .build()
-        .map_err(|error| AgentStartError::ConfigMissing(format!("端点配置非法: {error}")))?
-        .completions_api();
-    Ok(client.completion_model(config.model.clone()))
+/// rig 模型组装（0.43 起模型 = wire + transport 配对，经 `DynModel` 擦除为
+/// 操作面持有）：openai 兼容端点（自定义 base_url）+ chat completions 线 +
+/// 模型标识。构造恒成功——端点不可达 / URL 非法在请求期才暴露（首帧 Err
+/// 收敛为 api_error），启动失败面只剩配置三件套校验。
+fn build_model(config: &EngineConfig) -> DynModel<Completion> {
+    OpenAIConfig::new(config.api_key.clone())
+        .with_base_url(config.base_url.clone())
+        .client()
+        .chat(config.model.clone())
+        .erase()
 }
 
 /// 泵任务的防线与史载荷（参数面收敛分组：重建史 + 防线配置 + 重建剪裁的
@@ -161,17 +160,15 @@ struct PumpPayload {
 }
 
 /// 会话泵任务（ask 段）
-async fn session_pump<M>(
-    model: M,
+async fn session_pump(
+    model: DynModel<Completion>,
     model_name: String,
     open: SessionOpen,
     payload: PumpPayload,
     mut questions: mpsc::Receiver<TurnQuestion>,
     observations: mpsc::Sender<agent::AgentEventKind>,
     handle: RunHandle,
-) where
-    M: CompletionModel,
-{
+) {
     let Some(question) = questions.recv().await else {
         return; // 组合根半边先关：无问即无泵生命周期
     };

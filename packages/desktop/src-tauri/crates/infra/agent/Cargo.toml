@@ -14,7 +14,6 @@ specta = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, features = ["process", "io-util", "rt", "macros", "time"] }
 rig = { workspace = true }
-rig-core = { workspace = true }
 regex = { workspace = true }
 glob = { workspace = true }
 futures = { workspace = true }
@@ -22,3 +21,4 @@ futures = { workspace = true }
 [dev-dependencies]
 tempfile = { workspace = true }
 native_db = { workspace = true }
+rig = { workspace = true, features = ["test-utils"] }

@@ -247,12 +247,12 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 
 - provider 首公民 SHALL 为 openai-compatible 端点（自定义 base_url——GLM / DeepSeek / Kimi / 自部署第一公民）；anthropic provider 降为后续可选
 - 自建 agent loop（多轮：流式响应 → 映射事件 → 执行工具 → 回灌 → 续轮；收敛与统计填充全自控）——rig 仅用作 provider client 与消息/工具类型层
-- **流面双层交付**：流内 `Text` / `ReasoningDelta` 增量 SHALL 映射为 `MessageDelta`（text/thinking 可辨，只上传输面）；轮末 `choice` SHALL 收口为**恰一条密封 `Message`**（全部块收进；MUST NOT 把每个 text delta 当完整块出密封 Message——碎事件根因修复）
+- **流面双层交付**：流内 `Text` / `Reasoning` 片段增量 SHALL 映射为 `MessageDelta`（text/thinking 可辨，只上传输面；rig 0.43 流事件模型为部分生命周期——Start / Arguments / End 为簿记事件不出增量）；轮末 `finish()` 折叠的 `choice` SHALL 收口为**恰一条密封 `Message`**（全部块收进；MUST NOT 把每个 text delta 当完整块出密封 Message——碎事件根因修复）
 - 自建工具面：MVP 工具集 = read / grep / glob / ls / write / edit / **bash** 七工具（bash 执行体与档位见「SDK 引擎 bash 工具」）；MCP 与子代理 MUST NOT 实现（`parent_tool_use_id` 恒空）
-- **系统提示词**：请求 preamble SHALL 由引擎自读 workspace root `AGENT.md` 注入（见「SDK 引擎系统提示词（AGENT.md 注入）」）；`SessionInjections` 消费面维持现状
+- **系统提示词**：请求系统提示词 SHALL 由引擎自读 workspace root `AGENT.md` 注入（见「SDK 引擎系统提示词（AGENT.md 注入）」）；`SessionInjections` 消费面维持现状
 - **上下文管理**：喂 provider 的请求史 SHALL 经 L1-L3 上下文防线治理（见「SDK 引擎工具质量与单结果上限（L1）」「SDK 引擎上下文窗防线（L2 剪裁与 L3 compaction）」）；store 转录全量不变
 - 事件归一化：openai chat completions 形状的 `tool_calls` 数组 SHALL 映射为 ToolUse 块并与 ToolResult 成对（同 id）；`RunStarted` SHALL 各报各的（model 取 `EngineConfig.model`、tools 报自建七工具集）；统计口径依 TurnDone 字段面（`cost_usd` 恒缺省 `None`——无价格表，降级不违约）；API 重试 / 错误 SHALL 经 `SystemNotice{subtype}`（开放枚举）流出
-- 依赖足迹：workspace 依赖 SHALL 为 `rig` facade 条目（`=0.42.0` 锁版平移、MUST NOT 升版本；`default-features = false` + 显式 features：`reqwest` / `native-tls` / memory feature；rig-core 经 facade 传递入树，MUST NOT 保留直连残留——spike 定稿：双条目 pin，`rig-core` 条目保留为解析钉子，双条目强制锁 0.42.0）
+- 依赖足迹：workspace 依赖 SHALL 为 `rig` facade 单条目（`=0.43.0` 锁版——升版经显式修订而非静默漂移；`default-features = false` + 显式 features：`reqwest` / `native-tls` / memory feature，reqwest / native-tls 经 facade 转发到 rig-core）；代码 `rig_core::` 路径零残留。0.42 时代的 `rig-core` 双条目解析钉子退役（2026-10-06 修订）：0.43 家族拆出 rig-reqwest / rig-http / rig-tungstenite 等同伴 crate 后双条目只钉得住 rig-core 一个，全家族精确版本由 Cargo.lock 承担
 
 #### Scenario: 事件归一化 fixture
 
@@ -267,23 +267,23 @@ run 状态机 SHALL 位于 `core/agent`（治理面）：running → completed |
 #### Scenario: facade 依赖足迹
 
 - **WHEN** 审查 workspace 依赖与 `crates/infra/agent` 源码
-- **THEN** 依赖为 `rig` facade 条目（锁版 `=0.42.0`、`default-features = false` + 显式 features），`rig_core::` 路径零残留；恒编译、无 feature gate
+- **THEN** 依赖为 `rig` facade 单条目（锁版 `=0.43.0`、`default-features = false` + 显式 features），`rig_core::` 路径零残留；恒编译、无 feature gate
 
 ### Requirement: SDK 引擎系统提示词（AGENT.md 注入）
 
-SDK 引擎 SHALL 在起播前读取 workspace root 的 `AGENT.md` 单份文件作为系统提示词来源：文件存在 → 内容**逐字**注入请求 `preamble`（不包装、不改写）；文件缺席 → `preamble` 保持 `None`（现状不变）。读取范围 SHALL 严格限于 `AGENT.md`，MUST NOT 做 `CLAUDE.md` 等兜底回退。注入 SHALL **每轮重读**：会话中途修改 `AGENT.md`，改动自下一轮请求生效（不做起播快照——bash 引入后 agent 可改自己的系统提示词，该语义行为最简且可预期）。
+SDK 引擎 SHALL 在起播前读取 workspace root 的 `AGENT.md` 单份文件作为系统提示词来源：文件存在 → 内容**逐字**注入请求系统提示词位（rig 0.43 起 `preamble` 字段退役，以 chat_history 首条 `Message::System` 承载；不包装、不改写）；文件缺席 → 不注入 System 消息（现状语义不变）。读取范围 SHALL 严格限于 `AGENT.md`，MUST NOT 做 `CLAUDE.md` 等兜底回退。注入 SHALL **每轮重读**：会话中途修改 `AGENT.md`，改动自下一轮请求生效（不做起播快照——bash 引入后 agent 可改自己的系统提示词，该语义行为最简且可预期）。
 
-该机制 SHALL 为引擎内部特性（P2 原则：跨会话持久上下文是 agent 产品特性非协议义务），`crates/core/agent` 零改动；`SessionInjections` 消费面维持现状（compose 恒传 default 不动）。preamble 自身体量上限 32KB（char 边界截断）、嵌套 `AGENT.md` 不级联。
+该机制 SHALL 为引擎内部特性（P2 原则：跨会话持久上下文是 agent 产品特性非协议义务），`crates/core/agent` 零改动；`SessionInjections` 消费面维持现状（compose 恒传 default 不动）。注入体量上限 32KB（char 边界截断）、嵌套 `AGENT.md` 不级联。
 
 #### Scenario: AGENT.md 在场逐字注入
 
 - **WHEN** workspace root 存在 `AGENT.md` 时以 sdk 引擎发起运行
-- **THEN** 请求 preamble 为该文件内容逐字（不包装、不改写），`crates/core/agent` 与 compose 面零 diff
+- **THEN** 请求系统提示词（chat_history 首条 System 消息）为该文件内容逐字（不包装、不改写），`crates/core/agent` 与 compose 面零 diff
 
 #### Scenario: 缺席维持现状
 
 - **WHEN** workspace root 无 `AGENT.md` 时以 sdk 引擎发起运行
-- **THEN** preamble 为 `None`，请求形状与注入机制上线前一致
+- **THEN** 请求不注入 System 消息，请求形状与注入机制上线前一致
 
 #### Scenario: 会话中修改下一轮生效
 
@@ -293,7 +293,7 @@ SDK 引擎 SHALL 在起播前读取 workspace root 的 `AGENT.md` 单份文件�
 #### Scenario: 无兜底回退
 
 - **WHEN** workspace root 只有 `CLAUDE.md` 而无 `AGENT.md`
-- **THEN** 不发生兜底读取，preamble 仍为 `None`（严格单文件语义）
+- **THEN** 不发生兜底读取，系统提示词位仍空（严格单文件语义）
 
 ### Requirement: SDK 引擎工具质量与单结果上限（L1）
 
@@ -668,7 +668,7 @@ headless 禁 ask：CLI 引擎命令行组装 SHALL 追加 `--disallowedTools Ask
 |------|------|----------|
 | `packages/desktop/src-tauri/crates/core/agent`（裸名 `agent`） | 会话域内核 | `AgentEvent` 双层词汇（+`MessageDelta`；TurnDone 统一口径）；P1 引擎协议（spawn/question/stop/观察回流 + 四不变量）；`run_session` / `query_sessions` 公共 API；治理面（盖戳/状态机/停止注册）；持久面（write-through）与查询契约；port 定义（core 定接口、infra 实现，落点 design 裁定）；无直接 IO、无 claude/引擎/Tauri、无 workspace 内依赖 |
 | `crates/core/agent/src/kernel.rs` | 内核收口缝 | `drive` 以观测通道关闭（引擎侧单边 EOF）为唯一收口缝（无状态机 break / stop select / 第二收口路径，agent-turn-eof 裁定） |
-| `packages/desktop/src-tauri/crates/infra/agent`（裸名 `agent-runtime`） | 引擎门面 + 双引擎实现 | `EngineKind`（`cli` \| `sdk`，specta camelCase）；`runner_for(kind, engine_cfg)`（唯一 match 分发）；`EngineConfig{api_key, base_url, model}` 由内核组合根注入（机密面放宽注释标记见 desktop-agent-management 边界表）；SHALL 实现内核 port（store 持久面与查询面落地）；`rig` facade 恒编译（`=0.42.0` 锁版 + 显式 features）；`EngineFacade::with_context_window` 承接 provider `context_length`（不经 `EngineConfig`） |
+| `packages/desktop/src-tauri/crates/infra/agent`（裸名 `agent-runtime`） | 引擎门面 + 双引擎实现 | `EngineKind`（`cli` \| `sdk`，specta camelCase）；`runner_for(kind, engine_cfg)`（唯一 match 分发）；`EngineConfig{api_key, base_url, model}` 由内核组合根注入（机密面放宽注释标记见 desktop-agent-management 边界表）；SHALL 实现内核 port（store 持久面与查询面落地）；`rig` facade 恒编译（`=0.43.0` 锁版 + 显式 features）；`EngineFacade::with_context_window` 承接 provider `context_length`（不经 `EngineConfig`） |
 | `crates/infra/agent/src/cli/` | CLI 引擎协议实现 | `session_pump` 一轮一命（单问服务后返回 → 内核 EOF 收口；停止/spawn 失败单轮终止语义不动，agent-turn-eof）；flag 组装 `--disallowedTools AskUserQuestion` 恒居参数序列末位（`--resume` 之后）；jsonl 泵与 resume flag 行为延续；恢复走 engine_handle 原生 `--resume` |
 | `crates/infra/agent/src/sdk/` | SDK 引擎协议实现 | `normalize.rs` 双层化（Text/ReasoningDelta → delta、轮末密封）；`loop.rs` 密封收口；`resume.rs` 会话全史重建；`runner.rs` 协议实现且 `session_pump` 一轮一命（跨轮史槽不存，会话史唯一源 = store 全史转录重建，agent-turn-eof）；工具面/权限/沙箱语义见 SDK 各专章（AGENT.md 注入 / L1 工具质量 / bash / 三档分化 / L2-L3 防线） |
 | `crates/infra/agent/src/sdk/{loop,normalize,resume,runner,tools,policy,config}.rs` | facade 路径迁移 | `rig_core::` → `rig::`（纯 re-export 同名）；`rig_core::` 路径零残留 |
@@ -686,7 +686,7 @@ headless 禁 ask：CLI 引擎命令行组装 SHALL 追加 `--disallowedTools Ask
 | `packages/desktop/src/views/agent/components/agent-run-form.tsx` | run 表单 | agent 选择 state（选中 id 随会话发起 invoke 传参；`engine` state 与下拉退役） |
 | `packages/desktop/src/components/app-sidebar.tsx` | 页面导航组 | [变更] [Agent 调试]；本地 state 切视图，无路由 |
 | agent 会话域前端 hooks | 流订阅 + 查询 | Tauri Channel 实时订阅（执行流通道例外）+ invoke 会话查询重放；查询仍显式触发 |
-| `packages/desktop/src-tauri/Cargo.toml`（workspace 依赖） | rig facade 切换 | `rig` 条目：`=0.42.0` 锁版、`default-features = false`、features `reqwest` + `native-tls` + memory；`rig-core` 条目保留为解析钉子（双条目强制锁 0.42.0）；`regex` 条目；members 行与目录名不变 |
+| `packages/desktop/src-tauri/Cargo.toml`（workspace 依赖） | rig facade 切换 | `rig` 条目：`=0.43.0` 锁版、`default-features = false`、features `reqwest` + `native-tls` + memory（单条目定稿，双条目解析钉子退役——见依赖足迹条目）；`regex` 条目；members 行与目录名不变；测试构建另经 agent-runtime 的 dev-dependencies 加 `rig` `test-utils` feature（流缝 mock 装置仅测试启用，不入生产构建） |
 | `packages/desktop/src-tauri/src/bindings/` | IPC 类型镜像 | 经 export-bindings 再生成（信封与命令面演进），非手改；快照测试同步再生成 |
 | `crates/core/agent/src/port.rs` `SessionQuery` | 单查契约 | 增按 id 单查方法（会话行 + 统计 + 轮行，running 自轮行推导）；`list_sessions` / `transcript` 不动 |
 | `crates/infra/agent/src/store_port.rs` | 单查实现 | 以 store `find_session` 为底座（store schema 零变更）；workspace 库隔离 |

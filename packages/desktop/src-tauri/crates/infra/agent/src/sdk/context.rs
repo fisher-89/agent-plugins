@@ -1,15 +1,6 @@
-//! 上下文窗防线 L2（确定性剪裁，sdk 引擎内部特性）：请求前对**喂 provider 的
-//! 请求史**（非 store 转录）实施确定性剪裁——先占位符替换保护窗外单体超门槛
-//! 的老 tool_result（call / name 保留，tool_use / tool_result 配对结构完整），
-//! 不够再丢最老完整轮对，恒保首条 user（phase agent 首条 user 即任务书）；
-//! 孤儿配对清扫兜底。剪裁产出 `context_pruned` notice（开放词典 subtype +
-//! before / after / layer 载荷），store 转录全量不变。L3 compaction 见
-//! [`crate::sdk::compact`]，调用点编排见 [`crate::sdk::r#loop`] 与
-//! [`crate::sdk::runner`]。
-
 use std::collections::HashSet;
 
-use rig::message::{AssistantContent, Message, ToolResult, ToolResultContent, UserContent};
+use rig::message::{AssistantContent, CallId, Message, ToolResult, ToolResultContent, UserContent};
 use serde_json::Value;
 
 /// 缺省窗长（token 数）：provider 记录 `context_length` 缺席时的 128K 启发式。
@@ -197,7 +188,6 @@ fn replace_oversized_results(
                             let tokens = estimate_result_content(&result);
                             UserContent::ToolResult(ToolResult {
                                 call: result.call,
-                                provider: result.provider,
                                 name: result.name,
                                 content: vec![ToolResultContent::text(format!(
                                     "[已剪裁] 本工具结果约 {tokens} tokens（超单结果保留门槛 \
@@ -233,14 +223,14 @@ fn oldest_unit_range(history: &[Message], protected: usize) -> Option<(usize, us
 /// 时剔除该结果条目（provider 端 tool 配对协议要求成对出现），纯文本位保留；
 /// 清空后无内容的 user 位消息整条移除。
 fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
-    let mut answered: HashSet<String> = HashSet::new();
+    let mut answered: HashSet<CallId> = HashSet::new();
     history
         .into_iter()
         .filter_map(|message| match message {
             Message::Assistant { id, content } => {
                 for item in &content {
                     if let AssistantContent::ToolCall(call) = item {
-                        answered.insert(call.id.as_str().to_owned());
+                        answered.insert(call.id.clone());
                     }
                 }
                 Some(Message::Assistant { id, content })
@@ -249,7 +239,7 @@ fn sweep_orphans(history: Vec<Message>) -> Vec<Message> {
                 let kept: Vec<UserContent> = content
                     .into_iter()
                     .filter(|item| match item {
-                        UserContent::ToolResult(result) => answered.contains(result.call.as_str()),
+                        UserContent::ToolResult(result) => answered.contains(&result.call),
                         _ => true,
                     })
                     .collect();
