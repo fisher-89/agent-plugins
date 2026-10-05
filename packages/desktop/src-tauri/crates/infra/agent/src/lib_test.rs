@@ -2,11 +2,11 @@ use std::path::Path;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::{Arc, Mutex};
 
+use crate::sdk::runner::SdkRunner;
 use crate::{
     compose_turn, session_query, ClaudeCliRunner, ComposedTurn, EngineConfig, EngineFacade,
     EngineKind, ResumeTranscript,
 };
-use crate::sdk::runner::SdkRunner;
 use agent::AgentRunner;
 use store::WorkspaceStores;
 

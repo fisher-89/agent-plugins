@@ -1,13 +1,7 @@
-//! `context`（L2 确定性剪裁）的单元测试（AC-6 / AC-8 / AC-9 消费半边）：窗长
-//! 解析与水位推导、token 字节启发式、占位符替换（配对完整）、单体门槛恰边界、
-//! 保护窗、最老轮对丢弃、首条 user 保全、孤儿清扫、notice 载荷形状与
-//! `hard_prune` 硬裁。纯函数模块，rig Message 以内存构造（serde_json /
-//! rig 构造器组装），无进程边界依赖，不需要 Mock。
-
 use rig::message::{AssistantContent, Message, ToolResultContent, UserContent};
 use serde_json::json;
 
-use crate::sdk::context::{estimate_history, hard_prune, prune, protected_start, ContextDefense};
+use crate::sdk::context::{estimate_history, hard_prune, protected_start, prune, ContextDefense};
 
 // ---------------------------------------------------------------------------
 // 装置：防线底座、消息构造、精确 tokens 构造（自校准）、史抽取
@@ -26,10 +20,7 @@ fn defense_small() -> ContextDefense {
 /// user 消息的序列化常数开销（信封底数），供精确 tokens 构造。
 fn user_overhead() -> usize {
     let probe = Message::user("a".repeat(1000));
-    serde_json::to_vec(&probe)
-        .expect("probe 序列化成功")
-        .len()
-        - 1000
+    serde_json::to_vec(&probe).expect("probe 序列化成功").len() - 1000
 }
 
 /// 构造估算恰为 `tokens` 的 user 消息（序列化字节 = 4 × tokens，÷4 无余数，
@@ -42,10 +33,7 @@ fn user_at_tokens(tokens: u64) -> Message {
 /// tool_result 正文的序列化常数开销（仅载荷不含信封，与估算口径同面）。
 fn tool_result_content_overhead() -> usize {
     let probe = vec![ToolResultContent::text("a".repeat(1000))];
-    serde_json::to_vec(&probe)
-        .expect("probe 序列化成功")
-        .len()
-        - 1000
+    serde_json::to_vec(&probe).expect("probe 序列化成功").len() - 1000
 }
 
 /// 构造正文估算恰为 `tokens` 的 tool_result 消息（单体门槛的精确边界基座）。
@@ -58,7 +46,11 @@ fn tool_result_at_tokens(call: &str, tokens: u64) -> Message {
 fn assistant_with_call(id: &str) -> Message {
     Message::Assistant {
         id: None,
-        content: vec![AssistantContent::tool_call(id, "read", json!({ "path": "a.txt" }))],
+        content: vec![AssistantContent::tool_call(
+            id,
+            "read",
+            json!({ "path": "a.txt" }),
+        )],
     }
 }
 
@@ -97,8 +89,10 @@ fn tool_call_ids(history: &[Message]) -> Vec<String> {
 
 /// 史内是否残留任何 tool_result 条目（孤儿判定）。
 fn has_any_tool_result(history: &[Message]) -> bool {
-    history.iter().any(|message| matches!(message, Message::User { content }
-        if content.iter().any(|item| matches!(item, UserContent::ToolResult(_)))))
+    history.iter().any(|message| {
+        matches!(message, Message::User { content }
+        if content.iter().any(|item| matches!(item, UserContent::ToolResult(_))))
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -142,7 +136,10 @@ fn resolve缺席走128k缺省启发式() {
     // 缺省窗 128 * 1024 → L2 水位 98_304：边界两侧精准判别
     let boundary = l2_threshold_of(128 * 1024);
     assert_eq!(boundary, 98_304, "128K 缺省窗的 L2 水位推导");
-    assert!(!defense.over_l2(&[user_at_tokens(boundary)]), "恰水位不过线");
+    assert!(
+        !defense.over_l2(&[user_at_tokens(boundary)]),
+        "恰水位不过线"
+    );
     assert!(
         defense.over_l2(&[user_at_tokens(boundary + 1)]),
         "超 1 过线（缺席走 128K 启发式，非 0 非其它字面）"
@@ -271,10 +268,7 @@ fn prune老工具结果占位符替换且tool_use配对完整() {
         placeholder.contains("store 转录全量保留"),
         "占位符留痕指向 store 全量面: {placeholder}"
     );
-    assert!(
-        !placeholder.contains('a'),
-        "原正文已从请求史移除"
-    );
+    assert!(!placeholder.contains('a'), "原正文已从请求史移除");
     assert_eq!(
         tool_call_ids(&pruned),
         vec!["tu_big".to_owned()],
@@ -296,18 +290,23 @@ fn prune单体门槛恰边界_恰20k不裁超1即裁() {
     let at_threshold_estimate = estimate_history(&at_threshold);
     let (unchanged, notices) = prune(at_threshold.clone(), &defense_small());
     assert!(
-        tool_result_text(&unchanged, "tu_edge")
-            .is_some_and(|text| text.contains('a')),
+        tool_result_text(&unchanged, "tu_edge").is_some_and(|text| text.contains('a')),
         "恰门槛 tool_result 正文原样保留（不裁）"
     );
-    assert_eq!(estimate_history(&unchanged), at_threshold_estimate, "恰门槛零改动");
-    assert!(notices.is_empty(), "无裁零 notice（after == before 不产痕）");
+    assert_eq!(
+        estimate_history(&unchanged),
+        at_threshold_estimate,
+        "恰门槛零改动"
+    );
+    assert!(
+        notices.is_empty(),
+        "无裁零 notice（after == before 不产痕）"
+    );
 
     // 超 1：越门槛 → 占位符替换（恰阈值过 / 超 1 截断）
     let over = oversized_history("tu_edge", 20_481);
     let (pruned, notices) = prune(over, &defense_small());
-    let placeholder =
-        tool_result_text(&pruned, "tu_edge").expect("tool_result 仍在");
+    let placeholder = tool_result_text(&pruned, "tu_edge").expect("tool_result 仍在");
     assert!(
         placeholder.contains("[已剪裁]"),
         "超门槛 1 token 即触发占位符替换: {placeholder}"
@@ -350,7 +349,11 @@ fn prune占位不够时丢最老完整轮对且次老保留() {
         user_at_tokens(50_000),
         Message::assistant("次老轮对的回应"),
     ];
-    assert_eq!(protected_start(&history, &defense_small()), 4, "保护窗圈定史尾");
+    assert_eq!(
+        protected_start(&history, &defense_small()),
+        4,
+        "保护窗圈定史尾"
+    );
 
     let (pruned, notices) = prune(history, &defense_small());
 
@@ -417,10 +420,7 @@ fn prune轮对裁剪产生的孤儿tool_result被配对清扫() {
         !has_any_tool_result(&pruned),
         "孤儿 tool_result 被清扫（provider 端 tool 配对协议要求成对）"
     );
-    assert!(
-        tool_call_ids(&pruned).is_empty(),
-        "无悬空 tool_use id"
-    );
+    assert!(tool_call_ids(&pruned).is_empty(), "无悬空 tool_use id");
     assert_eq!(pruned, vec![Message::user("任务书")], "仅首条 user 保全");
     assert_eq!(notices.len(), 1, "清扫减重产出 notice");
 }
@@ -441,7 +441,10 @@ fn prune未越水位时原史原样返回且零notice() {
     let history_estimate = estimate_history(&history);
     let (pruned, notices) = prune(history.clone(), &ContextDefense::resolve(None));
 
-    assert_eq!(pruned, history, "未越水位原史原样返回（每请求前调用点不扰动）");
+    assert_eq!(
+        pruned, history,
+        "未越水位原史原样返回（每请求前调用点不扰动）"
+    );
     assert_eq!(estimate_history(&pruned), history_estimate, "估算零变化");
     assert!(notices.is_empty(), "零防线 notice");
 }
@@ -450,7 +453,10 @@ fn prune未越水位时原史原样返回且零notice() {
 fn prune空史与仅首条user均零裁剪零notice不panic() {
     // 空史
     let (empty, notices) = prune(Vec::new(), &defense_small());
-    assert!(empty.is_empty() && notices.is_empty(), "空史零裁剪零 notice");
+    assert!(
+        empty.is_empty() && notices.is_empty(),
+        "空史零裁剪零 notice"
+    );
 
     // 仅一条 user
     let single = vec![Message::user("任务书")];
@@ -538,7 +544,11 @@ fn hard_prune产出恰一条context_compacted降级notice() {
     // 恰一条 DefenseNotice，payload 含 before / after / layer / fallback
     assert_eq!(notice.subtype, "context_compacted", "降级路径 notice 词汇");
     assert_eq!(notice.payload["layer"], json!("l3"), "layer 记 L3 硬裁层");
-    assert_eq!(notice.payload["fallback"], json!(true), "降级留痕（loop 组合口径）");
+    assert_eq!(
+        notice.payload["fallback"],
+        json!(true),
+        "降级留痕（loop 组合口径）"
+    );
     assert_eq!(notice.payload["before"], json!(before), "before 估算");
     assert_eq!(notice.payload["after"], json!(after), "after 估算");
     assert!(

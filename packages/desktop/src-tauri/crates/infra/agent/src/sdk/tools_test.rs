@@ -112,7 +112,10 @@ fn 定义清单恰为七工具且名称_描述_schema齐全() {
     );
 
     // read schema：offset / limit 在场且描述承载截断语义
-    let read = defs.iter().find(|def| def.name == "read").expect("read 定义");
+    let read = defs
+        .iter()
+        .find(|def| def.name == "read")
+        .expect("read 定义");
     for field in ["offset", "limit"] {
         assert!(
             read.parameters["properties"][field].is_object(),
@@ -129,15 +132,17 @@ fn 定义清单恰为七工具且名称_描述_schema齐全() {
     );
 
     // grep schema：context 参数在场、pattern 描述改正则口径
-    let grep = defs.iter().find(|def| def.name == "grep").expect("grep 定义");
+    let grep = defs
+        .iter()
+        .find(|def| def.name == "grep")
+        .expect("grep 定义");
     assert!(
         grep.parameters["properties"]["context"].is_object(),
         "grep 声明 context 属性"
     );
-    let grep_pattern_desc =
-        grep.parameters["properties"]["pattern"]["description"]
-            .as_str()
-            .expect("pattern 描述");
+    let grep_pattern_desc = grep.parameters["properties"]["pattern"]["description"]
+        .as_str()
+        .expect("pattern 描述");
     assert!(
         grep_pattern_desc.contains("正则"),
         "pattern 描述改正则口径（regex 语义）: {grep_pattern_desc}"
@@ -240,15 +245,14 @@ async fn read超2000行截断尾部留痕且offset翻页取回后续窗口() {
         .await
         .expect("读取成功");
     let lines: Vec<&str> = output.lines().collect();
-    assert_eq!(lines.len(), 2001, "前 2000 行 + 1 行尾部留痕: {}", lines.len());
-    assert!(
-        output.contains("2000\tL2000"),
-        "第 2000 行在场: {output}"
+    assert_eq!(
+        lines.len(),
+        2001,
+        "前 2000 行 + 1 行尾部留痕: {}",
+        lines.len()
     );
-    assert!(
-        !output.contains("L2001"),
-        "第 2001 行不在本段窗口"
-    );
+    assert!(output.contains("2000\tL2000"), "第 2000 行在场: {output}");
+    assert!(!output.contains("L2001"), "第 2001 行不在本段窗口");
     let tail = lines.last().expect("尾部留痕");
     assert!(
         tail.contains("已截断") && tail.contains("offset=2001"),
@@ -282,10 +286,7 @@ async fn read恰2000行不截断无留痕() {
         output.contains("2000\tL2000"),
         "末行在场（恰阈值过）: {output}"
     );
-    assert!(
-        !output.contains("已截断"),
-        "恰 2000 行无截断留痕"
-    );
+    assert!(!output.contains("已截断"), "恰 2000 行无截断留痕");
 }
 
 #[tokio::test]
@@ -429,11 +430,7 @@ async fn grep_context上下文行窗口合并去重且组间以分隔符隔离()
     let dir = tempdir("grep-context");
     let root = root_of(&dir);
     // 命中位：第 2、3 行（相邻窗口合并）与第 7 行（独立组）
-    let path = write_rel(
-        &root,
-        "lines.txt",
-        "L1\nM1\nM2\nL4\nL5\nL6\nM3\n",
-    );
+    let path = write_rel(&root, "lines.txt", "L1\nM1\nM2\nL4\nL5\nL6\nM3\n");
 
     // context=1：命中行 ± 1；相邻命中窗口合并去重（每行恰一次）；不连续组间 `--`
     let with_context = execute(
@@ -458,20 +455,12 @@ async fn grep_context上下文行窗口合并去重且组间以分隔符隔离()
         expected,
         "窗口合并去重 + 组间 -- 分隔: {with_context}"
     );
-    assert_eq!(
-        with_context.matches("--").count(),
-        1,
-        "恰一组分隔（两组）"
-    );
+    assert_eq!(with_context.matches("--").count(), 1, "恰一组分隔（两组）");
 
     // context 缺省 0：维持逐行口径（无上下文行、无分隔符）
-    let bare = execute(
-        &root,
-        "grep",
-        &json!({ "path": path, "pattern": "M\\d" }),
-    )
-    .await
-    .expect("缺省 context 命中成功");
+    let bare = execute(&root, "grep", &json!({ "path": path, "pattern": "M\\d" }))
+        .await
+        .expect("缺省 context 命中成功");
     let bare_expected: Vec<String> = vec![
         format!("{shown}:2: M1"),
         format!("{shown}:3: M2"),

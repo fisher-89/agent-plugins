@@ -1,19 +1,12 @@
-//! `bash` 第七工具执行体的单元测试（AC-4）：命令执行输出合并回灌、cwd 承接、
-//! 非零退出码 Err、超时收口触达进程树清理、timeout_ms 钳位、shell 底座探测
-//! 与 cmd /C 兜底。子进程为进程边界依赖白名单：不 mock 进程执行本体——真实
-//! `tokio::process` 起短命子进程；`probe_windows_shell` 以 fabricated PATH
-//! （tempdir 真实 `bash.exe` 占位文件，探测仅 `is_file` 纯函数直测）承载；
-//! PATH 全局替换窗口沿 crate 级串行化锁互斥。
-
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::time::Instant;
 
 use serde_json::json;
 
-use crate::sdk::bash::{execute, ShellBase};
 #[cfg(windows)]
 use crate::sdk::bash::probe_windows_shell;
+use crate::sdk::bash::{execute, ShellBase};
 
 /// PATH 环境变量修改串行化（crate 级锁：PATH 替换窗口期间其它 spawn 缝等窗口关闭）。
 use crate::TEST_PATH_LOCK as PATH_LOCK;
@@ -37,10 +30,7 @@ async fn 命令执行stdout回灌ok且输出段在前() {
         .await
         .expect("echo 短命令应成功");
 
-    assert!(
-        output.contains("sdk-bash-ok"),
-        "stdout 段回灌: {output}"
-    );
+    assert!(output.contains("sdk-bash-ok"), "stdout 段回灌: {output}");
 }
 
 #[tokio::test]
@@ -77,7 +67,9 @@ async fn 进程cwd承接workspace_root_相对路径写文件落在root下() {
     let dir = tempdir("cwd");
     let command = "echo cwd-marker > rel-from-bash.txt";
 
-    execute(dir.path(), &json!({ "command": command })).await.expect("写文件命令应成功");
+    execute(dir.path(), &json!({ "command": command }))
+        .await
+        .expect("写文件命令应成功");
 
     let written = dir.path().join("rel-from-bash.txt");
     assert!(written.exists(), "相对路径产物落在 root 下（cwd 语义锁定）");
@@ -123,8 +115,13 @@ async fn 未知命令名经shell非零退出err_不panic不悬挂() {
 async fn command缺失或空串显式err() {
     let dir = tempdir("missing-command");
 
-    let missing = execute(dir.path(), &json!({})).await.expect_err("缺 command 必须 Err");
-    assert!(missing.contains("command"), "记因指明 command 必填: {missing}");
+    let missing = execute(dir.path(), &json!({}))
+        .await
+        .expect_err("缺 command 必须 Err");
+    assert!(
+        missing.contains("command"),
+        "记因指明 command 必填: {missing}"
+    );
 
     let blank = execute(dir.path(), &json!({ "command": "   " }))
         .await
@@ -241,6 +238,51 @@ fn probe命中git_usr_bin形态条目且条目本身为git段时直接补bash_ex
 
 #[cfg(windows)]
 #[test]
+fn probe命中git_cmd标准安装布局返回兄弟bin的bash全路径() {
+    // 安装器标准布局：PATH 只写 `…\Git\cmd`，bash 落在兄弟 `bin\bash.exe`
+    let dir = tempdir("probe-git-cmd");
+    let bash = dir.path().join("Git\\bin\\bash.exe");
+    touch(&bash);
+    let entry = dir.path().join("Git\\cmd");
+
+    match probe_windows_shell(entry.as_os_str()) {
+        ShellBase::GitBash(found) => assert_eq!(
+            found, bash,
+            "Git\\cmd 条目命中兄弟 bin\\bash.exe（标准安装布局不退 Cmd）"
+        ),
+        _ => panic!("Git\\cmd 形态必须命中 GitBash（实际退了 Cmd 兜底）"),
+    }
+
+    // usr\bin 兄弟布局同判
+    let dir2 = tempdir("probe-git-cmd-usr");
+    let bash2 = dir2.path().join("Git\\usr\\bin\\bash.exe");
+    touch(&bash2);
+    let entry2 = dir2.path().join("Git\\cmd");
+    match probe_windows_shell(entry2.as_os_str()) {
+        ShellBase::GitBash(found) => {
+            assert_eq!(found, bash2, "Git\\cmd 条目命中兄弟 usr\\bin\\bash.exe")
+        }
+        _ => panic!("Git\\cmd + usr\\bin 形态必须命中 GitBash"),
+    }
+}
+
+#[cfg(windows)]
+#[test]
+fn probe命中git根条目返回子bin的bash全路径() {
+    // PATH 直接写 Git 根：bash 落在子 `bin\bash.exe`
+    let dir = tempdir("probe-git-root");
+    let bash = dir.path().join("Git\\bin\\bash.exe");
+    touch(&bash);
+    let entry = dir.path().join("Git");
+
+    match probe_windows_shell(entry.as_os_str()) {
+        ShellBase::GitBash(found) => assert_eq!(found, bash, "Git 根条目命中子 bin\\bash.exe"),
+        _ => panic!("Git 根形态必须命中 GitBash（实际退了 Cmd 兜底）"),
+    }
+}
+
+#[cfg(windows)]
+#[test]
 fn probe排除system32同名误中_仅wsl形态条目时退cmd() {
     // 同名误中形态：条目顶层放 bash.exe（System32\bash.exe 的 WSL 同名语义，
     // 不在 Git 形态段内）→ 不误中
@@ -287,7 +329,10 @@ async fn path剔除git_bash条目后经cmd底座兜底成功() {
     }
 
     let output = result.expect("无 git-bash 环境必须经 cmd /C 兜底成功");
-    assert!(output.contains("cmd-fallback-ok"), "兜底执行输出回灌: {output}");
+    assert!(
+        output.contains("cmd-fallback-ok"),
+        "兜底执行输出回灌: {output}"
+    );
 }
 
 // ---------------------------------------------------------------------------

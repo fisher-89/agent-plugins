@@ -55,9 +55,10 @@ pub fn definitions() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition {
             name: "read".to_owned(),
-            description: "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）；\
+            description:
+                "读取文件内容（行号前缀输出）。可选 offset（1 起始行号）与 limit（行数）；\
                           单次至多 2000 行，超限截断留痕，可用 offset 翻页读取后续窗口"
-                .to_owned(),
+                    .to_owned(),
             parameters: serde_json::json!({
                 "type": "object",
                 "properties": {
@@ -266,7 +267,10 @@ async fn grep(input: &Value) -> Result<String, String> {
         .map_err(|e| format!("读取失败: {e}"))?;
     let lines: Vec<&str> = text.lines().collect();
     let hits = match_line_indices(&lines, &matcher);
-    Ok(hits_body(render_file_hits(&path, &lines, &hits, context), &pattern))
+    Ok(hits_body(
+        render_file_hits(&path, &lines, &hits, context),
+        &pattern,
+    ))
 }
 
 /// 目录递归分支：`{dir}/**/*` 枚举（glob 字典序，与 glob 工具同 crate 同
@@ -358,14 +362,15 @@ fn render_file_hits(path: &str, lines: &[&str], hits: &[usize], context: usize) 
             .collect();
     }
     let mut output: Vec<String> = Vec::new();
-    for (group, (start, end)) in merged_windows(hits, context, lines.len()).into_iter().enumerate()
+    for (group, (start, end)) in merged_windows(hits, context, lines.len())
+        .into_iter()
+        .enumerate()
     {
         if group > 0 {
             output.push("--".to_owned());
         }
-        output.extend(
-            (start..end).map(|index| format!("{}:{}: {}", path, index + 1, lines[index])),
-        );
+        output
+            .extend((start..end).map(|index| format!("{}:{}: {}", path, index + 1, lines[index])));
     }
     output
 }

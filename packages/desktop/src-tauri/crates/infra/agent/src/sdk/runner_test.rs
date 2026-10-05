@@ -431,9 +431,7 @@ async fn runstarted_tools恰七工具清单() {
 
     let started = session.observations.recv().await.expect("RunStarted");
     let AgentEventKind::RunStarted {
-        tools,
-        mcp_servers,
-        ..
+        tools, mcp_servers, ..
     } = &started
     else {
         panic!("首事件应为 RunStarted，实际: {started:?}");

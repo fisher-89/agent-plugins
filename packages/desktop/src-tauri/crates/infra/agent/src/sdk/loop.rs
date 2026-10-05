@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use agent::{AgentBlock, AgentEventKind, AgentMessageRole, AgentPermissionMode, RunHandle};
 use futures::StreamExt;
@@ -10,6 +10,7 @@ use serde_json::Value;
 use tokio::sync::mpsc;
 
 use crate::sdk::context::{ContextDefense, DefenseNotice};
+use crate::sdk::log::append_engine_log;
 use crate::sdk::{compact, context, normalize, policy, preamble, sandbox, tools};
 
 /// 轮数上限（熔断）：模型持续要求工具而不收敛时以失败收敛，防失控烧 token。
@@ -17,6 +18,28 @@ const MAX_TURNS: u64 = 50;
 
 /// 正常收敛 / 失败收敛的 `TurnDone.subtype`（core 协议收敛事件口径）。
 const SUBTYPE_SUCCESS: &str = "success";
+
+/// 提供者 IO 活性护栏
+const REQUEST_LIVENESS: Duration = Duration::from_secs(300);
+const FRAME_IDLE: Duration = Duration::from_secs(120);
+
+/// 提供者 IO 活性预算
+#[derive(Debug, Clone, Copy)]
+pub(crate) struct StreamLiveness {
+    /// 请求相位预算（`model.stream` 发起 + 响应头）
+    pub(crate) request: Duration,
+    /// 流帧空闲预算（相邻 SSE 帧间隔）
+    pub(crate) frame: Duration,
+}
+
+impl Default for StreamLiveness {
+    fn default() -> Self {
+        Self {
+            request: REQUEST_LIVENESS,
+            frame: FRAME_IDLE,
+        }
+    }
+}
 
 /// 单轮驱动入参（协议轮参数的 loop 投影；引擎侧会话标识每轮铸造）。
 pub(crate) struct LoopTurn {
@@ -33,6 +56,8 @@ pub(crate) struct LoopTurn {
     pub session_id: String,
     /// 上下文窗防线（runner 侧解析缺省；引擎内部通道，core 契约零触）
     pub defense: ContextDefense,
+    /// 提供者 IO 活性预算（缺省缺省常量；泵装配缺省，测试注小值）
+    pub liveness: StreamLiveness,
 }
 
 /// loop 主体：灌未盖戳事件至有界通道，收敛时发送 `TurnDone`（停止 / 消费端
@@ -67,6 +92,10 @@ where
         .await
         .is_ok();
     if !started_ok {
+        append_engine_log(&format!(
+            "loop 事件通道关闭退出（RunStarted 发送）session={}",
+            turn.session_id
+        ));
         return history; // 消费端关闭：泵自行退出
     }
     // 用户提示词：密封入史（时间线事件 + 入史；重建史尾追加新轮提示）
@@ -81,6 +110,10 @@ where
         .await
         .is_ok();
     if !prompt_ok {
+        append_engine_log(&format!(
+            "loop 事件通道关闭退出（user 提示词发送）session={}",
+            turn.session_id
+        ));
         return history;
     }
     history.push(Message::user(turn.question.clone()));
@@ -88,12 +121,16 @@ where
     for turn_index in 1..=MAX_TURNS {
         // 轮间空档停止检查（泵 select 之外的快速路径）
         if handle.stop_requested() {
+            append_engine_log(&format!(
+                "loop 停止截停（轮间快速路径）session={} turn_index={turn_index}",
+                turn.session_id
+            ));
             return history;
         }
         // 上下文防线（每次发请求前，第二调用点）：L2 prune → notice 转发 →
         // 水位过 L3 触发比则 LLM compaction（失败降级硬裁）。只作用请求史，
         // store 转录全量不变。
-        history = defend(model, history, &turn.defense, &sender).await;
+        history = defend(model, history, &turn.defense, &turn.liveness, &sender).await;
         let request = CompletionRequest {
             model: None,
             // 系统提示词每轮重读（会话中改动 AGENT.md 下一轮生效；缺席 None）
@@ -108,25 +145,57 @@ where
             output_schema: None,
             record_telemetry_content: false,
         };
-        let mut response = match model.stream(request).await {
-            Ok(response) => response,
-            Err(error) => {
-                finish_error(
-                    &sender,
-                    turn_index,
-                    started,
-                    &usage,
-                    turn,
-                    "api_error",
-                    format!("API 请求失败: {error}"),
-                )
-                .await;
-                return history;
-            }
-        };
-        // 流消费至 EOF（可恢复帧错误 drain 不中断，rig 契约：Err 非必然终局）
+        // 请求相位活性护栏：响应头前超时即失败收敛（悬挂轮的观测半边）
+        let mut response =
+            match tokio::time::timeout(turn.liveness.request, model.stream(request)).await {
+                Ok(Ok(response)) => response,
+                Ok(Err(error)) => {
+                    finish_error(
+                        &sender,
+                        turn_index,
+                        started,
+                        &usage,
+                        turn,
+                        "api_error",
+                        format!("API 请求失败: {error}"),
+                    )
+                    .await;
+                    return history;
+                }
+                Err(_) => {
+                    finish_error(
+                        &sender,
+                        turn_index,
+                        started,
+                        &usage,
+                        turn,
+                        "api_error",
+                        format!(
+                            "API 请求超时（{} s 无响应头）",
+                            turn.liveness.request.as_secs()
+                        ),
+                    )
+                    .await;
+                    return history;
+                }
+            };
+        // 流消费至 EOF（可恢复帧错误 drain 不中断，rig 契约：Err 非必然终局）；
+        // 帧间空闲活性护栏：无新帧超时即失败收敛（流死悬挂的观测半边）
         let mut stream_error: Option<String> = None;
-        while let Some(item) = response.next().await {
+        loop {
+            let item = match tokio::time::timeout(turn.liveness.frame, response.next()).await {
+                Ok(item) => item,
+                Err(_) => {
+                    stream_error.get_or_insert(format!(
+                        "API 流空闲超时（{} s 无新帧）",
+                        turn.liveness.frame.as_secs()
+                    ));
+                    break;
+                }
+            };
+            let Some(item) = item else {
+                break;
+            };
             match item {
                 Ok(StreamedAssistantContent::Final(record)) => {
                     usage += record.usage;
@@ -134,6 +203,10 @@ where
                 Ok(item) => {
                     if let Some(kind) = normalize::stream_item(&item) {
                         if sender.send(kind).await.is_err() {
+                            append_engine_log(&format!(
+                                "loop 事件通道关闭退出（流帧发送）session={}",
+                                turn.session_id
+                            ));
                             return history; // 消费端关闭：泵自行退出，不合成 TurnDone
                         }
                     }
@@ -199,6 +272,10 @@ where
             .await
             .is_err()
         {
+            append_engine_log(&format!(
+                "loop 事件通道关闭退出（assistant 密封发送）session={} turn_index={turn_index}",
+                turn.session_id
+            ));
             return history; // 消费端关闭：泵自行退出
         }
         if tool_calls.is_empty() {
@@ -243,6 +320,10 @@ where
                 .await
                 .is_err()
             {
+                append_engine_log(&format!(
+                    "loop 事件通道关闭退出（tool 结果发送）session={} turn_index={turn_index}",
+                    turn.session_id
+                ));
                 return history; // 消费端关闭：泵自行退出
             }
             history.push(Message::tool_result(id, name, content));
@@ -291,13 +372,15 @@ async fn deny(
 }
 
 /// 上下文防线编排（loop 请求前调用点）：L2 prune → notice 转发 → 水位过
-/// L3 触发比则 `compact::summarize`（成功发 `context_compacted`，失败降级
-/// `hard_prune` 并以 `fallback:true` 留痕），run 不失败收敛。notice 消费端
-/// 关闭时尽力流出（外层续轮的下一发自然退出）。
+/// L3 触发比则 `compact::summarize`（成功发 `context_compacted`，失败/超时
+/// 降级 `hard_prune` 并以 `fallback:true` 留痕），run 不失败收敛。notice
+/// 消费端关闭时尽力流出（外层续轮的下一发自然退出）。摘要调用带请求相位
+/// 活性预算（悬挂的摘要请求同样会挂起整轮）。
 async fn defend<M>(
     model: &M,
     history: Vec<Message>,
     defense: &ContextDefense,
+    liveness: &StreamLiveness,
     sender: &mpsc::Sender<AgentEventKind>,
 ) -> Vec<Message>
 where
@@ -312,8 +395,13 @@ where
         return current;
     }
     let before = context::estimate_history(&current);
-    match compact::summarize(model, &current, defense).await {
-        Ok(compacted) => {
+    match tokio::time::timeout(
+        liveness.request,
+        compact::summarize(model, &current, defense),
+    )
+    .await
+    {
+        Ok(Ok(compacted)) => {
             let after = context::estimate_history(&compacted);
             forward_notice(
                 sender,
@@ -329,9 +417,19 @@ where
             .await;
             compacted
         }
-        Err(_) => {
+        Ok(Err(error)) => {
+            append_engine_log(&format!("L3 摘要失败降级硬裁: {error}"));
             // 降级路径：摘要失败不打断 run，L2 硬裁收口（fallback 留痕在
             // hard_prune 的 notice 载荷内）
+            let (hard, notice) = context::hard_prune(current, defense);
+            forward_notice(sender, &notice).await;
+            hard
+        }
+        Err(_) => {
+            append_engine_log(&format!(
+                "L3 摘要超时（{} s）降级硬裁",
+                liveness.request.as_secs()
+            ));
             let (hard, notice) = context::hard_prune(current, defense);
             forward_notice(sender, &notice).await;
             hard
@@ -395,7 +493,8 @@ async fn finish_success(
 
 /// 失败收敛：`SystemNotice{api_error}` 记因 + `TurnDone{is_error:true}`
 /// （`result_subtype` 区分成因：API 失败 `api_error`、轮数熔断
-/// `error_max_turns`——core 协议收敛事件的命名口径）。
+/// `error_max_turns`——core 协议收敛事件的命名口径）。记因同落引擎异常
+/// 日志（消费端已关时事件面失声，日志面保观测）。
 async fn finish_error(
     sender: &mpsc::Sender<AgentEventKind>,
     turns: u64,
@@ -405,6 +504,10 @@ async fn finish_error(
     result_subtype: &str,
     cause: String,
 ) {
+    append_engine_log(&format!(
+        "loop 失败收敛 session={} subtype={result_subtype} turns={turns} cause={cause}",
+        turn.session_id
+    ));
     let notice = AgentEventKind::SystemNotice {
         subtype: "api_error".to_owned(),
         payload: serde_json::json!({ "error": cause }),

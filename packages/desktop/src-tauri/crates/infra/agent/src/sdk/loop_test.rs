@@ -35,16 +35,22 @@ fn write_file(path: &Path, content: &str) {
     std::fs::write(path, content).expect("写文件失败");
 }
 
-/// 假流缝模型：逐轮预录 rig 原始流项（内存流替身）；逐轮捕获
-/// CompletionRequest（工具回灌断言缝）；可编程 stream Err；L3 摘要路径的
-/// `completion` 臂按预编程序列返回（空序列 = 恒 Err，既有用例零漂移）；
-/// 可编程首轮流请求时的文件改写钩子（AGENT.md 轮间改写即生效断言缝）。
+/// 假流缝模型：逐轮预录 rig 原始流项（内存流替身）
 struct FakeModel {
     turns: Mutex<VecDeque<Vec<RawStreamingChoice>>>,
     requests: Mutex<Vec<CompletionRequest>>,
     stream_failure: Option<CompletionError>,
     completion_outcomes: Mutex<VecDeque<Result<String, CompletionError>>>,
     rewrite_on_first_stream: Mutex<Option<(PathBuf, String)>>,
+    hang: Option<HangPoint>,
+}
+
+/// 悬挂点：`Request` = `stream` 调用永不返回（响应头前死）；`Stream` = 流
+/// 零帧且永不 EOF（帧间死）。
+#[derive(Clone, Copy)]
+enum HangPoint {
+    Request,
+    Stream,
 }
 
 impl FakeModel {
@@ -55,6 +61,7 @@ impl FakeModel {
             stream_failure: None,
             completion_outcomes: Mutex::new(VecDeque::new()),
             rewrite_on_first_stream: Mutex::new(None),
+            hang: None,
         }
     }
 
@@ -65,6 +72,14 @@ impl FakeModel {
             stream_failure: Some(error),
             completion_outcomes: Mutex::new(VecDeque::new()),
             rewrite_on_first_stream: Mutex::new(None),
+            hang: None,
+        }
+    }
+
+    fn hanging(point: HangPoint) -> Self {
+        Self {
+            hang: Some(point),
+            ..Self::with_turns(Vec::new())
         }
     }
 
@@ -133,6 +148,18 @@ impl CompletionModel for FakeModel {
         if let Some(error) = &self.stream_failure {
             return Err(CompletionError::ProviderError(error.to_string()));
         }
+        // 悬挂装置：请求相位死 = 调用永不返回；流帧死 = 零帧且永不 EOF
+        match self.hang {
+            Some(HangPoint::Request) => return std::future::pending::<
+                Result<StreamingCompletionResponse, CompletionError>,
+            >()
+            .await,
+            Some(HangPoint::Stream) => {
+                let raw: StreamingResult = Box::pin(futures::stream::pending());
+                return Ok(StreamingCompletionResponse::stream("fake-provider", raw));
+            }
+            None => {}
+        }
         let items = self
             .turns
             .lock()
@@ -185,6 +212,7 @@ async fn drive_loop(model: FakeModel, turn: &LoopTurn, handle: &RunHandle) -> Ve
             model_name: turn.model_name.clone(),
             session_id: turn.session_id.clone(),
             defense: ContextDefense::resolve(None),
+            liveness: turn.liveness,
         };
         let handle = handle.clone();
         async move { r#loop::run(&model, &turn, Vec::new(), sender, handle).await }
@@ -205,13 +233,29 @@ fn loop_turn(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
         model_name: "rig-test-model".to_owned(),
         session_id: "sdk-test-0".to_owned(),
         defense: ContextDefense::resolve(None),
+        liveness: crate::sdk::r#loop::StreamLiveness::default(),
     }
 }
 
 /// 携小窗防线的轮参数（防线编排水位用例底座；window = 64 → L2 水位 48）。
-fn loop_turn_with_defense(cwd: &Path, mode: AgentPermissionMode, defense: ContextDefense) -> LoopTurn {
+fn loop_turn_with_defense(
+    cwd: &Path,
+    mode: AgentPermissionMode,
+    defense: ContextDefense,
+) -> LoopTurn {
     LoopTurn {
         defense,
+        ..loop_turn(cwd, mode)
+    }
+}
+
+/// 携毫秒级活性预算的轮参数（悬挂超时路径用例底座：不等待产品级分钟预算）。
+fn loop_turn_with_fast_liveness(cwd: &Path, mode: AgentPermissionMode) -> LoopTurn {
+    LoopTurn {
+        liveness: crate::sdk::r#loop::StreamLiveness {
+            request: std::time::Duration::from_millis(50),
+            frame: std::time::Duration::from_millis(50),
+        },
         ..loop_turn(cwd, mode)
     }
 }
@@ -225,9 +269,8 @@ async fn drive_loop_with_history(
 ) -> Vec<AgentEventKind> {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
-    let task = tokio::spawn(async move {
-        r#loop::run(&model, &turn, history, sender, handle).await
-    });
+    let task =
+        tokio::spawn(async move { r#loop::run(&model, &turn, history, sender, handle).await });
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -675,6 +718,76 @@ async fn 假流stream_err时api_error记因与is_error收敛且恒最后() {
 }
 
 // ---------------------------------------------------------------------------
+// 提供者 IO 活性护栏（悬挂 → 超时失败收敛，不再无限悬挂）
+// ---------------------------------------------------------------------------
+
+#[tokio::test]
+async fn 请求相位悬挂时活性护栏超时失败收敛api_error不悬挂() {
+    let dir = tempdir("hang-request");
+    let model = FakeModel::hanging(HangPoint::Request); // stream 调用永不返回
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        model,
+        &loop_turn_with_fast_liveness(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1, "恰一条记因通知");
+    assert_eq!(notices[0].0, "api_error");
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert!(
+        payload["error"]
+            .as_str()
+            .is_some_and(|cause| cause.contains("API 请求超时")),
+        "记因指明请求相位超时，实际: {payload}"
+    );
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "api_error", "悬挂以超时失败收敛（可观测）");
+    assert!(*is_error);
+}
+
+#[tokio::test]
+async fn 流帧空闲悬挂时活性护栏超时失败收敛api_error不悬挂() {
+    let dir = tempdir("hang-stream");
+    let model = FakeModel::hanging(HangPoint::Stream); // 零帧且永不 EOF
+    let handle = RunHandle::default();
+
+    let events = drive_loop(
+        model,
+        &loop_turn_with_fast_liveness(dir.path(), AgentPermissionMode::BypassPermissions),
+        &handle,
+    )
+    .await;
+
+    let notices = notices_of(&events);
+    assert_eq!(notices.len(), 1, "恰一条记因通知");
+    assert_eq!(notices[0].0, "api_error");
+    let payload = serde_json::to_value(notices[0].1).expect("payload 序列化");
+    assert!(
+        payload["error"]
+            .as_str()
+            .is_some_and(|cause| cause.contains("流空闲超时")),
+        "记因指明帧空闲超时，实际: {payload}"
+    );
+    let AgentEventKind::TurnDone {
+        subtype, is_error, ..
+    } = turn_done_of(&events)
+    else {
+        panic!("应为 TurnDone");
+    };
+    assert_eq!(subtype, "api_error", "流死悬挂以超时失败收敛（可观测）");
+    assert!(*is_error);
+}
+
+// ---------------------------------------------------------------------------
 // 空轮 / 熔断语义
 // ---------------------------------------------------------------------------
 
@@ -954,6 +1067,7 @@ fn loop_turn字段面完整构造锚定() {
         model_name: "m".to_owned(),
         session_id: "sdk-0-1".to_owned(),
         defense: ContextDefense::resolve(None),
+        liveness: crate::sdk::r#loop::StreamLiveness::default(),
     };
     assert_eq!(turn.question, "q");
     assert_eq!(turn.session_id, "sdk-0-1");
@@ -972,11 +1086,7 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
     // 捕获后改写 AGENT.md（模拟 agent 会话中自改）
     let mut fake = FakeModel::with_turns(vec![
         vec![
-            raw_tool_call(
-                "tu_pre",
-                "read",
-                serde_json::json!({ "path": "README.md" }),
-            ),
+            raw_tool_call("tu_pre", "read", serde_json::json!({ "path": "README.md" })),
             raw_final(usage(3, 3)),
         ],
         vec![raw_text("完成"), raw_final(usage(4, 4))],
@@ -988,9 +1098,10 @@ async fn preamble每轮重读接入请求_轮间改写agent_md次轮生效() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let model_ref = std::sync::Arc::clone(&model);
-    let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await
-    });
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+        );
     let mut events = Vec::new();
     while let Some(event) = receiver.recv().await {
         events.push(event);
@@ -1027,9 +1138,10 @@ async fn preamble缺席时请求preamble为none不注入空串() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let model_ref = std::sync::Arc::clone(&model);
-    let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await
-    });
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+        );
     while receiver.recv().await.is_some() {}
     let _history = task.await.expect("loop 正常结束");
 
@@ -1053,9 +1165,10 @@ async fn preamble在场时请求preamble逐字含文件内容() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let model_ref = std::sync::Arc::clone(&model);
-    let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await
-    });
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+        );
     while receiver.recv().await.is_some() {}
     let _history = task.await.expect("loop 正常结束");
 
@@ -1145,16 +1258,12 @@ async fn l2剪裁后捕获请求的chat_history老工具结果为占位符() {
             if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "任务书")
     ));
     // 老工具结果已被占位符替换（请求史而非 store 转录面收口）
-    let placeholder =
-        history_tool_result_text(history, "tu_big").expect("tool_result 配对保留");
+    let placeholder = history_tool_result_text(history, "tu_big").expect("tool_result 配对保留");
     assert!(
         placeholder.contains("[已剪裁]"),
         "老工具结果为占位符: {placeholder}"
     );
-    assert!(
-        !placeholder.contains("xxxx"),
-        "原正文已从请求史移除"
-    );
+    assert!(!placeholder.contains("xxxx"), "原正文已从请求史移除");
     // 新轮提示词殿后
     assert!(matches!(
         history.last(),
@@ -1189,9 +1298,12 @@ async fn l3水位触发摘要_下一请求史为摘要置顶加首条user加最�
         subtypes == vec!["context_pruned", "context_compacted"],
         "L2 + L3 双 notice 按序流出: {subtypes:?}"
     );
-    let compacted_payload =
-        serde_json::to_value(notices[1].1).expect("payload 序列化");
-    assert_eq!(compacted_payload["layer"], serde_json::json!("l3"), "layer 记 L3");
+    let compacted_payload = serde_json::to_value(notices[1].1).expect("payload 序列化");
+    assert_eq!(
+        compacted_payload["layer"],
+        serde_json::json!("l3"),
+        "layer 记 L3"
+    );
 
     // 收敛不受防线影响：正常 TurnDone
     let AgentEventKind::TurnDone {
@@ -1237,11 +1349,14 @@ async fn l3摘要成功后请求史形态为摘要加首条加保护窗() {
         ),
         "摘要消息置顶带 [历史摘要] 头"
     );
-    assert!(matches!(
-        &history[1],
-        Message::User { content }
-            if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "任务书")
-    ), "原首条 user 保留");
+    assert!(
+        matches!(
+            &history[1],
+            Message::User { content }
+                if matches!(&content[0], rig::message::UserContent::Text(text) if text.text == "任务书")
+        ),
+        "原首条 user 保留"
+    );
     assert!(
         history_tool_result_text(history, "tu_big").is_none(),
         "中段（含超大工具结果）已被摘要置换"
@@ -1274,7 +1389,11 @@ async fn l3摘要失败降级硬裁_notice携fallback且run不失败收敛() {
         "防线双 notice 按序流出（降级不重复 pruned 痕）: {subtypes:?}"
     );
     let payload = serde_json::to_value(notices[1].1).expect("payload 序列化");
-    assert_eq!(payload["layer"], serde_json::json!("l3"), "layer 记 L3 硬裁");
+    assert_eq!(
+        payload["layer"],
+        serde_json::json!("l3"),
+        "layer 记 L3 硬裁"
+    );
     assert_eq!(payload["fallback"], serde_json::json!(true), "降级留痕");
     for key in ["before", "after"] {
         assert!(payload.get(key).is_some(), "载荷含 {key}");
@@ -1286,7 +1405,9 @@ async fn l3摘要失败降级硬裁_notice携fallback且run不失败收敛() {
         .filter(|event| matches!(event, AgentEventKind::SystemNotice { .. }))
         .collect();
     assert!(
-        notices_events.iter().all(|event| event.is_sealed() && !event.is_delta()),
+        notices_events
+            .iter()
+            .all(|event| event.is_sealed() && !event.is_delta()),
         "防线 notice 全部密封词汇（无 delta 面）"
     );
 
@@ -1360,9 +1481,10 @@ async fn 未触水位时请求史原样且零防线notice() {
     let (sender, mut receiver) = mpsc::channel::<AgentEventKind>(256);
     let handle = RunHandle::default();
     let model_ref = std::sync::Arc::clone(&model);
-    let task = tokio::spawn(async move {
-        r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await
-    });
+    let task =
+        tokio::spawn(
+            async move { r#loop::run(&*model_ref, &turn, Vec::new(), sender, handle).await },
+        );
     while receiver.recv().await.is_some() {}
     task.await.expect("loop 正常结束");
 

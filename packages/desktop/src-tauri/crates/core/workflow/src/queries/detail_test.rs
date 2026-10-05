@@ -572,8 +572,14 @@ fn 含interrupted且eval条目损坏的存量文件宽松降级后照常聚合()
     assert!(!detail.unparsable, "单条损坏不整体降级");
     // proposal 站保留完好条目，dev-design 站损坏条目被跳过
     assert_eq!(detail.pipeline[0].attempts.len(), 1);
-    assert!(detail.pipeline[1].attempts.is_empty(), "损坏条目跳过后站内无记录");
+    assert!(
+        detail.pipeline[1].attempts.is_empty(),
+        "损坏条目跳过后站内无记录"
+    );
 
     let value = serde_json::to_value(&detail).expect("线面序列化应成功");
-    assert!(value.get("interrupted").is_none(), "容错路径同样不携带 interrupted 键");
+    assert!(
+        value.get("interrupted").is_none(),
+        "容错路径同样不携带 interrupted 键"
+    );
 }

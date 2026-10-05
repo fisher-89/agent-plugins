@@ -218,7 +218,7 @@ describe('useAgentProviders：取数收口（挂载一次 + 动作轨道刷新�
 
     const saveCall = invokeMock.mock.calls.find(([name]) => name === 'save_agent_provider');
     expect(saveCall).toBeDefined();
-    expect((saveCall?.[1] as Record<string, unknown>)['contextLength']).toBeNull();
+    expect(saveCall?.[1]?.contextLength).toBeNull();
   });
 
   it('库存往返保真：list 回读 contextLength 字段原样（provider fixture 库存形态）', async () => {

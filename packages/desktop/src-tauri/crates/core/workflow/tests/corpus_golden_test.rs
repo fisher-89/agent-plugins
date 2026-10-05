@@ -404,8 +404,7 @@ fn 语料golden_detect段与外围件零变化且fixture样本零改写() {
     for fixture in CHANGE_FIXTURES {
         let path = golden_dir().join(format!("{fixture}.json"));
         let text = fs::read_to_string(&path).expect("golden 应存在");
-        let value: serde_json::Value =
-            serde_json::from_str(&text).expect("golden 应为合法 JSON");
+        let value: serde_json::Value = serde_json::from_str(&text).expect("golden 应为合法 JSON");
         // detect 段零变化（代际判定不受停提取影响）
         assert!(
             value.get("detect").is_some(),
@@ -487,7 +486,10 @@ fn corrupt语料族重写后投影形态与既有容错语义一致() {
         1,
         "unparsable 形态 parse 摘要段仅 outcome 单键"
     );
-    assert_eq!(parse_obj.get("outcome").and_then(|v| v.as_str()), Some("unparsable"));
+    assert_eq!(
+        parse_obj.get("outcome").and_then(|v| v.as_str()),
+        Some("unparsable")
+    );
     let detail = value.get("detail").expect("应含 detail 段");
     assert_eq!(
         detail.get("unparsable").and_then(|v| v.as_bool()),

@@ -603,7 +603,10 @@ fn provider_roundtrip(record: &AgentProviderRecord) -> AgentProviderRecord {
     let bytes = native_model::encode(record).expect("native_model encode 应成功");
     let (decoded, version) =
         native_model::decode::<AgentProviderRecord>(bytes).expect("native_model decode 应成功");
-    assert_eq!(version, 2, "native_model 版本封装为 version 2（context_length 演进落位）");
+    assert_eq!(
+        version, 2,
+        "native_model 版本封装为 version 2（context_length 演进落位）"
+    );
     decoded
 }
 
@@ -785,7 +788,10 @@ fn provider_serde线格式含context_length键且null与缺席均解为none() {
 
     // 缺席形态：serde default 承接（缺列读兼容的 serde 半边）
     let mut absent = none_value.clone();
-    absent.as_object_mut().expect("object 形态").remove("contextLength");
+    absent
+        .as_object_mut()
+        .expect("object 形态")
+        .remove("contextLength");
     let absent_back: AgentProviderRecord =
         serde_json::from_value(absent).expect("缺席键反序列化成功");
     assert_eq!(

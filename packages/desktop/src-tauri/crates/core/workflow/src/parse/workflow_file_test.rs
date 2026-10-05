@@ -157,7 +157,11 @@ fn 含interrupted条目的存量workflow_json照常解析且不产生interrupted
     assert_eq!(workflow.workflow_type, "requirement");
     assert_eq!(workflow.created.as_deref(), Some("2026-08-01"));
     assert!(workflow.eval.is_empty());
-    assert!(workflow.file_log.as_ref().expect("v2 应有 file_log").is_empty());
+    assert!(workflow
+        .file_log
+        .as_ref()
+        .expect("v2 应有 file_log")
+        .is_empty());
     let active = workflow.active_phase.as_ref().expect("应有 active_phase");
     assert_eq!(active.phase, "implement");
     assert_eq!(active.attempt, 2);
@@ -170,9 +174,8 @@ fn 含interrupted条目的存量workflow_json照常解析且不产生interrupted
 
     // 形态二：空数组
     let temp_empty = TempDir::new("legacy-interrupted-empty");
-    let path_empty = temp_empty.write_workflow(
-        r#"{ "workflow_type": "requirement", "interrupted": [] }"#,
-    );
+    let path_empty =
+        temp_empty.write_workflow(r#"{ "workflow_type": "requirement", "interrupted": [] }"#);
     let WorkflowFileParse::Parsed(workflow_empty) = parse_workflow_file(&path_empty) else {
         panic!("interrupted 空数组的存量文件应照常解析");
     };
@@ -185,10 +188,22 @@ fn 含interrupted条目的存量workflow_json照常解析且不产生interrupted
 fn interrupted键为非数组形态时解析照常成功() {
     // 键不再有类型敏感的提取分支：任意值形态均由未知字段忽略承接
     for (tag, raw) in [
-        ("object", r#"{ "workflow_type": "requirement", "interrupted": { "phase": "implement" } }"#),
-        ("string", r#"{ "workflow_type": "requirement", "interrupted": "中断留档" }"#),
-        ("number", r#"{ "workflow_type": "requirement", "interrupted": 3 }"#),
-        ("null", r#"{ "workflow_type": "requirement", "interrupted": null }"#),
+        (
+            "object",
+            r#"{ "workflow_type": "requirement", "interrupted": { "phase": "implement" } }"#,
+        ),
+        (
+            "string",
+            r#"{ "workflow_type": "requirement", "interrupted": "中断留档" }"#,
+        ),
+        (
+            "number",
+            r#"{ "workflow_type": "requirement", "interrupted": 3 }"#,
+        ),
+        (
+            "null",
+            r#"{ "workflow_type": "requirement", "interrupted": null }"#,
+        ),
     ] {
         let temp = TempDir::new(&format!("interrupted-shape-{tag}"));
         let path = temp.write_workflow(raw);

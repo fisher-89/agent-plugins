@@ -1,8 +1,6 @@
 use rig::completion::Usage;
 use rig::message::{Reasoning, Text};
-use rig::streaming::{
-    StreamFinal, StreamedAssistantContent, ToolCallDeltaContent, UnknownPayload,
-};
+use rig::streaming::{StreamFinal, StreamedAssistantContent, ToolCallDeltaContent, UnknownPayload};
 
 use agent::{AgentDelta, AgentEventKind};
 

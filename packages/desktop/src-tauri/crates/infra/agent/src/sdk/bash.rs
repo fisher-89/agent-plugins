@@ -1,20 +1,3 @@
-//! bash 第七工具执行体（sdk 引擎进程执行半边，policy 档位与沙箱检查由 loop
-//! 统一插值，执行体直接信任之）：
-//! - shell 底座探测：Windows 纯函数 [`probe_windows_shell`] 扫 PATH 的
-//!   `Git\bin\bash.exe` / `Git\usr\bin\bash.exe` 形态条目（System32 的 WSL
-//!   bash 同名不命中），未命中退 `cmd /C` 兜底（开箱即跑不破坏）；unix
-//!   `sh -c`（unix 语法对模型成功率最高）
-//! - 进程执行：`tokio::process`，cwd = workspace root、env 继承、stdin 置空、
-//!   `kill_on_drop(true)`、Windows `CREATE_NO_WINDOW` 抑制窗口闪烁
-//! - 超时活性护栏：`timeout_ms` 钳位 `[1_000, 600_000]` ms、缺省 120s
-//!   （claude code 口径），超时走 [`kill_process_tree`] 进程树清理
-//!   （`taskkill /PID <pid> /T /F` 形状复制自 `cli/runner.rs`，`cli/` 零 diff）
-//! - 输出合并：stdout / stderr 并发排水，stdout 段在前、stderr 段带标记在后；
-//!   非零退出码 → `Err(退出码 + 输出)`（is_error ToolResult）
-//!
-//! 知情边界：授权 / 沙箱 / 白名单机制不进本期——bypassPermissions 默认档下
-//! bash 即模型可执行任意命令、安全护栏为零（超时与进程树清理仅为活性护栏）。
-
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
@@ -146,15 +129,26 @@ pub(crate) fn probe_windows_shell(path_var: &OsStr) -> ShellBase {
     ShellBase::Cmd
 }
 
-/// 单个 PATH 条目的 git-bash 候选：条目本身已是 `...\Git\bin` /
-/// `...\Git\usr\bin` 段时补 `<条目>\bash.exe`，再探 `<条目>\Git\{bin,usr\bin}`
-/// 相对形态（覆盖「PATH 含 Git 父目录」的安装口径）。
+/// 单个 PATH 条目的 git-bash 候选
 #[cfg(windows)]
 fn git_bash_candidates(dir: &Path) -> Vec<PathBuf> {
     let mut candidates = Vec::new();
     let segment = dir.to_string_lossy().replace('/', "\\").to_lowercase();
     if segment.ends_with("\\git\\bin") || segment.ends_with("\\git\\usr\\bin") {
         candidates.push(dir.join("bash.exe"));
+    }
+    // `Git\cmd` 条目 → bash 落在兄弟 `bin` / `usr\bin`；`Git` 根条目 → 落在
+    // 子 `bin` / `usr\bin`。两者统一为「Git 根目录」再拼子段。
+    let git_root = if segment.ends_with("\\git\\cmd") {
+        dir.parent().map(Path::to_path_buf)
+    } else if segment.ends_with("\\git") {
+        Some(dir.to_path_buf())
+    } else {
+        None
+    };
+    if let Some(root) = git_root {
+        candidates.push(root.join("bin\\bash.exe"));
+        candidates.push(root.join("usr\\bin\\bash.exe"));
     }
     candidates.push(dir.join("Git\\bin\\bash.exe"));
     candidates.push(dir.join("Git\\usr\\bin\\bash.exe"));

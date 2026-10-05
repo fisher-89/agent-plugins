@@ -14,7 +14,11 @@ use orchestration::control::ChangeFlowControl;
 /// 全局数据目录名：`home_dir()` 根下（双库落位基准——全局库直居其下、
 /// workspace 库落 `workspaces/` 子树；库文件名与子树语义由 store 常量单点
 /// 承载，父目录由 store 打开流程内部补齐，见 desktop-data-dimensions）。
+/// 引擎异常日志落其 `logs/` 子树（sdk 泵悬挂 / panic 的带外观测面）。
 const DATA_DIR: &str = ".dev-team";
+
+/// 引擎异常日志子树目录名（数据根下）。
+const LOGS_DIR_NAME: &str = "logs";
 
 fn main() {
     let mut builder =
@@ -43,6 +47,10 @@ fn main() {
             // fail fast，无静默空清单降级。
             let data_root: PathBuf = app.path().home_dir()?.join(DATA_DIR);
             let stores = WorkspaceStores::open(&data_root)?;
+            // 引擎异常日志：进程一次初始化（append-only 尽力而为）+ panic 钩子
+            //（泵任务 panic 默认只进无控制台的 stderr，日志面补观测）
+            agent_runtime::init_engine_log(&data_root.join(LOGS_DIR_NAME));
+            agent_runtime::install_engine_panic_hook();
             app.manage(stores);
             // watch 订阅注册表：消费页面生命周期由命令面退订承载，此处只挂空表
             app.manage(WatchRegistry::default());

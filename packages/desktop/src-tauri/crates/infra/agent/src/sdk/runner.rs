@@ -191,22 +191,28 @@ async fn session_pump<M>(
         model_name: model_name.clone(),
         session_id: SdkRunner::next_session_id(),
         defense: payload.defense,
+        liveness: Default::default(),
     };
+    crate::sdk::log::append_engine_log(&format!(
+        "泵启动 session={} model={model_name}",
+        turn.session_id
+    ));
     let pump_handle = handle.clone();
-    // biased：loop 臂先 poll。停止先置位时两臂首轮 poll 同为 Ready——
-    // wait_requested 已置位立即返回，loop future 也在首轮 poll 内发出
-    // RunStarted + user 两枚先导事件后经轮间快速路径返回（有界通道发送
-    // 不让渡）；随机臂序会让停止臂在 loop future 首次 poll 前获胜，先导
-    // 事件丢失、发送端随泵 return 全部 dropped、观测通道提前关闭。固定
-    // 臂序后先导事件恒达，停止臂仅在轮中途截停（drop future，不合成收敛）。
+    let pump_session = turn.session_id.clone();
     tokio::select! {
         biased;
         _ = r#loop::run(&model, &turn, payload.history, observations.clone(), pump_handle.clone()) => {
             // 一轮一命：单轮收敛即泵生命周期终点；累积史（跨轮回灌）无
             // 消费方，弃用
+            crate::sdk::log::append_engine_log(&format!(
+                "泵结束 session={pump_session}"
+            ));
         }
         _ = pump_handle.wait_requested() => {
             // 停止后的会话不再接受续轮（编排侧已显式收敛）
+            crate::sdk::log::append_engine_log(&format!(
+                "泵停止截停（select 停止臂获胜，loop future 轮中 drop）session={pump_session}"
+            ));
         }
     }
 }

@@ -1,14 +1,7 @@
-//! 上下文防线 L3（LLM compaction，sdk 引擎内部特性）：prune 后水位仍过 L3
-//! 触发比时，以当前 model 自摘要老历史——中文要点指令（「历史摘要，请勿重复
-//! 已完成的工作」前缀 + 要点集含关键技术决策及其原因，参考 opencode；禁
-//! 工具），待摘要段 = 首条 user 之后至保护窗之前；失败**一次重试**（成本与
-//! 密度的折中，无指数退避），仍失败 `Err` 交调用方降级 [`crate::sdk::context::
-//! hard_prune`]，run 不失败收敛。
-
 use rig::completion::{CompletionModel, CompletionRequest};
 use rig::message::{AssistantContent, Message};
 
-use crate::sdk::context::{ContextDefense, protected_start};
+use crate::sdk::context::{protected_start, ContextDefense};
 
 /// 摘要指令要点集（措辞留实现期打磨窗，要点集不减）。
 const SUMMARY_INSTRUCTION: &str = "这是历史摘要，请勿重复已完成的工作。请将以下对话历史压缩为\
@@ -35,8 +28,8 @@ pub(crate) async fn summarize<M: CompletionModel>(
     if middle.is_empty() {
         return Err("保护窗前无可摘要段".to_owned());
     }
-    let transcript = serde_json::to_string(middle)
-        .map_err(|e| format!("待摘要历史序列化失败: {e}"))?;
+    let transcript =
+        serde_json::to_string(middle).map_err(|e| format!("待摘要历史序列化失败: {e}"))?;
     let request = CompletionRequest {
         model: None,
         preamble: Some("你是对话历史摘要器：只输出摘要正文，不执行任何工具。".to_owned()),

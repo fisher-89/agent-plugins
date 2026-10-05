@@ -92,11 +92,7 @@ async fn agent_md恰32kb不截断全文返回无留痕() {
 
     let preamble = load(dir.path()).await.expect("在场必返回 Some");
 
-    assert_eq!(
-        preamble.len(),
-        32 * 1024,
-        "恰阈值全文返回（不截断）"
-    );
+    assert_eq!(preamble.len(), 32 * 1024, "恰阈值全文返回（不截断）");
     assert_eq!(preamble, content, "内容逐字一致");
     assert!(
         !preamble.contains("已截断"),

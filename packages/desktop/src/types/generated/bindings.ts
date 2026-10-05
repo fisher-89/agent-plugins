@@ -46,18 +46,9 @@ export const commands = {
 	removeWorkspace: (root: string) => __TAURI_INVOKE<boolean>("remove_workspace", { root }),
 	/**  provider 清单（主键 id 升序）。 */
 	listAgentProviders: () => __TAURI_INVOKE<AgentProviderRecord[]>("list_agent_providers"),
-	/**
-	 *  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新）：参数
-	 *  转换段——id 存在且入参 api_key 为空 → 读存量记录回填原值（前端编辑态
-	 *  api_key 恒空 + 遮蔽占位，「留空 = 保持原值」语义的后端承接半边，store 恒
-	 *  收全字段）；`context_length` 可空平参（前端留空 = `None` 未配置，MUST NOT
-	 *  落 0 / 128000 缺省字面）；重名 reject（store 事务内查重）。
-	 */
+	/**  保存 provider（新建 / 更新合一，id `None` 新建 / `Some` 整行更新） */
 	saveAgentProvider: (id: number | null, name: string, baseUrl: string, apiKey: string, models: AgentModelTiers, contextLength: number | null) => __TAURI_INVOKE<AgentProviderRecord>("save_agent_provider", { id, name, baseUrl, apiKey, models, contextLength }),
-	/**
-	 *  删除 provider：被 agent 引用 reject（含引用方提示，不级联）；miss 幂等
-	 *  `Ok(false)`。
-	 */
+	/**  删除 provider：被 agent 引用 reject（含引用方提示，不级联） */
 	deleteAgentProvider: (id: number) => __TAURI_INVOKE<boolean>("delete_agent_provider", { id }),
 	/**  agent 实例清单（主键 id 升序）。 */
 	listAgentInstances: () => __TAURI_INVOKE<AgentInstanceRecord[]>("list_agent_instances"),
@@ -317,19 +308,7 @@ export type AgentPermissionMode =
 /**  跳过全部审批（调试页默认档） */
 "bypassPermissions";
 
-/**
- *  agent provider 记录（agent 管理域，user 维度落全局库，见
- *  desktop-data-dimensions）：openai 兼容端点连接档案（base_url / api_key /
- *  三档 model / 可空 context_length），被 [`AgentInstanceRecord`] 按
- *  `provider_id` N:1 引用（删除阻止），亦是后续 workspace→agent 关联链的
- *  引用锚点之一（稳定 id 主键）。
- * 
- *  // 机密面有意放宽:api_key 全链路明文（IPC body / 全局库文件 / 进程内存），
- *  边界表见 specs/desktop-agent-management ——读写单 DTO 即记录本体（无遮蔽
- *  信封臂），遮蔽只在前端展示层；结构保证明文不进日志：**不 derive
- *  `Debug`**，手写遮蔽 impl（api_key 位 [`mask_api_key`] 形态），测试比较走
- *  [`PartialEq`]。
- */
+/**  agent provider 记录 */
 export type AgentProviderRecord = {
 	/**  记录 id（主键，写事务内 max+1 分配） */
 	id: number,

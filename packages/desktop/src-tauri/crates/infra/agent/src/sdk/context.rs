@@ -126,7 +126,10 @@ pub(crate) fn prune(
 /// L3 失败降级的硬裁：保首条 user + 保护窗，中间整段丢弃（不摘要不保密度）。
 /// notice 恒 `context_compacted` + `layer:"l3"` + `fallback:true`（降级留痕，
 /// run 不失败收敛）。
-pub(crate) fn hard_prune(history: Vec<Message>, defense: &ContextDefense) -> (Vec<Message>, DefenseNotice) {
+pub(crate) fn hard_prune(
+    history: Vec<Message>,
+    defense: &ContextDefense,
+) -> (Vec<Message>, DefenseNotice) {
     let before = estimate_history(&history);
     let protected = protected_start(&history, defense);
     let mut pruned: Vec<Message> = Vec::new();

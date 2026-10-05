@@ -12,6 +12,7 @@ pub use cli::runner::ClaudeCliRunner;
 pub use compose::{compose_turn, ComposedTurn};
 pub use git_diff::GitDiffSource;
 pub use sdk::config::EngineConfig;
+pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
 pub use static_check::ProcessStaticCheck;
 pub use store_port::session_query;
 pub use worker::KernelWorkerPort;
