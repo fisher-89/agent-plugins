@@ -1,0 +1,16 @@
+▶ math 套件
+  ✔ adds numbers (1.2ms)
+  ✔ handles unicode 名称 ✓ (0.5ms)
+  ﹣ skips todo case (0.1ms)
+  ▶ nested
+    ✔ works nested (0.3ms)
+  ✔ nested (1ms)
+✔ math 套件 (2ms)
+✔ top level case (0.2ms)
+ℹ tests 5
+ℹ suites 2
+ℹ pass 4
+ℹ fail 0
+ℹ cancelled 0
+ℹ skipped 1
+ℹ todo 0

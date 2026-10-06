@@ -13,8 +13,9 @@ use crate::decision::{
     ensure_backtrack_allowed, parse_decision, CandidateReport, DecisionAction, DecisionInput,
 };
 use crate::port::{
-    DiffContextPort, StaticCheckOutcome, ToolCommand, ToolStepOutput, ToolStepPort,
-    WorkerAgentPort, WorkerRole, WorkerTurnOutcome, WorkerTurnRequest, WorkflowSnapshotPort,
+    DiffContextPort, StaticCheckOutcome, TestExecutionConclusion, TestExecutionOutcome,
+    ToolCommand, ToolStepOutput, ToolStepPort, WorkerAgentPort, WorkerRole, WorkerTurnOutcome,
+    WorkerTurnRequest, WorkflowSnapshotPort,
 };
 use crate::prompt::{decision_prompt, evaluator_prompt, executor_prompt};
 use crate::state::{ChangeRunStatus, ChangeStepKind, ChangeStepState, ChangeStepStatus, RunUpdate};
@@ -29,6 +30,15 @@ pub const STATIC_CHECK_FEEDBACK_LIMIT: u32 = 5;
 /// 必经；布局词汇，非路由权威——门控与否以本常量定性，相位推进仍问
 /// phase-next）。
 pub const STATIC_CHECK_PHASES: [&str; 2] = ["implement", "test-gen"];
+
+/// test-execution 反馈边独立上限（与 [`STATIC_CHECK_FEEDBACK_LIMIT`] 分立、
+/// 各自计满各自升格；不计相位 retry 预算，沿「反馈边不计相位 retry 预算」
+/// 先例，取值对齐 static-check）。
+pub const TEST_EXECUTION_FEEDBACK_LIMIT: u32 = 5;
+
+/// test-execution 相位门禁布局常量（对齐插件工作流的 test-execution 独立
+/// 相位语义；布局词汇非路由权威，相位推进仍问 phase-next）。
+pub const TEST_EXECUTION_PHASES: [&str; 1] = ["test-execution"];
 
 /// 会话 provenance 来源（sourceRef = `<change>/<phase>/<role>/<attempt>`）。
 const SOURCE_CHANGE: &str = "change";
@@ -152,27 +162,76 @@ async fn drive(
         };
         allowed = next.allowed_backtrack_phases.clone();
 
-        // ② phase-start（开相位、attempt 计时）
+        // ② phase-start（开启阶段、attempt 计时）
         let attempt = match step_phase_start(tools, guard, request, &phase).await {
             Ok(attempt) => attempt,
             Err(terminal) => return terminal.into_pair(),
         };
 
-        // ③ executor 会话（prompt 组装前取 git diff 变更文件上下文）；会话 id
-        // 携出块作用域（evaluator 落账随行 executor 槽位 + static-check 反馈
-        // 边续注同会话保持稳定）
-        let mut executor_session: Option<String> = None;
-        if let Some(executor) = &next.executor {
+        // ③–⑥ 相位主体分叉：test-execution 相位走确定性门禁步（绿跑零 agent
+        // 会话，executor / evaluator 会话与 verdict 解析门全部跳过）；其余相位
+        // 走 executor / evaluator 会话主链
+        if TEST_EXECUTION_PHASES.contains(&phase.as_str()) {
+            match test_execution_loop(worker, tools, guard, request, &phase, attempt).await {
+                Ok(TestExecutionFlow::Proceed) => {}
+                Ok(TestExecutionFlow::Upgraded) => continue, // fail 已落账，回 phase-next 分叉
+                Err(terminal) => return terminal.into_pair(),
+            }
+        } else {
+            // ③ executor 会话（prompt 组装前取 git diff 变更文件上下文）；会话 id
+            // 携出块作用域（evaluator 落账随行 executor 槽位 + static-check 反馈
+            // 边续注同会话保持稳定）
+            let mut executor_session: Option<String> = None;
+            if let Some(executor) = &next.executor {
+                let context = diff_context(diff, &request.root).await;
+                let prompt = executor_prompt(&executor.agent_type, &executor.prompt, &context);
+                let outcome = match run_worker(
+                    worker,
+                    guard,
+                    request,
+                    &phase,
+                    attempt,
+                    WorkerRole::Executor,
+                    prompt,
+                    None,
+                )
+                .await
+                {
+                    Ok(outcome) => outcome,
+                    Err(terminal) => return terminal.into_pair(),
+                };
+
+                // ④ static-check 定向反馈边（implement / test-gen 门控）
+                if STATIC_CHECK_PHASES.contains(&phase.as_str()) {
+                    let loop_in = FeedbackLoop {
+                        worker,
+                        tools,
+                        guard,
+                        request,
+                        phase: &phase,
+                        attempt,
+                        executor_session: outcome.session_id.clone(),
+                    };
+                    match static_check_loop(loop_in).await {
+                        Ok(StaticCheckFlow::Proceed) => {}
+                        Ok(StaticCheckFlow::Upgraded) => continue, // fail 已落账，回 phase-next 分叉
+                        Err(terminal) => return terminal.into_pair(),
+                    }
+                }
+                executor_session = Some(outcome.session_id);
+            }
+
+            // ⑤ evaluator 会话（prompt 组装前再取 diff——executor 落盘后递进可见）
             let context = diff_context(diff, &request.root).await;
-            let prompt = executor_prompt(&executor.agent_type, &executor.prompt, &context);
+            let eval_prompt = evaluator_prompt(&evaluator.prompt, &context);
             let outcome = match run_worker(
                 worker,
                 guard,
                 request,
                 &phase,
                 attempt,
-                WorkerRole::Executor,
-                prompt,
+                WorkerRole::Evaluator,
+                eval_prompt,
                 None,
             )
             .await
@@ -181,59 +240,21 @@ async fn drive(
                 Err(terminal) => return terminal.into_pair(),
             };
 
-            // ④ static-check 定向反馈边（implement / test-gen 门控）
-            if STATIC_CHECK_PHASES.contains(&phase.as_str()) {
-                let loop_in = FeedbackLoop {
-                    worker,
-                    tools,
-                    guard,
-                    request,
-                    phase: &phase,
-                    attempt,
-                    executor_session: outcome.session_id.clone(),
-                };
-                match static_check_loop(loop_in).await {
-                    Ok(StaticCheckFlow::Proceed) => {}
-                    Ok(StaticCheckFlow::Upgraded) => continue, // fail 已落账，回 phase-next 分叉
-                    Err(terminal) => return terminal.into_pair(),
-                }
+            // ⑥ verdict 解析门 → 桌面代写 phase-log（executor + evaluator 双槽位
+            // 随行落账，decision 槽位归 decision-log 单点挂账恒缺省）
+            if let Err(terminal) = step_verdict_phase_log(
+                tools,
+                guard,
+                request,
+                &phase,
+                attempt,
+                executor_session,
+                &outcome,
+            )
+            .await
+            {
+                return terminal.into_pair();
             }
-            executor_session = Some(outcome.session_id);
-        }
-
-        // ⑤ evaluator 会话（prompt 组装前再取 diff——executor 落盘后递进可见）
-        let context = diff_context(diff, &request.root).await;
-        let eval_prompt = evaluator_prompt(&evaluator.prompt, &context);
-        let outcome = match run_worker(
-            worker,
-            guard,
-            request,
-            &phase,
-            attempt,
-            WorkerRole::Evaluator,
-            eval_prompt,
-            None,
-        )
-        .await
-        {
-            Ok(outcome) => outcome,
-            Err(terminal) => return terminal.into_pair(),
-        };
-
-        // ⑥ verdict 解析门 → 桌面代写 phase-log（executor + evaluator 双槽位
-        // 随行落账，decision 槽位归 decision-log 单点挂账恒缺省）
-        if let Err(terminal) = step_verdict_phase_log(
-            tools,
-            guard,
-            request,
-            &phase,
-            attempt,
-            executor_session,
-            &outcome,
-        )
-        .await
-        {
-            return terminal.into_pair();
         }
 
         // phase 间停等确认 or 自动确认
@@ -274,7 +295,7 @@ async fn step_phase_next(
     .await
 }
 
-/// ② phase-start：开相位并取回 attempt 计时。
+/// ② phase-start：开启阶段并取回 attempt 计时。
 async fn step_phase_start(
     tools: &Arc<dyn ToolStepPort>,
     guard: &RunGuard,
@@ -988,6 +1009,245 @@ enum StaticCheckFlow {
     Upgraded,
 }
 
+/// test-execution 门禁闭环后的携出物。
+enum TestExecutionFlow {
+    /// pass 已机械 checklist 落账，回外层停等确认。
+    Proceed,
+    /// 超限升格（fail 已落账），回外层 phase-next。
+    Upgraded,
+}
+
+/// test-execution 相位确定性门禁循环
+async fn test_execution_loop(
+    worker: &Arc<dyn WorkerAgentPort>,
+    tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
+    request: &RunRequest,
+    phase: &str,
+    attempt: u32,
+) -> Result<TestExecutionFlow, Terminal> {
+    let mut feedback: u32 = 0;
+    let mut fix_session: Option<String> = None;
+    loop {
+        emit_step(
+            guard,
+            phase,
+            attempt,
+            ChangeStepKind::TestExecution,
+            ChangeStepStatus::Running,
+            None,
+            None,
+        );
+        let outcome: TestExecutionOutcome = run_tool(
+            tools,
+            &request.root,
+            ToolCommand::TestExecution {
+                change: request.change.clone(),
+            },
+            "test-execution",
+        )
+        .await?;
+        if outcome.conclusion == TestExecutionConclusion::Pass {
+            emit_step(
+                guard,
+                phase,
+                attempt,
+                ChangeStepKind::TestExecution,
+                ChangeStepStatus::Passed,
+                None,
+                Some(format!(
+                    "conclusion=pass total={} passed={} failed={} skipped={}",
+                    outcome.total, outcome.passed, outcome.failed, outcome.skipped
+                )),
+            );
+            step_test_execution_phase_log(tools, guard, request, phase, attempt, &outcome).await?;
+            return Ok(TestExecutionFlow::Proceed);
+        }
+        emit_step(
+            guard,
+            phase,
+            attempt,
+            ChangeStepKind::TestExecution,
+            ChangeStepStatus::Failed,
+            None,
+            Some(diagnose_brief(&outcome.findings_brief)),
+        );
+        if feedback >= TEST_EXECUTION_FEEDBACK_LIMIT {
+            step_test_execution_upgraded_phase_log(
+                tools,
+                guard,
+                request,
+                phase,
+                attempt,
+                &outcome,
+                fix_session.as_deref(),
+            )
+            .await?;
+            return Ok(TestExecutionFlow::Upgraded);
+        }
+        feedback += 1;
+        let fix_prompt = format!(
+            "测试执行未通过（第 {feedback}/{TEST_EXECUTION_FEEDBACK_LIMIT} 次反馈修复，conclusion={}），\
+             请修复以下问题后重新提交：\n\n{}\n\n全量诊断与用例明细见报告目录：{}",
+            outcome.conclusion.as_str(),
+            outcome.findings_brief,
+            outcome.report_dir
+        );
+        let turn = run_worker(
+            worker,
+            guard,
+            request,
+            phase,
+            attempt,
+            WorkerRole::Executor,
+            fix_prompt,
+            fix_session.clone(),
+        )
+        .await?;
+        fix_session = Some(turn.session_id);
+    }
+}
+
+/// pass 机械 checklist 代写 phase_log：三条目全 pass（verdict 由 checklist
+/// 全 pass 推导）——① suite 结论一致 ② 聚合 conclusion 与计数一致
+/// ③ mutation null 自动通过（V1 恒真）；report 携 conclusion + 计数 + 报告
+/// 路径摘要；三会话槽位恒 `None`（绿跑零 agent）。
+async fn step_test_execution_phase_log(
+    tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
+    request: &RunRequest,
+    phase: &str,
+    attempt: u32,
+    outcome: &TestExecutionOutcome,
+) -> Result<(), Terminal> {
+    emit_step(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        ChangeStepStatus::Running,
+        None,
+        None,
+    );
+    let _: PhaseLogOutcome = run_tool(
+        tools,
+        &request.root,
+        ToolCommand::PhaseLog {
+            change: request.change.clone(),
+            phase: phase.to_owned(),
+            input: PhaseLogInput {
+                phase: phase.to_owned(),
+                report: format!(
+                    "测试执行结论 pass：total={} passed={} failed={} skipped={}；报告目录 {}",
+                    outcome.total,
+                    outcome.passed,
+                    outcome.failed,
+                    outcome.skipped,
+                    outcome.report_dir
+                ),
+                checklist: vec![
+                    ChecklistItem {
+                        item: "suite 结论一致".to_owned(),
+                        pass: true,
+                        evidence:
+                            "各 suite 子报告非 error 且与聚合 conclusion 一致（确定性门禁步校验）"
+                                .to_owned(),
+                    },
+                    ChecklistItem {
+                        item: "聚合计数一致".to_owned(),
+                        pass: true,
+                        evidence: format!(
+                            "total={} passed={} failed={} skipped={}",
+                            outcome.total, outcome.passed, outcome.failed, outcome.skipped
+                        ),
+                    },
+                    ChecklistItem {
+                        item: "mutation null 自动通过".to_owned(),
+                        pass: true,
+                        evidence: "V1 不移植 mutation，报告位恒 null（spec V1 边界）".to_owned(),
+                    },
+                ],
+                skipped: false,
+                executor_session_id: None,
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        },
+        "phase-log",
+    )
+    .await?;
+    emit_step(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        ChangeStepStatus::Passed,
+        None,
+        None,
+    );
+    Ok(())
+}
+
+/// 超限升格落账：桌面代写 fail checklist（测试执行反馈边超限），随后回
+/// phase-next 进重试 / 决策分叉。fail 条目仅携 executor 槽位（携反馈会话
+/// id；evaluator 未跑无会话可记）。
+async fn step_test_execution_upgraded_phase_log(
+    tools: &Arc<dyn ToolStepPort>,
+    guard: &RunGuard,
+    request: &RunRequest,
+    phase: &str,
+    attempt: u32,
+    outcome: &TestExecutionOutcome,
+    fix_session: Option<&str>,
+) -> Result<(), Terminal> {
+    emit_step(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        ChangeStepStatus::Running,
+        None,
+        Some("测试执行反馈边超限，升格相位 fail".to_owned()),
+    );
+    let _: PhaseLogOutcome = run_tool(
+        tools,
+        &request.root,
+        ToolCommand::PhaseLog {
+            change: request.change.clone(),
+            phase: phase.to_owned(),
+            input: PhaseLogInput {
+                phase: phase.to_owned(),
+                report: format!(
+                    "测试执行反馈边超限（连续修复未通过，conclusion={}），相位升格 fail；报告目录 {}",
+                    outcome.conclusion.as_str(),
+                    outcome.report_dir
+                ),
+                checklist: vec![ChecklistItem {
+                    item: "测试执行".to_owned(),
+                    pass: false,
+                    evidence: diagnose_brief(&outcome.findings_brief),
+                }],
+                skipped: false,
+                executor_session_id: fix_session.map(ToOwned::to_owned),
+                evaluator_session_id: None,
+                decision_session_id: None,
+            },
+        },
+        "phase-log",
+    )
+    .await?;
+    emit_step(
+        guard,
+        phase,
+        attempt,
+        ChangeStepKind::PhaseLog,
+        ChangeStepStatus::Passed,
+        None,
+        None,
+    );
+    Ok(())
+}
+
 // ToolStepOutput → 各封闭产出的窄化转换（run_tool 泛型的 TryFrom 半边）。
 impl TryFrom<ToolStepOutput> for PhaseNextOutcome {
     type Error = ();
@@ -1044,6 +1304,16 @@ impl TryFrom<ToolStepOutput> for StaticCheckOutcome {
     fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
         match value {
             ToolStepOutput::StaticCheck(outcome) => Ok(outcome),
+            _ => Err(()),
+        }
+    }
+}
+
+impl TryFrom<ToolStepOutput> for TestExecutionOutcome {
+    type Error = ();
+    fn try_from(value: ToolStepOutput) -> Result<Self, Self::Error> {
+        match value {
+            ToolStepOutput::TestExecution(outcome) => Ok(outcome),
             _ => Err(()),
         }
     }

@@ -1,0 +1,18 @@
+{
+  "framework": "node-test",
+  "root": ".",
+  "timestamp": "2026-10-06T08:00:00.000Z",
+  "exit_code": 0,
+  "duration_ms": 480.0,
+  "summary": { "total": 5, "passed": 4, "failed": 0, "skipped": 1 },
+  "error_cases": [],
+  "test_files": ["app/src/add.test.mjs"],
+  "source_files": [],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 82.5, "branches": 74.1, "functions": 90.3 },
+    "thresholds": { "lines": 60, "branches": 70, "functions": 75 }
+  },
+  "mutation": null,
+  "findings": null
+}

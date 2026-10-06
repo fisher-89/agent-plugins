@@ -1,14 +1,3 @@
-//! `steps.rs`（LocalToolSteps 进程内工具步）的单元测试（test-design「steps.rs
-//! -> steps_test.rs」节）：链路 `ToolCommand → workflow::write → workflow.json
-//! 持久化` 组合用例挂靠本节（链路发起方 = 步命令消费口）——相位机四步直调写
-//! 面的进程内证据（AC-6 动态半边）、StaticCheck 委托注入 runner（AC-4 步词汇
-//! 不变的实现端换血——W4）、写面 Err 统一上抛、锚点实例复用语义（W7）。
-//!
-//! Mock策略：StaticCheckRunner 假实现（注入依赖，入参例外——记录 root 调用、
-//! 可编程 StaticCheckOutcome / Err(String)）；workflow::write 与 SessionAnchors
-//! 真实组合（不 mock）——tempdir 真盘 fixture，进程内缝不再属进程边界，按最
-//! 小 mock 原则真实驱动。
-
 use std::fs;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
@@ -16,8 +5,9 @@ use std::sync::{Arc, Mutex};
 use foundation::layout::resolve;
 
 use crate::port::{
-    BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, ToolCommand, ToolStepOutput,
-    ToolStepPort, ToolStepRequest,
+    BoxToolFuture, StaticCheckOutcome, StaticCheckRunner, TestExecutionConclusion,
+    TestExecutionOutcome, TestExecutionRunner, ToolCommand, ToolStepOutput, ToolStepPort,
+    ToolStepRequest,
 };
 use crate::steps::LocalToolSteps;
 use workflow::write::{BacktrackInput, PhaseLogInput, SessionAnchors};
@@ -107,12 +97,41 @@ impl StaticCheckRunner for FakeRunner {
     }
 }
 
-/// 组合根装配：run 级锚点 + 注入 runner（与命令层同式）。
+/// 假 TestExecutionRunner：记录 root / change 调用、恒 pass 产出（分发臂
+/// 委托面用；行为面归 walker_test 假 runner 装置）。
+struct FakeTestExecutionRunner {
+    calls: Mutex<Vec<(String, String)>>,
+}
+
+impl TestExecutionRunner for FakeTestExecutionRunner {
+    fn run(&self, root: &str, change: &str) -> BoxToolFuture {
+        self.calls
+            .lock()
+            .expect("calls 锁不可中毒")
+            .push((root.to_owned(), change.to_owned()));
+        Box::pin(async move {
+            Ok(ToolStepOutput::TestExecution(TestExecutionOutcome {
+                conclusion: TestExecutionConclusion::Pass,
+                total: 0,
+                passed: 0,
+                failed: 0,
+                skipped: 0,
+                findings_brief: String::new(),
+                report_dir: String::new(),
+            }))
+        })
+    }
+}
+
+/// 组合根装配：run 级锚点 + 注入双 runner（与命令层同式）。
 fn assemble(steps_static_check: FakeRunner) -> (Arc<LocalToolSteps>, Arc<FakeRunner>) {
     let runner = Arc::new(steps_static_check);
     let steps = Arc::new(LocalToolSteps::new(
         Arc::new(SessionAnchors::new()),
         Arc::clone(&runner) as Arc<dyn StaticCheckRunner>,
+        Arc::new(FakeTestExecutionRunner {
+            calls: Mutex::new(Vec::new()),
+        }),
     ));
     (steps, runner)
 }
@@ -508,4 +527,123 @@ async fn 锚点实例随steps复用且run_id隔离() {
         other => panic!("变体漂移: {other:?}"),
     };
     assert_eq!(fresh.round, 1, "换 run_id 基线独立（per-run 装配锚）");
+}
+
+// ---------------------------------------------------------------------------
+// test-execution 扩展节（desktop-checks-domain）
+// ---------------------------------------------------------------------------
+
+/// 可编程 TestExecutionRunner 假实现（记录 root / change 调用、可编程产出 /
+/// Err——分发臂透传与 Err 上抛双形态驱动）。
+struct ProgrammableExecutionRunner {
+    calls: Arc<Mutex<Vec<(String, String)>>>,
+    result: Result<TestExecutionOutcome, String>,
+}
+
+impl ProgrammableExecutionRunner {
+    fn passing() -> (Arc<Self>, Arc<Mutex<Vec<(String, String)>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Arc::new(Self {
+                calls: Arc::clone(&calls),
+                result: Ok(TestExecutionOutcome {
+                    conclusion: TestExecutionConclusion::Pass,
+                    total: 5,
+                    passed: 4,
+                    failed: 0,
+                    skipped: 1,
+                    findings_brief: "全部测试通过且覆盖率达阈值".to_owned(),
+                    report_dir: "reports/test/app_node-test".to_owned(),
+                }),
+            }),
+            calls,
+        )
+    }
+
+    fn failing(message: &str) -> Self {
+        Self {
+            calls: Arc::new(Mutex::new(Vec::new())),
+            result: Err(message.to_owned()),
+        }
+    }
+}
+
+impl TestExecutionRunner for ProgrammableExecutionRunner {
+    fn run(&self, root: &str, change: &str) -> BoxToolFuture {
+        self.calls
+            .lock()
+            .expect("calls 锁不可中毒")
+            .push((root.to_owned(), change.to_owned()));
+        let result = self.result.clone();
+        Box::pin(async move { result.map(ToolStepOutput::TestExecution) })
+    }
+}
+
+/// 正向：三参构造——锚点 + static_check + test_execution 双 runner 注入
+///（组合根同式装配的进程内证据半边；既有 assemble 装置以恒过假件占位，本
+/// 用例以可编程假件显式注入并驱动分发臂）。
+#[tokio::test]
+async fn 三参构造双runner注入_分发臂委托() {
+    let root = TempRoot::new("three-arg");
+    let (execution_runner, calls) = ProgrammableExecutionRunner::passing();
+    let steps = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(FakeRunner::passing()) as Arc<dyn StaticCheckRunner>,
+        Arc::clone(&execution_runner) as Arc<dyn TestExecutionRunner>,
+    ));
+
+    let output = run_step(
+        &steps,
+        &root.root_str(),
+        ToolCommand::TestExecution {
+            change: CHANGE.to_owned(),
+        },
+    )
+    .await;
+
+    match output {
+        ToolStepOutput::TestExecution(outcome) => {
+            assert_eq!(outcome.conclusion, TestExecutionConclusion::Pass);
+            assert_eq!(
+                (
+                    outcome.total,
+                    outcome.passed,
+                    outcome.failed,
+                    outcome.skipped
+                ),
+                (5, 4, 0, 1)
+            );
+            assert_eq!(outcome.report_dir, "reports/test/app_node-test");
+        }
+        other => panic!("产出应为 TestExecution 变体，实际: {other:?}"),
+    }
+    assert_eq!(
+        calls.lock().expect("锁").as_slice(),
+        [(root.root_str().as_str().to_owned(), CHANGE.to_owned())],
+        "root / change 透传注入 runner（与 StaticCheck 臂同型——AC-3 port 消费面）"
+    );
+}
+
+/// 异常：TestExecutionRunner Err(String) 臂原样上抛（步层不吞错——run 显式
+/// 失败面，经 run_tool 映射 run 终态的输入）。
+#[tokio::test]
+async fn test_execution_runner_err原样上抛() {
+    let root = TempRoot::new("execution-err");
+    let steps = Arc::new(LocalToolSteps::new(
+        Arc::new(SessionAnchors::new()),
+        Arc::new(FakeRunner::passing()) as Arc<dyn StaticCheckRunner>,
+        Arc::new(ProgrammableExecutionRunner::failing("报告子目录创建失败"))
+            as Arc<dyn TestExecutionRunner>,
+    ));
+
+    let err = steps
+        .run(ToolStepRequest {
+            root: root.root_str(),
+            command: ToolCommand::TestExecution {
+                change: CHANGE.to_owned(),
+            },
+        })
+        .await
+        .expect_err("runner Err 应透传");
+    assert_eq!(err, "报告子目录创建失败", "Err(String) 原样（无再包装）");
 }

@@ -1,0 +1,55 @@
+{
+  "computedCoverage": {
+    "measured": {
+      "branches": 76.19,
+      "functions": 81.82,
+      "lines": 88.0
+    },
+    "pass": true,
+    "thresholds": {
+      "branches": 70.0,
+      "functions": 75.0,
+      "lines": 80.0
+    }
+  },
+  "fixture": "red-run",
+  "subReport": {
+    "coveragePresent": true,
+    "errorCases": 2,
+    "exitCode": 1,
+    "framework": "vite-plus",
+    "mutation": null,
+    "outcome": "parsed",
+    "root": ".",
+    "sourceFiles": [
+      "app/src/math.ts"
+    ],
+    "summaryCounts": [
+      6,
+      4,
+      2,
+      0
+    ],
+    "testFiles": [
+      "app/src/math.test.ts"
+    ]
+  },
+  "summary": {
+    "conclusion": "fail",
+    "counts": [
+      6,
+      4,
+      2,
+      0
+    ],
+    "diagnose": [
+      "「vite-plus」2 项测试失败——聚类失败（疑似同模块回归或共同假设变化）; 明细见子报告 error_cases"
+    ],
+    "integrity": [],
+    "outcome": "parsed",
+    "problemTypes": [
+      "test_failure",
+      "test_failure"
+    ]
+  }
+}

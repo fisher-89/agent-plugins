@@ -1,0 +1,27 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-06T08:01:00.000Z",
+  "duration_seconds": 3,
+  "total": 5,
+  "passed": 4,
+  "failed": 0,
+  "skipped": 1,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 82.5, "branches": 74.1, "functions": 90.3 },
+    "thresholds": { "lines": 60, "branches": 70, "functions": 75 }
+  },
+  "mutation": null,
+  "plans": [
+    {
+      "id": "node-test",
+      "framework": "node-test",
+      "root": ".",
+      "path": "reports/test/node-test"
+    }
+  ],
+  "findings": ["全部测试通过且覆盖率达阈值"]
+}

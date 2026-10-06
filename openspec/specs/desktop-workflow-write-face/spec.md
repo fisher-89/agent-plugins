@@ -11,7 +11,7 @@ core/workflow 补全 workflow.json 写面（phase_next / phase_start / phase_log
 core/workflow SHALL 补全 workflow.json 写面，成为 workflow.json 的 Rust 单一权威（读 + 写）。写面 SHALL 提供：
 
 - `phase_next`：相位路由状态机——返回 next_phase、已插值的 executor / evaluator prompt、`allowed_backtrack_phases` 白名单、重试上限判定；`sessionAnchors` 以进程内状态复活（mid-phase interruption 分支可达，重入时中断相位可感知并标定）；
-- `phase_start`：开相位并启动 attempt 计时；
+- `phase_start`：开启阶段并 attempt 计时；
 - `phase_log`：eval 记录落账（checklist 信封 + skipped + 会话槽位，见「eval 条目会话槽位落账」）；
 - `backtrack`：回跳落账（stale 标记 + 传播 + reason ≤500）。
 

@@ -46,6 +46,8 @@ pub enum ChangeStepKind {
     PhaseStart,
     /// static-check 工具步
     StaticCheck,
+    /// test-execution 门禁工具步（确定性测试执行链，绿跑零 agent）
+    TestExecution,
     /// phase-log 相位机步
     PhaseLog,
     /// verdict 解析门

@@ -1,0 +1,27 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-06T08:01:00.000Z",
+  "duration_seconds": 38,
+  "total": 6,
+  "passed": 6,
+  "failed": 0,
+  "skipped": 0,
+  "conclusion": "pass",
+  "problems": [],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 71.43, "branches": null, "functions": null },
+    "thresholds": { "lines": 70, "branches": 65, "functions": 60 }
+  },
+  "mutation": null,
+  "plans": [
+    {
+      "id": "crates_core_rust",
+      "framework": "rust",
+      "root": "crates/core",
+      "path": "reports/test/crates_core_rust"
+    }
+  ],
+  "findings": ["全部测试通过且覆盖率达阈值"]
+}

@@ -1,22 +1,3 @@
-//! `write::phase_log` 的单元测试（test-design「phase_log.rs ->
-//! phase_log_test.rs」节）：verdict 推导（checklist 全 pass）、skipped 约束、
-//! report 长度门、纯追加落账（W9 缺陷修复回归——backtrack 回跳后同相位重评
-//! 逐条 append）、start_at 自 `active_phase` 继承、落账后清 `active_phase`；
-//! 会话槽位显式在位落账（AC-4）——仅 `Some` 槽位以 raw snake_case 键 insert
-//!（`executor_session_id` / `evaluator_session_id` / `decision_session_id`），
-//! 缺省槽位不产生键（条目形状与既有形态一致），落账产物经宽松解析面读回
-//! 三槽位值逐字还原。
-//!
-//! Mock策略：无进程边界 mock（fs 真实组合）——tempdir 真实 change fixture
-//! 真盘（含 backtrack 后形态 fixture 供缺陷回归行驱动）；「零写入」以调用
-//! 前后字节比对断言。
-//!
-//! 分层注记（写面严格语义，对照插件「非匹配 active_phase 照落不拒」的宽容
-//! 形态收紧）：phase_log 门控 workflow_type、表位（相位不在 requirement 表 →
-//! Err）、verdict-skipped 约束与 report 长度；开相前置——`active_phase`
-//! 缺失或停留他相均显式 `Err`（开相位才可落账，杜绝无主落账与 start_at
-//! 无源），匹配时 `start_at` 无条件自 `active_phase` 继承。
-
 use std::fs;
 use std::path::PathBuf;
 
@@ -507,8 +488,7 @@ fn 落账保形_file_log零触碰_pretty可再读() {
     serde_json::from_str::<serde_json::Value>(&text).expect("写回应可再解析");
 }
 
-/// 无 active_phase 的落账拒绝：未开相位直接 phase_log → Err（start_at 无
-/// 继承源，写面不为无主落账兜底）且 workflow.json 零写入。
+/// 无 active_phase 的落账拒绝
 #[test]
 fn 无active_phase落账显式拒绝零写入() {
     let ws = TempWs::new("no-active");

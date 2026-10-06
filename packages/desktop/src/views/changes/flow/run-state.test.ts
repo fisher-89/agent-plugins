@@ -397,7 +397,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
     });
   });
 
-  it('三类可辨：九步词汇 → WorkerAgent / ToolStep / Gate 分组与 role 标签逐词对应', () => {
+  it('三类可辨：十步词汇 → WorkerAgent / ToolStep / Gate 分组与 role 标签逐词对应', () => {
     const GROUP_OF: Record<
       ChangeStepKind,
       {
@@ -410,6 +410,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
       decision: { group: 'workerAgent', role: 'decision' },
       phaseStart: { group: 'toolStep', role: null },
       staticCheck: { group: 'toolStep', role: null },
+      testExecution: { group: 'toolStep', role: null },
       phaseLog: { group: 'toolStep', role: null },
       verdictGate: { group: 'gate', role: null },
       retryGate: { group: 'gate', role: null },
@@ -422,7 +423,7 @@ describe('runStepNodes：id 定式与载荷承接（overlay 输入面）', () =>
     });
 
     const nodes = runStepNodes(state);
-    expect(nodes).toHaveLength(9);
+    expect(nodes).toHaveLength(10);
     for (const node of nodes) {
       const expected = GROUP_OF[node.runStepKind];
       expect(node.group).toBe(expected.group);

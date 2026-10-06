@@ -1,0 +1,6 @@
+{
+  "fixture": "corrupt-missing-required",
+  "subReport": {
+    "outcome": "unparsable"
+  }
+}

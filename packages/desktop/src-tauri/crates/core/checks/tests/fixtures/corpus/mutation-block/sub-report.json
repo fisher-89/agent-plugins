@@ -1,0 +1,47 @@
+{
+  "framework": "vitest",
+  "root": "plugins/dev-team/bin",
+  "timestamp": "2026-09-18T03:12:44.800Z",
+  "exit_code": 0,
+  "duration_ms": 521300.0,
+  "summary": { "total": 8, "passed": 8, "failed": 0, "skipped": 0 },
+  "error_cases": [],
+  "test_files": ["__tests__/dedup/dedup.ts"],
+  "source_files": [
+    {
+      "file": "src/lib/dedup.ts",
+      "coverage": {
+        "lines": 100.0, "branches": 95.0, "functions": 100.0,
+        "total_lines": 40, "covered_lines": 40,
+        "total_branches": 20, "covered_branches": 19,
+        "total_functions": 8, "covered_functions": 8
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 100.0, "branches": 95.0, "functions": 100.0 },
+    "thresholds": { "lines": 85, "branches": 75, "functions": 90 }
+  },
+  "mutation": {
+    "pass": false,
+    "score": 55.0,
+    "threshold": 70,
+    "measured": {
+      "killed": 11, "survived": 7, "timeout": 2, "noCoverage": 3,
+      "compileError": 1, "runtimeError": 1, "ignored": 2,
+      "total": 27, "detected": 13, "undetected": 10
+    },
+    "overrides": [
+      {
+        "glob": "src/lib",
+        "score": 55.0,
+        "threshold": 70,
+        "pass": false,
+        "file_count": 4,
+        "passed_count": 1
+      }
+    ]
+  },
+  "findings": null
+}

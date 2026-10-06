@@ -1,0 +1,53 @@
+{
+  "computedCoverage": {
+    "measured": {
+      "branches": null,
+      "functions": null,
+      "lines": 71.43
+    },
+    "pass": true,
+    "thresholds": {
+      "branches": 65.0,
+      "functions": 60.0,
+      "lines": 70.0
+    }
+  },
+  "fixture": "green-llvm-cov",
+  "subReport": {
+    "coveragePresent": true,
+    "errorCases": 0,
+    "exitCode": 0,
+    "framework": "rust",
+    "mutation": null,
+    "outcome": "parsed",
+    "root": "crates/core",
+    "sourceFiles": [
+      "crates/core/checks/src/lib.rs",
+      "crates/core/checks/src/model.rs"
+    ],
+    "summaryCounts": [
+      6,
+      6,
+      0,
+      0
+    ],
+    "testFiles": [
+      "crates/core/checks/tests/corpus_golden_test.rs"
+    ]
+  },
+  "summary": {
+    "conclusion": "pass",
+    "counts": [
+      6,
+      6,
+      0,
+      0
+    ],
+    "diagnose": [
+      "全部测试通过且覆盖率达阈值"
+    ],
+    "integrity": [],
+    "outcome": "parsed",
+    "problemTypes": []
+  }
+}

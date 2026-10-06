@@ -486,6 +486,8 @@ export type ChangeStepKind =
 "phaseStart" | 
 /**  static-check 工具步 */
 "staticCheck" | 
+/**  test-execution 门禁工具步（确定性测试执行链，绿跑零 agent） */
+"testExecution" | 
 /**  phase-log 相位机步 */
 "phaseLog" | 
 /**  verdict 解析门 */

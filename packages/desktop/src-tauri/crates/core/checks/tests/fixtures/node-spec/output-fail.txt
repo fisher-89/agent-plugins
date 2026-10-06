@@ -1,0 +1,10 @@
+▶ suite
+  ✔ ok case (1ms)
+  ✖ rejects bad input (2ms)
+    AssertionError [ERR_ASSERTION]: expected 1 to equal 2
+        at Test.<anonymous> (test/app/math.test.js:3:5)
+        at process.processTicksAndRejections (node:internal/process/task_queues:95:5)
+ℹ tests 2
+ℹ suites 1
+ℹ pass 1
+ℹ fail 1

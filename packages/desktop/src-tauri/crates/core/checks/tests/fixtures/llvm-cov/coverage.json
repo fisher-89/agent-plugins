@@ -1,0 +1,37 @@
+{
+  "data": [
+    {
+      "files": [
+        {
+          "filename": "crates/core/checks/src/lib.rs",
+          "segments": [
+            [1, 1, 4, true, 1, 1, 0, 0],
+            [1, 20, 0, false, 1, 1, 0, 0],
+            [2, 1, 4, true, 2, 1, 0, 0],
+            [3, 1, 0, true, 3, 1, 0, 0],
+            [4, 1, 0, true, 4, 1, 0, 0]
+          ]
+        },
+        {
+          "filename": "crates/core/checks/src/model.rs",
+          "segments": []
+        }
+      ],
+      "totals": {
+        "lines": { "percent": 66.67 },
+        "functions": { "percent": 50.0, "count": 2, "covered": 1 },
+        "regions": { "percent": 60.0 }
+      }
+    },
+    {
+      "files": [
+        {
+          "filename": "crates/core/checks/src/aggregate.rs",
+          "segments": [
+            [1, 1, 1, true, 1, 1, 0, 0]
+          ]
+        }
+      ]
+    }
+  ]
+}

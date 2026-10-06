@@ -1,0 +1,54 @@
+{
+  "computedCoverage": {
+    "measured": {
+      "branches": 72.73,
+      "functions": 85.71,
+      "lines": 86.67
+    },
+    "pass": true,
+    "thresholds": {
+      "branches": 70.0,
+      "functions": 75.0,
+      "lines": 80.0
+    }
+  },
+  "fixture": "green-istanbul",
+  "subReport": {
+    "coveragePresent": true,
+    "errorCases": 0,
+    "exitCode": 0,
+    "framework": "vite-plus",
+    "mutation": null,
+    "outcome": "parsed",
+    "root": ".",
+    "sourceFiles": [
+      "src/app/main.ts",
+      "src/lib/util.ts"
+    ],
+    "summaryCounts": [
+      12,
+      12,
+      0,
+      0
+    ],
+    "testFiles": [
+      "src/app/main.test.ts",
+      "src/lib/util.test.ts"
+    ]
+  },
+  "summary": {
+    "conclusion": "pass",
+    "counts": [
+      12,
+      12,
+      0,
+      0
+    ],
+    "diagnose": [
+      "全部测试通过且覆盖率达阈值"
+    ],
+    "integrity": [],
+    "outcome": "parsed",
+    "problemTypes": []
+  }
+}

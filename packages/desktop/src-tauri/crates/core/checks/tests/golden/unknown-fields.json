@@ -1,0 +1,22 @@
+{
+  "fixture": "unknown-fields",
+  "subReport": {
+    "coveragePresent": true,
+    "errorCases": 1,
+    "exitCode": 0,
+    "framework": "node-test",
+    "mutation": null,
+    "outcome": "parsed",
+    "root": ".",
+    "sourceFiles": [],
+    "summaryCounts": [
+      3,
+      3,
+      0,
+      0
+    ],
+    "testFiles": [
+      "app/src/add.test.mjs"
+    ]
+  }
+}

@@ -1,0 +1,14 @@
+running 3 tests
+test checks::aggregate::determine_conclusion_passes ... ok
+test checks::aggregate::determine_conclusion_fails ... FAILED
+test checks::model::parses_minimal ... ignored
+
+failures:
+
+---- checks::aggregate::determine_conclusion_fails stdout ----
+assertion `left == right` failed: conclusion 漂移
+  left: Fail
+ right: Pass
+note: run with `RUST_BACKTRACE=1` environment variable to display a backtrace
+
+test result: FAILED. 1 passed; 1 failed; 1 ignored; 0 measured; 0 filtered out; finished in 0.01s

@@ -8,9 +8,8 @@ use tauri::ipc::Channel;
 use tauri::{AppHandle, Manager};
 
 use ::agent::StopRegistry;
-use agent_runtime::{
-    compose_turn, ComposedTurn, GitDiffSource, KernelWorkerPort, ProcessStaticCheck,
-};
+use agent_runtime::{compose_turn, ComposedTurn, GitDiffSource, KernelWorkerPort};
+use checks_runtime::{ProcessStaticCheck, ProcessTestExecution};
 use foundation::layout;
 use orchestration::control::ChangeFlowControl;
 use orchestration::port::{
@@ -110,6 +109,7 @@ pub(crate) async fn change_flow_start_with<R: tauri::Runtime>(
     let tools: Arc<dyn ToolStepPort> = Arc::new(LocalToolSteps::new(
         Arc::clone(&anchors),
         Arc::new(ProcessStaticCheck::new()),
+        Arc::new(ProcessTestExecution::new()),
     ));
     let diff: Arc<dyn DiffContextPort> = Arc::new(GitDiffSource::new());
     let snapshot: Arc<dyn WorkflowSnapshotPort> = Arc::new(FsSnapshot::new(root.clone()));

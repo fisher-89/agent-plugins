@@ -1,13 +1,3 @@
-//! `write::phase_start` 的单元测试（test-design「phase_start.rs ->
-//! phase_start_test.rs」节）：`active_phase` 定点写入、attempt 自既有 eval
-//! 条目数推导（重入即新一轮计时）、非法相位 / 非 requirement 拒绝零写入、
-//! 未知字段保形（W2）、file_log 零触碰（AC-3 写面半边）、pretty 写回可再读
-//!（W3 zod 兼容 fixture 对照口径）。
-//!
-//! Mock策略：无进程边界 mock（fs 真实组合）——tempdir 真实 change fixture
-//! 真盘（合法 / 带 legacy 字段 / 损坏三族）；「零写入」以调用前后字节比对
-//! 断言。
-
 use std::fs;
 use std::path::PathBuf;
 
@@ -66,17 +56,17 @@ fn parse_of(ws: &TempWs, name: &str) -> serde_json::Value {
 const CHANGE: &str = "demo-change";
 
 // ---------------------------------------------------------------------------
-// 正向：开相位落盘 / attempt 递增
+// 正向：开启阶段落盘 / attempt 递增
 // ---------------------------------------------------------------------------
 
-/// 开相位落盘：workflow.json active_phase 定点写入 {phase, attempt, start_at}，
+/// 开启阶段落盘：workflow.json active_phase 定点写入 {phase, attempt, start_at}，
 /// outcome 三字段与落盘一致（AC-9 attempt 计时对照面）。
 #[test]
-fn 开相位落盘active_phase三字段与outcome一致() {
+fn 开启阶段落盘active_phase三字段与outcome一致() {
     let ws = TempWs::new("start-basic");
     ws.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
 
-    let outcome = ws.start(CHANGE, "proposal").expect("开相位应成功");
+    let outcome = ws.start(CHANGE, "proposal").expect("开启阶段应成功");
 
     assert_eq!(outcome.phase, "proposal");
     assert_eq!(outcome.attempt, 1, "无既有条目 → attempt 1");
@@ -116,7 +106,7 @@ fn attempt自既有eval条目数递增() {
 }"#,
     );
 
-    let outcome = ws.start(CHANGE, "dev-design").expect("开相位应成功");
+    let outcome = ws.start(CHANGE, "dev-design").expect("开启阶段应成功");
 
     assert_eq!(outcome.attempt, 3, "既有 2 条 + 1（重试自然递增）");
     let doc = parse_of(&ws, CHANGE);
@@ -134,7 +124,7 @@ fn attempt自既有eval条目数递增() {
 /// phase_start 重入新一轮计时：同相位重复 start（重试节奏：start → 落账 →
 /// 再 start）attempt 再递增、start_at 刷新（重入即新一轮计时）。
 #[test]
-fn 重入开相位attempt再递增且start_at刷新() {
+fn 重入开启阶段attempt再递增且start_at刷新() {
     let ws = TempWs::new("restart");
     ws.change(CHANGE, r#"{ "workflow_type": "requirement", "eval": [] }"#);
 
@@ -182,7 +172,7 @@ fn 未知字段与legacy字段写后原样保留() {
 }"#,
     );
 
-    ws.start(CHANGE, "dev-design").expect("开相位应成功");
+    ws.start(CHANGE, "dev-design").expect("开启阶段应成功");
 
     let doc = parse_of(&ws, CHANGE);
     assert_eq!(doc["custom_note"], serde_json::json!("保留我"));
@@ -218,7 +208,7 @@ fn file_log既有条目写前后零触碰() {
 
     let before = parse_of(&ws, CHANGE)["file_log"].clone();
 
-    ws.start(CHANGE, "proposal").expect("开相位应成功");
+    ws.start(CHANGE, "proposal").expect("开启阶段应成功");
 
     let after = parse_of(&ws, CHANGE);
     assert_eq!(
@@ -245,7 +235,7 @@ fn pretty写回可再读且键集形状不变() {
         serde_json::from_str(&String::from_utf8(ws.workflow_json_bytes(CHANGE)).expect("UTF-8"))
             .expect("fixture 应合法");
 
-    ws.start(CHANGE, "test-gen").expect("开相位应成功");
+    ws.start(CHANGE, "test-gen").expect("开启阶段应成功");
 
     let text = String::from_utf8(ws.workflow_json_bytes(CHANGE)).expect("workflow.json 应为 UTF-8");
     // pretty 形态：2 空格缩进 + 尾换行（与插件 writeEvalJson 输出形态一致）

@@ -1,0 +1,6 @@
+{
+  "fixture": "corrupt-invalid-json",
+  "subReport": {
+    "outcome": "unparsable"
+  }
+}

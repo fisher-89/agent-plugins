@@ -2,7 +2,6 @@ mod cli;
 mod compose;
 mod git_diff;
 mod sdk;
-mod static_check;
 mod store_port;
 mod worker;
 
@@ -13,7 +12,6 @@ pub use compose::{compose_turn, ComposedTurn};
 pub use git_diff::GitDiffSource;
 pub use sdk::config::EngineConfig;
 pub use sdk::log::{append_engine_log, init_engine_log, install_engine_panic_hook};
-pub use static_check::ProcessStaticCheck;
 pub use store_port::session_query;
 pub use worker::KernelWorkerPort;
 
@@ -98,8 +96,6 @@ impl Default for EngineFacade {
 mod git_diff_test;
 #[cfg(test)]
 mod lib_test;
-#[cfg(test)]
-mod static_check_test;
 
 /// PATH 进程全局窗口的 crate 级串行化锁（测试装置共享）：worker（CLI shim /
 /// PATH 隔离）、cli discover / runner、compose 与 git_diff（git 缺失隔离）各

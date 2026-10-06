@@ -1148,6 +1148,33 @@ dependencies = [
 ]
 
 [[package]]
+name = "checks"
+version = "0.1.0"
+dependencies = [
+ "config",
+ "foundation",
+ "glob",
+ "serde",
+ "serde_json",
+ "time",
+]
+
+[[package]]
+name = "checks-runtime"
+version = "0.1.0"
+dependencies = [
+ "checks",
+ "config",
+ "foundation",
+ "glob",
+ "orchestration",
+ "serde_json",
+ "tempfile",
+ "time",
+ "tokio",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2497,6 +2524,7 @@ version = "0.1.0"
 dependencies = [
  "agent",
  "agent-runtime",
+ "checks-runtime",
  "config",
  "embed-resource",
  "foundation",

@@ -26,6 +26,12 @@ const EXPLORES_DIR_NAME: &str = "explores";
 /// 全包其余产品源码禁写此字面量（layout_test 隔离扫描唯一例外即本文件）。
 const CONFIG_FILE_NAME: &str = "config.json";
 
+/// change 报告子目录名（相对 change 目录锚定）
+const REPORTS_DIR_NAME: &str = "reports";
+
+/// 测试报告子目录名（相对 reports 子目录锚定）
+const TEST_REPORTS_DIR_NAME: &str = "test";
+
 /// workspace 磁盘布局：进行中 / 已归档 / 探索笔记三棵目录树。
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Layout {
@@ -59,6 +65,18 @@ pub fn resolve(root: &Path) -> Layout {
 /// 与 `resolve` 的域目录推导同源引用常量组。
 pub fn config_path(root: &Path) -> PathBuf {
     root.join(DOMAIN_DIR_NAME).join(CONFIG_FILE_NAME)
+}
+
+/// 把 workspace 根目录与 change 名解析为 change 测试报告目录：
+/// `<root>/<域目录名>/<changes>/<change>/<报告目录名>/<测试报告目录名>`。
+/// 纯拼接、无文件系统访问；checks 域报告写盘与复用门取报告目录的唯一
+/// 通道，与 `resolve` / `config_path` 同源引用常量组。
+pub fn change_test_reports(root: &Path, change: &str) -> PathBuf {
+    resolve(root)
+        .changes_root
+        .join(change)
+        .join(REPORTS_DIR_NAME)
+        .join(TEST_REPORTS_DIR_NAME)
 }
 
 #[cfg(test)]

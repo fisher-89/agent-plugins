@@ -1,0 +1,37 @@
+{
+  "framework": "rust",
+  "root": "crates/core",
+  "timestamp": "2026-10-06T08:00:00.000Z",
+  "exit_code": 0,
+  "duration_ms": 36400.0,
+  "summary": { "total": 6, "passed": 6, "failed": 0, "skipped": 0 },
+  "error_cases": [],
+  "test_files": ["crates/core/checks/tests/corpus_golden_test.rs"],
+  "source_files": [
+    {
+      "file": "crates/core/checks/src/lib.rs",
+      "coverage": {
+        "lines": 75.0, "branches": null, "functions": null,
+        "total_lines": 4, "covered_lines": 3,
+        "total_branches": null, "covered_branches": null,
+        "total_functions": null, "covered_functions": null
+      }
+    },
+    {
+      "file": "crates/core/checks/src/model.rs",
+      "coverage": {
+        "lines": 66.67, "branches": null, "functions": null,
+        "total_lines": 3, "covered_lines": 2,
+        "total_branches": null, "covered_branches": null,
+        "total_functions": null, "covered_functions": null
+      }
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 71.43, "branches": null, "functions": null },
+    "thresholds": { "lines": 70, "branches": 65, "functions": 60 }
+  },
+  "mutation": null,
+  "findings": null
+}

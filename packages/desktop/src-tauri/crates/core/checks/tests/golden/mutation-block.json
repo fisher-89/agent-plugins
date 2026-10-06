@@ -1,0 +1,38 @@
+{
+  "fixture": "mutation-block",
+  "subReport": {
+    "coveragePresent": true,
+    "errorCases": 0,
+    "exitCode": 0,
+    "framework": "vitest",
+    "mutation": {
+      "measured": [
+        11,
+        7,
+        2,
+        3,
+        27,
+        13,
+        10
+      ],
+      "overrides": 1,
+      "pass": false,
+      "score": 55.0,
+      "threshold": 70.0
+    },
+    "outcome": "parsed",
+    "root": "plugins/dev-team/bin",
+    "sourceFiles": [
+      "src/lib/dedup.ts"
+    ],
+    "summaryCounts": [
+      8,
+      8,
+      0,
+      0
+    ],
+    "testFiles": [
+      "__tests__/dedup/dedup.ts"
+    ]
+  }
+}

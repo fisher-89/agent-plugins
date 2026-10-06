@@ -19,6 +19,7 @@ embed-resource = "3"
 [dependencies]
 agent = { workspace = true }
 agent-runtime = { workspace = true }
+checks-runtime = { workspace = true }
 config = { workspace = true }
 foundation = { workspace = true }
 orchestration = { workspace = true }
@@ -33,34 +34,26 @@ tauri = { workspace = true }
 tauri-plugin-dialog = { workspace = true }
 tauri-plugin-devtools = "2.2.1"
 tauri-specta = { workspace = true }
-# 工作区代码统计（tokei library 直依赖）：`=` 精确 pin + default-features = false
-# 剥离 cli feature（clap 4 / colored / env_logger / num-format 不入树，纯库消费）；
-# 仅落 desktop-app 壳，MUST NOT 出现在任何 core / infra crate
 tokei = { workspace = true }
-# change-flow 命令面的 broadcast 订阅转发（sync 特性随 workspace 基面）
 tokio = { workspace = true }
 
 [dev-dependencies]
 tempfile = { workspace = true }
-# 命令层测试预置「绕过 store 校验的悬空引用」存量库（native_db 裸构造，同
-# store_test 既有口径）；仅测试构建启用
 native_db = { workspace = true }
-# 编排/命令层测试以 #[tokio::test] 驱动（drive_agent_run 直驱 / start_agent_run
-# 泛型缝 / agent_start 与 agent_stop 命令面）
 tokio = { workspace = true, features = ["rt", "macros"] }
-# 命令层测试以 MockRuntime 构造 State（不启动真实 runtime）；仅测试构建启用
 tauri = { workspace = true, features = ["test"] }
 
-# 根包是隐式成员，不得显式列入 members（重复列出会报错）
 [workspace]
 resolver = "2"
 members = [
     "crates/core/agent",
+    "crates/core/checks",
     "crates/core/config",
     "crates/core/foundation",
     "crates/core/orchestration",
     "crates/core/workflow",
     "crates/infra/agent",
+    "crates/infra/checks",
     "crates/infra/store",
     "crates/infra/watch",
     "crates/tools/export-bindings",
@@ -70,6 +63,8 @@ members = [
 [workspace.dependencies]
 agent = { path = "crates/core/agent" }
 agent-runtime = { path = "crates/infra/agent" }
+checks = { path = "crates/core/checks" }
+checks-runtime = { path = "crates/infra/checks" }
 config = { path = "crates/core/config" }
 dunce = "1"
 foundation = { path = "crates/core/foundation" }

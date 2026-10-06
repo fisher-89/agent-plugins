@@ -1,0 +1,38 @@
+{
+  "phase": "test-execution",
+  "command": "dev-team test-execution",
+  "timestamp": "2026-10-06T08:01:00.000Z",
+  "duration_seconds": 21,
+  "total": 6,
+  "passed": 4,
+  "failed": 2,
+  "skipped": 0,
+  "conclusion": "fail",
+  "problems": [
+    {
+      "framework": "vite-plus",
+      "type": "test_failure",
+      "message": "Test \"math > rejects NaN input\" failed: expected 1 to equal 2"
+    },
+    {
+      "framework": "vite-plus",
+      "type": "test_failure",
+      "message": "Test \"math > rounds half down\" failed: expected 1.5 to equal 1"
+    }
+  ],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 88.0, "branches": 76.19, "functions": 81.82 },
+    "thresholds": { "lines": 80, "branches": 70, "functions": 75 }
+  },
+  "mutation": null,
+  "plans": [
+    {
+      "id": "vite-plus",
+      "framework": "vite-plus",
+      "root": ".",
+      "path": "reports/test/vite-plus"
+    }
+  ],
+  "findings": ["「vite-plus」2 项测试失败——聚类失败（疑似同模块回归或共同假设变化）; 明细见子报告 error_cases"]
+}

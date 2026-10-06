@@ -1,0 +1,27 @@
+{
+  "framework": "node-test",
+  "root": ".",
+  "timestamp": "2026-10-01T02:00:00.000Z",
+  "exit_code": 0,
+  "duration_ms": 310.0,
+  "summary": { "total": 3, "passed": 3, "failed": 0, "skipped": 0, "flaky": 1 },
+  "error_cases": [
+    {
+      "name": "never runs",
+      "status": "skipped",
+      "futureField": { "deep": [1, 2, 3] }
+    }
+  ],
+  "test_files": ["app/src/add.test.mjs"],
+  "source_files": [],
+  "coverage": {
+    "pass": true,
+    "measured": { "lines": 82.5, "branches": null, "functions": null },
+    "thresholds": { "lines": 60, "branches": 70, "functions": 75 },
+    "by_framework": {}
+  },
+  "mutation": null,
+  "findings": null,
+  "future_top_level": "ignored",
+  "extraArray": [1, "two", null]
+}

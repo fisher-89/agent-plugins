@@ -1,10 +1,3 @@
-//! [`StaticCheckRunner`] 的进程实现（spawn 不进 core——W4 红线的 infra 落点）：
-//! `core::config` 读 `static_analysis` 命令 → shell 语义 spawn（cwd = workspace
-//! root）→ 诊断捕获 + 退出码映射。无配置 / 空命令 = passed 直接过（与插件
-//! `runStaticAnalysis` 同语义）；配置在位而命令程序不可达（PATH / root 上无
-//! 对应可执行）= 显式 `Err`——shell 会把命令缺失吞成非零退出码
-//!（passed=false 反馈边空转烧预算），spawn 前先解析程序，配置错误停给用户。
-
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 

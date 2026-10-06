@@ -523,7 +523,7 @@ npx 解析 CLI / `@stryker-mutator/*` 的 `--prefix` SHALL 指向 suite cwd 的�
 #### Scenario: mutation 在 mutation_cwd 下执行
 
 **WHEN** plan entry `mutation_cwd` 为 `"plugins/dev-team/bin"`
-**AND** mutation 阶段启动
+**AND** mutation 开启阶段
 **THEN** Stryker 命令的 cwd / rootPath SHALL 为 `plugins/dev-team/bin`（即 `entry.mutation_cwd` 原样）
 **AND** 临时 `stryker.config.*` SHALL 创建于该目录下（当需要生成临时配置时）
 **AND** MUST NOT 强制改用 `projectRoot` 或 suite `cwd`（二者可与 `mutation_cwd` 不同）

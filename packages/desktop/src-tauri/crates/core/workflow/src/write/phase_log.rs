@@ -75,14 +75,11 @@ pub fn phase_log(
             doc.typed.workflow_type, input.phase
         ));
     }
-    // 开相前置：相位须处于开启态（`active_phase` 匹配）——开相位
-    // （[`phase_start`](super::phase_start)）才可落账，杜绝无主落账与
-    // start_at 无源（对照插件「非匹配 active_phase 照落不拒」的宽容形态，
-    // 进程内写面收紧为显式 `Err`）
+    // 开启阶段
     let start_at = match doc.typed.active_phase.as_ref() {
         None => {
             return Err(format!(
-                "phase \"{}\" 未开启（无 active_phase），请先 phase_start 开相位",
+                "phase \"{}\" 未开启（无 active_phase），请先 phase_start 开启阶段",
                 input.phase
             ))
         }

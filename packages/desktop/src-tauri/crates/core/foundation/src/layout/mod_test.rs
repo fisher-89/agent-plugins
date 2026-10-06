@@ -350,3 +350,141 @@ fn config_path对同一输入结果稳定且父目录恰为resolve的域目录()
         "archive 产物的父目录恰为 changes 产物（锚定基准不变量）"
     );
 }
+
+// ---------------------------------------------------------------------------
+// change_test_reports 扩展节（desktop-checks-domain）
+// ---------------------------------------------------------------------------
+
+use super::{change_test_reports, REPORTS_DIR_NAME, TEST_REPORTS_DIR_NAME};
+
+/// 正向：root + change → change 目录树下 reports / test 两级拼接逐字相等
+///（常量组同源引用的结构证明——resolve 的 changes 产物锚定）。
+#[test]
+fn change_test_reports_change目录树下reports_test两级拼接逐字相等() {
+    let temp = TempDir::new("report-derive");
+    let layout = resolve(&temp.0);
+    let derived = change_test_reports(&temp.0, "demo-change");
+
+    assert_eq!(
+        derived,
+        layout
+            .changes_root
+            .join("demo-change")
+            .join(REPORTS_DIR_NAME)
+            .join(TEST_REPORTS_DIR_NAME),
+        "change 报告目录 = root/域目录/changes/<change>/reports/test（常量组同源）"
+    );
+    assert!(
+        derived.starts_with(layout.changes_root.join("demo-change")),
+        "change 目录锚定（报告树在 change 目录之下）"
+    );
+}
+
+/// 正向：不存在 root / 指向文件的 root 纯推导正常返回无 IO（config_path
+/// 先例同型）。
+#[test]
+fn change_test_reports_不存在root与文件root纯推导无io() {
+    // 不存在 root：纯推导照常返回
+    let ghost =
+        std::env::temp_dir().join("foundation-layout-test-不存在的目录-change_test_reports");
+    let _ = fs::remove_dir_all(&ghost);
+    assert!(!ghost.exists(), "前置：root 不存在");
+    let derived = change_test_reports(&ghost, "demo-change");
+    assert_eq!(
+        derived,
+        ghost
+            .join(DOMAIN_DIR_NAME)
+            .join(CHANGES_DIR_NAME)
+            .join("demo-change")
+            .join(REPORTS_DIR_NAME)
+            .join(TEST_REPORTS_DIR_NAME)
+    );
+
+    // 指向普通文件的 root：无目录类型校验，仍按路径拼接返回
+    let temp = TempDir::new("report-file-root");
+    let file_root = temp.0.join("一个普通文件.txt");
+    fs::write(&file_root, "内容").expect("写文件失败");
+    let derived = change_test_reports(&file_root, "demo-change");
+    assert!(derived.starts_with(&file_root), "文件 root 纯拼接返回");
+}
+
+/// 边界：空 root → 纯相对形式；尾分隔符 root join 语义不产双分隔符、不 panic。
+#[test]
+fn change_test_reports_空root纯相对形式且尾分隔符不双分隔符() {
+    // 空 root → 纯相对形式
+    let derived = change_test_reports(Path::new(""), "demo-change");
+    assert_eq!(
+        derived,
+        PathBuf::from(DOMAIN_DIR_NAME)
+            .join(CHANGES_DIR_NAME)
+            .join("demo-change")
+            .join(REPORTS_DIR_NAME)
+            .join(TEST_REPORTS_DIR_NAME)
+    );
+
+    // 尾分隔符 root：join 语义保持、不产生双分隔符
+    let base = if cfg!(windows) { r"C:\tmp" } else { "/tmp" };
+    let trailing = format!("{base}/");
+    let derived = change_test_reports(Path::new(&trailing), "demo-change");
+    let joined = derived.to_string_lossy();
+    assert!(
+        !joined.contains("//") && !joined.contains(r"\\"),
+        "尾分隔符不应产生双分隔符: {joined}"
+    );
+}
+
+/// 边界：同一输入结果稳定且父目录锚定 change 目录（确定性不变量）。
+#[test]
+fn change_test_reports_同输入稳定且父目录锚定change目录() {
+    let temp = TempDir::new("report-deterministic");
+
+    // 确定性：同一输入结果稳定
+    let first = change_test_reports(&temp.0, "demo-change");
+    let second = change_test_reports(&temp.0, "demo-change");
+    assert_eq!(first, second);
+
+    // 父目录锚定：报告目录的父 = change 目录下的 reports 目录
+    assert_eq!(
+        first.parent(),
+        Some(
+            temp.0
+                .join(DOMAIN_DIR_NAME)
+                .join(CHANGES_DIR_NAME)
+                .join("demo-change")
+                .join(REPORTS_DIR_NAME)
+                .as_path()
+        ),
+        "reports 目录 = change 目录 / reports（两级常量组的上级）"
+    );
+
+    // 换 change 名 → 兄弟报告目录（互不重叠、同归 changes_root）
+    let other = change_test_reports(&temp.0, "another-change");
+    assert_ne!(first, other);
+    let changes_root = resolve(&temp.0).changes_root;
+    let change_dir = first
+        .parent()
+        .and_then(Path::parent)
+        .expect("reports 有父目录");
+    assert_eq!(
+        change_dir.parent(),
+        Some(changes_root.as_path()),
+        "change 目录锚定 changes_root（报告树互不越树）"
+    );
+    let other_change_dir = other
+        .parent()
+        .and_then(Path::parent)
+        .expect("reports 有父目录");
+    assert_eq!(
+        other_change_dir.parent(),
+        Some(changes_root.as_path()),
+        "同 root 下不同 change 的报告树同归 changes_root"
+    );
+}
+
+/// 边界：reports / test 两员常量逐字锚定（改名只动此处——既有常量组测试
+/// 扩行的独立新测试承载）。
+#[test]
+fn 报告目录常量组两员逐字锚定() {
+    assert_eq!(REPORTS_DIR_NAME, "reports");
+    assert_eq!(TEST_REPORTS_DIR_NAME, "test");
+}

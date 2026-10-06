@@ -1,20 +1,3 @@
-//! `static_check`（ProcessStaticCheck spawn 缝）的单元测试（test-design
-//! 「static_check.rs -> static_check_test.rs」节）：通过形态（cwd=root 断言）、
-//! 失败形态（诊断捕获不丢）、无配置 / 空命令直接过、非零退出码判定、命令
-//! 不可达显式 Err（裸名不在 PATH / 相对 root 不可达——spawn 前程序解析前置）。
-//!
-//! Mock策略：无 mock（子进程边界真实组合）——真实可执行命令 fixture（退出
-//! 码 / 输出可编程的 shell 语义命令串）+ tempdir workspace 的 `core::config`
-//! 真实读取；不 mock `tokio::process` 本体（沿既有真实子进程装置先例）。
-//!
-//! 程序解析注记：`static_analysis` 命令串 spawn 前先解析首 token 程序——
-//! 裸名查 PATH（Windows 额外查 cwd）、带路径分隔符查相对 root；不可达即
-//! 显式 `Err`（shell 会把命令缺失吞成非零退出码——passed=false 反馈边空转
-//! 烧预算，配置错误停给用户）。故各真实组合用例的命令串首 token 均为真实
-//! 可达程序（Windows 以 `cmd` 起手，Unix 用 PATH 上的真实二进制），非零退出
-//! 判定用例亦然（shell 内建字不构成可达程序）；PATH 隔离窗口经共享
-//! [`crate::TEST_PATH_LOCK`] 串行化、测毕恢复。
-
 use std::fs;
 use std::path::PathBuf;
 

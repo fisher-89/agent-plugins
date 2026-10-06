@@ -1,9 +1,3 @@
-//! 编排 port 契约：walker 与执行面之间的中性缝（core 定契约、infra 实现、
-//! 测试假件直驱）。语义为「进程内相位机 + 工具步」：相位机四步经
-//! [`ToolStepPort`] 直调 `workflow::write`（零 CLI 子进程写通道，AC-6），
-//! static-check 与 git diff 是仅有的进程 spawn 且均落 infra 侧——core 纯编排，
-//! 零进程 spawn。异步面用 std `Pin<Box<dyn Future>>` 别名（不引 futures 依赖）。
-
 use std::future::Future;
 use std::pin::Pin;
 
@@ -82,7 +76,7 @@ pub trait WorkerAgentPort: Send + Sync {
 pub enum ToolCommand {
     /// 相位路由（read-only；run_id 为会话窗口标识）
     PhaseNext { change: String, run_id: String },
-    /// 开相位（attempt 计时）
+    /// 开启阶段（attempt 计时）
     PhaseStart { change: String, phase: String },
     /// 评估落账（桌面代写）
     PhaseLog {
@@ -104,6 +98,8 @@ pub enum ToolCommand {
     },
     /// static-check 门禁
     StaticCheck,
+    /// test-execution 门禁（确定性测试执行链；change 定位报告目录与写面）
+    TestExecution { change: String },
 }
 
 /// 工具步请求：workspace 根 + 步命令。
@@ -124,6 +120,7 @@ pub enum ToolStepOutput {
     Backtrack(workflow::write::BacktrackOutcome),
     DecisionLog(workflow::write::DecisionLogOutcome),
     StaticCheck(StaticCheckOutcome),
+    TestExecution(TestExecutionOutcome),
 }
 
 /// static-check 门禁产出（passed=false 走定向反馈边）。
@@ -131,6 +128,51 @@ pub enum ToolStepOutput {
 pub struct StaticCheckOutcome {
     pub passed: bool,
     pub diagnostics: String,
+}
+
+/// test-execution 门禁结论三值（checks 域聚合 `Conclusion` 的 port 映射像；
+/// 线格式小写词，`WorkerRole` 先例同型）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TestExecutionConclusion {
+    /// 全部 suite 通过且覆盖达阈
+    Pass,
+    /// 存在测试失败 / 覆盖或突变未达阈
+    Fail,
+    /// 存在执行错误（命令非零退出且结果不可解析 / 超时等）
+    Error,
+}
+
+impl TestExecutionConclusion {
+    /// 线格式小写词。
+    pub fn as_str(self) -> &'static str {
+        match self {
+            Self::Pass => "pass",
+            Self::Fail => "fail",
+            Self::Error => "error",
+        }
+    }
+}
+
+/// test-execution 门禁产出最小载荷：conclusion + 四计数 + 诊断摘要 + 报告
+/// 目录。全量 findings 留报告文件（修复会话经 `report_dir` 自读），本载荷
+/// 只随 `RunUpdate::Step` detail 摘要与反馈边 prompt 流出——IPC 面零全量
+/// 透传。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct TestExecutionOutcome {
+    /// 聚合结论
+    pub conclusion: TestExecutionConclusion,
+    /// 用例总数
+    pub total: u64,
+    /// 通过数
+    pub passed: u64,
+    /// 失败数
+    pub failed: u64,
+    /// 跳过数
+    pub skipped: u64,
+    /// 诊断摘要（单条截断 + 至多 10 条，walker `diagnose_brief` 口径）
+    pub findings_brief: String,
+    /// 报告目录（change 报告树，全量 findings 所在）
+    pub report_dir: String,
 }
 
 /// ToolStep 契约（进程内缝）：相位机四步由编排侧 [`crate::steps::LocalToolSteps`]
@@ -144,6 +186,13 @@ pub trait ToolStepPort: Send + Sync {
 ///（`ToolStepOutput::StaticCheck`）。
 pub trait StaticCheckRunner: Send + Sync {
     fn run(&self, root: &str) -> BoxToolFuture;
+}
+
+/// test-execution spawn 缝（checks 边界 infra 实现；W4 红线与
+/// [`StaticCheckRunner`] 同型——检查域家族第二成员，spawn 不进 core）。产出
+/// 契约同 `ToolStepOutput` 封闭集（`ToolStepOutput::TestExecution`）。
+pub trait TestExecutionRunner: Send + Sync {
+    fn run(&self, root: &str, change: &str) -> BoxToolFuture;
 }
 
 /// git diff 变更文件上下文缝（infra 实现；W5——git diff 是进程 spawn，落

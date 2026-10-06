@@ -344,3 +344,113 @@ fn specta_type可达编译期锚定() {
     assert_type::<ChangeRunSummary>();
     assert_type::<RunUpdate>();
 }
+
+// ---------------------------------------------------------------------------
+// test-execution 扩展节（desktop-checks-domain）
+// ---------------------------------------------------------------------------
+
+/// 正向：TestExecution 出线 `testExecution` camelCase 逐字断言（九值词汇
+/// 测试扩为十值——serde rename_all camelCase 线格式）。
+#[test]
+fn change_step_kind十值词汇_testexecution出线逐字() {
+    let wire = serde_json::to_value(ChangeStepKind::TestExecution).expect("词汇出线应成功");
+    assert_eq!(
+        wire,
+        json!("testExecution"),
+        "testExecution camelCase 出线逐字（bindings 再生成直出线格式）"
+    );
+
+    // serde 往返无损
+    let text = serde_json::to_string(&ChangeStepKind::TestExecution).expect("出线应成功");
+    let back: ChangeStepKind = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, ChangeStepKind::TestExecution, "新变体双向派生可用");
+}
+
+/// 边界：十值词汇互异（camelCase 判别值集合无碰撞——三类节点可辨不变量
+/// 保持：WorkerAgent 三角色 + ToolStep 三步一门禁 + Gate 三门）。
+#[test]
+fn change_step_kind十值词汇互异无碰撞() {
+    let all = [
+        ChangeStepKind::Executor,
+        ChangeStepKind::Evaluator,
+        ChangeStepKind::Decision,
+        ChangeStepKind::PhaseStart,
+        ChangeStepKind::StaticCheck,
+        ChangeStepKind::TestExecution,
+        ChangeStepKind::PhaseLog,
+        ChangeStepKind::VerdictGate,
+        ChangeStepKind::RetryGate,
+        ChangeStepKind::WhitelistGate,
+    ];
+    let wires: Vec<String> = all
+        .iter()
+        .map(|kind| {
+            serde_json::to_value(kind)
+                .expect("出线应成功")
+                .as_str()
+                .expect("串值")
+                .to_owned()
+        })
+        .collect();
+    let mut sorted = wires.clone();
+    sorted.sort();
+    sorted.dedup();
+    assert_eq!(
+        sorted.len(),
+        10,
+        "十值词汇互异（无 camelCase 碰撞），实际: {wires:?}"
+    );
+}
+
+/// 正向：步状态行携 TestExecution 步 + detail 摘要经 RunUpdate::Step 出线
+///（步可观测 IPC 面——前端流程视图步骤渲染直接吃；session_id 工具步恒缺省）。
+#[test]
+fn 步状态行携testexecution步经run_update出线() {
+    let running = ChangeStepState {
+        phase: "test-execution".to_owned(),
+        attempt: 1,
+        step: ChangeStepKind::TestExecution,
+        status: ChangeStepStatus::Running,
+        session_id: None,
+        detail: None,
+    };
+    let value = serde_json::to_value(&RunUpdate::Step {
+        step: running.clone(),
+    })
+    .expect("出线应成功");
+    assert_eq!(value["ipc"], json!("step"));
+    assert_eq!(
+        value["step"]["step"],
+        json!("testExecution"),
+        "步词汇 camelCase"
+    );
+    assert_eq!(value["step"]["phase"], json!("test-execution"));
+    assert_eq!(value["step"]["status"], json!("running"));
+    assert_eq!(
+        value["step"]["sessionId"],
+        json!(null),
+        "工具步会话槽恒缺省（绿跑零 agent）"
+    );
+
+    // 通过态携 detail 摘要（conclusion + 四计数摘要——walker 步 detail 面）
+    let passed = ChangeStepState {
+        status: ChangeStepStatus::Passed,
+        detail: Some("conclusion=pass total=5 passed=4 failed=0 skipped=1".to_owned()),
+        ..running
+    };
+    let value = serde_json::to_value(&RunUpdate::Step {
+        step: passed.clone(),
+    })
+    .expect("出线应成功");
+    assert_eq!(value["step"]["status"], json!("passed"));
+    assert_eq!(
+        value["step"]["detail"],
+        json!("conclusion=pass total=5 passed=4 failed=0 skipped=1"),
+        "detail 摘要出线（步状态上图输入）"
+    );
+
+    // serde 往返无损
+    let text = serde_json::to_string(&passed).expect("出线应成功");
+    let back: ChangeStepState = serde_json::from_str(&text).expect("往返应成功");
+    assert_eq!(back, passed, "步状态行（TestExecution 步）往返无损");
+}

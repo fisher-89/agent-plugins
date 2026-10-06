@@ -152,7 +152,7 @@ impl RunEventSink for RecordingSink {
 // ToolCommand 六变体封闭集
 // ---------------------------------------------------------------------------
 
-/// ToolCommand 六变体封闭集：六变体构造 + match 穷尽分发编译期锚定；载荷直载
+/// ToolCommand 七变体封闭集：七变体构造 + match 穷尽分发编译期锚定；载荷直载
 /// 写面输入类型（PhaseLogInput / BacktrackInput 原样承接——AC-6 进程内缝命令面）。
 #[tokio::test]
 async fn tool_command六变体封闭集且match穷尽分发() {
@@ -165,6 +165,7 @@ async fn tool_command六变体封闭集且match穷尽分发() {
             ToolCommand::Backtrack { .. } => "backtrack",
             ToolCommand::DecisionLog { .. } => "decision-log",
             ToolCommand::StaticCheck => "static-check",
+            ToolCommand::TestExecution { .. } => "test-execution",
         }
     }
 
@@ -501,4 +502,216 @@ fn 既有三契约与中性类型保持() {
         reason: None,
     });
     assert_eq!(sink.seen.lock().expect("锁").len(), 1);
+}
+
+// ---------------------------------------------------------------------------
+// test-execution 扩展节（desktop-checks-domain）
+// ---------------------------------------------------------------------------
+
+use crate::port::{TestExecutionConclusion, TestExecutionOutcome, TestExecutionRunner};
+
+/// 可编程产出 / Err 的假 TestExecutionRunner（root / change 双参透传断言面；
+/// calls 经 Arc 共享——测试侧持句柄读记录）。
+struct ProgrammableTestExecutionRunner {
+    calls: Arc<Mutex<Vec<(String, String)>>>,
+    result: Result<TestExecutionOutcome, String>,
+}
+
+impl ProgrammableTestExecutionRunner {
+    fn with_result(
+        result: Result<TestExecutionOutcome, String>,
+    ) -> (Self, Arc<Mutex<Vec<(String, String)>>>) {
+        let calls = Arc::new(Mutex::new(Vec::new()));
+        (
+            Self {
+                calls: Arc::clone(&calls),
+                result,
+            },
+            calls,
+        )
+    }
+}
+
+impl TestExecutionRunner for ProgrammableTestExecutionRunner {
+    fn run(&self, root: &str, change: &str) -> crate::port::BoxToolFuture {
+        self.calls
+            .lock()
+            .expect("calls 锁不可中毒")
+            .push((root.to_owned(), change.to_owned()));
+        let result = self.result.clone();
+        Box::pin(async move { result.map(ToolStepOutput::TestExecution) })
+    }
+}
+
+fn sample_execution_outcome(conclusion: TestExecutionConclusion) -> TestExecutionOutcome {
+    TestExecutionOutcome {
+        conclusion,
+        total: 12,
+        passed: 10,
+        failed: 2,
+        skipped: 0,
+        findings_brief: "「vite-plus」2 项测试失败——聚类失败".to_owned(),
+        report_dir: "C:/ws/openspec/changes/c/reports/test".to_owned(),
+    }
+}
+
+/// 正向：ToolCommand 第七变体封闭集——TestExecution 构造 + match 穷尽编译锚
+/// + change 载荷透传 + 七变体互异（既有六变体测试扩行，零改动持衡）。
+#[tokio::test]
+async fn test_execution命令第七变体封闭集且change载荷透传() {
+    // match 穷尽：缺 TestExecution 臂即编译失败（封闭集扩臂的编译期锚）
+    fn describe(command: &ToolCommand) -> &'static str {
+        match command {
+            ToolCommand::PhaseNext { .. } => "phase-next",
+            ToolCommand::PhaseStart { .. } => "phase-start",
+            ToolCommand::PhaseLog { .. } => "phase-log",
+            ToolCommand::Backtrack { .. } => "backtrack",
+            ToolCommand::DecisionLog { .. } => "decision-log",
+            ToolCommand::StaticCheck => "static-check",
+            ToolCommand::TestExecution { .. } => "test-execution",
+        }
+    }
+    assert_eq!(
+        describe(&ToolCommand::TestExecution {
+            change: "c".to_owned()
+        }),
+        "test-execution"
+    );
+
+    // change 载荷透传：命令经 ToolStepRequest 原样到达注入 port
+    let (inner, calls) = ProgrammableTestExecutionRunner::with_result(Ok(
+        sample_execution_outcome(TestExecutionConclusion::Pass),
+    ));
+    let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
+    let output = runner
+        .run("/tmp/workspace-root", "demo-change")
+        .await
+        .expect("产出应可用");
+    assert!(
+        matches!(output, ToolStepOutput::TestExecution(outcome) if outcome.conclusion == TestExecutionConclusion::Pass),
+        "产出为 TestExecution 变体"
+    );
+    assert_eq!(
+        calls.lock().expect("锁").as_slice(),
+        [("/tmp/workspace-root".to_owned(), "demo-change".to_owned())],
+        "change 载荷透传（root / change 原样到达注入 port）"
+    );
+
+    // 七变体互异（封闭集封闭性——第八臂不存在）
+    let seventh = ToolCommand::TestExecution {
+        change: "c".to_owned(),
+    };
+    assert_ne!(
+        describe(&seventh),
+        describe(&ToolCommand::StaticCheck),
+        "门禁双命令可辨（检查域家族两成员不混淆）"
+    );
+}
+
+/// 正向：ToolStepOutput::TestExecution 载荷构造与提取逐字段相等（既有产出
+/// 封闭集测试扩行——TryFrom 窄化半边）。
+#[test]
+fn tool_step_output_test_execution载荷构造与提取逐字段相等() {
+    let outcome = sample_execution_outcome(TestExecutionConclusion::Fail);
+    let output = ToolStepOutput::TestExecution(outcome.clone());
+
+    match output {
+        ToolStepOutput::TestExecution(extracted) => {
+            assert_eq!(
+                extracted, outcome,
+                "载荷逐字段相等（Clone / PartialEq 派生可用）"
+            );
+        }
+        other => panic!("变体漂移: {other:?}"),
+    }
+}
+
+/// 正向：TestExecutionRunner trait 面——假实现经 Arc<dyn …> 注入、root /
+/// change 双参透传、BoxToolFuture resolve 出 ToolStepOutput::TestExecution
+///（object safety + Send + Sync 编译锚——StaticCheckRunner 同型）。
+#[tokio::test]
+async fn test_execution_runner假实现经arc注入且root_change透传() {
+    fn assert_send_sync<T: Send + Sync>() {}
+    assert_send_sync::<Arc<dyn TestExecutionRunner>>();
+
+    let (inner, calls) = ProgrammableTestExecutionRunner::with_result(Ok(
+        sample_execution_outcome(TestExecutionConclusion::Pass),
+    ));
+    let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
+
+    let output = runner
+        .run("/tmp/workspace-root", "walker-change")
+        .await
+        .expect("产出应可用");
+    assert!(
+        matches!(output, ToolStepOutput::TestExecution(outcome) if outcome.total == 12),
+        "BoxToolFuture resolve 出 TestExecution 变体"
+    );
+    assert_eq!(
+        calls.lock().expect("锁").as_slice(),
+        [("/tmp/workspace-root".to_owned(), "walker-change".to_owned())],
+        "root / change 双参透传（spawn cwd 与报告树定位语义）"
+    );
+}
+
+/// 异常：TestExecutionRunner Err(String) 臂经 BoxToolFuture resolve 上抛
+///（写盘失败类基础设施错误面——run_tool 映射输入）。
+#[tokio::test]
+async fn test_execution_runner_err臂上抛() {
+    let (inner, _calls) =
+        ProgrammableTestExecutionRunner::with_result(Err("报告目录创建失败".to_owned()));
+    let runner: Arc<dyn TestExecutionRunner> = Arc::new(inner);
+    let err = runner
+        .run("/tmp/root", "c")
+        .await
+        .expect_err("Err 臂应上抛");
+    assert_eq!(err, "报告目录创建失败", "Err(String) 原样（无再包装）");
+}
+
+/// 边界：TestExecutionOutcome 最小载荷字段面——conclusion + 四计数 +
+/// findings_brief + report_dir 构造、Clone / PartialEq 派生可用（IPC 面零
+/// 全量透传——全量 findings 留报告文件由 report_dir 定位）。
+#[test]
+fn test_execution_outcome最小载荷字段面() {
+    let outcome = sample_execution_outcome(TestExecutionConclusion::Error);
+    assert_eq!(outcome.conclusion, TestExecutionConclusion::Error);
+    assert_eq!(
+        (
+            outcome.total,
+            outcome.passed,
+            outcome.failed,
+            outcome.skipped
+        ),
+        (12, 10, 2, 0)
+    );
+    assert!(
+        outcome.findings_brief.contains("聚类失败"),
+        "诊断摘要随载荷（200 截断 + 10 条上限在装配点执法）"
+    );
+    assert!(
+        outcome.report_dir.ends_with("reports/test"),
+        "报告目录定位全量 findings"
+    );
+
+    let clone = outcome.clone();
+    assert_eq!(clone, outcome, "Clone / PartialEq 派生可用");
+}
+
+/// 边界：TestExecutionConclusion 三值 as_str 线格式小写逐字（pass / fail /
+/// error——WorkerRole 先例同型，checks Conclusion 的 port 映射像）。
+#[test]
+fn test_execution_conclusion三值线格式逐字() {
+    assert_eq!(TestExecutionConclusion::Pass.as_str(), "pass");
+    assert_eq!(TestExecutionConclusion::Fail.as_str(), "fail");
+    assert_eq!(TestExecutionConclusion::Error.as_str(), "error");
+    // 三值互异（封闭集可辨）
+    let all = [
+        TestExecutionConclusion::Pass,
+        TestExecutionConclusion::Fail,
+        TestExecutionConclusion::Error,
+    ];
+    let mut words: Vec<&str> = all.iter().map(|c| c.as_str()).collect();
+    words.sort_unstable();
+    words.dedup();
+    assert_eq!(words.len(), 3, "三值互异");
 }
